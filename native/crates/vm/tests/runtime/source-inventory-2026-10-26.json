@@ -1,0 +1,4327 @@
+{
+  "recordedAt": "2026-10-27T01:02:52.486941+00:00",
+  "revision": "ae66f972b749c0f2baf6686a583ab051d41182bb",
+  "rules": [
+    "Tracked Rust source only; source files are counted once, including build.rs and feature variants.",
+    "Every nonblank production line counts, including comments, inline tests and owned generated semantic code. Dedicated tests/examples/fixtures are reported separately.",
+    "src/native_tests.rs is only compiled under cfg(test); counter-extension is a dev-dependency test fixture.",
+    "Existing/planned owner paths identify responsibilities, not a promise to copy each Rust module or a claim that absent Nupp files exist.",
+    "All source variants are counted. All-features metadata is a dependency union, not a buildable runtime configuration: allocator features are mutually exclusive.",
+    "No tracked Rust file is classified as unchanged third-party or mechanically generated binding. Generated link sidecars are reported separately as local artifacts; they are not a semantic source exemption."
+  ],
+  "totals": {
+    "ownedProduction.files": 92,
+    "ownedProduction.rawLines": 60663,
+    "ownedProduction.nonblankLines": 58532,
+    "testsExamplesFixtures.files": 67,
+    "testsExamplesFixtures.rawLines": 19915,
+    "testsExamplesFixtures.nonblankLines": 19253
+  },
+  "manifests": {
+    "total": 16,
+    "workspaceRoot": 1,
+    "workspaceMembers": 15,
+    "productCrates": 14,
+    "testFixtureCrates": 1
+  },
+  "workspace": [
+    {
+      "name": "nupp-native-abi",
+      "manifest": "native/crates/abi/Cargo.toml",
+      "classification": "product",
+      "ownerGroup": "abi",
+      "targets": [
+        {
+          "name": "nupp_native_abi",
+          "kind": [
+            "lib"
+          ],
+          "source": "native/crates/abi/src/lib.rs"
+        }
+      ],
+      "features": {},
+      "counts": {
+        "ownedProduction.files": 1,
+        "ownedProduction.rawLines": 289,
+        "ownedProduction.nonblankLines": 254
+      }
+    },
+    {
+      "name": "nupp-native-checksum",
+      "manifest": "native/crates/checksum/Cargo.toml",
+      "classification": "product",
+      "ownerGroup": "checksum",
+      "targets": [
+        {
+          "name": "nupp_crc",
+          "kind": [
+            "rlib",
+            "cdylib"
+          ],
+          "source": "native/crates/checksum/src/lib.rs"
+        }
+      ],
+      "features": {
+        "default": [],
+        "ffi": []
+      },
+      "counts": {
+        "ownedProduction.files": 1,
+        "ownedProduction.rawLines": 170,
+        "ownedProduction.nonblankLines": 159
+      }
+    },
+    {
+      "name": "nupp-native-compression",
+      "manifest": "native/crates/compression/Cargo.toml",
+      "classification": "product",
+      "ownerGroup": "compression",
+      "targets": [
+        {
+          "name": "nupp_native_compression",
+          "kind": [
+            "lib"
+          ],
+          "source": "native/crates/compression/src/lib.rs"
+        }
+      ],
+      "features": {},
+      "counts": {
+        "ownedProduction.files": 1,
+        "ownedProduction.rawLines": 510,
+        "ownedProduction.nonblankLines": 473
+      }
+    },
+    {
+      "name": "nupp-counter-extension",
+      "manifest": "native/crates/counter-extension/Cargo.toml",
+      "classification": "testFixture",
+      "ownerGroup": "test",
+      "targets": [
+        {
+          "name": "counter",
+          "kind": [
+            "cdylib",
+            "rlib"
+          ],
+          "source": "native/crates/counter-extension/src/lib.rs"
+        }
+      ],
+      "features": {},
+      "counts": {
+        "testsExamplesFixtures.files": 1,
+        "testsExamplesFixtures.rawLines": 92,
+        "testsExamplesFixtures.nonblankLines": 89
+      }
+    },
+    {
+      "name": "nupp-extension",
+      "manifest": "native/crates/extension/Cargo.toml",
+      "classification": "product",
+      "ownerGroup": "abi",
+      "targets": [
+        {
+          "name": "nupp_extension",
+          "kind": [
+            "lib"
+          ],
+          "source": "native/crates/extension/src/lib.rs"
+        }
+      ],
+      "features": {},
+      "counts": {
+        "ownedProduction.files": 2,
+        "ownedProduction.rawLines": 789,
+        "ownedProduction.nonblankLines": 750
+      }
+    },
+    {
+      "name": "nupp-native-files",
+      "manifest": "native/crates/files/Cargo.toml",
+      "classification": "product",
+      "ownerGroup": "files",
+      "targets": [
+        {
+          "name": "nupp_native_files",
+          "kind": [
+            "lib"
+          ],
+          "source": "native/crates/files/src/lib.rs"
+        }
+      ],
+      "features": {
+        "lane": [
+          "dep:nupp-native-runtime",
+          "dep:tokio"
+        ]
+      },
+      "counts": {
+        "ownedProduction.files": 4,
+        "ownedProduction.rawLines": 2525,
+        "ownedProduction.nonblankLines": 2333
+      }
+    },
+    {
+      "name": "nupp-native-runtime",
+      "manifest": "native/crates/runtime/Cargo.toml",
+      "classification": "product",
+      "ownerGroup": "executor",
+      "targets": [
+        {
+          "name": "nupp_native_runtime",
+          "kind": [
+            "lib"
+          ],
+          "source": "native/crates/runtime/src/lib.rs"
+        }
+      ],
+      "features": {
+        "async": [
+          "dep:tokio"
+        ],
+        "default": []
+      },
+      "counts": {
+        "ownedProduction.files": 2,
+        "ownedProduction.rawLines": 310,
+        "ownedProduction.nonblankLines": 278
+      }
+    },
+    {
+      "name": "nupp-native-gpu",
+      "manifest": "native/crates/gpu/Cargo.toml",
+      "classification": "product",
+      "ownerGroup": "gpu",
+      "targets": [
+        {
+          "name": "nupp_native_gpu",
+          "kind": [
+            "lib"
+          ],
+          "source": "native/crates/gpu/src/lib.rs"
+        },
+        {
+          "name": "counted_wgsl",
+          "kind": [
+            "example"
+          ],
+          "source": "native/crates/gpu/examples/counted_wgsl.rs"
+        }
+      ],
+      "features": {},
+      "counts": {
+        "testsExamplesFixtures.files": 1,
+        "testsExamplesFixtures.rawLines": 157,
+        "testsExamplesFixtures.nonblankLines": 157,
+        "ownedProduction.files": 2,
+        "ownedProduction.rawLines": 2550,
+        "ownedProduction.nonblankLines": 2432
+      }
+    },
+    {
+      "name": "nupp-native-http",
+      "manifest": "native/crates/http/Cargo.toml",
+      "classification": "product",
+      "ownerGroup": "http",
+      "targets": [
+        {
+          "name": "nupp_native_http",
+          "kind": [
+            "lib"
+          ],
+          "source": "native/crates/http/src/lib.rs"
+        }
+      ],
+      "features": {},
+      "counts": {
+        "ownedProduction.files": 1,
+        "ownedProduction.rawLines": 2619,
+        "ownedProduction.nonblankLines": 2472
+      }
+    },
+    {
+      "name": "nupp-native-net",
+      "manifest": "native/crates/net/Cargo.toml",
+      "classification": "product",
+      "ownerGroup": "net",
+      "targets": [
+        {
+          "name": "nupp_native_net",
+          "kind": [
+            "lib"
+          ],
+          "source": "native/crates/net/src/lib.rs"
+        }
+      ],
+      "features": {},
+      "counts": {
+        "ownedProduction.files": 1,
+        "ownedProduction.rawLines": 2297,
+        "ownedProduction.nonblankLines": 2143
+      }
+    },
+    {
+      "name": "nupp-native-platform",
+      "manifest": "native/crates/platform/Cargo.toml",
+      "classification": "product",
+      "ownerGroup": "platform",
+      "targets": [
+        {
+          "name": "nupp_native_platform",
+          "kind": [
+            "lib"
+          ],
+          "source": "native/crates/platform/src/lib.rs"
+        }
+      ],
+      "features": {
+        "default": [],
+        "uuid": [
+          "dep:uuid"
+        ]
+      },
+      "counts": {
+        "ownedProduction.files": 1,
+        "ownedProduction.rawLines": 291,
+        "ownedProduction.nonblankLines": 261
+      }
+    },
+    {
+      "name": "nupp-native-process",
+      "manifest": "native/crates/process/Cargo.toml",
+      "classification": "product",
+      "ownerGroup": "process",
+      "targets": [
+        {
+          "name": "nupp_native_process",
+          "kind": [
+            "lib"
+          ],
+          "source": "native/crates/process/src/lib.rs"
+        }
+      ],
+      "features": {},
+      "counts": {
+        "ownedProduction.files": 1,
+        "ownedProduction.rawLines": 1345,
+        "ownedProduction.nonblankLines": 1256
+      }
+    },
+    {
+      "name": "nupp-native-tls",
+      "manifest": "native/crates/tls/Cargo.toml",
+      "classification": "product",
+      "ownerGroup": "tls",
+      "targets": [
+        {
+          "name": "nupp_native_tls",
+          "kind": [
+            "lib"
+          ],
+          "source": "native/crates/tls/src/lib.rs"
+        }
+      ],
+      "features": {},
+      "counts": {
+        "ownedProduction.files": 1,
+        "ownedProduction.rawLines": 1274,
+        "ownedProduction.nonblankLines": 1187
+      }
+    },
+    {
+      "name": "nupp-vm",
+      "manifest": "native/crates/vm/Cargo.toml",
+      "classification": "product",
+      "ownerGroup": "entry",
+      "targets": [
+        {
+          "name": "nupp_vm",
+          "kind": [
+            "lib"
+          ],
+          "source": "native/crates/vm/src/lib.rs"
+        },
+        {
+          "name": "nupp-vm",
+          "kind": [
+            "bin"
+          ],
+          "source": "native/crates/vm/src/main.rs"
+        },
+        {
+          "name": "checkpoint_compiler",
+          "kind": [
+            "example"
+          ],
+          "source": "native/crates/vm/examples/checkpoint_compiler.rs"
+        },
+        {
+          "name": "embed_host",
+          "kind": [
+            "example"
+          ],
+          "source": "native/crates/vm/examples/embed_host.rs"
+        },
+        {
+          "name": "persistence_bench",
+          "kind": [
+            "example"
+          ],
+          "source": "native/crates/vm/examples/persistence_bench.rs"
+        },
+        {
+          "name": "scheduler_bench",
+          "kind": [
+            "example"
+          ],
+          "source": "native/crates/vm/examples/scheduler_bench.rs"
+        },
+        {
+          "name": "allocator-host",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/allocator-host/main.rs"
+        },
+        {
+          "name": "aot_relocation",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/aot_relocation.rs"
+        },
+        {
+          "name": "c_declarations",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/c_declarations.rs"
+        },
+        {
+          "name": "cli_host",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/cli_host.rs"
+        },
+        {
+          "name": "cli_output_stats",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/cli_output_stats.rs"
+        },
+        {
+          "name": "compression_host",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/compression_host.rs"
+        },
+        {
+          "name": "coroutines",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/coroutines.rs"
+        },
+        {
+          "name": "data_services",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/data_services.rs"
+        },
+        {
+          "name": "debug_info",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/debug_info.rs"
+        },
+        {
+          "name": "dispatch_arrays",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/dispatch_arrays.rs"
+        },
+        {
+          "name": "dispatch_shapes",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/dispatch_shapes.rs"
+        },
+        {
+          "name": "dispatch_spread",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/dispatch_spread.rs"
+        },
+        {
+          "name": "embedding",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/embedding.rs"
+        },
+        {
+          "name": "error_wording",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/error_wording.rs"
+        },
+        {
+          "name": "extension_header",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/extension_header.rs"
+        },
+        {
+          "name": "foreign",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/foreign.rs"
+        },
+        {
+          "name": "foreign_loader",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/foreign_loader.rs"
+        },
+        {
+          "name": "frame_transfers",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/frame_transfers.rs"
+        },
+        {
+          "name": "getmetatable",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/getmetatable.rs"
+        },
+        {
+          "name": "hot_patch",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/hot_patch.rs"
+        },
+        {
+          "name": "http_host",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/http_host.rs"
+        },
+        {
+          "name": "image_loading",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/image_loading.rs"
+        },
+        {
+          "name": "image_modules",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/image_modules.rs"
+        },
+        {
+          "name": "indexed_stores",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/indexed_stores.rs"
+        },
+        {
+          "name": "length",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/length.rs"
+        },
+        {
+          "name": "linked_program_table",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/linked_program_table.rs"
+        },
+        {
+          "name": "markdown",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/markdown.rs"
+        },
+        {
+          "name": "metamethods",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/metamethods.rs"
+        },
+        {
+          "name": "native_aggregates",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/native_aggregates.rs"
+        },
+        {
+          "name": "native_extension",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/native_extension.rs"
+        },
+        {
+          "name": "native_simd",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/native_simd.rs"
+        },
+        {
+          "name": "net_host",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/net_host.rs"
+        },
+        {
+          "name": "nojit_refusal",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/nojit_refusal.rs"
+        },
+        {
+          "name": "numeric",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/numeric.rs"
+        },
+        {
+          "name": "patterns",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/patterns.rs"
+        },
+        {
+          "name": "persistence",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/persistence.rs"
+        },
+        {
+          "name": "plain_codec",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/plain_codec.rs"
+        },
+        {
+          "name": "primary_image_hash",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/primary_image_hash.rs"
+        },
+        {
+          "name": "process_host",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/process_host.rs"
+        },
+        {
+          "name": "protected_suspension",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/protected_suspension.rs"
+        },
+        {
+          "name": "record_tables",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/record_tables.rs"
+        },
+        {
+          "name": "regex",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/regex.rs"
+        },
+        {
+          "name": "scheduler",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/scheduler.rs"
+        },
+        {
+          "name": "self_lowering",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/self_lowering.rs"
+        },
+        {
+          "name": "simd",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/simd.rs"
+        },
+        {
+          "name": "simd_transpose",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/simd_transpose.rs"
+        },
+        {
+          "name": "simd_transpose_entries",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/simd_transpose_entries.rs"
+        },
+        {
+          "name": "snapshot",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/snapshot.rs"
+        },
+        {
+          "name": "source_loading",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/source_loading.rs"
+        },
+        {
+          "name": "specialization",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/specialization.rs"
+        },
+        {
+          "name": "storage",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/storage.rs"
+        },
+        {
+          "name": "storage_vectors",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/storage_vectors.rs"
+        },
+        {
+          "name": "string_buffer",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/string_buffer.rs"
+        },
+        {
+          "name": "string_byte",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/string_byte.rs"
+        },
+        {
+          "name": "string_fields",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/string_fields.rs"
+        },
+        {
+          "name": "supervision",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/supervision.rs"
+        },
+        {
+          "name": "valuetable",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/valuetable.rs"
+        },
+        {
+          "name": "weak_tables",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/weak_tables.rs"
+        },
+        {
+          "name": "worker_memory",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/worker_memory.rs"
+        },
+        {
+          "name": "workers",
+          "kind": [
+            "test"
+          ],
+          "source": "native/crates/vm/tests/workers.rs"
+        },
+        {
+          "name": "build-script-build",
+          "kind": [
+            "custom-build"
+          ],
+          "source": "native/crates/vm/build.rs"
+        }
+      ],
+      "features": {
+        "allocation-metrics": [
+          "dep:serde_json"
+        ],
+        "allocator-jemalloc": [
+          "dep:tikv-jemallocator"
+        ],
+        "allocator-mimalloc": [
+          "dep:mimalloc"
+        ],
+        "aot": [
+          "jit",
+          "aot-linked",
+          "dep:cranelift-object",
+          "dep:cranelift-reader"
+        ],
+        "aot-linked": [
+          "compiled-runtime"
+        ],
+        "c-headers": [
+          "dep:libloading",
+          "dep:serde_json"
+        ],
+        "compiled-runtime": [],
+        "compression": [
+          "dep:nupp-native-compression"
+        ],
+        "default": [
+          "jit",
+          "c-headers",
+          "native-ffi",
+          "compression",
+          "net",
+          "http",
+          "regex",
+          "markdown"
+        ],
+        "http": [
+          "dep:nupp-native-http",
+          "dep:url"
+        ],
+        "jit": [
+          "compiled-runtime",
+          "dep:cranelift-codegen",
+          "dep:cranelift-frontend",
+          "dep:cranelift-jit",
+          "dep:cranelift-module",
+          "dep:cranelift-native"
+        ],
+        "markdown": [
+          "dep:pulldown-cmark"
+        ],
+        "native-ffi": [
+          "dep:libffi",
+          "dep:libloading"
+        ],
+        "native-runtime": [],
+        "net": [
+          "dep:nupp-native-net",
+          "dep:nupp-native-tls",
+          "dep:ring"
+        ],
+        "opstats": [],
+        "regex": [
+          "dep:regex"
+        ]
+      },
+      "counts": {
+        "ownedProduction.files": 72,
+        "ownedProduction.rawLines": 45655,
+        "ownedProduction.nonblankLines": 44497,
+        "testsExamplesFixtures.files": 65,
+        "testsExamplesFixtures.rawLines": 19666,
+        "testsExamplesFixtures.nonblankLines": 19007
+      }
+    },
+    {
+      "name": "nupp-vm-program",
+      "manifest": "native/crates/vm-program/Cargo.toml",
+      "classification": "product",
+      "ownerGroup": "entry",
+      "targets": [
+        {
+          "name": "nupp_vm_program",
+          "kind": [
+            "staticlib"
+          ],
+          "source": "native/crates/vm-program/src/lib.rs"
+        },
+        {
+          "name": "build-script-build",
+          "kind": [
+            "custom-build"
+          ],
+          "source": "native/crates/vm-program/build.rs"
+        }
+      ],
+      "features": {
+        "aot-linked": [],
+        "c-headers": [
+          "nupp-vm/c-headers"
+        ],
+        "compiled-runtime": [],
+        "compression": [
+          "nupp-vm/compression"
+        ],
+        "default": [
+          "aot-linked",
+          "compiled-runtime"
+        ],
+        "http": [
+          "nupp-vm/http"
+        ],
+        "markdown": [
+          "nupp-vm/markdown"
+        ],
+        "native-ffi": [
+          "nupp-vm/native-ffi"
+        ],
+        "net": [
+          "nupp-vm/net"
+        ],
+        "regex": [
+          "nupp-vm/regex"
+        ]
+      },
+      "counts": {
+        "ownedProduction.files": 2,
+        "ownedProduction.rawLines": 39,
+        "ownedProduction.nonblankLines": 37
+      }
+    }
+  ],
+  "ownerGroups": {
+    "execution": {
+      "phase": "P2",
+      "action": "Replace Rust dispatch and instruction semantics with Nupp handlers; later-phase state services remain named and cannot execute guest instructions.",
+      "owners": [
+        {
+          "path": "src/nupp/runtime/vm/core.nupp",
+          "existsAtInventory": true
+        },
+        {
+          "path": "src/nupp/runtime/vm/calls.nupp",
+          "existsAtInventory": true
+        },
+        {
+          "path": "src/nupp/runtime/vm/control.nupp",
+          "existsAtInventory": true
+        },
+        {
+          "path": "src/nupp/runtime/vm/protocol.nupp",
+          "existsAtInventory": true
+        },
+        {
+          "path": "src/nupp/runtime/vm/closures.nupp",
+          "existsAtInventory": true
+        }
+      ]
+    },
+    "records": {
+      "phase": "P2",
+      "action": "Move shape/declaration/record/metatable semantics into Nupp.",
+      "owners": [
+        {
+          "path": "src/nupp/runtime/vm/records.nupp",
+          "existsAtInventory": false
+        },
+        {
+          "path": "src/nupp/runtime/vm/lookup.nupp",
+          "existsAtInventory": true
+        },
+        {
+          "path": "src/nupp/runtime/vm/tables.nupp",
+          "existsAtInventory": true
+        }
+      ]
+    },
+    "objects": {
+      "phase": "P3",
+      "action": "Integrate the existing Nupp heap/collector; move representation, accounting and rooted storage semantics there.",
+      "owners": [
+        {
+          "path": "src/nupp/runtime/vm/values.nupp",
+          "existsAtInventory": true
+        },
+        {
+          "path": "src/nupp/runtime/vm/heap.nupp",
+          "existsAtInventory": true
+        },
+        {
+          "path": "src/nupp/runtime/vm/collector.nupp",
+          "existsAtInventory": true
+        },
+        {
+          "path": "src/nupp/runtime/vm/bytes.nupp",
+          "existsAtInventory": true
+        },
+        {
+          "path": "src/nupp/runtime/vm/gcweak.nupp",
+          "existsAtInventory": true
+        }
+      ]
+    },
+    "tasks": {
+      "phase": "P4",
+      "action": "Move scheduler, frame lifecycle, cleanup, coroutine and supervision policy into Nupp.",
+      "owners": [
+        {
+          "path": "src/nupp/runtime/vm/tasks.nupp",
+          "existsAtInventory": false
+        },
+        {
+          "path": "src/nupp/runtime/vm/scheduler.nupp",
+          "existsAtInventory": false
+        },
+        {
+          "path": "src/nupp/runtime/vm/cleanup.nupp",
+          "existsAtInventory": false
+        }
+      ]
+    },
+    "workers": {
+      "phase": "P4",
+      "action": "Move heap/transfer/channel policy into Nupp; retain only thread and wakeup/completion operations in the bridge.",
+      "owners": [
+        {
+          "path": "src/nupp/runtime/vm/workers.nupp",
+          "existsAtInventory": false
+        },
+        {
+          "path": "src/nupp/runtime/vm/channels.nupp",
+          "existsAtInventory": false
+        },
+        {
+          "path": "src/nupp/workers/init.nupp",
+          "existsAtInventory": true
+        }
+      ]
+    },
+    "host": {
+      "phase": "P4/P6",
+      "action": "Move parking/completion and resource policy into Nupp; narrow foreign readiness and OS calls.",
+      "owners": [
+        {
+          "path": "src/nupp/runtime/vm/host.nupp",
+          "existsAtInventory": false
+        },
+        {
+          "path": "src/nupp/runtime/vm/os.d.nupp",
+          "existsAtInventory": true
+        }
+      ]
+    },
+    "graph": {
+      "phase": "P1b/P5",
+      "action": "Use the single-IR Nupp graph and move semantic/proof verification into Nupp; no Rust CFG reconstruction.",
+      "owners": [
+        {
+          "path": "src/nupp/compiler/vm/graph.nupp",
+          "existsAtInventory": true
+        },
+        {
+          "path": "src/nupp/compiler/vm/verify.nupp",
+          "existsAtInventory": false
+        }
+      ]
+    },
+    "images": {
+      "phase": "P5",
+      "action": "Move loading, verification, linking/code identities and replacement publication into Nupp.",
+      "owners": [
+        {
+          "path": "src/nupp/runtime/vm/image.nupp",
+          "existsAtInventory": false
+        },
+        {
+          "path": "src/nupp/compiler/vm/verify.nupp",
+          "existsAtInventory": false
+        },
+        {
+          "path": "src/nupp/runtime/vm/replacement.nupp",
+          "existsAtInventory": false
+        }
+      ]
+    },
+    "snapshots": {
+      "phase": "P5",
+      "action": "Move value graph saves, checkpoints, resource transactions, history and replay into Nupp; retain all feature gates.",
+      "owners": [
+        {
+          "path": "src/nupp/runtime/vm/persist.nupp",
+          "existsAtInventory": false
+        },
+        {
+          "path": "src/nupp/runtime/vm/snapshot.nupp",
+          "existsAtInventory": false
+        }
+      ]
+    },
+    "library": {
+      "phase": "P6",
+      "action": "Move builtin/library dispatch, validation and resource lifetimes into Nupp; use narrow library/OS boundaries.",
+      "owners": [
+        {
+          "path": "src/nupp/runtime/vm/library.nupp",
+          "existsAtInventory": false
+        },
+        {
+          "path": "src/nupp/runtime/vm/strings.nupp",
+          "existsAtInventory": true
+        },
+        {
+          "path": "src/nupp/runtime/provider",
+          "existsAtInventory": true
+        }
+      ]
+    },
+    "patterns": {
+      "phase": "P6/PAT08",
+      "action": "Adopt the Nupp Pattern plan and delete nregex plus the regex dependency; add no Rust regex/PEG engine.",
+      "owners": [
+        {
+          "path": "src/nupp/text/pattern.nupp",
+          "existsAtInventory": false
+        }
+      ]
+    },
+    "foreign": {
+      "phase": "P6",
+      "action": "Nupp owns FFI layout checks, resource lifetime and callback policy; the bridge only enters libraries and supplies trampolines.",
+      "owners": [
+        {
+          "path": "src/nupp/foreign",
+          "existsAtInventory": false
+        },
+        {
+          "path": "src/nupp/runtime/vm/foreign.nupp",
+          "existsAtInventory": false
+        }
+      ]
+    },
+    "tiers": {
+      "phase": "P7",
+      "action": "Delete guest semantic emitters/specializers after handler-derived tiers consume the Nupp graph; keep only machine-code generation interfaces.",
+      "owners": [
+        {
+          "path": "src/nupp/compiler/vm/graph.nupp",
+          "existsAtInventory": true
+        },
+        {
+          "path": "src/nupp/compiler/vm/partial.nupp",
+          "existsAtInventory": false
+        },
+        {
+          "path": "src/nupp/compiler/clif/ssa.nupp",
+          "existsAtInventory": true
+        }
+      ]
+    },
+    "simd": {
+      "phase": "P2/P7",
+      "action": "Move interpretation/reference semantics into Nupp handlers and derive compiled SIMD from the shared graph.",
+      "owners": [
+        {
+          "path": "src/nupp/runtime/vm/simd.nupp",
+          "existsAtInventory": false
+        },
+        {
+          "path": "src/nupp/compiler/vm/graph.nupp",
+          "existsAtInventory": true
+        }
+      ]
+    },
+    "pages": {
+      "phase": "P7/P8",
+      "action": "Retain narrow executable-memory mapping/protection calls; move tiering/admission policy into Nupp.",
+      "owners": [
+        {
+          "path": "src/nupp/runtime/vm/os.d.nupp",
+          "existsAtInventory": true
+        }
+      ]
+    },
+    "entry": {
+      "phase": "P8",
+      "action": "Consolidate startup/embedding and native links into one bridge crate; policy and VM behavior live in Nupp.",
+      "owners": [
+        {
+          "path": "src/nupp/tools/vm/root.nupp",
+          "existsAtInventory": true
+        },
+        {
+          "path": "src/nupp/runtime/vm/entry.nupp",
+          "existsAtInventory": false
+        }
+      ]
+    },
+    "abi": {
+      "phase": "P6/P8",
+      "action": "Consolidate C ABI/layout declarations and narrow error crossings into the bridge; no opaque VM semantics.",
+      "owners": [
+        {
+          "path": "src/nupp/foreign",
+          "existsAtInventory": false
+        },
+        {
+          "path": "src/nupp/runtime/vm/entry.nupp",
+          "existsAtInventory": false
+        }
+      ]
+    },
+    "checksum": {
+      "phase": "P6/P8",
+      "action": "Retain narrow third-party digest/checksum entry points; Nupp owns validation, lifetimes and policies.",
+      "owners": [
+        {
+          "path": "src/nupp/crypto",
+          "existsAtInventory": false
+        },
+        {
+          "path": "src/nupp/runtime/provider/nativedigest.nupp",
+          "existsAtInventory": false
+        }
+      ]
+    },
+    "compression": {
+      "phase": "P6/P8",
+      "action": "Consolidate library calls into the bridge; Nupp owns streaming/resource/error policy.",
+      "owners": [
+        {
+          "path": "src/nupp/compression",
+          "existsAtInventory": true
+        },
+        {
+          "path": "src/nupp/runtime/provider/nativecompression.nupp",
+          "existsAtInventory": true
+        }
+      ]
+    },
+    "files": {
+      "phase": "P6/P8",
+      "action": "Nupp owns globbing, queues, cancellation and file-resource policy; consolidate OS I/O calls into the bridge.",
+      "owners": [
+        {
+          "path": "src/nupp/io/files.nupp",
+          "existsAtInventory": false
+        },
+        {
+          "path": "src/nupp/runtime/provider/nativefiles.nupp",
+          "existsAtInventory": true
+        }
+      ]
+    },
+    "gpu": {
+      "phase": "P1b/P8",
+      "action": "Keep the common Nupp graph and GPU ownership model; optional second GPU bridge only if its dependency boundary warrants it.",
+      "owners": [
+        {
+          "path": "src/nupp/compiler/vm/graph.nupp",
+          "existsAtInventory": true
+        },
+        {
+          "path": "src/nupp/compiler/vm/wgsl.nupp",
+          "existsAtInventory": false
+        },
+        {
+          "path": "src/nupp/runtime/provider/nativegpu.nupp",
+          "existsAtInventory": true
+        }
+      ]
+    },
+    "http": {
+      "phase": "P6/P8",
+      "action": "Nupp owns requests, admission, queues, redirect/retry/cancellation and restoration; third-party HTTP/TLS wire implementations may remain behind the bridge.",
+      "owners": [
+        {
+          "path": "src/nupp/http",
+          "existsAtInventory": false
+        },
+        {
+          "path": "src/nupp/runtime/provider/nativehttp.nupp",
+          "existsAtInventory": true
+        }
+      ]
+    },
+    "net": {
+      "phase": "P6/P8",
+      "action": "Nupp owns connection/resource/queue policy; consolidate socket operations and completion delivery into the bridge.",
+      "owners": [
+        {
+          "path": "src/nupp/net",
+          "existsAtInventory": false
+        },
+        {
+          "path": "src/nupp/runtime/provider/nativenet.nupp",
+          "existsAtInventory": true
+        }
+      ]
+    },
+    "platform": {
+      "phase": "P6/P8",
+      "action": "Consolidate page/time/UUID/thread/platform primitives into the bridge; Nupp owns resources and policy.",
+      "owners": [
+        {
+          "path": "src/nupp/runtime/vm/os.d.nupp",
+          "existsAtInventory": true
+        },
+        {
+          "path": "src/nupp/runtime/provider",
+          "existsAtInventory": true
+        }
+      ]
+    },
+    "process": {
+      "phase": "P6/P8",
+      "action": "Nupp owns subprocess policy, streams, cancellation and lifetime; keep spawn/read/write/wait primitives.",
+      "owners": [
+        {
+          "path": "src/nupp/io/process.nupp",
+          "existsAtInventory": false
+        },
+        {
+          "path": "src/nupp/runtime/provider/nativeprocess.nupp",
+          "existsAtInventory": true
+        }
+      ]
+    },
+    "executor": {
+      "phase": "P4/P6/P8",
+      "action": "Consolidate foreign async execution/readiness; Nupp owns the guest scheduler and admission policy.",
+      "owners": [
+        {
+          "path": "src/nupp/runtime/vm/host.nupp",
+          "existsAtInventory": false
+        },
+        {
+          "path": "src/nupp/runtime/vm/scheduler.nupp",
+          "existsAtInventory": false
+        }
+      ]
+    },
+    "tls": {
+      "phase": "P6/P8",
+      "action": "Keep TLS and cryptographic protocol implementation in third-party libraries through the bridge; Nupp owns API/resource policy.",
+      "owners": [
+        {
+          "path": "src/nupp/runtime/provider/nativetls.nupp",
+          "existsAtInventory": true
+        }
+      ]
+    },
+    "test": {
+      "phase": "retained coverage",
+      "action": "Retain or port the executable fixture when its implementation is replaced; not a product crate/source exemption for inline tests.",
+      "owners": []
+    }
+  },
+  "files": [
+    {
+      "path": "native/crates/abi/src/lib.rs",
+      "crate": "abi",
+      "category": "ownedProduction",
+      "ownerGroup": "abi",
+      "rawLines": 289,
+      "nonblankLines": 254,
+      "sha256": "8dd5c7539ff03b68f77d43adcc7f14d512a440bcb3ef56fabdfcb3849b6bff86"
+    },
+    {
+      "path": "native/crates/checksum/src/lib.rs",
+      "crate": "checksum",
+      "category": "ownedProduction",
+      "ownerGroup": "checksum",
+      "rawLines": 170,
+      "nonblankLines": 159,
+      "sha256": "45b3d9a89670b258b613b9cd9411ff9b4d40f9415137dc4d4141374565103d57"
+    },
+    {
+      "path": "native/crates/compression/src/lib.rs",
+      "crate": "compression",
+      "category": "ownedProduction",
+      "ownerGroup": "compression",
+      "rawLines": 510,
+      "nonblankLines": 473,
+      "sha256": "92f5a387e6c9fcdf3578a679222e71961ce690fad88fffde3046b3adaed7ff89"
+    },
+    {
+      "path": "native/crates/counter-extension/src/lib.rs",
+      "crate": "counter-extension",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 92,
+      "nonblankLines": 89,
+      "sha256": "9593ab5a09c63fc6c54182e8ed86f44038cbb1ca2c609e31477242f3fda37b18"
+    },
+    {
+      "path": "native/crates/extension/src/abi.rs",
+      "crate": "extension",
+      "category": "ownedProduction",
+      "ownerGroup": "abi",
+      "rawLines": 175,
+      "nonblankLines": 159,
+      "sha256": "df5b89a9674f0db2a88d6fa8bd662778c54844a64f640c992cd4f5d172e099c6"
+    },
+    {
+      "path": "native/crates/extension/src/lib.rs",
+      "crate": "extension",
+      "category": "ownedProduction",
+      "ownerGroup": "abi",
+      "rawLines": 614,
+      "nonblankLines": 591,
+      "sha256": "dd9e4373733f0e977afd8518eca3cacb0e63093ea69ebe86bb602bdd673cf789"
+    },
+    {
+      "path": "native/crates/files/src/glob.rs",
+      "crate": "files",
+      "category": "ownedProduction",
+      "ownerGroup": "files",
+      "rawLines": 413,
+      "nonblankLines": 383,
+      "sha256": "025dbac849212ad0b7edeedd38f78aad6f3b1e6092806b494dcbec008a08cdcf"
+    },
+    {
+      "path": "native/crates/files/src/lane.rs",
+      "crate": "files",
+      "category": "ownedProduction",
+      "ownerGroup": "files",
+      "rawLines": 858,
+      "nonblankLines": 792,
+      "sha256": "0b7927c1b7f529754c6b858dcc096b9aec56b16d32a34aa33defd1b6a0ca9047"
+    },
+    {
+      "path": "native/crates/files/src/lib.rs",
+      "crate": "files",
+      "category": "ownedProduction",
+      "ownerGroup": "files",
+      "rawLines": 1101,
+      "nonblankLines": 1028,
+      "sha256": "3f742d991355740cb35e33a4e8c8a54e388768bf72c690ccc159873e93e0d4e9"
+    },
+    {
+      "path": "native/crates/files/src/platform.rs",
+      "crate": "files",
+      "category": "ownedProduction",
+      "ownerGroup": "files",
+      "rawLines": 153,
+      "nonblankLines": 130,
+      "sha256": "097a4044a23cf3de8d0010a50bc02ec6883ee707d53fc041c89a132cacf5b95f"
+    },
+    {
+      "path": "native/crates/gpu/examples/counted_wgsl.rs",
+      "crate": "gpu",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 157,
+      "nonblankLines": 157,
+      "sha256": "269e8faa6c135255b107d5347c7bb028cf25f0e2ea030c89789cc865d183cfb7"
+    },
+    {
+      "path": "native/crates/gpu/src/costs.rs",
+      "crate": "gpu",
+      "category": "ownedProduction",
+      "ownerGroup": "gpu",
+      "rawLines": 239,
+      "nonblankLines": 223,
+      "sha256": "fc06148630b875956dfdcd7a59886ba4ee02b59c4f21921e6f93c2eecf93cd8b"
+    },
+    {
+      "path": "native/crates/gpu/src/lib.rs",
+      "crate": "gpu",
+      "category": "ownedProduction",
+      "ownerGroup": "gpu",
+      "rawLines": 2311,
+      "nonblankLines": 2209,
+      "sha256": "e7ea57a24338942bd223da1bc82b59e1200a7264440f6a5fbb3e1deaae5022ee"
+    },
+    {
+      "path": "native/crates/http/src/lib.rs",
+      "crate": "http",
+      "category": "ownedProduction",
+      "ownerGroup": "http",
+      "rawLines": 2619,
+      "nonblankLines": 2472,
+      "sha256": "c6a56e9249c91e0be5068a75ef89ddf633ab8252f5eec084b83e1847e11e013e"
+    },
+    {
+      "path": "native/crates/net/src/lib.rs",
+      "crate": "net",
+      "category": "ownedProduction",
+      "ownerGroup": "net",
+      "rawLines": 2297,
+      "nonblankLines": 2143,
+      "sha256": "06ea2641516fe0d8a71bbdd231bb2230c86c22d36633ddaec08ecbe33d87b72d"
+    },
+    {
+      "path": "native/crates/platform/src/lib.rs",
+      "crate": "platform",
+      "category": "ownedProduction",
+      "ownerGroup": "platform",
+      "rawLines": 291,
+      "nonblankLines": 261,
+      "sha256": "6a33b6c0ff8ece16efa22390d1996b69997a546a5f218308bdf722ccc4867827"
+    },
+    {
+      "path": "native/crates/process/src/lib.rs",
+      "crate": "process",
+      "category": "ownedProduction",
+      "ownerGroup": "process",
+      "rawLines": 1345,
+      "nonblankLines": 1256,
+      "sha256": "45db57fdecf6f0eff7fd7acde400d6fcb11c0ef8ad996532d3c2a4c445ac2935"
+    },
+    {
+      "path": "native/crates/runtime/src/activity.rs",
+      "crate": "runtime",
+      "category": "ownedProduction",
+      "ownerGroup": "executor",
+      "rawLines": 101,
+      "nonblankLines": 90,
+      "sha256": "7229736580e25dd93953feb554c96dd7e31aa244f30fb6e1c80ae00a0731bbed"
+    },
+    {
+      "path": "native/crates/runtime/src/lib.rs",
+      "crate": "runtime",
+      "category": "ownedProduction",
+      "ownerGroup": "executor",
+      "rawLines": 209,
+      "nonblankLines": 188,
+      "sha256": "c6e955793392f38817731cda279725dedd477c31790705324c4fd52546c113d3"
+    },
+    {
+      "path": "native/crates/tls/src/lib.rs",
+      "crate": "tls",
+      "category": "ownedProduction",
+      "ownerGroup": "tls",
+      "rawLines": 1274,
+      "nonblankLines": 1187,
+      "sha256": "385668a20d9f9bcaa6ccf8a7c8f87674aed1c9cd4e372ebfed2371c333303bb7"
+    },
+    {
+      "path": "native/crates/vm-program/build.rs",
+      "crate": "vm-program",
+      "category": "ownedProduction",
+      "ownerGroup": "entry",
+      "rawLines": 24,
+      "nonblankLines": 24,
+      "sha256": "0c5c65d96085b5957253192279f9097545c94024d2add610f63919bd3f66bf10"
+    },
+    {
+      "path": "native/crates/vm-program/src/lib.rs",
+      "crate": "vm-program",
+      "category": "ownedProduction",
+      "ownerGroup": "entry",
+      "rawLines": 15,
+      "nonblankLines": 13,
+      "sha256": "ca21fa9352ce881f74901edb37838d30e40b88ab1d64cd413d6ce3239fbb0b8a"
+    },
+    {
+      "path": "native/crates/vm/build.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "entry",
+      "rawLines": 58,
+      "nonblankLines": 57,
+      "sha256": "9d0bfaedb855e4804b489918505ef0d6c8f9040701148c09d23d01484d8f837a"
+    },
+    {
+      "path": "native/crates/vm/examples/checkpoint_compiler.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 60,
+      "nonblankLines": 59,
+      "sha256": "d1a733f7335e1e03b5e87824eda12738a68f694911141c52a057bc354e326d74"
+    },
+    {
+      "path": "native/crates/vm/examples/embed_host.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 61,
+      "nonblankLines": 55,
+      "sha256": "94e030f8f74620287f548db50cff50411db70d14f8ca418f47b029c3caaf62fc"
+    },
+    {
+      "path": "native/crates/vm/examples/persistence_bench.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 125,
+      "nonblankLines": 124,
+      "sha256": "f606a8b3535fdea6e69af55a674e39f78d2380dbce4d823dde5240f637d7ee79"
+    },
+    {
+      "path": "native/crates/vm/examples/scheduler_bench.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 100,
+      "nonblankLines": 99,
+      "sha256": "53a12e7bd7f6c3bac4c75a2dfea263440f7016557d86c2f49ed600be7ca45e9c"
+    },
+    {
+      "path": "native/crates/vm/src/allocation_metrics.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "objects",
+      "rawLines": 451,
+      "nonblankLines": 445,
+      "sha256": "a9634e31e7320717972f7499dd21f2e81e0db1437313668d2c7a320ea6daf84c"
+    },
+    {
+      "path": "native/crates/vm/src/builtins.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "library",
+      "rawLines": 1896,
+      "nonblankLines": 1866,
+      "sha256": "dc031d45763f320e077c582fdd7a738a6318d5ed77d0e3811351df9982d6eace"
+    },
+    {
+      "path": "native/crates/vm/src/cdecl.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "foreign",
+      "rawLines": 1196,
+      "nonblankLines": 1187,
+      "sha256": "dadca46918ba53c422539d35ac0c898d49ab985eac84793881090663f730861e"
+    },
+    {
+      "path": "native/crates/vm/src/channels.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "workers",
+      "rawLines": 307,
+      "nonblankLines": 307,
+      "sha256": "234a302cb3b22b0f696d3e0ca05a4b8423b23614456b69978f0b7d3173b6f6b0"
+    },
+    {
+      "path": "native/crates/vm/src/cleanup.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "tasks",
+      "rawLines": 440,
+      "nonblankLines": 437,
+      "sha256": "897de80a833791f6a83ad1f7948dd6e8f4da5f56040b1dfb7473a38e283d17b8"
+    },
+    {
+      "path": "native/crates/vm/src/clock.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "library",
+      "rawLines": 77,
+      "nonblankLines": 74,
+      "sha256": "1221e6d6727bc415c5e917edc1a2d93a700f9a8acd0d791810f9d511b4c3781a"
+    },
+    {
+      "path": "native/crates/vm/src/compiled.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "tiers",
+      "rawLines": 898,
+      "nonblankLines": 862,
+      "sha256": "c20118726450768a61a82e31bd93fae486b3576b358329f7aaab48d3c6cf916d"
+    },
+    {
+      "path": "native/crates/vm/src/coroutines.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "tasks",
+      "rawLines": 276,
+      "nonblankLines": 274,
+      "sha256": "c53961f5f45d6e94a7871ebcd7d71813f3e7495397eb00195371dedf3963189e"
+    },
+    {
+      "path": "native/crates/vm/src/datetime.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "library",
+      "rawLines": 113,
+      "nonblankLines": 111,
+      "sha256": "29bd9dedb08b96a1a1a97dea16659abfe594ec9dd536316d0f561923294f6686"
+    },
+    {
+      "path": "native/crates/vm/src/declaration.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "records",
+      "rawLines": 628,
+      "nonblankLines": 610,
+      "sha256": "bd5516839bfc59c37788ec24a786953fec8fd9100cb58ab1786ff69df6536e37"
+    },
+    {
+      "path": "native/crates/vm/src/dispatch.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "execution",
+      "rawLines": 366,
+      "nonblankLines": 359,
+      "sha256": "6ea707d0593125145d99f311516f906c9c17b4ed8c26ba468fe656b1e74be846"
+    },
+    {
+      "path": "native/crates/vm/src/dominance.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "graph",
+      "rawLines": 190,
+      "nonblankLines": 187,
+      "sha256": "cb376645a72d9b9c308b522aa9663556c8636eaf9e4314de918ac5e125409727"
+    },
+    {
+      "path": "native/crates/vm/src/effects.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "tasks",
+      "rawLines": 122,
+      "nonblankLines": 113,
+      "sha256": "232533700930a66139790865fea7a2d029353fbb82b7613b332e474a490447ba"
+    },
+    {
+      "path": "native/crates/vm/src/embed.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "foreign",
+      "rawLines": 552,
+      "nonblankLines": 511,
+      "sha256": "d73b3414de58ca48680a97bf798be92692922fa2c149e7ac905eb6e3a13ddaaf"
+    },
+    {
+      "path": "native/crates/vm/src/executable_allocator.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "pages",
+      "rawLines": 213,
+      "nonblankLines": 197,
+      "sha256": "7e5534b9231c1b16d60b2e5dc460c989744c98bde4afd6f0852ee60561ae6902"
+    },
+    {
+      "path": "native/crates/vm/src/extension.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "foreign",
+      "rawLines": 1351,
+      "nonblankLines": 1287,
+      "sha256": "446ca7aa5556bc64606f0ba479e959180688d19381ea61f4265f795ac8bd68d9"
+    },
+    {
+      "path": "native/crates/vm/src/fileio.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "library",
+      "rawLines": 207,
+      "nonblankLines": 199,
+      "sha256": "b1c53d3df5325434034168f291ebdbd3debf1911e78109d091d423f6e6648c89"
+    },
+    {
+      "path": "native/crates/vm/src/foreign.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "foreign",
+      "rawLines": 2311,
+      "nonblankLines": 2303,
+      "sha256": "79529c49707a3f597c738d26cbf17905563c5eb4061ebf8c5cea11f8af953b1e"
+    },
+    {
+      "path": "native/crates/vm/src/frame.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "tasks",
+      "rawLines": 771,
+      "nonblankLines": 742,
+      "sha256": "290ac48a699535af4235bb307bdb677014b2e37fc888a86fd0bf623ab54d6d27"
+    },
+    {
+      "path": "native/crates/vm/src/graph.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "graph",
+      "rawLines": 1398,
+      "nonblankLines": 1344,
+      "sha256": "e6991ed83b162dca1dafb259413e969b7408a8381fda7e0cf6770bf0c44b2e5e"
+    },
+    {
+      "path": "native/crates/vm/src/heap.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "objects",
+      "rawLines": 1523,
+      "nonblankLines": 1452,
+      "sha256": "9d9073fe3977fd52c84d1819d395013e66615e8d8ed6fe4630ee0dd72c74fbba"
+    },
+    {
+      "path": "native/crates/vm/src/heap_trace.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "objects",
+      "rawLines": 371,
+      "nonblankLines": 348,
+      "sha256": "2d9143fccee1300df6aa253a5afde07d9718940c737f603b316d39121fc49ae0"
+    },
+    {
+      "path": "native/crates/vm/src/host.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "host",
+      "rawLines": 65,
+      "nonblankLines": 60,
+      "sha256": "fead314f1dce71658575414d96086153f1c493fcfdf76c76e1c1c700c36ee735"
+    },
+    {
+      "path": "native/crates/vm/src/hotpatch.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "images",
+      "rawLines": 298,
+      "nonblankLines": 281,
+      "sha256": "81a41d1a7404fd17cf401ad557d700cc8874928f2f50032c72706c0982ea49ff"
+    },
+    {
+      "path": "native/crates/vm/src/image.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "images",
+      "rawLines": 421,
+      "nonblankLines": 405,
+      "sha256": "511ef5ed09e29483529b01815c8e9b9f123ec8f59250348aee769083b31161b8"
+    },
+    {
+      "path": "native/crates/vm/src/image_modules.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "images",
+      "rawLines": 373,
+      "nonblankLines": 358,
+      "sha256": "e2b3a5d579912cc3b09e9706b06e73ee2500d5fa6268968f519d609b54cddc49"
+    },
+    {
+      "path": "native/crates/vm/src/interp.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "execution",
+      "rawLines": 3159,
+      "nonblankLines": 3107,
+      "sha256": "225b02c0ae5b3adc5409386afc4c2a2f1780663788f5bb1b7eb60d7fdda4af60"
+    },
+    {
+      "path": "native/crates/vm/src/jit.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "tiers",
+      "rawLines": 2399,
+      "nonblankLines": 2369,
+      "sha256": "5e42ae831e2db2b09ac4aeab0d2c71aeb9b8bc40813cf807597a1599e260b6e5"
+    },
+    {
+      "path": "native/crates/vm/src/jit_glue.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "tiers",
+      "rawLines": 692,
+      "nonblankLines": 658,
+      "sha256": "e2c04740b37ef2cba113c38ee76bfb6b09f002ebdf81fd1dcbfacea351fc38b4"
+    },
+    {
+      "path": "native/crates/vm/src/lib.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "entry",
+      "rawLines": 143,
+      "nonblankLines": 129,
+      "sha256": "5039dc9e6c47166af1607813f6ce9553a8f3e399c97164340d5a3a350d8b29d3"
+    },
+    {
+      "path": "native/crates/vm/src/main.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "entry",
+      "rawLines": 582,
+      "nonblankLines": 570,
+      "sha256": "dcc8841aadb1c2967d4f3457487941741992038fb15a80a388db9c71f168b689"
+    },
+    {
+      "path": "native/crates/vm/src/metamethods.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "records",
+      "rawLines": 200,
+      "nonblankLines": 196,
+      "sha256": "49595309ab29ea13f74eb6aca6b08a969cb07fb32f92b982520056a645a8b82d"
+    },
+    {
+      "path": "native/crates/vm/src/native_glue.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "tiers",
+      "rawLines": 639,
+      "nonblankLines": 627,
+      "sha256": "7a3ed5264e438305d502f35475ed5dbf0cbc80fe9143c97484e8871ed8fc091a"
+    },
+    {
+      "path": "native/crates/vm/src/native_jit.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "tiers",
+      "rawLines": 178,
+      "nonblankLines": 177,
+      "sha256": "7af548e35ef6afcdf0f692d4edf57f537d03bac2875d24617455799297044ed1"
+    },
+    {
+      "path": "native/crates/vm/src/native_simd.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "simd",
+      "rawLines": 982,
+      "nonblankLines": 968,
+      "sha256": "1e46ebc7e1fab8f67326ae3d47b0eeef56d1a91e9cfcdb7c5f8b3831c6da1992"
+    },
+    {
+      "path": "native/crates/vm/src/native_tests.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 1638,
+      "nonblankLines": 1598,
+      "sha256": "ddc194dbec97fff312d70e11c25c75419c826b3422d777acc68c3f4658646139"
+    },
+    {
+      "path": "native/crates/vm/src/ncompression.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "library",
+      "rawLines": 84,
+      "nonblankLines": 80,
+      "sha256": "851516746609e6da1c05c2fe7bf77769a6941ff8672c48e3d972aa041fd7adb1"
+    },
+    {
+      "path": "native/crates/vm/src/nfiles.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "library",
+      "rawLines": 161,
+      "nonblankLines": 158,
+      "sha256": "d7db4ad37175c929d2f1e51481b5f9c5ade76644071fca25f5c588c6b1642e81"
+    },
+    {
+      "path": "native/crates/vm/src/nhttp.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "library",
+      "rawLines": 314,
+      "nonblankLines": 306,
+      "sha256": "6f79f9a32ab19bbe54c9b4d8e8e61d432f0e7f75f7e38a351edc585f3bc5b84f"
+    },
+    {
+      "path": "native/crates/vm/src/nmarkdown.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "library",
+      "rawLines": 36,
+      "nonblankLines": 33,
+      "sha256": "435eb53acffb508464883220d13dd08323f79a71f1a9c35b656a7f9bdb86a27b"
+    },
+    {
+      "path": "native/crates/vm/src/nnet.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "library",
+      "rawLines": 348,
+      "nonblankLines": 337,
+      "sha256": "0d3ce7701cd0ad80ce8e53ce0d31e35a6aedd04667499922e6d7c2877ddfe36a"
+    },
+    {
+      "path": "native/crates/vm/src/nregex.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "patterns",
+      "rawLines": 295,
+      "nonblankLines": 275,
+      "sha256": "7eb322ffd31fdf1f92762c2f4e220d033520a86297744292030d314c06fb442b"
+    },
+    {
+      "path": "native/crates/vm/src/numeric.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "objects",
+      "rawLines": 323,
+      "nonblankLines": 320,
+      "sha256": "05c1cf5427db0c5e71f51ee3815504c313082af8562c405d1efb4424d52c589d"
+    },
+    {
+      "path": "native/crates/vm/src/opcodes.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "execution",
+      "rawLines": 446,
+      "nonblankLines": 399,
+      "sha256": "e13957957613ba304fe0bedad56b860ca35dbe8e1cda4568a4b73bc2fcc60803"
+    },
+    {
+      "path": "native/crates/vm/src/os_glue.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "host",
+      "rawLines": 178,
+      "nonblankLines": 170,
+      "sha256": "52d600249ff6744018b15af80ba6f9adfb42bef96331ca49dbcc223db49a88c8"
+    },
+    {
+      "path": "native/crates/vm/src/payload.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "objects",
+      "rawLines": 226,
+      "nonblankLines": 209,
+      "sha256": "aa204b5a99f70e94623014c75dd5c7ff86b8aae228e077bfbe6246dbacf25c1b"
+    },
+    {
+      "path": "native/crates/vm/src/persist.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "snapshots",
+      "rawLines": 2523,
+      "nonblankLines": 2489,
+      "sha256": "00cc83b4b30eaee451bb840779d905c79526c58c34a45956c4ce3df8340865db"
+    },
+    {
+      "path": "native/crates/vm/src/process.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "library",
+      "rawLines": 486,
+      "nonblankLines": 484,
+      "sha256": "fe7d785f55f48e1ffa506d12b8ba8bf04dadba75fe961f2de3f11f5166882058"
+    },
+    {
+      "path": "native/crates/vm/src/scheduler.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "tasks",
+      "rawLines": 626,
+      "nonblankLines": 619,
+      "sha256": "23bca2673841cffd93abca457f57e6c6df1b9a0c39ebacafe5e0add574061237"
+    },
+    {
+      "path": "native/crates/vm/src/sharing.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "workers",
+      "rawLines": 585,
+      "nonblankLines": 565,
+      "sha256": "664272c92e396fd541d0e1ca2816ac6c5fcf4712d6a69cbe9ed5dc2838dc852a"
+    },
+    {
+      "path": "native/crates/vm/src/simd.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "simd",
+      "rawLines": 1225,
+      "nonblankLines": 1208,
+      "sha256": "f8d2eb4a0dfbbe3d8655a6c91465266c79f8622b951ac0fc4e9f244532ff09cc"
+    },
+    {
+      "path": "native/crates/vm/src/simd_exec.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "simd",
+      "rawLines": 459,
+      "nonblankLines": 442,
+      "sha256": "76d9d2a1b1b0308e280835fc65f6f7d6779657118b5f462c0dfcf47939c220b5"
+    },
+    {
+      "path": "native/crates/vm/src/simd_jit.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "simd",
+      "rawLines": 1060,
+      "nonblankLines": 1047,
+      "sha256": "6bb2833915ee93f3c84dc8482ef8a3f634015b2371150cc07115a33deda5398c"
+    },
+    {
+      "path": "native/crates/vm/src/simd_reduce.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "simd",
+      "rawLines": 359,
+      "nonblankLines": 358,
+      "sha256": "473c5c59e2310377839e25bf06487e4889df61fddbab429816f3bc103d2dae49"
+    },
+    {
+      "path": "native/crates/vm/src/snapshot.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "snapshots",
+      "rawLines": 1119,
+      "nonblankLines": 1082,
+      "sha256": "bad8f724232a9111770961472e03dcb85e7246d9c497fe6ae315af5d85ea5605"
+    },
+    {
+      "path": "native/crates/vm/src/specialize/facts.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "tiers",
+      "rawLines": 245,
+      "nonblankLines": 229,
+      "sha256": "e666eebd516839db66ca046e2529ee15a7698ffc3394df6da1d33ae6151364dd"
+    },
+    {
+      "path": "native/crates/vm/src/specialize/mod.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "tiers",
+      "rawLines": 946,
+      "nonblankLines": 879,
+      "sha256": "62f5c1427e1c4a56a0ed82eee415e0e06e40284976f7517109f2865bafe7dae6"
+    },
+    {
+      "path": "native/crates/vm/src/specialize/policy.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "tiers",
+      "rawLines": 68,
+      "nonblankLines": 64,
+      "sha256": "4f2966e6d151ed2c673b28dddeb0350ff961a56d9554d791fd7e7e97884d2410"
+    },
+    {
+      "path": "native/crates/vm/src/specialize/recovery.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "tiers",
+      "rawLines": 75,
+      "nonblankLines": 70,
+      "sha256": "da7bc53b63f8411ffd327552e4e9095c188b3c56ed606a57dae2a281749f3a44"
+    },
+    {
+      "path": "native/crates/vm/src/specialize/versions.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "tiers",
+      "rawLines": 83,
+      "nonblankLines": 78,
+      "sha256": "d481d19cf75ff7a41eb0b7f0e1c86ab418e4c8ba13f9ef77cec568907083dcb9"
+    },
+    {
+      "path": "native/crates/vm/src/stdio.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "library",
+      "rawLines": 85,
+      "nonblankLines": 84,
+      "sha256": "662aeabd5dae78eb9e7979986e17274f3d55f412e8b2a4fea51fe6f022db7463"
+    },
+    {
+      "path": "native/crates/vm/src/storage.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "objects",
+      "rawLines": 2273,
+      "nonblankLines": 2262,
+      "sha256": "101c4fd9a3db9e0b538d697bd09764c3c3906ef4868bcdfc544f60fde769e3b0"
+    },
+    {
+      "path": "native/crates/vm/src/strbuf.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "objects",
+      "rawLines": 430,
+      "nonblankLines": 409,
+      "sha256": "4d3f9e8db318b6bddf3bd3487903ebe6f8f71b6342bf5be15164131868c43277"
+    },
+    {
+      "path": "native/crates/vm/src/supervision.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "tasks",
+      "rawLines": 465,
+      "nonblankLines": 461,
+      "sha256": "6a9d06d0cb23b84faf9d3c4951a0a7559747f4cb45ec9cf874b04c206ac7328f"
+    },
+    {
+      "path": "native/crates/vm/src/task_api.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "tasks",
+      "rawLines": 811,
+      "nonblankLines": 807,
+      "sha256": "59188fc3e113c14e735b62a52efb69293d853c59daeca4aafd7d439be80592f8"
+    },
+    {
+      "path": "native/crates/vm/src/temporary.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "library",
+      "rawLines": 106,
+      "nonblankLines": 105,
+      "sha256": "a3c06cf74acd63a84dfc7c60e89d65667ed367183e1067c93992da97bb32e485"
+    },
+    {
+      "path": "native/crates/vm/src/threaded.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "execution",
+      "rawLines": 495,
+      "nonblankLines": 471,
+      "sha256": "c9ec29d002f4acbc0993f1900b00bd544fcd0662eb0fbe9fc9ab8d5d730e08ae"
+    },
+    {
+      "path": "native/crates/vm/src/utf8lib.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "library",
+      "rawLines": 64,
+      "nonblankLines": 61,
+      "sha256": "b8c0bc6ff3e4a1501087a8e226036ad104471e5c56471dc5ea91d015ea55afd8"
+    },
+    {
+      "path": "native/crates/vm/src/value.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "objects",
+      "rawLines": 128,
+      "nonblankLines": 116,
+      "sha256": "89437106af47505267bde6607c781195e4f873227ed3906c8df4c76f19c201aa"
+    },
+    {
+      "path": "native/crates/vm/src/verify.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "images",
+      "rawLines": 599,
+      "nonblankLines": 574,
+      "sha256": "0f82e8e7fb77ebd37c34cfd16e3e714802b2fc11207e7eef130c8250f5874c78"
+    },
+    {
+      "path": "native/crates/vm/src/worker_context.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "workers",
+      "rawLines": 173,
+      "nonblankLines": 169,
+      "sha256": "ed5e9d717bcf8044cff2e71b124b6b28d8c6258ccad1fd8d4eee78204cdba992"
+    },
+    {
+      "path": "native/crates/vm/src/workers.rs",
+      "crate": "vm",
+      "category": "ownedProduction",
+      "ownerGroup": "workers",
+      "rawLines": 1910,
+      "nonblankLines": 1900,
+      "sha256": "978503fecce4693d4a6182ed1b04fd38dfb4023b3530114a8197af254e6bacda"
+    },
+    {
+      "path": "native/crates/vm/tests/allocator-host/main.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 145,
+      "nonblankLines": 140,
+      "sha256": "86bdfb62700cee09278f8b13b15e44d64910cc5a7b9638975bc76a5dca994721"
+    },
+    {
+      "path": "native/crates/vm/tests/aot_relocation.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 456,
+      "nonblankLines": 443,
+      "sha256": "69b09eccc0d9ccdb61f4634e311a21582207f513e484a4bf99f99c1b0b65d2e1"
+    },
+    {
+      "path": "native/crates/vm/tests/c_declarations.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 623,
+      "nonblankLines": 605,
+      "sha256": "8517197e5640b333192ab719750c631e6115b6cb0deae230a31fe94e3a9b8868"
+    },
+    {
+      "path": "native/crates/vm/tests/cli_host.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 256,
+      "nonblankLines": 246,
+      "sha256": "d96bca44bbb544468fccd3e8487038e3fc36c481113deca85af122dcefcd7b0b"
+    },
+    {
+      "path": "native/crates/vm/tests/cli_output_stats.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 79,
+      "nonblankLines": 77,
+      "sha256": "d8eaab25d246bfe0beb92a29b096c688cdd4df7e563fecc6ba8f7de20133e9ed"
+    },
+    {
+      "path": "native/crates/vm/tests/compression_host.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 115,
+      "nonblankLines": 110,
+      "sha256": "28b2e7c51ef8310cff26478f57fa17f4d380cc39706a389c15c4b0cb4ccbf52e"
+    },
+    {
+      "path": "native/crates/vm/tests/coroutines.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 70,
+      "nonblankLines": 69,
+      "sha256": "14f2aab32ada31fdfe4dcbdf8e73eb409644258b562feb60ac543a14c37105d1"
+    },
+    {
+      "path": "native/crates/vm/tests/data_services.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 192,
+      "nonblankLines": 184,
+      "sha256": "a6a233c688d956f8714d2b96e788cead1bd08f92d1625d730ddbba5b24da8fae"
+    },
+    {
+      "path": "native/crates/vm/tests/debug_info.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 192,
+      "nonblankLines": 186,
+      "sha256": "debfb445b248f47647a347a81f2026ef6dd3b0807b3c03505f7cb3c11da83785"
+    },
+    {
+      "path": "native/crates/vm/tests/dispatch_arrays.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 148,
+      "nonblankLines": 140,
+      "sha256": "77f873254264248116ce068bc6461efd585ce695dda2a19c7ee5c2033ec784bf"
+    },
+    {
+      "path": "native/crates/vm/tests/dispatch_shapes.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 87,
+      "nonblankLines": 84,
+      "sha256": "e6fcdba3a0ab65f4535a0a6e0e42e5fb81cd820134698f234610aa3e3409f5e4"
+    },
+    {
+      "path": "native/crates/vm/tests/dispatch_spread.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 69,
+      "nonblankLines": 66,
+      "sha256": "8eadd8fec12892d07fb5875c9e949d35010de889a8a284c8f49c1a6c36f45c46"
+    },
+    {
+      "path": "native/crates/vm/tests/embedding.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 232,
+      "nonblankLines": 216,
+      "sha256": "61b2aa59dae3774344f4ca057e87268a680ff9fe36807afbf945350beaf1f386"
+    },
+    {
+      "path": "native/crates/vm/tests/error_wording.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 148,
+      "nonblankLines": 143,
+      "sha256": "4924c20b44ff4920fbcc5b61029a3faa755139de377c79e6015bf9879b43c10a"
+    },
+    {
+      "path": "native/crates/vm/tests/extension_header.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 117,
+      "nonblankLines": 113,
+      "sha256": "8a7866aaf93a0789de6408ac0686e2c2ab8b7a0ba93e4a22476c4054313fb8ca"
+    },
+    {
+      "path": "native/crates/vm/tests/foreign.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 628,
+      "nonblankLines": 624,
+      "sha256": "155c5448f5e14d8ac94ed2b1982c449949026a64d50f8a55c6ec82e51e74644c"
+    },
+    {
+      "path": "native/crates/vm/tests/foreign_loader.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 813,
+      "nonblankLines": 790,
+      "sha256": "b62a0c0a8fb0635e3a9372f18765e2809b6973396a9d0641bd8c338b2b7cd46b"
+    },
+    {
+      "path": "native/crates/vm/tests/frame_transfers.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 139,
+      "nonblankLines": 134,
+      "sha256": "a71837c1ecc6258e849d6575cabdd5d04b960eed0687c863c972291a94f27e85"
+    },
+    {
+      "path": "native/crates/vm/tests/getmetatable.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 214,
+      "nonblankLines": 210,
+      "sha256": "70ce9884519738bd7dfff4556e3a3ae0d3cda7d11a78a490560f551b95e08026"
+    },
+    {
+      "path": "native/crates/vm/tests/hot_patch.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 243,
+      "nonblankLines": 229,
+      "sha256": "5662cd09ee880aef27a09b2f49a1f9367cf5df62d26010c82777f2ee1533c944"
+    },
+    {
+      "path": "native/crates/vm/tests/http_host.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 166,
+      "nonblankLines": 155,
+      "sha256": "ba1a91db16b35d097a6b1a8e82888eb28b0fff55bdad368b284aa275e907de7c"
+    },
+    {
+      "path": "native/crates/vm/tests/image_loading.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 251,
+      "nonblankLines": 241,
+      "sha256": "400f5d2200a3f06ebd5a5030f15e9a37b3a3213f6bbc27f62730a98ba89556d7"
+    },
+    {
+      "path": "native/crates/vm/tests/image_modules.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 231,
+      "nonblankLines": 217,
+      "sha256": "a650bd6ddea2e31043599098f8985dc1a4be317feb11053bc73ac75f4cd89e64"
+    },
+    {
+      "path": "native/crates/vm/tests/indexed_stores.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 431,
+      "nonblankLines": 420,
+      "sha256": "a2f18c8883daab3744aeaa1405788d91cd7dad6b61748cacb9f3e5283c8a0252"
+    },
+    {
+      "path": "native/crates/vm/tests/length.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 273,
+      "nonblankLines": 266,
+      "sha256": "489581d0b91528918f49dd9f2a5a7141b707a3ccff7467d6caa43c661949db11"
+    },
+    {
+      "path": "native/crates/vm/tests/linked_program_table.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 169,
+      "nonblankLines": 159,
+      "sha256": "67ead5256add1f7939c8efc2653f90459757a0dd061a000df8f823bd7b258b91"
+    },
+    {
+      "path": "native/crates/vm/tests/markdown.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 48,
+      "nonblankLines": 43,
+      "sha256": "bd355d0d0110c3df4f11459db5071e715f621194d94539b65861034b136024b8"
+    },
+    {
+      "path": "native/crates/vm/tests/metamethods.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 192,
+      "nonblankLines": 184,
+      "sha256": "720772a827a61ef70906549686f00b9d580ddf34193acc1496d77884967ccc26"
+    },
+    {
+      "path": "native/crates/vm/tests/native_aggregates.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 1152,
+      "nonblankLines": 1136,
+      "sha256": "16d17e2c50346aaff902a160f75f8315f2ff8207586dd86687d6802ca1ec7663"
+    },
+    {
+      "path": "native/crates/vm/tests/native_extension.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 282,
+      "nonblankLines": 263,
+      "sha256": "befd1595ab201d53c753df22aeb4fb27bcbdab20da1e437400d401dcd45ba28e"
+    },
+    {
+      "path": "native/crates/vm/tests/native_simd.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 121,
+      "nonblankLines": 117,
+      "sha256": "0f47b8d400bebdc5652de1ab3b0ac9979e0b3d324d571ebd7109154445e183e4"
+    },
+    {
+      "path": "native/crates/vm/tests/net_host.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 179,
+      "nonblankLines": 170,
+      "sha256": "41216f01bf0c6c0d953fd60d1646ed4ef6a5f71d8613d72efc2aea1d6f4721de"
+    },
+    {
+      "path": "native/crates/vm/tests/nojit_refusal.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 142,
+      "nonblankLines": 135,
+      "sha256": "9d3f2834c82f259adc84e189d96e1561cf88688a0513d56949153a3ac279f2ea"
+    },
+    {
+      "path": "native/crates/vm/tests/numeric.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 652,
+      "nonblankLines": 634,
+      "sha256": "d49c683454605d3bef77c117a323c0680978faa0208fa9478e75bf2f4be17c89"
+    },
+    {
+      "path": "native/crates/vm/tests/patterns.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 27,
+      "nonblankLines": 23,
+      "sha256": "46b93801b955d9f48933027b4a26e1d5ecd3e0d5c1e2b66b8cb196325612c900"
+    },
+    {
+      "path": "native/crates/vm/tests/persistence.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 898,
+      "nonblankLines": 874,
+      "sha256": "2fb774674ce2507796796ef16d0babb6fd3887210c5cde7c315113fce2fa7ae1"
+    },
+    {
+      "path": "native/crates/vm/tests/plain_codec.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 303,
+      "nonblankLines": 292,
+      "sha256": "6e312ac5145959e6bd68fc632df3c0e8121d5e932621a8f4998c82db8d9eda89"
+    },
+    {
+      "path": "native/crates/vm/tests/primary_image_hash.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 59,
+      "nonblankLines": 55,
+      "sha256": "5ba9dcd1a650d4625854161a6f2b9c989817e939f424a50179a0d49655a4d63f"
+    },
+    {
+      "path": "native/crates/vm/tests/process_host.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 234,
+      "nonblankLines": 227,
+      "sha256": "fe5acf20b4d3dc4e917b031dc67d408c2d279dc0604673eaa8655833cebf3369"
+    },
+    {
+      "path": "native/crates/vm/tests/protected_suspension.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 231,
+      "nonblankLines": 222,
+      "sha256": "2d96a2b8873c2ae73f29062ed67be0fede1bd713158e7d2b7e8f4aaa7000d346"
+    },
+    {
+      "path": "native/crates/vm/tests/record_tables.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 526,
+      "nonblankLines": 515,
+      "sha256": "12fdcbabfff534b05effa4d40510d4415664e52440cea21ede839898b4fcef3b"
+    },
+    {
+      "path": "native/crates/vm/tests/regex.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 311,
+      "nonblankLines": 292,
+      "sha256": "b70bc88431804e01b4013a3806519db994ce33806428e6e384262dd84fcf1e8f"
+    },
+    {
+      "path": "native/crates/vm/tests/scheduler.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 769,
+      "nonblankLines": 756,
+      "sha256": "e6df0215583a1d61fd73e9287c581ab943515b04a364d9b86cccce4fc2e00018"
+    },
+    {
+      "path": "native/crates/vm/tests/self_lowering.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 40,
+      "nonblankLines": 39,
+      "sha256": "68c20db027674511093c060ca296849ea473d4175c79c1f336cd69235350794c"
+    },
+    {
+      "path": "native/crates/vm/tests/simd.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 906,
+      "nonblankLines": 883,
+      "sha256": "28e40b5c2993c3308cd7d323616863509129ea98216d84725ac2bc10f09c019c"
+    },
+    {
+      "path": "native/crates/vm/tests/simd_transpose.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 220,
+      "nonblankLines": 211,
+      "sha256": "b15fad0c3ffb842046b79c613d4302f09e19c800f9e873d47a2079f639fe68df"
+    },
+    {
+      "path": "native/crates/vm/tests/simd_transpose_entries.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 280,
+      "nonblankLines": 266,
+      "sha256": "ed4f131f060c90da24065b555fdd4e552bea59aab1b4694e2bc9ab9c9a5b4926"
+    },
+    {
+      "path": "native/crates/vm/tests/snapshot.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 334,
+      "nonblankLines": 316,
+      "sha256": "00e92318ac4334f82acf7e81aa6e09d5b6740fe402908eb16f336327b372c06a"
+    },
+    {
+      "path": "native/crates/vm/tests/source_loading.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 122,
+      "nonblankLines": 117,
+      "sha256": "9c4c4b8d7e42dcc8712cc09eca645eadab55aafca4e3dbde4039e2a2ba2deeb3"
+    },
+    {
+      "path": "native/crates/vm/tests/specialization.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 549,
+      "nonblankLines": 512,
+      "sha256": "ca4e85ba794b63a5390ad0224a743695d85b7efec6bdbf1428420d39204d5670"
+    },
+    {
+      "path": "native/crates/vm/tests/storage.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 365,
+      "nonblankLines": 356,
+      "sha256": "05ed18f929662bf2afc82f91865c7eb536f31195f053a2d9fe982d571d7e5124"
+    },
+    {
+      "path": "native/crates/vm/tests/storage_vectors.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 507,
+      "nonblankLines": 500,
+      "sha256": "b78ce5dfa9c3882b70d785a7e133a73242523b67727fd2760a1f57e0bf55f9d0"
+    },
+    {
+      "path": "native/crates/vm/tests/string_buffer.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 171,
+      "nonblankLines": 160,
+      "sha256": "77f2e50fe4180f0c8c8fe69b8b5be8160b3eeb13af1097975ac80c785f8b83a3"
+    },
+    {
+      "path": "native/crates/vm/tests/string_byte.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 255,
+      "nonblankLines": 240,
+      "sha256": "778a7d149f113ba896b23305eeb52bbbc9ad61f26d13704aceacb74faa057280"
+    },
+    {
+      "path": "native/crates/vm/tests/string_fields.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 28,
+      "nonblankLines": 27,
+      "sha256": "ab35cfaabc5bdacdfdf8efc8362a204d16258ae03804dd231aa9db42db571009"
+    },
+    {
+      "path": "native/crates/vm/tests/supervision.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 140,
+      "nonblankLines": 139,
+      "sha256": "10e188f01bf9201d8fd69b060c5c96112735fe66b0b8eacaade87c4b41a61b76"
+    },
+    {
+      "path": "native/crates/vm/tests/valuetable.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 92,
+      "nonblankLines": 86,
+      "sha256": "7e56f8f6d109c7ac8b3ad02dbd9188bf5335b2ac6a0a1861bfa4269dc781628e"
+    },
+    {
+      "path": "native/crates/vm/tests/weak_tables.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 314,
+      "nonblankLines": 286,
+      "sha256": "dcf3ba7e03f57c22d4ae22843c70d452d889387ec899bd32aa1ad1c7fa83bfa4"
+    },
+    {
+      "path": "native/crates/vm/tests/worker_memory.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 466,
+      "nonblankLines": 453,
+      "sha256": "42a95c8146ed19356ac33d7845b3561a0c48f98270ca2dd9dfbfb5977c794e37"
+    },
+    {
+      "path": "native/crates/vm/tests/workers.rs",
+      "crate": "vm",
+      "category": "testsExamplesFixtures",
+      "ownerGroup": "test",
+      "rawLines": 280,
+      "nonblankLines": 276,
+      "sha256": "528158cefd823740f79e6a14f390b11b2d3a8a6860db2e6d3152a552d1707081"
+    }
+  ],
+  "dependencies": {
+    "command": "cargo metadata --locked --offline --format-version 1 --all-features",
+    "scope": "Unfiltered workspace all-feature package-resolution union, including dev/build and platform-specific dependencies; not a default executable dependency count.",
+    "thirdPartyPackageCount": 301,
+    "distinctNames": 292,
+    "packages": [
+      {
+        "name": "adler2",
+        "version": "2.0.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "aho-corasick",
+        "version": "1.1.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "allocator-api2",
+        "version": "0.2.21",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "android_system_properties",
+        "version": "0.1.6",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "anyhow",
+        "version": "1.0.104",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "arbitrary",
+        "version": "1.5.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "arrayvec",
+        "version": "0.7.8",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "ash",
+        "version": "0.38.0+1.3.281",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "async-compression",
+        "version": "0.4.43",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "atomic-waker",
+        "version": "1.1.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "autocfg",
+        "version": "1.5.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "base64",
+        "version": "0.22.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "bit-set",
+        "version": "0.10.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "bit-vec",
+        "version": "0.9.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "bitflags",
+        "version": "1.3.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "bitflags",
+        "version": "2.13.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "block-buffer",
+        "version": "0.10.4",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "block2",
+        "version": "0.6.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "bumpalo",
+        "version": "3.20.3",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "bytemuck",
+        "version": "1.25.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "bytemuck_derive",
+        "version": "1.12.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "bytes",
+        "version": "1.12.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "cc",
+        "version": "1.4.4",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "cfg-if",
+        "version": "1.0.4",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "cfg_aliases",
+        "version": "0.2.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "codespan-reporting",
+        "version": "0.13.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "combine",
+        "version": "4.6.8",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "compression-codecs",
+        "version": "0.4.38",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "compression-core",
+        "version": "0.4.32",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "core-foundation",
+        "version": "0.10.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "core-foundation-sys",
+        "version": "0.8.7",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "cpufeatures",
+        "version": "0.2.17",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "cranelift-assembler-x64",
+        "version": "0.135.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "cranelift-assembler-x64-meta",
+        "version": "0.135.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "cranelift-bforest",
+        "version": "0.135.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "cranelift-bitset",
+        "version": "0.135.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "cranelift-codegen",
+        "version": "0.135.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "cranelift-codegen-meta",
+        "version": "0.135.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "cranelift-codegen-shared",
+        "version": "0.135.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "cranelift-control",
+        "version": "0.135.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "cranelift-entity",
+        "version": "0.135.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "cranelift-frontend",
+        "version": "0.135.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "cranelift-isle",
+        "version": "0.135.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "cranelift-jit",
+        "version": "0.135.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "cranelift-module",
+        "version": "0.135.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "cranelift-native",
+        "version": "0.135.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "cranelift-object",
+        "version": "0.135.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "cranelift-reader",
+        "version": "0.135.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "cranelift-srcgen",
+        "version": "0.135.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "crc-fast",
+        "version": "1.10.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "crc32fast",
+        "version": "1.5.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "crunchy",
+        "version": "0.2.4",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "crypto-common",
+        "version": "0.1.7",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "digest",
+        "version": "0.10.7",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "dispatch2",
+        "version": "0.3.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "displaydoc",
+        "version": "0.2.7",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "dlib",
+        "version": "0.5.3",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "document-features",
+        "version": "0.2.12",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "equivalent",
+        "version": "1.0.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "errno",
+        "version": "0.3.14",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "find-msvc-tools",
+        "version": "0.1.11",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "fixedbitset",
+        "version": "0.5.7",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "flate2",
+        "version": "1.1.10",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "fnv",
+        "version": "1.0.7",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "foldhash",
+        "version": "0.1.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "foldhash",
+        "version": "0.2.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "form_urlencoded",
+        "version": "1.2.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "futures-channel",
+        "version": "0.3.34",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "futures-core",
+        "version": "0.3.34",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "futures-io",
+        "version": "0.3.34",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "futures-macro",
+        "version": "0.3.34",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "futures-sink",
+        "version": "0.3.34",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "futures-task",
+        "version": "0.3.34",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "futures-util",
+        "version": "0.3.34",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "generic-array",
+        "version": "0.14.7",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "getrandom",
+        "version": "0.2.17",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "getrandom",
+        "version": "0.4.3",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "gimli",
+        "version": "0.33.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "gl_generator",
+        "version": "0.14.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "glow",
+        "version": "0.17.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "glutin_wgl_sys",
+        "version": "0.6.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "gpu-allocator",
+        "version": "0.28.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "half",
+        "version": "2.7.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "hashbrown",
+        "version": "0.15.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "hashbrown",
+        "version": "0.16.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "hashbrown",
+        "version": "0.17.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "heck",
+        "version": "0.5.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "http",
+        "version": "1.5.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "http-body",
+        "version": "1.1.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "http-body-util",
+        "version": "0.1.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "httparse",
+        "version": "1.10.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "hyper",
+        "version": "1.11.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "hyper-rustls",
+        "version": "0.27.9",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "hyper-util",
+        "version": "0.1.20",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "icu_collections",
+        "version": "2.3.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "icu_locale_core",
+        "version": "2.3.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "icu_normalizer",
+        "version": "2.3.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "icu_normalizer_data",
+        "version": "2.3.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "icu_properties",
+        "version": "2.3.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "icu_properties_data",
+        "version": "2.3.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "icu_provider",
+        "version": "2.3.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "idna",
+        "version": "1.1.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "idna_adapter",
+        "version": "1.2.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "indexmap",
+        "version": "2.14.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "ipnet",
+        "version": "2.12.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "itoa",
+        "version": "1.0.18",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "jni",
+        "version": "0.22.4",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "jni-macros",
+        "version": "0.22.4",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "jni-sys",
+        "version": "0.3.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "jni-sys",
+        "version": "0.4.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "jni-sys-macros",
+        "version": "0.4.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "js-sys",
+        "version": "0.3.104",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "khronos-egl",
+        "version": "6.0.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "khronos_api",
+        "version": "3.1.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "libc",
+        "version": "0.2.189",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "libffi",
+        "version": "5.2.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "libffi-sys",
+        "version": "4.2.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "libloading",
+        "version": "0.8.9",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "libm",
+        "version": "0.2.16",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "libmimalloc-sys",
+        "version": "0.1.49",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "litemap",
+        "version": "0.8.3",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "litrs",
+        "version": "1.0.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "lock_api",
+        "version": "0.4.14",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "log",
+        "version": "0.4.34",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "mach2",
+        "version": "0.4.3",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "memchr",
+        "version": "2.8.3",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "memmap2",
+        "version": "0.9.11",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "mimalloc",
+        "version": "0.1.52",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "miniz_oxide",
+        "version": "0.9.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "mio",
+        "version": "1.2.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "naga",
+        "version": "30.0.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "naga-types",
+        "version": "30.0.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "ndk-sys",
+        "version": "0.6.0+11769913",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "num-traits",
+        "version": "0.2.19",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "objc2",
+        "version": "0.6.4",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "objc2-core-foundation",
+        "version": "0.3.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "objc2-core-graphics",
+        "version": "0.3.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "objc2-encode",
+        "version": "4.1.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "objc2-foundation",
+        "version": "0.3.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "objc2-io-surface",
+        "version": "0.3.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "objc2-metal",
+        "version": "0.3.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "objc2-quartz-core",
+        "version": "0.3.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "object",
+        "version": "0.39.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "once_cell",
+        "version": "1.21.4",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "openssl-probe",
+        "version": "0.2.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "ordered-float",
+        "version": "5.5.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "parking_lot",
+        "version": "0.12.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "parking_lot_core",
+        "version": "0.9.12",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "percent-encoding",
+        "version": "2.3.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "petgraph",
+        "version": "0.8.3",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "pin-project-lite",
+        "version": "0.2.17",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "pkg-config",
+        "version": "0.3.34",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "pollster",
+        "version": "0.4.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "portable-atomic",
+        "version": "1.15.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "portable-atomic-util",
+        "version": "0.2.7",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "potential_utf",
+        "version": "0.1.6",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "presser",
+        "version": "0.3.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "proc-macro2",
+        "version": "1.0.107",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "profiling",
+        "version": "1.0.18",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "pulldown-cmark",
+        "version": "0.13.4",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "pulldown-cmark-escape",
+        "version": "0.11.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "quote",
+        "version": "1.0.47",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "r-efi",
+        "version": "6.0.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "range-alloc",
+        "version": "0.1.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "raw-window-handle",
+        "version": "0.6.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "raw-window-metal",
+        "version": "1.1.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "redox_syscall",
+        "version": "0.5.18",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "regalloc2",
+        "version": "0.15.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "regex",
+        "version": "1.13.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "regex-automata",
+        "version": "0.4.18",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "regex-syntax",
+        "version": "0.8.11",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "region",
+        "version": "3.0.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "renderdoc-sys",
+        "version": "1.1.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "reqwest",
+        "version": "0.13.4",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "ring",
+        "version": "0.17.14",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "rustc-hash",
+        "version": "1.1.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "rustc-hash",
+        "version": "2.1.3",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "rustc_version",
+        "version": "0.4.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "rustls",
+        "version": "0.23.43",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "rustls-native-certs",
+        "version": "0.8.4",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "rustls-pki-types",
+        "version": "1.15.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "rustls-platform-verifier",
+        "version": "0.7.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "rustls-platform-verifier-android",
+        "version": "0.1.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "rustls-webpki",
+        "version": "0.103.15",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "rustversion",
+        "version": "1.0.23",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "same-file",
+        "version": "1.0.6",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "schannel",
+        "version": "0.1.29",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "scopeguard",
+        "version": "1.2.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "security-framework",
+        "version": "3.7.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "security-framework-sys",
+        "version": "2.17.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "semver",
+        "version": "1.0.28",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "serde",
+        "version": "1.0.229",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "serde_core",
+        "version": "1.0.229",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "serde_derive",
+        "version": "1.0.229",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "serde_json",
+        "version": "1.0.151",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "sha2",
+        "version": "0.10.9",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "shlex",
+        "version": "2.0.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "signal-hook-registry",
+        "version": "1.4.8",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "simd-adler32",
+        "version": "0.3.10",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "simd_cesu8",
+        "version": "1.2.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "simdutf8",
+        "version": "0.1.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "slab",
+        "version": "0.4.12",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "slotmap",
+        "version": "1.1.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "smallvec",
+        "version": "1.15.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "socket2",
+        "version": "0.6.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "spin",
+        "version": "0.10.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "spirv",
+        "version": "0.4.0+sdk-1.4.341.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "stable_deref_trait",
+        "version": "1.2.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "static_assertions",
+        "version": "1.1.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "subtle",
+        "version": "2.6.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "syn",
+        "version": "2.0.119",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "syn",
+        "version": "3.0.4",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "sync_wrapper",
+        "version": "1.0.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "synstructure",
+        "version": "0.13.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "target-lexicon",
+        "version": "0.13.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "termcolor",
+        "version": "1.4.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "thiserror",
+        "version": "2.0.20",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "thiserror-impl",
+        "version": "2.0.20",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "tikv-jemalloc-sys",
+        "version": "0.7.1+5.3.1-0-g81034ce1f1373e37dc865038e1bc8eeecf559ce8",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "tikv-jemallocator",
+        "version": "0.7.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "tinystr",
+        "version": "0.8.4",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "tokio",
+        "version": "1.53.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "tokio-macros",
+        "version": "2.7.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "tokio-rustls",
+        "version": "0.26.4",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "tokio-stream",
+        "version": "0.1.19",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "tokio-util",
+        "version": "0.7.19",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "tower",
+        "version": "0.5.3",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "tower-http",
+        "version": "0.6.11",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "tower-layer",
+        "version": "0.3.3",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "tower-service",
+        "version": "0.3.3",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "tracing",
+        "version": "0.1.44",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "tracing-core",
+        "version": "0.1.36",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "try-lock",
+        "version": "0.2.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "typenum",
+        "version": "1.20.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "unicase",
+        "version": "2.10.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "unicode-ident",
+        "version": "1.0.24",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "unicode-width",
+        "version": "0.2.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "untrusted",
+        "version": "0.9.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "url",
+        "version": "2.5.8",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "utf8_iter",
+        "version": "1.0.4",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "uuid",
+        "version": "1.26.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "version_check",
+        "version": "0.9.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "walkdir",
+        "version": "2.5.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "want",
+        "version": "0.3.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "wasi",
+        "version": "0.11.1+wasi-snapshot-preview1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "wasm-bindgen",
+        "version": "0.2.127",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "wasm-bindgen-futures",
+        "version": "0.4.77",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "wasm-bindgen-macro",
+        "version": "0.2.127",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "wasm-bindgen-macro-support",
+        "version": "0.2.127",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "wasm-bindgen-shared",
+        "version": "0.2.127",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "wasm-streams",
+        "version": "0.5.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "wasmtime-internal-core",
+        "version": "48.0.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "wasmtime-internal-jit-icache-coherence",
+        "version": "48.0.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "wayland-sys",
+        "version": "0.31.11",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "web-sys",
+        "version": "0.3.104",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "webpki-root-certs",
+        "version": "1.0.9",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "wgpu",
+        "version": "30.0.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "wgpu-core",
+        "version": "30.0.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "wgpu-core-deps-apple",
+        "version": "30.0.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "wgpu-core-deps-emscripten",
+        "version": "30.0.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "wgpu-core-deps-windows-linux-android",
+        "version": "30.0.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "wgpu-hal",
+        "version": "30.0.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "wgpu-naga-bridge",
+        "version": "30.0.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "wgpu-types",
+        "version": "30.0.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "winapi-util",
+        "version": "0.1.11",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "windows",
+        "version": "0.62.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "windows-collections",
+        "version": "0.3.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "windows-core",
+        "version": "0.62.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "windows-future",
+        "version": "0.3.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "windows-implement",
+        "version": "0.60.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "windows-interface",
+        "version": "0.59.3",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "windows-link",
+        "version": "0.2.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "windows-numerics",
+        "version": "0.3.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "windows-result",
+        "version": "0.4.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "windows-strings",
+        "version": "0.5.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "windows-sys",
+        "version": "0.52.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "windows-sys",
+        "version": "0.61.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "windows-targets",
+        "version": "0.52.6",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "windows-threading",
+        "version": "0.2.1",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "windows_aarch64_gnullvm",
+        "version": "0.52.6",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "windows_aarch64_msvc",
+        "version": "0.52.6",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "windows_i686_gnu",
+        "version": "0.52.6",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "windows_i686_gnullvm",
+        "version": "0.52.6",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "windows_i686_msvc",
+        "version": "0.52.6",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "windows_x86_64_gnu",
+        "version": "0.52.6",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "windows_x86_64_gnullvm",
+        "version": "0.52.6",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "windows_x86_64_msvc",
+        "version": "0.52.6",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "writeable",
+        "version": "0.6.4",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "xml-rs",
+        "version": "0.8.29",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "yoke",
+        "version": "0.8.3",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "yoke-derive",
+        "version": "0.8.2",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "zerocopy",
+        "version": "0.8.56",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "zerocopy-derive",
+        "version": "0.8.56",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "zerofrom",
+        "version": "0.1.8",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "zerofrom-derive",
+        "version": "0.1.7",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "zeroize",
+        "version": "1.9.0",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "zerotrie",
+        "version": "0.2.5",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "zerovec",
+        "version": "0.11.8",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "zerovec-derive",
+        "version": "0.11.6",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "zlib-rs",
+        "version": "0.6.7",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      },
+      {
+        "name": "zmij",
+        "version": "1.0.23",
+        "source": "registry+https://github.com/rust-lang/crates.io-index"
+      }
+    ],
+    "metadataSha256": "8e734125eaa6087e0261e4a11f0a4919a383bad5fc8a1e7657d60e4b2a58dc8e"
+  },
+  "generatedArtifacts": [
+    {
+      "path": "build/loop-budget/runtime.o.rs",
+      "nonblankLines": 159,
+      "sha256": "35a9c8910cfee7bc440fe6a442b23795cf3ed262b98ebe978721f79c1afaec6d",
+      "classification": "Generated handler link declarations, ABI/dispatch tables and assertions; audit generated behavior independently, do not hide owned semantics here."
+    }
+  ],
+  "ownedThirdPartyPatches": [
+    {
+      "path": "scripts/patches/luajit.patch",
+      "sha256": "a7e1fb5293afcab55de784885327c4da8e472f73645d1ec000e85d85bb52cb67"
+    }
+  ],
+  "rustBudget": 3000
+}

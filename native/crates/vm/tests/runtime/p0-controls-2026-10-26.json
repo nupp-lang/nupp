@@ -1,0 +1,653 @@
+{
+  "recordedAt": "2026-10-27T01:20:01.895258+00:00",
+  "inputs": {
+    "mainRevision": "fca53ef827b72d314c5dc228353d50007eb95b03",
+    "candidateRevision": "ae66f972b749c0f2baf6686a583ab051d41182bb",
+    "mainStatus": "",
+    "artifacts": {
+      "/Users/dowling/projects/nupp/.nupp-cache/toolchain/d4edac07602cf2b3/luajit/bin/luajit": "065a64738679bec1295e75ed1606de90465eb47157fab7b08cae42ebbc3f8bdd",
+      "/Users/dowling/projects/nupp/build/nupp/tools/main.lua": "8225b7ed3c3bc3a14ba590e89603a631faf95e731afa12b017b5e046632b755e",
+      "/Users/dowling/projects/nupp/build/lib/libnupp_native_dev.dylib": "23d9e19009622cd631a4cd825b5f5388bf2a8f854ecfa011c15cd87b5cf52e90",
+      "/Users/dowling/projects/nupp/.nupp-cache/toolchain/d4edac07602cf2b3/luajit/.nupp-runtime-patch": "b6a4f893432004d56514737a64d1f8dbe5049c2951a72e17d199b7570e2b89c6",
+      "/Users/dowling/projects/nupp/scripts/patches/luajit.patch": "a7e1fb5293afcab55de784885327c4da8e472f73645d1ec000e85d85bb52cb67",
+      "/Users/dowling/projects/nupp-wt/native-runtime/build/native-result-regression/runtime": "a3384c00f849c384f918041fac29b8ee9e489402921acf82668c4fd33d7bd0ab",
+      "/Users/dowling/projects/nupp-wt/native-runtime/.nupp/vm-cli/38beded458f01e50c7bd01edf101dce44831f65c8e67b17b6730c5f8e49d4ce5/compiler.image": "0725c2f3132bca54125484931b69c446c61410dbd7a1179c5510fe3466e40913",
+      "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/workloads.bench.nupp": "556ab0396710562852e6fdc9043cfaf6fad9bb4be7a5a44998c50cd5932cc0d6",
+      "/Users/dowling/projects/nupp-wt/native-runtime/bench/vm/workloads.bench.nupp": "2bccc66e313979d7cd8eba2ee71f9d367222930a2ee73612d88e27bfd23daaf8",
+      "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/luajit-mode.lua": "4def938b781f8c90f56edaaf6d9404919b815392a792a8fc6ce671162f968635"
+    },
+    "scope": "Same six original workloads, with identical untimed JIT-mode assertions prepended for both executables. LuaJIT-on is production acceptance; LuaJIT-off is interpreter diagnosis.",
+    "measurement": "interleaved paired fresh processes; BENCH_SCALE=1; 12 forks; 2% practical margin; checksums must match"
+  },
+  "commands": [
+    {
+      "mode": "on",
+      "command": [
+        "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/nupp-interpreter",
+        "bench",
+        "--file",
+        "build/native-runtime-p0/workloads.bench.nupp",
+        "--against",
+        "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/luajit-main-on",
+        "--forks",
+        "12",
+        "--margin",
+        "2",
+        "--json"
+      ],
+      "returnCode": 0,
+      "seconds": 350.30193975
+    },
+    {
+      "mode": "off",
+      "command": [
+        "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/nupp-interpreter",
+        "bench",
+        "--file",
+        "build/native-runtime-p0/workloads.bench.nupp",
+        "--against",
+        "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/luajit-main-off",
+        "--forks",
+        "12",
+        "--margin",
+        "2",
+        "--json"
+      ],
+      "returnCode": 0,
+      "seconds": 465.843261167
+    }
+  ],
+  "artifactCheck": {
+    "changedArtifacts": [],
+    "mainRevisionAfter": "fca53ef827b72d314c5dc228353d50007eb95b03"
+  },
+  "results": {
+    "on": [
+      {
+        "name": "fib",
+        "nuppMs": 30.627416014671326,
+        "luajitMs": 3.038915991783142,
+        "nuppRssBytes": 246464512,
+        "luajitRssBytes": 178126848,
+        "checksum": "832040",
+        "verdict": {
+          "adjusted": 0.00048828125,
+          "case": "build/native-runtime-p0/workloads.bench.nupp",
+          "change": 9.023647655761575,
+          "interval": {
+            "low": 8.897381266423103,
+            "upper": 9.51833280100458
+          },
+          "meanRatio": 10.183037825497033,
+          "name": "fib",
+          "noninferiority": false,
+          "pValue": 0.00048828125,
+          "verdict": "regressed"
+        }
+      },
+      {
+        "name": "loops",
+        "nuppMs": 368.5588330030441,
+        "luajitMs": 136.14125001430511,
+        "nuppRssBytes": 246562816,
+        "luajitRssBytes": 169050112,
+        "checksum": "761038",
+        "verdict": {
+          "adjusted": 0.00048828125,
+          "case": "build/native-runtime-p0/workloads.bench.nupp",
+          "change": 1.7052673193778607,
+          "interval": {
+            "low": 1.6860273242529744,
+            "upper": 1.801454397551646
+          },
+          "meanRatio": 2.7392553347057813,
+          "name": "loops",
+          "noninferiority": false,
+          "pValue": 0.00048828125,
+          "verdict": "regressed"
+        }
+      },
+      {
+        "name": "tables",
+        "nuppMs": 77.5535420179367,
+        "luajitMs": 4.455749988555908,
+        "nuppRssBytes": 271679488,
+        "luajitRssBytes": 225837056,
+        "checksum": "487886131",
+        "verdict": {
+          "adjusted": 0.00048828125,
+          "case": "build/native-runtime-p0/workloads.bench.nupp",
+          "change": 16.47881955313272,
+          "interval": {
+            "low": 16.198012749384993,
+            "upper": 16.808610095020782
+          },
+          "meanRatio": 17.50438162584145,
+          "name": "tables",
+          "noninferiority": false,
+          "pValue": 0.00048828125,
+          "verdict": "regressed"
+        }
+      },
+      {
+        "name": "strings",
+        "nuppMs": 178.0760840177536,
+        "luajitMs": 42.100499987602234,
+        "nuppRssBytes": 313851904,
+        "luajitRssBytes": 219758592,
+        "checksum": "5281858",
+        "verdict": {
+          "adjusted": 0.00048828125,
+          "case": "build/native-runtime-p0/workloads.bench.nupp",
+          "change": 3.2149383230161144,
+          "interval": {
+            "low": 3.1977825010791516,
+            "upper": 3.2981676697615248
+          },
+          "meanRatio": 4.248648201514878,
+          "name": "strings",
+          "noninferiority": false,
+          "pValue": 0.00048828125,
+          "verdict": "regressed"
+        }
+      },
+      {
+        "name": "records",
+        "nuppMs": 42.95591604709625,
+        "luajitMs": 9.942958950996399,
+        "nuppRssBytes": 349765632,
+        "luajitRssBytes": 278265856,
+        "checksum": "800000",
+        "verdict": {
+          "adjusted": 0.00048828125,
+          "case": "build/native-runtime-p0/workloads.bench.nupp",
+          "change": 3.315147586273315,
+          "interval": {
+            "low": 3.2742001704325485,
+            "upper": 3.434463241905985
+          },
+          "meanRatio": 4.357757663464793,
+          "name": "records",
+          "noninferiority": false,
+          "pValue": 0.00048828125,
+          "verdict": "regressed"
+        }
+      },
+      {
+        "name": "closures",
+        "nuppMs": 56.425958037376404,
+        "luajitMs": 4.134374976158142,
+        "nuppRssBytes": 416169984,
+        "luajitRssBytes": 398082048,
+        "checksum": "499892",
+        "verdict": {
+          "adjusted": 0.00048828125,
+          "case": "build/native-runtime-p0/workloads.bench.nupp",
+          "change": 12.689265325787746,
+          "interval": {
+            "low": 12.540559507296605,
+            "upper": 13.160840924050529
+          },
+          "meanRatio": 13.851608323404246,
+          "name": "closures",
+          "noninferiority": false,
+          "pValue": 0.00048828125,
+          "verdict": "regressed"
+        }
+      }
+    ],
+    "off": [
+      {
+        "name": "fib",
+        "nuppMs": 30.47699999809265,
+        "luajitMs": 12.602458000183105,
+        "nuppRssBytes": 254951424,
+        "luajitRssBytes": 134922240,
+        "checksum": "832040",
+        "verdict": {
+          "adjusted": 0.0005859375,
+          "case": "build/native-runtime-p0/workloads.bench.nupp",
+          "change": 1.4090901962104891,
+          "interval": {
+            "low": 1.3982182643897048,
+            "upper": 1.4443107915118043
+          },
+          "meanRatio": 2.4226218803169943,
+          "name": "fib",
+          "noninferiority": false,
+          "pValue": 0.00048828125,
+          "verdict": "regressed"
+        }
+      },
+      {
+        "name": "loops",
+        "nuppMs": 379.17141699790955,
+        "luajitMs": 338.0802080631256,
+        "nuppRssBytes": 254738432,
+        "luajitRssBytes": 135069696,
+        "checksum": "761038",
+        "verdict": {
+          "adjusted": 0.0005859375,
+          "case": "build/native-runtime-p0/workloads.bench.nupp",
+          "change": 0.13142005207089458,
+          "interval": {
+            "low": 0.08344615130290034,
+            "upper": 0.17231442384903572
+          },
+          "meanRatio": 1.1242109504544455,
+          "name": "loops",
+          "noninferiority": false,
+          "pValue": 0.00048828125,
+          "verdict": "regressed"
+        }
+      },
+      {
+        "name": "tables",
+        "nuppMs": 76.34487497806549,
+        "luajitMs": 71.83295798301697,
+        "nuppRssBytes": 281133056,
+        "luajitRssBytes": 171606016,
+        "checksum": "487886131",
+        "verdict": {
+          "adjusted": 0.0005859375,
+          "case": "build/native-runtime-p0/workloads.bench.nupp",
+          "change": 0.06916974004480236,
+          "interval": {
+            "low": 0.05008527710518096,
+            "upper": 0.10005355559082485
+          },
+          "meanRatio": 1.0746540803347786,
+          "name": "tables",
+          "noninferiority": false,
+          "pValue": 0.00048828125,
+          "verdict": "regressed"
+        }
+      },
+      {
+        "name": "strings",
+        "nuppMs": 180.6852090358734,
+        "luajitMs": 74.01254200935364,
+        "nuppRssBytes": 313917440,
+        "luajitRssBytes": 166199296,
+        "checksum": "5281858",
+        "verdict": {
+          "adjusted": 0.0005859375,
+          "case": "build/native-runtime-p0/workloads.bench.nupp",
+          "change": 1.4397797552277436,
+          "interval": {
+            "low": 1.4179770595014212,
+            "upper": 1.4887386128381643
+          },
+          "meanRatio": 2.4551665182543214,
+          "name": "strings",
+          "noninferiority": false,
+          "pValue": 0.00048828125,
+          "verdict": "regressed"
+        }
+      },
+      {
+        "name": "records",
+        "nuppMs": 42.89620792865753,
+        "luajitMs": 43.84745895862579,
+        "nuppRssBytes": 357957632,
+        "luajitRssBytes": 248692736,
+        "checksum": "800000",
+        "verdict": {
+          "adjusted": 0.12939453125,
+          "case": "build/native-runtime-p0/workloads.bench.nupp",
+          "change": -0.02985369107443503,
+          "interval": {
+            "low": -0.04377141050332578,
+            "upper": 0.0055139579352310175
+          },
+          "meanRatio": 0.9819476582102648,
+          "name": "records",
+          "noninferiority": true,
+          "pValue": 0.12939453125,
+          "verdict": "inconclusive"
+        }
+      },
+      {
+        "name": "closures",
+        "nuppMs": 56.562958002090454,
+        "luajitMs": 19.133000016212463,
+        "nuppRssBytes": 423821312,
+        "luajitRssBytes": 341590016,
+        "checksum": "499892",
+        "verdict": {
+          "adjusted": 0.0005859375,
+          "case": "build/native-runtime-p0/workloads.bench.nupp",
+          "change": 1.9468773661493466,
+          "interval": {
+            "low": 1.9326526510246933,
+            "upper": 1.9623682160833624
+          },
+          "meanRatio": 2.944353170682851,
+          "name": "closures",
+          "noninferiority": false,
+          "pValue": 0.00048828125,
+          "verdict": "regressed"
+        }
+      }
+    ]
+  },
+  "logs": {
+    "on": {
+      "path": "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/workloads-luajit-on.stderr",
+      "sha256": "1c4cd571bcb36a3e5b9143b655fc7f9fbc3c5af0acd99231e730cffc6309b66b",
+      "verifiedWorkloadProcessCount": 72,
+      "rawResults": "luajit-main-on-2026-10-26.json",
+      "rawResultsSha256": "1b4e1089a2559d5fa2e65f251d50aa2095cb9edd41b70f428e9fae1c3fb7136b"
+    },
+    "off": {
+      "path": "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/workloads-luajit-off.stderr",
+      "sha256": "869339cb78eabee21fa77c048782811dd0ee7a4e986e48873fde06fcf10ce297",
+      "verifiedWorkloadProcessCount": 72,
+      "rawResults": "luajit-main-off-2026-10-26.json",
+      "rawResultsSha256": "a04c0d39020fb90d87bc7587ee2af187a604a2ae1bb8ecb8d09a0604f26fe8aa"
+    }
+  },
+  "reproduction": {
+    "originalWorkload": "bench/vm/workloads.bench.nupp",
+    "guardedWorkloadSource": "local expectedJit = os.getenv(\"NUPP_BASELINE_JIT\")\nif expectedJit then\n    local engine: any = rawget(_G, \"jit\")\n    assert(type(engine) == \"table\", \"baseline is not LuaJIT\")\n    assert(engine.status() == (expectedJit == \"on\"), \"baseline JIT mode differs\")\n    io.stderr:write(\"# verified workload LuaJIT \" .. expectedJit .. \"\\n\")\nend\n\n--- The interpreter workloads: six cases a replacement runtime is judged on.\n---\n--- The same source the hand-rolled comparison ran, as `nupp.bench` cases so the\n--- runner's paired `--against` protocol applies to them. Each case runs its workload\n--- once per iteration -- `n` is fixed at one, so a round is one run of the original\n--- work -- and declares the checksum the original printed, which every fork and both\n--- executables must agree on.\n---\n--- `BENCH_SCALE` is read at run time, as the original read it, so no compiler can\n--- fold a case away. The checksums at scale 1 are fib 832040, loops 761038, tables\n--- 487886131, strings 5281858, records 800000, closures 499892; at scale 2 they are\n--- fib 1346269, loops 522073, tables 487986259, strings 5433712, records 199997,\n--- closures 999754.\n---\n--- Run: nupp bench --file bench/vm/workloads.bench.nupp --against OTHER_NUPP --forks 12\n--- --margin 2\nlocal bench = require(\"nupp.bench\")\n\nlocal scale: number = tonumber(os.getenv(\"BENCH_SCALE\") or \"1\") or 1\n\nlocal function fib(n: number): number\n    if n < 2 then\n        return n\n    end\n\n    return fib(n - 1) + fib(n - 2)\nend\n\nlocal function loops(): number\n    local total = 0\n    for i = 1, 30000000 do\n        total = (total + i * i * scale) % 1000003\n    end\n\n    return total\nend\n\nlocal function tables(): number\n    local counts: {[number]: number} = {}\n    for i = 1, 3000000 do\n        local k = (i * 7919 * scale) % 4099\n        counts[k] = (counts[k] or 0) + 1\n    end\n    local arr: {number} = {}\n    for i = 1, 1000000 do\n        arr[i] = (i * scale) % 977\n    end\n    local sum = 0\n    for _, v in ipairs(arr) do\n        sum = sum + v\n    end\n\n    return sum + #counts\nend\n\nlocal function strings(): number\n    local parts: {string} = {}\n    for i = 1, 300000 do\n        parts[#parts + 1] = (\"item%d:%s\"):format(i, tostring(i * 3 * scale))\n    end\n    local joined = table.concat(parts, \",\")\n    local found = 0\n    for _ in joined:gmatch(\"item%d+5:\") do\n        found = found + 1\n    end\n\n    return #joined + found\nend\n\nlocal record Point\n    x: number\n    y: number\nend\n\nlocal function records(): number\n    local points: {Point} = {}\n    for i = 1, 200000 do\n        points[i] = new Point(x = i * scale, y = i * 2)\n    end\n    local acc = 0.0\n    for _ = 1, 20 do\n        for i = 1, #points do\n            local p = points[i]\n            acc = acc + p.x * 0.5 + p.y * 0.25\n        end\n    end\n\n    return math.floor(acc) % 1000003\nend\n\nlocal function closures(): number\n    local function map(xs: {number}, f: function(number): number): {number}\n        local out: {number} = {}\n        for i = 1, #xs do\n            out[i] = f(xs[i])\n        end\n\n        return out\n    end\n\n    local xs: {number} = {}\n    for i = 1, 100000 do\n        xs[i] = i * scale\n    end\n    local total = 0\n    for round = 1, 30 do\n        local ys = map(xs, function(v: number): number\n            return v * round + 1\n        end)\n        total = (total + ys[#ys]) % 1000003\n    end\n\n    return total\nend\n\nlocal workloads: {{\n    name: string,\n    run: function(): number\n}} = {\n    {\n        name = \"fib\",\n        run = function(): number\n            return fib(29 + scale)\n        end,\n    },\n    {name = \"loops\", run = loops},\n    {name = \"tables\", run = tables},\n    {name = \"strings\", run = strings},\n    {name = \"records\", run = records},\n    {name = \"closures\", run = closures},\n}\n\nfor _, workload in ipairs(workloads) do\n    local run = workload.run\n    bench.case(\n        workload.name,\n        function(b: bench.Case): nil\n            local check = 0\n            for _ = 1, b.n do\n                check = run()\n            end\n            bench.keep(check)\n            b.checksum = check\n        end,\n        1\n    )\nend\n\nbench.report()\n",
+    "luaInit": "local mode = os.getenv(\"NUPP_BASELINE_JIT\")\nif mode == \"off\" then jit.off() end\nif mode then assert(jit.status() == (mode == \"on\"), \"wrong baseline LuaJIT mode\") end\n",
+    "wrappers": {
+      "nupp-interpreter": "#!/bin/sh\nunset LUA_INIT NUPP_BASELINE_JIT GC_STRESS GC_INTERLEAVE GC_ORACLE\nNUPP_COMPILER_ROOT=/Users/dowling/projects/nupp-wt/native-runtime\nNUPP_VM_BINARY=/Users/dowling/projects/nupp-wt/native-runtime/build/native-result-regression/runtime\nNUPP_VM_CLI_IMAGE=/Users/dowling/projects/nupp-wt/native-runtime/.nupp/vm-cli/38beded458f01e50c7bd01edf101dce44831f65c8e67b17b6730c5f8e49d4ce5/compiler.image\nNO_JIT=1\nNO_AOT=1\nSIMD_INTERPRET=1\nNUPP_VM_AUTO_REBUILD=0\nexport NUPP_COMPILER_ROOT NUPP_VM_BINARY NUPP_VM_CLI_IMAGE NO_JIT NO_AOT SIMD_INTERPRET NUPP_VM_AUTO_REBUILD\nexec \"$NUPP_VM_BINARY\" exec \"$NUPP_VM_CLI_IMAGE\" nupp.tools.vm.root \"$@\"\n",
+      "luajit-main-on": "#!/bin/sh\nunset NUPP_VM_CLI_IMAGE NUPP_VM_BINARY NUPP_VM_CLI_ENTRY NUPP_COMPILER_ROOT NUPP_JIT_IMAGE\nunset NO_JIT NO_AOT SIMD_INTERPRET JIT_FRAME_THRESHOLD JIT_THRESHOLD GC_STRESS GC_INTERLEAVE GC_ORACLE\nNUPP_BASELINE_JIT=on\nLUA_INIT=@/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/luajit-mode.lua\nexport NUPP_BASELINE_JIT LUA_INIT\nexec /Users/dowling/projects/nupp/bin/nupp \"$@\"\n",
+      "luajit-main-off": "#!/bin/sh\nunset NUPP_VM_CLI_IMAGE NUPP_VM_BINARY NUPP_VM_CLI_ENTRY NUPP_COMPILER_ROOT NUPP_JIT_IMAGE\nunset NO_JIT NO_AOT SIMD_INTERPRET JIT_FRAME_THRESHOLD JIT_THRESHOLD GC_STRESS GC_INTERLEAVE GC_ORACLE\nNUPP_BASELINE_JIT=off\nLUA_INIT=@/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/luajit-mode.lua\nexport NUPP_BASELINE_JIT LUA_INIT\nexec /Users/dowling/projects/nupp/bin/nupp \"$@\"\n"
+    }
+  },
+  "aotControl": {
+    "path": "/Users/dowling/projects/nupp-wt/native-runtime-integration/build/native-runtime/p0-controls/aot-ae66",
+    "installationReceipt": {
+      "format": "nupp-vm-cli-1",
+      "runtimeSha256": "7975e1709ed1b690fec7512f11724bead4f6a4cd7cfd5e06ca798c45196a6297",
+      "imageSha256": "dd93ca889bc8062b4ec589662db1f7c39946677db171df248d24b4ccdebcb0c6",
+      "installedFrom": {
+        "runtime": "/Users/dowling/projects/nupp-wt/native-runtime-integration/build/vm-cli/link/runtime",
+        "image": "/Users/dowling/projects/nupp-wt/native-runtime-integration/build/vm-cli/link/compiler.image"
+      },
+      "sourceAtInstall": {
+        "revision": "ae66f972b749c0f2baf6686a583ab051d41182bb",
+        "fingerprint": "6bcd6ea5822acfd12b7ac2886986f4544f389dc3b064763428fa6a257a3352e3"
+      },
+      "sourceProvenance": "Source state at installation, not a claim that supplied artifacts were built from it.",
+      "execution": "no-JIT interpreter; heap-frame or affine cleanup uses Rust dispatch; supplied linked AOT remains enabled",
+      "linked": true,
+      "validation": [
+        "image verifier",
+        "full root CLI --help"
+      ]
+    },
+    "validation": {
+      "runtimeAbi": 4,
+      "binarySha256": "7975e1709ed1b690fec7512f11724bead4f6a4cd7cfd5e06ca798c45196a6297",
+      "imageSha256": "dd93ca889bc8062b4ec589662db1f7c39946677db171df248d24b4ccdebcb0c6",
+      "manifestSha256": "a31df50d65b675cbd19a700c4615847b0a17a14e2ac7988258ace7bff1b4ddc5",
+      "compiledFunctions": 6113,
+      "imageFunctions": 6113,
+      "platform": "macOS-26.6-arm64-arm-64bit",
+      "freshProcesses": 2,
+      "results": [
+        {
+          "name": "symbols",
+          "exitStatus": 0,
+          "seconds": 0.039,
+          "status": "passed"
+        },
+        {
+          "name": "build-denial",
+          "exitStatus": 0,
+          "seconds": 0.035,
+          "status": "passed"
+        },
+        {
+          "name": "build-probe",
+          "exitStatus": 0,
+          "seconds": 0.035,
+          "status": "passed"
+        },
+        {
+          "name": "deny-mapping",
+          "exitStatus": 86,
+          "seconds": 0.276,
+          "status": "passed"
+        },
+        {
+          "name": "deny-protection",
+          "exitStatus": 86,
+          "seconds": 0.009,
+          "status": "passed"
+        },
+        {
+          "name": "emit-interpreted",
+          "exitStatus": 0,
+          "seconds": 0.298,
+          "status": "passed"
+        },
+        {
+          "name": "emit-aot-0",
+          "exitStatus": 0,
+          "seconds": 0.2,
+          "status": "passed"
+        },
+        {
+          "name": "emit-aot-1",
+          "exitStatus": 0,
+          "seconds": 0.203,
+          "status": "passed"
+        },
+        {
+          "name": "verify-emitted",
+          "exitStatus": 0,
+          "seconds": 0.008,
+          "status": "passed"
+        },
+        {
+          "name": "execute-emitted",
+          "exitStatus": 0,
+          "seconds": 0.007,
+          "status": "passed"
+        },
+        {
+          "name": "reject-mismatched-image",
+          "exitStatus": 1,
+          "seconds": 0.007,
+          "status": "passed"
+        },
+        {
+          "name": "invalid-interpreted",
+          "exitStatus": 1,
+          "seconds": 0.261,
+          "status": "passed"
+        },
+        {
+          "name": "invalid-aot",
+          "exitStatus": 1,
+          "seconds": 0.195,
+          "status": "passed"
+        }
+      ],
+      "scope": "Host-native compiler AOT; fresh processes use normal host ASLR policy. No cross-platform or console validation.",
+      "executableMemoryDenied": true,
+      "emittedImageSha256": "5bb70d319907c56b1ec9ed1a2375fbc612163453e860cb1975444721a8e3feb2",
+      "diagnosticCodes": [
+        "NUPP2001"
+      ],
+      "status": "passed"
+    },
+    "compiledFrameEntries": [
+      1343924,
+      1343924
+    ],
+    "smokeHarness": "native/crates/vm/tests/compiler-aot-smoke.py",
+    "smokeHarnessSha256": "aa5bc3a77ee4107a013a3a9df6be2499238cbee6df26ef6de0e71da54284d846",
+    "scope": "Frozen existing Rust AOT compiler for P2-P7 continuity; not the handler-derived AOT tier. Fresh-process byte identity, actual entry execution, valid mismatched-image rejection, diagnostics and denied executable memory all pass."
+  },
+  "disposition": "The interpreter misses the production LuaJIT-on margin on all six workloads. Against verified LuaJIT-off, five cases miss the margin; records has an inconclusive duration verdict with an upper regression bound below 2%. These establish migration controls and optimization work; they do not change the chosen runtime or close final shipped-tier gates.",
+  "remaining": [
+    "Cold/warm compiler checking and full compiler rebuild controls",
+    "Numeric RSS, code-size and compile/warmup ceilings before adoption gates",
+    "Derived baseline, optimizing JIT and derived AOT rows",
+    "Task/worker and snapshot/game workloads"
+  ],
+  "compilerCheckDiagnostics": {
+    "scope": "Diagnostic single processes, not a paired performance comparison. No compatibility APIs are restored. AOT accepts all 522 modules of its own pinned source with a minimal manifest; neither whole source tree is currently a shared accepted checking workload.",
+    "acceptedAotOwnSource": [
+      {
+        "pair": 0,
+        "label": "aot",
+        "state": "cold",
+        "command": [
+          "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/aot-compiler",
+          "check",
+          "--json"
+        ],
+        "cwd": "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/compiler-controls-migration-source/0-aot/project",
+        "cache": "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/compiler-controls-migration-source/0-aot/cache",
+        "returnCode": 0,
+        "wallMs": 42801.935208,
+        "compiledModules": 522,
+        "maxRssBytes": 4234084352
+      },
+      {
+        "pair": 0,
+        "label": "aot",
+        "state": "warm",
+        "command": [
+          "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/aot-compiler",
+          "check",
+          "--json"
+        ],
+        "cwd": "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/compiler-controls-migration-source/0-aot/project",
+        "cache": "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/compiler-controls-migration-source/0-aot/cache",
+        "returnCode": 0,
+        "wallMs": 686.1067090000006,
+        "compiledModules": 0,
+        "maxRssBytes": 474923008
+      }
+    ],
+    "rejectedCrossBranchInputs": [
+      {
+        "scenario": "main manifest rejected by migrated compiler",
+        "sourceRevision": "fca53ef827b72d314c5dc228353d50007eb95b03",
+        "sourceScope": "Both compilers check a fresh git archive of the same production main revision. Each side/fork gets its own project and cache.",
+        "accepted": false,
+        "lastProcess": {
+          "pair": 0,
+          "label": "aot",
+          "state": "cold",
+          "command": [
+            "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/aot-compiler",
+            "check",
+            "--json"
+          ],
+          "cwd": "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/compiler-controls/0-aot/project",
+          "cache": "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/compiler-controls/0-aot/cache",
+          "returnCode": 1,
+          "wallMs": 386.6050839999957
+        },
+        "diagnosticsByCode": {
+          "NUPP0002": 1
+        },
+        "diagnosticExamples": [
+          {
+            "file": "nupp.lua",
+            "code": "NUPP0002",
+            "message": "build.targets.compiler has no key \"optimize\""
+          }
+        ],
+        "logSha256": "78d2e2cc4e8eda2e4818f8b3a697fa87da5263de34265f3ae7900ab39ab1c6de"
+      },
+      {
+        "scenario": "main source with minimal manifest rejected by migrated compiler",
+        "sourceRevision": "fca53ef827b72d314c5dc228353d50007eb95b03",
+        "sourceScope": "Both compilers check a fresh git archive of the same production main revision, with the same minimal manifest retaining all three include roots and omitting backend-specific build/dependency configuration. Source files are unchanged. Each side/fork gets its own project and cache.",
+        "accepted": false,
+        "lastProcess": {
+          "pair": 0,
+          "label": "aot",
+          "state": "cold",
+          "command": [
+            "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/aot-compiler",
+            "check",
+            "--json"
+          ],
+          "cwd": "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/compiler-controls-common/0-aot/project",
+          "cache": "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/compiler-controls-common/0-aot/cache",
+          "returnCode": 1,
+          "wallMs": 47744.75624999999
+        },
+        "diagnosticsByCode": {
+          "NUPP2011": 145,
+          "NUPP2004": 308,
+          "NUPP2101": 7,
+          "NUPP2003": 53
+        },
+        "diagnosticExamples": [
+          {
+            "file": "src/nupp/codec/base64.nupp",
+            "code": "NUPP2011",
+            "message": "any is not established as uint32"
+          },
+          {
+            "file": "src/nupp/codec/base64.nupp",
+            "code": "NUPP2004",
+            "message": "no field \"add\" in U32MathLibrary"
+          },
+          {
+            "file": "src/nupp/codec/base64.nupp",
+            "code": "NUPP2011",
+            "message": "any is not established as uint32"
+          }
+        ],
+        "logSha256": "8b54325a5eed36dd1ea9677afdacbab5adabf4df513263a6eb51550b2decd8fd"
+      },
+      {
+        "scenario": "migration source with minimal manifest rejected by main",
+        "sourceRevision": "ae66f972b749c0f2baf6686a583ab051d41182bb",
+        "sourceScope": "Both compilers check a fresh git archive of the same migration revision ae66f972b, with the same minimal manifest retaining all three include roots and omitting backend-specific build/dependency configuration. Source files are unchanged. Each side/fork gets its own project and cache.",
+        "accepted": false,
+        "lastProcess": {
+          "pair": 0,
+          "label": "luajit",
+          "state": "cold",
+          "command": [
+            "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/luajit-main-on",
+            "check",
+            "--json"
+          ],
+          "cwd": "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/compiler-controls-migration-source/0-luajit/project",
+          "cache": "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/compiler-controls-migration-source/0-luajit/cache",
+          "returnCode": 1,
+          "wallMs": 65259.854250000004
+        },
+        "diagnosticsByCode": {
+          "NUPP2004": 133,
+          "NUPP2611": 9,
+          "NUPP2505": 4,
+          "NUPP2603": 22,
+          "NUPP2619": 5
+        },
+        "diagnosticExamples": [
+          {
+            "file": "src/nupp/checksum/internal/builtin.nupp",
+            "code": "NUPP2004",
+            "message": "no field \"update\" in unknown"
+          },
+          {
+            "file": "src/nupp/checksum/internal/builtin.nupp",
+            "code": "NUPP2611",
+            "message": "a live capability cannot cross an untyped call; use @unsafe nupp.release explicitly to abandon tracking"
+          },
+          {
+            "file": "src/nupp/checksum/internal/builtin.nupp",
+            "code": "NUPP2004",
+            "message": "no field \"update\" in unknown"
+          }
+        ],
+        "logSha256": "8cf470711c166da75a63155a479238ae922cb4174ec705d001ba39405b4b12ce"
+      }
+    ]
+  }
+}

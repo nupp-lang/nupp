@@ -127,25 +127,27 @@ int main(int argc, char **argv) {
         work = Path(temporary)
         env["NUPP_CACHE_DIR"] = str(work / "cache")
         project = root / "native/crates/vm/tests/project"
-        command = [binary, "run", image, "nupp.tools.vm.project", "emit", project, "demo.math", *flags]
-        expected, _ = run("emit-interpreted", command, {"NO_AOT": "1"})
-        expected_image = json.loads(expected)
-        assert isinstance(expected_image, str) and "module demo.math " in expected_image
         emitted = output / "emitted.image"
-        emitted.write_text(expected_image)
+        command = [binary, "run", image, "nupp.tools.vm.project", "emit", project, "demo.math",
+                   *flags, "--output", emitted]
+        run("emit-interpreted", command, {"NO_AOT": "1"})
+        expected_image = emitted.read_bytes()
+        assert expected_image, "interpreted compiler emitted no image"
         report["emittedImageSha256"] = digest(emitted)
         for index in range(args.runs):
-            actual, stderr = run(f"emit-aot-{index}", command)
+            actual_image = output / f"emitted-aot-{index}.image"
+            command[-1] = actual_image
+            _, stderr = run(f"emit-aot-{index}", command)
             assert re.search(r"aot: attached [1-9][0-9]* linked entries", stderr), "AOT entries were not attached"
             if args.frames:
                 assert re.search(r"compiled frame entries: [1-9][0-9]*", stderr), "no compiled frames executed"
-            assert json.loads(actual) == expected_image, "compiled compiler emitted different bytes"
+            assert actual_image.read_bytes() == expected_image, "compiled compiler emitted different bytes"
         run("verify-emitted", [binary, "verify", emitted], {"NO_AOT": "1"})
         actual, _ = run("execute-emitted", [binary, "run", emitted, "demo.math", "twice", "21"], {"NO_AOT": "1"})
         assert actual.splitlines()[0] == "42", actual
-        # The image must be rejected before a linked entry can run against it.
+        # A valid, different image must be rejected before a linked entry runs.
         mismatch = work / "mismatch.image"
-        mismatch.write_bytes(image.read_bytes() + b"\n")
+        mismatch.write_bytes(expected_image)
         command[2] = mismatch
         _, stderr = run("reject-mismatched-image", command, status=None)
         assert "aot: linked object was built for another image" in stderr

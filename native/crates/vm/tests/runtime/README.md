@@ -1,11 +1,13 @@
 # Native runtime measurements
 
-This directory keeps the measurements that decided the Nupp-authored
-interpreter core; the code it measured has moved out of the experiment:
+This directory keeps runtime migration evidence. The Nupp runtime is the chosen
+implementation; these records validate changes and track the remaining work.
+The earlier measurements below predate the current `nupp-native-runtime` plan:
 
 - the lowering of ordinary typed Nupp to Cranelift's textual IR is
   `nupp.compiler.clif.lower` (`src/nupp/compiler/clif/`), with its SSA
-  construction in `nupp.compiler.clif.ssa`;
+  construction in `nupp.compiler.clif.ssa`. Direct checked-syntax lowering is
+  temporary; P1b moves it through the Nupp semantic graph;
 - the handler sources are the modules under `src/nupp/runtime/vm/`, one
   per opcode group (`core`, `calls`, `protocol`, `lookup`, `boxing`), written
   against the intrinsics declared in `intrinsics.d.nupp`;
@@ -57,3 +59,48 @@ the owner on 2026-10-26. Rust comparisons above describe historical runs.
 Current comparisons must identify main's revision and LuaJIT executable,
 leave LuaJIT enabled, and use the same source and checksum on both sides.
 Record interpreter-only and JIT-on Nupp candidates separately.
+
+`p0-controls-2026-10-26.json` records twelve paired fresh processes for every
+workload against production `main@fca53ef827b72d314c5dc228353d50007eb95b03`,
+with a 2% practical margin. The Nupp side is interpreter-only, with the native
+core and the helper return-count and unlimited-budget corrections. Both sides
+run identical guarded workload sources; every LuaJIT workload process asserts
+its actual `jit.status()`. Inputs and executable/image hashes remain unchanged.
+The two `luajit-main-*-2026-10-26.json` files retain the complete samples.
+
+| Workload | Nupp / LuaJIT on | Nupp / LuaJIT off |
+| --- | --- | --- |
+| fib | 10.18 | 2.42 |
+| loops | 2.74 | 1.12 |
+| tables | 17.50 | 1.08 |
+| strings | 4.25 | 2.46 |
+| records | 4.36 | 0.98 |
+| closures | 13.85 | 2.94 |
+
+Ratios are geometric means of paired durations; lower is better. The interpreter
+misses the production margin on all six cases. Against LuaJIT-off, five miss the
+margin; records has an inconclusive duration verdict with its upper regression
+bound below 2%. The production comparison remains the shipped-mode merge target.
+The JIT-off row diagnoses interpreter costs.
+
+That receipt also freezes the existing linked compiler at `ae66f972b`, with
+6,113 AOT entries. Two fresh processes execute compiled compiler frames with
+executable memory denied and emit byte-identical binary images. The harness
+also verifies the emitted program, rejects a valid mismatched image and checks
+compiler diagnostics. This is the existing AOT continuity control, not the
+handler-derived AOT tier. Compiler timing and resource ceilings remain open.
+
+`source-inventory-2026-10-26.json` maps all 159 tracked Rust files and all 15
+workspace members to their deletion phase or narrow bridge responsibility. It
+counts 58,532 nonblank production lines in 92 files, 19,253 test/example/fixture
+lines in 67 files, 14 product crates and one test fixture crate. The 301-package
+all-feature dependency union includes platform, dev and build dependencies;
+it is not a default executable dependency count. Planned Nupp owners are marked
+separately from existing modules. The migration plan's acceptance ledger keeps
+unfinished history/replay and platform capabilities explicit.
+
+`native-result-count-2026-10-26.json` closes the reproduced native compiler
+`Move` failure. `unlimited-budget-2026-10-26.json` records the budget correction
+and its finite/unlimited call/back-edge regressions. Full native compiler
+acceptance, handler contracts, remaining interpreter groups and Rust deletion
+remain open.
