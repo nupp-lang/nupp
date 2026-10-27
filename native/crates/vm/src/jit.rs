@@ -584,7 +584,7 @@ impl<M: Module> Compiler<M> {
             let empty1 = b.ins().icmp_imm(IntCC::Equal, b1, 0); b.ins().brif(empty1, absent, &[], miss, &[]);
             // absent from the shape: the overflow part, the same table
             b.switch_to_block(absent); b.seal_block(absent);
-            let nslots = b.ins().load(types::I64, flags, o, OFF_AUX_LEN); let so8 = b.ins().ishl_imm(nslots, 3); let ea = b.ins().iadd(o, so8); let extra = b.ins().load(types::I64, flags, ea, HEADER as i32 + 24);
+            let nslots = b.ins().load(types::I64, flags, o, OFF_AUX_LEN); let so8 = b.ins().ishl_imm(nslots, 3); let ea = b.ins().iadd(o, so8); let extra = b.ins().load(types::I64, flags, ea, crate::specialize::RECORD_EXTRA_OFFSET as i32);
             // An absent instance field may name a method held by the shape.
             let nilr = b.ins().iconst(types::I64, MISS); let none = b.ins().icmp_imm(IntCC::Equal, extra, 0);
             let ov = b.create_block(); let ov1 = b.create_block(); let ov2 = b.create_block();
