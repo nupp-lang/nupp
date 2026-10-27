@@ -143,3 +143,20 @@ The receipt keeps that comparison separate from refactor-cost measurements
 against the preserved Nupp runtime.
 The cost comparison meets the 2% margin on five cases. Fib remains inconclusive
 after 96 pairs: +1.18%, with an interval from +0.88% to +2.02%.
+
+`native-graph-2026-10-27.json` records the first eight complete integer handlers
+through the existing Nupp graph. Exact types, retained code loads, logical slots
+and the handler ABI survive verification and pruning; CLIF emits graph operands
+mechanically. Invalid selected handlers fail instead of taking the temporary
+direct path. The graph-only object and executable are byte-identical to the
+preserved native control. Other handlers still use `compileDirectFunction`.
+
+Running the full compiler on the native interpreter exposed an existing record
+lookup bug: fresh string and slice keys missed canonical shape names. The Nupp
+table handler now canonicalizes those keys through the existing helper, preserving
+unknown-key identity and nil-key callbacks. The final native compiler emits
+byte-identical runtime CLIF to the normal compiler. The linked native regressions
+and table suite pass; the graph compiler passes shared coverage, AOT continuity
+and the pinned-seed fixpoint. All 6,156 compiler functions link, and fresh
+processes execute compiled frames with executable memory denied. Performance
+tuning and further measurements are deferred by the owner.

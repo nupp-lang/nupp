@@ -1,0 +1,355 @@
+{
+  "recordedAt": "2026-10-27T05:59:42.958860+00:00",
+  "base": "2fc9e28245c15cf164be9eec245aae6e5713ba05",
+  "sourceRevision": "133fec01bd99a0ca2e4bed0a6d2e534715db83c7",
+  "scope": "P1b initial eight complete integer handlers through the existing Nupp graph; dynamic record-key correctness needed to execute the compiler on the native core. P1b and Rust VM deletion remain open.",
+  "architecture": {
+    "representation": "Existing closed-block Nupp graph, not a second native IR. Exact scalar types coexist with storage classes. Semantic optimization belongs here.",
+    "handlers": [
+      "IK",
+      "IMov",
+      "IAddK",
+      "IMaskU32",
+      "IAdd",
+      "ISub",
+      "IAnd",
+      "IOr"
+    ],
+    "contracts": [
+      "Typed logical handler ABI; physical dispatch table and frame derivation only at emission boundary",
+      "Retained program-load source/body lifetime/type/width and frame/window/class/type/write slot metadata",
+      "Source positions, exact integer literals, dense finite integer value and target IDs",
+      "Verification and pruning retain dispatch-only operands and exact types",
+      "Admitted invalid signatures or unsupported bodies fail; no silent direct fallback",
+      "Graph image consumers reject native-system graphs; unmanaged profile rejects borrowed/pinned/affine ownership"
+    ],
+    "emission": "Mechanical graph IDs, block parameters and jump operands. No semantic SSA reconstruction in CLIF. compileDirectFunction remains the named temporary path for other functions.",
+    "programLoadCalls": 253,
+    "logicalSlotCalls": 230,
+    "rustProductionLinesAdded": 0
+  },
+  "graphOnlyControl": {
+    "objectByteIdenticalToBaseline": true,
+    "runtimeByteIdenticalToBaseline": true,
+    "objectSha256": "c80c1d9a26c3099c04da6c1c08a1fe70cb5ae6745545d2061243c2d5207d6f12",
+    "runtimeSha256": "1e996b259aa0fab8433647b94844e9d30c1c6fa5523db0f602304557cca09120",
+    "equivalence": {
+      "baseline_clif": "/Users/dowling/projects/nupp-wt/native-runtime/build/handler-contracts/runtime.clif",
+      "baseline_clif_sha256": "e9caa971a6fd1445e11be1e2eebc7a3d8794335fd308f392c310e01e03fd6f50",
+      "candidate_clif": "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime/runtime.clif",
+      "candidate_clif_sha256": "b654202e228a9ccb9a82c06a8326513477c0c8482652e80d1e835219ce1067b3",
+      "checks": [
+        {
+          "handler": "IK",
+          "bijective_ssa_rename_equivalent": true,
+          "normalized_sha256": "a76265d47a7ed8a602a1b69f95783947492e3021f425b807de3dbd0487dc024e"
+        },
+        {
+          "handler": "IMov",
+          "bijective_ssa_rename_equivalent": true,
+          "normalized_sha256": "0426bbf324a909d263fb319b5184eaf3fb863999fe68b2912eb9836159b30041"
+        },
+        {
+          "handler": "IAddK",
+          "bijective_ssa_rename_equivalent": true,
+          "normalized_sha256": "74a759a02f540f48e821281db5d5691710a9e9f8685be3fdb1aad3d372a64b3f"
+        },
+        {
+          "handler": "IMaskU32",
+          "bijective_ssa_rename_equivalent": true,
+          "normalized_sha256": "e1707c59ea664ddc3295832886707089a2819c3b4937c3f09183c7228e2943b5"
+        },
+        {
+          "handler": "IAdd",
+          "bijective_ssa_rename_equivalent": true,
+          "normalized_sha256": "30932eaff6406fafb9cd71c0310cea95fe2ef8690a41ca7e9b6e74b9af5ef825"
+        },
+        {
+          "handler": "ISub",
+          "bijective_ssa_rename_equivalent": true,
+          "normalized_sha256": "2df4a69ac4551aef3dd56c95da6d204e407ae8ad0a60ac47de315f1a199d2d65"
+        },
+        {
+          "handler": "IAnd",
+          "bijective_ssa_rename_equivalent": true,
+          "normalized_sha256": "7badd67ed7d72d263d111717fa507e1c16c46406aaeca21e8e9230bc72a74bff"
+        },
+        {
+          "handler": "IOr",
+          "bijective_ssa_rename_equivalent": true,
+          "normalized_sha256": "8f74efa81affb039962300f9e07ad6a45bd934720a4c398a9e1651d619f118e1"
+        }
+      ],
+      "baseline_runtime": "/Users/dowling/projects/nupp-wt/native-runtime/build/handler-contracts/runtime",
+      "baseline_runtime_sha256": "1e996b259aa0fab8433647b94844e9d30c1c6fa5523db0f602304557cca09120",
+      "image": "/Users/dowling/projects/nupp-wt/native-runtime/.nupp/vm-cli/e91f6e1048e8f5e97e4df8efac0d51e23406bb48090610c287112006934ecc61/compiler.image",
+      "image_sha256": "02612c910d15ae83f0e910502be8d86238eed11c6ac2ef76a9de8c654815afd4",
+      "cwd": "/Users/dowling/projects/nupp-wt/native-graph-clif",
+      "command": "NO_JIT=1 NO_AOT=1 SIMD_INTERPRET=1 NUPP_COMPILER_ROOT=/Users/dowling/projects/nupp-wt/native-runtime NUPP_VM_BINARY=/Users/dowling/projects/nupp-wt/native-runtime/build/handler-contracts/runtime /Users/dowling/projects/nupp-wt/native-runtime/build/handler-contracts/runtime run /Users/dowling/projects/nupp-wt/native-runtime/.nupp/vm-cli/e91f6e1048e8f5e97e4df8efac0d51e23406bb48090610c287112006934ecc61/compiler.image nupp.compiler.clif.lower compileRuntime /Users/dowling/projects/nupp-wt/native-runtime /Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime/layouts.json --output /Users/dowling/projects/nupp-wt/native-graph-clif/build/old-native-core.clif > /tmp/native-graph-old-core.log 2>&1",
+      "exit_code": 1,
+      "failure_log": "/Users/dowling/projects/nupp-wt/native-graph-clif/build/native-graph-old-core.log",
+      "failure_log_sha256": "47ba85f064ea60f1a2f6cec56c5027425602f20fe450be80b87431c8ba863e5e",
+      "candidate_failure_log": "/Users/dowling/projects/nupp-wt/native-runtime/build/native-graph/native-cli.log",
+      "candidate_failure_log_sha256": "47ba85f064ea60f1a2f6cec56c5027425602f20fe450be80b87431c8ba863e5e",
+      "same_failure_log": true,
+      "output_exists": false
+    }
+  },
+  "recordKeyFix": {
+    "failure": "The full compiler on the old native core and graph-only native core both failed program-load kind lookup. The Rust dispatch control succeeded.",
+    "cause": "Dynamic string/slice keys were not canonicalized before record shape lookup, so an existing field could be missed.",
+    "implementation": "Nupp tables.indexedReceiverSlow reuses the existing internKey helper and indexSlow continuation. Preserve the original key on canonical miss, including unknown-key and nil-key callbacks. No Rust production semantic change or new whole-op Slow escape.",
+    "redLog": {
+      "path": "build/native-graph/record-key-red.log",
+      "sha256": "68c03c9305a99391426cb8d31386a4006c32ee08249fb10bfd7df889efc9c5a7"
+    },
+    "regressions": "Actual shaped records with fresh and slice keys; unknown-key identity and nil-key callbacks; Nupp table suite plus linked native crate tests."
+  },
+  "validation": [
+    {
+      "log": "build/native-graph/native-tests.json",
+      "sha256": "250c988b24f4efde7020e2c6643acb7ae800f522a848207f1a0ab0f8dfc7cccb",
+      "sourceRevision": "7a0a25f057b6b3f96b77565c2c2140b58ef98f3d",
+      "command": "NUPP_VM_AUTO_REBUILD=0 ./bin/nupp test --group=native-runtime --jobs=1 --json",
+      "ok": true,
+      "total": 78,
+      "passed": 78,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": "build/native-graph/shared-tests.json",
+      "sha256": "7049bdd9551657a969c7e6fe4d2a66d02133f2839b3b1f31fd9d996a39670528",
+      "sourceRevision": "7a0a25f057b6b3f96b77565c2c2140b58ef98f3d",
+      "command": "NUPP_VM_AUTO_REBUILD=0 ./bin/nupp test --lane=shared --exclude-group=native-runtime --jobs=2 --json",
+      "ok": true,
+      "total": 1972,
+      "passed": 1972,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": "build/native-graph/cross-regression.json",
+      "sha256": "f55712665999badbf78dd86dd083929115b86b9ad3fe9e98542cf06af19d3ec7",
+      "sourceRevision": "7a0a25f057b6b3f96b77565c2c2140b58ef98f3d",
+      "command": "GPU, opcode and CI change-classifier suites; overlaps shared coverage",
+      "ok": true,
+      "total": 31,
+      "passed": 31,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": "build/native-graph/final-table-tests.json",
+      "sha256": "d16532238de828fe051373e94555838ee395320aa5d5a9aa52fd2890625d5191",
+      "sourceRevision": "133fec01bd99a0ca2e4bed0a6d2e534715db83c7",
+      "command": "NUPP_VM_AUTO_REBUILD=0 ./bin/nupp test nativetablestest --jobs=1 --json",
+      "ok": true,
+      "total": 16,
+      "passed": 16,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "log": "build/native-graph/final-source-check.json",
+      "sha256": "16ddb5e88a8838e0277ec699dff0e3bd4be8480ed2ce952f24a3ecc6153bfac3",
+      "sourceRevision": "133fec01bd99a0ca2e4bed0a6d2e534715db83c7",
+      "command": "NUPP_VM_AUTO_REBUILD=0 ./bin/nupp check --json src/nupp/compiler/vm/graph.nupp src/nupp/compiler/vm/graphimage.nupp src/nupp/compiler/vm/nativegraph.nupp src/nupp/compiler/clif/graph.nupp src/nupp/compiler/clif/lower.nupp src/nupp/runtime/vm/tables.nupp",
+      "ok": true
+    },
+    {
+      "sourceRevision": "133fec01bd99a0ca2e4bed0a6d2e534715db83c7",
+      "command": "NUPP_NATIVE_RUNTIME_OBJECT=$PWD/build/native-runtime/runtime.o CARGO_TARGET_DIR=$PWD/build/rust/target RUSTC_WRAPPER=sccache cargo test --locked --release -p nupp-vm --features aot,native-runtime -j4 --lib",
+      "passed": 117,
+      "failed": 0,
+      "ignored": 2,
+      "log": "build/native-graph/final-crate-tests.log",
+      "sha256": "068893a7b28ab35e96181fb4434767308b502f9f57a0451db916138a451e212a"
+    },
+    {
+      "sourceRevision": "133fec01bd99a0ca2e4bed0a6d2e534715db83c7",
+      "command": "NO_JIT=1 NO_AOT=1 SIMD_INTERPRET=1 NUPP_COMPILER_ROOT=$PWD NUPP_VM_BINARY=$PWD/build/native-runtime/runtime build/native-runtime/runtime run .nupp/vm-cli/e91f6e1048e8f5e97e4df8efac0d51e23406bb48090610c287112006934ecc61/compiler.image nupp.compiler.clif.lower compileRuntime $PWD $PWD/build/native-runtime/layouts.json --output $PWD/build/native-graph/native-compiler-final.clif",
+      "ok": true,
+      "jit": false,
+      "aot": false,
+      "emittedClifByteIdenticalToNormalCompiler": true,
+      "log": "build/native-graph/native-compiler-final.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "compiler": {
+    "generation": "e91f6e1048e8f5e97e4df8efac0d51e23406bb48090610c287112006934ecc61",
+    "aotProof": {
+      "runtimeAbi": 4,
+      "binarySha256": "f98c2da5d70144633aa8a15d884f67bce750d5c65aa8ab1af5e318dcf541e88e",
+      "imageSha256": "02612c910d15ae83f0e910502be8d86238eed11c6ac2ef76a9de8c654815afd4",
+      "manifestSha256": "ebe9bfbd013df49c00a24912682c5438263e849a3083456969e1076ffa6552c5",
+      "compiledFunctions": 6156,
+      "imageFunctions": 6156,
+      "platform": "macOS-26.6-arm64-arm-64bit",
+      "freshProcesses": 2,
+      "results": [
+        {
+          "name": "symbols",
+          "exitStatus": 0,
+          "seconds": 0.057,
+          "status": "passed"
+        },
+        {
+          "name": "build-denial",
+          "exitStatus": 0,
+          "seconds": 0.062,
+          "status": "passed"
+        },
+        {
+          "name": "build-probe",
+          "exitStatus": 0,
+          "seconds": 0.042,
+          "status": "passed"
+        },
+        {
+          "name": "deny-mapping",
+          "exitStatus": 86,
+          "seconds": 0.276,
+          "status": "passed"
+        },
+        {
+          "name": "deny-protection",
+          "exitStatus": 86,
+          "seconds": 0.006,
+          "status": "passed"
+        },
+        {
+          "name": "emit-interpreted",
+          "exitStatus": 0,
+          "seconds": 0.35,
+          "status": "passed"
+        },
+        {
+          "name": "emit-aot-0",
+          "exitStatus": 0,
+          "seconds": 0.239,
+          "status": "passed"
+        },
+        {
+          "name": "emit-aot-1",
+          "exitStatus": 0,
+          "seconds": 0.247,
+          "status": "passed"
+        },
+        {
+          "name": "verify-emitted",
+          "exitStatus": 0,
+          "seconds": 0.008,
+          "status": "passed"
+        },
+        {
+          "name": "execute-emitted",
+          "exitStatus": 0,
+          "seconds": 0.008,
+          "status": "passed"
+        },
+        {
+          "name": "reject-mismatched-image",
+          "exitStatus": 1,
+          "seconds": 0.008,
+          "status": "passed"
+        },
+        {
+          "name": "invalid-interpreted",
+          "exitStatus": 1,
+          "seconds": 0.321,
+          "status": "passed"
+        },
+        {
+          "name": "invalid-aot",
+          "exitStatus": 1,
+          "seconds": 0.219,
+          "status": "passed"
+        }
+      ],
+      "scope": "Host-native compiler AOT; fresh processes use normal host ASLR policy. No cross-platform or console validation.",
+      "executableMemoryDenied": true,
+      "emittedImageSha256": "7e255e569a988940e3e99ec68bd313609b47e9b2a8c0cc6a7965b0a99d9bbf65",
+      "diagnosticCodes": [
+        "NUPP2001"
+      ],
+      "status": "passed"
+    },
+    "compiledFrameEntriesPerFreshProcess": [
+      1343924,
+      1343924
+    ],
+    "fixpoint": {
+      "exitStatus": 0,
+      "fixpointPassed": true,
+      "sourceCommit": "7a0a25f057b6b3f96b77565c2c2140b58ef98f3d",
+      "log": "/Users/dowling/projects/nupp-wt/native-graph-foundation/build/native-graph-fixpoint.log",
+      "stageZero": "/Users/dowling/projects/nupp/.nupp-cache/toolchain/stage0-image/6bc9b250b40ab3d34803d022159678c342cfee9fb93272ef3f2855e994bb3ba9/compiler.image",
+      "paths": [
+        "/Users/dowling/projects/nupp-wt/native-graph-foundation/build/vm-fixpoint/root.image",
+        "/Users/dowling/projects/nupp-wt/native-runtime/.nupp/vm-cli/e91f6e1048e8f5e97e4df8efac0d51e23406bb48090610c287112006934ecc61/compiler.image"
+      ],
+      "rawBytesEqual": false,
+      "rawSha256": [
+        "008a5913948d94650a0d9ab05b415aef458cad4140d954cedd043df655a771b1",
+        "02612c910d15ae83f0e910502be8d86238eed11c6ac2ef76a9de8c654815afd4"
+      ],
+      "rawSizes": [
+        8462324,
+        8459183
+      ],
+      "normalization": "Decode NUPPGRAF v5 string table; replace each respective checkout prefix with <checkout>; re-encode string byte lengths; retain all bytes after string table unchanged.",
+      "normalizedBytesEqual": true,
+      "normalizedSha256": [
+        "7fe1214ada857bb067a1000075c1f25651d46177ca1fa4323d03963104dc88f5",
+        "7fe1214ada857bb067a1000075c1f25651d46177ca1fa4323d03963104dc88f5"
+      ],
+      "normalizedSourcePathStrings": [
+        349,
+        349
+      ]
+    },
+    "revisionScope": "AOT and pinned-seed fixpoint tested graph compiler at 7a0a25f05. The later runtime table fix does not change normal compiler package bytes; the final rebuild produced exactly the same runtime/image hashes. Fixpoint stages 2 and 3 match raw bytes. Cross-worktree installed image matches only after normalizing 349 absolute source paths."
+  },
+  "artifacts": {
+    "build/native-runtime/runtime": "6e9aca6e2aabdc2e78e4735c075553c0561f005fae74e33d62241a828908eeae",
+    "build/native-runtime/runtime.o": "d80bbd2821460663495dcc223d9695866c2f3471f3ba26c1f5b8981531775cb5",
+    "build/native-runtime/runtime.o.rs": "35a9c8910cfee7bc440fe6a442b23795cf3ed262b98ebe978721f79c1afaec6d",
+    "build/native-runtime/runtime.clif": "4acb677534a1c079375348c6cd0e68408673d52f0df2ea0df79e7890688f8304",
+    "build/native-graph/final-runtime-build.log": "a44b5261369c732eed86a508a172affec1a3e2719f2c84ad0ae806cd6ce1b337",
+    "build/native-graph/final-compiler-build.log": "2056d97681e68b4bcbd489e6c534a7edb07c187c598b090569de50efea569b43",
+    "build/native-graph/fixpoint.log": "02a57f6190c00ebeaaea2c80b5ec9bf9b09d66cd175028bdcb08a6d2ffdb0d41",
+    "build/native-graph/aot-proof/results.json": "01b56d234a39fb1e1e0260325d59aae7b68d02b07b0b4fd8aa4b6686abb35a96",
+    "build/native-graph/native-compiler-final.clif": "4acb677534a1c079375348c6cd0e68408673d52f0df2ea0df79e7890688f8304"
+  },
+  "sources": {
+    "native/crates/vm/src/native_tests.rs": "767b7af3047e7dadb43da65eaaa139761edf5c318d9e44050d498ae3417fb18a",
+    "src/nupp/compiler/clif/graph.nupp": "4fe7dadb35c58cf9de3d8c8d14131cb575fbb345f74593715bbd55d74f6b1946",
+    "src/nupp/compiler/clif/lower.nupp": "2b3236c11132de133e9366184e22914428dbe65ed2835be3600b4331e657bb50",
+    "src/nupp/compiler/vm/graph.nupp": "0a64300b2913daa0af1b02cd4848e9f86ac90c385f9863df8b08d23ab7b3a777",
+    "src/nupp/compiler/vm/graphimage.nupp": "628da331dd200f9695bd5ae5aa5bfad6199c3b37adb0534215efd433f2ab2ff4",
+    "src/nupp/compiler/vm/nativegraph.nupp": "ecb073dc014db8f8f8d76e57e862bc777ef2d1b198e7d3b0064fddf7d30a8ef5",
+    "src/nupp/runtime/vm/tables.nupp": "4c630b3d335eb5404ae79245ff8d87604b5b94960c140f56467a6985ffdafac0",
+    "tests/groups.lua": "74fbc30e0ee0795b9484ecc980ad790d78b090bf0dff84f2b95bd2b4f4766d98",
+    "tests/nativegraphcliftest.lua": "a4cad2ad4e8b52c0bb56008be678224fc6ae8ac01565825500a8a1d704e421db",
+    "tests/nativegraphcontracttest.lua": "47ca33ffbf1900a618c36cb8ddc1d0288155d73939152eefcca2c9291a26e626",
+    "tests/nativegraphtest.lua": "8010f9c00e6e82db12df0490d3eac97be85c0074c728a92576583db96838f91e",
+    "tests/nativelowertest.lua": "c39bb5b92381fb0d7dc6ea1442d3e012ecfdd2e433d37c52169fef8cee534f86",
+    "tests/nativetablestest.lua": "68e6899e13dd1cdd36a3e7ccc41012700be3988db9180831911f24157bd7d7ad"
+  },
+  "performance": {
+    "deferredByOwner": "2026-10-27",
+    "newWorkloadComparisons": false,
+    "claim": null,
+    "productionBaseline": "LuaJIT enabled on production main; Rust comparisons remain historical."
+  },
+  "remaining": [
+    "Extend common-graph lowering to ordinary functions and remaining native handlers; remove compileDirectFunction before P7 closes",
+    "General effect/publication/root/recovery proofs and graph-owned partial evaluation",
+    "P2 records/physical fields, SIMD, remaining transfers and Slow cases",
+    "Pinned per-platform native runtime/image seed and Linux/Windows cold bootstrap before deleting the Rust execution loop",
+    "Remaining heap/tasks/I-O/snapshots/Pattern/derived tiers and small Rust bridge deletion phases"
+  ],
+  "localEvidenceDirectory": "/Users/dowling/projects/nupp-wt/native-runtime/build/native-graph"
+}
