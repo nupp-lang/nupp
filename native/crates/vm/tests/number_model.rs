@@ -121,3 +121,27 @@ fn float_text_roundtrips_and_distinguishes_integral_floats() {
     assert_eq!(builtins::tostring(&mut vm, Value::inline_integer(1).unwrap()), b"1");
     assert_eq!(builtins::tostring(&mut vm, Value::num(1.0)), b"1.0");
 }
+
+#[test]
+fn integer_equality_keeps_optional_and_mixed_value_semantics() {
+    let mut vm = Interp::new();
+    let byte = numeric::signed(&mut vm, 32);
+    let text = vm.intern("32");
+    vm.register(text);
+    for family in ["i64", "u64"] {
+        for (left, right, expected) in [
+            (Value::NIL, byte, false),
+            (byte, Value::NIL, false),
+            (Value::NIL, Value::NIL, true),
+            (byte, text, false),
+            (byte, Value::num(32.0), true),
+            (byte, Value::num(32.5), false),
+            (byte, Value::num(f64::NAN), false),
+        ] {
+            for (operation, answer) in [("eq", expected), ("ne", !expected)] {
+                let id = builtins::id_of(&format!("wide.{family}.{operation}")).unwrap();
+                assert_eq!(vm.call_value(Value::builtin(id), &[left, right])[0], Value::boolean(answer));
+            }
+        }
+    }
+}

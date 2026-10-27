@@ -2393,7 +2393,10 @@ function lower.emit(
                     return d, "u"
                 end
             end
-            if op == "/" or op == "^" then
+            -- Equality keeps its value contract even when flow analysis has
+            -- narrowed an optional producer to an integer. A missing byte
+            -- or open result still compares with nil without conversion.
+            if op == "/" or op == "^" or op == "==" or op == "~=" then
                 family = nil
             end
             if family and operations[op] then

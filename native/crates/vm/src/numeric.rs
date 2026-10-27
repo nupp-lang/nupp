@@ -338,6 +338,10 @@ pub fn wide_call(vm: &mut Interp, name: &str, args: &[Value]) -> Value {
     if op == "is" {
         return Value::boolean(is_kind(a, unsigned));
     }
+    if op == "eq" || op == "ne" {
+        let equal = vm.lua_equal(a, args.get(1).copied().unwrap_or(Value::NIL));
+        return Value::boolean(equal == (op == "eq"));
+    }
     if op == "float" {
         let bits = word(vm, a, unsigned);
         return Value::num(if unsigned { bits as f64 } else { bits as i64 as f64 });

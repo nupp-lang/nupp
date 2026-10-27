@@ -95,4 +95,20 @@ return true
     assert(program.run(parsed, "number-context") == true)
 end
 
+function M.optionalIntegerEqualityRetainsMissingResults()
+    local parsed = checked(
+        [[
+local function byteIsSpace(text: string, at: integer): boolean
+    return string.byte(text, at) == 32
+end
+local ch: integer? = nil
+assert(ch ~= 32 and not (ch == 32))
+assert(byteIsSpace(" ", 1) and not byteIsSpace(" ", 2))
+assert(not byteIsSpace("", 1))
+return true
+]]
+    )
+    assert(program.run(parsed, "optional-integer-equality") == true)
+end
+
 return M
