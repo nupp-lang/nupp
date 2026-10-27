@@ -754,8 +754,9 @@ build_rust_vm_runtime() {
     select_rust_tools
     # The execution core is built before this runtime is linked; Cargo's
     # machine tool never supplies an interpreter during bootstrap.
-    core=$(python3 "$ROOT/scripts/vm-cli" runtime --reuse | tail -n 1) \
+    native_core_output=$(python3 "$ROOT/scripts/vm-cli" runtime --reuse) \
         || die "cannot build the Nupp execution core"
+    core=$(printf '%s\n' "$native_core_output" | tail -n 1)
     [ -f "$core" ] || die "native core builder named no object"
     vm_features=aot-linked,native-ffi,native-runtime${facilities:+,$facilities}
     rust_environment=$(rust_environment_material)
@@ -819,8 +820,9 @@ EOF
 # is built once per source state without the program runtime's LTO.
 build_rust_vm_aot_tool() {
     select_rust_tools
-    core=$(python3 "$ROOT/scripts/vm-cli" runtime --reuse | tail -n 1) \
+    native_core_output=$(python3 "$ROOT/scripts/vm-cli" runtime --reuse) \
         || die "cannot build the Nupp object core"
+    core=$(printf '%s\n' "$native_core_output" | tail -n 1)
     [ -f "$core" ] || die "native core builder named no object"
     rust_environment=$(rust_environment_material)
     digest=$({
@@ -869,8 +871,9 @@ vm_program_archive_ready() {
 build_rust_vm_program_archive() {
     facilities=$1
     select_rust_tools
-    core=$(python3 "$ROOT/scripts/vm-cli" runtime --reuse | tail -n 1) \
+    native_core_output=$(python3 "$ROOT/scripts/vm-cli" runtime --reuse) \
         || die "cannot build the Nupp execution core"
+    core=$(printf '%s\n' "$native_core_output" | tail -n 1)
     [ -f "$core" ] || die "native core builder named no object"
     features=native-ffi,native-runtime${facilities:+,$facilities}
     rust_environment=$(rust_environment_material)

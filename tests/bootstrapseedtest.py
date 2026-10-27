@@ -263,7 +263,7 @@ PLATFORM=darwin; RUST_TOOL_MATERIAL=fixture; KEY=fixture
 CC=cc; CXX=c++; RUSTC=rustc
 export ROOT
 select_rust_tools() { :; }
-python3() { printf '%s/core.o\n' "$ROOT"; }
+python3() { printf '%s/core.o\n' "$ROOT"; test ! -f "$ROOT/fail-core"; }
 rust_environment_material() { printf fixture; }
 rust_sources_digest() { printf fixture; }
 sha256() { shasum -a 256 "$1" | cut -d' ' -f1; }
@@ -277,6 +277,12 @@ rust_vendor_arguments() { :; }
 cargo_dir() { printf '%s' "$1"; }
 build_rust_vm_aot_tool() {
 ''' + function + '''
+touch "$ROOT/fail-core"
+if (build_rust_vm_aot_tool); then
+    echo "accepted failed core producer" >&2; exit 3
+fi
+test ! -f "$ROOT/cargo.log"
+rm "$ROOT/fail-core"
 build_rust_vm_aot_tool
 printf '%s\n' "$RUST_VM_AOT_TOOL_OUT"
 printf 'second core' > "$ROOT/core.o"
@@ -284,6 +290,7 @@ build_rust_vm_aot_tool
 printf '%s\n' "$RUST_VM_AOT_TOOL_OUT"
 '''
             result = subprocess.run(["sh", "-c", script, "fixture", str(root)], text=True, capture_output=True, check=True)
+            self.assertIn("cannot build the Nupp object core", result.stderr)
             outputs = result.stdout.splitlines()
             self.assertEqual(len(outputs), 2)
             self.assertNotEqual(outputs[0], outputs[1])
