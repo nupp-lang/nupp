@@ -1,12 +1,16 @@
 name: Numeric bootstrap execution seeds
 
 on:
-  push:
-    branches: [codex/native-numeric-seed]
   workflow_dispatch:
+    inputs:
+      seed_run:
+        description: Reuse manufactured numeric seeds from this workflow run
+        default: ""
+        required: false
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   seed:
@@ -30,6 +34,7 @@ jobs:
       - uses: actions/checkout@v5
       # Keep the factory's exact source outside the consumer's source walk.
       - uses: actions/checkout@v5
+        if: inputs.seed_run == ''
         with:
           ref: 4e6e9d449519f799e122526cacf505fd1f016b0a
           path: .seed-source
@@ -39,11 +44,25 @@ jobs:
           channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
           rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
           echo "RUSTUP_TOOLCHAIN=${channel}-x86_64-pc-windows-gnu" >> "$GITHUB_ENV"
+          echo "NUPP_TEST_BASH=$(cygpath -w "$(command -v bash)")" >> "$GITHUB_ENV"
+          echo "NUPP_TEST_SH=$(cygpath -w /usr/bin/sh.exe)" >> "$GITHUB_ENV"
           echo "CONFIG_SHELL=$(cygpath -m -s /usr/bin/sh.exe)" >> "$GITHUB_ENV"
           echo "CC=gcc" >> "$GITHUB_ENV"
           echo "CXX=g++" >> "$GITHUB_ENV"
+      - name: Retrieve the manufactured immutable pair
+        if: inputs.seed_run != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SEED_RUN: ${{ inputs.seed_run }}
+        run: gh run download "$SEED_RUN" -n "numeric-bootstrap-seed-$SEED_HOST" -D prior-seed
       - name: Manufacture the matching seed and prove a cold consuming build
+        if: inputs.seed_run == ''
         run: python3 .github/scripts/numeric-bootstrap-seed.py
+      - name: Prove the current cold consumer with the manufactured seed
+        if: inputs.seed_run != ''
+        env:
+          SEED_RUN: ${{ inputs.seed_run }}
+        run: python3 .github/scripts/numeric-bootstrap-seed.py --reuse-seed prior-seed
       - uses: actions/upload-artifact@v4
         if: always()
         with:

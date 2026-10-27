@@ -118,6 +118,36 @@ def manufacture(core):
     return runner
 
 
+def reuse(source):
+    host = os.environ["SEED_HOST"]
+    pin = json.loads((source / "pin.json").read_text())
+    if pin.pop("host") != host:
+        raise ValueError("manufactured seed host does not match requested CI host")
+    name = "nupp-seed-" + host + ".tar.gz"
+    archive = source / name
+    if digest(archive) != pin["sha256"] or pin["imageSha256"] != IMAGE:
+        raise ValueError("manufactured seed archive or image digest does not match its pin")
+    with tarfile.open(archive, "r:gz") as content:
+        manifests = [e for e in content.getmembers() if e.name == "manifest.json"]
+        if len(manifests) != 1 or not manifests[0].isfile():
+            raise ValueError("manufactured seed manifest is absent or ambiguous")
+        manifest = json.loads(content.extractfile(manifests[0]).read())
+    if (manifest.get("format") != "nupp-bootstrap-seed-1" or manifest.get("host") != host
+            or manifest.get("sourceRevision") != SOURCE
+            or manifest.get("runtimeSha256") != pin["runtimeSha256"]
+            or manifest.get("imageSha256") != IMAGE):
+        raise ValueError("manufactured seed manifest does not match the verified source and pin")
+    for item in [name, "seed-runtime", "compiler.image", "runtime.o", "runtime.o.rs"]:
+        shutil.copyfile(source / item, OUT / item)
+    if digest(OUT / "seed-runtime") != pin["runtimeSha256"] or digest(OUT / "compiler.image") != IMAGE:
+        raise ValueError("manufactured seed component digest mismatch")
+    pin["url"] = (OUT / name).resolve().as_uri()
+    (OUT / "pin.json").write_text(json.dumps({"host": host, **pin}, indent=2) + "\n")
+    (OUT / "local-pins.json").write_text(json.dumps({"format": "nupp-bootstrap-seed-1", "hosts": {host: pin}}, indent=2) + "\n")
+    (OUT / "seed-reuse.json").write_text(json.dumps({"workflowRun": os.environ.get("SEED_RUN"),
+        "factorySource": SOURCE, "pin": {"host": host, **pin}}, indent=2) + "\n")
+
+
 def cold():
     if (ROOT / ".nupp/vm-cli/current").exists():
         raise ValueError("consumer is not cold: an installed generation is present")
@@ -151,8 +181,15 @@ def cold():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--inputs-only", action="store_true")
+    parser.add_argument("--reuse-seed", type=Path)
     args = parser.parse_args()
+    if args.inputs_only and args.reuse_seed:
+        parser.error("--inputs-only and --reuse-seed are mutually exclusive")
     OUT.mkdir(exist_ok=True)
+    if args.reuse_seed:
+        reuse(args.reuse_seed)
+        cold()
+        return
     core = inputs()
     if not args.inputs_only:
         manufacture(core)
