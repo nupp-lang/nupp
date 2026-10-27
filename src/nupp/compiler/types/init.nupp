@@ -17,6 +17,8 @@ recursive, and recursion must pass through a nominal declaration, so building a
 key bottom-up never cycles.
 ]]
 
+local numbertext = require("nupp.compiler.numbertext")
+
 local types = {}
 
 --- A type.
@@ -2660,10 +2662,7 @@ end
 -- Literal identities preserve integer bits and round-trip floating text.
 local function literalText(value: string | number | boolean): string
     if type(value) == "number" then
-        if math.type(value as number) == "integer" then
-            return tostring(value)
-        end
-        return string.format("%.17g", value as number)
+        return numbertext.literal(value as number)
     end
 
     return tostring(value)

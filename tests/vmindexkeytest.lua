@@ -24,6 +24,28 @@ end
 
 local M = {}
 
+function M.numericConstantsPreserveSubtypeAndIntegerBits()
+    for index, source in ipairs({
+        "local first, second = 1, 1.0\nlocal positive, negative = 0.0, -0.0",
+        "local second, first = 1.0, 1\nlocal negative, positive = -0.0, 0.0",
+    }) do
+        local integerKind, floatKind, positive, negative, firstWide, secondWide = compile(
+            "vmindexkeytest.numericConstants" .. index .. ".fragment",
+            source
+            .. [[
+local wide, nextWide = 9007199254740992, 9007199254740993
+return math.type(first), math.type(second), 1 / positive, 1 / negative, tostring(wide), tostring(nextWide)
+]]
+        )
+        test.equal(integerKind, "integer")
+        test.equal(floatKind, "float")
+        test.equal(positive, math.huge)
+        test.equal(negative, -math.huge)
+        test.equal(firstWide, "9007199254740992")
+        test.equal(secondWide, "9007199254740993")
+    end
+end
+
 function M.aZeroHeadIntegerCallReachesIndexWithNil()
     local run = compile(
         "vmindexkeytest.aZeroHeadIntegerCallReachesIndexWithNil.fragment",

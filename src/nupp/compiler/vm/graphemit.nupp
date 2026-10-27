@@ -8,6 +8,7 @@ derives from its graph.
 ]]
 
 local convert = require("nupp.compiler.vm.convert")
+local numbertext = require("nupp.compiler.numbertext")
 local G = require("nupp.compiler.vm.graph")
 local graphimage = require("nupp.compiler.vm.graphimage")
 
@@ -168,7 +169,7 @@ function graphemit.listing(f: any, kept: any): any
         if c.kind == "str" then
             value = quote(value as string)
         elseif c.kind == "num" then
-            value = ("%.17g"):format(value as number)
+            value = numbertext.literal(value as number)
         end
         lines[#lines + 1] = ("  const %d %s %s"):format(i - 1, c.kind, tostring(value))
     end
@@ -195,7 +196,7 @@ function graphemit.listing(f: any, kept: any): any
     for pc, ins in ipairs(derived.code) do
         local parts = {}
         for i, value in ipairs(ins as {any}) do
-            parts[i] = type(value) == "number" and ("%.17g"):format(value as number) or tostring(value)
+            parts[i] = type(value) == "number" and numbertext.literal(value as number) or tostring(value)
         end
         local text = table.concat(parts, " ")
         lines[#lines + 1] = "  " .. text

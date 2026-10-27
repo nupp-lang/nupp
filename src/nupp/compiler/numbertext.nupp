@@ -1,0 +1,26 @@
+module nupp.compiler.numbertext
+
+-- Exact numeric text for compiler constants and generated source.
+local numbertext = {}
+
+function numbertext.literal(value: number): string
+    if math.type(value) == "integer" then
+        return tostring(value)
+    end
+    if value == 0 and 1 / value < 0 then
+        return "-0.0"
+    end
+    local text = string.format("%.17g", value)
+    if value == value and value ~= math.huge and value ~= -math.huge and not text:find("[.eE]") then
+        return text .. ".0"
+    end
+
+    return text
+end
+
+-- Constant identities retain numeric subtype and the sign of zero.
+function numbertext.key(value: number): string
+    return tostring(math.type(value)) .. ":" .. numbertext.literal(value)
+end
+
+export = numbertext

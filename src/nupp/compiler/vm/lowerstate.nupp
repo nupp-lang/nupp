@@ -3,6 +3,7 @@ module nupp.compiler.vm.lowerstate
 const {type Node} = require("nupp.compiler.syntax.cst")
 const {type Cleanup} = require("nupp.compiler.types")
 local opcodes = require("nupp.compiler.vm.opcodes")
+local numbertext = require("nupp.compiler.numbertext")
 
 --- The state `nupp.compiler.vm.lower` keeps for each function it lowers, as
 --- records rather than open tables: the lowering reads and writes these on
@@ -216,7 +217,7 @@ export record Fn
     curStmt: Node?
 
     function const(self, kind: string, value: string | number | boolean): integer
-        local key = kind .. "\0" .. (kind == "num" and ("%.17g"):format(value as number) or tostring(value))
+        local key = kind .. "\0" .. (kind == "num" and numbertext.key(value as number) or tostring(value))
         local known = self.constIndex[key]
         if known then
             return known
