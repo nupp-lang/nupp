@@ -12,6 +12,7 @@ local count = tonumber(os.getenv("REDUCTION_COUNT") or 65536)
 assert(count == workgroupSize * workgroupSize, "the two-level spike takes exactly 65536 values")
 
 local cell = ffi.new("float[1]")
+
 local function narrow(value)
     cell[0] = value
     return tonumber(cell[0])
@@ -22,21 +23,35 @@ local f32 = {}
 function f32.add(left, right)
     return narrow(narrow(left) + narrow(right))
 end
+
 function f32.fma(left, right, addend)
     return narrow(ffi.C.fmaf(narrow(left), narrow(right), narrow(addend)))
 end
+
 function f32.exp(value)
     local x = math.max(-104.0, math.min(narrow(value), 88.0))
     local y = narrow(x * 0.0078125)
     local out = narrow(0.0000000020876757)
     for _, coefficient in ipairs({
-        0.000000025052108, 0.00000027557319, 0.0000027557319,
-        0.000024801587, 0.0001984127, 0.0013888889,
-        0.0083333333, 0.041666667, 0.16666667, 0.5, 1.0, 1.0,
+        0.000000025052108,
+        0.00000027557319,
+        0.0000027557319,
+        0.000024801587,
+        0.0001984127,
+        0.0013888889,
+        0.0083333333,
+        0.041666667,
+        0.16666667,
+        0.5,
+        1.0,
+        1.0,
     }) do
         out = f32.fma(out, y, coefficient)
     end
-    for _ = 1, 7 do out = narrow(out * out) end
+    for _ = 1, 7 do
+        out = narrow(out * out)
+    end
+
     return out
 end
 
@@ -66,6 +81,7 @@ local function tree(sourceValues, active, transform)
         end
         out[group] = scratch[0]
     end
+
     return out
 end
 
@@ -73,9 +89,9 @@ local expectedPartials = tree(values, count, f32.exp)
 local expected = tree(expectedPartials, workgroupSize)[0]
 
 local context = gpu.open()
-local input = context:buffer(require("nupp.mem.array").float, count)
-local partials = context:buffer(require("nupp.mem.array").float, workgroupSize)
-local result = context:buffer(require("nupp.mem.array").float, 1)
+local input = context:buffer(require("nupp.mem.array").float32, count)
+local partials = context:buffer(require("nupp.mem.array").float32, workgroupSize)
+local result = context:buffer(require("nupp.mem.array").float32, 1)
 context:upload(input, span.fromCarray(values, count))
 context:synchronize()
 
@@ -88,7 +104,9 @@ local function dispatch()
     context:synchronize()
 end
 
-for _ = 1, 3 do dispatch() end
+for _ = 1, 3 do
+    dispatch()
+end
 local started, passes = now(), 0
 repeat
     dispatch()
@@ -103,6 +121,5 @@ context:readDownloaded(result, span.writeCarray(output, 1))
 assert(output[0] == expected, ("reduction mismatch: got %.9g, want %.9g"):format(output[0], expected))
 
 io.write(("Fixed 256-lane exp-sum tree: GPU and CPU agree at %.9g\n"):format(expected))
-io.write(("%-16s %12.3f us  %8.2f million values/s\n"):format(
-    "two GPU levels", elapsed * 1e6, count / elapsed / 1e6))
+io.write(("%-16s %12.3f us  %8.2f million values/s\n"):format("two GPU levels", elapsed * 1e6, count / elapsed / 1e6))
 context:close()

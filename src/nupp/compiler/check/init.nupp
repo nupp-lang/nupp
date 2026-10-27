@@ -117,7 +117,6 @@ checkMod.lintFor = lints.get
 -- The closed reifiable field set: numerics, bool, structs by value, pointers, nullable
 -- pointers. Everything GC-managed is out.
 local REIFIABLE_PRIM = {
-    number = true,
     float32 = true,
     float64 = true,
     boolean = true,
@@ -178,7 +177,14 @@ local function reifiableField(t: Type, isCdef: boolean?): boolean
     if t.tag == "nominal" then
         local origin = (t as any).origin or t
         if origin.moduleName == "nupp.simd" and (origin.name == "Vector" or origin.name == "Mask") then
-            return true
+            local arguments = (t as any).typeArgs
+            local element = arguments and arguments[1]
+            if not element then
+                return false
+            end
+            -- A type parameter is resolved when its aggregate is specialized;
+            -- a concrete field already needs one physical lane format.
+            return element.tag == "typevar" or (element.tag ~= "boolean" and REIFIABLE_PRIM[element.tag] == true)
         end
     end
     -- A fixed C array, `T[N]`, is laid out inline: N elements, no indirection, and a

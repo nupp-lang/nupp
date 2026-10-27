@@ -213,7 +213,7 @@ export function encodeFloat32(value: number): string
 end
 
 export function decodeFloat64(bytes: string): number
-    local holder = ffi.new<number[1]>()
+    local holder = ffi.new<float64[1]>()
     @unsafe do
         ffi.copy(holder, bytes, 8)
         return holder[0]
@@ -221,7 +221,7 @@ export function decodeFloat64(bytes: string): number
 end
 
 export function encodeFloat64(value: number): string
-    local holder = ffi.new<number[1]>()
+    local holder = ffi.new<float64[1]>()
     @unsafe do
         holder[0] = value
     end

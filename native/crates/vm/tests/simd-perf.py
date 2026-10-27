@@ -27,8 +27,8 @@ for n in (63, 65539):
     (project / f"lib/nupp/tests/vmsimdperf{n}.nupp").write_text(f'''module nupp.tests.vmsimdperf{n}
 const array = require("nupp.mem.array")
 const kernels = require("kernels")
-local input = array.scalar(array.number, {n})
-local output = array.scalar(array.number, {n})
+local input = array.scalar(array.float64, {n})
+local output = array.scalar(array.float64, {n})
 export function setup(): nil
     const writer = input:write()
     for i = 1, #writer do

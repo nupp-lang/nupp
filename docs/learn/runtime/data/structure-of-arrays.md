@@ -12,8 +12,8 @@ rows and the ordinary array-of-structures layout brings the rest along.
 local soa = nupp.mem.soa
 
 local struct Position
-    x: float
-    velocity: float
+    x: float32
+    velocity: float32
 end
 
 local positions = soa.allocate(ffi.typeof<Position>(), 128)
@@ -57,7 +57,7 @@ of the storage choice.
 ```nupp:fragment
 local struct Sample
     position: Position
-    history: float[3]
+    history: float32[3]
 end
 
 local layout = soa.layoutof(ffi.typeof<Sample>())
@@ -80,10 +80,10 @@ Reading or writing a whole row gathers from or scatters to every column.
 
 ```nupp:fragment
 local struct Particle
-    x: float
-    y: float
-    dx: float
-    dy: float
+    x: float32
+    y: float32
+    dx: float32
+    dy: float32
 end
 
 local particles = soa.allocate(ffi.typeof<Particle>(), 2)
@@ -133,14 +133,14 @@ local span = nupp.mem.span
 
 with
     rows = particles:write(),
-    xs: span.Writable<float> = rows.x,
-    ys: span.Writable<float> = rows.y
+    xs: span.Writable<float32> = rows.x,
+    ys: span.Writable<float32> = rows.y
 do
     xs[1] = 3.5
     ys[1] = 4.5
 end
 
-local xs: span.Span<float> = particles:read().x
+local xs: span.Span<float32> = particles:read().x
 print(xs[1])
 ```
 
@@ -270,8 +270,8 @@ local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 
 @aot
-local function advance(exclusive rows: soa.WriteToken & soa.WriteSpan<Particle>, dt: float): nil
-    local species = simd.species(array.float)
+local function advance(exclusive rows: soa.WriteToken & soa.WriteSpan<Particle>, dt: float32): nil
+    local species = simd.species(array.float32)
     for at, active in species:over(#rows) do
         local x = species:load(rows, at, "x", active)
         local dx = species:load(rows, at, "dx", active)

@@ -49,19 +49,19 @@ local function numerics(): nil
     assert(simd.horizontal.wrappingSum(values) == 27021597764222985ULL)
     local copy = persist.load(persist.save(values)) as simd.Vector<uint64, simd.Fixed<3>>
     assert((copy == values):all())
-    local floats = simd.species(array.float, 3)
+    local floats = simd.species(array.float32, 3)
     local converted = floats:convert(values)
     assert(converted:extract(1) == nupp.math.f32.narrow(9007199254740993ULL as number))
-    local doubles = floats:widen(array.number)
+    local doubles = floats:widen(array.float64)
     assert(doubles.lanes == 3)
     assert(doubles:convert(converted):extract(1) == 9007199254740992)
     local bits = simd.species(array.uint32, 3):reinterpret(floats:splat(1.0))
     assert((bits == 0x3f800000):all())
     local zero = floats:splat(-0.0)
     assert(1 / simd.horizontal.propagatingMin(zero) == -math.huge)
-    local invalid = simd.species(array.number, 3):splat(math.huge)
+    local invalid = simd.species(array.float64, 3):splat(math.huge)
     assert((simd.species(array.int64, 3):convert(invalid) == 0LL):all())
-    local upper = simd.species(array.number, 3):splat(9223372036854775808.0)
+    local upper = simd.species(array.float64, 3):splat(9223372036854775808.0)
     assert((wide:convert(upper) == 9223372036854775808ULL):all())
 end
 
@@ -73,11 +73,11 @@ local function widths(): nil
     assert((simd.species(array.uint32, 3):iota(4294967290, 3) + 10):extract(3) == 10)
     assert((simd.species(array.int32, 3):iota(2147483640, 3) + 3):extract(3) == -2147483647)
     assert((simd.species(array.int64, 3):iota(9223372036854775804LL, 1LL) + 3LL):extract(3) == -9223372036854775807LL)
-    assert((simd.species(array.float, 3):iota(16777216.0, 1.0) + 1.0):extract(3) == 16777220.0)
+    assert((simd.species(array.float32, 3):iota(16777216.0, 1.0) + 1.0):extract(3) == 16777220.0)
 end
 
 local function reducers(): nil
-    local species = simd.species(array.number, 3)
+    local species = simd.species(array.float64, 3)
     local ordered = simd.reducer.orderedSum(0.0)
     local pairwise = simd.reducer.pairwiseSum(0.0)
     local compensated = simd.reducer.compensatedSum(0.0)
@@ -92,7 +92,7 @@ local function reducers(): nil
     pairwise:add(species:iota(1.0, 1.0), species:tail(2))
     pairwise:add(4.0)
     assert(pairwise:value() == 7.0)
-    local restored = persist.load(persist.save(pairwise)) as simd.PairwiseSum<number>
+    local restored = persist.load(persist.save(pairwise)) as simd.PairwiseSum<float64>
     restored:add(8.0)
     assert(restored:value() == 15.0)
     assert(pairwise:value() == 7.0)
@@ -140,7 +140,7 @@ local function structure(): nil
     local indices = simd.species(array.int32, 3):iota(1, 8)
     local gathered = species:gather(reader, indices)
     assert(gathered:extract(1) == a:extract(1) and gathered:extract(2) == 99ULL and gathered:extract(3) == b:extract(3))
-    local doubles = simd.species(array.number, 3)
+    local doubles = simd.species(array.float64, 3)
     local samples = doubles:iota(1.0, 3.0)
     local roots = math.sqrt(samples)
     local root = math.sqrt
@@ -179,7 +179,7 @@ local parked: any = nil
 export function checkpointStart(): number
     parked = @unsafe nupp.release(
         coroutine.create(function(): number
-            local species = simd.species(array.number, 3)
+            local species = simd.species(array.float64, 3)
             local values = species:iota(1.0, 1.0)
             local result = simd.reducer.pairwiseSum(0.0)
             result:add(values)

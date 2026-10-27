@@ -85,7 +85,7 @@ local function floatingVector(t: Type): boolean
     end
     local payload = T.unwrapOwnership(element as Type)
 
-    return payload.tag == "float32" or payload.tag == "float64" or payload.tag == "number"
+    return payload.tag == "float32" or payload.tag == "float64"
 end
 
 local dropSelf = generics.dropSelf
@@ -1520,8 +1520,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 or named == "xorBits"
                 or named == "integerMin"
                 or named == "integerMax"
-            local floating = element ~= nil
-                and (element.tag == "float32" or element.tag == "float64" or element.tag == "number")
+            local floating = element ~= nil and (element.tag == "float32" or element.tag == "float64")
             if element and indexed then
                 (node as any).simdHorizontal = selectedExport.member
             elseif element and integerContract and floating then

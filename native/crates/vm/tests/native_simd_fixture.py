@@ -16,7 +16,7 @@ const kernels = require("kernels")
         ("uint32", "4000000000", "3705032704"), ("int32", "2000000000", "-294967296"),
         ("uint64", "9223372036854775809ULL", "2ULL"),
         ("int64", "-9223372036854775807LL", "2LL"),
-        ("float", "1.25", "2.5"), ("number", "1.25", "2.5"),
+        ("float32", "1.25", "2.5"), ("float64", "1.25", "2.5"),
     ]
     for kind, initial, expected in cases:
         source += f'''
@@ -52,8 +52,8 @@ end
 '''
     source += '''
 local function checkedKernels(): nil
-    const input = array.scalar(array.number, 67)
-    const output = array.scalar(array.number, 67)
+    const input = array.scalar(array.float64, 67)
+    const output = array.scalar(array.float64, 67)
     do
         const writer = input:write()
         for i = 1, #writer do writer[i] = i end
@@ -69,13 +69,13 @@ local function checkedKernels(): nil
         assert(writer[i] == value + rounds)
     end
     assert(kernels.explicitAlgebraic(reader, reader) == 102510)
-    const small = array.scalar(array.number, 2)
+    const small = array.scalar(array.float64, 2)
     const short = small:write()
     local ok, problem = pcall(function(): nil kernels.explicitMap(short, reader, 1.0, 0.0) end)
     assert(not ok and tostring(problem):find("length mismatch", 1, true) ~= nil)
 end
-local function rotatePair(borrows input: span.Span<number>, x: number, y: number): number
-    local species = assert(simd.species(array.number, 4))
+local function rotatePair(borrows input: span.Span<float64>, x: float64, y: float64): float64
+    local species = assert(simd.species(array.float64, 4))
     local accumulator = species:splat(0.0)
     local a, b = x, y
     local cursor: uint32 = 0
@@ -87,8 +87,8 @@ local function rotatePair(borrows input: span.Span<number>, x: number, y: number
 
     return simd.horizontal.algebraicSum(accumulator) + a * 10 + b
 end
-local function rotateSix(borrows input: span.Span<number>, x: number): number
-    local species = assert(simd.species(array.number, 4))
+local function rotateSix(borrows input: span.Span<float64>, x: float64): float64
+    local species = assert(simd.species(array.float64, 4))
     local accumulator = species:splat(0.0)
     local a, b, c, d, e, f = x, x + 1, x + 2, x + 3, x + 4, x + 5
     local rounds = 0
@@ -109,7 +109,7 @@ end
 local function checkedRotations(): nil
     -- A parallel assignment reads every right-hand side before it writes any
     -- target, so the loop-carried scalars rotate rather than collapse.
-    const input = array.scalar(array.number, 29)
+    const input = array.scalar(array.float64, 29)
     do
         const writer = input:write()
         for i = 1, #writer do writer[i] = i end

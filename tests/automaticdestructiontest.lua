@@ -253,10 +253,10 @@ local WITH_SPAN = [[
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
 @aot
-local function fill(exclusive values: span.WriteSpan<float>): nil
+local function fill(exclusive values: span.WriteSpan<float32>): nil
     for i = 1, #values do values[i] = 3.0 end
 end
-local values = array.scalar(array.float, 4)
+local values = array.scalar(array.float32, 4)
 ]]
 
 function M.withWritableSpansKeepTheirSourceLoansUntilExit()
@@ -321,7 +321,7 @@ function M.withWritableSpanViewsCannotEscapeTheirExtent()
     local actual = codes(
         WITH_SPAN
         .. [[
-local function escape(exclusive owner: array.Array<float>): span.Span<float> borrows (owner)
+local function escape(exclusive owner: array.Array<float32>): span.Span<float32> borrows (owner)
     with writable = owner:write() do
         return writable:shared()
     end
@@ -1104,21 +1104,25 @@ function M.aSwitchArmHandsItsOwnerToTheBindingOnce()
     testAssert.equal(chunk(), "<a>a|<b>ba")
 end
 
-
 function M.genericRecordsCanCloseThemselves()
     testAssert.equal(
-        codes(table.concat({
-            "local record Box<T> is nupp.Closeable",
-            "    value: T",
-            "    close: function(takes self: Box<T>): nil",
-            "end",
-            "local record Other is nupp.Closeable",
-            "    close: function(takes self: Other): nil",
-            "end",
-            "local record Wrong<T> is nupp.Closeable",
-            "    close: function(takes self: Other): nil",
-            "end",
-        }, "\n")),
+        codes(
+            table.concat(
+                {
+                    "local record Box<T> is nupp.Closeable",
+                    "    value: T",
+                    "    close: function(takes self: Box<T>): nil",
+                    "end",
+                    "local record Other is nupp.Closeable",
+                    "    close: function(takes self: Other): nil",
+                    "end",
+                    "local record Wrong<T> is nupp.Closeable",
+                    "    close: function(takes self: Other): nil",
+                    "end",
+                },
+                "\n"
+            )
+        ),
         "NUPP2615"
     )
 end

@@ -14,6 +14,7 @@ local n = tonumber(os.getenv("GEMM_N") or 256)
 local k = tonumber(os.getenv("GEMM_K") or 256)
 
 local cell = ffi.new("float[1]")
+
 local function f32(value)
     cell[0] = value
     return tonumber(cell[0])
@@ -21,6 +22,7 @@ end
 
 -- Deterministic values in [-1, 1) so accumulation stays well-conditioned.
 local state = 42
+
 local function nextValue()
     state = (state * 1103515245 + 12345) % 2147483648
     return f32(state / 1073741824.0 - 1.0)
@@ -61,9 +63,9 @@ if expectedAdapter then
 end
 io.write(("GPU driver: %s\n"):format(driver))
 io.stdout:flush()
-local cBuffer = context:buffer(require("nupp.mem.array").float, m * n)
-local aBuffer = context:buffer(require("nupp.mem.array").float, m * k)
-local bBuffer = context:buffer(require("nupp.mem.array").float, k * n)
+local cBuffer = context:buffer(require("nupp.mem.array").float32, m * n)
+local aBuffer = context:buffer(require("nupp.mem.array").float32, m * k)
+local bBuffer = context:buffer(require("nupp.mem.array").float32, k * n)
 local kernel = generated.gemm:compile(context)
 local invocation = kernel:bind(cBuffer, aBuffer, bBuffer)
 

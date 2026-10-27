@@ -104,7 +104,7 @@ function cdef.install(
             return value.declKind == "struct"
         end
 
-        return COUNT_TYPES[value] == true or value == T.number or value == T.float32 or value == T.boolean
+        return COUNT_TYPES[value] == true or value == T.float64 or value == T.float32 or value == T.boolean
     end
 
     local function countedView(name: string, element: Type, at): Type
@@ -238,7 +238,7 @@ function cdef.install(
                     pdef.type = pt
                 end
                 c.markToken(pname, pdef, pt, "parameter")
-                if not (reifiableField(pt, true) or pt == T.number or pt == T.string or pt.tag == "func") then
+                if not (reifiableField(pt, true) or pt == T.string or pt.tag == "func") then
                     c.diag("NUPP2203", p, ("cdef parameter: %s is not a C type"):format(T.tostring(pt)))
                 end
                 if pt.tag == "nominal" and pt.declKind == "struct" and not pt.cdefName then
@@ -357,7 +357,7 @@ function cdef.install(
                 rets[1] = owner
                 validateCleanups(owner, cleanups, stat.ret, "NUPP2615")
             end
-            if not (reifiableField(raw, true) or raw == T.number) then
+            if not (reifiableField(raw, true)) then
                 c.diag("NUPP2203", stat.ret, ("cdef return: %s is not a C type"):format(T.tostring(raw)))
             end
             if rt.tag == "nominal" and rt.declKind == "struct" and not rt.cdefName then

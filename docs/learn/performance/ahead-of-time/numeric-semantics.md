@@ -10,7 +10,7 @@ any target-specific code is produced.
 
 ```nupp
 @aot
-local function add(left: float, right: float): float
+local function add(left: float32, right: float32): float32
     return nupp.math.f32.add(left, right)
 end
 ```
@@ -18,8 +18,8 @@ end
 | Written | Computed as | Notes |
 | --- | --- | --- |
 | `a + b` on numbers | binary64 | not contracted, not reassociated |
-| a `float` field read | binary64 | the physical load widens |
-| a `float` field write | binary32 | the physical store narrows |
+| a `float32` field read | binary64 | the physical load widens |
+| a `float32` field write | binary32 | the physical store narrows |
 | `nupp.math.f32.add(a, b)` | binary32, one rounding | exact, see below |
 | `nupp.math.f32.min`/`max`/`fma` | binary32, corrected | a helper repairs NaN behavior |
 | `int32` `+`, `-`, `*` on established operands | wrapping int32 | wraps in unsigned, comes back; see below |
@@ -109,7 +109,7 @@ module for the selected native backend, and none asks a platform math library
 to choose a result.
 
 A width changes only at a conversion the IR writes down. An operator never
-changes one, which is what keeps `float` a storage fact rather than an
+changes one, which is what keeps `float32` a storage fact rather than an
 arithmetic type:
 
 ::: code-group
@@ -186,7 +186,7 @@ Numeric conversion is not saturating:
 - Float-to-`uint64` accepts the union of the signed and unsigned 64-bit ranges;
   negative signed-range values retain their two's-complement representation.
 - Integer-to-floating conversion goes through double, including the possible
-  double rounding of a 64-bit integer converted to `float`.
+  double rounding of a 64-bit integer converted to `float32`.
 
 NaN, infinities, and float inputs outside the conversion's supported range
 produce unspecified target-dependent integer values, never undefined behavior.
@@ -244,14 +244,14 @@ earliest position. The predicate reducers `any`, `all` and `count` take a mask
 of the lanes they test beside the mask of the lanes that are active.
 
 A floating-point reducer accumulates in the element its constructor names.
-`orderedSum(initial)` is binary64; `orderedSum(array.float, initial)` is
+`orderedSum(initial)` is binary64; `orderedSum(array.float32, initial)` is
 binary32 under every contract, rounding after every operation as `nupp.math.f32`
 does: an ordered binary32 sum rounds after every lane, a pairwise one at every
 node of the tree, a compensated one keeps its total and its compensation in
 binary32, a dot rounds each product before adding it (or fuses the two under the
 algebraic contract), and the extrema round nothing. The initial value is rounded
-to the element. `value()` returns that element, so a `float` kernel finishes in
-`float` without a conversion it did not write. The integer horizontals,
+to the element. `value()` returns that element, so a `float32` kernel finishes in
+`float32` without a conversion it did not write. The integer horizontals,
 `simd.horizontal.wrappingSum`, `wrappingProduct`, `andBits`, `orBits`,
 `xorBits`, `integerMin` and `integerMax`, fold a vector's lanes in the lane's
 own width: a byte vector's sum wraps at a byte and leaves the vector as a byte
@@ -285,7 +285,7 @@ The scalar subset admits a
 [switch](../../language/switch-expressions.md) in expression positions, including
 initializers, assignments, arguments, return values, and loop conditions, when:
 
-- the selector is `number`, `float`, `int32`, `uint32`, `boolean`, `string`, or statically known nil;
+- the selector is `number`, `float32`, `int32`, `uint32`, `boolean`, `string`, or statically known nil;
 - every case is a static primitive value;
 - each completing arm produces an admitted scalar value; and
 - the checker has proved the switch exhaustive, either from its cases or an

@@ -65,6 +65,17 @@ local function fieldlessCdef(t: any): boolean
     return t ~= nil and t.tag == "nominal" and t.cdefName ~= nil and #(t.fieldOrder or {}) == 0
 end
 
+local function genericNumberStorage(t: Type): boolean
+    local raw = T.unwrapOwnership(t)
+    if raw == T.number then
+        return true
+    elseif raw.tag == "ptr" or raw.tag == "carray" then
+        return genericNumberStorage(raw.elem)
+    end
+
+    return false
+end
+
 --- The text inside a string literal, whichever way it was quoted.
 local function cdefBody(text: string): string?
     return text:match("^%[%[(.*)%]%]$")
@@ -181,6 +192,10 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
             local ffiArgs = {}
             for j, e in ipairs(argExprs) do
                 ffiArgs[j] = c.infer(e)
+            end
+            if genericNumberStorage(argT) then
+                c.diag("NUPP2203", typeArg, "FFI storage requires a physical numeric type, not generic number")
+                return T.any
             end
             if name == "new" and fieldlessCdef(argT) then
                 c.diag(

@@ -4,10 +4,10 @@ local array = require("nupp.mem.array")
 
 @aot
 local function map(
-    exclusive output: span.WriteSpan<number>,
-    borrows input: span.Span<number>,
-    scale: number,
-    bias: number
+    exclusive output: span.WriteSpan<float64>,
+    borrows input: span.Span<float64>,
+    scale: float64,
+    bias: float64
 ): nil
     if #output ~= #input then
         error("length mismatch", 2)
@@ -19,15 +19,15 @@ end
 
 @aot
 local function explicitMap(
-    exclusive output: span.WriteSpan<number>,
-    borrows input: span.Span<number>,
-    scale: number,
-    bias: number
+    exclusive output: span.WriteSpan<float64>,
+    borrows input: span.Span<float64>,
+    scale: float64,
+    bias: float64
 ): nil
     if #output ~= #input then
         error("length mismatch", 2)
     end
-    local species = assert(simd.species(array.number, 4))
+    local species = assert(simd.species(array.float64, 4))
     local cursor: uint32 = 0
     while cursor + species.lanes <= #input do
         species:store(output, cursor + 1, species:load(input, cursor + 1) * scale + bias)
@@ -40,7 +40,7 @@ local function explicitMap(
 end
 
 @aot
-local function refine(exclusive output: span.WriteSpan<number>, borrows input: span.Span<number>): nil
+local function refine(exclusive output: span.WriteSpan<float64>, borrows input: span.Span<float64>): nil
     if #output ~= #input then
         error("length mismatch", 2)
     end
@@ -56,11 +56,11 @@ local function refine(exclusive output: span.WriteSpan<number>, borrows input: s
 end
 
 @aot
-local function explicitRefine(exclusive output: span.WriteSpan<number>, borrows input: span.Span<number>): nil
+local function explicitRefine(exclusive output: span.WriteSpan<float64>, borrows input: span.Span<float64>): nil
     if #output ~= #input then
         error("length mismatch", 2)
     end
-    local species = assert(simd.species(array.number, 4))
+    local species = assert(simd.species(array.float64, 4))
     local cursor: uint32 = 0
     while cursor + species.lanes <= #input do
         local value = species:load(input, cursor + 1)
@@ -89,7 +89,7 @@ local function explicitRefine(exclusive output: span.WriteSpan<number>, borrows 
 end
 
 @aot
-local function ordered(borrows left: span.Span<number>, borrows right: span.Span<number>): number
+local function ordered(borrows left: span.Span<float64>, borrows right: span.Span<float64>): float64
     if #left ~= #right then
         error("length mismatch", 2)
     end
@@ -102,11 +102,11 @@ local function ordered(borrows left: span.Span<number>, borrows right: span.Span
 end
 
 @aot
-local function explicitOrdered(borrows left: span.Span<number>, borrows right: span.Span<number>): number
+local function explicitOrdered(borrows left: span.Span<float64>, borrows right: span.Span<float64>): float64
     if #left ~= #right then
         error("length mismatch", 2)
     end
-    local species = assert(simd.species(array.number, 4))
+    local species = assert(simd.species(array.float64, 4))
     local result = simd.reducer.orderedDot(0.0)
     do
         local cursor: uint32 = 0
@@ -124,7 +124,7 @@ local function explicitOrdered(borrows left: span.Span<number>, borrows right: s
 end
 
 @aot
-local function pairwise(borrows left: span.Span<number>, borrows right: span.Span<number>): number
+local function pairwise(borrows left: span.Span<float64>, borrows right: span.Span<float64>): float64
     if #left ~= #right then
         error("length mismatch", 2)
     end
@@ -137,11 +137,11 @@ local function pairwise(borrows left: span.Span<number>, borrows right: span.Spa
 end
 
 @aot
-local function explicitPairwise(borrows left: span.Span<number>, borrows right: span.Span<number>): number
+local function explicitPairwise(borrows left: span.Span<float64>, borrows right: span.Span<float64>): float64
     if #left ~= #right then
         error("length mismatch", 2)
     end
-    local species = assert(simd.species(array.number, 4))
+    local species = assert(simd.species(array.float64, 4))
     local result = simd.reducer.pairwiseDot(0.0)
     do
         local cursor: uint32 = 0
@@ -159,7 +159,7 @@ local function explicitPairwise(borrows left: span.Span<number>, borrows right: 
 end
 
 @aot
-local function algebraic(borrows left: span.Span<number>, borrows right: span.Span<number>): number
+local function algebraic(borrows left: span.Span<float64>, borrows right: span.Span<float64>): float64
     if #left ~= #right then
         error("length mismatch", 2)
     end
@@ -172,11 +172,11 @@ local function algebraic(borrows left: span.Span<number>, borrows right: span.Sp
 end
 
 @aot
-local function explicitAlgebraic(borrows left: span.Span<number>, borrows right: span.Span<number>): number
+local function explicitAlgebraic(borrows left: span.Span<float64>, borrows right: span.Span<float64>): float64
     if #left ~= #right then
         error("length mismatch", 2)
     end
-    local species = assert(simd.species(array.number, 4))
+    local species = assert(simd.species(array.float64, 4))
     local accumulator = species:splat(0.0)
     local cursor: uint32 = 0
     while cursor + species.lanes <= #left and cursor + species.lanes <= #right do

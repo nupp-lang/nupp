@@ -1525,7 +1525,6 @@ local RECIPE_C_TYPE = {
     boolean = "_Bool",
     float32 = "float",
     float64 = "double",
-    number = "double",
     integer = "int32_t",
     int8 = "int8_t",
     int16 = "int16_t",

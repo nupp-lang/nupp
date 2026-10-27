@@ -17,7 +17,7 @@ const taskSuite = require("main")
 local sizes: {integer} = {0, 1, 3, 4, 5, 7, 8, 63, 64, 65, 1000, 65539}
 
 local function numbers(count: integer, seed: integer): array.Array<number>
-    const owned = array.scalar(array.number, count)
+    const owned = array.scalar(array.float64, count)
     do
         const writer = owned:write()
         for i = 1, #writer do
@@ -40,7 +40,7 @@ local function integers(count: integer): array.Array<int32>
     return owned
 end
 
-local function show(out: {string}, label: string, borrows view: span.Span<number>): nil
+local function show(out: {string}, label: string, borrows view: span.Span<float64>): nil
     local parts: {string} = {label}
     for i = 1, #view do
         parts[#parts + 1] = string.format("%.17g", view[i])
@@ -52,7 +52,7 @@ local function maps(out: {string}, count: integer): nil
     const input = numbers(count, 37)
     const reader = input:read()
     for _, name in ipairs({"map", "explicitMap", "refine", "explicitRefine"}) do
-        const output = array.scalar(array.number, count)
+        const output = array.scalar(array.float64, count)
         do
             const writer = output:write()
             if name == "map" then
@@ -126,7 +126,7 @@ export function parkStart(): number
         coroutine.create(function(): string
             const owned = numbers(67, 29)
             const reader = owned:read()
-            local species = assert(simd.species(array.number, 4))
+            local species = assert(simd.species(array.float64, 4))
             local total = species:splat(0.5)
             local cursor: uint32 = 0
             local blocks = 0
@@ -185,7 +185,7 @@ end
 local function blockSum(seed: integer, pause: integer): string
     const owned = numbers(259, seed)
     const reader = owned:read()
-    local species = assert(simd.species(array.number, 4))
+    local species = assert(simd.species(array.float64, 4))
     local total = species:splat(0.0)
     local cursor: uint32 = 0
     local blocks = 0

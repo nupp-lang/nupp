@@ -14,9 +14,9 @@ local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
 
 @aot
-local function scale(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>, factor: float): nil
+local function scale(exclusive output: span.WriteSpan<float32>, borrows input: span.Span<float32>, factor: float32): nil
     assert(#output == #input, "length mismatch")
-    local species = simd.species(array.float)
+    local species = simd.species(array.float32)
     for at, active in species:over(#input) do
         species:store(output, at, species:load(input, at, active) * factor, active)
     end
@@ -61,16 +61,16 @@ lanes fit in a register:
 | --- | --- | --- |
 | `uint8` (a byte) | 8 | 16 |
 | `uint16` | 16 | 8 |
-| `float` (binary32) | 32 | 4 |
+| `float32` (binary32) | 32 | 4 |
 | `uint32`, `int32` | 32 | 4 |
-| `number` (binary64) | 64 | 2 |
+| `float64` (binary64) | 64 | 2 |
 
-`float` uses [*binary32*](numeric-semantics.md), a 32-bit floating-point
-representation; `number`
+`float32` uses [*binary32*](numeric-semantics.md), a 32-bit floating-point
+representation; `float64`
 uses *binary64*, which has 64 bits and more precision. A 128-bit register
-therefore holds four `float` values or two `number` values.
+therefore holds four `float32` values or two `float64` values.
 
-Scaling eight values stored as `float` needs two four-lane multiplications:
+Scaling eight values stored as `float32` needs two four-lane multiplications:
 load four values, multiply all four by two, store four results, and repeat.
 The NEON instruction `fmul.4s` multiplies four binary32 values at once. Nupp's
 array storage gives the opening kernel the contiguous values these loads
@@ -105,13 +105,13 @@ these modules to connect its data to those instructions:
 
 - [](nupp.mem.array) allocates owned, contiguous storage of
   one element type. Contiguous means the elements sit next to each other in
-  memory. A *type witness*, such as `array.float`, names the element type
+  memory. A *type witness*, such as `array.float32`, names the element type
   when passed to an allocation or species constructor.
 - [](nupp.mem.span) provides a *span*, a bounds-checked view of
   storage. Its native representation includes an address and an element
   count, so the kernel can read the data without navigating a table.
 - [](nupp.simd) provides vector operations. A *species* describes
-  their element type and lane count, such as four `float` lanes on NEON.
+  their element type and lane count, such as four `float32` lanes on NEON.
 
 Each example followed by output runs with `nupp run`; shorter snippets
 illustrate parts of a kernel. The opening
@@ -123,16 +123,16 @@ local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
 
 @aot
-local function scale(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>, factor: float): nil
+local function scale(exclusive output: span.WriteSpan<float32>, borrows input: span.Span<float32>, factor: float32): nil
     assert(#output == #input, "length mismatch")
-    local species = simd.species(array.float)
+    local species = simd.species(array.float32)
     for at, active in species:over(#input) do
         species:store(output, at, species:load(input, at, active) * factor, active)
     end
 end
 
-local values = array.scalar(array.float, 10)
-local doubled = array.scalar(array.float, 10)
+local values = array.scalar(array.float32, 10)
+local doubled = array.scalar(array.float32, 10)
 with writable = values:write() do
     for i = 1, #writable do writable[i] = i end
 end
@@ -181,11 +181,11 @@ valid in `input` is valid in `output`.
 A species supplies the lane count for each compiled tier:
 
 ```nupp:fragment
-local species = simd.species(array.float)
+local species = simd.species(array.float32)
 local lanes = species.lanes
 ```
 
-`simd.species(array.float)` is the species for `float` on the selected target:
+`simd.species(array.float32)` is the species for `float32` on the selected target:
 four lanes on NEON, one lane on a target with no vector registers. The source
 never writes a lane count, so this element-by-element multiplication works
 at every width.
@@ -277,7 +277,7 @@ Arithmetic between vectors operates lane by lane; a scalar on the right is
 splatted first:
 
 ```nupp:fragment
-local species = simd.species(array.float)
+local species = simd.species(array.float32)
 local ones = species:splat(1.0)
 local ramp = species:iota(0.0, 0.5)
 local sum = ones + ramp
@@ -288,8 +288,8 @@ With four lanes, `ones` contains `1, 1, 1, 1`, and `ramp` contains
 `0, 0.5, 1, 1.5`. Adding them and multiplying by two gives
 `2, 3, 4, 5` in `scaled`.
 
-`simd.species(array.float)` is the *preferred species*, sized for the vector
-width selected by the build. `simd.species(array.float, 4)` is a *fixed
+`simd.species(array.float32)` is the *preferred species*, sized for the vector
+width selected by the build. `simd.species(array.float32, 4)` is a *fixed
 species* with four logical lanes on every AOT tier, which the compiler
 implements in however many registers that takes.
 
@@ -297,7 +297,7 @@ Prefer the preferred species unless an algorithm needs a known lane count,
 such as a four-by-four matrix transpose.
 
 Species exist for every storage element: `uint8` through `uint64`, their
-signed forms, `float`, and `number`. The element is named by the witness
+signed forms, `float32`, and `float64`. The element is named by the witness
 `nupp.mem.array` allocates with, so a kernel over `array.uint8` storage loads
 it with the `array.uint8` species.
 
@@ -305,8 +305,8 @@ Vector arithmetic requires compatible species. A two-lane vector cannot be
 added directly to a four-lane vector:
 
 ```nupp:fragment
-local pairs = simd.species(array.float, 2)
-local quads = simd.species(array.float, 4)
+local pairs = simd.species(array.float32, 2)
+local quads = simd.species(array.float32, 4)
 local mixed = pairs:splat(1.0) + quads:splat(1.0) -- NUPP2006
 ```
 
@@ -346,7 +346,7 @@ for a zero divisor instead of trapping.
 vector directly:
 
 ```nupp:fragment
-local species = simd.species(array.float)
+local species = simd.species(array.float32)
 local value = species:splat(4.0)
 local root = math.sqrt(value)
 local mapped = species:map(math.sqrt, value)
@@ -355,7 +355,7 @@ local adjusted = root:fma(0.5, 1.0)
 
 Both `root` and `mapped` hold 2 in every lane. `fma` multiplies and adds with
 one rounding, giving 2 in `adjusted`. It follows `nupp.math.f32.fma` for
-`float` lanes and the binary64 fused operation for `number` lanes.
+`float32` lanes and the binary64 fused operation for `float64` lanes.
 
 Use `species:map` for the other supported math functions or a helper of your
 own. See [](nupp.simd) for the supported operations.
@@ -403,8 +403,8 @@ local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
 
 @aot
-local function clamp(exclusive values: span.WriteSpan<float>, low: float, high: float): nil
-    local species = simd.species(array.float)
+local function clamp(exclusive values: span.WriteSpan<float32>, low: float32, high: float32): nil
+    local species = simd.species(array.float32)
     for at, active in species:over(#values) do
         local v = species:load(values, at, active)
         v = (v < low):select(low, v)
@@ -413,7 +413,7 @@ local function clamp(exclusive values: span.WriteSpan<float>, low: float, high: 
     end
 end
 
-local samples = array.scalar(array.float, 6)
+local samples = array.scalar(array.float32, 6)
 with writable = samples:write() do
     writable[1] = -5.0
     writable[2] = 0.25
@@ -473,9 +473,9 @@ local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
 
 @aot
-local function halvings(exclusive output: span.WriteSpan<number>, borrows input: span.Span<number>): nil
+local function halvings(exclusive output: span.WriteSpan<float64>, borrows input: span.Span<float64>): nil
     assert(#output == #input, "length mismatch")
-    local species = simd.species(array.number)
+    local species = simd.species(array.float64)
     for at, active in species:over(#input) do
         local value = species:load(input, at, active)
         local rounds = species:splat(0.0)
@@ -489,8 +489,8 @@ local function halvings(exclusive output: span.WriteSpan<number>, borrows input:
     end
 end
 
-local input = array.scalar(array.number, 5)
-local output = array.scalar(array.number, 5)
+local input = array.scalar(array.float64, 5)
+local output = array.scalar(array.float64, 5)
 with w = input:write() do
     w[1] = 1.0
     w[2] = 2.0
@@ -515,7 +515,7 @@ Inside, each lane is updated only where `live` is true, and `live` shrinks as
 lanes finish. Starting `live` from `active` keeps the tail's empty lanes out
 of the loop from the first pass.
 
-Using `float` instead of `number` gives four lanes on NEON instead of two.
+Using `float32` instead of `float64` gives four lanes on NEON instead of two.
 In the recorded measurement over a million random floats, that version took
 4.1 ms and the scalar loop took 13.0 ms. The distribution of inputs matters:
 if one lane needs twenty iterations and its neighbors need one, the vector
@@ -564,7 +564,7 @@ constructor names the *numerical contract*, the rules for grouping and
 rounding those contributions:
 
 ```nupp:fragment
-local sum = simd.reducer.pairwiseSum(array.float, 0.0)
+local sum = simd.reducer.pairwiseSum(array.float32, 0.0)
 sum:add(1.0)
 sum:add(2.0)
 local result = sum:value()
@@ -647,8 +647,8 @@ local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
 
 @aot
-local function total(borrows values: span.Span<number>): number
-    local species = simd.species(array.number)
+local function total(borrows values: span.Span<float64>): float64
+    local species = simd.species(array.float64)
     local sum = simd.reducer.algebraicSum(0.0)
     for at, active in species:over(#values) do
         sum:add(species:load(values, at, active), active)
@@ -656,7 +656,7 @@ local function total(borrows values: span.Span<number>): number
     return sum:value()
 end
 
-local values = array.scalar(array.number, 10)
+local values = array.scalar(array.float64, 10)
 with w = values:write() do
     for i = 1, #w do w[i] = i end
 end
@@ -667,7 +667,7 @@ print(total(values:read()))
 55
 ```
 
-`algebraicSum(0.0)` accumulates in `number`. Passing `array.float` before
+`algebraicSum(0.0)` accumulates in `float64`. Passing `array.float32` before
 the initial value selects binary32 accumulation instead.
 
 ### Dot products
@@ -681,18 +681,18 @@ local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
 
 @aot
-local function dot(borrows left: span.Span<float>, borrows right: span.Span<float>): float
+local function dot(borrows left: span.Span<float32>, borrows right: span.Span<float32>): float32
     assert(#left == #right, "length mismatch")
-    local species = simd.species(array.float)
-    local sum = simd.reducer.pairwiseDot(array.float, 0.0)
+    local species = simd.species(array.float32)
+    local sum = simd.reducer.pairwiseDot(array.float32, 0.0)
     for at, active in species:over(#left) do
         sum:add(species:load(left, at, active), species:load(right, at, active), active)
     end
     return sum:value()
 end
 
-local a = array.scalar(array.float, 3)
-local b = array.scalar(array.float, 3)
+local a = array.scalar(array.float32, 3)
+local b = array.scalar(array.float32, 3)
 with wa = a:write(), wb = b:write() do
     wa[1], wa[2], wa[3] = 1.0, 2.0, 3.0
     wb[1], wb[2], wb[3] = 4.0, 5.0, 6.0
@@ -705,7 +705,7 @@ print(dot(a:read(), b:read()))
 ```
 
 Here the products are `4`, `10`, and `18`, which sum to `32`.
-`pairwiseDot(array.float, 0.0)` rounds each product to binary32, then rounds
+`pairwiseDot(array.float32, 0.0)` rounds each product to binary32, then rounds
 each addition in its pairwise tree. It need not match a left-to-right sum.
 
 ### Integer and predicate reducers
@@ -728,7 +728,7 @@ Predicate reducers `any`, `all`, and `count` accept masks as contributions.
 A count receives the selected lanes and the active mask for each chunk:
 
 ```nupp:fragment
-local species = simd.species(array.float)
+local species = simd.species(array.float32)
 local count = simd.reducer.count()
 for at, active in species:over(#input) do
     local value = species:load(input, at, active)
@@ -752,9 +752,9 @@ Vector and scalar contributions can share a reducer. This kernel finds the
 minimum and its position, using a scalar loop for the remaining elements:
 
 ```nupp:fragment
-local species = simd.species(array.float)
-local low = simd.reducer.propagatingMin(array.float, math.huge)
-local where = simd.reducer.propagatingArgMin(array.float)
+local species = simd.species(array.float32)
+local low = simd.reducer.propagatingMin(array.float32, math.huge)
+local where = simd.reducer.propagatingArgMin(array.float32)
 local cursor: uint32 = 0
 do
     while cursor + species.lanes <= #values do
@@ -863,9 +863,9 @@ local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
 
 @aot
-local function above(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>, threshold: float): integer
+local function above(exclusive output: span.WriteSpan<float32>, borrows input: span.Span<float32>, threshold: float32): integer
     assert(#output == #input, "length mismatch")
-    local species = simd.species(array.float)
+    local species = simd.species(array.float32)
     local written: uint32 = 0
     for at, active in species:over(#input) do
         local value = species:load(input, at, active)
@@ -877,8 +877,8 @@ local function above(exclusive output: span.WriteSpan<float>, borrows input: spa
     return written
 end
 
-local input = array.scalar(array.float, 8)
-local output = array.scalar(array.float, 8)
+local input = array.scalar(array.float32, 8)
+local output = array.scalar(array.float32, 8)
 with w = input:write() do
     for i = 1, #w do w[i] = i * 0.5 end
 end
@@ -927,7 +927,7 @@ narrowing a preferred species gives half the lanes of the narrower element's
 preferred species.
 
 `widen` and `narrow` move one step along `uint8`, `uint16`, `uint32`, `uint64`,
-along the matching signed types, or between `float` and `number`. A step must
+along the matching signed types, or between `float32` and `float64`. A step must
 keep signedness. The compiler rejects any other step when it lowers the
 function; there is no element beyond 64 bits or below 8 bits.
 
@@ -938,8 +938,8 @@ function; there is no element beyond 64 bits or below 8 bits.
 the same element width:
 
 ```nupp:fragment
-local floats = simd.species(array.float)
-local doubles = floats:widen(array.number)
+local floats = simd.species(array.float32)
+local doubles = floats:widen(array.float64)
 local value = floats:splat(1.5)
 local precise = doubles:convert(value)
 local words = simd.species(array.uint32):reinterpret(value)
@@ -1095,12 +1095,12 @@ A native CPU `@aot` function can take and return vectors or masks:
 local simd = require("nupp.simd")
 
 @aot
-local function twice(value: simd.Vector<float, simd.Preferred>): simd.Vector<float, simd.Preferred>
+local function twice(value: simd.Vector<float32, simd.Preferred>): simd.Vector<float32, simd.Preferred>
     return value + value
 end
 
 @aot
-local function positive(value: simd.Vector<float, simd.Preferred>): simd.Mask<float, simd.Preferred>
+local function positive(value: simd.Vector<float32, simd.Preferred>): simd.Mask<float32, simd.Preferred>
     return value > 0.0
 end
 
@@ -1129,8 +1129,8 @@ When the target's AOT policy compiles these entries, the checker rejects
 calls from code outside `@aot` functions:
 
 ```nupp:fragment
-local function outside(): simd.Vector<float, simd.Preferred>
-    return twice(simd.species(array.float):splat(1.0)) -- NUPP2910
+local function outside(): simd.Vector<float32, simd.Preferred>
+    return twice(simd.species(array.float32):splat(1.0)) -- NUPP2910
 end
 ```
 
@@ -1156,8 +1156,8 @@ A struct whose vectors are all `Fixed<N>` is instead a storage struct; see
 local simd = require("nupp.simd")
 
 local struct Pair
-    re: simd.Vector<float, simd.Preferred>
-    im: simd.Vector<float, simd.Preferred>
+    re: simd.Vector<float32, simd.Preferred>
+    im: simd.Vector<float32, simd.Preferred>
 end
 
 @aot
@@ -1180,7 +1180,7 @@ species:store(output, at, result.re + result.im, active)
 
 The code generator lays `Pair` out as a literal struct of register types,
 `{ <4 x float>, <4 x float> }` on a four-lane tier. Fields may be vectors,
-masks, `number`, `float`, `boolean`, 32- or 64-bit integers, or nested
+masks, `float64`, `float32`, `boolean`, 32- or 64-bit integers, or nested
 native-only aggregates. Narrow storage integers are rejected. `Preferred`
 is allowed because the layout belongs to the compiled tier.
 
@@ -1229,12 +1229,12 @@ local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
 
 local struct Particle
-    mass: float
-    velocity: simd.Vector<float, simd.Fixed<4>>
+    mass: float32
+    velocity: simd.Vector<float32, simd.Fixed<4>>
 end
 
 @aot
-local function damp(exclusive rows: span.WriteSpan<Particle>, factor: float): number
+local function damp(exclusive rows: span.WriteSpan<Particle>, factor: float32): float64
     local total = 0.0
     for i = 1, #rows do
         rows[i].velocity = rows[i].velocity * factor
@@ -1256,7 +1256,7 @@ aggregate.
 The compiler's target layout model lays the field out, per target: the
 payload rounded up to a power of two, capped at the allocator's guarantee of
 16 bytes on 64-bit targets, or 8 bytes on i686. The payload pads to
-that alignment, so three `float` lanes occupy 16 bytes, 4 of them padding; a
+that alignment, so three `float32` lanes occupy 16 bytes, 4 of them padding; a
 payload beyond the cap pads to a multiple of the cap. `Particle` above is 48
 bytes a row, `velocity` at offset 16.
 
@@ -1273,12 +1273,12 @@ The preferred species has one lane on a scalar tier, while
 a fixed species retains its requested logical lane count on every tier.
 
 Use
-`simd.vectors(array.float)` when the kernel has its own scalar implementation:
+`simd.vectors(array.float32)` when the kernel has its own scalar implementation:
 it returns a species where vector registers are available and `nil` where
 they are not. AOT resolves this choice at compile time for each tier:
 
 ```nupp:fragment
-if species = simd.vectors(array.float) then
+if species = simd.vectors(array.float32) then
     for at, active in species:over(#input) do
         species:store(output, at, species:load(input, at, active) * factor, active)
     end
@@ -1320,12 +1320,12 @@ These terms connect the processor model to the Nupp operations.
 - *Scalar*: one value, or an instruction that works on one value.
 - *Vector*: a group of values of one type. It can occupy one or several
   registers; in `nupp.simd`, it is an immutable value in a kernel's locals.
-- *Lane*: one slot of a vector. A 128-bit register has four `float` lanes
+- *Lane*: one slot of a vector. A 128-bit register has four `float32` lanes
   or sixteen `uint8` lanes.
 - *SIMD*: single instruction, multiple data. One instruction that operates
   on every lane of a vector at once.
 - *Species*: a vector type, an element and a lane count.
-  `simd.species(array.float)` is the preferred species for `float`; a fixed
+  `simd.species(array.float32)` is the preferred species for `float32`; a fixed
   species names its lane count.
 - *Mask*: one boolean per lane. Produced by comparisons, consumed by
   `select`, masked loads and stores, and reducers.

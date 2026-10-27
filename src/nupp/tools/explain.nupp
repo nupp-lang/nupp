@@ -1644,17 +1644,17 @@ ENTRIES[
     .. "a Lua value. Move the call into an `@aot` function, or give the entry a "
     .. "span and scalar signature.",
     wrong = "local array = require(\"nupp.mem.array\")\nlocal simd = require(\"nupp.simd\")\n\n@aot\n"
-    .. "local function twice(value: simd.Vector<float, simd.Preferred>): simd.Vector<float, simd.Preferred>\n"
+    .. "local function twice(value: simd.Vector<float32, simd.Preferred>): simd.Vector<float32, simd.Preferred>\n"
     .. "    return value + value\nend\n\n"
-    .. "local function fromLua(): simd.Vector<float, simd.Preferred>\n"
-    .. "    local species = simd.species(array.float)\n    return twice(species:splat(1.0))\nend\n\n"
+    .. "local function fromLua(): simd.Vector<float32, simd.Preferred>\n"
+    .. "    local species = simd.species(array.float32)\n    return twice(species:splat(1.0))\nend\n\n"
     .. "return {twice = twice, fromLua = fromLua}\n",
     right = "local array = require(\"nupp.mem.array\")\nlocal span = require(\"nupp.mem.span\")\n"
     .. "local simd = require(\"nupp.simd\")\n\n@aot\n"
-    .. "local function twice(value: simd.Vector<float, simd.Preferred>): simd.Vector<float, simd.Preferred>\n"
+    .. "local function twice(value: simd.Vector<float32, simd.Preferred>): simd.Vector<float32, simd.Preferred>\n"
     .. "    return value + value\nend\n\n@aot\n"
-    .. "local function apply(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil\n"
-    .. "    assert(#output == #input, \"length mismatch\")\n    local species = simd.species(array.float)\n"
+    .. "local function apply(exclusive output: span.WriteSpan<float32>, borrows input: span.Span<float32>): nil\n"
+    .. "    assert(#output == #input, \"length mismatch\")\n    local species = simd.species(array.float32)\n"
     .. "    for at, active in species:over(#input) do\n"
     .. "        species:store(output, at, twice(species:load(input, at, active)), active)\n    end\nend\n\n"
     .. "return {twice = twice, apply = apply}\n",
@@ -1673,11 +1673,11 @@ ENTRIES[
     .. "stores, in native code or as ordinary Lua, so the two never disagree "
     .. "about who sees a write. Construct a new aggregate with the field changed.",
     wrong = "local simd = require(\"nupp.simd\")\n\nlocal struct Pair\n"
-    .. "    re: simd.Vector<float, simd.Preferred>\n    im: simd.Vector<float, simd.Preferred>\nend\n\n@aot\n"
+    .. "    re: simd.Vector<float32, simd.Preferred>\n    im: simd.Vector<float32, simd.Preferred>\nend\n\n@aot\n"
     .. "local function conjugate(z: Pair): Pair\n    z.im = -z.im\n    return z\nend\n\n"
     .. "return {conjugate = conjugate, Pair = Pair}\n",
     right = "local simd = require(\"nupp.simd\")\n\nlocal struct Pair\n"
-    .. "    re: simd.Vector<float, simd.Preferred>\n    im: simd.Vector<float, simd.Preferred>\nend\n\n@aot\n"
+    .. "    re: simd.Vector<float32, simd.Preferred>\n    im: simd.Vector<float32, simd.Preferred>\nend\n\n@aot\n"
     .. "local function conjugate(z: Pair): Pair\n    return new Pair(z.re, -z.im)\nend\n\n"
     .. "return {conjugate = conjugate, Pair = Pair}\n",
     related = {"NUPP2910"},

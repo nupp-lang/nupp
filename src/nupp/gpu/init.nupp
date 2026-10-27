@@ -16,7 +16,7 @@ local array = nupp.mem.array
 local kernels = require("kernels")
 
 with context = gpu.open() do
-    with input = context:buffer(array.float, 1024), output = context:buffer(array.float, 1024) do
+    with input = context:buffer(array.float32, 1024), output = context:buffer(array.float32, 1024) do
         with kernel = kernels.scale:compile(context) do
             with scale = kernel:bind(output, input) do
                 context:upload(input, values:read())

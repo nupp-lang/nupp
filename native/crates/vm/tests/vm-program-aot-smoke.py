@@ -36,8 +36,8 @@ const kernels = require("kernels")
 
 local parts: {string} = {}
 for _, count in ipairs({0, 1, 5, 63, 1000}) do
-    const input = array.scalar(array.number, count)
-    const output = array.scalar(array.number, count)
+    const input = array.scalar(array.float64, count)
+    const output = array.scalar(array.float64, count)
     do
         const writer = input:write()
         for i = 1, #writer do

@@ -13,12 +13,14 @@ local tokens, width = 8, 8
 local elements = tokens * width
 
 local cell = ffi.new("float[1]")
+
 local function f32(value)
     cell[0] = value
     return tonumber(cell[0])
 end
 
 local state = 42
+
 local function nextValue()
     state = (state * 1103515245 + 12345) % 2147483648
     return f32(state / 4294967296.0 - 0.25)
@@ -28,10 +30,18 @@ local input = ffi.new("float[?]", elements)
 local queryWeights = ffi.new("float[?]", width * width)
 local keyWeights = ffi.new("float[?]", width * width)
 local valueWeights = ffi.new("float[?]", width * width)
-for index = 0, elements - 1 do input[index] = nextValue() end
-for index = 0, width * width - 1 do queryWeights[index] = nextValue() end
-for index = 0, width * width - 1 do keyWeights[index] = nextValue() end
-for index = 0, width * width - 1 do valueWeights[index] = nextValue() end
+for index = 0, elements - 1 do
+    input[index] = nextValue()
+end
+for index = 0, width * width - 1 do
+    queryWeights[index] = nextValue()
+end
+for index = 0, width * width - 1 do
+    keyWeights[index] = nextValue()
+end
+for index = 0, width * width - 1 do
+    valueWeights[index] = nextValue()
+end
 
 local q = ffi.new("float[?]", elements)
 local k = ffi.new("float[?]", elements)
@@ -48,21 +58,29 @@ transformer.scoresCpu(
     span.writeCarray(scores, tokens * tokens),
     span.fromCarray(q, elements),
     span.fromCarray(k, elements),
-    tokens, width, scale)
+    tokens,
+    width,
+    scale
+)
 transformer.softmaxCpu(
     span.writeCarray(probabilities, tokens * tokens),
-    span.fromCarray(scores, tokens * tokens), tokens)
+    span.fromCarray(scores, tokens * tokens),
+    tokens
+)
 transformer.mixCpu(
     span.writeCarray(expected, elements),
     span.fromCarray(probabilities, tokens * tokens),
-    span.fromCarray(v, elements), tokens, width)
+    span.fromCarray(v, elements),
+    tokens,
+    width
+)
 
 local context = gpu.open()
-local inputBuffer = context:tensor(require("nupp.mem.array").float, {tokens, width})
-local qWeightsBuffer = context:tensor(require("nupp.mem.array").float, {width, width})
-local kWeightsBuffer = context:tensor(require("nupp.mem.array").float, {width, width})
-local vWeightsBuffer = context:tensor(require("nupp.mem.array").float, {width, width})
-local workspace = context:tensor(require("nupp.mem.array").float, {6, elements})
+local inputBuffer = context:tensor(require("nupp.mem.array").float32, {tokens, width})
+local qWeightsBuffer = context:tensor(require("nupp.mem.array").float32, {width, width})
+local kWeightsBuffer = context:tensor(require("nupp.mem.array").float32, {width, width})
+local vWeightsBuffer = context:tensor(require("nupp.mem.array").float32, {width, width})
+local workspace = context:tensor(require("nupp.mem.array").float32, {6, elements})
 local qView = workspace:subview({0, 0}, {1, elements})
 local kView = workspace:subview({1, 0}, {1, elements})
 local vView = workspace:subview({2, 0}, {1, elements})
@@ -80,10 +98,18 @@ assert(not gapped:isDense() and gapped:isInjective())
 assert(transposedShape[1] == elements and transposedShape[2] == 6)
 assert(transposedStrides[1] == 1 and transposedStrides[2] == elements)
 assert(not broadcast:isDense() and not broadcast:isInjective())
-assert(not pcall(function() context:upload(gapped, inputSpan) end),
-    "a non-dense tensor upload was admitted")
-assert(not pcall(function() context:tensor(require("nupp.mem.array").float, {tokens, 0}) end),
-    "a zero-stride broadcasting shape was admitted")
+assert(
+    not pcall(function()
+        context:upload(gapped, inputSpan)
+    end),
+    "a non-dense tensor upload was admitted"
+)
+assert(
+    not pcall(function()
+        context:tensor(require("nupp.mem.array").float32, {tokens, 0})
+    end),
+    "a zero-stride broadcasting shape was admitted"
+)
 
 context:upload(inputBuffer, inputSpan)
 context:upload(qWeightsBuffer, span.fromCarray(queryWeights, width * width))
@@ -109,7 +135,9 @@ local function dispatch()
     context:synchronize()
 end
 
-for _ = 1, 3 do dispatch() end
+for _ = 1, 3 do
+    dispatch()
+end
 local started, passes = now(), 0
 repeat
     dispatch()
@@ -135,13 +163,18 @@ context:synchronize()
 context:readDownloaded(probabilitiesView, span.writeCarray(gpuProbabilities, elements))
 for index = 0, elements - 1 do
     assert(projected[index] == q[index], ("Q view mismatch at %d"):format(index))
-    assert(gpuScores[index] == scores[index], ("score mismatch at %d: got %.9g, want %.9g"):format(
-        index, gpuScores[index], scores[index]))
-    assert(gpuProbabilities[index] == probabilities[index],
-        ("softmax mismatch at %d: got %.9g, want %.9g"):format(
-            index, gpuProbabilities[index], probabilities[index]))
-    assert(output[index] == expected[index], ("transformer mismatch at %d: got %.9g, want %.9g"):format(
-        index, output[index], expected[index]))
+    assert(
+        gpuScores[index] == scores[index],
+        ("score mismatch at %d: got %.9g, want %.9g"):format(index, gpuScores[index], scores[index])
+    )
+    assert(
+        gpuProbabilities[index] == probabilities[index],
+        ("softmax mismatch at %d: got %.9g, want %.9g"):format(index, gpuProbabilities[index], probabilities[index])
+    )
+    assert(
+        output[index] == expected[index],
+        ("transformer mismatch at %d: got %.9g, want %.9g"):format(index, output[index], expected[index])
+    )
 end
 
 io.write("Tiny transformer: 6 chained kernels and 6 resident views agree element-exact with the CPU reference\n")

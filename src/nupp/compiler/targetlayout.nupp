@@ -240,7 +240,6 @@ const VECTOR_ELEMENT_BYTES: {
 } = {
     float32 = 4,
     float64 = 8,
-    number = 8,
     int8 = 1,
     uint8 = 1,
     int16 = 2,
@@ -347,7 +346,7 @@ function targetLayout.of(t: any, key: string): any?, string?
         elseif subject.tag == "literal" and type(subject.constant) == "number" then
             -- A tag field holds one integer value at the width of a C enumerator.
             return FIXED.int32
-        elseif subject.tag == "number" or subject.tag == "float64" then
+        elseif subject.tag == "float64" then
             return model.number
         elseif subject.tag == "int64" or subject.tag == "uint64" then
             return model.int64

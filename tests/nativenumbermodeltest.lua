@@ -216,4 +216,86 @@ return true
     assert(program.run(parsed, "numeric-library-consumers") == true)
 end
 
+function M.floatingStorageWitnessesHaveExactPhysicalTypes()
+    local parsed = checked(
+        [[
+local array = require("nupp.mem.array")
+local narrow: array.Scalar<float32> = array.float32
+local wide: array.Scalar<float64> = array.float64
+local exposed: any = array
+assert(exposed.float == nil and exposed.number == nil)
+local simd = require("nupp.simd")
+local sum = simd.reducer.orderedSum(1)
+local total: float64 = sum:value()
+assert(total == 1.0 and math.type(total) == "float")
+local dynamicSum: any = sum
+assert(math.type(dynamicSum:value()) == "float")
+local negative = simd.reducer.orderedSum(-0.0)
+assert(1.0 / negative:value() == -math.huge)
+local species = simd.species(wide, 4)
+local vector = species:splat(1.0)
+local lane: float64 = vector:extract(1)
+assert(math.type(lane) == "float" and lane == 1.0)
+do
+    const values = array.scalar(wide, 3)
+    const writable = values:write()
+    writable[1], writable[2], writable[3] = -0.0, math.huge, 0.0 / 0.0
+    nupp.drop(writable)
+    const readable = values:read()
+    assert(math.type(readable[1]) == "float" and 1.0 / readable[1] == -math.huge)
+    assert(readable[2] == math.huge and readable[3] ~= readable[3])
+end
+do
+    const values = array.scalar(narrow, 1)
+    const writable = values:write()
+    writable[1] = 0.1
+    nupp.drop(writable)
+    const readable = values:read()
+    assert(readable[1] == nupp.math.f32.narrow(0.1))
+end
+return true
+]]
+    )
+    assert(program.run(parsed, "physical-floating-witnesses") == true)
+    local layouts = require("nupp.compiler.targetlayout")
+    local layout, why = layouts.of(T.number, layouts.hostKey())
+    assert(layout == nil and why ~= nil)
+    assert(T.cName(T.number) == nil and T.cName(T.float64) == "double")
+end
+
+function M.genericNumbersCannotAcquirePhysicalFloatingRepresentations()
+    checked(
+        [[
+local struct Physical
+    narrow: float32
+    wide: float64
+    integer: int64
+end
+cdef function floating(value: float64, narrow: float32): float64 from "not-loaded"
+return Physical, floating
+]]
+    )
+    for _, source in ipairs({
+        "local struct Bad value: number end; return Bad",
+        'local ffi = require("ffi"); return ffi.typeof<number>()',
+        'local ffi = require("ffi"); return ffi.new<number[1]>()',
+        'local ffi = require("ffi"); return ffi.cast<number*>(nil)',
+        'local ffi = require("ffi"); return ffi.typeof<number[4]>()',
+        'local simd = require("nupp.simd"); local struct Bad value: simd.Vector<number, simd.Fixed<4>> end; return Bad',
+        'cdef function bad(value: number): float64 from "not-loaded"; return bad',
+        'cdef function bad(value: float64): number from "not-loaded"; return bad',
+        'local simd = require("nupp.simd"); local function bad(value: simd.Vector<number, simd.Fixed<4>>): number return simd.horizontal.orderedSum(value) end; return bad',
+    }) do
+        local result = parser.parse(source, "generic-number-storage.nupp")
+        assert(#result.errors == 0, "storage refusal fixture syntax")
+        local rejected = false
+        for _, diagnostic in ipairs(checker.check(result, "generic-number-storage.nupp", env)) do
+            if diagnostic.severity == "error" then
+                rejected = true
+            end
+        end
+        assert(rejected, "generic number was admitted as a physical scalar: " .. source)
+    end
+end
+
 return M

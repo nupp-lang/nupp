@@ -157,7 +157,7 @@ pub fn create(vm: &mut Interp, name: &str, args: &[Value]) -> Value {
         9
     } else {
         witness.filter(|k| *k >= 8).unwrap_or_else(|| {
-            vm.err("floating reducer requires the float or number array witness")
+            vm.err("floating reducer requires the float32 or float64 array witness")
         })
     };
     let mut bytes = vec![0u8; SIZE];
@@ -251,7 +251,8 @@ pub fn add(vm: &mut Interp, args: &[Value]) -> Value {
     let boolean = matches!(name, "any" | "all" | "count");
     // A dot product takes its lane count from whichever side is a vector;
     // the reference admits a scalar on either side.
-    let vector = simd::shape(vm, arg(1)).or_else(|| if dot { simd::shape(vm, arg(2)) } else { None });
+    let vector =
+        simd::shape(vm, arg(1)).or_else(|| if dot { simd::shape(vm, arg(2)) } else { None });
     let n = vector.map_or(1, |s| s.lanes);
     if let Some(s) = vector {
         if s.species || s.mask != boolean || (!boolean && s.kind != kind) {

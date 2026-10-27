@@ -20,7 +20,7 @@ function M.spanAssignmentsPreserveLocationsOrderAndTupleAdjustment()
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
 local u32 = nupp.math.u32
-local function apply(exclusive values: span.WriteSpan<number>, trace: {number}): number
+local function apply(exclusive values: span.WriteSpan<float64>, trace: {number}): number
     local function index(mark: number): uint32
         trace[#trace + 1] = mark
         return u32.wrap(1)
@@ -45,7 +45,7 @@ local function apply(exclusive values: span.WriteSpan<number>, trace: {number}):
     return first * 100 + values[u32.wrap(1)] * 10 + values[u32.wrap(2)]
 end
 local function run(trace: {number}): number
-    const storage = array.scalar(array.number, 2)
+    const storage = array.scalar(array.float64, 2)
     const values = storage:write()
     const result = apply(values, trace)
     nupp.drop(values)
@@ -65,7 +65,7 @@ function M.mixedAssignmentsFreezeTableReceiversBeforeRebinding()
     local source = [[
 local span = require("nupp.mem.span")
 local u32 = nupp.math.u32
-local function apply(exclusive values: span.WriteSpan<number>, trace: {number}): number
+local function apply(exclusive values: span.WriteSpan<float64>, trace: {number}): number
     local current: {number} = {10}
     local original = current
     local function receiver(): {number}
@@ -105,7 +105,7 @@ function M.simultaneousStoresOnAWritableSpan()
     local source = [[
 local array = require("nupp.mem.array")
 local function apply(): number
-    const storage = array.scalar(array.number, 2)
+    const storage = array.scalar(array.float64, 2)
     const values = storage:write()
     values[1], values[2] = 3, 4
     values[1], values[1] = values[2], values[1]
@@ -122,7 +122,7 @@ function M.temporaryStructFieldReceiversRemainRefused()
     local source = [[
 local span = require("nupp.mem.span")
 local u32 = nupp.math.u32
-local struct Cell value: number end
+local struct Cell value: float64 end
 local function apply(factory: function(): span.WriteSpan<Cell>, trace: {number}): nil
     local function index(mark: number): uint32
         trace[#trace + 1] = mark
@@ -156,7 +156,7 @@ function M.rootedStructFieldsEvaluateIndicesOnce()
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
 local u32 = nupp.math.u32
-local struct Cell value: number end
+local struct Cell value: float64 end
 local function apply(exclusive values: span.WriteSpan<Cell>, trace: {number}): nil
     local function index(mark: number): uint32
         trace[#trace + 1] = mark

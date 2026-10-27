@@ -22,8 +22,7 @@ local elements = {
     uint64 = 6,
     int64 = 7,
     float32 = 8,
-    float64 = 9,
-    number = 9
+    float64 = 9
 }
 local widths = {[0] = 1, [1] = 1, [2] = 2, [3] = 2, [4] = 4, [5] = 4, [6] = 8, [7] = 8, [8] = 4, [9] = 8}
 local scalars = {

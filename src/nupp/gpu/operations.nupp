@@ -21,8 +21,8 @@ const SCALAR_KINDS: {
     [array.int32] = "int32",
     [array.uint64] = "uint64",
     [array.int64] = "int64",
-    [array.float] = "float",
-    [array.number] = "number",
+    [array.float32] = "float",
+    [array.float64] = "number",
 }
 
 type gpu.Buffer<T> = types.Buffer<T>

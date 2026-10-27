@@ -4227,7 +4227,6 @@ end
 local C_NAME: {
     [string]: string
 } = {
-    number = "double",
     float32 = "float",
     float64 = "double",
     boolean = "bool",

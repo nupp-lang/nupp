@@ -18,9 +18,9 @@ local span = require("nupp.mem.span")
 
 @aot(target = "gpu")
 local function scale(
-    exclusive output: span.WriteSpan<float>,
-    borrows input: span.Span<float>,
-    factor: float
+    exclusive output: span.WriteSpan<float32>,
+    borrows input: span.Span<float32>,
+    factor: float32
 ): nil
     assert(#output == #input, "length mismatch")
     for index = 1, #output do
@@ -51,11 +51,11 @@ local gpu = require("nupp.gpu")
 local kernels = require("kernels")
 local array = nupp.mem.array
 
-local source = array.scalar(array.float, 1024)
-local result = array.scalar(array.float, 1024)
+local source = array.scalar(array.float32, 1024)
+local result = array.scalar(array.float32, 1024)
 
 with context = gpu.open() do
-    with input = context:buffer(array.float, 1024), output = context:buffer(array.float, 1024) do
+    with input = context:buffer(array.float32, 1024), output = context:buffer(array.float32, 1024) do
         with kernel = kernels.scale:compile(context) do
             with binding = kernel:bind(output, input) do
                 context:upload(input, source:read())
@@ -121,8 +121,8 @@ local span = require("nupp.mem.span")
 
 @aot(target = "gpu")
 local function reduce(
-    exclusive output: span.WriteSpan<float>,
-    borrows input: span.Span<float>
+    exclusive output: span.WriteSpan<float32>,
+    borrows input: span.Span<float32>
 ): nil
     local groups = nupp.math.u32.div(
         nupp.math.u32.wrap(#input),

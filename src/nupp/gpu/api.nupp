@@ -142,7 +142,7 @@ interface gpu.Context is nupp.Closeable
     @readonly driver: function(borrows self: gpu.Context): string
 
     --- Allocates a typed resident device buffer. The element is named by its
-    --- array witness, such as `nupp.mem.array.float`, or by a struct declaration.
+    --- array witness, such as `nupp.mem.array.float32`, or by a struct declaration.
     @readonly buffer: function<T>(
         borrows self: gpu.Context,
         element: Scalar<T> | Type<T>,

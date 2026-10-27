@@ -94,7 +94,6 @@ function metadata.foreignSignature(declaration)
     local scalars = {
         boolean = "bool",
         integer = "int64",
-        number = "number",
         float32 = "float32",
         float64 = "number",
         int8 = "int8",
@@ -368,7 +367,6 @@ function metadata.structLayout(declaration, target)
     local scalars = {
         boolean = true,
         integer = true,
-        number = true,
         float32 = true,
         float64 = true,
         int8 = true,
@@ -1034,7 +1032,6 @@ local STORAGE_SCALARS: {
     integer = "integer",
     float32 = "float32",
     float64 = "number",
-    number = "number",
     boolean = "boolean",
 }
 
