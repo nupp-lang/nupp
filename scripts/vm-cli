@@ -322,7 +322,7 @@ def build(args):
 
 def execution_seed():
     """A digest-verified matching runtime/image pair, never a source-built VM."""
-    found = subprocess.run([str(ROOT / "scripts/toolchain"), "stage0-seed"], cwd=ROOT,
+    found = subprocess.run(toolchain_command("stage0-seed"), cwd=ROOT,
                            capture_output=True, text=True)
     if found.returncode:
         raise ValueError("no bootstrap execution seed: " + found.stderr.strip())
@@ -330,6 +330,11 @@ def execution_seed():
     run_step([sys.executable, str(ROOT / "scripts/bootstrap-seed"), "verify", str(package)],
              what="verify execution seed")
     return package
+
+
+def toolchain_command(*arguments):
+    command = [str(ROOT / "scripts/toolchain"), *arguments]
+    return ["sh.exe", *command] if os.name == "nt" else command
 
 
 def execution_environment(cache=None):
