@@ -187,7 +187,12 @@ function harness.run(
         stdin = "null",
         stdout = "pipe",
         stderr = "pipe",
-        timeoutMs = timeoutSeconds ~= nil and math.floor(timeoutSeconds * 1000) or nil,
+        timeoutMs = timeoutSeconds ~= nil
+        and assert(
+            math.tointeger(math.floor(timeoutSeconds * 1000)),
+            "eval command timeout must fit a finite integer number of milliseconds"
+        )
+        or nil,
     }
     local child, spawnProblem = process.spawn(options)
     if child == nil then

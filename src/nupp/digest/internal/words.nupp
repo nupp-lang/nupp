@@ -23,7 +23,7 @@ end
 
 local function add64(ah: integer, al: integer, bh: integer, bl: integer): (integer, integer)
     local low = unsigned(al) + unsigned(bl)
-    return bit.tobit(ah + bh + math.floor(low / 4294967296)), bit.tobit(low)
+    return bit.tobit(ah + bh + (low // 4294967296)), bit.tobit(low)
 end
 
 local function rotate64(h: integer, l: integer, n: integer): (integer, integer)
@@ -189,7 +189,7 @@ function Engine.update(self: Engine, bytes: string): streaming.Hasher
     local block = self.name == "sha512" and 128 or 64
     local length = self.low + #bytes
     self.low = length % 4294967296
-    self.high = (self.high + math.floor(length / 4294967296)) % 4294967296
+    self.high = (self.high + (length // 4294967296)) % 4294967296
     local offset: integer = 1
     if #self.tail > 0 then
         local needed = block - #self.tail
@@ -214,7 +214,7 @@ end
 
 local function encodedWord(value: integer, little: boolean): string
     local v = unsigned(value)
-    local a, b, c, d = math.floor(v / 16777216) % 256, math.floor(v / 65536) % 256, math.floor(v / 256) % 256, v % 256
+    local a, b, c, d = (v // 16777216) % 256, (v // 65536) % 256, (v // 256) % 256, v % 256
     if little then
         return string.char(d, c, b, a)
     end
@@ -227,12 +227,12 @@ local function finish(self: Engine): nil
     local lengthSize = self.name == "sha512" and 16 or 8
     local little = self.name == "md5"
     local low = bit.tobit(self.low * 8)
-    local high = bit.tobit(self.high * 8 + math.floor(self.low / 536870912))
+    local high = bit.tobit(self.high * 8 + (self.low // 536870912))
     local length = little and (encodedWord(low, true) .. encodedWord(high, true))
         or (encodedWord(high, false) .. encodedWord(low, false))
     if lengthSize == 16 then
         -- A 64-bit byte counter can carry three bits into the 128-bit bit length.
-        length = encodedWord(0, false) .. encodedWord(math.floor(self.high / 536870912), false) .. length
+        length = encodedWord(0, false) .. encodedWord((self.high // 536870912), false) .. length
     end
     local tail = self.tail .. "\128"
     tail = tail .. string.rep("\0", (block - lengthSize - #tail % block) % block) .. length
@@ -249,7 +249,7 @@ function Engine.writeDigest(self: Engine, exclusive destination: span.ByteWriteS
         local value = unsigned(self.state[word])
         for byte = 0, 3 do
             local shift = little and byte * 8 or 24 - byte * 8
-            destination[(word - 1) * 4 + byte + 1] = math.floor(value / 2 ^ shift) % 256
+            destination[(word - 1) * 4 + byte + 1] = (value >> shift) & 255
         end
     end
 end
