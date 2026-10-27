@@ -20,19 +20,18 @@ marking a white hit is grayed, and while sweeping a white hit whitened by an
 earlier cycle is a miss, since the sweep has not reached it and will free
 it, where one the sweep already passed (this cycle's epoch) is a survivor.
 
-There are no finalizers: no guest code runs for a dead object. What the
-collector owes the runtime is the chance to let go of what an object owns
-outside its slot (a table's parts, a record's array part and overflow, an
-iterator's keys, a buffer's bytes, a userdata's host data) and to drop an
-interned string or a boxed integer from its lookup table. Such an object is
-retired by the sweep: counted dead, its kind `FREED` so nothing reaches it
-as live, its payload intact, and its slot withheld from reuse until the
-runtime takes it from the released list and recycles it.
+There are no finalizers: no guest code runs for a dead object. The runtime
+still tears down owned payloads outside the slot: table parts, record arrays
+and overflow, iterator keys, buffer bytes and userdata host data. Weak indexes
+erase entries by exact header identity before retirement or reclamation. The
+released-object handoff keeps its existing kinds: the sweep counts one dead,
+sets its kind to `FREED`, and preserves its payload and slot until the runtime
+takes it from the released list and recycles it.
 ]]
 
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
-const objectweak = require("nupp.runtime.vm.objectweak")
+const weakindex = require("nupp.runtime.vm.weakindex")
 const weakentries = require("nupp.runtime.vm.weakentries")
 const marking = require("nupp.runtime.vm.marking")
 
@@ -124,27 +123,11 @@ end
 --- stands. While marking a white hit is grayed and stands; while sweeping a
 --- white hit an earlier cycle whitened is a miss, never a resurrection.
 export function lookupHit(h: heap.Heap*, o: heap.Header*): boolean
-    @unsafe do
-        local action = objectweak.weakLookupAction(
-            native.word(h.phase),
-            o.color as uint64,
-            o.epoch as uint64,
-            h.stats.cycles,
-            heap.COLOR_WHITE,
-            heap.PHASE_MARKING,
-            heap.PHASE_SWEEPING
-        )
-        if action == 1ULL then
-            marking.barrierShade(h, heap.objectValue(o))
-        elseif action == 2ULL then
-            return false
-        end
-        return true
-    end
+    return marking.weakLookupHit(h, o)
 end
 
---- Whether a dead object owns something outside its slot or sits in a lookup
---- table, so the runtime must see it before its slot is reused.
+-- Keep the released-object protocol for its existing kinds while host payload
+-- teardown remains. Weak index removal already happened before this decision.
 local function owns(o: heap.Header*): boolean
     @unsafe do
         local kind = o.kind as uint64
@@ -169,6 +152,7 @@ end
 --- A white object the sweep reached: reclaimed at once when it owns nothing
 --- outside its slot, else retired onto the released list for the runtime.
 export function release(h: heap.Heap*, o: heap.Header*): nil
+    weakindex.weakErase(h, o)
     @unsafe do
         if owns(o) then
             heap.retire(h, o)

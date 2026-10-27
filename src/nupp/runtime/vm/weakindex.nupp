@@ -1,0 +1,297 @@
+module nupp.runtime.vm.weakindex
+
+-- Buckets contain owned header addresses, not Values or numeric key bits.
+-- Zero alone is empty. These weak metadata indexes are never collector roots.
+-- Every borrowed header/byte range stays owned through this noncollecting call.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const backing = require("nupp.runtime.vm.backing")
+const objecthash = require("nupp.runtime.vm.objecthash")
+const objecttable = require("nupp.runtime.vm.objecttable")
+const marking = require("nupp.runtime.vm.marking")
+
+local function valid(index: heap.WeakIndex*): boolean
+    @unsafe do
+        if index.kind ~= heap.KIND_STR and index.kind ~= heap.KIND_INTEGER then
+            return false
+        end
+        if index.base == 0ULL then
+            return index.mask == 0ULL and index.count == 0ULL
+        end
+        local capacity = index.mask + 1ULL
+        return capacity >= 8ULL
+            and capacity <= 0x100000000ULL
+            and capacity & index.mask == 0ULL
+            and index.count < capacity
+    end
+end
+
+local function bucketAt(index: heap.WeakIndex*, bucket: uint64): uint64
+    return @unsafe native.load64(native.pointer(index.base), native.index(bucket * 8ULL))
+end
+
+local function bucketPut(index: heap.WeakIndex*, bucket: uint64, address: uint64): nil
+    @unsafe native.store64(native.pointer(index.base), native.index(bucket * 8ULL), address)
+end
+
+local function entryHash(kind: uint64, address: uint64): uint64
+    @unsafe do
+        local o = native.pointer(address) as heap.Header*
+        if kind == heap.KIND_INTEGER then
+            return objecthash.slotHash(o.auxLen)
+        end
+        return native.load64(native.offset(o as voidptr, native.index(native.sizeOf<heap.Header>())), 0)
+    end
+end
+
+local function matches(kind: uint64, address: uint64, bytes: voidptr, count: uint64, bits: uint64): boolean
+    @unsafe do
+        local o = native.pointer(address) as heap.Header*
+        if kind == heap.KIND_INTEGER then
+            return o.aux == 0 and o.auxLen == bits
+        end
+        if o.auxLen ~= count then
+            return false
+        end
+        local i: uint64 = 0ULL
+        while i < count do
+            if native.load8(native.pointer(o.auxPtr), native.index(i)) ~= native.load8(bytes, native.index(i)) then
+                return false
+            end
+            i = i + 1ULL
+        end
+        return true
+    end
+end
+
+local function probe(index: heap.WeakIndex*, hash: uint64, bytes: voidptr, count: uint64, bits: uint64): uint64
+    @unsafe do
+        if not valid(index) or index.base == 0ULL then
+            return 0xffffffffffffffffULL
+        end
+        local bucket = hash & index.mask
+        local scanned: uint64 = 0ULL
+        while scanned <= index.mask do
+            local address = bucketAt(index, bucket)
+            if address == 0ULL then
+                return bucket
+            end
+            if entryHash(index.kind, address) == hash and matches(index.kind, address, bytes, count, bits) then
+                return bucket
+            end
+            bucket = (bucket + 1ULL) & index.mask
+            scanned = scanned + 1ULL
+        end
+        return 0xffffffffffffffffULL
+    end
+end
+
+-- The same cyclic backward-shift rule as heap.WordSet: the moved entry stays
+-- when its home lies in (hole, from], with wraparound. No tombstone key exists.
+local function eraseAt(index: heap.WeakIndex*, bucket: uint64): nil
+    @unsafe do
+        local hole = bucket
+        local from = (bucket + 1ULL) & index.mask
+        local scanned: uint64 = 0ULL
+        while scanned <= index.mask do
+            local address = bucketAt(index, from)
+            if address == 0ULL then
+                break
+            end
+            local home = entryHash(index.kind, address) & index.mask
+            local stays: boolean = false
+            if hole <= from then
+                stays = hole < home and home <= from
+            else
+                stays = hole < home or home <= from
+            end
+            if not stays then
+                bucketPut(index, hole, address)
+                hole = from
+            end
+            from = (from + 1ULL) & index.mask
+            scanned = scanned + 1ULL
+        end
+        bucketPut(index, hole, 0ULL)
+        index.count = index.count - 1ULL
+    end
+end
+
+-- Refusal leaves the old owner and every bucket unchanged. Replacement backing
+-- is initialized and copied before it is published; allocation cannot collect.
+export function weakReserve(h: heap.Heap*, index: heap.WeakIndex*, wanted: uint64): uint64
+    if not valid(index) then
+        return 1ULL
+    end
+    local capacity = objecttable.tableCapacity(wanted)
+    if wanted ~= 0ULL and capacity == 0ULL then
+        return 1ULL
+    end
+    @unsafe do
+        if capacity <= index.mask + 1ULL then
+            return 0ULL
+        end
+        local fresh = backing.wordBackingTake(h, capacity)
+        if fresh == 0ULL then
+            return 2ULL
+        end
+        local i: uint64 = 0ULL
+        while i < capacity do
+            native.store64(native.pointer(fresh), native.index(i * 8ULL), 0ULL)
+            i = i + 1ULL
+        end
+        if index.base ~= 0ULL then
+            i = 0ULL
+            while i <= index.mask do
+                local address = bucketAt(index, i)
+                if address ~= 0ULL then
+                    local at = entryHash(index.kind, address) & (capacity - 1ULL)
+                    while native.load64(native.pointer(fresh), native.index(at * 8ULL)) ~= 0ULL do
+                        at = (at + 1ULL) & (capacity - 1ULL)
+                    end
+                    native.store64(native.pointer(fresh), native.index(at * 8ULL), address)
+                end
+                i = i + 1ULL
+            end
+        end
+        local previous = index.base
+        index.base = fresh
+        index.mask = capacity - 1ULL
+        backing.wordBackingRelease(previous)
+        return 0ULL
+    end
+end
+
+local function peek(index: heap.WeakIndex*, bytes: voidptr, count: uint64, bits: uint64): uint64
+    @unsafe do
+        local hash = objecthash.slotHash(bits)
+        if index.kind == heap.KIND_STR then
+            if native.address(bytes) == 0ULL and count ~= 0ULL then
+                return 0ULL
+            end
+            hash = objecthash.stringHash(bytes, count, 0ULL)
+        end
+        local at = probe(index, hash, bytes, count, bits)
+        if at == 0xffffffffffffffffULL then
+            return 0ULL
+        end
+        return bucketAt(index, at)
+    end
+end
+
+export function weakStringPeek(h: heap.Heap*, bytes: voidptr, count: uint64): uint64
+    return @unsafe peek(h.stringIndex, bytes, count, 0ULL)
+end
+
+export function weakIntegerPeek(h: heap.Heap*, bits: uint64, unsigned: uint64): uint64
+    if unsigned ~= 0ULL then
+        return 0ULL
+    end
+    return @unsafe peek(h.integerIndex, native.pointer(0ULL), 0ULL, bits)
+end
+
+export function weakErase(h: heap.Heap*, o: heap.Header*): nil
+    @unsafe do
+        local index = h.integerIndex
+        local bytes = native.pointer(0ULL)
+        local count: uint64 = 0ULL
+        local bits = o.auxLen
+        if o.kind as uint64 == heap.KIND_STR and (o.flags as uint64) & heap.F_INTERNED ~= 0ULL then
+            index = h.stringIndex
+            bytes = native.pointer(o.auxPtr)
+            count = o.auxLen
+        elseif o.kind as uint64 ~= heap.KIND_INTEGER or o.aux ~= 0 then
+            return
+        end
+        local hash = entryHash(index.kind, native.address(o as voidptr))
+        local at = probe(index, hash, bytes, count, bits)
+        if at ~= 0xffffffffffffffffULL and bucketAt(index, at) == native.address(o as voidptr) then
+            eraseAt(index, at)
+        end
+    end
+end
+
+local function lookup(h: heap.Heap*, address: uint64): uint64
+    if address == 0ULL then
+        return 0ULL
+    end
+    local o = native.pointer(address) as heap.Header*
+    if not marking.weakLookupHit(h, o) then
+        weakErase(h, o)
+        return 0ULL
+    end
+
+    return address
+end
+
+export function weakStringLookup(h: heap.Heap*, bytes: voidptr, count: uint64, phase: int64, cycle: uint64): uint64
+    @unsafe do
+        h.phase = phase
+        h.stats.cycles = cycle
+    end
+
+    return lookup(h, weakStringPeek(h, bytes, count))
+end
+
+export function weakIntegerLookup(h: heap.Heap*, bits: uint64, unsigned: uint64, phase: int64, cycle: uint64): uint64
+    @unsafe do
+        h.phase = phase
+        h.stats.cycles = cycle
+    end
+
+    return lookup(h, weakIntegerPeek(h, bits, unsigned))
+end
+
+export function weakInsert(h: heap.Heap*, o: heap.Header*): uint64
+    @unsafe do
+        local index = h.integerIndex
+        local bytes = native.pointer(0ULL)
+        local count: uint64 = 0ULL
+        local bits = o.auxLen
+        local hash = objecthash.slotHash(bits)
+        if o.kind as uint64 == heap.KIND_STR then
+            local size: uint64 = o.size as uint64
+            local prefix = native.sizeOf<heap.Header>() + native.sizeOf<heap.StringBody>()
+            local minimum = prefix + 1ULL
+            if size < minimum then
+                return 1ULL
+            end
+            if o.auxLen > size - minimum then
+                return 1ULL
+            end
+            if o.auxPtr ~= native.address(o as voidptr) + prefix then
+                return 1ULL
+            end
+            index = h.stringIndex
+            bytes = native.pointer(o.auxPtr)
+            count = o.auxLen
+            hash = objecthash.stringHash(bytes, count, 0ULL)
+        elseif o.kind as uint64 ~= heap.KIND_INTEGER
+            or o.aux ~= 0
+            or (o.size as uint64) ~= native.sizeOf<heap.Header>()
+        then
+            return 1ULL
+        end
+        local status = weakReserve(h, index, index.count + 1ULL)
+        if status ~= 0ULL then
+            return status
+        end
+        local at = probe(index, hash, bytes, count, bits)
+        if at == 0xffffffffffffffffULL then
+            return 1ULL
+        end
+        local existing = bucketAt(index, at)
+        if existing ~= 0ULL and existing ~= native.address(o as voidptr) then
+            return 3ULL
+        end
+        if index.kind == heap.KIND_STR then
+            native.store64(native.offset(o as voidptr, native.index(native.sizeOf<heap.Header>())), 0, hash)
+            native.store8(o as voidptr, native.fieldOffset<heap.Header>("flags"), (o.flags as uint64) | heap.F_INTERNED)
+        end
+        if existing == 0ULL then
+            bucketPut(index, at, native.address(o as voidptr))
+            index.count = index.count + 1ULL
+        end
+        return 0ULL
+    end
+end

@@ -246,3 +246,24 @@ export function give(p: Pool*, slot: voidptr): nil
         p.live = p.live - 1
     end
 end
+
+-- Prefix shared by pooled and directly mapped word backing.
+export struct WordBacking
+    pool: uint64
+    mapped: uint64
+end
+
+export function releaseWordBacking(base: uint64): nil
+    @unsafe do
+        if base == 0ULL then
+            return
+        end
+        local raw = native.pointer(base - native.sizeOf<WordBacking>())
+        local poolAddress = native.load64(raw, 0)
+        if poolAddress ~= 0ULL then
+            give(native.pointer(poolAddress) as Pool*, raw)
+        else
+            os.unmapPages(raw, native.load64(raw, 8))
+        end
+    end
+end

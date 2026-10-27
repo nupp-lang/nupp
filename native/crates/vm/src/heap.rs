@@ -14,10 +14,9 @@
 //! quarantine and the oracle.
 
 use std::collections::{HashMap, HashSet};
-use std::hash::BuildHasherDefault;
 use std::ptr::NonNull;
 
-use crate::value::{StrHasher, Value, fnv1a};
+use crate::value::Value;
 use crate::native_allocator::NativeAllocator;
 
 // Object kinds, as the header byte compiled code reads.
@@ -282,14 +281,13 @@ unsafe extern "C" {
     fn nupp_object_slice_initialize(header: *mut Header, source: u64, offset: u64, count: u64) -> u64;
     fn nupp_object_cell_initialize(header: *mut Header, value: u64) -> u64;
     fn nupp_object_closure_initialize(header: *mut Header, function_id: u64, captures: *const Value, count: u64) -> u64;
-    fn nupp_object_weak_lookup_action(phase: u64, color: u64, epoch: u64, cycle: u64, white: u64, marking: u64, sweeping: u64) -> u64;
     fn nupp_object_shape_capacity(count: u64) -> u64;
     fn nupp_object_shape_fill(names: *const Value, count: u64, table: *mut [u64; 2], capacity: u64) -> u64;
     fn nupp_object_shape_find(table: *const [u64; 2], capacity: u64, mask: u64, name: u64) -> u64;
 }
 #[cfg(feature = "native-runtime")]
 const _: () = {
-    assert!(crate::dispatch::OBJECT_ABI == 15);
+    assert!(crate::dispatch::OBJECT_ABI == 16);
     assert!(std::mem::size_of::<Value>() == 8);
     assert!(std::mem::size_of::<RecordTail>() == 40);
     assert!(std::mem::size_of::<RecordExtra>() == 64);
@@ -398,8 +396,6 @@ pub struct Heap {
     /// Shapes by the declaration they were emitted for, so a record type that
     /// several images name loads as one shape and keeps one method table.
     pub shape_identities: HashMap<String, u32>,
-    interned: HashMap<Box<[u8]>, NonNull<Header>, BuildHasherDefault<StrHasher>>,
-    integers: HashMap<(bool, u64), NonNull<Header>>,
     pub stats: Stats,
     /// Invalidates physical layout facts after schema writes or reclamation.
     /// Saturation disables the cache instead of allowing version reuse.
@@ -452,7 +448,7 @@ thread_local! { static NEVER: bool = std::env::var("GC_NEVER").is_ok(); }
 impl Heap {
     pub fn new() -> Heap {
         let env = |k: &str| std::env::var(k).is_ok();
-        Heap { channels: HashMap::default(), allocator: NativeAllocator::new(), chunk_bytes_mapped: 0, live_count: 0, root_candidates: Vec::new(), timed: env("GC_STATS"), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), shape_identities: HashMap::new(), interned: HashMap::default(), integers: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0, weak: Vec::new(), mode_key: VT_EMPTY, record_type_key: VT_EMPTY, live_shapes: Vec::new(), declarations: HashMap::default(), mm_seen: 0, mm_keys: [VT_EMPTY; crate::metamethods::COUNT], proto_epoch: 0, proto_cache: HashMap::new(),
+        Heap { channels: HashMap::default(), allocator: NativeAllocator::new(), chunk_bytes_mapped: 0, live_count: 0, root_candidates: Vec::new(), timed: env("GC_STATS"), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), shape_identities: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0, weak: Vec::new(), mode_key: VT_EMPTY, record_type_key: VT_EMPTY, live_shapes: Vec::new(), declarations: HashMap::default(), mm_seen: 0, mm_keys: [VT_EMPTY; crate::metamethods::COUNT], proto_epoch: 0, proto_cache: HashMap::new(),
             #[cfg(feature = "allocation-metrics")]
             metrics: crate::allocation_metrics::new(),
         }
@@ -558,7 +554,7 @@ impl Heap {
     }
     /// Interns a fresh string in place (1.3): the live interned string with
     /// its bytes when there is one, else this string, now interned. Allocates
-    /// nothing; the native core calls it on a string it has just filled.
+    /// no guest object; the native core calls it on a string it has just filled.
     pub fn intern_string(&mut self, v: Value) -> Value {
         let bytes: &[u8] = unsafe { (*v.as_obj().expect("intern of a non-object").as_ptr()).bytes() };
         if let Some(found) = self.intern_lookup_bytes(bytes) { return found; }
@@ -568,51 +564,54 @@ impl Heap {
     /// Enters a fresh string into the intern table: the one insertion routine.
     fn mark_interned(&mut self, v: Value) {
         let p = v.as_obj().unwrap();
-        let s: &[u8] = unsafe { let h = &mut *p.as_ptr(); h.flags |= F_INTERNED; (*(h.payload() as *mut StrPayload)).hash = fnv1a(h.bytes()); h.bytes() };
-        if s.starts_with(b"__") { self.mm_seen |= crate::metamethods::bit_of(s); }
-        self.interned.insert(s.into(), p);
-    }
-    /// The interned string with these bytes, if one is alive, allocating nothing.
-    // For immediate table lookup only: this does not root or resurrect a key.
-    pub(crate) fn interned_key(&self, s: &str) -> Option<Value> { self.interned.get(s.as_bytes()).map(|p| Value::obj(*p)) }
-    pub fn intern_lookup(&mut self, s: &str) -> Option<Value> { self.intern_lookup_bytes(s.as_bytes()) }
-    pub fn intern_lookup_bytes(&mut self, s: &[u8]) -> Option<Value> {
-        let p = *self.interned.get(s)?;
-        if !self.weak_lookup_hit(p) { self.interned.remove(s); return None; }
-        Some(Value::obj(p))
-    }
-    // The map/header stay owned throughout this scalar call. Gray queue
-    // allocation is host backing only; no guest callback or collection runs.
-    fn weak_lookup_hit(&mut self, p: NonNull<Header>) -> bool {
-        #[cfg(feature = "native-runtime")]
-        unsafe {
-            let h = &mut *p.as_ptr();
-            let action = nupp_object_weak_lookup_action(self.phase as u64, h.color as u64, h.epoch as u64, self.stats.cycles, COLOR_WHITE as u64, Phase::Marking as u64, Phase::Sweeping as u64);
-            match action {
-                0 => true,
-                1 => { self.allocator.barrier_shade(Value::obj(p)); self.sync_allocator(); true }
-                2 => false,
-                _ => panic!("invalid Nupp weak lookup action"),
-            }
+        self.allocator.weak_insert(p);
+        let s = unsafe { p.as_ref().bytes() };
+        if s.starts_with(b"__") {
+            self.mm_seen |= crate::metamethods::bit_of(s);
         }
-        #[cfg(not(feature = "native-runtime"))]
-        { let _ = p; panic!("weak lookup policy requires a linked Nupp core") }
     }
-
-    pub fn integer_key(&self, bits: u64) -> Option<Value> { self.integers.get(&(false, bits)).map(|p| Value::obj(*p)) }
-    pub fn integer_value(&self, value: crate::numeric::Integer) -> Option<Value> { self.integers.get(&(value.unsigned, value.bits)).map(|p| Value::obj(*p)) }
+    // Immediate lookup only: this neither shades nor resurrects the key.
+    pub(crate) fn interned_key(&self, s: &str) -> Option<Value> {
+        self.allocator
+            .weak_string_peek(s.as_bytes())
+            .map(Value::obj)
+    }
+    pub fn intern_lookup(&mut self, s: &str) -> Option<Value> {
+        self.intern_lookup_bytes(s.as_bytes())
+    }
+    pub fn intern_lookup_bytes(&mut self, s: &[u8]) -> Option<Value> {
+        let p = self
+            .allocator
+            .weak_string_lookup(s, self.phase as i64, self.stats.cycles);
+        self.sync_allocator();
+        p.map(Value::obj)
+    }
+    pub fn integer_key(&self, bits: u64) -> Option<Value> {
+        self.allocator
+            .weak_integer_peek(bits, false)
+            .map(Value::obj)
+    }
+    pub fn integer_value(&self, value: crate::numeric::Integer) -> Option<Value> {
+        self.allocator
+            .weak_integer_peek(value.bits, value.unsigned)
+            .map(Value::obj)
+    }
     pub fn integer_lookup(&mut self, value: crate::numeric::Integer) -> Option<Value> {
-        let key = (value.unsigned, value.bits);
-        let p = *self.integers.get(&key)?;
-        if !self.weak_lookup_hit(p) { self.integers.remove(&key); return None; }
-        Some(Value::obj(p))
+        let p = self.allocator.weak_integer_lookup(
+            value.bits,
+            value.unsigned,
+            self.phase as i64,
+            self.stats.cycles,
+        );
+        self.sync_allocator();
+        p.map(Value::obj)
     }
     pub fn box_integer(&mut self, value: crate::numeric::Integer, roots: &dyn Roots) -> Value {
         let value = crate::numeric::Integer { bits: value.bits, unsigned: false };
         if let Some(v) = value.immediate().or_else(|| self.integer_lookup(value)) { return v; }
         let p = self.alloc(KIND_INTEGER, constructor_payload(KIND_INTEGER, 0), roots);
         initialize_object!(nupp_object_integer_initialize(p.as_ptr(), value.bits));
-        self.integers.insert((value.unsigned, value.bits), p);
+        self.allocator.weak_insert(p);
         #[cfg(feature = "allocation-metrics")]
         crate::allocation_metrics::register(&self.metrics, unsafe { p.as_ref() });
         Value::obj(p)
@@ -817,8 +816,8 @@ impl Heap {
         // Looked up before marking begins, so the lookup greys nothing; a
         // metatable naming `__mode` holds the string, so it stays alive and
         // keeps these bits for the cycle.
-        self.mode_key = self.interned.get(&b"__mode"[..]).map_or(VT_EMPTY, |p| Value::obj(*p).0);
-        self.record_type_key = self.interned.get(&b"\0nupp:recordType"[..]).map_or(VT_EMPTY, |p| Value::obj(*p).0);
+        self.mode_key = self.interned_key("__mode").map_or(VT_EMPTY, |v| v.0);
+        self.record_type_key = self.interned_key("\0nupp:recordType").map_or(VT_EMPTY, |v| v.0);
         self.live_shapes.clear();
         self.live_shapes.resize(self.shapes.len(), false);
         self.mark_roots(roots, false);
@@ -862,7 +861,7 @@ impl Heap {
             let h = unsafe { &mut *p.as_ptr() };
             if h.kind != KIND_TABLE { continue; }
             let t = h.table();
-            // Vec owns the array; Nupp borrows only its initialized words and
+            // Nupp owns the array backing and borrows its initialized words and
             // canonical buckets, without collection or callbacks across the view.
             let (length, changed) = unsafe { NativeAllocator::weak_clear(t.array.as_mut_ptr(), t.array.len(), t.hash.ptr, t.hash.cap, mode) };
             t.array.truncate(length);
@@ -1076,11 +1075,7 @@ impl Heap {
             self.allocator.resize(external, 0, self.debt);
             #[cfg(feature = "allocation-metrics")]
             crate::allocation_metrics::reclaim(h);
-            if h.flags & F_INTERNED != 0 { self.interned.remove(h.bytes()); }
-            if h.kind == KIND_INTEGER {
-                let key = (h.aux != 0, h.aux_len);
-                if self.integers.get(&key) == Some(&p) { self.integers.remove(&key); }
-            }
+            self.allocator.weak_erase(p);
             match h.kind {
                 KIND_TABLE => { self.channels.remove(&Value::obj(p)); let t = h.table(); std::ptr::drop_in_place(t); }
                 KIND_STORAGE => { let s = h.storage(); std::ptr::drop_in_place(s); }
@@ -1327,6 +1322,28 @@ mod tests {
         assert_eq!(m.sweep_chunk_slots, m.sweep_live_objects, "untouched chunk tails are not swept");
     }
 
+    #[cfg(feature = "native-runtime")]
+    #[test]
+    fn freeing_stale_white_string_does_not_forget_its_live_replacement() {
+        let mut heap = Heap::new();
+        heap.automatic_collection = false;
+        heap.quarantine = true;
+        let roots = R(std::cell::RefCell::new(Vec::new()));
+        let old = heap.intern("same-content", &roots);
+        heap.phase = Phase::Sweeping;
+        heap.stats.cycles = 4;
+        unsafe {
+            (*old.as_obj().unwrap().as_ptr()).epoch = 3;
+        }
+        assert_eq!(heap.intern_lookup("same-content"), None);
+        let replacement = heap.intern("same-content", &roots);
+        roots.0.borrow_mut().push(replacement);
+        heap.free(old.as_obj().unwrap());
+        assert_eq!(heap.intern_lookup("same-content"), Some(replacement));
+        heap.phase = Phase::Idle;
+        heap.full_cycle(&roots);
+        assert_eq!(heap.intern_lookup("same-content"), Some(replacement));
+    }
     #[cfg(feature = "native-runtime")]
     #[test]
     fn weak_intern_hits_preserve_gc_actions_with_collection_stopped() {

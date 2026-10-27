@@ -65,8 +65,24 @@ local function compileFixture(name, runtimeModules)
     if compiled[name] then
         return compiled[name]
     end
-    local paths = {FIXTURES .. "/" .. name .. ".nupp"}
+    local selected = {}
+    local seen = {}
     for _, module in ipairs(runtimeModules or RUNTIME) do
+        if not seen[module] then
+            selected[#selected + 1] = module
+            seen[module] = true
+        end
+    end
+    -- The collector's weak release path uses the same native indexes.
+    if seen.gcweak then
+        for _, module in ipairs({"weakindex", "backing", "objecttable"}) do
+            if not seen[module] then
+                selected[#selected + 1] = module
+            end
+        end
+    end
+    local paths = {FIXTURES .. "/" .. name .. ".nupp"}
+    for _, module in ipairs(selected) do
         paths[#paths + 1] = ROOT .. "/src/nupp/runtime/vm/" .. module .. ".nupp"
     end
     local clif = lower.compile(ROOT, paths, {include = {"src", "tests/fixtures/nativeheap"}})
@@ -482,6 +498,24 @@ function M.ordinaryCallersTransportAllWeakActionWordsToTheLeaf()
         {"probe", {31, 17, 0, 2, 17, 31, 47}, 1},
         {"probe", {47, 17, 1, 2, 17, 31, 47}, 2}
     })
+end
+
+function M.ownedWeakIndexesShareLookupReleaseAndBackingPolicy()
+    local modules = {
+        "heap",
+        "arena",
+        "values",
+        "objecthash",
+        "objectweak",
+        "marking",
+        "weakentries",
+        "gcweak",
+        "weakindex",
+        "backing",
+        "objecttable",
+        "objectconstruct"
+    }
+    check(compileFixture("weakindex", modules), {{"ownedWeakIndexes", {8}, 0}, {"ownedWeakIndexes", {6000}, 0},})
 end
 
 return M

@@ -434,6 +434,13 @@ fn allocator_support_names(
 
 fn allocator_entry(name: &str) -> Option<(&'static str, usize, bool)> {
     Some(match name {
+        "weakStringPeek" => ("nupp_weak_string_peek", 3, true),
+        "weakIntegerPeek" => ("nupp_weak_integer_peek", 3, true),
+        "weakStringLookup" => ("nupp_weak_string_lookup", 5, true),
+        "weakIntegerLookup" => ("nupp_weak_integer_lookup", 5, true),
+        "weakInsert" => ("nupp_weak_insert", 2, true),
+        "weakErase" => ("nupp_weak_erase", 2, false),
+        "weakReserve" => ("nupp_weak_reserve", 3, true),
         "tableOwnedInitialize" => ("nupp_table_owned_initialize", 3, true),
         "tableOwnedBytes" => ("nupp_table_owned_bytes", 1, true),
         "tableOwnedRelease" => ("nupp_table_owned_release", 1, false),
@@ -645,7 +652,7 @@ fn require_allocator_support(
 /// and every opcode number they handle, asserted where the object is linked.
 fn metadata_header() -> String {
     let mut metadata = String::from("// Generated with the native object. Private ABI.\n");
-    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 15;\n");
+    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 16;\n");
     metadata.push_str(
         "const _: () = { assert!(HDR == 4); assert!(std::mem::size_of::<Ins>() == 16); assert!(crate::interp::MAX_RESULTS == 128);\n",
     );

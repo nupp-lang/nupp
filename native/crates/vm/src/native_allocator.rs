@@ -9,6 +9,24 @@ use crate::value::Value;
 
 #[cfg(feature = "native-runtime")]
 unsafe extern "C" {
+    fn nupp_weak_string_peek(heap: *mut c_void, bytes: *const u8, count: u64) -> *mut Header;
+    fn nupp_weak_integer_peek(heap: *mut c_void, bits: u64, unsigned: u64) -> *mut Header;
+    fn nupp_weak_string_lookup(
+        heap: *mut c_void,
+        bytes: *const u8,
+        count: u64,
+        phase: i64,
+        cycle: u64,
+    ) -> *mut Header;
+    fn nupp_weak_integer_lookup(
+        heap: *mut c_void,
+        bits: u64,
+        unsigned: u64,
+        phase: i64,
+        cycle: u64,
+    ) -> *mut Header;
+    fn nupp_weak_insert(heap: *mut c_void, header: *mut Header) -> u64;
+    fn nupp_weak_erase(heap: *mut c_void, header: *mut Header);
     fn nupp_allocator_arena_open(bytes: u64) -> *mut c_void;
     fn nupp_allocator_arena_close(arena: *mut c_void);
     fn nupp_allocator_create(arena: *mut c_void) -> *mut c_void;
@@ -93,6 +111,36 @@ impl NativeAllocator {
 
     pub(crate) fn value_table(&self, capacity: usize) -> crate::heap::ValueTable {
         unsafe { crate::heap::ValueTable::new(self.heap.as_ptr(), capacity) }
+    }
+
+    pub(crate) fn weak_string_peek(&self, bytes: &[u8]) -> Option<NonNull<Header>> {
+        linked! { NonNull::new(unsafe { nupp_weak_string_peek(self.heap.as_ptr(), bytes.as_ptr(), bytes.len() as u64) }) }
+    }
+    pub(crate) fn weak_integer_peek(&self, bits: u64, unsigned: bool) -> Option<NonNull<Header>> {
+        linked! { NonNull::new(unsafe { nupp_weak_integer_peek(self.heap.as_ptr(), bits, unsigned as u64) }) }
+    }
+    pub(crate) fn weak_string_lookup(
+        &mut self,
+        bytes: &[u8],
+        phase: i64,
+        cycle: u64,
+    ) -> Option<NonNull<Header>> {
+        linked! { NonNull::new(unsafe { nupp_weak_string_lookup(self.heap.as_ptr(), bytes.as_ptr(), bytes.len() as u64, phase, cycle) }) }
+    }
+    pub(crate) fn weak_integer_lookup(
+        &mut self,
+        bits: u64,
+        unsigned: bool,
+        phase: i64,
+        cycle: u64,
+    ) -> Option<NonNull<Header>> {
+        linked! { NonNull::new(unsafe { nupp_weak_integer_lookup(self.heap.as_ptr(), bits, unsigned as u64, phase, cycle) }) }
+    }
+    pub(crate) fn weak_insert(&mut self, header: NonNull<Header>) {
+        linked! { assert_eq!(unsafe { nupp_weak_insert(self.heap.as_ptr(), header.as_ptr()) }, 0, "weak index insertion refused"); }
+    }
+    pub(crate) fn weak_erase(&mut self, header: NonNull<Header>) {
+        linked! { unsafe { nupp_weak_erase(self.heap.as_ptr(), header.as_ptr()); } }
     }
 
     pub(crate) fn allocate(

@@ -86,6 +86,7 @@ local function allocatorModule(name: string): boolean
         or name == "nupp.runtime.vm.weakentries"
         or name == "nupp.runtime.vm.valuearray"
         or name == "nupp.runtime.vm.backing"
+        or name == "nupp.runtime.vm.weakindex"
         or name == "nupp.runtime.vm.objecttable"
         or name == "nupp.runtime.vm.recordbody"
 end
@@ -106,6 +107,7 @@ lower.RUNTIME_MODULES = {
     "src/nupp/runtime/vm/weakentries.nupp",
     "src/nupp/runtime/vm/valuearray.nupp",
     "src/nupp/runtime/vm/backing.nupp",
+    "src/nupp/runtime/vm/weakindex.nupp",
     "src/nupp/runtime/vm/recordbody.nupp",
     "src/nupp/runtime/vm/core.nupp",
     "src/nupp/runtime/vm/calls.nupp",

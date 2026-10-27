@@ -151,10 +151,12 @@ export struct Words
     capacity: uint64
 end
 
---- An owned array. The owner outlives its backing and every borrowed slice.
-export struct ArrayBacking
-    pool: uint64
-    mapped: uint64
+-- A weak index contains header addresses, never strong child references.
+export struct WeakIndex
+    base: uint64
+    mask: uint64
+    count: uint64
+    kind: uint64
 end
 
 export struct ArrayPoolSlot
@@ -257,6 +259,10 @@ end
 --- It lives in the caller's arena, as everything it points to does but the
 --- chunks, the large objects and the vectors' own mappings.
 export struct Heap
+    stringIndex: WeakIndex*
+
+    integerIndex: WeakIndex*
+
     --- 1 while marking: a store checks this one byte before the barrier.
     marking: uint8
 
@@ -665,6 +671,18 @@ local function zeroSet(borrows a: arena.Arena*): WordSet* borrows (a)
     end
 end
 
+local function zeroIndex(borrows a: arena.Arena*, kind: uint64): WeakIndex* borrows (a)
+    @unsafe do
+        local raw = arena.alloc(a, native.sizeOf<WeakIndex>(), native.alignmentOf<WeakIndex>())
+        if raw == nil then
+            error("heap: the arena is full")
+        end
+        local index = raw as WeakIndex*
+        index.kind = kind
+        return index
+    end
+end
+
 --- A heap whose record, tables and gray segments live in `a`. Nothing is
 --- mapped for objects until the first allocation. `destroy` unmaps what the
 --- heap mapped; the arena takes back the rest when it closes.
@@ -687,6 +705,8 @@ export function create(borrows a: arena.Arena*): Heap* borrows (a)
         if pool == nil then
             error("heap: the arena is full")
         end
+        h.stringIndex = zeroIndex(a, KIND_STR)
+        h.integerIndex = zeroIndex(a, KIND_INTEGER)
         h.classes = native.address(classes)
         h.classOf = native.address(lookup)
         h.stats = stats as Stats*
@@ -748,6 +768,10 @@ end
 --- Unmaps every chunk, large object and vector the heap mapped.
 export function destroy(h: Heap*): nil
     @unsafe do
+        arena.releaseWordBacking(h.stringIndex.base)
+        arena.releaseWordBacking(h.integerIndex.base)
+        h.stringIndex.base = 0ULL
+        h.integerIndex.base = 0ULL
         releaseLarge(h)
         local i: uint64 = 0
         while i < h.regions.count do

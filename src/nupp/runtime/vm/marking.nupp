@@ -2,6 +2,7 @@ module nupp.runtime.vm.marking
 
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
+const objectweak = require("nupp.runtime.vm.objectweak")
 const values = require("nupp.runtime.vm.values")
 
 -- The candidate header stays owned while these operations run. Queue growth
@@ -35,5 +36,26 @@ export function insertionBarrier(h: heap.Heap*, parent: heap.Header*, child: uin
         if parent.color as uint64 == heap.COLOR_BLACK then
             barrierShade(h, child)
         end
+    end
+end
+
+-- Current collector state is transported by the caller before weak lookup.
+export function weakLookupHit(h: heap.Heap*, o: heap.Header*): boolean
+    @unsafe do
+        local action = objectweak.weakLookupAction(
+            native.word(h.phase),
+            o.color as uint64,
+            o.epoch as uint64,
+            h.stats.cycles,
+            heap.COLOR_WHITE,
+            heap.PHASE_MARKING,
+            heap.PHASE_SWEEPING
+        )
+        if action == 1ULL then
+            barrierShade(h, heap.objectValue(o))
+        elseif action == 2ULL then
+            return false
+        end
+        return true
     end
 end

@@ -1,0 +1,91 @@
+module weakindex
+
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const arena = require("nupp.runtime.vm.arena")
+const values = require("nupp.runtime.vm.values")
+const index = require("nupp.runtime.vm.weakindex")
+const constructors = require("nupp.runtime.vm.objectconstruct")
+const gcweak = require("nupp.runtime.vm.gcweak")
+
+export function ownedWeakIndexes(count: uint64): int64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            local wrong: int64 = 0
+            local i: uint64 = 0ULL
+            while i < count do
+                local o = heap.allocRaw(h, heap.KIND_INTEGER, 0ULL)
+                o.aux = 0
+                o.auxLen = values.NIL + i
+                if index.weakInsert(h, o) ~= 0ULL then
+                    wrong = wrong + 1
+                end
+                i = i + 1ULL
+            end
+            i = 0ULL
+            while i < count do
+                local address = index.weakIntegerPeek(h, values.NIL + i, 0ULL)
+                if address == 0ULL then
+                    wrong = wrong + 1
+                elseif i % 3ULL == 0ULL then
+                    gcweak.release(h, native.pointer(address) as heap.Header*)
+                end
+                i = i + 1ULL
+            end
+            i = 0ULL
+            while i < count do
+                local address = index.weakIntegerPeek(h, values.NIL + i, 0ULL)
+                if (address == 0ULL) ~= (i % 3ULL == 0ULL) then
+                    wrong = wrong + 1
+                end
+                i = i + 1ULL
+            end
+            local payload = constructors.constructorPayload(heap.KIND_STR, 2ULL)
+            local old = heap.allocRaw(h, heap.KIND_STR, payload)
+            if constructors.stringInitialize(old as voidptr, 2ULL) ~= 0ULL then
+                error("fixture: string initialization refused")
+            end
+            native.store8(native.pointer(old.auxPtr), 0, 120ULL)
+            native.store8(native.pointer(old.auxPtr), 1, 0ULL)
+            if index.weakInsert(h, old) ~= 0ULL then
+                wrong = wrong + 1
+            end
+            old.epoch = 0
+            if index.weakStringLookup(h, native.pointer(old.auxPtr), 2ULL, 2, 2ULL) ~= 0ULL then
+                wrong = wrong + 1
+            end
+            local fresh = heap.allocRaw(h, heap.KIND_STR, payload)
+            if constructors.stringInitialize(fresh as voidptr, 2ULL) ~= 0ULL then
+                error("fixture: string initialization refused")
+            end
+            native.store8(native.pointer(fresh.auxPtr), 0, 120ULL)
+            native.store8(native.pointer(fresh.auxPtr), 1, 0ULL)
+            if index.weakInsert(h, fresh) ~= 0ULL then
+                wrong = wrong + 1
+            end
+            gcweak.release(h, old)
+            if index.weakStringPeek(h, native.pointer(fresh.auxPtr), 2ULL) ~= native.address(fresh as voidptr) then
+                wrong = wrong + 1
+            end
+            fresh.color = 0
+            if index.weakStringLookup(
+                h,
+                native.pointer(fresh.auxPtr),
+                2ULL,
+                1,
+                2ULL
+            ) ~= native.address(fresh as voidptr) then
+                wrong = wrong + 1
+            end
+            if h.stats.barrierGrays ~= 1ULL or heap.grayPop(h) ~= native.address(fresh as voidptr) then
+                wrong = wrong + 1
+            end
+            heap.destroy(h)
+            if h.integerIndex.base ~= 0ULL or h.stringIndex.base ~= 0ULL then
+                wrong = wrong + 1
+            end
+            return wrong
+        end
+    end
+end

@@ -8,7 +8,7 @@ const heap = require("nupp.runtime.vm.heap")
 const os = require("nupp.runtime.vm.os")
 
 export function wordBackingPrefix(): uint64
-    return native.sizeOf<heap.ArrayBacking>()
+    return native.sizeOf<arena.WordBacking>()
 end
 
 export function wordBackingMaximum(): uint64
@@ -16,18 +16,7 @@ export function wordBackingMaximum(): uint64
 end
 
 export function wordBackingRelease(base: uint64): nil
-    @unsafe do
-        if base == 0ULL then
-            return
-        end
-        local raw = native.pointer(base - wordBackingPrefix())
-        local pool = native.load64(raw, 0)
-        if pool ~= 0ULL then
-            arena.give(native.pointer(pool) as arena.Pool*, raw)
-        else
-            os.unmapPages(raw, native.load64(raw, 8))
-        end
-    end
+    arena.releaseWordBacking(base)
 end
 
 export function wordBackingTake(owner: heap.Heap*, capacity: uint64): uint64
@@ -58,7 +47,7 @@ export function wordBackingTake(owner: heap.Heap*, capacity: uint64): uint64
             if raw == nil then
                 return 0ULL
             end
-            local prefix = raw as heap.ArrayBacking*
+            local prefix = raw as arena.WordBacking*
             prefix.pool = poolAddress
             prefix.mapped = 0ULL
             return native.address(raw as voidptr) + wordBackingPrefix()
@@ -69,7 +58,7 @@ export function wordBackingTake(owner: heap.Heap*, capacity: uint64): uint64
         if raw == nil then
             return 0ULL
         end
-        local prefix = raw as heap.ArrayBacking*
+        local prefix = raw as arena.WordBacking*
         prefix.pool = 0ULL
         prefix.mapped = mapped
         return native.address(raw as voidptr) + wordBackingPrefix()

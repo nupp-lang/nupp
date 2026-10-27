@@ -28,8 +28,7 @@ fn expected_string_hash(bytes: &[u8], state: u64) -> u64 {
 
 #[test]
 fn linked_string_hash_preserves_binary_bytes_seeds_and_incremental_writes() {
-    use nupp_vm::value::{StrHasher, fnv1a};
-    use std::hash::Hasher;
+    use nupp_vm::value::fnv1a;
     unsafe extern "C" {
         fn nupp_object_string_hash(bytes: *const u8, count: u64, state: u64) -> u64;
     }
@@ -50,19 +49,14 @@ fn linked_string_hash_preserves_binary_bytes_seeds_and_incremental_writes() {
             );
         }
         for split in [0, length / 2, length] {
-            let mut hasher = StrHasher::default();
-            assert_eq!(hasher.finish(), 0);
-            hasher.write(&input[..split]);
-            let first = expected_string_hash(&input[..split], 0);
-            assert_eq!(hasher.finish(), first);
-            hasher.write(&[]);
-            let empty = expected_string_hash(&[], first);
-            assert_eq!(hasher.finish(), empty);
-            hasher.write(&input[split..]);
-            assert_eq!(
-                hasher.finish(),
-                expected_string_hash(&input[split..], empty)
-            );
+            let first = unsafe { nupp_object_string_hash(input.as_ptr(), split as u64, 0) };
+            assert_eq!(first, expected_string_hash(&input[..split], 0));
+            let empty = unsafe { nupp_object_string_hash(std::ptr::null(), 0, first) };
+            assert_eq!(empty, expected_string_hash(&[], first));
+            let last = unsafe {
+                nupp_object_string_hash(input[split..].as_ptr(), (length - split) as u64, empty)
+            };
+            assert_eq!(last, expected_string_hash(&input[split..], empty));
         }
     }
 }

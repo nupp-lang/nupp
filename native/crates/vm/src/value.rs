@@ -116,17 +116,10 @@ impl Hasher for BitsHasher {
 pub type BitsBuild = std::hash::BuildHasherDefault<BitsHasher>;
 pub type ValueMap = std::collections::HashMap<Value, Value, std::hash::BuildHasherDefault<BitsHasher>>;
 
-/// FNV-1a over bytes: the intern table's hasher and the string hash.
-#[derive(Default)]
-pub struct StrHasher(u64);
-impl Hasher for StrHasher {
-    fn finish(&self) -> u64 { self.0 }
-    fn write(&mut self, bytes: &[u8]) { self.0 = string_hash(bytes, self.0); }
-}
 #[cfg(feature = "native-runtime")]
 unsafe extern "C" { fn nupp_object_string_hash(bytes: *const u8, count: u64, state: u64) -> u64; }
 #[cfg(feature = "native-runtime")]
-const _: () = assert!(crate::dispatch::OBJECT_ABI == 15);
+const _: () = assert!(crate::dispatch::OBJECT_ABI == 16);
 fn string_hash(bytes: &[u8], state: u64) -> u64 {
     #[cfg(feature = "native-runtime")]
     { unsafe { nupp_object_string_hash(bytes.as_ptr(), bytes.len() as u64, state) } }
