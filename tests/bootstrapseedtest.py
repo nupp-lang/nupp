@@ -25,6 +25,7 @@ def load(name, path):
 
 seed = load("bootstrap_seed", ROOT / "scripts/bootstrap-seed")
 cli = load("vm_cli", ROOT / "scripts/vm-cli")
+cold = load("native_bootstrap_cold", ROOT / ".github/scripts/native-bootstrap-cold.py")
 
 
 class Delivery(unittest.TestCase):
@@ -217,6 +218,145 @@ class Routing(unittest.TestCase):
                     patch.object(cli, "run_step", side_effect=step), patch.object(cli, "cargo") as cargo:
                 cli.lowering_image(root / "out", root / "target", None)
                 cargo.assert_not_called()
+
+
+class ColdAcceptance(unittest.TestCase):
+    def test_manifest_requires_matching_image_abi_and_every_unique_frame_entry(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            image, manifest = root / "compiler.image", root / "compiler.o.manifest"
+            image.write_bytes(b"compiler image")
+            valid = "runtime-abi\t4\nimage-sha256\t" + cold.digest(image) + "\nfunctions\t2\n0\tnupp_aot_0\n1\tnupp_aot_1\n"
+            manifest.write_text(valid)
+            self.assertEqual(cold.read_aot_manifest(manifest, image, 2), 2)
+            malformed = [valid.replace("runtime-abi\t4", "runtime-abi\t3"),
+                         valid.replace(cold.digest(image), "0" * 64),
+                         valid.replace("functions\t2", "functions\t1"),
+                         valid.replace("1\tnupp_aot_1\n", ""),
+                         valid.replace("1\tnupp_aot_1", "0\tnupp_aot_0"),
+                         valid.replace("1\tnupp_aot_1", "2\tnupp_aot_2"),
+                         valid.replace("1\tnupp_aot_1", "1\tnupp_aot_0")]
+            for contents in malformed:
+                with self.subTest(contents=contents):
+                    manifest.write_text(contents)
+                    with self.assertRaises(ValueError):
+                        cold.read_aot_manifest(manifest, image, 2)
+
+    def test_aot_execution_requires_full_attachment_and_positive_frame_execution(self):
+        valid = "aot: attached 2 linked entries\ncompiled frame entries: 17\n"
+        self.assertEqual(cold.require_aot_execution(valid, 2),
+                         {"attachedEntries": [2], "compiledFrameEntries": [17]})
+        for text in ("", "Usage: nupp\n", valid.replace("attached 2", "attached 0"),
+                     valid.replace("attached 2", "attached 1"),
+                     "aot: attached 2 linked entries\n", valid.replace("entries: 17", "entries: 0")):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                cold.require_aot_execution(text, 2)
+
+    def synthetic_cold(self, fault=None):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            out = root / "build/native-bootstrap-cold"
+            out.mkdir(parents=True)
+            package = root / "seed"
+            package.mkdir()
+            for name in ("runtime", "compiler.image"):
+                (package / name).write_bytes(name.encode())
+            (package / "manifest.json").write_text(json.dumps({"host": "fixture-host"}))
+            pin = {"runtimeSha256": cold.digest(package / "runtime"), "imageSha256": cold.digest(package / "compiler.image")}
+            (root / "scripts").mkdir()
+            (root / "scripts/bootstrap-seeds.json").write_text(json.dumps({"hosts": {"fixture-host": pin}}))
+            packages = root / ".nupp/vm-cli"
+            native = root / "build/vm-cli/native"
+            linked_native = root / "build/vm-cli/link/native"
+            calls = []
+
+            def core(path):
+                path.mkdir(parents=True)
+                for name, contents in (("layouts.json", "{}"), ("runtime.clif", "canonical core"),
+                                       ("runtime.o", str(path)), ("runtime.o.rs", "core metadata")):
+                    (path / name).write_text(contents)
+
+            def run(command, name, env=None, capture=False):
+                calls.append((name, list(map(str, command)), env))
+                (out / (name + ".log")).write_text(name + "\n")
+                if name == "published-seed":
+                    self.assertEqual(env["NUPP_TOOLCHAIN_DIR"], str(root / "build/cold-seed-cache"))
+                    return str(package) + "\n"
+                if name == "cold-build":
+                    installed = packages / ("a" * 64)
+                    installed.mkdir(parents=True)
+                    (packages / "current").write_text(installed.name)
+                    (installed / "runtime").write_bytes(b"interpreted runtime")
+                    (installed / "compiler.image").write_bytes(b"current compiler")
+                    core(native)
+                elif name == "fixpoint":
+                    fixed = root / "build/vm-fixpoint/root.image"
+                    fixed.parent.mkdir(parents=True)
+                    fixed.write_bytes(b"wrong compiler" if fault == "fixpoint" else b"current compiler")
+                elif name == "native-compiler":
+                    Path(command[-1]).write_text("canonical core")
+                elif name == "aot-link":
+                    linked = packages / ("b" * 64)
+                    linked.mkdir()
+                    (packages / "current").write_text(linked.name)
+                    (linked / "runtime").write_bytes(b"linked runtime")
+                    (linked / "compiler.image").write_bytes(b"current compiler")
+                    delivery = {"linked": True, "runtimeSha256": cold.digest(linked / "runtime"),
+                                "imageSha256": cold.digest(linked / "compiler.image")}
+                    if fault == "receipt":
+                        delivery["runtimeSha256"] = "0" * 64
+                    (linked / "receipt.json").write_text(json.dumps(delivery))
+                    core(linked_native)
+                    if fault == "core":
+                        (linked_native / "runtime.clif").write_text("different final core")
+                    (linked_native.parent / "compiler.o.manifest").write_text(
+                        "runtime-abi\t4\nimage-sha256\t" + delivery["imageSha256"]
+                        + "\nfunctions\t2\n0\tnupp_aot_0\n1\tnupp_aot_1\n")
+                elif name == "aot-verify":
+                    return "verified 2 functions\n"
+                elif name in ("emit-interpreted", "emit-aot"):
+                    contents = b"different probe" if name == "emit-aot" and fault == "output" else b"compiled probe"
+                    Path(command[-1]).write_bytes(contents)
+                    if name == "emit-aot":
+                        self.assertNotIn("NO_AOT", env)
+                        self.assertEqual(env["NO_JIT"], "1")
+                        self.assertIn("--tasks", command)
+                        if fault != "execution":
+                            (out / (name + ".log")).write_text("aot: attached 2 linked entries\ncompiled frame entries: 17\n")
+                        if fault == "generation":
+                            (packages / "current").write_text("a" * 64)
+                    else:
+                        self.assertEqual(env["NO_AOT"], "1")
+                elif name == "execute-emitted":
+                    return "42\n"
+                return "" if capture else None
+
+            with patch.object(cold, "ROOT", root), patch.object(cold, "OUT", out), \
+                    patch.object(cold, "run", side_effect=run), \
+                    patch.object(cold.subprocess, "check_output", return_value="fixture-source\n"), \
+                    patch.dict(os.environ, {"SEED_HOST": "fixture-host"}):
+                if fault:
+                    with self.assertRaises(ValueError):
+                        cold.cold()
+                    self.assertFalse((out / "acceptance.json").exists())
+                    return None
+                cold.cold()
+            receipt = json.loads((out / "acceptance.json").read_text())
+            self.assertEqual(receipt["fixpointImageSha256"], receipt["interpreted"]["imageSha256"])
+            self.assertEqual(receipt["aotExecution"]["compiledFrameEntries"], [17])
+            for filename in ("runtime.clif", "runtime.o", "runtime.o.rs"):
+                self.assertEqual(receipt["sha256"]["build/vm-cli/link/native/" + filename], cold.digest(linked_native / filename))
+            final_calls = [args for name, args, _ in calls if name in ("aot-help", "aot-verify", "emit-aot")]
+            self.assertTrue(all(args[0] == str(packages / ("b" * 64) / "runtime") for args in final_calls))
+            return receipt
+
+    def test_complete_cold_receipt_binds_fixpoint_final_core_and_executed_aot(self):
+        self.assertEqual(self.synthetic_cold()["compiledFunctions"], 2)
+
+    def test_incoherent_delivery_or_missing_execution_cannot_publish_acceptance(self):
+        for fault in ("fixpoint", "core", "execution", "receipt", "output", "generation"):
+            with self.subTest(fault=fault):
+                self.synthetic_cold(fault)
 
 
 if __name__ == "__main__":
