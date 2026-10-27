@@ -19,5 +19,13 @@ local record Slots
     readFloat: function(frame: voidptr, window: voidptr, slot: int64): number
     @vmSlotAccess(class = "f", kind = "number", write = true)
     writeFloat: function(frame: voidptr, window: voidptr, slot: int64, value: number): nil
+    @vmSlotAccess(class = "xLow", kind = "uint64", write = false)
+    readVectorLow: function(frame: voidptr, window: voidptr, slot: int64): uint64
+    @vmSlotAccess(class = "xHigh", kind = "uint64", write = false)
+    readVectorHigh: function(frame: voidptr, window: voidptr, slot: int64): uint64
+    @vmSlotAccess(class = "xLow", kind = "uint64", write = true)
+    writeVectorLow: function(frame: voidptr, window: voidptr, slot: int64, value: uint64): nil
+    @vmSlotAccess(class = "xHigh", kind = "uint64", write = true)
+    writeVectorHigh: function(frame: voidptr, window: voidptr, slot: int64, value: uint64): nil
 end
 return Slots

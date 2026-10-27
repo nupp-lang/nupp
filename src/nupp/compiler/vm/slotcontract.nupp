@@ -1,7 +1,13 @@
 module nupp.compiler.vm.slotcontract
 
 local contract = {}
-local kinds = {v = {uint64 = true}, i = {int64 = true, uint64 = true}, f = {number = true}}
+local kinds = {
+    v = {uint64 = true},
+    i = {int64 = true, uint64 = true},
+    f = {number = true},
+    xLow = {uint64 = true},
+    xHigh = {uint64 = true}
+}
 
 --- Returns a logical slot access from its checked Nupp declaration.
 ---
@@ -12,7 +18,8 @@ function contract.read(definition: any, name: string): {
     class: string,
     kind: string,
     write: boolean,
-    width: number
+    width: number,
+    offset: number?
 }
     local found = nil
     for _, annotation in ipairs(definition and definition.annotations or {}) do
@@ -42,6 +49,16 @@ function contract.read(definition: any, name: string): {
         "slot access " .. name .. " has an invalid kind"
     )
     assert(type(fields.write) == "boolean", "slot access " .. name .. " has no write flag")
+
+    if fields.class == "xLow" or fields.class == "xHigh" then
+        return {
+            class = fields.class,
+            kind = fields.kind,
+            write = fields.write,
+            width = 16,
+            offset = fields.class == "xHigh" and 8 or 0
+        }
+    end
 
     return {class = fields.class, kind = fields.kind, write = fields.write, width = 8}
 end

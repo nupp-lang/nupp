@@ -1,0 +1,24 @@
+-- Managed packet and storage ownership stay at this temporary heap boundary.
+-- Packets contain plain lane bits; addresses in a span view live only until
+-- the handler returns. Guest owners remain rooted in the published frame.
+local record SimdHelpers
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    simdPrepare: function(
+        context: voidptr,
+        packet: voidptr,
+        operation: int64,
+        kind: int64,
+        source: int64,
+        base: int64,
+        nargs: int64
+    ): nil
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    simdFinish: function(context: voidptr, packet: voidptr, base: int64, nargs: int64): nil
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    spanView: function(context: voidptr, value: uint64, kind: int64, write: int64, view: voidptr): nil
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    simdError: function(context: voidptr, error: int64): nil
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    simdInvalid: function(context: voidptr, operation: int64, kind: int64): nil
+end
+return SimdHelpers

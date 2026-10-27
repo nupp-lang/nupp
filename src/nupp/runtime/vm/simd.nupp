@@ -1,0 +1,1222 @@
+module nupp.runtime.vm.simd
+
+-- FNV-1a descriptor contract: ELEMENTS then OPERATIONS, NUL after each
+-- name and 0xff after each table. The object producer checks this value.
+export const OPERATION_ABI = 0xb23176d6aa4d10eaULL
+
+-- Scalar lane semantics for the native interpreter. Managed packet creation
+-- and span ownership remain temporary heap services. No raw span or scratch
+-- address survives a dispatch, suspension, collection or checkpoint.
+const native = require("nupp.runtime.vm.intrinsics")
+const program = require("nupp.runtime.vm.program")
+const slots = require("nupp.runtime.vm.slots")
+const helpers = require("nupp.runtime.vm.simdhelpers")
+const protocol = require("nupp.runtime.vm.protocol")
+const values = require("nupp.runtime.vm.values")
+
+local function vectors(frame: voidptr, context: voidptr): voidptr
+    local info = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
+    )
+
+    return native.offset(frame, native.load32(info, native.layout("FuncInfo.off_v")) * 8)
+end
+
+local function width(kind: int64): int64
+    if kind < 2 then
+        return 1
+    elseif kind < 4 then
+        return 2
+    elseif kind < 6 or kind == 8 then
+        return 4
+    else
+        return 8
+    end
+end
+
+local function mask(kind: int64): uint64
+    local w = width(kind)
+    if w == 8 then
+        return 0xffffffffffffffffULL
+    end
+
+    return (1ULL << native.word(w * 8)) - 1ULL
+end
+
+local function signed(kind: int64): boolean
+    return kind < 8 and kind & 1 == 1
+end
+
+local function extend(bits: uint64, kind: int64): int64
+    local shift = 64 - width(kind) * 8
+    if signed(kind) and shift ~= 0 then
+        return native.index(bits << native.word(shift)) ~>> shift
+    end
+
+    return native.index(bits)
+end
+
+local function readLane(ptr: voidptr, lane: int64, kind: int64): uint64
+    local w = width(kind)
+    local at = lane * w
+    if w == 1 then
+        return native.word(native.load8(ptr, at))
+    elseif w == 2 then
+        return native.word(native.load16(ptr, at))
+    elseif w == 4 then
+        return native.word(native.load32(ptr, at)) & 0xffffffffULL
+    else
+        return native.load64(ptr, at)
+    end
+end
+
+local function writeLane(ptr: voidptr, lane: int64, kind: int64, bits: uint64): nil
+    local w = width(kind)
+    local at = lane * w
+    if w == 1 then
+        native.store8(ptr, at, bits)
+    elseif w == 2 then
+        native.store16(ptr, at, bits)
+    elseif w == 4 then
+        native.store32(ptr, at, native.index(bits))
+    else
+        native.store64(ptr, at, bits)
+    end
+end
+
+local function floatOf(bits: uint64, kind: int64): number
+    if kind == 8 then
+        return native.floatFromBits(bits)
+    end
+    return native.fromBits(bits)
+end
+
+local function bitsOf(value: number, kind: int64): uint64
+    if kind == 8 then
+        return native.floatBits(value)
+    end
+    return native.bits(value)
+end
+
+local function rounded(value: number, kind: int64): number
+    if kind == 8 then
+        return native.roundFloat(value)
+    end
+    return value
+end
+
+local function canonical(bits: uint64, kind: int64): uint64
+    if kind < 8 then
+        return bits
+    end
+    local f = floatOf(bits, kind)
+    if f ~= f then
+        if kind == 8 then
+            return 0x7fc00000ULL
+        end
+        return 0x7ff8000000000000ULL
+    end
+
+    return bits
+end
+
+local function extremum(op: int64, kind: int64, a: uint64, b: uint64): uint64
+    local minimum: boolean = op == 59 or op == 61
+    if kind < 8 then
+        local less: boolean = a < b
+        if signed(kind) then
+            less = extend(a, kind) < extend(b, kind)
+        end
+        return native.chooseWord(minimum == less, a, b)
+    end
+    local x, y = floatOf(a, kind), floatOf(b, kind)
+    if op == 61 or op == 62 then
+        if x ~= x then
+            return b
+        elseif y ~= y then
+            return a
+        end
+    end
+    if x ~= x or y ~= y then
+        return bitsOf(native.fromBits(0x7ff8000000000000ULL), kind)
+    end
+    if x == y then
+        if x == 0 then
+            local sign = 0x8000000000000000ULL
+            if kind == 8 then
+                sign = 0x80000000ULL
+            end
+            if minimum then
+                return (a | b) & sign
+            end
+            return (a & b) & sign
+        end
+        return a
+    end
+
+    return native.chooseWord(minimum == (x < y), a, b)
+end
+
+local function saturated(op: int64, kind: int64, a: uint64, b: uint64): uint64
+    local all = mask(kind)
+    local sum = (a + b) & all
+    if op == 58 then
+        sum = (a - b) & all
+    end
+    if signed(kind) then
+        local sign = 1ULL << native.word(width(kind) * 8 - 1)
+        local same = ~(a ~ b)
+        if op == 58 then
+            same = a ~ b
+        end
+        if same & (a ~ sum) & sign ~= 0 then
+            return native.chooseWord(a & sign ~= 0, sign, sign - 1ULL)
+        end
+    elseif op == 58 and a < b then
+        return 0ULL
+    elseif op == 57 and sum < a then
+        return all
+    end
+
+    return sum
+end
+
+local function integerLane(op: int64, kind: int64, x: uint64, y: uint64): uint64
+    local w = width(kind)
+    local a = extend(x, kind)
+    local b = extend(y, kind)
+    if op == 52 then
+        return x << (y & native.word(w * 8 - 1))
+    elseif op == 53 then
+        return x >> (y & native.word(w * 8 - 1))
+    elseif op == 54 then
+        local sx = extend(x, kind | 1)
+        return native.word(sx ~>> native.index(y & native.word(w * 8 - 1)))
+    elseif op == 56 then
+        return native.popcount(x & mask(kind))
+    elseif op == 55 then
+        if w == 8 then
+            if signed(kind) then
+                return native.signedMulHigh(a, b)
+            end
+            return native.unsignedMulHigh(x, y)
+        end
+        if signed(kind) then
+            return native.word((a * b) ~>> (w * 8))
+        end
+        return (x * y) >> native.word(w * 8)
+    end
+    if y == 0 then
+        return 0ULL
+    end
+    local quotient: uint64 = 0ULL
+    if signed(kind) then
+        if a == -9223372036854775808LL and b == -1 then
+            if op == 51 then
+                return 0ULL
+            end
+            return native.word(a)
+        end
+        quotient = native.word(native.signedQuotient(a, b))
+    else
+        quotient = x // y
+    end
+    local remainder = x - quotient * y
+    if signed(kind) then
+        remainder = native.word(a) - quotient * native.word(b)
+    end
+    local floor: boolean = signed(kind) and (a ~ b) < 0 and remainder ~= 0ULL
+    if op == 51 then
+        if floor then
+            return remainder + y
+        end
+        return remainder
+    elseif op == 50 and floor then
+        return quotient - 1ULL
+    end
+
+    return quotient
+end
+
+-- Operation numbers are the stable image descriptor's simd.OPERATIONS order.
+local function lane(op: int64, kind: int64, x: uint64, y: uint64, z: uint64, context: voidptr): uint64
+    -- These operations' permutation, mask or managed-memory work is still
+    -- owned by packet preparation/finish. Their lane stage is identity.
+    if op == 1
+        or op == 3
+        or op == 4
+        or op >= 20 and op <= 27
+        or op == 39
+        or op == 64
+        or op >= 74 and op <= 87
+        or op >= 91 and op <= 93
+    then
+        return x
+    end
+    local all = mask(kind)
+    local answer: uint64 = x
+    if op == 10 then
+        return x & y
+    elseif op == 11 then
+        return x | y
+    elseif op == 12 then
+        return x ~ y
+    elseif op == 13 then
+        return ~x
+    elseif op == 18 then
+        return (x & y) | (~x & z)
+    elseif op == 37 then
+        return native.chooseWord(x == y, all, 0ULL)
+    elseif op == 38 then
+        return native.chooseWord(x ~= y, all, 0ULL)
+    elseif op >= 59 and op <= 62 then
+        return canonical(extremum(op, kind, x, y), kind)
+    elseif op == 57 or op == 58 then
+        return saturated(op, kind, x, y)
+    elseif op == 14 or op == 15 or op == 16 or op == 17 or op == 35 or op == 36 then
+        local hit: boolean = false
+        if kind >= 8 then
+            local a, b = floatOf(x, kind), floatOf(y, kind)
+            if op == 14 then
+                hit = a == b
+            elseif op == 15 then
+                hit = a ~= b
+            elseif op == 16 then
+                hit = a < b
+            elseif op == 17 then
+                hit = a <= b
+            elseif op == 35 then
+                hit = a > b
+            else
+                hit = a >= b
+            end
+        elseif signed(kind) then
+            local a, b = extend(x, kind), extend(y, kind)
+            if op == 14 then
+                hit = a == b
+            elseif op == 15 then
+                hit = a ~= b
+            elseif op == 16 then
+                hit = a < b
+            elseif op == 17 then
+                hit = a <= b
+            elseif op == 35 then
+                hit = a > b
+            else
+                hit = a >= b
+            end
+        elseif op == 14 then
+            hit = x == y
+        elseif op == 15 then
+            hit = x ~= y
+        elseif op == 16 then
+            hit = x < y
+        elseif op == 17 then
+            hit = x <= y
+        elseif op == 35 then
+            hit = x > y
+        else
+            hit = x >= y
+        end
+        return native.chooseWord(hit, all, 0ULL)
+    elseif kind >= 8 then
+        local a, b, c = floatOf(x, kind), floatOf(y, kind), floatOf(z, kind)
+        local f = a
+        if op == 2 then
+            f = rounded(a + rounded(b * c, kind), kind)
+        elseif op == 5 then
+            f = rounded(a + b, kind)
+        elseif op == 6 then
+            f = rounded(a - b, kind)
+        elseif op == 7 then
+            f = rounded(a * b, kind)
+        elseif op == 8 then
+            f = rounded(a / b, kind)
+        elseif op == 9 then
+            f = native.neg(a)
+        elseif op == 19 then
+            if kind == 8 then
+                f = native.fmaFloat(a, b, c)
+            else
+                f = native.fma(a, b, c)
+            end
+        elseif op == 67 then
+            if kind == 8 then
+                f = native.sqrtFloat(a)
+            else
+                f = native.sqrt(a)
+            end
+        elseif op == 68 then
+            answer = x & (all >> 1ULL)
+            return canonical(answer, kind)
+        elseif op == 69 then
+            f = native.floor(a)
+        elseif op == 70 then
+            f = native.ceil(a)
+        elseif op == 50 or op == 51 then
+            local q = native.floor(rounded(a / b, kind))
+            if op == 50 then
+                f = q
+            else
+                f = rounded(a - rounded(q * b, kind), kind)
+            end
+        else
+            helpers.simdInvalid(context, op, kind)
+            return 0ULL
+        end
+        answer = canonical(bitsOf(f, kind), kind)
+    elseif op == 2 then
+        answer = x + y * z
+    elseif op == 5 then
+        answer = x + y
+    elseif op == 6 then
+        answer = x - y
+    elseif op == 7 then
+        answer = x * y
+    elseif op == 9 then
+        answer = 0ULL - x
+    elseif op == 8 or op >= 50 and op <= 56 then
+        answer = integerLane(op, kind, x, y)
+    end
+
+    return answer & all
+end
+
+local function failSlow(pc: voidptr, context: voidptr, error: int64): uint64
+    protocol.publishPc(pc, context)
+    helpers.simdError(context, error)
+    return native.fail()
+end
+
+local function combine(op: int64, kind: int64, x: uint64, y: uint64): uint64
+    if op == 32 then
+        return x & y
+    elseif op == 33 then
+        return x | y
+    elseif op == 34 or op == 89 then
+        return x ~ y
+    elseif op == 44 or op == 45 then
+        local less: boolean = x < y
+        if signed(kind) then
+            less = extend(x, kind) < extend(y, kind)
+        end
+        return native.chooseWord((op == 44) == less, x, y)
+    elseif op >= 46 and op <= 49 then
+        return extremum(op + 13, kind, x, y)
+    end
+    local product: boolean = op >= 40 and op <= 43
+    if kind >= 8 then
+        local a, b = floatOf(x, kind), floatOf(y, kind)
+        local f = a + b
+        if product then
+            f = a * b
+        end
+        return bitsOf(rounded(f, kind), kind)
+    end
+    if product then
+        return x * y & mask(kind)
+    end
+
+    return (x + y) & mask(kind)
+end
+
+local function converted(bits: uint64, kind: int64, source: int64): uint64
+    if kind >= 8 then
+        local f: number = 0
+        if source >= 8 then
+            f = floatOf(bits, source)
+        elseif signed(source) then
+            f = native.toFloat(extend(bits, source))
+        else
+            f = native.unsignedFloat(bits)
+        end
+        return canonical(bitsOf(f, kind), kind)
+    elseif source >= 8 then
+        local f = floatOf(bits, source)
+        local high: number = 9223372036854775808
+        if kind == 6 then
+            high = 18446744073709551616
+        end
+        if f >= -9223372036854775808 and f < high then
+            if kind == 6 and f >= 0 then
+                return native.unsignedInt(f)
+            end
+            return native.word(native.toInt(f))
+        end
+        return 0ULL
+    elseif signed(source) then
+        return native.word(extend(bits, source))
+    end
+
+    return bits
+end
+
+local function packetExecute(packet: voidptr, kind: int64, source: int64, context: voidptr): nil
+    local op = native.loadIndex(packet, native.layout("Packet.operation"))
+    local n = native.loadIndex(packet, native.layout("Packet.lanes"))
+    local a = native.offset(packet, native.layout("Packet.a"))
+    local b = native.offset(packet, native.layout("Packet.b"))
+    local c = native.offset(packet, native.layout("Packet.c"))
+    local out = native.offset(packet, native.layout("Packet.out"))
+    if op == 63 then
+        local i: int64 = 0
+        while i < n do
+            writeLane(out, i, kind, converted(readLane(a, i, source), kind, source))
+            i = i + 1
+        end
+    elseif op ~= 0 and op ~= 27 and op ~= 65 and op ~= 66 and (op < 94 or op > 100) then
+        -- Map preparation has already selected the arithmetic operation.
+        -- Dots first compute rounded products, then use their reduction order.
+        if op >= 71 and op <= 73 then
+            local i: int64 = 0
+            while i < n do
+                writeLane(a, i, kind, lane(7, kind, readLane(a, i, kind), readLane(b, i, kind), 0ULL, context))
+                i = i + 1
+            end
+            op = op - 43
+        end
+        if op >= 28 and op <= 34 or op >= 40 and op <= 49 or op == 88 or op == 89 then
+            if op == 29 or op == 41 then
+                local extent = n
+                while extent > 1 do
+                    local i: int64 = 0
+                    local target: int64 = 0
+                    while i < extent do
+                        local value = readLane(a, i, kind)
+                        if i + 1 < extent then
+                            value = combine(op, kind, value, readLane(a, i + 1, kind))
+                        end
+                        writeLane(a, target, kind, value)
+                        target = target + 1
+                        i = i + 2
+                    end
+                    extent = target
+                end
+                writeLane(out, 0, kind, readLane(a, 0, kind))
+            else
+                local acc = readLane(a, 0, kind)
+                local prefix: boolean = op == 88 or op == 89
+                if prefix then
+                    writeLane(out, 0, kind, acc)
+                end
+                local i: int64 = 1
+                while i < n do
+                    acc = combine(op, kind, acc, readLane(a, i, kind))
+                    if prefix then
+                        writeLane(out, i, kind, acc)
+                    end
+                    i = i + 1
+                end
+                if not prefix then
+                    writeLane(out, 0, kind, acc)
+                end
+            end
+        else
+            local i: int64 = 0
+            while i < n do
+                writeLane(
+                    out,
+                    i,
+                    kind,
+                    lane(op, kind, readLane(a, i, kind), readLane(b, i, kind), readLane(c, i, kind), context)
+                )
+                i = i + 1
+            end
+        end
+    end
+end
+
+local function managedSlow(pc: voidptr, context: voidptr): uint64
+    -- The ABI measures and asserts Packet's size and field offsets. This
+    -- activation owns its scratch; it contains only bits, never guest roots.
+    local packet = native.stackBytes(2080)
+    local base = native.index(native.load64(context, native.layout("cur"))) + 4 + program.readByte(pc, 3)
+    local nargs = program.readByte(pc, 5)
+    protocol.publishPc(pc, context)
+    helpers.simdPrepare(
+        context,
+        packet,
+        program.readByte(pc, 1),
+        program.readByte(pc, 2),
+        program.readByte(pc, 4),
+        base,
+        nargs
+    )
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    end
+    local operation, kind = native.loadIndex(packet, native.layout("Packet.operation")), program.readByte(pc, 2)
+    if kind < 8 and operation >= 67 and operation <= 70 then
+        helpers.simdInvalid(context, operation, kind)
+        return native.fail()
+    end
+    packetExecute(packet, program.readByte(pc, 2), program.readByte(pc, 4), context)
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    end
+    helpers.simdFinish(context, packet, base, nargs)
+
+    return protocol.continueAfter(pc, context, 0, 0ULL, false)
+end
+
+local function storageSlow(pc: voidptr, context: voidptr, op: int64): uint64
+    local view = native.stackBytes(16)
+    local stack = native.loadPointer(context, native.layout("stack"))
+    local frame = native.offset(stack, native.index(native.load64(context, native.layout("cur")) * 8))
+    local regs = native.offset(frame, 32)
+    local info = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
+    )
+    local ints = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_i")) * 8)
+    local floats = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_f")) * 8)
+    local vecs = vectors(frame, context)
+    local a, b, c = program.readByte(pc, 1), program.readByte(pc, 2), program.readByte(pc, 3)
+    local storageSlot = b
+    local write: boolean = op == 2 or op == 4 or op == 6
+    if write then
+        storageSlot = a
+    end
+    protocol.publishPc(pc, context)
+    helpers.spanView(context, slots.readValue(frame, regs, storageSlot), -1, native.index(native.asWord(write)), view)
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    end
+    -- Publication invalidates every cached frame window, even when this
+    -- particular owner check happens to leave the stack in place.
+    stack = native.loadPointer(context, native.layout("stack"))
+    frame = native.offset(stack, native.index(native.load64(context, native.layout("cur")) * 8))
+    regs = native.offset(frame, 32)
+    info = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
+    )
+    ints = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_i")) * 8)
+    floats = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_f")) * 8)
+    vecs = vectors(frame, context)
+    local data = native.loadPointer(view, 0)
+    local len = native.load64(view, 8)
+    if op == 0 then
+        slots.writeIntegerBits(frame, ints, a, len)
+    else
+        local indexSlot = c
+        if write then
+            indexSlot = b
+        end
+        local index = slots.readInteger(frame, ints, indexSlot)
+        local count: int64 = 1
+        local active: int64 = 2
+        if op >= 3 then
+            index = index + program.readSigned32(pc, 4)
+            count = 2
+            if op >= 5 then
+                active = slots.readInteger(frame, ints, program.readByte(pc, 8)) - program.readSigned32(pc, 4)
+            end
+        end
+        local low: uint64 = 0ULL
+        local high: uint64 = 0ULL
+        if op == 2 then
+            low = native.bits(slots.readFloat(frame, floats, c))
+        elseif op == 4 or op == 6 then
+            low, high = slots.readVectorLow(frame, vecs, c), slots.readVectorHigh(frame, vecs, c)
+        end
+        local laneIndex: int64 = 0
+        while laneIndex < count do
+            if laneIndex < active then
+                local at = native.word(index + laneIndex)
+                if at >= len then
+                    local error: int64 = 4
+                    if op == 5 then
+                        error = 1
+                    elseif op == 6 then
+                        error = 2
+                    end
+                    return failSlow(pc, context, error)
+                end
+                if write then
+                    native.store64(data, native.index(at * 8ULL), native.chooseWord(laneIndex == 0, low, high))
+                else
+                    local value = native.load64(data, native.index(at * 8ULL))
+                    if laneIndex == 0 then
+                        low = value
+                    else
+                        high = value
+                    end
+                end
+            end
+            laneIndex = laneIndex + 1
+        end
+        if op == 1 then
+            slots.writeFloat(frame, floats, a, native.fromBits(low))
+        elseif not write then
+            slots.writeVectorLow(frame, vecs, a, low)
+            slots.writeVectorHigh(frame, vecs, a, high)
+        end
+    end
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function spanSlow(pc: voidptr, context: voidptr, op: int64): uint64
+    local view = native.stackBytes(16)
+    local stack = native.loadPointer(context, native.layout("stack"))
+    local frame = native.offset(stack, native.index(native.load64(context, native.layout("cur")) * 8))
+    local regs = native.offset(frame, 32)
+    local info = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
+    )
+    local ints = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_i")) * 8)
+    local floats = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_f")) * 8)
+    local vecs = vectors(frame, context)
+    local a, b, c = program.readByte(pc, 1), program.readByte(pc, 2), program.readByte(pc, 3)
+    local kind = program.readByte(pc, 5)
+    local spanSlot = b
+    local write: boolean = op == 3
+    if op == 0 then
+        kind = c
+    elseif op == 1 then
+        kind = program.readByte(pc, 4);
+        spanSlot = a
+    elseif write then
+        spanSlot = a
+    end
+    local writable: boolean = write
+    if op == 1 then
+        writable = program.readByte(pc, 5) ~= 0
+    end
+    protocol.publishPc(pc, context)
+    helpers.spanView(context, slots.readValue(frame, regs, spanSlot), kind, native.index(native.asWord(writable)), view)
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    end
+    -- Publication invalidates every cached frame window, even when this
+    -- particular owner check happens to leave the stack in place.
+    stack = native.loadPointer(context, native.layout("stack"))
+    frame = native.offset(stack, native.index(native.load64(context, native.layout("cur")) * 8))
+    regs = native.offset(frame, 32)
+    info = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
+    )
+    ints = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_i")) * 8)
+    floats = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_f")) * 8)
+    vecs = vectors(frame, context)
+    local len = native.load64(view, 8)
+    if op == 0 then
+        slots.writeIntegerBits(frame, ints, a, len)
+    elseif op == 1 then
+        local index = slots.readIntegerBits(frame, ints, b)
+        local count = slots.readIntegerBits(frame, ints, c)
+        if count ~= 0ULL and (count > len or index > len - count or count > 64ULL) then
+            return failSlow(pc, context, 0)
+        end
+    else
+        local indexSlot = c
+        if write then
+            indexSlot = b
+        end
+        local index = slots.readIntegerBits(frame, ints, indexSlot)
+        local active = slots.readIntegerBits(frame, ints, program.readByte(pc, 4))
+        local off = program.readByte(pc, 6)
+        local lanes = program.readByte(pc, 7)
+        local used = native.word(off + lanes)
+        if active < used then
+            used = active
+        end
+        local endIndex = index + used
+        if used > native.word(off) and (endIndex < index or endIndex > len) then
+            return failSlow(pc, context, 0)
+        end
+        local data = native.loadPointer(view, 0)
+        local targetSlot = a
+        if write then
+            targetSlot = c
+        end
+        local vector = native.stackBytes(16)
+        native.store64(vector, 0, 0ULL)
+        native.store64(vector, 8, 0ULL)
+        if write then
+            native.store64(vector, 0, slots.readVectorLow(frame, vecs, c))
+            native.store64(vector, 8, slots.readVectorHigh(frame, vecs, c))
+        end
+        local l: int64 = 0
+        while l < lanes do
+            if active > native.word(off + l) then
+                local at = native.index(index + native.word(off + l))
+                if write then
+                    -- The vector is rooted frame state; the view owns only
+                    -- scalar bytes and successful raw access cannot collect.
+                    writeLane(data, at, kind, readLane(vector, l, kind))
+                else
+                    writeLane(vector, l, kind, readLane(data, at, kind))
+                end
+            end
+            l = l + 1
+        end
+        if not write then
+            slots.writeVectorLow(frame, vecs, a, native.load64(vector, 0))
+            slots.writeVectorHigh(frame, vecs, a, native.load64(vector, 8))
+        end
+    end
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function vectorOpSlow(pc: voidptr, context: voidptr): uint64
+    local frame = native.offset(
+        native.loadPointer(context, native.layout("stack")),
+        native.index(native.load64(context, native.layout("cur")) * 8)
+    )
+    local vecs = vectors(frame, context)
+    local op, kind = program.readByte(pc, 4), program.readByte(pc, 5)
+    local d, x, y, z = program.readByte(
+        pc,
+        1
+    ), program.readByte(pc, 2), program.readByte(pc, 3), program.readByte(pc, 6)
+    local scratch = native.stackBytes(64)
+    local a, b, c, out = scratch, native.offset(scratch, 16), native.offset(scratch, 32), native.offset(scratch, 48)
+    native.store64(a, 0, slots.readVectorLow(frame, vecs, x))
+    native.store64(a, 8, slots.readVectorHigh(frame, vecs, x))
+    native.store64(b, 0, slots.readVectorLow(frame, vecs, y))
+    native.store64(b, 8, slots.readVectorHigh(frame, vecs, y))
+    native.store64(c, 0, slots.readVectorLow(frame, vecs, z))
+    native.store64(c, 8, slots.readVectorHigh(frame, vecs, z))
+    protocol.publishPc(pc, context)
+    local l: int64 = 0
+    while l < 16 // width(kind) do
+        local value = lane(op, kind, readLane(a, l, kind), readLane(b, l, kind), readLane(c, l, kind), context)
+        if native.load32(context, native.layout("status")) == -4 then
+            return native.fail()
+        end
+        writeLane(out, l, kind, value)
+        l = l + 1
+    end
+    slots.writeVectorLow(frame, vecs, d, native.load64(out, 0))
+    slots.writeVectorHigh(frame, vecs, d, native.load64(out, 8))
+
+    return protocol.continueAfter(pc, context, 0, 0ULL, false)
+end
+
+local function typedVectorSlow(pc: voidptr, context: voidptr, op: int64): uint64
+    local frame = native.offset(
+        native.loadPointer(context, native.layout("stack")),
+        native.index(native.load64(context, native.layout("cur")) * 8)
+    )
+    local vecs = vectors(frame, context)
+    local info = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
+    )
+    local ints = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_i")) * 8)
+    local floats = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_f")) * 8)
+    local d, x, kind = program.readByte(pc, 1), program.readByte(pc, 2), program.readByte(pc, 3)
+    local scratch = native.stackBytes(16)
+    if op == 1 then
+        native.store64(scratch, 0, slots.readVectorLow(frame, vecs, x))
+        native.store64(scratch, 8, slots.readVectorHigh(frame, vecs, x))
+        local bits = readLane(scratch, program.readByte(pc, 4), kind)
+        if kind >= 8 then
+            slots.writeFloat(frame, floats, d, floatOf(bits, kind))
+        else
+            slots.writeInteger(frame, ints, d, extend(bits, kind))
+        end
+    else
+        native.store64(scratch, 0, 0ULL)
+        native.store64(scratch, 8, 0ULL)
+        local count = 16 // width(kind)
+        local bits: uint64 = 0ULL
+        local active: uint64 = 0ULL
+        if op == 0 then
+            if kind >= 8 then
+                bits = bitsOf(slots.readFloat(frame, floats, x), kind)
+            else
+                bits = slots.readIntegerBits(frame, ints, x)
+            end
+        else
+            count = program.readByte(pc, 5);
+            active = slots.readIntegerBits(frame, ints, x)
+        end
+        local l: int64 = 0
+        while l < count do
+            local value = bits
+            if op == 2 then
+                value = native.chooseWord(active > native.word(program.readByte(pc, 4) + l), mask(kind), 0ULL)
+            end
+            writeLane(scratch, l, kind, value)
+            l = l + 1
+        end
+        slots.writeVectorLow(frame, vecs, d, native.load64(scratch, 0))
+        slots.writeVectorHigh(frame, vecs, d, native.load64(scratch, 8))
+    end
+
+    return protocol.continueAfter(pc, context, 0, 0ULL, false)
+end
+
+export function StorageLen(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return storageSlow(pc, context, 0)
+end
+
+export function FLoad(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return storageSlow(pc, context, 1)
+end
+
+export function FStore(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return storageSlow(pc, context, 2)
+end
+
+export function VLoad(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return storageSlow(pc, context, 3)
+end
+
+export function VStore(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return storageSlow(pc, context, 4)
+end
+
+export function VLoadM(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return storageSlow(pc, context, 5)
+end
+
+export function VStoreM(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return storageSlow(pc, context, 6)
+end
+
+export function SpanLen(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return spanSlow(pc, context, 0)
+end
+
+export function SpanBounds(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return spanSlow(pc, context, 1)
+end
+
+export function SpanLoad(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return spanSlow(pc, context, 2)
+end
+
+export function SpanStore(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return spanSlow(pc, context, 3)
+end
+
+export function Simd(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return managedSlow(pc, context)
+end
+
+export function VOp(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return vectorOpSlow(pc, context)
+end
+
+export function LoopFact(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+export function GuardLenLe(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    if slots.readIntegerBits(
+        frame,
+        ints,
+        program.readByte(pc, 1)
+    ) > slots.readIntegerBits(frame, ints, program.readByte(pc, 2)) then
+        return failSlow(pc, context, 3)
+    end
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+export function FFma(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local value = native.fma(
+        slots.readFloat(frame, floats, program.readByte(pc, 2)),
+        slots.readFloat(frame, floats, program.readByte(pc, 3)),
+        slots.readFloat(frame, floats, program.readByte(pc, 4))
+    )
+    slots.writeFloat(frame, floats, program.readByte(pc, 1), value)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+export function VMov(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local vecs = vectors(frame, context)
+    local d, x = program.readByte(pc, 1), program.readByte(pc, 2)
+    local low, high = slots.readVectorLow(frame, vecs, x), slots.readVectorHigh(frame, vecs, x)
+    slots.writeVectorLow(frame, vecs, d, low)
+    slots.writeVectorHigh(frame, vecs, d, high)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+export function VSplat(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local vecs = vectors(frame, context)
+    local d, x = program.readByte(pc, 1), program.readByte(pc, 2)
+    local bits = native.bits(slots.readFloat(frame, floats, x))
+    slots.writeVectorLow(frame, vecs, d, bits)
+    slots.writeVectorHigh(frame, vecs, d, bits)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+export function VAdd(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local vecs = vectors(frame, context)
+    local d, x = program.readByte(pc, 1), program.readByte(pc, 2)
+    local y = program.readByte(pc, 3)
+    local ax, ay = native.fromBits(
+        slots.readVectorLow(frame, vecs, x)
+    ), native.fromBits(slots.readVectorHigh(frame, vecs, x))
+    local bx, by = native.fromBits(
+        slots.readVectorLow(frame, vecs, y)
+    ), native.fromBits(slots.readVectorHigh(frame, vecs, y))
+    local low, high = ax + bx, ay + by
+    slots.writeVectorLow(frame, vecs, d, native.bits(low))
+    slots.writeVectorHigh(frame, vecs, d, native.bits(high))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+export function VMul(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local vecs = vectors(frame, context)
+    local d, x = program.readByte(pc, 1), program.readByte(pc, 2)
+    local y = program.readByte(pc, 3)
+    local ax, ay = native.fromBits(
+        slots.readVectorLow(frame, vecs, x)
+    ), native.fromBits(slots.readVectorHigh(frame, vecs, x))
+    local bx, by = native.fromBits(
+        slots.readVectorLow(frame, vecs, y)
+    ), native.fromBits(slots.readVectorHigh(frame, vecs, y))
+    local low, high = ax * bx, ay * by
+    slots.writeVectorLow(frame, vecs, d, native.bits(low))
+    slots.writeVectorHigh(frame, vecs, d, native.bits(high))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+export function VFma(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local vecs = vectors(frame, context)
+    local d, x = program.readByte(pc, 1), program.readByte(pc, 2)
+    local y = program.readByte(pc, 3)
+    local ax, ay = native.fromBits(
+        slots.readVectorLow(frame, vecs, x)
+    ), native.fromBits(slots.readVectorHigh(frame, vecs, x))
+    local bx, by = native.fromBits(
+        slots.readVectorLow(frame, vecs, y)
+    ), native.fromBits(slots.readVectorHigh(frame, vecs, y))
+    local z = program.readByte(pc, 4)
+    local low = native.fma(ax, bx, native.fromBits(slots.readVectorLow(frame, vecs, z)))
+    local high = native.fma(ay, by, native.fromBits(slots.readVectorHigh(frame, vecs, z)))
+    slots.writeVectorLow(frame, vecs, d, native.bits(low))
+    slots.writeVectorHigh(frame, vecs, d, native.bits(high))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+export function VLane(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local vecs = vectors(frame, context)
+    local d, x = program.readByte(pc, 1), program.readByte(pc, 2)
+    local bits = slots.readVectorLow(frame, vecs, x)
+    if program.readByte(pc, 3) ~= 0 then
+        bits = slots.readVectorHigh(frame, vecs, x)
+    end
+    slots.writeFloat(frame, floats, d, native.fromBits(bits))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+export function VAny(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local vecs = vectors(frame, context)
+    local d, x = program.readByte(pc, 1), program.readByte(pc, 2)
+    local bits = slots.readVectorLow(frame, vecs, x) | slots.readVectorHigh(frame, vecs, x)
+    slots.writeIntegerBits(frame, ints, d, native.asWord(bits ~= 0ULL))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+export function VSplatN(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return typedVectorSlow(pc, context, 0)
+end
+
+export function VExtractN(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return typedVectorSlow(pc, context, 1)
+end
+
+export function VPrefix(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return typedVectorSlow(pc, context, 2)
+end

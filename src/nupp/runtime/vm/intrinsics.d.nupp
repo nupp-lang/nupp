@@ -1,6 +1,22 @@
 -- The intrinsics the native runtime sources are written against. These
 -- have no guest implementation: the native compiler must consume every call.
 local record Native
+    stackBytes: function(size: int64): voidptr
+    load16: function(base: voidptr, offset: int64): int64
+    store8: function(base: voidptr, offset: int64, value: uint64): nil
+    store16: function(base: voidptr, offset: int64, value: uint64): nil
+    floatBits: function(value: number): uint64
+    floatFromBits: function(value: uint64): number
+    roundFloat: function(value: number): number
+    sqrt: function(value: number): number
+    sqrtFloat: function(value: number): number
+    ceil: function(value: number): number
+    fma: function(a: number, b: number, c: number): number
+    fmaFloat: function(a: number, b: number, c: number): number
+    unsignedMulHigh: function(a: uint64, b: uint64): uint64
+    signedMulHigh: function(a: int64, b: int64): uint64
+    signedQuotient: function(a: int64, b: int64): int64
+    popcount: function(value: uint64): uint64
     loadFloat: function(base: voidptr, offset: int64): number
     storeFloat: function(base: voidptr, offset: int64, value: number): nil
     bits: function(value: number): uint64

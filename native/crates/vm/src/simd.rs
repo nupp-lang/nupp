@@ -107,6 +107,27 @@ pub const OPERATIONS: &[&str] = &[
     "storeQuads",
     "transpose",
 ];
+// Private descriptor ABI used by the Nupp scalar lanes and object sidecar.
+// Name order is semantic: never silently reinterpret a linked object's ordinals.
+pub const fn native_abi_hash() -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    let tables = [ELEMENTS, OPERATIONS];
+    let mut table = 0;
+    while table < tables.len() {
+        let mut i = 0;
+        while i < tables[table].len() {
+            let bytes = tables[table][i].as_bytes();
+            let mut j = 0;
+            while j < bytes.len() { hash = (hash ^ bytes[j] as u64).wrapping_mul(0x100000001b3); j += 1; }
+            hash = hash.wrapping_mul(0x100000001b3);
+            i += 1;
+        }
+        hash = (hash ^ 255).wrapping_mul(0x100000001b3);
+        table += 1;
+    }
+    hash
+}
+
 pub const CAPACITY: usize = 512;
 const PREFIX: usize = 16;
 const MAGIC: &[u8; 8] = b"NUPPSIM1";

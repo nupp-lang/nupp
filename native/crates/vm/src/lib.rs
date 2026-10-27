@@ -141,3 +141,6 @@ pub mod cdecl;
 
 #[cfg(feature = "jit")]
 pub mod specialize;
+
+#[cfg(feature = "native-runtime")]
+mod native_simd_helpers;

@@ -21,7 +21,7 @@ pub struct Ins { pub op: u8, pub a: u8, pub b: u8, pub c: u8, pub imm: i32, pub 
 /// `typed` marks a function with a float parameter, which a dynamic call
 /// unboxes on entry and the core leaves to Rust; `native` one with vector
 /// instructions, which runs only compiled or by the interpreter's policy.
-pub struct FuncInfo { pub code: *const Ins, pub consts: *const u64, pub frame_words: u32, pub nregs: u32, pub nparams: u32, pub off_i: u32, pub off_f: u32, pub vararg: u32, pub ncode: u32, pub calls: u32, pub typed: u32, pub native: u32 }
+pub struct FuncInfo { pub code: *const Ins, pub consts: *const u64, pub frame_words: u32, pub nregs: u32, pub nparams: u32, pub off_i: u32, pub off_f: u32, pub off_v: u32, pub vararg: u32, pub ncode: u32, pub calls: u32, pub typed: u32, pub native: u32 }
 
 #[repr(C)]
 pub struct ShapeInfo { pub names: *const u64, pub n: u64, pub table: *const u64, pub mask: u64 }
@@ -93,6 +93,9 @@ codes! {
     CallMethod,
     PCall, Raise, Defer, DeferMethod, DisarmAt, RearmAt, CleanupLive, Unwind,
     Switch, IXor, INot, IBswap32, TagCheckRec, IsRec, GetPhys, GetPhysF, GetPhysI, GetPhysU, SetPhys, SetPhysF, SetPhysI,
+    Simd, SpanLen, SpanBounds, SpanLoad, SpanStore, VOp, VSplatN, VExtractN, VAny, VPrefix,
+    VAdd, VMul, VLoadM, VStoreM, LoopFact, GuardLenLe, VMov, FFma,
+    StorageLen, FLoad, FStore, VSplat, VLoad, VStore, VFma, VLane,
 }
 
 /// The opcode number of a core handler name, if it is one.
@@ -213,6 +216,31 @@ pub fn encode(op: &Op) -> Ins {
         Op::SetPhys(a, p, b) => Ins { imm: (p.identity as u32 | ((p.name as u32) << 16)) as i32, k: p.packed(true) as i64, ..i(Code::SetPhys, a, b, 0) },
         Op::SetPhysF(a, p, b) => Ins { imm: (p.identity as u32 | ((p.name as u32) << 16)) as i32, k: p.packed(true) as i64, ..i(Code::SetPhysF, a, b, 0) },
         Op::SetPhysI(a, p, b) => Ins { imm: (p.identity as u32 | ((p.name as u32) << 16)) as i32, k: p.packed(true) as i64, ..i(Code::SetPhysI, a, b, 0) },
+        Op::VAdd(a,b,c) => i(Code::VAdd, a,b,c),
+        Op::VMul(a,b,c) => i(Code::VMul, a,b,c),
+        Op::FLoad(a,b,c) => i(Code::FLoad, a,b,c),
+        Op::FStore(a,b,c) => i(Code::FStore, a,b,c),
+        Op::StorageLen(a,b) => i(Code::StorageLen, a,b,0),
+        Op::VSplat(a,b) => i(Code::VSplat, a,b,0),
+        Op::VMov(a,b) => i(Code::VMov, a,b,0),
+        Op::GuardLenLe(a,b) => i(Code::GuardLenLe, a,b,0),
+        Op::VAny(a,b) => i(Code::VAny, a,b,0),
+        Op::LoopFact(..) => i(Code::LoopFact,0,0,0),
+        Op::FFma(a,b,c,d) => Ins { imm:d as i32, ..i(Code::FFma,a,b,c) },
+        Op::VFma(a,b,c,d) => Ins { imm:d as i32, ..i(Code::VFma,a,b,c) },
+        Op::VLoad(a,b,c,d) => Ins { imm:d, ..i(Code::VLoad,a,b,c) },
+        Op::VStore(a,b,c,d) => Ins { imm:d, ..i(Code::VStore,a,b,c) },
+        Op::VLoadM(a,b,c,d,e) => Ins { imm:d, k:e as i64, ..i(Code::VLoadM,a,b,c) },
+        Op::VStoreM(a,b,c,d,e) => Ins { imm:d, k:e as i64, ..i(Code::VStoreM,a,b,c) },
+        Op::VLane(a,b,c) | Op::VSplatN(a,b,c) => i(if matches!(*op, Op::VLane(..)) { Code::VLane } else { Code::VSplatN },a,b,c),
+        Op::VExtractN(a,b,c,d) => Ins { imm:d as i32, ..i(Code::VExtractN,a,b,c) },
+        Op::VPrefix(a,b,c,d,e) => Ins { imm:d as i32 | ((e as i32)<<8), ..i(Code::VPrefix,a,b,c) },
+        Op::SpanLen(a,b,c) => i(Code::SpanLen,a,b,c),
+        Op::SpanBounds(a,b,c,d,e) => Ins { imm:d as i32 | ((e as i32)<<8), ..i(Code::SpanBounds,a,b,c) },
+        Op::SpanLoad(a,b,c,d,e,f,g) => Ins { imm:d as i32 | ((e as i32)<<8) | ((f as i32)<<16) | ((g as i32)<<24), ..i(Code::SpanLoad,a,b,c) },
+        Op::SpanStore(a,b,c,d,e,f,g) => Ins { imm:d as i32 | ((e as i32)<<8) | ((f as i32)<<16) | ((g as i32)<<24), ..i(Code::SpanStore,a,b,c) },
+        Op::VOp(a,b,c,d,e,f) => Ins { imm:a as i32 | ((b as i32)<<8) | ((f as i32)<<16), ..i(Code::VOp,c,d,e) },
+        Op::Simd(a,b,c,d,e) => Ins { imm:c as i32 | ((e as i32)<<8), ..i(Code::Simd,a,b,d) },
         _ => i(Code::Slow, 0, 0, 0),
     }
 }
@@ -440,7 +468,7 @@ impl Interp {
         if std::env::var("NO_THREADED").is_ok() { self.threaded = false; return; }
         self.shape_info = self.heap.shapes.iter().map(|s| ShapeInfo { names: s.names.as_ptr() as *const u64, n: s.names.len() as u64, table: s.table.as_ptr() as *const u64, mask: s.mask }).collect();
         for f in &mut self.funcs { if f.ins.len() != f.code.len() + jump_words(f).len() / 4 { f.ins = encode_function(f); } }
-        self.finfo = self.funcs.iter().map(|f: &Function| FuncInfo { code: f.ins.as_ptr(), consts: f.consts.as_ptr() as *const u64, frame_words: f.frame_words() as u32, nregs: f.nregs as u32, nparams: f.nparams as u32, off_i: f.off_i() as u32, off_f: f.off_f() as u32, vararg: f.vararg as u32, ncode: f.code.len() as u32, calls: 0, typed: f.sig.contains(&b'f') as u32, native: f.code.iter().any(crate::native_simd::required) as u32 }).collect();
+        self.finfo = self.funcs.iter().map(|f: &Function| FuncInfo { code: f.ins.as_ptr(), consts: f.consts.as_ptr() as *const u64, frame_words: f.frame_words() as u32, nregs: f.nregs as u32, nparams: f.nparams as u32, off_i: f.off_i() as u32, off_f: f.off_f() as u32, off_v: f.off_v() as u32, vararg: f.vararg as u32, ncode: f.code.len() as u32, calls: 0, typed: f.sig.contains(&b'f') as u32, native: f.code.iter().any(crate::native_simd::required) as u32 }).collect();
         self.threaded = true;
     }
 

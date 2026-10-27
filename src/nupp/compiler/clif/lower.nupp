@@ -67,6 +67,7 @@ lower.ATOMICS = "nupp.runtime.vm.atomic"
 lower.HELPER_MODULES = {
     ["nupp.runtime.vm.helpers"] = "nupp_rt_",
     ["nupp.runtime.vm.recordhelpers"] = "nupp_rt_",
+    ["nupp.runtime.vm.simdhelpers"] = "nupp_rt_",
     ["nupp.runtime.vm.os"] = "nupp_os_"
 }
 
@@ -83,7 +84,8 @@ lower.RUNTIME_MODULES = {
     "src/nupp/runtime/vm/tables.nupp",
     "src/nupp/runtime/vm/closures.nupp",
     "src/nupp/runtime/vm/control.nupp",
-    "src/nupp/runtime/vm/records.nupp"
+    "src/nupp/runtime/vm/records.nupp",
+    "src/nupp/runtime/vm/simd.nupp"
 }
 
 local INTRINSICS = lower.INTRINSICS
@@ -359,6 +361,7 @@ local ATOMIC_RMW: {
 -- that profile is a subset of this one.
 local intrinsicLoads = {
     load8 = "uload8.i64",
+    load16 = "uload16.i64",
     load32 = "sload32.i64",
     load64 = "load.i64",
     loadIndex = "load.i64",
@@ -367,6 +370,7 @@ local intrinsicLoads = {
 }
 local intrinsicKinds = {
     load8 = "int64",
+    load16 = "int64",
     load32 = "int64",
     load64 = "uint64",
     loadIndex = "int64",
@@ -374,6 +378,8 @@ local intrinsicKinds = {
     loadFloat = "number"
 }
 local intrinsicStores = {
+    store8 = "istore8",
+    store16 = "istore16",
     store64 = "store",
     storeIndex = "store",
     storePointer = "store",
@@ -381,6 +387,8 @@ local intrinsicStores = {
     store32 = "istore32"
 }
 local intrinsicStoreKinds = {
+    store8 = "uint64",
+    store16 = "uint64",
     store64 = "uint64",
     storeIndex = "int64",
     storePointer = "voidptr",
@@ -391,6 +399,9 @@ local intrinsicUnary = {
     bits = {"bitcast.i64", "number", "uint64"},
     fromBits = {"bitcast.f64", "uint64", "number"},
     floor = {"floor", "number", "number"},
+    sqrt = {"sqrt", "number", "number"},
+    ceil = {"ceil", "number", "number"},
+    popcount = {"popcnt", "uint64", "uint64"},
     neg = {"fneg", "number", "number"},
     toFloat = {"fcvt_from_sint.f64", "int64", "number"},
     toInt = {"fcvt_to_sint_sat.i64", "number", "int64"},
@@ -479,17 +490,38 @@ local function compileDirectFunction(fn: Fn, options: any): string
     local newBlock, addParam, seal = b.newBlock, b.addParam, b.seal
     local readVariable, writeVariable = b.read, b.write
     local varDecl = {}
+    local declaredKinds: any = {}
+    -- Temporary direct-path lowering of scalar helper calls. Checked lexical
+    -- definitions keep their identity; an activation maps them to fresh SSA
+    -- variables so repeated inlining cannot reuse a previous call's locals.
+    local inlineBindings: any = nil
+    local scalarReturn: any = nil
+    local inlineScalar
 
     local function declare(token: any, kind: string, declared: any): any
         local variable = token.definition or token.text
+        if inlineBindings ~= nil then
+            local original = variable
+            if inlineBindings[original] == nil then
+                inlineBindings[original] = {}
+            end
+            variable = inlineBindings[original]
+        end
+        need(kind ~= "union", "local " .. token.text .. " has unsupported union type")
         b.declare(variable, machine(kind))
         varDecl[variable] = declared
+        declaredKinds[variable] = kind
+
         return variable
     end
 
     local function variableOf(token: any): any
         local variable = token.definition or token.text
+        if inlineBindings ~= nil and inlineBindings[variable] ~= nil then
+            variable = inlineBindings[variable]
+        end
         need(b.typeOf(variable), "unknown variable " .. tostring(token.text))
+
         return variable
     end
 
@@ -538,7 +570,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
     local slotCount = 0
 
     local function declareSlot(size: number, alignment: number): string
-        need(not handlers, "a handler keeps no struct values")
+        need(not handlers or isSupport, "a handler keeps no struct values")
         local slot = "ss" .. tostring(slotCount)
         slotCount = slotCount + 1
         preamble[#preamble + 1] = slot .. " = explicit_slot " .. tostring(size) .. ", align = " .. tostring(alignment)
@@ -1050,6 +1082,9 @@ local function compileDirectFunction(fn: Fn, options: any): string
         need(#signature.rets == 1 and tag(signature.rets[1]) == resultKind, member .. ": slot result kind")
         local offset = emit("imul " .. words[3] .. ", " .. constant("i64", tostring(access.width)))
         local address = emit("iadd " .. words[2] .. ", " .. offset)
+        if access.offset ~= nil and access.offset ~= 0 then
+            address = emit("iadd " .. address .. ", " .. constant("i64", tostring(access.offset)))
+        end
         if access.write then
             store(access.kind, words[4], address)
             return {kind = "nil", value = ""}
@@ -1156,6 +1191,46 @@ local function compileDirectFunction(fn: Fn, options: any): string
         elseif intrinsicIdentity[intrinsicName] then
             local spec = intrinsicIdentity[intrinsicName]
             return {kind = spec[2], value = arg(1, spec[1])}
+        elseif intrinsicName == "stackBytes" then
+            need(isSupport, "stack scratch belongs to a support function")
+            local size = expression(args[1])
+            need(size.literal ~= nil, "stack scratch size must be literal")
+            local bytes = tonumber(size.literal)
+            need(bytes and bytes > 0 and bytes <= 4096 and bytes % 1 == 0, "stack scratch size out of range")
+            return {kind = "voidptr", value = emit("stack_addr.i64 " .. declareSlot(bytes as number, 16))}
+        elseif intrinsicName == "floatBits" then
+            local narrow = emit("fdemote.f32 " .. arg(1, "number"))
+            return {kind = "uint64", value = emit("uextend.i64 " .. emit("bitcast.i32 " .. narrow))}
+        elseif intrinsicName == "floatFromBits" then
+            local narrow = emit("ireduce.i32 " .. arg(1, "uint64"))
+            return {kind = "number", value = emit("fpromote.f64 " .. emit("bitcast.f32 " .. narrow))}
+        elseif intrinsicName == "roundFloat" or intrinsicName == "sqrtFloat" then
+            local narrow = emit("fdemote.f32 " .. arg(1, "number"))
+            if intrinsicName == "sqrtFloat" then
+                narrow = emit("sqrt " .. narrow)
+            end
+            return {kind = "number", value = emit("fpromote.f64 " .. narrow)}
+        elseif intrinsicName == "fma" or intrinsicName == "fmaFloat" then
+            local a, c, d = arg(1, "number"), arg(2, "number"), arg(3, "number")
+            if intrinsicName == "fmaFloat" then
+                a, c, d = emit("fdemote.f32 " .. a), emit("fdemote.f32 " .. c), emit("fdemote.f32 " .. d)
+            end
+            local v = emit("fma " .. a .. ", " .. c .. ", " .. d)
+            if intrinsicName == "fmaFloat" then
+                v = emit("fpromote.f64 " .. v)
+            end
+            return {kind = "number", value = v}
+        elseif intrinsicName == "unsignedMulHigh"
+            or intrinsicName == "signedMulHigh"
+            or intrinsicName == "signedQuotient"
+        then
+            local unsigned = intrinsicName == "unsignedMulHigh"
+            local kind = unsigned and "uint64" or "int64"
+            local op = intrinsicName == "signedQuotient" and "sdiv " or (unsigned and "umulhi " or "smulhi ")
+            return {
+                kind = intrinsicName == "signedQuotient" and "int64" or "uint64",
+                value = emit(op .. arg(1, kind) .. ", " .. arg(2, kind))
+            }
         elseif intrinsicName == "offset" then
             return {kind = "voidptr", value = emit("iadd " .. arg(1, "voidptr") .. ", " .. arg(2, "int64"))}
         elseif intrinsicName == "layout" then
@@ -1264,6 +1339,9 @@ local function compileDirectFunction(fn: Fn, options: any): string
             return {literal = scope.constants[n.token.definition or n.token.text]}
         elseif n.kind == "name" then
             local named = n.token.definition or n.token.text
+            if inlineBindings ~= nil and inlineBindings[named] ~= nil then
+                named = inlineBindings[named]
+            end
             if not b.typeOf(named) and scope.functions[n.token.text] then
                 -- A module function's name is its address: a function pointer.
                 local known = callee(scope.functions[n.token.text] as Fn)
@@ -1272,6 +1350,11 @@ local function compileDirectFunction(fn: Fn, options: any): string
             local variable = variableOf(n.token)
             local value = readVariable(variable, b.here())
             local kind = tag(n.inferredType)
+            -- Literal unions introduced by narrowing retain the scalar
+            -- representation assigned to this checked declaration.
+            if kind == "union" then
+                kind = declaredKinds[variable]
+            end
             if kind == "missing" or machine(kind) ~= b.typeOf(variable) then
                 kind = kindOfVariable(variable)
             end
@@ -1445,6 +1528,9 @@ local function compileDirectFunction(fn: Fn, options: any): string
                 effect(text)
                 return {kind = "nil", value = ""}
             end
+            if handlers then
+                return inlineScalar(target as Fn, n)
+            end
             local known = callee(target as Fn)
             local args = {}
             need(#exprs == #target.paramKinds, "argument count")
@@ -1603,6 +1689,45 @@ local function compileDirectFunction(fn: Fn, options: any): string
         loops[#loops] = nil
     end
 
+    -- P1b deletes this checked-syntax path as helper calls become graph
+    -- operations. This is only call lowering: no effect or value proof is
+    -- inferred here, and the source retains every branch and lane operation.
+    inlineScalar = function(target: Fn, call: any): any
+        need(not target.isHandler and not target.isSupport, "a handler or support function is tail-called")
+        need(not inlining[target], "recursive helper " .. target.name)
+        local exprs = call.args.exprs or {}
+        need(#exprs == #target.paramKinds, "argument count")
+        local arguments = {}
+        for index, arg in ipairs(exprs) do
+            arguments[index] = materialize(expression(arg), target.paramKinds[index])
+        end
+        local outerBindings, outerReturn, outerScope = inlineBindings, scalarReturn, scope
+        inlineBindings = {}
+        local join = newBlock()
+        local value = ""
+        if target.resultType ~= nil then
+            value = addParam(join, target.resultType as string)
+        end
+        scalarReturn = {join = join, kind = target.resultKind, cleanupDepth = #cleanups}
+        scope = target.scope
+        inlining[target] = true
+        for index, param in ipairs(target.body.params) do
+            local variable = declare(param.name, target.paramKinds[index], param.type and param.type.resolvedType)
+            writeVariable(variable, b.here(), arguments[index])
+        end
+        block(target.body.body.stats)
+        if b.current ~= nil then
+            need(target.resultKind == nil, "scalar helper " .. target.name .. " may not fall through")
+            b.jump(join, {})
+        end
+        inlining[target] = nil
+        inlineBindings, scalarReturn, scope = outerBindings, outerReturn, outerScope
+        seal(join)
+        b.current = join
+
+        return {kind = target.resultKind or "nil", value = value, type = target.result}
+    end
+
     statements = function(stat: any): nil
         local kind = stat.kind
         if kind == "localStmt" then
@@ -1648,12 +1773,25 @@ local function compileDirectFunction(fn: Fn, options: any): string
                 -- continues into the statements after it.
                 need(not helper.isHandler and not helper.isSupport, "a handler or slow path is tail-called")
                 need(helper.resultKind == nil, "a helper with a result is tail-called")
-                inlineHelper(helper, call)
+                inlineScalar(helper, call)
                 need(b.current ~= nil, "helper " .. helper.name .. " must continue")
             else
                 expression(call)
             end
         elseif kind == "returnStmt" then
+            if scalarReturn ~= nil then
+                local continuation = scalarReturn
+                local results = {}
+                if continuation.kind ~= nil then
+                    need(#stat.exprs == 1, "scalar helper returns one result")
+                    results[1] = materialize(expression(stat.exprs[1]), continuation.kind)
+                else
+                    need(#stat.exprs == 0, "statement helper returns no result")
+                end
+                runCleanups(continuation.cleanupDepth)
+                b.jump(continuation.join, results)
+                return
+            end
             local value = stat.exprs[1]
             local transferName = handlers and #stat.exprs == 1 and isIntrinsicCall(value) and value.obj.name.text or nil
             local helper = handlers and #stat.exprs == 1 and resolveCallee(value, scope, modules) or nil
@@ -1760,7 +1898,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
             end
             local counter = {}
             b.declare(counter, machine(loopKind))
-            b.declare(var.definition or var.text, machine(loopKind))
+            local iterator = declare(var, loopKind, var.inferredType)
             writeVariable(counter, b.here(), materialize(start, loopKind))
             local limit = materialize(stop, loopKind)
             local header, bodyBlock, advance, exit = newBlock(), newBlock(), newBlock(), newBlock()
@@ -1775,7 +1913,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
             b.branch(cond.value, bodyBlock, exit)
             b.current = bodyBlock
             seal(bodyBlock)
-            writeVariable(var.definition or var.text, bodyBlock, readVariable(counter, bodyBlock))
+            writeVariable(iterator, bodyBlock, readVariable(counter, bodyBlock))
             loops[#loops + 1] = {exit = exit, continueTo = advance, cleanupDepth = #cleanups}
             block(stat.body.stats)
             loops[#loops] = nil
@@ -2107,7 +2245,11 @@ function lower.compile(root: string, paths: {string}, options: any?): string
         end
     end
 
-    return table.concat(text, "\n")
+    local simd = modules["nupp.runtime.vm.simd"]
+    local abi = handlers and simd and simd.exportedConstants.OPERATION_ABI
+    local prefix = abi and "; Nupp SIMD ABI: " .. abi .. "\n" or ""
+
+    return prefix .. table.concat(text, "\n")
 end
 
 --- Compiles the native core: the runtime modules in handler mode against the

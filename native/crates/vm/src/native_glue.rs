@@ -20,7 +20,7 @@ use std::mem::offset_of;
 /// Every structure offset a handler may name, as the linked Rust layouts
 /// measure it. The Nupp producer reads these (`nupp-vm native layouts`), and
 /// the generated sidecar asserts the same values at build time.
-pub const LAYOUT_FIELDS: [&str; 62] = [
+pub const LAYOUT_FIELDS: [&str; 72] = [
     "funcs", "FuncInfo.size", "FuncInfo.consts", "jit_frames", "nframe_entries",
     "frame_entries", "stack", "cap", "cur", "nfuncs", "result", "last_nres",
     "feedback", "guard", "unavailable_fid", "FuncInfo.code",
@@ -32,7 +32,8 @@ pub const LAYOUT_FIELDS: [&str; 62] = [
     "slow_calls", "nslow_calls", "frame_threshold", "budget", "Code.PadResults",
     "Table.hash_cap", "Table.hash_len", "Table.hash_order", "Table.hash_rank",
     "cleanups", "ncleanups", "Cleanup.size", "Cleanup.frame", "Cleanup.value", "Cleanup.callback",
-    "FuncInfo.ncode", "ShapeInfo.names",
+    "FuncInfo.ncode", "ShapeInfo.names", "FuncInfo.off_v",
+    "Packet.size", "Packet.a", "Packet.b", "Packet.c", "Packet.out", "Packet.lanes", "Packet.kind", "Packet.operation", "Packet.mask",
 ];
 
 /// A field of a table's hash part (`ValueTable`), from the object's start.
@@ -62,6 +63,7 @@ pub fn layout(field: &str) -> Result<usize, String> {
         "FuncInfo.nparams" => offset_of!(FuncInfo, nparams),
         "FuncInfo.off_i" => offset_of!(FuncInfo, off_i),
         "FuncInfo.off_f" => offset_of!(FuncInfo, off_f),
+        "FuncInfo.off_v" => offset_of!(FuncInfo, off_v),
         "FuncInfo.vararg" => offset_of!(FuncInfo, vararg),
         "FuncInfo.calls" => offset_of!(FuncInfo, calls),
         "FuncInfo.typed" => offset_of!(FuncInfo, typed),
@@ -109,6 +111,15 @@ pub fn layout(field: &str) -> Result<usize, String> {
         "Cleanup.callback" => offset_of!(crate::interp::Cleanup, callback),
         // Where a function's jump tables begin, past its code.
         "FuncInfo.ncode" => offset_of!(FuncInfo, ncode),
+        "Packet.a" => offset_of!(crate::simd::Packet, a),
+        "Packet.b" => offset_of!(crate::simd::Packet, b),
+        "Packet.c" => offset_of!(crate::simd::Packet, c),
+        "Packet.out" => offset_of!(crate::simd::Packet, out),
+        "Packet.lanes" => offset_of!(crate::simd::Packet, lanes),
+        "Packet.kind" => offset_of!(crate::simd::Packet, kind),
+        "Packet.operation" => offset_of!(crate::simd::Packet, operation),
+        "Packet.mask" => offset_of!(crate::simd::Packet, mask),
+        "Packet.size" => std::mem::size_of::<crate::simd::Packet>(),
         _ => return Err("unknown context field".into()),
     })
 }
@@ -156,6 +167,43 @@ pub(crate) fn name_of(f: &Function) -> String {
     f.name.to_string().trim_start_matches('%').to_string()
 }
 
+/// Checks only ABI identity transported by jump/branch block arguments.
+/// No machine IR is rewritten and no computation is treated as identity.
+fn transports_context(f: &Function, value: cranelift_codegen::ir::Value, original: cranelift_codegen::ir::Value) -> bool {
+    let Some(entry) = f.layout.entry_block() else { return false; };
+    let mut pending = vec![value];
+    let mut visited = BTreeSet::new();
+    let mut users: BTreeMap<cranelift_codegen::ir::Value, Vec<cranelift_codegen::ir::Value>> = BTreeMap::new();
+    while let Some(value) = pending.pop() {
+        if !visited.insert(value) || value == original { continue; }
+        let ValueDef::Param(block, index) = f.dfg.value_def(value) else { return false; };
+        if block == entry { return false; }
+        let mut inputs = 0;
+        for pred in f.layout.blocks() {
+            let Some(inst) = f.layout.last_inst(pred) else { continue; };
+            let data = &f.dfg.insts[inst];
+            for edge in data.branch_destination(&f.dfg.jump_tables, &f.dfg.exception_tables) {
+                if edge.block(&f.dfg.value_lists) != block { continue; }
+                if !matches!(data.opcode(), Opcode::Jump | Opcode::Brif) { return false; }
+                let Some(input) = edge.args(&f.dfg.value_lists).nth(index).and_then(|arg| arg.as_value()) else { return false; };
+                inputs += 1;
+                users.entry(input).or_default().push(value);
+                pending.push(input);
+            }
+        }
+        if inputs == 0 { return false; }
+    }
+    // Every component must be rooted, including a disconnected cycle feeding
+    // a join that also has a direct original-context input.
+    let mut rooted = BTreeSet::new();
+    let mut pending = vec![original];
+    while let Some(value) = pending.pop() {
+        if !rooted.insert(value) { continue; }
+        if let Some(values) = users.get(&value) { pending.extend(values.iter().copied()); }
+    }
+    visited.iter().all(|value| rooted.contains(value))
+}
+
 /// The handler contract on a parsed function. A handler has the six-register
 /// tail signature; a support function (a slow path a handler tail-calls)
 /// takes the pc, the context, up to five words of its own and the dispatch
@@ -185,8 +233,15 @@ fn require_handler_clif(
         ));
     }
     let context = if handler { 4 } else { 1 };
-    if !f.global_values.is_empty() || !f.sized_stack_slots.is_empty() {
+    if !f.global_values.is_empty() || !f.dynamic_stack_slots.is_empty() || handler && !f.sized_stack_slots.is_empty() {
         return Err(format!("{}: handlers reference no symbols or stack", f.name));
+    }
+    let mut scratch = 0u64;
+    for slot in f.sized_stack_slots.values() {
+        scratch += slot.size as u64;
+        if slot.size == 0 || slot.size > 4096 || slot.align_shift > 4 || scratch > 4096 {
+            return Err(format!("{}: support scratch must be bounded by 4096 bytes and 16-byte alignment", f.name));
+        }
     }
     let entry = f.layout.entry_block().ok_or("entry block required")?;
     let params = f.dfg.block_params(entry).to_vec();
@@ -224,7 +279,7 @@ fn require_handler_clif(
                 }
                 Opcode::ReturnCallIndirect => {
                     let args = f.dfg.inst_args(inst);
-                    if args.len() != 7 || args[5] != params[context] {
+                    if args.len() != 7 || !transports_context(f, args[5], params[context]) {
                         return Err("dispatch must preserve the context".into());
                     }
                 }
@@ -293,6 +348,14 @@ fn metadata_header() -> String {
             "assert!(std::mem::offset_of!(crate::heap::Header, {field}) == {offset});\n"
         ));
     }
+    for field in ["size", "a", "b", "c", "out", "lanes", "kind", "operation", "mask"] {
+        let key = format!("Packet.{field}");
+        let value = layout(&key).unwrap();
+        let expr = if field == "size" { "std::mem::size_of::<crate::simd::Packet>()".to_owned() }
+            else { format!("std::mem::offset_of!(crate::simd::Packet, {field})") };
+        metadata.push_str(&format!("assert!({expr} == {value});\n"));
+    }
+    metadata.push_str(&format!("assert!(crate::simd::native_abi_hash() == {});\n", crate::simd::native_abi_hash()));
     metadata.push_str("assert!(crate::heap::KIND_CELL == 6);\nassert!(crate::heap::KIND_STR == 1 && crate::heap::KIND_SLICE == 9 && crate::heap::KIND_TABLE == 2 && crate::heap::KIND_RECORD == 3 && crate::heap::F_METATABLE == 4);\n");
     metadata.push_str(&format!(
         "assert!(crate::heap::OFF_T_META == {});\n",
@@ -309,6 +372,7 @@ fn metadata_header() -> String {
         ("nparams", offset_of!(FuncInfo, nparams)),
         ("off_i", offset_of!(FuncInfo, off_i)),
         ("off_f", offset_of!(FuncInfo, off_f)),
+        ("off_v", offset_of!(FuncInfo, off_v)),
         ("vararg", offset_of!(FuncInfo, vararg)),
         ("calls", offset_of!(FuncInfo, calls)),
         ("typed", offset_of!(FuncInfo, typed)),
@@ -363,6 +427,13 @@ fn metadata_header() -> String {
 /// top, is exported beside it as `nupp_native_runtime_resume(ctx)`.
 pub fn write_object(input: &str, output: &str) -> Result<(), String> {
     let text = std::fs::read_to_string(input).map_err(|e| e.to_string())?;
+    let simd_abi = text.lines().find_map(|line| line.strip_prefix("; Nupp SIMD ABI: "));
+    if let Some(abi) = simd_abi {
+        let abi = abi.trim();
+        let abi = abi.strip_prefix("0x").and_then(|s| u64::from_str_radix(s, 16).ok())
+            .or_else(|| abi.parse::<u64>().ok()).ok_or("invalid Nupp SIMD descriptor ABI")?;
+        if abi != crate::simd::native_abi_hash() { return Err("Nupp SIMD descriptor ABI differs from the runtime".into()); }
+    }
     let mut sources: Vec<Function> =
         cranelift_reader::parse_functions(&text).map_err(|e| e.to_string())?;
     if sources.is_empty() {
@@ -402,6 +473,7 @@ pub fn write_object(input: &str, output: &str) -> Result<(), String> {
     for function in &sources {
         let name = name_of(function);
         let opcode = code_by_name(&name);
+        if name == "Simd" && simd_abi.is_none() { return Err("Simd handler requires its descriptor ABI".into()); }
         require_handler_clif(function, &tail, opcode.is_some(), &locals)?;
         let mut signature = function.signature.clone();
         if opcode.is_none() {
@@ -639,4 +711,64 @@ pub fn write_object(input: &str, output: &str) -> Result<(), String> {
     std::fs::write(format!("{output}.rs"), metadata).map_err(|e| e.to_string())?;
     std::fs::write(format!("{output}.txt"), listings).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod scratch_contract_tests {
+    use super::*;
+
+    fn check(declaration: &str, handler: bool) -> Result<(), String> {
+        let params = if handler { "i64, i64, i64, i64, i64, i64" } else { "i64, i64, i64" };
+        let block = if handler { "v0: i64, v1: i64, v2: i64, v3: i64, v4: i64, v5: i64" } else { "v0: i64, v1: i64, v2: i64" };
+        let text = format!("function %scratchSlow({params}) -> i64 tail {{\n{declaration}\nblock0({block}):\n return v0\n}}\n");
+        let functions = cranelift_reader::parse_functions(&text).unwrap();
+        require_handler_clif(&functions[0], &signature(CallConv::Tail), handler, &BTreeSet::new())
+    }
+
+    #[test]
+    fn native_support_scratch_is_fixed_bounded_and_never_in_handlers() {
+        check("ss0 = explicit_slot 2080, align = 16", false).unwrap();
+        assert!(check("ss0 = explicit_slot 16, align = 16", true).unwrap_err().contains("no symbols or stack"));
+        for declaration in [
+            "ss0 = explicit_slot 0, align = 16",
+            "ss0 = explicit_slot 4097, align = 16",
+            "ss0 = explicit_slot 16, align = 32",
+            "ss0 = explicit_slot 4096, align = 16\nss1 = explicit_slot 1, align = 1",
+        ] {
+            assert!(check(declaration, false).unwrap_err().contains("support scratch"), "{declaration}");
+        }
+        assert!(check("dss0 = explicit_dynamic_slot dt0", false).unwrap_err().contains("no symbols or stack"));
+    }
+}
+
+#[cfg(test)]
+mod context_transport_tests {
+    use super::*;
+    fn check(body: &str) -> Result<(), String> {
+        let text = format!("function %Move(i64,i64,i64,i64,i64,i64) -> i64 tail {{\nsig0 = (i64,i64,i64,i64,i64,i64) -> i64 tail\nblock0(v0:i64,v1:i64,v2:i64,v3:i64,v4:i64,v5:i64):\n{body}\n}}\n");
+        let f = cranelift_reader::parse_functions(&text).unwrap().remove(0);
+        require_handler_clif(&f, &signature(CallConv::Tail), true, &BTreeSet::new())
+    }
+    #[test]
+    fn native_context_identity_accepts_rooted_loop_transport_only() {
+        let body = "jump block1(v4)\nblock1(v6:i64):\n v7=iconst.i8 1\n brif v7, block2(v6), block3(v6)\nblock2(v8:i64):\n jump block1(v8)\nblock3(v9:i64):\n return_call_indirect sig0, v5(v0,v1,v2,v3,v9,v5)";
+        check(body).unwrap();
+        assert!(check(&body.replace("block2(v6)", "block2(v3)")).is_err());
+        assert!(check(&body.replace("jump block1(v8)", "v11=iconst.i64 0\n v10=iadd v8, v11\n jump block1(v10)")).is_err());
+        // Two independent transported parameters must not be confused.
+        let two = "jump block1(v3,v4)\nblock1(v6:i64,v7:i64):\n return_call_indirect sig0, v5(v0,v1,v2,v3,v7,v5)";
+        check(two).unwrap();
+        assert!(check(&two.replace("v3,v7,v5)", "v3,v6,v5)")).is_err());
+    }
+    #[test]
+    fn native_context_identity_rejects_unrooted_and_missing_feeders() {
+        let mixed = "jump block2(v4)\nblock1:\n v6=iconst.i32 0\n br_table v6, block2(v3), [block2(v4)]\nblock2(v7:i64):\n return_call_indirect sig0, v5(v0,v1,v2,v3,v7,v5)";
+        assert!(check(mixed).is_err(), "unsupported branch feeder must not be ignored");
+        for body in [
+            "jump block2(v4)\nblock1(v6:i64):\n jump block1(v6)\nblock2(v7:i64):\n return_call_indirect sig0, v5(v0,v1,v2,v3,v6,v5)",
+            "jump block2(v4)\nblock1(v6:i64):\n v8=iconst.i8 1\n brif v8, block1(v6), block2(v6)\nblock2(v7:i64):\n return_call_indirect sig0, v5(v0,v1,v2,v3,v7,v5)",
+            "jump block1()\nblock1(v6:i64):\n return_call_indirect sig0, v5(v0,v1,v2,v3,v6,v5)",
+            "jump block2()\nblock1(v6:i64):\n return_call_indirect sig0, v5(v0,v1,v2,v3,v6,v5)\nblock2:\n return v0",
+        ] { assert!(check(body).is_err(), "{body}"); }
+    }
 }
