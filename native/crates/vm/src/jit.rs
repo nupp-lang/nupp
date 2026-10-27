@@ -712,11 +712,6 @@ impl<M: Module> Compiler<M> {
             if !frame && !ok { return Err(format!("{:?}", op)); }
         }
         let typed_native = f.code.iter().any(|o| crate::native_simd::required(o) && !matches!(o,Op::Simd(..)));
-        let typed_cfg_mode = frame && typed_native && std::env::var_os("NUPP_CFG_TYPED").is_some();
-        if typed_cfg_mode {
-            crate::native_simd::verify(f)?;
-            if std::env::var_os("NUPP_CFG_TRACE").is_some() { eprintln!("typed CFG: {}", f.name); }
-        }
         let native_proofs = crate::native_simd::proofs(f);
         let frame_live = frame.then(|| crate::verify::liveness(f));
         let deferred_nan = if typed_native {
@@ -863,8 +858,6 @@ impl<M: Module> Compiler<M> {
             // target separate from resumable PCs, whose liveness ends at code.len().
             let exit = b.create_block();
             blocks.insert(f.code.len(), exit);
-            let mut typed_cfg = typed_cfg_mode.then(|| crate::typed_cfg::TypedCfg::new(f, &starts, &frame_live.as_ref().unwrap().0));
-            if let Some(g) = &typed_cfg { g.declare(&mut b, &blocks); }
             // Where a propagating raise leaves this function: the sentinel
             // returned upward, as its callers and the runtime expect (6.5).
             let err_block = b.create_block();
@@ -949,25 +942,24 @@ impl<M: Module> Compiler<M> {
                                 b.ins().call(helper_refs["j_native_bounds_error"],&[]); b.ins().jump(err_block,&[]);
                                 b.switch_to_block(yes); b.seal_block(yes);
                             }
-                            if class > 0 && typed_cfg_mode { typed_cfg.as_mut().unwrap().set(class - 1, i, v); } else { b.def_var(var, v); }
+                            b.def_var(var, v);
                         } }
                     }
-                    let args = typed_cfg.as_ref().map(|g| g.args(pc)).unwrap_or_default();
-                    b.ins().jump(blocks[&pc], &args);
+                    b.ins().jump(blocks[&pc], &[]);
                 }
                 terminated = true;
             }
-            macro_rules! iv { ($i:expr) => { if let Some(g) = &typed_cfg { g.get(0, $i as usize) } else { b.use_var(ivars[$i as usize]) } } }
+            macro_rules! iv { ($i:expr) => { b.use_var(ivars[$i as usize]) } }
             macro_rules! kval { ($i:expr) => {{
                 let index = $i as usize;
                 if let Some(base) = const_base { b.ins().load(types::I64, flags, base, (index * 8) as i32) }
                 else { b.ins().iconst(types::I64, consts[index] as i64) }
             }} }
-            macro_rules! fv { ($i:expr) => { if let Some(g) = &typed_cfg { g.get(1, $i as usize) } else { b.use_var(fvars[$i as usize]) } } }
-            macro_rules! vv { ($i:expr) => { if let Some(g) = &typed_cfg { g.get(2, $i as usize) } else { b.use_var(vvars[$i as usize]) } } }
-            macro_rules! seti { ($i:expr, $v:expr) => { let v = $v; if let Some(g) = &mut typed_cfg { g.set(0, $i as usize, v); } else { b.def_var(ivars[$i as usize], v); } } }
-            macro_rules! setf { ($i:expr, $v:expr) => { let v = $v; if let Some(g) = &mut typed_cfg { g.set(1, $i as usize, v); } else { b.def_var(fvars[$i as usize], v); } } }
-            macro_rules! setv { ($i:expr, $v:expr) => { let v = $v; if let Some(g) = &mut typed_cfg { g.set(2, $i as usize, v); } else { b.def_var(vvars[$i as usize], v); } } }
+            macro_rules! fv { ($i:expr) => { b.use_var(fvars[$i as usize]) } }
+            macro_rules! vv { ($i:expr) => { b.use_var(vvars[$i as usize]) } }
+            macro_rules! seti { ($i:expr, $v:expr) => { let v = $v; b.def_var(ivars[$i as usize], v); } }
+            macro_rules! setf { ($i:expr, $v:expr) => { let v = $v; b.def_var(fvars[$i as usize], v); } }
+            macro_rules! setv { ($i:expr, $v:expr) => { let v = $v; b.def_var(vvars[$i as usize], v); } }
             macro_rules! rv { ($i:expr) => { b.use_var(rvars[$i as usize]) } }
             // The i8 condition behind a boxed boolean register, so a branch on
             // it tests the comparison directly instead of the boxed word.
@@ -1041,9 +1033,7 @@ impl<M: Module> Compiler<M> {
                 for r in &state.recipes {
                     use crate::specialize::recovery::Class;
                     let var = match r.class { Class::Value => rvars[r.reg as usize], Class::Int => ivars[r.reg as usize], Class::Float => fvars[r.reg as usize], Class::Vector => vvars[r.reg as usize] };
-                    let v = if let Some(g) = &typed_cfg { match r.class {
-                        Class::Int => g.get(0, r.reg as usize), Class::Float => g.get(1, r.reg as usize), Class::Vector => g.get(2, r.reg as usize), Class::Value => b.use_var(var),
-                    } } else { b.use_var(var) }; let hdr = b.use_var(hdr_var); b.ins().store(flags, v, hdr, (r.word * 8) as i32);
+                    let v = b.use_var(var); let hdr = b.use_var(hdr_var); b.ins().store(flags, v, hdr, (r.word * 8) as i32);
                 }
                 recovery.push(state);
             }} }
@@ -1058,9 +1048,8 @@ impl<M: Module> Compiler<M> {
                 // The previous operation's effects end the facts they may falsify.
                 if let Some(e) = pending_effects.take() { facts.after(e); }
                 if let Some(&blk) = blocks.get(&pc) {
-                    if !terminated { let args = typed_cfg.as_ref().map(|g| g.args(pc)).unwrap_or_default(); b.ins().jump(blk, &args); }
+                    if !terminated { b.ins().jump(blk, &[]); }
                     b.switch_to_block(blk);
-                    if let Some(g) = &mut typed_cfg { g.enter(&b, pc, blk); }
                     cond_of.clear();
                     facts.block_start(pc);
                     terminated = false;
@@ -1123,15 +1112,6 @@ impl<M: Module> Compiler<M> {
                             }
                             _ => { let c = hcall!(helper, &[pcv]); b.inst_results(c)[0] }
                         };
-                        if typed_cfg_mode && matches!(op, Op::Ret(..) | Op::RetNil | Op::RetN(..)) {
-                            // Return helpers leave this activation, including when a
-                            // budget or cleanup defers the return. There is no edge
-                            // to the next bytecode block and no live state to pass it.
-                            let done = b.ins().iconst(types::I64, -1);
-                            b.ins().return_(&[done]);
-                            terminated = true;
-                            continue;
-                        }
                         // 1 leaves for the driver; anything else is the frame's address.
                         let transfer = b.ins().icmp_imm(IntCC::Equal, answer, 1);
                         let leave = b.create_block(); let resume = b.create_block();
@@ -1481,10 +1461,10 @@ impl<M: Module> Compiler<M> {
                     // The block order places a branch's `then` target after its `else`
                     // subtree, so the taken target is the exit and the loop body
                     // falls through (one taken branch per iteration, at the backedge).
-                    Op::JmpIfIZero(c, off) => { let v = iv!(c); let z = b.ins().icmp_imm(IntCC::Equal, v, 0); let next = blocks[&(pc + 1)]; let taken = typed_cfg.as_ref().map(|g| g.args((pc as i64 + 1 + off as i64) as usize)).unwrap_or_default(); let fall = typed_cfg.as_ref().map(|g| g.args(pc + 1)).unwrap_or_default(); b.ins().brif(z, target(off), &taken, next, &fall); terminated = true; }
+                    Op::JmpIfIZero(c, off) => { let v = iv!(c); let z = b.ins().icmp_imm(IntCC::Equal, v, 0); let next = blocks[&(pc + 1)]; b.ins().brif(z, target(off), &[], next, &[]); terminated = true; }
                     Op::IJmpIfUle(x, y, off) => { let (p, q) = (iv!(x), iv!(y)); let c = b.ins().icmp(IntCC::UnsignedLessThanOrEqual, p, q); let next = blocks[&(pc + 1)]; b.ins().brif(c, target(off), &[], next, &[]); terminated = true; }
                     Op::IJmpIfUlt(x, y, off) => { let (p, q) = (iv!(x), iv!(y)); let c = b.ins().icmp(IntCC::UnsignedLessThan, p, q); let next = blocks[&(pc + 1)]; b.ins().brif(c, target(off), &[], next, &[]); terminated = true; }
-                    Op::Jmp(off) => { let args = typed_cfg.as_ref().map(|g| g.args((pc as i64 + 1 + off as i64) as usize)).unwrap_or_default(); b.ins().jump(target(off), &args); terminated = true; }
+                    Op::Jmp(off) => { b.ins().jump(target(off), &[]); terminated = true; }
                     // Slot access: the receiver is a record by the emitter's typing
                     // (a TagCheckRec or a typed parameter), as the verifier re-checks.
                     // Slots by offset behind a guard on the shape the emitter assumed

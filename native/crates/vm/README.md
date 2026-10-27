@@ -1,11 +1,11 @@
 # nupp-vm
 
-The Nupp runtime of the runtime plan (`~/projects/nupp-plans/todo/nupp-runtime.md`,
-contracts in `nupp-runtime-contracts.md`), started 2026-10-11 as the real P3
-build after the prototype in `bench/runtime-experiment` had answered its design
-questions. It now includes the P5 typed tier. What is here is the object model, the heap
-and collector, the interpreter with one-stack frames and parking, the library,
-the image loader and verifier, and the host services on the parking surface.
+The runtime is being migrated to Nupp under `nupp-native-runtime.md`, with behavior
+specified by `nupp-runtime-contracts.md` in the plans repository. The remaining
+Rust implementation is temporary: the final bridge owns process startup,
+Cranelift compilation and platform calls, in a small number of crates.
+Interpreter semantics, optimization, allocation, collection and scheduling
+belong in Nupp.
 
 ## Layout
 

@@ -1,6 +1,0 @@
-churn5m lua54 29.3 ms (0.61x proto)  luajit-interp 32.5 ms (0.68x proto)  luajit-jit 2.6 ms (0.05x proto)  proto 47.7 ms
-dot65539x200 proto 35.2 ms
-fib30 lua54 20.9 ms (0.44x proto)  luajit-interp 13.6 ms (0.29x proto)  luajit-jit 3.1 ms (0.07x proto)  proto 47.6 ms
-map65539x200 proto 35.5 ms
-park1000x1000 proto 9.9 ms
-trees15x10 lua54 56.5 ms (0.94x proto)  luajit-interp 28.0 ms (0.47x proto)  luajit-jit 17.4 ms (0.29x proto)  proto 60.1 ms

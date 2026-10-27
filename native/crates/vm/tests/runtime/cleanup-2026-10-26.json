@@ -1,0 +1,43 @@
+{
+  "date": "2026-10-27T00:21:31.958137+00:00",
+  "base": "898c54d7baece3b798e8b5a10c7d3d05f6073c1b",
+  "purpose": "Delete retired standalone implementations and their experimental Rust SSA dispatch mode; preserve active Nupp graph, production fixtures, and historical runtime measurements.",
+  "removedFiles": 1202,
+  "removedByPrefix": {
+    "bench/codegen-experiment": 42,
+    "bench/runtime-experiment": 1118,
+    "bench/simd-polymorphism-spike": 6,
+    "bench/wasm-gc-experiment": 13,
+    "native/crates/gpu/examples/shared_cfg.rs": 1,
+    "native/crates/vm/examples/graph_gate.rs": 1,
+    "native/crates/vm/examples/typed_cfg_bench.rs": 1,
+    "native/crates/vm/experiments/cfg": 16,
+    "native/crates/vm/src/typed_cfg.rs": 1,
+    "src/nupp/experiment/cfg.nupp": 1,
+    "src/nupp/experiment/typedcfg/init.nupp": 1,
+    "src/nupp/experiment/typedcfg/shared.nupp": 1
+  },
+  "validation": [
+    {
+      "command": "NUPP_NATIVE_RUNTIME_OBJECT=$PWD/build/loop-budget/runtime.o cargo test --locked --release -p nupp-vm --features aot,native-runtime -j4 --lib",
+      "passed": 103,
+      "failed": 0,
+      "ignored": 2,
+      "logSha256": "d8cb6a00a7769d3f9fd99637d06dee2db372c01d8b22875f87e69729380bee7f"
+    },
+    {
+      "command": "NUPP_VM_AUTO_REBUILD=0 ./bin/nupp test --group=native-runtime --jobs=2",
+      "passed": 46,
+      "failed": 0,
+      "skipped": 0,
+      "logSha256": "b9037893f3dc0a4bee23a0683ae3aa88c562595397b1ffcad68c423fc9ffa984"
+    }
+  ],
+  "validationScope": "Validation ran on the complete worktree, also containing the separately owned unlimited-budget correction and its two tests. That correction is not part of the cleanup commit.",
+  "sourceSha256": {
+    "native/crates/vm/src/jit.rs": "5e42ae831e2db2b09ac4aeab0d2c71aeb9b8bc40813cf807597a1599e260b6e5",
+    "native/crates/vm/src/lib.rs": "5039dc9e6c47166af1607813f6ce9553a8f3e399c97164340d5a3a350d8b29d3"
+  },
+  "relocationReceipt": "/Users/dowling/projects/nupp-plans/evidence/native-runtime-p0-relocation-2026-10-26.json",
+  "historicalMeasurements": "Moved unchanged measurement JSON from experiments/runtime to tests/runtime."
+}
