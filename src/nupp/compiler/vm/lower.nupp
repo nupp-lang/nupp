@@ -4248,7 +4248,9 @@ function lower.emit(
                 lhs = current,
                 rhs = node.value,
                 op = {text = opText},
-                inferredType = node.target.inferredType
+                inferredType = node.inferredType or node.target.inferredType,
+                fixedArithmetic = node.fixedArithmetic,
+                wideArithmetic = node.wideArithmetic
             }
             if target.kind == "name" then
                 local r, c, cell = f:lookup(tokText(target.token))

@@ -17,7 +17,6 @@ local relations = require("nupp.compiler.types.relations")
 local narrowing = require("nupp.compiler.types.narrowing")
 local cst = require("nupp.compiler.syntax.cst")
 local mutation = require("nupp.compiler.check.mutation")
-local fixedWidth = require("nupp.compiler.types.fixedwidth")
 local indexedViews = require("nupp.compiler.types.indexedviews")
 local state = require("nupp.compiler.check.state")
 
@@ -1518,33 +1517,22 @@ function bindings.install(c: state.Checker): state.StatHandlers
             local valueFits = c.numericOperand(valueT, value, op)
             operandsFit = targetFits and valueFits
         end
-        -- A compound assignment stores the operator's result back through the same
-        -- capability. Ordinary fixed-width values therefore reject arithmetic's
-        -- widened `number`; a real C slot accepts it because that store narrows.
-        local resultT = T.number
-        -- The operators answer the wider box when either operand is one; a
-        -- compound assignment is those operators and a store.
-        local wide = (targetT.tag == "uint64" or valueT.tag == "uint64") and T.uint64
-            or (targetT.tag == "int64" or valueT.tag == "int64") and T.int64
-            or nil
-        if op == ".." then
-            resultT = T.string
-        elseif op == "??" then
-            resultT = valueT
-        elseif wide then
-            resultT = wide
-        elseif op == "&" or op == "|" or op == "~" or op == "<<" or op == ">>" or op == "~>>" then
-            resultT = T.integer
-        elseif not fixedWidth.isValue(targetT)
-            and not fixedWidth.isValue(valueT)
-            and targetT ~= T.any
-            and valueT ~= T.any
-            and isA(targetT, T.integer)
-            and isA(valueT, T.integer)
-            and op ~= "/"
-            and op ~= "^"
-        then
-            resultT = T.integer
+        -- Infer the same operation an ordinary expression uses, then check
+        -- whether that result can be stored through the target capability.
+        local resultT = valueT
+        if op ~= "??" and operandsFit then
+            local token = {}
+            for key, item in pairs(opTok) do
+                token[key] = item
+            end
+            token.kind, token.text = op, op
+            local operation: any = {kind = "binop", op = token, lhs = assignTarget, rhs = value}
+            resultT = c.infer(operation)
+            local dynamic: any = stat
+            dynamic.inferredType = resultT
+            dynamic.fixedArithmetic = operation.fixedArithmetic
+            dynamic.wideArithmetic = operation.wideArithmetic
+            c.fixedWidth.copy(stat, operation)
         end
         if targetTok then
             local entry = c.lookupEntry(targetTok.text)

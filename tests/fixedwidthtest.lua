@@ -1001,6 +1001,39 @@ function M.aNarrowUnsignedLoadAccumulatesIntoASignedWidthInsideAot()
     testAssert.equal(adds, 1, "the operator is annotated as the signed wrapping add")
 end
 
+function M.compoundAssignmentsStoreTheOrdinaryOperatorResult()
+    for _, row in ipairs({
+        {"int64", "integer", "+=", ""},
+        {"int64", "number", "+=", "NUPP2001"},
+        {"int64", "float64", "+=", "NUPP2001"},
+        {"int64", "integer", "/=", "NUPP2001"},
+        {"uint64", "float64", "+=", "NUPP2001"},
+        {"number", "float64", "+=", ""},
+        {"float64", "integer", "+=", ""},
+    }) do
+        local source = "local function update(value: " .. row[
+            1
+        ] .. ", operand: " .. row[
+            2
+        ] .. "): " .. row[1] .. "\nvalue " .. row[3] .. " operand\nreturn value\nend\nreturn update"
+        testAssert.equal(errorCodes(source), row[4], source)
+    end
+    testAssert.equal(
+        errorCodes(
+            "local function update(value: int64, operand: integer): nil\nvalue = value ^ operand\nend\nreturn update"
+        ),
+        "NUPP2001"
+    )
+    testAssert.equal(
+        run([[
+local value: uint32 = nupp.math.u32.wrap(4294967295)
+value += 1
+return value
+]], "compound-uint32.nupp"),
+        0
+    )
+end
+
 function M.sixtyFourBitBoxesCountLoopsAssignCompoundlyAndRecurse()
     -- Signed counters accept numeric bounds; unsigned counters stay explicit.
     testAssert.equal(errorCodes("local n: int64 = 3\nfor i = 1, n do end"), "")
