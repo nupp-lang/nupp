@@ -1247,6 +1247,7 @@ types.userdata = prim("userdata")
 -- cdata numeric tower (reified milestones give these real semantics; for checking they
 -- are numeric subtypes).
 types.float = prim("float")
+types.float32 = types.float
 -- Every cdata value: what a dynamically-typed FFI operation yields, so leaving the
 -- typed path is visible rather than silent.
 types.cdata = prim("cdata")
@@ -1290,6 +1291,7 @@ local builtins: {
     thread = types.thread,
     userdata = types.userdata,
     float = types.float,
+    float32 = types.float32,
     int8 = types.int8,
     int16 = types.int16,
     int32 = types.int32,
