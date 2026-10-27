@@ -53,11 +53,13 @@ jobs:
       - name: Build the transitional execution seed from its exact source
         run: |
           set -euo pipefail
+          mkdir -p release
           cd seed-source
           seed_image=$(sh scripts/toolchain stage0-image)
-          python3 scripts/vm-cli build --seed-image "$seed_image"
-          python3 scripts/vm-cli runtime --link
-          mkdir -p ../release
+          env NO_JIT=1 NO_AOT=1 NO_THREADED=1 SIMD_INTERPRET=1 \
+            python3 scripts/vm-cli build --seed-image "$seed_image" --no-cache 2>&1 | tee ../release/transition-build.log
+          env NO_JIT=1 NO_AOT=1 NO_THREADED=1 SIMD_INTERPRET=1 \
+            python3 scripts/vm-cli runtime --link --no-cache 2>&1 | tee ../release/transition-runtime.log
           generation=$(cat .nupp/vm-cli/current)
           cp ".nupp/vm-cli/$generation/compiler.image" ../release/compiler.image
           seed_root="$PWD"
@@ -93,7 +95,31 @@ jobs:
           export NUPP_BOOTSTRAP_SEED_MANIFEST="$consumer_root/release/local-pins.json"
           export NUPP_TOOLCHAIN_DIR="$consumer_root/build/cold-seed-cache"
           test ! -e .nupp/vm-cli/current
+          python3 - <<'PYPROVENANCE'
+          import hashlib, json, os, subprocess
+          from pathlib import Path
+          paths = ['release/compiler.image', 'seed-source/build/native-runtime/runtime',
+                   'scripts/vm-cli', 'scripts/bootstrap-seed']
+          Path('release/provenance.json').write_text(json.dumps({
+              'consumer': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+              'seed': os.environ['SEED_SOURCE'],
+              'sha256': {name: hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in paths}
+          }, indent=2) + '\n')
+          PYPROVENANCE
+          set +e
           python3 scripts/vm-cli build --seed image --no-aot --no-cache 2>&1 | tee release/cold-build.log
+          cold_status=${PIPESTATUS[0]}
+          set -e
+          if [ "$cold_status" -ne 0 ]; then
+            # Diagnostic only: a Rust-reference result cannot satisfy the gate.
+            env NO_JIT=1 NO_AOT=1 NO_THREADED=1 SIMD_INTERPRET=1 \
+              NUPP_COMPILER_ROOT="$consumer_root" \
+              seed-source/build/native-runtime/runtime run build/vm-cli/compiler.image \
+              nupp.compiler.clif.lower compileRuntime "$consumer_root" \
+              "$consumer_root/build/vm-cli/native/layouts.json" \
+              --output release/reference-after-failure.clif > release/reference-after-failure.log 2>&1 || true
+            exit "$cold_status"
+          fi
           ./bin/nupp test bootstrapseedtest rustabitest --jobs=1 --json > release/cold-tests.json
           ./bin/nupp fixpoint 2>&1 | tee release/fixpoint.log
           generation=$(cat .nupp/vm-cli/current)
