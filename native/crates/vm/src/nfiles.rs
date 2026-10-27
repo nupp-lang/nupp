@@ -123,7 +123,7 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
             }
         }
         "fileRead" | "fileWrite" | "fileSeek" | "filePosition" | "fileSize" | "fileFlush" | "fileClose" => {
-            let id = crate::numeric::bits(it, arg(args, 0), true);
+            let id = crate::numeric::word(it, arg(args, 0), true);
             if op == "fileClose" { it.nfiles.open.remove(&id); it.nfiles.snapshot.closed(id); return Outs::new(); }
             let Some(file) = it.nfiles.open.get(&id) else { let m = it.intern("the file is closed"); let mut o = Outs::new(); o.push(Value::NIL); o.push(m); return o; };
             match op {

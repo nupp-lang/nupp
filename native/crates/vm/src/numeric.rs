@@ -19,9 +19,7 @@ impl Integer {
         self.magnitude() as f64
     }
     pub fn immediate(self) -> Option<Value> {
-        let n = self.magnitude();
-        if n < i64::MIN as i128 || n > i64::MAX as i128 { return None; }
-        Value::inline_integer(n as i64)
+        Value::inline_integer(self.bits as i64)
     }
 }
 pub fn signed(vm: &mut Interp, value: i64) -> Value {
@@ -37,7 +35,7 @@ pub fn integer(v: Value) -> Option<Integer> {
     let h = unsafe { v.as_obj()?.as_ref() };
     (h.kind == KIND_INTEGER).then_some(Integer {
         bits: h.aux_len,
-        unsigned: h.aux != 0,
+        unsigned: false,
     })
 }
 pub fn integral(v: Value) -> Option<i128> {
@@ -57,16 +55,8 @@ pub fn exact_integer(f: f64) -> Option<Integer> {
 }
 /// Integral table keys share one exact representation across numeric subtypes.
 pub fn key_integer(v: Value) -> Option<Integer> {
-    if let Some(mut i) = integer(v) {
-        if i.unsigned && i.bits <= i64::MAX as u64 { i.unsigned = false; }
-        return Some(i);
-    }
-    if v.is_float() {
-        let f = v.as_num();
-        if f.is_finite() && f.fract() == 0.0 && f >= i64::MIN as f64 && f < 18446744073709551616.0 {
-            return Some(Integer { bits: (f as i128) as u64, unsigned: f >= 9223372036854775808.0 });
-        }
-    }
+    if let Some(i) = integer(v) { return Some(i); }
+    if v.is_float() { return exact_integer(v.as_num()); }
     None
 }
 pub fn double(vm: &Interp, v: Value) -> f64 {
@@ -127,6 +117,11 @@ pub(crate) fn operand_bits(vm: &Interp, v: Value) -> u64 {
         vm.err("integer out of range");
     }
     (f as i128) as u64
+}
+/// A statically selected integer window: integers retain all their bits;
+/// floating inputs must still be exact and fit the requested range.
+pub fn word(vm: &Interp, value: Value, unsigned: bool) -> u64 {
+    integer(value).map_or_else(|| bits(vm, value, unsigned), |n| n.bits)
 }
 pub fn compare(x: Value, y: Value) -> Option<Ordering> {
     fn int_float(i: i128, f: f64) -> Option<Ordering> {
@@ -199,7 +194,11 @@ pub fn binary(vm: &mut Interp, x: Value, y: Value, op: &str, kind: Option<bool>)
         return result;
     }
     if matches!(op, "lt" | "le" | "eq" | "ne") {
-        let order = compare(x, y);
+        let order = if let Some(unsigned) = kind {
+            let a = word(vm, x, unsigned);
+            let b = word(vm, y, unsigned);
+            Some(if unsigned { a.cmp(&b) } else { (a as i64).cmp(&(b as i64)) })
+        } else { compare(x, y) };
         return Value::boolean(match op {
             "lt" => order == Some(Ordering::Less),
             "le" => matches!(order, Some(Ordering::Less | Ordering::Equal)),
@@ -213,7 +212,7 @@ pub fn binary(vm: &mut Interp, x: Value, y: Value, op: &str, kind: Option<bool>)
     let kind = kind.or_else(|| {
         if matches!(op, "div" | "pow") { return None; }
         match (integer(x), integer(y)) {
-            (Some(a), Some(b)) => Some(a.unsigned || b.unsigned),
+            (Some(_), Some(_)) => Some(false),
             _ => None,
         }
     });
@@ -339,11 +338,20 @@ pub fn wide_call(vm: &mut Interp, name: &str, args: &[Value]) -> Value {
     if op == "is" {
         return Value::boolean(is_kind(a, unsigned));
     }
+    if op == "float" {
+        let bits = word(vm, a, unsigned);
+        return Value::num(if unsigned { bits as f64 } else { bits as i64 as f64 });
+    }
+    if op == "tostring" {
+        let bits = word(vm, a, unsigned);
+        let text = if unsigned { bits.to_string() } else { (bits as i64).to_string() };
+        return vm.heap_new_string(&text);
+    }
     if matches!(
         op,
         "cast" | "not" | "neg" | "popcount" | "leadingZeros" | "trailingZeros" | "prefixXor"
     ) {
-        let value = bits(vm, a, unsigned);
+        let value = if op == "cast" { bits(vm, a, unsigned) } else { word(vm, a, unsigned) };
         let value = match op {
             "popcount" => return Value::inline_integer(value.count_ones() as i64).unwrap(),
             "leadingZeros" => return Value::inline_integer(value.leading_zeros() as i64).unwrap(),

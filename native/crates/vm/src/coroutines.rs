@@ -14,7 +14,7 @@ fn id(vm: &mut Interp, h: Value) -> Option<TaskId> {
     } else {
         Some(TaskId {
             index: crate::numeric::integral(i).filter(|n| (0..=usize::MAX as i128).contains(n))? as usize,
-            generation: crate::numeric::integral(g).filter(|n| *n >= 0)? as u64,
+            generation: crate::numeric::integer(g).map(|n| n.bits).or_else(|| crate::numeric::integral(g).filter(|n| *n >= 0).map(|n| n as u64))?,
         })
     }
 }

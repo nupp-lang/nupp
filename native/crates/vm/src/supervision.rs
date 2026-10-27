@@ -232,8 +232,7 @@ fn handle(vm: &mut Interp, id: u64, prepared: bool) -> Value {
 }
 fn id(vm: &mut Interp, object: Value, prepared: bool) -> Result<u64> {
     let value = crate::task_api::field(vm, object, "_id");
-    let Some(id) = crate::numeric::integral(value).filter(|n| *n >= 1) else { return Err("invalid VM capability".into()); };
-    let id = id as u64;
+    let Some(id) = crate::numeric::integer(value).map(|n| n.bits).or_else(|| crate::numeric::integral(value).filter(|n| *n >= 1).map(|n| n as u64)).filter(|n| *n != 0) else { return Err("invalid VM capability".into()); };
     if !vm
         .supervised
         .handles

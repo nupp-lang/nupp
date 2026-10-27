@@ -208,3 +208,9 @@ pub unsafe extern "C" fn nupp_rt_order_error(ctx: *mut Ctx, left: u64, right: u6
         }
     });
 }
+
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_rt_numeric_word(ctx: *mut Ctx, value: u64, unsigned: i64) -> u64 {
+    service(ctx, |it| numeric::word(it, Value(value), unsigned != 0))
+}

@@ -225,8 +225,10 @@ fn numeric_subtypes_casts_and_refinements_depend_on_range() {
     assert_eq!(vm.guarded(|vm| numeric::wide_call(vm, "u64.cast", &[negative])), Value::ERROR);
     let wide = vm.box_integer(Integer { bits: u64::MAX, unsigned: true });
     vm.register(wide);
-    assert!(!numeric::is_kind(wide, false));
-    assert_eq!(vm.guarded(|vm| numeric::wide_call(vm, "i64.cast", &[wide])), Value::ERROR);
+    assert_eq!(wide, Value::inline_integer(-1).unwrap());
+    assert!(numeric::is_kind(wide, false));
+    ints(&call(&mut vm, "wide.i64.cast", &[wide]), &[-1]);
+    assert_eq!(vm.guarded(|vm| numeric::wide_call(vm, "u64.cast", &[wide])), Value::ERROR);
 }
 
 
@@ -285,4 +287,24 @@ fn numeric_subtypes_provider_counts_and_file_offsets_remain_integer() {
     std::fs::remove_file(path).unwrap();
     vm.full_cycle();
     vm.check_oracle();
+}
+
+
+#[test]
+fn numeric_subtypes_unsigned_semantics_are_selected_by_the_operation() {
+    let mut vm = Interp::new();
+    vm.install_globals();
+    let value = vm.box_integer(Integer { bits: u64::MAX, unsigned: true });
+    assert_eq!(value, Value::inline_integer(-1).unwrap());
+    assert!(!numeric::integer(value).unwrap().unsigned);
+    let one = Value::inline_integer(1).unwrap();
+    ints(&call(&mut vm, "wide.u64.div", &[value, one]), &[-1]);
+    assert_eq!(call(&mut vm, "wide.u64.lt", &[value, one]), vec![Value::FALSE]);
+    assert_eq!(call(&mut vm, "wide.i64.lt", &[value, one]), vec![Value::TRUE]);
+    let unsigned = call(&mut vm, "wide.u64.tostring", &[value])[0];
+    assert_eq!(vm.bytes_of(unsigned), b"18446744073709551615");
+    let signed = call(&mut vm, "tostring", &[value])[0];
+    assert_eq!(vm.bytes_of(signed), b"-1");
+    assert_eq!(call(&mut vm, "wide.u64.float", &[value]), vec![Value::num(18446744073709551616.0)]);
+    assert_eq!(numeric::double(&vm, value), -1.0);
 }

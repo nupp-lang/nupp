@@ -48,7 +48,7 @@ impl Resources {
 
 fn arg(args: &[Value], i: usize) -> Value { args.get(i).copied().unwrap_or(Value::NIL) }
 fn text(it: &Interp, v: Value) -> String { if it.is_stringish(v) { String::from_utf8_lossy(it.bytes_of(v)).into_owned() } else { String::new() } }
-fn handle(v: Value) -> u64 { crate::numeric::integer(v).map_or_else(|| if v.is_float() { v.as_num() as u64 } else { 0 }, |n| n.magnitude().max(0) as u64) }
+fn handle(v: Value) -> u64 { crate::numeric::integer(v).map_or_else(|| if v.is_float() { v.as_num() as u64 } else { 0 }, |n| n.bits) }
 fn int(v: Value) -> i64 { crate::numeric::integer(v).map_or_else(|| if v.is_float() { v.as_num() as i64 } else { 0 }, |n| n.magnitude().clamp(i64::MIN as i128, i64::MAX as i128) as i64) }
 fn outs(values: &[Value]) -> Outs { values.iter().copied().collect() }
 /// A failure: `nils` empty results, then the message.

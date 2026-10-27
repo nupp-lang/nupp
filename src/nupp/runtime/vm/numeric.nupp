@@ -66,7 +66,6 @@ local function arithmeticSlow(pc: voidptr, context: voidptr, left: uint64, right
     -- Dynamic arithmetic preserves a float operand's subtype. Division and
     -- power always produce floats; fixed-width named operations are separate.
     if xkind >= 0 and ykind >= 0 and operation ~= 0 and operation ~= 1 then
-        local unsigned: boolean = xkind == 1 or ykind == 1
         local a = helpers.integerBits(x)
         local b = helpers.integerBits(y)
         local result = 0ULL
@@ -82,9 +81,7 @@ local function arithmeticSlow(pc: voidptr, context: voidptr, left: uint64, right
                 return native.fail()
             end
             local quotient = 0ULL
-            if unsigned then
-                quotient = a // b
-            elseif a == 0x8000000000000000ULL and b == 0xffffffffffffffffULL then
+            if a == 0x8000000000000000ULL and b == 0xffffffffffffffffULL then
                 quotient = a
             else
                 quotient = native.word(native.signedQuotient(native.index(a), native.index(b)))
@@ -98,7 +95,7 @@ local function arithmeticSlow(pc: voidptr, context: voidptr, left: uint64, right
                 result = quotient
             end
         end
-        local value = managed.boxInteger(context, result, native.chooseIndex(unsigned, 1, 0))
+        local value = managed.boxInteger(context, result, 0)
         return protocol.continueAfter(pc, context, program.readByte(pc, 1), value, true)
     end
     local a = double(x)
@@ -204,7 +201,7 @@ export function UUnbox(
 ): uint64
     local value = slots.readValue(frame, regs, program.readByte(pc, 2))
     protocol.publishPc(pc, context)
-    local bits = managed.numericBits(context, value, 1)
+    local bits = helpers.numericWord(context, value, 1)
     if native.load32(context, native.layout("status")) == -4 then
         return native.fail()
     end
@@ -257,9 +254,9 @@ export function TagCheckInt(
     if kind >= 0 then
         local bits = helpers.integerBits(value)
         if unsigned ~= 0 then
-            valid = kind == 1 or native.index(bits) >= 0
+            valid = native.index(bits) >= 0
         else
-            valid = kind == 0 or bits < 0x8000000000000000ULL
+            valid = true
         end
     end
     if isNumber(value) then
@@ -531,7 +528,7 @@ local function negateSlow(pc: voidptr, context: voidptr, value: uint64): uint64
     protocol.publishPc(pc, context)
     local kind = integerKind(value)
     if kind >= 0 then
-        local result = managed.boxInteger(context, 0ULL - helpers.integerBits(value), kind)
+        local result = managed.boxInteger(context, 0ULL - helpers.integerBits(value), 0)
         return protocol.continueAfter(pc, context, program.readByte(pc, 1), result, true)
     end
     local packet = native.stackBytes(24)
@@ -545,7 +542,7 @@ local function negateSlow(pc: voidptr, context: voidptr, value: uint64): uint64
     local coerced = native.load64(packet, 16)
     kind = integerKind(coerced)
     if kind >= 0 then
-        local result = managed.boxInteger(context, 0ULL - helpers.integerBits(coerced), kind)
+        local result = managed.boxInteger(context, 0ULL - helpers.integerBits(coerced), 0)
         return protocol.continueAfter(pc, context, program.readByte(pc, 1), result, true)
     end
 
@@ -623,8 +620,8 @@ local function numericOrder(left: uint64, right: uint64): int64
     if xkind >= 0 and ykind >= 0 then
         local x = helpers.integerBits(left)
         local y = helpers.integerBits(right)
-        local xn: boolean = xkind == 0 and native.index(x) < 0
-        local yn: boolean = ykind == 0 and native.index(y) < 0
+        local xn: boolean = native.index(x) < 0
+        local yn: boolean = native.index(y) < 0
         if xn ~= yn then
             return native.chooseIndex(xn, -1, 1)
         end
@@ -635,9 +632,9 @@ local function numericOrder(left: uint64, right: uint64): int64
         end
         return 0
     elseif xkind >= 0 then
-        return integerFloatOrder(helpers.integerBits(left), xkind == 1, native.fromBits(right))
+        return integerFloatOrder(helpers.integerBits(left), false, native.fromBits(right))
     elseif ykind >= 0 then
-        local order = integerFloatOrder(helpers.integerBits(right), ykind == 1, native.fromBits(left))
+        local order = integerFloatOrder(helpers.integerBits(right), false, native.fromBits(left))
         return native.chooseIndex(order == 2, 2, 0 - order)
     end
     local x = native.fromBits(left)

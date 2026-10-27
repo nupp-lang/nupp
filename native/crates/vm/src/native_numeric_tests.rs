@@ -218,7 +218,7 @@ fn native_numeric_boxing_and_unboxing_keep_full_integer_width() {
             vm.heap.quarantine = true;
             assert_ne!(direct(&mut vm, tid, 1).status, ST_ERROR);
             let actual = value(&vm, tid, 0);
-            assert_eq!(numeric::bits(&vm, actual, unsigned), bits);
+            assert_eq!(numeric::word(&vm, actual, unsigned), bits);
             let expected = vm.box_integer(Integer { bits, unsigned });
             assert_eq!(description(actual), description(expected));
             let (mut vm, tid) = fixture(if unsigned {

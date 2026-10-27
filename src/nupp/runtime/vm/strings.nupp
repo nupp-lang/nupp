@@ -190,7 +190,7 @@ local function concatSlow(pc: voidptr, context: voidptr, x: uint64, y: uint64): 
             local h = native.pointer(v & values.PAYLOAD)
             if native.load8(h, native.layout("Header.kind")) == values.KIND_INTEGER then
                 local bits = native.load64(h, native.layout("Header.aux_len"))
-                negative = native.both(native.load32(h, native.layout("Header.aux")) == 0, native.index(bits) < 0)
+                negative = native.index(bits) < 0
                 magnitude = native.chooseWord(negative, 0 - bits, bits)
             else
                 digits = false
@@ -229,7 +229,7 @@ local function concatSlow(pc: voidptr, context: voidptr, x: uint64, y: uint64): 
             local h = native.pointer(v & values.PAYLOAD)
             if native.load8(h, native.layout("Header.kind")) == values.KIND_INTEGER then
                 local bits = native.load64(h, native.layout("Header.aux_len"))
-                negative = native.both(native.load32(h, native.layout("Header.aux")) == 0, native.index(bits) < 0)
+                negative = native.index(bits) < 0
                 magnitude = native.chooseWord(negative, 0 - bits, bits)
             else
                 digits = false

@@ -74,7 +74,7 @@ fn id(vm: &mut Interp, handle: Value) -> TaskId {
     let index = field(vm, handle, "_task");
     let generation = field(vm, handle, "_generation");
     let index = crate::numeric::integral(index).filter(|n| (0..=usize::MAX as i128).contains(n));
-    let generation = crate::numeric::integral(generation).filter(|n| *n >= 0);
+    let generation = crate::numeric::integer(generation).map(|n| n.bits).or_else(|| crate::numeric::integral(generation).filter(|n| *n >= 0).map(|n| n as u64));
     let (Some(index), Some(generation)) = (index, generation) else { vm.err("invalid task handle"); };
     let task = TaskId { index: index as usize, generation: generation as u64 };
     if vm.scheduler.as_ref().and_then(|s| s.status(task)).is_none() {

@@ -94,7 +94,7 @@ pub const NAMES: &[&str] = &[
     "nmarkdown.render",
     "vm.hotPatch",
     "foreign.namespace", "foreign.resolve", "foreign.pin",
-    "math.tointeger", "math.type",
+    "math.tointeger", "math.type", "wide.u64.tostring", "wide.u64.float",
 ];
 
 enum Lit { Int(i64), Num(f64), Str(Vec<u8>), Bool(bool), Nil }

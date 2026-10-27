@@ -1,6 +1,8 @@
 -- Managed numeric preparation and primitive math. The operand packet holds
 -- [handled, result, left, right]; arithmetic itself belongs to Nupp.
 local record NumericHelpers
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    numericWord: function(context: voidptr, value: uint64, unsigned: int64): uint64
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = true)
     integerBits: function(value: uint64): uint64
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = true)

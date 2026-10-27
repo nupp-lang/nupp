@@ -433,7 +433,7 @@ fn code_digest(vm: &Interp) -> Result<[u8; 32]> {
                 }
                 let o = unsafe { p.as_ref() };
                 if o.kind == KIND_INTEGER {
-                    h.update([2, o.aux as u8]);
+                    h.update([2, 0]);
                     h.update(o.aux_len.to_le_bytes());
                 } else if o.kind == KIND_STR {
                     h.update([1]);
@@ -637,8 +637,8 @@ enum Node<'a> {
 fn node_read<'a>(r: &mut Reader<'a>) -> Result<Node<'a>> {
     Ok(match r.byte()? {
         KIND_INTEGER => {
-            let unsigned = match r.byte()? { 0 => false, 1 => true, _ => return Err("invalid integer kind".into()) };
-            let integer = crate::numeric::Integer { bits: r.u64()?, unsigned };
+            if r.byte()? != 0 { return Err("invalid integer kind".into()); }
+            let integer = crate::numeric::Integer { bits: r.u64()?, unsigned: false };
             if integer.immediate().is_some() { return Err("noncanonical boxed integer".into()); }
             Node::Integer(integer)
         }
@@ -917,7 +917,7 @@ fn save_graph_mode(
                         payload.u64(f.to_bits());
                     }
                 }
-                KIND_INTEGER => { payload.byte(h.aux as u8); payload.u64(h.aux_len); }
+                KIND_INTEGER => { payload.byte(0); payload.u64(h.aux_len); }
                 KIND_BYTES => {
                     let alignment = unsafe { &*(h.payload() as *const BytesPayload) }.data.alignment();
                     if unsafe { &*(h.payload() as *const BytesPayload) }.data.is_fixed() { payload.u32(alignment)?; }
@@ -2523,5 +2523,25 @@ mod primary_image_digest_tests {
         let unicode = "image λ 🦀\0é\r\n".as_bytes();
         let expected: [u8; 32] = Sha256::digest(unicode).into();
         assert_eq!(primary_image_digest(unicode), expected);
+    }
+}
+
+#[cfg(test)]
+mod canonical_integer_tests {
+    use super::*;
+
+    #[test]
+    fn integer_nodes_require_canonical_signed_flag_and_wide_payload() {
+        let mut bytes = vec![KIND_INTEGER, 0];
+        bytes.extend_from_slice(&i64::MAX.to_le_bytes());
+        let mut reader = Reader { data: &bytes, at: 0 };
+        assert!(matches!(node_read(&mut reader).unwrap(), Node::Integer(i) if i.bits == i64::MAX as u64 && !i.unsigned));
+        bytes[1] = 1;
+        let mut reader = Reader { data: &bytes, at: 0 };
+        assert!(matches!(node_read(&mut reader), Err(e) if e.contains("invalid integer kind")));
+        bytes[1] = 0;
+        bytes[2..].copy_from_slice(&u64::MAX.to_le_bytes());
+        let mut reader = Reader { data: &bytes, at: 0 };
+        assert!(matches!(node_read(&mut reader), Err(e) if e.contains("noncanonical boxed integer")));
     }
 }
