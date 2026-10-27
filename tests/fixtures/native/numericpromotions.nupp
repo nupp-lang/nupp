@@ -1,0 +1,9 @@
+module numericpromotions
+
+local function signed(value: int64): float64
+    return value * 1.0
+end
+
+local function unsigned(value: uint64): float64
+    return value * 1.0
+end

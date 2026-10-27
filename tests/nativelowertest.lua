@@ -149,8 +149,8 @@ local SCALARS = {
     {"collatz", {1}, "0"},
     {"firstSquareAbove", {50}, "8"},
     {"firstSquareAbove", {0}, "1"},
-    {"findBreak", {100.0}, findBreak(100) + 0.0},
-    {"findBreak", {1e12}, -1.0},
+    {"findBreak", {100}, findBreak(100)},
+    {"findBreak", {"1000000000000"}, -1},
     {"both", {"true", "true"}, true},
     {"both", {"true", "false"}, false},
     {"either", {"false", "false"}, false},
@@ -849,6 +849,13 @@ function M.floatConstantsNormalizeIntegerMinimumBeforeFormatting()
     assert(tonumber(run(path, "minimumFloat", {})) == -9223372036854775808.0)
     assert(clif:find("f64const -0.0", 1, true), "normalizing a floating constant must preserve negative zero")
     assert(run(path, "negativeZero", {}) == "-0")
+end
+
+function M.integerFloatPromotionKeepsTheCheckedSignedness()
+    local path = compileFixture("numericpromotions")
+    assert(tonumber(run(path, "signed", {"-9223372036854775808"})) == -9223372036854775808.0)
+    assert(tonumber(run(path, "unsigned", {"9223372036854775808"})) == 9223372036854775808.0)
+    assert(tonumber(run(path, "unsigned", {"18446744073709551615"})) == 18446744073709551616.0)
 end
 
 return M

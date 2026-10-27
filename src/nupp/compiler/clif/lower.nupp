@@ -663,9 +663,10 @@ local function compileDirectFunction(fn: Fn, options: any): string
             end
             return constant("i64", e.literal)
         end
-        if kind == "float64" and isFixed32(e.kind) then
-            -- A fixed width widens to a number without changing its value.
-            return emit((e.kind == "uint32" and "fcvt_from_uint.f64 " or "fcvt_from_sint.f64 ") .. e.value)
+        if kind == "float64" and (isFixed32(e.kind) or e.kind == "int64" or e.kind == "uint64") then
+            -- Convert the checked integer operand at a binary64 operation boundary.
+            local unsigned = e.kind == "uint32" or e.kind == "uint64"
+            return emit((unsigned and "fcvt_from_uint.f64 " or "fcvt_from_sint.f64 ") .. e.value)
         end
         need(
             e.kind == kind or (machine(e.kind) == machine(kind)),
@@ -1463,7 +1464,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
             if compareSigned[op] then
                 return compare(n, op, lhs, rhs)
             end
-            local kind = kindOf(n, lhs, rhs)
+            local kind = tag(n.inferredType) == "float64" and "float64" or kindOf(n, lhs, rhs)
             if lhs.literal and rhs.literal then
                 kind = tag(n.inferredType) == "missing" and "float64" or tag(n.inferredType)
             end
