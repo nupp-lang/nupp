@@ -1908,3 +1908,159 @@ fn native_frames_run_whole_programs() {
 }
 
 
+
+// Contracts 4.5/5.1/5.2b: a spent scheduler slice publishes the next edge,
+// all logical windows, closure and varargs. A source limit raises instead.
+#[test]
+fn native_budget_slices_preserve_roots_windows_and_result_packs() {
+    fn fixture() -> (
+        Box<crate::interp::Interp>,
+        crate::scheduler::TaskId,
+        Value,
+        Value,
+        Value,
+    ) {
+        let mut vm = Box::new(crate::interp::Interp::new());
+        crate::image::load(
+            &mut vm,
+            r#"
+function main 0 0 24 3 :v vararg
+const 0 str "count"
+const 1 num 1
+const 2 func 1
+const 3 func 2
+GetUpval 1 0
+K 2 0
+VarargN 3 2
+IK 0 3
+IK 1 -7
+FK 0 0.25
+K 10 2
+Move 11 3
+Move 12 4
+CallK 1 10 10 2 3
+GetIdx 5 1 2
+K 6 1
+Add 5 5 6
+SetIdx 1 2 5
+IAddK 0 0 -1
+JmpIfIZero 0 1
+Jmp -7
+K 13 3
+Move 14 10
+Move 15 11
+Move 16 12
+CallK 2 13 13 64 3
+Move 9 13
+Move 10 14
+Move 11 15
+IBox 7 1
+FBox 8 0
+RetN 7 5
+end
+function pack 1 2 6 1 vv:v
+Nil 3
+RetN 1 3
+end
+function echo 2 3 6 1 vvv:v
+RetN 1 3
+end
+entry 0
+"#,
+        )
+        .unwrap();
+        vm.install_globals();
+        vm.heap.stress_steps = true;
+        vm.heap.oracle = true;
+        vm.heap.quarantine = true;
+        let roots = vm.registered.len();
+        let counter = vm.new_table();
+        vm.registered.push(counter);
+        let key = vm.intern("count");
+        vm.set_index(counter, key, Value::num(0.0));
+        let payload = vm.new_table();
+        vm.registered.push(payload);
+        vm.set_index(payload, Value::num(1.0), counter);
+        let message = vm.intern("rooted only by parked frames and their varargs");
+        vm.registered.push(message);
+        let closure = vm.new_closure(0, &[counter]);
+        vm.enable_scheduler().unwrap();
+        let task = vm.schedule(closure, &[message, payload], None).unwrap();
+        vm.registered.truncate(roots);
+        vm.prepare_threaded();
+        assert!(vm.threaded);
+        (vm, task, counter, payload, message)
+    }
+
+    let (mut vm, task, counter, payload, message) = fixture();
+    // The slice is replenished by the embedding scheduler, while the source
+    // limit is cumulative over all turns. Neither means one bytecode opcode.
+    vm.execution_limit = Some(99);
+    for expected_count in 1..=3 {
+        vm.instruction_budget = Some(1);
+        assert!(vm.run_ready(1).unwrap().is_empty());
+        assert_eq!(vm.instruction_budget, Some(0));
+        assert_eq!(vm.direct_frame, usize::MAX);
+        assert_eq!(vm.nested_calls, 0);
+        assert_eq!(vm.native_frame_depth, 0);
+        let frame = vm.tasks[task.index].cur();
+        assert_eq!(vm.tasks[task.index].stack[frame] & 0xffff_ffff, 0);
+        assert_eq!(
+            vm.tasks[task.index].stack[frame] >> 32,
+            if expected_count < 3 { 16 } else { 21 }
+        );
+        // Every collection happens after native execution has relinquished
+        // its pointers. The closure and surplus arguments are the only roots.
+        vm.full_cycle();
+        let key = vm.intern("count");
+        assert_eq!(
+            vm.get_index(counter, key),
+            Value::num(expected_count as f64)
+        );
+        assert_eq!(vm.get_index(payload, Value::num(1.0)), counter);
+        assert_eq!(
+            vm.bytes_of(message),
+            b"rooted only by parked frames and their varargs"
+        );
+        // A scheduler turn restores its own last-result count, even if another
+        // task or embedding call changed the interpreter's scratch register.
+        vm.last_nres = 77;
+    }
+    vm.instruction_budget = Some(1);
+    // The last call spent the slice; the root return publishes its results
+    // before the driver may finish the task on the next turn.
+    assert!(vm.run_ready(1).unwrap().is_empty());
+    let frame = vm.tasks[task.index].cur();
+    assert_eq!(vm.tasks[task.index].stack[frame] >> 32, 27);
+    vm.full_cycle();
+    vm.instruction_budget = Some(1);
+    let events = vm.run_ready(1).unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].status, crate::scheduler::Status::Completed);
+    assert_eq!(
+        vm.tasks[task.index].results,
+        vec![
+            Value::num(-7.0),
+            Value::num(0.25),
+            message,
+            payload,
+            Value::NIL
+        ]
+    );
+    assert_eq!(vm.execution_limit, Some(95));
+    assert!(vm.run_ready(1).unwrap().is_empty());
+    vm.full_cycle();
+    let key = vm.intern("count");
+    assert_eq!(vm.get_index(counter, key), Value::num(3.0));
+
+    let (mut limited, task, _, _, _) = fixture();
+    limited.execution_limit = Some(1);
+    limited.instruction_budget = None;
+    let events = limited.run_ready(1).unwrap();
+    assert_eq!(events.len(), 1);
+    assert!(
+        matches!(&events[0].status, crate::scheduler::Status::Failed(message) if message.contains("source chunk instruction limit exceeded"))
+    );
+    assert_eq!(limited.execution_limit, Some(0));
+    assert_eq!(limited.tasks[task.index].state, crate::interp::State::Done);
+}
