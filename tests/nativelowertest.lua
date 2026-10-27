@@ -668,7 +668,12 @@ local REJECTED = {
         "unknown context field"
     },
     {"transfer-as-value", "return native.reenter() + 1", "is a transfer"},
-    {"helper-as-value", "local x = leave(pc, regs, ints, floats, context, frame, 1)\nreturn x", "tail%-called", HELPER},
+    {
+        "transfer-helper-as-value",
+        "local x = leave(pc, regs, ints, floats, context, frame, 1)\nreturn x",
+        "is a transfer",
+        HELPER
+    },
     {"recursive-helper", "return again(pc, regs, ints, floats, context, frame, 1)", "recursive helper", RECURSIVE},
     {"helper-fallthrough", "return fall(pc, regs, ints, floats, context, frame, 1)", "NUPP2002", FALLING},
     {
