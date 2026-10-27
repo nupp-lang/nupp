@@ -101,6 +101,7 @@ signatures.VExtractI = "Ix##"
 -- Native systems operations use the same closed-block graph. Their exact
 -- Nupp kinds and static contracts are verified before machine emission.
 signatures.NativeConstant = "I#"
+signatures.NativeHelperCall = "I#"
 signatures.ProgramLoad = "Iii#"
 signatures.FrameSlotRead = "Iiii#"
 signatures.FrameSlotWrite = "iiia#"
@@ -125,6 +126,7 @@ signatures.NativeCeil = "Ff"
 signatures.NativeSqrt = "Ff"
 local nativeOnly = {
     NativeConstant = true,
+    NativeHelperCall = true,
     ProgramLoad = true,
     FrameSlotRead = true,
     FrameSlotWrite = true,
@@ -217,6 +219,19 @@ for op, sig in pairs(signatures) do
         macro = macros[op] == true
     }
 end
+-- A named helper keeps all value operands in the same graph columns. Only
+-- its checked declaration is immediate metadata; arguments remain visible to
+-- the common closed-block verifier and transport pruning.
+parsed.NativeHelperCall.variadic = true
+
+local function operationArity(sig: any, args: any): boolean
+    return #args == sig.n or sig.variadic == true and #args >= sig.n
+end
+
+local function operandClass(sig: any, index: integer): string
+    return sig.args[index] or (sig.variadic and "a")
+end
+
 graph.signatures = parsed
 graph.signatureText = signatures
 
@@ -312,7 +327,7 @@ function graph.emit(g: any, b: any, op: string, args: any, pos: integer?, cert: 
     local sig = parsed[op]
     if sig == nil then
         error("unknown graph operation: " .. op, 0)
-    elseif #args ~= sig.n then
+    elseif not operationArity(sig, args) then
         error("graph operation arity: " .. op, 0)
     elseif sig.terminator then
         error("terminator opcode inside a block: " .. op, 0)
@@ -329,9 +344,13 @@ end
 function graph.emitNative(g: any, b: any, op: string, args: any, kind: string?, pos: integer?): integer?
     assert(g.native ~= nil and (nativeOnly[op] or nativeArithmetic[op]), "unsupported native graph operation")
     local sig = assert(parsed[op], "unknown native graph operation")
-    assert(#args == sig.n and not sig.terminator, "invalid native operation arity")
+    assert(operationArity(sig, args) and not sig.terminator, "invalid native operation arity")
+    if sig.variadic then
+        assert(type(args[1]) == "table", "native helper requires its checked declaration")
+    end
+    local hasResult = sig.result ~= "-" and not (sig.variadic and args[1].result == "nil")
     local result: integer? = nil
-    if sig.result ~= "-" then
+    if hasResult then
         assert(kind ~= nil and nativeClasses[kind], "native result requires an exact kind")
         result = graph.nativeValue(g, kind as string)
     else
@@ -387,7 +406,48 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
         assert(kinds[value] == expected, "native graph operand kind mismatch")
     end
 
-    if op == "NativeConstant" then
+    if op == "NativeHelperCall" then
+        local declaration = args[1]
+        nativeContract(declaration, {moduleName = true, name = true, params = true, result = true, effects = true})
+        assert(
+            type(declaration.moduleName) == "string" and declaration.moduleName:match("^nupp%.runtime%.vm%.[%w_]+$"),
+            "native helper requires its declared module"
+        )
+        assert(
+            type(declaration.name) == "string" and declaration.name:match("^[%a_][%w_]*$"),
+            "native helper requires its declared name"
+        )
+        assert(type(declaration.params) == "table" and #declaration.params == #args - 1, "native helper argument count")
+        for index = 1, #declaration.params do
+            local parameter = declaration.params[index]
+            assert(nativeClasses[parameter], "native helper requires exact parameter kinds")
+            hasKind(args[index + 1], parameter)
+        end
+        for index in pairs(declaration.params) do
+            assert(
+                type(index) == "number" and index % 1 == 0 and index >= 1 and index <= #declaration.params,
+                "native helper parameters must be dense"
+            )
+        end
+        assert(
+            declaration.result == "nil" and dst == 0
+            or nativeClasses[declaration.result] and kind == declaration.result,
+            "native helper result kind mismatch"
+        )
+        local effects = declaration.effects
+        nativeContract(effects, {mayCollect = true, mayPark = true, mayRaise = true, pure = true})
+        assert(
+            type(effects.mayCollect) == "boolean"
+            and type(effects.mayPark) == "boolean"
+            and type(effects.mayRaise) == "boolean"
+            and type(effects.pure) == "boolean",
+            "native helper requires declared effects"
+        )
+        assert(
+            not effects.pure or not (effects.mayCollect or effects.mayPark or effects.mayRaise),
+            "native pure helper cannot collect, park or raise"
+        )
+    elseif op == "NativeConstant" then
         nativeInteger(args[1], kind)
     elseif op == "NativeBoolean" then
         assert(kind == "boolean" and type(args[1]) == "boolean", "native boolean constant required")
@@ -612,7 +672,7 @@ function graph.verify(g: any): nil
         for i = 1, #ops do
             local sig = assert(parsed[ops[i]], "unknown graph operation")
             local args, argClasses = allArgs[i], sig.args
-            if not (#args == sig.n) then
+            if not operationArity(sig, args) then
                 error("graph operation arity", 0)
             end
             if sig.terminator then
@@ -622,7 +682,7 @@ function graph.verify(g: any): nil
                 assert(not nativeOnly[ops[i]], "native operation requires a native graph")
             end
             for j = 1, #args do
-                local ty = argClasses[j]
+                local ty = operandClass(sig, j)
                 if classes[ty] or ty == "a" then
                     local v = args[j]
                     if not (usable(v)) then
@@ -647,6 +707,9 @@ function graph.verify(g: any): nil
                 error("certificate outside the table", 0)
             end
             local result = sig.result
+            if native and sig.variadic and args[1].result == "nil" then
+                result = "-"
+            end
             if result ~= "-" then
                 if not (
                     native and types[dsts[i]] == nativeClasses[g.exactTypes[dsts[i]]]
@@ -669,6 +732,10 @@ function graph.verify(g: any): nil
         local t = assert(b.term, "unterminated graph block")
         local kind = t.kind
         local edges = t.edges
+        if native then
+            local pos = t.pos or 0
+            assert(pos >= 0 and pos % 1 == 0 and pos <= #g.positions, "native terminator source position outside table")
+        end
         if kind == "dispatch" then
             assert(native and type(t.args) == "table" and #t.args == 6, "invalid native dispatch")
             for i = 1, 6 do
@@ -782,9 +849,9 @@ function graph.prune(g: any): nil
         local b = blocks[bi]
         local ops, allArgs = b.op, b.args
         for i = 1, #ops do
-            local argClasses, args = parsed[ops[i]].args, allArgs[i]
+            local sig, args = parsed[ops[i]], allArgs[i]
             for j = 1, #args do
-                if classes[argClasses[j]] or argClasses[j] == "a" then
+                if classes[operandClass(sig, j)] or operandClass(sig, j) == "a" then
                     used[args[j]] = true
                 end
             end
@@ -874,9 +941,9 @@ function graph.prune(g: any): nil
         local b = blocks[bi]
         local ops, allArgs = b.op, b.args
         for i = 1, #ops do
-            local argClasses, args = parsed[ops[i]].args, allArgs[i]
+            local sig, args = parsed[ops[i]], allArgs[i]
             for j = 1, #args do
-                if classes[argClasses[j]] or argClasses[j] == "a" then
+                if classes[operandClass(sig, j)] or operandClass(sig, j) == "a" then
                     args[j] = assert(remap[args[j]])
                 end
             end

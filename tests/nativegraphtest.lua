@@ -113,6 +113,7 @@ function M.exactScalarHandlersProduceTheSharedGraph()
         "ICmpLe",
         "ICmpSLt",
         "ICmpSLe",
+        "FBox",
         "FAdd",
         "FSub",
         "FMul",
@@ -222,6 +223,42 @@ function M.semanticLoadsUseCheckedDeclarationContracts()
     local ok, message = pcall(nativegraph.compile, fn, options)
     definition.annotations = annotations
     assert(not ok and tostring(message):find("has no declared contract", 1, true), tostring(message))
+end
+
+function M.namedHelperCallsKeepCheckedSignaturesEffectsAndOperandIds()
+    local original = read(CORE)
+    local needle = "slots.writeIntegerBits(frame, ints, a, program.readWord(pc, 8))"
+    local replacement = "helpers.cellError(context, values.NIL, 0, a)\n    slots.writeIntegerBits(frame, ints, a, helpers.objectLength(context, values.NIL))"
+    local at = assert(original:find(needle, 1, true))
+    local functions, options = checked(original:sub(1, at - 1) .. replacement .. original:sub(at + #needle))
+    options.helperModules = {["nupp.runtime.vm.helpers"] = "nupp_rt_"}
+    local fn = functions.IK
+    local g = nativegraph.compile(fn, options)
+    graph.prune(g)
+    graph.verify(g)
+    local calls = {}
+    for _, b in ipairs(g.blocks) do
+        for index, op in ipairs(b.op) do
+            if op == "NativeHelperCall" then
+                calls[#calls + 1] = {b = b, index = index, declaration = b.args[index][1]}
+            end
+        end
+    end
+    assert(#calls == 2)
+    assert(calls[1].declaration.name == "cellError" and calls[1].declaration.result == "nil")
+    assert(calls[1].b.dst[calls[1].index] == 0)
+    assert(calls[2].declaration.name == "objectLength" and calls[2].declaration.result == "uint64")
+    assert(calls[2].declaration.effects.mayCollect and calls[2].declaration.effects.mayPark)
+    assert(calls[2].declaration.effects.mayRaise and not calls[2].declaration.effects.pure)
+    assert(calls[1].b.args[calls[1].index][2] == 5, "helper lost its context identity")
+    local call = fn.body.body.stats[2].expr
+    local annotations = call.obj.name.definition.annotations
+    call.obj.name.definition.annotations = {}
+    local ok, message = pcall(nativegraph.compile, fn, options)
+    call.obj.name.definition.annotations = annotations
+    assert(not ok and tostring(message):find("has no declared effects", 1, true), tostring(message))
+    options.helperModules = {}
+    assert(not pcall(nativegraph.compile, fn, options), "unadmitted helper bypassed the frontend")
 end
 
 return M

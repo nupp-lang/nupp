@@ -59,6 +59,40 @@ function emitter.emit(g: any, options: any): string
         "    sig0 = (i64, i64, i64, i64, i64, i64) -> i64 tail"
     }
     local counter: integer = #g.types
+    local imports, preamble = {}, {}
+    local importCount: integer = 0
+
+    local function helper(declaration: any): string
+        local prefix = need(
+            options.helperModules and options.helperModules[declaration.moduleName],
+            "helper module is not admitted"
+        )
+        need(type(prefix) == "string" and prefix:match("^nupp_[%w_]*_$"), "invalid helper symbol prefix")
+        local symbol = prefix .. declaration.name:gsub("%u", function(letter: string): string
+            return "_" .. letter:lower()
+        end)
+        local params = {}
+        for index, kind in ipairs(declaration.params) do
+            params[index] = machineKinds[kind]
+        end
+        local signature = "(" .. table.concat(params, ", ") .. ")"
+        if declaration.result ~= "nil" then
+            signature = signature .. " -> " .. machineKinds[declaration.result]
+        end
+        local exact = table.concat(declaration.params, ",") .. "->" .. declaration.result
+        local known = imports[symbol]
+        if known then
+            need(known.signature == signature and known.exact == exact, "helper symbol has inconsistent signatures")
+            return known.ref
+        end
+        local sig, ref = "sig" .. tostring(importCount + 1), "fn" .. tostring(importCount)
+        importCount = importCount + 1
+        preamble[#preamble + 1] = sig .. " = " .. signature
+        preamble[#preamble + 1] = ref .. " = %" .. symbol .. " " .. sig
+        imports[symbol] = {signature = signature, exact = exact, ref = ref}
+
+        return ref
+    end
 
     local function value(id: integer): string
         return "v" .. tostring(id)
@@ -115,7 +149,14 @@ function emitter.emit(g: any, options: any): string
         for i, op in ipairs(block.op) do
             local args, dst = block.args[i], block.dst[i]
             local result = dst ~= 0 and value(dst) or ""
-            if op == "NativeConstant" then
+            if op == "NativeHelperCall" then
+                local words = {}
+                for index = 2, #args do
+                    words[index - 1] = value(args[index])
+                end
+                local text = "call " .. helper(args[1]) .. "(" .. table.concat(words, ", ") .. ")"
+                line(dst ~= 0 and result .. " = " .. text or text)
+            elseif op == "NativeConstant" then
                 line(result .. " = iconst.i64 " .. args[1])
             elseif op == "PointerOffset" then
                 line(result .. " = iadd " .. value(args[1]) .. ", " .. value(args[2]))
@@ -223,6 +264,9 @@ function emitter.emit(g: any, options: any): string
         end
     end
     out[#out + 1] = "}"
+    for index = #preamble, 1, -1 do
+        table.insert(out, 4, "    " .. preamble[index])
+    end
 
     return table.concat(out, "\n") .. "\n"
 end

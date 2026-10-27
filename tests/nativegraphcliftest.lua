@@ -241,4 +241,69 @@ block0(v0: i64, v1: i64, v2: i64):
     end
 end
 
+function M.namedHelpersEmitDeclaredCSignaturesAndKeepCallOrder()
+    local g = newGraph()
+    local b = graph.block(g)
+    local effects = {mayCollect = true, mayPark = false, mayRaise = true, pure = false}
+    local value = graph.emitNative(
+        g,
+        b,
+        "NativeHelperCall",
+        {
+            {
+                moduleName = "nupp.runtime.vm.helpers",
+                name = "integerDouble",
+                params = {"voidptr"},
+                result = "float64",
+                effects = effects,
+            },
+            5
+        },
+        "float64"
+    )
+    graph.emitNative(g, b, "NativeHelperCall", {
+        {
+            moduleName = "nupp.runtime.vm.helpers",
+            name = "writeDouble",
+            params = {"float64"},
+            result = "nil",
+            effects = effects,
+        },
+        value
+    })
+    dispatch(b, 1)
+    graph.prune(g)
+    local options = {name = "IK", helperModules = {["nupp.runtime.vm.helpers"] = "nupp_rt_"}}
+    local text = emitter.emit(g, options)
+    assert(text:find("sig1 = (i64) -> f64", 1, true))
+    assert(text:find("fn0 = %nupp_rt_integer_double sig1", 1, true))
+    assert(text:find("sig2 = (f64)", 1, true))
+    assert(text:find("fn1 = %nupp_rt_write_double sig2", 1, true))
+    local first = assert(text:find(" = call fn0(v5)", 1, true))
+    local second = assert(text:find("call fn1(v", first, true))
+    assert(first < second and not text:find("readonly", 1, true))
+    assert(not pcall(emitter.emit, g, {name = "IK"}), "unadmitted helper module escaped emission")
+    options.helperModules["nupp.runtime.vm.helpers"] = "bad prefix"
+    assert(not pcall(emitter.emit, g, options))
+    options.helperModules["nupp.runtime.vm.helpers"] = "nupp_rt_"
+    g = newGraph()
+    b = graph.block(g)
+    local unsigned = constant(g, b, "7", "uint64")
+    local signed = graph.emitNative(g, b, "NativeWordCast", {unsigned}, "int64")
+    for _, kind in ipairs({"uint64", "int64"}) do
+        graph.emitNative(g, b, "NativeHelperCall", {
+            {
+                moduleName = "nupp.runtime.vm.helpers",
+                name = "sameSymbol",
+                params = {kind},
+                result = "nil",
+                effects = effects,
+            },
+            kind == "uint64" and unsigned or signed
+        })
+    end
+    dispatch(b, 1)
+    assert(not pcall(emitter.emit, g, options), "machine-identical signatures erased exact helper kinds")
+end
+
 return M

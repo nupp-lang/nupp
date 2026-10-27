@@ -469,4 +469,94 @@ function M.nativeSelectionsRetainBoxedBitsAndRefuseMixedKinds()
     )
 end
 
+local function helperDeclaration(params, result)
+    return {
+        moduleName = "nupp.runtime.vm.helpers",
+        name = "declaredHelper",
+        params = params,
+        result = result,
+        effects = {mayCollect = true, mayPark = false, mayRaise = true, pure = false},
+    }
+end
+
+function M.namedHelperOperandsAndEffectsSurviveTransportPruning()
+    local g, entry = fresh()
+    local next = G.block(g)
+    local carried = G.nativeValue(g, "int64")
+    next.params = {carried}
+    local index = constant(g, entry, "5")
+    entry.term = {kind = "jump", edges = {{target = next.id, args = {index}}}}
+    local declaration = helperDeclaration({"voidptr", "int64"}, "float64")
+    local result = G.emitNative(g, next, "NativeHelperCall", {declaration, 5, carried}, "float64")
+    local effect = helperDeclaration({"float64"}, "nil")
+    G.emitNative(g, next, "NativeHelperCall", {effect, result})
+    G.emitNative(g, next, "NativeHelperCall", {helperDeclaration({}, "nil")})
+    dispatch(next)
+    G.verify(g)
+    G.prune(g)
+    G.verify(g)
+    assert(#next.params == 1 and #entry.term.edges[1].args == 1)
+    assert(next.args[1][3] == next.params[1], "helper-only block argument was lost")
+    assert(g.exactTypes[next.dst[1]] == "float64" and next.dst[2] == 0 and next.dst[3] == 0)
+    assert(next.args[1][1] == declaration and declaration.effects.mayCollect and declaration.effects.mayRaise)
+    assert(not declaration.effects.mayPark and not declaration.effects.pure)
+end
+
+function M.namedHelpersRefuseMissingEffectsAndInexactOrChangedSignatures()
+    for _, change in ipairs({
+        function(c)
+            c.params[1] = "number"
+        end,
+        function(c)
+            c.params[1] = "int64"
+        end,
+        function(c)
+            c.params[2] = "uint64"
+        end,
+        function(c)
+            c.result = "uint64"
+        end,
+        function(c)
+            c.result = "number"
+        end,
+        function(c)
+            c.effects.mayPark = nil
+        end,
+        function(c)
+            c.effects.pure = true
+        end,
+        function(c)
+            c.effects.unknown = true
+        end,
+        function(c)
+            c.moduleName = "other.helpers"
+        end,
+        function(c)
+            c.name = "bad helper"
+        end,
+        function(c)
+            c.params.hidden = "int64"
+        end,
+    }) do
+        local g, b = fresh()
+        local declaration = helperDeclaration({"voidptr"}, "int64")
+        change(declaration)
+        G.emitNative(g, b, "NativeHelperCall", {declaration, 5}, "int64")
+        dispatch(b)
+        rejects(function()
+            G.verify(g)
+        end)
+    end
+    local g, b = fresh()
+    G.emitNative(g, b, "NativeHelperCall", {helperDeclaration({"voidptr"}, "nil"), 5})
+    dispatch(b)
+    b.args[1][2] = 7
+    rejects(
+        function()
+            G.verify(g)
+        end,
+        "outside its closed block"
+    )
+end
+
 return M

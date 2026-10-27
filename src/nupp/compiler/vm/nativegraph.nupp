@@ -4,6 +4,7 @@ local graph = require("nupp.compiler.vm.graph")
 local cst = require("nupp.compiler.syntax.cst")
 local programcontract = require("nupp.compiler.vm.programcontract")
 local slotcontract = require("nupp.compiler.vm.slotcontract")
+local helpercontract = require("nupp.compiler.vm.helpercontract")
 
 local nativegraph = {}
 local admitted = {
@@ -169,6 +170,31 @@ function nativegraph.compile(fn: any, options: any): any
         return graph.emitNative(g, block, op, args, kind, position(n))
     end
 
+    local function helperDeclaration(n: any, moduleName: string, name: string): any
+        need(options.helperModules and options.helperModules[moduleName], "helper module is not admitted")
+        local checked = n.obj.inferredType
+        while checked and wrappers[checked.tag] do
+            checked = checked[wrappers[checked.tag]]
+        end
+        need(checked and checked.tag == "func" and #checked.rets <= 1, "checked helper signature required")
+        local params = {}
+        for index, parameter in ipairs(checked.params) do
+            params[index] = exactKind(parameter)
+            need(exactKinds[params[index]], "helper parameter requires an exact native kind")
+        end
+        local result = #checked.rets == 0 and "nil" or exactKind(checked.rets[1])
+        need(result == "nil" or exactKinds[result], "helper result requires an exact native kind")
+        need(#(n.args.exprs or {}) == #params, "helper argument count differs from its declaration")
+
+        return {
+            moduleName = moduleName,
+            name = name,
+            params = params,
+            result = result,
+            effects = helpercontract.read(n.obj.name.definition, name)
+        }
+    end
+
     local expression: function(any, string?): integer
     expression = function(n: any, expected: string?): integer
         if n.kind == "paren" then
@@ -249,6 +275,15 @@ function nativegraph.compile(fn: any, options: any): any
                 local window = expression(args[2], "voidptr")
                 local slot = expression(args[3], "int64")
                 return emit(n, "FrameSlotRead", {frame, window, slot, contract}, contract.kind) as integer
+            elseif moduleName and options.helperModules and options.helperModules[moduleName] then
+                local declaration = helperDeclaration(n, moduleName, name as string)
+                need(declaration.result ~= "nil", "helper effect is a statement")
+                need(expected == nil or expected == declaration.result, "helper changes exact result kind")
+                local operands = {declaration}
+                for index, kind in ipairs(declaration.params) do
+                    operands[index + 1] = expression(args[index], kind)
+                end
+                return emit(n, "NativeHelperCall", operands, declaration.result) as integer
             elseif moduleName == "nupp.runtime.vm.intrinsics" and intrinsicCalls[name] then
                 local operation = intrinsicCalls[name]
                 signature(n, operation.params, operation.result)
@@ -291,16 +326,27 @@ function nativegraph.compile(fn: any, options: any): any
             elseif stat.kind == "callStmt" then
                 local call = stat.expr
                 local moduleName, name = member(call.obj)
-                need(moduleName == "nupp.runtime.vm.slots", "only a logical slot write may be a statement")
-                local contract = slotcontract.read(call.obj.name.definition, name as string)
-                need(contract.write, "slot read is not a statement")
-                signature(call, {"voidptr", "voidptr", "int64", contract.kind}, "nil")
-                local args = call.args.exprs
-                local frame = expression(args[1], "voidptr")
-                local window = expression(args[2], "voidptr")
-                local slot = expression(args[3], "int64")
-                local value = expression(args[4], contract.kind)
-                emit(call, "FrameSlotWrite", {frame, window, slot, value, contract}, nil)
+                local args = call.args.exprs or {}
+                if moduleName == "nupp.runtime.vm.slots" then
+                    local contract = slotcontract.read(call.obj.name.definition, name as string)
+                    need(contract.write, "slot read is not a statement")
+                    signature(call, {"voidptr", "voidptr", "int64", contract.kind}, "nil")
+                    local frame = expression(args[1], "voidptr")
+                    local window = expression(args[2], "voidptr")
+                    local slot = expression(args[3], "int64")
+                    local value = expression(args[4], contract.kind)
+                    emit(call, "FrameSlotWrite", {frame, window, slot, value, contract}, nil)
+                elseif moduleName and options.helperModules and options.helperModules[moduleName] then
+                    local declaration = helperDeclaration(call, moduleName, name as string)
+                    need(declaration.result == "nil", "helper result must be bound explicitly")
+                    local operands = {declaration}
+                    for index, kind in ipairs(declaration.params) do
+                        operands[index + 1] = expression(args[index], kind)
+                    end
+                    emit(call, "NativeHelperCall", operands, nil)
+                else
+                    error("native graph: unsupported checked statement call", 0)
+                end
             elseif stat.kind == "ifStmt" then
                 need(
                     #stat.clauses == 1 and stat.elseClause ~= nil and not stat.clauses[1].binding,
