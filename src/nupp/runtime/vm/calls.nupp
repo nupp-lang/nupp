@@ -1013,7 +1013,7 @@ local function returnSlow(pc: voidptr, context: voidptr, kind: int64): uint64
             local off = native.load32(callerInfo, native.layout("FuncInfo.off_f"))
             local callerFloats = native.offset(resumed, off * 8)
             local floatSlot = native.index(flags & values.LOW_WORD) - native.index(caller) - off
-            slots.writeFloat(resumed, callerFloats, floatSlot, native.fromBits(first))
+            slots.writeFloat(resumed, callerFloats, floatSlot, values.asNumber(first))
         else
             slots.writeValue(resumed, callerRegs, slot, first)
             delivered = slot

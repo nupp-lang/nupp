@@ -360,13 +360,6 @@ pub extern "C" fn j_frame_poll() -> u64 {
 /// and the helper's own frames on the native stack.
 pub(crate) const NESTED_CALL_LIMIT: usize = 96;
 
-/// The calls whose callee may run nested: ordinary calls only, so a protected
-/// call, a module load or a cleanup keeps the outermost driver's handling.
-fn nested_call(op: &crate::interp::Op) -> bool {
-    use crate::interp::Op;
-    matches!(op, Op::Call(..) | Op::CallT(..) | Op::CallDyn(..) | Op::CallK(..) | Op::CallMethod(..))
-}
-
 /// The top frame's header address, which a stack that grew has moved.
 fn frame_address(it: &mut Interp, tid: usize) -> u64 {
     let t = &mut it.tasks[tid];
@@ -380,75 +373,32 @@ fn nesting_enabled() -> bool {
     *ON.get_or_init(|| std::env::var_os("NO_NESTED").is_none())
 }
 
-/// A call boundary in a compiled frame: the ordinary call to a compiled
-/// callee without the general step (`Interp::frame_call_fast`); the same
-/// answers as `j_frame_step`, which takes every other case.
+/// Compiled calls and returns share the Nupp one-handler boundary.
 #[unsafe(no_mangle)]
-pub extern "C" fn j_frame_call(pc: u64) -> u64 {
-    let it = ctx();
-    if it.instruction_budget.is_some() || it.nested_calls >= NESTED_CALL_LIMIT || !nesting_enabled() { return j_frame_step(pc); }
-    let depth = std::mem::replace(&mut it.native_frame_depth, 0);
-    let nested = it.nested_calls;
-    let status = it.guarded(|it| {
-        let tid = it.native_task;
-        it.nested_calls += 1;
-        match it.frame_call_fast(tid, pc as usize) {
-            None => V(u64::MAX - 1),
-            Some(Ok(true)) => V(frame_address(it, tid)),
-            Some(Ok(false)) => V::ERROR,
-            Some(Err(exit)) => { it.native_exit = Some(exit); V(1) }
-        }
-    }).0;
-    it.nested_calls = nested;
-    it.native_frame_depth = depth;
-    if status == u64::MAX - 1 { return j_frame_step(pc); }
-    status
-}
-
-/// A return boundary in a compiled frame: the frame popped directly when it
-/// has nothing to clean up (`Interp::frame_ret_fast`), else `j_frame_step`.
+pub extern "C" fn j_frame_call(pc: u64) -> u64 { j_frame_step(pc) }
 #[unsafe(no_mangle)]
-pub extern "C" fn j_frame_ret(pc: u64) -> u64 {
-    let it = ctx();
-    if it.instruction_budget.is_some() { return j_frame_step(pc); }
-    let tid = it.native_task;
-    if it.frame_ret_fast(tid, pc as usize) {
-        it.native_exit = Some(crate::interp::Step::Reenter);
-        return 1;
-    }
-    j_frame_step(pc)
-}
+pub extern "C" fn j_frame_ret(pc: u64) -> u64 { j_frame_step(pc) }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn j_frame_step(pc: u64) -> u64 {
     let it = ctx();
-    // A boundary operation steps interpreted, its frame's pc and registers
-    // current, so positions and operand names are exact while it runs.
+    // The shared Nupp handler owns the transfer. Its published logical pc
+    // and rooted frame windows keep errors and callbacks precise.
     let depth = std::mem::replace(&mut it.native_frame_depth, 0);
     let nested = it.nested_calls;
     let status = it.guarded(|it| {
         let tid = it.native_task;
         let pc = pc as usize;
-        if let Some(left) = it.instruction_budget.as_mut() {
-            if *left == 0 {
-                it.tasks[tid].note_pc(pc);
-                it.native_exit = Some(crate::interp::Step::Return(crate::interp::Outcome::Parked(0)));
-                return V(1);
-            }
-            *left -= 1;
-        }
-        let (win, _) = it.window(tid);
         let caller = it.tasks[tid].cur();
-        let op = unsafe { *win.code.add(pc) };
-        it.tasks[tid].note_pc(pc + 1);
-        match it.step(tid, &win, pc) {
-            crate::interp::Step::Next(next) => { assert_eq!(next, pc + 1); V(frame_address(it, tid)) }
+        match it.native_handler_step(tid, pc) {
+            crate::interp::Step::Next(next) if next == pc + 1 => V(frame_address(it, tid)),
+            crate::interp::Step::Next(_) => { it.native_exit = Some(crate::interp::Step::Reenter); V(1) }
             // A call that pushed a frame: run the callee from here, so the
             // caller continues in native code when it returns instead of
             // leaving for the driver and re-entering through its resume
             // dispatch. Past the nesting limit every native activation
             // returns, and the outermost driver resumes the frames flat.
-            crate::interp::Step::Reenter if nested_call(&op) && it.tasks[tid].cur() > caller && nesting_enabled() => {
+            crate::interp::Step::Reenter if it.tasks[tid].cur() > caller && nesting_enabled() => {
                 if it.nested_calls >= NESTED_CALL_LIMIT {
                     it.unwind_nested = true;
                     it.native_exit = Some(crate::interp::Step::Reenter);

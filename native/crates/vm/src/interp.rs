@@ -920,55 +920,6 @@ impl Interp {
         self.finish_protected(tid, s);
         false
     }
-    /// A compiled frame's ordinary call, without decoding a step: a function
-    /// or closure with a value-only signature, no varargs and exactly the
-    /// arguments it declares, whose heap-frame entry is compiled. The frame is
-    /// pushed and the callee run from here (`run_callee`). None when the call
-    /// is anything else, for the general boundary step to take.
-    #[cfg(feature = "compiled-runtime")]
-    pub(crate) fn frame_call_fast(&mut self, tid: usize, pc: usize) -> Option<Result<bool, Step>> {
-        let s = self.tasks[tid].cur;
-        let fid = (self.tasks[tid].stack[s] & 0xffff_ffff) as usize;
-        let (fr, b, nargs) = match self.funcs[fid].code[pc] { Op::CallDyn(fr, b, n) | Op::CallK(_, fr, b, n, _) => (fr, b, n), _ => return None };
-        if nargs >= 64 { return None; }
-        let base = s + HDR;
-        let callee = Value(self.tasks[tid].stack[base + fr as usize]);
-        let (cf, closure) = if let Some(f) = callee.as_func() { (f, Value::NIL) } else {
-            let p = callee.as_obj()?;
-            let h = unsafe { p.as_ref() };
-            if h.kind != KIND_CLOSURE { return None; }
-            (h.fid(), callee)
-        };
-        if cf == self.unavailable_fid { return None; }
-        let f = self.funcs.get(cf as usize)?;
-        if f.vararg || f.nparams != nargs || f.sig.iter().any(|&c| c != b'v') { return None; }
-        let entry = self.frame_entries.get(cf as usize).copied().unwrap_or(0);
-        if entry == 0 || entry == u64::MAX { return None; }
-        self.tasks[tid].note_pc(pc + 1);
-        self.push_frame(tid, cf, base + b as usize, nargs, pc + 1);
-        let t = &mut self.tasks[tid];
-        let ns = t.cur;
-        t.stack[ns + 2] = closure.0;
-        Some(self.run_callee(tid, s))
-    }
-    /// A compiled frame's return with nothing to clean up, to a caller: the
-    /// frame popped without decoding a step. False when the general step
-    /// must take it.
-    pub(crate) fn frame_ret_fast(&mut self, tid: usize, pc: usize) -> bool {
-        let t = &self.tasks[tid];
-        let s = t.cur;
-        if (t.stack[s + 1] & 0xffff_ffff) as u32 == NONE || self.cleanups_below(tid, s) != t.cleanups.len() { return false; }
-        if self.scheduler.as_ref().is_some_and(|sc| sc.controls.contains_key(&tid)) && self.unwind_state(tid) != Value::NIL { return false; }
-        let fid = (self.tasks[tid].stack[s] & 0xffff_ffff) as usize;
-        let base = s + HDR;
-        match self.funcs[fid].code[pc] {
-            Op::Ret(r) => { let v = Value(self.tasks[tid].stack[base + r as usize]); self.pop_frame(tid, v); }
-            Op::RetNil => { self.pop_frame_n(tid, base, 0); }
-            Op::RetN(start, n) if n < 128 => { self.pop_frame_n(tid, base + start as usize, n); }
-            _ => return false,
-        }
-        true
-    }
     /// How many of the task's cleanups belong to frames below `frame`. Only
     /// the top frame registers cleanups, so they are ordered by frame and
     /// the count is found from the end, in the frame's own cleanups.

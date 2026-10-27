@@ -366,43 +366,6 @@ pub(crate) fn guard(it: &mut Interp, tid: usize) -> u64 {
     match (cleanup, protected) { (None, None) => NO_GUARD, (a, b) => a.unwrap_or(0).max(b.unwrap_or(0)) }
 }
 
-/// Executes one opcode of the context's task in Rust and answers the next
-/// pc, or a status when the frame changed or the task finished.
-pub(crate) fn rt_exec_op(ctx: *mut Ctx, pc: u32) -> u32 {
-    let ctx = unsafe { &mut *ctx };
-    let it = unsafe { &mut *(ctx.interp as *mut Interp) };
-    let tid = ctx.tid as usize;
-    charge(ctx, it);
-    // The core moved frames on its own; the task record learns the top first.
-    it.tasks[tid].set_cur(ctx.cur as usize);
-    it.last_nres = ctx.last_nres as usize;
-    // The frame's pc, for the backtrace of an error this op raises.
-    it.tasks[tid].note_pc(pc as usize + 1);
-    let (win, _) = it.window(tid);
-    #[cfg(feature = "opstats")]
-    if let Some(st) = it.op_stats.as_mut() { let op = it.funcs[win.fid as usize].code[pc as usize]; *st.entry(crate::interp::op_name(&op)).or_insert(0) += 1; }
-    // A raise inside the opcode becomes the error status: the core returns
-    // and `run_threaded` re-raises where Rust frames can carry it.
-    let mark = it.handles.len();
-    let stepped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        if crate::interp::budget_point(&it.funcs[win.fid as usize].code[pc as usize], &win)
-            && !it.take_budget_point(tid, pc as usize) {
-            return Step::Return(Outcome::Parked(0));
-        }
-        it.step(tid, &win, pc as usize)
-    }));
-    if stepped.is_err() { it.handles.truncate(mark); }
-    let r = match stepped {
-        Ok(Step::Next(np)) => np as u32,
-        Ok(Step::Reenter) => ST_REENTER,
-        Ok(Step::Return(Outcome::Done(v))) => { ctx.result = v.0; ST_DONE }
-        Ok(Step::Return(Outcome::Parked(k))) => { ctx.result = k; ST_PARKED }
-        Err(p) => { let v = it.error_value(p); it.pending_error = Some(v); ctx.status = ST_ERROR; ST_ERROR }
-    };
-    sync(ctx, it);
-    r
-}
-
 /// Enters the compiled frame of the function on top at `pc` -- its start, or
 /// a back edge -- compiling it first when the core counted it `hot`, or
 /// applies the interpreter's policy for one with vector instructions and no
@@ -458,7 +421,7 @@ pub(crate) fn rt_barrier(ctx: *mut Ctx, parent: u64, child: u64) {
 }
 /// A builtin called from the core: arguments in the window from `base + 1`,
 /// results delivered from `base`. Host services, which may park, are not
-/// taken here: the core hands those to `rt_exec_op`.
+/// taken here: Nupp selects their separate named subsystem boundary.
 pub(crate) fn rt_call_builtin(ctx: *mut Ctx, id: u32, base: u64, nargs: u32) {
     let ctx = unsafe { &mut *ctx };
     let (it, tid) = enter_rust(ctx);
@@ -514,13 +477,9 @@ impl Interp {
         self.threaded = true;
     }
 
-    /// Runs the task on the native core until it finishes or parks.
+    /// One task context for whole chains and compiled boundary entries.
     #[cfg(feature = "native-runtime")]
-    pub fn run_threaded(&mut self, tid: usize) -> Outcome {
-        let _caller = self.enter_caller(crate::interp::Caller::Task(tid));
-        let _execution = crate::persist::Execution::enter(&self.execution_depth);
-        assert_eq!(self.tasks[tid].state, State::Runnable);
-        if self.finfo.len() != self.funcs.len() || self.shape_info.len() != self.heap.shapes.len() { self.prepare_threaded(); }
+    pub(crate) fn native_context(&mut self, tid: usize) -> Ctx {
         let slow = slow_calls();
         #[cfg(feature = "compiled-runtime")]
         let (frame_entries, nframe_entries) = if !self.frame_entries.is_empty() { (self.frame_entries.as_ptr(), self.frame_entries.len() as u64) } else { (std::ptr::null(), 0) };
@@ -539,6 +498,52 @@ impl Interp {
         // The core reports call targets and receivers while feedback is on.
         #[cfg(feature = "jit")]
         { ctx.feedback = self.spec.feedback as u32; }
+        ctx
+    }
+
+    /// Run the existing Nupp handler once, stopping at its next dispatch.
+    /// The returned frame/PC/status is the handler's decision, not a second
+    /// opcode implementation. Compiled frames share exactly this boundary.
+    pub(crate) fn native_handler_step(&mut self, tid: usize, pc: usize) -> Step {
+        #[cfg(feature = "native-runtime")]
+        {
+            if self.finfo.len() != self.funcs.len() || self.shape_info.len() != self.heap.shapes.len() { self.prepare_threaded(); }
+            let mut ctx = self.native_context(tid);
+            let previous = ctx.cur;
+            #[cfg(feature = "aot")]
+            let _current = crate::jit_glue::ContextGuard::enter(&mut ctx);
+            let exit = unsafe { crate::dispatch::step(&mut ctx, pc) };
+            charge(&mut ctx, self);
+            self.last_nres = ctx.last_nres as usize;
+            self.tasks[tid].set_cur(ctx.cur as usize);
+            match ctx.status {
+                ST_DONE => return Step::Return(Outcome::Done(Value(ctx.result))),
+                ST_PARKED => return Step::Return(Outcome::Parked(ctx.result)),
+                ST_ERROR => { let value = self.pending_error.take().unwrap_or(Value::NIL); std::panic::panic_any(crate::builtins::LuaError(value.0)); }
+                0 => {},
+                status => panic!("native boundary status {status:#x}"),
+            }
+            let frame = unsafe { ctx.stack.add(ctx.cur as usize) };
+            let own = unsafe { &*ctx.funcs.add((*frame & 0xffff_ffff) as usize) };
+            let code = own.code as u64;
+            assert!(exit >= code && exit < code + own.ncode as u64 * 16 && (exit - code) % 16 == 0,
+                "native boundary returned a foreign instruction");
+            let next = ((exit - code) / 16) as usize;
+            self.tasks[tid].note_pc(next);
+            if ctx.cur == previous { Step::Next(next) } else { Step::Reenter }
+        }
+        #[cfg(not(feature = "native-runtime"))]
+        { let _ = (tid, pc); self.err("compiled frame boundary requires a linked Nupp core") }
+    }
+
+    /// Runs the task on the native core until it finishes or parks.
+    #[cfg(feature = "native-runtime")]
+    pub fn run_threaded(&mut self, tid: usize) -> Outcome {
+        let _caller = self.enter_caller(crate::interp::Caller::Task(tid));
+        let _execution = crate::persist::Execution::enter(&self.execution_depth);
+        assert_eq!(self.tasks[tid].state, State::Runnable);
+        if self.finfo.len() != self.funcs.len() || self.shape_info.len() != self.heap.shapes.len() { self.prepare_threaded(); }
+        let mut ctx = self.native_context(tid);
         // The JIT's glue reaches the context of the task the core is running
         // on this thread when a compiled frame is entered.
         #[cfg(feature = "aot")]

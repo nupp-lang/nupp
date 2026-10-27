@@ -631,8 +631,7 @@ pub fn write_object(input: &str, output: &str) -> Result<(), String> {
     module.define_function(resume, &mut ctx).map_err(|e| e.to_string())?;
     listings.push_str(ctx.compiled_code().unwrap().vcode.as_deref().unwrap_or(""));
     module.clear_context(&mut ctx);
-    // `leave`: the table entry of every opcode without a handler, handing the
-    // instruction back to Rust.
+    // `leave`: an explicit stop boundary, also used by the one-step table.
     ctx.func.signature = tail.clone();
     ctx.want_disasm = true;
     {
@@ -649,6 +648,7 @@ pub fn write_object(input: &str, output: &str) -> Result<(), String> {
     listings.push_str(&format!("\n{}\n", ctx.func.display()));
     module.define_function(leave, &mut ctx).map_err(|e| e.to_string())?;
     listings.push_str(ctx.compiled_code().unwrap().vcode.as_deref().unwrap_or(""));
+    module.clear_context(&mut ctx);
     let mut data = DataDescription::new();
     data.define(vec![0; 256 * 8].into_boxed_slice());
     data.set_align(8);
@@ -664,9 +664,8 @@ pub fn write_object(input: &str, output: &str) -> Result<(), String> {
     module.define_data(table_id, &data).map_err(|e| e.to_string())?;
     // The step table: `leave` for every opcode. A handler entered with it as
     // its table runs its own instruction and stops at the next dispatch,
-    // answering the next instruction's address (or its own, when it hands
-    // the instruction to Rust): the JIT's way to run one instruction on the
-    // handlers without a second implementation of it.
+    // answering the next instruction's address. A same-PC result is a guest
+    // self-loop. Compiled boundaries use these same handlers.
     let step_table_id = module
         .declare_data("native_runtime_step_table", Linkage::Local, false, false)
         .unwrap();

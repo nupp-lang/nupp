@@ -1,12 +1,7 @@
-//! The Rust side of the native interpreter core: the driver that runs a task
-//! on the Nupp handlers, the helpers they call by C ABI, and the hand-off of
-//! an instruction to `Interp::step`. Every opcode's handler is Nupp -- the
-//! `Slow` opcode's is the glue's `leave`, which answers the instruction's own
-//! address -- so a chain returns here only to end, with a status in the
-//! context, or to have one instruction run by the Rust interpreter, after
-//! which the chain resumes from the frame driver's policy when that
-//! instruction changed the frame, and at the next instruction otherwise. A
-//! build without the object has no core and runs the Rust loop.
+//! Native handler entry transport and named C ABI services. Full chains end
+//! with an explicit status; compiled boundaries enter the same handlers with
+//! an all-leave dispatch table, stopping after one instruction. No boundary
+//! decodes or executes a guest opcode in Rust.
 use crate::heap::Header;
 #[cfg(test)]
 use crate::heap::KIND_TABLE;
@@ -27,7 +22,7 @@ include!(concat!(env!("OUT_DIR"), "/native_runtime.rs"));
 unsafe extern "C" {
     /// Runs the native chain from the instruction at `pc` in the frame the
     /// windows belong to. Answers an exit word: the address of the
-    /// instruction Rust runs next, in the frame the context then names, or
+    /// next instruction at an explicit stop boundary, or
     /// `EXIT_ERROR`.
     fn nupp_native_runtime_entry(
         pc: *const Ins,
@@ -41,6 +36,8 @@ unsafe extern "C" {
     /// chain from there: the task's entry, and what follows an instruction
     /// Rust ran that changed the frame. The same exit words.
     fn nupp_native_runtime_resume(ctx: *mut Ctx) -> u64;
+    fn nupp_native_runtime_step(pc: *const Ins, regs: *mut u64, ints: *mut u64,
+        floats: *mut u64, ctx: *mut Ctx, frame: *mut u64) -> u64;
 }
 
 /// The native chain's non-address exit: it ended, and the context holds the
@@ -482,6 +479,9 @@ pub(crate) mod native_helpers {
 }
 
 #[cfg(test)]
+#[path = "native_boundary_tests.rs"]
+mod native_boundary_tests;
+#[cfg(test)]
 #[path = "native_target_transfer_tests.rs"]
 mod native_target_transfer_tests;
 #[cfg(test)]
@@ -500,43 +500,27 @@ mod native_module_tests;
 #[path = "native_state_tests.rs"]
 mod native_state_tests;
 
-/// Runs the context's task from its top frame until it finishes, parks or
-/// raises; the status says which. The chain starts at the frame driver's
-/// policy. Each time it exits at an instruction, the Rust interpreter runs
-/// that one instruction (`rt_exec_op`), and the chain resumes: from the
-/// policy again when the instruction changed the frame, at the instruction
-/// after it otherwise, with the windows derived from the frame the context
-/// names.
+/// Enter one shared handler with the existing all-leave dispatch table.
+/// No bytecode is decoded here beyond locating its retained encoded body.
+pub(crate) unsafe fn step(ctx: *mut Ctx, pc: usize) -> u64 {
+    let frame = unsafe { (*ctx).stack.add((*ctx).cur as usize) };
+    let info = unsafe { &*(*ctx).funcs.add((*frame & 0xffff_ffff) as usize) };
+    assert!(pc < info.ncode as usize);
+    let instruction = unsafe { info.code.add(pc) };
+    assert_ne!(unsafe { (*instruction).op }, Code::Slow as u8, "unencoded native boundary");
+    unsafe { nupp_native_runtime_step(instruction, frame.add(HDR), frame.add(info.off_i as usize).cast(),
+        frame.add(info.off_f as usize).cast(), ctx, frame) }
+}
+
+/// The linked Nupp core owns every guest opcode. A normal dispatch chain
+/// finishes only by a published done, park or error status.
 pub(crate) unsafe fn run(ctx: *mut Ctx) -> u32 {
-    (*ctx).status = 0;
-    let mut exit = nupp_native_runtime_resume(ctx);
-    loop {
-        if exit == EXIT_ERROR {
-            return (*ctx).status;
-        }
-        let frame = (*ctx).stack.add((*ctx).cur as usize);
-        let fi = (*ctx).funcs.add(*frame as u32 as usize);
-        let pc = (exit as *const Ins).offset_from((*fi).code) as u32;
-        let result = rt_exec_op(ctx, pc);
-        if result >= ST_ERROR && result != ST_REENTER {
-            (*ctx).status = result;
-            return result;
-        }
-        if result == ST_REENTER {
-            exit = nupp_native_runtime_resume(ctx);
-            continue;
-        }
-        let frame = (*ctx).stack.add((*ctx).cur as usize);
-        let fi = (*ctx).funcs.add(*frame as u32 as usize);
-        exit = nupp_native_runtime_entry(
-            (*fi).code.add(result as usize),
-            frame.add(HDR),
-            frame.add((*fi).off_i as usize).cast(),
-            frame.add((*fi).off_f as usize).cast(),
-            ctx,
-            frame,
-        );
-    }
+    unsafe { (*ctx).status = 0; }
+    let exit = unsafe { nupp_native_runtime_resume(ctx) };
+    assert_eq!(exit, EXIT_ERROR, "native core returned an instruction without a transfer");
+    let status = unsafe { (*ctx).status };
+    assert!(matches!(status, ST_DONE | ST_PARKED | ST_ERROR), "native core status {status:#x}");
+    status
 }
 
 #[cfg(test)]
