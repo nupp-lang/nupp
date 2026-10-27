@@ -5,7 +5,7 @@ module nupp.compiler.inlinefacts
 local cst = require("nupp.compiler.syntax.cst")
 local T = require("nupp.compiler.types")
 local inlinefacts = {}
-local SCALARS = {number = true, integer = true, boolean = true, string = true}
+local SCALARS = {number = true, int64 = true, float32 = true, float64 = true, boolean = true, string = true}
 local OPERATORS = {
     ["+"] = true,
     ["-"] = true,

@@ -266,19 +266,20 @@ function expr.install(c: state.Checker): nil
             return T.uint64
         end
         if lower:find("ll", 1, true) then
-            return T.int64
+            return T.integer
         end
         if lower:sub(-1) == "i" then
             return T.number
-        end -- imaginary: complex later
-        if lower:find("x", 1, true) then
-            if lower:find("%.") or lower:find("p") then
-                return T.number
-            end
-            return T.integer
+        end
+        if lower:sub(1, 2) == "0x" then
+            return (lower:find("%.") or lower:find("p")) and T.float or T.integer
         end
         if lower:find("%.") or lower:find("e") then
-            return T.number
+            return T.float
+        end
+        local digits = lower:gsub("^0+", "")
+        if #digits > 19 or (#digits == 19 and digits > "9223372036854775807") then
+            return T.float
         end
 
         return T.integer
@@ -1187,7 +1188,10 @@ function expr.install(c: state.Checker): nil
             end
             local base = numberLiteralType(literal.text)
             local value = tonumber((literal.text:gsub("_", "")))
-            if value and (base == T.integer or base == T.number) then
+            if value and (base == T.integer or base == T.float or base == T.number) then
+                if base == T.integer and (value > 9007199254740991 or value < -9007199254740991) then
+                    return base
+                end
                 c.fixedWidth.markLiteral(node, value)
                 return T.literal(value, base)
             end

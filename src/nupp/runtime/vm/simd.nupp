@@ -85,21 +85,21 @@ local function writeLane(ptr: voidptr, lane: int64, kind: int64, bits: uint64): 
     end
 end
 
-local function floatOf(bits: uint64, kind: int64): number
+local function floatOf(bits: uint64, kind: int64): float64
     if kind == 8 then
         return native.floatFromBits(bits)
     end
     return native.fromBits(bits)
 end
 
-local function bitsOf(value: number, kind: int64): uint64
+local function bitsOf(value: float64, kind: int64): uint64
     if kind == 8 then
         return native.floatBits(value)
     end
     return native.bits(value)
 end
 
-local function rounded(value: number, kind: int64): number
+local function rounded(value: float64, kind: int64): float64
     if kind == 8 then
         return native.roundFloat(value)
     end
@@ -423,7 +423,7 @@ end
 
 local function converted(bits: uint64, kind: int64, source: int64): uint64
     if kind >= 8 then
-        local f: number = 0
+        local f: float64 = 0.0
         if source >= 8 then
             f = floatOf(bits, source)
         elseif signed(source) then
@@ -434,9 +434,9 @@ local function converted(bits: uint64, kind: int64, source: int64): uint64
         return canonical(bitsOf(f, kind), kind)
     elseif source >= 8 then
         local f = floatOf(bits, source)
-        local high: number = 9223372036854775808
+        local high: float64 = 9223372036854775808.0
         if kind == 6 then
-            high = 18446744073709551616
+            high = 18446744073709551616.0
         end
         if f >= -9223372036854775808 and f < high then
             if kind == 6 and f >= 0 then

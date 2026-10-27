@@ -21,11 +21,21 @@ local elements = {
     int32 = 5,
     uint64 = 6,
     int64 = 7,
-    float = 8,
+    float32 = 8,
+    float64 = 9,
     number = 9
 }
 local widths = {[0] = 1, [1] = 1, [2] = 2, [3] = 2, [4] = 4, [5] = 4, [6] = 8, [7] = 8, [8] = 4, [9] = 8}
-local scalars = {uint32 = "u32", int32 = "i32", number = "f64", integer = "f64", float = "f32", boolean = "bool"}
+local scalars = {
+    uint32 = "u32",
+    int32 = "i32",
+    integer = "i64",
+    int64 = "i64",
+    uint64 = "u64",
+    float64 = "f64",
+    float32 = "f32",
+    boolean = "bool"
+}
 
 local function refuse(reason: string): nil
     REFUSED.reason = reason
@@ -146,7 +156,13 @@ function frontend.build(body: any, mapMode: boolean?): any
     need(#(body.rets or {}) <= 1, "one result required")
     local resultType = body.signatureType and raw(body.signatureType.rets[1])
     need(
-        resultType and (resultType.tag == "nil" or resultType.tag == "number" or resultType.tag == "integer"),
+        resultType
+        and (
+            resultType.tag == "nil"
+            or resultType.tag == "int64"
+            or resultType.tag == "float64"
+            or resultType.tag == "float32"
+        ),
         "boxed numeric or nil result"
     )
     need(#body.params < 240, "boxed parameter capacity")
@@ -534,7 +550,13 @@ function frontend.build(body: any, mapMode: boolean?): any
             end
             local ty = raw(n.inferredType)
             local arithmeticType = ty and scalars[ty.tag]
-            need(arithmeticType ~= "i32" and arithmeticType ~= "f32", "narrow scalar arithmetic")
+            need(
+                arithmeticType ~= "i32"
+                and arithmeticType ~= "f32"
+                and arithmeticType ~= "i64"
+                and arithmeticType ~= "u64",
+                "unsupported scalar arithmetic width"
+            )
             local a = expression(n.lhs, arithmeticType == "u32" and "u32" or nil)
             local c = expression(n.rhs, arithmeticType == "u32" and "u32" or nil)
             return binary(n.op.text, a, c, arithmeticType)
@@ -741,7 +763,13 @@ function frontend.build(body: any, mapMode: boolean?): any
                     need(
                         not annotation
                         or ty
-                        and (ty.tag == "number" or ty.tag == "integer" or ty.tag == "uint32" or ty.tag == "boolean"),
+                        and (
+                            ty.tag == "int64"
+                            or ty.tag == "float64"
+                            or ty.tag == "float32"
+                            or ty.tag == "uint32"
+                            or ty.tag == "boolean"
+                        ),
                         "local annotation outside the admitted representations"
                     )
                     values[i] = expression(e, ty and scalars[ty.tag])

@@ -174,10 +174,9 @@ local function tag(t: any): string
         return "struct"
     end
     local kind = t and t.tag or "missing"
-    -- An integer-valued number is a number here: the refinement changes no
-    -- representation.
+    -- Physical kinds retain exact width and signedness through emission.
 
-    return kind == "integer" and "number" or kind
+    return kind
 end
 
 -- The type under literal and const wrappers.
@@ -230,11 +229,11 @@ local function sizeOf(t: any): (number, number)
 end
 
 -- The scalar kind a struct field is loaded and stored as. A tag field (an
--- integer literal type) and an `integer` field occupy the `int32` a C
--- enumerator does, whatever the checker reads them back as.
+-- integer literal type) occupies the `int32` a C enumerator does. Ordinary
+-- integer fields use their canonical signed64 representation.
 local function fieldKind(t: any): string
     local r = raw(t)
-    if r and (r.tag == "integer" or (r.tag == "literal" and type(r.constant) == "number")) then
+    if r and (r.tag == "literal" and type(r.constant) == "number") then
         return "int32"
     end
 
@@ -305,7 +304,7 @@ local function machine(kind: string): string
         or kind == "carray"
     then
         return "i64"
-    elseif kind == "number" then
+    elseif kind == "float64" then
         return "f64"
     elseif kind == "boolean" then
         return "i8"
@@ -383,7 +382,7 @@ local intrinsicKinds = {
     load64 = "uint64",
     loadIndex = "int64",
     loadPointer = "voidptr",
-    loadFloat = "number"
+    loadFloat = "float64"
 }
 local intrinsicStores = {
     store8 = "istore8",
@@ -400,21 +399,21 @@ local intrinsicStoreKinds = {
     store64 = "uint64",
     storeIndex = "int64",
     storePointer = "voidptr",
-    storeFloat = "number",
+    storeFloat = "float64",
     store32 = "int64"
 }
 local intrinsicUnary = {
-    bits = {"bitcast.i64", "number", "uint64"},
-    fromBits = {"bitcast.f64", "uint64", "number"},
-    floor = {"floor", "number", "number"},
-    sqrt = {"sqrt", "number", "number"},
-    ceil = {"ceil", "number", "number"},
+    bits = {"bitcast.i64", "float64", "uint64"},
+    fromBits = {"bitcast.f64", "uint64", "float64"},
+    floor = {"floor", "float64", "float64"},
+    sqrt = {"sqrt", "float64", "float64"},
+    ceil = {"ceil", "float64", "float64"},
     popcount = {"popcnt", "uint64", "uint64"},
-    neg = {"fneg", "number", "number"},
-    toFloat = {"fcvt_from_sint.f64", "int64", "number"},
-    toInt = {"fcvt_to_sint_sat.i64", "number", "int64"},
-    unsignedFloat = {"fcvt_from_uint.f64", "uint64", "number"},
-    unsignedInt = {"fcvt_to_uint_sat.i64", "number", "uint64"},
+    neg = {"fneg", "float64", "float64"},
+    toFloat = {"fcvt_from_sint.f64", "int64", "float64"},
+    toInt = {"fcvt_to_sint_sat.i64", "float64", "int64"},
+    unsignedFloat = {"fcvt_from_uint.f64", "uint64", "float64"},
+    unsignedInt = {"fcvt_to_uint_sat.i64", "float64", "uint64"},
     asWord = {"uextend.i64", "boolean", "uint64"}
 }
 local intrinsicIdentity = {
@@ -537,7 +536,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
     -- checker's type says nothing more.
     local function kindOfVariable(variable: any): string
         local t = b.typeOf(variable)
-        return t == "f64" and "number" or (t == "i8" and "boolean" or "int64")
+        return t == "f64" and "float64" or (t == "i8" and "boolean" or "int64")
     end
 
     -- The affine values `with` statements hold at this point, innermost last,
@@ -657,14 +656,14 @@ local function compileDirectFunction(fn: Fn, options: any): string
 
     local function materialize(e: any, kind: string): string
         if e.literal then
-            if kind == "number" then
+            if kind == "float64" then
                 return emit("f64const " .. hexFloat(tonumber(e.literal) as number))
             elseif kind == "boolean" then
                 error("lower: a number is not a boolean", 0)
             end
             return constant("i64", e.literal)
         end
-        if kind == "number" and isFixed32(e.kind) then
+        if kind == "float64" and isFixed32(e.kind) then
             -- A fixed width widens to a number without changing its value.
             return emit((e.kind == "uint32" and "fcvt_from_uint.f64 " or "fcvt_from_sint.f64 ") .. e.value)
         end
@@ -678,7 +677,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
 
     -- A memory access of one field or intrinsic width.
     local function load(kind: string, address: string): string
-        if kind == "number" then
+        if kind == "float64" then
             return emit("load.f64 notrap " .. address)
         elseif kind == "boolean" then
             return emit("load.i8 notrap " .. address)
@@ -764,7 +763,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
         end
         local inferred = tag(n.inferredType)
 
-        return inferred == "missing" and "number" or inferred
+        return inferred == "missing" and "float64" or inferred
     end
 
     local function condition(n: any): string
@@ -866,7 +865,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
 
     local function arithmetic(n: any, op: string, kind: string, lhs: any, rhs: any): any
         local a, c = materialize(lhs, kind), materialize(rhs, kind)
-        if kind == "number" then
+        if kind == "float64" then
             if op == "%" then
                 local quotient = emit("fdiv " .. a .. ", " .. c)
                 local floored = emit("floor " .. quotient)
@@ -944,7 +943,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
         local kind = kindOf(n.lhs, lhs, rhs)
         local a, c = materialize(lhs, kind), materialize(rhs, kind)
         local text: string
-        if kind == "number" then
+        if kind == "float64" then
             text = "fcmp " .. compareFloat[op]
         elseif kind == "uint64" or kind == "uint32" or kind == "voidptr" or kind == "ptr" then
             text = "icmp " .. compareUnsigned[op]
@@ -1207,19 +1206,19 @@ local function compileDirectFunction(fn: Fn, options: any): string
             need(bytes and bytes > 0 and bytes <= 4096 and bytes % 1 == 0, "stack scratch size out of range")
             return {kind = "voidptr", value = emit("stack_addr.i64 " .. declareSlot(bytes as number, 16))}
         elseif intrinsicName == "floatBits" then
-            local narrow = emit("fdemote.f32 " .. arg(1, "number"))
+            local narrow = emit("fdemote.f32 " .. arg(1, "float64"))
             return {kind = "uint64", value = emit("uextend.i64 " .. emit("bitcast.i32 " .. narrow))}
         elseif intrinsicName == "floatFromBits" then
             local narrow = emit("ireduce.i32 " .. arg(1, "uint64"))
-            return {kind = "number", value = emit("fpromote.f64 " .. emit("bitcast.f32 " .. narrow))}
+            return {kind = "float64", value = emit("fpromote.f64 " .. emit("bitcast.f32 " .. narrow))}
         elseif intrinsicName == "roundFloat" or intrinsicName == "sqrtFloat" then
-            local narrow = emit("fdemote.f32 " .. arg(1, "number"))
+            local narrow = emit("fdemote.f32 " .. arg(1, "float64"))
             if intrinsicName == "sqrtFloat" then
                 narrow = emit("sqrt " .. narrow)
             end
-            return {kind = "number", value = emit("fpromote.f64 " .. narrow)}
+            return {kind = "float64", value = emit("fpromote.f64 " .. narrow)}
         elseif intrinsicName == "fma" or intrinsicName == "fmaFloat" then
-            local a, c, d = arg(1, "number"), arg(2, "number"), arg(3, "number")
+            local a, c, d = arg(1, "float64"), arg(2, "float64"), arg(3, "float64")
             if intrinsicName == "fmaFloat" then
                 a, c, d = emit("fdemote.f32 " .. a), emit("fdemote.f32 " .. c), emit("fdemote.f32 " .. d)
             end
@@ -1227,7 +1226,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
             if intrinsicName == "fmaFloat" then
                 v = emit("fpromote.f64 " .. v)
             end
-            return {kind = "number", value = v}
+            return {kind = "float64", value = v}
         elseif intrinsicName == "unsignedMulHigh"
             or intrinsicName == "signedMulHigh"
             or intrinsicName == "signedQuotient"
@@ -1280,7 +1279,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
             local e = expression(need(args[index], identity .. ": argument " .. tostring(index)))
             if e.literal then
                 return constant("i64", e.literal)
-            elseif e.kind == "number" then
+            elseif e.kind == "float64" then
                 return emit("fcvt_to_sint_sat.i64 " .. e.value)
             end
             need(machine(e.kind) == "i64", identity .. ": integer argument required")
@@ -1422,7 +1421,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
             if inner.literal then
                 return {kind = kind, value = materialize(inner, kind), type = n.inferredType}
             end
-            if kind == "number" and isFixed32(inner.kind) then
+            if kind == "float64" and isFixed32(inner.kind) then
                 return {kind = kind, value = materialize(inner, kind), type = n.inferredType}
             end
             need(machine(inner.kind) == machine(kind), "a cast cannot change representation")
@@ -1434,7 +1433,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
                 if operand.literal then
                     return {literal = "-" .. operand.literal}
                 end
-                local opName = operand.kind == "number" and "fneg" or "ineg"
+                local opName = operand.kind == "float64" and "fneg" or "ineg"
                 local negated = emit(opName .. " " .. operand.value)
                 if isFixed32(operand.kind) then
                     negated = wrap32(operand.kind, negated)
@@ -1466,7 +1465,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
             end
             local kind = kindOf(n, lhs, rhs)
             if lhs.literal and rhs.literal then
-                kind = tag(n.inferredType) == "missing" and "number" or tag(n.inferredType)
+                kind = tag(n.inferredType) == "missing" and "float64" or tag(n.inferredType)
             end
             return arithmetic(n, op, kind, lhs, rhs)
         elseif isIntrinsicCall(n) then
@@ -1491,7 +1490,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
             and not b.typeOf(n.obj.obj.token.definition or "math")
         then
             local operand = expression(need(n.args.exprs and n.args.exprs[1], "math.floor takes a number"))
-            return {kind = "number", value = emit("floor " .. materialize(operand, "number"))}
+            return {kind = "float64", value = emit("floor " .. materialize(operand, "float64"))}
         elseif n.kind == "call" then
             local target = resolveCallee(n, scope, modules)
             local exprs = n.args.exprs or {}
@@ -1645,7 +1644,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
     local function assign(token: any, e: any): nil
         local variable = variableOf(token)
         local kind = kindOfVariable(variable)
-        if not e.literal and not (kind == "number" and isFixed32(e.kind)) then
+        if not e.literal and not (kind == "float64" and isFixed32(e.kind)) then
             need(machine(e.kind) == b.typeOf(variable), "assignment changes representation")
             kind = e.kind
         end
@@ -1744,7 +1743,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
                 local e = expression(need(exprs[index], "local needs an initializer"))
                 local declared = tag(token.inferredType)
                 if declared == "missing" then
-                    declared = e.literal and "number" or e.kind
+                    declared = e.literal and "float64" or e.kind
                 end
                 local variable = declare(token, declared, token.inferredType or e.type)
                 writeVariable(variable, b.here(), materialize(e, declared))

@@ -107,7 +107,7 @@ local function nuppType(model, structs, resolver)
     elseif kind == "boolean" then
         return T.boolean
     elseif kind == "float" then
-        return model.bits == 32 and T.float or T.number
+        return model.bits == 32 and T.float32 or T.float
     elseif kind == "integer" then
         local pair = INT_BY_BITS[model.bits]
         if not pair then

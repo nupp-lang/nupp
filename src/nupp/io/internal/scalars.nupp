@@ -94,7 +94,7 @@ export interface ScalarReader is nupp.Closeable
     --- @param self this reader
     --- @return the value, widened to a Lua number
     --- @raises string when fewer than 4 bytes are left
-    readFloat32: function(self: ScalarReader): float
+    readFloat32: function(self: ScalarReader): float32
 
     --- Reads a 64-bit float in the machine's byte order.
     --- @param self this reader
@@ -218,7 +218,7 @@ local record Scalars is ScalarReader
         return value as int64
     end
 
-    function readFloat32(self): float
+    function readFloat32(self): float32
         local raw = taken(self, 4)
         local value = physical.decodeFloat32(raw)
 
@@ -297,7 +297,7 @@ export interface ScalarWriter is nupp.Closeable
     --- @param self this writer
     --- @param value the number to write
     --- @return this writer
-    writeFloat32: function(borrows self: ScalarWriter, value: float): ScalarWriter borrows (self)
+    writeFloat32: function(borrows self: ScalarWriter, value: float32): ScalarWriter borrows (self)
 
     --- Writes a 64-bit float in the machine's byte order.
     --- @param self this writer
@@ -395,7 +395,7 @@ local record ScalarSink is ScalarWriter
         return self
     end
 
-    function writeFloat32(borrows self, value: float): ScalarWriter borrows (self)
+    function writeFloat32(borrows self, value: float32): ScalarWriter borrows (self)
         put(self, physical.encodeFloat32(value))
 
         return self

@@ -124,7 +124,7 @@ export interface CstorageProvider
     @readonly encodeInt64: function(value: int64): string
 
     --- Decodes an IEEE-754 binary32 value using the target storage byte order.
-    @readonly decodeFloat32: function(bytes: string): float
+    @readonly decodeFloat32: function(bytes: string): float32
 
     --- Encodes an IEEE-754 binary32 value using the target storage byte order.
     @readonly encodeFloat32: function(value: number): string

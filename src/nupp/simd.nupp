@@ -185,25 +185,25 @@ end
 --- @export
 local reducer: {
     orderedSum: function(initial: number): simd.OrderedSum<number>
-    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.OrderedSum<T>,
+    & function<T is float32 | number>(element: StorageWitness<T>, initial: number): simd.OrderedSum<T>,
     pairwiseSum: function(initial: number): simd.PairwiseSum<number>
-    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.PairwiseSum<T>,
+    & function<T is float32 | number>(element: StorageWitness<T>, initial: number): simd.PairwiseSum<T>,
     compensatedSum: function(initial: number): simd.CompensatedSum<number>
-    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.CompensatedSum<T>,
+    & function<T is float32 | number>(element: StorageWitness<T>, initial: number): simd.CompensatedSum<T>,
     algebraicSum: function(initial: number): simd.AlgebraicSum<number>
-    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.AlgebraicSum<T>,
+    & function<T is float32 | number>(element: StorageWitness<T>, initial: number): simd.AlgebraicSum<T>,
     orderedProduct: function(initial: number): simd.OrderedProduct<number>
-    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.OrderedProduct<T>,
+    & function<T is float32 | number>(element: StorageWitness<T>, initial: number): simd.OrderedProduct<T>,
     pairwiseProduct: function(initial: number): simd.PairwiseProduct<number>
-    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.PairwiseProduct<T>,
+    & function<T is float32 | number>(element: StorageWitness<T>, initial: number): simd.PairwiseProduct<T>,
     algebraicProduct: function(initial: number): simd.AlgebraicProduct<number>
-    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.AlgebraicProduct<T>,
+    & function<T is float32 | number>(element: StorageWitness<T>, initial: number): simd.AlgebraicProduct<T>,
     orderedDot: function(initial: number): simd.OrderedDot<number>
-    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.OrderedDot<T>,
+    & function<T is float32 | number>(element: StorageWitness<T>, initial: number): simd.OrderedDot<T>,
     pairwiseDot: function(initial: number): simd.PairwiseDot<number>
-    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.PairwiseDot<T>,
+    & function<T is float32 | number>(element: StorageWitness<T>, initial: number): simd.PairwiseDot<T>,
     algebraicDot: function(initial: number): simd.AlgebraicDot<number>
-    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.AlgebraicDot<T>,
+    & function<T is float32 | number>(element: StorageWitness<T>, initial: number): simd.AlgebraicDot<T>,
     wrappingSum: function<T is int32 | uint32 | int64 | uint64>(
         element: StorageWitness<T>,
         initial: Given(T)
@@ -238,21 +238,21 @@ local reducer: {
     integerArgMin: function<T is int32 | uint32 | int64 | uint64>(element: StorageWitness<T>): simd.IntegerArgMin<T>,
     integerArgMax: function<T is int32 | uint32 | int64 | uint64>(element: StorageWitness<T>): simd.IntegerArgMax<T>,
     propagatingMin: function(initial: number): simd.PropagatingMin<number>
-    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.PropagatingMin<T>,
+    & function<T is float32 | number>(element: StorageWitness<T>, initial: number): simd.PropagatingMin<T>,
     propagatingMax: function(initial: number): simd.PropagatingMax<number>
-    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.PropagatingMax<T>,
+    & function<T is float32 | number>(element: StorageWitness<T>, initial: number): simd.PropagatingMax<T>,
     propagatingArgMin: function(): simd.PropagatingArgMin<number>
-    & function<T is float | number>(element: StorageWitness<T>): simd.PropagatingArgMin<T>,
+    & function<T is float32 | number>(element: StorageWitness<T>): simd.PropagatingArgMin<T>,
     propagatingArgMax: function(): simd.PropagatingArgMax<number>
-    & function<T is float | number>(element: StorageWitness<T>): simd.PropagatingArgMax<T>,
+    & function<T is float32 | number>(element: StorageWitness<T>): simd.PropagatingArgMax<T>,
     numberMin: function(initial: number): simd.NumberMin<number>
-    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.NumberMin<T>,
+    & function<T is float32 | number>(element: StorageWitness<T>, initial: number): simd.NumberMin<T>,
     numberMax: function(initial: number): simd.NumberMax<number>
-    & function<T is float | number>(element: StorageWitness<T>, initial: number): simd.NumberMax<T>,
+    & function<T is float32 | number>(element: StorageWitness<T>, initial: number): simd.NumberMax<T>,
     numberArgMin: function(): simd.NumberArgMin<number>
-    & function<T is float | number>(element: StorageWitness<T>): simd.NumberArgMin<T>,
+    & function<T is float32 | number>(element: StorageWitness<T>): simd.NumberArgMin<T>,
     numberArgMax: function(): simd.NumberArgMax<number>
-    & function<T is float | number>(element: StorageWitness<T>): simd.NumberArgMax<T>
+    & function<T is float32 | number>(element: StorageWitness<T>): simd.NumberArgMax<T>
 } = {} as any
 
 --- The value unchanged: what a `number` reducer rounds with.
@@ -303,7 +303,7 @@ end
 --- is binary32, each contribution and every operation's result rounded as
 --- `nupp.math.f32` rounds them.
 --- @export
-record simd.OrderedSum<T is float | number> is simd.Reducer<T>
+record simd.OrderedSum<T is float32 | number> is simd.Reducer<T>
     @private total: number
     @private round: function(number): number
 
@@ -338,7 +338,7 @@ end
 --- is binary32, each contribution and every operation's result rounded as
 --- `nupp.math.f32` rounds them.
 --- @export
-record simd.PairwiseSum<T is float | number> is simd.Reducer<T>
+record simd.PairwiseSum<T is float32 | number> is simd.Reducer<T>
     @private partials: {number?}
     @private count: integer
     @private round: function(number): number
@@ -406,7 +406,7 @@ end
 --- is binary32, each contribution and every operation's result rounded as
 --- `nupp.math.f32` rounds them.
 --- @export
-record simd.AlgebraicSum<T is float | number> is simd.Reducer<T>
+record simd.AlgebraicSum<T is float32 | number> is simd.Reducer<T>
     @private total: number
     @private round: function(number): number
 
@@ -457,7 +457,7 @@ end
 --- `nupp.math.f32` rounds them.
 --- A `float` reducer keeps its total and its compensation in binary32.
 --- @export
-record simd.CompensatedSum<T is float | number> is simd.Reducer<T>
+record simd.CompensatedSum<T is float32 | number> is simd.Reducer<T>
     @private total: number
     @private compensation: number
     @private round: function(number): number
@@ -500,7 +500,7 @@ end
 --- is binary32, each contribution and every operation's result rounded as
 --- `nupp.math.f32` rounds them.
 --- @export
-record simd.OrderedProduct<T is float | number> is simd.Reducer<T>
+record simd.OrderedProduct<T is float32 | number> is simd.Reducer<T>
     @private total: number
     @private round: function(number): number
 
@@ -535,7 +535,7 @@ end
 --- is binary32, each contribution and every operation's result rounded as
 --- `nupp.math.f32` rounds them.
 --- @export
-record simd.PairwiseProduct<T is float | number> is simd.Reducer<T>
+record simd.PairwiseProduct<T is float32 | number> is simd.Reducer<T>
     @private partials: {number?}
     @private count: integer
     @private round: function(number): number
@@ -600,7 +600,7 @@ end
 --- is binary32, each contribution and every operation's result rounded as
 --- `nupp.math.f32` rounds them.
 --- @export
-record simd.AlgebraicProduct<T is float | number> is simd.Reducer<T>
+record simd.AlgebraicProduct<T is float32 | number> is simd.Reducer<T>
     @private total: number
     @private round: function(number): number
 
@@ -636,7 +636,7 @@ end
 --- `nupp.math.f32` rounds them.
 --- Each product rounds before it is added.
 --- @export
-record simd.OrderedDot<T is float | number> is simd.Reducer<T>
+record simd.OrderedDot<T is float32 | number> is simd.Reducer<T>
     @private total: number
     @private round: function(number): number
 
@@ -672,7 +672,7 @@ end
 --- `nupp.math.f32` rounds them.
 --- Each product rounds before it joins the tree.
 --- @export
-record simd.PairwiseDot<T is float | number> is simd.Reducer<T>
+record simd.PairwiseDot<T is float32 | number> is simd.Reducer<T>
     @private sum: simd.PairwiseSum<T>
     @private round: function(number): number
 
@@ -709,7 +709,7 @@ end
 --- Ordinary Lua rounds each product before adding it; native lowering may
 --- fuse the two.
 --- @export
-record simd.AlgebraicDot<T is float | number> is simd.Reducer<T>
+record simd.AlgebraicDot<T is float32 | number> is simd.Reducer<T>
     @private total: number
     @private round: function(number): number
 
@@ -1504,7 +1504,7 @@ end
 --- `T` is the element: `number` or `float`. An extremum rounds nothing, so
 --- the two differ only in what a vector contribution is a vector of.
 --- @export
-record simd.PropagatingMin<T is float | number> is simd.Reducer<T>
+record simd.PropagatingMin<T is float32 | number> is simd.Reducer<T>
     @private best: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
@@ -1551,7 +1551,7 @@ end) as any
 --- `T` is the element: `number` or `float`. An extremum rounds nothing, so
 --- the two differ only in what a vector contribution is a vector of.
 --- @export
-record simd.PropagatingArgMin<T is float | number> is simd.Reducer<integer>
+record simd.PropagatingArgMin<T is float32 | number> is simd.Reducer<integer>
     @private best: number
     @private position: integer
     @private count: integer
@@ -1604,7 +1604,7 @@ end) as any
 --- `T` is the element: `number` or `float`. An extremum rounds nothing, so
 --- the two differ only in what a vector contribution is a vector of.
 --- @export
-record simd.PropagatingMax<T is float | number> is simd.Reducer<T>
+record simd.PropagatingMax<T is float32 | number> is simd.Reducer<T>
     @private best: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
@@ -1651,7 +1651,7 @@ end) as any
 --- `T` is the element: `number` or `float`. An extremum rounds nothing, so
 --- the two differ only in what a vector contribution is a vector of.
 --- @export
-record simd.PropagatingArgMax<T is float | number> is simd.Reducer<integer>
+record simd.PropagatingArgMax<T is float32 | number> is simd.Reducer<integer>
     @private best: number
     @private position: integer
     @private count: integer
@@ -1704,7 +1704,7 @@ end) as any
 --- `T` is the element: `number` or `float`. An extremum rounds nothing, so
 --- the two differ only in what a vector contribution is a vector of.
 --- @export
-record simd.NumberMin<T is float | number> is simd.Reducer<T>
+record simd.NumberMin<T is float32 | number> is simd.Reducer<T>
     @private best: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
@@ -1751,7 +1751,7 @@ end) as any
 --- `T` is the element: `number` or `float`. An extremum rounds nothing, so
 --- the two differ only in what a vector contribution is a vector of.
 --- @export
-record simd.NumberArgMin<T is float | number> is simd.Reducer<integer>
+record simd.NumberArgMin<T is float32 | number> is simd.Reducer<integer>
     @private best: number
     @private position: integer
     @private count: integer
@@ -1804,7 +1804,7 @@ end) as any
 --- `T` is the element: `number` or `float`. An extremum rounds nothing, so
 --- the two differ only in what a vector contribution is a vector of.
 --- @export
-record simd.NumberMax<T is float | number> is simd.Reducer<T>
+record simd.NumberMax<T is float32 | number> is simd.Reducer<T>
     @private best: number
 
     --- `active` selects the lanes of a vector that contribute, in lane order,
@@ -1851,7 +1851,7 @@ end) as any
 --- `T` is the element: `number` or `float`. An extremum rounds nothing, so
 --- the two differ only in what a vector contribution is a vector of.
 --- @export
-record simd.NumberArgMax<T is float | number> is simd.Reducer<integer>
+record simd.NumberArgMax<T is float32 | number> is simd.Reducer<integer>
     @private best: number
     @private position: integer
     @private count: integer

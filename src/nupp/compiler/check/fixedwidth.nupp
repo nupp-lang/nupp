@@ -49,7 +49,7 @@ function fixedCheck.install(c: state.Checker): Ops
 
     ops.markLiteral = function(node, value)
         local facts = {}
-        for _, target in ipairs({T.float, T.int32, T.uint32}) do
+        for _, target in ipairs({T.float32, T.int32, T.uint32}) do
             if fixed.literalFits(value, target) then
                 facts[target.tag] = true
             end
@@ -152,7 +152,7 @@ function fixedCheck.install(c: state.Checker): Ops
 
     local function conversionFor(source, target): string?
         local tag = T.unwrapOwnership(target).tag
-        if tag == "float" then
+        if tag == "float32" then
             return fixed.conversionPath(target)
         elseif tag == "int32" or tag == "uint32" then
             local raw = T.unwrapOwnership(source)
@@ -227,8 +227,17 @@ function fixedCheck.install(c: state.Checker): Ops
             end
         end
 
-        local ok, why = isA(source, target)
         local rawTarget = T.unwrapOwnership(target)
+        if rawTarget == T.float and node and node.kind == "number" then
+            local value = tonumber((node.token.text:gsub("_", ""):gsub("[Ll]+$", "")))
+            if value ~= nil then
+                node.wideIntegerLiteralTag = nil
+                node.wideIntegerLiteralText = nil
+                node.inferredType = T.literal(value + 0.0, T.float)
+                return true, nil, false
+            end
+        end
+        local ok, why = isA(source, target)
         if ok and node and (rawTarget.tag == "int64" or rawTarget.tag == "uint64") then
             local literal = T.unwrapOwnership(source)
             local inner = node

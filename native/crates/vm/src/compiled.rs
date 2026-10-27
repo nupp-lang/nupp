@@ -558,7 +558,7 @@ pub extern "C" fn j_phys_set(object:u64, identity:u64, name:u64, packed:u64, val
 #[unsafe(no_mangle)]
 pub extern "C" fn j_phys_read_slow(object:u64,name:u64,carrier:u64,out:*mut u64)->u64 {
     ctx().guarded(|it| { let _hp=enter_helper!(); let value=it.index(V(object),V(name));
-        let bits=match carrier {1=>crate::numeric::double(it,value).to_bits(),2=>crate::numeric::bits(it,value,false),3=>crate::numeric::bits(it,value,true),_=>unreachable!()};
+        let bits=match carrier {1=>crate::numeric::double(it,value).to_bits(),2=>crate::numeric::bits(it,value,false),3=>crate::numeric::word(it,value,true),_=>unreachable!()};
         unsafe{out.write(bits);} V::NIL
     }).0
 }

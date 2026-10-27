@@ -158,8 +158,9 @@ local function debugSpec(T: type, contract: type): any
             or value.name == "boolean"
             or value.name == "string"
             or value.name == "number"
-            or value.name == "integer"
-            or value.name == "float"
+            or value.name == "int64"
+            or value.name == "float32"
+            or value.name == "float64"
             or value.name:find("int", 1, true)
             or value.name:find("uint", 1, true)
         then

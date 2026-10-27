@@ -94,7 +94,6 @@ function lower.emit(
     -- Names the module ever assigns a `%` or `//` result, by name: a zero
     -- divisor makes those nan or an infinity whatever the checker says, which
     -- an integer register cannot hold.
-    local remainderNames = {}
     local SURVEY = {}
     local SURVEY_EXAMPLE = {}
 
@@ -191,7 +190,18 @@ function lower.emit(
 
     local function slotTy(t)
         local tag = tyTag(t)
-        if tag == "number" or tag == "integer" then
+        if tag == "number"
+            or tag == "int64"
+            or tag == "uint64"
+            or tag == "float64"
+            or tag == "float32"
+            or tag == "int8"
+            or tag == "uint8"
+            or tag == "int16"
+            or tag == "uint16"
+            or tag == "int32"
+            or tag == "uint32"
+        then
             return "num"
         end
         if tag == "string" then
@@ -422,7 +432,8 @@ function lower.emit(
         uint32 = 6,
         int64 = 7,
         uint64 = 8,
-        float = 9,
+        float32 = 9,
+        float64 = 10,
         number = 10
     }
 
@@ -618,7 +629,7 @@ function lower.emit(
 
     local function isNumeric(t)
         local tag = tyTag(t)
-        if tag == "number" or tag == "integer" then
+        if tag == "float64" or tag == "float32" then
             return true
         end
         if tag == "literal" then
@@ -630,7 +641,7 @@ function lower.emit(
 
     local function isInteger(t)
         local tag = tyTag(t)
-        if tag == "integer" then
+        if tag == "integer" or tag == "int64" then
             return true
         elseif tag == "literal" then
             return isInteger(t.base)
@@ -691,22 +702,9 @@ function lower.emit(
         return n.primitiveUntrusted == true
     end
 
-    -- `%` and `//` over integers are integers only for a nonzero divisor: by
-    -- zero they are nan or an infinity (`7 % 0`, `7 // 0`), as on LuaJIT.
-    local function isRemainder(n)
-        while n and n.kind == "paren" do
-            n = n.expr
-        end
-
-        return n ~= nil and n.kind == "binop" and (tokText(n.op) == "%" or tokText(n.op) == "//")
-    end
-
     local function isIntegerish(n)
         if n.kind == "paren" then
             return isIntegerish(n.expr)
-        end
-        if isRemainder(n) or (n.kind == "name" and remainderNames[tokText(n.token)]) then
-            return false
         end
         if n.kind == "number" then
             local text = tokText(n.token);
@@ -973,7 +971,10 @@ function lower.emit(
         thread = "thread",
         userdata = "userdata",
         integer = "number",
-        float = "number",
+        float32 = "number",
+        float64 = "number",
+        int64 = "number",
+        uint64 = "number",
         ["function"] = "function"
     }
 
@@ -2323,21 +2324,41 @@ function lower.emit(
         end
         local wide = wideKind(node.inferredType)
         if k == "number" and not node.inferredType then
-            -- Plain Lua has no checker metadata. The lexer already validated
-            -- this numeric token, including its explicit integer suffix.
             local literal = tokText(node.token):gsub("_", ""):lower()
-            wide = literal:match("ull$") and "u64" or literal:match("ll$") and "i64" or nil
+            if literal:match("ull$") then
+                wide = "u64"
+            elseif literal:match("ll$") then
+                wide = "i64"
+            elseif literal:sub(1, 2) == "0x" then
+                wide = not (literal:find("%.") or literal:find("p")) and "i64" or nil
+            elseif not (literal:find("%.") or literal:find("e")) then
+                local digits = literal:gsub("^0+", "")
+                if #digits < 19 or (#digits == 19 and digits <= "9223372036854775807") then
+                    wide = "i64"
+                end
+            end
         end
         if k == "number" and (wide or node.wideIntegerLiteralTag) then
             local tag = node.wideIntegerLiteralTag or (wide == "u64" and "uint64" or "int64")
             local text = node.wideIntegerLiteralText or tokText(node.token):gsub("_", ""):gsub("[uUlL]+$", "")
+            if tag == "int64" and text:sub(1, 2):lower() == "0x" and #text > 18 then
+                text = "0x" .. text:sub(-16)
+            end
             local d = (want ~= "f" and want ~= "i" and want ~= "u" and dst) or f:reg()
             f:op("K", d, f:const(tag, text))
             return d, "v"
         end
         if k == "binop" then
-            local family = wide or wideKind(node.lhs.inferredType) or wideKind(node.rhs.inferredType)
+            local leftWide, rightWide = wideKind(node.lhs.inferredType), wideKind(node.rhs.inferredType)
+            local family = wide
+                or (leftWide and rightWide and ((leftWide == "u64" or rightWide == "u64") and "u64" or "i64"))
             local op = tokText(node.op)
+            if not family
+                and (op == "&" or op == "|" or op == "~" or op == "<<" or op == ">>" or op == "~>>")
+                and (not node.inferredType or tyTag(node.inferredType) == "any" or tyTag(node.inferredType) == "number")
+            then
+                family = "i64"
+            end
             local operations = {
                 ["+"] = "add",
                 ["-"] = "sub",
@@ -2372,6 +2393,9 @@ function lower.emit(
                     return d, "u"
                 end
             end
+            if op == "/" or op == "^" then
+                family = nil
+            end
             if family and operations[op] then
                 local args = (op == ">" or op == ">=") and {node.rhs, node.lhs} or {node.lhs, node.rhs}
                 return wideOperation(
@@ -2381,6 +2405,13 @@ function lower.emit(
                     (want ~= "f" and want ~= "i" and want ~= "u") and dst or nil
                 )
             end
+        end
+        if k == "unop"
+            and tokText(node.op) == "~"
+            and not wide
+            and (not node.inferredType or tyTag(node.inferredType) == "any" or tyTag(node.inferredType) == "number")
+        then
+            wide = "i64"
         end
         if k == "unop" and wide and (tokText(node.op) == "-" or tokText(node.op) == "~") then
             return wideOperation(
@@ -4009,16 +4040,9 @@ function lower.emit(
                     and value.inferredType
                     or nil
                 if not absent and not f.captured[name] and (ty or not assignedNames[name]) then
-                    if (isInteger(ty) or (not ty and isInteger(inferred)))
-                        and not isRemainder(value)
-                        and not remainderNames[name]
-                    then
+                    if isInteger(ty) or (not ty and isInteger(inferred)) then
                         class = "i"
-                    elseif isInteger(ty)
-                        or (not ty and isInteger(inferred))
-                        or isNumeric(ty)
-                        or (not ty and isNumeric(inferred))
-                    then
+                    elseif isNumeric(ty) or (not ty and isNumeric(inferred)) then
                         class = "f"
                     end
                 end
@@ -5800,21 +5824,12 @@ function lower.emit(
         -- Names the module assigns to anywhere, by name: a `local function` not
         -- among them keeps its closure for the module's life.
         assignedNames = {}
-        remainderNames = {}
         walkSyntax(rootNode.blocks[1], {}, function(n)
             if n.kind == "assignStmt" then
                 for i, t in ipairs(n.targets) do
                     if t.kind == "name" then
                         assignedNames[tokText(t.token)] = true
-                        if isRemainder(n.exprs[i]) then
-                            remainderNames[tokText(t.token)] = true
-                        end
                     end
-                end
-            elseif n.kind == "compoundAssign" and n.target.kind == "name" then
-                local opText = tokText(n.op)
-                if opText == "%=" or opText == "//=" then
-                    remainderNames[tokText(n.target.token)] = true
                 end
             end
         end)

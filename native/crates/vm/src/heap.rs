@@ -731,6 +731,7 @@ impl Heap {
         Some(Value::obj(p))
     }
     pub fn box_integer(&mut self, value: crate::numeric::Integer, roots: &dyn Roots) -> Value {
+        let value = crate::numeric::Integer { bits: value.bits, unsigned: false };
         if let Some(v) = value.immediate().or_else(|| self.integer_lookup(value)) { return v; }
         let p = self.alloc(KIND_INTEGER, 0, roots);
         unsafe { let h = &mut *p.as_ptr(); h.aux = value.unsigned as u32; h.aux_len = value.bits; }

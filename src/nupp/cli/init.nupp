@@ -351,9 +351,13 @@ local function valueSpec(T: type): any
             return {conversion = "string", destination = "string"}
         elseif described.name == "boolean" then
             return {conversion = "boolean", destination = "boolean"}
-        elseif described.name == "number" or described.name == "float" then
+        elseif described.name == "number"
+            or described.name == "float"
+            or described.name == "float32"
+            or described.name == "float64"
+        then
             return {conversion = "number", destination = described.name}
-        elseif described.name == "integer" then
+        elseif (described.name == "integer" or described.name == "int64") then
             return {conversion = "integer", destination = "integer"}
         elseif described.name == "int8" then
             return {conversion = "integer", destination = "int8", minimum = -128, maximum = 127}

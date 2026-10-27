@@ -237,7 +237,19 @@ end
 --- element type's tag.
 const VECTOR_ELEMENT_BYTES: {
     [string]: integer
-} = {float = 4, number = 8, int8 = 1, uint8 = 1, int16 = 2, uint16 = 2, int32 = 4, uint32 = 4, int64 = 8, uint64 = 8,}
+} = {
+    float32 = 4,
+    float64 = 8,
+    number = 8,
+    int8 = 1,
+    uint8 = 1,
+    int16 = 2,
+    uint16 = 2,
+    int32 = 4,
+    uint32 = 4,
+    int64 = 8,
+    uint64 = 8,
+}
 
 targetLayout.VECTOR_ELEMENT_BYTES = VECTOR_ELEMENT_BYTES
 
@@ -300,7 +312,7 @@ local FIXED: {
     [string]: Scalar
 } = {
     boolean = scalar(1),
-    float = scalar(4),
+    float32 = scalar(4),
     integer = scalar(4),
     int8 = scalar(1),
     int16 = scalar(2),
@@ -335,7 +347,7 @@ function targetLayout.of(t: any, key: string): any?, string?
         elseif subject.tag == "literal" and type(subject.constant) == "number" then
             -- A tag field holds one integer value at the width of a C enumerator.
             return FIXED.int32
-        elseif subject.tag == "number" then
+        elseif subject.tag == "number" or subject.tag == "float64" then
             return model.number
         elseif subject.tag == "int64" or subject.tag == "uint64" then
             return model.int64
@@ -423,7 +435,8 @@ function targetLayout.of(t: any, key: string): any?, string?
                 if width then
                     local unitBits = one.size * 8
                     if not FIXED[fieldType.tag] and fieldType.tag ~= "int64" and fieldType.tag ~= "uint64"
-                        or fieldType.tag == "float"
+                        or fieldType.tag == "float32"
+                        or fieldType.tag == "float64"
                         or width < 1
                         or width > unitBits
                     then

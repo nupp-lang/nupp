@@ -125,7 +125,7 @@ local nupp: {
     ---
     --- ## Fixed-width arithmetic
     ---
-    --- `float`, `int32`, and `uint32` are unboxed refinements of Lua numbers. They
+    --- `float32`, `int32`, and `uint32` are established numeric refinements. They
     --- widen to `number` without code, while entering one requires an exact literal, a
     --- reified load, an explicit conversion, or another established fixed-width value.
     --- The erased assertion `as` changes a static claim but does not establish the
@@ -153,7 +153,7 @@ local nupp: {
     --- assert(mixed == 0x12a)
     --- ```
     ---
-    --- `float` arithmetic through the operators answers a `number`. Use the
+    --- `float32` arithmetic through the operators answers a `float`. Use the
     --- `f32` namespace when binary32 rounding is part of the contract:
     ---
     --- ```nupp
@@ -164,8 +164,8 @@ local nupp: {
     ---
     --- What does survive is being whole. `int32` and `uint32` widen to `integer`, so
     --- arithmetic mixing them with an `integer` gives an `integer`. That is what lets a
-    --- `uint32` cursor index a view as `cursor + 1`. `float` widens to `number` and its
-    --- arithmetic gives one.
+    --- `uint32` cursor index a view as `cursor + 1`. `float32` widens to `float`;
+    --- `integer` and `float` both widen to `number`.
     ---
     --- Aliasing a standard member preserves its intrinsic identity. A local that
     --- merely reuses the name is an ordinary call and receives no fixed-width
@@ -270,10 +270,10 @@ local nupp: {
         --- A Lua string.
         @readonly string: @comptime type,
 
-        --- A double.
+        --- The supertype of integer and floating values.
         @readonly number: @comptime type,
 
-        --- A number known to be integral.
+        --- A signed 64-bit integer, also named `int64`.
         @readonly integer: @comptime type,
 
         --- Any table shape, compatible with every table type in both directions,
@@ -286,8 +286,14 @@ local nupp: {
         --- Userdata.
         @readonly userdata: @comptime type,
 
-        --- An established binary32 Lua number; widens to `number`.
+        --- An IEEE binary64 float, also named `float64`.
         @readonly float: @comptime type,
+
+        --- An IEEE binary64 float, also named `float`.
+        @readonly float64: @comptime type,
+
+        --- An established binary32 float; widens to `float`.
+        @readonly float32: @comptime type,
 
         --- Any cdata value.
         @readonly cdata: @comptime type,
@@ -307,7 +313,7 @@ local nupp: {
         --- An established signed 32-bit Lua integer.
         @readonly int32: @comptime type,
 
-        --- A boxed 64-bit signed integer, as `1LL`.
+        --- A signed 64-bit integer, also named `integer`.
         @readonly int64: @comptime type,
 
         --- Unsigned physical storage; loads as `uint32`.
@@ -319,7 +325,7 @@ local nupp: {
         --- An established unsigned 32-bit Lua integer.
         @readonly uint32: @comptime type,
 
-        --- A boxed 64-bit unsigned integer, as `1ULL`.
+        --- The integer bits interpreted as unsigned.
         @readonly uint64: @comptime type,
 
         --- The singleton type inhabited by a value.
@@ -2251,35 +2257,35 @@ end
 --- nearest, ties-to-even; NaNs use the canonical quiet payload 0x7fc00000.
 --- @internal
 record nupp.F32MathLibrary
-    narrow: @nosuspend function(value: number): float
-    round: @nosuspend function(value: number): float
-    add: @nosuspend function(a: float, b: float): float
-    sub: @nosuspend function(a: float, b: float): float
-    mul: @nosuspend function(a: float, b: float): float
-    div: @nosuspend function(a: float, b: float): float
-    sqrt: @nosuspend function(value: float): float
-    min: @nosuspend function(a: float, b: float): float
-    max: @nosuspend function(a: float, b: float): float
-    fma: @nosuspend function(a: float, b: float, c: float): float
+    narrow: @nosuspend function(value: number): float32
+    round: @nosuspend function(value: number): float32
+    add: @nosuspend function(a: float32, b: float32): float32
+    sub: @nosuspend function(a: float32, b: float32): float32
+    mul: @nosuspend function(a: float32, b: float32): float32
+    div: @nosuspend function(a: float32, b: float32): float32
+    sqrt: @nosuspend function(value: float32): float32
+    min: @nosuspend function(a: float32, b: float32): float32
+    max: @nosuspend function(a: float32, b: float32): float32
+    fma: @nosuspend function(a: float32, b: float32, c: float32): float32
 
     --- A deterministic polynomial exponential, clamped to `[-104, 88]`.
     --- The specified binary32 operation sequence is shared by CPU and GPU AOT.
-    exp: @nosuspend function(value: float): float
+    exp: @nosuspend function(value: float32): float32
 
-    fromBits: @nosuspend function(bits: uint32): float
-    toBits: @nosuspend function(value: float): uint32
+    fromBits: @nosuspend function(bits: uint32): float32
+    toBits: @nosuspend function(value: float32): uint32
 
     --- Widens IEEE binary16 storage bits to binary32, canonicalizing NaN.
-    fromF16Bits: @nosuspend function(bits: uint32): float
+    fromF16Bits: @nosuspend function(bits: uint32): float32
 
     --- Rounds binary32 to IEEE binary16 storage bits, ties to even.
-    toF16Bits: @nosuspend function(value: float): uint32
+    toF16Bits: @nosuspend function(value: float32): uint32
 
     --- Widens the low sixteen IEEE bfloat16 storage bits to binary32.
-    fromBF16Bits: @nosuspend function(bits: uint32): float
+    fromBF16Bits: @nosuspend function(bits: uint32): float32
 
     --- Rounds binary32 to IEEE bfloat16 storage bits, ties to even.
-    toBF16Bits: @nosuspend function(value: float): uint32
+    toBF16Bits: @nosuspend function(value: float32): uint32
 end
 
 --- @internal

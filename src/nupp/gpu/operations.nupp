@@ -123,8 +123,8 @@ function gpu.Phases.run(borrows self: gpu.Phases, scoped stage: function(uint32)
     end
 end
 
-function gpu.Phases.reduceSum(borrows self: gpu.Phases, exclusive valuesInput: api.Shared<float>): nil
-    local values = valuesInput as gpu.Shared<float>
+function gpu.Phases.reduceSum(borrows self: gpu.Phases, exclusive valuesInput: api.Shared<float32>): nil
+    local values = valuesInput as gpu.Shared<float32>
     if values.count ~= self._size or self._size < 1 or self._size & (self._size - 1) ~= 0 then
         error("nupp: fixed-tree reduction needs one power-of-two value per lane", 2)
     end

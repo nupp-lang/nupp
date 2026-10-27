@@ -118,7 +118,8 @@ checkMod.lintFor = lints.get
 -- pointers. Everything GC-managed is out.
 local REIFIABLE_PRIM = {
     number = true,
-    float = true,
+    float32 = true,
+    float64 = true,
     boolean = true,
     integer = true,
     int8 = true,

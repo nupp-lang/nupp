@@ -270,6 +270,9 @@ function operators.install(c: state.Checker): state.ExprHandlers
         local right = T.unwrapOwnership(rt)
         local leftTag = left.tag
         local rightTag = right.tag
+        if leftTag == "int64" or leftTag == "uint64" or rightTag == "int64" or rightTag == "uint64" then
+            return nil
+        end
         local target = (leftTag == "uint32" or rightTag == "uint32") and T.uint32
             or (leftTag == "int32" or rightTag == "int32") and T.int32
             or nil
@@ -277,7 +280,9 @@ function operators.install(c: state.Checker): state.ExprHandlers
             return nil
         end
         for _, operand in ipairs({left, right}) do
-            if operand.tag == "literal" and (operand as T.Literal).base == T.number then
+            if operand.tag == "literal"
+                and ((operand as T.Literal).base == T.number or (operand as T.Literal).base == T.float)
+            then
                 return nil
             end
         end
@@ -508,20 +513,8 @@ function operators.install(c: state.Checker): state.ExprHandlers
                 -- do not later treat it as proof that a colon receiver is primitive.
                 (node as any).primitiveUntrusted = true
             end
-            -- LuaJIT converts the other operand to the box's width, and to unsigned
-            -- when either side is: the result is the wider box, not the left one.
-            local wide = (lt.tag == "uint64" or rt.tag == "uint64") and T.uint64
-                or (lt.tag == "int64" or rt.tag == "int64") and T.int64
-                or nil
-            if wide then
-                capabilities.require(c, "int64", opTok)
-                -- The result is a fresh cdata box, which is an allocation however
-                -- scalar the operands are.
-                node.wideArithmetic = true
-                return wide
-            end
             if op == "/" or op == "^" then
-                return T.number
+                return T.float
             end
             local fixedTarget = fixedArithmeticTarget(lt, rt, lhs, rhs)
             local fixedOperation = FIXED_ARITHMETIC[op]
@@ -537,10 +530,19 @@ function operators.install(c: state.Checker): state.ExprHandlers
 
                 return fixedTarget as Type
             end
-            if integral(lt) and integral(rt) then
-                return T.integer
+            local leftInteger = integral(lt) or lt.tag == "uint64"
+            local rightInteger = integral(rt) or rt.tag == "uint64"
+            if leftInteger and rightInteger then
+                local result = (lt.tag == "uint64" or rt.tag == "uint64") and T.uint64 or T.integer
+                capabilities.require(c, "int64", opTok)
+                node.wideArithmetic = true
+                return result
+            end
+            if isA(lt, T.float) or isA(rt, T.float) then
+                return T.float
             end
             return T.number
+
         elseif op == ".." then
             local mm = c.metamethodOf(lt, "__concat") or c.metamethodOf(rt, "__concat")
             if mm then
@@ -722,7 +724,7 @@ function operators.install(c: state.Checker): state.ExprHandlers
             local established: Type? = nil
             -- The current node has not been memoized by infer yet.
             (node as any).inferredType = result
-            for _, target in ipairs({T.uint32, T.int32, T.float}) do
+            for _, target in ipairs({T.uint32, T.int32, T.float32}) do
                 local hasWidth = false
                 for _, member in ipairs(members) do
                     hasWidth = hasWidth or member.tag == target.tag

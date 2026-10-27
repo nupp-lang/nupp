@@ -52,7 +52,8 @@ local PRIMITIVES: {
     ["table"] = true,
     thread = true,
     userdata = true,
-    float = true,
+    float32 = true,
+    float64 = true,
     cdata = true,
     cstring = true,
     voidptr = true,
@@ -173,6 +174,9 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
     for name in pairs(PRIMITIVES) do
         library[name == "nil" and "nil_" or name == "table" and "table_" or name] = primitive(name)
     end
+
+    library.integer = library.int64
+    library.float = library.float64
 
     -- Not in `PRIMITIVES`, so `nupp.types.open` is not a handle anybody can read. The
     -- only way to place the open member in a union is to call for it, which is what

@@ -36,11 +36,8 @@ local function admitsNil(t: Type): boolean
     return t.tag == "union" and t.hasNil or false
 end
 
--- Numeric widening: tag -> set of tags it silently widens to. Unboxed sized integers
--- widen to `integer` and `number`; float widens to number. The boxed 64-bit types are
--- cdata rather than Lua numbers and widen to nothing: `math.sqrt(1LL)` raises, and a
--- table indexed by one finds nothing. (Real cdata coercion rules land with
--- reification; this is the checking approximation.)
+-- Numeric subtypes share number as their supertype. Binary32 widens to binary64;
+-- fixed-width integer refinements widen to the canonical signed64 integer.
 local WIDENS: {[string]: {[string]: boolean}} = {}
 
 local function widen(from: string, toList: {string})
@@ -51,10 +48,12 @@ local function widen(from: string, toList: {string})
     end
 end
 
-widen("integer", {"number"})
-widen("float", {"number"})
+widen("integer", {"int64", "number"})
+widen("int64", {"number"})
+widen("float64", {"number"})
+widen("float32", {"float64", "number"})
 for _, t in ipairs({"int8", "int16", "int32", "uint8", "uint16", "uint32"}) do
-    widen(t, {"integer", "number"})
+    widen(t, {"int64", "number", "float64"})
 end
 
 -- int64 and uint64 are boxes a Lua number does not enter implicitly: `local x: int64
@@ -66,7 +65,8 @@ local BOXED: {[string]: boolean} = {int64 = true, uint64 = true}
 local CDATA_NUM: {
     [string]: boolean
 } = {
-    float = true,
+    float32 = true,
+    float64 = true,
     int8 = true,
     int16 = true,
     int32 = true,
@@ -1256,8 +1256,13 @@ local function check(a: Type, b: Type): boolean, string?
     if atag == "literal"
         and type(a.constant) == "number"
         and (fixedWidth.isValue(b) or BOXED[btag])
+        and not (BOXED[btag] and a.base == T.float)
         and fixedWidth.literalFits(a.constant, b)
     then
+        return true
+    end
+
+    if atag == "literal" and btag == "float64" and type(a.constant) == "number" then
         return true
     end
 
@@ -1274,6 +1279,7 @@ local function check(a: Type, b: Type): boolean, string?
     if CDATA_NUM[btag]
         and not fixedWidth.isValue(b)
         and not BOXED[btag]
+        and btag ~= "float64"
         and (atag == "number" or atag == "integer" or widensFrom)
     then
         return true
@@ -1616,7 +1622,7 @@ local function check(a: Type, b: Type): boolean, string?
         return true
     end
 
-    -- A table written with string keys and one value type is a map of it: {float =
+    -- A table written with string keys and one value type is a map of it: {float32 =
     -- true, int8 = true} fits {[string]: boolean}. Through a writable map every
     -- field is a key somebody may write, so each must be writable and accept what
     -- the map writes; a literal being checked in place takes the map's type instead.

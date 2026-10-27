@@ -14,10 +14,11 @@ local T = require("nupp.compiler.types")
 
 local fixed = {}
 
-local VALUE = {float = true, int32 = true, uint32 = true}
+local VALUE = {float32 = true, int32 = true, uint32 = true}
 local STORAGE_ONLY = {int8 = true, int16 = true, uint8 = true, uint16 = true}
 local PHYSICAL = {
-    float = true,
+    float64 = true,
+    float32 = true,
     int8 = true,
     int16 = true,
     int32 = true,
@@ -237,7 +238,7 @@ end
 --- refinement. This never performs a conversion.
 function fixed.literalFits(value: number, target: T.Type): boolean
     local tag = T.unwrapOwnership(target).tag
-    if tag == "float" then
+    if tag == "float32" then
         return exactFloat(value)
     elseif tag == "int32" then
         return value % 1 == 0 and value >= -2147483648 and value < 2147483648
@@ -286,13 +287,13 @@ function fixed.physicalLiteralFits(value: number, target: T.Type): boolean
         return value % 1 == 0 and value >= range[1] and value <= range[2]
     end
 
-    return tag ~= "float" or value ~= value or math.abs(value) <= MAX_F32
+    return tag ~= "float32" or value ~= value or math.abs(value) <= MAX_F32
 end
 
 function fixed.widenedName(t: T.Type): string?
     local tag = T.unwrapOwnership(t).tag
-    if tag == "float" then
-        return "number"
+    if tag == "float32" then
+        return "float64"
     elseif tag == "int32" or tag == "uint32" then
         return "integer"
     else
@@ -302,7 +303,7 @@ end
 
 function fixed.conversionPath(t: T.Type): string?
     local tag = T.unwrapOwnership(t).tag
-    if tag == "float" then
+    if tag == "float32" then
         return "nupp.math.f32.narrow"
     elseif tag == "int32" then
         return "nupp.math.i32.wrap"

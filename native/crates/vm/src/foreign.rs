@@ -47,12 +47,12 @@ pub(crate) mod native {
                 b"uint8" => Self::U8,
                 b"int16" => Self::I16,
                 b"uint16" => Self::U16,
-                b"int32" | b"integer" => Self::I32,
+                b"int32" => Self::I32,
                 b"uint32" => Self::U32,
-                b"int64" => Self::I64,
+                b"int64" | b"integer" => Self::I64,
                 b"uint64" => Self::U64,
-                b"float" => Self::F32,
-                b"number" => Self::F64,
+                b"float" | b"float32" => Self::F32,
+                b"number" | b"float64" => Self::F64,
                 b"pointer" => Self::Pointer,
                 _ => vm.err("unsupported foreign ABI type"),
             }
@@ -778,12 +778,12 @@ pub(crate) mod native {
     unsafe fn callback_read(vm: &mut Interp, kind: Scalar, pointer: *const c_void) -> Value {
         match kind {
             Scalar::Bool => Value::boolean(pointer.cast::<u8>().read() != 0),
-            Scalar::I8 => Value::num(pointer.cast::<i8>().read() as f64),
-            Scalar::U8 => Value::num(pointer.cast::<u8>().read() as f64),
-            Scalar::I16 => Value::num(pointer.cast::<i16>().read() as f64),
-            Scalar::U16 => Value::num(pointer.cast::<u16>().read() as f64),
-            Scalar::I32 => Value::num(pointer.cast::<i32>().read() as f64),
-            Scalar::U32 => Value::num(pointer.cast::<u32>().read() as f64),
+            Scalar::I8 => Value::inline_integer(pointer.cast::<i8>().read() as i64).unwrap(),
+            Scalar::U8 => Value::inline_integer(pointer.cast::<u8>().read() as i64).unwrap(),
+            Scalar::I16 => Value::inline_integer(pointer.cast::<i16>().read() as i64).unwrap(),
+            Scalar::U16 => Value::inline_integer(pointer.cast::<u16>().read() as i64).unwrap(),
+            Scalar::I32 => Value::inline_integer(pointer.cast::<i32>().read() as i64).unwrap(),
+            Scalar::U32 => Value::inline_integer(pointer.cast::<u32>().read() as i64).unwrap(),
             Scalar::I64 => vm.box_integer(numeric::Integer {
                 bits: pointer.cast::<u64>().read(),
                 unsigned: false,
@@ -831,24 +831,24 @@ pub(crate) mod native {
             }
             Scalar::I8 => pointer
                 .cast::<isize>()
-                .write(numeric::bits(vm, value, false) as i8 as isize),
+                .write(numeric::word(vm, value, false) as i8 as isize),
             Scalar::U8 => pointer
                 .cast::<usize>()
-                .write(numeric::bits(vm, value, true) as u8 as usize),
+                .write(numeric::word(vm, value, true) as u8 as usize),
             Scalar::I16 => pointer
                 .cast::<isize>()
-                .write(numeric::bits(vm, value, false) as i16 as isize),
+                .write(numeric::word(vm, value, false) as i16 as isize),
             Scalar::U16 => pointer
                 .cast::<usize>()
-                .write(numeric::bits(vm, value, true) as u16 as usize),
+                .write(numeric::word(vm, value, true) as u16 as usize),
             Scalar::I32 => pointer
                 .cast::<isize>()
-                .write(numeric::bits(vm, value, false) as i32 as isize),
+                .write(numeric::word(vm, value, false) as i32 as isize),
             Scalar::U32 => pointer
                 .cast::<usize>()
-                .write(numeric::bits(vm, value, true) as u32 as usize),
-            Scalar::I64 => pointer.cast::<u64>().write(numeric::bits(vm, value, false)),
-            Scalar::U64 => pointer.cast::<u64>().write(numeric::bits(vm, value, true)),
+                .write(numeric::word(vm, value, true) as u32 as usize),
+            Scalar::I64 => pointer.cast::<u64>().write(numeric::word(vm, value, false)),
+            Scalar::U64 => pointer.cast::<u64>().write(numeric::word(vm, value, true)),
             Scalar::F32 => pointer
                 .cast::<f32>()
                 .write(numeric::double(vm, value) as f32),
@@ -1712,14 +1712,14 @@ pub(crate) mod native {
                     }
                     slot.put(u8::from(value == Value::TRUE));
                 }
-                Scalar::I8 => slot.put(numeric::bits(vm, value, false) as i8),
-                Scalar::U8 => slot.put(numeric::bits(vm, value, true) as u8),
-                Scalar::I16 => slot.put(numeric::bits(vm, value, false) as i16),
-                Scalar::U16 => slot.put(numeric::bits(vm, value, true) as u16),
-                Scalar::I32 => slot.put(numeric::bits(vm, value, false) as i32),
-                Scalar::U32 => slot.put(numeric::bits(vm, value, true) as u32),
-                Scalar::I64 => slot.put(numeric::bits(vm, value, false) as i64),
-                Scalar::U64 => slot.put(numeric::bits(vm, value, true)),
+                Scalar::I8 => slot.put(numeric::word(vm, value, false) as i8),
+                Scalar::U8 => slot.put(numeric::word(vm, value, true) as u8),
+                Scalar::I16 => slot.put(numeric::word(vm, value, false) as i16),
+                Scalar::U16 => slot.put(numeric::word(vm, value, true) as u16),
+                Scalar::I32 => slot.put(numeric::word(vm, value, false) as i32),
+                Scalar::U32 => slot.put(numeric::word(vm, value, true) as u32),
+                Scalar::I64 => slot.put(numeric::word(vm, value, false) as i64),
+                Scalar::U64 => slot.put(numeric::word(vm, value, true)),
                 Scalar::F32 => slot.put(numeric::double(vm, value) as f32),
                 Scalar::F64 => slot.put(numeric::double(vm, value)),
                 Scalar::Pointer => {
@@ -1892,12 +1892,12 @@ pub(crate) mod native {
             }
             Scalar::Void => Value::NIL,
             Scalar::Bool => Value::boolean(result.get::<usize>() as u8 != 0),
-            Scalar::I8 => Value::num(result.get::<usize>() as i8 as f64),
-            Scalar::U8 => Value::num(result.get::<usize>() as u8 as f64),
-            Scalar::I16 => Value::num(result.get::<usize>() as i16 as f64),
-            Scalar::U16 => Value::num(result.get::<usize>() as u16 as f64),
-            Scalar::I32 => Value::num(result.get::<usize>() as i32 as f64),
-            Scalar::U32 => Value::num(result.get::<usize>() as u32 as f64),
+            Scalar::I8 => Value::inline_integer(result.get::<usize>() as i8 as i64).unwrap(),
+            Scalar::U8 => Value::inline_integer(result.get::<usize>() as u8 as i64).unwrap(),
+            Scalar::I16 => Value::inline_integer(result.get::<usize>() as i16 as i64).unwrap(),
+            Scalar::U16 => Value::inline_integer(result.get::<usize>() as u16 as i64).unwrap(),
+            Scalar::I32 => Value::inline_integer(result.get::<usize>() as i32 as i64).unwrap(),
+            Scalar::U32 => Value::inline_integer(result.get::<usize>() as u32 as i64).unwrap(),
             Scalar::I64 => vm.box_integer(numeric::Integer {
                 bits: result.get::<i64>() as u64,
                 unsigned: false,
@@ -1947,8 +1947,8 @@ pub(crate) mod native {
         // the status says the call succeeded.
         let succeeded = match binding.success {
             Success::Always => true,
-            Success::Equals(n) => numeric::bits(vm, value, false) as i64 == n,
-            Success::NotEquals(n) => numeric::bits(vm, value, false) as i64 != n,
+            Success::Equals(n) => numeric::word(vm, value, false) as i64 == n,
+            Success::NotEquals(n) => numeric::word(vm, value, false) as i64 != n,
         };
         let (mut cells, mut filled) = (cells.into_iter(), filled.into_iter());
         for abi in &binding.params {
@@ -2187,10 +2187,10 @@ pub(crate) mod native {
             "foreign.errno" => {
                 let old = vm.foreign.errno;
                 if let Some(&value) = args.first() {
-                    vm.foreign.errno = numeric::bits(vm, value, false) as i32;
+                    vm.foreign.errno = numeric::word(vm, value, false) as i32;
                     set_errno(vm.foreign.errno);
                 }
-                [Value::num(old as f64)].into_iter().collect()
+                [Value::inline_integer(old as i64).unwrap()].into_iter().collect()
             }
             _ => unreachable!(),
         }

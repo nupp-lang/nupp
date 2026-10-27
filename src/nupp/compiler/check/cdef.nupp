@@ -104,7 +104,7 @@ function cdef.install(
             return value.declKind == "struct"
         end
 
-        return COUNT_TYPES[value] == true or value == T.number or value == T.float or value == T.boolean
+        return COUNT_TYPES[value] == true or value == T.number or value == T.float32 or value == T.boolean
     end
 
     local function countedView(name: string, element: Type, at): Type

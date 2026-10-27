@@ -183,12 +183,12 @@ fn physical_kind(vm: &Interp, value: Value) -> Option<u8> {
         b"uint8" => 2,
         b"int16" => 3,
         b"uint16" => 4,
-        b"integer" | b"int32" => 5,
+        b"int32" => 5,
         b"uint32" => 6,
-        b"int64" => 7,
+        b"int64" | b"integer" => 7,
         b"uint64" => 8,
-        b"float" => 9,
-        b"number" => 10,
+        b"float" | b"float32" => 9,
+        b"number" | b"float64" => 10,
         _ => return None,
     })
 }
@@ -520,8 +520,8 @@ fn scalar_width(kind: &str) -> Option<usize> {
     Some(match kind {
         "uint8" | "int8" | "boolean" => 1,
         "uint16" | "int16" => 2,
-        "uint32" | "int32" | "integer" | "float" => 4,
-        "uint64" | "int64" | "number" => 8,
+        "uint32" | "int32" | "float" | "float32" => 4,
+        "uint64" | "int64" | "integer" | "number" | "float64" => 8,
         _ => return None,
     })
 }
@@ -529,10 +529,10 @@ fn scalar_alignment(kind: &str) -> Option<usize> {
     Some(match kind {
         "uint8" | "int8" | "boolean" => 1,
         "uint16" | "int16" => std::mem::align_of::<u16>(),
-        "uint32" | "int32" | "integer" => std::mem::align_of::<u32>(),
-        "float" => std::mem::align_of::<f32>(),
-        "uint64" | "int64" => std::mem::align_of::<u64>(),
-        "number" => std::mem::align_of::<f64>(),
+        "uint32" | "int32" => std::mem::align_of::<u32>(),
+        "float" | "float32" => std::mem::align_of::<f32>(),
+        "uint64" | "int64" | "integer" => std::mem::align_of::<u64>(),
+        "number" | "float64" => std::mem::align_of::<f64>(),
         _ => return None,
     })
 }
@@ -658,7 +658,7 @@ fn measure(vm: &Interp, ty: Value, depth: usize) -> (usize, usize) {
                         let base = text(vm, get(vm, member, "kind"));
                         let unit_bits = width * 8;
                         if scalar_width(&base).is_none()
-                            || matches!(base.as_str(), "float" | "number")
+                            || matches!(base.as_str(), "float" | "float32" | "number" | "float64")
                             || claimed.width == 0
                             || claimed.width as usize > unit_bits
                         {
@@ -845,11 +845,11 @@ fn descriptor(vm: &mut Interp, kind: &str, element: Value, n: usize) -> Value {
         set(vm, result, "element", element);
     }
     if matches!(kind, "array" | "vector") {
-        set(vm, result, "count", Value::num(n as f64));
+        set(vm, result, "count", Value::inline_integer(n as i64).unwrap());
     }
     let (size, alignment) = measure(vm, result, 0);
-    set(vm, result, "size", Value::num(size as f64));
-    set(vm, result, "alignment", Value::num(alignment as f64));
+    set(vm, result, "size", Value::inline_integer(size as i64).unwrap());
+    set(vm, result, "alignment", Value::inline_integer(alignment as i64).unwrap());
     descriptor_methods(vm, result);
     mark_native(result);
     vm.set_index(cache, key, result);
@@ -880,8 +880,8 @@ fn pointer_field(vm: &mut Interp, input: Value) -> Value {
         set(vm, result, "signature", signature);
     }
     let (size, alignment) = measure(vm, result, 0);
-    set(vm, result, "size", Value::num(size as f64));
-    set(vm, result, "alignment", Value::num(alignment as f64));
+    set(vm, result, "size", Value::inline_integer(size as i64).unwrap());
+    set(vm, result, "alignment", Value::inline_integer(alignment as i64).unwrap());
     mark_native(result);
     vm.set_index(cache, key, result);
     result
@@ -937,8 +937,8 @@ fn normalize_layout(vm: &mut Interp, input: Value, methods: Value, depth: usize)
                 set(vm, result, name, value);
             }
         }
-        set(vm, result, "size", Value::num(size as f64));
-        set(vm, result, "alignment", Value::num(alignment as f64));
+        set(vm, result, "size", Value::inline_integer(size as i64).unwrap());
+        set(vm, result, "alignment", Value::inline_integer(alignment as i64).unwrap());
         set(vm, result, "layout", input);
         let fields = table(vm);
         let source = get(vm, input, "fields");
@@ -948,8 +948,8 @@ fn normalize_layout(vm: &mut Interp, input: Value, methods: Value, depth: usize)
             set(vm, member, "name", get(vm, f, "name"));
             set(vm, member, "offset", get(vm, f, "offset"));
             if let Some(bits) = bitfield(vm, f) {
-                set(vm, member, "bitOffset", Value::num(bits.position as f64));
-                set(vm, member, "bitWidth", Value::num(bits.width as f64));
+                set(vm, member, "bitOffset", Value::inline_integer(bits.position as i64).unwrap());
+                set(vm, member, "bitWidth", Value::inline_integer(bits.width as i64).unwrap());
             }
             let ty = normalize_layout(vm, field_type(vm, f), Value::NIL, depth + 1);
             set(vm, member, "type", ty);
@@ -1054,9 +1054,9 @@ fn make_view(vm: &mut Interp, v: View) -> Value {
         vm,
         result,
         "\0nupp:storage:offset",
-        Value::num(v.offset as f64),
+        Value::inline_integer(v.offset as i64).unwrap(),
     );
-    set(vm, result, "\0nupp:storage:end", Value::num(v.end as f64));
+    set(vm, result, "\0nupp:storage:end", Value::inline_integer(v.end as i64).unwrap());
     set(vm, result, "\0nupp:storage:descriptor", v.ty);
     set(
         vm,
@@ -1243,13 +1243,13 @@ fn read_bits(vm: &mut Interp, owner: Value, offset: usize, kind: &str, unit: usi
     } else {
         field
     };
-    if matches!(kind, "int64" | "uint64") {
+    if matches!(kind, "int64" | "uint64" | "integer") {
         return vm.box_integer(numeric::Integer {
             bits: value,
             unsigned: kind == "uint64",
         });
     }
-    Value::num(if signed { value as i64 as f64 } else { value as f64 })
+    Value::inline_integer(value as i64).unwrap()
 }
 /// Writes a bitfield's bits into its storage unit, leaving its neighbors'.
 /// The value wraps to the field's width, as C's conversion to it does.
@@ -1308,7 +1308,7 @@ pub(crate) fn counted_span(
         } else if let Some(kind) = kind {
             let actual = text(vm, get(vm, element, "kind"));
             let normal = |k: &str| match k {
-                "integer" => "int32".to_string(),
+                "integer" => "int64".to_string(),
                 "bool" => "boolean".to_string(),
                 other => other.to_string(),
             };
@@ -1639,18 +1639,22 @@ pub(crate) fn decode(vm: &mut Interp, kind: &str, bytes: &[u8]) -> Value {
         "uint16" => u16::from_ne_bytes(b.try_into().unwrap()) as f64,
         "int16" => i16::from_ne_bytes(b.try_into().unwrap()) as f64,
         "uint32" => u32::from_ne_bytes(b.try_into().unwrap()) as f64,
-        "int32" | "integer" => i32::from_ne_bytes(b.try_into().unwrap()) as f64,
-        "uint64" | "int64" => {
+        "int32" => i32::from_ne_bytes(b.try_into().unwrap()) as f64,
+        "uint64" | "int64" | "integer" => {
             return vm.box_integer(numeric::Integer {
                 bits: u64::from_ne_bytes(b.try_into().unwrap()),
                 unsigned: kind == "uint64",
             });
         }
-        "float" => f32::from_ne_bytes(b.try_into().unwrap()) as f64,
-        "number" => f64::from_ne_bytes(b.try_into().unwrap()),
+        "float" | "float32" => f32::from_ne_bytes(b.try_into().unwrap()) as f64,
+        "number" | "float64" => f64::from_ne_bytes(b.try_into().unwrap()),
         _ => unreachable!(),
     };
-    Value::num(n)
+    if matches!(kind, "float" | "float32" | "number" | "float64") {
+        Value::num(n)
+    } else {
+        Value::inline_integer(n as i64).unwrap()
+    }
 }
 fn encode(vm: &Interp, kind: &str, value: Value) -> Vec<u8> {
     if kind == "boolean" {
@@ -1660,14 +1664,14 @@ fn encode(vm: &Interp, kind: &str, value: Value) -> Vec<u8> {
             _ => vm.err("nupp: native boolean field requires a boolean"),
         };
     }
-    if kind == "float" {
+    if kind == "float" || kind == "float32" {
         return (numeric::double(vm, value) as f32).to_ne_bytes().to_vec();
     }
-    if kind == "number" {
+    if kind == "number" || kind == "float64" {
         return numeric::double(vm, value).to_ne_bytes().to_vec();
     }
-    let bits = if matches!(kind, "uint64" | "int64") {
-        numeric::bits(vm, value, kind == "uint64")
+    let bits = if matches!(kind, "uint64" | "int64" | "integer") {
+        numeric::word(vm, value, kind == "uint64")
     } else if let Some(i) = numeric::integer(value) {
         i.bits
     } else {
@@ -2076,7 +2080,7 @@ pub fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Value {
                 } else {
                     value
                 };
-                Value::num(layout(vm, ty, 0).1 as f64)
+                Value::inline_integer(layout(vm, ty, 0).1 as i64).unwrap()
             }
             "boundedCount" => {
                 let v = view(vm, arg(0));
@@ -2085,7 +2089,7 @@ pub fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Value {
                 if n > (v.end - v.offset) / width.max(1) {
                     vm.err("nupp: storage element extent is out of bounds");
                 }
-                Value::num(n as f64)
+                Value::inline_integer(n as i64).unwrap()
             }
             "copy" => {
                 let n = count(vm, arg(2));
@@ -2198,7 +2202,7 @@ pub fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Value {
                     if delta % width as i64 != 0 {
                         vm.err("nupp: unaligned pointer difference");
                     }
-                    return Value::num((delta / width as i64) as f64);
+                    return Value::inline_integer(delta / width as i64).unwrap();
                 }
                 let delta =
                     whole(vm, index) as i128 * width as i128 * if name == "sub" { -1 } else { 1 };

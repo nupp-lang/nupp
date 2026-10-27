@@ -33,14 +33,14 @@ local function integral(value: uint64): boolean
     return number - number == 0.0 and native.floor(number) == number
 end
 
-local function double(value: uint64): number
+local function double(value: uint64): float64
     if integerKind(value) >= 0 then
         return helpers.integerDouble(value)
     end
     return native.fromBits(value)
 end
 
-local function numberBits(number: number): uint64
+local function numberBits(number: float64): uint64
     local bits = native.bits(number)
     return native.chooseWord(bits & values.QNAN == values.QNAN, values.QNAN, bits)
 end
@@ -100,7 +100,7 @@ local function arithmeticSlow(pc: voidptr, context: voidptr, left: uint64, right
     end
     local a = double(x)
     local b = double(y)
-    local result: number = 0.0
+    local result: float64 = 0.0
     if operation == 1 then
         result = helpers.power(a, b)
     elseif operation == 2 then
@@ -308,7 +308,7 @@ local function scalarWord(value: uint64): uint64
     return native.word(native.toInt(native.fromBits(value))) & 0xffffffffULL
 end
 
-local function scalar(kind: int64, left: uint64, right: uint64): number
+local function scalar(kind: int64, left: uint64, right: uint64): float64
     local x = scalarWord(left)
     local y = scalarWord(right)
     local shift = y & 31ULL
@@ -572,7 +572,7 @@ export function Neg(
     return negateSlow(pc, context, value)
 end
 
-local function integerFloatOrder(bits: uint64, unsigned: boolean, number: number): int64
+local function integerFloatOrder(bits: uint64, unsigned: boolean, number: float64): int64
     if number ~= number then
         return 2
     end
@@ -581,7 +581,7 @@ local function integerFloatOrder(bits: uint64, unsigned: boolean, number: number
     elseif number < -values.INT64_RANGE then
         return 1
     end
-    local truncated: number = 0.0
+    local truncated: float64 = 0.0
     if number >= 0.0 then
         if not unsigned and native.index(bits) < 0 then
             return -1

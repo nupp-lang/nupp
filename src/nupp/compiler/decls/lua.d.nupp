@@ -831,7 +831,7 @@ local math: {
     ---
     --- @param x the number to take the magnitude of
     --- @return the absolute value
-    abs: @nosuspend function(x: number): number,
+    abs: @nosuspend function<N is number>(x: N): N,
 
     --- Returns the smallest integer that is not less than `x`. NaN and the
     --- infinities pass through unchanged, so the result is a whole number only
@@ -853,27 +853,27 @@ local math: {
     ---
     --- @param x the number to take the root of
     --- @return the square root
-    sqrt: @nosuspend function(x: number): number,
+    sqrt: @nosuspend function(x: number): float,
 
     --- Returns e raised to the power `x`.
     ---
     --- @param x the exponent
     --- @return the result
-    exp: @nosuspend function(x: number): number,
+    exp: @nosuspend function(x: number): float,
 
     --- Returns the natural logarithm of `x`, or its logarithm in `base`.
     ---
     --- @param x the number to take the logarithm of
     --- @param base the base to use, e by default
     --- @return the logarithm
-    log: @nosuspend function(x: number, base: number?): number,
+    log: @nosuspend function(x: number, base: number?): float,
 
     --- Returns `x` raised to the power `y`, the same as `x ^ y`.
     ---
     --- @param x the base
     --- @param y the exponent
     --- @return the result
-    pow: @nosuspend function(x: number, y: number): number,
+    pow: @nosuspend function(x: number, y: number): float,
 
     --- Returns the remainder of `x / y`, keeping the sign of `x`.
     ---
@@ -893,37 +893,37 @@ local math: {
     ---
     --- @param x the angle in radians
     --- @return the sine
-    sin: @nosuspend function(x: number): number,
+    sin: @nosuspend function(x: number): float,
 
     --- Returns the cosine of `x`, which is in radians.
     ---
     --- @param x the angle in radians
     --- @return the cosine
-    cos: @nosuspend function(x: number): number,
+    cos: @nosuspend function(x: number): float,
 
     --- Returns the tangent of `x`, which is in radians.
     ---
     --- @param x the angle in radians
     --- @return the tangent
-    tan: @nosuspend function(x: number): number,
+    tan: @nosuspend function(x: number): float,
 
     --- Returns the arc sine of `x`, in radians.
     ---
     --- @param x the sine to invert, -1 through 1
     --- @return the angle in radians
-    asin: @nosuspend function(x: number): number,
+    asin: @nosuspend function(x: number): float,
 
     --- Returns the arc cosine of `x`, in radians.
     ---
     --- @param x the cosine to invert, -1 through 1
     --- @return the angle in radians
-    acos: @nosuspend function(x: number): number,
+    acos: @nosuspend function(x: number): float,
 
     --- Returns the arc tangent of `x`, in radians.
     ---
     --- @param x the tangent to invert
     --- @return the angle in radians
-    atan: @nosuspend function(x: number): number,
+    atan: @nosuspend function(x: number): float,
 
     --- Returns the arc tangent of `y / x`, using the sign of both arguments to place
     --- the result in the right quadrant.
@@ -931,37 +931,37 @@ local math: {
     --- @param y the numerator
     --- @param x the denominator
     --- @return the angle in radians
-    atan2: @nosuspend function(y: number, x: number): number,
+    atan2: @nosuspend function(y: number, x: number): float,
 
     --- Returns the hyperbolic sine of `x`.
     ---
     --- @param x the argument
     --- @return the hyperbolic sine
-    sinh: @nosuspend function(x: number): number,
+    sinh: @nosuspend function(x: number): float,
 
     --- Returns the hyperbolic cosine of `x`.
     ---
     --- @param x the argument
     --- @return the hyperbolic cosine
-    cosh: @nosuspend function(x: number): number,
+    cosh: @nosuspend function(x: number): float,
 
     --- Returns the hyperbolic tangent of `x`.
     ---
     --- @param x the argument
     --- @return the hyperbolic tangent
-    tanh: @nosuspend function(x: number): number,
+    tanh: @nosuspend function(x: number): float,
 
     --- Converts the angle `r` from radians to degrees.
     ---
     --- @param r the angle in radians
     --- @return the angle in degrees
-    deg: @nosuspend function(r: number): number,
+    deg: @nosuspend function(r: number): float,
 
     --- Converts the angle `d` from degrees to radians.
     ---
     --- @param d the angle in degrees
     --- @return the angle in radians
-    rad: @nosuspend function(d: number): number,
+    rad: @nosuspend function(d: number): float,
 
     --- Returns the smallest of its arguments. Comparing integers gives an integer back,
     --- so a bound taken this way stays usable as an index.
@@ -1003,13 +1003,23 @@ local math: {
     --- @param m the mantissa
     --- @param e the exponent
     --- @return the result
-    ldexp: @nosuspend function(m: number, e: number): number,
+    ldexp: @nosuspend function(m: number, e: number): float,
 
     --- The ratio of a circle's circumference to its diameter.
-    pi: number,
+    pi: float,
 
     --- Positive infinity, which compares greater than any other number.
-    huge: number
+    huge: float,
+
+    --- The smallest and largest signed 64-bit integers.
+    mininteger: integer,
+    maxinteger: integer,
+
+    --- Converts an exact, in-range numeric value to an integer.
+    tointeger: @nosuspend function(value: any): integer?,
+
+    --- Returns the numeric subtype, or nil for a nonnumeric value.
+    type: @nosuspend function(value: any): ("integer" | "float")?
 }
 
 --- The fields `os.date("*t")` returns.

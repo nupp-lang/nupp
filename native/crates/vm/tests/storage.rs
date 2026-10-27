@@ -51,8 +51,8 @@ fn writable_casts_preserve_bounds_roots_and_const_views() {
     let bytes = keep(&mut vm, "allocateBytes", &[Value::num(8.0)]);
     let words = keep(&mut vm, "castWritableElements", &[u32t, bytes]);
     call(&mut vm, "write", &[words, Value::num(1.0), Value::num(42.0)]);
-    assert_eq!(call(&mut vm, "index", &[words, Value::num(1.0)]), Value::num(42.0));
-    assert_eq!(call(&mut vm, "boundedCount", &[words, Value::num(2.0)]), Value::num(2.0));
+    assert_eq!(call(&mut vm, "index", &[words, Value::num(1.0)]), Value::inline_integer(42).unwrap());
+    assert_eq!(call(&mut vm, "boundedCount", &[words, Value::num(2.0)]), Value::inline_integer(2).unwrap());
     fails(&mut vm, "index", &[words, Value::num(2.0)]);
     let readonly = keep(&mut vm, "castElements", &[u32t, bytes]);
     fails(&mut vm, "write", &[readonly, Value::num(0.0), Value::num(1.0)]);
@@ -65,11 +65,11 @@ fn writable_casts_preserve_bounds_roots_and_const_views() {
     fails(&mut vm, "castWritableElements", &[u32t, short]);
     let empty = keep(&mut vm, "allocateBytes", &[Value::num(0.0)]);
     let empty_words = keep(&mut vm, "castWritableElements", &[u32t, empty]);
-    assert_eq!(call(&mut vm, "boundedCount", &[empty_words, Value::num(0.0)]), Value::num(0.0));
+    assert_eq!(call(&mut vm, "boundedCount", &[empty_words, Value::num(0.0)]), Value::inline_integer(0).unwrap());
     fails(&mut vm, "index", &[empty_words, Value::num(0.0)]);
     vm.full_cycle();
     vm.check_oracle();
-    assert_eq!(call(&mut vm, "index", &[words, Value::num(1.0)]), Value::num(42.0));
+    assert_eq!(call(&mut vm, "index", &[words, Value::num(1.0)]), Value::inline_integer(42).unwrap());
 }
 
 #[test]
@@ -93,8 +93,8 @@ fn owned_and_borrowed_native_values_keep_their_class_after_restore() {
     }
     call(&mut vm, "write", &[restored[1], Value::num(0.0), Value::num(7.0)]);
     let row = keep(&mut vm, "index", &[restored[0], Value::num(0.0)]);
-    assert_eq!(call(&mut vm, "index", &[row, Value::num(0.0)]), Value::num(7.0));
-    assert_eq!(call(&mut vm, "index", &[restored[2], Value::num(0.0)]), Value::num(0.0));
+    assert_eq!(call(&mut vm, "index", &[row, Value::num(0.0)]), Value::inline_integer(7).unwrap());
+    assert_eq!(call(&mut vm, "index", &[restored[2], Value::num(0.0)]), Value::inline_integer(0).unwrap());
     fails(&mut vm, "isBorrowed", &[Value::num(1.0)]);
 }
 
@@ -175,13 +175,14 @@ fn scalar_layouts_and_native_byte_vectors() {
         assert_eq!(descriptor, kind(&mut vm, name));
         assert_eq!(
             call(&mut vm, "sizeOf", &[descriptor]),
-            Value::num(width as f64)
+            Value::inline_integer(width as i64).unwrap()
         );
         let encoded = keep(&mut vm, &format!("encode{suffix}"), &[Value::num(value)]);
         assert_eq!(vm.bytes_of(encoded), bytes);
         assert_eq!(
             call(&mut vm, &format!("decode{suffix}"), &[encoded]),
-            Value::num(value)
+            if name == "float" || name == "number" { Value::num(value) }
+            else { Value::inline_integer(value as i64).unwrap() }
         );
         let array = keep(&mut vm, "allocateArray", &[descriptor, Value::num(2.0)]);
         call(
@@ -239,7 +240,7 @@ fn overlap_bounds_and_readonly_views() {
     let end = keep(&mut vm, "add", &[data, Value::num(8.0)]);
     assert_eq!(
         call(&mut vm, "boundedCount", &[end, Value::num(0.0)]),
-        Value::num(0.0)
+        Value::inline_integer(0).unwrap()
     );
     fails(&mut vm, "index", &[end, Value::num(0.0)]);
     let byte = string(&mut vm, b"x");
@@ -260,7 +261,7 @@ fn only_a_view_keeps_its_owner_alive_and_graphs_keep_aliases() {
     vm.check_oracle();
     assert_eq!(
         call(&mut vm, "index", &[tail, Value::num(0.0)]),
-        Value::num(42.0)
+        Value::inline_integer(42).unwrap()
     );
     let data = keep(&mut vm, "sub", &[tail, Value::num(3.0)]);
     let pair = vm.new_table();
@@ -277,11 +278,11 @@ fn only_a_view_keeps_its_owner_alive_and_graphs_keep_aliases() {
     call(&mut other, "write", &[b, Value::num(1.0), Value::num(7.0)]);
     assert_eq!(
         call(&mut other, "index", &[a, Value::num(4.0)]),
-        Value::num(7.0)
+        Value::inline_integer(7).unwrap()
     );
     assert_eq!(
         call(&mut vm, "index", &[data, Value::num(4.0)]),
-        Value::num(42.0)
+        Value::inline_integer(42).unwrap()
     );
     other.loaded.insert("storage.fixture".into(), loaded);
     let checkpoint =
@@ -302,7 +303,7 @@ fn only_a_view_keeps_its_owner_alive_and_graphs_keep_aliases() {
     );
     assert_eq!(
         call(&mut resumed, "index", &[a, Value::num(4.0)]),
-        Value::num(9.0)
+        Value::inline_integer(9).unwrap()
     );
 }
 
@@ -313,7 +314,7 @@ fn nested_array_descriptors_preserve_width_and_row_aliases() {
     let sample = keep(&mut vm, "allocateArray", &[word, Value::num(3.0)]);
     let row = call(&mut vm, "descriptor", &[sample]);
     let rows = keep(&mut vm, "allocateArray", &[row, Value::num(2.0)]);
-    assert_eq!(call(&mut vm, "sizeOf", &[rows]), Value::num(24.0));
+    assert_eq!(call(&mut vm, "sizeOf", &[rows]), Value::inline_integer(24).unwrap());
     let last = keep(&mut vm, "index", &[rows, Value::num(1.0)]);
     call(
         &mut vm,
@@ -355,11 +356,40 @@ fn worker_storage_transfer_owns_independent_bytes() {
             );
             assert_eq!(
                 call(&mut vm, "index", &[data, Value::num(0.0)]),
-                Value::num(23.0)
+                Value::inline_integer(23).unwrap()
             );
             return;
         }
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
     panic!("storage worker did not finish");
+}
+
+#[test]
+fn canonical_numeric_storage_preserves_width_and_subtype() {
+    let mut vm = vm();
+    let integer = kind(&mut vm, "integer");
+    assert_eq!(call(&mut vm, "sizeOf", &[integer]), Value::inline_integer(8).unwrap());
+    let array = keep(&mut vm, "allocateArray", &[integer, Value::inline_integer(2).unwrap()]);
+    for (index, n) in [i64::MIN, i64::MAX].into_iter().enumerate() {
+        let value = vm.box_integer(numeric::Integer { bits: n as u64, unsigned: false });
+        vm.register(value);
+        let slot = Value::inline_integer(index as i64).unwrap();
+        call(&mut vm, "write", &[array, slot, value]);
+        let loaded = call(&mut vm, "index", &[array, slot]);
+        assert_eq!(numeric::integer(loaded).unwrap().bits, n as u64);
+        assert!(!loaded.is_float());
+    }
+    for (name, width) in [("float32", 4), ("float64", 8)] {
+        let descriptor = kind(&mut vm, name);
+        assert_eq!(call(&mut vm, "sizeOf", &[descriptor]), Value::inline_integer(width).unwrap());
+        let array = keep(&mut vm, "allocateArray", &[descriptor, Value::inline_integer(1).unwrap()]);
+        for bits in [1.0f64.to_bits(), (-0.0f64).to_bits()] {
+            let value = Value(bits);
+            call(&mut vm, "write", &[array, Value::inline_integer(0).unwrap(), value]);
+            let loaded = call(&mut vm, "index", &[array, Value::inline_integer(0).unwrap()]);
+            assert!(loaded.is_float());
+            assert_eq!(loaded, value);
+        }
+    }
 }

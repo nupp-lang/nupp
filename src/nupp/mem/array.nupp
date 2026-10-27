@@ -49,7 +49,7 @@ const array.uint32 = new array.Scalar(_elementType = nil as uint32, physical = "
 const array.int32 = new array.Scalar(_elementType = nil as int32, physical = "int32")
 const array.uint64 = new array.Scalar(_elementType = nil as uint64, physical = "uint64")
 const array.int64 = new array.Scalar(_elementType = nil as int64, physical = "int64")
-const array.float = new array.Scalar(_elementType = nil as float, physical = "float")
+const array.float = new array.Scalar(_elementType = nil as float32, physical = "float")
 const array.number = new array.Scalar(_elementType = nil as number, physical = "number")
 
 record array.Array<T>

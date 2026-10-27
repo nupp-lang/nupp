@@ -44,7 +44,8 @@ type types.PrimTag = 'any'
     | 'table'
     | 'thread'
     | 'userdata'
-    | 'float'
+    | 'float32'
+    | 'float64'
     | 'cdata'
     | 'cstring'
     | 'voidptr'
@@ -1238,16 +1239,17 @@ types.open = prim("open")
 types.nil_ = prim("nil")
 types.boolean = prim("boolean")
 types.string = prim("string")
-types.number = prim("number") -- LuaJIT double
-types.integer = prim("integer") -- number known to be integral
+types.number = prim("number") -- integer or binary64 float
+types.integer = prim("int64") -- signed 64-bit integer
 types.table_ = prim("table") -- any table shape
 types.thread = prim("thread")
 types.userdata = prim("userdata")
 
 -- cdata numeric tower (reified milestones give these real semantics; for checking they
 -- are numeric subtypes).
-types.float = prim("float")
-types.float32 = types.float
+types.float = prim("float64")
+types.float64 = types.float
+types.float32 = prim("float32")
 -- Every cdata value: what a dynamically-typed FFI operation yields, so leaving the
 -- typed path is visible rather than silent.
 types.cdata = prim("cdata")
@@ -1259,7 +1261,7 @@ types.voidptr = prim("voidptr")
 types.int8 = prim("int8")
 types.int16 = prim("int16")
 types.int32 = prim("int32")
-types.int64 = prim("int64")
+types.int64 = types.integer
 types.uint8 = prim("uint8")
 types.uint16 = prim("uint16")
 types.uint32 = prim("uint32")
@@ -1291,6 +1293,7 @@ local builtins: {
     thread = types.thread,
     userdata = types.userdata,
     float = types.float,
+    float64 = types.float64,
     float32 = types.float32,
     int8 = types.int8,
     int16 = types.int16,
@@ -1489,7 +1492,8 @@ local LUA_TYPE_NAME: {
     thread = "thread",
     userdata = "userdata",
     integer = "number",
-    float = "number",
+    float32 = "number",
+    float64 = "number",
     int8 = "number",
     int16 = "number",
     int32 = "number",
@@ -3905,7 +3909,11 @@ end
 --- Renders a type the way a diagnostic should show it.
 function types.tostring(t: types.Type): string
     local tag = t.tag
-    if tag == "constrained" then
+    if tag == "int64" then
+        return "integer"
+    elseif tag == "float64" then
+        return "float"
+    elseif tag == "constrained" then
         -- The alias name, because the interval it stands for is longer than it is and
         -- says less. Without one, the base and a mark that it is narrowed: a reader
         -- who needs the bounds asks the declaration, which is where they are written.
@@ -4220,7 +4228,8 @@ local C_NAME: {
     [string]: string
 } = {
     number = "double",
-    float = "float",
+    float32 = "float",
+    float64 = "double",
     boolean = "bool",
     integer = "int32_t",
     int8 = "int8_t",

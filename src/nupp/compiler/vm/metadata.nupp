@@ -93,9 +93,10 @@ function metadata.foreignSignature(declaration)
     assert(signature.schema == 1 and signature.convention == "c", "unsupported VM C function ABI")
     local scalars = {
         boolean = "bool",
-        integer = "int32",
+        integer = "int64",
         number = "number",
-        float = "float",
+        float32 = "float32",
+        float64 = "number",
         int8 = "int8",
         int16 = "int16",
         int32 = "int32",
@@ -368,7 +369,8 @@ function metadata.structLayout(declaration, target)
         boolean = true,
         integer = true,
         number = true,
-        float = true,
+        float32 = true,
+        float64 = true,
         int8 = true,
         int16 = true,
         int32 = true,
@@ -1030,7 +1032,8 @@ local STORAGE_SCALARS: {
     int64 = "int64",
     uint64 = "uint64",
     integer = "integer",
-    float = "float",
+    float32 = "float32",
+    float64 = "number",
     number = "number",
     boolean = "boolean",
 }

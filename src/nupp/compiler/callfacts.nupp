@@ -173,7 +173,7 @@ local function walkBody(body, params, definitions, changed, annotate)
                 return
             end
             local t = condition.lhs and (condition.lhs.resolvedType or condition.lhs.inferredType)
-            if stable(def) and t and (t.tag == "integer" or t.tag == "int32" or t.tag == "uint32") then
+            if stable(def) and t and (t.tag == "int64" or t.tag == "int32" or t.tag == "uint32") then
                 local nextFacts = copy(facts[def])
                 local literal = condition.rhs and condition.rhs.kind == "number" and tonumber(condition.rhs.token.text)
                 if op == ">=" and literal == 1 or op == ">" and literal == 0 then

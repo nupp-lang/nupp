@@ -853,8 +853,8 @@ resolve = function(graph: Graph, index: integer, member: Member): core.Adapter<u
             scalar = "null"
         elseif kind == "integer" then
             scalar = "numberToken"
-        elseif kind == "number" or kind == "float" then
-            scalar, width = "float", kind == "float" and 32 or 64
+        elseif kind == "number" or kind == "float32" or kind == "float64" then
+            scalar, width = "float", kind == "float32" and 32 or 64
         elseif kind == "int8"
             or kind == "uint8"
             or kind == "int16"
@@ -868,7 +868,7 @@ resolve = function(graph: Graph, index: integer, member: Member): core.Adapter<u
         end
         if member.representation == "iso8601Seconds" then
             assert(
-                kind == "integer" or scalar == "integer" and width ~= 64,
+                kind == "int64" or scalar == "integer" and width ~= 64,
                 "ISO epoch-seconds mapping requires a Lua integer carrier"
             )
             link.target = new EpochSeconds(description = new Description(member = member, kind = "timestamp"))
@@ -1022,7 +1022,7 @@ local function nativeCarrier(info: nupp.reflect.Info, index: integer, syntax: an
         return syntax.access == "record" and syntax.typeObject == nupp.reflect.runtimeType(info, index)
     elseif kind == "string" or kind == "boolean" then
         return syntax.kind == kind
-    elseif kind == "number" then
+    elseif kind == "number" or kind == "float64" then
         return syntax.kind == "number" or syntax.kind == "integer" or syntax.kind == "unsigned"
     elseif kind == "integer" then
         return syntax.kind == "integer" or syntax.kind == "unsigned"

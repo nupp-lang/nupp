@@ -456,10 +456,10 @@ renderType = function(model, knownStructs): (string?, string?)
         return "boolean"
     elseif kind == "float" then
         if model.bits == 32 then
-            return "float"
+            return "float32"
         end
         if model.bits == 64 then
-            return "number"
+            return "float"
         end
         return nil, ("a %d-bit float"):format(model.bits or 0)
     elseif kind == "integer" or kind == "enum" then
@@ -1523,7 +1523,8 @@ end
 
 local RECIPE_C_TYPE = {
     boolean = "_Bool",
-    float = "float",
+    float32 = "float",
+    float64 = "double",
     number = "double",
     integer = "int32_t",
     int8 = "int8_t",

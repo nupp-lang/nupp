@@ -81,6 +81,8 @@ return {
         "nativelowertest",
         "nativelowerscalarhelpertest",
         "nativegraphcontracttest",
+        "nativefloatingcontracttest",
+        "nativenumbermodeltest",
         "nativegraphtest",
         "nativegraphcliftest",
         "nativeruntimetest",

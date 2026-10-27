@@ -30,7 +30,8 @@ local SCALARS: {
     [string]: string
 } = {
     boolean = "bool",
-    float = "float",
+    float32 = "float",
+    float64 = "double",
     number = "double",
     integer = "int32_t",
     int8 = "int8_t",
