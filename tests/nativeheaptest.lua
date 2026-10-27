@@ -27,6 +27,7 @@ local function capture(command)
     local output = pipe:read("*a")
     pipe:close()
     local status = tonumber(output:match("__exit__:(%d+)%s*$"))
+
     return status, (output:gsub("__exit__:%d+%s*$", ""))
 end
 
@@ -38,6 +39,7 @@ local function glueTool()
         assert(status == 0, "scripts/vm-cli glue failed: " .. output)
         glue = assert(output:match("([^\r\n]+)%s*$"), "scripts/vm-cli glue named no tool")
     end
+
     return glue
 end
 
@@ -71,6 +73,7 @@ local function compileFixture(name, runtimeModules)
     local path = tempDirectory() .. "/" .. name .. ".clif"
     write(path, clif)
     compiled[name] = path
+
     return path
 end
 
@@ -79,12 +82,15 @@ local function run(clif, name, args, input)
     for index, arg in ipairs(args) do
         words[index] = quote(arg)
     end
-    local command = ("%s native jit %s %s %s"):format(quote(glueTool()), quote(clif), quote(name), table.concat(words, " "))
+    local command = (
+        "%s native jit %s %s %s"
+    ):format(quote(glueTool()), quote(clif), quote(name), table.concat(words, " "))
     if input then
         command = command .. " < " .. quote(input)
     end
     local status, output = capture(command)
     assert(status == 0, ("%s(%s): exit %s: %s"):format(name, table.concat(args, ", "), tostring(status), output))
+
     return (output:gsub("%s+$", ""))
 end
 
@@ -98,8 +104,38 @@ local function check(clif, cases)
 end
 
 -- `heap.rs`'s size classes, and the chunk and slot arithmetic over them.
-local CLASSES = {32, 48, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448, 512, 640, 768, 1024, 1280,
-    1536, 2048, 2560, 3072, 4096, 6144, 8192, 12288, 16384, 24576, 32768}
+local CLASSES = {
+    32,
+    48,
+    64,
+    80,
+    96,
+    112,
+    128,
+    160,
+    192,
+    224,
+    256,
+    320,
+    384,
+    448,
+    512,
+    640,
+    768,
+    1024,
+    1280,
+    1536,
+    2048,
+    2560,
+    3072,
+    4096,
+    6144,
+    8192,
+    12288,
+    16384,
+    24576,
+    32768
+}
 local CHUNK, CHUNK_HEADER, HEADER = 262144, 64, 32
 
 local function classOf(size)
@@ -108,6 +144,7 @@ local function classOf(size)
             return index - 1
         end
     end
+
     return 255
 end
 
@@ -116,6 +153,7 @@ local function classSum()
     for size = 1, 32768 do
         total = total + classOf(size) * (size % 7 + 1)
     end
+
     return total + classOf(32769)
 end
 
@@ -125,16 +163,25 @@ local function chunksFor(count, inline)
 end
 
 local ALLOCATOR = {
-    {"headerLayout", {}, 0}, {"classSum", {}, classSum()},
-    {"chunksFor", {10000, 16}, chunksFor(10000, 16)}, {"chunksFor", {5460, 16}, 1}, {"chunksFor", {5461, 16}, 2},
+    {"headerLayout", {}, 0},
+    {"classSum", {}, classSum()},
+    {"chunksFor", {10000, 16}, chunksFor(10000, 16)},
+    {"chunksFor", {5460, 16}, 1},
+    {"chunksFor", {5461, 16}, 2},
     {"chunksFor", {300, 4000}, chunksFor(300, 4000)},
-    {"liveSlots", {10000, 16}, 10000}, {"liveSlots", {500, 1000}, 500}, {"liveSlots", {20, 40000}, 20},
-    {"notSlots", {}, 0}, {"reuse", {1000}, 500}, {"reuse", {20000}, 10000 + (chunksFor(20000, 16) - 1) * 1000000}, {"quarantined", {1000}, 1000},
+    {"liveSlots", {10000, 16}, 10000},
+    {"liveSlots", {500, 1000}, 500},
+    {"liveSlots", {20, 40000}, 20},
+    {"notSlots", {}, 0},
+    {"reuse", {1000}, 500},
+    {"reuse", {20000}, 10000 + (chunksFor(20000, 16) - 1) * 1000000},
+    {"quarantined", {1000}, 1000},
     {"largeObjects", {10, 100000}, 10000},
     -- A table of 80 bytes in a 112-byte slot, a string of 9, one of 50000 on
     -- its own mapping, 32 bytes held outside: two freed leave 41 + 32.
     {"accounting", {}, 1000073},
-    {"wordSet", {10000}, 0}, {"wordSet", {3}, 0},
+    {"wordSet", {10000}, 0},
+    {"wordSet", {3}, 0},
 }
 
 function M.theAllocatorHandsOutSlotsBySizeClassAndKnowsItsOwn()
@@ -154,19 +201,27 @@ local function ternaryAfterCut(count)
             end
         end
     end
+
     return count - cut
 end
 
 local GRAPHS = {
-    {"listSurvives", {1000, 5000}, 1000}, {"listSurvives", {0, 100}, 0},
-    {"rings", {10, 100}, 500}, {"rings", {1, 1000}, 1000},
+    {"listSurvives", {1000, 5000}, 1000},
+    {"listSurvives", {0, 100}, 0},
+    {"rings", {10, 100}, 500},
+    {"rings", {1, 1000}, 1000},
     -- A hub of 5,000 slots is a large object; children of 40,000 bytes are too.
-    {"fanOut", {100, 16}, 51}, {"fanOut", {5000, 16}, 2501}, {"fanOut", {50, 40000}, 26},
+    {"fanOut", {100, 16}, 51},
+    {"fanOut", {5000, 16}, 2501},
+    {"fanOut", {50, 40000}, 26},
     -- The chain, its root, and a leaf under every seventh node.
-    {"interleaved", {3000}, 1 + 3000 + 429}, {"interleaved", {500}, 1 + 500 + 72},
-    {"stressed", {200}, ternaryAfterCut(200)}, {"stressed", {1}, 1},
+    {"interleaved", {3000}, 1 + 3000 + 429},
+    {"interleaved", {500}, 1 + 500 + 72},
+    {"stressed", {200}, ternaryAfterCut(200)},
+    {"stressed", {1}, 1},
     {"initializedBlack", {}, 1},
-    {"barrierKeeps", {"false"}, 1}, {"barrierKeeps", {"true"}, 0},
+    {"barrierKeeps", {"false"}, 1},
+    {"barrierKeeps", {"true"}, 0},
     -- Six roots in the frames, none once the task is done.
     {"frames", {}, 600},
     -- Four held, then the constant and the kept handle; the released index reused.
@@ -208,10 +263,17 @@ local function read(path)
     return text
 end
 
--- The installed VM compiler: its runtime emits the workload images.
-local function installedPackage()
+-- The launcher selects an explicit compiler/runtime pair for this process.
+-- Direct suite runners can instead use the installed pair.
+local function compilerPackage()
+    local runtime, image = os.getenv("NUPP_VM_BINARY"), os.getenv("NUPP_VM_CLI_IMAGE")
+    if runtime and image then
+        return {runtime = runtime, image = image}
+    end
     local generation = read(ROOT .. "/.nupp/vm-cli/current"):gsub("%s+$", "")
-    return ROOT .. "/.nupp/vm-cli/" .. generation
+    local package = ROOT .. "/.nupp/vm-cli/" .. generation
+
+    return {runtime = package .. "/runtime", image = package .. "/compiler.image"}
 end
 
 local WORKLOADS = {"fib", "loops", "tables", "strings", "records", "closures"}
@@ -224,6 +286,7 @@ local function workloadProject()
     for _, name in ipairs(WORKLOADS) do
         write(dir .. "/src/wl/" .. name .. ".nupp", read(FIXTURES .. "/workloads/" .. name .. ".nupp"))
     end
+
     return dir
 end
 
@@ -236,6 +299,7 @@ local function traces(dir)
     end
     pipe:close()
     assert(#paths > 0, "no trace in " .. dir)
+
     return paths
 end
 
@@ -245,17 +309,23 @@ local function onlyTrace(dir)
     return paths[1]
 end
 
--- Runs a workload on the glue's runtime, which carries the recorder, and
--- answers its trace.
+-- Runs a workload on the selected Nupp core runtime with the recorder,
+-- and answers its trace.
 local function recordWorkload(project, name)
-    local package = installedPackage()
+    local package = compilerPackage()
     local image = project .. "/" .. name .. ".image"
-    local status, output = capture(("%s run %s nupp.tools.vm.project emit %s wl.%s '' --output %s"):format(
-        quote(package .. "/runtime"), quote(package .. "/compiler.image"), quote(project), name, quote(image)))
+    local status, output = capture(
+        (
+            "%s run %s nupp.tools.vm.project emit %s wl.%s '' --output %s"
+        ):format(quote(package.runtime), quote(package.image), quote(project), name, quote(image))
+    )
     assert(status == 0, "emitting " .. name .. ": " .. output)
     local dir = tempDirectory()
-    status, output = capture(("NUPP_HEAP_TRACE=%s %s run %s wl.%s main"):format(quote(dir), quote(glueTool()), quote(image), name))
+    status, output = capture(
+        ("NUPP_HEAP_TRACE=%s %s run %s wl.%s main"):format(quote(dir), quote(package.runtime), quote(image), name)
+    )
     assert(status == 0, "running " .. name .. ": " .. output)
+
     return onlyTrace(dir)
 end
 
@@ -269,6 +339,7 @@ local function replay(trace)
     end
     counts.answer = tonumber(output:match("(%-?%d+)$"))
     assert(counts.snapshot, "the replay reported nothing: " .. output)
+
     return counts, output
 end
 
@@ -286,15 +357,18 @@ function M.recordedWorkloadsReplayWithTheSameSurvivors()
     end
 end
 
--- A cold check of a small project (the workloads), the compiler running on
--- the glue's runtime with the recorder on: its weak tables, interned strings
+-- A cold check of a small project (the workloads), the compiler running on the
+-- installed Nupp core runtime with the recorder on: its weak tables, interned strings
 -- and incremental cycles replay with the same survivors.
 function M.aRecordedColdCheckReplaysWithTheSameSurvivors()
     local project = workloadProject()
     local dir = tempDirectory()
-    local package = installedPackage()
-    local status, output = capture(("cd %s && NO_JIT=1 NUPP_VM_CLI_IMAGE=%s NUPP_VM_BINARY=%s NUPP_HEAP_TRACE=%s %s check"):format(
-        quote(project), quote(package .. "/compiler.image"), quote(glueTool()), quote(dir), quote(ROOT .. "/bin/nupp")))
+    local package = compilerPackage()
+    local status, output = capture(
+        (
+            "cd %s && NO_JIT=1 NUPP_VM_CLI_IMAGE=%s NUPP_VM_BINARY=%s NUPP_HEAP_TRACE=%s %s check"
+        ):format(quote(project), quote(package.image), quote(package.runtime), quote(dir), quote(ROOT .. "/bin/nupp"))
+    )
     assert(status == 0, "the check failed: " .. output)
     local snapshots = 0
     for _, trace in ipairs(traces(dir)) do
@@ -309,10 +383,14 @@ end
 local WEAK = {
     -- Array length and mirror 2, the dead entry cleared, the live one kept,
     -- both unrooted nodes freed.
-    {"weakValues", {}, 22111}, {"ephemerons", {}, 1111}, {"weakBoth", {}, 111},
-    {"lookupBarrier", {}, 111}, {"released", {}, 1111},
+    {"weakValues", {}, 22111},
+    {"ephemerons", {}, 1111},
+    {"weakBoth", {}, 111},
+    {"lookupBarrier", {}, 111},
+    {"released", {}, 1111},
     -- Every third node of the weak table is also held by the list.
-    {"interleavedWeak", {3000}, 1000}, {"interleavedWeak", {301}, 101},
+    {"interleavedWeak", {3000}, 1000},
+    {"interleavedWeak", {301}, 101},
 }
 
 function M.weakTablesClearWhatOnlyTheyHold()

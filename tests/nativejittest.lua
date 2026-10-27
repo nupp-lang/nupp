@@ -129,22 +129,6 @@ local function functionNamed(name)
     return guest.parse(text)
 end
 
--- The interpreter's answer: the glue runtime running the image.
-local function interpret(name, args)
-    local words = {}
-    for index, arg in ipairs(args) do
-        words[index] = quote(arg)
-    end
-    local status, output, reported = answer(
-        (
-            "NO_JIT=1 %s run %s corpus %s %s"
-        ):format(quote(glueTool()), quote(corpusImage().path), quote(name), table.concat(words, " "))
-    )
-    assert(status == 0, ("interpreter %s(%s): %s%s"):format(name, table.concat(args, ", "), output, reported))
-
-    return (output:match("^([^\r\n]*)"))
-end
-
 -- A runtime with the code generator and the native core, which drives guest
 -- entries: `scripts/vm-cli runtime --link` builds it and the emitter image
 -- is emitted from these sources, so the whole JIT path runs from the tree.
@@ -165,6 +149,22 @@ local function jitRuntime()
     end
 
     return jit
+end
+
+-- The Nupp interpreter's answer on the linked core, without guest JIT compilation.
+local function interpret(name, args)
+    local words = {}
+    for index, arg in ipairs(args) do
+        words[index] = quote(arg)
+    end
+    local status, output, reported = answer(
+        (
+            "NO_JIT=1 %s run %s corpus %s %s"
+        ):format(quote(jitRuntime().runtime), quote(corpusImage().path), quote(name), table.concat(words, " "))
+    )
+    assert(status == 0, ("interpreter %s(%s): %s%s"):format(name, table.concat(args, ", "), output, reported))
+
+    return (output:match("^([^\r\n]*)"))
 end
 
 -- The answer of the JIT runtime in guest mode: every function compiled at
