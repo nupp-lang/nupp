@@ -89,6 +89,7 @@ end
 function M.exactScalarHandlersProduceTheSharedGraph()
     local functions, options = checked(read(CORE))
     local admitted = {
+        "K",
         "Move",
         "Nil",
         "Not",
@@ -338,6 +339,27 @@ function M.whileBackedgesBreakAndContinueRetainExactLocalBindings()
     local exit = g.blocks[header.term.edges[2].target]
     assert(incoming[exit.id] == 2 and exit.term.kind == "dispatch", "break must join the normal loop exit")
     assert(#exit.params == 2, "body-scoped and dead loop locals must not escape")
+end
+
+function M.constantHandlersKeepFunctionTablesAndRelocatableValuesLive()
+    local functions, options = checked(read(CORE))
+    local g = nativegraph.compile(functions.K, options)
+    graph.prune(g)
+    graph.verify(g)
+    local loads, layouts = 0, {}
+    for _, b in ipairs(g.blocks) do
+        for index, op in ipairs(b.op) do
+            if op == "NativeLoad" then
+                loads = loads + 1
+                local access = b.args[index][3]
+                assert(access.source == "live" and not access.write)
+                assert(not access.readonly and not access.lifetime)
+            elseif op == "NativeLayout" then
+                layouts[b.args[index][1]] = true
+            end
+        end
+    end
+    assert(loads == 4 and layouts.funcs and layouts["FuncInfo.size"] and layouts["FuncInfo.consts"])
 end
 
 return M

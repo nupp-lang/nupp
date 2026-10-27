@@ -156,6 +156,38 @@ function emitter.emit(g: any, options: any): string
                 end
                 local text = "call " .. helper(args[1]) .. "(" .. table.concat(words, ", ") .. ")"
                 line(dst ~= 0 and result .. " = " .. text or text)
+            elseif op == "NativeLoad" or op == "NativeStore" then
+                local write = op == "NativeStore"
+                local contract = args[write and 4 or 3]
+                local address = temporary("iadd " .. value(args[1]) .. ", " .. value(args[2]))
+                if write then
+                    local store = "store"
+                    if contract.kind ~= "float32" and contract.kind ~= "float64" and contract.width ~= 8 then
+                        store = ({[1] = "istore8", [2] = "istore16", [4] = "istore32"})[contract.width]
+                    end
+                    line(store .. " notrap " .. value(args[3]) .. ", " .. address)
+                else
+                    local load: string
+                    if contract.kind == "float32" or contract.kind == "float64" then
+                        load = "load." .. machineKinds[contract.kind]
+                    elseif contract.width == 8 then
+                        load = "load.i64"
+                    elseif contract.width == 4 then
+                        load = "sload32.i64"
+                    else
+                        load = "uload" .. tostring(contract.width * 8) .. ".i64"
+                    end
+                    line(result .. " = " .. load .. " notrap " .. address)
+                end
+            elseif op == "NativeLayout" then
+                local offset = need(options.layout, "native ABI layout provider required")(args[1])
+                need(
+                    type(offset) == "number" and offset % 1 == 0 and math.abs(offset) < 9007199254740992,
+                    "exact ABI layout offset required"
+                )
+                line(result .. " = iconst.i64 " .. tostring(offset))
+            elseif op == "NativePointer" or op == "NativeAddress" then
+                line(result .. " = iadd_imm " .. value(args[1]) .. ", 0")
             elseif op == "NativeConstant" then
                 line(result .. " = iconst.i64 " .. args[1])
             elseif op == "PointerOffset" then

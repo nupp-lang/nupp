@@ -8,6 +8,7 @@ local helpercontract = require("nupp.compiler.vm.helpercontract")
 
 local nativegraph = {}
 local admitted = {
+    K = true,
     Move = true,
     Nil = true,
     Not = true,
@@ -72,6 +73,10 @@ local intrinsicUnary = {
     unsignedFloat = {"NativeIntToFloat", "uint64", "float64"},
     toInt = {"NativeFloatToInt", "float64", "int64"},
     unsignedInt = {"NativeFloatToInt", "float64", "uint64"},
+    index = {"NativeWordCast", "uint64", "int64"},
+    word = {"NativeWordCast", "int64", "uint64"},
+    pointer = {"NativePointer", "uint64", "voidptr"},
+    address = {"NativeAddress", "voidptr", "uint64"},
     bits = {"NativeFloatBits", "float64", "uint64"},
     fromBits = {"NativeFloatFromBits", "uint64", "float64"}
 }
@@ -81,6 +86,33 @@ local intrinsicCalls = {
     chooseWord = {op = "NativeSelect", params = {"boolean", "uint64", "uint64"}, result = "uint64"},
     chooseIndex = {op = "NativeSelect", params = {"boolean", "int64", "int64"}, result = "int64"}
 }
+local memoryIntrinsics = {
+    load8 = {kind = "int64", width = 1, signed = false, write = false},
+    load16 = {kind = "int64", width = 2, signed = false, write = false},
+    load32 = {kind = "int64", width = 4, signed = true, write = false},
+    load64 = {kind = "uint64", width = 8, signed = false, write = false},
+    loadIndex = {kind = "int64", width = 8, signed = true, write = false},
+    loadPointer = {kind = "voidptr", width = 8, signed = false, write = false},
+    loadFloat = {kind = "float64", width = 8, signed = false, write = false},
+    store8 = {kind = "uint64", width = 1, signed = false, write = true},
+    store16 = {kind = "uint64", width = 2, signed = false, write = true},
+    store32 = {kind = "int64", width = 4, signed = true, write = true},
+    store64 = {kind = "uint64", width = 8, signed = false, write = true},
+    storeIndex = {kind = "int64", width = 8, signed = true, write = true},
+    storePointer = {kind = "voidptr", width = 8, signed = false, write = true},
+    storeFloat = {kind = "float64", width = 8, signed = false, write = true}
+}
+
+local function memoryContract(specification: any): any
+    return {
+        source = "live",
+        kind = specification.kind,
+        width = specification.width,
+        signed = specification.signed,
+        write = specification.write
+    }
+end
+
 local wrappers = {literal = "base", const = "inner"}
 
 local function need(ok: any, message: string): any
@@ -287,6 +319,27 @@ function nativegraph.compile(fn: any, options: any): any
                     operands[index + 1] = expression(args[index], kind)
                 end
                 return emit(n, "NativeHelperCall", operands, declaration.result) as integer
+            elseif moduleName == "nupp.runtime.vm.intrinsics" and name == "layout" then
+                signature(n, {"string"}, "int64")
+                need(expected == nil or expected == "int64", "layout offset changes exact kind")
+                need(args[1].kind == "string", "literal ABI layout name required")
+                return emit(
+                    n,
+                    "NativeLayout",
+                    {args[1].token.value or args[1].token.text:sub(2, -2)},
+                    "int64"
+                ) as integer
+            elseif moduleName == "nupp.runtime.vm.intrinsics" and memoryIntrinsics[name] then
+                local access = memoryContract(memoryIntrinsics[name])
+                need(not access.write, "native memory write is a statement")
+                signature(n, {"voidptr", "int64"}, access.kind)
+                need(expected == nil or expected == access.kind, "native load changes exact kind")
+                return emit(
+                    n,
+                    "NativeLoad",
+                    {expression(args[1], "voidptr"), expression(args[2], "int64"), access},
+                    access.kind
+                ) as integer
             elseif moduleName == "nupp.runtime.vm.intrinsics" and intrinsicCalls[name] then
                 local operation = intrinsicCalls[name]
                 signature(n, operation.params, operation.result)
@@ -398,6 +451,21 @@ function nativegraph.compile(fn: any, options: any): any
                     local slot = expression(args[3], "int64")
                     local value = expression(args[4], contract.kind)
                     emit(call, "FrameSlotWrite", {frame, window, slot, value, contract}, nil)
+                elseif moduleName == "nupp.runtime.vm.intrinsics" and memoryIntrinsics[name] then
+                    local access = memoryContract(memoryIntrinsics[name])
+                    need(access.write, "native memory read is not a statement")
+                    signature(call, {"voidptr", "int64", access.kind}, "nil")
+                    emit(
+                        call,
+                        "NativeStore",
+                        {
+                            expression(args[1], "voidptr"),
+                            expression(args[2], "int64"),
+                            expression(args[3], access.kind),
+                            access
+                        },
+                        nil
+                    )
                 elseif moduleName and options.helperModules and options.helperModules[moduleName] then
                     local declaration = helperDeclaration(call, moduleName, name as string)
                     need(declaration.result == "nil", "helper result must be bound explicitly")

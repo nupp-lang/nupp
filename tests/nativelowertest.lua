@@ -761,6 +761,7 @@ end
 function M.wholeScalarHandlersUseTheNuppGraph()
     local clif = coreClif()
     for _, name in ipairs({
+        "K",
         "Move",
         "Nil",
         "Not",

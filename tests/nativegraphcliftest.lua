@@ -306,4 +306,59 @@ function M.namedHelpersEmitDeclaredCSignaturesAndKeepCallOrder()
     assert(not pcall(emitter.emit, g, options), "machine-identical signatures erased exact helper kinds")
 end
 
+function M.liveNativeMemoryEmitsExactWidthsWithoutFrozenLoadFlags()
+    local g = newGraph()
+    local b = graph.block(g)
+    local offset = graph.emitNative(g, b, "NativeLayout", {"FuncInfo.consts"}, "int64")
+
+    local function contract(kind, width, signed, write)
+        return {source = "live", kind = kind, width = width, signed = signed, write = write}
+    end
+
+    for _, case in ipairs({
+        {"int64", 1, false},
+        {"int64", 2, false},
+        {"int64", 4, true},
+        {"int64", 8, true},
+        {"uint64", 8, false},
+        {"voidptr", 8, false},
+        {"float32", 4, false},
+        {"float64", 8, false}
+    }) do
+        local kind, width, signed = unpack(case)
+        local value = graph.emitNative(g, b, "NativeLoad", {5, offset, contract(kind, width, signed, false)}, kind)
+        if width >= 4 then
+            graph.emitNative(g, b, "NativeStore", {5, offset, value, contract(kind, width, signed, true)})
+        end
+    end
+    dispatch(b, 1)
+    local options = {
+        name = "K",
+        layout = function(field)
+            assert(field == "FuncInfo.consts");
+            return 24
+        end
+    }
+    local text = emitter.emit(g, options)
+    for _, instruction in ipairs({
+        "iconst.i64 24",
+        "uload8.i64",
+        "uload16.i64",
+        "sload32.i64",
+        "load.i64",
+        "load.f32",
+        "load.f64",
+        "istore32",
+        "store notrap"
+    }) do
+        assert(text:find(instruction, 1, true), instruction)
+    end
+    assert(not text:find("readonly", 1, true))
+    assert(not pcall(emitter.emit, g, {name = "K"}), "target ABI layout was guessed")
+    options.layout = function()
+        return 1.5
+    end
+    assert(not pcall(emitter.emit, g, options), "fractional ABI offset reached machine code")
+end
+
 return M

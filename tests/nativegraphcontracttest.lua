@@ -559,4 +559,88 @@ function M.namedHelpersRefuseMissingEffectsAndInexactOrChangedSignatures()
     )
 end
 
+local function memoryContract(kind, width, signed, write)
+    return {source = "live", kind = kind, width = width, signed = signed, write = write}
+end
+
+function M.liveNativeMemoryKeepsWidthsSignednessAndPointerBits()
+    local g, b = fresh()
+    local offset = G.emitNative(g, b, "NativeLayout", {"FuncInfo.consts"}, "int64")
+    local pointer = G.emitNative(g, b, "NativeLoad", {5, offset, memoryContract("voidptr", 8, false, false)}, "voidptr")
+    local address = G.emitNative(g, b, "NativeAddress", {pointer}, "uint64")
+    local restored = G.emitNative(g, b, "NativePointer", {address}, "voidptr")
+    for _, case in ipairs({
+        {"int64", 1, false},
+        {"int64", 2, false},
+        {"int64", 4, true},
+        {"int64", 8, true},
+        {"uint64", 8, false},
+        {"float32", 4, false},
+        {"float64", 8, false}
+    }) do
+        local kind, width, signed = unpack(case)
+        local value = G.emitNative(
+            g,
+            b,
+            "NativeLoad",
+            {restored, offset, memoryContract(kind, width, signed, false)},
+            kind
+        )
+        if width >= 4 then
+            G.emitNative(g, b, "NativeStore", {restored, offset, value, memoryContract(kind, width, signed, true)})
+        end
+    end
+    dispatch(b)
+    G.verify(g)
+    G.prune(g)
+    G.verify(g)
+    assert(b.args[1][1] == "FuncInfo.consts")
+    assert(b.args[2][3].source == "live" and b.args[2][3].kind == "voidptr")
+end
+
+function M.liveMemoryRejectsFrozenClaimsErasedWidthsAndWrongPointers()
+    for _, change in ipairs({
+        function(c)
+            c.source = "code"
+        end,
+        function(c)
+            c.readonly = true
+        end,
+        function(c)
+            c.write = true
+        end,
+        function(c)
+            c.signed = nil
+        end,
+        function(c)
+            c.kind = "number"
+        end,
+        function(c)
+            c.width = 4
+        end,
+        function(c)
+            c.signed = true
+        end,
+    }) do
+        local g, b = fresh()
+        local access = memoryContract("float64", 8, false, false)
+        change(access)
+        G.emitNative(g, b, "NativeLoad", {5, constant(g, b, "0"), access}, "float64")
+        dispatch(b)
+        rejects(function()
+            G.verify(g)
+        end)
+    end
+    local g, b = fresh()
+    local word = constant(g, b, "0", "uint64")
+    G.emitNative(g, b, "NativeLoad", {word, constant(g, b, "0"), memoryContract("uint64", 8, false, false)}, "uint64")
+    dispatch(b)
+    rejects(
+        function()
+            G.verify(g)
+        end,
+        "operand kind mismatch"
+    )
+end
+
 return M

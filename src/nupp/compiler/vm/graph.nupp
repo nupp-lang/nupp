@@ -102,6 +102,11 @@ signatures.VExtractI = "Ix##"
 -- Nupp kinds and static contracts are verified before machine emission.
 signatures.NativeConstant = "I#"
 signatures.NativeHelperCall = "I#"
+signatures.NativeLoad = "Iii#"
+signatures.NativeStore = "iia#"
+signatures.NativeLayout = "I#"
+signatures.NativePointer = "Ii"
+signatures.NativeAddress = "Ii"
 signatures.ProgramLoad = "Iii#"
 signatures.FrameSlotRead = "Iiii#"
 signatures.FrameSlotWrite = "iiia#"
@@ -127,6 +132,11 @@ signatures.NativeSqrt = "Ff"
 local nativeOnly = {
     NativeConstant = true,
     NativeHelperCall = true,
+    NativeLoad = true,
+    NativeStore = true,
+    NativeLayout = true,
+    NativePointer = true,
+    NativeAddress = true,
     ProgramLoad = true,
     FrameSlotRead = true,
     FrameSlotWrite = true,
@@ -447,6 +457,40 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
             not effects.pure or not (effects.mayCollect or effects.mayPark or effects.mayRaise),
             "native pure helper cannot collect, park or raise"
         )
+    elseif op == "NativeLoad" or op == "NativeStore" then
+        local write = op == "NativeStore"
+        local contract = args[write and 4 or 3]
+        nativeContract(contract, {source = true, kind = true, width = true, signed = true, write = true})
+        assert(contract.source == "live" and contract.write == write, "native memory requires live access semantics")
+        assert(type(contract.signed) == "boolean", "native memory requires explicit signedness")
+        local width, memoryKind = contract.width, contract.kind
+        assert(width == 1 or width == 2 or width == 4 or width == 8, "native memory width")
+        if memoryKind == "float64" or memoryKind == "float32" then
+            assert(width == (memoryKind == "float64" and 8 or 4) and not contract.signed, "native float memory width")
+        elseif width == 8 then
+            assert(
+                memoryKind == "int64" or memoryKind == "uint64" or memoryKind == "voidptr",
+                "native memory exact kind"
+            )
+            assert(contract.signed == (memoryKind == "int64"), "native memory signedness")
+        elseif width == 4 then
+            assert(memoryKind == "int64" and contract.signed, "native signed word memory")
+        else
+            assert(memoryKind == (write and "uint64" or "int64") and not contract.signed, "native narrow memory kind")
+        end
+        hasKind(args[1], "voidptr")
+        hasKind(args[2], "int64")
+        if write then
+            hasKind(args[3], memoryKind)
+            assert(dst == 0, "native store has no result")
+        else
+            assert(kind == memoryKind, "native load result kind")
+        end
+    elseif op == "NativeLayout" then
+        assert(kind == "int64" and type(args[1]) == "string" and args[1]:match("^[%w_%.]+$"), "native ABI layout name")
+    elseif op == "NativePointer" or op == "NativeAddress" then
+        hasKind(args[1], op == "NativePointer" and "uint64" or "voidptr")
+        assert(kind == (op == "NativePointer" and "voidptr" or "uint64"), "native pointer bit conversion kind")
     elseif op == "NativeConstant" then
         nativeInteger(args[1], kind)
     elseif op == "NativeBoolean" then
