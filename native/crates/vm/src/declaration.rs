@@ -15,11 +15,12 @@ use std::fmt;
 pub enum Ty {
     Nil,
     Boolean,
-    Integer,
     Int32,
     Uint32,
     Int64,
     Number,
+    Float32,
+    Float64,
     String,
     Any,
     Optional(Box<Ty>),
@@ -51,11 +52,12 @@ impl fmt::Display for Ty {
         match self {
             Ty::Nil => f.write_str("nil"),
             Ty::Boolean => f.write_str("boolean"),
-            Ty::Integer => f.write_str("integer"),
             Ty::Int32 => f.write_str("int32"),
             Ty::Uint32 => f.write_str("uint32"),
             Ty::Int64 => f.write_str("int64"),
             Ty::Number => f.write_str("number"),
+            Ty::Float32 => f.write_str("float32"),
+            Ty::Float64 => f.write_str("float64"),
             Ty::String => f.write_str("string"),
             Ty::Any => f.write_str("any"),
             Ty::Optional(t) => match **t {
@@ -344,11 +346,13 @@ impl Parser {
                 Ok(match name.as_str() {
                     "nil" => Ty::Nil,
                     "boolean" => Ty::Boolean,
-                    "integer" => Ty::Integer,
+                    "integer" => Ty::Int64,
                     "int32" => Ty::Int32,
                     "uint32" => Ty::Uint32,
                     "int64" => Ty::Int64,
                     "number" => Ty::Number,
+                    "float32" => Ty::Float32,
+                    "float" | "float64" => Ty::Float64,
                     "string" => Ty::String,
                     "any" | "unknown" => Ty::Any,
                     _ => Ty::Named(name),
@@ -609,10 +613,16 @@ mod tests {
     #[test]
     fn canonical_signatures_drop_names_and_keep_types() {
         let s = parse_signature("function(a: integer, b?: string, f: function(x: number): boolean): (integer, string?)").unwrap();
-        assert_eq!(s.to_string(), "function(integer, string?, function(number): boolean): (integer, string?)");
+        assert_eq!(s.to_string(), "function(int64, string?, function(number): boolean): (int64, string?)");
         assert_eq!(parse_signature("function(): nil").unwrap().to_string(), "function()");
-        assert_eq!(parse_signature("function(t: {[string]: integer}, ...: any)").unwrap().to_string(), "function({[string]: integer}, ...: any)");
+        assert_eq!(parse_signature("function(t: {[string]: integer}, ...: any)").unwrap().to_string(), "function({[string]: int64}, ...: any)");
         assert!(parse_signature("function(a: integer) extra").is_err());
+    }
+    #[test]
+    fn numeric_aliases_preserve_supertype_and_physical_float_widths() {
+        assert_eq!(parse_signature("function(integer): float").unwrap(), parse_signature("function(int64): float64").unwrap());
+        assert_ne!(parse_signature("function(number): number").unwrap(), parse_signature("function(float64): float64").unwrap());
+        assert_ne!(parse_signature("function(float32): float32").unwrap(), parse_signature("function(float64): float64").unwrap());
     }
     #[test]
     fn module_declarations_read_the_returned_record() {
@@ -621,7 +631,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(d.library.as_deref(), Some("counter"));
-        assert_eq!(d.functions["add"].to_string(), "function(integer, integer): integer");
+        assert_eq!(d.functions["add"].to_string(), "function(int64, int64): int64");
         assert_eq!(d.functions.len(), 2);
         assert!(parse("local record M\n  x: number\nend\nreturn M").unwrap_err().contains("only functions"));
     }

@@ -717,15 +717,21 @@ fn argument(call: &mut Context, i: usize, t: &Ty, v: Value) -> Result<abi::Slot,
         Ty::Optional(inner) => argument(call, i, inner, v),
         Ty::Nil => (v == Value::NIL).then_some(abi::Slot::NIL).ok_or_else(|| wrong("nil")),
         Ty::Boolean => (v == Value::TRUE || v == Value::FALSE).then(|| abi::Slot::boolean(v == Value::TRUE)).ok_or_else(|| wrong("a boolean")),
-        Ty::Integer | Ty::Int64 => integral(vm, v).map(abi::Slot::integer).ok_or_else(|| wrong("an integer")),
+        Ty::Int64 => integral(vm, v).map(abi::Slot::integer).ok_or_else(|| wrong("an integer")),
         Ty::Int32 => integral(vm, v).filter(|n| i32::try_from(*n).is_ok()).map(abi::Slot::integer).ok_or_else(|| wrong("an int32")),
         Ty::Uint32 => integral(vm, v).filter(|n| u32::try_from(*n).is_ok()).map(abi::Slot::integer).ok_or_else(|| wrong("a uint32")),
         Ty::Number => {
             if crate::numeric::is_numeric(v) {
-                Ok(abi::Slot::number(crate::numeric::double(vm, v)))
+                Ok(slot_of(call, v))
             } else {
                 Err(wrong("a number"))
             }
+        }
+        Ty::Float32 | Ty::Float64 => {
+            if crate::numeric::is_numeric(v) {
+                let value = crate::numeric::double(vm, v);
+                Ok(abi::Slot::number(if matches!(t, Ty::Float32) { value as f32 as f64 } else { value }))
+            } else { Err(wrong("a number")) }
         }
         Ty::String => {
             if vm.is_stringish(v) {
@@ -819,16 +825,18 @@ fn value_of(call: &mut Context, slot: &abi::Slot, t: Option<&Ty>, position: &str
         (None | Some(Ty::Any), _) => scalar(vm)?,
         (Some(Ty::Nil), abi::NIL) => Value::NIL,
         (Some(Ty::Boolean), abi::BOOLEAN) => scalar(vm)?,
-        (Some(Ty::Number), abi::NUMBER) => scalar(vm)?,
-        (Some(Ty::Number), abi::INTEGER) => Value::num(unsafe { slot.value.integer } as f64),
+        (Some(Ty::Number), abi::NUMBER | abi::INTEGER) => scalar(vm)?,
+        (Some(t @ (Ty::Float32 | Ty::Float64)), abi::NUMBER | abi::INTEGER) => {
+            let number = if slot.kind == abi::INTEGER { (unsafe { slot.value.integer }) as f64 } else { unsafe { slot.value.number } };
+            Value::num(if matches!(t, Ty::Float32) { number as f32 as f64 } else { number })
+        },
         (Some(Ty::String), abi::STRING) => scalar(vm)?,
         (Some(Ty::Int64), abi::INTEGER) => scalar(vm)?,
-        (Some(Ty::Integer), abi::INTEGER) => scalar(vm)?,
-        (Some(Ty::Integer), abi::NUMBER) => {
+        (Some(Ty::Int64), abi::NUMBER) => {
             let number = unsafe { slot.value.number };
             match crate::numeric::exact_integer(number) {
                 Some(integer) => vm.box_integer(integer),
-                None => return Err(wrong("integer", got)),
+                None => return Err(wrong("int64", got)),
             }
         },
         (Some(Ty::Int32), abi::INTEGER) if i32::try_from(unsafe { slot.value.integer }).is_ok() => scalar(vm)?,

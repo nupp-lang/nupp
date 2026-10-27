@@ -199,13 +199,13 @@ fn a_signature_mismatch_is_refused_before_the_extension_initializes() {
     vm.load_image(&built.image()).unwrap();
     let error = vm.require("demo.counter").unwrap_err();
     assert!(
-        error.0.contains("demo.counter.add is declared function(integer, integer): integer, but the extension registers function(number, number): number"),
+        error.0.contains("demo.counter.add is declared function(int64, int64): int64, but the extension registers function(number, number): number"),
         "{error}"
     );
     assert_eq!(built.marker("init"), 0);
     // The program's own calls see the same refusal.
     let sum = vm.export("demo.main", "sum").unwrap();
-    assert!(vm.call(&sum, &[Arg::Integer(1), Arg::Integer(2)]).unwrap_err().0.contains("is declared function(integer, integer): integer"));
+    assert!(vm.call(&sum, &[Arg::Integer(1), Arg::Integer(2)]).unwrap_err().0.contains("is declared function(int64, int64): int64"));
     // Each refused load closed the library again, before any of its code ran.
     assert_eq!(built.marker("unloaded"), 2);
     assert_eq!(built.marker("init"), 0);

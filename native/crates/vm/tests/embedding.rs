@@ -70,7 +70,7 @@ fn a_mismatched_or_incomplete_registration_is_refused_before_it_runs() {
     let error = vm.register(counter(), &narrowed).unwrap_err();
     assert_eq!(
         error.0,
-        "demo.counter.add is declared function(number, number): number, but the extension registers function(integer, integer): integer"
+        "demo.counter.add is declared function(number, number): number, but the extension registers function(int64, int64): int64"
     );
     let extra = DECLARATION.replace("fail: function(message: string)", "fail: function(message: string)\n    reset: function()");
     let error = vm.register(counter(), &extra).unwrap_err();
@@ -147,7 +147,7 @@ fn callbacks_and_retained_handles_hold_under_collection() {
         // A released root is refused, not read.
         let copy = vm.root(Arg::Integer(7)).unwrap();
         vm.release(text);
-        assert_eq!(vm.read(&copy).unwrap(), Out::Number(7.0));
+        assert_eq!(vm.read(&copy).unwrap(), Out::Integer(7));
         // Wide integers cross exactly.
         let big = vm.root(Arg::Integer(i64::MAX - 1)).unwrap();
         assert_eq!(vm.read(&big).unwrap(), Out::Integer(i64::MAX - 1));

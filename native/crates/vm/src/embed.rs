@@ -103,7 +103,7 @@ impl Out {
     pub fn as_integer(&self) -> Option<i64> {
         match *self {
             Out::Integer(i) => Some(i),
-            Out::Number(n) if n.fract() == 0.0 && n.abs() < 9.3e18 => Some(n as i64),
+            Out::Number(n) => crate::numeric::exact_integer(n).map(|n| n.bits as i64),
             _ => None,
         }
     }
@@ -281,7 +281,7 @@ impl Vm {
             Out::Nil
         } else if v == Value::TRUE || v == Value::FALSE {
             Out::Boolean(v == Value::TRUE)
-        } else if v.is_num() {
+        } else if v.is_float() {
             Out::Number(v.as_num())
         } else if let Some(i) = crate::numeric::integer(v).filter(|i| !i.unsigned || i.bits <= i64::MAX as u64) {
             Out::Integer(i.bits as i64)
