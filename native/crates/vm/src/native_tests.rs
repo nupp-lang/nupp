@@ -140,6 +140,40 @@ fn leaf_words_match_rust_at_extremes_with_aliasing() {
     }
 }
 
+#[test]
+fn native_integer_literals_moves_and_masks_preserve_all_bits() {
+    let values = [0, 1, -1, i64::MIN, i64::MAX, 0x1234_5678_90ab_cdef];
+    for code in [Code::IK, Code::IMov, Code::IAddK, Code::IMaskU32] {
+        for source in values {
+            for immediate in values {
+                for dest in [0, 1, 255] {
+                    let mut regs = [0xa5a5; 258];
+                    let mut ints = [-123; 258];
+                    let mut floats = [19.25; 258];
+                    ints[1] = source;
+                    let mut expected = ints;
+                    expected[dest + 1] = match code {
+                        Code::IK => immediate,
+                        Code::IMov => source,
+                        Code::IAddK => source.wrapping_add(immediate),
+                        Code::IMaskU32 => source & 0xffff_ffff,
+                        _ => unreachable!(),
+                    };
+                    assert!(unsafe {
+                        execute_leaf(code, dest, &mut regs, &mut ints, &mut floats, immediate)
+                    });
+                    assert_eq!(
+                        ints, expected,
+                        "{code:?}: source {source}, immediate {immediate}"
+                    );
+                    assert_eq!(regs, [0xa5a5; 258]);
+                    assert_eq!(floats, [19.25; 258]);
+                }
+            }
+        }
+    }
+}
+
 // Exercise the linked Nupp-authored object directly, including destinations
 // that alias a source and sentinel slots around the register windows.
 unsafe fn execute_leaf(

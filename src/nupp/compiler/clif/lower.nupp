@@ -5,8 +5,10 @@ Lowers ordinary typed Nupp to Cranelift's textual IR (CLIF): the scalar types,
 mutable locals, branches, loops, direct calls, struct fields through raw
 pointers at the compiler's own layout offsets, and the memory intrinsics, with
 nothing managed underneath. The ordinary parser and checker validate the
-source; this module turns the checked tree into CLIF, building SSA form through
-`nupp.compiler.clif.ssa`, and the runtime's glue parses and compiles the text.
+source. Admitted integer handlers pass through the existing Nupp graph and its
+mechanical CLIF emitter. The temporary direct path uses `nupp.compiler.clif.ssa`
+for functions whose graph operations are not yet implemented. The runtime's
+glue parses and compiles the text.
 
 A set of modules compiles to one CLIF file. A module's `export function`s
 are what the others call, through a `const` require of it; a require of the
@@ -35,6 +37,9 @@ local helpercontract = require("nupp.compiler.vm.helpercontract")
 local slotcontract = require("nupp.compiler.vm.slotcontract")
 local programcontract = require("nupp.compiler.vm.programcontract")
 local specializationcontract = require("nupp.compiler.vm.specializationcontract")
+local graph = require("nupp.compiler.vm.graph")
+local nativegraph = require("nupp.compiler.vm.nativegraph")
+local clifgraph = require("nupp.compiler.clif.graph")
 
 local lower = {}
 
@@ -446,7 +451,9 @@ local function resolveCallee(call: any, scope: Scope, modules: {[string]: Scope}
     return nil
 end
 
-local function compileFunction(fn: Fn, options: any): string
+-- Temporary checked-syntax path for functions not yet admitted to the graph.
+-- P1b removes it as the remaining native operations gain graph contracts.
+local function compileDirectFunction(fn: Fn, options: any): string
     local body = fn.body
     need(not body.varargParam and not body.generics and not body.captureTakes, "plain function required")
     local name = fn.name
@@ -2068,7 +2075,7 @@ function lower.compile(root: string, paths: {string}, options: any?): string
     for _, scope in ipairs(scopes) do
         for _, fnName in ipairs(scope.order) do
             local fn = scope.functions[fnName] as Fn
-            if not handlers or fn.isHandler or fn.isSupport then
+            if not handlers or fn.isHandler or fn.isSupport or nativegraph.admits(fn) then
                 need(seen[fnName] == nil, "function " .. fnName .. " compiled from two modules")
                 seen[fnName] = true
                 compiled[#compiled + 1] = fn
@@ -2084,7 +2091,15 @@ function lower.compile(root: string, paths: {string}, options: any?): string
     }
     local text = {}
     for index, fn in ipairs(compiled) do
-        text[index] = compileFunction(fn, functionOptions)
+        if handlers and nativegraph.admits(fn) then
+            local g = nativegraph.compile(fn, functionOptions)
+            graph.verify(g)
+            graph.prune(g)
+            graph.verify(g)
+            text[index] = clifgraph.emit(g, {name = fn.name, layout = functionOptions.layout})
+        else
+            text[index] = compileDirectFunction(fn, functionOptions)
+        end
     end
 
     return table.concat(text, "\n")

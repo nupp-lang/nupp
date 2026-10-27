@@ -737,7 +737,9 @@ function M.theGlueChecksTheHandlerContractOnTheParsedFunction()
             :gsub("%)\n}", ")\n    return v99\n}"),
         "only dispatch or leave"
     )
-    rejectsObject("changed-context", (iadd:gsub(", v4, v5%)", ", v1, v5)")), "dispatch must preserve the context")
+    local changedContext, replaced = iadd:gsub("(return_call_indirect sig0, [^\n]*, )(v%d+)(, v%d+%)\n)", "%1v1%3", 1)
+    assert(replaced == 1, "the context mutation must change the dispatch")
+    rejectsObject("changed-context", changedContext, "dispatch must preserve the context")
     rejectsObject(
         "signature",
         (iadd:gsub("%) %-> i64 tail {", ") -> i64 apple_aarch64 {", 1)),
@@ -749,6 +751,16 @@ function M.theGlueChecksTheHandlerContractOnTheParsedFunction()
         "reference no symbols"
     )
     rejectsObject("syntax", (iadd:gsub("uload8.i64", "uload8.i65", 1)), "expected")
+end
+
+function M.wholeIntegerHandlersUseTheNuppGraph()
+    local clif = coreClif()
+    for _, name in ipairs({"IK", "IMov", "IAddK", "IMaskU32", "IAdd", "ISub", "IAnd", "IOr"}) do
+        local text = functionText(clif, name)
+        assert(text:find("Nupp native graph: " .. name, 1, true), name .. " bypassed the Nupp graph")
+        assert(text:find("return_call_indirect sig0, ", 1, true), name .. " lost its dispatch")
+        assert(not text:find("call %", 1, true), name .. " introduced a helper boundary")
+    end
 end
 
 function M.theRuntimeCoreCompilesToOneObjectWithItsSidecar()

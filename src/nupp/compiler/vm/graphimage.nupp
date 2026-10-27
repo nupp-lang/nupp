@@ -327,6 +327,7 @@ function image.encoder(): any
     --- `r` is what `nupp.compiler.vm.convert` keeps of it, blocks of the
     --- lowering's instructions over registers, each with its ending.
     local function addRegisters(r: any): nil
+        assert(r.native == nil, "native-system graphs cannot be encoded as VM images")
         -- One buffer for every function's words: only the first `nbody` are
         -- this function's, so it is never cleared or grown again.
         nbody = 0
@@ -384,6 +385,7 @@ function image.encoder(): any
     --- @raises string when the graph does not verify, a wide literal is not
     --- an exact integer, or a region annotation does not describe its graph.
     local function add(g: any): nil
+        assert(g.native == nil, "native-system graphs cannot be encoded as VM images")
         nbody = 0
         G.verify(g)
         local regions = G.regions(g)

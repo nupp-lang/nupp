@@ -79,6 +79,9 @@ return {
         "native-runtime"
     ] = {
         "nativelowertest",
+        "nativegraphcontracttest",
+        "nativegraphtest",
+        "nativegraphcliftest",
         "nativeruntimetest",
         "nativejittest",
         "nativestringstest",

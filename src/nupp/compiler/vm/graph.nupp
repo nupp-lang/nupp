@@ -112,7 +112,7 @@ local nativeOnly = {
     FrameSlotWrite = true,
     PointerOffset = true
 }
-local nativeArithmetic = {IAdd = true, ISub = true, IAnd = true, IOr = true, IMov = true}
+local nativeArithmetic = {IAdd = true, ISub = true, IAnd = true, IOr = true}
 local nativeKinds = {voidptr = true, int64 = true, uint64 = true}
 local terminators = {
     Jmp = true,
