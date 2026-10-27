@@ -252,7 +252,7 @@ class ColdAcceptance(unittest.TestCase):
             with self.subTest(text=text), self.assertRaises(ValueError):
                 cold.require_aot_execution(text, 2)
 
-    def synthetic_cold(self, fault=None):
+    def synthetic_cold(self, fault=None, windows_receipt_keys=False):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             out = root / "build/native-bootstrap-cold"
@@ -342,16 +342,23 @@ class ColdAcceptance(unittest.TestCase):
                     return None
                 cold.cold()
             receipt = json.loads((out / "acceptance.json").read_text())
+            if windows_receipt_keys:
+                receipt["sha256"] = {key.replace("/", "\\"): value for key, value in receipt["sha256"].items()}
+            hashes = {key.replace("\\", "/"): value for key, value in receipt["sha256"].items()}
             self.assertEqual(receipt["fixpointImageSha256"], receipt["interpreted"]["imageSha256"])
             self.assertEqual(receipt["aotExecution"]["compiledFrameEntries"], [17])
             for filename in ("runtime.clif", "runtime.o", "runtime.o.rs"):
-                self.assertEqual(receipt["sha256"]["build/vm-cli/link/native/" + filename], cold.digest(linked_native / filename))
+                self.assertEqual(hashes["build/vm-cli/link/native/" + filename], cold.digest(linked_native / filename))
             final_calls = [args for name, args, _ in calls if name in ("aot-help", "aot-verify", "emit-aot")]
             self.assertTrue(all(args[0] == str(packages / ("b" * 64) / "runtime") for args in final_calls))
             return receipt
 
     def test_complete_cold_receipt_binds_fixpoint_final_core_and_executed_aot(self):
         self.assertEqual(self.synthetic_cold()["compiledFunctions"], 2)
+
+    def test_complete_cold_receipt_accepts_windows_path_keys(self):
+        receipt = self.synthetic_cold(windows_receipt_keys=True)
+        self.assertIn("build\\vm-cli\\link\\native\\runtime.clif", receipt["sha256"])
 
     def test_incoherent_delivery_or_missing_execution_cannot_publish_acceptance(self):
         for fault in ("fixpoint", "core", "execution", "receipt", "output", "generation"):
