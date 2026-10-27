@@ -584,8 +584,8 @@ fn bitfield(vm: &Interp, field: Value) -> Option<Bits> {
 // lanes in memory. Its element IDs belong to SIMD, not PHYSICAL_SCALARS.
 fn vector_shape(vm: &Interp, ty: Value) -> simd::Shape {
     let element = text(vm, get(vm, get(vm, ty, "element"), "kind"));
-    let kind = simd::ELEMENTS.iter().position(|name| *name == element.as_str())
-        .unwrap_or_else(|| vm.err("nupp: unsupported stored vector element")) as u8;
+    let kind = simd::element_kind(&element)
+        .unwrap_or_else(|| vm.err("nupp: unsupported stored vector element"));
     let lanes = count(vm, get(vm, ty, "count"));
     if !(2..=64).contains(&lanes) {
         vm.err("nupp: stored vectors require 2 through 64 lanes");
@@ -1701,7 +1701,7 @@ pub(crate) fn simd_access(
     let v = view(vm, pointer);
     let element = get(vm, v.element, "kind");
     let w = crate::simd::width(kind);
-    if vm.bytes_of(element) != crate::simd::ELEMENTS[kind as usize].as_bytes() {
+    if std::str::from_utf8(vm.bytes_of(element)).ok().and_then(simd::element_kind) != Some(kind) {
         vm.err("SIMD span element differs from its species");
     }
     if write {

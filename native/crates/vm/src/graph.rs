@@ -588,7 +588,7 @@ fn verify_registers(table: &Table, image: &Image, g: &Graph, scratch: &mut Scrat
                 let w = words[i + 1];
                 values[i] = match letter {
                     b's' if i == 0 => crate::simd::operation(image.text(w)).map(i64::from).unwrap_or(-1),
-                    b's' => crate::simd::ELEMENTS.iter().position(|k| *k == image.text(w)).map(|k| k as i64).unwrap_or(-1),
+                    b's' => crate::simd::element_kind(image.text(w)).map(|k| k as i64).unwrap_or(-1),
                     b'L' => image.wides[w as usize],
                     _ => w as i64,
                 };
@@ -687,7 +687,7 @@ pub fn verify_with(table: &Table, image: &Image, g: &Graph, nfunctions: usize, s
                     }
                     b's' => {
                         let name = image.text(w);
-                        let ok = match (sig.name, i) { ("VOp", 0) | ("Simd", 0) => crate::simd::operation(name).is_some(), _ => crate::simd::ELEMENTS.contains(&name) };
+                        let ok = match (sig.name, i) { ("VOp", 0) | ("Simd", 0) => crate::simd::operation(name).is_some(), _ => crate::simd::element_kind(name).is_some() };
                         if !ok { return Err(format!("{}: unknown name {name}", sig.name)); }
                     }
                     _ => {}
@@ -807,7 +807,7 @@ pub fn derive(table: &Table, image: &Image, g: &Graph, d: &mut Derivation) -> Re
     let wide = |n: u32| image.wides[n as usize];
     let i32_of = |n: u32| -> Result<i32, String> { i32::try_from(image.wides[n as usize]).map_err(|_| "offset literal does not fit".to_string()) };
     let simd_op = |n: u32| crate::simd::operation(image.text(n)).unwrap();
-    let element = |n: u32| crate::simd::ELEMENTS.iter().position(|k| *k == image.text(n)).unwrap() as u8;
+    let element = |n: u32| crate::simd::element_kind(image.text(n)).unwrap();
     let shape = |n: u32| -> Result<u32, String> { d.shape_ids.get(n as usize).copied().ok_or_else(|| "shape outside the loaded shapes".to_string()) };
     let mut consts = Vec::with_capacity(g.constants.len());
     for k in &g.constants {

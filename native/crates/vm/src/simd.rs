@@ -4,6 +4,14 @@ use crate::{heap::KIND_BYTES, interp::Interp, numeric, value::Value};
 pub const ELEMENTS: &[&str] = &[
     "uint8", "int8", "uint16", "int16", "uint32", "int32", "uint64", "int64", "float", "number",
 ];
+pub fn element_kind(name: &str) -> Option<u8> {
+    match name {
+        "float32" => Some(8),
+        "float64" => Some(9),
+        _ => ELEMENTS.iter().position(|element| *element == name).map(|i| i as u8),
+    }
+}
+
 pub const OPERATIONS: &[&str] = &[
     "species",
     "splat",
@@ -1084,10 +1092,7 @@ pub(crate) fn witness(vm: &Interp, value: Value) -> Option<u8> {
     if !vm.is_stringish(physical) {
         return None;
     }
-    ELEMENTS
-        .iter()
-        .position(|name| name.as_bytes() == vm.bytes_of(physical))
-        .map(|i| i as u8)
+    std::str::from_utf8(vm.bytes_of(physical)).ok().and_then(element_kind)
 }
 pub fn install(vm: &mut Interp) {
     let module = vm.new_table();

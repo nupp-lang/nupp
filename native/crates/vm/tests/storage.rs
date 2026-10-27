@@ -200,7 +200,7 @@ fn scalar_layouts_and_native_byte_vectors() {
     ] {
         let bytes = string(&mut vm, &bits.to_ne_bytes());
         let decoded = keep(&mut vm, &format!("decode{suffix}"), &[bytes]);
-        assert_eq!(numeric::bits(&vm, decoded, unsigned), bits);
+        assert_eq!(numeric::word(&vm, decoded, unsigned), bits);
         let encoded = call(&mut vm, &format!("encode{suffix}"), &[decoded]);
         assert_eq!(vm.bytes_of(encoded), bits.to_ne_bytes());
     }

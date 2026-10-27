@@ -275,10 +275,10 @@ pub(crate) fn parse(it: &mut Interp, text: &str, patch: Option<&[u32]>) -> Resul
                     "Simd" => {
                         if parts.len() != 5 && parts.len() != 6 { return Err(format!("line {ln}: SIMD operand count")); }
                         let op = crate::simd::operation(parts[1]).ok_or_else(|| format!("line {ln}: unknown SIMD operation"))?;
-                        let kind = crate::simd::ELEMENTS.iter().position(|k| *k == parts[2]).ok_or_else(|| format!("line {ln}: unknown SIMD element"))? as u8;
+                        let kind = crate::simd::element_kind(parts[2]).ok_or_else(|| format!("line {ln}: unknown SIMD element"))?;
                         let base = parts[3].parse::<u8>().map_err(|_| format!("line {ln}: SIMD register"))?;
                         let nargs = parts[4].parse::<u8>().map_err(|_| format!("line {ln}: SIMD arity"))?;
-                        let source = if parts.len() == 6 { crate::simd::ELEMENTS.iter().position(|k| *k == parts[5]).ok_or_else(|| format!("line {ln}: unknown SIMD source element"))? as u8 } else { kind };
+                        let source = if parts.len() == 6 { crate::simd::element_kind(parts[5]).ok_or_else(|| format!("line {ln}: unknown SIMD source element"))? } else { kind };
                         Op::Simd(op, kind, source, base, nargs)
                     },
                     "SpanLen" => Op::SpanLen(a(1) as u8, a(2) as u8, a(3) as u8),
