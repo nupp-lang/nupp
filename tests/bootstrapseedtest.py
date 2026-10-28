@@ -312,7 +312,9 @@ printf '%s\n' "$RUST_VM_AOT_TOOL_OUT"
             calls = (root / "cargo.log").read_text().splitlines()
             self.assertEqual(len(calls), 2)
             for call in calls:
-                self.assertTrue(call.startswith(str(core) + "|"), call)
+                recorded_core, separator, command = call.partition("|")
+                self.assertEqual(separator, "|", call)
+                self.assertEqual(Path(recorded_core), core, call)
                 self.assertIn("--features aot,native-runtime", call)
 
     def test_cold_lowering_image_uses_seed_not_cargo_execution(self):
