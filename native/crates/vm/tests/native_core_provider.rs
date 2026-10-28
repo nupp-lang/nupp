@@ -23,6 +23,23 @@ fn provider_child() {
         assert!(provider::initialize().unwrap_err().contains("all 105"));
         return;
     }
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+    let lookups: Vec<_> = (0..8)
+        .map(|_| {
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                (0..CORE_EXPORT_COUNT)
+                    .map(provider::address)
+                    .collect::<Vec<_>>()
+            })
+        })
+        .collect();
+    let selected: Vec<_> = lookups
+        .into_iter()
+        .map(|lookup| lookup.join().unwrap())
+        .collect();
+    assert!(selected.iter().all(|addresses| addresses == &selected[0]));
     provider::initialize().unwrap();
     assert_eq!(CORE_EXPORT_NAMES.len(), CORE_EXPORT_COUNT);
     for (i, name) in CORE_EXPORT_NAMES.iter().enumerate() {

@@ -148,7 +148,12 @@ pub fn initialize() -> Result<(), String> {
 #[doc(hidden)]
 #[inline]
 pub fn address(index: usize) -> usize {
-    provider()
+    let published = if let Some(value) = PROVIDER.get() {
+        value.as_ref().map_err(Clone::clone)
+    } else {
+        provider()
+    };
+    published
         .unwrap_or_else(|error| panic!("native core provider: {error}"))
         .addresses[index]
 }
