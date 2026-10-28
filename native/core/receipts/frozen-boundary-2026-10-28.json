@@ -78,8 +78,8 @@
     "wrapperBody": "#!/bin/sh\n# Keep sccache startup notification sockets below the macOS path limit.\nTMPDIR=/private/tmp exec /opt/homebrew/bin/sccache \"$@\"\n",
     "loginProfile": {
       "path": "/Users/dowling/.zprofile",
-      "sha256": "aadb71d21ef9350d7533b278a13b8a553b384e4e3f4194b8f734868c34008743",
-      "bytes": 194
+      "sha256": "5bd4e5ff037f060c530e61d3aae1add60f9e72d3742bca6b3acadcdfeb261c56",
+      "bytes": 196
     },
     "profileCreatedWhenAbsent": true,
     "selection": "Login profile sets RUSTC_WRAPPER to the wrapper only when unset; explicit overrides are preserved. Direct sccache on PATH remains the Homebrew executable in login shells.",
@@ -101,8 +101,8 @@
     },
     "receipt": {
       "path": "/Users/dowling/projects/nupp-wt/native-core-first-programs/build/core-boundary-sccache-check1/receipt.json",
-      "sha256": "8bbc1503aa6237f9eaacc234e75180fafdc24920f302c58984cdd7d008b430c9",
-      "bytes": 4786
+      "sha256": "2dbf94cc00b7de981b83d92f4822e19f6a9476765f16ec93810abc4c80bd222a",
+      "bytes": 5445
     },
     "sourceReference": "https://github.com/mozilla/sccache/blob/v0.18.0/src/commands.rs#L86-L112",
     "normalBranchRebuild": {
@@ -118,7 +118,27 @@
     "noHomebrewBinaryReplaced": true,
     "noSharedDaemonStopped": true,
     "originalSecondFailure": "Actual child environment was not retained; recorded short TMPDIR does not explain it.",
-    "loginProfileBody": "# Keep sccache startup sockets below the macOS path limit.\nif [ -z \"${RUSTC_WRAPPER:-}\" ] && [ -x \"$HOME/.opencode/bin/sccache\" ]; then\n    export RUSTC_WRAPPER=\"$HOME/.opencode/bin/sccache\"\nfi\n"
+    "loginProfileBody": "# Keep sccache startup sockets below the macOS path limit.\nif [ \"${RUSTC_WRAPPER+x}\" != x ] && [ -x \"$HOME/.opencode/bin/sccache\" ]; then\n    export RUSTC_WRAPPER=\"$HOME/.opencode/bin/sccache\"\nfi\n",
+    "wrapperSelectionChecks": [
+      {
+        "input": null,
+        "expected": "/Users/dowling/.opencode/bin/sccache",
+        "actual": "/Users/dowling/.opencode/bin/sccache",
+        "returnCode": 0
+      },
+      {
+        "input": "",
+        "expected": "",
+        "actual": "",
+        "returnCode": 0
+      },
+      {
+        "input": "/usr/bin/env",
+        "expected": "/usr/bin/env",
+        "actual": "/usr/bin/env",
+        "returnCode": 0
+      }
+    ]
   },
   "remaining": [
     "Whole-language functiongraph coverage.",
