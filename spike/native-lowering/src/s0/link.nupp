@@ -16,7 +16,7 @@ end
 
 -- E1 uses one checked mapping per C entry. The full runtime provider supplies
 -- reusable thread arenas separately; this transport is not its timing path.
-function link.build(functions: {ir.Function}, entry: string, spill: boolean): link.Image
+function link.build(functions: {ir.Function}, entry: string, spill: boolean, binding: string?): link.Image
     local codes: {selector.Code} = {}
     local named: {[string]: integer} = {}
     local offsets: {integer} = {}
@@ -43,6 +43,59 @@ function link.build(functions: {ir.Function}, entry: string, spill: boolean): li
         codes[index] = selector.run(f, allocate.run(f, target))
     end
     local root = assert(named[entry], "S0 link: missing entry")
+    -- Test-only closed target: replace entry parameter zero in the C shim.
+    -- No inferred aliases or unknown callees participate in the arena proof.
+    local boundTarget: integer = 0
+    local boundHost: string = ""
+    local boundSignature: ir.Signature? = nil
+    if binding then
+        if binding == "C:nupp_os_page_size" then
+            boundHost = "nupp_os_page_size"
+            boundSignature = new ir.Signature(params = {}, results = {ir.I64}, convention = ir.C)
+        else
+            local name = assert(binding:match("^N:([%w_]+)$"), "S0 link: unknown indirect binding")
+            boundTarget = assert(named[name], "S0 link: missing indirect target")
+            boundSignature = functions[boundTarget].signature
+            assert(boundSignature.convention == ir.INTERNAL, "S0 link: indirect target convention")
+        end
+        assert(functions[root].signature.params[1] == ir.I64, "S0 link: indirect pointer must be entry parameter zero")
+    end
+
+    local function same(a: {integer}, b: {integer}): boolean
+        if #a ~= #b then
+            return false
+        end
+        for at, kind in ipairs(a) do
+            if kind ~= b[at] then
+                return false
+            end
+        end
+
+        return true
+    end
+
+    local indirectCount: integer = 0
+
+    local function checkIndirect(index: integer, f: ir.Function, at: integer, op: integer): nil
+        local expected = assert(boundSignature, "S0 link: indirect arena extent needs a runtime bound")
+        assert(index == root, "S0 link: only root may call indirect")
+        assert(
+            f.args[f.firstArg[at]] == f.params[f.firstParam[1]] and f.valueKinds[f.args[f.firstArg[at]]] == ir.I64,
+            "S0 link: unproven indirect pointer"
+        )
+        local actual = f.signatures[f.aux[at]]
+        assert(
+            actual.convention == expected.convention
+            and same(actual.params, expected.params)
+            and same(actual.results, expected.results),
+            "S0 link: indirect signature mismatch"
+        )
+        if op == ir.OP_RETURN_CALL_INDIRECT then
+            assert(same(actual.results, f.signature.results), "S0 link: indirect tail result mismatch")
+        end
+        indirectCount = indirectCount + 1
+    end
+
     local visiting: {[integer]: boolean} = {}
     local bounds: {[integer]: integer} = {}
 
@@ -56,13 +109,13 @@ function link.build(functions: {ir.Function}, entry: string, spill: boolean): li
         local extra: integer = 0
         for at, opcode in ipairs(f.op) do
             local op = ir.opNames[opcode]
-            assert(
-                op ~= "call_indirect" and op ~= "return_call_indirect",
-                "S0 link: indirect arena extent needs a runtime bound"
-            )
-            if op == "call" or op == "return_call" then
-                local callee = named[f.importNames[f.aux[at]]]
-                if callee then
+            if opcode == ir.OP_CALL_INDIRECT or opcode == ir.OP_RETURN_CALL_INDIRECT then
+                checkIndirect(index, f, at, opcode)
+            end
+            if op == "call" or op == "return_call" or op == "call_indirect" or op == "return_call_indirect" then
+                local callee = (op == "call_indirect" or op == "return_call_indirect") and boundTarget
+                    or named[f.importNames[f.aux[at]]]
+                if callee and callee ~= 0 then
                     -- Conservatively include the caller even for tail calls.
                     local extent = bound(callee)
                     if extent > extra then
@@ -80,6 +133,7 @@ function link.build(functions: {ir.Function}, entry: string, spill: boolean): li
     end
 
     local arenaBytes = (bound(root) + 4095) & -4096
+    assert(not binding or indirectCount > 0, "S0 link: unused indirect binding")
 
     local function emit(word: integer): nil
         words[#words + 1] = word
@@ -143,6 +197,13 @@ function link.build(functions: {ir.Function}, entry: string, spill: boolean): li
             integers = integers + 1
         end
     end
+    local boundAddress: integer = 0
+    if boundTarget ~= 0 then
+        boundAddress = #words + 1
+        emit(arm.adr(0, 0))
+    elseif boundHost ~= "" then
+        emit(arm.ldr(8, 0, 22, imported(boundHost) * 8))
+    end
     local invoke = #words + 1
     emit(arm.bl(0))
     emit(arm.ldr(8, 16, 31, 168))
@@ -187,6 +248,9 @@ function link.build(functions: {ir.Function}, entry: string, spill: boolean): li
         end
     end
     words[invoke] = arm.bl((offsets[root] - invoke) * 4)
+    if boundAddress ~= 0 then
+        words[boundAddress] = arm.adr(0, (offsets[boundTarget] - boundAddress) * 4)
+    end
     for index, code in ipairs(codes) do
         for fixup, localWord in ipairs(code.fixupWord) do
             local at, kind = offsets[index] + localWord - 1, code.fixupKind[fixup]
@@ -205,10 +269,17 @@ function link.build(functions: {ir.Function}, entry: string, spill: boolean): li
     return new link.Image(words = words, imports = imports, entry = 0, arenaBytes = arenaBytes)
 end
 
-function link.bundle(corpus: string, entry: string, directory: string, digest: string, mode: string): string
+function link.bundle(
+    corpus: string,
+    entry: string,
+    directory: string,
+    digest: string,
+    mode: string,
+    binding: string?
+): string
     assert(digest:match("^[%da-f]+$") and #digest == 64, "S0 link: invalid layout digest")
     local input = assert(io.open(corpus, "rb"))
-    local image = link.build(reader.read(assert(input:read("*a"))), entry, mode == "spill")
+    local image = link.build(reader.read(assert(input:read("*a"))), entry, mode == "spill", binding)
     input:close()
     local bytes: {string} = {}
     for _, word in ipairs(image.words) do
