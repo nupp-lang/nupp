@@ -92,6 +92,13 @@ local function floatBits(text: string, kind: integer): integer
         value = 0.0 / 0.0
     end
     assert(value ~= nil, "S0 reader: invalid floating constant")
+    if value == 0 then
+        local mantissa = text:match("^[+-]?0[xX]([^pP]+)")
+        assert(
+            not mantissa or not mantissa:find("[1-9a-fA-F]"),
+            "S0 reader: nonzero hexadecimal constant underflow unsupported"
+        )
+    end
     local fractionBits: integer = kind == ir.F32 and 23 or 52
     local bias: integer = kind == ir.F32 and 127 or 1023
     local sign: int64 = 0
