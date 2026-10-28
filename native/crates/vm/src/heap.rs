@@ -307,7 +307,7 @@ unsafe extern "C" {
 }
 #[cfg(feature = "native-runtime")]
 const _: () = {
-    assert!(crate::dispatch::OBJECT_ABI == 19);
+    assert!(crate::dispatch::OBJECT_ABI == 20);
     assert!(std::mem::size_of::<Value>() == 8);
     assert!(std::mem::size_of::<StoragePayload>() == 32);
     assert!(std::mem::align_of::<StoragePayload>() == 8);
@@ -401,10 +401,6 @@ pub struct Heap {
     /// `GC_STATS=1`: time collection and report it at exit.
     timed: bool,
     phase: Phase,
-    /// The sweep cursor: chunk index and slot index, then the large index.
-    sweep_chunk: usize,
-    sweep_slot: usize,
-    sweep_large: usize,
     debt: usize,
     threshold: usize,
     pub live_bytes: usize,
@@ -472,7 +468,7 @@ thread_local! { static NEVER: bool = std::env::var("GC_NEVER").is_ok(); }
 impl Heap {
     pub fn new() -> Heap {
         let env = |k: &str| std::env::var(k).is_ok();
-        Heap { channels: HashMap::default(), allocator: NativeAllocator::new(), chunk_bytes_mapped: 0, live_count: 0, root_candidates: Vec::new(), timed: env("GC_STATS"), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), shape_identities: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0, weak: Vec::new(), mode_key: VT_EMPTY, record_type_key: VT_EMPTY, live_shapes: Vec::new(), declarations: HashMap::default(), mm_seen: 0, mm_keys: [VT_EMPTY; crate::metamethods::COUNT], proto_epoch: 0, proto_cache: HashMap::new(),
+        Heap { channels: HashMap::default(), allocator: NativeAllocator::new(), chunk_bytes_mapped: 0, live_count: 0, root_candidates: Vec::new(), timed: env("GC_STATS"), phase: Phase::Idle, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), shape_identities: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0, weak: Vec::new(), mode_key: VT_EMPTY, record_type_key: VT_EMPTY, live_shapes: Vec::new(), declarations: HashMap::default(), mm_seen: 0, mm_keys: [VT_EMPTY; crate::metamethods::COUNT], proto_epoch: 0, proto_cache: HashMap::new(),
             #[cfg(feature = "allocation-metrics")]
             metrics: crate::allocation_metrics::new(),
         }
@@ -529,7 +525,7 @@ impl Heap {
     /// roots before entering the Nupp allocator.
     fn alloc_raw(&mut self, kind: u8, inline_bytes: usize) -> NonNull<Header> {
         HEADER.checked_add(inline_bytes).filter(|&size| size <= u32::MAX as usize).expect("object extent overflow");
-        let p = self.allocator.allocate(kind, inline_bytes, self.phase as i64, self.stats.cycles, self.sweep_chunk, self.sweep_slot, self.debt);
+        let p = self.allocator.allocate(kind, inline_bytes, self.phase as i64, self.stats.cycles, self.debt);
         self.sync_allocator();
         let h = unsafe { p.as_ref() };
         crate::heap_trace::allocated(p.as_ptr(), kind, h.size as usize);
@@ -1065,50 +1061,36 @@ impl Heap {
                     self.clear_dead_declarations();
                     self.phase = Phase::Sweeping;
                     self.marking = 0;
-                    self.sweep_chunk = 0; self.sweep_slot = 0; self.sweep_large = 0;
+                    self.allocator.sweep_begin(self.stats.cycles);
                 }
                 Phase::Sweeping => {
                     let mut work = budget * 4;
-                    while self.sweep_chunk < self.allocator.chunk_count() && work > 0 {
-                        let [base, slot_size, nslots] = self.allocator.chunk(self.sweep_chunk);
-                        while self.sweep_slot < nslots && work > 0 {
-                            let h = (base + self.sweep_slot * slot_size) as *mut Header;
-                            self.sweep_slot += 1;
-                            #[cfg(feature = "allocation-metrics")]
-                            if let Some(m) = &self.metrics { m.borrow_mut().sweep_chunk_slots += 1; }
-                            if unsafe { (*h).kind } != KIND_FREED { self.sweep_one(NonNull::new(h).unwrap()); work -= 1; }
+                    let mut result = crate::native_allocator::ObjectCursor::default();
+                    while work > 0 {
+                        let action = self.allocator.sweep_next(&mut result);
+                        #[cfg(feature = "allocation-metrics")]
+                        if let Some(m) = &self.metrics {
+                            let mut m = m.borrow_mut();
+                            m.sweep_chunk_slots += result.chunk_slots;
+                            m.sweep_large_slots += result.large_slots;
                         }
-                        if self.sweep_slot >= nslots { self.sweep_chunk += 1; self.sweep_slot = 0; }
+                        if action == 0 { break; }
+                        self.stats.swept += 1;
+                        #[cfg(feature = "allocation-metrics")]
+                        if let Some(m) = &self.metrics { m.borrow_mut().sweep_live_objects += 1; }
+                        if action == 1 { self.free(NonNull::new(result.header as *mut Header).unwrap()); }
+                        work -= 1;
                     }
-                    if self.sweep_chunk >= self.allocator.chunk_count() {
-                        while self.sweep_large < self.allocator.large_count() && work > 0 {
-                            let h = self.allocator.large(self.sweep_large);
-                            self.sweep_large += 1;
-                            #[cfg(feature = "allocation-metrics")]
-                            if let Some(m) = &self.metrics { m.borrow_mut().sweep_large_slots += 1; }
-                            if !h.is_null() && unsafe { (*h).kind } != KIND_FREED { self.sweep_one(NonNull::new(h).unwrap()); work -= 1; }
-                        }
-                        if self.sweep_large >= self.allocator.large_count() {
-                            self.allocator.compact_large();
-                            self.phase = Phase::Idle;
-                            self.stats.peak_live = self.stats.peak_live.max(self.live_bytes as u64);
-                            self.threshold = (self.live_bytes * 2).max(1 << 20);
-                        }
+                    if self.allocator.sweep_finished() {
+                        self.allocator.compact_large();
+                        self.phase = Phase::Idle;
+                        self.stats.peak_live = self.stats.peak_live.max(self.live_bytes as u64);
+                        self.threshold = (self.live_bytes * 2).max(1 << 20);
                     }
                     return;
                 }
                 Phase::Idle => return,
             }
-        }
-    }
-
-    fn sweep_one(&mut self, p: NonNull<Header>) {
-        self.stats.swept += 1;
-        #[cfg(feature = "allocation-metrics")]
-        if let Some(m) = &self.metrics { m.borrow_mut().sweep_live_objects += 1; }
-        unsafe {
-            if (*p.as_ptr()).color == COLOR_WHITE { self.free(p); }
-            else { (*p.as_ptr()).color = COLOR_WHITE; (*p.as_ptr()).epoch = self.stats.cycles as u32; }
         }
     }
 
@@ -1140,17 +1122,8 @@ impl Heap {
     /// Every live object, for the oracle and the serializer.
     pub fn objects(&self) -> Vec<NonNull<Header>> {
         let mut out = Vec::new();
-        for index in 0..self.allocator.chunk_count() {
-            let [base, slot_size, used] = self.allocator.chunk(index);
-            for i in 0..used {
-                let h = (base + i * slot_size) as *mut Header;
-                if unsafe { (*h).kind } != KIND_FREED { out.push(NonNull::new(h).unwrap()); }
-            }
-        }
-        for index in 0..self.allocator.large_count() {
-            let h = self.allocator.large(index);
-            if !h.is_null() && unsafe { (*h).kind } != KIND_FREED { out.push(NonNull::new(h).unwrap()); }
-        }
+        let mut cursor = crate::native_allocator::ObjectCursor::default();
+        while let Some(header) = self.allocator.next_object(&mut cursor) { out.push(header); }
         out
     }
 
@@ -1749,12 +1722,13 @@ mod tests {
         assert_eq!(unsafe { marking.as_ref().color }, COLOR_BLACK);
         assert_eq!(unsafe { marking.as_ref().epoch }, 7);
         h.phase = Phase::Sweeping;
-        h.sweep_chunk = 0;
-        h.sweep_slot = 0;
+        h.allocator.sweep_begin(h.stats.cycles);
         let ahead = h.new_cell(Value::NIL, &roots).as_obj().unwrap();
         assert_eq!(unsafe { ahead.as_ref().color }, COLOR_BLACK);
+        let mut cursor = crate::native_allocator::ObjectCursor::default();
+        assert_eq!(h.allocator.sweep_next(&mut cursor), 1);
+        assert_eq!(cursor.header, first.as_ptr() as u64);
         h.free(first);
-        h.sweep_slot = 1;
         let behind = h.new_cell(Value::NIL, &roots).as_obj().unwrap();
         assert_eq!(behind, first);
         assert_eq!(unsafe { behind.as_ref().color }, COLOR_WHITE);
@@ -1765,6 +1739,28 @@ mod tests {
         assert_eq!(h.debt, 0, "reclaim cannot restore debt from before the reset");
         assert_eq!(h.object_count(), 2);
         h.phase = Phase::Idle;
+    }
+
+    #[cfg(feature = "native-runtime")]
+    #[test]
+    fn sweep_finishes_on_exact_budget_with_mixed_colors() {
+        let mut h = Heap::new();
+        h.automatic_collection = false;
+        let roots = R(std::cell::RefCell::new(Vec::new()));
+        let objects: Vec<_> = (0..4).map(|_| h.new_cell(Value::NIL, &roots).as_obj().unwrap()).collect();
+        unsafe { (*objects[1].as_ptr()).color = COLOR_BLACK; (*objects[3].as_ptr()).color = COLOR_BLACK; }
+        h.phase = Phase::Sweeping;
+        h.stats.cycles = 23;
+        h.allocator.sweep_begin(23);
+        h.step(1, &roots);
+        assert!(matches!(h.phase, Phase::Idle));
+        assert_eq!(h.stats.swept, 4);
+        assert_eq!(h.object_count(), 2);
+        assert_eq!(h.objects(), [objects[1], objects[3]]);
+        unsafe {
+            assert_eq!((*objects[1].as_ptr()).epoch, 23);
+            assert_eq!((*objects[3].as_ptr()).epoch, 23);
+        }
     }
 
     #[test]

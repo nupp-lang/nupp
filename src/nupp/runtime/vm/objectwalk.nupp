@@ -1,0 +1,92 @@
+module nupp.runtime.vm.objectwalk
+
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+
+-- Enumeration borrows the heap. Allocation and release may happen between calls;
+-- compacting or destroying the heap invalidates an active cursor.
+export struct Cursor
+    chunk: uint64
+    slot: uint64
+    large: uint64
+    chunkSlots: uint64
+    largeSlots: uint64
+    header: uint64
+end
+
+-- Yields live slots in chunk order followed by large allocation order.
+export function objectNext(h: heap.Heap*, cursor: Cursor*): uint64
+    @unsafe do
+        cursor.header = 0ULL
+        while cursor.chunk < h.chunks.count do
+            local base = heap.wordAt(h.chunks, cursor.chunk)
+            local chunk = native.pointer(base) as heap.ChunkHeader*
+            local used = heap.chunkUsed(h, base)
+            while cursor.slot < used do
+                local address = base + heap.CHUNK_HEADER_BYTES + cursor.slot * (chunk.slotSize as uint64)
+                cursor.slot = cursor.slot + 1ULL
+                cursor.chunkSlots = cursor.chunkSlots + 1ULL
+                if (native.pointer(address) as heap.Header*).kind as uint64 ~= heap.KIND_FREED then
+                    if cursor.slot >= used then
+                        cursor.chunk = cursor.chunk + 1ULL
+                        cursor.slot = 0ULL
+                    end
+                    cursor.header = address
+                    return 1ULL
+                end
+            end
+            cursor.chunk = cursor.chunk + 1ULL
+            cursor.slot = 0ULL
+        end
+        while cursor.large < h.large.count do
+            local address = heap.wordAt(h.large, cursor.large)
+            cursor.large = cursor.large + 1ULL
+            cursor.largeSlots = cursor.largeSlots + 1ULL
+            if address ~= 0ULL and (native.pointer(address) as heap.Header*).kind as uint64 ~= heap.KIND_FREED then
+                cursor.header = address
+                return 1ULL
+            end
+        end
+        return 0ULL
+    end
+end
+
+export function sweepBegin(h: heap.Heap*, cycle: uint64): nil
+    @unsafe do
+        h.stats.cycles = cycle
+        h.sweepChunk = 0ULL
+        h.sweepSlot = 0ULL
+        h.sweepLarge = 0ULL
+    end
+end
+
+-- The heap owns the sweep position. The result is borrowed until the driver acts.
+-- Zero means exhausted, one requests release, and two reports a whitened survivor.
+export function sweepNext(h: heap.Heap*, result: Cursor*): uint64
+    @unsafe do
+        result.chunk = h.sweepChunk
+        result.slot = h.sweepSlot
+        result.large = h.sweepLarge
+        result.chunkSlots = 0ULL
+        result.largeSlots = 0ULL
+        local found = objectNext(h, result)
+        h.sweepChunk = result.chunk
+        h.sweepSlot = result.slot
+        h.sweepLarge = result.large
+        if found == 0ULL then
+            return 0ULL
+        end
+        local o = native.pointer(result.header) as heap.Header*
+        if o.color as uint64 == heap.COLOR_WHITE then
+            return 1ULL
+        end
+        o.color = heap.COLOR_WHITE
+        o.epoch = h.stats.cycles
+        return 2ULL
+    end
+end
+
+-- Does not scan holes after the work budget is exhausted.
+export function sweepFinished(h: heap.Heap*): uint64
+    return @unsafe native.asWord(h.sweepChunk >= h.chunks.count and h.sweepLarge >= h.large.count)
+end

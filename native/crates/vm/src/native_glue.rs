@@ -438,6 +438,10 @@ fn allocator_support_names(
 
 fn allocator_entry(name: &str) -> Option<(&'static str, usize, bool)> {
     Some(match name {
+        "objectNext" => ("nupp_object_next", 2, true),
+        "sweepBegin" => ("nupp_sweep_begin", 2, false),
+        "sweepNext" => ("nupp_sweep_next", 2, true),
+        "sweepFinished" => ("nupp_sweep_finished", 1, true),
         "childNext" => ("nupp_object_child_next", 2, true),
         "weakStringPeek" => ("nupp_weak_string_peek", 3, true),
         "weakIntegerPeek" => ("nupp_weak_integer_peek", 3, true),
@@ -470,7 +474,7 @@ fn allocator_entry(name: &str) -> Option<(&'static str, usize, bool)> {
         "allocatorArenaClose" => ("nupp_allocator_arena_close", 1, false),
         "allocatorCreate" => ("nupp_allocator_create", 1, true),
         "allocatorDestroy" => ("nupp_allocator_destroy", 1, false),
-        "allocatorAllocate" => ("nupp_allocator_allocate", 8, true),
+        "allocatorAllocate" => ("nupp_allocator_allocate", 6, true),
         "allocatorResize" => ("nupp_allocator_resize", 4, false),
         "allocatorReclaim" => ("nupp_allocator_reclaim", 4, false),
         "allocatorSnapshot" => ("nupp_allocator_snapshot", 2, false),
@@ -482,9 +486,7 @@ fn allocator_entry(name: &str) -> Option<(&'static str, usize, bool)> {
         "allocatorGrayPop" => ("nupp_allocator_gray_pop", 1, true),
         "allocatorGrayEmpty" => ("nupp_allocator_gray_empty", 1, true),
         "allocatorChunkCount" => ("nupp_allocator_chunk_count", 1, true),
-        "allocatorChunk" => ("nupp_allocator_chunk", 3, false),
         "allocatorLargeCount" => ("nupp_allocator_large_count", 1, true),
-        "allocatorLarge" => ("nupp_allocator_large", 2, true),
         "allocatorCompactLarge" => ("nupp_allocator_compact_large", 1, false),
         "allocatorIsLiveSlot" => ("nupp_allocator_is_live_slot", 2, true),
         "allocatorSlotBytes" => ("nupp_allocator_slot_bytes", 1, true),
@@ -657,7 +659,7 @@ fn require_allocator_support(
 /// and every opcode number they handle, asserted where the object is linked.
 fn metadata_header() -> String {
     let mut metadata = String::from("// Generated with the native object. Private ABI.\n");
-    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 19;\n");
+    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 20;\n");
     metadata.push_str(
         "const _: () = { assert!(HDR == 4); assert!(std::mem::size_of::<Ins>() == 16); assert!(crate::interp::MAX_RESULTS == 128);\n",
     );
@@ -709,6 +711,10 @@ fn metadata_header() -> String {
         std::mem::offset_of!(crate::heap::RecordTail, extra),
         std::mem::size_of::<crate::heap::RecordExtra>(),
     ));
+    metadata.push_str("assert!(std::mem::size_of::<crate::native_allocator::ObjectCursor>() == 48 && std::mem::align_of::<crate::native_allocator::ObjectCursor>() == 8);\n");
+    for (field, offset) in [("chunk", 0), ("slot", 8), ("large", 16), ("chunk_slots", 24), ("large_slots", 32), ("header", 40)] {
+        metadata.push_str(&format!("assert!(std::mem::offset_of!(crate::native_allocator::ObjectCursor, {field}) == {offset});\n"));
+    }
     metadata.push_str("assert!(std::mem::size_of::<crate::heap::ChildCursor>() == 24 && std::mem::align_of::<crate::heap::ChildCursor>() == 8);\n");
     metadata.push_str("assert!(std::mem::offset_of!(crate::heap::ChildCursor, phase) == 0 && std::mem::offset_of!(crate::heap::ChildCursor, index) == 8 && std::mem::offset_of!(crate::heap::ChildCursor, value) == 16);\n");
     metadata.push_str("assert!(std::mem::size_of::<crate::heap::UserdataPayload>() == 40 && std::mem::align_of::<crate::heap::UserdataPayload>() == 8);\n");

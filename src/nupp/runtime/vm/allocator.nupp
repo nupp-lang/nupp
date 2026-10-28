@@ -30,15 +30,11 @@ export function allocatorAllocate(
     payload: uint64,
     phase: int64,
     cycle: uint64,
-    sweepChunk: uint64,
-    sweepSlot: uint64,
     debt: uint64
 ): heap.Header*
     @unsafe do
         h.phase = phase
         h.stats.cycles = cycle
-        h.sweepChunk = sweepChunk
-        h.sweepSlot = sweepSlot
         h.debt = debt
         return heap.allocRaw(h, kind, payload)
     end
@@ -75,22 +71,8 @@ export function allocatorChunkCount(h: heap.Heap*): uint64
     return @unsafe h.chunks.count
 end
 
-export function allocatorChunk(h: heap.Heap*, index: uint64, out: voidptr): nil
-    @unsafe do
-        local base = heap.wordAt(h.chunks, index)
-        local chunk = native.pointer(base) as heap.ChunkHeader*
-        native.store64(out, 0, base + heap.CHUNK_HEADER_BYTES)
-        native.store64(out, 8, chunk.slotSize as uint64)
-        native.store64(out, 16, heap.chunkUsed(h, base))
-    end
-end
-
 export function allocatorLargeCount(h: heap.Heap*): uint64
     return @unsafe h.large.count
-end
-
-export function allocatorLarge(h: heap.Heap*, index: uint64): heap.Header*
-    return @unsafe native.pointer(heap.wordAt(h.large, index)) as heap.Header*
 end
 
 export function allocatorCompactLarge(h: heap.Heap*): nil

@@ -92,6 +92,7 @@ local function allocatorModule(name: string): boolean
         or name == "nupp.runtime.vm.objecttable"
         or name == "nupp.runtime.vm.recordbody"
         or name == "nupp.runtime.vm.childwalk"
+        or name == "nupp.runtime.vm.objectwalk"
 end
 
 --- The native core's modules, in the order they compile, relative to the
@@ -113,6 +114,7 @@ lower.RUNTIME_MODULES = {
     "src/nupp/runtime/vm/weakindex.nupp",
     "src/nupp/runtime/vm/recordbody.nupp",
     "src/nupp/runtime/vm/childwalk.nupp",
+    "src/nupp/runtime/vm/objectwalk.nupp",
     "src/nupp/runtime/vm/core.nupp",
     "src/nupp/runtime/vm/calls.nupp",
     "src/nupp/runtime/vm/protocol.nupp",

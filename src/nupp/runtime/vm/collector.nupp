@@ -30,6 +30,7 @@ const values = require("nupp.runtime.vm.values")
 const weak = require("nupp.runtime.vm.gcweak")
 const marking = require("nupp.runtime.vm.marking")
 const childwalk = require("nupp.runtime.vm.childwalk")
+const objectwalk = require("nupp.runtime.vm.objectwalk")
 
 --- A task's frame stack as the root walk reads it (5.1): the base of its
 --- words and the index of the top frame, or `NO_FRAME` once it is done.
@@ -311,55 +312,24 @@ local function freeObject(h: heap.Heap*, o: heap.Header*): nil
     @unsafe weak.release(h, o)
 end
 
-local function sweepOne(h: heap.Heap*, o: heap.Header*): nil
-    @unsafe do
-        h.stats.swept = h.stats.swept + 1
-        if o.color as uint64 == heap.COLOR_WHITE then
-            freeObject(h, o)
-        else
-            o.color = heap.COLOR_WHITE
-            o.epoch = h.stats.cycles
-        end
-    end
-end
-
 --- Sweeps up to `work` objects; answers whether the sweep finished.
 local function sweepSome(h: heap.Heap*, work: uint64): boolean
     @unsafe do
+        local state = new objectwalk.Cursor(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+        local result = state as objectwalk.Cursor*
         local left = work
-        while h.sweepChunk < h.chunks.count and left > 0 do
-            local base = heap.wordAt(h.chunks, h.sweepChunk)
-            local chunk = native.pointer(base) as heap.ChunkHeader*
-            local slot = chunk.slotSize as uint64
-            local used = heap.chunkUsed(h, base)
-            while h.sweepSlot < used and left > 0 do
-                local o = native.pointer(base + heap.CHUNK_HEADER_BYTES + h.sweepSlot * slot) as heap.Header*
-                h.sweepSlot = h.sweepSlot + 1
-                if o.kind as uint64 ~= heap.KIND_FREED then
-                    sweepOne(h, o)
-                    left = left - 1
-                end
+        while left > 0ULL do
+            local action = objectwalk.sweepNext(h, result)
+            if action == 0ULL then
+                break
             end
-            if h.sweepSlot >= used then
-                h.sweepChunk = h.sweepChunk + 1
-                h.sweepSlot = 0
+            h.stats.swept = h.stats.swept + 1ULL
+            if action == 1ULL then
+                freeObject(h, native.pointer(result.header) as heap.Header*)
             end
+            left = left - 1ULL
         end
-        if h.sweepChunk < h.chunks.count then
-            return false
-        end
-        while h.sweepLarge < h.large.count and left > 0 do
-            local header = heap.wordAt(h.large, h.sweepLarge)
-            h.sweepLarge = h.sweepLarge + 1
-            if header ~= 0 then
-                local o = native.pointer(header) as heap.Header*
-                if o.kind as uint64 ~= heap.KIND_FREED then
-                    sweepOne(h, o)
-                    left = left - 1
-                end
-            end
-        end
-        return h.sweepLarge >= h.large.count
+        return objectwalk.sweepFinished(h) ~= 0ULL
     end
 end
 
@@ -389,9 +359,7 @@ local function markSome(h: heap.Heap*, budget: uint64): uint64
         weak.clear(h)
         h.phase = heap.PHASE_SWEEPING
         h.marking = 0
-        h.sweepChunk = 0
-        h.sweepSlot = 0
-        h.sweepLarge = 0
+        objectwalk.sweepBegin(h, h.stats.cycles)
         return left
     end
 end

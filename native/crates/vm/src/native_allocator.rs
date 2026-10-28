@@ -27,6 +27,10 @@ unsafe extern "C" {
     ) -> *mut Header;
     fn nupp_weak_insert(heap: *mut c_void, header: *mut Header) -> u64;
     fn nupp_weak_erase(heap: *mut c_void, header: *mut Header);
+    fn nupp_object_next(heap: *mut c_void, cursor: *mut ObjectCursor) -> u64;
+    fn nupp_sweep_begin(heap: *mut c_void, cycle: u64);
+    fn nupp_sweep_next(heap: *mut c_void, result: *mut ObjectCursor) -> u64;
+    fn nupp_sweep_finished(heap: *mut c_void) -> u64;
     fn nupp_allocator_arena_open(bytes: u64) -> *mut c_void;
     fn nupp_allocator_arena_close(arena: *mut c_void);
     fn nupp_allocator_create(arena: *mut c_void) -> *mut c_void;
@@ -37,8 +41,6 @@ unsafe extern "C" {
         payload: u64,
         phase: i64,
         cycle: u64,
-        sweep_chunk: u64,
-        sweep_slot: u64,
         debt: u64,
     ) -> *mut Header;
     fn nupp_allocator_resize(heap: *mut c_void, before: u64, after: u64, debt: u64);
@@ -66,9 +68,7 @@ unsafe extern "C" {
     );
     fn nupp_allocator_gray_empty(heap: *mut c_void) -> u64;
     fn nupp_allocator_chunk_count(heap: *mut c_void) -> u64;
-    fn nupp_allocator_chunk(heap: *mut c_void, index: u64, out: *mut u64);
     fn nupp_allocator_large_count(heap: *mut c_void) -> u64;
-    fn nupp_allocator_large(heap: *mut c_void, index: u64) -> *mut Header;
     fn nupp_allocator_compact_large(heap: *mut c_void);
     fn nupp_allocator_is_live_slot(heap: *mut c_void, header: *mut Header) -> u64;
     fn nupp_allocator_slot_bytes(class: u64) -> u64;
@@ -81,6 +81,17 @@ macro_rules! linked {
         #[cfg(not(feature = "native-runtime"))]
         { panic!("allocation requires a linked Nupp core") }
     }};
+}
+
+#[repr(C)]
+#[derive(Default)]
+pub(crate) struct ObjectCursor {
+    pub chunk: u64,
+    pub slot: u64,
+    pub large: u64,
+    pub chunk_slots: u64,
+    pub large_slots: u64,
+    pub header: u64,
 }
 
 pub(crate) struct NativeAllocator {
@@ -149,12 +160,10 @@ impl NativeAllocator {
         payload: usize,
         phase: i64,
         cycle: u64,
-        sweep_chunk: usize,
-        sweep_slot: usize,
         debt: usize,
     ) -> NonNull<Header> {
         linked! {
-            NonNull::new(unsafe { nupp_allocator_allocate(self.heap.as_ptr(), kind as u64, payload as u64, phase, cycle, sweep_chunk as u64, sweep_slot as u64, debt as u64) }).expect("object allocation failed")
+            NonNull::new(unsafe { nupp_allocator_allocate(self.heap.as_ptr(), kind as u64, payload as u64, phase, cycle, debt as u64) }).expect("object allocation failed")
         }
     }
 
@@ -221,25 +230,31 @@ impl NativeAllocator {
         }
     }
 
+    pub(crate) fn next_object(&self, cursor: &mut ObjectCursor) -> Option<NonNull<Header>> {
+        linked! {
+            let found = unsafe { nupp_object_next(self.heap.as_ptr(), cursor) };
+            if found == 0 { None } else { NonNull::new(cursor.header as *mut Header) }
+        }
+    }
+
+    pub(crate) fn sweep_begin(&mut self, cycle: u64) {
+        linked! { unsafe { nupp_sweep_begin(self.heap.as_ptr(), cycle); } }
+    }
+
+    pub(crate) fn sweep_next(&mut self, result: &mut ObjectCursor) -> u64 {
+        linked! { unsafe { nupp_sweep_next(self.heap.as_ptr(), result) } }
+    }
+
+    pub(crate) fn sweep_finished(&self) -> bool {
+        linked! { unsafe { nupp_sweep_finished(self.heap.as_ptr()) != 0 } }
+    }
+
     pub(crate) fn chunk_count(&self) -> usize {
         linked! { usize::try_from(unsafe { nupp_allocator_chunk_count(self.heap.as_ptr()) }).expect("chunk count") }
     }
 
-    /// The first slot address, slot extent and number of touched slots.
-    pub(crate) fn chunk(&self, index: usize) -> [usize; 3] {
-        linked! {
-            let mut words = [0; 3];
-            unsafe { nupp_allocator_chunk(self.heap.as_ptr(), index as u64, words.as_mut_ptr()); }
-            words.map(|word| usize::try_from(word).expect("chunk extent"))
-        }
-    }
-
     pub(crate) fn large_count(&self) -> usize {
         linked! { usize::try_from(unsafe { nupp_allocator_large_count(self.heap.as_ptr()) }).expect("large count") }
-    }
-
-    pub(crate) fn large(&self, index: usize) -> *mut Header {
-        linked! { unsafe { nupp_allocator_large(self.heap.as_ptr(), index as u64) } }
     }
 
     pub(crate) fn compact_large(&mut self) {
