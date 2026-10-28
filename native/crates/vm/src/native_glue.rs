@@ -466,6 +466,7 @@ fn allocator_entry(name: &str) -> Option<(&'static str, usize, bool)> {
         "byteArrayExtend" => ("nupp_byte_array_extend", 3, true),
         "byteArrayTake" => ("nupp_byte_array_take", 2, true),
         "byteArrayRelease" => ("nupp_byte_array_release", 1, false),
+        "shapeOwnedInitialize" => ("nupp_shape_owned_initialize", 4, true),
         "arrayInitialize" => ("nupp_array_initialize", 3, true),
         "arrayReserve" => ("nupp_array_reserve", 2, true),
         "arrayPush" => ("nupp_array_push", 2, true),
@@ -663,7 +664,7 @@ fn require_allocator_support(
 /// and every opcode number they handle, asserted where the object is linked.
 fn metadata_header() -> String {
     let mut metadata = String::from("// Generated with the native object. Private ABI.\n");
-    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 21;\n");
+    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 22;\n");
     metadata.push_str(
         "const _: () = { assert!(HDR == 4); assert!(std::mem::size_of::<Ins>() == 16); assert!(crate::interp::MAX_RESULTS == 128);\n",
     );

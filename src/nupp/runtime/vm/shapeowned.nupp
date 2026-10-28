@@ -1,0 +1,69 @@
+module nupp.runtime.vm.shapeowned
+
+-- Shape names and probe buckets are immutable after publication. Their two
+-- canonical descriptors share a stable heap owner; neither allocation collects.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const backing = require("nupp.runtime.vm.backing")
+const objectshape = require("nupp.runtime.vm.objectshape")
+
+-- Initializes two empty, owner-bound descriptors, or leaves both untouched.
+-- MAX is refusal; every valid result is the completed probe mask.
+export function shapeOwnedInitialize(
+    names: heap.ValueArray*,
+    probes: heap.ValueArray*,
+    source: voidptr,
+    count: uint64
+): uint64
+    @unsafe do
+        if native.address(names as voidptr) == native.address(probes as voidptr) then
+            return 0xffffffffffffffffULL
+        end
+        if names.owner == 0ULL or names.owner ~= probes.owner then
+            return 0xffffffffffffffffULL
+        end
+        if names.base ~= 0ULL or names.length ~= 0ULL or names.capacity ~= 0ULL then
+            return 0xffffffffffffffffULL
+        end
+        if probes.base ~= 0ULL or probes.length ~= 0ULL or probes.capacity ~= 0ULL then
+            return 0xffffffffffffffffULL
+        end
+        local capacity = objectshape.shapeCapacity(count)
+        if capacity == 0ULL or capacity > backing.wordBackingMaximum() >> 1ULL then
+            return 0xffffffffffffffffULL
+        end
+        if count > 0ULL and native.address(source) == 0ULL then
+            return 0xffffffffffffffffULL
+        end
+        local owner = native.pointer(names.owner) as heap.Heap*
+        local ordered: uint64 = 0ULL
+        if count > 0ULL then
+            ordered = backing.wordBackingTake(owner, count)
+            if ordered == 0ULL then
+                return 0xffffffffffffffffULL
+            end
+        end
+        local table = backing.wordBackingTake(owner, capacity * 2ULL)
+        if table == 0ULL then
+            backing.wordBackingRelease(ordered)
+            return 0xffffffffffffffffULL
+        end
+        local index: uint64 = 0ULL
+        while index < count do
+            native.store64(
+                native.pointer(ordered),
+                native.index(index * 8ULL),
+                native.load64(source, native.index(index * 8ULL))
+            )
+            index = index + 1ULL
+        end
+        local mask = objectshape.shapeFill(native.pointer(ordered), count, native.pointer(table), capacity)
+        names.base = ordered
+        names.length = count
+        names.capacity = count
+        probes.base = table
+        probes.length = capacity * 2ULL
+        probes.capacity = capacity * 2ULL
+        return mask
+    end
+end

@@ -105,12 +105,12 @@ pub(crate) fn parse(it: &mut Interp, text: &str, patch: Option<&[u32]>) -> Resul
                 let existing = identity.as_ref().and_then(|key| it.heap.shape_identities.get(key).copied()).filter(|&id| {
                     // Slot types are hints two images can infer differently;
                     // the layout is the names, in order.
-                    it.heap.shapes[id as usize].names == names
+                    it.heap.shapes[id as usize].names[..] == names[..]
                 });
                 if let Some(old) = patch {
                     // A patch runs against records the running code already
                     // made: a layout it names must be one of theirs.
-                    let same = |id: u32| it.heap.shapes[id as usize].names == names && it.heap.shapes[id as usize].name == parts[2];
+                    let same = |id: u32| it.heap.shapes[id as usize].names[..] == names[..] && it.heap.shapes[id as usize].name == parts[2];
                     let id = existing.or_else(|| old.get(shape_ids.len()).copied().filter(|&id| same(id)))
                         .ok_or_else(|| format!("record layout changed or added: {}", parts[2]))?;
                     shape_ids.push(id);

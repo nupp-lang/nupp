@@ -1138,9 +1138,9 @@ fn install_shapes(it: &mut Interp, image: &Image, patch: Option<&[u32]>) -> Resu
         let identity = if s.identity == NONE { None } else { Some(image.text(s.identity).to_string()) };
         // Slot types are hints two images can infer differently; the layout
         // is the names, in order.
-        let existing = identity.as_ref().and_then(|key| it.heap.shape_identities.get(key).copied()).filter(|&id| it.heap.shapes[id as usize].names == names);
+        let existing = identity.as_ref().and_then(|key| it.heap.shape_identities.get(key).copied()).filter(|&id| it.heap.shapes[id as usize].names[..] == names[..]);
         if let Some(old) = patch {
-            let same = |id: u32| it.heap.shapes[id as usize].names == names && it.heap.shapes[id as usize].name == name;
+            let same = |id: u32| it.heap.shapes[id as usize].names[..] == names[..] && it.heap.shapes[id as usize].name == name;
             let id = existing.or_else(|| old.get(shape_ids.len()).copied().filter(|&id| same(id))).ok_or_else(|| format!("record layout changed or added: {name}"))?;
             shape_ids.push(id);
             continue;

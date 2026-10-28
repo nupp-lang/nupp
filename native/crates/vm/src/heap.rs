@@ -303,13 +303,11 @@ unsafe extern "C" {
     fn nupp_object_slice_initialize(header: *mut Header, source: u64, offset: u64, count: u64) -> u64;
     fn nupp_object_cell_initialize(header: *mut Header, value: u64) -> u64;
     fn nupp_object_closure_initialize(header: *mut Header, function_id: u64, captures: *const Value, count: u64) -> u64;
-    fn nupp_object_shape_capacity(count: u64) -> u64;
-    fn nupp_object_shape_fill(names: *const Value, count: u64, table: *mut [u64; 2], capacity: u64) -> u64;
     fn nupp_object_shape_find(table: *const [u64; 2], capacity: u64, mask: u64, name: u64) -> u64;
 }
 #[cfg(feature = "native-runtime")]
 const _: () = {
-    assert!(crate::dispatch::OBJECT_ABI == 21);
+    assert!(crate::dispatch::OBJECT_ABI == 22);
     assert!(std::mem::size_of::<Value>() == 8);
     assert!(std::mem::size_of::<StoragePayload>() == 32);
     assert!(std::mem::align_of::<StoragePayload>() == 8);
@@ -357,12 +355,12 @@ pub struct Shape {
     /// A structural shape (a closed constructor's field set) accepts fields
     /// beyond its slots in the record's overflow; a nominal one does not.
     pub structural: bool,
-    pub names: Vec<Value>, // interned strings
+    pub names: crate::native_value_array::ValueArray, // interned strings
     pub types: Vec<SlotTy>,
     /// Slot by name: an open-addressed table of (name bits, slot) with a
     /// power-of-two size, empty entries zero, that the core probes the same
     /// way; names are interned, so bits compare as identity.
-    pub table: Vec<[u64; 2]>,
+    pub table: crate::native_shape::ShapeTable,
     pub mask: u64,
     /// The descriptor: method name (interned) to the function value that runs it.
     pub methods: HashMap<Value, Value, crate::value::BitsBuild>,
@@ -479,11 +477,8 @@ impl Heap {
     pub fn shape(&mut self, name: &str, names: &[Value], types: &[SlotTy]) -> u32 {
         #[cfg(feature = "native-runtime")]
         {
-            let size = unsafe { nupp_object_shape_capacity(names.len() as u64) };
-            assert!(size != 0, "shape exceeds the slot index range");
-            let mut table = vec![[0u64; 2]; usize::try_from(size).expect("shape capacity")];
-            let mask = unsafe { nupp_object_shape_fill(names.as_ptr(), names.len() as u64, table.as_mut_ptr(), size) };
-            self.shapes.push(Shape { name: name.to_string(), structural: name.starts_with("struct:"), names: names.to_vec(), types: types.to_vec(), methods: HashMap::default(), table, mask, mm_cache: 0 });
+            let (names, table, mask) = self.allocator.shape_backing(names);
+            self.shapes.push(Shape { name: name.to_string(), structural: name.starts_with("struct:"), names, types: types.to_vec(), methods: HashMap::default(), table, mask, mm_cache: 0 });
             (self.shapes.len() - 1) as u32
         }
         #[cfg(not(feature = "native-runtime"))]
@@ -1209,7 +1204,10 @@ impl Drop for Heap {
             crate::allocation_metrics::unregister(unsafe { p.as_ref() });
             unsafe { let h = &mut *p.as_ptr(); match h.kind { KIND_TABLE => std::ptr::drop_in_place(h.table()), KIND_STORAGE => std::ptr::drop_in_place(h.storage()), KIND_BYTES => std::ptr::drop_in_place(h.byte_buffer()), KIND_ITER => std::ptr::drop_in_place(h.iter()), KIND_USERDATA => std::ptr::drop_in_place(h.userdata_mut()), KIND_RECORD => { std::ptr::drop_in_place(h.record_tail()); } _ => {} } }
         }
-        // NativeAllocator drops after payload teardown and releases its arena.
+        // Shape backing borrows the same arena as managed payloads. The
+        // allocator field drops before the registry field after this method.
+        self.shapes.clear();
+        // NativeAllocator drops after payload and shape teardown.
 
     }
 }

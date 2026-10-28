@@ -70,7 +70,7 @@ fn shape_capacity_and_fill_preserve_guard_words_and_duplicate_first_slots() {
 
 #[test]
 fn shape_slot_indices_cross_byte_boundaries_without_truncation() {
-    for count in [0usize, 1, 4, 5, 8, 9, 255, 256, 257, 1024] {
+    for count in [0usize, 1, 4, 5, 8, 9, 255, 256, 257, 1024, 65537] {
         let mut vm = Box::new(Interp::new());
         let mut names = Vec::new();
         for index in 0..count {
@@ -142,7 +142,7 @@ fn shape_identity_reuse_keeps_the_same_probe_and_reordering_builds_a_new_one() {
     image::load(&mut vm, source).unwrap();
     let id = vm.heap.shape_identities["p3-shape"];
     let pointer = vm.heap.shapes[id as usize].table.as_ptr();
-    let first_names = vm.heap.shapes[id as usize].names.clone();
+    let first_names = vm.heap.shapes[id as usize].names.to_vec();
     let old = vm.new_record(id);
     vm.register(old);
     vm.heap.oracle = true;
@@ -151,7 +151,7 @@ fn shape_identity_reuse_keeps_the_same_probe_and_reordering_builds_a_new_one() {
     image::load(&mut vm, source).unwrap();
     assert_eq!(vm.heap.shape_identities["p3-shape"], id);
     assert_eq!(vm.heap.shapes[id as usize].table.as_ptr(), pointer);
-    assert_eq!(vm.heap.shapes[id as usize].names, first_names);
+    assert_eq!(&vm.heap.shapes[id as usize].names[..], &first_names);
     image::load(&mut vm, &source.replace("x:any y:any", "y:any x:any")).unwrap();
     let reordered = vm.heap.shape_identities["p3-shape"];
     assert_ne!(reordered, id);
@@ -166,4 +166,28 @@ fn shape_identity_reuse_keeps_the_same_probe_and_reordering_builds_a_new_one() {
     vm.check_oracle();
     assert_eq!(vm.get_index(old, x), Value::TRUE);
     assert_eq!(vm.get_index(new, x), Value::FALSE);
+}
+
+#[test]
+fn shape_names_remain_gc_roots_until_the_registry_releases_them() {
+    for count in [0, 1, 5, 4097] {
+        for _ in 0..3 {
+            let mut vm = Interp::new();
+            vm.heap.automatic_collection = false;
+            let names: Vec<_> = (0..count)
+                .map(|i| vm.intern(&format!("owned-name-{i}")))
+                .collect();
+            let id = vm.heap.shape("owned", &names, &vec![SlotTy::Any; count]);
+            let table = vm.heap.shapes[id as usize].table.as_ptr();
+            vm.full_cycle();
+            assert_eq!(vm.heap.object_count(), count);
+            for (slot, &name) in names.iter().enumerate() {
+                assert_eq!(vm.heap.shapes[id as usize].slot_of(name), Some(slot));
+            }
+            assert_eq!(vm.heap.shapes[id as usize].table.as_ptr(), table);
+            vm.heap.shapes.clear();
+            vm.full_cycle();
+            assert_eq!(vm.heap.object_count(), 0);
+        }
+    }
 }

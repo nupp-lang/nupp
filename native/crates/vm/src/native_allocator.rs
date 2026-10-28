@@ -120,6 +120,10 @@ impl NativeAllocator {
         unsafe { crate::native_byte_array::ByteArray::new(self.heap.as_ptr(), length, capacity) }
     }
 
+    pub(crate) fn shape_backing(&self, names: &[Value]) -> (crate::native_value_array::ValueArray, crate::native_shape::ShapeTable, u64) {
+        unsafe { crate::native_shape::initialize(self.heap.as_ptr(), names) }
+    }
+
     pub(crate) fn value_array(&self, capacity: usize) -> crate::native_value_array::ValueArray {
         unsafe { crate::native_value_array::ValueArray::new(self.heap.as_ptr(), capacity) }
     }
@@ -281,5 +285,56 @@ impl Drop for NativeAllocator {
             nupp_allocator_destroy(self.heap.as_ptr());
             nupp_allocator_arena_close(self.arena.as_ptr());
         }
+    }
+}
+
+#[cfg(all(test, feature = "native-runtime"))]
+mod shape_backing_tests {
+    use super::*;
+
+    // Canonical arena.Arena prefix. Constrain the real arena rather than
+    // adding a production allocation-failure switch.
+    #[repr(C)]
+    struct ArenaPrefix {
+        chunk: *mut c_void,
+        cursor: u64,
+        limit: u64,
+        chunk_bytes: u64,
+        growable: bool,
+    }
+    struct RestoreArena(*mut ArenaPrefix, u64, bool);
+    impl Drop for RestoreArena {
+        fn drop(&mut self) {
+            unsafe { (*self.0).limit = self.1; (*self.0).growable = self.2; }
+        }
+    }
+
+    #[test]
+    fn shape_second_allocation_refusal_returns_first_backing_atomically() {
+        let owner = NativeAllocator::new();
+        let seed = owner.value_array(1);
+        let pointer = seed.as_ptr();
+        drop(seed);
+        let mut names = owner.value_array(0);
+        let mut probes = owner.value_array(0);
+        let source = [Value::TRUE];
+        let arena = owner.arena.as_ptr().cast::<ArenaPrefix>();
+        let restore = unsafe {
+            let guard = RestoreArena(arena, (*arena).limit, (*arena).growable);
+            (*arena).limit = (*arena).cursor;
+            (*arena).growable = false;
+            guard
+        };
+        // Names can reuse the seeded free slot. The probe pool cannot allocate
+        // even its metadata, so this deterministically fails the second take.
+        assert_eq!(unsafe { crate::native_shape::nupp_shape_owned_initialize(&mut names, &mut probes, source.as_ptr(), 1) }, u64::MAX);
+        assert_eq!((names.len(), names.capacity(), probes.len(), probes.capacity()), (0, 0, 0, 0));
+        let reused = owner.value_array(1);
+        assert_eq!(reused.as_ptr(), pointer, "the failed construction leaked its first allocation");
+        drop(reused);
+        drop(restore);
+        let (names, probes, mask) = owner.shape_backing(&source);
+        assert_eq!(&names[..], &source);
+        assert_eq!((probes.len(), mask), (8, 7));
     }
 }
