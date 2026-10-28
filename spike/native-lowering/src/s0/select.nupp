@@ -565,7 +565,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
             if op == BAND and colOp[previous] == ICONST then
                 previous = previous - 1
             end
-            if previous >= start and (memory or arithmetic or op == BAND) and not recipes[previous] then
+            if previous >= start and (memory or (arithmetic or op == BAND) and not recipes[previous]) then
                 local value, producer = colResult[previous], colOp[previous]
                 local position = (op == STORE or op == ISUB) and 2 or 1
                 if op == IADD and colArgs[first] ~= value then
@@ -576,14 +576,26 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                     local left, right = colArgs[colFirstArg[previous]], colArgs[colFirstArg[previous] + 1]
                     local amount = immediates[previous]
                     local recipe: {integer}? = nil
-                    if memory and producer == IADD and width == 64 and amount ~= nil then
+                    if memory and producer == IADD and width == 64 then
                         local kind = op == STORE and colValueKinds[colArgs[first]] or colKind[at]
                         local bytes = (colAux[at] ~= 0 and colAux[at] or bits(kind)) // 8
-                        local offset = amount + colImm[at]
-                        local base = immediateArgs[previous] == 1 and right or left
-                        if offset >= 0 and offset % bytes == 0 and offset // bytes < 4096 then
-                            recipe = op == STORE and {producer, offset, 0, colArgs[first], base}
-                                or {producer, offset, 0, base}
+                        local mul = recipes[previous]
+                        local indexed = kind == ir.I64 and bytes == 8 and op ~= SLOAD and colImm[at] == 0
+                        if mul and mul[1] == IMUL and indexed then
+                            local index, scale = mul[4], mul[5]
+                            local definition = colDefinitions[scale]
+                            if definition > 0 and colOp[definition] == ICONST and colImm[definition] == 8 then
+                                recipe = op == STORE and {IMUL, 0, 0, colArgs[first], mul[6], index}
+                                    or {IMUL, 0, 0, mul[6], index}
+                                omitted[definition] = uses[scale] == 1 or omitted[definition] == true
+                            end
+                        elseif amount ~= nil then
+                            local offset = amount + colImm[at]
+                            local base = immediateArgs[previous] == 1 and right or left
+                            if offset >= 0 and offset % bytes == 0 and offset // bytes < 4096 then
+                                recipe = op == STORE and {producer, offset, 0, colArgs[first], base}
+                                    or {producer, offset, 0, base}
+                            end
                         end
                     elseif arithmetic and width == bits(colKind[at]) and immediates[at] == nil then
                         local other = colArgs[first + 2 - position]
@@ -1038,19 +1050,14 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                                 emit(arm.sbfm(32, t, x, 0, bits(from) - 1));
                                 x = t
                             end
-                            emit(
-                                op == FCVT_FROM_SINT and arm.scvtf(bits(kind), machine(from), rd, x)
-                                or arm.ucvtf(bits(kind), machine(from), rd, x)
-                            )
+                            local convert = op == FCVT_FROM_SINT and arm.scvtf or arm.ucvtf
+                            emit(convert(bits(kind), machine(from), rd, x))
                             yield true
                         end
                         case FCVT_TO_SINT_SAT, FCVT_TO_UINT_SAT -> do
                             assert(bits(kind) >= 32, "S0 select: narrow saturating conversion unsupported")
-                            emit(
-                                op == FCVT_TO_SINT_SAT
-                                and arm.fcvtzs(bits(colValueKinds[colArgs[firstArg]]), width, rd, x)
-                                or arm.fcvtzu(bits(colValueKinds[colArgs[firstArg]]), width, rd, x)
-                            )
+                            local convert = op == FCVT_TO_SINT_SAT and arm.fcvtzs or arm.fcvtzu
+                            emit(convert(bits(colValueKinds[colArgs[firstArg]]), width, rd, x))
                             yield true
                         end
                         case LOAD, SLOAD, STORE -> do
@@ -1065,11 +1072,11 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                                 emit(arm.add_reg(64, temp, address, temp, 0));
                                 address, offset = temp, 0
                             end
-                            if ir.isFloat(valueKind) then
-                                emit(
-                                    store and arm.str_fp(bits(valueKind), value, address, offset)
-                                    or arm.ldr_fp(bits(valueKind), value, address, offset)
-                                )
+                            if recipe and recipe[1] == IMUL then
+                                emit(arm.memory64(store, value, address, store and z or y))
+                            elseif ir.isFloat(valueKind) then
+                                local memory = store and arm.str_fp or arm.ldr_fp
+                                emit(memory(bits(valueKind), value, address, offset))
                             elseif store then
                                 emit(arm.str(bytes, value, address, offset))
                             elseif op == SLOAD and bytes == 4 and machine(valueKind) == 64 then

@@ -113,17 +113,13 @@ function core.bundle(corpus: string, metadata: string, directory: string, digest
     end
 
     local function preserve(load: boolean): nil
+        local integerPair = load and arm.ldp or arm.stp
+        local floatPair = load and arm.ldp_fp or arm.stp_fp
         for reg = 19, 29, 2 do
-            emit(
-                load and arm.ldp(64, reg, reg + 1, 31, (reg - 19) * 8, 0)
-                or arm.stp(64, reg, reg + 1, 31, (reg - 19) * 8, 0)
-            )
+            emit(integerPair(64, reg, reg + 1, 31, (reg - 19) * 8, 0))
         end
         for reg = 8, 14, 2 do
-            emit(
-                load and arm.ldp_fp(64, reg, reg + 1, 31, 96 + (reg - 8) * 8, 0)
-                or arm.stp_fp(64, reg, reg + 1, 31, 96 + (reg - 8) * 8, 0)
-            )
+            emit(floatPair(64, reg, reg + 1, 31, 96 + (reg - 8) * 8, 0))
         end
     end
 
@@ -317,18 +313,13 @@ function core.bundle(corpus: string, metadata: string, directory: string, digest
             assert(offsets[fixName[index]], "S0 core: unresolved " .. fixName[index]) - at
         ) * 4 + fixAdd[index]
         local kind, reg = fixKind[index], fixReg[index]
-        if kind == 1 then
-            words[at] = arm.b(delta)
-        elseif kind == 2 then
-            words[at] = arm.bl(delta)
-        elseif kind == 3 then
-            words[at] = arm.adr(reg, delta)
-        elseif kind == 4 then
-            words[at] = arm.b_cond(reg, delta)
-        elseif kind == 5 then
-            words[at] = arm.cbz(64, reg, delta)
-        else
-            words[at] = arm.cbnz(64, reg, delta)
+        words[at] = switch kind do
+            case 1 -> arm.b(delta)
+            case 2 -> arm.bl(delta)
+            case 3 -> arm.adr(reg, delta)
+            case 4 -> arm.b_cond(reg, delta)
+            case 5 -> arm.cbz(64, reg, delta)
+            else -> arm.cbnz(64, reg, delta)
         end
     end
     local bytes: {string} = {}
@@ -348,13 +339,10 @@ function core.bundle(corpus: string, metadata: string, directory: string, digest
     assert(digest:match("^[%da-f]+$") and #digest == 64)
     local manifest = assert(io.open(directory .. "/bundle.json", "wb"))
     manifest:write(
-        '{"version":2,"architecture":"aarch64","layoutDigest":"'
-        .. digest
-        .. '","entry":0,"code":"code.bin","data":"data.bin","imports":['
-        .. table.concat(
-            quoted,
-            ","
-        ) .. '],"outputWords":105,"importOffset":' .. tostring(importOffset) .. '}\n'
+        (
+            '{"version":2,"architecture":"aarch64","layoutDigest":"%s","entry":0,'
+            .. '"code":"code.bin","data":"data.bin","imports":[%s],"outputWords":105,"importOffset":%d}\n'
+        ):format(digest, table.concat(quoted, ","), importOffset)
     );
     manifest:close()
 

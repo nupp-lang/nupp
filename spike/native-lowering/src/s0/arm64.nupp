@@ -265,6 +265,10 @@ function arm64.str(bytes: integer, rt: integer, rn: integer, offset: integer): i
     return r2((form << 30) | 0x39000000 | (unsigned(offset // bytes, 4096) << 10), rt, rn)
 end
 
+function arm64.memory64(store: boolean, rt: integer, rn: integer, rm: integer): integer
+    return r3(store and 0xf8207800 or 0xf8607800, rt, rn, rm)
+end
+
 function arm64.ldrsw(rt: integer, rn: integer, offset: integer): integer
     assert(offset % 4 == 0, "ARM64: misaligned signed load offset")
     return r2(0xb9800000 | (unsigned(offset // 4, 4096) << 10), rt, rn)
