@@ -195,7 +195,31 @@ block3:
 }
 ]]
     )
-    assert(not pcall(allocate.run, irreducible, t))
+    local conservative = allocate.run(irreducible, t)
+    assert(conservative.conservativeBlocks > 0 and check.run(irreducible, t, conservative))
+
+    local pair = parse(
+        [[
+function %pairCaller(i64, i64, i64) -> i64 tail {
+    sig0 = (i64, i64) -> (i64, i64) tail
+block0(v0: i64, v1: i64, v2: i64):
+    v3, v4 = call_indirect sig0, v0(v1, v2)
+    v5 = iadd v3, v4
+    v6 = iadd v5, v1
+    return v6
+}
+]]
+    )
+    local pairAllocation = allocate.run(pair, t)
+    assert(check.run(pair, t, pairAllocation))
+    assert(pairAllocation.location[4] ~= pairAllocation.location[5])
+    assert(
+        pairAllocation.acrossInternal[2]
+        and not pairAllocation.acrossInternal[4]
+        and not pairAllocation.acrossInternal[5]
+    )
+    pairAllocation.location[5] = pairAllocation.location[4]
+    assert(not pcall(check.run, pair, t, pairAllocation))
 
     return "S0 allocation cases passed"
 end
@@ -205,13 +229,16 @@ export function corpus(path: string): string
     local text = assert(file:read("*a"))
     file:close()
     local functions = reader.read(text)
-    local spills, moves, values = 0, 0, 0
+    local spills, moves, values, regions, extended = 0, 0, 0, 0, 0
     for _, f in ipairs(functions) do
         local t = target(false)
         local a = allocate.run(f, t)
         assert(check.run(f, t, a))
         spills, moves, values = spills + a.spillSlots, moves + #a.moveSource, values + #f.valueKinds
+        regions, extended = regions + a.conservativeBlocks, extended + a.conservativeValues
     end
 
-    return ("%d functions checked, %d values, %d spill slots, %d edge moves"):format(#functions, values, spills, moves)
+    return (
+        "%d functions checked, %d values, %d spill slots, %d edge moves; conservative %d blocks/%d definitions"
+    ):format(#functions, values, spills, moves, regions, extended)
 end

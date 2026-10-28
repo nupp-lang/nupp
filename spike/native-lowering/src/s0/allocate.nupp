@@ -31,6 +31,8 @@ record allocate.Allocation
     spillKinds: {integer}
     spillValues: {integer}
     spillSlots: integer
+    conservativeBlocks: integer
+    conservativeValues: integer
 end
 
 local CALL, INDIRECT = ir.opcode("call"), ir.opcode("call_indirect")
@@ -64,6 +66,8 @@ local function newAllocation(f: ir.Function): allocate.Allocation
         moveKind = {},
         spillKinds = {},
         spillValues = {},
+        conservativeBlocks = 0,
+        conservativeValues = 0,
         spillSlots = 0
     )
 end
@@ -77,8 +81,8 @@ end
 
 -- RPO is allocation order only: MIR instruction and block IDs never change.
 -- A one-pass candidate dominator tree is checked against every CFG edge before
--- it is used. Backward edges must be natural loops; irreducible CFGs refuse.
-local function order(f: ir.Function, a: allocate.Allocation): ({integer}, {integer})
+-- it is used. Irreducible regions conservatively overlap their live values.
+local function order(f: ir.Function, a: allocate.Allocation): ({integer}, {integer}, {integer}, {integer}, {integer})
     local n = #f.blockStart
     assert(n > 0, "S0 allocation: no blocks")
     local blockOf, head, nextEdge, predecessors, nextPred = zeros(
@@ -149,28 +153,63 @@ local function order(f: ir.Function, a: allocate.Allocation): ({integer}, {integ
         assert(candidate > 0, "S0 allocation: invalid RPO")
         parent[r] = candidate
     end
+    local reach, bad = zeros(n), zeros(n)
     for e = 1, #f.edgeTarget do
         local from, to = blockOf[f.edgeFrom[e]], f.edgeTarget[e]
         local r, t = rank[from], rank[to]
-        assert(t == 1 or dominates(parent, parent[t], r), "S0 allocation: irreducible CFG")
         if t <= r then
-            assert(dominates(parent, t, r), "S0 allocation: irreducible backward edge")
+            reach[t] = math.max(reach[t], r)
             loopEnd[to] = math.max(loopEnd[to], a.blockExit[from])
+            if not dominates(parent, t, r) then
+                bad[t] = 1
+            end
+        end
+        if t ~= 1 and not dominates(parent, parent[t], r) then
+            local first, last = math.min(r, t), math.max(r, t)
+            reach[first], bad[first] = math.max(reach[first], last), 1
         end
     end
+    -- Merge overlapping backward-edge spans. Only spans containing an
+    -- irreducible edge become conservative; natural loops keep precise ranges.
+    local regionStart, regionEnd = zeros(n), zeros(n)
+    local first: integer = 1
+    while first <= n do
+        local last: integer = math.max(first, reach[first])
+        local affected = false
+        local cursor: integer = first
+        while cursor <= last do
+            last = math.max(last, reach[cursor])
+            affected = affected or bad[cursor] ~= 0
+            cursor = cursor + 1
+        end
+        if affected then
+            for r = first, last do
+                local b = a.blockOrder[r]
+                regionStart[b], regionEnd[b] = a.blockEntry[a.blockOrder[first]], a.blockExit[a.blockOrder[last]]
+                a.conservativeBlocks = a.conservativeBlocks + 1
+            end
+        end
+        first = last + 1
+    end
 
-    return rank, loopEnd
+    return rank, loopEnd, regionStart, regionEnd, blockOf
 end
 
 -- Sparse live-in lists share flat storage. The current block uses a stamp set;
 -- there is no per-instruction object and no iterative production dataflow.
 local function intervals(f: ir.Function, a: allocate.Allocation): nil
-    local rank, loopEnd = order(f, a)
+    local rank, loopEnd, regionStart, regionEnd, blockOf = order(f, a)
+    local definedRegion = zeros(#f.valueKinds)
     for v = 1, #f.valueKinds do
         if f.valueKinds[v] ~= 0 then
             local d = f.definitions[v]
             a.start[v] = d < 0 and a.blockEntry[-d] or 2 * a.instructionPosition[d] + 1
             a.finish[v] = a.start[v]
+            local block = d < 0 and -d or blockOf[d]
+            if regionStart[block] ~= 0 then
+                a.start[v], a.finish[v], definedRegion[v] = regionStart[block], regionEnd[block], regionStart[block]
+                a.conservativeValues = a.conservativeValues + 1
+            end
             if d > 0 and (f.op[d] == ICONST or f.op[d] == FCONST or f.op[d] == ADDRESS) then
                 a.rematerialize[v] = d
             end
@@ -185,7 +224,7 @@ local function intervals(f: ir.Function, a: allocate.Allocation): nil
         local function add(v: integer, at: integer): nil
             assert(v > 0 and f.valueKinds[v] ~= 0, "S0 allocation: undefined use")
             assert(a.start[v] <= at, "S0 allocation: use precedes definition")
-            a.finish[v] = math.max(a.finish[v], at)
+            a.finish[v] = math.max(a.finish[v], at, regionEnd[b])
             if stamp[v] ~= generation then
                 stamp[v] = generation
                 members[#members + 1] = v
@@ -214,6 +253,9 @@ local function intervals(f: ir.Function, a: allocate.Allocation): nil
             if result ~= 0 then
                 present[result] = 0
             end
+            if f.result2[i] ~= 0 then
+                present[f.result2[i]] = 0
+            end
             for p = f.firstArg[i], f.firstArg[i] + f.nargs[i] - 1 do
                 add(f.args[p], 2 * a.instructionPosition[i])
             end
@@ -223,7 +265,10 @@ local function intervals(f: ir.Function, a: allocate.Allocation): nil
         end
         liveFirst[b] = #liveValues + 1
         for _, v in ipairs(members) do
-            if present[v] == generation then
+            local internal = regionStart[b] ~= 0
+                and a.blockEntry[b] == regionStart[b]
+                and definedRegion[v] == regionStart[b]
+            if present[v] == generation and not internal then
                 assert(a.start[v] < a.blockEntry[b], "S0 allocation: non-dominating definition")
                 a.finish[v] = math.max(a.finish[v], loopEnd[b])
                 liveValues[#liveValues + 1] = v

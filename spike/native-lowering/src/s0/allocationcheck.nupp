@@ -36,6 +36,9 @@ local function liveIn(f: ir.Function): {{boolean}}
                 if f.result[i] ~= 0 then
                     values[f.result[i]] = false
                 end
+                if f.result2[i] ~= 0 then
+                    values[f.result2[i]] = false
+                end
                 for p = f.firstArg[i], f.firstArg[i] + f.nargs[i] - 1 do
                     values[f.args[p]] = true
                 end
@@ -139,6 +142,9 @@ function check.run(f: ir.Function, target: allocate.Target, a: allocate.Allocati
             end
             if f.result[i] ~= 0 then
                 state[slot(a.location[f.result[i]])] = f.result[i]
+            end
+            if f.result2[i] ~= 0 then
+                state[slot(a.location[f.result2[i]])] = f.result2[i]
             end
         end
     end
