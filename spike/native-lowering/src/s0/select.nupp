@@ -267,6 +267,13 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                 nonones = nonones + 1
             end
         end
+        if math.min(nonzero, nonones) > 1 then
+            local n, r, last = logical(value, width)
+            if n >= 0 then
+                emit(arm.orr_imm(width, rd, 31, n, r, last))
+                return
+            end
+        end
         local invert = nonones < nonzero
         local first = true
         for half = 0, halves - 1 do
@@ -540,6 +547,69 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
             end
         end
     end
+    -- Recipes contain producer opcode, encoding fields, then expanded operands.
+    -- Only adjacency (or an omitted literal gap) preserves allocated lifetimes.
+    local recipes: {[integer]: {integer}} = {}
+    for block, start in ipairs(colBlockStart) do
+        for at = start + 1, colBlockEnd[block] do
+            local op, first = colOp[at], colFirstArg[at]
+            local memory = op == LOAD or op == SLOAD or op == STORE
+            local arithmetic = op == IADD or op == ISUB
+            local previous = at - 1
+            if op == BAND and colOp[previous] == ICONST then
+                previous = previous - 1
+            end
+            if previous >= start and (memory or arithmetic or op == BAND) and not recipes[previous] then
+                local value, producer = colResult[previous], colOp[previous]
+                local position = (op == STORE or op == ISUB) and 2 or 1
+                if op == IADD and colArgs[first] ~= value then
+                    position = 2
+                end
+                local width = bits(colKind[previous])
+                if value ~= 0 and uses[value] == 1 and colArgs[first + position - 1] == value and width >= 32 then
+                    local left, right = colArgs[colFirstArg[previous]], colArgs[colFirstArg[previous] + 1]
+                    local amount = immediates[previous]
+                    local recipe: {integer}? = nil
+                    if memory and producer == IADD and width == 64 and amount ~= nil then
+                        local kind = op == STORE and colValueKinds[colArgs[first]] or colKind[at]
+                        local bytes = (colAux[at] ~= 0 and colAux[at] or bits(kind)) // 8
+                        local offset = amount + colImm[at]
+                        local base = immediateArgs[previous] == 1 and right or left
+                        if offset >= 0 and offset % bytes == 0 and offset // bytes < 4096 then
+                            recipe = op == STORE and {producer, offset, 0, colArgs[first], base}
+                                or {producer, offset, 0, base}
+                        end
+                    elseif arithmetic and width == bits(colKind[at]) and immediates[at] == nil then
+                        local other = colArgs[first + 2 - position]
+                        if producer == IMUL then
+                            recipe = {producer, 0, 0, left, right, other}
+                        elseif producer == ISHL and amount ~= nil then
+                            recipe = {producer, amount, 0, other, left}
+                        end
+                    elseif op == BAND and producer == USHR and amount ~= nil and width == bits(colKind[at]) then
+                        local maskValue = colArgs[first + 1]
+                        local definition = colDefinitions[maskValue]
+                        if definition > 0
+                            and colOp[definition] == ICONST
+                            and (previous == at - 1 or definition == at - 1 and uses[maskValue] == 1)
+                        then
+                            local mask = colImm[definition] & (width == 64 and -1 or 0xffffffff)
+                            local n, _, last = logical(mask, width)
+                            if mask > 0 and (mask & (mask + 1)) == 0 and n >= 0 and last + amount < width then
+                                recipe = {producer, amount, last + amount, left}
+                                if uses[maskValue] == 1 then
+                                    omitted[definition] = true
+                                end
+                            end
+                        end
+                    end
+                    if recipe then
+                        recipes[at], omitted[previous] = recipe, true
+                    end
+                end
+            end
+        end
+    end
     for order, block in ipairs(a.blockOrder) do
         local nextBlock = a.blockOrder[order + 1] or 0
         local fusedCondition: integer = -1
@@ -547,7 +617,12 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         for at = colBlockStart[block], colBlockEnd[block] do
             local before = #code.words
             local op, result, kind = colOp[at], colResult[at], colKind[at]
-            local firstArg, nargs = colFirstArg[at], colNargs[at]
+            local recipe = recipes[at]
+            local args = recipe or colArgs
+            local firstArg, nargs = recipe and 4 or colFirstArg[at], recipe and #recipe - 3 or colNargs[at]
+            if omitted[at] then
+                op, nargs = ICONST, 0
+            end
             local immediate, immediateArg = immediates[at], immediateArgs[at] or 0
             local fused = op == ICMP
                 and at < colBlockEnd[block]
@@ -555,8 +630,8 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                 and colArgs[colFirstArg[at + 1]] == result
                 and uses[result] == 1
             borrowedCount, occupiedStamp, usedStamp = 0, occupiedStamp + 1, usedStamp + 1
-            for p = colFirstArg[at], colFirstArg[at] + colNargs[at] - 1 do
-                local value = colArgs[p]
+            for p = firstArg, firstArg + nargs - 1 do
+                local value = args[p]
                 if allocationLocation[value] > 0 then
                     occupied[allocationLocation[value]] = occupiedStamp
                 end
@@ -607,7 +682,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                         kinds[p] = nil
                     end
                     for p = 1, nargs do
-                        local value = colArgs[firstArg + p - 1]
+                        local value = args[firstArg + p - 1]
                         assert(
                             nargs == 1 or not ir.isFloat(colValueKinds[value]),
                             "S0 select: paired return requires integers"
@@ -633,7 +708,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                     local shift = indirect and 1 or 0
                     assert(nargs == #registers + shift, "S0 select: call arity")
                     for p = 1, nargs do
-                        local value = colArgs[firstArg + p - 1]
+                        local value = args[firstArg + p - 1]
                         if tail then
                             assert(not stackValues[value], "S0 select: tail call retains stack address")
                         end
@@ -699,7 +774,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                 end
                 else -> do
                     for p = 1, nargs do
-                        local value = colArgs[firstArg + p - 1]
+                        local value = args[firstArg + p - 1]
                         regs[p] = p == immediateArg and 0 or source(value)
                     end
                     if result ~= 0 and not fused and not omitted[at] then
@@ -725,7 +800,9 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                         end
                         case STACK_ADDR -> addOffset(rd, 23, code.stackOffsets[colAux[at]] + colImm[at])
                         case IADD, ISUB -> do
-                            if immediate ~= nil then
+                            if recipe and recipe[1] == IMUL then
+                                emit(op == IADD and arm.madd(width, rd, x, y, z) or arm.msub(width, rd, x, y, z))
+                            elseif immediate ~= nil then
                                 local amount = immediate < 0 and -immediate or immediate
                                 local shifted = amount > 4095 and 1 or 0
                                 local encoded = shifted == 1 and amount >> 12 or amount
@@ -735,7 +812,10 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                                     or arm.add_imm(width, rd, base, encoded, shifted)
                                 )
                             else
-                                emit(op == IADD and arm.add_reg(width, rd, x, y, 0) or arm.sub_reg(width, rd, x, y, 0))
+                                emit(
+                                    op == IADD and arm.add_reg(width, rd, x, y, recipe and recipe[2] or 0)
+                                    or arm.sub_reg(width, rd, x, y, recipe and recipe[2] or 0)
+                                )
                             end
                             yield true
                         end
@@ -746,6 +826,10 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                             yield true
                         end
                         case BAND, BOR, BXOR -> do
+                            if recipe then
+                                emit(arm.ubfm(width, rd, x, recipe[2], recipe[3]))
+                                yield true
+                            end
                             local definition = colDefinitions[colArgs[firstArg + 1]]
                             local n: integer = -1
                             local r: integer = 0
@@ -961,10 +1045,10 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                         end
                         case LOAD, SLOAD, STORE -> do
                             local store = op == STORE
-                            local valueKind = store and colValueKinds[colArgs[firstArg]] or kind
+                            local valueKind = store and colValueKinds[args[firstArg]] or kind
                             local bytes = (colAux[at] ~= 0 and colAux[at] or bits(valueKind)) // 8
                             local address, value = store and y or x, store and x or rd
-                            local offset = colImm[at]
+                            local offset = recipe and recipe[2] or colImm[at]
                             if offset < 0 or offset % bytes ~= 0 or offset // bytes >= 4096 then
                                 local temp = temporary(false)
                                 constant(temp, offset, 64);
