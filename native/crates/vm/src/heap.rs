@@ -307,7 +307,7 @@ unsafe extern "C" {
 }
 #[cfg(feature = "native-runtime")]
 const _: () = {
-    assert!(crate::dispatch::OBJECT_ABI == 26);
+    assert!(crate::dispatch::OBJECT_ABI == 27);
     assert!(std::mem::size_of::<Value>() == 8);
     assert!(std::mem::size_of::<StoragePayload>() == 32);
     assert!(std::mem::align_of::<StoragePayload>() == 8);
@@ -339,6 +339,12 @@ macro_rules! initialize_object {
 }
 
 impl Shape {
+    pub(crate) fn new(allocator: &NativeAllocator, name: &str, names: &[Value], types: &[SlotTy]) -> Self {
+        let (names, table, mask) = allocator.shape_backing(names);
+        let structural = name.starts_with("struct:");
+        let (name, types) = allocator.shape_metadata(name, types);
+        Self { name, structural, reserved_structural: [0; 7], names, types, methods: allocator.shape_methods(), table, mask, mm_cache: 0, reserved_cache: [0; 4] }
+    }
     /// The slot a name occupies, by the table.
     #[inline] pub fn slot_of(&self, name: Value) -> Option<usize> {
         #[cfg(feature = "native-runtime")]
@@ -350,11 +356,13 @@ impl Shape {
         { let _ = name; panic!("shape probing requires a linked Nupp core") }
     }
 }
+#[repr(C)]
 pub struct Shape {
     pub name: crate::native_shape_metadata::ShapeName,
     /// A structural shape (a closed constructor's field set) accepts fields
     /// beyond its slots in the record's overflow; a nominal one does not.
     pub structural: bool,
+    reserved_structural: [u8; 7],
     pub names: crate::native_value_array::ValueArray, // interned strings
     pub types: crate::native_shape_metadata::ShapeTypes,
     /// Slot by name: an open-addressed table of (name bits, slot) with a
@@ -368,6 +376,7 @@ pub struct Shape {
     /// bits, with `metamethods::CACHED` once computed; zero until then and
     /// after any store that may change the answer.
     pub mm_cache: u32,
+    reserved_cache: [u8; 4],
 }
 
 /// Who can enumerate the roots (4.5): every task's registers, every frame's
@@ -412,7 +421,7 @@ pub struct Heap {
     pub oracle: bool,
     /// Freed objects stay as tombstones.
     pub quarantine: bool,
-    pub shapes: Vec<Shape>,
+    pub shapes: crate::native_shape_registry::ShapeRegistry,
     /// Shapes by the declaration they were emitted for, so a record type that
     /// several images name loads as one shape and keeps one method table.
     pub shape_identities: HashMap<String, u32>,
@@ -464,7 +473,9 @@ thread_local! { static NEVER: bool = std::env::var("GC_NEVER").is_ok(); }
 impl Heap {
     pub fn new() -> Heap {
         let env = |k: &str| std::env::var(k).is_ok();
-        Heap { channels: HashMap::default(), allocator: NativeAllocator::new(), chunk_bytes_mapped: 0, live_count: 0, root_candidates: Vec::new(), timed: env("GC_STATS"), phase: Phase::Idle, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), shape_identities: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0, mode_key: VT_EMPTY, record_type_key: VT_EMPTY, live_shapes: Vec::new(), declarations: HashMap::default(), mm_seen: 0, mm_keys: [VT_EMPTY; crate::metamethods::COUNT], proto_epoch: 0, proto_cache: HashMap::new(),
+        let allocator = NativeAllocator::new();
+        let shapes = allocator.shape_registry();
+        Heap { channels: HashMap::default(), allocator, chunk_bytes_mapped: 0, live_count: 0, root_candidates: Vec::new(), timed: env("GC_STATS"), phase: Phase::Idle, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes, shape_identities: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0, mode_key: VT_EMPTY, record_type_key: VT_EMPTY, live_shapes: Vec::new(), declarations: HashMap::default(), mm_seen: 0, mm_keys: [VT_EMPTY; crate::metamethods::COUNT], proto_epoch: 0, proto_cache: HashMap::new(),
             #[cfg(feature = "allocation-metrics")]
             metrics: crate::allocation_metrics::new(),
         }
@@ -473,11 +484,7 @@ impl Heap {
     pub fn shape(&mut self, name: &str, names: &[Value], types: &[SlotTy]) -> u32 {
         #[cfg(feature = "native-runtime")]
         {
-            let (names, table, mask) = self.allocator.shape_backing(names);
-            let structural = name.starts_with("struct:");
-            let (name, types) = self.allocator.shape_metadata(name, types);
-            self.shapes.push(Shape { name, structural, names, types, methods: self.allocator.shape_methods(), table, mask, mm_cache: 0 });
-            (self.shapes.len() - 1) as u32
+            self.shapes.push(Shape::new(&self.allocator, name, names, types))
         }
         #[cfg(not(feature = "native-runtime"))]
         { let _ = (name, names, types); panic!("shape construction requires a linked Nupp core") }
@@ -1169,7 +1176,7 @@ impl Drop for Heap {
         }
         // Shape backing borrows the same arena as managed payloads. The
         // allocator field drops before the registry field after this method.
-        self.shapes.clear();
+        self.shapes.release();
         // NativeAllocator drops after payload and shape teardown.
 
     }

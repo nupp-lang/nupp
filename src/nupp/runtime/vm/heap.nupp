@@ -187,6 +187,41 @@ export struct ShapeMethods
     deleted: uint64
 end
 
+-- Flat fields match the explicit C descriptor, including its aligned padding.
+export struct ShapeDescriptor
+    nameOwner: uint64
+    nameBase: uint64
+    nameLength: uint64
+    nameCapacity: uint64
+    structural: uint8
+    namesOwner: uint64
+    namesBase: uint64
+    namesLength: uint64
+    namesCapacity: uint64
+    typesOwner: uint64
+    typesBase: uint64
+    typesLength: uint64
+    typesCapacity: uint64
+    probesOwner: uint64
+    probesBase: uint64
+    probesLength: uint64
+    probesCapacity: uint64
+    mask: uint64
+    methodsOwner: uint64
+    methodsBase: uint64
+    methodsCapacity: uint64
+    methodsLength: uint64
+    methodsDeleted: uint64
+    mmCache: uint32
+end
+
+export struct ShapeRegistry
+    owner: uint64
+    base: uint64
+    length: uint64
+    capacity: uint64
+end
+
 -- Iterator edges and cursor precede the canonical owned key descriptor.
 export struct IteratorBody
     object: uint64

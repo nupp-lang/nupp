@@ -126,6 +126,10 @@ impl NativeAllocator {
         unsafe { crate::native_byte_array::ByteArray::new(self.heap.as_ptr(), length, capacity) }
     }
 
+    pub(crate) fn shape_registry(&self) -> crate::native_shape_registry::ShapeRegistry {
+        unsafe { crate::native_shape_registry::ShapeRegistry::new(self.heap.as_ptr()) }
+    }
+
     pub(crate) fn shape_metadata(&self, name: &str, types: &[crate::heap::SlotTy]) -> (crate::native_shape_metadata::ShapeName, crate::native_shape_metadata::ShapeTypes) {
         // Locals release every completed allocation if later construction fails.
         let name = unsafe { crate::native_shape_metadata::ShapeName::new(self.heap.as_ptr(), name) };
@@ -433,6 +437,35 @@ mod shape_backing_tests {
         drop(restore);
         hints.replace(&[SlotTy::Record(u32::MAX)]);
         assert_eq!(hints.at(0), SlotTy::Record(u32::MAX));
+    }
+
+    #[test]
+    fn shape_registry_growth_refusal_keeps_source_and_destination_owners() {
+        use crate::heap::{Shape, SlotTy};
+        let owner = NativeAllocator::new();
+        let mut registry = owner.shape_registry();
+        for _ in 0..4 { registry.push(Shape::new(&owner, "held", &[], &[])); }
+        let mut source = Shape::new(&owner, "candidate", &[Value(16)], &[SlotTy::Bool]);
+        source.methods.insert(Value(32), Value::NIL);
+        let old = registry.as_ptr();
+        let pointer = source.name.as_ptr();
+        let arena = owner.arena.as_ptr().cast::<ArenaPrefix>();
+        let restore = unsafe {
+            let guard = RestoreArena(arena, (*arena).limit, (*arena).growable);
+            (*arena).limit = (*arena).cursor;
+            (*arena).growable = false;
+            guard
+        };
+        assert_eq!(unsafe { crate::native_shape_registry::nupp_shape_registry_push(&mut registry, &mut source) }, u64::MAX);
+        assert_eq!(registry.len(), 4);
+        assert_eq!(registry.as_ptr(), old);
+        assert_eq!(source.name.as_ptr(), pointer);
+        assert_eq!(source.name, "candidate");
+        assert_eq!(source.types.at(0), SlotTy::Bool);
+        assert_eq!(source.methods.get(&Value(32)), Some(&Value::NIL));
+        drop(restore);
+        assert_eq!(registry.push(source), 4);
+        assert_eq!(registry[4].name.as_ptr(), pointer);
     }
 
 }

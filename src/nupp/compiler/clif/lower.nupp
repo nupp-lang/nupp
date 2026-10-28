@@ -92,6 +92,7 @@ local function allocatorModule(name: string): boolean
         or name == "nupp.runtime.vm.shapeowned"
         or name == "nupp.runtime.vm.shapemethods"
         or name == "nupp.runtime.vm.shapetypes"
+        or name == "nupp.runtime.vm.shaperegistry"
         or name == "nupp.runtime.vm.backing"
         or name == "nupp.runtime.vm.weakindex"
         or name == "nupp.runtime.vm.objecttable"
@@ -120,6 +121,7 @@ lower.RUNTIME_MODULES = {
     "src/nupp/runtime/vm/shapeowned.nupp",
     "src/nupp/runtime/vm/shapemethods.nupp",
     "src/nupp/runtime/vm/shapetypes.nupp",
+    "src/nupp/runtime/vm/shaperegistry.nupp",
     "src/nupp/runtime/vm/backing.nupp",
     "src/nupp/runtime/vm/weakindex.nupp",
     "src/nupp/runtime/vm/recordbody.nupp",

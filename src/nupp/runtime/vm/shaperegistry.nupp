@@ -1,0 +1,156 @@
+module nupp.runtime.vm.shaperegistry
+
+-- Descriptors move, their owned names, hints, probes and methods do not.
+-- Growth never collects or invokes guest code. A refused push owns nothing.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const backing = require("nupp.runtime.vm.backing")
+const valuearray = require("nupp.runtime.vm.valuearray")
+const bytearray = require("nupp.runtime.vm.bytearray")
+const shapemethods = require("nupp.runtime.vm.shapemethods")
+
+local function registryMaximum(): uint64
+    local limit = backing.wordBackingMaximum() // 24ULL
+    if limit > 0xffffffffULL then
+        return 0xffffffffULL
+    end
+
+    return limit
+end
+
+local function registryValid(r: heap.ShapeRegistry*): boolean
+    @unsafe do
+        if r.owner == 0ULL or r.length > r.capacity or r.capacity > registryMaximum() then
+            return false
+        end
+        if r.capacity == 0ULL then
+            return r.base == 0ULL and r.length == 0ULL
+        end
+        return r.base ~= 0ULL
+    end
+end
+
+export function shapeRegistryInitialize(r: heap.ShapeRegistry*, owner: heap.Heap*, stride: uint64): uint64
+    @unsafe do
+        if native.address(owner as voidptr) == 0ULL or stride ~= native.sizeOf<heap.ShapeDescriptor>() then
+            return 1ULL
+        end
+        if stride ~= 192ULL or r.owner ~= 0ULL or r.base ~= 0ULL or r.length ~= 0ULL or r.capacity ~= 0ULL then
+            return 1ULL
+        end
+        r.owner = native.address(owner as voidptr)
+        return 0ULL
+    end
+end
+
+export function shapeRegistryReserve(r: heap.ShapeRegistry*, additional: uint64): uint64
+    if not registryValid(r) then
+        return 1ULL
+    end
+    @unsafe do
+        if additional > registryMaximum() - r.length then
+            return 1ULL
+        end
+        local wanted = r.length + additional
+        if wanted <= r.capacity then
+            return 0ULL
+        end
+        local capacity = wanted
+        if r.capacity <= registryMaximum() >> 1ULL and capacity < r.capacity * 2ULL then
+            capacity = r.capacity * 2ULL
+        end
+        if capacity < 4ULL then
+            capacity = 4ULL
+        end
+        local fresh = backing.wordBackingTake(native.pointer(r.owner) as heap.Heap*, capacity * 24ULL)
+        if fresh == 0ULL then
+            return 2ULL
+        end
+        local i: uint64 = 0ULL
+        while i < r.length * 24ULL do
+            native.store64(
+                native.pointer(fresh),
+                native.index(i * 8ULL),
+                native.load64(native.pointer(r.base), native.index(i * 8ULL))
+            )
+            i = i + 1ULL
+        end
+        local before = r.base
+        r.base = fresh
+        r.capacity = capacity
+        backing.wordBackingRelease(before)
+        return 0ULL
+    end
+end
+
+-- Returns the new u32 index, or MAX without changing either owner.
+export function shapeRegistryPush(r: heap.ShapeRegistry*, source: heap.ShapeDescriptor*): uint64
+    if not registryValid(r) then
+        return 0xffffffffffffffffULL
+    end
+    @unsafe do
+        local address = native.address(source as voidptr)
+        if address == 0ULL or address & 7ULL ~= 0ULL then
+            return 0xffffffffffffffffULL
+        end
+        if r.base ~= 0ULL and address >= r.base and address < r.base + r.capacity * 192ULL then
+            return 0xffffffffffffffffULL
+        end
+        if source.nameOwner ~= r.owner
+            or source.namesOwner ~= r.owner
+            or source.typesOwner ~= r.owner
+            or source.probesOwner ~= r.owner
+            or source.methodsOwner ~= r.owner
+        then
+            return 0xffffffffffffffffULL
+        end
+        if shapeRegistryReserve(r, 1ULL) ~= 0ULL then
+            return 0xffffffffffffffffULL
+        end
+        local index = r.length
+        local target = r.base + index * 192ULL
+        local i: uint64 = 0ULL
+        while i < 24ULL do
+            native.store64(
+                native.pointer(target),
+                native.index(i * 8ULL),
+                native.load64(source as voidptr, native.index(i * 8ULL))
+            )
+            i = i + 1ULL
+        end
+        -- Zeroing the moved-from descriptor leaves every Rust field valid and
+        -- empty. Padding is explicitly initialized by the Rust constructor.
+        i = 0ULL
+        while i < 24ULL do
+            native.store64(source as voidptr, native.index(i * 8ULL), 0ULL)
+            i = i + 1ULL
+        end
+        r.length = index + 1ULL
+        return index
+    end
+end
+
+export function shapeRegistryClear(r: heap.ShapeRegistry*): nil
+    @unsafe do
+        local i: uint64 = 0ULL
+        while i < r.length do
+            local source = native.pointer(r.base + i * 192ULL)
+            bytearray.byteArrayRelease(source as heap.ByteArray*)
+            valuearray.arrayRelease(native.offset(source, 40) as heap.ValueArray*)
+            valuearray.arrayRelease(native.offset(source, 72) as heap.ValueArray*)
+            valuearray.arrayRelease(native.offset(source, 104) as heap.ValueArray*)
+            shapemethods.shapeMethodsRelease(native.offset(source, 144) as heap.ShapeMethods*)
+            i = i + 1ULL
+        end
+        r.length = 0ULL
+    end
+end
+
+export function shapeRegistryRelease(r: heap.ShapeRegistry*): nil
+    shapeRegistryClear(r)
+    @unsafe do
+        backing.wordBackingRelease(r.base)
+        r.base = 0ULL
+        r.capacity = 0ULL
+    end
+end
