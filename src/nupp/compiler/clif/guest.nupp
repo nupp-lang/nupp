@@ -2399,621 +2399,751 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     -- The emission of one instruction.
     local function instruction(pc: integer, ins: guest.Instruction): nil
         local name = ins.name
-        if name == "Move" then
-            local d, s = num(ins, 1), num(ins, 2)
-            local cond = condOf[s]
-            setV(d, V(s))
-            if cond ~= nil then
-                condOf[d] = cond as string
+        _ = switch name do
+            case "Move" -> do
+                local d, s = num(ins, 1), num(ins, 2)
+                local cond = condOf[s]
+                setV(d, V(s))
+                if cond ~= nil then
+                    condOf[d] = cond as string
+                end
+                yield true
             end
-        elseif name == "K" then
-            setV(num(ins, 1), constantWord(num(ins, 2)))
-        elseif name == "Nil" then
-            setV(num(ins, 1), k(guest.NIL))
-        elseif name == "Add" then
-            arithmetic(pc, ins, "fadd")
-        elseif name == "Sub" then
-            arithmetic(pc, ins, "fsub")
-        elseif name == "Mul" then
-            arithmetic(pc, ins, "fmul")
-        elseif name == "Div" then
-            arithmetic(pc, ins, "fdiv")
-        elseif name == "Mod" then
-            arithmetic(pc, ins, "fmod")
-        elseif name == "IDiv" then
-            arithmetic(pc, ins, "floordiv")
-        elseif name == "Lt" then
-            comparison(pc, ins, "lt")
-        elseif name == "Le" then
-            comparison(pc, ins, "le")
-        elseif name == "Eq" then
-            equality(pc, ins, false)
-        elseif name == "Ne" then
-            equality(pc, ins, true)
-        elseif name == "Not" then
-            local d, x = num(ins, 1), V(num(ins, 2))
-            local falsy = emit(
-                "bor " .. emit(
-                    "icmp eq " .. x .. ", " .. k(guest.NIL)
-                ) .. ", " .. emit("icmp eq " .. x .. ", " .. k(guest.FALSE))
-            )
-            setV(d, boolWord(falsy))
-            condOf[d] = falsy
-        elseif name == "Neg" then
-            local d, x = num(ins, 1), V(num(ins, 2))
-            guard(isFloatWord(x), pc)
-            setV(d, boxFloat(emit("fneg " .. unbox(x))))
-        elseif name == "Truthy" then
-            setI(num(ins, 1), emit("uextend.i64 " .. truthy(V(num(ins, 2)))))
-        elseif name == "BoolFromI" then
-            local d = num(ins, 1)
-            local cond = emit("icmp ne " .. I(num(ins, 2)) .. ", " .. k("0"))
-            setV(d, boolWord(cond))
-            condOf[d] = cond
-        elseif name == "Jmp" then
-            jumpTo(pc, pc + 1 + num(ins, 1))
-        elseif name == "JmpIf" or name == "JmpIfNot" then
-            local r = num(ins, 1)
-            local cond = condOf[r] or truthy(V(r))
-            branchTo(pc, cond, pc + 1 + num(ins, 2), name == "JmpIf")
-        elseif name == "JmpIfIZero" then
-            local cond = emit("icmp eq " .. I(num(ins, 1)) .. ", " .. k("0"))
-            branchTo(pc, cond, pc + 1 + num(ins, 2), true)
-        elseif name == "IJmpIfUle" then
-            local cond = emit("icmp ule " .. I(num(ins, 1)) .. ", " .. I(num(ins, 2)))
-            branchTo(pc, cond, pc + 1 + num(ins, 3), true)
-        elseif name == "IJmpIfUlt" then
-            local cond = emit("icmp ult " .. I(num(ins, 1)) .. ", " .. I(num(ins, 2)))
-            branchTo(pc, cond, pc + 1 + num(ins, 3), true)
-        elseif name == "IK" then
-            setI(num(ins, 1), k(ins.operands[2]))
-        elseif name == "IMov" then
-            setI(num(ins, 1), I(num(ins, 2)))
-        elseif name == "IAddK" then
-            setI(num(ins, 1), emit("iadd " .. I(num(ins, 2)) .. ", " .. k(ins.operands[3])))
-        elseif name == "IMaskU32" then
-            setI(num(ins, 1), emit("band " .. I(num(ins, 2)) .. ", " .. k("4294967295")))
-        elseif name == "IAdd"
-            or name == "ISub"
-            or name == "IAnd"
-            or name == "IOr"
-            or name == "IXor"
-            or name == "IShl"
-            or name == "IShrU"
-        then
-            local ops: {
-                [string]: string
-            } = {IAdd = "iadd", ISub = "isub", IAnd = "band", IOr = "bor", IXor = "bxor", IShl = "ishl", IShrU = "ushr"}
-            setI(num(ins, 1), emit((ops[name] as string) .. " " .. I(num(ins, 2)) .. ", " .. I(num(ins, 3))))
-        elseif name == "INot" then
-            setI(num(ins, 1), emit("bnot " .. I(num(ins, 2))))
-        elseif name == "ICmpEq"
-            or name == "ICmpNe"
-            or name == "ICmpLt"
-            or name == "ICmpLe"
-            or name == "ICmpSLt"
-            or name == "ICmpSLe"
-        then
-            local codes: {
-                [string]: string
-            } = {ICmpEq = "eq", ICmpNe = "ne", ICmpLt = "ult", ICmpLe = "ule", ICmpSLt = "slt", ICmpSLe = "sle"}
-            local cond = emit("icmp " .. (codes[name] as string) .. " " .. I(num(ins, 2)) .. ", " .. I(num(ins, 3)))
-            setI(num(ins, 1), emit("uextend.i64 " .. cond))
-        elseif name == "IToF" then
-            setF(num(ins, 1), emit("fcvt_from_sint.f64 " .. I(num(ins, 2))))
-        elseif name == "FToI" then
-            setI(num(ins, 1), emit("fcvt_to_sint_sat.i64 " .. F(num(ins, 2))))
-        elseif name == "FK" then
-            setF(num(ins, 1), emit("bitcast.f64 " .. k(ins.operands[2])))
-        elseif name == "FMov" then
-            setF(num(ins, 1), F(num(ins, 2)))
-        elseif name == "FAdd" or name == "FSub" or name == "FMul" or name == "FDiv" then
-            local ops: {[string]: string} = {FAdd = "fadd", FSub = "fsub", FMul = "fmul", FDiv = "fdiv"}
-            setF(num(ins, 1), emit((ops[name] as string) .. " " .. F(num(ins, 2)) .. ", " .. F(num(ins, 3))))
-        elseif name == "FMod" then
-            local p, q = F(num(ins, 2)), F(num(ins, 3))
-            local floored = emit("floor " .. emit("fdiv " .. p .. ", " .. q))
-            setF(num(ins, 1), emit("fsub " .. p .. ", " .. emit("fmul " .. floored .. ", " .. q)))
-        elseif name == "FNeg" then
-            setF(num(ins, 1), emit("fneg " .. F(num(ins, 2))))
-        elseif name == "FCmpEq" or name == "FCmpNe" or name == "FCmpLt" or name == "FCmpLe" then
-            local codes: {[string]: string} = {FCmpEq = "eq", FCmpNe = "ne", FCmpLt = "lt", FCmpLe = "le"}
-            local cond = emit("fcmp " .. (codes[name] as string) .. " " .. F(num(ins, 2)) .. ", " .. F(num(ins, 3)))
-            setI(num(ins, 1), emit("uextend.i64 " .. cond))
-        elseif name == "FBox" then
-            setV(num(ins, 1), boxFloat(F(num(ins, 2))))
-        elseif name == "FUnbox" then
-            local x = V(num(ins, 2))
-            guard(isFloatWord(x), pc)
-            setF(num(ins, 1), unbox(x))
-        elseif name == "TagCheckNum" then
-            local x = V(num(ins, 2))
-            guard(isFloatWord(x), pc)
-            setV(num(ins, 1), x)
-        elseif name == "IBox" then
-            local x = I(num(ins, 2))
-            local low = emit("icmp sge " .. x .. ", " .. k("-140737488355328"))
-            local high = emit("icmp sle " .. x .. ", " .. k("140737488355327"))
-            guard(emit("band " .. low .. ", " .. high), pc)
-            setV(
-                num(ins, 1),
-                emit("bor " .. emit("band " .. x .. ", " .. k(guest.PAYLOAD)) .. ", " .. k(guest.TAG_INTEGER))
-            )
-        elseif name == "IUnbox" then
-            local x = V(num(ins, 2))
-            local inline = emit(
-                "icmp eq " .. emit("band " .. x .. ", " .. k("0xffff000000000000")) .. ", " .. k(guest.TAG_INTEGER)
-            )
-            local floating = isFloatWord(x)
-            if floating ~= alwaysTrue then
-                guard(emit("bor " .. inline .. ", " .. floating), pc)
+            case "K" -> do
+                setV(num(ins, 1), constantWord(num(ins, 2)))
+                yield true
             end
-            local d = unbox(x)
-            local low = emit("fcmp ge " .. d .. ", " .. emit("f64const -0x1.0000000000000p63"))
-            local high = emit("fcmp lt " .. d .. ", " .. emit("f64const 0x1.0000000000000p63"))
-            local whole = emit("fcmp eq " .. emit("floor " .. d) .. ", " .. d)
-            local valid = emit("band " .. emit("band " .. low .. ", " .. high) .. ", " .. whole)
-            guard(emit("bor " .. inline .. ", " .. valid), pc)
-            local integer = emit("sshr " .. emit("ishl " .. x .. ", " .. k("16")) .. ", " .. k("16"))
-            setI(
-                num(ins, 1),
-                emit("select " .. inline .. ", " .. integer .. ", " .. emit("fcvt_to_sint_sat.i64 " .. d))
-            )
-        elseif name == "GetUpval" then
-            local closure = emit("load.i64 notrap " .. frame() .. "+16")
-            guard(isObject(closure), pc)
-            local data = headerWord(objectOf(closure), "Header.aux_ptr")
-            setV(num(ins, 1), emit("load.i64 notrap " .. data .. "+" .. tostring(num(ins, 2) * 8)))
-        elseif name == "GetCell" then
-            local cell = V(num(ins, 2))
-            guard(isObject(cell), pc)
-            local object = objectOf(cell)
-            guard(emit("icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("6")), pc)
-            local data = headerWord(object, "Header.aux_ptr")
-            setV(num(ins, 1), emit("load.i64 notrap " .. data .. "+0"))
-        elseif name == "SetCell" then
-            local cell, value = V(num(ins, 1)), V(num(ins, 2))
-            guard(isObject(cell), pc)
-            local object = objectOf(cell)
-            guard(emit("icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("6")), pc)
-            local marking = emit("uload8.i64 notrap " .. ctxLoad("marking") .. "+0")
-            guard(emit("icmp eq " .. marking .. ", " .. k("0")), pc)
-            local data = headerWord(object, "Header.aux_ptr")
-            effect("store notrap " .. value .. ", " .. data .. "+0")
-        elseif name == "GetSlot" or name == "GetSlotF" then
-            local x = V(num(ins, 2))
-            local known = "rec:" .. ins.operands[4]
-            local object = objectOf(x)
-            -- Keep a successful receiver check for later accesses. Another
-            -- shape takes the interpreter's by-name path through an exit.
-            if kinds[x] ~= known then
-                guardExit(isObject(x), pc)
-                local record = emit("icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("3"))
-                local shape = emit("icmp eq " .. headerU32(object, "Header.aux") .. ", " .. k(ins.operands[4]))
-                guardExit(emit("band " .. record .. ", " .. shape), pc)
-                kinds[x] = known
+            case "Nil" -> do
+                setV(num(ins, 1), k(guest.NIL))
+                yield true
             end
-            local data = headerWord(object, "Header.aux_ptr")
-            local value = emit("load.i64 notrap " .. data .. "+" .. tostring(num(ins, 3) * 8))
-            if name == "GetSlot" then
-                local present = emit("icmp ne " .. value .. ", " .. k(guest.NIL))
-                local flags = emit("band " .. headerByte(object, "Header.flags") .. ", " .. k("4"))
-                local plain = emit("icmp eq " .. flags .. ", " .. k("0"))
-                guardExit(emit("bor " .. present .. ", " .. plain), pc)
-                setV(num(ins, 1), value)
-            else
-                guardExit(isFloatWord(value), pc)
-                setF(num(ins, 1), unbox(value))
+            case "Add" -> do
+                arithmetic(pc, ins, "fadd")
+                yield true
             end
-        elseif name == "SetSlot" or name == "SetSlotF" then
-            local x = V(num(ins, 1))
-            guard(isObject(x), pc)
-            local object = objectOf(x)
-            local flags = headerByte(object, "Header.flags")
-            local record = emit("icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("3"))
-            local plainStorage = emit("icmp eq " .. emit("band " .. flags .. ", " .. k("160")) .. ", " .. k("0"))
-            local shape = emit("icmp eq " .. headerU32(object, "Header.aux") .. ", " .. k(ins.operands[4]))
-            guard(emit("band " .. emit("band " .. record .. ", " .. plainStorage) .. ", " .. shape), pc)
-            local data = headerWord(object, "Header.aux_ptr")
-            local at = tostring(num(ins, 2) * 8)
-            local current = emit("load.i64 notrap " .. data .. "+" .. at)
-            local meta = emit("icmp ne " .. emit("band " .. flags .. ", " .. k("4")) .. ", " .. k("0"))
-            local blocked = emit("band " .. meta .. ", " .. emit("icmp eq " .. current .. ", " .. k(guest.NIL)))
-            guard(emit("icmp eq " .. blocked .. ", " .. k8("0")), pc)
-            if name == "SetSlot" then
+            case "Sub" -> do
+                arithmetic(pc, ins, "fsub")
+                yield true
+            end
+            case "Mul" -> do
+                arithmetic(pc, ins, "fmul")
+                yield true
+            end
+            case "Div" -> do
+                arithmetic(pc, ins, "fdiv")
+                yield true
+            end
+            case "Mod" -> do
+                arithmetic(pc, ins, "fmod")
+                yield true
+            end
+            case "IDiv" -> do
+                arithmetic(pc, ins, "floordiv")
+                yield true
+            end
+            case "Lt" -> do
+                comparison(pc, ins, "lt")
+                yield true
+            end
+            case "Le" -> do
+                comparison(pc, ins, "le")
+                yield true
+            end
+            case "Eq" -> do
+                equality(pc, ins, false)
+                yield true
+            end
+            case "Ne" -> do
+                equality(pc, ins, true)
+                yield true
+            end
+            case "Not" -> do
+                local d, x = num(ins, 1), V(num(ins, 2))
+                local falsy = emit(
+                    "bor " .. emit(
+                        "icmp eq " .. x .. ", " .. k(guest.NIL)
+                    ) .. ", " .. emit("icmp eq " .. x .. ", " .. k(guest.FALSE))
+                )
+                setV(d, boolWord(falsy))
+                condOf[d] = falsy
+                yield true
+            end
+            case "Neg" -> do
+                local d, x = num(ins, 1), V(num(ins, 2))
+                guard(isFloatWord(x), pc)
+                setV(d, boxFloat(emit("fneg " .. unbox(x))))
+                yield true
+            end
+            case "Truthy" -> do
+                setI(num(ins, 1), emit("uextend.i64 " .. truthy(V(num(ins, 2)))))
+                yield true
+            end
+            case "BoolFromI" -> do
+                local d = num(ins, 1)
+                local cond = emit("icmp ne " .. I(num(ins, 2)) .. ", " .. k("0"))
+                setV(d, boolWord(cond))
+                condOf[d] = cond
+                yield true
+            end
+            case "Jmp" -> do
+                jumpTo(pc, pc + 1 + num(ins, 1))
+                yield true
+            end
+            case "JmpIf", "JmpIfNot" -> do
+                local r = num(ins, 1)
+                local cond = condOf[r] or truthy(V(r))
+                branchTo(pc, cond, pc + 1 + num(ins, 2), name == "JmpIf")
+                yield true
+            end
+            case "JmpIfIZero" -> do
+                local cond = emit("icmp eq " .. I(num(ins, 1)) .. ", " .. k("0"))
+                branchTo(pc, cond, pc + 1 + num(ins, 2), true)
+                yield true
+            end
+            case "IJmpIfUle" -> do
+                local cond = emit("icmp ule " .. I(num(ins, 1)) .. ", " .. I(num(ins, 2)))
+                branchTo(pc, cond, pc + 1 + num(ins, 3), true)
+                yield true
+            end
+            case "IJmpIfUlt" -> do
+                local cond = emit("icmp ult " .. I(num(ins, 1)) .. ", " .. I(num(ins, 2)))
+                branchTo(pc, cond, pc + 1 + num(ins, 3), true)
+                yield true
+            end
+            case "IK" -> do
+                setI(num(ins, 1), k(ins.operands[2]))
+                yield true
+            end
+            case "IMov" -> do
+                setI(num(ins, 1), I(num(ins, 2)))
+                yield true
+            end
+            case "IAddK" -> do
+                setI(num(ins, 1), emit("iadd " .. I(num(ins, 2)) .. ", " .. k(ins.operands[3])))
+                yield true
+            end
+            case "IMaskU32" -> do
+                setI(num(ins, 1), emit("band " .. I(num(ins, 2)) .. ", " .. k("4294967295")))
+                yield true
+            end
+            case "IAdd", "ISub", "IAnd", "IOr", "IXor", "IShl", "IShrU" -> do
+                local ops: {
+                    [string]: string
+                } = {
+                    IAdd = "iadd",
+                    ISub = "isub",
+                    IAnd = "band",
+                    IOr = "bor",
+                    IXor = "bxor",
+                    IShl = "ishl",
+                    IShrU = "ushr"
+                }
+                setI(num(ins, 1), emit((ops[name] as string) .. " " .. I(num(ins, 2)) .. ", " .. I(num(ins, 3))))
+                yield true
+            end
+            case "INot" -> do
+                setI(num(ins, 1), emit("bnot " .. I(num(ins, 2))))
+                yield true
+            end
+            case "ICmpEq", "ICmpNe", "ICmpLt", "ICmpLe", "ICmpSLt", "ICmpSLe" -> do
+                local codes: {
+                    [string]: string
+                } = {ICmpEq = "eq", ICmpNe = "ne", ICmpLt = "ult", ICmpLe = "ule", ICmpSLt = "slt", ICmpSLe = "sle"}
+                local cond = emit("icmp " .. (codes[name] as string) .. " " .. I(num(ins, 2)) .. ", " .. I(num(ins, 3)))
+                setI(num(ins, 1), emit("uextend.i64 " .. cond))
+                yield true
+            end
+            case "IToF" -> do
+                setF(num(ins, 1), emit("fcvt_from_sint.f64 " .. I(num(ins, 2))))
+                yield true
+            end
+            case "FToI" -> do
+                setI(num(ins, 1), emit("fcvt_to_sint_sat.i64 " .. F(num(ins, 2))))
+                yield true
+            end
+            case "FK" -> do
+                setF(num(ins, 1), emit("bitcast.f64 " .. k(ins.operands[2])))
+                yield true
+            end
+            case "FMov" -> do
+                setF(num(ins, 1), F(num(ins, 2)))
+                yield true
+            end
+            case "FAdd", "FSub", "FMul", "FDiv" -> do
+                local ops: {[string]: string} = {FAdd = "fadd", FSub = "fsub", FMul = "fmul", FDiv = "fdiv"}
+                setF(num(ins, 1), emit((ops[name] as string) .. " " .. F(num(ins, 2)) .. ", " .. F(num(ins, 3))))
+                yield true
+            end
+            case "FMod" -> do
+                local p, q = F(num(ins, 2)), F(num(ins, 3))
+                local floored = emit("floor " .. emit("fdiv " .. p .. ", " .. q))
+                setF(num(ins, 1), emit("fsub " .. p .. ", " .. emit("fmul " .. floored .. ", " .. q)))
+                yield true
+            end
+            case "FNeg" -> do
+                setF(num(ins, 1), emit("fneg " .. F(num(ins, 2))))
+                yield true
+            end
+            case "FCmpEq", "FCmpNe", "FCmpLt", "FCmpLe" -> do
+                local codes: {[string]: string} = {FCmpEq = "eq", FCmpNe = "ne", FCmpLt = "lt", FCmpLe = "le"}
+                local cond = emit("fcmp " .. (codes[name] as string) .. " " .. F(num(ins, 2)) .. ", " .. F(num(ins, 3)))
+                setI(num(ins, 1), emit("uextend.i64 " .. cond))
+                yield true
+            end
+            case "FBox" -> do
+                setV(num(ins, 1), boxFloat(F(num(ins, 2))))
+                yield true
+            end
+            case "FUnbox" -> do
+                local x = V(num(ins, 2))
+                guard(isFloatWord(x), pc)
+                setF(num(ins, 1), unbox(x))
+                yield true
+            end
+            case "TagCheckNum" -> do
+                local x = V(num(ins, 2))
+                guard(isFloatWord(x), pc)
+                setV(num(ins, 1), x)
+                yield true
+            end
+            case "IBox" -> do
+                local x = I(num(ins, 2))
+                local low = emit("icmp sge " .. x .. ", " .. k("-140737488355328"))
+                local high = emit("icmp sle " .. x .. ", " .. k("140737488355327"))
+                guard(emit("band " .. low .. ", " .. high), pc)
+                setV(
+                    num(ins, 1),
+                    emit("bor " .. emit("band " .. x .. ", " .. k(guest.PAYLOAD)) .. ", " .. k(guest.TAG_INTEGER))
+                )
+                yield true
+            end
+            case "IUnbox" -> do
+                local x = V(num(ins, 2))
+                local inline = emit(
+                    "icmp eq " .. emit("band " .. x .. ", " .. k("0xffff000000000000")) .. ", " .. k(guest.TAG_INTEGER)
+                )
+                local floating = isFloatWord(x)
+                if floating ~= alwaysTrue then
+                    guard(emit("bor " .. inline .. ", " .. floating), pc)
+                end
+                local d = unbox(x)
+                local low = emit("fcmp ge " .. d .. ", " .. emit("f64const -0x1.0000000000000p63"))
+                local high = emit("fcmp lt " .. d .. ", " .. emit("f64const 0x1.0000000000000p63"))
+                local whole = emit("fcmp eq " .. emit("floor " .. d) .. ", " .. d)
+                local valid = emit("band " .. emit("band " .. low .. ", " .. high) .. ", " .. whole)
+                guard(emit("bor " .. inline .. ", " .. valid), pc)
+                local integer = emit("sshr " .. emit("ishl " .. x .. ", " .. k("16")) .. ", " .. k("16"))
+                setI(
+                    num(ins, 1),
+                    emit("select " .. inline .. ", " .. integer .. ", " .. emit("fcvt_to_sint_sat.i64 " .. d))
+                )
+                yield true
+            end
+            case "GetUpval" -> do
+                local closure = emit("load.i64 notrap " .. frame() .. "+16")
+                guard(isObject(closure), pc)
+                local data = headerWord(objectOf(closure), "Header.aux_ptr")
+                setV(num(ins, 1), emit("load.i64 notrap " .. data .. "+" .. tostring(num(ins, 2) * 8)))
+                yield true
+            end
+            case "GetCell" -> do
+                local cell = V(num(ins, 2))
+                guard(isObject(cell), pc)
+                local object = objectOf(cell)
+                guard(emit("icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("6")), pc)
+                local data = headerWord(object, "Header.aux_ptr")
+                setV(num(ins, 1), emit("load.i64 notrap " .. data .. "+0"))
+                yield true
+            end
+            case "SetCell" -> do
+                local cell, value = V(num(ins, 1)), V(num(ins, 2))
+                guard(isObject(cell), pc)
+                local object = objectOf(cell)
+                guard(emit("icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("6")), pc)
                 local marking = emit("uload8.i64 notrap " .. ctxLoad("marking") .. "+0")
                 guard(emit("icmp eq " .. marking .. ", " .. k("0")), pc)
-                effect("store notrap " .. V(num(ins, 3)) .. ", " .. data .. "+" .. at)
-            else
-                effect("store notrap " .. boxFloat(F(num(ins, 3))) .. ", " .. data .. "+" .. at)
+                local data = headerWord(object, "Header.aux_ptr")
+                effect("store notrap " .. value .. ", " .. data .. "+0")
+                yield true
             end
-        elseif name == "Len" or name == "LenF" then
-            local x = V(num(ins, 2))
-            guard(isObject(x), pc)
-            local object = objectOf(x)
-            local kind = headerByte(object, "Header.kind")
-            local stringLike = emit(
-                "bor " .. emit(
-                    "icmp eq " .. kind .. ", " .. k("1")
-                ) .. ", " .. emit("icmp eq " .. kind .. ", " .. k("9"))
-            )
-            local plainTable = emit(
-                "band " .. emit(
-                    "icmp eq " .. kind .. ", " .. k("2")
-                ) .. ", " .. emit("icmp eq " .. headerWord(object, "Table.meta") .. ", " .. k(guest.NIL))
-            )
-            guard(emit("bor " .. stringLike .. ", " .. plainTable), pc)
-            local length = emit("fcvt_from_uint.f64 " .. headerWord(object, "Header.aux_len"))
-            if name == "Len" then
-                setV(num(ins, 1), emit("bitcast.i64 " .. length))
-            else
-                setF(num(ins, 1), length)
+            case "GetSlot", "GetSlotF" -> do
+                local x = V(num(ins, 2))
+                local known = "rec:" .. ins.operands[4]
+                local object = objectOf(x)
+                -- Keep a successful receiver check for later accesses. Another
+                -- shape takes the interpreter's by-name path through an exit.
+                if kinds[x] ~= known then
+                    guardExit(isObject(x), pc)
+                    local record = emit("icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("3"))
+                    local shape = emit("icmp eq " .. headerU32(object, "Header.aux") .. ", " .. k(ins.operands[4]))
+                    guardExit(emit("band " .. record .. ", " .. shape), pc)
+                    kinds[x] = known
+                end
+                local data = headerWord(object, "Header.aux_ptr")
+                local value = emit("load.i64 notrap " .. data .. "+" .. tostring(num(ins, 3) * 8))
+                if name == "GetSlot" then
+                    local present = emit("icmp ne " .. value .. ", " .. k(guest.NIL))
+                    local flags = emit("band " .. headerByte(object, "Header.flags") .. ", " .. k("4"))
+                    local plain = emit("icmp eq " .. flags .. ", " .. k("0"))
+                    guardExit(emit("bor " .. present .. ", " .. plain), pc)
+                    setV(num(ins, 1), value)
+                else
+                    guardExit(isFloatWord(value), pc)
+                    setF(num(ins, 1), unbox(value))
+                end
+                yield true
             end
-        elseif name == "StrByte" then
-            local x = V(num(ins, 2))
-            local position = I(num(ins, 3))
-            guard(isObject(x), pc)
-            local object = objectOf(x)
-            local kind = headerByte(object, "Header.kind")
-            local stringLike = emit(
-                "bor " .. emit(
-                    "icmp eq " .. kind .. ", " .. k("1")
-                ) .. ", " .. emit("icmp eq " .. kind .. ", " .. k("9"))
-            )
-            guard(emit("band " .. stringLike .. ", " .. emit("icmp sge " .. position .. ", " .. k("0"))), pc)
-            local length = headerWord(object, "Header.aux_len")
-            local inRange = emit(
-                "band " .. emit(
-                    "icmp sge " .. position .. ", " .. k("1")
-                ) .. ", " .. emit("icmp ule " .. position .. ", " .. length)
-            )
-            local join = newBlock()
-            local result = b.addParam(join, "i64")
-            local hit = newBlock()
-            local miss = newBlock()
-            b.branch(inRange, hit, miss)
-            seal(hit)
-            seal(miss)
-            b.current = hit
-            local data = headerWord(object, "Header.aux_ptr")
-            local at = emit("iadd " .. data .. ", " .. position)
-            local byte = emit("uload8.i64 notrap " .. at .. "-1")
-            b.jump(join, {emit("bitcast.i64 " .. emit("fcvt_from_sint.f64 " .. byte))})
-            b.current = miss
-            b.jump(join, {k(guest.NIL)})
-            b.current = join
-            seal(join)
-            setV(num(ins, 1), result)
-        elseif name == "GetIdxI" then
-            -- An integer index into the array part; anything else is the
-            -- index helper with the key boxed, as the handler's slow path.
-            local x = V(num(ins, 2))
-            local index = I(num(ins, 3))
-            -- The receiver a table, as its type says: a deoptimization exit
-            -- otherwise, so the kind is a fact even where a miss below
-            -- rejoins through the handler.
-            local object = objectOf(x)
-            if kinds[x] ~= "table" then
-                guardExit(isObject(x), pc)
-                guardExit(emit("icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("2")), pc)
-                kinds[x] = "table"
-            end
-            local miss = stepBlockAt(pc)
-            local length = headerWord(object, "Header.aux_len")
-            local positive = emit("icmp sge " .. index .. ", " .. k("1"))
-            local within = emit("icmp ule " .. index .. ", " .. length)
-            local exact = emit("icmp ule " .. index .. ", " .. k("9007199254740992"))
-            guardTo(emit("band " .. emit("band " .. positive .. ", " .. within) .. ", " .. exact), miss)
-            local data = headerWord(object, "Header.aux_ptr")
-            local at = emit("iadd " .. data .. ", " .. emit("ishl " .. index .. ", " .. k("3")))
-            local value = emit("load.i64 notrap " .. at .. "-8")
-            local present = emit("icmp ne " .. value .. ", " .. k(guest.NIL))
-            local plain = emit("icmp eq " .. headerWord(object, "Table.meta") .. ", " .. k(guest.NIL))
-            guardTo(emit("bor " .. present .. ", " .. plain), miss)
-            setV(num(ins, 1), value)
-        elseif name == "GetIdxF" or name == "GetIdx" then
-            -- The array part for an integral key in range; the index helper
-            -- for any other key of an object (the hash part, records, strings
-            -- and the metamethods); the interpreter for a non-object.
-            local x = V(num(ins, 2))
-            local keyWord: string
-            local d: string = ""
-            if name == "GetIdxF" then
-                d = F(num(ins, 3))
-                keyWord = boxFloat(d)
-            else
-                keyWord = V(num(ins, 3))
-            end
-            local object = objectOf(x)
-            if name == "GetIdxF" and kinds[x] ~= "table" then
-                -- An array read by a float index: the receiver a table, as
-                -- its type says, or a deoptimization exit.
-                guardExit(isObject(x), pc)
-                guardExit(emit("icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("2")), pc)
-                kinds[x] = "table"
-            end
-            local miss = stepBlockAt(pc)
-            if kinds[x] ~= "table" then
+            case "SetSlot", "SetSlotF" -> do
+                local x = V(num(ins, 1))
                 guard(isObject(x), pc)
+                local object = objectOf(x)
+                local flags = headerByte(object, "Header.flags")
+                local record = emit("icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("3"))
+                local plainStorage = emit("icmp eq " .. emit("band " .. flags .. ", " .. k("160")) .. ", " .. k("0"))
+                local shape = emit("icmp eq " .. headerU32(object, "Header.aux") .. ", " .. k(ins.operands[4]))
+                guard(emit("band " .. emit("band " .. record .. ", " .. plainStorage) .. ", " .. shape), pc)
+                local data = headerWord(object, "Header.aux_ptr")
+                local at = tostring(num(ins, 2) * 8)
+                local current = emit("load.i64 notrap " .. data .. "+" .. at)
+                local meta = emit("icmp ne " .. emit("band " .. flags .. ", " .. k("4")) .. ", " .. k("0"))
+                local blocked = emit("band " .. meta .. ", " .. emit("icmp eq " .. current .. ", " .. k(guest.NIL)))
+                guard(emit("icmp eq " .. blocked .. ", " .. k8("0")), pc)
+                if name == "SetSlot" then
+                    local marking = emit("uload8.i64 notrap " .. ctxLoad("marking") .. "+0")
+                    guard(emit("icmp eq " .. marking .. ", " .. k("0")), pc)
+                    effect("store notrap " .. V(num(ins, 3)) .. ", " .. data .. "+" .. at)
+                else
+                    effect("store notrap " .. boxFloat(F(num(ins, 3))) .. ", " .. data .. "+" .. at)
+                end
+                yield true
             end
-            if name == "GetIdx" then
-                guardTo(isFloatWord(keyWord), miss)
-                d = unbox(keyWord)
-            end
-            if kinds[x] ~= "table" then
-                guardTo(emit("icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("2")), miss)
-            end
-            local length = emit("fcvt_from_uint.f64 " .. headerWord(object, "Header.aux_len"))
-            local atLeastOne = emit("fcmp ge " .. d .. ", " .. emit("f64const 0x1.0000000000000p0"))
-            local within = emit("fcmp le " .. d .. ", " .. length)
-            local whole = emit("fcvt_to_uint_sat.i64 " .. d)
-            local exact = emit("fcmp eq " .. emit("fcvt_from_uint.f64 " .. whole) .. ", " .. d)
-            guardTo(emit("band " .. emit("band " .. atLeastOne .. ", " .. within) .. ", " .. exact), miss)
-            local data = headerWord(object, "Header.aux_ptr")
-            local at = emit("iadd " .. data .. ", " .. emit("ishl " .. whole .. ", " .. k("3")))
-            local value = emit("load.i64 notrap " .. at .. "-8")
-            local present = emit("icmp ne " .. value .. ", " .. k(guest.NIL))
-            local plain = emit("icmp eq " .. headerWord(object, "Table.meta") .. ", " .. k(guest.NIL))
-            guardTo(emit("bor " .. present .. ", " .. plain), miss)
-            setV(num(ins, 1), value)
-        elseif name == "SetIdxF" or name == "SetIdx" or name == "SetIdxI" then
-            -- The handlers' array store: a numeric key into the array part of
-            -- a plain table, with the barrier while marking; the keyed store
-            -- helper otherwise, which normalizes the key and takes the
-            -- metamethods; the interpreter for a non-object.
-            local x = V(num(ins, 1))
-            local value = V(num(ins, 3))
-            local keyWord: string
-            local d: string = ""
-            if name == "SetIdxF" then
-                d = F(num(ins, 2))
-                keyWord = boxFloat(d)
-            elseif name == "SetIdxI" then
-                d = emit("fcvt_from_sint.f64 " .. I(num(ins, 2)))
-                keyWord = emit("bitcast.i64 " .. d)
-            else
-                keyWord = V(num(ins, 2))
-            end
-            local miss = stepBlockAt(pc)
-            guard(isObject(x), pc)
-            if name == "SetIdx" then
-                guardTo(isFloatWord(keyWord), miss)
-                d = unbox(keyWord)
-            end
-            local object = objectOf(x)
-            local flags = headerByte(object, "Header.flags")
-            local plainTable = emit(
-                "band " .. emit(
-                    "icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("2")
-                ) .. ", " .. emit("icmp eq " .. emit("band " .. flags .. ", " .. k("224")) .. ", " .. k("0"))
-            )
-            guardTo(plainTable, miss)
-            local count = headerWord(object, "Header.aux_len")
-            local length = emit("fcvt_from_uint.f64 " .. count)
-            local atLeastOne = emit("fcmp ge " .. d .. ", " .. emit("f64const 0x1.0000000000000p0"))
-            local within = emit("fcmp le " .. d .. ", " .. length)
-            local whole = emit("fcvt_to_uint_sat.i64 " .. d)
-            local exact = emit("fcmp eq " .. emit("fcvt_from_uint.f64 " .. whole) .. ", " .. d)
-            -- `t[#t + 1] = v` on a table without a metatable or a hash part
-            -- (nothing to migrate out of it): the array part grows by one
-            -- through the helper the tables handler calls, and the value is
-            -- stored. Anything else past the border is the handler's.
-            do
-                local border = emit("icmp eq " .. whole .. ", " .. emit("iadd " .. count .. ", " .. k("1")))
-                local appendable = emit(
+            case "Len", "LenF" -> do
+                local x = V(num(ins, 2))
+                guard(isObject(x), pc)
+                local object = objectOf(x)
+                local kind = headerByte(object, "Header.kind")
+                local stringLike = emit(
+                    "bor " .. emit(
+                        "icmp eq " .. kind .. ", " .. k("1")
+                    ) .. ", " .. emit("icmp eq " .. kind .. ", " .. k("9"))
+                )
+                local plainTable = emit(
                     "band " .. emit(
-                        "band " .. border .. ", " .. exact
-                    ) .. ", " .. emit(
+                        "icmp eq " .. kind .. ", " .. k("2")
+                    ) .. ", " .. emit("icmp eq " .. headerWord(object, "Table.meta") .. ", " .. k(guest.NIL))
+                )
+                guard(emit("bor " .. stringLike .. ", " .. plainTable), pc)
+                local length = emit("fcvt_from_uint.f64 " .. headerWord(object, "Header.aux_len"))
+                if name == "Len" then
+                    setV(num(ins, 1), emit("bitcast.i64 " .. length))
+                else
+                    setF(num(ins, 1), length)
+                end
+                yield true
+            end
+            case "StrByte" -> do
+                local x = V(num(ins, 2))
+                local position = I(num(ins, 3))
+                guard(isObject(x), pc)
+                local object = objectOf(x)
+                local kind = headerByte(object, "Header.kind")
+                local stringLike = emit(
+                    "bor " .. emit(
+                        "icmp eq " .. kind .. ", " .. k("1")
+                    ) .. ", " .. emit("icmp eq " .. kind .. ", " .. k("9"))
+                )
+                guard(emit("band " .. stringLike .. ", " .. emit("icmp sge " .. position .. ", " .. k("0"))), pc)
+                local length = headerWord(object, "Header.aux_len")
+                local inRange = emit(
+                    "band " .. emit(
+                        "icmp sge " .. position .. ", " .. k("1")
+                    ) .. ", " .. emit("icmp ule " .. position .. ", " .. length)
+                )
+                local join = newBlock()
+                local result = b.addParam(join, "i64")
+                local hit = newBlock()
+                local miss = newBlock()
+                b.branch(inRange, hit, miss)
+                seal(hit)
+                seal(miss)
+                b.current = hit
+                local data = headerWord(object, "Header.aux_ptr")
+                local at = emit("iadd " .. data .. ", " .. position)
+                local byte = emit("uload8.i64 notrap " .. at .. "-1")
+                b.jump(join, {emit("bitcast.i64 " .. emit("fcvt_from_sint.f64 " .. byte))})
+                b.current = miss
+                b.jump(join, {k(guest.NIL)})
+                b.current = join
+                seal(join)
+                setV(num(ins, 1), result)
+                yield true
+            end
+            case "GetIdxI" -> do
+                -- An integer index into the array part; anything else is the
+                -- index helper with the key boxed, as the handler's slow path.
+                local x = V(num(ins, 2))
+                local index = I(num(ins, 3))
+                -- The receiver a table, as its type says: a deoptimization exit
+                -- otherwise, so the kind is a fact even where a miss below
+                -- rejoins through the handler.
+                local object = objectOf(x)
+                if kinds[x] ~= "table" then
+                    guardExit(isObject(x), pc)
+                    guardExit(emit("icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("2")), pc)
+                    kinds[x] = "table"
+                end
+                local miss = stepBlockAt(pc)
+                local length = headerWord(object, "Header.aux_len")
+                local positive = emit("icmp sge " .. index .. ", " .. k("1"))
+                local within = emit("icmp ule " .. index .. ", " .. length)
+                local exact = emit("icmp ule " .. index .. ", " .. k("9007199254740992"))
+                guardTo(emit("band " .. emit("band " .. positive .. ", " .. within) .. ", " .. exact), miss)
+                local data = headerWord(object, "Header.aux_ptr")
+                local at = emit("iadd " .. data .. ", " .. emit("ishl " .. index .. ", " .. k("3")))
+                local value = emit("load.i64 notrap " .. at .. "-8")
+                local present = emit("icmp ne " .. value .. ", " .. k(guest.NIL))
+                local plain = emit("icmp eq " .. headerWord(object, "Table.meta") .. ", " .. k(guest.NIL))
+                guardTo(emit("bor " .. present .. ", " .. plain), miss)
+                setV(num(ins, 1), value)
+                yield true
+            end
+            case "GetIdxF", "GetIdx" -> do
+                -- The array part for an integral key in range; the index helper
+                -- for any other key of an object (the hash part, records, strings
+                -- and the metamethods); the interpreter for a non-object.
+                local x = V(num(ins, 2))
+                local keyWord: string
+                local d: string = ""
+                if name == "GetIdxF" then
+                    d = F(num(ins, 3))
+                    keyWord = boxFloat(d)
+                else
+                    keyWord = V(num(ins, 3))
+                end
+                local object = objectOf(x)
+                if name == "GetIdxF" and kinds[x] ~= "table" then
+                    -- An array read by a float index: the receiver a table, as
+                    -- its type says, or a deoptimization exit.
+                    guardExit(isObject(x), pc)
+                    guardExit(emit("icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("2")), pc)
+                    kinds[x] = "table"
+                end
+                local miss = stepBlockAt(pc)
+                if kinds[x] ~= "table" then
+                    guard(isObject(x), pc)
+                end
+                if name == "GetIdx" then
+                    guardTo(isFloatWord(keyWord), miss)
+                    d = unbox(keyWord)
+                end
+                if kinds[x] ~= "table" then
+                    guardTo(emit("icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("2")), miss)
+                end
+                local length = emit("fcvt_from_uint.f64 " .. headerWord(object, "Header.aux_len"))
+                local atLeastOne = emit("fcmp ge " .. d .. ", " .. emit("f64const 0x1.0000000000000p0"))
+                local within = emit("fcmp le " .. d .. ", " .. length)
+                local whole = emit("fcvt_to_uint_sat.i64 " .. d)
+                local exact = emit("fcmp eq " .. emit("fcvt_from_uint.f64 " .. whole) .. ", " .. d)
+                guardTo(emit("band " .. emit("band " .. atLeastOne .. ", " .. within) .. ", " .. exact), miss)
+                local data = headerWord(object, "Header.aux_ptr")
+                local at = emit("iadd " .. data .. ", " .. emit("ishl " .. whole .. ", " .. k("3")))
+                local value = emit("load.i64 notrap " .. at .. "-8")
+                local present = emit("icmp ne " .. value .. ", " .. k(guest.NIL))
+                local plain = emit("icmp eq " .. headerWord(object, "Table.meta") .. ", " .. k(guest.NIL))
+                guardTo(emit("bor " .. present .. ", " .. plain), miss)
+                setV(num(ins, 1), value)
+                yield true
+            end
+            case "SetIdxF", "SetIdx", "SetIdxI" -> do
+                -- The handlers' array store: a numeric key into the array part of
+                -- a plain table, with the barrier while marking; the keyed store
+                -- helper otherwise, which normalizes the key and takes the
+                -- metamethods; the interpreter for a non-object.
+                local x = V(num(ins, 1))
+                local value = V(num(ins, 3))
+                local keyWord: string
+                local d: string = ""
+                if name == "SetIdxF" then
+                    d = F(num(ins, 2))
+                    keyWord = boxFloat(d)
+                elseif name == "SetIdxI" then
+                    d = emit("fcvt_from_sint.f64 " .. I(num(ins, 2)))
+                    keyWord = emit("bitcast.i64 " .. d)
+                else
+                    keyWord = V(num(ins, 2))
+                end
+                local miss = stepBlockAt(pc)
+                guard(isObject(x), pc)
+                if name == "SetIdx" then
+                    guardTo(isFloatWord(keyWord), miss)
+                    d = unbox(keyWord)
+                end
+                local object = objectOf(x)
+                local flags = headerByte(object, "Header.flags")
+                local plainTable = emit(
+                    "band " .. emit(
+                        "icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("2")
+                    ) .. ", " .. emit("icmp eq " .. emit("band " .. flags .. ", " .. k("224")) .. ", " .. k("0"))
+                )
+                guardTo(plainTable, miss)
+                local count = headerWord(object, "Header.aux_len")
+                local length = emit("fcvt_from_uint.f64 " .. count)
+                local atLeastOne = emit("fcmp ge " .. d .. ", " .. emit("f64const 0x1.0000000000000p0"))
+                local within = emit("fcmp le " .. d .. ", " .. length)
+                local whole = emit("fcvt_to_uint_sat.i64 " .. d)
+                local exact = emit("fcmp eq " .. emit("fcvt_from_uint.f64 " .. whole) .. ", " .. d)
+                -- `t[#t + 1] = v` on a table without a metatable or a hash part
+                -- (nothing to migrate out of it): the array part grows by one
+                -- through the helper the tables handler calls, and the value is
+                -- stored. Anything else past the border is the handler's.
+                do
+                    local border = emit("icmp eq " .. whole .. ", " .. emit("iadd " .. count .. ", " .. k("1")))
+                    local appendable = emit(
                         "band " .. emit(
-                            "icmp eq " .. headerWord(object, "Table.meta") .. ", " .. k(guest.NIL)
+                            "band " .. border .. ", " .. exact
                         ) .. ", " .. emit(
                             "band " .. emit(
-                                "icmp eq " .. headerWord(object, "Table.hash_ptr") .. ", " .. k("0")
-                            ) .. ", " .. emit("icmp ne " .. value .. ", " .. k(guest.NIL))
+                                "icmp eq " .. headerWord(object, "Table.meta") .. ", " .. k(guest.NIL)
+                            ) .. ", " .. emit(
+                                "band " .. emit(
+                                    "icmp eq " .. headerWord(object, "Table.hash_ptr") .. ", " .. k("0")
+                                ) .. ", " .. emit("icmp ne " .. value .. ", " .. k(guest.NIL))
+                            )
                         )
                     )
+                    local append = newBlock()
+                    local other = newBlock()
+                    b.branch(appendable, append, other)
+                    seal(append)
+                    seal(other)
+                    b.current = append
+                    local saved = snapshot()
+                    helper(pc, "nupp_rt_resize_array", {ctxValue, x, whole}, false)
+                    local grown = headerWord(object, "Header.aux_ptr")
+                    local marked = emit("uload8.i64 notrap " .. ctxLoad("marking") .. "+0")
+                    local fence = newBlock()
+                    local put = newBlock()
+                    b.branch(emit("icmp ne " .. marked .. ", " .. k("0")), fence, put)
+                    seal(fence)
+                    seal(put)
+                    b.current = fence
+                    effect(
+                        "call " .. helperRef("nupp_rt_barrier") .. "(" .. ctxValue .. ", " .. x .. ", " .. value .. ")"
+                    )
+                    b.jump(put, {})
+                    b.current = put
+                    effect(
+                        "store notrap " .. value .. ", " .. emit(
+                            "iadd " .. grown .. ", " .. emit("ishl " .. whole .. ", " .. k("3"))
+                        ) .. "-8"
+                    )
+                    -- Joins the instruction's continuation; the helper stored
+                    -- what the account held, so nothing written is pending.
+                    local cont = continuationOf(pc)
+                    b.jump(cont.block as ssa.Block, {})
+                    restore(saved)
+                    b.current = other
+                end
+                local keeps = emit(
+                    "bor " .. emit(
+                        "icmp ne " .. value .. ", " .. k(guest.NIL)
+                    ) .. ", " .. emit("fcmp lt " .. d .. ", " .. length)
                 )
-                local append = newBlock()
-                local other = newBlock()
-                b.branch(appendable, append, other)
-                seal(append)
-                seal(other)
-                b.current = append
-                local saved = snapshot()
-                helper(pc, "nupp_rt_resize_array", {ctxValue, x, whole}, false)
-                local grown = headerWord(object, "Header.aux_ptr")
-                local marked = emit("uload8.i64 notrap " .. ctxLoad("marking") .. "+0")
-                local fence = newBlock()
-                local put = newBlock()
-                b.branch(emit("icmp ne " .. marked .. ", " .. k("0")), fence, put)
-                seal(fence)
-                seal(put)
-                b.current = fence
+                guardTo(
+                    emit(
+                        "band " .. emit(
+                            "band " .. emit("band " .. atLeastOne .. ", " .. within) .. ", " .. exact
+                        ) .. ", " .. keeps
+                    ),
+                    miss
+                )
+                local data = headerWord(object, "Header.aux_ptr")
+                local at = emit("iadd " .. data .. ", " .. emit("ishl " .. whole .. ", " .. k("3")))
+                local current = emit("load.i64 notrap " .. at .. "-8")
+                local present = emit("icmp ne " .. current .. ", " .. k(guest.NIL))
+                local plain = emit("icmp eq " .. headerWord(object, "Table.meta") .. ", " .. k(guest.NIL))
+                guardTo(emit("bor " .. present .. ", " .. plain), miss)
+                local marking = emit("uload8.i64 notrap " .. ctxLoad("marking") .. "+0")
+                local barrier = newBlock()
+                local store = newBlock()
+                b.branch(emit("icmp ne " .. marking .. ", " .. k("0")), barrier, store)
+                seal(barrier)
+                seal(store)
+                b.current = barrier
                 effect("call " .. helperRef("nupp_rt_barrier") .. "(" .. ctxValue .. ", " .. x .. ", " .. value .. ")")
-                b.jump(put, {})
-                b.current = put
+                b.jump(store, {})
+                b.current = store
+                effect("store notrap " .. value .. ", " .. at .. "-8")
+                yield true
+            end
+            case "GetField" -> do
+                observe(pc, V(num(ins, 2)), k("1"))
+                fieldRead(pc, ins)
+                yield true
+            end
+            case "SetField" -> do
+                fieldWrite(pc, ins)
+                yield true
+            end
+            case "NewRecord" -> do
+                local value = helper(pc, "nupp_rt_new_record", {ctxValue, k(ins.operands[2])}, true) as string
+                setV(num(ins, 1), value)
+                yield true
+            end
+            case "CallK" -> do
+                local fr, base, nargs = num(ins, 2), num(ins, 3), num(ins, 4)
+                if nargs >= 64 then
+                    step(pc)
+                else
+                    local value = V(fr)
+                    observe(pc, value, k("0"))
+                    callValue(pc, ins, value, base, nargs, k(ins.operands[1]))
+                end
+                yield true
+            end
+            case "CallDyn" -> do
+                local fr, base, nargs = num(ins, 1), num(ins, 2), num(ins, 3)
+                if nargs >= 64 then
+                    step(pc)
+                else
+                    local value = V(fr)
+                    observe(pc, value, k("0"))
+                    callValue(pc, ins, value, base, nargs, nil)
+                end
+                yield true
+            end
+            case "Call" -> do
+                local base, nargs = num(ins, 2), num(ins, 3)
+                if nargs >= 64 then
+                    step(pc)
+                else
+                    local slow = newBlock()
+                    local outer = b.current
+                    b.current = slow
+                    coldStep(pc)
+                    local resume = newBlock()
+                    b.jump(resume, {})
+                    b.current = outer
+                    callFrame(pc, ins, k(ins.operands[1]), k(guest.NIL), base, nargs, slow)
+                    b.jump(resume, {})
+                    seal(slow)
+                    b.current = resume
+                    seal(resume)
+                    condOf = {}
+                    forgetAll()
+                end
+                yield true
+            end
+            case "CallMethod" -> do
+                if fn.methodSites[pc] ~= nil and fn.epochAddress ~= nil and num(ins, 3) < 64 then
+                    -- The plan's shape and method: a record of that shape, while the
+                    -- descriptor epoch holds, calls the method the plan resolved; any
+                    -- other receiver, or a changed epoch, is the interpreter's call.
+                    local site = fn.methodSites[pc] as {string}
+                    local base, nargs = num(ins, 2), num(ins, 3)
+                    local receiver = V(base + 1)
+                    local epoch = emit("load.i64 notrap " .. k(fn.epochAddress as string) .. "+0")
+                    guard(emit("icmp eq " .. epoch .. ", " .. k(fn.epochValue as string)), pc)
+                    guard(isObject(receiver), pc)
+                    local header = objectOf(receiver)
+                    local isRecord = emit("icmp eq " .. headerByte(header, "Header.kind") .. ", " .. k("3"))
+                    local sameShape = emit("icmp eq " .. headerU32(header, "Header.aux") .. ", " .. k(site[1]))
+                    guard(emit("band " .. isRecord .. ", " .. sameShape), pc)
+                    callValue(pc, ins, k(site[2]), base, nargs, nil)
+                else
+                    step(pc)
+                end
+                yield true
+            end
+            case "Ret", "FRet" -> do
+                local link, caller, _ = returnGuard(pc)
+                local value: string
+                if name == "FRet" then
+                    value = boxFloat(F(num(ins, 1)))
+                else
+                    value = V(num(ins, 1))
+                end
+                directReturn(value, guest.EXIT_VALUE)
+                local flags = emit("load.i64 notrap " .. frame() .. "+24")
+                local indirect = emit(
+                    "icmp ne " .. emit(
+                        "band " .. emit("ushr " .. flags .. ", " .. k("32")) .. ", " .. k("1")
+                    ) .. ", " .. k("0")
+                )
+                local slot = emit(
+                    "select " .. indirect .. ", " .. emit(
+                        "band " .. flags .. ", " .. k("4294967295")
+                    ) .. ", " .. emit("ushr " .. link .. ", " .. k("32"))
+                )
+                ctxStore("result", value)
+                local stack = ctxLoad("stack")
                 effect(
                     "store notrap " .. value .. ", " .. emit(
-                        "iadd " .. grown .. ", " .. emit("ishl " .. whole .. ", " .. k("3"))
-                    ) .. "-8"
+                        "iadd " .. stack .. ", " .. emit("ishl " .. slot .. ", " .. k("3"))
+                    ) .. "+0"
                 )
-                -- Joins the instruction's continuation; the helper stored
-                -- what the account held, so nothing written is pending.
-                local cont = continuationOf(pc)
-                b.jump(cont.block as ssa.Block, {})
-                restore(saved)
-                b.current = other
+                ctxStore("cur", caller)
+                ctxStore("last_nres", k("1"))
+                finishWith({k(guest.EXIT_RETURNED)})
+                yield true
             end
-            local keeps = emit(
-                "bor " .. emit(
-                    "icmp ne " .. value .. ", " .. k(guest.NIL)
-                ) .. ", " .. emit("fcmp lt " .. d .. ", " .. length)
-            )
-            guardTo(
-                emit(
-                    "band " .. emit(
-                        "band " .. emit("band " .. atLeastOne .. ", " .. within) .. ", " .. exact
-                    ) .. ", " .. keeps
-                ),
-                miss
-            )
-            local data = headerWord(object, "Header.aux_ptr")
-            local at = emit("iadd " .. data .. ", " .. emit("ishl " .. whole .. ", " .. k("3")))
-            local current = emit("load.i64 notrap " .. at .. "-8")
-            local present = emit("icmp ne " .. current .. ", " .. k(guest.NIL))
-            local plain = emit("icmp eq " .. headerWord(object, "Table.meta") .. ", " .. k(guest.NIL))
-            guardTo(emit("bor " .. present .. ", " .. plain), miss)
-            local marking = emit("uload8.i64 notrap " .. ctxLoad("marking") .. "+0")
-            local barrier = newBlock()
-            local store = newBlock()
-            b.branch(emit("icmp ne " .. marking .. ", " .. k("0")), barrier, store)
-            seal(barrier)
-            seal(store)
-            b.current = barrier
-            effect("call " .. helperRef("nupp_rt_barrier") .. "(" .. ctxValue .. ", " .. x .. ", " .. value .. ")")
-            b.jump(store, {})
-            b.current = store
-            effect("store notrap " .. value .. ", " .. at .. "-8")
-        elseif name == "GetField" then
-            observe(pc, V(num(ins, 2)), k("1"))
-            fieldRead(pc, ins)
-        elseif name == "SetField" then
-            fieldWrite(pc, ins)
-        elseif name == "NewRecord" then
-            local value = helper(pc, "nupp_rt_new_record", {ctxValue, k(ins.operands[2])}, true) as string
-            setV(num(ins, 1), value)
-        elseif name == "CallK" then
-            local fr, base, nargs = num(ins, 2), num(ins, 3), num(ins, 4)
-            if nargs >= 64 then
-                step(pc)
-            else
-                local value = V(fr)
-                observe(pc, value, k("0"))
-                callValue(pc, ins, value, base, nargs, k(ins.operands[1]))
-            end
-        elseif name == "CallDyn" then
-            local fr, base, nargs = num(ins, 1), num(ins, 2), num(ins, 3)
-            if nargs >= 64 then
-                step(pc)
-            else
-                local value = V(fr)
-                observe(pc, value, k("0"))
-                callValue(pc, ins, value, base, nargs, nil)
-            end
-        elseif name == "Call" then
-            local base, nargs = num(ins, 2), num(ins, 3)
-            if nargs >= 64 then
-                step(pc)
-            else
-                local slow = newBlock()
-                local outer = b.current
-                b.current = slow
-                coldStep(pc)
-                local resume = newBlock()
-                b.jump(resume, {})
-                b.current = outer
-                callFrame(pc, ins, k(ins.operands[1]), k(guest.NIL), base, nargs, slow)
-                b.jump(resume, {})
-                seal(slow)
-                b.current = resume
-                seal(resume)
-                condOf = {}
-                forgetAll()
-            end
-        elseif name == "CallMethod" and fn.methodSites[pc] ~= nil and fn.epochAddress ~= nil and num(ins, 3) < 64 then
-            -- The plan's shape and method: a record of that shape, while the
-            -- descriptor epoch holds, calls the method the plan resolved; any
-            -- other receiver, or a changed epoch, is the interpreter's call.
-            local site = fn.methodSites[pc] as {string}
-            local base, nargs = num(ins, 2), num(ins, 3)
-            local receiver = V(base + 1)
-            local epoch = emit("load.i64 notrap " .. k(fn.epochAddress as string) .. "+0")
-            guard(emit("icmp eq " .. epoch .. ", " .. k(fn.epochValue as string)), pc)
-            guard(isObject(receiver), pc)
-            local header = objectOf(receiver)
-            local isRecord = emit("icmp eq " .. headerByte(header, "Header.kind") .. ", " .. k("3"))
-            local sameShape = emit("icmp eq " .. headerU32(header, "Header.aux") .. ", " .. k(site[1]))
-            guard(emit("band " .. isRecord .. ", " .. sameShape), pc)
-            callValue(pc, ins, k(site[2]), base, nargs, nil)
-        elseif name == "Ret" or name == "FRet" then
-            local link, caller, _ = returnGuard(pc)
-            local value: string
-            if name == "FRet" then
-                value = boxFloat(F(num(ins, 1)))
-            else
-                value = V(num(ins, 1))
-            end
-            directReturn(value, guest.EXIT_VALUE)
-            local flags = emit("load.i64 notrap " .. frame() .. "+24")
-            local indirect = emit(
-                "icmp ne " .. emit(
-                    "band " .. emit("ushr " .. flags .. ", " .. k("32")) .. ", " .. k("1")
-                ) .. ", " .. k("0")
-            )
-            local slot = emit(
-                "select " .. indirect .. ", " .. emit(
-                    "band " .. flags .. ", " .. k("4294967295")
-                ) .. ", " .. emit("ushr " .. link .. ", " .. k("32"))
-            )
-            ctxStore("result", value)
-            local stack = ctxLoad("stack")
-            effect(
-                "store notrap " .. value .. ", " .. emit(
-                    "iadd " .. stack .. ", " .. emit("ishl " .. slot .. ", " .. k("3"))
-                ) .. "+0"
-            )
-            ctxStore("cur", caller)
-            ctxStore("last_nres", k("1"))
-            finishWith({k(guest.EXIT_RETURNED)})
-        elseif name == "RetNil" then
-            local link, caller = returnGuard(pc)
-            directReturn(k(guest.NIL), guest.EXIT_NONE)
-            local stack = ctxLoad("stack")
-            local slot = emit("ushr " .. link .. ", " .. k("32"))
-            effect(
-                "store notrap " .. k(
-                    guest.NIL
-                ) .. ", " .. emit("iadd " .. stack .. ", " .. emit("ishl " .. slot .. ", " .. k("3"))) .. "+0"
-            )
-            ctxStore("cur", caller)
-            ctxStore("last_nres", k("0"))
-            finishWith({k(guest.EXIT_RETURNED)})
-        elseif name == "RetN" then
-            local start, count = num(ins, 1), num(ins, 2)
-            if count > 8 then
-                step(pc)
-                finishWith({k(guest.EXIT_REENTER)})
-            else
+            case "RetNil" -> do
                 local link, caller = returnGuard(pc)
+                directReturn(k(guest.NIL), guest.EXIT_NONE)
                 local stack = ctxLoad("stack")
                 local slot = emit("ushr " .. link .. ", " .. k("32"))
-                local results = emit("iadd " .. stack .. ", " .. emit("ishl " .. slot .. ", " .. k("3")))
-                for i = 0, count - 1 do
-                    effect("store notrap " .. V(start + i) .. ", " .. results .. "+" .. tostring(i * 8))
-                end
-                if count == 0 then
-                    effect("store notrap " .. k(guest.NIL) .. ", " .. results .. "+0")
-                end
+                effect(
+                    "store notrap " .. k(
+                        guest.NIL
+                    ) .. ", " .. emit("iadd " .. stack .. ", " .. emit("ishl " .. slot .. ", " .. k("3"))) .. "+0"
+                )
                 ctxStore("cur", caller)
-                ctxStore("last_nres", k(tostring(count)))
+                ctxStore("last_nres", k("0"))
                 finishWith({k(guest.EXIT_RETURNED)})
+                yield true
             end
-        elseif name == "PadResults" then
-            local base, wanted = num(ins, 1), num(ins, 2)
-            if wanted > 8 then
-                step(pc)
-            else
-                local filled = ctxLoad("last_nres")
-                for i = 1, wanted - 1 do
-                    if base + i <= fn.nregs then
-                        local have = emit("icmp ugt " .. filled .. ", " .. k(tostring(i)))
-                        setV(base + i, emit("select " .. have .. ", " .. V(base + i) .. ", " .. k(guest.NIL)))
+            case "RetN" -> do
+                local start, count = num(ins, 1), num(ins, 2)
+                if count > 8 then
+                    step(pc)
+                    finishWith({k(guest.EXIT_REENTER)})
+                else
+                    local link, caller = returnGuard(pc)
+                    local stack = ctxLoad("stack")
+                    local slot = emit("ushr " .. link .. ", " .. k("32"))
+                    local results = emit("iadd " .. stack .. ", " .. emit("ishl " .. slot .. ", " .. k("3")))
+                    for i = 0, count - 1 do
+                        effect("store notrap " .. V(start + i) .. ", " .. results .. "+" .. tostring(i * 8))
+                    end
+                    if count == 0 then
+                        effect("store notrap " .. k(guest.NIL) .. ", " .. results .. "+0")
+                    end
+                    ctxStore("cur", caller)
+                    ctxStore("last_nres", k(tostring(count)))
+                    finishWith({k(guest.EXIT_RETURNED)})
+                end
+                yield true
+            end
+            case "PadResults" -> do
+                local base, wanted = num(ins, 1), num(ins, 2)
+                if wanted > 8 then
+                    step(pc)
+                else
+                    local filled = ctxLoad("last_nres")
+                    for i = 1, wanted - 1 do
+                        if base + i <= fn.nregs then
+                            local have = emit("icmp ugt " .. filled .. ", " .. k(tostring(i)))
+                            setV(base + i, emit("select " .. have .. ", " .. V(base + i) .. ", " .. k(guest.NIL)))
+                        end
                     end
                 end
+                yield true
             end
-        else
-            -- The core hands it to Rust: so does compiled code.
-            step(pc)
+            else -> do
+                -- The core hands it to Rust: so does compiled code.
+                step(pc)
+                yield true
+            end
         end
     end
 
