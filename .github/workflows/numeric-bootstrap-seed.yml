@@ -41,6 +41,16 @@ jobs:
           echo "CXX=g++" >> "$GITHUB_ENV"
       - name: Prove a cold build from the published execution seed
         run: python3 .github/scripts/native-bootstrap-cold.py
+      - name: Diagnose Windows compiled-call failure
+        if: failure() && runner.os == 'Windows'
+        continue-on-error: true
+        run: |
+          gdb=$(command -v gdb || true)
+          if [ -z "$gdb" ]; then
+            /c/msys64/usr/bin/bash.exe -lc 'pacman -Sy --noconfirm --needed mingw-w64-x86_64-gdb'
+            gdb=/c/msys64/mingw64/bin/gdb.exe
+          fi
+          python3 .github/scripts/native-frame-debug.py "$gdb"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
