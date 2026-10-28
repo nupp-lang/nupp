@@ -5,6 +5,59 @@ local fs = require("nupp.compiler.fs")
 local ROOT = fs.absolute(assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]")) .. "/..")
 local M = {}
 
+local checkedOwners = {}
+
+local function checkedOwner(moduleName, name)
+    if not checkedOwners[moduleName] then
+        local parser = require("nupp.compiler.syntax.parser")
+        local checker = require("nupp.compiler.check")
+        local environment = require("nupp.compiler.project.env")
+        local trivia = require("nupp.compiler.syntax.triviaarena")
+        trivia.installDefault(require("nupp.compiler.syntax.triviaarena.table"))
+        local path = ROOT .. "/src/" .. moduleName:gsub("%.", "/") .. ".nupp"
+        local file = assert(io.open(path, "rb"))
+        local source = file:read("*a")
+        file:close()
+        local parsed = parser.parse(source, path)
+        assert(#parsed.errors == 0, "leaf fixture did not parse")
+        local env = environment.new(ROOT, {cache = false, config = {include = {"src"}}})
+        for _, diagnostic in ipairs(checker.check(parsed, path, env, {})) do
+            assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
+        end
+        assert(parsed.declaredModuleName == moduleName, "checked leaf module identity")
+        local scope = {name = moduleName, path = path, functions = {}}
+        for _, block in ipairs(parsed.root.blocks) do
+            for _, stat in ipairs(block.stats) do
+                local node = stat.kind == "exportStmt" and stat.stat or stat
+                if node and (node.kind == "localFuncStmt" or node.kind == "funcStmt") then
+                    local body = node.body
+                    local declaredName = node.kind == "localFuncStmt" and node.name.text or node.name.base.text
+                    local kinds = {}
+                    for index, parameter in ipairs(body.params) do
+                        kinds[index] = parameter.type.resolvedType.tag
+                    end
+                    local result = body.signatureType.rets[1] and body.signatureType.rets[1].tag
+                    scope.functions[
+                        declaredName
+                    ] = {
+                        name = declaredName,
+                        node = node,
+                        body = body,
+                        scope = scope,
+                        paramKinds = kinds,
+                        resultKind = result ~= "nil" and result or nil
+                    }
+                end
+            end
+        end
+        checkedOwners[moduleName] = scope
+    end
+    local owner = assert(checkedOwners[moduleName].functions[name], "missing checked leaf fixture")
+    owner.nativeABI = "leaf"
+
+    return owner
+end
+
 local function rejects(call, fragment)
     local ok, problem = pcall(call)
     assert(not ok, "accepted invalid object leaf")
@@ -44,12 +97,14 @@ function M.leavesCannotAcquireHandlerFramesOrCallManagedServices()
         "invalid native dispatch"
     )
     g, b = fresh()
-    g.native.frameFromWindow = 2
+    local recovered = G.emitNative(g, b, "FrameRecover", {5, {kind = "recover"}}, "voidptr")
+    local answer = G.emitNative(g, b, "NativeAddress", {recovered}, "uint64")
+    b.term = {kind = "return", value = answer, edges = {}}
     rejects(
         function()
             G.verify(g)
         end,
-        "no VM entry transport"
+        "cannot access VM state"
     )
     g, b = fresh()
     local declaration = {
@@ -186,13 +241,7 @@ function M.localLeafCallsRetainKindsAndRefuseManagedOrChangedCallees()
         local g = G.newNative({"uint64"}, "uint64", "leaf")
         local b = G.block(g)
         G.emitNative(g, b, "NativeConstant", {"42"}, "uint64")
-        local declaration = {
-            moduleName = "nupp.runtime.vm.objecthash",
-            name = "slotHash",
-            params = {"uint64"},
-            result = "uint64",
-            abi = "leaf"
-        }
+        local declaration = G.nativeLeafDeclaration(checkedOwner("nupp.runtime.vm.objecthash", "slotHash"))
         local answer = G.emitNative(g, b, "NativeLeafCall", {declaration, 1}, "uint64")
         b.term = {kind = "return", value = answer, edges = {}}
 
@@ -207,19 +256,20 @@ function M.localLeafCallsRetainKindsAndRefuseManagedOrChangedCallees()
     assert(text:find("fn0 = %slotHash sig1", 1, true), text)
     assert(text:find("sig1 = (i64) -> i64 tail", 1, true), text)
     assert(not text:find("nupp_rt_", 1, true), text)
-    for field, value in pairs({
-        moduleName = "nupp.runtime.vm.helpers",
-        name = "newTable",
-        abi = "c",
-        result = "int64"
+    for _, mutation in ipairs({
+        {"moduleName", "nupp.runtime.vm.helpers", "native checked declaration source"},
+        {"name", "newTable", "native checked declaration source"},
+        {"abi", "c", "native leaf declaration ABI"},
+        {"result", "int64", "native leaf result kind"},
+        {"source", nil, "native operation requires a contract"}
     }) do
         local bad, declaration = callGraph()
-        declaration[field] = value
+        declaration[mutation[1]] = mutation[2]
         rejects(
             function()
                 G.verify(bad)
             end,
-            "native leaf declaration"
+            mutation[3]
         )
     end
     local bad, declaration = callGraph()
@@ -228,8 +278,33 @@ function M.localLeafCallsRetainKindsAndRefuseManagedOrChangedCallees()
         function()
             G.verify(bad)
         end,
-        "exact parameter kind"
+        "native graph operand kind mismatch"
     )
+end
+
+function M.leafDeclarationsRequireTheCheckedOwnerAndBody()
+    local owner = checkedOwner("nupp.runtime.vm.objecthash", "slotHash")
+    local impostor = {}
+    for key, value in pairs(owner) do
+        impostor[key] = value
+    end
+    rejects(
+        function()
+            G.nativeLeafDeclaration(impostor)
+        end,
+        "checked declaration identity"
+    )
+    local body = owner.body
+    owner.body = {}
+    local ok, problem = pcall(G.nativeLeafDeclaration, owner)
+    owner.body = body
+    assert(not ok and tostring(problem):find("checked body identity", 1, true), tostring(problem))
+    local kind = owner.paramKinds[1]
+    owner.paramKinds[1] = "float64"
+    ok, problem = pcall(G.nativeLeafDeclaration, owner)
+    owner.paramKinds[1] = kind
+    assert(not ok and tostring(problem):find("checked parameter kind", 1, true), tostring(problem))
+    assert(G.nativeLeafDeclaration(owner).params[1] == "uint64")
 end
 
 function M.borrowedLeafMemoryKeepsItsGuardsAndCannotClaimHandlerAccess()
@@ -315,7 +390,7 @@ end
 function M.rawLeafCallContractsKeepPointersAndEveryTransportedWord()
     local g = G.newNative({"voidptr", "uint64", "uint64", "uint64"}, "uint64", "leaf")
     local b = G.block(g)
-    local declaration = G.nativeLeafDeclaration("nupp.runtime.vm.objecttable", "tableProbe")
+    local declaration = G.nativeLeafDeclaration(checkedOwner("nupp.runtime.vm.objecttable", "tableProbe"))
     local answer = G.emitNative(g, b, "NativeLeafCall", {declaration, 1, 2, 3, 4}, "uint64")
     b.term = {kind = "return", value = answer, edges = {}}
     G.verify(g)
@@ -329,9 +404,9 @@ function M.rawLeafCallContractsKeepPointersAndEveryTransportedWord()
         function()
             G.verify(g)
         end,
-        "exact parameter kind"
+        "native graph operand kind mismatch"
     )
-    local next = G.nativeLeafDeclaration("nupp.runtime.vm.objecttable", "tableProbe")
+    local next = G.nativeLeafDeclaration(checkedOwner("nupp.runtime.vm.objecttable", "tableProbe"))
     assert(next.params[1] == "voidptr", "call-site metadata cannot mutate the approved contract")
 end
 

@@ -1,0 +1,523 @@
+module nupp.compiler.clif.legacygraph
+
+-- Frozen native toolchain adapter from 8e88f1f3b^.
+-- Only the CLIF bootstrap tool uses this snapshot. Core graphs use vm.graph
+-- and the shared functiongraph frontend; delete this snapshot at the flip.
+
+local graph = require("nupp.compiler.vm.legacygraph")
+local recipes = require("nupp.compiler.vm.machinerecipes")
+local emitter = {}
+local integerOps = {
+    IAdd = "iadd",
+    ISub = "isub",
+    NativeIMul = "imul",
+    NativeUDiv = "udiv",
+    IAnd = "band",
+    IOr = "bor",
+    IXor = "bxor",
+    INot = "bnot",
+    IShl = "ishl",
+    IShrU = "ushr"
+}
+local floatOps = {
+    FAdd = "fadd",
+    FSub = "fsub",
+    FMul = "fmul",
+    FDiv = "fdiv",
+    FNeg = "fneg",
+    NativeFloor = "floor",
+    NativeCeil = "ceil",
+    NativeSqrt = "sqrt"
+}
+local machineKinds = {voidptr = "i64", int64 = "i64", uint64 = "i64", boolean = "i8", float32 = "f32", float64 = "f64"}
+local compareSigned = {["<"] = "slt", ["<="] = "sle", [">"] = "sgt", [">="] = "sge", ["=="] = "eq", ["~="] = "ne"}
+local compareUnsigned = {["<"] = "ult", ["<="] = "ule", [">"] = "ugt", [">="] = "uge", ["=="] = "eq", ["~="] = "ne"}
+local compareFloat = {["<"] = "lt", ["<="] = "le", [">"] = "gt", [">="] = "ge", ["=="] = "eq", ["~="] = "ne"}
+local programLoads = {
+    uint8 = "uload8.i64",
+    int32 = "sload32.i64",
+    uint64 = "load.i64",
+    int64 = "load.i64",
+    float64 = "load.f64"
+}
+
+local function need(value: any, message: string): any
+    assert(value, "graph CLIF: " .. message)
+    return value
+end
+
+--- Emits one native function from the verified Nupp graph.
+---
+--- Graph values and block parameters retain their identities. Temporary
+--- machine addresses occupy fresh ids beyond the graph's values.
+--- @raises string when the graph requires an unsupported machine operation
+function emitter.emit(g: any, options: any): string
+    graph.verify(g)
+    local native = need(g.native, "native graph required")
+    local handler = native.abi == "handler"
+    local isSupport = native.abi == "support"
+    local managed = handler or isSupport
+    need(handler and g.nparams == 6 or isSupport or native.abi == "leaf", "native handler or leaf required")
+    local name: string = need(options and options.name, "function name required")
+    need(name:match("^[%w_%.]+$") ~= nil, "invalid function name")
+    local frameOffset: integer = options.frameRegsOff or 32
+    need(frameOffset == 32, "unsupported frame window offset")
+    local parameters = {}
+    for index, kind in ipairs(native.params) do
+        parameters[index] = need(machineKinds[kind], "exact native parameter kind required")
+    end
+    if isSupport then
+        parameters[#parameters + 1] = "i64"
+    end
+    local out = {
+        "function %" .. name .. "(" .. table.concat(parameters, ", ") .. ") -> i64 tail {",
+        "    ; Nupp native graph: " .. name
+    }
+    if managed then
+        out[#out + 1] = "    sig0 = (i64, i64, i64, i64, i64, i64) -> i64 tail"
+    end
+    local counter: integer = #g.types
+    local imports, preamble = {}, {}
+    local importCount: integer = 0
+
+    local function helper(declaration: any): string
+        local prefix = need(
+            options.helperModules and options.helperModules[declaration.moduleName],
+            "helper module is not admitted"
+        )
+        need(type(prefix) == "string" and prefix:match("^nupp_[%w_]*_$"), "invalid helper symbol prefix")
+        local symbol = prefix .. declaration.name:gsub("%u", function(letter: string): string
+            return "_" .. letter:lower()
+        end)
+        local params = {}
+        for index, kind in ipairs(declaration.params) do
+            params[index] = machineKinds[kind]
+        end
+        local signature = "(" .. table.concat(params, ", ") .. ")"
+        if declaration.result ~= "nil" then
+            signature = signature .. " -> " .. machineKinds[declaration.result]
+        end
+        local exact = table.concat(declaration.params, ",") .. "->" .. declaration.result
+        local known = imports[symbol]
+        if known then
+            need(known.signature == signature and known.exact == exact, "helper symbol has inconsistent signatures")
+            return known.ref
+        end
+        local sig, ref = "sig" .. tostring(importCount + 1), "fn" .. tostring(importCount)
+        importCount = importCount + 1
+        preamble[#preamble + 1] = sig .. " = " .. signature
+        preamble[#preamble + 1] = ref .. " = %" .. symbol .. " " .. sig
+        imports[symbol] = {signature = signature, exact = exact, ref = ref}
+
+        return ref
+    end
+
+    local function support(declaration: any): string
+        local home = options.modules and options.modules[declaration.moduleName]
+        local target = home and home.functions and home.functions[declaration.name]
+        need(
+            target and target.isSupport and target.resultKind == declaration.result,
+            "checked support function required"
+        )
+        need(#target.paramKinds == #declaration.params, "support signature parameter count differs")
+        local params = {}
+        for index, kind in ipairs(declaration.params) do
+            need(target.paramKinds[index] == kind, "support signature exact kind differs")
+            params[index] = machineKinds[kind]
+        end
+        params[#params + 1] = "i64"
+        local symbol = declaration.name
+        local signature = "(" .. table.concat(params, ", ") .. ") -> i64 tail"
+        local known = imports[symbol]
+        if known then
+            need(known.signature == signature, "support symbol has inconsistent signatures")
+            return known.ref
+        end
+        local sig, ref = "sig" .. tostring(importCount + 1), "fn" .. tostring(importCount)
+        importCount = importCount + 1
+        preamble[#preamble + 1] = sig .. " = " .. signature
+        preamble[#preamble + 1] = ref .. " = %" .. symbol .. " " .. sig
+        imports[symbol] = {signature = signature, ref = ref}
+
+        return ref
+    end
+
+    local function value(id: integer): string
+        return "v" .. tostring(id)
+    end
+
+    local function fresh(): string
+        counter = counter + 1
+        return value(counter)
+    end
+
+    local function line(text: string): nil
+        out[#out + 1] = "    " .. text
+    end
+
+    local function temporary(text: string): string
+        local result = fresh()
+        line(result .. " = " .. text)
+        return result
+    end
+
+    local function constant(text: string): string
+        return temporary("iconst.i64 " .. text)
+    end
+
+    local function machine(
+        op: string,
+        destination: any,
+        first: any,
+        second: any,
+        tail: {any}?,
+        kind: string,
+        loadBits: integer,
+        literal: string?
+    ): any
+        local result = destination or (op ~= "store" and op ~= "return_call_indirect" and fresh())
+        local text = switch op do
+            case "iconst" -> "iconst.i64 " .. assert(literal)
+            case "load" -> (loadBits == 8 and "uload8.i64" or "load." .. kind) .. " notrap " .. first
+            case "store" -> "store notrap " .. first .. ", " .. second
+            case "return_call_indirect" -> do
+                local call = "return_call_indirect sig0, " .. first .. "(" .. table.concat(
+                    assert(tail),
+                    ", "
+                ) .. ", " .. second .. ")"
+                yield call
+            end
+            else -> op .. " " .. first .. ", " .. second
+        end
+        line(result and result .. " = " .. text or text)
+
+        return result
+    end
+
+    local function edge(e: any): string
+        local args = {}
+        for i, id in ipairs(e.args) do
+            args[i] = value(id)
+        end
+
+        return "block" .. tostring(e.target - 1) .. "(" .. table.concat(args, ", ") .. ")"
+    end
+
+    -- The physical sixth argument is the dispatch table. The graph's sixth
+    -- parameter names the logical frame derived from the value window.
+    local tableValue: string = managed and fresh() or ""
+    for bi, block in ipairs(g.blocks) do
+        local params = {}
+        if bi == 1 and handler then
+            for id = 1, 5 do
+                params[id] = value(id) .. ": i64"
+            end
+            params[6] = tableValue .. ": i64"
+        elseif bi == 1 then
+            for id = 1, g.nparams do
+                params[id] = value(id) .. ": " .. need(machineKinds[g.exactTypes[id]], "exact entry kind required")
+            end
+            if isSupport then
+                params[#params + 1] = tableValue .. ": i64"
+            end
+        else
+            for i, id in ipairs(block.params) do
+                params[i] = value(id) .. ": " .. need(machineKinds[g.exactTypes[id]], "exact block kind required")
+            end
+        end
+        out[#out + 1] = ""
+        out[#out + 1] = "block" .. tostring(block.id - 1) .. "(" .. table.concat(params, ", ") .. "):"
+        if bi == 1 and handler then
+            recipes.entry(machine, value(6), value(2), frameOffset)
+        end
+        for i, op in ipairs(block.op) do
+            local args, dst = block.args[i], block.dst[i]
+            local result = dst ~= 0 and value(dst) or ""
+            _ = switch op do
+                case "NativeLeafCall" -> do
+                    local declaration = args[1]
+                    local symbol = declaration.name
+                    local types, words = {}, {}
+                    for index = 1, #declaration.params do
+                        types[index] = "i64"
+                        words[index] = value(args[index + 1])
+                    end
+                    local signature = "(" .. table.concat(types, ", ") .. ") -> i64 tail"
+                    local exact = table.concat(declaration.params, ",") .. "->" .. declaration.result
+                    local known = imports[symbol]
+                    if not known then
+                        local sig, ref = "sig" .. tostring(importCount + 1), "fn" .. tostring(importCount)
+                        importCount = importCount + 1
+                        preamble[#preamble + 1] = sig .. " = " .. signature
+                        preamble[#preamble + 1] = ref .. " = %" .. symbol .. " " .. sig
+                        known = {signature = signature, exact = exact, ref = ref}
+                        imports[symbol] = known
+                    end
+                    need(known.signature == signature and known.exact == exact, "leaf signature changed")
+                    line(result .. " = call " .. known.ref .. "(" .. table.concat(words, ", ") .. ")")
+                    yield true
+                end
+                case "NativeHelperCall" -> do
+                    local words = {}
+                    for index = 2, #args do
+                        words[index - 1] = value(args[index])
+                    end
+                    local text = "call " .. helper(args[1]) .. "(" .. table.concat(words, ", ") .. ")"
+                    line(dst ~= 0 and result .. " = " .. text or text)
+                    yield true
+                end
+                case "NativeLoad", "NativeStore" -> do
+                    local write = op == "NativeStore"
+                    local contract = args[write and 4 or 3]
+                    local flags = contract.source == "live" and " notrap " or " "
+                    local address = temporary("iadd " .. value(args[1]) .. ", " .. value(args[2]))
+                    if write then
+                        local store = "store"
+                        if contract.kind ~= "float32" and contract.kind ~= "float64" and contract.width ~= 8 then
+                            store = ({[1] = "istore8", [2] = "istore16", [4] = "istore32"})[contract.width]
+                        end
+                        line(store .. flags .. value(args[3]) .. ", " .. address)
+                    else
+                        local load: string
+                        if contract.kind == "float32" or contract.kind == "float64" then
+                            load = "load." .. machineKinds[contract.kind]
+                        elseif contract.width == 8 then
+                            load = "load.i64"
+                        elseif contract.width == 4 then
+                            load = "sload32.i64"
+                        else
+                            load = "uload" .. tostring(contract.width * 8) .. ".i64"
+                        end
+                        line(result .. " = " .. load .. flags .. address)
+                    end
+                    yield true
+                end
+                case "NativeLayout" -> do
+                    local offset = need(options.layout, "native ABI layout provider required")(args[1])
+                    need(
+                        type(offset) == "number" and offset % 1 == 0 and math.abs(offset) < 9007199254740992,
+                        "exact ABI layout offset required"
+                    )
+                    line(result .. " = iconst.i64 " .. tostring(offset))
+                    yield true
+                end
+                case "NativePointer", "NativeAddress" -> do
+                    line(result .. " = iadd " .. value(args[1]) .. ", " .. constant("0"))
+                    yield true
+                end
+                case "NativeConstant" -> do
+                    line(result .. " = iconst.i64 " .. args[1])
+                    yield true
+                end
+                case "PointerOffset" -> do
+                    line(result .. " = iadd " .. value(args[1]) .. ", " .. value(args[2]))
+                    yield true
+                end
+                case "NativeBoolean" -> do
+                    line(result .. " = iconst.i8 " .. (args[1] and "1" or "0"))
+                    yield true
+                end
+                case "NativeICmp", "NativeFCmp" -> do
+                    local predicates = op == "NativeFCmp" and compareFloat
+                        or (g.exactTypes[args[1]] == "int64" and compareSigned or compareUnsigned)
+                    line(
+                        result .. " = " .. (
+                            op == "NativeFCmp" and "fcmp " or "icmp "
+                        ) .. need(
+                            predicates[args[3]],
+                            "comparison predicate required"
+                        ) .. " " .. value(args[1]) .. ", " .. value(args[2])
+                    )
+                    yield true
+                end
+                case "NativeAsWord" -> do
+                    line(result .. " = uextend.i64 " .. value(args[1]))
+                    yield true
+                end
+                case "NativeSelect" -> do
+                    line(result .. " = select " .. value(args[1]) .. ", " .. value(args[2]) .. ", " .. value(args[3]))
+                    yield true
+                end
+                case "NativeWordCast" -> do
+                    line(result .. " = iadd " .. value(args[1]) .. ", " .. constant("0"))
+                    yield true
+                end
+                case "NativeIntToFloat" -> do
+                    line(
+                        result .. " = " .. (
+                            g.exactTypes[args[1]] == "uint64" and "fcvt_from_uint." or "fcvt_from_sint."
+                        ) .. machineKinds[g.exactTypes[dst]] .. " " .. value(args[1])
+                    )
+                    yield true
+                end
+                case "NativeFloatToInt" -> do
+                    line(
+                        result .. " = " .. (
+                            g.exactTypes[dst] == "uint64" and "fcvt_to_uint_sat.i64 " or "fcvt_to_sint_sat.i64 "
+                        ) .. value(args[1])
+                    )
+                    yield true
+                end
+                case "NativeFloatConvert" -> do
+                    local source, target = g.exactTypes[args[1]], g.exactTypes[dst]
+                    if source == target then
+                        local yes = temporary("iconst.i8 1")
+                        line(result .. " = select " .. yes .. ", " .. value(args[1]) .. ", " .. value(args[1]))
+                    else
+                        line(
+                            result .. " = " .. (
+                                target == "float32" and "fdemote.f32 " or "fpromote.f64 "
+                            ) .. value(args[1])
+                        )
+                    end
+                    yield true
+                end
+                case "NativeFloatBits", "NativeFloatFromBits" -> do
+                    line(result .. " = bitcast." .. (op == "NativeFloatBits" and "i64 " or "f64 ") .. value(args[1]))
+                    yield true
+                end
+                case "NativeFloat32Bits" -> do
+                    local narrowed = temporary("fdemote.f32 " .. value(args[1]))
+                    local bits = temporary("bitcast.i32 " .. narrowed)
+                    line(result .. " = uextend.i64 " .. bits)
+                    yield true
+                end
+                case "NativeFloat32FromBits" -> do
+                    local low = temporary("ireduce.i32 " .. value(args[1]))
+                    local decoded = temporary("bitcast.f32 " .. low)
+                    line(result .. " = fpromote.f64 " .. decoded)
+                    yield true
+                end
+                case "NativeRoundFloat32" -> do
+                    local narrowed = temporary("fdemote.f32 " .. value(args[1]))
+                    line(result .. " = fpromote.f64 " .. narrowed)
+                    yield true
+                end
+                case "ProgramLoad" -> do
+                    local access = args[3]
+                    local load = need(programLoads[access.kind], "unsupported program load kind")
+                    local address = temporary("iadd " .. value(args[1]) .. ", " .. value(args[2]))
+                    line(result .. " = " .. load .. " notrap " .. address)
+                    yield true
+                end
+                case "FrameStatus" -> do
+                    local address = temporary(
+                        "iadd " .. value(args[1]) .. ", " .. constant(tostring(options.layout("status")))
+                    )
+                    line(result .. " = sload32.i64 notrap " .. address)
+                    yield true
+                end
+                case "FrameRecover" -> do
+                    local stackAt = temporary(
+                        "iadd " .. value(args[1]) .. ", " .. constant(tostring(options.layout("stack")))
+                    )
+                    local stack = temporary("load.i64 notrap " .. stackAt)
+                    local curAt = temporary(
+                        "iadd " .. value(args[1]) .. ", " .. constant(tostring(options.layout("cur")))
+                    )
+                    local cur = temporary("load.i64 notrap " .. curAt)
+                    local offset = temporary("imul " .. cur .. ", " .. constant("8"))
+                    line(result .. " = iadd " .. stack .. ", " .. offset)
+                    yield true
+                end
+                case "FrameWindow" -> do
+                    local access = args[3]
+                    if access.class == "v" then
+                        line(result .. " = iadd " .. value(args[2]) .. ", " .. constant("32"))
+                    else
+                        local packed = temporary("load.i64 notrap " .. value(args[2]))
+                        local fid = temporary("band " .. packed .. ", " .. constant("4294967295"))
+                        local funcsAt = temporary(
+                            "iadd " .. value(args[1]) .. ", " .. constant(tostring(options.layout("funcs")))
+                        )
+                        local funcs = temporary("load.i64 notrap " .. funcsAt)
+                        local infoOffset = temporary(
+                            "imul " .. fid .. ", " .. constant(tostring(options.layout("FuncInfo.size")))
+                        )
+                        local info = temporary("iadd " .. funcs .. ", " .. infoOffset)
+                        local offAt = temporary(
+                            "iadd " .. info .. ", " .. constant(
+                                tostring(options.layout(access.class == "i" and "FuncInfo.off_i" or "FuncInfo.off_f"))
+                            )
+                        )
+                        local off = temporary("sload32.i64 notrap " .. offAt)
+                        local bytes = temporary("imul " .. off .. ", " .. constant("8"))
+                        line(result .. " = iadd " .. value(args[2]) .. ", " .. bytes)
+                    end
+                    yield true
+                end
+                case "FrameVarargRead" -> do
+                    local packed = temporary("load.i64 notrap " .. value(args[1]) .. "+24")
+                    local count = temporary("ushr " .. packed .. ", " .. constant("49"))
+                    local slots = temporary("isub " .. value(args[2]) .. ", " .. count)
+                    local offset = temporary("imul " .. slots .. ", " .. constant("8"))
+                    local address = temporary("iadd " .. value(args[1]) .. ", " .. offset)
+                    line(result .. " = load.i64 notrap " .. address)
+                    yield true
+                end
+                case "FrameSlotRead", "FrameSlotWrite" -> do
+                    local access = args[op == "FrameSlotRead" and 4 or 5]
+                    recipes.slot(
+                        machine,
+                        dst ~= 0 and result or nil,
+                        value(args[2]),
+                        value(args[3]),
+                        op == "FrameSlotWrite" and value(args[4]) or nil,
+                        access,
+                        machineKinds[access.kind]
+                    )
+                    yield true
+                end
+                else -> do
+                    if integerOps[op] or floatOps[op] then
+                        local operands = {}
+                        for index, id in ipairs(args) do
+                            operands[index] = value(id)
+                        end
+                        line(result .. " = " .. (integerOps[op] or floatOps[op]) .. " " .. table.concat(operands, ", "))
+                    else
+                        error("graph CLIF: unsupported operation " .. tostring(op), 0)
+                    end
+                    yield true
+                end
+            end
+        end
+        local term = block.term
+        if term.kind == "jump" then
+            line("jump " .. edge(term.edges[1]))
+        elseif term.kind == "branch" then
+            line("brif " .. value(term.value) .. ", " .. edge(term.edges[1]) .. ", " .. edge(term.edges[2]))
+        elseif term.kind == "return" then
+            need(not managed, "managed function cannot return a scalar")
+            line("return " .. value(term.value))
+        elseif term.kind == "nativeTail" then
+            need(managed, "leaf cannot transfer to native support")
+            local words = {}
+            for index, argument in ipairs(term.args) do
+                words[index] = value(argument)
+            end
+            words[#words + 1] = need(tableValue, "native tail requires the dispatch table")
+            line("return_call " .. support(term.callee) .. "(" .. table.concat(words, ", ") .. ")")
+        elseif term.kind == "nativeFail" then
+            need(managed, "leaf cannot fail a VM handler")
+            line("return " .. constant("0"))
+        elseif term.kind == "dispatch" then
+            need(managed, "leaf cannot dispatch")
+            local words = {}
+            for i = 1, 5 do
+                words[i] = value(term.args[i])
+            end
+            recipes.dispatch(machine, words, tableValue)
+        else
+            error("graph CLIF: unsupported terminator " .. tostring(term.kind), 0)
+        end
+    end
+    out[#out + 1] = "}"
+    for index = #preamble, 1, -1 do
+        table.insert(out, 4, "    " .. preamble[index])
+    end
+
+    return table.concat(out, "\n") .. "\n"
+end
+
+export = emitter

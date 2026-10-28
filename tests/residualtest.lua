@@ -33,21 +33,13 @@ local function functionsFrom(parsed, scope)
                     kinds[index] = parameter.type.resolvedType.tag
                 end
                 local result = body.signatureType.rets[1] and body.signatureType.rets[1].tag
-                local handler = result == "uint64" and #kinds == 6
-                for _, kind in ipairs(kinds) do
-                    if kind ~= "voidptr" then
-                        handler = false
-                    end
-                end
                 local fn = {
                     name = name,
                     node = node,
                     body = body,
                     scope = scope,
                     paramKinds = kinds,
-                    resultKind = result ~= "nil" and result or nil,
-                    isHandler = handler,
-                    isSupport = not handler and name:match("Slow$") ~= nil
+                    resultKind = result ~= "nil" and result or nil
                 }
                 scope.functions[name] = fn
                 if stat.kind == "exportStmt" then
@@ -68,6 +60,7 @@ local function checked(source)
     for _, diagnostic in ipairs(checker.check(parsed, CORE, env, {})) do
         assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
     end
+    assert(parsed.declaredModuleName == "nupp.runtime.vm.core", "checked fixture module identity")
     local scope = {name = "nupp.runtime.vm.core", path = CORE}
     local functions = functionsFrom(parsed, scope)
     -- Reproduce the existing checked module record supplied by the native
@@ -111,7 +104,9 @@ local function fixtures()
         local functions, options = checked(read(CORE))
         cached = {}
         for _, name in ipairs({"IK", "IMov", "IAddK", "IMaskU32", "IAdd", "ISub", "IAnd", "IOr"}) do
-            cached[name] = nativegraph.compile(functions[name], options)
+            local fn = assert(functions[name])
+            fn.nativeABI = "handler"
+            cached[name] = nativegraph.compile(fn, options)
         end
     end
 

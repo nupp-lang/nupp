@@ -11,6 +11,124 @@ local graph = require("nupp.compiler.vm.graph")
 local nativegraph = require("nupp.compiler.vm.nativegraph")
 local M = {}
 
+-- These are compilation requests made by this fixture, not compiler admission
+-- rules. Helpers not listed here remain ordinary checked composition targets.
+local SCALAR_HANDLERS = {
+    "K",
+    "Move",
+    "Nil",
+    "Not",
+    "Truthy",
+    "BoolFromI",
+    "IK",
+    "IMov",
+    "IAddK",
+    "IMaskU32",
+    "IAdd",
+    "ISub",
+    "IAnd",
+    "IOr",
+    "IXor",
+    "INot",
+    "IBswap32",
+    "IShl",
+    "IShrU",
+    "ICmpEq",
+    "ICmpNe",
+    "ICmpLt",
+    "ICmpLe",
+    "ICmpSLt",
+    "ICmpSLe",
+    "FBox",
+    "FAdd",
+    "FSub",
+    "FMul",
+    "FDiv",
+    "FMod",
+    "FK",
+    "FMov",
+    "FNeg",
+    "IToF",
+    "FToI",
+    "FCmpEq",
+    "FCmpNe",
+    "FCmpLt",
+    "FCmpLe"
+}
+local OTHER_CORE_HANDLERS = {"GetCell", "GetUpval", "Lt", "Le", "Len", "LenF", "Jmp", "JmpIfIZero", "JmpIf", "JmpIfNot"}
+local STATE_HANDLERS = {"Disarm", "AffineMark", "AffineEnter", "Checkpoint", "Park", "VarargTable"}
+local CONTROL_HANDLERS = {
+    "PCall",
+    "Raise",
+    "Defer",
+    "DeferMethod",
+    "CleanupLive",
+    "DisarmAt",
+    "RearmAt",
+    "Unwind",
+    "Switch"
+}
+local HANDLER_REQUESTS = {
+    ["nupp.runtime.vm.core"] = OTHER_CORE_HANDLERS,
+    ["nupp.runtime.vm.state"] = STATE_HANDLERS,
+    ["nupp.runtime.vm.control"] = CONTROL_HANDLERS,
+    ["nupp.runtime.vm.modules"] = {"Require", "RequireV", "SetMethod"},
+    [
+        "nupp.runtime.vm.records"
+    ] = {
+        "GetSlot",
+        "GetSlotF",
+        "SetSlot",
+        "SetSlotF",
+        "IsRec",
+        "TagCheckRec",
+        "GetPhys",
+        "GetPhysF",
+        "GetPhysI",
+        "GetPhysU",
+        "SetPhys",
+        "SetPhysF",
+        "SetPhysI"
+    },
+    ["nupp.runtime.vm.byteops"] = {"BytesLen", "LoadU8", "LoadU8K", "LoadU32W", "StoreU8", "StoreU32"},
+    ["nupp.runtime.vm.boxing"] = {"TagCheckNum", "StrByte", "NewRecord"},
+}
+local SUPPORT_REQUESTS = {
+    ["nupp.runtime.vm.core"] = {"lengthSlow"},
+    ["nupp.runtime.vm.modules"] = {"requireSlow"},
+    [
+        "nupp.runtime.vm.calls"
+    ] = {
+        "enterFrameSlow",
+        "resumeSlow",
+        "pushFixedSlow",
+        "pushSpreadSlow",
+        "callBuiltinSlow",
+        "callIterSlow",
+        "managedCallSlow",
+        "callErrorSlow",
+        "protectedCallSlow",
+        "observeCallSlow",
+        "backEdgeSlow",
+        "returnSlow",
+        "padResultsSlow",
+        "callMethodSlow"
+    },
+    ["nupp.runtime.vm.state"] = {"markAffineSlow", "enterAffineSlow", "checkpointSlow", "parkSlow", "varargTableSlow"},
+    [
+        "nupp.runtime.vm.control"
+    ] = {"raiseSlow", "deferSlow", "deferMethodSlow", "invalidCleanupSlow", "rearmSlow", "unwindSlow"},
+    ["nupp.runtime.vm.numeric"] = {"arithmeticSlow", "floatUnboxSlow", "negateSlow", "orderSlow"},
+}
+
+local function request(scope, names, abi)
+    for _, name in ipairs(names) do
+        local fn = assert(scope.functions[name], "missing requested fixture: " .. scope.name .. "." .. name)
+        assert(fn.nativeABI == nil, "duplicate fixture ABI request")
+        fn.nativeABI = abi
+    end
+end
+
 local function read(path)
     local file = assert(io.open(path, "rb"))
     local text = file:read("*a")
@@ -31,21 +149,13 @@ local function functionsFrom(parsed, scope)
                     kinds[index] = parameter.type.resolvedType.tag
                 end
                 local result = body.signatureType.rets[1] and body.signatureType.rets[1].tag
-                local handler = result == "uint64" and #kinds == 6
-                for _, kind in ipairs(kinds) do
-                    if kind ~= "voidptr" then
-                        handler = false
-                    end
-                end
                 local fn = {
                     name = name,
                     node = node,
                     body = body,
                     scope = scope,
                     paramKinds = kinds,
-                    resultKind = result ~= "nil" and result or nil,
-                    isHandler = handler,
-                    isSupport = not handler and name:match("Slow$") ~= nil
+                    resultKind = result ~= "nil" and result or nil
                 }
                 scope.functions[name] = fn
                 if stat.kind == "exportStmt" then
@@ -53,6 +163,12 @@ local function functionsFrom(parsed, scope)
                 end
             end
         end
+    end
+
+    request(scope, HANDLER_REQUESTS[scope.name] or {}, "handler")
+    request(scope, SUPPORT_REQUESTS[scope.name] or {}, "support")
+    if scope.name == "nupp.runtime.vm.core" then
+        request(scope, SCALAR_HANDLERS, "handler")
     end
 
     return scope.functions
@@ -66,6 +182,7 @@ local function checked(source)
     for _, diagnostic in ipairs(checker.check(parsed, CORE, env, {})) do
         assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
     end
+    assert(parsed.declaredModuleName == "nupp.runtime.vm.core", "checked fixture module identity")
     local scope = {name = "nupp.runtime.vm.core", path = CORE}
     local functions = functionsFrom(parsed, scope)
     -- Reproduce the existing checked module record supplied by the native
@@ -101,6 +218,7 @@ local function checkedWithModules(moduleNames)
         for _, diagnostic in ipairs(checker.check(parsed, path, env, {})) do
             assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
         end
+        assert(parsed.declaredModuleName == "nupp.runtime.vm." .. moduleName, "checked fixture module identity")
         local scope = {name = "nupp.runtime.vm." .. moduleName, path = path}
         options.modules[scope.name] = scope
         functionsFrom(parsed, scope)
@@ -369,8 +487,9 @@ function M.stateHandlersPreserveCleanupAndFrameOwnedVarargReads()
     local _, options = checkedWithModules({"state"})
     local scope = options.modules["nupp.runtime.vm.state"]
     local count = 0
-    for name, fn in pairs(scope.exports) do
-        if fn.isHandler then
+    for _, name in ipairs(STATE_HANDLERS) do
+        local fn = assert(scope.exports[name])
+        do
             count = count + 1
             assert(nativegraph.admits(fn))
             local g = nativegraph.compile(fn, options)
@@ -413,8 +532,9 @@ function M.controlHandlersKeepCleanupLoopsProtectedTransfersAndSwitchLoads()
     local _, options = checkedWithModules({"control", "calls"})
     local scope = options.modules["nupp.runtime.vm.control"]
     local count = 0
-    for name, fn in pairs(scope.exports) do
-        if fn.isHandler then
+    for _, name in ipairs(CONTROL_HANDLERS) do
+        local fn = assert(scope.exports[name])
+        do
             count = count + 1
             assert(nativegraph.admits(fn), name .. " was not admitted")
             local g = nativegraph.compile(fn, options)
@@ -530,7 +650,7 @@ function M.coreCompositionRejectsChangedLocalIdentityAndImportedKinds()
     local original = length.node.name.definition
     length.node.name.definition = {}
     local ok, problem = pcall(nativegraph.compile, functions.Len, options)
-    assert(not ok and tostring(problem):find("checked function", 1, true), tostring(problem))
+    assert(not ok and tostring(problem):find("checked declaration", 1, true), tostring(problem))
     length.node.name.definition = original
     local order = options.modules["nupp.runtime.vm.strings"].exports.order
     order.paramKinds[8] = "int64"
@@ -611,57 +731,13 @@ end
 
 function M.exactScalarHandlersProduceTheSharedGraph()
     local functions, options = checked(read(CORE))
-    local admitted = {
-        "K",
-        "Move",
-        "Nil",
-        "Not",
-        "Truthy",
-        "BoolFromI",
-        "IK",
-        "IMov",
-        "IAddK",
-        "IMaskU32",
-        "IAdd",
-        "ISub",
-        "IAnd",
-        "IOr",
-        "IXor",
-        "INot",
-        "IBswap32",
-        "IShl",
-        "IShrU",
-        "ICmpEq",
-        "ICmpNe",
-        "ICmpLt",
-        "ICmpLe",
-        "ICmpSLt",
-        "ICmpSLe",
-        "FBox",
-        "FAdd",
-        "FSub",
-        "FMul",
-        "FDiv",
-        "FMod",
-        "FK",
-        "FMov",
-        "FNeg",
-        "IToF",
-        "FToI",
-        "FCmpEq",
-        "FCmpNe",
-        "FCmpLt",
-        "FCmpLe"
-    }
-    local count = 0
-    for _, fn in pairs(functions) do
-        if nativegraph.admits(fn) then
-            count = count + 1
-        end
-    end
-    assert(count == #admitted + 10)
-    for _, name in ipairs(admitted) do
+
+    local covered = {}
+    for _, name in ipairs(SCALAR_HANDLERS) do
+        assert(not covered[name], "duplicate scalar fixture")
+        covered[name] = true
         local fn = assert(functions[name])
+        assert(fn.nativeABI == "handler")
         local g = nativegraph.compile(fn, options)
         graph.verify(g)
         assert(g.native.abi == "handler" and g.nparams == 6)
@@ -697,7 +773,16 @@ function M.exactScalarHandlersProduceTheSharedGraph()
         graph.verify(g)
         operation(g, "FrameSlotWrite")
     end
-    assert(nativegraph.admits(functions.Jmp))
+    local count = 0
+    for _ in pairs(covered) do
+        count = count + 1
+    end
+    assert(count == 40, "scalar fixture coverage changed")
+    for _, name in ipairs(OTHER_CORE_HANDLERS) do
+        assert(not covered[name], "core fixture lists overlap")
+        assert(functions[name].nativeABI == "handler")
+    end
+    assert(#OTHER_CORE_HANDLERS == 10)
     assert(not nativegraph.admits({name = "IAdd", scope = {name = "other"}}))
 end
 
@@ -734,8 +819,11 @@ function M.admittedHandlersRefuseUnsupportedCheckedSyntax()
     end
     local functions, options = checked(original)
     local fn = functions.IK
-    fn.isHandler = false
-    assert(nativegraph.admits(fn), "signature changes must not bypass admission")
+    fn.nativeABI = nil
+    assert(nativegraph.admits(fn), "a checked owner is independent of its ABI request")
+    local ok, message = pcall(nativegraph.compile, fn, options)
+    assert(not ok and tostring(message):find("explicit native ABI required", 1, true), tostring(message))
+    fn.nativeABI = "invalid"
     assert(not pcall(nativegraph.compile, fn, options))
 end
 

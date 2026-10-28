@@ -8,8 +8,8 @@ function lower.functionGraph(fn: any, options: any, profile: any): any
     return functiongraph.compile(fn, options, profile)
 end
 
--- These caller configuration fields remain until shared module/image
--- orchestration replaces the old API. They never select a legacy frontend.
+-- Frozen toolchain configuration. The core only calls functionGraph.
+-- Keep these fields until all branch consumers have moved to the graph.
 lower.pathMapper = nil as(function(path: string): string?)?
 lower.graphSink = nil as(function(entry: string, functions: {any}, header: table): nil)?
 
@@ -30,10 +30,28 @@ function lower.emit(
     reuse: table?,
     functionsOut: table?
 ): string
-    error(
-        "shared graph: module, closure and image orchestration is not implemented; use lower.functionGraph for an admitted checked function",
-        0
+    local legacy = require("nupp.compiler.vm.legacylower")
+    local previousPath, previousSink = legacy.pathMapper, legacy.graphSink
+    legacy.pathMapper, legacy.graphSink = lower.pathMapper, lower.graphSink
+    local ok, result = pcall(
+        legacy.emit,
+        entryName,
+        extras,
+        resolve,
+        check,
+        environment,
+        listing,
+        layoutTarget,
+        coverage,
+        reuse,
+        functionsOut
     )
+    legacy.pathMapper, legacy.graphSink = previousPath, previousSink
+    if not ok then
+        error(result, 0)
+    end
+
+    return result as string
 end
 
 export = lower

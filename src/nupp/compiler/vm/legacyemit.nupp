@@ -1,0 +1,397 @@
+module nupp.compiler.vm.legacyemit
+
+--[[
+The image of a finished lowering: every function's closed-block graph,
+encoded beside the header the image carries (shapes, modules, entry), and
+the listing inspection shows of a function, which is the stream the runtime
+derives from its graph.
+]]
+
+local numbertext = require("nupp.compiler.numbertext")
+local G = require("nupp.compiler.vm.graph")
+local graphimage = require("nupp.compiler.vm.legacyimage")
+
+-- Frozen serialization of the whole-language lowerer. No public register
+-- conversion API is restored; this helper is private to the frozen tool.
+
+--- Where a jump to `b` really goes: past the blocks that hold nothing but a
+--- jump, which the lowering leaves wherever two labels meet.
+local function through(b: any): any
+    local seen = 0
+    while b.ends == "jump" and #b.code == 0 and b.target.index ~= 0 and seen < 64 do
+        b = b.target
+        seen = seen + 1
+    end
+
+    return b
+end
+
+--- What the image keeps of function `f`, the lowering's record: its reached
+--- blocks with their endings, or, for a kernel, the graph its frontend built
+--- (`graph`). An ending's value is a key, `class * 256 + register` with
+--- classes v, i, f and x numbered 0 to 3.
+--- @raises string when a jump names a label never placed.
+local function keepBlocks(f: any): any
+    if f.graph then
+        local g = f.graph
+        g.name, g.module, g.sig, g.ret, g.vararg, g.gpu = f.name, f.module, table.concat(f.sig or {}), f.ret
+            or "v", f.vararg == true, f.gpu
+        return {graph = g}
+    end
+    local nparams = f.nparams
+    -- The blocks the entry reaches, in the order they were placed.
+    local reached: {[any]: boolean} = {}
+    local stack: {any} = {f.blocks[1]}
+    local depth: integer = 1
+
+    local function push(target: any): nil
+        local b = through(target)
+        if b.index == 0 then
+            error(f.name .. ": a jump names a label never placed", 0)
+        end
+        depth = depth + 1
+        stack[depth] = b
+    end
+
+    while depth > 0 do
+        local b = stack[depth]
+        stack[depth] = nil
+        depth = depth - 1
+        if not reached[b] then
+            reached[b] = true
+            local ends = b.ends
+            if ends == "jump" then
+                push(b.target)
+            elseif ends == "branch" then
+                push(b.target)
+                push(b.fall)
+            elseif ends == "switch" then
+                for _, target in ipairs(b.switchTargets) do
+                    push(target)
+                end
+            elseif ends ~= "return" then
+                error("a block the entry reaches does not end", 0)
+            end
+        end
+    end
+    local placed = f.blocks
+    local order: {any} = {}
+    local number: {[any]: integer} = {}
+    local nblocks: integer = 0
+    for i = 1, #placed do
+        local b = placed[i]
+        if reached[b] then
+            nblocks = nblocks + 1
+            order[nblocks] = b
+            number[b] = nblocks
+        end
+    end
+    local constants = {}
+    for i = 1, #f.consts do
+        local c = f.consts[i]
+        constants[i] = {kind = c.kind, value = c.value}
+    end
+    local positions, positionOf = {}, {}
+
+    local function position(line: integer?): integer
+        if line == nil or line == 0 then
+            return 0
+        end
+        local at = positionOf[line]
+        if at == nil then
+            at = #positions + 1
+            positions[at] = {line = line, column = 0}
+            positionOf[line] = at
+        end
+
+        return at as integer
+    end
+
+    local blocks = {}
+    for bi = 1, nblocks do
+        local b = order[bi]
+        local code = b.code
+        local pos = {}
+        for k = 1, #code do
+            pos[k] = position(code[k].line)
+        end
+        local term
+        local ends = b.ends
+        if ends == "jump" then
+            term = {kind = "jump", targets = {number[through(b.target)]}}
+        elseif ends == "branch" then
+            local op = b.branchOp
+            local value = (op == "JmpIfIZero" and 256 or 0) + b.branchReg
+            local taken, fall = number[through(b.target)], number[through(b.fall)]
+            -- The first target is where a truthy (or nonzero) value goes.
+            if op == "JmpIf" then
+                term = {kind = "branch", value = value, targets = {taken, fall}}
+            else
+                term = {kind = "branch", value = value, targets = {fall, taken}}
+            end
+        elseif ends == "switch" then
+            local targets = {}
+            for i, target in ipairs(b.switchTargets) do
+                targets[i] = number[through(target)]
+            end
+            term = {kind = "switch", value = 256 + b.branchReg, targets = targets}
+        else
+            local ret = b.ret
+            local op = ret[1]
+            if op == "Ret" then
+                term = {kind = "return", value = ret[2], targets = {}}
+            elseif op == "FRet" then
+                term = {kind = "return", value = 512 + (ret[2] as integer), targets = {}}
+            elseif op == "RetNil" then
+                term = {kind = "return", targets = {}}
+            elseif op == "RetN" then
+                term = {kind = "returns", value = ret[2], count = ret[3], targets = {}}
+            elseif op == "Raise" then
+                term = {kind = "raise", constant = ret[2], targets = {}}
+            else
+                error(f.name .. ": no ending for " .. tostring(op), 0)
+            end
+        end
+        blocks[bi] = {code = code, pos = pos, term = term}
+    end
+
+    return {
+        name = f.name,
+        module = f.module,
+        nparams = nparams,
+        vararg = f.vararg == true,
+        sig = table.concat(f.sig or {}),
+        ret = f.ret or "v",
+        registers = {math.max(f.maxRegs or 0, f.nregs) + 9, math.max(f.maxFregs or 0, f.nfregs) + 2, f.nvregs or 2},
+        constants = constants,
+        positions = positions,
+        blocks = blocks
+    }
+end
+
+local graphemit = {}
+
+--- The image's shape table as the graph codec takes it: slot types by
+--- name, a record slot naming its shape's index, and the identity a shape
+--- of a module's own record carries.
+function graphemit.shapes(order: {any}): {any}
+    local shapes = {}
+    for i, shape in ipairs(order) do
+        local slots = {}
+        for j, slot in ipairs(shape.slots) do
+            local ty = slot.ty as string
+            local record = ty:match("^rec:(%d+)$")
+            slots[j] = {name = slot.name, type = record and "rec" or ty, record = record and tonumber(record) or nil}
+        end
+        local identity = shape.module and shape.module .. ":" .. shape.name
+        if identity and not shape.physical and identity:find("^[%w_.]+:[%w_]+$") then
+            shapes[i] = {name = shape.name, identity = identity, slots = slots}
+        else
+            shapes[i] = {name = shape.name, slots = slots}
+        end
+    end
+
+    return shapes
+end
+
+--- The image of `functions` under `header` (`shapes` in allocation order,
+--- `modules` with each one's chunk and path, `entry`). Each function is
+--- converted, handed to `seen` with what was kept of it, encoded, and its
+--- blocks and constants let go: what the lowering built shrinks as the image
+--- grows.
+--- @raises string when a function's blocks do not convert or a kernel's
+--- graph does not verify.
+function graphemit.image(functions: {any}, header: any, seen: (function(f: any, kept: any): nil)?): string
+    local encoder = graphimage.encoder()
+    for i = 1, #functions do
+        local f = functions[i]
+        local kept = keepBlocks(f)
+        if seen then
+            seen(f, kept)
+        end
+        if kept.graph then
+            encoder.add(kept.graph)
+        else
+            encoder.addRegisters(kept)
+        end
+        f.blocks, f.current, f.graph, f.consts, f.constIndex = {}, nil, nil, {}, {}
+    end
+
+    return encoder.finish({shapes = graphemit.shapes(header.shapes), modules = header.modules, entry = header.entry})
+end
+
+-- The stream the runtime derives from a register-form function, as
+-- `graph::derive` lays it out: blocks in order, a jump to the next block
+-- left out, a branch whose untaken target is next as one test.
+local function derive(kept: any): any
+    local code, starts, patches, tables, tablePatches = {}, {}, {}, {}, {}
+    local blocks = kept.blocks
+    local box = kept.nparams + 1
+
+    local function emit(...: any): nil
+        code[#code + 1] = {...}
+    end
+
+    local function jump(target: integer): nil
+        patches[#patches + 1] = {at = #code + 1, target = target, field = 2}
+        emit("Jmp", 0)
+    end
+
+    for bi = 1, #blocks do
+        local b = blocks[bi]
+        starts[bi] = #code + 1
+        for k = 1, #b.code do
+            code[#code + 1] = b.code[k]
+        end
+        local t = b.term
+        local kind, targets = t.kind, t.targets
+        if kind == "jump" then
+            if targets[1] ~= bi + 1 then
+                jump(targets[1])
+            end
+        elseif kind == "branch" then
+            local reg, integer = t.value % 256, t.value >= 256
+            if not integer and targets[1] ~= bi + 1 and targets[2] == bi + 1 then
+                patches[#patches + 1] = {at = #code + 1, target = targets[1], field = 3}
+                emit("JmpIf", reg, 0)
+            else
+                patches[#patches + 1] = {at = #code + 1, target = targets[2], field = 3}
+                emit(integer and "JmpIfIZero" or "JmpIfNot", reg, 0)
+                if targets[1] ~= bi + 1 then
+                    jump(targets[1])
+                end
+            end
+        elseif kind == "switch" then
+            local at = #code + 1
+            local index = #tables + 1
+            tables[index] = {}
+            tablePatches[#tablePatches + 1] = {at = at, index = index, targets = targets}
+            emit("Switch", t.value % 256, index - 1)
+        elseif kind == "returns" then
+            emit("RetN", t.value, t.count)
+        elseif kind == "raise" then
+            emit("Raise", t.constant)
+        elseif t.value == nil then
+            emit("RetNil")
+        else
+            local class, reg = math.floor(t.value / 256), t.value % 256
+            if class == 2 and kept.ret == "f" then
+                emit("FRet", reg)
+            elseif class == 2 then
+                emit("FBox", box, reg)
+                emit("Ret", box)
+            elseif class == 1 then
+                emit("IBox", box, reg)
+                emit("Ret", box)
+            else
+                emit("Ret", reg)
+            end
+        end
+    end
+    for _, p in ipairs(patches) do
+        code[p.at][p.field] = starts[p.target] - p.at - 1
+    end
+
+    for _, patch in ipairs(tablePatches) do
+        for i, target in ipairs(patch.targets) do
+            tables[patch.index][i] = starts[target] - patch.at - 1
+        end
+    end
+
+    return {
+        code = code,
+        consts = kept.constants,
+        nregs = kept.registers[1],
+        nfregs = kept.registers[2],
+        tables = tables
+    }
+end
+
+-- Every byte outside printable ASCII is escaped, so a listing is ASCII text
+-- whatever bytes a string constant holds.
+local function quote(s: string): string
+    return '"' .. s:gsub('[%c"\\\128-\255]', function(c: string): string
+        return string.format("\\%03d", c:byte())
+    end) .. '"'
+end
+
+--- What inspection shows of function `f`, given what was kept of it: its
+--- instructions as the runtime derives them, each with its source line, and
+--- the function's text in the image listing format.
+function graphemit.listing(f: any, kept: any): any
+    local derived = kept.graph and G.lower(kept.graph) or derive(kept)
+    local lines: {
+        string
+    } = {
+        (
+            "function %s %d %d %d %d %s:%s%s"
+        ):format(
+            f.name:gsub("%s", "_"),
+            f.id,
+            f.nparams,
+            derived.nregs,
+            derived.nfregs,
+            table.concat(f.sig or {}),
+            f.ret or "v",
+            f.vararg and " vararg" or ""
+        )
+    }
+    if f.module then
+        lines[#lines + 1] = "  source " .. f.module
+    end
+    for i, c in ipairs(derived.consts) do
+        local value = c.value
+        if c.kind == "str" then
+            value = quote(value as string)
+        elseif c.kind == "num" then
+            value = numbertext.literal(value as number)
+        end
+        lines[#lines + 1] = ("  const %d %s %s"):format(i - 1, c.kind, tostring(value))
+    end
+    for i, offsets in ipairs(derived.tables or {}) do
+        local words = {}
+        for j, offset in ipairs(offsets) do
+            words[j] = tostring(offset)
+        end
+        lines[#lines + 1] = ("  table %d %s"):format(i - 1, table.concat(words, " "))
+    end
+    -- The source line of every instruction, run-length encoded: `L` for one
+    -- instruction, `LxN` for N in a row, 0 where none is known.
+    local runs: {string} = {}
+    local runLine: integer?, runCount = nil, 0
+    for _, ins in ipairs(derived.code) do
+        local line = ins.line or 0
+        if line == runLine then
+            runCount = runCount + 1
+        else
+            if runLine then
+                runs[#runs + 1] = runCount > 1 and (runLine .. "x" .. runCount) or tostring(runLine)
+            end
+            runLine, runCount = line, 1
+        end
+    end
+    if runLine and not (#runs == 0 and runLine == 0) then
+        runs[#runs + 1] = runCount > 1 and (runLine .. "x" .. runCount) or tostring(runLine)
+        lines[#lines + 1] = "  lines " .. table.concat(runs, " ")
+    end
+    local instructions = {}
+    for pc, ins in ipairs(derived.code) do
+        local parts = {}
+        for i, value in ipairs(ins as {any}) do
+            parts[i] = type(value) == "number" and numbertext.literal(value as number) or tostring(value)
+        end
+        local text = table.concat(parts, " ")
+        lines[#lines + 1] = "  " .. text
+        instructions[pc] = {pc = pc - 1, op = ins[1], text = ("%04d %s"):format(pc - 1, text), line = ins.line}
+    end
+    lines[#lines + 1] = "end"
+
+    return {
+        name = f.name,
+        what = f.parent and "function" or "chunk",
+        instructions = instructions,
+        image = table.concat(lines, "\n")
+    }
+end
+
+export = graphemit

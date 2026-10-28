@@ -116,7 +116,14 @@ function M.nativeLeafGraphsRetainExactKindsContractsAndPositions()
     G.verify(g)
     G.prune(g)
     G.verify(g)
-    assert(g.native.abi == "handler" and g.native.frameFromWindow == 2 and g.native.tableArgument == 6)
+    assert(g.native.abi == "handler" and g.native.result == "uint64" and #g.native.params == 6)
+    assert(g.native.frameFromWindow == nil and g.native.tableArgument == nil)
+    for index = 1, 6 do
+        assert(g.native.params[index] == "voidptr" and g.exactTypes[index] == "voidptr")
+        if index > 1 then
+            assert(b.term.args[index] == index)
+        end
+    end
     assert(g.exactTypes[b.dst[2]] == "int64" and g.exactTypes[b.dst[3]] == "uint64")
     assert(b.args[2][3].lifetime == "body" and b.args[3][4].class == "i")
     assert(b.args[6][5].write and b.args[6][5].width == 8)
@@ -308,12 +315,21 @@ function M.nativeDispatchRequiresTheEntryFrameWindowsAndContext()
     )
     g, b = fresh()
     dispatch(b)
-    g.native.tableArgument = 5
+    g.native.params[6] = nil
     rejects(
         function()
             G.verify(g)
         end,
         "invalid native handler signature"
+    )
+    g, b = fresh()
+    dispatch(b)
+    g.native.params[6] = "uint64"
+    rejects(
+        function()
+            G.verify(g)
+        end,
+        "native handler parameter kind"
     )
 end
 
@@ -779,7 +795,7 @@ function M.varargReadsRetainTheOriginalOwningFrameAndReadOnlyValueKind()
         "frame/window identity"
     )
     g, b = fresh()
-    g.native.abi, g.native.frameFromWindow, g.native.tableArgument = "leaf", nil, nil
+    g.native.abi = "leaf"
     slot = constant(g, b, "0")
     local value = G.emitNative(g, b, "FrameVarargRead", {6, slot, varargContract()}, "uint64")
     b.term = {kind = "return", value = value, edges = {}}
@@ -1162,6 +1178,69 @@ function M.frameAndNormalReturnMetadataRejectUnprovenAuthority()
     end
 end
 
+local function checkedBorrowTransfer()
+    local parser = require("nupp.compiler.syntax.parser")
+    local checker = require("nupp.compiler.check")
+    local environment = require("nupp.compiler.project.env")
+    local nativegraph = require("nupp.compiler.vm.nativegraph")
+    local fs = require("nupp.compiler.fs")
+    local trivia = require("nupp.compiler.syntax.triviaarena")
+    trivia.installDefault(require("nupp.compiler.syntax.triviaarena.table"))
+    local root = fs.absolute(assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]")) .. "/..")
+    local path = root .. "/src/nupp/test/checkedborrow.nupp"
+    local moduleName = "nupp.test.checkedborrow"
+    local parsed = parser.parse(
+        [[
+module nupp.test.checkedborrow
+local function borrowSlow(pc: voidptr, context: voidptr, borrowed: voidptr): uint64
+    return 0ULL
+end
+export function transfer(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    return borrowSlow(pc, context, ints)
+end
+]],
+        path
+    )
+    assert(#parsed.errors == 0, "borrow fixture did not parse")
+    local env = environment.new(root, {cache = false, config = {include = {"src"}}})
+    for _, diagnostic in ipairs(checker.check(parsed, path, env, {})) do
+        assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
+    end
+    assert(parsed.declaredModuleName == moduleName, "checked borrow module identity")
+    local scope = {name = moduleName, path = path, functions = {}}
+    for _, block in ipairs(parsed.root.blocks) do
+        for _, stat in ipairs(block.stats) do
+            local node = stat.kind == "exportStmt" and stat.stat or stat
+            if node and (node.kind == "localFuncStmt" or node.kind == "funcStmt") then
+                local body = node.body
+                local name = node.kind == "localFuncStmt" and node.name.text or node.name.base.text
+                local kinds = {}
+                for index, parameter in ipairs(body.params) do
+                    kinds[index] = parameter.type.resolvedType.tag
+                end
+                scope.functions[
+                    name
+                ] = {
+                    name = name,
+                    node = node,
+                    body = body,
+                    scope = scope,
+                    paramKinds = kinds,
+                    resultKind = body.signatureType.rets[1].tag
+                }
+            end
+        end
+    end
+    scope.functions.borrowSlow.nativeABI = "support"
+    scope.functions.transfer.nativeABI = "handler"
+    local graph = nativegraph.compile(scope.functions.transfer, {modules = {[moduleName] = scope}})
+    G.verify(graph)
+    local term = graph.blocks[1].term
+    assert(term.kind == "nativeTail" and term.callee.name == "borrowSlow")
+
+    return term.callee
+end
+
 function M.rawFrameAliasesCannotBypassInvalidationOrCreateOwnership()
     for _, effect in ipairs({"collect", "park"}) do
         for _, base in ipairs({2, 3, 4, 6}) do
@@ -1232,19 +1311,7 @@ function M.rawFrameAliasesCannotBypassInvalidationOrCreateOwnership()
             })
             b.term = {kind = "nativeFail", edges = {}}
         else
-            b.term = {
-                kind = "nativeTail",
-                callee = {
-                    moduleName = "nupp.runtime.vm.calls",
-                    name = "borrowSlow",
-                    params = {"voidptr", "voidptr", "voidptr"},
-                    result = "uint64",
-                    abi = "support",
-                    effects = {mayCollect = true, mayPark = true, mayRaise = true, pure = false},
-                },
-                args = {1, 5, pointer},
-                edges = {}
-            }
+            b.term = {kind = "nativeTail", callee = checkedBorrowTransfer(), args = {1, 5, pointer}, edges = {}}
         end
         rejects(
             function()

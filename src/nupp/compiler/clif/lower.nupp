@@ -39,9 +39,9 @@ local slotcontract = require("nupp.compiler.vm.slotcontract")
 local framecontract = require("nupp.compiler.vm.framecontract")
 local programcontract = require("nupp.compiler.vm.programcontract")
 local specializationcontract = require("nupp.compiler.vm.specializationcontract")
-local graph = require("nupp.compiler.vm.graph")
-local nativegraph = require("nupp.compiler.vm.nativegraph")
-local clifgraph = require("nupp.compiler.clif.graph")
+local graph = require("nupp.compiler.vm.legacygraph")
+local nativegraph = require("nupp.compiler.vm.legacynativegraph")
+local clifgraph = require("nupp.compiler.clif.legacygraph")
 
 local lower = {}
 
