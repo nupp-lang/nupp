@@ -1,0 +1,238 @@
+module s0.ir
+
+local ir = {}
+
+ir.I8, ir.I16, ir.I32, ir.I64, ir.F32, ir.F64 = 1, 2, 3, 4, 5, 6
+ir.INTERNAL, ir.C = 1, 2
+ir.kindNames = {"i8", "i16", "i32", "i64", "f32", "f64"}
+ir.opNames = {
+    "iconst",
+    "fconst",
+    "iadd",
+    "isub",
+    "imul",
+    "udiv",
+    "sdiv",
+    "urem",
+    "srem",
+    "umulhi",
+    "smulhi",
+    "band",
+    "bor",
+    "bxor",
+    "bnot",
+    "ishl",
+    "ushr",
+    "sshr",
+    "popcnt",
+    "icmp",
+    "fcmp",
+    "select",
+    "load",
+    "sload",
+    "store",
+    "ireduce",
+    "uextend",
+    "sextend",
+    "bitcast",
+    "fpromote",
+    "fdemote",
+    "fadd",
+    "fsub",
+    "fmul",
+    "fdiv",
+    "fneg",
+    "fabs",
+    "sqrt",
+    "floor",
+    "ceil",
+    "fma",
+    "fcvt_from_sint",
+    "fcvt_from_uint",
+    "fcvt_to_sint_sat",
+    "fcvt_to_uint_sat",
+    "stack_addr",
+    "call",
+    "call_indirect",
+    "return_call",
+    "return_call_indirect",
+    "jump",
+    "brif",
+    "return",
+    "trap"
+}
+ir.conditionNames = {
+    "eq",
+    "ne",
+    "slt",
+    "sle",
+    "sgt",
+    "sge",
+    "ult",
+    "ule",
+    "ugt",
+    "uge",
+    "ord",
+    "uno",
+    "lt",
+    "le",
+    "gt",
+    "ge",
+    "ueq",
+    "one",
+    "un",
+    "ltgt"
+}
+
+local opByName: {[string]: integer} = {}
+local kindByName: {[string]: integer} = {}
+local conditionByName: {[string]: integer} = {}
+for id, name in ipairs(ir.opNames) do
+    opByName[name] = id
+end
+for id, name in ipairs(ir.kindNames) do
+    kindByName[name] = id
+end
+for id, name in ipairs(ir.conditionNames) do
+    conditionByName[name] = id
+end
+
+record ir.Signature
+    params: {integer}
+    results: {integer}
+    convention: integer
+end
+
+record ir.Function
+    name: string
+    signature: ir.Signature
+    signatures: {ir.Signature}
+    importNames: {string}
+    importSignatures: {integer}
+    stackBytes: {integer}
+    stackAlign: {integer}
+    -- Flat instruction columns. Zero means no result, argument or edge.
+    op: {integer}
+    result: {integer}
+    kind: {integer}
+    firstArg: {integer}
+    nargs: {integer}
+    args: {integer}
+    imm: {integer}
+    aux: {integer}
+    firstEdge: {integer}
+    nedges: {integer}
+    -- Values keep their SSA identity; a negative definition names a block.
+    valueKinds: {integer}
+    definitions: {integer}
+    blockStart: {integer}
+    blockEnd: {integer}
+    firstParam: {integer}
+    nparams: {integer}
+    params: {integer}
+    -- Edges retain simultaneous block-argument assignment.
+    edgeFrom: {integer}
+    edgeTarget: {integer}
+    edgeFirstArg: {integer}
+    edgeNargs: {integer}
+    edgeArgs: {integer}
+end
+
+function ir.opcode(name: string): integer
+    return (assert(opByName[name], "S0: unsupported operation " .. name))
+end
+
+function ir.kind(name: string): integer
+    return (assert(kindByName[name], "S0: unsupported type " .. name))
+end
+
+function ir.condition(name: string): integer
+    return (assert(conditionByName[name], "S0: unsupported condition " .. name))
+end
+
+function ir.new(name: string, signature: ir.Signature): ir.Function
+    return new ir.Function(
+        name = name,
+        signature = signature,
+        signatures = {},
+        importNames = {},
+        importSignatures = {},
+        stackBytes = {},
+        stackAlign = {},
+        op = {},
+        result = {},
+        kind = {},
+        firstArg = {},
+        nargs = {},
+        args = {},
+        imm = {},
+        aux = {},
+        firstEdge = {},
+        nedges = {},
+        valueKinds = {},
+        definitions = {},
+        blockStart = {},
+        blockEnd = {},
+        firstParam = {},
+        nparams = {},
+        params = {},
+        edgeFrom = {},
+        edgeTarget = {},
+        edgeFirstArg = {},
+        edgeNargs = {},
+        edgeArgs = {}
+    )
+end
+
+function ir.value(f: ir.Function, id: integer, kind: integer, definition: integer): nil
+    assert(id > 0 and id <= 1000000, "S0: value limit")
+    while #f.valueKinds < id do
+        f.valueKinds[#f.valueKinds + 1] = 0
+        f.definitions[#f.definitions + 1] = 0
+    end
+    assert(f.valueKinds[id] == 0, "S0: duplicate value definition")
+    assert(kind >= ir.I8 and kind <= ir.F64, "S0: invalid value kind")
+    f.valueKinds[id], f.definitions[id] = kind, definition
+end
+
+function ir.instruction(
+    f: ir.Function,
+    op: integer,
+    result: integer,
+    kind: integer,
+    args: {integer},
+    imm: integer,
+    aux: integer
+): integer
+    local at = #f.op + 1
+    assert(at <= 1000000 and ir.opNames[op] ~= nil, "S0: instruction limit or opcode")
+    f.op[at], f.result[at], f.kind[at] = op, result, kind
+    f.firstArg[at], f.nargs[at] = #f.args + 1, #args
+    f.imm[at], f.aux[at] = imm, aux
+    f.firstEdge[at], f.nedges[at] = #f.edgeTarget + 1, 0
+    for _, value in ipairs(args) do
+        f.args[#f.args + 1] = value
+    end
+    if result ~= 0 then
+        ir.value(f, result, kind, at)
+    end
+
+    return at
+end
+
+function ir.edge(f: ir.Function, at: integer, target: integer, args: {integer}): nil
+    assert(at == #f.op, "S0: edges must follow their instruction")
+    local edge = #f.edgeTarget + 1
+    f.edgeFrom[edge], f.edgeTarget[edge] = at, target
+    f.edgeFirstArg[edge], f.edgeNargs[edge] = #f.edgeArgs + 1, #args
+    for _, value in ipairs(args) do
+        f.edgeArgs[#f.edgeArgs + 1] = value
+    end
+    f.nedges[at] = f.nedges[at] + 1
+end
+
+function ir.isFloat(kind: integer): boolean
+    return kind == ir.F32 or kind == ir.F64
+end
+
+export = ir

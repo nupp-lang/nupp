@@ -1,0 +1,316 @@
+module s0.reader
+
+local ir = require("s0.ir")
+local reader = {}
+
+local function trim(text: string): string
+    return text:match("^%s*(.-)%s*$") or ""
+end
+
+local function id(text: string): integer
+    return (assert(tonumber(text:match("^v(%d+)$")), "S0 reader: value expected: " .. text) as integer) + 1
+end
+
+local function arguments(text: string): {integer}
+    local out: {integer} = {}
+    for item in text:gmatch("[^,]+") do
+        out[#out + 1] = id(trim(item))
+    end
+
+    return out
+end
+
+local function kinds(text: string): {integer}
+    local out: {integer} = {}
+    for item in text:gmatch("[^,]+") do
+        out[#out + 1] = ir.kind(trim(item))
+    end
+
+    return out
+end
+
+local function signature(text: string): ir.Signature
+    local parameters, rest = text:match("^%((.-)%)%s*(.*)$")
+    assert(parameters ~= nil and rest ~= nil, "S0 reader: signature expected")
+    local results: {integer} = {}
+    if rest:sub(1, 2) == "->" then
+        rest = trim(rest:sub(3))
+        if rest:sub(1, 1) == "(" then
+            local resultText, tail = rest:match("^%((.-)%)%s*(.*)$")
+            results, rest = kinds(assert(resultText)), assert(tail)
+        else
+            local resultText, tail = rest:match("^(%w+)%s*(.*)$")
+            results, rest = {ir.kind(assert(resultText))}, assert(tail)
+        end
+    end
+    assert(#results <= 1, "S0 reader: multiple machine results are unsupported")
+    assert(
+        rest == "tail" or rest == "" or rest == "fast" or rest == "system_v" or rest == "apple_aarch64",
+        "S0 reader: unknown calling convention " .. rest
+    )
+
+    return new ir.Signature(
+        params = kinds(parameters),
+        results = results,
+        convention = rest == "tail" and ir.INTERNAL or ir.C
+    )
+end
+
+-- Parse as integer arithmetic, retaining all bits above binary64 precision.
+function reader.integer(text: string): int64
+    local negative = text:sub(1, 1) == "-"
+    if negative or text:sub(1, 1) == "+" then
+        text = text:sub(2)
+    end
+    text = text:gsub("_", ""):lower()
+    local base: int64 = 10
+    if text:sub(1, 2) == "0x" then
+        base, text = 16, text:sub(3)
+    end
+    assert(#text > 0 and #text <= (base == 16 and 16 or 20), "S0 reader: integer width")
+    if base == 10 and #text == 20 then
+        assert(text <= "18446744073709551615", "S0 reader: integer overflow")
+    end
+    local value: int64 = 0
+    for at = 1, #text do
+        local byte = text:byte(at)
+        local digit: int64 = byte >= 97 and byte - 87 or byte - 48
+        assert(digit >= 0 and digit < base, "S0 reader: malformed integer")
+        value = value * base + digit
+    end
+
+    return negative and -value or value
+end
+
+local function floatBits(text: string, kind: integer): integer
+    local value = tonumber(text)
+    if text == "+Inf" then
+        value = math.huge
+    elseif text == "-Inf" then
+        value = -math.huge
+    elseif text == "+NaN" or text == "-NaN" then
+        value = 0.0 / 0.0
+    end
+    assert(value ~= nil, "S0 reader: invalid floating constant")
+    local fractionBits: integer = kind == ir.F32 and 23 or 52
+    local bias: integer = kind == ir.F32 and 127 or 1023
+    local sign: int64 = 0
+    if value < 0 or value == 0 and 1.0 / value < 0 then
+        sign, value = kind == ir.F32 and 2147483648 or reader.integer("0x8000000000000000"), -value
+    end
+    local hidden: int64 = 1 << fractionBits
+    if value ~= value then
+        return sign | ((bias * 2 + 1) << fractionBits) | (hidden >> 1)
+    end
+    if value == math.huge then
+        return sign | ((bias * 2 + 1) << fractionBits)
+    end
+    if value == 0 then
+        return sign
+    end
+    local mantissa, exponent = math.frexp(value)
+    local encodedExponent: integer = exponent + bias - 1
+    local scaled: float64
+    if encodedExponent <= 0 then
+        scaled = mantissa * 2.0 ^ (exponent + bias + fractionBits - 1)
+        encodedExponent = 0
+    else
+        scaled = mantissa * 2.0 ^ (fractionBits + 1)
+    end
+    local whole: int64 = math.floor(scaled) as int64
+    local fraction = scaled - whole
+    if fraction > 0.5 or fraction == 0.5 and (whole & 1) ~= 0 then
+        whole = whole + 1
+    end
+    if encodedExponent == 0 then
+        return sign | whole
+    end
+    if whole == hidden * 2 then
+        whole, encodedExponent = hidden, encodedExponent + 1
+    end
+    if encodedExponent >= bias * 2 + 1 then
+        return sign | ((bias * 2 + 1) << fractionBits)
+    end
+
+    return sign | (encodedExponent << fractionBits) | (whole - hidden)
+end
+
+local function memoryAddress(text: string): (integer, integer)
+    text = text:gsub("^notrap%s+", ""):gsub("^aligned%s+", "")
+    local value, offset = text:match("^(v%d+)(.*)$")
+    assert(value ~= nil, "S0 reader: address expected")
+    offset = trim(offset or "")
+
+    return id(value), offset == "" and 0 or reader.integer(offset)
+end
+
+local function body(header: string, lines: {string}): ir.Function
+    local name, signatureText = header:match("^function%s+([^%(]+)(%b().-)%s*{$")
+    assert(name ~= nil and signatureText ~= nil, "S0 reader: function header")
+    local f = ir.new(name:gsub("^%%", ""), signature(signatureText))
+    local blocks: {[string]: integer} = {}
+    local sigs: {[string]: integer} = {}
+    local imports: {[string]: integer} = {}
+    local slots: {[string]: integer} = {}
+    for _, line in ipairs(lines) do
+        local label = line:match("^(block%d+)[%(:]")
+        if label then
+            assert(blocks[label] == nil, "S0 reader: duplicate block")
+            blocks[label] = #f.blockStart + 1
+            f.blockStart[#f.blockStart + 1] = 0
+        end
+    end
+    local current: integer = 0
+    for _, line in ipairs(lines) do
+        local sig, described = line:match("^(sig%d+)%s*=%s*(.*)$")
+        local reference, imported, sigRef = line:match("^(fn%d+)%s*=%s*%%([^%s]+)%s+(sig%d+)$")
+        local slot, bytes, align = line:match("^(ss%d+)%s*=%s*explicit_slot%s+(%d+),%s*align%s*=%s*(%d+)$")
+        local label, parameters = line:match("^(block%d+)%((.-)%)%s*:$")
+        label = label or line:match("^(block%d+)%s*:$")
+        if sig then
+            assert(current == 0 and sigs[sig] == nil, "S0 reader: signature placement")
+            f.signatures[#f.signatures + 1] = signature(described)
+            sigs[sig] = #f.signatures
+        elseif reference then
+            assert(current == 0 and imports[reference] == nil, "S0 reader: import placement")
+            f.importNames[#f.importNames + 1] = imported
+            f.importSignatures[#f.importSignatures + 1] = assert(sigs[sigRef], "S0 reader: unknown signature")
+            imports[reference] = #f.importNames
+        elseif slot then
+            assert(current == 0 and slots[slot] == nil, "S0 reader: stack slot placement")
+            f.stackBytes[#f.stackBytes + 1] = assert(tonumber(bytes)) as integer
+            f.stackAlign[#f.stackAlign + 1] = assert(tonumber(align)) as integer
+            slots[slot] = #f.stackBytes
+        elseif label then
+            if current ~= 0 then
+                f.blockEnd[current] = #f.op
+            end
+            current = assert(blocks[label])
+            f.blockStart[current], f.firstParam[current], f.nparams[current] = #f.op + 1, #f.params + 1, 0
+            for parameter, kind in (parameters or ""):gmatch("(v%d+)%s*:%s*(%w+)") do
+                local value = id(parameter)
+                ir.value(f, value, ir.kind(kind), -current)
+                f.params[#f.params + 1] = value
+                f.nparams[current] = f.nparams[current] + 1
+            end
+        else
+            assert(current ~= 0, "S0 reader: instruction outside block: " .. line)
+            local resultText, expression = line:match("^(v%d+)%s*=%s*(.*)$")
+            expression = expression or line
+            local result = resultText and id(resultText) or 0
+            local spelled, rest = expression:match("^([^%s]+)%s*(.*)$")
+            assert(spelled ~= nil and rest ~= nil)
+            local operation, typeText = spelled:match("^([%w_]+)%.(%w+)$")
+            operation = operation or spelled
+            local kind: integer = typeText and ir.kind(typeText) or 0
+            local args: {integer} = {}
+            local immediate: int64 = 0
+            local aux: integer = 0
+            local edges: {string} = {}
+            if operation == "iconst" then
+                immediate = reader.integer(rest)
+            elseif operation == "f64const" or operation == "f32const" then
+                kind = operation == "f64const" and ir.F64 or ir.F32
+                immediate, operation = floatBits(rest, kind), "fconst"
+            elseif operation == "icmp" or operation == "fcmp" then
+                local condition, tail = rest:match("^(%w+)%s+(.*)$")
+                aux, args, kind = ir.condition(assert(condition)), arguments(assert(tail)), ir.I8
+            elseif operation == "jump" or operation == "brif" then
+                if operation == "brif" then
+                    args = {id(assert(rest:match("^(v%d+),")))}
+                end
+                for edge in rest:gmatch("block%d+%([^%)]*%)") do
+                    edges[#edges + 1] = edge
+                end
+                assert(#edges == (operation == "jump" and 1 or 2), "S0 reader: branch edges")
+            elseif operation == "call" or operation == "return_call" then
+                local ref, given = rest:match("^(fn%d+)%((.-)%)$")
+                aux, args = assert(imports[assert(ref)], "S0 reader: unknown import"), arguments(assert(given))
+                local called = f.signatures[f.importSignatures[aux]]
+                kind = called.results[1] or 0
+            elseif operation == "call_indirect" or operation == "return_call_indirect" then
+                local ref, pointer, given = rest:match("^(sig%d+),%s*(v%d+)%((.-)%)$")
+                aux, args = assert(sigs[assert(ref)], "S0 reader: unknown indirect signature"), {id(assert(pointer))}
+                for _, value in ipairs(arguments(assert(given))) do
+                    args[#args + 1] = value
+                end
+                kind = f.signatures[aux].results[1] or 0
+            elseif operation == "load" or operation:match("^[su]load%d+$") then
+                local address, offset = memoryAddress(rest)
+                args, immediate = {address}, offset
+                aux = (
+                    tonumber(operation:match("%d+$"))
+                    or (kind == ir.I8 and 8 or (kind == ir.I32 or kind == ir.F32) and 32 or 64)
+                ) as integer
+                operation = operation:sub(1, 1) == "s" and "sload" or "load"
+            elseif operation == "store" or operation:match("^istore%d+$") then
+                rest = rest:gsub("^notrap%s+", ""):gsub("^aligned%s+", "")
+                local value, address = rest:match("^(v%d+),%s*(.*)$")
+                local base, offset = memoryAddress(assert(address))
+                args, immediate = {id(assert(value)), base}, offset
+                aux = (tonumber(operation:match("%d+$")) or 0) as integer
+                operation = "store"
+            elseif operation == "stack_addr" then
+                local slotName, offset = rest:match("^(ss%d+)(.*)$")
+                aux = assert(slots[assert(slotName)], "S0 reader: unknown stack slot")
+                immediate = trim(offset or "") == "" and 0 or reader.integer(trim(offset or ""))
+            elseif operation == "trap" then
+                assert(rest:match("^user%d+$"), "S0 reader: unknown trap code")
+                immediate = assert(tonumber(rest:match("%d+$"))) as integer
+            else
+                args = arguments(rest)
+            end
+            if kind == 0 and result ~= 0 then
+                local source = operation == "select" and args[2] or args[1]
+                kind = assert(f.valueKinds[source], "S0 reader: unavailable operand kind")
+            end
+            local at = ir.instruction(f, ir.opcode(operation), result, kind, args, immediate, aux)
+            for _, edge in ipairs(edges) do
+                local target, given = edge:match("^(block%d+)%((.-)%)$")
+                ir.edge(f, at, assert(blocks[assert(target)], "S0 reader: unknown block"), arguments(assert(given)))
+            end
+        end
+    end
+    assert(current ~= 0, "S0 reader: function has no blocks")
+    f.blockEnd[current] = #f.op
+    for edge, target in ipairs(f.edgeTarget) do
+        assert(f.edgeNargs[edge] == f.nparams[target], "S0 reader: block argument count")
+        for index = 0, f.edgeNargs[edge] - 1 do
+            local value = f.edgeArgs[f.edgeFirstArg[edge] + index]
+            local parameter = f.params[f.firstParam[target] + index]
+            assert(f.valueKinds[value] == f.valueKinds[parameter], "S0 reader: block argument kind")
+        end
+    end
+    assert(f.nparams[1] == #f.signature.params, "S0 reader: entry parameter count")
+    for index, kind in ipairs(f.signature.params) do
+        assert(f.valueKinds[f.params[f.firstParam[1] + index - 1]] == kind, "S0 reader: entry parameter kind")
+    end
+
+    return f
+end
+
+function reader.read(text: string): {ir.Function}
+    local out: {ir.Function} = {}
+    local header: string? = nil
+    local lines: {string} = {}
+    for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+        line = trim((line:gsub(";.*$", "")))
+        if line ~= "" then
+            if line:match("^function%s") then
+                assert(header == nil, "S0 reader: nested function")
+                header, lines = line, {}
+            elseif line == "}" then
+                assert(header ~= nil, "S0 reader: unexpected function end")
+                out[#out + 1], header = body(header, lines), nil
+            else
+                assert(header ~= nil, "S0 reader: text outside function")
+                lines[#lines + 1] = line
+            end
+        end
+    end
+    assert(header == nil and #out > 0, "S0 reader: incomplete or empty corpus")
+
+    return out
+end
+
+export = reader
