@@ -438,7 +438,34 @@ local nativeLeafParameters = {
         initialize = {"voidptr", "uint64", "uint64"},
         reserve = {"voidptr", "uint64", "uint64", "voidptr"},
         release = {"voidptr", "voidptr"},
+        canRelease = {"voidptr", "voidptr"},
         reset = {"voidptr"}
+    },
+    [
+        "nupp.runtime.core.frames"
+    ] = {
+        planFixed = {"voidptr", "voidptr"},
+        prepareFixed = {"voidptr", "voidptr", "voidptr", "uint64", "uint64", "uint64", "uint64", "voidptr"},
+        publish = {"voidptr", "voidptr", "voidptr", "uint64"},
+        abortPrepared = {"voidptr", "voidptr", "voidptr"},
+        returnScalar = {"voidptr", "voidptr", "uint64"},
+        range = {"uint64", "uint64", "uint64"},
+        overlaps = {"uint64", "uint64", "uint64", "uint64"},
+        describe = {"voidptr", "voidptr", "uint64"},
+        validState = {"voidptr"},
+        stableMetadata = {"voidptr", "voidptr", "voidptr"},
+        validFrame = {"voidptr", "voidptr"},
+        linked = {"voidptr", "voidptr", "voidptr"}
+    },
+    [
+        "nupp.runtime.core.frameprobe"
+    ] = {
+        copy = {"voidptr", "voidptr", "uint64"},
+        same = {"voidptr", "voidptr", "uint64"},
+        initializeInfo = {"voidptr", "uint64", "uint64", "uint64"},
+        initializeRoot = {"voidptr", "voidptr", "voidptr"},
+        snapshot = {"voidptr", "voidptr", "voidptr", "voidptr", "uint64", "voidptr"},
+        unchanged = {"voidptr", "voidptr", "voidptr", "voidptr", "uint64", "voidptr"}
     },
     ["nupp.runtime.vm.objecthash"] = {slotHash = {"uint64"}},
     ["nupp.runtime.vm.objectconstruct"] = {constructorPayload = {"uint64", "uint64"}},
@@ -451,6 +478,11 @@ local nativeLeafParameters = {
     }
 }
 
+function graph.hasNativeLeafDeclaration(moduleName: string, name: string): boolean
+    local home = nativeLeafParameters[moduleName]
+    return home ~= nil and home[name] ~= nil
+end
+
 function graph.nativeLeafDeclaration(moduleName: string, name: string): any
     local home = nativeLeafParameters[moduleName]
     local params = home and home[name]
@@ -460,7 +492,9 @@ function graph.nativeLeafDeclaration(moduleName: string, name: string): any
         copy[index] = kind
     end
 
-    return {moduleName = moduleName, name = name, params = copy, result = "uint64", abi = "leaf"}
+    local result = moduleName == "nupp.runtime.core.frames" and name == "overlaps" and "boolean" or "uint64"
+
+    return {moduleName = moduleName, name = name, params = copy, result = result, abi = "leaf"}
 end
 
 local function verifyNativeOperation(g: any, op: string, args: any, dst: integer): nil
@@ -796,7 +830,11 @@ function graph.verify(g: any): nil
     local native = g.native ~= nil
     if native then
         local signature = g.native
-        assert(type(signature) == "table" and signature.result == "uint64", "invalid native result signature")
+        assert(
+            type(signature) == "table"
+            and (signature.result == "uint64" or signature.abi == "leaf" and signature.result == "boolean"),
+            "invalid native result signature"
+        )
         if signature.abi == "handler" then
             assert(
                 #signature.params == 6

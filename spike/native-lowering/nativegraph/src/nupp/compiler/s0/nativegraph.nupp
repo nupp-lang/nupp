@@ -109,6 +109,7 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?)
     end
     local positions, instructions, segments, blocks, callees = {}, {}, {}, {}, {}
     local imports = {}
+    local selectTail: {any} = {}
     local position, operation, segment, blockIndex = 0, 0, 0, 1
 
     local function emit(
@@ -287,6 +288,20 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?)
                     )
                     yield nil
                 end
+                case "NativeSelect" -> do
+                    selectTail[1] = args[3] + 1
+                    emit(
+                        "select",
+                        result,
+                        args[1] + 1,
+                        args[2] + 1,
+                        selectTail,
+                        machineKind(g.exactTypes[destination]),
+                        0,
+                        nil
+                    )
+                    yield nil
+                end
                 case "NativeBoolean" -> do
                     emit("iconst", result, nil, nil, nil, "i8", 0, args[1] and "1" or "0")
                     yield nil
@@ -361,7 +376,8 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?)
                         and (
                             g.exactTypes[destination] == "int64"
                             or g.exactTypes[destination] == "uint64"
-                            or width == 64 and g.exactTypes[destination] == "float64"
+                            or width == 64
+                            and (g.exactTypes[destination] == "float64" or g.exactTypes[destination] == "voidptr")
                         )
                         and (width ~= 8 or access.signed ~= true),
                         "S0 graph: unsupported word load"

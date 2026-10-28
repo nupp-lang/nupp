@@ -1,0 +1,175 @@
+module nupp.core.frameproducer
+
+local ROOT = assert(os.getenv("NUPP_COMPILER_ROOT"))
+local front = require("nupp.core.source")
+local nativegraph = require("nupp.compiler.vm.nativegraph")
+local sink = require("nupp.compiler.s0.nativegraph")
+local allocate = require("s0.allocate")
+local allocationcheck = require("s0.allocationcheck")
+local selector = require("s0.select")
+local linker = require("nupp.core.link")
+local shim = require("nupp.core.shim")
+local json = require("nupp.codec.json")
+local graphimage = require("nupp.compiler.vm.graphimage")
+local producer = {}
+
+local function selected(g: any, owner: any, mode: string, resolved: any): (any, any)
+    local artifact = sink.compilerGraph(g, owner.name, owner, resolved)
+    local target = selector.target()
+    if mode == "spill" then
+        target.integerRegisters, target.floatRegisters = {}, {}
+    end
+    local allocation = allocate.run(artifact.machine, target)
+    assert(allocationcheck.run(artifact.machine, target, allocation))
+    local code = selector.run(artifact.machine, allocation)
+
+    return code, {
+        name = owner.name,
+        source = g.source,
+        params = g.native.params,
+        result = g.native.result,
+        blocks = #g.blocks,
+        machineOps = #artifact.machine.op,
+        words = #code.words,
+        calls = #code.fixupKind,
+        frameBytes = code.frameBytes,
+        spillSlots = allocation.spillSlots,
+        integerRegisters = #target.integerRegisters,
+        floatRegisters = #target.floatRegisters
+    }
+end
+
+local function refused(action: function(): any, message: string): nil
+    local ok, problem = pcall(action)
+    assert(
+        not ok and tostring(problem):find(message, 1, true),
+        "missing refusal: " .. message .. ": " .. tostring(problem)
+    )
+end
+
+function producer.compile(mode: string): string
+    assert(mode == "normal" or mode == "spill")
+    local arenaName, framesName, probeName = "nupp.runtime.core.arena", "nupp.runtime.core.frames", "nupp.runtime.core.frameprobe"
+    local groups, modules = {}, {}
+    for _, item in ipairs({
+        {arenaName, "/native/core/src/nupp/runtime/core/arena.nupp", "/native/core/src/nupp/runtime/core/arena.nupp"},
+        {
+            framesName,
+            "/native/core/src/nupp/runtime/core/frames.nupp",
+            "/native/core/src/nupp/runtime/core/frames.nupp"
+        },
+        {probeName, "/native/core/tests/frame-probe.nupp", "/native/core/src/nupp/runtime/core/frameprobe.nupp"}
+    }) do
+        local functions, options = front.checked(front.read(ROOT .. item[2]), ROOT .. item[3], item[1])
+        groups[#groups + 1] = {name = item[1], functions = functions}
+        for name, scope in pairs(options.modules) do
+            modules[name] = scope
+        end
+    end
+    local resolved, codes, metrics, names = {}, {}, {}, {}
+    local root
+    for _, group in ipairs(groups) do
+        for name, owner in pairs(group.functions) do
+            local symbol = group.name .. "." .. name
+            local ok, g = pcall(nativegraph.compile, owner, {modules = modules})
+            assert(ok, symbol .. ": " .. tostring(g))
+            resolved[symbol] = {graph = g, owner = owner}
+            if name == "CoreFrameProbe" then
+                root = resolved[symbol]
+            else
+                names[#names + 1] = symbol
+            end
+        end
+    end
+    table.sort(names)
+    assert(#names == 23 and root, "frame service inventory")
+    for _, symbol in ipairs(names) do
+        local item = resolved[symbol]
+        local code, metric = selected(item.graph, item.owner, mode, resolved)
+        codes[symbol], metrics[#metrics + 1] = code, metric
+    end
+    local code, metric = selected(root.graph, root.owner, mode, resolved)
+    local extent = linker.assemble({}, {code}, codes, 1073741824).callBytes
+    assert(extent + shim.dispatchOffset + 16 <= shim.scratchBytes, "frame helper extent " .. tostring(extent))
+    local result = shim.build({code}, codes)
+    assert(result.callBytes == extent)
+    result.handlers, result.functions, result.mode = {metric}, metrics, mode
+    local negatives = {}
+
+    local function reject(name: string, action: function(): any, message: string): nil
+        refused(action, message)
+        negatives[#negatives + 1] = name
+    end
+
+    local symbol = framesName .. ".overlaps"
+    local target = resolved[symbol]
+    assert(target.graph.native.result == "boolean")
+    resolved[symbol] = nil
+    local parent = resolved[framesName .. ".stableMetadata"]
+    reject(
+        "unresolved private boolean helper",
+        function(): any
+            return sink.compilerGraph(parent.graph, parent.owner.name, parent.owner, resolved)
+        end,
+        "unresolved leaf"
+    )
+    resolved[symbol] = target
+    target.graph.native.result = "uint64"
+    reject(
+        "boolean result mismatch",
+        function(): any
+            return sink.compilerGraph(parent.graph, parent.owner.name, parent.owner, resolved)
+        end,
+        "leaf signature mismatch"
+    )
+    target.graph.native.result = "boolean"
+    local source = target.graph.source.path
+    target.graph.source.path = source .. ".different"
+    reject(
+        "private checked source mismatch",
+        function(): any
+            return sink.compilerGraph(parent.graph, parent.owner.name, parent.owner, resolved)
+        end,
+        "leaf source mismatch"
+    )
+    target.graph.source.path = source
+    reject(
+        "whole-chain extent refusal",
+        function(): any
+            return linker.assemble({}, {code}, codes, (result.callBytes as integer) - 1)
+        end,
+        "call-chain spill extent"
+    )
+    local release = codes[arenaName .. ".release"]
+    assert(
+        #release.fixupName >= 1 and release.fixupName[1] == arenaName .. ".canRelease",
+        "release validator must be an ordinary call"
+    )
+    result.refusals = negatives
+
+    return json.encode(result)
+end
+
+function producer.data(selection: string): string
+    local result = json.decode(front.read(selection))
+    assert(#result.offsets == 1 and #result.handlers == 1)
+    local offset, codeBytes = result.offsets[1], #result.words * 4
+    local extent, base = result.callBytes, result.spillOffset
+    assert(offset >= 0 and offset < codeBytes and offset % 4 == 0)
+    assert(extent > 0 and extent < 65536 and extent % 16 == 0)
+    assert(base == ((shim.dispatchOffset + 8 + 15) & -16))
+    assert(base + extent <= result.scratchBytes and result.scratchBytes == shim.scratchBytes)
+    local instruction = string.rep(string.char(0), 4)
+        .. graphimage.wideBytes(extent):sub(1, 4)
+        .. graphimage.wideBytes(base)
+
+    return graphimage.wideBytes(
+        2
+    ) .. graphimage.wideBytes(
+        256
+    ) .. graphimage.wideBytes(
+        32
+    ) .. graphimage.wideBytes(64) .. instruction .. string.rep(string.char(0), 16) .. graphimage.wideBytes(offset)
+end
+
+export = producer

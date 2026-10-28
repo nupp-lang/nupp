@@ -243,9 +243,9 @@ function nativegraph.isLeaf(fn: any): boolean
     return fn.scope ~= nil
         and (
             (fn.scope.name == "nupp.runtime.core.entry" and (fn.name == "CoreStop" or fn.name == "CoreFloatStop"))
-            or fn.scope.name == "nupp.runtime.core.arena"
-            and (fn.name == "initialize" or fn.name == "reserve" or fn.name == "release" or fn.name == "reset")
+            or graph.hasNativeLeafDeclaration(fn.scope.name, fn.name)
             or fn.scope.name == "nupp.runtime.core.arenaprobe" and fn.name == "CoreArenaProbe"
+            or fn.scope.name == "nupp.runtime.core.frameprobe" and fn.name == "CoreFrameProbe"
             or fn.scope.name == "nupp.runtime.vm.objecthash" and (fn.name == "slotHash" or fn.name == "stringHash")
             or fn.scope.name == "nupp.runtime.vm.objectweak" and fn.name == "weakLookupAction"
             or fn.scope.name == "nupp.runtime.vm.objecttable"
@@ -287,8 +287,20 @@ function nativegraph.compile(fn: any, options: any): any
     local body = fn.body
     local leaf = nativegraph.isLeaf(fn)
     local support = nativegraph.isSupport(fn)
+    local declaration = graph.hasNativeLeafDeclaration(fn.scope.name, fn.name)
+        and graph.nativeLeafDeclaration(fn.scope.name, fn.name)
+    if declaration then
+        need(
+            fn.resultKind == declaration.result and #fn.paramKinds == #declaration.params,
+            "checked leaf declaration signature"
+        )
+        for index, kind in ipairs(declaration.params) do
+            need(fn.paramKinds[index] == kind, "checked leaf declaration parameter")
+        end
+    end
     need(
-        fn.resultKind == "uint64" and (leaf or support and fn.isSupport == true or fn.isHandler == true),
+        (fn.resultKind == "uint64" or leaf and declaration and declaration.result == "boolean")
+        and (leaf or support and fn.isSupport == true or fn.isHandler == true),
         "exact native signature required"
     )
     need(not body.varargParam and not body.generics and not body.captureTakes, "plain native function required")
@@ -322,7 +334,7 @@ function nativegraph.compile(fn: any, options: any): any
             )
         end
     end
-    local g = graph.newNative(fn.paramKinds, "uint64", leaf and "leaf" or (support and "support" or "handler"))
+    local g = graph.newNative(fn.paramKinds, fn.resultKind, leaf and "leaf" or (support and "support" or "handler"))
     g.source = {path = fn.scope.path, module = fn.scope.name, name = fn.name}
     local scope = fn.scope
     local inlining = {}
@@ -402,7 +414,8 @@ function nativegraph.compile(fn: any, options: any): any
             need(
                 moduleName == "nupp.runtime.vm.values"
                 or moduleName == "nupp.runtime.vm.heap"
-                or moduleName == "nupp.runtime.core.context",
+                or moduleName == "nupp.runtime.core.context"
+                or moduleName == "nupp.runtime.core.frames",
                 "unsupported module constant"
             )
             local home = options.modules and options.modules[moduleName]
@@ -484,25 +497,20 @@ function nativegraph.compile(fn: any, options: any): any
             return emit(n, op, {lhs, rhs}, kind) as integer
         elseif n.kind == "call" then
             local moduleName, name = member(n.obj)
+            local localTarget
             if n.obj.kind == "name" and leaf then
-                local target = fn.scope.functions[n.obj.token.text]
+                local target = scope.functions[n.obj.token.text]
                 local token = target and (target.node.kind == "funcStmt" and target.node.name.base or target.node.name)
                 need(
                     token and token.definition and token.definition == n.obj.token.definition,
                     "checked local leaf identity required"
                 )
-                moduleName, name = fn.scope.name, n.obj.token.text
+                moduleName, name, localTarget = scope.name, n.obj.token.text, target
             end
             local args = n.args.exprs or {}
-            if moduleName == "nupp.runtime.core.arena"
-                and (name == "initialize" or name == "reserve" or name == "release" or name == "reset")
-                or moduleName == "nupp.runtime.vm.objectconstruct" and name == "constructorPayload"
-                or moduleName == "nupp.runtime.vm.objecthash" and name == "slotHash"
-                or moduleName == "nupp.runtime.vm.objecttable"
-                and (name == "tableProbe" or name == "tableCapacity" or name == "tableLiveCount")
-            then
+            if moduleName and name and graph.hasNativeLeafDeclaration(moduleName, name) then
                 local home = options.modules and options.modules[moduleName]
-                local target = home and home.exports and home.exports[name]
+                local target = localTarget or home and home.exports and home.exports[name]
                 need(target and nativegraph.isLeaf(target), "checked leaf definition required")
                 local declaration = graph.nativeLeafDeclaration(moduleName as string, name as string)
                 signature(n, declaration.params, declaration.result)
@@ -804,7 +812,12 @@ function nativegraph.compile(fn: any, options: any): any
                     end
                     emit(call, "NativeHelperCall", operands, nil)
                 elseif callee(call) then
-                    inline(call, callee(call), false)
+                    local target = callee(call)
+                    if leaf and graph.hasNativeLeafDeclaration(target.scope.name, target.name) then
+                        expression(call, nil)
+                    else
+                        inline(call, target, false)
+                    end
                 else
                     error("native graph: unsupported checked statement call", 0)
                 end
@@ -906,12 +919,8 @@ function nativegraph.compile(fn: any, options: any): any
             elseif stat.kind == "returnStmt" then
                 if leaf then
                     need(#stat.exprs == 1, "native leaf returns one scalar")
-                    block.term = {
-                        kind = "return",
-                        value = expression(stat.exprs[1], "uint64"),
-                        edges = {},
-                        pos = position(stat)
-                    }
+                    local value = expression(stat.exprs[1], fn.resultKind)
+                    block.term = {kind = "return", value = value, edges = {}, pos = position(stat)}
                     block = nil
                 else
                     need(#stat.exprs == 1 and stat.exprs[1].kind == "call", "native transfer return required")
