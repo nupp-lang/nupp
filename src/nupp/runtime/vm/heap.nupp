@@ -178,6 +178,15 @@ export struct ByteArray
     capacity: uint64
 end
 
+-- Exact method maps retain NIL keys and values through separate bucket state.
+export struct ShapeMethods
+    owner: uint64
+    base: uint64
+    capacity: uint64
+    length: uint64
+    deleted: uint64
+end
+
 -- Iterator edges and cursor precede the canonical owned key descriptor.
 export struct IteratorBody
     object: uint64

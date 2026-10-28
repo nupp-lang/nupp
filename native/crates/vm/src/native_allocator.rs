@@ -121,6 +121,10 @@ impl NativeAllocator {
         unsafe { crate::native_byte_array::ByteArray::new(self.heap.as_ptr(), length, capacity) }
     }
 
+    pub(crate) fn shape_methods(&self) -> crate::native_shape_methods::ShapeMethods {
+        unsafe { crate::native_shape_methods::ShapeMethods::new(self.heap.as_ptr()) }
+    }
+
     pub(crate) fn shape_backing(&self, names: &[Value]) -> (crate::native_value_array::ValueArray, crate::native_shape::ShapeTable, u64) {
         unsafe { crate::native_shape::initialize(self.heap.as_ptr(), names) }
     }
@@ -342,4 +346,29 @@ mod shape_backing_tests {
         assert_eq!(&names[..], &source);
         assert_eq!((probes.len(), mask), (8, 7));
     }
+    #[test]
+    fn shape_methods_growth_refusal_keeps_entries_and_the_old_borrow() {
+        let owner = NativeAllocator::new();
+        let mut map = owner.shape_methods();
+        for key in 0..6 { map.insert(Value(key), Value::NIL); }
+        let before: Vec<_> = map.iter().map(|(&k,&v)|(k,v)).collect();
+        let pointer = map.get(&Value(0)).unwrap() as *const Value;
+        let arena = owner.arena.as_ptr().cast::<ArenaPrefix>();
+        let restore = unsafe {
+            let guard = RestoreArena(arena, (*arena).limit, (*arena).growable);
+            (*arena).limit = (*arena).cursor;
+            (*arena).growable = false;
+            guard
+        };
+        let mut old = 0x123456789abcdef0;
+        assert_eq!(unsafe { crate::native_shape_methods::nupp_shape_methods_insert(&mut map, 99, Value::TRUE.0, &mut old) }, 2);
+        assert_eq!(old, 0x123456789abcdef0);
+        assert_eq!(map.len(), 6);
+        assert_eq!(map.get(&Value(0)).unwrap() as *const Value, pointer);
+        assert_eq!(map.iter().map(|(&k,&v)|(k,v)).collect::<Vec<_>>(), before);
+        drop(restore);
+        assert_eq!(map.insert(Value(99), Value::NIL), None);
+        assert_eq!(map.get(&Value(99)), Some(&Value::NIL));
+    }
+
 }

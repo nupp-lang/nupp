@@ -1,0 +1,239 @@
+module nupp.runtime.vm.shapemethods
+
+-- Each bucket holds key, value, and state (0 empty, 1 live, 2 deleted).
+-- All key/value bits are data, including NIL. Iteration order is unspecified.
+-- The stable heap owner outlives the map; mutation cannot collect or suspend.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const backing = require("nupp.runtime.vm.backing")
+
+local function methodMaximum(): uint64
+    return backing.wordBackingMaximum() // 3ULL
+end
+
+local function methodValid(m: heap.ShapeMethods*): boolean
+    @unsafe do
+        if m.owner == 0ULL or m.capacity > methodMaximum() then
+            return false
+        end
+        if m.capacity == 0ULL then
+            return m.base == 0ULL and m.length == 0ULL and m.deleted == 0ULL
+        end
+        if m.base == 0ULL or m.capacity < 8ULL or m.capacity & (m.capacity - 1ULL) ~= 0ULL then
+            return false
+        end
+        if m.length > m.capacity or m.deleted > m.capacity - m.length then
+            return false
+        end
+        return true
+    end
+end
+
+local function methodHash(key: uint64): uint64
+    local mixed = key * 0x9e3779b97f4a7c15ULL
+    return mixed ~ (mixed >> 29ULL)
+end
+
+-- A found bucket, or the first available insertion bucket. MAX means full.
+local function methodProbe(base: uint64, capacity: uint64, key: uint64): uint64
+    if capacity == 0ULL then
+        return 0xffffffffffffffffULL
+    end
+    local bucket = methodHash(key) & (capacity - 1ULL)
+    local deleted: uint64 = 0xffffffffffffffffULL
+    local probes: uint64 = 0ULL
+    while probes < capacity do
+        local state = native.load64(native.pointer(base), native.index(bucket * 24ULL + 16ULL))
+        if state == 0ULL then
+            if deleted ~= 0xffffffffffffffffULL then
+                return deleted
+            end
+            return bucket
+        end
+        if state == 1ULL and native.load64(native.pointer(base), native.index(bucket * 24ULL)) == key then
+            return bucket
+        end
+        if state == 2ULL and deleted == 0xffffffffffffffffULL then
+            deleted = bucket
+        end
+        bucket = (bucket + 1ULL) & (capacity - 1ULL)
+        probes = probes + 1ULL
+    end
+
+    return deleted
+end
+
+local function methodWrite(base: uint64, bucket: uint64, key: uint64, value: uint64): nil
+    native.store64(native.pointer(base), native.index(bucket * 24ULL), key)
+    native.store64(native.pointer(base), native.index(bucket * 24ULL + 8ULL), value)
+    native.store64(native.pointer(base), native.index(bucket * 24ULL + 16ULL), 1ULL)
+end
+
+export function shapeMethodsInitialize(m: heap.ShapeMethods*, owner: heap.Heap*): uint64
+    @unsafe do
+        if native.address(owner as voidptr) == 0ULL
+            or m.owner ~= 0ULL
+            or m.base ~= 0ULL
+            or m.capacity ~= 0ULL
+            or m.length ~= 0ULL
+            or m.deleted ~= 0ULL
+        then
+            return 1ULL
+        end
+        m.owner = native.address(owner as voidptr)
+        return 0ULL
+    end
+end
+
+-- Reserve an additional live entry count. Allocation failure is atomic.
+export function shapeMethodsReserve(m: heap.ShapeMethods*, additional: uint64): uint64
+    if not methodValid(m) then
+        return 1ULL
+    end
+    @unsafe do
+        if additional > methodMaximum() - m.length then
+            return 1ULL
+        end
+        local wanted = m.length + additional
+        if wanted <= m.capacity - m.capacity // 4ULL then
+            return 0ULL
+        end
+        local capacity = m.capacity
+        if capacity == 0ULL then
+            capacity = 8ULL
+        end
+        while wanted > capacity - capacity // 4ULL do
+            if capacity > methodMaximum() >> 1ULL then
+                return 1ULL
+            end
+            capacity = capacity * 2ULL
+        end
+        local fresh = backing.wordBackingTake(native.pointer(m.owner) as heap.Heap*, capacity * 3ULL)
+        if fresh == 0ULL then
+            return 2ULL
+        end
+        local i: uint64 = 0ULL
+        while i < capacity do
+            native.store64(native.pointer(fresh), native.index(i * 24ULL + 16ULL), 0ULL)
+            i = i + 1ULL
+        end
+        i = 0ULL
+        while i < m.capacity do
+            if native.load64(native.pointer(m.base), native.index(i * 24ULL + 16ULL)) == 1ULL then
+                local key = native.load64(native.pointer(m.base), native.index(i * 24ULL))
+                local value = native.load64(native.pointer(m.base), native.index(i * 24ULL + 8ULL))
+                methodWrite(fresh, methodProbe(fresh, capacity, key), key, value)
+            end
+            i = i + 1ULL
+        end
+        local before = m.base
+        m.base = fresh
+        m.capacity = capacity
+        m.deleted = 0ULL
+        backing.wordBackingRelease(before)
+        return 0ULL
+    end
+end
+
+-- 0 inserted, 1 replaced (old receives the prior bits), 2 refused unchanged.
+export function shapeMethodsInsert(m: heap.ShapeMethods*, key: uint64, value: uint64, old: voidptr): uint64
+    if not methodValid(m) then
+        return 2ULL
+    end
+    @unsafe do
+        local bucket = methodProbe(m.base, m.capacity, key)
+        if bucket ~= 0xffffffffffffffffULL then
+            if native.load64(native.pointer(m.base), native.index(bucket * 24ULL + 16ULL)) == 1ULL then
+                native.store64(old, 0, native.load64(native.pointer(m.base), native.index(bucket * 24ULL + 8ULL)))
+                native.store64(native.pointer(m.base), native.index(bucket * 24ULL + 8ULL), value)
+                return 1ULL
+            end
+        end
+        if shapeMethodsReserve(m, 1ULL) ~= 0ULL then
+            return 2ULL
+        end
+        bucket = methodProbe(m.base, m.capacity, key)
+        if bucket == 0xffffffffffffffffULL then
+            return 2ULL
+        end
+        if native.load64(native.pointer(m.base), native.index(bucket * 24ULL + 16ULL)) == 2ULL then
+            m.deleted = m.deleted - 1ULL
+        end
+        methodWrite(m.base, bucket, key, value)
+        m.length = m.length + 1ULL
+        return 0ULL
+    end
+end
+
+export function shapeMethodsGet(m: heap.ShapeMethods*, key: uint64): uint64
+    if not methodValid(m) then
+        return 0ULL
+    end
+    @unsafe do
+        local bucket = methodProbe(m.base, m.capacity, key)
+        if bucket == 0xffffffffffffffffULL then
+            return 0ULL
+        end
+        if native.load64(native.pointer(m.base), native.index(bucket * 24ULL + 16ULL)) ~= 1ULL then
+            return 0ULL
+        end
+        return m.base + bucket * 24ULL + 8ULL
+    end
+end
+
+-- Presence is separate from the removed value, so removing NIL answers 1.
+export function shapeMethodsRemove(m: heap.ShapeMethods*, key: uint64, old: voidptr): uint64
+    local value = shapeMethodsGet(m, key)
+    if value == 0ULL then
+        return 0ULL
+    end
+    @unsafe do
+        native.store64(old, 0, native.load64(native.pointer(value), 0))
+        native.store64(native.pointer(value), -8, 0ULL)
+        native.store64(native.pointer(value), 0, 0ULL)
+        native.store64(native.pointer(value), 8, 2ULL)
+        m.length = m.length - 1ULL
+        m.deleted = m.deleted + 1ULL
+        return 1ULL
+    end
+end
+
+export function shapeMethodsNext(m: heap.ShapeMethods*, start: uint64): uint64
+    if not methodValid(m) then
+        return 0xffffffffffffffffULL
+    end
+    @unsafe do
+        local bucket = start
+        while bucket < m.capacity do
+            if native.load64(native.pointer(m.base), native.index(bucket * 24ULL + 16ULL)) == 1ULL then
+                return bucket
+            end
+            bucket = bucket + 1ULL
+        end
+        return 0xffffffffffffffffULL
+    end
+end
+
+export function shapeMethodsClear(m: heap.ShapeMethods*): nil
+    @unsafe do
+        local i: uint64 = 0ULL
+        while i < m.capacity do
+            native.store64(native.pointer(m.base), native.index(i * 24ULL), 0ULL)
+            native.store64(native.pointer(m.base), native.index(i * 24ULL + 8ULL), 0ULL)
+            native.store64(native.pointer(m.base), native.index(i * 24ULL + 16ULL), 0ULL)
+            i = i + 1ULL
+        end
+        m.length = 0ULL
+        m.deleted = 0ULL
+    end
+end
+
+export function shapeMethodsRelease(m: heap.ShapeMethods*): nil
+    @unsafe do
+        backing.wordBackingRelease(m.base)
+        m.base = 0ULL
+        m.capacity = 0ULL
+        m.length = 0ULL
+        m.deleted = 0ULL
+    end
+end

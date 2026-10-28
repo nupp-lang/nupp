@@ -307,7 +307,7 @@ unsafe extern "C" {
 }
 #[cfg(feature = "native-runtime")]
 const _: () = {
-    assert!(crate::dispatch::OBJECT_ABI == 23);
+    assert!(crate::dispatch::OBJECT_ABI == 24);
     assert!(std::mem::size_of::<Value>() == 8);
     assert!(std::mem::size_of::<StoragePayload>() == 32);
     assert!(std::mem::align_of::<StoragePayload>() == 8);
@@ -363,7 +363,7 @@ pub struct Shape {
     pub table: crate::native_shape::ShapeTable,
     pub mask: u64,
     /// The descriptor: method name (interned) to the function value that runs it.
-    pub methods: HashMap<Value, Value, crate::value::BitsBuild>,
+    pub methods: crate::native_shape_methods::ShapeMethods,
     /// Which metamethods the shape's declaration holds, as `metamethods::MM`
     /// bits, with `metamethods::CACHED` once computed; zero until then and
     /// after any store that may change the answer.
@@ -478,7 +478,7 @@ impl Heap {
         #[cfg(feature = "native-runtime")]
         {
             let (names, table, mask) = self.allocator.shape_backing(names);
-            self.shapes.push(Shape { name: name.to_string(), structural: name.starts_with("struct:"), names, types: types.to_vec(), methods: HashMap::default(), table, mask, mm_cache: 0 });
+            self.shapes.push(Shape { name: name.to_string(), structural: name.starts_with("struct:"), names, types: types.to_vec(), methods: self.allocator.shape_methods(), table, mask, mm_cache: 0 });
             (self.shapes.len() - 1) as u32
         }
         #[cfg(not(feature = "native-runtime"))]

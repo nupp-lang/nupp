@@ -467,6 +467,14 @@ fn allocator_entry(name: &str) -> Option<(&'static str, usize, bool)> {
         "byteArrayExtend" => ("nupp_byte_array_extend", 3, true),
         "byteArrayTake" => ("nupp_byte_array_take", 2, true),
         "byteArrayRelease" => ("nupp_byte_array_release", 1, false),
+        "shapeMethodsInitialize" => ("nupp_shape_methods_initialize", 2, true),
+        "shapeMethodsReserve" => ("nupp_shape_methods_reserve", 2, true),
+        "shapeMethodsInsert" => ("nupp_shape_methods_insert", 4, true),
+        "shapeMethodsGet" => ("nupp_shape_methods_get", 2, true),
+        "shapeMethodsRemove" => ("nupp_shape_methods_remove", 3, true),
+        "shapeMethodsNext" => ("nupp_shape_methods_next", 2, true),
+        "shapeMethodsClear" => ("nupp_shape_methods_clear", 1, false),
+        "shapeMethodsRelease" => ("nupp_shape_methods_release", 1, false),
         "shapeOwnedInitialize" => ("nupp_shape_owned_initialize", 4, true),
         "arrayInitialize" => ("nupp_array_initialize", 3, true),
         "arrayReserve" => ("nupp_array_reserve", 2, true),
@@ -665,7 +673,7 @@ fn require_allocator_support(
 /// and every opcode number they handle, asserted where the object is linked.
 fn metadata_header() -> String {
     let mut metadata = String::from("// Generated with the native object. Private ABI.\n");
-    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 23;\n");
+    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 24;\n");
     metadata.push_str(
         "const _: () = { assert!(HDR == 4); assert!(std::mem::size_of::<Ins>() == 16); assert!(crate::interp::MAX_RESULTS == 128);\n",
     );
