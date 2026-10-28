@@ -1,6 +1,10 @@
 //! Standalone, opaque native-code transport. Nupp owns all execution semantics.
 mod platform;
 
+#[cfg(all(test, target_arch = "aarch64"))]
+#[path = "../tests/support/abi.rs"]
+mod abi;
+
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -119,6 +123,9 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, String> {
     // No pointer from the packet may survive the call or be used concurrently.
     let entry: unsafe extern "C" fn(*const u64, *mut u64) -> u64 =
         unsafe { std::mem::transmute(code.address.add(spec.entry)) };
+    #[cfg(all(test, target_arch = "aarch64"))]
+    let status = unsafe { abi::invoke(entry, packet.as_ptr(), output.as_mut_ptr()) };
+    #[cfg(not(all(test, target_arch = "aarch64")))]
     let status = unsafe { entry(packet.as_ptr(), output.as_mut_ptr()) };
     if status != 0 {
         return Err(format!("Nupp entry refused with transport status {status}"));
