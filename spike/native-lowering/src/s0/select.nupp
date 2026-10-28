@@ -157,6 +157,9 @@ end
 
 local function stackBorrowed(f: ir.Function): {boolean}
     local borrowed: {boolean} = {}
+    if #f.stackBytes == 0 then
+        return borrowed
+    end
     for v = 1, #f.valueKinds do
         borrowed[v] = false
     end
