@@ -220,6 +220,10 @@ pub(crate) fn main() {
             (Some("layouts"), 4) => native_glue::write_layouts(&args[3]),
             (Some("object"), 5) => native_glue::write_object(&args[3], &args[4]),
             (Some("jit"), 5..) => nupp_vm::native_jit::jit(&args[3], &args[4], &args[5..]),
+            #[cfg(feature = "native-runtime")]
+            (Some("raw-layout"), 3) => nupp_vm::native_raw_bundle::layout_digest_hex().map(|digest| println!("{digest}")),
+            #[cfg(feature = "native-runtime")]
+            (Some("raw"), 6) => unsafe { nupp_vm::native_raw_bundle::run(&args[3], &args[4], &args[5]) },
             // Every function of an image as the JIT's emitter is handed it.
             (Some("describe"), 4) => {
                 let mut it = Interp::new();
@@ -228,7 +232,7 @@ pub(crate) fn main() {
                     Ok(())
                 })
             }
-            _ => { eprintln!("usage: nupp-vm native (layouts OUT.json | object IN.clif OUT.o | jit IN.clif FUNCTION [ARG...] | describe IMAGE)"); std::process::exit(2) }
+            _ => { eprintln!("usage: nupp-vm native (layouts OUT.json | object IN.clif OUT.o | jit IN.clif FUNCTION [ARG...] | raw BUNDLE INPUT OUTPUT | raw-layout | describe IMAGE)"); std::process::exit(2) }
         };
         if let Err(problem) = result { eprintln!("{problem}"); std::process::exit(1) }
         return;

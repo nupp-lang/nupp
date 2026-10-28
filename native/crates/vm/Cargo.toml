@@ -41,7 +41,7 @@ compiled-runtime = []
 # handlers it defines.
 native-runtime = []
 jit = ["compiled-runtime", "dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-jit", "dep:cranelift-module", "dep:cranelift-native"]
-aot = ["jit", "aot-linked", "dep:cranelift-object", "dep:cranelift-reader"]
+aot = ["jit", "aot-linked", "dep:cranelift-object", "dep:cranelift-reader", "dep:serde_json"]
 # Run prebuilt native objects without shipping any code generator.
 aot-linked = ["compiled-runtime"]
 # Count executed opcodes by name (OP_STATS=1 at run time); off by default

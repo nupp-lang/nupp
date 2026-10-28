@@ -149,6 +149,10 @@ pub fn is_runtime_export(name: &str) -> bool {
 
 /// `nupp-vm native layouts OUT.json`: the layout table as JSON.
 pub fn write_layouts(path: &str) -> Result<(), String> {
+    std::fs::write(path, layout_json()?).map_err(|e| e.to_string())
+}
+
+pub(crate) fn layout_json() -> Result<String, String> {
     let mut text = String::from("{\n");
     for (i, field) in LAYOUT_FIELDS.iter().enumerate() {
         text.push_str(&format!(
@@ -158,7 +162,7 @@ pub fn write_layouts(path: &str) -> Result<(), String> {
         ));
     }
     text.push_str("}\n");
-    std::fs::write(path, text).map_err(|e| e.to_string())
+    Ok(text)
 }
 
 /// The platform-convention signature of the object's exported entries:

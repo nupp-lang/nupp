@@ -1,0 +1,65 @@
+{
+  "scope": "S0 opaque raw bundle CLI and frozen host import resolver; no runtime replacement or E2 acceptance",
+  "baseCommit": "72bc6378cef476584456276e1834e9980b3aaeb1",
+  "commands": [
+    "nupp-vm native raw-layout",
+    "nupp-vm native raw BUNDLE INPUT OUTPUT"
+  ],
+  "bundle": {
+    "version": 1,
+    "architecture": "aarch64",
+    "layoutDigest": "64 hexadecimal digits from native raw-layout",
+    "entry": "unsigned aligned byte offset in code",
+    "code": "opaque code file, relative to bundle parent or absolute",
+    "data": "opaque data file, relative to bundle parent or absolute",
+    "imports": "ordered array of existing host symbol names",
+    "outputWords": "unsigned count of little-endian u64 output words"
+  },
+  "inputOutput": "Binary little-endian u64 arrays. No scalar signatures, textual number arguments or instruction parsing. Output is written after execution returns successfully.",
+  "limits": {
+    "manifestBytes": 65536,
+    "codeBytes": 67108864,
+    "dataBytes": 67108864,
+    "inputBytes": 8388608,
+    "outputWords": 1048576,
+    "imports": 88
+  },
+  "layoutDigest": {
+    "algorithm": "SHA256",
+    "encoding": "ASCII domain nupp-raw-layout-v1 followed by NUL; host architecture followed by NUL; host OS followed by NUL; exact native layouts JSON bytes; little-endian u32 OBJECT_ABI; little-endian u64 CALL_ABI",
+    "objectAbi": 28,
+    "callAbi": 1,
+    "host": "aarch64/macos",
+    "value": "d11be41ac583934c41c61cb7a97dfc05e5e548e16be3483698edef831f5c6a61",
+    "independentReconstruction": "Python hashlib over the separate native layouts command output and explicit ABI28/callABI1 matches the raw-layout output"
+  },
+  "validation": {
+    "integrationPassed": 3,
+    "failed": 0,
+    "ignored": 0,
+    "coverage": [
+      "assembler-checked raw C entry invokes the actual OS page-size function and returns its u64 result",
+      "all88 import names exactly match undefined imports of the frozen155e core object and resolve nonzero",
+      "bundle-relative paths work from another current directory",
+      "bad versions/types/unknown fields, architecture, digest, entry bounds/alignment, import names/count, file cap, output cap and incomplete input words reject",
+      "output sentinel is preserved on failed validation"
+    ],
+    "controlsAbsent": [
+      "NO_JIT",
+      "NO_AOT",
+      "NO_THREADED",
+      "SIMD_INTERPRET",
+      "JIT_ONLY",
+      "NUPP_AOT_OBJECT"
+    ]
+  },
+  "formatter": "nupp fmt rejects Rust syntax; invocation preserved in build/s0-loader/bundle-format.log. New Rust files pass rustfmt. Existing Rust files have narrow routing/serialization extraction edits.",
+  "fullCoreProvider": "Still absent. The earlier105-export inventory remains the full routing requirement. Three-entry-only substitution cannot close E2.",
+  "sourceHashes": {
+    "native/crates/vm/src/native_raw_bundle.rs": "8e6bf280112b5d017bd08956dfe5e5769604f78006fbd4ed7917cd85456bdc06",
+    "native/crates/vm/src/native_raw_imports.rs": "856d8dc1919e9a9c26de0a731533557f1c59071fa6c9a467510fd63b1eb52dc1",
+    "native/crates/vm/tests/native_raw_bundle.rs": "c4fed44316930f0d30fbdedb53b9c34a28eee71e372f33638a53d8021f54ea54",
+    "native/crates/vm/src/main.rs": "8d4aca53dd2880fb929ce17a7f85d71390ff7f56db6f146c4b74215eebc4489a",
+    "native/crates/vm/src/native_glue.rs": "1963c1e7dd1ab0691e40b2607f8280ff651b0430d7b1010d66f9b89ea351151d"
+  }
+}
