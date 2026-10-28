@@ -296,10 +296,8 @@ function graph.value(g: any, ty: string, slot: integer?): integer
     return id
 end
 
---- Creates a native handler graph with an exact logical signature.
----
---- The physical sixth argument is the retained dispatch table. The logical
---- sixth argument is the frame, reconstructed from the value window at entry.
+-- Native graph signatures describe logical arguments, independent of
+-- the downstream machine calling convention.
 function graph.newNative(parameterKinds: {string}, resultKind: string, abi: string): any
     local g = graph.new(#parameterKinds)
     local params = {}
@@ -310,13 +308,7 @@ function graph.newNative(parameterKinds: {string}, resultKind: string, abi: stri
         g.types[i], g.slots[i], g.exactTypes[i] = class, g.counts[class], kind
         g.counts[class] = g.counts[class] + 1
     end
-    g.native = {
-        params = params,
-        result = resultKind,
-        abi = abi,
-        frameFromWindow = abi == "handler" and 2 or nil,
-        tableArgument = abi == "handler" and 6 or nil
-    }
+    g.native = {params = params, result = resultKind, abi = abi}
 
     return g
 end
@@ -431,70 +423,72 @@ local function nativeInteger(text: any, kind: string): nil
     end
 end
 
-local nativeLeafParameters = {
-    [
-        "nupp.runtime.core.arena"
-    ] = {
-        initialize = {"voidptr", "uint64", "uint64"},
-        reserve = {"voidptr", "uint64", "uint64", "voidptr"},
-        release = {"voidptr", "voidptr"},
-        canRelease = {"voidptr", "voidptr"},
-        reset = {"voidptr"}
-    },
-    [
-        "nupp.runtime.core.frames"
-    ] = {
-        planFixed = {"voidptr", "voidptr"},
-        prepareFixed = {"voidptr", "voidptr", "voidptr", "uint64", "uint64", "uint64", "uint64", "voidptr"},
-        publish = {"voidptr", "voidptr", "voidptr", "uint64"},
-        abortPrepared = {"voidptr", "voidptr", "voidptr"},
-        returnScalar = {"voidptr", "voidptr", "uint64"},
-        range = {"uint64", "uint64", "uint64"},
-        overlaps = {"uint64", "uint64", "uint64", "uint64"},
-        describe = {"voidptr", "voidptr", "uint64"},
-        validState = {"voidptr"},
-        stableMetadata = {"voidptr", "voidptr", "voidptr"},
-        validFrame = {"voidptr", "voidptr"},
-        linked = {"voidptr", "voidptr", "voidptr"}
-    },
-    [
-        "nupp.runtime.core.frameprobe"
-    ] = {
-        copy = {"voidptr", "voidptr", "uint64"},
-        same = {"voidptr", "voidptr", "uint64"},
-        initializeInfo = {"voidptr", "uint64", "uint64", "uint64"},
-        initializeRoot = {"voidptr", "voidptr", "voidptr"},
-        snapshot = {"voidptr", "voidptr", "voidptr", "voidptr", "uint64", "voidptr"},
-        unchanged = {"voidptr", "voidptr", "voidptr", "voidptr", "uint64", "voidptr"}
-    },
-    ["nupp.runtime.vm.objecthash"] = {slotHash = {"uint64"}},
-    ["nupp.runtime.vm.objectconstruct"] = {constructorPayload = {"uint64", "uint64"}},
-    [
-        "nupp.runtime.vm.objecttable"
-    ] = {
-        tableProbe = {"voidptr", "uint64", "uint64", "uint64"},
-        tableCapacity = {"uint64"},
-        tableLiveCount = {"voidptr", "voidptr", "uint64", "uint64"}
-    }
-}
-
-function graph.hasNativeLeafDeclaration(moduleName: string, name: string): boolean
-    local home = nativeLeafParameters[moduleName]
-    return home ~= nil and home[name] ~= nil
-end
-
-function graph.nativeLeafDeclaration(moduleName: string, name: string): any
-    local home = nativeLeafParameters[moduleName]
-    local params = home and home[name]
-    assert(params, "native leaf declaration is not approved")
-    local copy = {}
-    for index, kind in ipairs(params) do
-        copy[index] = kind
+local function checkedNativeKind(t: any): string
+    while t and (t.tag == "literal" or t.tag == "const") do
+        t = t.tag == "literal" and t.base or t.inner
+    end
+    if t and t.tag == "union" and #t.members > 0 then
+        for _, member in ipairs(t.members) do
+            assert(checkedNativeKind(member) == "boolean", "checked native union kind")
+        end
+        return "boolean"
     end
 
-    local result = moduleName == "nupp.runtime.core.frames" and name == "overlaps" and "boolean" or "uint64"
+    return t and t.tag or "missing"
+end
 
-    return {moduleName = moduleName, name = name, params = copy, result = result, abi = "leaf"}
+-- A declaration is derived from its checked function owner, never a name list.
+-- The machine sink also binds this source/signature to the retained target.
+function graph.nativeLeafDeclaration(fn: any): any
+    assert(type(fn) == "table" and fn.node and fn.body and fn.scope, "checked native leaf owner required")
+    assert(
+        fn.node.body == fn.body and fn.nativeABI ~= "handler" and fn.nativeABI ~= "support",
+        "native leaf checked body identity"
+    )
+    assert(fn.scope.functions and fn.scope.functions[fn.name] == fn, "native leaf checked declaration identity")
+    local params, body = {}, fn.body
+    assert(
+        #body.params == #fn.paramKinds and #body.params >= 1 and #body.params <= 8,
+        "native leaf checked parameter count"
+    )
+    for index, parameter in ipairs(body.params) do
+        local kind = checkedNativeKind(parameter.type and parameter.type.resolvedType)
+        assert(nativeClasses[kind] and kind == fn.paramKinds[index], "native leaf checked parameter kind")
+        params[index] = kind
+    end
+    local signature = body.signatureType
+    assert(signature and #signature.rets == 1, "native leaf checked result count")
+    local result = checkedNativeKind(signature.rets[1])
+    assert(result == fn.resultKind and (result == "uint64" or result == "boolean"), "native leaf checked result kind")
+
+    return {
+        moduleName = fn.scope.name,
+        name = fn.name,
+        params = params,
+        result = result,
+        abi = "leaf",
+        source = {path = fn.scope.path, module = fn.scope.name, name = fn.name}
+    }
+end
+
+local function declarationSource(declaration: any): nil
+    assert(
+        type(declaration.moduleName) == "string" and declaration.moduleName:match("^[%a_][%w_%.]*$"),
+        "native checked declaration module"
+    )
+    assert(
+        type(declaration.name) == "string" and declaration.name:match("^[%a_][%w_]*$"),
+        "native checked declaration name"
+    )
+    local source = declaration.source
+    nativeContract(source, {path = true, module = true, name = true})
+    assert(
+        type(source.path) == "string"
+        and #source.path > 0
+        and source.module == declaration.moduleName
+        and source.name == declaration.name,
+        "native checked declaration source"
+    )
 end
 
 local function verifyNativeOperation(g: any, op: string, args: any, dst: integer): nil
@@ -520,25 +514,40 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
     if op == "NativeLeafCall" then
         assert(g.native.abi == "leaf", "scalar leaf calls require a leaf graph")
         local declaration = args[1]
-        nativeContract(declaration, {moduleName = true, name = true, params = true, result = true, abi = true})
-        local checked = graph.nativeLeafDeclaration(declaration.moduleName, declaration.name)
-        assert(
-            declaration.abi == checked.abi and declaration.result == checked.result,
-            "native leaf declaration changed"
-        )
+        nativeContract(declaration, {
+            moduleName = true,
+            name = true,
+            params = true,
+            result = true,
+            abi = true,
+            source = true
+        })
+        declarationSource(declaration)
+        assert(declaration.abi == "leaf", "native leaf declaration ABI")
         assert(
             type(declaration.params) == "table"
-            and #declaration.params == #checked.params
-            and #args == #checked.params + 1,
+            and #declaration.params >= 1
+            and #declaration.params <= 8
+            and #args == #declaration.params + 1,
             "native leaf argument count"
         )
         for index, parameter in pairs(declaration.params) do
-            assert(checked.params[index] == parameter, "native leaf exact parameter kind")
+            assert(
+                type(index) == "number"
+                and index % 1 == 0
+                and index >= 1
+                and index <= #declaration.params
+                and nativeClasses[parameter],
+                "native leaf exact parameter kind"
+            )
         end
-        for index, parameter in ipairs(checked.params) do
+        for index, parameter in ipairs(declaration.params) do
             hasKind(args[index + 1], parameter)
         end
-        assert(kind == checked.result, "native leaf result kind")
+        assert(
+            (declaration.result == "uint64" or declaration.result == "boolean") and kind == declaration.result,
+            "native leaf result kind"
+        )
     elseif op == "NativeHelperCall" then
         local declaration = args[1]
         nativeContract(declaration, {
@@ -828,6 +837,15 @@ function graph.verify(g: any): nil
         error("assertion failed", 0)
     end
     local native = g.native ~= nil
+    if g.exactTypes ~= nil and not native then
+        assert(type(g.exactTypes) == "table" and #g.exactTypes == #types, "missing graph exact types")
+        for index, kind in ipairs(g.exactTypes) do
+            assert(
+                nativeClasses[kind] == types[index] or kind == "boolean" and types[index] == "v",
+                "invalid graph exact type"
+            )
+        end
+    end
     if native then
         local signature = g.native
         assert(
@@ -836,13 +854,7 @@ function graph.verify(g: any): nil
             "invalid native result signature"
         )
         if signature.abi == "handler" then
-            assert(
-                #signature.params == 6
-                and nparams == 6
-                and signature.frameFromWindow == 2
-                and signature.tableArgument == 6,
-                "invalid native handler signature"
-            )
+            assert(#signature.params == 6 and nparams == 6, "invalid native handler signature")
             for i = 1, 6 do
                 assert(signature.params[i] == "voidptr", "native handler parameter kind")
             end
@@ -851,9 +863,7 @@ function graph.verify(g: any): nil
                 nparams >= 2
                 and #signature.params == nparams
                 and signature.params[1] == "voidptr"
-                and signature.params[2] == "voidptr"
-                and signature.frameFromWindow == nil
-                and signature.tableArgument == nil,
+                and signature.params[2] == "voidptr",
                 "invalid native support signature"
             )
             for _, kind in ipairs(signature.params) do
@@ -862,10 +872,6 @@ function graph.verify(g: any): nil
         else
             assert(signature.abi == "leaf" and nparams >= 1 and nparams <= 8, "invalid native leaf signature")
             assert(#signature.params == nparams, "native leaf parameter count")
-            assert(
-                signature.frameFromWindow == nil and signature.tableArgument == nil,
-                "native leaf has no VM entry transport"
-            )
             for _, kind in ipairs(signature.params) do
                 assert(kind == "voidptr" or kind == "int64" or kind == "uint64", "native leaf parameter kind")
             end
@@ -1030,17 +1036,10 @@ function graph.verify(g: any): nil
                 params = true,
                 result = true,
                 abi = true,
-                effects = true
+                effects = true,
+                source = true
             })
-            assert(
-                type(declaration.moduleName) == "string"
-                and declaration.moduleName:match("^nupp%.runtime%.vm%.[%w_]+$"),
-                "native tail requires its checked module"
-            )
-            assert(
-                type(declaration.name) == "string" and declaration.name:match("^[%a_][%w_]*Slow$"),
-                "native tail requires a support function"
-            )
+            declarationSource(declaration)
             assert(declaration.abi == "support" and declaration.result == "uint64", "native tail support ABI mismatch")
             assert(
                 type(declaration.params) == "table"
@@ -1153,8 +1152,8 @@ function graph.verify(g: any): nil
                         0
                     )
                 end
-                if native then
-                    assert(g.exactTypes[v] == g.exactTypes[targetParams[i]], "native graph edge exact kind mismatch")
+                if g.exactTypes ~= nil then
+                    assert(g.exactTypes[v] == g.exactTypes[targetParams[i]], "graph edge exact kind mismatch")
                 end
             end
         end
@@ -1238,7 +1237,7 @@ function graph.prune(g: any): nil
     local function keep(v: integer): integer
         count = count + 1
         remap[v], types[count], slots[count] = count, gTypes[v], gSlots[v]
-        if g.native ~= nil then
+        if g.exactTypes ~= nil then
             exactTypes[count] = g.exactTypes[v]
         end
 
@@ -1323,7 +1322,7 @@ function graph.prune(g: any): nil
         g.map.count = assert(remap[g.map.count])
     end
     g.types, g.slots = types, slots
-    if g.native ~= nil then
+    if g.exactTypes ~= nil then
         g.exactTypes = exactTypes
     end
 end

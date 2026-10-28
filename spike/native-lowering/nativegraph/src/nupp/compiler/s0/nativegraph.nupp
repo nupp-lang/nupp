@@ -222,6 +222,10 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?)
                     assert(
                         other.source.module == declaration.moduleName
                         and other.source.name == declaration.name
+                        and type(declaration.source) == "table"
+                        and declaration.source.path == other.source.path
+                        and declaration.source.module == other.source.module
+                        and declaration.source.name == other.source.name
                         and other.source.path == owner.scope.path
                         and owner.scope.name == declaration.moduleName
                         and owner.name == declaration.name,

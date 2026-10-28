@@ -2,100 +2,13 @@ module nupp.compiler.vm.nativegraph
 
 local graph = require("nupp.compiler.vm.graph")
 local nativelayout = require("nupp.compiler.vm.nativelayout")
-local cst = require("nupp.compiler.syntax.cst")
 local programcontract = require("nupp.compiler.vm.programcontract")
 local slotcontract = require("nupp.compiler.vm.slotcontract")
 local helpercontract = require("nupp.compiler.vm.helpercontract")
 local framecontract = require("nupp.compiler.vm.framecontract")
 
-local nativegraph = {}
-local admitted = {
-    GetCell = true,
-    GetUpval = true,
-    Lt = true,
-    Le = true,
-    Len = true,
-    LenF = true,
-    Jmp = true,
-    JmpIfIZero = true,
-    JmpIf = true,
-    JmpIfNot = true,
-    K = true,
-    Move = true,
-    Nil = true,
-    Not = true,
-    Truthy = true,
-    BoolFromI = true,
-    IK = true,
-    IMov = true,
-    IAddK = true,
-    IMaskU32 = true,
-    IAdd = true,
-    ISub = true,
-    IAnd = true,
-    IOr = true,
-    IXor = true,
-    INot = true,
-    IBswap32 = true,
-    IShl = true,
-    IShrU = true,
-    ICmpEq = true,
-    ICmpNe = true,
-    ICmpLt = true,
-    ICmpLe = true,
-    ICmpSLt = true,
-    ICmpSLe = true,
-    FBox = true,
-    FAdd = true,
-    FSub = true,
-    FMul = true,
-    FDiv = true,
-    FMod = true,
-    FK = true,
-    FMov = true,
-    FNeg = true,
-    IToF = true,
-    FToI = true,
-    FCmpEq = true,
-    FCmpNe = true,
-    FCmpLt = true,
-    FCmpLe = true
-}
-local controlAdmitted = {
-    PCall = true,
-    Raise = true,
-    Defer = true,
-    DeferMethod = true,
-    CleanupLive = true,
-    DisarmAt = true,
-    RearmAt = true,
-    Unwind = true,
-    Switch = true
-}
-local stateAdmitted = {
-    Disarm = true,
-    AffineMark = true,
-    AffineEnter = true,
-    Checkpoint = true,
-    Park = true,
-    VarargTable = true
-}
-local recordAdmitted = {
-    GetSlot = true,
-    GetSlotF = true,
-    SetSlot = true,
-    SetSlotF = true,
-    IsRec = true,
-    TagCheckRec = true,
-    GetPhys = true,
-    GetPhysF = true,
-    GetPhysI = true,
-    GetPhysU = true,
-    SetPhys = true,
-    SetPhysF = true,
-    SetPhysI = true
-}
-local byteAdmitted = {BytesLen = true, LoadU8 = true, LoadU8K = true, LoadU32W = true, StoreU8 = true, StoreU32 = true}
+local nativegraph = {booleanKind = "boolean"}
+
 local arithmetic = {
     ["+"] = "IAdd",
     ["-"] = "ISub",
@@ -211,767 +124,437 @@ local function integerText(n: any): string
     return text
 end
 
---- Reports whether a function belongs to the complete native graph slice.
----
---- Admission is independent of the signature so a changed signature fails
---- graph compilation instead of selecting the temporary direct lowering.
+-- ABI selection is supplied by the checked compilation request. It is not
+-- inferred from a function or opcode name.
 function nativegraph.admits(fn: any): boolean
-    if fn.scope == nil then
-        return false
-    end
-    return (fn.scope.name == "nupp.runtime.vm.core" and admitted[fn.name] == true)
-        or (fn.scope.name == "nupp.runtime.vm.control" and controlAdmitted[fn.name] == true)
-        or (fn.scope.name == "nupp.runtime.vm.state" and stateAdmitted[fn.name] == true)
-        or (
-            fn.scope.name == "nupp.runtime.vm.modules"
-            and (fn.name == "Require" or fn.name == "RequireV" or fn.name == "SetMethod" or fn.name == "requireSlow")
-        )
-        or (
-            fn.scope.name == "nupp.runtime.vm.boxing"
-            and (fn.name == "TagCheckNum" or fn.name == "StrByte" or fn.name == "NewRecord")
-        )
-        or (fn.scope.name == "nupp.runtime.vm.byteops" and byteAdmitted[fn.name] == true)
-        or (fn.scope.name == "nupp.runtime.vm.records" and recordAdmitted[fn.name] == true)
-        or nativegraph.isLeaf(fn)
+    return fn.scope ~= nil and fn.body ~= nil and fn.paramKinds ~= nil
 end
 
 function nativegraph.isSupport(fn: any): boolean
-    return fn.scope ~= nil and fn.scope.name == "nupp.runtime.vm.modules" and fn.name == "requireSlow"
+    return fn.nativeABI == "support"
 end
 
 function nativegraph.isLeaf(fn: any): boolean
-    return fn.scope ~= nil
-        and (
-            (fn.scope.name == "nupp.runtime.core.entry" and (fn.name == "CoreStop" or fn.name == "CoreFloatStop"))
-            or graph.hasNativeLeafDeclaration(fn.scope.name, fn.name)
-            or fn.scope.name == "nupp.runtime.core.arenaprobe" and fn.name == "CoreArenaProbe"
-            or fn.scope.name == "nupp.runtime.core.frameprobe" and fn.name == "CoreFrameProbe"
-            or fn.scope.name == "nupp.runtime.vm.objecthash" and (fn.name == "slotHash" or fn.name == "stringHash")
-            or fn.scope.name == "nupp.runtime.vm.objectweak" and fn.name == "weakLookupAction"
-            or fn.scope.name == "nupp.runtime.vm.objecttable"
-            and (
-                fn.name == "tableProbe"
-                or fn.name == "tableCapacity"
-                or fn.name == "tableNeedsGrowth"
-                or fn.name == "tableInitialize"
-                or fn.name == "tableLiveCount"
-                or fn.name == "tableRehash"
-            )
-            or fn.scope.name == "nupp.runtime.vm.objectconstruct"
-            and (
-                fn.name == "constructorPayload"
-                or fn.name == "stringInitialize"
-                or fn.name == "sliceInitialize"
-                or fn.name == "cellInitialize"
-                or fn.name == "closureInitialize"
-                or fn.name == "recordInitialize"
-                or fn.name == "integerInitialize"
-                or fn.name == "iteratorInitialize"
-                or fn.name == "iteratorRefresh"
-                or fn.name == "storageInitialize"
-                or fn.name == "storageRefresh"
-            )
-            or fn.scope.name == "nupp.runtime.vm.objectshape"
-            and (fn.name == "shapeCapacity" or fn.name == "shapeFill" or fn.name == "shapeFind")
-        )
+    return fn.nativeABI == "leaf"
 end
 
---- Lowers an admitted checked native function to the shared Nupp graph.
----
---- Exact scalar values and checked memory contracts remain in this graph.
---- Branches and joins carry checked local bindings through graph parameters.
---- Positions and dispatch identity survive without another SSA builder.
---- @raises string when an admitted handler contains unsupported checked syntax
-function nativegraph.compile(fn: any, options: any): any
-    need(nativegraph.admits(fn), "function is outside the admitted handler slice")
+function nativegraph.initialize(fn: any, options: any): any
+    need(nativegraph.admits(fn), "checked native function required")
+    local abi = options.abi or fn.nativeABI
+    need(abi == "handler" or abi == "leaf" or abi == "support", "explicit native ABI required")
     local body = fn.body
-    local leaf = nativegraph.isLeaf(fn)
-    local support = nativegraph.isSupport(fn)
-    local declaration = graph.hasNativeLeafDeclaration(fn.scope.name, fn.name)
-        and graph.nativeLeafDeclaration(fn.scope.name, fn.name)
-    if declaration then
-        need(
-            fn.resultKind == declaration.result and #fn.paramKinds == #declaration.params,
-            "checked leaf declaration signature"
-        )
-        for index, kind in ipairs(declaration.params) do
-            need(fn.paramKinds[index] == kind, "checked leaf declaration parameter")
+    need(not body.varargParam and not body.generics and not body.captureTakes, "plain native function required")
+    need(#body.params == #fn.paramKinds and #body.params >= 1 and #body.params <= 8, "native parameter count")
+    need(fn.resultKind == "uint64" or abi == "leaf" and fn.resultKind == "boolean", "exact native result required")
+    for index, parameter in ipairs(body.params) do
+        local kind = fn.paramKinds[index]
+        need(exactKinds[kind], "exact native parameter required")
+        need(exactKind(parameter.type and parameter.type.resolvedType) == kind, "checked native parameter kind")
+        if abi == "handler" then
+            need(#body.params == 6 and kind == "voidptr", "six raw pointer handler parameters required")
         end
     end
+    fn.nativeABI = abi
+
+    return graph.newNative(fn.paramKinds, fn.resultKind, abi)
+end
+
+function nativegraph.kind(t: any): string
+    return exactKind(t)
+end
+
+function nativegraph.valueKind(g: any, value: integer): string
+    return need(g.exactTypes[value], "missing exact value kind")
+end
+
+function nativegraph.newValue(g: any, kind: string): integer
+    return graph.nativeValue(g, kind)
+end
+
+function nativegraph.localKind(token: any, fn: any): string
+    local kind = exactKind(token.inferredType)
+    need(exactKinds[kind], "exact native local kind required: " .. fn.name .. "." .. token.text .. " is " .. kind)
+    return kind
+end
+
+function nativegraph.emit(ctx: any, node: any, op: string, args: any, kind: string?): integer?
+    return graph.emitNative(ctx.g, ctx.block, op, args, kind, ctx.position(node))
+end
+
+function nativegraph.declaration(ctx: any, call: any, target: any): any
+    need(target and target.node and target.body and target.scope, "checked callee definition required")
+    need(target.nativeABI ~= "handler", "a handler requires dispatch")
+    local result = target.resultKind or "nil"
+    signature(call, target.paramKinds, result)
+    for _, kind in ipairs(target.paramKinds) do
+        need(exactKinds[kind], "composed helper requires exact parameter kinds")
+    end
+    need(result == "nil" or exactKinds[result], "composed helper requires exact result kind")
     need(
-        (fn.resultKind == "uint64" or leaf and declaration and declaration.result == "boolean")
-        and (leaf or support and fn.isSupport == true or fn.isHandler == true),
-        "exact native signature required"
+        target.node.body == target.body and target.scope.functions and target.scope.functions[target.name] == target,
+        "checked callee source identity"
     )
-    need(not body.varargParam and not body.generics and not body.captureTakes, "plain native function required")
-    if leaf or support then
-        if support then
-            need(
-                #fn.paramKinds == 4
-                and fn.paramKinds[1] == "voidptr"
-                and fn.paramKinds[2] == "voidptr"
-                and fn.paramKinds[3] == "uint64"
-                and fn.paramKinds[4] == "int64",
-                "exact module support signature required"
-            )
+    need(#target.body.params == #target.paramKinds, "checked callee parameter count")
+    for index, parameter in ipairs(target.body.params) do
+        need(
+            exactKind(parameter.type and parameter.type.resolvedType) == target.paramKinds[index],
+            "checked callee parameter kind"
+        )
+    end
+    local checked = target.body.signatureType
+    need(checked and #checked.rets <= 1, "checked callee result count")
+    local actual = #checked.rets == 0 and "nil" or exactKind(checked.rets[1])
+    need(actual == result, "checked callee result kind")
+
+    return {
+        moduleName = target.scope.name,
+        name = target.name,
+        params = target.paramKinds,
+        result = result,
+        abi = target.nativeABI or "leaf",
+        source = {path = target.scope.path, module = target.scope.name, name = target.name}
+    }
+end
+
+function nativegraph.inlineContract(ctx: any, call: any, target: any, returns: boolean): any
+    local declaration = nativegraph.declaration(ctx, call, target)
+    need(target.nativeABI ~= "support", "support functions require tail transfer")
+    need(
+        returns and target.resultKind == ctx.fn.resultKind or not returns and target.resultKind == nil,
+        "helper continuation differs from its result"
+    )
+
+    return declaration
+end
+
+local function helperDeclaration(ctx: any, n: any, moduleName: string, name: string): any
+    local options = ctx.options
+    need(options.helperModules and options.helperModules[moduleName], "helper module is not admitted")
+    local checked = n.obj.inferredType
+    while checked and wrappers[checked.tag] do
+        checked = checked[wrappers[checked.tag]]
+    end
+    need(checked and checked.tag == "func" and #checked.rets <= 1, "checked helper signature required")
+    local params = {}
+    for index, parameter in ipairs(checked.params) do
+        params[index] = exactKind(parameter)
+        need(exactKinds[params[index]], "helper parameter requires an exact native kind")
+    end
+    local result = #checked.rets == 0 and "nil" or exactKind(checked.rets[1])
+    need(result == "nil" or exactKinds[result], "helper result requires an exact native kind")
+    need(#(n.args.exprs or {}) == #params, "helper argument count differs from its declaration")
+
+    return {
+        moduleName = moduleName,
+        name = name,
+        params = params,
+        result = result,
+        effects = helpercontract.read(n.obj.name.definition, name),
+        normalReturn = helpercontract.normalReturn(n.obj.name.definition, name)
+    }
+end
+
+function nativegraph.literal(ctx: any, n: any, expected: string?): integer
+    local emit = ctx.emit
+    if n.kind == "number" then
+        local kind = expected or exactKind(n.inferredType)
+        need(kind == "int64" or kind == "uint64", "integer literal needs an exact integer kind")
+        return emit(n, "NativeConstant", {integerText(n)}, kind) as integer
+    end
+    need(expected == nil or expected == "boolean", "boolean literal changes exact kind")
+
+    return emit(n, "NativeBoolean", {n.kind == "true" or n.kind == "trueExpr"}, "boolean") as integer
+end
+
+function nativegraph.constant(ctx: any, n: any, expected: string?): integer
+    local options = ctx.options
+    local scope = ctx.scope
+    local emit = ctx.emit
+    if n.kind == "name" then
+        local constant = scope.constants and scope.constants[n.token.definition or n.token]
+        need(constant and constant.kind == "number", "name is not a checked local binding")
+        local kind = expected or exactKind(constant.inferredType)
+        need(kind == "int64" or kind == "uint64", "module constant requires an exact integer kind")
+        return emit(n, "NativeConstant", {integerText(constant)}, kind) as integer
+    end
+    local moduleName, name = member(n)
+    local home = moduleName and options.modules and options.modules[moduleName]
+    local text = home and home.exportedConstants and home.exportedConstants[name]
+    need(
+        type(text) == "string" and (text:match("^%d+$") or text:match("^0[xX]%x+$")),
+        "checked exact module constant required"
+    )
+    need(expected == "int64" or expected == "uint64", "module constant needs an exact integer kind")
+
+    return emit(n, "NativeConstant", {text}, expected) as integer
+end
+
+function nativegraph.unary(ctx: any, n: any, expected: string?): integer
+    local expression = ctx.expression
+    local emit = ctx.emit
+    local kind = exactKind(n.inferredType)
+    need(expected == nil or expected == kind, "unary expression changes exact kind")
+    if n.op.text == "-" and kind == "int64" and n.operand.kind == "number" then
+        return emit(n, "NativeConstant", {"-" .. integerText(n.operand)}, kind) as integer
+    elseif n.op.text == "~" then
+        need(kind == "int64" or kind == "uint64", "integer complement requires an exact kind")
+        return emit(n, "INot", {expression(n.operand, kind)}, kind) as integer
+    elseif n.op.text == "-" and floatKinds[kind] then
+        return emit(n, "FNeg", {expression(n.operand, kind)}, kind) as integer
+    end
+    error("native graph: unsupported checked unary operator " .. n.op.text, 0)
+end
+
+function nativegraph.binary(ctx: any, n: any, expected: string?): integer
+    local expression = ctx.expression
+    local emit = ctx.emit
+    local operator = n.op.text
+    if comparisons[operator] then
+        need(expected == nil or expected == "boolean", "comparison produces a boolean")
+        local kind = exactKind(n.lhs.inferredType)
+        if not exactKinds[kind] then
+            kind = exactKind(n.rhs.inferredType)
         end
-        need(#body.params == #fn.paramKinds and #body.params >= 1 and #body.params <= 8, "native leaf parameter count")
-        for index, parameter in ipairs(body.params) do
-            local kind = fn.paramKinds[index]
-            need(kind == "voidptr" or kind == "int64" or kind == "uint64", "native leaf requires exact word parameters")
-            need(
-                exactKind(parameter.type and parameter.type.resolvedType) == kind,
-                "checked native leaf parameter required"
-            )
+        need(exactKinds[kind], "comparison needs an exact operand kind")
+        local lhs, rhs = expression(n.lhs, kind), expression(n.rhs, kind)
+        return emit(n, floatKinds[kind] and "NativeFCmp" or "NativeICmp", {lhs, rhs, operator}, "boolean") as integer
+    end
+    local kind = exactKind(n.inferredType)
+    need(kind == "int64" or kind == "uint64" or floatKinds[kind], "exact scalar arithmetic required")
+    need(expected == nil or expected == kind, "arithmetic changes exact kind")
+    local op = need(
+        kind == "uint64" and operator == "//" and "NativeUDiv"
+        or (floatKinds[kind] and floatArithmetic or arithmetic)[operator],
+        "unsupported arithmetic operator"
+    )
+    local lhs = expression(n.lhs, kind)
+    local rhs = expression(n.rhs, kind)
+
+    return emit(n, op, {lhs, rhs}, kind) as integer
+end
+
+function nativegraph.call(ctx: any, n: any, expected: string?): integer
+    local options = ctx.options
+    local leaf = ctx.g.native.abi == "leaf"
+    local expression = ctx.expression
+    local emit = ctx.emit
+    local moduleName, name = member(n.obj)
+    local args = n.args.exprs or {}
+    local target = ctx.callee(n)
+    if target and target.nativeABI ~= "support" then
+        ctx.checkedCallee(n, target)
+        local declaration = graph.nativeLeafDeclaration(target)
+        need(declaration.abi == "leaf", "scalar call requires leaf ABI")
+        need(expected == nil or expected == declaration.result, "leaf call changes exact result kind")
+        local operands = {declaration}
+        for index, kind in ipairs(declaration.params) do
+            operands[index + 1] = expression(args[index], kind)
+        end
+        return emit(n, "NativeLeafCall", operands, declaration.result) as integer
+    elseif moduleName == "nupp.runtime.vm.frames" then
+        local access = framecontract.read(n.obj.name.definition, name as string)
+        local result = access.kind == "status" and "int64" or "voidptr"
+        local kinds = access.kind == "window" and {"voidptr", "voidptr"} or {"voidptr"}
+        signature(n, kinds, result)
+        need(expected == nil or expected == result, "frame access changes exact kind")
+        local operands = {expression(args[1], "voidptr")}
+        if access.kind == "window" then
+            operands[2] = expression(args[2], "voidptr")
+            operands[3] = access
+        else
+            operands[2] = access
+        end
+        return emit(
+            n,
+            access.kind == "status" and "FrameStatus" or (access.kind == "recover" and "FrameRecover" or "FrameWindow"),
+            operands,
+            result
+        ) as integer
+    elseif moduleName == "nupp.runtime.vm.program" then
+        local contract = programcontract.read(n.obj.name.definition, name as string)
+        signature(n, {"voidptr", "int64"}, contract.result)
+        need(expected == nil or expected == contract.result, "program load changes exact kind")
+        local base = expression(args[1], "voidptr")
+        local offset = expression(args[2], "int64")
+        return emit(n, "ProgramLoad", {base, offset, contract}, contract.result) as integer
+    elseif moduleName == "nupp.runtime.vm.slots" then
+        local contract = slotcontract.read(n.obj.name.definition, name as string)
+        need(not contract.write, "slot write is a statement")
+        if contract.class == "vararg" then
+            signature(n, {"voidptr", "int64"}, contract.kind)
+            need(expected == nil or expected == contract.kind, "vararg read changes exact kind")
+            return emit(
+                n,
+                "FrameVarargRead",
+                {expression(args[1], "voidptr"), expression(args[2], "int64"), contract},
+                contract.kind
+            ) as integer
+        end
+        signature(n, {"voidptr", "voidptr", "int64"}, contract.kind)
+        need(expected == nil or expected == contract.kind, "slot read changes exact kind")
+        local frame = expression(args[1], "voidptr")
+        local window = expression(args[2], "voidptr")
+        local slot = expression(args[3], "int64")
+        return emit(n, "FrameSlotRead", {frame, window, slot, contract}, contract.kind) as integer
+    elseif moduleName and options.helperModules and options.helperModules[moduleName] then
+        local declaration = helperDeclaration(ctx, n, moduleName, name as string)
+        need(declaration.result ~= "nil", "helper effect is a statement")
+        need(expected == nil or expected == declaration.result, "helper changes exact result kind")
+        local operands = {declaration}
+        for index, kind in ipairs(declaration.params) do
+            operands[index + 1] = expression(args[index], kind)
+        end
+        return emit(n, "NativeHelperCall", operands, declaration.result) as integer
+    elseif moduleName == "nupp.runtime.vm.intrinsics" and (name == "sizeOf" or name == "alignmentOf") then
+        signature(n, {}, "uint64")
+        need(expected == nil or expected == "uint64", "native type layout changes exact kind")
+        local property = name == "sizeOf" and "size" or "alignment"
+        return emit(n, "NativeConstant", {nativelayout.constant(n, property)}, "uint64") as integer
+    elseif moduleName == "nupp.runtime.vm.intrinsics" and name == "fieldOffset" then
+        signature(n, {"string"}, "int64")
+        need(expected == nil or expected == "int64", "native field offset changes exact kind")
+        return emit(n, "NativeConstant", {nativelayout.fieldOffset(n)}, "int64") as integer
+    elseif moduleName == "nupp.runtime.vm.intrinsics" and name == "layout" then
+        signature(n, {"string"}, "int64")
+        need(expected == nil or expected == "int64", "layout offset changes exact kind")
+        need(args[1].kind == "string", "literal ABI layout name required")
+        return emit(n, "NativeLayout", {args[1].token.value or args[1].token.text:sub(2, -2)}, "int64") as integer
+    elseif moduleName == "nupp.runtime.vm.intrinsics" and memoryIntrinsics[name] then
+        local access = memoryContract(memoryIntrinsics[name], leaf)
+        need(not access.write, "native memory write is a statement")
+        signature(n, {"voidptr", "int64"}, access.kind)
+        need(expected == nil or expected == access.kind, "native load changes exact kind")
+        return emit(
+            n,
+            "NativeLoad",
+            {expression(args[1], "voidptr"), expression(args[2], "int64"), access},
+            access.kind
+        ) as integer
+    elseif moduleName == "nupp.runtime.vm.intrinsics" and intrinsicCalls[name] then
+        local operation = intrinsicCalls[name]
+        signature(n, operation.params, operation.result)
+        need(expected == nil or expected == operation.result, "intrinsic changes exact result kind")
+        local operands = {}
+        for index, kind in ipairs(operation.params) do
+            operands[index] = expression(args[index], kind)
+        end
+        return emit(n, operation.op, operands, operation.result) as integer
+    elseif moduleName == "nupp.runtime.vm.intrinsics" and intrinsicUnary[name] then
+        local operation = intrinsicUnary[name]
+        signature(n, {operation[2]}, operation[3])
+        need(expected == nil or expected == operation[3], "intrinsic changes exact result kind")
+        return emit(n, operation[1], {expression(args[1], operation[2])}, operation[3]) as integer
+    elseif moduleName == "nupp.runtime.vm.intrinsics" and name == "offset" then
+        signature(n, {"voidptr", "int64"}, "voidptr")
+        need(expected == nil or expected == "voidptr", "pointer offset changes exact kind")
+        local base = expression(args[1], "voidptr")
+        local offset = expression(args[2], "int64")
+        return emit(n, "PointerOffset", {base, offset}, "voidptr") as integer
+    end
+    error("native graph: unsupported checked call " .. tostring(moduleName) .. "." .. tostring(name), 0)
+end
+
+function nativegraph.statementCall(ctx: any, call: any): nil
+    local options = ctx.options
+    local leaf = ctx.g.native.abi == "leaf"
+    local expression = ctx.expression
+    local emit = ctx.emit
+    local moduleName, name = member(call.obj)
+    local args = call.args.exprs or {}
+    if moduleName == "nupp.runtime.vm.slots" then
+        local contract = slotcontract.read(call.obj.name.definition, name as string)
+        need(contract.write, "slot read is not a statement")
+        signature(call, {"voidptr", "voidptr", "int64", contract.kind}, "nil")
+        local frame = expression(args[1], "voidptr")
+        local window = expression(args[2], "voidptr")
+        local slot = expression(args[3], "int64")
+        local value = expression(args[4], contract.kind)
+        emit(call, "FrameSlotWrite", {frame, window, slot, value, contract}, nil)
+    elseif moduleName == "nupp.runtime.vm.intrinsics" and memoryIntrinsics[name] then
+        local access = memoryContract(memoryIntrinsics[name], leaf)
+        need(access.write, "native memory read is not a statement")
+        signature(call, {"voidptr", "int64", access.kind}, "nil")
+        emit(
+            call,
+            "NativeStore",
+            {expression(args[1], "voidptr"), expression(args[2], "int64"), expression(args[3], access.kind), access},
+            nil
+        )
+    elseif moduleName and options.helperModules and options.helperModules[moduleName] then
+        local declaration = helperDeclaration(ctx, call, moduleName, name as string)
+        need(declaration.result == "nil", "helper result must be bound explicitly")
+        local operands = {declaration}
+        for index, kind in ipairs(declaration.params) do
+            operands[index + 1] = expression(args[index], kind)
+        end
+        emit(call, "NativeHelperCall", operands, nil)
+    elseif ctx.callee(call) then
+        local target = ctx.callee(call)
+        if leaf and target.nativeABI ~= "support" then
+            expression(call, nil)
+        else
+            ctx.inline(call, target, false)
         end
     else
-        need(#body.params == 6 and #fn.paramKinds == 6, "six handler parameters required")
-        for index, parameter in ipairs(body.params) do
-            need(
-                fn.paramKinds[index] == "voidptr"
-                and exactKind(parameter.type and parameter.type.resolvedType) == "voidptr",
-                "raw pointer handler parameter required"
-            )
-        end
+        error("native graph: unsupported checked statement call", 0)
     end
-    local g = graph.newNative(fn.paramKinds, fn.resultKind, leaf and "leaf" or (support and "support" or "handler"))
-    g.source = {path = fn.scope.path, module = fn.scope.name, name = fn.name}
-    local scope = fn.scope
-    local inlining = {}
-    local block = graph.block(g)
-    local bindings: {[any]: integer} = {}
-    local bindingOrder: {any} = {}
-    for index, parameter in ipairs(body.params) do
-        local key = parameter.name.definition or parameter.name
-        bindings[key] = index
-        bindingOrder[#bindingOrder + 1] = key
-    end
+end
 
-    local function position(n: any): integer
-        local token = need(cst.firstToken(n), "source position required")
-        local id = graph.position(g, token.line, token.col)
-        g.positions[id].source = {moduleName = scope.name, path = scope.path}
-        return id
-    end
-
-    local function emit(n: any, op: string, args: any, kind: string?): integer?
-        return graph.emitNative(g, block, op, args, kind, position(n))
-    end
-
-    local function helperDeclaration(n: any, moduleName: string, name: string): any
-        need(options.helperModules and options.helperModules[moduleName], "helper module is not admitted")
-        local checked = n.obj.inferredType
-        while checked and wrappers[checked.tag] do
-            checked = checked[wrappers[checked.tag]]
-        end
-        need(checked and checked.tag == "func" and #checked.rets <= 1, "checked helper signature required")
-        local params = {}
-        for index, parameter in ipairs(checked.params) do
-            params[index] = exactKind(parameter)
-            need(exactKinds[params[index]], "helper parameter requires an exact native kind")
-        end
-        local result = #checked.rets == 0 and "nil" or exactKind(checked.rets[1])
-        need(result == "nil" or exactKinds[result], "helper result requires an exact native kind")
-        need(#(n.args.exprs or {}) == #params, "helper argument count differs from its declaration")
-
-        return {
-            moduleName = moduleName,
-            name = name,
-            params = params,
-            result = result,
-            effects = helpercontract.read(n.obj.name.definition, name),
-            normalReturn = helpercontract.normalReturn(n.obj.name.definition, name)
-        }
-    end
-
-    local branch: function(): any
-    local resume: function(any): nil
-    local jump: function(any, any): nil
-    local expression: function(any, string?): integer
-    expression = function(n: any, expected: string?): integer
-        if n.kind == "paren" then
-            return expression(n.expr, expected)
-        elseif n.kind == "true" or n.kind == "false" or n.kind == "trueExpr" or n.kind == "falseExpr" then
-            need(expected == nil or expected == "boolean", "boolean literal changes exact kind")
-            return emit(n, "NativeBoolean", {n.kind == "true" or n.kind == "trueExpr"}, "boolean") as integer
-        elseif n.kind == "number" then
-            local kind = expected or exactKind(n.inferredType)
-            need(kind == "int64" or kind == "uint64", "integer literal needs an exact integer kind")
-            return emit(n, "NativeConstant", {integerText(n)}, kind) as integer
-        elseif n.kind == "name" then
-            local value = bindings[n.token.definition or n.token]
-            if value == nil then
-                local constant = scope.constants and scope.constants[n.token.definition or n.token]
-                need(constant and constant.kind == "number", "name is not a checked local binding")
-                local kind = expected or exactKind(constant.inferredType)
-                need(kind == "int64" or kind == "uint64", "module constant requires an exact integer kind")
-                return emit(n, "NativeConstant", {integerText(constant)}, kind) as integer
-            end
-            need(expected == nil or g.exactTypes[value] == expected, "local changes exact kind")
-            return value as integer
-        elseif n.kind == "dotIndex" then
-            local moduleName, name = member(n)
-            need(
-                moduleName == "nupp.runtime.vm.values"
-                or moduleName == "nupp.runtime.vm.heap"
-                or moduleName == "nupp.runtime.core.context"
-                or moduleName == "nupp.runtime.core.frames",
-                "unsupported module constant"
-            )
-            local home = options.modules and options.modules[moduleName]
-            local text = home and home.exportedConstants and home.exportedConstants[name]
-            need(
-                type(text) == "string" and (text:match("^%d+$") or text:match("^0[xX]%x+$")),
-                "checked exact module constant required"
-            )
-            need(expected == "int64" or expected == "uint64", "module constant needs an exact integer kind")
-            return emit(n, "NativeConstant", {text}, expected) as integer
-        elseif n.kind == "unop" then
-            local kind = exactKind(n.inferredType)
-            need(expected == nil or expected == kind, "unary expression changes exact kind")
-            if n.op.text == "-" and kind == "int64" and n.operand.kind == "number" then
-                return emit(n, "NativeConstant", {"-" .. integerText(n.operand)}, kind) as integer
-            elseif n.op.text == "~" then
-                need(kind == "int64" or kind == "uint64", "integer complement requires an exact kind")
-                return emit(n, "INot", {expression(n.operand, kind)}, kind) as integer
-            elseif n.op.text == "-" and floatKinds[kind] then
-                return emit(n, "FNeg", {expression(n.operand, kind)}, kind) as integer
-            end
-            error("native graph: unsupported checked unary operator " .. n.op.text, 0)
-        elseif n.kind == "binop" then
-            local operator = n.op.text
-            if operator == "and" or operator == "or" then
-                need(expected == nil or expected == "boolean", "logical expression requires boolean result")
-                need(
-                    exactKind(n.inferredType) == "boolean"
-                    and exactKind(n.lhs.inferredType) == "boolean"
-                    and exactKind(n.rhs.inferredType) == "boolean",
-                    "logical expression requires exact booleans"
-                )
-                local lhs = expression(n.lhs, "boolean")
-                local key = {}
-                bindings[key], bindingOrder[#bindingOrder + 1] = lhs, key
-                local parent = block
-                local right, done = branch(), branch()
-                bindings[key], bindingOrder[#bindingOrder] = nil, nil
-                parent.term = {
-                    kind = "branch",
-                    value = lhs,
-                    edges = operator == "and" and {right.edge, done.edge} or {done.edge, right.edge},
-                    pos = position(n)
-                }
-                resume(right)
-                local rhs = expression(n.rhs, "boolean")
-                bindings[key] = rhs
-                jump(done, n)
-                resume(done)
-                local result = bindings[key]
-                bindings[key], bindingOrder[#bindingOrder] = nil, nil
-                return result as integer
-            end
-            if comparisons[operator] then
-                need(expected == nil or expected == "boolean", "comparison produces a boolean")
-                local kind = exactKind(n.lhs.inferredType)
-                if not exactKinds[kind] then
-                    kind = exactKind(n.rhs.inferredType)
-                end
-                need(exactKinds[kind], "comparison needs an exact operand kind")
-                local lhs, rhs = expression(n.lhs, kind), expression(n.rhs, kind)
-                return emit(
-                    n,
-                    floatKinds[kind] and "NativeFCmp" or "NativeICmp",
-                    {lhs, rhs, operator},
-                    "boolean"
-                ) as integer
-            end
-            local kind = exactKind(n.inferredType)
-            need(kind == "int64" or kind == "uint64" or floatKinds[kind], "exact scalar arithmetic required")
-            need(expected == nil or expected == kind, "arithmetic changes exact kind")
-            local op = need(
-                kind == "uint64" and operator == "//" and "NativeUDiv"
-                or (floatKinds[kind] and floatArithmetic or arithmetic)[operator],
-                "unsupported arithmetic operator"
-            )
-            local lhs = expression(n.lhs, kind)
-            local rhs = expression(n.rhs, kind)
-            return emit(n, op, {lhs, rhs}, kind) as integer
-        elseif n.kind == "call" then
-            local moduleName, name = member(n.obj)
-            local localTarget
-            if n.obj.kind == "name" and leaf then
-                local target = scope.functions[n.obj.token.text]
-                local token = target and (target.node.kind == "funcStmt" and target.node.name.base or target.node.name)
-                need(
-                    token and token.definition and token.definition == n.obj.token.definition,
-                    "checked local leaf identity required"
-                )
-                moduleName, name, localTarget = scope.name, n.obj.token.text, target
-            end
-            local args = n.args.exprs or {}
-            if moduleName and name and graph.hasNativeLeafDeclaration(moduleName, name) then
-                local home = options.modules and options.modules[moduleName]
-                local target = localTarget or home and home.exports and home.exports[name]
-                need(target and nativegraph.isLeaf(target), "checked leaf definition required")
-                local declaration = graph.nativeLeafDeclaration(moduleName as string, name as string)
-                signature(n, declaration.params, declaration.result)
-                need(expected == nil or expected == declaration.result, "leaf call changes exact result kind")
-                local operands = {declaration}
-                for index, kind in ipairs(declaration.params) do
-                    operands[index + 1] = expression(args[index], kind)
-                end
-                return emit(n, "NativeLeafCall", operands, declaration.result) as integer
-            elseif moduleName == "nupp.runtime.vm.frames" then
-                local access = framecontract.read(n.obj.name.definition, name as string)
-                local result = access.kind == "status" and "int64" or "voidptr"
-                local kinds = access.kind == "window" and {"voidptr", "voidptr"} or {"voidptr"}
-                signature(n, kinds, result)
-                need(expected == nil or expected == result, "frame access changes exact kind")
-                local operands = {expression(args[1], "voidptr")}
-                if access.kind == "window" then
-                    operands[2] = expression(args[2], "voidptr")
-                    operands[3] = access
-                else
-                    operands[2] = access
-                end
-                return emit(
-                    n,
-                    access.kind == "status" and "FrameStatus"
-                    or (access.kind == "recover" and "FrameRecover" or "FrameWindow"),
-                    operands,
-                    result
-                ) as integer
-            elseif moduleName == "nupp.runtime.vm.program" then
-                local contract = programcontract.read(n.obj.name.definition, name as string)
-                signature(n, {"voidptr", "int64"}, contract.result)
-                need(expected == nil or expected == contract.result, "program load changes exact kind")
-                local base = expression(args[1], "voidptr")
-                local offset = expression(args[2], "int64")
-                return emit(n, "ProgramLoad", {base, offset, contract}, contract.result) as integer
-            elseif moduleName == "nupp.runtime.vm.slots" then
-                local contract = slotcontract.read(n.obj.name.definition, name as string)
-                need(not contract.write, "slot write is a statement")
-                if contract.class == "vararg" then
-                    signature(n, {"voidptr", "int64"}, contract.kind)
-                    need(expected == nil or expected == contract.kind, "vararg read changes exact kind")
-                    return emit(
-                        n,
-                        "FrameVarargRead",
-                        {expression(args[1], "voidptr"), expression(args[2], "int64"), contract},
-                        contract.kind
-                    ) as integer
-                end
-                signature(n, {"voidptr", "voidptr", "int64"}, contract.kind)
-                need(expected == nil or expected == contract.kind, "slot read changes exact kind")
-                local frame = expression(args[1], "voidptr")
-                local window = expression(args[2], "voidptr")
-                local slot = expression(args[3], "int64")
-                return emit(n, "FrameSlotRead", {frame, window, slot, contract}, contract.kind) as integer
-            elseif moduleName and options.helperModules and options.helperModules[moduleName] then
-                local declaration = helperDeclaration(n, moduleName, name as string)
-                need(declaration.result ~= "nil", "helper effect is a statement")
-                need(expected == nil or expected == declaration.result, "helper changes exact result kind")
-                local operands = {declaration}
-                for index, kind in ipairs(declaration.params) do
-                    operands[index + 1] = expression(args[index], kind)
-                end
-                return emit(n, "NativeHelperCall", operands, declaration.result) as integer
-            elseif moduleName == "nupp.runtime.vm.intrinsics" and (name == "sizeOf" or name == "alignmentOf") then
-                signature(n, {}, "uint64")
-                need(expected == nil or expected == "uint64", "native type layout changes exact kind")
-                local property = name == "sizeOf" and "size" or "alignment"
-                return emit(n, "NativeConstant", {nativelayout.constant(n, property)}, "uint64") as integer
-            elseif moduleName == "nupp.runtime.vm.intrinsics" and name == "fieldOffset" then
-                signature(n, {"string"}, "int64")
-                need(expected == nil or expected == "int64", "native field offset changes exact kind")
-                return emit(n, "NativeConstant", {nativelayout.fieldOffset(n)}, "int64") as integer
-            elseif moduleName == "nupp.runtime.vm.intrinsics" and name == "layout" then
-                signature(n, {"string"}, "int64")
-                need(expected == nil or expected == "int64", "layout offset changes exact kind")
-                need(args[1].kind == "string", "literal ABI layout name required")
-                return emit(
-                    n,
-                    "NativeLayout",
-                    {args[1].token.value or args[1].token.text:sub(2, -2)},
-                    "int64"
-                ) as integer
-            elseif moduleName == "nupp.runtime.vm.intrinsics" and memoryIntrinsics[name] then
-                local access = memoryContract(memoryIntrinsics[name], leaf)
-                need(not access.write, "native memory write is a statement")
-                signature(n, {"voidptr", "int64"}, access.kind)
-                need(expected == nil or expected == access.kind, "native load changes exact kind")
-                return emit(
-                    n,
-                    "NativeLoad",
-                    {expression(args[1], "voidptr"), expression(args[2], "int64"), access},
-                    access.kind
-                ) as integer
-            elseif moduleName == "nupp.runtime.vm.intrinsics" and intrinsicCalls[name] then
-                local operation = intrinsicCalls[name]
-                signature(n, operation.params, operation.result)
-                need(expected == nil or expected == operation.result, "intrinsic changes exact result kind")
-                local operands = {}
-                for index, kind in ipairs(operation.params) do
-                    operands[index] = expression(args[index], kind)
-                end
-                return emit(n, operation.op, operands, operation.result) as integer
-            elseif moduleName == "nupp.runtime.vm.intrinsics" and intrinsicUnary[name] then
-                local operation = intrinsicUnary[name]
-                signature(n, {operation[2]}, operation[3])
-                need(expected == nil or expected == operation[3], "intrinsic changes exact result kind")
-                return emit(n, operation[1], {expression(args[1], operation[2])}, operation[3]) as integer
-            elseif moduleName == "nupp.runtime.vm.intrinsics" and name == "offset" then
-                signature(n, {"voidptr", "int64"}, "voidptr")
-                need(expected == nil or expected == "voidptr", "pointer offset changes exact kind")
-                local base = expression(args[1], "voidptr")
-                local offset = expression(args[2], "int64")
-                return emit(n, "PointerOffset", {base, offset}, "voidptr") as integer
-            end
-            error("native graph: unsupported checked call " .. tostring(moduleName) .. "." .. tostring(name), 0)
-        end
-        error("native graph: unsupported checked expression " .. tostring(n.kind), 0)
-    end
-
-    branch = function(): any
-        local target = graph.block(g)
-        local transported, order, args, keys = {}, {}, {}, {}
-        for _, key in ipairs(bindingOrder) do
-            local value = bindings[key]
-            order[#order + 1] = key
-            if value <= g.nparams then
-                transported[key] = value
-            else
-                local parameter = graph.nativeValue(g, g.exactTypes[value])
-                target.params[#target.params + 1] = parameter
-                args[#args + 1] = value
-                keys[#keys + 1] = key
-                transported[key] = parameter
-            end
-        end
-
-        return {
-            block = target,
-            bindings = transported,
-            order = order,
-            keys = keys,
-            edge = {target = target.id, args = args}
-        }
-    end
-
-    resume = function(state: any): nil
-        block, bindings, bindingOrder = state.block, state.bindings, state.order
-    end
-
-    jump = function(state: any, node: any): nil
-        local args = {}
-        for _, key in ipairs(state.order) do
-            if state.bindings[key] <= g.nparams then
-                need(bindings[key] == state.bindings[key], "loop changes a function parameter binding")
-            end
-        end
-        for index, key in ipairs(state.keys) do
-            args[index] = need(bindings[key], "loop loses a checked local binding")
-        end
-        block.term = {kind = "jump", edges = {{target = state.block.id, args = args}}, pos = position(node)}
-        block = nil
-    end
-
-    local function callee(call: any): any
-        if call.kind ~= "call" then
-            return nil
-        end
-        if call.obj.kind == "name" then
-            local target = scope.functions and scope.functions[call.obj.token.text]
-            if target then
-                local token = target.node.kind == "funcStmt" and target.node.name.base or target.node.name
-                need(call.obj.token.definition == token.definition, "composed call must name its checked function")
-            end
-            return target
-        end
+function nativegraph.returnStatement(ctx: any, stat: any): nil
+    local fn = ctx.fn
+    local leaf = ctx.g.native.abi == "leaf"
+    local expression = ctx.expression
+    if leaf then
+        need(#stat.exprs == 1, "native leaf returns one scalar")
+        local value = expression(stat.exprs[1], fn.resultKind)
+        ctx.block.term = {kind = "return", value = value, edges = {}, pos = ctx.position(stat)}
+        ctx.block = nil
+    else
+        need(#stat.exprs == 1 and stat.exprs[1].kind == "call", "native transfer return required")
+        local call = stat.exprs[1]
         local moduleName, name = member(call.obj)
-        local home = moduleName and options.modules and options.modules[moduleName]
-
-        return home and home.exports and home.exports[name] or nil
-    end
-
-    local function checkedCallee(call: any, target: any): any
-        need(not target.isHandler, "a handler requires dispatch")
-        local result = target.resultKind or "nil"
-        signature(call, target.paramKinds, result)
-        for _, kind in ipairs(target.paramKinds) do
-            need(exactKinds[kind], "composed helper requires exact parameter kinds")
-        end
-        need(result == "nil" or exactKinds[result], "composed helper requires exact result kind")
-
-        return {moduleName = target.scope.name, name = target.name, params = target.paramKinds, result = result}
-    end
-
-    local loops = {}
-    local statements: function(any): nil
-
-    local function inline(call: any, target: any, returns: boolean): nil
-        local declaration = checkedCallee(call, target)
-        need(not target.isSupport, "support functions require tail transfer")
-        need(not inlining[target], "recursive composed helper")
-        need(
-            returns and target.resultKind == "uint64" or not returns and target.resultKind == nil,
-            "helper continuation differs from its result"
-        )
-        local values = {}
-        for index, kind in ipairs(target.paramKinds) do
-            values[index] = expression(call.args.exprs[index], kind)
-        end
-        local outerBindings, outerOrder, outerScope = bindings, bindingOrder, scope
-        bindings, bindingOrder, scope = {}, {}, target.scope
-        for index, key in ipairs(outerOrder) do
-            bindings[key] = outerBindings[key]
-            bindingOrder[index] = key
-        end
-        for index, parameter in ipairs(target.body.params) do
-            local key = parameter.name.definition or parameter.name
-            bindings[key] = values[index]
-            bindingOrder[#bindingOrder + 1] = key
-        end
-        g.compositions = g.compositions or {}
-        g.compositions[#g.compositions + 1] = declaration
-        inlining[target] = true
-        statements(target.body.body.stats)
-        inlining[target] = nil
-        need(returns and block == nil or not returns and block ~= nil, "composed helper continuation is incomplete")
-        if not returns then
-            for _, key in ipairs(outerOrder) do
-                outerBindings[key] = need(bindings[key], "composed helper loses caller binding")
+        local target = ctx.callee(call)
+        if moduleName == "nupp.runtime.vm.intrinsics" and name == "dispatch" then
+            signature(call, {"voidptr", "voidptr", "voidptr", "voidptr", "voidptr", "voidptr"}, "uint64")
+            local args = {}
+            for index, argument in ipairs(call.args.exprs) do
+                args[index] = expression(argument, "voidptr")
             end
-        end
-        bindings, bindingOrder, scope = outerBindings, outerOrder, outerScope
-    end
-
-    statements = function(stats: any): nil
-        for _, stat in ipairs(stats) do
-            need(block ~= nil or stat.kind == "emptyStmt", "statement after dispatch")
-            if stat.kind == "localStmt" then
-                need(#stat.names == #stat.exprs and not stat.pattern, "plain initialized locals required")
-                for index, token in ipairs(stat.names) do
-                    local key = token.definition or token
-                    need(bindings[key] == nil, "duplicate local binding")
-                    local kind = exactKind(token.inferredType)
-                    need(
-                        exactKinds[kind],
-                        "exact native local kind required: " .. fn.name .. "." .. token.text .. " is " .. kind
-                    )
-                    local value = expression(stat.exprs[index], kind)
-                    bindings[key] = value
-                    bindingOrder[#bindingOrder + 1] = key
-                end
-            elseif stat.kind == "assignStmt" then
-                need(#stat.targets == #stat.exprs, "parallel local assignment requires one value per target")
-                local values, keys = {}, {}
-                for index, target in ipairs(stat.targets) do
-                    need(target.kind == "name", "unsupported checked assignment target")
-                    local key = target.token.definition or target.token
-                    local previous = need(bindings[key], "assignment requires a checked local binding")
-                    keys[index] = key
-                    values[index] = expression(stat.exprs[index], g.exactTypes[previous])
-                end
-                for index, key in ipairs(keys) do
-                    bindings[key] = values[index]
-                end
-            elseif stat.kind == "callStmt" then
-                local call = stat.expr
-                local moduleName, name = member(call.obj)
-                local args = call.args.exprs or {}
-                if moduleName == "nupp.runtime.vm.slots" then
-                    local contract = slotcontract.read(call.obj.name.definition, name as string)
-                    need(contract.write, "slot read is not a statement")
-                    signature(call, {"voidptr", "voidptr", "int64", contract.kind}, "nil")
-                    local frame = expression(args[1], "voidptr")
-                    local window = expression(args[2], "voidptr")
-                    local slot = expression(args[3], "int64")
-                    local value = expression(args[4], contract.kind)
-                    emit(call, "FrameSlotWrite", {frame, window, slot, value, contract}, nil)
-                elseif moduleName == "nupp.runtime.vm.intrinsics" and memoryIntrinsics[name] then
-                    local access = memoryContract(memoryIntrinsics[name], leaf)
-                    need(access.write, "native memory read is not a statement")
-                    signature(call, {"voidptr", "int64", access.kind}, "nil")
-                    emit(
-                        call,
-                        "NativeStore",
-                        {
-                            expression(args[1], "voidptr"),
-                            expression(args[2], "int64"),
-                            expression(args[3], access.kind),
-                            access
-                        },
-                        nil
-                    )
-                elseif moduleName and options.helperModules and options.helperModules[moduleName] then
-                    local declaration = helperDeclaration(call, moduleName, name as string)
-                    need(declaration.result == "nil", "helper result must be bound explicitly")
-                    local operands = {declaration}
-                    for index, kind in ipairs(declaration.params) do
-                        operands[index + 1] = expression(args[index], kind)
-                    end
-                    emit(call, "NativeHelperCall", operands, nil)
-                elseif callee(call) then
-                    local target = callee(call)
-                    if leaf and graph.hasNativeLeafDeclaration(target.scope.name, target.name) then
-                        expression(call, nil)
-                    else
-                        inline(call, target, false)
-                    end
-                else
-                    error("native graph: unsupported checked statement call", 0)
-                end
-            elseif stat.kind == "ifStmt" then
-                local originalBindings, originalOrder = bindings, bindingOrder
-                local incoming = {}
-
-                local function continuation(): nil
-                    if block then
-                        incoming[#incoming + 1] = {block = block, bindings = bindings}
-                    end
-                end
-
-                for _, clause in ipairs(stat.clauses) do
-                    need(not clause.binding, "unsupported checked binding clause")
-                    local condition = expression(clause.cond, "boolean")
-                    local parent = block
-                    local yes, no = branch(), branch()
-                    parent.term = {
-                        kind = "branch",
-                        value = condition,
-                        edges = {yes.edge, no.edge},
-                        pos = position(clause)
-                    }
-                    resume(yes)
-                    statements(clause.body.stats)
-                    continuation()
-                    resume(no)
-                end
-                if stat.elseClause then
-                    statements(stat.elseClause.body.stats)
-                end
-                continuation()
-                block = nil
-                bindings, bindingOrder = {}, {}
-                if #incoming > 0 then
-                    local join = graph.block(g)
-                    local transported = {}
-                    for _, key in ipairs(originalOrder) do
-                        local original = originalBindings[key]
-                        local unchanged = original <= g.nparams
-                        for _, state in ipairs(incoming) do
-                            need(state.bindings[key] ~= nil, "conditional loses a checked local")
-                            unchanged = unchanged and state.bindings[key] == original
-                        end
-                        bindingOrder[#bindingOrder + 1] = key
-                        if unchanged then
-                            bindings[key] = original
-                        else
-                            local parameter = graph.nativeValue(g, g.exactTypes[original])
-                            join.params[#join.params + 1] = parameter
-                            transported[#transported + 1] = key
-                            bindings[key] = parameter
-                        end
-                    end
-                    for _, state in ipairs(incoming) do
-                        local args = {}
-                        for index, key in ipairs(transported) do
-                            args[index] = state.bindings[key]
-                        end
-                        state.block.term = {
-                            kind = "jump",
-                            edges = {{target = join.id, args = args}},
-                            pos = position(stat)
-                        }
-                    end
-                    block = join
-                end
-            elseif stat.kind == "whileStmt" then
-                local before = block
-                local header = branch()
-                before.term = {kind = "jump", edges = {header.edge}, pos = position(stat)}
-                resume(header)
-                local condition = expression(stat.cond, "boolean")
-                local body, exit = branch(), branch()
-                block.term = {kind = "branch", value = condition, edges = {body.edge, exit.edge}, pos = position(stat)}
-                loops[#loops + 1] = {exit = exit, continueTo = header}
-                resume(body)
-                statements(stat.body.stats)
-                if block then
-                    jump(header, stat)
-                end
-                loops[#loops] = nil
-                resume(exit)
-            elseif stat.kind == "breakStmt" or stat.kind == "continueStmt" then
-                local loop = need(loops[#loops], "loop transfer outside a checked loop")
-                jump(stat.kind == "breakStmt" and loop.exit or loop.continueTo, stat)
-            elseif stat.kind == "doStmt" then
-                local outer = {}
-                for index, key in ipairs(bindingOrder) do
-                    outer[index] = key
-                end
-                statements(stat.body.stats)
-                local scoped = {}
-                for _, key in ipairs(outer) do
-                    scoped[key] = bindings[key]
-                end
-                bindings, bindingOrder = scoped, outer
-            elseif stat.kind == "returnStmt" then
-                if leaf then
-                    need(#stat.exprs == 1, "native leaf returns one scalar")
-                    local value = expression(stat.exprs[1], fn.resultKind)
-                    block.term = {kind = "return", value = value, edges = {}, pos = position(stat)}
-                    block = nil
-                else
-                    need(#stat.exprs == 1 and stat.exprs[1].kind == "call", "native transfer return required")
-                    local call = stat.exprs[1]
-                    local moduleName, name = member(call.obj)
-                    local target = callee(call)
-                    if moduleName == "nupp.runtime.vm.intrinsics" and name == "dispatch" then
-                        signature(call, {"voidptr", "voidptr", "voidptr", "voidptr", "voidptr", "voidptr"}, "uint64")
-                        local args = {}
-                        for index, argument in ipairs(call.args.exprs) do
-                            args[index] = expression(argument, "voidptr")
-                        end
-                        block.term = {kind = "dispatch", args = args, edges = {}, pos = position(stat)}
-                        block = nil
-                    elseif moduleName == "nupp.runtime.vm.intrinsics" and name == "fail" then
-                        signature(call, {}, "uint64")
-                        block.term = {kind = "nativeFail", edges = {}, pos = position(stat)}
-                        block = nil
-                    elseif target and target.isSupport then
-                        local declaration = checkedCallee(call, target)
-                        need(declaration.result == "uint64", "support transfer requires a status result")
-                        declaration.abi = "support"
-                        declaration.effects = {mayCollect = true, mayPark = true, mayRaise = true, pure = false}
-                        local args = {}
-                        for index, kind in ipairs(declaration.params) do
-                            args[index] = expression(call.args.exprs[index], kind)
-                        end
-                        block.term = {
-                            kind = "nativeTail",
-                            callee = declaration,
-                            args = args,
-                            edges = {},
-                            pos = position(stat)
-                        }
-                        block = nil
-                    elseif target then
-                        inline(call, target, true)
-                    else
-                        error("native graph: unsupported checked transfer", 0)
-                    end
-                end
-            elseif stat.kind ~= "emptyStmt" then
-                error("native graph: unsupported checked statement " .. tostring(stat.kind), 0)
+            ctx.block.term = {kind = "dispatch", args = args, edges = {}, pos = ctx.position(stat)}
+            ctx.block = nil
+        elseif moduleName == "nupp.runtime.vm.intrinsics" and name == "fail" then
+            signature(call, {}, "uint64")
+            ctx.block.term = {kind = "nativeFail", edges = {}, pos = ctx.position(stat)}
+            ctx.block = nil
+        elseif target and target.nativeABI == "support" then
+            local declaration = ctx.checkedCallee(call, target)
+            need(declaration.result == "uint64", "support transfer requires a status result")
+            declaration.abi = "support"
+            declaration.effects = {mayCollect = true, mayPark = true, mayRaise = true, pure = false}
+            local args = {}
+            for index, kind in ipairs(declaration.params) do
+                args[index] = expression(call.args.exprs[index], kind)
             end
+            ctx.block.term = {
+                kind = "nativeTail",
+                callee = declaration,
+                args = args,
+                edges = {},
+                pos = ctx.position(stat)
+            }
+            ctx.block = nil
+        elseif target then
+            ctx.inline(call, target, true)
+        else
+            error("native graph: unsupported checked transfer", 0)
         end
     end
-    statements(body.body.stats)
-    need(block == nil, "handler falls through without dispatch")
-    graph.verify(g)
+end
 
-    return g
+-- Compatibility entry only; the shared lowering owns all CST traversal.
+function nativegraph.compile(fn: any, options: any): any
+    local lower = require("nupp.compiler.vm.lower")
+    return lower.functionGraph(fn, options, nativegraph)
 end
 
 export = nativegraph

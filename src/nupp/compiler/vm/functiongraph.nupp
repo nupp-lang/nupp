@@ -1,0 +1,379 @@
+module nupp.compiler.vm.functiongraph
+
+local graph = require("nupp.compiler.vm.graph")
+local cst = require("nupp.compiler.syntax.cst")
+local frontend = {}
+
+local function need(ok: any, message: string): any
+    assert(ok, "function graph: " .. message)
+    return ok
+end
+
+-- Profiles select operations and contracts. This module alone traverses
+-- checked syntax, resolves lexical bindings and constructs closed CFG blocks.
+function frontend.compile(fn: any, options: any, profile: any): any
+    need(fn and fn.body and fn.scope and fn.node, "checked function owner required")
+    need(fn.node.body == fn.body, "checked function body identity required")
+    need(
+        type(fn.name) == "string" and type(fn.scope.path) == "string" and type(fn.scope.name) == "string",
+        "checked function source required"
+    )
+    need(type(profile) == "table", "explicit lowering profile required")
+    options = options or {}
+    local g = profile.initialize(fn, options)
+    g.source = {path = fn.scope.path, module = fn.scope.name, name = fn.name}
+    local body, scope = fn.body, fn.scope
+    local block = graph.block(g)
+    local bindings: {[any]: integer} = {}
+    local bindingOrder: {any} = {}
+    local inlining, loops = {}, {}
+    for index, parameter in ipairs(body.params) do
+        local key = parameter.name.definition or parameter.name
+        bindings[key] = index
+        bindingOrder[#bindingOrder + 1] = key
+    end
+    local ctx: any = {g = g, fn = fn, options = options}
+
+    local function context(): nil
+        ctx.block, ctx.scope = block, scope
+    end
+
+    local function position(node: any): integer
+        local token = need(cst.firstToken(node), "source position required")
+        local id = graph.position(g, token.line, token.col)
+        g.positions[id].source = {moduleName = scope.name, path = scope.path}
+        return id
+    end
+
+    ctx.position = position
+
+    local function emit(node: any, op: string, args: any, kind: string?): integer?
+        context()
+        return profile.emit(ctx, node, op, args, kind)
+    end
+
+    ctx.emit = emit
+
+    local function invoke(name: string, node: any, expected: any): any
+        context()
+        local hook = need(profile[name], "profile lacks " .. name)
+        local value = hook(ctx, node, expected)
+        block = ctx.block
+
+        return value
+    end
+
+    local branch: function(): any
+    local resume: function(any): nil
+    local jump: function(any, any): nil
+    local expression: function(any, string?): integer
+    expression = function(node: any, expected: string?): integer
+        if node.kind == "paren" then
+            return expression(node.expr, expected)
+        elseif node.kind == "name" then
+            local value = bindings[node.token.definition or node.token]
+            if value == nil then
+                return invoke("constant", node, expected)
+            end
+            need(expected == nil or profile.valueKind(g, value) == expected, "local changes exact kind")
+            context()
+            return value as integer
+        elseif node.kind == "number"
+            or node.kind == "true"
+            or node.kind == "false"
+            or node.kind == "trueExpr"
+            or node.kind == "falseExpr"
+        then
+            return invoke("literal", node, expected)
+        elseif node.kind == "dotIndex" then
+            return invoke("constant", node, expected)
+        elseif node.kind == "unop" then
+            return invoke("unary", node, expected)
+        elseif node.kind == "call" then
+            return invoke("call", node, expected)
+        elseif node.kind == "binop" then
+            local operator = node.op.text
+            if operator ~= "and" and operator ~= "or" then
+                return invoke("binary", node, expected)
+            end
+            local boolean = profile.booleanKind
+            need(expected == nil or expected == boolean, "logical expression requires boolean result")
+            need(
+                profile.kind(node.inferredType) == boolean
+                and profile.kind(node.lhs.inferredType) == boolean
+                and profile.kind(node.rhs.inferredType) == boolean,
+                "logical expression requires exact booleans"
+            )
+            local lhs = expression(node.lhs, boolean)
+            local key = {}
+            bindings[key], bindingOrder[#bindingOrder + 1] = lhs, key
+            local parent = block
+            local right, done = branch(), branch()
+            bindings[key], bindingOrder[#bindingOrder] = nil, nil
+            parent.term = {
+                kind = "branch",
+                value = lhs,
+                edges = operator == "and" and {right.edge, done.edge} or {done.edge, right.edge},
+                pos = position(node)
+            }
+            resume(right)
+            bindings[key] = expression(node.rhs, boolean)
+            jump(done, node)
+            resume(done)
+            local result = bindings[key]
+            bindings[key], bindingOrder[#bindingOrder] = nil, nil
+            context()
+            return result as integer
+        end
+        error("function graph: unsupported checked expression " .. tostring(node.kind), 0)
+    end
+    ctx.expression = expression
+    branch = function(): any
+        local target = graph.block(g)
+        local transported, order, args, keys = {}, {}, {}, {}
+        for _, key in ipairs(bindingOrder) do
+            local value = bindings[key]
+            order[#order + 1] = key
+            if value <= g.nparams then
+                transported[key] = value
+            else
+                local parameter = profile.newValue(g, profile.valueKind(g, value))
+                target.params[#target.params + 1] = parameter
+                args[#args + 1] = value
+                keys[#keys + 1] = key
+                transported[key] = parameter
+            end
+        end
+
+        return {
+            block = target,
+            bindings = transported,
+            order = order,
+            keys = keys,
+            edge = {target = target.id, args = args}
+        }
+    end
+
+    resume = function(state: any): nil
+        block, bindings, bindingOrder = state.block, state.bindings, state.order
+    end
+
+    jump = function(state: any, node: any): nil
+        local args = {}
+        for _, key in ipairs(state.order) do
+            if state.bindings[key] <= g.nparams then
+                need(bindings[key] == state.bindings[key], "loop changes a function parameter binding")
+            end
+        end
+        for index, key in ipairs(state.keys) do
+            args[index] = need(bindings[key], "loop loses a checked local binding")
+        end
+        block.term = {kind = "jump", edges = {{target = state.block.id, args = args}}, pos = position(node)}
+        block = nil
+    end
+
+    local function callee(call: any): any
+        if call.kind ~= "call" then
+            return nil
+        end
+        if call.obj.kind == "name" then
+            local target = scope.functions and scope.functions[call.obj.token.text]
+            if target then
+                local token = target.node.kind == "funcStmt" and target.node.name.base or target.node.name
+                need(
+                    token and call.obj.token.definition == (token.definition or token),
+                    "composed call must name its checked declaration"
+                )
+            end
+            return target
+        elseif call.obj.kind == "dotIndex" and call.obj.obj.kind == "name" then
+            local definition = call.obj.obj.token.definition
+            local moduleName = definition and definition.requiredModule
+            local home = moduleName and options.modules and options.modules[moduleName]
+            return home and home.exports and home.exports[call.obj.name.text] or nil
+        end
+
+        return nil
+    end
+
+    ctx.callee = callee
+    ctx.checkedCallee = function(call: any, target: any): any
+        context()
+        return profile.declaration(ctx, call, target)
+    end
+
+    local statements: function(any): nil
+
+    local function inline(call: any, target: any, returns: boolean): nil
+        context()
+        local declaration = profile.inlineContract(ctx, call, target, returns)
+        need(not inlining[target], "recursive composed helper")
+        local values = {}
+        for index, kind in ipairs(target.paramKinds) do
+            values[index] = expression(call.args.exprs[index], kind)
+        end
+        local outerBindings, outerOrder, outerScope = bindings, bindingOrder, scope
+        bindings, bindingOrder, scope = {}, {}, target.scope
+        for index, key in ipairs(outerOrder) do
+            bindings[key], bindingOrder[index] = outerBindings[key], key
+        end
+        for index, parameter in ipairs(target.body.params) do
+            local key = parameter.name.definition or parameter.name
+            bindings[key] = values[index]
+            bindingOrder[#bindingOrder + 1] = key
+        end
+        g.compositions = g.compositions or {}
+        g.compositions[#g.compositions + 1] = declaration
+        inlining[target] = true
+        statements(target.body.body.stats)
+        inlining[target] = nil
+        need(returns and block == nil or not returns and block ~= nil, "composed helper continuation is incomplete")
+        if not returns then
+            for _, key in ipairs(outerOrder) do
+                outerBindings[key] = need(bindings[key], "composed helper loses caller binding")
+            end
+        end
+        bindings, bindingOrder, scope = outerBindings, outerOrder, outerScope
+        context()
+    end
+
+    ctx.inline = inline
+    statements = function(stats: any): nil
+        for _, stat in ipairs(stats) do
+            need(block ~= nil or stat.kind == "emptyStmt", "statement after dispatch")
+            if stat.kind == "localStmt" then
+                need(#stat.names == #stat.exprs and not stat.pattern, "plain initialized locals required")
+                for index, token in ipairs(stat.names) do
+                    local key = token.definition or token
+                    need(bindings[key] == nil, "duplicate local binding")
+                    local kind = profile.localKind(token, fn)
+                    local value = expression(stat.exprs[index], kind)
+                    bindings[key] = value
+                    bindingOrder[#bindingOrder + 1] = key
+                end
+            elseif stat.kind == "assignStmt" then
+                need(#stat.targets == #stat.exprs, "parallel local assignment requires one value per target")
+                local values, keys = {}, {}
+                for index, target in ipairs(stat.targets) do
+                    need(target.kind == "name", "unsupported checked assignment target")
+                    local key = target.token.definition or target.token
+                    local previous = need(bindings[key], "assignment requires a checked local binding")
+                    keys[index] = key
+                    values[index] = expression(stat.exprs[index], profile.valueKind(g, previous))
+                end
+                for index, key in ipairs(keys) do
+                    bindings[key] = values[index]
+                end
+            elseif stat.kind == "callStmt" then
+                invoke("statementCall", stat.expr, nil)
+            elseif stat.kind == "ifStmt" then
+                local originalBindings, originalOrder = bindings, bindingOrder
+                local incoming = {}
+
+                local function continuation(): nil
+                    if block then
+                        incoming[#incoming + 1] = {block = block, bindings = bindings}
+                    end
+                end
+
+                for _, clause in ipairs(stat.clauses) do
+                    need(not clause.binding, "unsupported checked binding clause")
+                    local condition = expression(clause.cond, profile.booleanKind)
+                    local parent = block
+                    local yes, no = branch(), branch()
+                    parent.term = {
+                        kind = "branch",
+                        value = condition,
+                        edges = {yes.edge, no.edge},
+                        pos = position(clause)
+                    }
+                    resume(yes)
+                    statements(clause.body.stats)
+                    continuation()
+                    resume(no)
+                end
+                if stat.elseClause then
+                    statements(stat.elseClause.body.stats)
+                end
+                continuation()
+                block = nil
+                bindings, bindingOrder = {}, {}
+                if #incoming > 0 then
+                    local join = graph.block(g)
+                    local transported = {}
+                    for _, key in ipairs(originalOrder) do
+                        local original = originalBindings[key]
+                        local unchanged = original <= g.nparams
+                        for _, state in ipairs(incoming) do
+                            need(state.bindings[key] ~= nil, "conditional loses a checked local")
+                            unchanged = unchanged and state.bindings[key] == original
+                        end
+                        bindingOrder[#bindingOrder + 1] = key
+                        if unchanged then
+                            bindings[key] = original
+                        else
+                            local parameter = profile.newValue(g, profile.valueKind(g, original))
+                            join.params[#join.params + 1] = parameter
+                            transported[#transported + 1] = key
+                            bindings[key] = parameter
+                        end
+                    end
+                    for _, state in ipairs(incoming) do
+                        local args = {}
+                        for index, key in ipairs(transported) do
+                            args[index] = state.bindings[key]
+                        end
+                        state.block.term = {
+                            kind = "jump",
+                            edges = {{target = join.id, args = args}},
+                            pos = position(stat)
+                        }
+                    end
+                    block = join
+                end
+            elseif stat.kind == "whileStmt" then
+                local before = block
+                local header = branch()
+                before.term = {kind = "jump", edges = {header.edge}, pos = position(stat)}
+                resume(header)
+                local condition = expression(stat.cond, profile.booleanKind)
+                local body, exit = branch(), branch()
+                block.term = {kind = "branch", value = condition, edges = {body.edge, exit.edge}, pos = position(stat)}
+                loops[#loops + 1] = {exit = exit, continueTo = header}
+                resume(body)
+                statements(stat.body.stats)
+                if block then
+                    jump(header, stat)
+                end
+                loops[#loops] = nil
+                resume(exit)
+            elseif stat.kind == "breakStmt" or stat.kind == "continueStmt" then
+                local loop = need(loops[#loops], "loop transfer outside a checked loop")
+                jump(stat.kind == "breakStmt" and loop.exit or loop.continueTo, stat)
+            elseif stat.kind == "doStmt" then
+                local outer = {}
+                for index, key in ipairs(bindingOrder) do
+                    outer[index] = key
+                end
+                statements(stat.body.stats)
+                local scoped = {}
+                for _, key in ipairs(outer) do
+                    scoped[key] = bindings[key]
+                end
+                bindings, bindingOrder = scoped, outer
+            elseif stat.kind == "returnStmt" then
+                invoke("returnStatement", stat, nil)
+            elseif stat.kind ~= "emptyStmt" then
+                error("function graph: unsupported checked statement " .. tostring(stat.kind), 0)
+            end
+        end
+    end
+    need(body.body and body.body.stats, "statement-bodied function required")
+    statements(body.body.stats)
+    need(block == nil, "function falls through without a return or transfer")
+    graph.verify(g)
+
+    return g
+end
+
+export = frontend
