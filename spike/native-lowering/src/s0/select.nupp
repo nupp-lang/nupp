@@ -227,7 +227,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
     local scratchBase = align(cursor, 8)
     local stageBase = scratchBase + 64
     code.frameBytes = align(stageBase + 17 * 8, 16)
-    assert(code.frameBytes <= 32760, "S0 select: arena frame exceeds direct spill addressing")
+    assert(code.frameBytes < 16777216, "S0 select: arena frame exceeds address increment range")
     for op = 1, #ir.opNames do
         code.opWords[op], code.opCounts[op] = 0, 0
     end
@@ -309,12 +309,33 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         return 16 + (-location - 1) * 8
     end
 
+    -- The selector's arena header holds LR at +0 and a temporary GPR at +8.
+    -- These words are independent of logical guest Frame storage.
+    local function memory(reg: integer, offset: integer, store: boolean): nil
+        assert(offset >= 0 and offset % 8 == 0 and offset <= code.frameBytes - 8, "S0 select: arena access range")
+        local base: integer = 23
+        if offset > 32760 then
+            base = reg == 17 and 17 or 16
+            emit(arm.str(8, base, 23, 8))
+            addOffset(base, 23, offset & -4096)
+            offset = offset & 4095
+        end
+        if reg >= 65 then
+            emit(store and arm.str_fp(64, reg - 65, base, offset) or arm.ldr_fp(64, reg - 65, base, offset))
+        else
+            emit(store and arm.str(8, reg - 1, base, offset) or arm.ldr(8, reg - 1, base, offset))
+        end
+        if base ~= 23 then
+            emit(arm.ldr(8, base, 23, 8))
+        end
+    end
+
     local function save(reg: integer, offset: integer): nil
-        emit(reg >= 65 and arm.str_fp(64, reg - 65, 23, offset) or arm.str(8, reg - 1, 23, offset))
+        memory(reg, offset, true)
     end
 
     local function restore(reg: integer, offset: integer): nil
-        emit(reg >= 65 and arm.ldr_fp(64, reg - 65, 23, offset) or arm.ldr(8, reg - 1, 23, offset))
+        memory(reg, offset, false)
     end
 
     local function temporary(floating: boolean): integer
@@ -381,8 +402,8 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
             return
         end
         if sourceLoc < 0 and destinationLoc < 0 then
-            emit(arm.ldr(8, 17, 23, spillOffset(sourceLoc)))
-            emit(arm.str(8, 17, 23, spillOffset(destinationLoc)))
+            restore(18, spillOffset(sourceLoc))
+            save(18, spillOffset(destinationLoc))
         elseif sourceLoc < 0 then
             restore(destinationLoc, spillOffset(sourceLoc))
         elseif destinationLoc < 0 then
