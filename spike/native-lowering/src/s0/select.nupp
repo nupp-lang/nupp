@@ -481,11 +481,11 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
             end
             local rd: integer = 0
             local _ = switch op do
-                case(JUMP) -> do
+                case JUMP -> do
                     edge(colFirstEdge[at])
                     yield true
                 end
-                case(BRIF) -> do
+                case BRIF -> do
                     local condition = source(colArgs[firstArg])
                     -- Scratch restores precede branching and do not change flags.
                     emit(arm.cmp_imm(32, condition, 0, 0))
@@ -497,7 +497,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                     edge(colFirstEdge[at] + 1)
                     yield true
                 end
-                case(RETURN) -> do
+                case RETURN -> do
                     assert(nargs <= 2, "S0 select: multiple return values")
                     local sources, destinations, kinds = transportSources, transportDestinations, transportKinds
                     for p = #sources, nargs + 1, -1 do
@@ -526,11 +526,11 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                     emit(arm.ret(30))
                     yield true
                 end
-                case(TRAP) -> do
+                case TRAP -> do
                     emit(arm.brk(colImm[at]))
                     yield true
                 end
-                case(CALL), (CALL_INDIRECT), (RETURN_CALL), (RETURN_CALL_INDIRECT) -> do
+                case CALL, CALL_INDIRECT, RETURN_CALL, RETURN_CALL_INDIRECT -> do
                     local indirect = op == CALL_INDIRECT or op == RETURN_CALL_INDIRECT
                     local tail = op == RETURN_CALL or op == RETURN_CALL_INDIRECT
                     local signature = colSignatures[indirect and colAux[at] or colImportSignatures[colAux[at]]]
@@ -617,38 +617,38 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                         or 0, nargs >= 3 and regs[3]
                         or 0
                     local _ = switch op do
-                        case(ICONST) -> do
+                        case ICONST -> do
                             constant(rd, colImm[at], width)
                             yield true
                         end
-                        case(FCONST) -> do
+                        case FCONST -> do
                             local temp = temporary(false)
                             constant(temp, colImm[at], bits(kind));
                             emit(arm.fmov_from_int(bits(kind), rd, temp))
                             yield true
                         end
-                        case(STACK_ADDR) -> do
+                        case STACK_ADDR -> do
                             addOffset(rd, 23, code.stackOffsets[colAux[at]] + colImm[at])
                             yield true
                         end
-                        case(IADD) -> do
+                        case IADD -> do
                             emit(arm.add_reg(width, rd, x, y, 0))
                             yield true
                         end
-                        case(ISUB) -> do
+                        case ISUB -> do
                             emit(arm.sub_reg(width, rd, x, y, 0))
                             yield true
                         end
-                        case(IMUL) -> do
+                        case IMUL -> do
                             emit(arm.madd(width, rd, x, y, 31))
                             yield true
                         end
-                        case(UMULHI), (SMULHI) -> do
+                        case UMULHI, SMULHI -> do
                             assert(width == 64, "S0 select: narrow multiply-high unsupported")
                             emit(op == UMULHI and arm.umulh(rd, x, y) or arm.smulh(rd, x, y))
                             yield true
                         end
-                        case(BAND), (BOR), (BXOR) -> do
+                        case BAND, BOR, BXOR -> do
                             local definition = colDefinitions[colArgs[firstArg + 1]]
                             local n: integer = -1
                             local r: integer = 0
@@ -671,11 +671,11 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                             end
                             yield true
                         end
-                        case(BNOT) -> do
+                        case BNOT -> do
                             emit(arm.mvn(width, rd, x))
                             yield true
                         end
-                        case(ISHL), (USHR), (SSHR) -> do
+                        case ISHL, USHR, SSHR -> do
                             if bits(kind) < 32 then
                                 local temp = temporary(false)
                                 emit(arm.ubfm(32, temp, y, 0, kind == ir.I8 and 2 or 3));
@@ -693,7 +693,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                             )
                             yield true
                         end
-                        case(POPCNT) -> do
+                        case POPCNT -> do
                             local t = temporary(false)
                             emit(arm.ubfm(width, t, x, 1, width - 1))
                             emit(arm.and_imm(width, t, t, 0, 0, 60))
@@ -710,7 +710,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                             emit(arm.ubfm(width, rd, rd, width - 8, width - 1))
                             yield true
                         end
-                        case(UDIV), (SDIV), (UREM), (SREM) -> do
+                        case UDIV, SDIV, UREM, SREM -> do
                             local signed = op == SDIV or op == SREM
                             if signed and bits(kind) < 32 then
                                 local tx, ty = temporary(false), temporary(false)
@@ -742,7 +742,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                             end
                             yield true
                         end
-                        case(ICMP) -> do
+                        case ICMP -> do
                             local condition = colAux[at]
                             local operandKind = colValueKinds[colArgs[firstArg]]
                             local w = machine(operandKind)
@@ -758,7 +758,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                             )
                             yield true
                         end
-                        case(FCMP) -> do
+                        case FCMP -> do
                             local condition = colAux[at]
                             emit(arm.fcmp(bits(colValueKinds[colArgs[firstArg]]), x, y))
                             local cc = floatConditions[condition]
@@ -777,7 +777,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                             end
                             yield true
                         end
-                        case(SELECT) -> do
+                        case SELECT -> do
                             emit(arm.cmp_imm(32, x, 0, 0))
                             emit(
                                 ir.isFloat(kind) and arm.fcsel(bits(kind), rd, y, z, target.NE)
@@ -785,7 +785,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                             )
                             yield true
                         end
-                        case(IREDUCE), (UEXTEND), (SEXTEND) -> do
+                        case IREDUCE, UEXTEND, SEXTEND -> do
                             local from = bits(colValueKinds[colArgs[firstArg]])
                             local retained = math.min(from, bits(kind))
                             emit(
@@ -794,7 +794,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                             )
                             yield true
                         end
-                        case(BITCAST) -> do
+                        case BITCAST -> do
                             local from = colValueKinds[colArgs[firstArg]]
                             assert(bits(from) == bits(kind), "S0 select: bitcast width")
                             if ir.isFloat(kind) == ir.isFloat(from) then
@@ -807,51 +807,51 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                             end
                             yield true
                         end
-                        case(FPROMOTE), (FDEMOTE) -> do
+                        case FPROMOTE, FDEMOTE -> do
                             emit(arm.fcvt(bits(kind), bits(colValueKinds[colArgs[firstArg]]), rd, x))
                             yield true
                         end
-                        case(FADD) -> do
+                        case FADD -> do
                             emit(arm.fadd(bits(kind), rd, x, y))
                             yield true
                         end
-                        case(FSUB) -> do
+                        case FSUB -> do
                             emit(arm.fsub(bits(kind), rd, x, y))
                             yield true
                         end
-                        case(FMUL) -> do
+                        case FMUL -> do
                             emit(arm.fmul(bits(kind), rd, x, y))
                             yield true
                         end
-                        case(FDIV) -> do
+                        case FDIV -> do
                             emit(arm.fdiv(bits(kind), rd, x, y))
                             yield true
                         end
-                        case(FNEG) -> do
+                        case FNEG -> do
                             emit(arm.fneg(bits(kind), rd, x))
                             yield true
                         end
-                        case(FABS) -> do
+                        case FABS -> do
                             emit(arm.fabs(bits(kind), rd, x))
                             yield true
                         end
-                        case(SQRT) -> do
+                        case SQRT -> do
                             emit(arm.fsqrt(bits(kind), rd, x))
                             yield true
                         end
-                        case(FLOOR) -> do
+                        case FLOOR -> do
                             emit(arm.frintm(bits(kind), rd, x))
                             yield true
                         end
-                        case(CEIL) -> do
+                        case CEIL -> do
                             emit(arm.frintp(bits(kind), rd, x))
                             yield true
                         end
-                        case(FMA) -> do
+                        case FMA -> do
                             emit(arm.fmadd(bits(kind), rd, x, y, z))
                             yield true
                         end
-                        case(FCVT_FROM_SINT), (FCVT_FROM_UINT) -> do
+                        case FCVT_FROM_SINT, FCVT_FROM_UINT -> do
                             local from = colValueKinds[colArgs[firstArg]]
                             if op == FCVT_FROM_SINT and bits(from) < 32 then
                                 local t = temporary(false);
@@ -864,7 +864,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                             )
                             yield true
                         end
-                        case(FCVT_TO_SINT_SAT), (FCVT_TO_UINT_SAT) -> do
+                        case FCVT_TO_SINT_SAT, FCVT_TO_UINT_SAT -> do
                             assert(bits(kind) >= 32, "S0 select: narrow saturating conversion unsupported")
                             emit(
                                 op == FCVT_TO_SINT_SAT
@@ -873,7 +873,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                             )
                             yield true
                         end
-                        case(LOAD), (SLOAD), (STORE) -> do
+                        case LOAD, SLOAD, STORE -> do
                             local store = op == STORE
                             local valueKind = store and colValueKinds[colArgs[firstArg]] or kind
                             local bytes = (colAux[at] ~= 0 and colAux[at] or bits(valueKind)) // 8
