@@ -1,0 +1,452 @@
+{
+  "scope": "S0 memory-only raw ARM64 loader, not an E1/E2 backend acceptance result",
+  "baseCommit": "33c63e89e22fc4205fb8cd7ee91b7e854f12203f",
+  "host": "aarch64-apple-darwin",
+  "memoryProvider": "cranelift_jit::SystemMemoryProvider via JITMemoryProvider allocation/finalize/free only; no JITModule, CLIF, instruction selection, or code generation",
+  "callAbi": 1,
+  "entryConvention": "extern C fn(packet: *const u64, out: *mut u64)",
+  "packetWords": [
+    "call ABI",
+    "code base",
+    "code bytes",
+    "data base",
+    "data bytes",
+    "import address table base",
+    "import count",
+    "input words base",
+    "input word count",
+    "output word count"
+  ],
+  "ownership": "Nupp supplies all code, shims, layout, fixups and import-slot initialization through writable preparation buffers. Seal publishes RX code and read-only data/imports and flushes instruction caches/pipelines. Image Drop frees mappings. The caller retains the owner through every use.",
+  "validation": {
+    "unitPassed": 2,
+    "integrationPassed": 3,
+    "failed": 0,
+    "ignored": 0,
+    "controlsAbsent": [
+      "NO_JIT",
+      "NO_AOT",
+      "NO_THREADED",
+      "SIMD_INTERPRET",
+      "JIT_ONLY",
+      "NUPP_AOT_OBJECT"
+    ],
+    "assembler": "System cc and otool confirm all ten ARM64 words in the transport fixture",
+    "deniedExecution": "Fresh subprocess under existing deny-exec.c interposer exits 86 when executable publication is attempted",
+    "rejections": [
+      "non-aarch64 image/host",
+      "layout digest mismatch",
+      "empty or incomplete instruction bytes",
+      "unaligned or out-of-range entry",
+      "storage and import extent overflow"
+    ]
+  },
+  "frozenCore": {
+    "sourceCommit": "155e30249f9c484d60d4ae819c85c7a9196a15ad",
+    "runtimeObjectSha256": "4187cde4c1e634d5d9b5a0fb9239d57aff889a1f8dd50c96aaa14afcf9c014b1",
+    "purpose": "Unchanged linked runtime needed by the existing VM test executable; the transport fixture executes independently generated raw bytes."
+  },
+  "formatter": "nupp fmt was invoked for all changed Rust files and rejects Rust syntax; new Rust files passed rustfmt --edition 2024; existing lib.rs only gains the two module lines.",
+  "fullCoreProviderAudit": {
+    "implemented": false,
+    "exportCount": 105,
+    "hostImportCount": 88,
+    "exports": {
+      "nupp_allocator_allocate": [
+        "native/crates/vm/src/native_allocator.rs:38"
+      ],
+      "nupp_allocator_arena_close": [
+        "native/crates/vm/src/native_allocator.rs:35"
+      ],
+      "nupp_allocator_arena_open": [
+        "native/crates/vm/src/native_allocator.rs:34"
+      ],
+      "nupp_allocator_barrier": [
+        "native/crates/vm/src/native_allocator.rs:57"
+      ],
+      "nupp_allocator_barrier_shade": [
+        "native/crates/vm/src/native_allocator.rs:58"
+      ],
+      "nupp_allocator_chunk_count": [
+        "native/crates/vm/src/native_allocator.rs:77"
+      ],
+      "nupp_allocator_compact_large": [
+        "native/crates/vm/src/native_allocator.rs:79"
+      ],
+      "nupp_allocator_create": [
+        "native/crates/vm/src/native_allocator.rs:36"
+      ],
+      "nupp_allocator_destroy": [
+        "native/crates/vm/src/native_allocator.rs:37"
+      ],
+      "nupp_allocator_gray_empty": [
+        "native/crates/vm/src/native_allocator.rs:76"
+      ],
+      "nupp_allocator_gray_pop": [
+        "native/crates/vm/src/native_allocator.rs:59"
+      ],
+      "nupp_allocator_is_live_slot": [
+        "native/crates/vm/src/native_allocator.rs:80"
+      ],
+      "nupp_allocator_large_count": [
+        "native/crates/vm/src/native_allocator.rs:78"
+      ],
+      "nupp_allocator_reclaim": [
+        "native/crates/vm/src/native_allocator.rs:47"
+      ],
+      "nupp_allocator_resize": [
+        "native/crates/vm/src/native_allocator.rs:46"
+      ],
+      "nupp_allocator_shade": [
+        "native/crates/vm/src/native_allocator.rs:56"
+      ],
+      "nupp_allocator_slot_bytes": [
+        "native/crates/vm/src/native_allocator.rs:81"
+      ],
+      "nupp_allocator_snapshot": [
+        "native/crates/vm/src/native_allocator.rs:48"
+      ],
+      "nupp_allocator_weak_clear": [
+        "native/crates/vm/src/native_allocator.rs:68"
+      ],
+      "nupp_allocator_weak_mark": [
+        "native/crates/vm/src/native_allocator.rs:60"
+      ],
+      "nupp_array_extend": [
+        "native/crates/vm/src/native_value_array.rs:18"
+      ],
+      "nupp_array_initialize": [
+        "native/crates/vm/src/native_value_array.rs:15"
+      ],
+      "nupp_array_push": [
+        "native/crates/vm/src/native_value_array.rs:17"
+      ],
+      "nupp_array_release": [
+        "native/crates/vm/src/native_value_array.rs:22"
+      ],
+      "nupp_array_reserve": [
+        "native/crates/vm/src/native_value_array.rs:16"
+      ],
+      "nupp_array_resize": [
+        "native/crates/vm/src/native_value_array.rs:19"
+      ],
+      "nupp_array_trim": [
+        "native/crates/vm/src/native_value_array.rs:21"
+      ],
+      "nupp_array_truncate": [
+        "native/crates/vm/src/native_value_array.rs:20"
+      ],
+      "nupp_byte_array_extend": [
+        "native/crates/vm/src/native_byte_array.rs:27"
+      ],
+      "nupp_byte_array_initialize": [
+        "native/crates/vm/src/native_byte_array.rs:21"
+      ],
+      "nupp_byte_array_release": [
+        "native/crates/vm/src/native_byte_array.rs:29"
+      ],
+      "nupp_byte_array_take": [
+        "native/crates/vm/src/native_byte_array.rs:28"
+      ],
+      "nupp_native_runtime_entry": [
+        "native/crates/vm/src/dispatch.rs:28"
+      ],
+      "nupp_native_runtime_resume": [
+        "native/crates/vm/src/dispatch.rs:39"
+      ],
+      "nupp_native_runtime_step": [
+        "native/crates/vm/src/dispatch.rs:40"
+      ],
+      "nupp_object_cell_initialize": [
+        "native/crates/vm/src/heap.rs:304"
+      ],
+      "nupp_object_child_next": [
+        "native/crates/vm/src/heap.rs:298"
+      ],
+      "nupp_object_closure_initialize": [
+        "native/crates/vm/src/heap.rs:305"
+      ],
+      "nupp_object_constructor_payload": [
+        "native/crates/vm/src/native_record_tail.rs:57",
+        "native/crates/vm/src/heap.rs:299"
+      ],
+      "nupp_object_integer_initialize": [
+        "native/crates/vm/src/heap.rs:300"
+      ],
+      "nupp_object_iterator_initialize": [
+        "native/crates/vm/src/heap.rs:295"
+      ],
+      "nupp_object_iterator_refresh": [
+        "native/crates/vm/src/heap.rs:296"
+      ],
+      "nupp_object_next": [
+        "native/crates/vm/src/native_allocator.rs:30"
+      ],
+      "nupp_object_record_initialize": [
+        "native/crates/vm/src/native_record_tail.rs:58",
+        "native/crates/vm/src/heap.rs:301"
+      ],
+      "nupp_object_shape_capacity": [],
+      "nupp_object_shape_fill": [],
+      "nupp_object_shape_find": [
+        "native/crates/vm/src/heap.rs:306"
+      ],
+      "nupp_object_slice_initialize": [
+        "native/crates/vm/src/heap.rs:303"
+      ],
+      "nupp_object_slot_hash": [
+        "native/crates/vm/src/heap.rs:297"
+      ],
+      "nupp_object_storage_initialize": [
+        "native/crates/vm/src/heap.rs:293"
+      ],
+      "nupp_object_storage_refresh": [
+        "native/crates/vm/src/heap.rs:294"
+      ],
+      "nupp_object_string_hash": [
+        "native/crates/vm/src/value.rs:120"
+      ],
+      "nupp_object_string_initialize": [
+        "native/crates/vm/src/heap.rs:302"
+      ],
+      "nupp_object_table_capacity": [],
+      "nupp_object_table_initialize": [],
+      "nupp_object_table_live_count": [],
+      "nupp_object_table_needs_growth": [],
+      "nupp_object_table_probe": [],
+      "nupp_object_table_rehash": [],
+      "nupp_object_weak_lookup_action": [],
+      "nupp_record_ensure_extra": [
+        "native/crates/vm/src/native_record_tail.rs:12"
+      ],
+      "nupp_record_release_extra": [
+        "native/crates/vm/src/native_record_tail.rs:13"
+      ],
+      "nupp_root_candidate": [
+        "native/crates/vm/src/native_allocator.rs:54"
+      ],
+      "nupp_scan_strong": [
+        "native/crates/vm/src/native_allocator.rs:55"
+      ],
+      "nupp_shape_methods_clear": [
+        "native/crates/vm/src/native_shape_methods.rs:28"
+      ],
+      "nupp_shape_methods_get": [
+        "native/crates/vm/src/native_shape_methods.rs:25"
+      ],
+      "nupp_shape_methods_initialize": [
+        "native/crates/vm/src/native_shape_methods.rs:18"
+      ],
+      "nupp_shape_methods_insert": [
+        "native/crates/vm/src/native_shape_methods.rs:19"
+      ],
+      "nupp_shape_methods_next": [
+        "native/crates/vm/src/native_shape_methods.rs:27"
+      ],
+      "nupp_shape_methods_release": [
+        "native/crates/vm/src/native_shape_methods.rs:29"
+      ],
+      "nupp_shape_methods_remove": [
+        "native/crates/vm/src/native_shape_methods.rs:26"
+      ],
+      "nupp_shape_methods_reserve": [
+        "native/crates/vm/src/native_shape_methods.rs:125"
+      ],
+      "nupp_shape_owned_initialize": [
+        "native/crates/vm/src/native_shape.rs:12"
+      ],
+      "nupp_shape_registry_clear": [
+        "native/crates/vm/src/native_shape_registry.rs:40"
+      ],
+      "nupp_shape_registry_initialize": [
+        "native/crates/vm/src/native_shape_registry.rs:31"
+      ],
+      "nupp_shape_registry_push": [
+        "native/crates/vm/src/native_shape_registry.rs:38"
+      ],
+      "nupp_shape_registry_release": [
+        "native/crates/vm/src/native_shape_registry.rs:41"
+      ],
+      "nupp_shape_registry_reserve": [
+        "native/crates/vm/src/native_shape_registry.rs:36"
+      ],
+      "nupp_shape_types_replace": [
+        "native/crates/vm/src/native_shape_metadata.rs:60"
+      ],
+      "nupp_shape_types_set": [
+        "native/crates/vm/src/native_shape_metadata.rs:65"
+      ],
+      "nupp_sweep_begin": [
+        "native/crates/vm/src/native_allocator.rs:31"
+      ],
+      "nupp_sweep_finished": [
+        "native/crates/vm/src/native_allocator.rs:33"
+      ],
+      "nupp_sweep_next": [
+        "native/crates/vm/src/native_allocator.rs:32"
+      ],
+      "nupp_table_owned_bytes": [
+        "native/crates/vm/src/native_value_table.rs:19"
+      ],
+      "nupp_table_owned_entry_bucket": [
+        "native/crates/vm/src/native_value_table.rs:23"
+      ],
+      "nupp_table_owned_get_slot": [
+        "native/crates/vm/src/native_value_table.rs:22"
+      ],
+      "nupp_table_owned_grow": [
+        "native/crates/vm/src/native_value_table.rs:20"
+      ],
+      "nupp_table_owned_initialize": [
+        "native/crates/vm/src/native_value_table.rs:17"
+      ],
+      "nupp_table_owned_insert": [
+        "native/crates/vm/src/native_value_table.rs:21"
+      ],
+      "nupp_table_owned_next_after": [
+        "native/crates/vm/src/native_value_table.rs:26"
+      ],
+      "nupp_table_owned_next_position": [
+        "native/crates/vm/src/native_value_table.rs:25"
+      ],
+      "nupp_table_owned_position": [
+        "native/crates/vm/src/native_value_table.rs:24"
+      ],
+      "nupp_table_owned_release": [
+        "native/crates/vm/src/native_value_table.rs:18"
+      ],
+      "nupp_weak_cycle_clear_next": [
+        "native/crates/vm/src/native_allocator.rs:53"
+      ],
+      "nupp_weak_cycle_propagate": [
+        "native/crates/vm/src/native_allocator.rs:52"
+      ],
+      "nupp_weak_cycle_remember": [
+        "native/crates/vm/src/native_allocator.rs:50"
+      ],
+      "nupp_weak_cycle_reset": [
+        "native/crates/vm/src/native_allocator.rs:49"
+      ],
+      "nupp_weak_cycle_scan": [
+        "native/crates/vm/src/native_allocator.rs:51"
+      ],
+      "nupp_weak_erase": [
+        "native/crates/vm/src/native_allocator.rs:29"
+      ],
+      "nupp_weak_insert": [
+        "native/crates/vm/src/native_allocator.rs:28"
+      ],
+      "nupp_weak_integer_lookup": [
+        "native/crates/vm/src/native_allocator.rs:21"
+      ],
+      "nupp_weak_integer_peek": [
+        "native/crates/vm/src/native_allocator.rs:13"
+      ],
+      "nupp_weak_reserve": [],
+      "nupp_weak_string_lookup": [
+        "native/crates/vm/src/native_allocator.rs:14"
+      ],
+      "nupp_weak_string_peek": [
+        "native/crates/vm/src/native_allocator.rs:12"
+      ]
+    },
+    "hostImports": [
+      "nupp_os_advise_pages",
+      "nupp_os_map_pages",
+      "nupp_os_page_size",
+      "nupp_os_unmap_pages",
+      "nupp_rt_allocate_buffer",
+      "nupp_rt_allocate_bytes",
+      "nupp_rt_append_bytes",
+      "nupp_rt_arithmetic_operands",
+      "nupp_rt_barrier",
+      "nupp_rt_binary_callback",
+      "nupp_rt_box_integer",
+      "nupp_rt_budget_stop",
+      "nupp_rt_byte_range_error",
+      "nupp_rt_byte_type_error",
+      "nupp_rt_call_builtin",
+      "nupp_rt_call_coroutine",
+      "nupp_rt_call_error",
+      "nupp_rt_call_host",
+      "nupp_rt_call_iter",
+      "nupp_rt_call_object",
+      "nupp_rt_call_task",
+      "nupp_rt_cell_error",
+      "nupp_rt_cleanup_slot_error",
+      "nupp_rt_complete_task",
+      "nupp_rt_concat_values",
+      "nupp_rt_consume_buffer",
+      "nupp_rt_defer",
+      "nupp_rt_enter_affine",
+      "nupp_rt_enter_frame",
+      "nupp_rt_eq_slow",
+      "nupp_rt_finish_protected",
+      "nupp_rt_get_field",
+      "nupp_rt_grow_hash",
+      "nupp_rt_integer_bits",
+      "nupp_rt_integer_double",
+      "nupp_rt_intern",
+      "nupp_rt_intern_key",
+      "nupp_rt_mark_affine",
+      "nupp_rt_memory_poll",
+      "nupp_rt_move_protection",
+      "nupp_rt_new_cell",
+      "nupp_rt_new_closure",
+      "nupp_rt_new_index",
+      "nupp_rt_new_record",
+      "nupp_rt_new_string",
+      "nupp_rt_new_table",
+      "nupp_rt_numeric_bits",
+      "nupp_rt_numeric_double",
+      "nupp_rt_numeric_error",
+      "nupp_rt_numeric_kind",
+      "nupp_rt_numeric_word",
+      "nupp_rt_object_length",
+      "nupp_rt_observe",
+      "nupp_rt_order_error",
+      "nupp_rt_parameter_class",
+      "nupp_rt_physical_get",
+      "nupp_rt_physical_set",
+      "nupp_rt_poll_cleanups",
+      "nupp_rt_poll_return_cleanups",
+      "nupp_rt_power",
+      "nupp_rt_protect_frame",
+      "nupp_rt_protected_answer",
+      "nupp_rt_protected_callback",
+      "nupp_rt_protection_handler",
+      "nupp_rt_raise",
+      "nupp_rt_record_index",
+      "nupp_rt_record_mismatch",
+      "nupp_rt_register_method",
+      "nupp_rt_require_module",
+      "nupp_rt_reserve_stack",
+      "nupp_rt_resize_array",
+      "nupp_rt_resolve_cleanup",
+      "nupp_rt_resolve_method",
+      "nupp_rt_result_roots",
+      "nupp_rt_result_storage",
+      "nupp_rt_scheduler_poll",
+      "nupp_rt_shared_metamethod",
+      "nupp_rt_simd_error",
+      "nupp_rt_simd_finish",
+      "nupp_rt_simd_invalid",
+      "nupp_rt_simd_prepare",
+      "nupp_rt_slot_number_error",
+      "nupp_rt_span_view",
+      "nupp_rt_store_field",
+      "nupp_rt_task_park",
+      "nupp_rt_unary_operand",
+      "nupp_rt_unprotect",
+      "nupp_rt_wrapped_coroutine"
+    ],
+    "evidence": "Inventory from native_glue object_leaf/allocator_entry plus three dispatch wrappers exactly matches nm defined exports in the frozen core object. Undefined symbols are existing host services.",
+    "required": "A future immutable full-core provider must cover every export and every host entry path, including direct FFI tests, not just entry/resume/step. No mixed-core differential or E2 acceptance is claimed."
+  },
+  "sourceHashes": {
+    "native/crates/vm/src/native_raw.rs": "49bc6ddea3d105301e1a5513f400c32a9e0e9c5cb9dc0e447c1d9c033efa8ae6",
+    "native/crates/vm/src/lib.rs": "8eca489c52f0a33b8a812aa1b6e92afccfd75fe27f9b658e0355913407eb11a0",
+    "native/crates/vm/tests/native_raw.rs": "b9a63dbd8e479300e7e4df429f3ea5deb046c4b077dec476cf36d80c34a2fc0f"
+  },
+  "priorFailure": "Initial test link used the narrower pre-registry ABI28 lane object and lacked shape-registry exports; preserved cargo-incomplete-base-core.log. Final tests use the exact composed155e frozen object copied privately."
+}

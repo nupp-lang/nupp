@@ -119,6 +119,8 @@ pub mod jit_glue;
 pub mod native_glue;
 #[cfg(feature = "aot")]
 pub mod native_jit;
+#[cfg(feature = "jit")]
+pub mod native_raw;
 
 #[cfg(feature = "compiled-runtime")]
 pub mod compiled;
