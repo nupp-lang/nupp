@@ -7,18 +7,24 @@ local envMod = require("nupp.compiler.project.env")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
-local function checked(source)
-    local tree = parser.parse(source, "do-expression.nupp")
+local function checked(source, moduleName)
+    local filename = moduleName and moduleName .. ".nupp" or "do-expression.nupp"
+    local tree = parser.parse(source, filename)
     assert(#tree.errors == 0, tree.errors[1] and tree.errors[1].msg)
-    local diagnostics = check.check(tree, "do-expression.nupp", env)
+    local diagnostics = check.check(tree, filename, env, {moduleName = moduleName})
+
     return tree, diagnostics
 end
 
+local fragments = 0
+
 local function run(source)
-    local tree, diagnostics = checked(source)
+    fragments = fragments + 1
+    local name = "do_expression_" .. fragments
+    local tree, diagnostics = checked(source, name)
     assert(#diagnostics == 0, diagnostics[1] and diagnostics[1].msg)
 
-    return program.run(tree, "do-expression")
+    return program.run(tree, name)
 end
 
 local M = {}
