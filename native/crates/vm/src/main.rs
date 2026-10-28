@@ -206,6 +206,10 @@ pub(crate) fn main() {
         args[1] = "run".into();
         args.insert(4, "main".into());
     }
+    #[cfg(feature = "native-runtime")]
+    if args.get(1).map(String::as_str) != Some("native") || args.get(2).map(String::as_str) == Some("describe") {
+        if let Err(problem) = nupp_vm::native_core_provider::initialize() { eprintln!("native core provider: {problem}"); std::process::exit(1); }
+    }
     #[cfg(feature = "aot")]
     if args.get(1).map(String::as_str) == Some("aot") && (4..=6).contains(&args.len()) {
         let flags: Vec<&str> = args[4..].iter().map(String::as_str).collect();
@@ -221,6 +225,8 @@ pub(crate) fn main() {
             (Some("object"), 5) => native_glue::write_object(&args[3], &args[4]),
             (Some("jit"), 5..) => nupp_vm::native_jit::jit(&args[3], &args[4], &args[5..]),
             #[cfg(feature = "native-runtime")]
+            (Some("raw-exports"), 3) => { println!("{}", nupp_vm::native_core_provider::CORE_EXPORT_NAMES.join("\n")); Ok(()) },
+            #[cfg(feature = "native-runtime")]
             (Some("raw-layout"), 3) => nupp_vm::native_raw_bundle::layout_digest_hex().map(|digest| println!("{digest}")),
             #[cfg(feature = "native-runtime")]
             (Some("raw"), 6) => unsafe { nupp_vm::native_raw_bundle::run(&args[3], &args[4], &args[5]) },
@@ -232,7 +238,7 @@ pub(crate) fn main() {
                     Ok(())
                 })
             }
-            _ => { eprintln!("usage: nupp-vm native (layouts OUT.json | object IN.clif OUT.o | jit IN.clif FUNCTION [ARG...] | raw BUNDLE INPUT OUTPUT | raw-layout | describe IMAGE)"); std::process::exit(2) }
+            _ => { eprintln!("usage: nupp-vm native (layouts OUT.json | object IN.clif OUT.o | jit IN.clif FUNCTION [ARG...] | raw BUNDLE INPUT OUTPUT | raw-layout | raw-exports | describe IMAGE)"); std::process::exit(2) }
         };
         if let Err(problem) = result { eprintln!("{problem}"); std::process::exit(1) }
         return;

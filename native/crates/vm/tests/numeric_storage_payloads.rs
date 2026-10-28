@@ -12,7 +12,7 @@ impl Roots for Root {
         f(self.0);
     }
 }
-unsafe extern "C" {
+nupp_vm::native_core_api! {
     fn nupp_object_constructor_payload(kind: u64, count: u64) -> u64;
     fn nupp_object_storage_initialize(header: *mut Header, words: *mut u64) -> u64;
 }

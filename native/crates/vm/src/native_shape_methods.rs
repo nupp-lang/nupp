@@ -14,7 +14,7 @@ const _: () = {
     assert!(std::mem::size_of::<ShapeMethods>() == 40);
 };
 #[cfg(feature = "native-runtime")]
-unsafe extern "C" {
+crate::native_core_api! {
     fn nupp_shape_methods_initialize(map: *mut ShapeMethods, owner: *mut c_void) -> u64;
     pub(crate) fn nupp_shape_methods_insert(
         map: *mut ShapeMethods,
@@ -121,7 +121,7 @@ mod tests {
     use super::*;
     use crate::native_allocator::NativeAllocator;
     use std::collections::BTreeMap;
-    unsafe extern "C" {
+    crate::native_core_api! {
         fn nupp_shape_methods_reserve(map: *mut ShapeMethods, additional: u64) -> u64;
     }
     fn entries(map: &ShapeMethods) -> BTreeMap<u64, u64> {

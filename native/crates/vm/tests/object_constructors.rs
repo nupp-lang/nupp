@@ -10,7 +10,7 @@ struct NoRoots;
 impl Roots for NoRoots {
     fn each_root(&self, _: &mut dyn FnMut(Value)) {}
 }
-unsafe extern "C" {
+nupp_vm::native_core_api! {
     fn nupp_object_constructor_payload(kind: u64, count: u64) -> u64;
     fn nupp_object_integer_initialize(header: *mut Header, bits: u64) -> u64;
     fn nupp_object_string_initialize(header: *mut Header, count: u64) -> u64;

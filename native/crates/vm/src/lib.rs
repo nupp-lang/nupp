@@ -111,6 +111,8 @@ pub mod embed;
 pub mod threaded;
 #[cfg(feature = "native-runtime")]
 mod dispatch;
+#[cfg(feature = "native-runtime")]
+pub mod native_core_provider;
 #[cfg(feature = "jit")]
 pub mod jit;
 #[cfg(feature = "aot")]

@@ -8,7 +8,7 @@ pub struct RecordTail {
     pub(crate) extra: *mut RecordExtra,
 }
 #[cfg(feature = "native-runtime")]
-unsafe extern "C" {
+crate::native_core_api! {
     fn nupp_record_ensure_extra(tail: *mut RecordTail) -> *mut RecordExtra;
     fn nupp_record_release_extra(tail: *mut RecordTail) -> u64;
 }
@@ -53,7 +53,7 @@ mod tests {
     use crate::native_allocator::NativeAllocator;
     use crate::value::Value;
 
-    unsafe extern "C" {
+    crate::native_core_api! {
         fn nupp_object_constructor_payload(kind: u64, count: u64) -> u64;
         fn nupp_object_record_initialize(
             header: *mut Header,

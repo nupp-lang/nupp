@@ -29,7 +29,7 @@ fn expected_string_hash(bytes: &[u8], state: u64) -> u64 {
 #[test]
 fn linked_string_hash_preserves_binary_bytes_seeds_and_incremental_writes() {
     use nupp_vm::value::fnv1a;
-    unsafe extern "C" {
+    nupp_vm::native_core_api! {
         fn nupp_object_string_hash(bytes: *const u8, count: u64, state: u64) -> u64;
     }
     assert_eq!(fnv1a(b""), 0xcbf29ce484222325);
@@ -99,7 +99,7 @@ fn binary_interned_strings_keep_identity_and_cached_hashes_through_collection() 
 
 #[test]
 fn weak_lookup_leaf_preserves_unsigned_epochs_and_transported_collector_constants() {
-    unsafe extern "C" {
+    nupp_vm::native_core_api! {
         fn nupp_object_weak_lookup_action(
             phase: u64,
             color: u64,

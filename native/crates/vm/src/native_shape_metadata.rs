@@ -56,7 +56,7 @@ const _: () = {
     assert!(std::mem::align_of::<ShapeTypes>() == 8);
 };
 #[cfg(feature = "native-runtime")]
-unsafe extern "C" {
+crate::native_core_api! {
     pub(crate) fn nupp_shape_types_replace(
         types: *mut ShapeTypes,
         source: *const Value,

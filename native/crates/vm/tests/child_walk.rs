@@ -30,7 +30,7 @@ struct Cursor {
     index: u64,
     value: u64,
 }
-unsafe extern "C" {
+nupp_vm::native_core_api! {
     fn nupp_object_child_next(header: *const Header, cursor: *mut Cursor) -> u64;
 }
 

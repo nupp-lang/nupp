@@ -8,7 +8,7 @@ use std::ops::Deref;
 pub struct ShapeTable(ValueArray);
 
 #[cfg(feature = "native-runtime")]
-unsafe extern "C" {
+crate::native_core_api! {
     pub(crate) fn nupp_shape_owned_initialize(
         names: *mut ValueArray,
         probes: *mut ValueArray,

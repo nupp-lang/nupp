@@ -13,7 +13,7 @@ pub struct ValueTable {
     owner: *mut c_void,
 }
 #[cfg(feature = "native-runtime")]
-unsafe extern "C" {
+crate::native_core_api! {
     fn nupp_table_owned_initialize(table: *mut ValueTable, owner: *mut c_void, wanted: u64) -> u64;
     fn nupp_table_owned_release(table: *mut ValueTable);
     fn nupp_table_owned_bytes(table: *const ValueTable) -> u64;

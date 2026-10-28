@@ -117,7 +117,7 @@ pub type BitsBuild = std::hash::BuildHasherDefault<BitsHasher>;
 pub type ValueMap = std::collections::HashMap<Value, Value, std::hash::BuildHasherDefault<BitsHasher>>;
 
 #[cfg(feature = "native-runtime")]
-unsafe extern "C" { fn nupp_object_string_hash(bytes: *const u8, count: u64, state: u64) -> u64; }
+crate::native_core_api! { fn nupp_object_string_hash(bytes: *const u8, count: u64, state: u64) -> u64; }
 #[cfg(feature = "native-runtime")]
 const _: () = assert!(crate::dispatch::OBJECT_ABI == 28);
 fn string_hash(bytes: &[u8], state: u64) -> u64 {

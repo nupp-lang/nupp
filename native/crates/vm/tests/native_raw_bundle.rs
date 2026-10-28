@@ -98,7 +98,7 @@ fn bundle_rejects_bad_metadata_and_preserves_output() {
         ("entry", json!(2)),
         ("imports", json!(["nupp_rt_unknown"])),
         ("imports", json!([7])),
-        ("imports", json!(vec!["nupp_os_page_size"; 89])),
+        ("imports", json!(vec!["nupp_os_page_size"; 91])),
         ("outputWords", json!(1_048_577)),
         ("code", json!(null)),
         ("unknown", json!(true)),
@@ -142,4 +142,48 @@ fn host_resolver_matches_the_frozen_core_import_inventory() {
             .all(|name| host_symbol(name).is_some_and(|address| address != 0))
     );
     assert!(host_symbol("nupp_rt_any").is_none());
+}
+
+#[test]
+fn embedded_import_pool_is_filled_before_seal_and_validated() {
+    let fixture = Fixture::new();
+    let mut code = std::fs::read(fixture.0.join("code.bin")).unwrap();
+    // At byte 16, ADR x2, +32 addresses the pool at byte 48.
+    code[16..20].copy_from_slice(&0x10000102u32.to_le_bytes());
+    code.resize(56, 0);
+    std::fs::write(fixture.0.join("code.bin"), &code).unwrap();
+    let mut manifest = fixture.manifest();
+    manifest["version"] = json!(2);
+    manifest["importOffset"] = json!(48);
+    let result = fixture.run(&manifest);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(
+        std::fs::read(fixture.0.join("output.bin")).unwrap(),
+        unsafe { nupp_vm::os_glue::nupp_os_page_size() }.to_le_bytes()
+    );
+    for offset in [
+        json!(0),
+        json!(49),
+        json!(56),
+        json!(u64::MAX - 7),
+        json!(-1),
+        json!(48.0),
+    ] {
+        manifest["importOffset"] = offset;
+        std::fs::write(fixture.0.join("output.bin"), b"untouched").unwrap();
+        assert!(!fixture.run(&manifest).status.success());
+        assert_eq!(
+            std::fs::read(fixture.0.join("output.bin")).unwrap(),
+            b"untouched"
+        );
+    }
+    manifest["importOffset"] = json!(48);
+    code[55] = 1;
+    std::fs::write(fixture.0.join("code.bin"), &code).unwrap();
+    assert!(!fixture.run(&manifest).status.success());
+    assert!(host_symbol("nupp_raw_thread_slot").is_some_and(|address| address != 0));
 }

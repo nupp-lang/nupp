@@ -9,7 +9,7 @@ use nupp_vm::{
     value::Value,
 };
 
-unsafe extern "C" {
+nupp_vm::native_core_api! {
     fn nupp_object_table_probe(table: *const u64, capacity: u64, mask: u64, key: u64) -> u64;
 }
 
@@ -127,7 +127,7 @@ fn colliding_value_tables_keep_tombstone_ranks_and_live_order_through_rehash() {
     );
 }
 
-unsafe extern "C" {
+nupp_vm::native_core_api! {
     fn nupp_object_table_capacity(wanted: u64) -> u64;
     fn nupp_object_table_needs_growth(length: u64, capacity: u64) -> u64;
     fn nupp_object_table_initialize(table: *mut u64, capacity: u64) -> u64;

@@ -3,7 +3,7 @@ use nupp_vm::{
     value::{QNAN, T_OBJ, Value},
 };
 use std::{ffi::c_void, ptr::NonNull};
-unsafe extern "C" {
+nupp_vm::native_core_api! {
     fn nupp_allocator_arena_open(bytes: u64) -> *mut c_void;
     fn nupp_allocator_arena_close(arena: *mut c_void);
     fn nupp_allocator_create(arena: *mut c_void) -> *mut c_void;

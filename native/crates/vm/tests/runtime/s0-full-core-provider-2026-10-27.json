@@ -1,0 +1,75 @@
+{
+  "date": "2026-10-27",
+  "base": "8b24c3eab24b7d63817c6c5651eb465019028dc8",
+  "scope": "Immutable full frozen ABI28 native core address transport; no E2 acceptance claim",
+  "frozenCore": {
+    "source": "155e30249f9c484d60d4ae819c85c7a9196a15ad",
+    "objectSHA256": "4187cde4c1e634d5d9b5a0fb9239d57aff889a1f8dd50c96aaa14afcf9c014b1"
+  },
+  "provider": {
+    "exports": 105,
+    "declarations": 167,
+    "files": {
+      "native/crates/vm/src/native_record_tail.rs": 4,
+      "native/crates/vm/src/dispatch.rs": 3,
+      "native/crates/vm/src/heap.rs": 14,
+      "native/crates/vm/src/native_value_table.rs": 10,
+      "native/crates/vm/src/native_value_array.rs": 8,
+      "native/crates/vm/src/native_shape_registry.rs": 5,
+      "native/crates/vm/src/value.rs": 1,
+      "native/crates/vm/src/native_byte_array.rs": 4,
+      "native/crates/vm/src/native_shape_methods.rs": 8,
+      "native/crates/vm/src/native_allocator.rs": 37,
+      "native/crates/vm/src/native_shape.rs": 1,
+      "native/crates/vm/src/native_shape_metadata.rs": 2,
+      "native/crates/vm/tests/object_shapes.rs": 3,
+      "native/crates/vm/tests/numeric_storage_payloads.rs": 2,
+      "native/crates/vm/tests/object_walk.rs": 11,
+      "native/crates/vm/tests/object_constructors.rs": 4,
+      "native/crates/vm/tests/object_hash.rs": 2,
+      "native/crates/vm/tests/iterator_payloads.rs": 2,
+      "native/crates/vm/tests/object_tables.rs": 6,
+      "native/crates/vm/tests/child_walk.rs": 1,
+      "native/crates/vm/tests/strong_scan.rs": 10,
+      "native/crates/vm/tests/root_candidates.rs": 8,
+      "native/crates/vm/tests/weak_cycle.rs": 11,
+      "native/crates/vm/tests/weak_indexes.rs": 10
+    },
+    "signatureAudit": "Every original declaration body unchanged; exact extern C function type at indirect call",
+    "selection": "NUPP_RAW_CORE bundle or linked baseline; immutable process lifetime, same indirect table route",
+    "publication": "Setup returns exactly105 aligned addresses inside retained code; whole publication refuses any invalid entry",
+    "metadataCommand": "native raw-exports",
+    "environmentAfterSelection": "ignored"
+  },
+  "transport": {
+    "bundleVersions": [
+      1,
+      2
+    ],
+    "v2Field": "importOffset, unsigned8aligned code-relative offset; importCount*8 zero bytes validated/copied before seal",
+    "frozenHostImports": 88,
+    "extraImports": {
+      "nupp_raw_thread_slot": "extern C fn() -> *mut u64, one opaque zero-initialized word per thread",
+      "nupp_raw_thread_finalizer": "extern C fn(u64) -> void; address0 disables, otherwise thread-exit extern C fn(u64) receives storedword once; callback may not access TLS or unwind"
+    },
+    "wordPolicy": "Nupp alone allocates, interprets and reclaims arena/descriptor; bridge stores opaque words/pointers"
+  },
+  "validation": {
+    "rustPassed": 343,
+    "rustIgnored": 2,
+    "outerSummaries": 16,
+    "nestedProviderChildren": 3,
+    "controls": "NO_JIT,NO_AOT,NO_THREADED,SIMD_INTERPRET,JIT_ONLY absent",
+    "targets": "lib +12 rewritten direct ABI integration targets +native_core_provider/native_raw/native_raw_bundle",
+    "noCodegenFeatures": "cargo check --release --no-default-features --features aot-linked,native-runtime passed",
+    "format": "Required bin/nupp fmt --write rejects Rust syntax without rewrites; stable rustfmt used on new/owned Rust files",
+    "evidence": "/private/tmp/nupp-native-full-core-provider/build/s0-provider",
+    "testsLogSHA256": "ea9f81d49f82b2865ebbe6207f80e9e163bee465cb9843c93af18ecd9bc5faed"
+  },
+  "notClaimed": [
+    "Nupp-produced full runtime differential acceptance",
+    "S0 performance gate",
+    "x86_64 owned image execution"
+  ],
+  "runtime": "/private/tmp/nupp-native-full-core-provider/build/rust/target/release/nupp-vm"
+}

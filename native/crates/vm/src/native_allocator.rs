@@ -8,7 +8,7 @@ use crate::heap::Header;
 use crate::value::Value;
 
 #[cfg(feature = "native-runtime")]
-unsafe extern "C" {
+crate::native_core_api! {
     fn nupp_weak_string_peek(heap: *mut c_void, bytes: *const u8, count: u64) -> *mut Header;
     fn nupp_weak_integer_peek(heap: *mut c_void, bits: u64, unsigned: u64) -> *mut Header;
     fn nupp_weak_string_lookup(

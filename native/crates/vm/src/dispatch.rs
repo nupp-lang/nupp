@@ -19,7 +19,7 @@ fn header(v: u64) -> *mut Header {
 // The layouts the handlers were compiled against, asserted here.
 include!(concat!(env!("OUT_DIR"), "/native_runtime.rs"));
 
-unsafe extern "C" {
+crate::native_core_api! {
     /// Runs the native chain from the instruction at `pc` in the frame the
     /// windows belong to. Answers an exit word: the address of the
     /// next instruction at an explicit stop boundary, or

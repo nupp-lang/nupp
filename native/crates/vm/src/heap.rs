@@ -289,7 +289,7 @@ pub enum SlotTy { Any, Num, Str, Bool, Record(u32) }
     { let _ = bits; panic!("object hashing requires a linked Nupp core") }
 }
 #[cfg(feature = "native-runtime")]
-unsafe extern "C" {
+crate::native_core_api! {
     fn nupp_object_storage_initialize(header: *mut Header, words: *mut crate::native_value_array::ValueArray) -> u64;
     fn nupp_object_storage_refresh(header: *mut Header) -> u64;
     fn nupp_object_iterator_initialize(header: *mut Header, kind: u64, object: u64, pattern: u64, keys: *mut crate::native_value_array::ValueArray) -> u64;

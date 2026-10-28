@@ -27,7 +27,7 @@ const _: () = {
     assert!(std::mem::offset_of!(ShapeRegistry, capacity) == 24);
 };
 #[cfg(feature = "native-runtime")]
-unsafe extern "C" {
+crate::native_core_api! {
     fn nupp_shape_registry_initialize(
         registry: *mut ShapeRegistry,
         owner: *mut c_void,

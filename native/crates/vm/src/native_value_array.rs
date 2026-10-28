@@ -11,7 +11,7 @@ pub struct ValueArray {
     capacity: u64,
 }
 #[cfg(feature = "native-runtime")]
-unsafe extern "C" {
+crate::native_core_api! {
     fn nupp_array_initialize(array: *mut ValueArray, owner: *mut c_void, capacity: u64) -> u64;
     fn nupp_array_reserve(array: *mut ValueArray, wanted: u64) -> u64;
     fn nupp_array_push(array: *mut ValueArray, value: u64) -> u64;

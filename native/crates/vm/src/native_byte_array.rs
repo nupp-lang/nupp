@@ -17,7 +17,7 @@ const _: () = {
     assert!(std::mem::offset_of!(ByteArray, capacity) == 24);
 };
 #[cfg(feature = "native-runtime")]
-unsafe extern "C" {
+crate::native_core_api! {
     fn nupp_byte_array_initialize(
         a: *mut ByteArray,
         owner: *mut c_void,

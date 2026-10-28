@@ -138,7 +138,18 @@ pub struct Image {
     pending: PendingImage,
 }
 
+// Publication makes all storage immutable. Executing an entry is unsafe and
+// still requires the caller to uphold its imports' threading contracts.
+unsafe impl Send for Image {}
+unsafe impl Sync for Image {}
+
 impl Image {
+    pub(crate) fn contains_entry(&self, address: usize) -> bool {
+        address % 4 == 0
+            && address
+                .checked_sub(self.pending.code as usize)
+                .is_some_and(|offset| offset < self.pending.code_len)
+    }
     /// Invoke the Nupp-produced C entry shim. Its first argument points to ten
     /// u64 words: call ABI, code base/length, data base/length, import table
     /// base/count, input base/count and output count. Its second argument is

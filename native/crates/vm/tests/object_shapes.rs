@@ -2,7 +2,7 @@
 
 use nupp_vm::{heap::SlotTy, image, interp::Interp, value::Value};
 
-unsafe extern "C" {
+nupp_vm::native_core_api! {
     fn nupp_object_shape_capacity(count: u64) -> u64;
     fn nupp_object_shape_fill(
         names: *const u64,
