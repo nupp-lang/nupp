@@ -373,6 +373,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         for p = borrowedCount, 1, -1 do
             restore(borrowed[p], scratchBase + (p - 1) * 8)
         end
+        borrowedCount, usedStamp = 0, usedStamp + 1
     end
 
     local function move(sourceLoc: integer, destinationLoc: integer, kind: integer): nil
@@ -393,7 +394,11 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         end
     end
 
-    local function transport(sources: {integer}, destinations: {integer}, kinds: {integer}): nil
+    local function transport(count: integer): nil
+        local sources, destinations, kinds = transportSources, transportDestinations, transportKinds
+        for p = #sources, count + 1, -1 do
+            sources[p], destinations[p], kinds[p] = nil, nil, nil
+        end
         local first = #a.moveSource + 1
         allocate.parallel(sources, destinations, kinds, moveTarget, a, moveWorkspace)
         for p = first, #a.moveSource do
@@ -468,9 +473,10 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
     abi(f.signature.params)
     local incoming, incomingLocations = abiRegisters, transportDestinations
     for p, physical in ipairs(incoming) do
+        transportSources[p], transportKinds[p] = physical, f.signature.params[p]
         incomingLocations[p] = a.location[f.params[f.firstParam[1] + p - 1]]
     end
-    transport(incoming, incomingLocations, f.signature.params)
+    transport(#incoming)
 
     -- Keep operation IDs and immutable columns local to the selection loop.
     local colArgs = f.args
@@ -672,15 +678,6 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                 case RETURN -> do
                     assert(nargs <= 2, "S0 select: multiple return values")
                     local sources, destinations, kinds = transportSources, transportDestinations, transportKinds
-                    for p = #sources, nargs + 1, -1 do
-                        sources[p] = nil
-                    end
-                    for p = #destinations, nargs + 1, -1 do
-                        destinations[p] = nil
-                    end
-                    for p = #kinds, nargs + 1, -1 do
-                        kinds[p] = nil
-                    end
                     for p = 1, nargs do
                         local value = args[firstArg + p - 1]
                         assert(
@@ -693,7 +690,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                             and 65
                             or p, colValueKinds[value]
                     end
-                    transport(sources, destinations, kinds)
+                    transport(nargs)
                     emit(arm.ldr(8, 30, 23, 0))
                     emit(arm.ret(30))
                     yield true
@@ -707,21 +704,36 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                     local registers = abiRegisters
                     local shift = indirect and 1 or 0
                     assert(nargs == #registers + shift, "S0 select: call arity")
+                    local parallel = true
                     for p = 1, nargs do
                         local value = args[firstArg + p - 1]
-                        if tail then
-                            assert(not stackValues[value], "S0 select: tail call retains stack address")
+                        assert(not tail or not stackValues[value], "S0 select: tail call retains stack address")
+                        parallel = parallel and allocationLocation[value] ~= 0 and a.rematerialize[value] == 0
+                        transportSources[
+                            p
+                        ], transportDestinations[p], transportKinds[p] = allocationLocation[value], p <= shift
+                            and 17
+                            or registers[p - shift], colValueKinds[value]
+                    end
+                    if parallel then
+                        -- x16 holds the indirect target; call destinations never
+                        -- include spills.
+                        moveTarget.scratchInt = 18
+                        transport(nargs)
+                        moveTarget.scratchInt = 17
+                    else
+                        for p = 1, nargs do
+                            local value = args[firstArg + p - 1]
+                            local reg = source(value)
+                            save(ir.isFloat(colValueKinds[value]) and reg + 65 or reg + 1, stageBase + (p - 1) * 8)
+                            finish(0, 0)
                         end
-                        local reg = source(value)
-                        save(ir.isFloat(colValueKinds[value]) and reg + 65 or reg + 1, stageBase + (p - 1) * 8)
-                        finish(0, 0);
-                        borrowedCount, usedStamp = 0, usedStamp + 1
-                    end
-                    for p, physical in ipairs(registers) do
-                        restore(physical, stageBase + (p + shift - 1) * 8)
-                    end
-                    if indirect then
-                        restore(17, stageBase)
+                        for p, physical in ipairs(registers) do
+                            restore(physical, stageBase + (p + shift - 1) * 8)
+                        end
+                        if indirect then
+                            restore(17, stageBase)
+                        end
                     end
                     if tail then
                         emit(arm.ldr(8, 30, 23, 0))
@@ -759,13 +771,11 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                         save(2, stageBase + 8)
                         for p = 1, 2 do
                             local value = p == 1 and result or second
-                            borrowedCount, usedStamp = 0, usedStamp + 1
                             rd = destination(value)
                             restore(rd + 1, stageBase + (p - 1) * 8)
                             finish(value, rd)
                         end
                     elseif not tail and result ~= 0 then
-                        borrowedCount, usedStamp = 0, usedStamp + 1
                         rd = destination(result)
                         emit(ir.isFloat(kind) and arm.fmov(bits(kind), rd, 0) or arm.mov_reg(machine(kind), rd, 0))
                         finish(result, rd)

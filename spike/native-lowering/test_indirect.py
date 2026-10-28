@@ -97,6 +97,77 @@ block0(v0: i64, v1: i64):
 ''', 'C:nupp_os_page_size', [[0, 7], [0, MASK]],
         [[os.sysconf('SC_PAGE_SIZE') + 7, 0], [os.sysconf('SC_PAGE_SIZE') - 1, 0]])
 
+    # Transport cycles, duplicated sources, both banks, narrow words and raw FP
+    # payloads. Each destination is observed independently, avoiding arithmetic
+    # that could hide a wrong move or canonicalize a NaN.
+    for kind, width in [('i8', 8), ('i16', 16), ('i32', 32), ('i64', 64), ('f32', 32), ('f64', 64)]:
+        words = [1 << (width - 1), (1 << width) - 1, 1, 0]
+        if kind.startswith('f'):
+            words = [1 << (width - 1), 0x7f812345 if width == 32 else 0x7ff0123456789abc, 1, 0]
+        for indirect in (False, True):
+            for tail in (False, True):
+                for pattern, order in [('cycle', [1, 2, 3, 0]), ('duplicate', [2, 0, 2, 0])]:
+                    for picked in range(4):
+                        name = f'move{kind}{int(indirect)}{int(tail)}{pattern}{picked}'
+                        params = ', '.join([kind] * 4)
+                        entry_params = 'i64, ' + params if indirect else params
+                        shift = int(indirect)
+                        block = ', '.join((['v0: i64'] if indirect else []) + [f'v{i + shift}: {kind}' for i in range(4)])
+                        callargs = ', '.join(f'v{i + shift}' for i in order)
+                        declaration = '' if indirect else '    fn0 = %callee sig0\n'
+                        target = 'sig0, v0' if indirect else 'fn0'
+                        op = 'return_call' if tail else 'v9 = call'
+                        if indirect:
+                            op += '_indirect'
+                        result = '' if tail else '    return v9\n'
+                        text = f"""function %entry({entry_params}) -> {kind} tail {{
+    sig0 = ({params}) -> {kind} tail
+{declaration}block0({block}):
+    {op} {target}({callargs})
+{result}}}
+function %callee({params}) -> {kind} tail {{
+block0({', '.join(f'v{i}: {kind}' for i in range(4))}):
+    return v{picked}
+}}
+"""
+                        add(name, text, 'N:callee' if indirect else 'none',
+                            [[0] + words if indirect else words], [[words[order[picked]], 0]])
+
+    kinds = ['i64', 'f64', 'i8', 'f32', 'i64', 'f64', 'i8', 'f32']
+    words = [0xfeedface12345678, 0x8000000000000000, 255, 0x7f812345,
+             17, 0x7ff0123456789abc, 128, 0x80000000]
+    order = [4, 5, 6, 7, 0, 1, 2, 3]
+    for indirect in (False, True):
+        for tail in (False, True):
+            for picked, kind in enumerate(kinds):
+                name = f'mixed{int(indirect)}{int(tail)}{picked}'
+                params = ', '.join(kinds)
+                shift = int(indirect)
+                entry_params = 'i64, ' + params if indirect else params
+                block = ', '.join((['v0: i64'] if indirect else []) + [f'v{i + shift}: {k}' for i, k in enumerate(kinds)])
+                target = 'sig0, v0' if indirect else 'fn0'
+                declaration = '' if indirect else '    fn0 = %callee sig0\n'
+                op = ('return_call' if tail else 'v19 = call') + ('_indirect' if indirect else '')
+                result = '' if tail else '    return v19\n'
+                text = f"""function %entry({entry_params}) -> {kind} tail {{
+    sig0 = ({params}) -> {kind} tail
+{declaration}block0({block}):
+    {op} {target}({', '.join(f'v{i + shift}' for i in order)})
+{result}}}
+function %callee({params}) -> {kind} tail {{
+block0({', '.join(f'v{i}: {k}' for i, k in enumerate(kinds))}):
+    return v{picked}
+}}
+"""
+                add(name, text, 'N:callee' if indirect else 'none',
+                    [[0] + words if indirect else words], [[words[order[picked]], 0]])
+    for tail in (False, True):
+        name = 'remat' + str(int(tail))
+        text = program(tail=tail).replace('    return_call_indirect' if tail else '    v2 = call_indirect',
+            '    v4 = iconst.i64 0x123456789abcdef\n' + ('    return_call_indirect' if tail else '    v2 = call_indirect'))
+        text = text.replace('sig0, v0(v1)', 'sig0, v0(v4)')
+        add(name, text, 'N:callee', [[0, 9]], [[0x123456789abcdef, 0]])
+
     # Unreachable functions were never part of the original arena proof.
     unused_indirect = '''function %unused(i64, i64) -> i64 tail {
     sig0 = (i64) -> i64 tail
