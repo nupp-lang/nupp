@@ -39,11 +39,11 @@ local function signature(text: string): ir.Signature
             local resultText, tail = rest:match("^%((.-)%)%s*(.*)$")
             results, rest = kinds(assert(resultText)), assert(tail)
         else
-            local resultText, tail = rest:match("^(%w+)%s*(.*)$")
-            results, rest = {ir.kind(assert(resultText))}, assert(tail)
+            local resultText, tail = rest:match("^(.-)%s+([%a_]+)$")
+            results, rest = kinds(resultText or rest), tail or ""
         end
     end
-    assert(#results <= 1, "S0 reader: multiple machine results are unsupported")
+    assert(#results <= 2, "S0 reader: more than two machine results are unsupported")
     assert(
         rest == "tail" or rest == "" or rest == "fast" or rest == "system_v" or rest == "apple_aarch64",
         "S0 reader: unknown calling convention " .. rest
@@ -195,14 +195,17 @@ local function body(header: string, lines: {string}): ir.Function
             end
         else
             assert(current ~= 0, "S0 reader: instruction outside block: " .. line)
-            local resultText, expression = line:match("^(v%d+)%s*=%s*(.*)$")
+            local resultText, expression = line:match("^(v%d+[^=]-)%s*=%s*(.*)$")
             expression = expression or line
-            local result = resultText and id(resultText) or 0
+            local results = resultText and arguments(resultText) or {}
+            assert(#results <= 2, "S0 reader: more than two instruction results")
+            local result = results[1] or 0
             local spelled, rest = expression:match("^([^%s]+)%s*(.*)$")
             assert(spelled ~= nil and rest ~= nil)
             local operation, typeText = spelled:match("^([%w_]+)%.(%w+)$")
             operation = operation or spelled
             local kind: integer = typeText and ir.kind(typeText) or 0
+            local kind2: integer = 0
             local args: {integer} = {}
             local immediate: int64 = 0
             local aux: integer = 0
@@ -228,6 +231,7 @@ local function body(header: string, lines: {string}): ir.Function
                 aux, args = assert(imports[assert(ref)], "S0 reader: unknown import"), arguments(assert(given))
                 local called = f.signatures[f.importSignatures[aux]]
                 kind = called.results[1] or 0
+                kind2 = called.results[2] or 0
             elseif operation == "call_indirect" or operation == "return_call_indirect" then
                 local ref, pointer, given = rest:match("^(sig%d+),%s*(v%d+)%((.-)%)$")
                 aux, args = assert(sigs[assert(ref)], "S0 reader: unknown indirect signature"), {id(assert(pointer))}
@@ -235,6 +239,7 @@ local function body(header: string, lines: {string}): ir.Function
                     args[#args + 1] = value
                 end
                 kind = f.signatures[aux].results[1] or 0
+                kind2 = f.signatures[aux].results[2] or 0
             elseif operation == "load" or operation:match("^[su]load%d+$") then
                 local address, offset = memoryAddress(rest)
                 args, immediate = {address}, offset
@@ -265,6 +270,12 @@ local function body(header: string, lines: {string}): ir.Function
                 kind = assert(f.valueKinds[source], "S0 reader: unavailable operand kind")
             end
             local at = ir.instruction(f, ir.opcode(operation), result, kind, args, immediate, aux)
+            if results[2] then
+                assert(kind2 ~= 0, "S0 reader: callee has no second result")
+                ir.secondResult(f, at, results[2], kind2)
+            elseif result ~= 0 then
+                assert(kind2 == 0, "S0 reader: missing second call result")
+            end
             for _, edge in ipairs(edges) do
                 local target, given = edge:match("^(block%d+)%((.-)%)$")
                 ir.edge(f, at, assert(blocks[assert(target)], "S0 reader: unknown block"), arguments(assert(given)))
@@ -330,6 +341,12 @@ function reader.read(text: string): {ir.Function}
                 end
                 for at, kind in ipairs(imported.results) do
                     assert(kind == callee.signature.results[at], "S0 reader: internal result kind")
+                end
+                if imported.convention ~= ir.INTERNAL then
+                    f.signatures[
+                        #f.signatures + 1
+                    ] = new ir.Signature(params = imported.params, results = imported.results, convention = ir.INTERNAL)
+                    f.importSignatures[index] = #f.signatures
                 end
             elseif imported.convention ~= ir.C then
                 f.signatures[

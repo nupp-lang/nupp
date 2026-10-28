@@ -114,7 +114,9 @@ record ir.Function
     -- Flat instruction columns. Zero means no result, argument or edge.
     op: {integer}
     result: {integer}
+    result2: {integer}
     kind: {integer}
+    kind2: {integer}
     firstArg: {integer}
     nargs: {integer}
     args: {integer}
@@ -161,7 +163,9 @@ function ir.new(name: string, signature: ir.Signature): ir.Function
         stackAlign = {},
         op = {},
         result = {},
+        result2 = {},
         kind = {},
+        kind2 = {},
         firstArg = {},
         nargs = {},
         args = {},
@@ -207,6 +211,7 @@ function ir.instruction(
     local at = #f.op + 1
     assert(at <= 1000000 and ir.opNames[op] ~= nil, "S0: instruction limit or opcode")
     f.op[at], f.result[at], f.kind[at] = op, result, kind
+    f.result2[at], f.kind2[at] = 0, 0
     f.firstArg[at], f.nargs[at] = #f.args + 1, #args
     f.imm[at], f.aux[at] = imm, aux
     f.firstEdge[at], f.nedges[at] = #f.edgeTarget + 1, 0
@@ -218,6 +223,13 @@ function ir.instruction(
     end
 
     return at
+end
+
+function ir.secondResult(f: ir.Function, at: integer, result: integer, kind: integer): nil
+    assert(at == #f.op and f.result[at] ~= 0 and f.result2[at] == 0, "S0: second result placement")
+    assert(f.op[at] == ir.opcode("call") or f.op[at] == ir.opcode("call_indirect"), "S0: second result requires call")
+    f.result2[at], f.kind2[at] = result, kind
+    ir.value(f, result, kind, at)
 end
 
 function ir.edge(f: ir.Function, at: integer, target: integer, args: {integer}): nil
