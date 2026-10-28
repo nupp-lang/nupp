@@ -1,0 +1,712 @@
+module s0.select
+
+local ir = require("s0.ir")
+local allocate = require("s0.allocate")
+local arm = require("s0.arm64")
+local target = require("s0.arm64target")
+local selector = {}
+
+selector.B26, selector.BL26, selector.IMPORT_LOAD = 1, 2, 3
+
+record selector.Code
+    words: {integer}
+    fixupWord: {integer}
+    fixupKind: {integer}
+    fixupName: {string}
+    fixupAddend: {integer}
+    blockWord: {integer}
+    frameBytes: integer
+    stackOffsets: {integer}
+    opWords: {integer}
+    opCounts: {integer}
+end
+
+function selector.target(): allocate.Target
+    local internal: {boolean} = {}
+    local c: {boolean} = {}
+    for p = 1, 96 do
+        internal[p], c[p] = false, false
+    end
+    for _, p in ipairs(target.cIntegerPreserved) do
+        c[p] = true
+    end
+    for _, p in ipairs(target.cFloatPreserved) do
+        c[p] = true
+    end
+
+    return new allocate.Target(
+        integerRegisters = target.integerRegisters,
+        floatRegisters = target.floatRegisters,
+        preservedInternal = internal,
+        preservedC = c,
+        scratchInt = 17,
+        scratchFloat = 96
+    )
+end
+
+local function bits(kind: integer): integer
+    return kind == ir.I8 and 8 or kind == ir.I16 and 16 or (kind == ir.I32 or kind == ir.F32) and 32 or 64
+end
+
+local function machine(kind: integer): integer
+    return bits(kind) <= 32 and 32 or 64
+end
+
+local function align(value: integer, boundary: integer): integer
+    assert(boundary > 0 and (boundary & (boundary - 1)) == 0, "S0 select: invalid alignment")
+    return (value + boundary - 1) & -boundary
+end
+
+-- Return raw logical-immediate fields; the encoder validates their shape.
+local function logical(value: integer, width: integer): (integer, integer, integer)
+    local mask = width == 64 and -1 or 0xffffffff
+    value = value & mask
+    if value == 0 or value == mask then
+        return -1, 0, 0
+    end
+    for length = 1, width == 64 and 6 or 5 do
+        local size = 1 << length
+        local elementMask = size == 64 and -1 or (1 << size) - 1
+        local element = value & elementMask
+        local repeated = element
+        local shift = size
+        while shift < width do
+            repeated = repeated | (element << shift)
+            shift = shift + size
+        end
+        if repeated == value then
+            for rotation = 0, size - 1 do
+                local rotated = rotation == 0 and element
+                    or ((element >> rotation) | (element << (size - rotation))) & elementMask
+                if rotated ~= 0 and rotated ~= elementMask and (rotated & (rotated + 1)) == 0 then
+                    local ones = 0
+                    while rotated ~= 0 do
+                        rotated, ones = rotated >> 1, ones + 1
+                    end
+                    local n = size == 64 and 1 or 0
+                    local imms = ((~(size - 1) << 1) | (ones - 1)) & 63
+                    return n, (size - rotation) % size, imms
+                end
+            end
+        end
+    end
+
+    return -1, 0, 0
+end
+
+local function stackBorrowed(f: ir.Function): {boolean}
+    local borrowed: {boolean} = {}
+    for v = 1, #f.valueKinds do
+        borrowed[v] = false
+    end
+    local changed = true
+    while changed do
+        changed = false
+        for at, opid in ipairs(f.op) do
+            local value, op = f.result[at], ir.opNames[opid]
+            if value ~= 0 and not borrowed[value] and not ir.isFloat(f.valueKinds[value]) then
+                local derives = op == "stack_addr"
+                if op ~= "load" and op ~= "sload" and op ~= "icmp" and op ~= "fcmp" then
+                    for p = f.firstArg[at], f.firstArg[at] + f.nargs[at] - 1 do
+                        if (op ~= "select" or p ~= f.firstArg[at]) and borrowed[f.args[p]] then
+                            derives = true
+                        end
+                    end
+                end
+                if derives then
+                    borrowed[value], changed = true, true
+                end
+            end
+        end
+        for edge, block in ipairs(f.edgeTarget) do
+            for p = 0, f.edgeNargs[edge] - 1 do
+                local value, parameter = f.edgeArgs[f.edgeFirstArg[edge] + p], f.params[f.firstParam[block] + p]
+                if borrowed[value] and not borrowed[parameter] then
+                    borrowed[parameter], changed = true, true
+                end
+            end
+        end
+    end
+
+    return borrowed
+end
+
+function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
+    local stackValues = stackBorrowed(f)
+    local code = new selector.Code(
+        words = {},
+        fixupWord = {},
+        fixupKind = {},
+        fixupName = {},
+        fixupAddend = {},
+        blockWord = {},
+        frameBytes = 0,
+        stackOffsets = {},
+        opWords = {},
+        opCounts = {}
+    )
+    local cursor: integer = 16 + a.spillSlots * 8
+    for slot, bytes in ipairs(f.stackBytes) do
+        cursor = align(cursor, f.stackAlign[slot])
+        code.stackOffsets[slot], cursor = cursor, cursor + bytes
+    end
+    local scratchBase = align(cursor, 8)
+    local stageBase = scratchBase + 64
+    code.frameBytes = align(stageBase + 17 * 8, 16)
+    assert(code.frameBytes <= 32760, "S0 select: arena frame exceeds direct spill addressing")
+    for op = 1, #ir.opNames do
+        code.opWords[op], code.opCounts[op] = 0, 0
+    end
+    local localWord: {integer} = {}
+    local localBlock: {integer} = {}
+    local borrowed: {integer} = {}
+    local occupied: {[integer]: boolean} = {}
+    local used: {[integer]: boolean} = {}
+
+    local function emit(word: integer): nil
+        assert(word >= 0 and word <= 0xffffffff, "S0 select: codeword range")
+        code.words[#code.words + 1] = word
+    end
+
+    local function constant(rd: integer, value: integer, width: integer): nil
+        local halves = width // 16
+        local nonzero, nonones = 0, 0
+        for half = 0, halves - 1 do
+            local part = (value >> (half * 16)) & 65535
+            if part ~= 0 then
+                nonzero = nonzero + 1
+            end
+            if part ~= 65535 then
+                nonones = nonones + 1
+            end
+        end
+        local invert = nonones < nonzero
+        local first = true
+        for half = 0, halves - 1 do
+            local part = (value >> (half * 16)) & 65535
+            if (invert and part ~= 65535) or (not invert and part ~= 0) then
+                if first then
+                    emit(invert and arm.movn(width, rd, (~part) & 65535, half) or arm.movz(width, rd, part, half))
+                    first = false
+                else
+                    emit(arm.movk(width, rd, part, half))
+                end
+            end
+        end
+        if first then
+            emit(invert and arm.movn(width, rd, 0, 0) or arm.movz(width, rd, 0, 0))
+        end
+    end
+
+    local function addOffset(rd: integer, rn: integer, amount: integer): nil
+        assert(amount >= 0 and amount < 16777216, "S0 select: address increment range")
+        local high, low = amount >> 12, amount & 4095
+        if high ~= 0 then
+            emit(arm.add_imm(64, rd, rn, high, 1));
+            rn = rd
+        end
+        if low ~= 0 or high == 0 then
+            emit(arm.add_imm(64, rd, rn, low, 0))
+        end
+    end
+
+    local function spillOffset(location: integer): integer
+        assert(location < 0 and -location <= a.spillSlots, "S0 select: invalid spill")
+        return 16 + (-location - 1) * 8
+    end
+
+    local function save(reg: integer, offset: integer): nil
+        emit(reg >= 65 and arm.str_fp(64, reg - 65, 23, offset) or arm.str(8, reg - 1, 23, offset))
+    end
+
+    local function restore(reg: integer, offset: integer): nil
+        emit(reg >= 65 and arm.ldr_fp(64, reg - 65, 23, offset) or arm.ldr(8, reg - 1, 23, offset))
+    end
+
+    local function temporary(floating: boolean): integer
+        local first, last = floating and 96 or 18, floating and 65 or 1
+        for p = first, last, -1 do
+            local allowed = floating or p == 17 or p == 18 or p <= 16
+            if allowed and not used[p] and not occupied[p] then
+                used[p] = true
+                if p ~= 17 and p ~= 18 and p ~= 96 then
+                    assert(#borrowed < 8, "S0 select: scratch capacity")
+                    save(p, scratchBase + #borrowed * 8)
+                    borrowed[#borrowed + 1] = p
+                end
+                return target.register(p)
+            end
+        end
+        error("S0 select: no scratch register")
+    end
+
+    local function source(value: integer): integer
+        local location, kind = a.location[value], f.valueKinds[value]
+        assert(location ~= 0, "S0 select: unallocated source")
+        if location > 0 then
+            return target.register(location)
+        end
+        local reg = temporary(ir.isFloat(kind))
+        local remat = a.rematerialize[value]
+        if remat ~= 0 and f.op[remat] == ir.opcode("iconst") then
+            constant(reg, f.imm[remat], machine(kind))
+        elseif remat ~= 0 and f.op[remat] == ir.opcode("stack_addr") then
+            addOffset(reg, 23, code.stackOffsets[f.aux[remat]] + f.imm[remat])
+        else
+            restore(ir.isFloat(kind) and reg + 65 or reg + 1, spillOffset(location))
+        end
+
+        return reg
+    end
+
+    local function destination(value: integer): integer
+        local location = a.location[value]
+        assert(location ~= 0, "S0 select: unallocated result")
+        return location > 0 and target.register(location) or temporary(ir.isFloat(f.valueKinds[value]))
+    end
+
+    local function finish(value: integer, reg: integer): nil
+        if value ~= 0 then
+            local kind = f.valueKinds[value]
+            if kind == ir.I8 or kind == ir.I16 then
+                emit(arm.ubfm(32, reg, reg, 0, bits(kind) - 1))
+            end
+            if a.location[value] < 0 then
+                save(ir.isFloat(kind) and reg + 65 or reg + 1, spillOffset(a.location[value]))
+            end
+        end
+        for p = #borrowed, 1, -1 do
+            restore(borrowed[p], scratchBase + (p - 1) * 8)
+        end
+    end
+
+    local function move(sourceLoc: integer, destinationLoc: integer, kind: integer): nil
+        if sourceLoc == destinationLoc then
+            return
+        end
+        if sourceLoc < 0 and destinationLoc < 0 then
+            emit(arm.ldr(8, 17, 23, spillOffset(sourceLoc)))
+            emit(arm.str(8, 17, 23, spillOffset(destinationLoc)))
+        elseif sourceLoc < 0 then
+            restore(destinationLoc, spillOffset(sourceLoc))
+        elseif destinationLoc < 0 then
+            save(sourceLoc, spillOffset(destinationLoc))
+        elseif ir.isFloat(kind) then
+            emit(arm.fmov(bits(kind), target.register(destinationLoc), target.register(sourceLoc)))
+        else
+            emit(arm.mov_reg(machine(kind), target.register(destinationLoc), target.register(sourceLoc)))
+        end
+    end
+
+    local function edge(e: integer): nil
+        for p = a.firstMove[e], a.firstMove[e] + a.nmoves[e] - 1 do
+            move(a.moveSource[p], a.moveTarget[p], a.moveKind[p])
+        end
+        localWord[#localWord + 1], localBlock[#localBlock + 1] = #code.words + 1, f.edgeTarget[e]
+        emit(arm.b(0))
+    end
+
+    local function symbolic(kind: integer, name: string): nil
+        code.fixupWord[#code.fixupWord + 1], code.fixupKind[#code.fixupKind + 1] = #code.words + 1, kind
+        code.fixupName[#code.fixupName + 1], code.fixupAddend[#code.fixupAddend + 1] = name, 0
+        emit(kind == selector.B26 and arm.b(0) or kind == selector.BL26 and arm.bl(0) or arm.ldr(8, 16, 22, 0))
+    end
+
+    local function abi(kinds: {integer}): {integer}
+        local ints: integer = 0
+        local floats: integer = 0
+        local registers: {integer} = {}
+        for p, kind in ipairs(kinds) do
+            if ir.isFloat(kind) then
+                registers[p], floats = 65 + floats, floats + 1
+            else
+                registers[p], ints = 1 + ints, ints + 1
+            end
+        end
+        assert(ints <= 8 and floats <= 8, "S0 select: stack ABI arguments unsupported")
+
+        return registers
+    end
+
+    -- Stage the incoming registers before any allocated destination is written.
+    emit(arm.str(8, 30, 23, 0))
+    local incoming = abi(f.signature.params)
+    for p, physical in ipairs(incoming) do
+        save(physical, stageBase + (p - 1) * 8)
+    end
+    for p, physical in ipairs(incoming) do
+        local value = f.params[f.firstParam[1] + p - 1]
+        local location = a.location[value]
+        if location > 0 then
+            restore(location, stageBase + (p - 1) * 8)
+        else
+            restore(18, stageBase + (p - 1) * 8);
+            save(18, spillOffset(location))
+        end
+    end
+
+    for _, block in ipairs(a.blockOrder) do
+        code.blockWord[block] = #code.words + 1
+        for at = f.blockStart[block], f.blockEnd[block] do
+            local before = #code.words
+            local op, result, kind = ir.opNames[f.op[at]], f.result[at], f.kind[at]
+            local values: {integer} = {}
+            borrowed, occupied, used = {}, {}, {}
+            for p = f.firstArg[at], f.firstArg[at] + f.nargs[at] - 1 do
+                local value = f.args[p]
+                values[#values + 1] = value
+                if a.location[value] > 0 then
+                    occupied[a.location[value]] = true
+                end
+            end
+            if result ~= 0 and a.location[result] > 0 then
+                occupied[a.location[result]] = true
+            end
+            local rd: integer = 0
+            if op == "jump" then
+                edge(f.firstEdge[at])
+            elseif op == "brif" then
+                local condition = source(values[1])
+                -- Scratch restores precede branching and do not change flags.
+                emit(arm.cmp_imm(32, condition, 0, 0))
+                finish(0, 0)
+                local branch = #code.words + 1
+                emit(arm.b_cond(target.EQ, 0))
+                edge(f.firstEdge[at])
+                code.words[branch] = arm.b_cond(target.EQ, (#code.words + 1 - branch) * 4)
+                edge(f.firstEdge[at] + 1)
+            elseif op == "return" then
+                assert(#values <= 1, "S0 select: multiple return values")
+                if #values == 1 then
+                    local value, reg = values[1], source(values[1])
+                    emit(
+                        ir.isFloat(f.valueKinds[value]) and arm.fmov(bits(f.valueKinds[value]), 0, reg)
+                        or arm.mov_reg(machine(f.valueKinds[value]), 0, reg)
+                    )
+                end
+                -- Borrowed temporaries exclude ABI result registers only when
+                -- they are allocated operands; staging protects all other cases.
+                if #values == 1 then
+                    save(ir.isFloat(f.valueKinds[values[1]]) and 65 or 1, stageBase)
+                end
+                finish(0, 0)
+                if #values == 1 then
+                    restore(ir.isFloat(f.valueKinds[values[1]]) and 65 or 1, stageBase)
+                end
+                emit(arm.ldr(8, 30, 23, 0));
+                emit(arm.ret(30))
+            elseif op == "trap" then
+                emit(arm.brk(f.imm[at]))
+            elseif op == "call" or op == "call_indirect" or op == "return_call" or op == "return_call_indirect" then
+                local indirect = op == "call_indirect" or op == "return_call_indirect"
+                local tail = op == "return_call" or op == "return_call_indirect"
+                local signature = f.signatures[indirect and f.aux[at] or f.importSignatures[f.aux[at]]]
+                local registers = abi(signature.params)
+                local shift = indirect and 1 or 0
+                assert(#values == #registers + shift, "S0 select: call arity")
+                for p, value in ipairs(values) do
+                    if tail then
+                        assert(not stackValues[value], "S0 select: tail call retains stack address")
+                    end
+                    local reg = source(value)
+                    save(ir.isFloat(f.valueKinds[value]) and reg + 65 or reg + 1, stageBase + (p - 1) * 8)
+                    finish(0, 0);
+                    borrowed, used = {}, {}
+                end
+                for p, physical in ipairs(registers) do
+                    restore(physical, stageBase + (p + shift - 1) * 8)
+                end
+                if indirect then
+                    restore(17, stageBase)
+                end
+                if tail then
+                    emit(arm.ldr(8, 30, 23, 0))
+                end
+                if signature.convention == ir.INTERNAL then
+                    if not tail then
+                        addOffset(23, 23, code.frameBytes)
+                    end
+                    if indirect then
+                        emit(tail and arm.br(16) or arm.blr(16))
+                    else
+                        symbolic(tail and selector.B26 or selector.BL26, f.importNames[f.aux[at]])
+                    end
+                    if not tail then
+                        local high, low = code.frameBytes >> 12, code.frameBytes & 4095
+                        if high ~= 0 then
+                            emit(arm.sub_imm(64, 23, 23, high, 1))
+                        end
+                        if low ~= 0 then
+                            emit(arm.sub_imm(64, 23, 23, low, 0))
+                        end
+                    end
+                else
+                    if not indirect then
+                        symbolic(selector.IMPORT_LOAD, f.importNames[f.aux[at]])
+                    end
+                    emit(tail and arm.br(16) or arm.blr(16))
+                end
+                if not tail and result ~= 0 then
+                    borrowed, used = {}, {}
+                    rd = destination(result)
+                    emit(ir.isFloat(kind) and arm.fmov(bits(kind), rd, 0) or arm.mov_reg(machine(kind), rd, 0))
+                    finish(result, rd)
+                end
+            else
+                local regs: {integer} = {}
+                for p, value in ipairs(values) do
+                    regs[p] = source(value)
+                end
+                if result ~= 0 then
+                    rd = destination(result)
+                end
+                local width = machine(kind)
+                local x, y, z = regs[1] or 0, regs[2] or 0, regs[3] or 0
+                if op == "iconst" then
+                    constant(rd, f.imm[at], width)
+                elseif op == "fconst" then
+                    local temp = temporary(false)
+                    constant(temp, f.imm[at], bits(kind));
+                    emit(arm.fmov_from_int(bits(kind), rd, temp))
+                elseif op == "stack_addr" then
+                    addOffset(rd, 23, code.stackOffsets[f.aux[at]] + f.imm[at])
+                elseif op == "iadd" then
+                    emit(arm.add_reg(width, rd, x, y, 0))
+                elseif op == "isub" then
+                    emit(arm.sub_reg(width, rd, x, y, 0))
+                elseif op == "imul" then
+                    emit(arm.madd(width, rd, x, y, 31))
+                elseif op == "umulhi" or op == "smulhi" then
+                    assert(width == 64, "S0 select: narrow multiply-high unsupported")
+                    emit(op == "umulhi" and arm.umulh(rd, x, y) or arm.smulh(rd, x, y))
+                elseif op == "band" or op == "bor" or op == "bxor" then
+                    local definition = f.definitions[values[2]]
+                    local n: integer = -1
+                    local r: integer = 0
+                    local s: integer = 0
+                    if definition > 0 and f.op[definition] == ir.opcode("iconst") then
+                        n, r, s = logical(f.imm[definition], width)
+                    end
+                    if n >= 0 then
+                        emit(
+                            op == "band" and arm.and_imm(width, rd, x, n, r, s)
+                            or op == "bor" and arm.orr_imm(width, rd, x, n, r, s)
+                            or arm.eor_imm(width, rd, x, n, r, s)
+                        )
+                    else
+                        emit(
+                            op == "band" and arm.and_reg(width, rd, x, y)
+                            or op == "bor" and arm.orr_reg(width, rd, x, y)
+                            or arm.eor_reg(width, rd, x, y)
+                        )
+                    end
+                elseif op == "bnot" then
+                    emit(arm.mvn(width, rd, x))
+                elseif op == "ishl" or op == "ushr" or op == "sshr" then
+                    if bits(kind) < 32 then
+                        local temp = temporary(false)
+                        emit(arm.ubfm(32, temp, y, 0, kind == ir.I8 and 2 or 3));
+                        y = temp
+                        if op == "sshr" then
+                            local signed = temporary(false);
+                            emit(arm.sbfm(32, signed, x, 0, bits(kind) - 1));
+                            x = signed
+                        end
+                    end
+                    emit(
+                        op == "ishl" and arm.lslv(width, rd, x, y)
+                        or op == "ushr" and arm.lsrv(width, rd, x, y)
+                        or arm.asrv(width, rd, x, y)
+                    )
+                elseif op == "popcnt" then
+                    local t = temporary(false)
+                    emit(arm.ubfm(width, t, x, 1, width - 1))
+                    emit(arm.and_imm(width, t, t, 0, 0, 60))
+                    emit(arm.sub_reg(width, rd, x, t, 0))
+                    emit(arm.ubfm(width, t, rd, 2, width - 1))
+                    emit(arm.and_imm(width, t, t, 0, 0, 57))
+                    emit(arm.and_imm(width, rd, rd, 0, 0, 57))
+                    emit(arm.add_reg(width, rd, rd, t, 0))
+                    emit(arm.ubfm(width, t, rd, 4, width - 1))
+                    emit(arm.add_reg(width, rd, rd, t, 0))
+                    emit(arm.and_imm(width, rd, rd, 0, 0, 51))
+                    constant(t, width == 64 and 0x0101010101010101 or 0x01010101, width)
+                    emit(arm.madd(width, rd, rd, t, 31));
+                    emit(arm.ubfm(width, rd, rd, width - 8, width - 1))
+                elseif op == "udiv" or op == "sdiv" or op == "urem" or op == "srem" then
+                    local signed = op == "sdiv" or op == "srem"
+                    if signed and bits(kind) < 32 then
+                        local tx, ty = temporary(false), temporary(false)
+                        emit(arm.sbfm(32, tx, x, 0, bits(kind) - 1));
+                        emit(arm.sbfm(32, ty, y, 0, bits(kind) - 1));
+                        x, y = tx, ty
+                    end
+                    emit(arm.cbnz(width, y, 8));
+                    emit(arm.brk(1))
+                    if op == "sdiv" then
+                        local t = temporary(false)
+                        constant(t, 1 << (bits(kind) - 1), width)
+                        if bits(kind) < 32 then
+                            emit(arm.sbfm(32, t, t, 0, bits(kind) - 1))
+                        end
+                        emit(arm.cmp_reg(width, x, t));
+                        local skip = #code.words + 1;
+                        emit(arm.b_cond(target.NE, 0))
+                        constant(t, -1, width);
+                        emit(arm.cmp_reg(width, y, t));
+                        emit(arm.b_cond(target.NE, 8));
+                        emit(arm.brk(2))
+                        code.words[skip] = arm.b_cond(target.NE, (#code.words + 1 - skip) * 4)
+                    end
+                    local quotient = (op == "urem" or op == "srem") and temporary(false) or rd
+                    emit(signed and arm.sdiv(width, quotient, x, y) or arm.udiv(width, quotient, x, y))
+                    if quotient ~= rd then
+                        emit(arm.msub(width, rd, quotient, y, x))
+                    end
+                elseif op == "icmp" then
+                    local condition = ir.conditionNames[f.aux[at]]
+                    local operandKind = f.valueKinds[values[1]]
+                    local w = machine(operandKind)
+                    if condition:sub(1, 1) == "s" and bits(operandKind) < 32 then
+                        local tx, ty = temporary(false), temporary(false)
+                        emit(arm.sbfm(32, tx, x, 0, bits(operandKind) - 1));
+                        emit(arm.sbfm(32, ty, y, 0, bits(operandKind) - 1));
+                        x, y = tx, ty
+                    end
+                    local conditions = {
+                        eq = 0,
+                        ne = 1,
+                        slt = 11,
+                        sle = 13,
+                        sgt = 12,
+                        sge = 10,
+                        ult = 3,
+                        ule = 9,
+                        ugt = 8,
+                        uge = 2
+                    }
+                    emit(arm.cmp_reg(w, x, y));
+                    emit(arm.cset(32, rd, assert(conditions[condition], "S0 select: integer comparison")))
+                elseif op == "fcmp" then
+                    local condition = ir.conditionNames[f.aux[at]]
+                    emit(arm.fcmp(bits(f.valueKinds[values[1]]), x, y))
+                    local conditions = {eq = 0, ne = 1, lt = 4, le = 9, gt = 12, ge = 10, ord = 7, uno = 6, un = 6}
+                    local cc = conditions[condition]
+                    if cc ~= nil then
+                        emit(arm.cset(32, rd, cc))
+                    elseif condition == "ueq" then
+                        local t = temporary(false)
+                        emit(arm.cset(32, t, target.VS));
+                        emit(arm.cset(32, rd, target.EQ));
+                        emit(arm.orr_reg(32, rd, rd, t))
+                    elseif condition == "one" or condition == "ltgt" then
+                        emit(arm.cset(32, rd, target.NE));
+                        emit(arm.csel(32, rd, rd, 31, target.VC))
+                    else
+                        error("S0 select: float comparison")
+                    end
+                elseif op == "select" then
+                    emit(arm.cmp_imm(32, x, 0, 0))
+                    emit(
+                        ir.isFloat(kind) and arm.fcsel(bits(kind), rd, y, z, target.NE)
+                        or arm.csel(width, rd, y, z, target.NE)
+                    )
+                elseif op == "ireduce" or op == "uextend" or op == "sextend" then
+                    local from = bits(f.valueKinds[values[1]])
+                    local retained = math.min(from, bits(kind))
+                    emit(
+                        op == "sextend" and arm.sbfm(width, rd, x, 0, retained - 1)
+                        or arm.ubfm(width, rd, x, 0, retained - 1)
+                    )
+                elseif op == "bitcast" then
+                    local from = f.valueKinds[values[1]]
+                    assert(bits(from) == bits(kind), "S0 select: bitcast width")
+                    if ir.isFloat(kind) == ir.isFloat(from) then
+                        emit(ir.isFloat(kind) and arm.fmov(bits(kind), rd, x) or arm.mov_reg(width, rd, x))
+                    else
+                        emit(
+                            ir.isFloat(kind) and arm.fmov_from_int(bits(kind), rd, x)
+                            or arm.fmov_to_int(bits(kind), rd, x)
+                        )
+                    end
+                elseif op == "fpromote" or op == "fdemote" then
+                    emit(arm.fcvt(bits(kind), bits(f.valueKinds[values[1]]), rd, x))
+                elseif op == "fadd" then
+                    emit(arm.fadd(bits(kind), rd, x, y))
+                elseif op == "fsub" then
+                    emit(arm.fsub(bits(kind), rd, x, y))
+                elseif op == "fmul" then
+                    emit(arm.fmul(bits(kind), rd, x, y))
+                elseif op == "fdiv" then
+                    emit(arm.fdiv(bits(kind), rd, x, y))
+                elseif op == "fneg" then
+                    emit(arm.fneg(bits(kind), rd, x))
+                elseif op == "fabs" then
+                    emit(arm.fabs(bits(kind), rd, x))
+                elseif op == "sqrt" then
+                    emit(arm.fsqrt(bits(kind), rd, x))
+                elseif op == "floor" then
+                    emit(arm.frintm(bits(kind), rd, x))
+                elseif op == "ceil" then
+                    emit(arm.frintp(bits(kind), rd, x))
+                elseif op == "fma" then
+                    emit(arm.fmadd(bits(kind), rd, x, y, z))
+                elseif op == "fcvt_from_sint" or op == "fcvt_from_uint" then
+                    local from = f.valueKinds[values[1]]
+                    if op == "fcvt_from_sint" and bits(from) < 32 then
+                        local t = temporary(false);
+                        emit(arm.sbfm(32, t, x, 0, bits(from) - 1));
+                        x = t
+                    end
+                    emit(
+                        op == "fcvt_from_sint" and arm.scvtf(bits(kind), machine(from), rd, x)
+                        or arm.ucvtf(bits(kind), machine(from), rd, x)
+                    )
+                elseif op == "fcvt_to_sint_sat" or op == "fcvt_to_uint_sat" then
+                    assert(bits(kind) >= 32, "S0 select: narrow saturating conversion unsupported")
+                    emit(
+                        op == "fcvt_to_sint_sat" and arm.fcvtzs(bits(f.valueKinds[values[1]]), width, rd, x)
+                        or arm.fcvtzu(bits(f.valueKinds[values[1]]), width, rd, x)
+                    )
+                elseif op == "load" or op == "sload" or op == "store" then
+                    local store = op == "store"
+                    local valueKind = store and f.valueKinds[values[1]] or kind
+                    local bytes = (f.aux[at] ~= 0 and f.aux[at] or bits(valueKind)) // 8
+                    local address, value = store and y or x, store and x or rd
+                    local offset = f.imm[at]
+                    if offset < 0 or offset % bytes ~= 0 or offset // bytes >= 4096 then
+                        local temp = temporary(false)
+                        constant(temp, offset, 64);
+                        emit(arm.add_reg(64, temp, address, temp, 0));
+                        address, offset = temp, 0
+                    end
+                    if ir.isFloat(valueKind) then
+                        emit(
+                            store and arm.str_fp(bits(valueKind), value, address, offset)
+                            or arm.ldr_fp(bits(valueKind), value, address, offset)
+                        )
+                    elseif store then
+                        emit(arm.str(bytes, value, address, offset))
+                    else
+                        emit(arm.ldr(bytes, value, address, offset))
+                        if op == "sload" then
+                            emit(arm.sbfm(machine(valueKind), value, value, 0, bytes * 8 - 1))
+                        end
+                    end
+                else
+                    error("S0 select: unsupported operation " .. op)
+                end
+                finish(result, rd)
+            end
+            code.opCounts[f.op[at]] = code.opCounts[f.op[at]] + 1
+            code.opWords[f.op[at]] = code.opWords[f.op[at]] + #code.words - before
+        end
+    end
+    for p, word in ipairs(localWord) do
+        code.words[word] = arm.b((code.blockWord[localBlock[p]] - word) * 4)
+    end
+
+    return code
+end
+
+export = selector
