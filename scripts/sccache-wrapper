@@ -1,0 +1,4 @@
+#!/bin/sh
+# sccache creates a startup notification socket under TMPDIR on macOS.
+# Keep that socket short without changing the build's own temporary directory.
+TMPDIR=/private/tmp exec sccache "$@"

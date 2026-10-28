@@ -125,8 +125,7 @@ end
 
 -- Run without a selected image, as a person at a terminal would, and without the
 -- background link, which would outlive the case.
-local ENV = "NUPP_VM_CLI_IMAGE= NUPP_VM_BINARY= NUPP_VM_AUTO_LINK= NUPP_VM_AUTO_REBUILD="
-    .. " NUPP_VM_AUTO_LINK=0"
+local ENV = "NUPP_VM_CLI_IMAGE= NUPP_VM_BINARY= NUPP_VM_AUTO_LINK= NUPP_VM_AUTO_REBUILD=" .. " NUPP_VM_AUTO_LINK=0"
 
 local function ran(dir, command, env)
     return capture(("cd '%s' && %s %s ./bin/nupp %s 2>&1"):format(dir, ENV, env or "", command))
@@ -446,6 +445,82 @@ print('INSTALL_REFRESH_OK')
     )
     local output = capture(("cd '%s' && python3 install-control.py 2>&1"):format(dir))
     assert(output:find("INSTALL_REFRESH_OK", 1, true), output)
+    remove(dir)
+end
+
+function M.macCacheWrapperKeepsStartupPathsShortWithoutChangingBuildTemps()
+    if package.config:sub(1, 1) == "\\" then
+        require("assert").skip("the cache-wrapper fixture executes POSIX shell scripts")
+    end
+    local dir, plant = plantedTree()
+    assert(os.execute(("cp '%s/rust-toolchain.toml' '%s/rust-toolchain.toml'"):format(ROOT, dir)) == 0)
+    assert(os.execute(("cp '%s/scripts/vm-cli' '%s/scripts/vm-cli-real'"):format(ROOT, dir)) == 0)
+    plant(
+        "cache-control.py",
+        [=[
+import json, os, runpy, subprocess, sys
+from pathlib import Path
+from unittest import mock
+root = Path.cwd()
+fakes = root / 'fakes'
+fakes.mkdir()
+def script(name, body):
+    path = fakes / name
+    path.write_text(body)
+    path.chmod(0o755)
+    return path
+script('sccache', '#!/bin/sh\nprintf "%s\\n" "$TMPDIR"\nprintf "%s\\n" "$@"\n')
+uname = script('uname', '#!/bin/sh\nif [ "$1" = -s ]; then printf "%s\\n" "$FAKE_SYSTEM"; else /usr/bin/uname "$@"; fi\n')
+cargo = script('cargo-probe', '#!/usr/bin/env python3\nimport json, os\nfrom pathlib import Path\nPath(os.environ["WRAPPER_LOG"]).write_text(json.dumps({"wrapper":os.environ.get("RUSTC_WRAPPER"),"tmpdir":os.environ.get("TMPDIR")}))\nraise SystemExit(17)\n')
+selected = (root / '.nupp/vm-cli/current').read_text().strip()
+runtime = root / '.nupp/vm-cli' / selected / 'runtime'
+runtime.write_text('#!/bin/sh\nprintf "%s\\n" "$RUSTC_WRAPPER"\n')
+runtime.chmod(0o755)
+base = dict(os.environ, PATH=str(fakes) + os.pathsep + os.environ['PATH'],
+            TMPDIR=str(root / ('long-task-temp-' * 12)), NUPP_VM_AUTO_REBUILD='0',
+            NUPP_VM_AUTO_LINK='0', NUPP_VM_CLI_IMAGE='', NUPP_VM_BINARY='',
+            NUPP_CARGO=str(cargo), NUPP_RUSTC=str(cargo),
+            NUPP_CACHE_DIR=str(root / 'cache'), WRAPPER_LOG=str(root / 'wrapper.json'))
+base.pop('RUSTC_WRAPPER', None)
+wrapper = str(root / 'scripts/sccache-wrapper')
+def same_wrapper(actual, expected):
+    return actual == expected or (os.path.isabs(actual or '') and os.path.isabs(expected) and Path(actual).resolve() == Path(expected).resolve())
+for system, expected in [('Darwin', wrapper), ('Linux', 'sccache')]:
+    for explicit in [None, '', 'custom-cache']:
+        env = dict(base, FAKE_SYSTEM=system)
+        if explicit is not None:
+            env['RUSTC_WRAPPER'] = explicit
+        want = expected if explicit is None else explicit
+        result = subprocess.run(['sh', 'bin/nupp', '--help'], env=env, capture_output=True, text=True)
+        assert result.returncode == 0 and same_wrapper(result.stdout.strip(), want), (system, result.stdout, result.stderr)
+        # Stop at the version probe: test selection without any Rust build.
+        result = subprocess.run(['sh', 'scripts/toolchain', 'vm-runtime'], env=env, capture_output=True, text=True)
+        assert result.returncode != 0 and (root / 'wrapper.json').exists(), result.stderr
+        value = json.loads((root / 'wrapper.json').read_text())
+        assert same_wrapper(value['wrapper'], want) and value['tmpdir'] == base['TMPDIR'], value
+        (root / 'wrapper.json').unlink()
+module = runpy.run_path('scripts/vm-cli-real', run_name='wrapper_test')
+call = module['cargo']
+seen = []
+call.__globals__['run_step'] = lambda command, env, what: seen.append(env)
+for platform, expected in [('darwin', wrapper), ('linux', 'sccache'), ('win32', 'sccache')]:
+    for explicit in [None, '', 'custom-cache']:
+        env = dict(base)
+        if explicit is not None:
+            env['RUSTC_WRAPPER'] = explicit
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(sys, 'platform', platform), mock.patch.object(module['shutil'], 'which', return_value=str(fakes / 'sccache')):
+            call(None, root / 'target')
+        assert seen[-1]['RUSTC_WRAPPER'] == (expected if explicit is None else explicit), seen[-1]
+        assert seen[-1]['TMPDIR'] == base['TMPDIR']
+# Only the sccache process gets short temporary paths, and arguments stay intact.
+result = subprocess.run([wrapper, '/compiler with spaces', '--flag'], env=base, capture_output=True, text=True)
+assert result.returncode == 0 and result.stdout.splitlines() == ['/private/tmp', '/compiler with spaces', '--flag'], result
+assert base['TMPDIR'].startswith(str(root))
+print('CACHE_WRAPPER_OK')
+]=]
+    )
+    local output = capture(("cd '%s' && python3 cache-control.py 2>&1"):format(dir))
+    assert(output:find("CACHE_WRAPPER_OK", 1, true), output)
     remove(dir)
 end
 

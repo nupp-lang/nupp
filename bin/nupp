@@ -26,8 +26,11 @@ case "$(uname -s 2>/dev/null)" in
 esac
 # Cargo builds the compiler starts (native providers, VM runtimes) share one
 # content-addressed compiler cache across worktrees when sccache is installed.
-if [ -z "${RUSTC_WRAPPER:-}" ] && command -v sccache >/dev/null 2>&1; then
-    RUSTC_WRAPPER=sccache
+if [ "${RUSTC_WRAPPER+x}" != x ] && command -v sccache >/dev/null 2>&1; then
+    case "$(uname -s 2>/dev/null)" in
+        Darwin) RUSTC_WRAPPER="$ROOT/scripts/sccache-wrapper" ;;
+        *) RUSTC_WRAPPER=sccache ;;
+    esac
     export RUSTC_WRAPPER
 fi
 # A verified local VM package is an installed compiler snapshot. Publish a new
