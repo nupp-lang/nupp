@@ -5,6 +5,7 @@ local front = require("nupp.core.source")
 local nativegraph = require("nupp.compiler.vm.nativegraph")
 local lower = require("nupp.compiler.vm.lower")
 local sink = require("nupp.compiler.s0.nativegraph")
+local ir = require("s0.ir")
 local allocate = require("s0.allocate")
 local allocationcheck = require("s0.allocationcheck")
 local selector = require("s0.select")
@@ -16,6 +17,24 @@ local producer = {}
 
 local function selected(g: any, owner: any, mode: string, resolved: any): (any, any)
     local artifact = sink.compilerGraph(g, owner.name, owner, resolved)
+    local selects = 0
+    for at, op in ipairs(artifact.machine.op) do
+        if op == ir.OP_SELECT then
+            local block = g.blocks[artifact.instructionBlock[at]]
+            local operation = artifact.instructionOperation[at]
+            assert(block.op[operation] == "NativeSelect", "select source operation")
+            local args = block.args[operation]
+            local first = artifact.machine.firstArg[at]
+            assert(artifact.machine.nargs[at] == 3, "select operand count")
+            for index = 1, 3 do
+                assert(artifact.machine.args[first + index - 1] == args[index] + 1, "select operand order")
+            end
+            selects = selects + 1
+        end
+    end
+    if owner.name == "prepareFixed" then
+        assert(selects == 1, "prepareFixed argument-count selection")
+    end
     local target = selector.target()
     if mode == "spill" then
         target.integerRegisters, target.floatRegisters = {}, {}
@@ -31,6 +50,7 @@ local function selected(g: any, owner: any, mode: string, resolved: any): (any, 
         result = g.native.result,
         blocks = #g.blocks,
         machineOps = #artifact.machine.op,
+        selects = selects,
         words = #code.words,
         calls = #code.fixupKind,
         frameBytes = code.frameBytes,

@@ -293,12 +293,12 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?)
                     yield nil
                 end
                 case "NativeSelect" -> do
-                    selectTail[1] = args[3] + 1
+                    selectTail[1] = args[2] + 1
                     emit(
                         "select",
                         result,
                         args[1] + 1,
-                        args[2] + 1,
+                        args[3] + 1,
                         selectTail,
                         machineKind(g.exactTypes[destination]),
                         0,
