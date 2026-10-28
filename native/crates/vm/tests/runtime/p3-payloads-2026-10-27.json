@@ -1,0 +1,114 @@
+{
+  "sourceCommit": "7cd187d8f9d95361ad4ac4f1e6f35efcc726f3f3",
+  "sourceTree": "c7223f9871d8414bc5a4b5a2a4229155a5206607",
+  "productSource": "ebccb0ed1e5484e1789a75cf6671e3dd551dd85e",
+  "scope": "Combined ABI19 Nupp iterator/numeric storage ownership, canonical shared child traversal, and 71 common graph handlers. P3 remains open.",
+  "platform": "aarch64-apple-darwin",
+  "objectAbi": 19,
+  "aotAbi": 4,
+  "artifacts": {
+    "/private/tmp/nupp-native-composed18/build/p3-composed19/compiler.image": "088dd4d02664279abc2a4f90ac01b6627655a6087fbfa69b14354f0b06004c49",
+    "/private/tmp/nupp-native-composed18/build/p3-composed19/aot/runtime-current": "706ac6ce4904c84a70c133c871bb40058d6bab4da878fa53d228daf2e8048f0c",
+    "/private/tmp/nupp-native-composed18/build/p3-composed19/aot/native/runtime.o": "cf750cfacb816756db2ce07be1e70dc15d83dad79a11bafdb9d0b9c6f45a544c",
+    "/private/tmp/nupp-native-composed18/build/p3-composed19/aot/native/runtime.o.rs": "f7c483199db606efcb0f4200aa02acba1f238a1fb6e4441a9e865bb875058456",
+    "/private/tmp/nupp-native-composed18/build/p3-composed19/aot/native/runtime.clif": "0318c28faff1ed3030a42646c022ffd5471862dd71b599dbcffa5806d4b81ea0",
+    "/private/tmp/nupp-native-composed18/build/p3-composed19/aot/compiler.o.manifest": "525c75524991441c98bd51d5c5f0e016b864e5c6af60c827900f07f0e49fd325",
+    "/private/tmp/nupp-native-composed18/build/p3-composed19/worker": "6e1c9ff31cfb368d0d8503f4cf6ccdb417eddead75a3d9763a4078253dcd8f89",
+    "/private/tmp/nupp-native-composed18/build/p3-composed19/worker.image": "abb378a2b4ec1f4aa6350ae1fa1c6d6426a98ff9d5dd4877532b046d604e6a02"
+  },
+  "sourceCheck": {
+    "ok": true,
+    "diagnostics": 0,
+    "result": "/private/tmp/nupp-native-composed18/build/p3-composed19/source-check.json"
+  },
+  "pinnedThreeStageFixpoint": {
+    "ok": true,
+    "result": "/private/tmp/nupp-native-composed18/build/p3-composed19/fixpoint.json",
+    "unchangedCompilerInputsAfterTestCorrections": true
+  },
+  "rust": {
+    "passed": 687,
+    "failed": 0,
+    "ignored": 6,
+    "targets": 78,
+    "docTestsRun": true
+  },
+  "rustSelections": {
+    "features": "aot,native-runtime,allocation-metrics",
+    "inheritedControls": {
+      "NO_JIT": "1",
+      "NO_AOT": "1",
+      "result": "/private/tmp/nupp-native-composed18/build/p3-composed19/rust.log",
+      "summary": "/private/tmp/nupp-native-composed18/build/p3-composed19/rust-summary.json"
+    },
+    "controlsRemoved": {
+      "NO_JIT": "absent",
+      "NO_AOT": "absent",
+      "result": "/private/tmp/nupp-native-composed18/build/p3-composed19/rust-tiers.log",
+      "summary": "/private/tmp/nupp-native-composed18/build/p3-composed19/rust-tiers-summary.json"
+    },
+    "nestedSummariesExcluded": 6
+  },
+  "aot": {
+    "compiledFunctions": 6211,
+    "imageFunctions": 6211,
+    "freshProcesses": 2,
+    "passed": 13,
+    "executableMemoryDenied": true,
+    "result": "/private/tmp/nupp-native-composed18/build/p3-composed19/aot/smoke/results.json"
+  },
+  "cli": {
+    "passed": 94,
+    "packagedProgramExecuted": true,
+    "result": "/private/tmp/nupp-native-composed18/build/p3-composed19/root-cli/summary.json"
+  },
+  "nativeInterpreterCompiler": {
+    "jitDisabled": true,
+    "aotDisabled": true,
+    "clifByteIdentical": true
+  },
+  "sourceSelectedWorker": {
+    "source": "7cd187d8f9d95361ad4ac4f1e6f35efcc726f3f3",
+    "workerPayloadFlags": 2,
+    "workerPayloadEqualsImage": true,
+    "sharedPassed": 2086,
+    "isolatedNativePassed": 48,
+    "skipped": 0,
+    "notExecuted": 0,
+    "sharedResult": "/private/tmp/nupp-native-composed18/build/p3-composed19/shared-tests-corrected.json",
+    "isolatedResult": "/private/tmp/nupp-native-composed18/build/p3-composed19/isolated-native-remaining.json"
+  },
+  "corrections": [
+    {
+      "kind": "testFixtureDependencies",
+      "commit": "f3acc7b6e",
+      "reason": "Two object graph fixtures omitted required arena/heap/backing sources. Exact corrected cases passed; other shared results preserved.",
+      "original": "/private/tmp/nupp-native-composed18/build/p3-composed19/shared-tests.jsonl",
+      "exactCorrection": "/private/tmp/nupp-native-composed18/build/p3-composed19/object-fixtures-corrected.json"
+    },
+    {
+      "kind": "platformFixturePathComparison",
+      "commit": "4147964a8",
+      "reason": "Compare Path values rather than raw mixed Windows separator strings. Runtime sources unchanged.",
+      "upstream": "cb66693389b0863b69257907f4a1907282b7a323"
+    }
+  ],
+  "sourceCounts": "/private/tmp/nupp-native-composed18/build/p3-composed19/source-counts-final.json",
+  "platformAcceptance": {
+    "status": "running; no adoption claimed",
+    "run": "https://github.com/nupp-lang/nupp/actions/runs/40607919026",
+    "source": "190b9b9dd96ef83d64120c4428286ec6f8405e57",
+    "sourceRelationship": "Same ebccb0ed1 product plus path fixture; local source adds graph fixture prerequisites and ABI16 receipt."
+  },
+  "limits": [
+    "No main integration; pushed migration refs remain P2 until platform acceptance.",
+    "Sweep cursor, byte backing, immutable shapes, shared strong scanner, later graph handlers and exact method maps have separate lane proofs.",
+    "P3 collector scheduling/roots and resources, P1b graph completion and P4-P8 remain open.",
+    "Performance measurement remains deferred."
+  ],
+  "testOnlySourceChanges": [
+    "native/crates/vm/tests/runtime/p3-owned-hash-2026-10-27.json",
+    "tests/bootstrapseedtest.py",
+    "tests/nativeobjecthashtest.lua"
+  ]
+}
