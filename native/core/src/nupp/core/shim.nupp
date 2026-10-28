@@ -1,6 +1,7 @@
 module nupp.core.shim
 
 local arm = require("s0.arm64")
+local context = require("nupp.runtime.core.context")
 local shim = {}
 
 -- Context 0..127; frame header 128..159: predecessor, function, PC, extent.
@@ -14,7 +15,8 @@ shim.dispatchOffset, shim.spillOffset = 8352, 8464
 -- Input code and initialized program data are trusted, verified build artifacts.
 -- Entry extent checks do not authenticate arbitrary replacement code or data.
 function shim.build(codes: {any}): any
-    assert(#codes == 13, "core shim requires thirteen handlers")
+    assert(#codes >= 13 and #codes <= 256, "core shim handler count")
+    local spillOffset = (shim.dispatchOffset + #codes * 8 + 15) & -16
     local words: {integer} = {}
 
     local function emit(word: integer): nil
@@ -43,7 +45,7 @@ function shim.build(codes: {any}): any
         at: integer,
         condition: integer
     }} = {}
-    for _, check in ipairs({{0, 1, 1}, {48, shim.scratchBytes, 3}, {88, 1, 3}, {32, 152, 3}}) do
+    for _, check in ipairs({{0, 1, 1}, {48, shim.scratchBytes, 3}, {88, 1, 3}, {32, 48 + #codes * 8, 3}, {80, 2, 8}}) do
         emit(arm.ldr(8, 16, 0, check[1]))
         local value = check[2]
         emit(arm.movz(64, 17, value == 65536 and 1 or value, value == 65536 and 1 or 0))
@@ -57,15 +59,35 @@ function shim.build(codes: {any}): any
     emit(arm.ldr(8, 22, 0, 56))
     offset(20, 19, shim.frameOffset)
     offset(21, 19, shim.dispatchOffset)
-    offset(23, 19, shim.spillOffset)
+    offset(23, 19, spillOffset)
     emit(arm.str(8, 15, 20, 8))
     offset(17, 14, 32)
     emit(arm.str(8, 17, 20, 16))
+    emit(arm.str(8, 17, 19, context.CODE_START))
+    emit(arm.str(8, 31, 19, context.CANCELLED))
+    emit(arm.str(8, 31, 19, context.STATUS))
+    emit(arm.str(8, 31, 19, context.ERROR_PC))
+    emit(arm.movn(64, 17, 0, 0))
+    emit(arm.str(8, 17, 19, context.REMAINING))
+    emit(arm.ldr(8, 16, 0, 80))
+    local noBudget = #words + 1
+    emit(arm.cbz(64, 16, 0))
+    emit(arm.ldr(8, 17, 0, 72))
+    emit(arm.ldr(8, 17, 17, 0))
+    emit(arm.str(8, 17, 19, context.REMAINING))
+    words[noBudget] = arm.cbz(64, 16, (#words + 1 - noBudget) * 4)
+    emit(arm.cmp_imm(64, 16, 2, 0))
+    local noCancel = #words + 1
+    emit(arm.b_cond(3, 0))
+    emit(arm.ldr(8, 17, 0, 72))
+    emit(arm.ldr(8, 17, 17, 8))
+    emit(arm.str(8, 17, 19, context.CANCELLED))
+    words[noCancel] = arm.b_cond(3, (#words + 1 - noCancel) * 4)
     emit(arm.ldr(8, 17, 14, 8))
     emit(arm.str(8, 17, 20, 24))
     emit(arm.ldr(8, 16, 14, 24))
     emit(arm.add_reg(64, 13, 14, 16, 0))
-    for index = 0, 12 do
+    for index = 0, #codes - 1 do
         emit(arm.ldr(8, 16, 13, index * 8))
         emit(arm.add_reg(64, 16, 15, 16, 0))
         emit(arm.str(8, 16, 21, index * 8))
@@ -80,6 +102,13 @@ function shim.build(codes: {any}): any
     emit(arm.add_reg(64, 16, 21, 16, 3))
     emit(arm.ldr(8, 16, 16, 0))
     emit(arm.blr(16))
+    emit(arm.ldr(8, 17, 19, context.STATUS))
+    local completed = #words + 1
+    emit(arm.cbz(64, 17, 0))
+    emit(arm.mov_reg(64, 0, 17))
+    local stopped = #words + 1
+    emit(arm.b(0))
+    words[completed] = arm.cbz(64, 17, (#words + 1 - completed) * 4)
     emit(arm.ldr(8, 16, 31, 160))
     emit(arm.str(8, 0, 16, 0))
     emit(arm.movz(64, 0, 0, 0))
@@ -91,6 +120,7 @@ function shim.build(codes: {any}): any
     for _, refusal in ipairs(refusals) do
         words[refusal.at] = arm.b_cond(refusal.condition, (failed - refusal.at) * 4)
     end
+    words[stopped] = arm.b((#words + 1 - stopped) * 4)
     for reg = 8, 14, 2 do
         emit(arm.ldp_fp(64, reg, reg + 1, 31, 96 + (reg - 8) * 8, 0))
     end
@@ -102,14 +132,21 @@ function shim.build(codes: {any}): any
     local offsets, frames = {}, {}
     for index, code in ipairs(codes) do
         assert(#code.fixupWord == 0, "core contains an unresolved import")
-        assert(code.frameBytes >= 0 and code.frameBytes <= shim.scratchBytes - shim.spillOffset, "core spill extent")
+        assert(code.frameBytes >= 0 and code.frameBytes <= shim.scratchBytes - spillOffset, "core spill extent")
         offsets[index], frames[index] = #words * 4, code.frameBytes
         for _, word in ipairs(code.words) do
             emit(word)
         end
     end
 
-    return {words = words, offsets = offsets, frames = frames, scratchBytes = shim.scratchBytes, entry = 0}
+    return {
+        words = words,
+        offsets = offsets,
+        frames = frames,
+        scratchBytes = shim.scratchBytes,
+        spillOffset = spillOffset,
+        entry = 0
+    }
 end
 
 export = shim

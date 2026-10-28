@@ -1,0 +1,37 @@
+module nupp.runtime.core.calls
+
+const native = require("nupp.runtime.vm.intrinsics")
+const layout = require("nupp.runtime.core.context")
+
+export function backEdge(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr,
+    displacement: int64
+): uint64
+    local remaining = native.load64(context, layout.REMAINING)
+    if native.load64(context, layout.CANCELLED) ~= 0 then
+        native.store64(context, layout.STATUS, layout.CANCELLED_STATUS)
+        native.store64(
+            context,
+            layout.ERROR_PC,
+            (native.address(pc) - native.load64(context, layout.CODE_START)) // 16ULL
+        )
+        return native.fail()
+    elseif remaining == 0 then
+        native.store64(context, layout.STATUS, layout.BUDGET_STATUS)
+        native.store64(
+            context,
+            layout.ERROR_PC,
+            (native.address(pc) - native.load64(context, layout.CODE_START)) // 16ULL
+        )
+        return native.fail()
+    elseif remaining ~= layout.UNLIMITED then
+        native.store64(context, layout.REMAINING, remaining - 1ULL)
+    end
+
+    return native.dispatch(native.offset(pc, (displacement + 1) * 16), regs, ints, floats, context, frame)
+end

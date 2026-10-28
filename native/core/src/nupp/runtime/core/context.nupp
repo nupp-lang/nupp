@@ -1,0 +1,10 @@
+module nupp.runtime.core.context
+
+export const REMAINING: int64 = 0
+export const CANCELLED: int64 = 8
+export const STATUS: int64 = 16
+export const CODE_START: int64 = 24
+export const ERROR_PC: int64 = 32
+export const UNLIMITED: uint64 = 0xffffffffffffffffULL
+export const BUDGET_STATUS: uint64 = 2ULL
+export const CANCELLED_STATUS: uint64 = 3ULL
