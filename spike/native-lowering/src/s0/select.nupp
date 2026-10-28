@@ -104,7 +104,7 @@ local function stackBorrowed(f: ir.Function): {boolean}
         changed = false
         for at, opid in ipairs(f.op) do
             local value, op = f.result[at], ir.opNames[opid]
-            if value ~= 0 and not borrowed[value] and not ir.isFloat(f.valueKinds[value]) then
+            if value ~= 0 and not borrowed[value] then
                 local derives = op == "stack_addr"
                 if op ~= "load" and op ~= "sload" and op ~= "icmp" and op ~= "fcmp" then
                     for p = f.firstArg[at], f.firstArg[at] + f.nargs[at] - 1 do
@@ -116,6 +116,10 @@ local function stackBorrowed(f: ir.Function): {boolean}
                 if derives then
                     borrowed[value], changed = true, true
                 end
+            end
+            local second = f.result2[at]
+            if second ~= 0 and borrowed[value] and not borrowed[second] then
+                borrowed[second], changed = true, true
             end
         end
         for edge, block in ipairs(f.edgeTarget) do
@@ -298,6 +302,18 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         end
     end
 
+    local function transport(sources: {integer}, destinations: {integer}, kinds: {integer}): nil
+        local first = #a.moveSource + 1
+        allocate.parallel(sources, destinations, kinds, selector.target(), a)
+        for p = first, #a.moveSource do
+            move(a.moveSource[p], a.moveTarget[p], a.moveKind[p])
+        end
+        -- Preserve the allocator's edge-move arrays after temporary scheduling.
+        for p = #a.moveSource, first, -1 do
+            a.moveSource[p], a.moveTarget[p], a.moveKind[p] = nil, nil, nil
+        end
+    end
+
     local function edge(e: integer): nil
         for p = a.firstMove[e], a.firstMove[e] + a.nmoves[e] - 1 do
             move(a.moveSource[p], a.moveTarget[p], a.moveKind[p])
@@ -328,22 +344,13 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         return registers
     end
 
-    -- Stage the incoming registers before any allocated destination is written.
     emit(arm.str(8, 30, 23, 0))
     local incoming = abi(f.signature.params)
+    local incomingLocations: {integer} = {}
     for p, physical in ipairs(incoming) do
-        save(physical, stageBase + (p - 1) * 8)
+        incomingLocations[p] = a.location[f.params[f.firstParam[1] + p - 1]]
     end
-    for p, physical in ipairs(incoming) do
-        local value = f.params[f.firstParam[1] + p - 1]
-        local location = a.location[value]
-        if location > 0 then
-            restore(location, stageBase + (p - 1) * 8)
-        else
-            restore(18, stageBase + (p - 1) * 8);
-            save(18, spillOffset(location))
-        end
-    end
+    transport(incoming, incomingLocations, f.signature.params)
 
     for _, block in ipairs(a.blockOrder) do
         code.blockWord[block] = #code.words + 1
@@ -362,6 +369,10 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
             if result ~= 0 and a.location[result] > 0 then
                 occupied[a.location[result]] = true
             end
+            local second = f.result2[at]
+            if second ~= 0 and a.location[second] > 0 then
+                occupied[a.location[second]] = true
+            end
             local rd: integer = 0
             if op == "jump" then
                 edge(f.firstEdge[at])
@@ -376,24 +387,20 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                 code.words[branch] = arm.b_cond(target.EQ, (#code.words + 1 - branch) * 4)
                 edge(f.firstEdge[at] + 1)
             elseif op == "return" then
-                assert(#values <= 1, "S0 select: multiple return values")
-                if #values == 1 then
-                    local value, reg = values[1], source(values[1])
-                    emit(
-                        ir.isFloat(f.valueKinds[value]) and arm.fmov(bits(f.valueKinds[value]), 0, reg)
-                        or arm.mov_reg(machine(f.valueKinds[value]), 0, reg)
+                assert(#values <= 2, "S0 select: multiple return values")
+                local sources: {integer} = {}
+                local destinations: {integer} = {}
+                local kinds: {integer} = {}
+                for p, value in ipairs(values) do
+                    assert(
+                        #values == 1 or not ir.isFloat(f.valueKinds[value]),
+                        "S0 select: paired return requires integers"
                     )
+                    sources[p], destinations[p], kinds[p] = a.location[value], ir.isFloat(f.valueKinds[value]) and 65
+                        or p, f.valueKinds[value]
                 end
-                -- Borrowed temporaries exclude ABI result registers only when
-                -- they are allocated operands; staging protects all other cases.
-                if #values == 1 then
-                    save(ir.isFloat(f.valueKinds[values[1]]) and 65 or 1, stageBase)
-                end
-                finish(0, 0)
-                if #values == 1 then
-                    restore(ir.isFloat(f.valueKinds[values[1]]) and 65 or 1, stageBase)
-                end
-                emit(arm.ldr(8, 30, 23, 0));
+                transport(sources, destinations, kinds)
+                emit(arm.ldr(8, 30, 23, 0))
                 emit(arm.ret(30))
             elseif op == "trap" then
                 emit(arm.brk(f.imm[at]))
@@ -446,7 +453,20 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                     end
                     emit(tail and arm.br(16) or arm.blr(16))
                 end
-                if not tail and result ~= 0 then
+                if not tail and second ~= 0 then
+                    assert(
+                        result ~= 0 and not ir.isFloat(kind) and not ir.isFloat(f.kind2[at]),
+                        "S0 select: paired call requires integers"
+                    )
+                    save(1, stageBase);
+                    save(2, stageBase + 8)
+                    for p, value in ipairs({result, second}) do
+                        borrowed, used = {}, {}
+                        rd = destination(value)
+                        restore(rd + 1, stageBase + (p - 1) * 8)
+                        finish(value, rd)
+                    end
+                elseif not tail and result ~= 0 then
                     borrowed, used = {}, {}
                     rd = destination(result)
                     emit(ir.isFloat(kind) and arm.fmov(bits(kind), rd, 0) or arm.mov_reg(machine(kind), rd, 0))

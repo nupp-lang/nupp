@@ -5,6 +5,7 @@ local ir = require("s0.ir")
 local allocate = require("s0.allocate")
 local selector = require("s0.select")
 local arm = require("s0.arm64")
+local link = require("s0.link")
 
 export function corpus(path: string): string
     local file = assert(io.open(path, "rb"))
@@ -94,6 +95,17 @@ block0(v0: i64, v1: i64):
 ]]
     local code = compile(indirect, true)
     assert(code.opCounts[ir.opcode("call_indirect")] == 1)
+    assert(not pcall(link.build, reader.read(indirect), "indirect", false))
+    local recursive = [[
+function %recursive() -> i64 tail {
+    sig0 = () -> i64 tail
+    fn0 = %recursive sig0
+block0:
+    v0 = call fn0()
+    return v0
+}
+]]
+    assert(not pcall(link.build, reader.read(recursive), "recursive", false))
     local borrowed = [[
 function %borrowed(i64) -> i64 tail {
     ss0 = explicit_slot 16, align = 16
@@ -109,6 +121,19 @@ block1(v3: i64):
 ]]
     assert(not pcall(compile, borrowed, false))
 
+    local pair = [[
+function %pair(i64, i64) -> i64, i64 tail {
+    sig0 = (i64, i64) -> i64, i64 tail
+    fn0 = %pair sig0
+block0(v0: i64, v1: i64):
+    v2, v3 = call fn0(v0, v1)
+    return v3, v2
+}
+]]
+    for _, spill in ipairs({false, true}) do
+        local paired = compile(pair, spill)
+        assert(paired.opCounts[ir.opcode("call")] == 1 and paired.opCounts[ir.opcode("return")] == 1)
+    end
     local floating = [[
 function %floating(f64, f64, f64, i64) -> f64 tail {
 block0(v0: f64, v1: f64, v2: f64, v3: i64):
