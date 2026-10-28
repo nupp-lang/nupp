@@ -51,10 +51,25 @@ def run_with_resources(command, cwd, environment, stdout, stderr, timeout):
         return subprocess.CompletedProcess(command, process.returncode), usage
 
 
+
+def emitted_function_count(binary, image, environment, cwd, prefix):
+    """Read the VM's validated binary image format outside the timed interval."""
+    command = list(map(str, [binary, 'verify', image]))
+    checked = subprocess.run(command, cwd=cwd, env=environment, capture_output=True, text=True, timeout=120)
+    Path(str(prefix) + '.verify.out').write_text(checked.stdout)
+    Path(str(prefix) + '.verify.err').write_text(checked.stderr)
+    assert checked.returncode == 0, str(prefix)
+    found = re.fullmatch(r'verified (\d+) functions\s*', checked.stdout)
+    assert found and int(found[1]) > 0, 'Verifier did not report a function count'
+    return int(found[1])
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--measure', action='store_true', help='Collect timings only after a coordinated quiet window')
     parser.add_argument('--quiet-confirmed', action='store_true')
+    parser.add_argument('--pilot', action='store_true', help='Collect one to three diagnostic pairs without a duration verdict')
+    parser.add_argument('--workloads', default='cold-check,warm-check,emit', help='Pilot workload subset; final measurement always covers all three')
     parser.add_argument('--pairs', type=int, default=12)
     parser.add_argument('--pending-identity', action='store_true', help='Permit preparation checks before the native emit identity gate')
     parser.add_argument('--checks-only', action='store_true', help='Validate checks using the already proven native emit identity')
@@ -64,7 +79,12 @@ def main():
     assert not (args.measure and args.checks_only)
     assert not args.pending_identity or (args.checks_only and not args.measure)
     assert not args.measure or args.quiet_confirmed, 'A coordinated quiet window is required'
-    assert args.pairs >= 12 or not args.measure
+    assert not args.pilot or (args.measure and 1 <= args.pairs <= 3)
+    assert args.pairs >= 12 or not args.measure or args.pilot
+    workloads = args.workloads.split(',')
+    assert workloads and len(set(workloads)) == len(workloads)
+    assert all(name in ['cold-check', 'warm-check', 'emit'] for name in workloads)
+    assert args.pilot or workloads == ['cold-check', 'warm-check', 'emit']
     assert CHECK_FILES
     assert not args.output.exists(), 'Use a fresh evidence directory'
     args.output.mkdir(parents=True)
@@ -75,7 +95,7 @@ def main():
         assert args.pending_identity or proof.get('identity') == 'passed'
         for path, meta in proof['artifacts'].items():
             assert prepare.digest(path) == meta['sha256']
-    report = {'scope': 'Full native AOT compiler process; same source files, separate caches; no Cranelift backend speed claim', 'measured': args.measure, 'nativeEmitIdentityPending': args.pending_identity, 'source': inputs['source'], 'inputsSha256': prepare.digest(OUT / 'inputs.json'), 'checkFiles': CHECK_FILES, 'pairs': args.pairs if args.measure else 1, 'margin': .02, 'rows': [], 'status': 'running'}
+    report = {'scope': 'Full native AOT compiler process; same source files, separate caches; no Cranelift backend speed claim', 'measured': args.measure, 'diagnostic': args.pilot, 'workloads': workloads, 'nativeEmitIdentityPending': args.pending_identity, 'source': inputs['source'], 'inputsSha256': prepare.digest(OUT / 'inputs.json'), 'checkFiles': CHECK_FILES, 'pairs': args.pairs if args.measure else 1, 'margin': .02, 'rows': [], 'status': 'running'}
     receipt = args.output / 'receipt.json'
     report['proofs'] = {mode: {'path': str(OUT / mode / prepare.PROOF_NAME), 'sha256': prepare.digest(OUT / mode / prepare.PROOF_NAME), 'binarySha256': prepare.digest(OUT / mode / prepare.BINARY_NAME)} for mode in proofs}
     report['harnessFiles'] = {}
@@ -122,6 +142,11 @@ def main():
                 result = subprocess.run(command, cwd=cwd, env=env, stdout=out, stderr=err, timeout=3600)
             if start is not None:
                 row['wallSeconds'] = time.perf_counter() - start
+                row['peakRssBytes'] = int(usage.ru_maxrss) * (1 if sys.platform == 'darwin' else 1024)
+                row['userCpuSeconds'] = usage.ru_utime
+                row['systemCpuSeconds'] = usage.ru_stime
+                row['resourceMethod'] = 'wait4 measured direct child; ru_maxrss converted to bytes'
+                prepare.save(Path(str(prefix) + '.resource.json'), {key: row[key] for key in ['peakRssBytes', 'userCpuSeconds', 'systemCpuSeconds', 'resourceMethod']})
         row['returnCode'] = result.returncode
         row['status'] = 'passed' if result.returncode == 0 else 'failed'
         prepare.save(receipt, report)
@@ -133,7 +158,7 @@ def main():
         if workload == 'emit':
             entries = re.search(r'compiled frame entries: (\d+)', stderr)
             assert entries and int(entries[1]) > 0
-            row.update(outputSha256=prepare.digest(output), outputBytes=output.stat().st_size, compiledFrameEntries=int(entries[1]), emittedFunctions=sum(line.startswith('function ') for line in output.read_text().splitlines()))
+            row.update(outputSha256=prepare.digest(output), outputBytes=output.stat().st_size, compiledFrameEntries=int(entries[1]), emittedFunctions=emitted_function_count(binary, output, env, cwd, prefix))
             assert row['outputSha256'] == proofs[mode]['referenceEmitSha256']
         else:
             data = json.loads(prefix.with_suffix('.out').read_text())
@@ -144,11 +169,6 @@ def main():
             elif not warmup:
                 assert data['timing']['reusedModules'] > 0, 'Warm check did not reuse modules'
         if 'wallSeconds' in row:
-            row['peakRssBytes'] = int(usage.ru_maxrss) * (1 if sys.platform == 'darwin' else 1024)
-            row['userCpuSeconds'] = usage.ru_utime
-            row['systemCpuSeconds'] = usage.ru_stime
-            row['resourceMethod'] = 'wait4 for the measured direct child; macOS ru_maxrss bytes'
-            prepare.save(Path(str(prefix) + '.resource.json'), {key: row[key] for key in ['peakRssBytes', 'userCpuSeconds', 'systemCpuSeconds', 'resourceMethod']})
             if workload == 'emit':
                 row['wholePipelineMillisecondsPerFunction'] = 1000 * row['wallSeconds'] / row['emittedFunctions']
         prepare.save(receipt, report)
@@ -164,20 +184,26 @@ def main():
             prepare.save(receipt, report)
             raise
 
-    for mode in ['baseline', 'candidate']:
-        checked_execute(mode, 'warm-check', -1, warmup=True)
+    if not args.pilot or 'warm-check' in workloads:
+        for mode in ['baseline', 'candidate']:
+            checked_execute(mode, 'warm-check', -1, warmup=True)
     for index in range(report['pairs']):
-        for workload in (['cold-check', 'warm-check'] if args.checks_only else ['cold-check', 'warm-check', 'emit']):
+        for workload in (['cold-check', 'warm-check'] if args.checks_only else workloads):
             order = ['baseline', 'candidate'] if index % 2 == 0 else ['candidate', 'baseline']
             for mode in order:
                 checked_execute(mode, workload, index)
     if args.measure:
         report['comparisons'] = {}
-        for workload in ['cold-check', 'warm-check', 'emit']:
+        for workload in workloads:
             rows = [row for row in report['rows'] if row['workload'] == workload and not row['warmup']]
             ratios = [next(r['wallSeconds'] for r in rows if r['mode'] == 'candidate' and r['pair'] == i) / next(r['wallSeconds'] for r in rows if r['mode'] == 'baseline' and r['pair'] == i) for i in range(args.pairs)]
-            low, high = interval(ratios)
-            report['comparisons'][workload] = {'pairedGeometricRatio': math.exp(statistics.mean(map(math.log, ratios))), 'pairedBootstrap95': [low, high], 'verdict': 'improved' if high < .98 else 'regressed' if low > 1.02 else 'unchanged' if low >= .98 and high <= 1.02 else 'inconclusive', 'ratios': ratios}
+            comparison = {'pairedGeometricRatio': math.exp(statistics.mean(map(math.log, ratios))), 'ratios': ratios}
+            if args.pilot:
+                comparison['verdict'] = 'diagnostic only; no confidence interval or duration verdict'
+            else:
+                low, high = interval(ratios)
+                comparison.update(pairedBootstrap95=[low, high], verdict='improved' if high < .98 else 'regressed' if low > 1.02 else 'unchanged' if low >= .98 and high <= 1.02 else 'inconclusive')
+            report['comparisons'][workload] = comparison
     report['status'] = 'passed'
     prepare.check_inputs(inputs)
     prepare.save(receipt, report)
