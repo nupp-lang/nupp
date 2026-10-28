@@ -44,6 +44,7 @@ record sink.Result
     instructionOperation: {integer}
     instructionSegment: {integer}
     instructionBlock: {integer}
+    callees: any
 end
 
 local function copy(value: any): any
@@ -61,14 +62,18 @@ end
 -- Prototype: private compiler-result provenance is checked before public data
 -- can be observed. Loader opcode/tag and integer-window authority remain pending.
 -- The returned artifact retains the exact body owner through linking/execution.
-local function lower(bound: any, name: string, unbound: boolean): sink.Result
+local function lower(bound: any, name: string, unbound: boolean, resolved: any?): sink.Result
     local g = bound.graph
     graph.verify(g)
     assert(bound.body ~= nil, "S0 graph: retained body owner required")
     assert(name:match("^[%w_%.]+$") ~= nil, "S0 graph: invalid name")
     assert(
-        g.native and (g.native.abi == "handler" or unbound and g.native.abi == "leaf") and g.nparams == 6,
-        "S0 graph: six-word native entry required"
+        g.native
+        and (
+            g.native.abi == "handler" and g.nparams == 6
+            or unbound and g.native.abi == "leaf" and g.nparams >= 1 and g.nparams <= 8
+        ),
+        "S0 graph: supported native entry required"
     )
     local handler = g.native.abi == "handler"
     assert((unbound or #g.blocks == 1) and #g.blocks[1].params == 0, "S0 graph: closed entry block required")
@@ -81,24 +86,29 @@ local function lower(bound: any, name: string, unbound: boolean): sink.Result
             assert(certificate == 0, "S0 graph: certificates unsupported")
         end
     end
+    local parameters: {integer} = {}
+    for index, kind in ipairs(g.native.params) do
+        parameters[index] = ir.kind(machineKind(kind))
+    end
     local signature = new ir.Signature(
-        params = {ir.I64, ir.I64, ir.I64, ir.I64, ir.I64, ir.I64},
-        results = {ir.I64},
+        params = parameters,
+        results = {ir.kind(machineKind(g.native.result))},
         convention = ir.INTERNAL
     )
     local f = ir.new(name, signature)
     f.signatures[1] = signature
-    f.blockStart[1], f.firstParam[1], f.nparams[1] = 1, 1, 6
+    f.blockStart[1], f.firstParam[1], f.nparams[1] = 1, 1, g.nparams
     -- Preserve reader's vN -> N+1 mapping, including its unused value zero slot.
     local nextValue = #g.types + 1
     local tableValue = nextValue + 1
     nextValue = tableValue
-    for index = 1, 6 do
+    for index = 1, g.nparams do
         local value = handler and index == 6 and tableValue or index + 1
         f.params[index] = value
-        ir.value(f, value, ir.I64, -1)
+        ir.value(f, value, parameters[index], -1)
     end
-    local positions, instructions, segments, blocks = {}, {}, {}, {}
+    local positions, instructions, segments, blocks, callees = {}, {}, {}, {}, {}
+    local imports = {}
     local position, operation, segment, blockIndex = 0, 0, 0, 1
 
     local function emit(
@@ -195,6 +205,67 @@ local function lower(bound: any, name: string, unbound: boolean): sink.Result
             local args, destination = block.args[index], block.dst[index]
             local result = destination ~= 0 and destination + 1 or nil
             local _ = switch op do
+                case "NativeLeafCall" -> do
+                    assert(unbound and not handler, "S0 graph: resolved leaf call requires compiler leaf")
+                    local declaration = args[1]
+                    local symbol = declaration.moduleName .. "." .. declaration.name
+                    local target = resolved and resolved[symbol]
+                    assert(target and target.owner and target.graph, "S0 graph: unresolved leaf " .. symbol)
+                    local other, owner = target.graph, target.owner
+                    assert(
+                        other.native.abi == "leaf"
+                        and other.native.result == declaration.result
+                        and #other.native.params == #declaration.params,
+                        "S0 graph: leaf signature mismatch"
+                    )
+                    assert(
+                        other.source.module == declaration.moduleName
+                        and other.source.name == declaration.name
+                        and other.source.path == owner.scope.path
+                        and owner.scope.name == declaration.moduleName
+                        and owner.name == declaration.name,
+                        "S0 graph: leaf source mismatch"
+                    )
+                    assert(
+                        owner.resultKind == declaration.result and #owner.paramKinds == #declaration.params,
+                        "S0 graph: checked leaf signature mismatch"
+                    )
+                    local kinds: {integer} = {}
+                    for at, kind in ipairs(declaration.params) do
+                        assert(
+                            other.native.params[at] == kind and owner.paramKinds[at] == kind,
+                            "S0 graph: leaf parameter mismatch"
+                        )
+                        kinds[at] = ir.kind(machineKind(kind))
+                    end
+                    local imported: integer? = imports[symbol]
+                    if not imported then
+                        local sig = new ir.Signature(
+                            params = kinds,
+                            results = {ir.kind(machineKind(declaration.result))},
+                            convention = ir.INTERNAL
+                        )
+                        f.signatures[#f.signatures + 1] = sig
+                        imported = #f.importNames + 1
+                        f.importNames[imported], f.importSignatures[imported] = symbol, #f.signatures
+                        imports[symbol], callees[symbol] = imported, target
+                    end
+                    local values: {integer} = {}
+                    for at = 2, #args do
+                        values[#values + 1] = (args[at] as integer) + 1
+                    end
+                    local at = ir.instruction(
+                        f,
+                        ir.opcode("call"),
+                        result as integer,
+                        ir.kind(machineKind(declaration.result)),
+                        values,
+                        0,
+                        assert(imported)
+                    )
+                    positions[at], instructions[at], segments[at], blocks[at] = position, operation, segment, blockIndex
+                    yield nil
+                end
                 case "NativeConstant" -> do
                     assert(
                         g.exactTypes[destination] == "int64" or g.exactTypes[destination] == "uint64",
@@ -361,7 +432,7 @@ local function lower(bound: any, name: string, unbound: boolean): sink.Result
             end
             case "return" -> do
                 assert(not handler, "S0 graph: scalar return requires leaf ABI")
-                emit("return", nil, term.value + 1, nil, nil, "i64", 0, nil)
+                emit("return", nil, term.value + 1, nil, nil, machineKind(g.native.result), 0, nil)
                 yield nil
             end
             case "nativeFail" -> do
@@ -406,17 +477,18 @@ local function lower(bound: any, name: string, unbound: boolean): sink.Result
         instructionPosition = positions,
         instructionOperation = instructions,
         instructionSegment = segments,
-        instructionBlock = blocks
+        instructionBlock = blocks,
+        callees = callees
     )
 end
 
 function sink.lower(bound: any, name: string): sink.Result
-    return lower(residual.snapshot(bound), name, false)
+    return lower(residual.snapshot(bound), name, false, nil)
 end
 
 -- Build-time checked compiler graphs only; no public runtime graph admission.
-function sink.compilerGraph(g: any, name: string, owner: any): sink.Result
-    return lower({graph = g, body = owner, pc = 0, count = 1}, name, true)
+function sink.compilerGraph(g: any, name: string, owner: any, resolved: any?): sink.Result
+    return lower({graph = g, body = owner, pc = 0, count = 1}, name, true, resolved)
 end
 
 export = sink

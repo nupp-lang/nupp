@@ -432,6 +432,14 @@ local function nativeInteger(text: any, kind: string): nil
 end
 
 local nativeLeafParameters = {
+    [
+        "nupp.runtime.core.arena"
+    ] = {
+        initialize = {"voidptr", "uint64", "uint64"},
+        reserve = {"voidptr", "uint64", "uint64", "voidptr"},
+        release = {"voidptr", "voidptr"},
+        reset = {"voidptr"}
+    },
     ["nupp.runtime.vm.objecthash"] = {slotHash = {"uint64"}},
     ["nupp.runtime.vm.objectconstruct"] = {constructorPayload = {"uint64", "uint64"}},
     [

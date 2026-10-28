@@ -2,6 +2,7 @@ module nupp.core.shim
 
 local arm = require("s0.arm64")
 local context = require("nupp.runtime.core.context")
+local linker = require("nupp.core.link")
 local shim = {}
 
 -- Context 0..127; frame header 128..159: predecessor, function, PC, extent.
@@ -14,8 +15,8 @@ shim.dispatchOffset, shim.spillOffset = 8352, 8464
 
 -- Input code and initialized program data are trusted, verified build artifacts.
 -- Entry extent checks do not authenticate arbitrary replacement code or data.
-function shim.build(codes: {any}): any
-    assert(#codes >= 13 and #codes <= 256, "core shim handler count")
+function shim.build(codes: {any}, functions: {[string]: any}?): any
+    assert(#codes >= 1 and #codes <= 256, "core shim handler count")
     local spillOffset = (shim.dispatchOffset + #codes * 8 + 15) & -16
     local words: {integer} = {}
 
@@ -129,20 +130,13 @@ function shim.build(codes: {any}): any
     end
     emit(arm.add_imm(64, 31, 31, 176, 0))
     emit(arm.ret(30))
-    local offsets, frames = {}, {}
-    for index, code in ipairs(codes) do
-        assert(#code.fixupWord == 0, "core contains an unresolved import")
-        assert(code.frameBytes >= 0 and code.frameBytes <= shim.scratchBytes - spillOffset, "core spill extent")
-        offsets[index], frames[index] = #words * 4, code.frameBytes
-        for _, word in ipairs(code.words) do
-            emit(word)
-        end
-    end
+    local linked = linker.assemble(words, codes, functions or {}, shim.scratchBytes - spillOffset)
 
     return {
-        words = words,
-        offsets = offsets,
-        frames = frames,
+        words = linked.words,
+        offsets = linked.offsets,
+        frames = linked.frames,
+        callBytes = linked.callBytes,
         scratchBytes = shim.scratchBytes,
         spillOffset = spillOffset,
         entry = 0

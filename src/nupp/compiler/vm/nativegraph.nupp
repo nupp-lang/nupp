@@ -171,6 +171,15 @@ local function exactKind(t: any): string
     while t and wrappers[t.tag] do
         t = t[wrappers[t.tag]]
     end
+    if t and t.tag == "union" and #t.members > 0 then
+        for _, member in ipairs(t.members) do
+            if exactKind(member) ~= "boolean" then
+                return "union"
+            end
+        end
+        return "boolean"
+    end
+
     return t and t.tag or "missing"
 end
 
@@ -234,6 +243,9 @@ function nativegraph.isLeaf(fn: any): boolean
     return fn.scope ~= nil
         and (
             (fn.scope.name == "nupp.runtime.core.entry" and (fn.name == "CoreStop" or fn.name == "CoreFloatStop"))
+            or fn.scope.name == "nupp.runtime.core.arena"
+            and (fn.name == "initialize" or fn.name == "reserve" or fn.name == "release" or fn.name == "reset")
+            or fn.scope.name == "nupp.runtime.core.arenaprobe" and fn.name == "CoreArenaProbe"
             or fn.scope.name == "nupp.runtime.vm.objecthash" and (fn.name == "slotHash" or fn.name == "stringHash")
             or fn.scope.name == "nupp.runtime.vm.objectweak" and fn.name == "weakLookupAction"
             or fn.scope.name == "nupp.runtime.vm.objecttable"
@@ -360,6 +372,9 @@ function nativegraph.compile(fn: any, options: any): any
         }
     end
 
+    local branch: function(): any
+    local resume: function(any): nil
+    local jump: function(any, any): nil
     local expression: function(any, string?): integer
     expression = function(n: any, expected: string?): integer
         if n.kind == "paren" then
@@ -373,7 +388,13 @@ function nativegraph.compile(fn: any, options: any): any
             return emit(n, "NativeConstant", {integerText(n)}, kind) as integer
         elseif n.kind == "name" then
             local value = bindings[n.token.definition or n.token]
-            need(value ~= nil, "name is not a checked local binding")
+            if value == nil then
+                local constant = scope.constants and scope.constants[n.token.definition or n.token]
+                need(constant and constant.kind == "number", "name is not a checked local binding")
+                local kind = expected or exactKind(constant.inferredType)
+                need(kind == "int64" or kind == "uint64", "module constant requires an exact integer kind")
+                return emit(n, "NativeConstant", {integerText(constant)}, kind) as integer
+            end
             need(expected == nil or g.exactTypes[value] == expected, "local changes exact kind")
             return value as integer
         elseif n.kind == "dotIndex" then
@@ -406,6 +427,35 @@ function nativegraph.compile(fn: any, options: any): any
             error("native graph: unsupported checked unary operator " .. n.op.text, 0)
         elseif n.kind == "binop" then
             local operator = n.op.text
+            if operator == "and" or operator == "or" then
+                need(expected == nil or expected == "boolean", "logical expression requires boolean result")
+                need(
+                    exactKind(n.inferredType) == "boolean"
+                    and exactKind(n.lhs.inferredType) == "boolean"
+                    and exactKind(n.rhs.inferredType) == "boolean",
+                    "logical expression requires exact booleans"
+                )
+                local lhs = expression(n.lhs, "boolean")
+                local key = {}
+                bindings[key], bindingOrder[#bindingOrder + 1] = lhs, key
+                local parent = block
+                local right, done = branch(), branch()
+                bindings[key], bindingOrder[#bindingOrder] = nil, nil
+                parent.term = {
+                    kind = "branch",
+                    value = lhs,
+                    edges = operator == "and" and {right.edge, done.edge} or {done.edge, right.edge},
+                    pos = position(n)
+                }
+                resume(right)
+                local rhs = expression(n.rhs, "boolean")
+                bindings[key] = rhs
+                jump(done, n)
+                resume(done)
+                local result = bindings[key]
+                bindings[key], bindingOrder[#bindingOrder] = nil, nil
+                return result as integer
+            end
             if comparisons[operator] then
                 need(expected == nil or expected == "boolean", "comparison produces a boolean")
                 local kind = exactKind(n.lhs.inferredType)
@@ -444,7 +494,9 @@ function nativegraph.compile(fn: any, options: any): any
                 moduleName, name = fn.scope.name, n.obj.token.text
             end
             local args = n.args.exprs or {}
-            if moduleName == "nupp.runtime.vm.objectconstruct" and name == "constructorPayload"
+            if moduleName == "nupp.runtime.core.arena"
+                and (name == "initialize" or name == "reserve" or name == "release" or name == "reset")
+                or moduleName == "nupp.runtime.vm.objectconstruct" and name == "constructorPayload"
                 or moduleName == "nupp.runtime.vm.objecthash" and name == "slotHash"
                 or moduleName == "nupp.runtime.vm.objecttable"
                 and (name == "tableProbe" or name == "tableCapacity" or name == "tableLiveCount")
@@ -571,7 +623,7 @@ function nativegraph.compile(fn: any, options: any): any
         error("native graph: unsupported checked expression " .. tostring(n.kind), 0)
     end
 
-    local function branch(): any
+    branch = function(): any
         local target = graph.block(g)
         local transported, order, args, keys = {}, {}, {}, {}
         for _, key in ipairs(bindingOrder) do
@@ -597,11 +649,11 @@ function nativegraph.compile(fn: any, options: any): any
         }
     end
 
-    local function resume(state: any): nil
+    resume = function(state: any): nil
         block, bindings, bindingOrder = state.block, state.bindings, state.order
     end
 
-    local function jump(state: any, node: any): nil
+    jump = function(state: any, node: any): nil
         local args = {}
         for _, key in ipairs(state.order) do
             if state.bindings[key] <= g.nparams then
@@ -694,8 +746,12 @@ function nativegraph.compile(fn: any, options: any): any
                     local key = token.definition or token
                     need(bindings[key] == nil, "duplicate local binding")
                     local kind = exactKind(token.inferredType)
-                    need(exactKinds[kind], "exact native local kind required")
-                    bindings[key] = expression(stat.exprs[index], kind)
+                    need(
+                        exactKinds[kind],
+                        "exact native local kind required: " .. fn.name .. "." .. token.text .. " is " .. kind
+                    )
+                    local value = expression(stat.exprs[index], kind)
+                    bindings[key] = value
                     bindingOrder[#bindingOrder + 1] = key
                 end
             elseif stat.kind == "assignStmt" then

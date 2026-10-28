@@ -1,0 +1,104 @@
+module nupp.core.link
+
+local arm = require("s0.arm64")
+local selector = require("s0.select")
+local link = {}
+
+-- Build-time local Nupp calls only. Typed callers and targets are checked by
+-- the graph sink before selection; this layer resolves code offsets and extent.
+function link.assemble(prefix: {integer}, roots: {any}, functions: {[string]: any}, available: integer): any
+    local names: {string} = {}
+    for name in pairs(functions) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+    assert(#roots > 0 and #roots <= 256 and #names <= 256, "core link function count")
+    assert(available >= 0, "core link available extent")
+    local visiting, heights = {}, {}
+    local height: function(any): integer
+    height = function(code: any): integer
+        assert(not visiting[code], "core link recursive call graph")
+        if heights[code] then
+            return heights[code]
+        end
+        visiting[code] = true
+        local frame: integer = code.frameBytes
+        local extent = frame
+        assert(extent >= 0 and extent % 16 == 0, "core link frame alignment")
+        assert(frame <= available, "core link call-chain spill extent")
+        for at, kind in ipairs(code.fixupKind) do
+            assert(kind == selector.B26 or kind == selector.BL26, "core link non-Nupp fixup")
+            local target = functions[code.fixupName[at]]
+            assert(target, "core link unresolved function")
+            local child = height(target)
+            local held = kind == selector.BL26 and frame or 0
+            assert(child <= available - held, "core link call-chain spill extent")
+            local needed = child + held
+            if needed > extent then
+                extent = needed
+            end
+        end
+        visiting[code], heights[code] = nil, extent
+
+        return extent
+    end
+    local maximum: integer = 0
+    for _, code in ipairs(roots) do
+        local extent = height(code)
+        if extent > maximum then
+            maximum = extent
+        end
+    end
+    for _, name in ipairs(names) do
+        height(functions[name])
+    end
+    assert(maximum <= available, "core link call-chain spill extent")
+    local words: {integer} = {}
+    for _, word in ipairs(prefix) do
+        words[#words + 1] = word
+    end
+    local offsets, frames, locations = {}, {}, {}
+
+    local function append(code: any): integer
+        local offset = #words * 4
+        locations[code] = offset
+        for _, word in ipairs(code.words) do
+            words[#words + 1] = word
+        end
+
+        return offset
+    end
+
+    for index, code in ipairs(roots) do
+        assert(locations[code] == nil, "core link duplicate code owner")
+        offsets[index], frames[index] = append(code), code.frameBytes
+    end
+    for _, name in ipairs(names) do
+        local code = functions[name]
+        assert(locations[code] == nil, "core link aliased local body")
+        append(code)
+    end
+    for code, offset in pairs(locations) do
+        assert(
+            #code.fixupWord == #code.fixupKind
+            and #code.fixupWord == #code.fixupName
+            and #code.fixupWord == #code.fixupAddend,
+            "core link fixup columns"
+        )
+        for at, word in ipairs(code.fixupWord) do
+            assert(
+                word >= 1 and word <= #code.words and word % 1 == 0 and code.fixupAddend[at] == 0,
+                "core link fixup placement"
+            )
+            local target = functions[code.fixupName[at]]
+            local base, slot = offset as integer, word as integer
+            local delta = (locations[target] as integer) - (base + (slot - 1) * 4)
+            assert(delta % 4 == 0 and delta >= -134217728 and delta < 134217728, "core link branch range")
+            words[base // 4 + slot] = code.fixupKind[at] == selector.B26 and arm.b(delta) or arm.bl(delta)
+        end
+    end
+
+    return {words = words, offsets = offsets, frames = frames, callBytes = maximum}
+end
+
+export = link
