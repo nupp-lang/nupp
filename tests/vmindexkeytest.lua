@@ -307,4 +307,132 @@ return Probe
     test.equal(writes, 2)
 end
 
+function M.signedWideArithmeticUsesExactIntegerRegisters()
+    local listing = {}
+    local run = compile(
+        "vmindexkeytest.signedNativeArithmetic.fragment",
+        [[
+return function(): (string, string, string, string, string, boolean, boolean, boolean, boolean)
+    local largest: integer = 9223372036854775807
+    local one: integer = 1
+    local small: integer = 7
+    local other: integer = 3
+    return tostring(largest + one), tostring(largest - one), tostring(small & other),
+        tostring(small | other), tostring(small ~ other),
+        small > other, small >= other, small < other, small <= other
+end
+]],
+        listing
+    )
+    local counts = {}
+    for _, fn in ipairs(listing) do
+        for _, instruction in ipairs(fn.instructions) do
+            counts[instruction.op] = (counts[instruction.op] or 0) + 1
+        end
+    end
+    for _, opcode in ipairs({"IAdd", "ISub", "IAnd", "IOr", "IXor", "ICmpSLt", "ICmpSLe"}) do
+        assert((counts[opcode] or 0) > 0, "missing native integer operation " .. opcode)
+    end
+    local sum, difference, both, either, exclusive, greater, atLeast, less, atMost = run()
+    test.equal(sum, "-9223372036854775808")
+    test.equal(difference, "9223372036854775806")
+    test.equal(both, "3")
+    test.equal(either, "7")
+    test.equal(exclusive, "4")
+    test.equal(greater, true)
+    test.equal(atLeast, true)
+    test.equal(less, false)
+    test.equal(atMost, false)
+end
+
+function M.signedWideConversionsPreserveEvaluationOrderAndFractionalComparisons()
+    local run = compile(
+        "vmindexkeytest.signedNativeConversions.fragment",
+        [[
+return function(): (string, boolean, boolean, boolean)
+    local events = ""
+    local function left(): integer
+        events ..= "L"
+        return (1.5 as any) as integer
+    end
+    local function right(): integer
+        events ..= "R"
+        return 1
+    end
+    local ok = pcall(function(): integer
+        return left() + right()
+    end)
+    local a: any = 1.5
+    local b: any = 1.25
+    return events, ok, (a as integer) < (b as integer), (a as integer) >= (b as integer)
+end
+]]
+    )
+    local events, ok, less, atLeast = run()
+    test.equal(events, "LR")
+    test.equal(ok, false)
+    test.equal(less, false)
+    test.equal(atLeast, true)
+end
+
+function M.signedWideOperandsSnapshotBeforeTheRightSideWrites()
+    local sum, greater = compile(
+        "vmindexkeytest.signedNativeSnapshot.fragment",
+        [[
+local number: integer = 7
+local sum = number + do
+    number = 2
+    yield 3
+end
+local greater = number > do
+    number = 9
+    yield 3
+end
+return sum, greater
+]]
+    )
+    test.equal(sum, 10)
+    test.equal(greater, false)
+end
+
+function M.signedWideNativeBoundariesKeepExactBitsAndNaNComparisons()
+    local first, second, unsigned, less, atLeast = compile(
+        "vmindexkeytest.signedNativeBoundaries.fragment",
+        [[
+local large: integer = 9007199254740993
+local small: integer = 2
+local inline: integer = 140737488355327
+local one: integer = 1
+local nan: any = 0 / 0
+return tostring(large + small), tostring(inline + one),
+    tostring((18446744073709551615ULL as integer) + 0LL),
+    (nan as integer) < 0LL, (nan as integer) >= 0LL
+]]
+    )
+    test.equal(first, "9007199254740995")
+    test.equal(second, "140737488355328")
+    test.equal(unsigned, "-1")
+    test.equal(less, false)
+    test.equal(atLeast, false)
+end
+
+function M.signedWideValueOperandsRetainNumericStringErrors()
+    local sum, both = compile(
+        "vmindexkeytest.signedNativeStrings.fragment",
+        [[
+local first: any = "123"
+local second: any = "7"
+local sum = pcall(function(): integer
+    return (first as integer) + 4LL
+end)
+local both = pcall(function(): integer
+    return (second as integer) & 3LL
+end)
+return sum, both
+]]
+    )
+    test.equal(sum, false)
+    test.equal(both, false)
+end
+
 return M

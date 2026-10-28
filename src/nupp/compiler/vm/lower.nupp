@@ -2516,6 +2516,45 @@ function lower.emit(
                 family = nil
             end
             if family and operations[op] then
+                local direct = {["+"] = "IAdd", ["-"] = "ISub", ["&"] = "IAnd", ["|"] = "IOr", ["~"] = "IXor"}
+                local comparison = {["<"] = "ICmpSLt", ["<="] = "ICmpSLe", [">"] = "ICmpSLt", [">="] = "ICmpSLe"}
+                if family == "i64" and (direct[op] or comparison[op]) then
+                    -- Evaluate both operands before checking either conversion,
+                    -- as the wide builtin does. Integer registers are already
+                    -- exact; other classes keep the checked value boundary.
+                    local left, leftClass = expr(f, node.lhs)
+                    local saved = leftClass == "v" and f:reg() or f:freg()
+                    f:op(leftClass == "v" and "Move" or leftClass == "f" and "FMov" or "IMov", saved, left)
+                    left = saved
+                    local right, rightClass = expr(f, node.rhs)
+                    if direct[op] then
+                        if leftClass ~= "i" then
+                            left = coerce(f, coerce(f, left, leftClass, "v"), "v", "i")
+                        end
+                        if rightClass ~= "i" then
+                            right = coerce(f, coerce(f, right, rightClass, "v"), "v", "i")
+                        end
+                        local result = f:freg()
+                        f:op(direct[op], result, left, right)
+                        return result, "i"
+                    end
+                    if comparison[op] and leftClass == "i" and rightClass == "i" then
+                        local result = f:freg()
+                        local reverse = op == ">" or op == ">="
+                        f:op(comparison[op], result, reverse and right or left, reverse and left or right)
+                        if want == "cond" then
+                            return result, "b"
+                        end
+                        local target = f:reg()
+                        f:op("BoolFromI", target, result)
+                        return target, "v"
+                    end
+                    left = coerce(f, left, leftClass, "v")
+                    right = coerce(f, right, rightClass, "v")
+                    local target = (want ~= "f" and want ~= "i" and want ~= "u") and dst or nil
+                    local values = (op == ">" or op == ">=") and {right, left} or {left, right}
+                    return builtinRegisters(f, "wide.i64." .. operations[op], values, target), "v"
+                end
                 local target = (want ~= "f" and want ~= "i" and want ~= "u") and dst or nil
                 if op == ">" or op == ">=" then
                     local left, right = f:reg(), f:reg()
