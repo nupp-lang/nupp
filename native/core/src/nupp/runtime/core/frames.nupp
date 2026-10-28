@@ -1,0 +1,782 @@
+module nupp.runtime.core.frames
+
+const native = require("nupp.runtime.vm.intrinsics")
+const values = require("nupp.runtime.vm.values")
+const arena = require("nupp.runtime.core.arena")
+
+-- These descriptors are Nupp-owned logical metadata, not the interim VM layout.
+-- Immutable function/plan storage and State live outside the logical frame pool.
+-- All pointer arguments borrow mapped storage of the declared extent. Arithmetic
+-- checks cannot establish mapping ownership or the validity of tagged values.
+export struct FunctionInfo
+    version: uint64
+    id: uint64
+    bodyOwner: uint64
+    code: uint64
+    instructionCount: uint64
+    nparams: uint64
+    parameterClass: uint64
+    resultClass: uint64
+    flags: uint64
+    valueCount: uint64
+    integerCount: uint64
+    floatCount: uint64
+    vectorCount: uint64
+    objectBytes: uint64
+    spillBytes: uint64
+    rootDescriptor: uint64
+end
+
+export struct WindowPlan
+    functionInfo: uint64
+    bytes: uint64
+    values: uint64
+    integers: uint64
+    floats: uint64
+    vectors: uint64
+    objects: uint64
+    spills: uint64
+end
+
+export struct Frame
+    previous: uint64
+    functionInfo: uint64
+    windowPlan: uint64
+    functionId: uint64
+    bodyOwner: uint64
+    code: uint64
+    instructionCount: uint64
+    resumePC: uint64
+    closureRoot: uint64
+    values: uint64
+    valueCount: uint64
+    integers: uint64
+    integerCount: uint64
+    floats: uint64
+    floatCount: uint64
+    vectors: uint64
+    vectorCount: uint64
+    objects: uint64
+    objectBytes: uint64
+    spills: uint64
+    spillBytes: uint64
+    rootDescriptor: uint64
+    liveValues: uint64
+    resultKind: uint64
+    resultOwner: uint64
+    resultSlot: uint64
+    resultCount: uint64
+    cleanupCursor: uint64
+    frameMark: uint64
+    dataMark: uint64
+    spillMark: uint64
+    reservationBytes: uint64
+    child: uint64
+    phase: uint64
+    childMark: arena.Mark
+end
+
+-- The native entry must bind these bounds to its actual helper spill storage.
+-- Declaring a range does not move spills or prove where native control lives.
+-- Helper return addresses, spills and reloads must outlive every released frame.
+export struct State
+    active: uint64
+    depth: uint64
+    limit: uint64
+    segment: uint64
+    lastResultCount: uint64
+    helperBase: uint64
+    helperBytes: uint64
+end
+
+export const PREPARED: uint64 = 1ULL
+export const ACTIVE: uint64 = 2ULL
+export const WAITING: uint64 = 3ULL
+export const CALLER_DESTINATION: uint64 = 1ULL
+
+local function range(address: uint64, bytes: uint64, alignment: uint64): uint64
+    if address == 0ULL or bytes == 0ULL or alignment == 0ULL or (alignment & (alignment - 1ULL)) ~= 0ULL then
+        return 0ULL
+    end
+    if (address & (alignment - 1ULL)) ~= 0ULL or bytes > 0xffffffffffffffffULL - address then
+        return 0ULL
+    end
+
+    return 1ULL
+end
+
+local function overlaps(a: uint64, bytesA: uint64, b: uint64, bytesB: uint64): boolean
+    return a < b + bytesB and b < a + bytesA
+end
+
+local function describe(info: voidptr, plan: voidptr, write: uint64): uint64
+    local source, output = native.address(info), native.address(plan)
+    if range(source, native.sizeOf<FunctionInfo>(), 8ULL) == 0ULL
+        or range(output, native.sizeOf<WindowPlan>(), 8ULL) == 0ULL
+    then
+        return 0ULL
+    end
+    if overlaps(source, native.sizeOf<FunctionInfo>(), output, native.sizeOf<WindowPlan>()) or write > 1ULL then
+        return 0ULL
+    end
+    if native.load64(info, native.fieldOffset<FunctionInfo>("version")) ~= 1ULL then
+        return 0ULL
+    end
+    if native.load64(info, native.fieldOffset<FunctionInfo>("id")) > 0xffffffffULL then
+        return 0ULL
+    end
+    local instructions = native.load64(info, native.fieldOffset<FunctionInfo>("instructionCount"))
+    if instructions == 0ULL or instructions > 1048576ULL then
+        return 0ULL
+    end
+    if range(native.load64(info, native.fieldOffset<FunctionInfo>("code")), instructions * 16ULL, 8ULL) == 0ULL then
+        return 0ULL
+    end
+    if native.load64(info, native.fieldOffset<FunctionInfo>("bodyOwner")) == 0ULL then
+        return 0ULL
+    end
+    -- Class zero is a tagged value. Varargs, cleanups, protected calls,
+    -- result packs, frame objects and compiled callee spills remain refused.
+    if native.load64(info, native.fieldOffset<FunctionInfo>("parameterClass")) ~= 0ULL
+        or native.load64(info, native.fieldOffset<FunctionInfo>("resultClass")) ~= 0ULL
+        or native.load64(info, native.fieldOffset<FunctionInfo>("flags")) ~= 0ULL
+    then
+        return 0ULL
+    end
+    if native.load64(info, native.fieldOffset<FunctionInfo>("objectBytes")) ~= 0ULL
+        or native.load64(info, native.fieldOffset<FunctionInfo>("spillBytes")) ~= 0ULL
+    then
+        return 0ULL
+    end
+    local nparams = native.load64(info, native.fieldOffset<FunctionInfo>("nparams"))
+    local nv = native.load64(info, native.fieldOffset<FunctionInfo>("valueCount"))
+    local ni = native.load64(info, native.fieldOffset<FunctionInfo>("integerCount"))
+    local nf = native.load64(info, native.fieldOffset<FunctionInfo>("floatCount"))
+    local nx = native.load64(info, native.fieldOffset<FunctionInfo>("vectorCount"))
+    if nparams > 255ULL or nv == 0ULL or nv > 256ULL or nv <= nparams or ni > 256ULL or nf > 256ULL or nx > 256ULL then
+        return 0ULL
+    end
+    -- Bounded counts make each multiplication/addition exact before addresses
+    -- are formed. Vector and reserved object/spill roles retain alignment 16.
+    local valueOffset = (native.sizeOf<Frame>() + 15ULL) & 0xfffffffffffffff0ULL
+    local integerOffset = valueOffset + nv * 8ULL
+    local floatOffset = integerOffset + ni * 8ULL
+    local vectorOffset = (floatOffset + nf * 8ULL + 15ULL) & 0xfffffffffffffff0ULL
+    local endOffset = vectorOffset + nx * 16ULL
+    if write == 0ULL then
+        if native.load64(plan, native.fieldOffset<WindowPlan>("functionInfo")) ~= source
+            or native.load64(plan, native.fieldOffset<WindowPlan>("bytes")) ~= endOffset
+        then
+            return 0ULL
+        end
+        if native.load64(plan, native.fieldOffset<WindowPlan>("values")) ~= valueOffset
+            or native.load64(plan, native.fieldOffset<WindowPlan>("integers")) ~= integerOffset
+            or native.load64(plan, native.fieldOffset<WindowPlan>("floats")) ~= floatOffset
+        then
+            return 0ULL
+        end
+        if native.load64(plan, native.fieldOffset<WindowPlan>("vectors")) ~= vectorOffset
+            or native.load64(plan, native.fieldOffset<WindowPlan>("objects")) ~= endOffset
+            or native.load64(plan, native.fieldOffset<WindowPlan>("spills")) ~= endOffset
+        then
+            return 0ULL
+        end
+    else
+        native.store64(plan, native.fieldOffset<WindowPlan>("functionInfo"), source)
+        native.store64(plan, native.fieldOffset<WindowPlan>("bytes"), endOffset)
+        native.store64(plan, native.fieldOffset<WindowPlan>("values"), valueOffset)
+        native.store64(plan, native.fieldOffset<WindowPlan>("integers"), integerOffset)
+        native.store64(plan, native.fieldOffset<WindowPlan>("floats"), floatOffset)
+        native.store64(plan, native.fieldOffset<WindowPlan>("vectors"), vectorOffset)
+        native.store64(plan, native.fieldOffset<WindowPlan>("objects"), endOffset)
+        native.store64(plan, native.fieldOffset<WindowPlan>("spills"), endOffset)
+    end
+
+    return 1ULL
+end
+
+export function planFixed(info: voidptr, plan: voidptr): uint64
+    return describe(info, plan, 1ULL)
+end
+
+local function validState(state: voidptr): uint64
+    local address = native.address(state)
+    if range(address, native.sizeOf<State>(), 8ULL) == 0ULL then
+        return 0ULL
+    end
+    local segment = native.loadPointer(state, native.fieldOffset<State>("segment"))
+    if range(native.address(segment), native.sizeOf<arena.Segment>(), 8ULL) == 0ULL then
+        return 0ULL
+    end
+    local base = native.load64(segment, native.fieldOffset<arena.Segment>("base"))
+    local limit = native.load64(segment, native.fieldOffset<arena.Segment>("limit"))
+    local cursor = native.load64(segment, native.fieldOffset<arena.Segment>("cursor"))
+    if base == 0ULL or limit <= base or cursor < base or cursor > limit then
+        return 0ULL
+    end
+    local helperBase = native.load64(state, native.fieldOffset<State>("helperBase"))
+    local helperBytes = native.load64(state, native.fieldOffset<State>("helperBytes"))
+    if range(helperBase, helperBytes, 16ULL) == 0ULL then
+        return 0ULL
+    end
+    if overlaps(base, limit - base, helperBase, helperBytes)
+        or overlaps(base, limit - base, address, native.sizeOf<State>())
+    then
+        return 0ULL
+    end
+    if overlaps(address, native.sizeOf<State>(), helperBase, helperBytes)
+        or overlaps(native.address(segment), native.sizeOf<arena.Segment>(), helperBase, helperBytes)
+        or overlaps(address, native.sizeOf<State>(), native.address(segment), native.sizeOf<arena.Segment>())
+    then
+        return 0ULL
+    end
+    local depth = native.load64(state, native.fieldOffset<State>("depth"))
+    if depth == 0ULL or depth > native.load64(state, native.fieldOffset<State>("limit")) then
+        return 0ULL
+    end
+
+    return 1ULL
+end
+
+local function stableMetadata(state: voidptr, info: voidptr, plan: voidptr): uint64
+    local segment = native.loadPointer(state, native.fieldOffset<State>("segment"))
+    local base = native.load64(segment, native.fieldOffset<arena.Segment>("base"))
+    local limit = native.load64(segment, native.fieldOffset<arena.Segment>("limit"))
+    local source, template = native.address(info), native.address(plan)
+    local sourceBytes, templateBytes = native.sizeOf<FunctionInfo>(), native.sizeOf<WindowPlan>()
+    if overlaps(source, sourceBytes, base, limit - base) or overlaps(template, templateBytes, base, limit - base) then
+        return 0ULL
+    end
+    if overlaps(source, sourceBytes, native.address(state), native.sizeOf<State>())
+        or overlaps(template, templateBytes, native.address(state), native.sizeOf<State>())
+    then
+        return 0ULL
+    end
+    if overlaps(source, sourceBytes, native.address(segment), native.sizeOf<arena.Segment>())
+        or overlaps(template, templateBytes, native.address(segment), native.sizeOf<arena.Segment>())
+    then
+        return 0ULL
+    end
+    local helperBase = native.load64(state, native.fieldOffset<State>("helperBase"))
+    local helperBytes = native.load64(state, native.fieldOffset<State>("helperBytes"))
+    if overlaps(source, sourceBytes, helperBase, helperBytes)
+        or overlaps(template, templateBytes, helperBase, helperBytes)
+    then
+        return 0ULL
+    end
+    if overlaps(
+        native.load64(info, native.fieldOffset<FunctionInfo>("code")),
+        native.load64(info, native.fieldOffset<FunctionInfo>("instructionCount")) * 16ULL,
+        base,
+        limit - base
+    ) then
+        return 0ULL
+    end
+
+    return 1ULL
+end
+
+-- A root frame is initialized by its entry owner. This helper checks only the
+-- metadata needed by transfer, not arbitrary pointer provenance or heap tags.
+local function validFrame(state: voidptr, frame: voidptr): uint64
+    local address = native.address(frame)
+    if range(address, native.sizeOf<Frame>(), 16ULL) == 0ULL then
+        return 0ULL
+    end
+    local info = native.loadPointer(frame, native.fieldOffset<Frame>("functionInfo"))
+    local plan = native.loadPointer(frame, native.fieldOffset<Frame>("windowPlan"))
+    if describe(info, plan, 0ULL) == 0ULL or stableMetadata(state, info, plan) == 0ULL then
+        return 0ULL
+    end
+    local bytes = native.load64(plan, native.fieldOffset<WindowPlan>("bytes"))
+    if range(address, bytes, 16ULL) == 0ULL
+        or native.load64(frame, native.fieldOffset<Frame>("reservationBytes")) ~= bytes
+    then
+        return 0ULL
+    end
+    if native.load64(
+        frame,
+        native.fieldOffset<Frame>("functionId")
+    ) ~= native.load64(info, native.fieldOffset<FunctionInfo>("id")) then
+        return 0ULL
+    end
+    if native.load64(
+        frame,
+        native.fieldOffset<Frame>("bodyOwner")
+    ) ~= native.load64(info, native.fieldOffset<FunctionInfo>("bodyOwner")) then
+        return 0ULL
+    end
+    if native.load64(
+        frame,
+        native.fieldOffset<Frame>("code")
+    ) ~= native.load64(info, native.fieldOffset<FunctionInfo>("code")) then
+        return 0ULL
+    end
+    if native.load64(
+        frame,
+        native.fieldOffset<Frame>("instructionCount")
+    ) ~= native.load64(info, native.fieldOffset<FunctionInfo>("instructionCount")) then
+        return 0ULL
+    end
+    if native.load64(
+        frame,
+        native.fieldOffset<Frame>("valueCount")
+    ) ~= native.load64(info, native.fieldOffset<FunctionInfo>("valueCount")) then
+        return 0ULL
+    end
+    if native.load64(
+        frame,
+        native.fieldOffset<Frame>("integerCount")
+    ) ~= native.load64(info, native.fieldOffset<FunctionInfo>("integerCount")) then
+        return 0ULL
+    end
+    if native.load64(
+        frame,
+        native.fieldOffset<Frame>("floatCount")
+    ) ~= native.load64(info, native.fieldOffset<FunctionInfo>("floatCount")) then
+        return 0ULL
+    end
+    if native.load64(
+        frame,
+        native.fieldOffset<Frame>("vectorCount")
+    ) ~= native.load64(info, native.fieldOffset<FunctionInfo>("vectorCount")) then
+        return 0ULL
+    end
+    if native.load64(
+        frame,
+        native.fieldOffset<Frame>("rootDescriptor")
+    ) ~= native.load64(info, native.fieldOffset<FunctionInfo>("rootDescriptor")) then
+        return 0ULL
+    end
+    if native.load64(
+        frame,
+        native.fieldOffset<Frame>("values")
+    ) ~= address + native.load64(plan, native.fieldOffset<WindowPlan>("values")) then
+        return 0ULL
+    end
+    if native.load64(
+        frame,
+        native.fieldOffset<Frame>("integers")
+    ) ~= address + native.load64(plan, native.fieldOffset<WindowPlan>("integers")) then
+        return 0ULL
+    end
+    if native.load64(
+        frame,
+        native.fieldOffset<Frame>("floats")
+    ) ~= address + native.load64(plan, native.fieldOffset<WindowPlan>("floats")) then
+        return 0ULL
+    end
+    if native.load64(
+        frame,
+        native.fieldOffset<Frame>("vectors")
+    ) ~= address + native.load64(plan, native.fieldOffset<WindowPlan>("vectors")) then
+        return 0ULL
+    end
+    if native.load64(
+        frame,
+        native.fieldOffset<Frame>("objects")
+    ) ~= address + native.load64(plan, native.fieldOffset<WindowPlan>("objects")) then
+        return 0ULL
+    end
+    if native.load64(
+        frame,
+        native.fieldOffset<Frame>("spills")
+    ) ~= address + native.load64(plan, native.fieldOffset<WindowPlan>("spills")) then
+        return 0ULL
+    end
+    if native.load64(
+        frame,
+        native.fieldOffset<Frame>("liveValues")
+    ) ~= native.load64(frame, native.fieldOffset<Frame>("valueCount"))
+        or native.load64(frame, native.fieldOffset<Frame>("objectBytes")) ~= 0ULL
+        or native.load64(frame, native.fieldOffset<Frame>("spillBytes")) ~= 0ULL
+    then
+        return 0ULL
+    end
+    if native.load64(frame, native.fieldOffset<Frame>("cleanupCursor")) ~= 0ULL
+        or native.load64(frame, native.fieldOffset<Frame>("dataMark")) ~= 0ULL
+        or native.load64(frame, native.fieldOffset<Frame>("spillMark")) ~= 0ULL
+    then
+        return 0ULL
+    end
+    local segment = native.loadPointer(state, native.fieldOffset<State>("segment"))
+    local base = native.load64(segment, native.fieldOffset<arena.Segment>("base"))
+    local limit = native.load64(segment, native.fieldOffset<arena.Segment>("limit"))
+    local cursor = native.load64(segment, native.fieldOffset<arena.Segment>("cursor"))
+    if overlaps(address, bytes, base, limit - base)
+        and (address < base or address > cursor or bytes > cursor - address)
+    then
+        return 0ULL
+    end
+    if overlaps(address, bytes, native.address(state), native.sizeOf<State>())
+        or overlaps(address, bytes, native.address(segment), native.sizeOf<arena.Segment>())
+    then
+        return 0ULL
+    end
+    if overlaps(
+        address,
+        bytes,
+        native.load64(state, native.fieldOffset<State>("helperBase")),
+        native.load64(state, native.fieldOffset<State>("helperBytes"))
+    ) then
+        return 0ULL
+    end
+    if overlaps(address, bytes, native.address(info), native.sizeOf<FunctionInfo>())
+        or overlaps(address, bytes, native.address(plan), native.sizeOf<WindowPlan>())
+    then
+        return 0ULL
+    end
+
+    return 1ULL
+end
+
+-- The canonical call policy must check work/cancellation and resolve the actual
+-- callee before this service. A function-id hint alone is not a target proof.
+-- Success returns the unpublished child address; refusal returns zero. From
+-- prepare through publish/abort there is no callback, collection or safepoint.
+export function prepareFixed(
+    state: voidptr,
+    caller: voidptr,
+    info: voidptr,
+    closure: uint64,
+    argumentBase: uint64,
+    supplied: uint64,
+    resultSlot: uint64,
+    plan: voidptr
+): uint64
+    if validState(state) == 0ULL
+        or validFrame(state, caller) == 0ULL
+        or describe(info, plan, 0ULL) == 0ULL
+        or stableMetadata(state, info, plan) == 0ULL
+    then
+        return 0ULL
+    end
+    if native.load64(state, native.fieldOffset<State>("active")) ~= native.address(caller)
+        or native.load64(caller, native.fieldOffset<Frame>("phase")) ~= ACTIVE
+        or native.load64(caller, native.fieldOffset<Frame>("child")) ~= 0ULL
+    then
+        return 0ULL
+    end
+    if native.load64(
+        state,
+        native.fieldOffset<State>("depth")
+    ) >= native.load64(state, native.fieldOffset<State>("limit")) then
+        return 0ULL
+    end
+    local count = native.load64(caller, native.fieldOffset<Frame>("valueCount"))
+    if resultSlot >= count or argumentBase >= count or supplied > count - argumentBase - 1ULL then
+        return 0ULL
+    end
+    local segment = native.loadPointer(state, native.fieldOffset<State>("segment"))
+    local callerBytes = native.load64(caller, native.fieldOffset<Frame>("reservationBytes"))
+    if overlaps(native.address(info), native.sizeOf<FunctionInfo>(), native.address(caller), callerBytes)
+        or overlaps(native.address(plan), native.sizeOf<WindowPlan>(), native.address(caller), callerBytes)
+    then
+        return 0ULL
+    end
+    local mark = native.offset(caller, native.fieldOffset<Frame>("childMark"))
+    local bytes = native.load64(plan, native.fieldOffset<WindowPlan>("bytes"))
+    if arena.reserve(segment, bytes, 16ULL, mark) == 0ULL then
+        return 0ULL
+    end
+    local payload = native.load64(mark, native.fieldOffset<arena.Mark>("payload"))
+    local child = native.pointer(payload)
+    -- The reservation has succeeded and every remaining operation is a bounded
+    -- store/copy. No failure or safepoint can expose a partial child as active.
+    native.store64(child, native.fieldOffset<Frame>("previous"), native.address(caller))
+    native.store64(child, native.fieldOffset<Frame>("functionInfo"), native.address(info))
+    native.store64(child, native.fieldOffset<Frame>("windowPlan"), native.address(plan))
+    native.store64(
+        child,
+        native.fieldOffset<Frame>("functionId"),
+        native.load64(info, native.fieldOffset<FunctionInfo>("id"))
+    )
+    native.store64(
+        child,
+        native.fieldOffset<Frame>("bodyOwner"),
+        native.load64(info, native.fieldOffset<FunctionInfo>("bodyOwner"))
+    )
+    native.store64(
+        child,
+        native.fieldOffset<Frame>("code"),
+        native.load64(info, native.fieldOffset<FunctionInfo>("code"))
+    )
+    native.store64(
+        child,
+        native.fieldOffset<Frame>("instructionCount"),
+        native.load64(info, native.fieldOffset<FunctionInfo>("instructionCount"))
+    )
+    native.store64(child, native.fieldOffset<Frame>("resumePC"), 0ULL)
+    native.store64(child, native.fieldOffset<Frame>("closureRoot"), closure)
+    native.store64(
+        child,
+        native.fieldOffset<Frame>("values"),
+        payload + native.load64(plan, native.fieldOffset<WindowPlan>("values"))
+    )
+    native.store64(
+        child,
+        native.fieldOffset<Frame>("integers"),
+        payload + native.load64(plan, native.fieldOffset<WindowPlan>("integers"))
+    )
+    native.store64(
+        child,
+        native.fieldOffset<Frame>("floats"),
+        payload + native.load64(plan, native.fieldOffset<WindowPlan>("floats"))
+    )
+    native.store64(
+        child,
+        native.fieldOffset<Frame>("vectors"),
+        payload + native.load64(plan, native.fieldOffset<WindowPlan>("vectors"))
+    )
+    native.store64(
+        child,
+        native.fieldOffset<Frame>("objects"),
+        payload + native.load64(plan, native.fieldOffset<WindowPlan>("objects"))
+    )
+    native.store64(
+        child,
+        native.fieldOffset<Frame>("spills"),
+        payload + native.load64(plan, native.fieldOffset<WindowPlan>("spills"))
+    )
+    native.store64(
+        child,
+        native.fieldOffset<Frame>("valueCount"),
+        native.load64(info, native.fieldOffset<FunctionInfo>("valueCount"))
+    )
+    native.store64(
+        child,
+        native.fieldOffset<Frame>("integerCount"),
+        native.load64(info, native.fieldOffset<FunctionInfo>("integerCount"))
+    )
+    native.store64(
+        child,
+        native.fieldOffset<Frame>("floatCount"),
+        native.load64(info, native.fieldOffset<FunctionInfo>("floatCount"))
+    )
+    native.store64(
+        child,
+        native.fieldOffset<Frame>("vectorCount"),
+        native.load64(info, native.fieldOffset<FunctionInfo>("vectorCount"))
+    )
+    native.store64(
+        child,
+        native.fieldOffset<Frame>("rootDescriptor"),
+        native.load64(info, native.fieldOffset<FunctionInfo>("rootDescriptor"))
+    )
+    native.store64(child, native.fieldOffset<Frame>("objectBytes"), 0ULL)
+    native.store64(child, native.fieldOffset<Frame>("spillBytes"), 0ULL)
+    native.store64(child, native.fieldOffset<Frame>("liveValues"), 0ULL)
+    native.store64(child, native.fieldOffset<Frame>("resultKind"), CALLER_DESTINATION)
+    native.store64(child, native.fieldOffset<Frame>("resultOwner"), native.address(caller))
+    native.store64(child, native.fieldOffset<Frame>("resultSlot"), resultSlot)
+    native.store64(child, native.fieldOffset<Frame>("resultCount"), 1ULL)
+    native.store64(child, native.fieldOffset<Frame>("cleanupCursor"), 0ULL)
+    native.store64(child, native.fieldOffset<Frame>("frameMark"), native.address(mark))
+    native.store64(child, native.fieldOffset<Frame>("dataMark"), 0ULL)
+    native.store64(child, native.fieldOffset<Frame>("spillMark"), 0ULL)
+    native.store64(child, native.fieldOffset<Frame>("reservationBytes"), bytes)
+    native.store64(child, native.fieldOffset<Frame>("child"), 0ULL)
+    native.store64(child, native.fieldOffset<Frame>("phase"), 0ULL)
+    local childMark = native.offset(child, native.fieldOffset<Frame>("childMark"))
+    local at: uint64 = 0ULL
+    while at < native.sizeOf<arena.Mark>() do
+        native.store64(childMark, native.index(at), 0ULL)
+        at = at + 8ULL
+    end
+    local slots = native.loadPointer(child, native.fieldOffset<Frame>("values"))
+    local nv = native.load64(child, native.fieldOffset<Frame>("valueCount"))
+    local i: uint64 = 0ULL
+    while i < nv do
+        native.store64(slots, native.index(i * 8ULL), values.NIL)
+        i = i + 1ULL
+    end
+    local nparams = native.load64(info, native.fieldOffset<FunctionInfo>("nparams"))
+    local copied = native.chooseWord(supplied < nparams, supplied, nparams)
+    local arguments = native.loadPointer(caller, native.fieldOffset<Frame>("values"))
+    i = 0ULL
+    while i < copied do
+        native.store64(
+            slots,
+            native.index((i + 1ULL) * 8ULL),
+            native.load64(arguments, native.index((argumentBase + 1ULL + i) * 8ULL))
+        )
+        i = i + 1ULL
+    end
+    -- Missing arguments remain NIL. Extra already-evaluated arguments have no
+    -- parameter slot in a fixed, non-vararg function.
+    native.store64(child, native.fieldOffset<Frame>("liveValues"), nv)
+    native.store64(child, native.fieldOffset<Frame>("phase"), PREPARED)
+    native.store64(caller, native.fieldOffset<Frame>("child"), payload)
+
+    return payload
+end
+
+local function linked(state: voidptr, parent: voidptr, child: voidptr): uint64
+    if validState(state) == 0ULL or validFrame(state, parent) == 0ULL or validFrame(state, child) == 0ULL then
+        return 0ULL
+    end
+    if native.address(parent) == native.address(child)
+        or native.load64(child, native.fieldOffset<Frame>("previous")) ~= native.address(parent)
+        or native.load64(parent, native.fieldOffset<Frame>("child")) ~= native.address(child)
+    then
+        return 0ULL
+    end
+    if native.load64(child, native.fieldOffset<Frame>("resultKind")) ~= CALLER_DESTINATION
+        or native.load64(child, native.fieldOffset<Frame>("resultOwner")) ~= native.address(parent)
+        or native.load64(child, native.fieldOffset<Frame>("resultCount")) ~= 1ULL
+    then
+        return 0ULL
+    end
+    if native.load64(
+        child,
+        native.fieldOffset<Frame>("resultSlot")
+    ) >= native.load64(parent, native.fieldOffset<Frame>("valueCount")) then
+        return 0ULL
+    end
+    if native.load64(child, native.fieldOffset<Frame>("cleanupCursor")) ~= 0ULL
+        or native.load64(child, native.fieldOffset<Frame>("child")) ~= 0ULL
+        or native.load64(child, native.fieldOffset<Frame>("dataMark")) ~= 0ULL
+        or native.load64(child, native.fieldOffset<Frame>("spillMark")) ~= 0ULL
+    then
+        return 0ULL
+    end
+    local mark = native.offset(parent, native.fieldOffset<Frame>("childMark"))
+    local segment = native.loadPointer(state, native.fieldOffset<State>("segment"))
+    if native.load64(child, native.fieldOffset<Frame>("frameMark")) ~= native.address(mark)
+        or arena.canRelease(segment, mark) == 0ULL
+    then
+        return 0ULL
+    end
+    if native.load64(mark, native.fieldOffset<arena.Mark>("payload")) ~= native.address(child)
+        or native.load64(
+            mark,
+            native.fieldOffset<arena.Mark>("bytes")
+        ) ~= native.load64(child, native.fieldOffset<Frame>("reservationBytes"))
+    then
+        return 0ULL
+    end
+    local base = native.load64(segment, native.fieldOffset<arena.Segment>("base"))
+    local limit = native.load64(segment, native.fieldOffset<arena.Segment>("limit"))
+    local parentAddress = native.address(parent)
+    local parentBytes = native.load64(parent, native.fieldOffset<Frame>("reservationBytes"))
+    local info = native.loadPointer(child, native.fieldOffset<Frame>("functionInfo"))
+    local plan = native.loadPointer(child, native.fieldOffset<Frame>("windowPlan"))
+    if overlaps(native.address(info), native.sizeOf<FunctionInfo>(), parentAddress, parentBytes)
+        or overlaps(native.address(plan), native.sizeOf<WindowPlan>(), parentAddress, parentBytes)
+    then
+        return 0ULL
+    end
+    if overlaps(parentAddress, parentBytes, base, limit - base)
+        and parentAddress + parentBytes > native.load64(mark, native.fieldOffset<arena.Mark>("before"))
+    then
+        return 0ULL
+    end
+
+    return 1ULL
+end
+
+-- Publication is the final store of an initialized child and its root extent.
+-- Caller/child ownership is exclusive across this no-safepoint commit.
+export function publish(state: voidptr, caller: voidptr, child: voidptr, resumePC: uint64): uint64
+    if linked(state, caller, child) == 0ULL then
+        return 0ULL
+    end
+    if native.load64(state, native.fieldOffset<State>("active")) ~= native.address(caller)
+        or native.load64(caller, native.fieldOffset<Frame>("phase")) ~= ACTIVE
+        or native.load64(child, native.fieldOffset<Frame>("phase")) ~= PREPARED
+    then
+        return 0ULL
+    end
+    if resumePC >= native.load64(caller, native.fieldOffset<Frame>("instructionCount"))
+        or native.load64(
+            state,
+            native.fieldOffset<State>("depth")
+        ) >= native.load64(state, native.fieldOffset<State>("limit"))
+    then
+        return 0ULL
+    end
+    native.store64(caller, native.fieldOffset<Frame>("resumePC"), resumePC)
+    native.store64(caller, native.fieldOffset<Frame>("phase"), WAITING)
+    native.store64(child, native.fieldOffset<Frame>("phase"), ACTIVE)
+    native.store64(
+        state,
+        native.fieldOffset<State>("depth"),
+        native.load64(state, native.fieldOffset<State>("depth")) + 1ULL
+    )
+    native.store64(state, native.fieldOffset<State>("active"), native.address(child))
+
+    return 1ULL
+end
+
+-- Helper spills/control and all subsequent reloads must live in the disjoint
+-- entry-lifetime helper arena, never in the reservation this service releases.
+export function abortPrepared(state: voidptr, caller: voidptr, child: voidptr): uint64
+    if linked(state, caller, child) == 0ULL then
+        return 0ULL
+    end
+    if native.load64(state, native.fieldOffset<State>("active")) ~= native.address(caller)
+        or native.load64(caller, native.fieldOffset<Frame>("phase")) ~= ACTIVE
+        or native.load64(child, native.fieldOffset<Frame>("phase")) ~= PREPARED
+    then
+        return 0ULL
+    end
+    local segment = native.loadPointer(state, native.fieldOffset<State>("segment"))
+    local mark = native.offset(caller, native.fieldOffset<Frame>("childMark"))
+    if arena.release(segment, mark) == 0ULL then
+        return 0ULL
+    end
+    -- No child pointer is dereferenced after retirement.
+    native.store64(caller, native.fieldOffset<Frame>("child"), 0ULL)
+
+    return 1ULL
+end
+
+-- The canonical Ret handler selects the value before calling this leaf.
+-- This service decodes no instruction and performs no dispatch. Tagged values
+-- must already satisfy their heap lifetime contract; frame objects are refused.
+-- Entry-lifetime helper spills/control must remain outside the retired span.
+export function returnScalar(state: voidptr, callee: voidptr, value: uint64): uint64
+    if validState(state) == 0ULL or validFrame(state, callee) == 0ULL then
+        return 0ULL
+    end
+    local parent = native.loadPointer(callee, native.fieldOffset<Frame>("previous"))
+    if linked(state, parent, callee) == 0ULL then
+        return 0ULL
+    end
+    if native.load64(state, native.fieldOffset<State>("active")) ~= native.address(callee)
+        or native.load64(callee, native.fieldOffset<Frame>("phase")) ~= ACTIVE
+        or native.load64(parent, native.fieldOffset<Frame>("phase")) ~= WAITING
+        or native.load64(state, native.fieldOffset<State>("depth")) <= 1ULL
+    then
+        return 0ULL
+    end
+    if native.load64(
+        parent,
+        native.fieldOffset<Frame>("resumePC")
+    ) >= native.load64(parent, native.fieldOffset<Frame>("instructionCount")) then
+        return 0ULL
+    end
+    -- All fallible metadata/mark checks precede the caller's observable result.
+    -- Exclusive ownership and no safepoint keep canRelease valid through release.
+    local slots = native.loadPointer(parent, native.fieldOffset<Frame>("values"))
+    local slot = native.load64(callee, native.fieldOffset<Frame>("resultSlot"))
+    local segment = native.loadPointer(state, native.fieldOffset<State>("segment"))
+    local mark = native.offset(parent, native.fieldOffset<Frame>("childMark"))
+    native.store64(slots, native.index(slot * 8ULL), value)
+    if arena.release(segment, mark) == 0ULL then
+        return 0ULL
+    end
+    -- No callee pointer is dereferenced after retirement. The caller's saved
+    -- logical PC is consumed by a future canonical transfer, not by this helper.
+    native.store64(parent, native.fieldOffset<Frame>("child"), 0ULL)
+    native.store64(parent, native.fieldOffset<Frame>("phase"), ACTIVE)
+    native.store64(state, native.fieldOffset<State>("lastResultCount"), 1ULL)
+    native.store64(
+        state,
+        native.fieldOffset<State>("depth"),
+        native.load64(state, native.fieldOffset<State>("depth")) - 1ULL
+    )
+    native.store64(state, native.fieldOffset<State>("active"), native.address(parent))
+
+    return 1ULL
+end
