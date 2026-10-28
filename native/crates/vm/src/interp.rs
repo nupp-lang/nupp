@@ -1790,7 +1790,7 @@ impl Interp {
                 // Enforce the declared slot before the common raw write path.
                 let sh = &self.heap.shapes[h.shape() as usize];
                 if let Some(i) = sh.slot_of(name) {
-                    if !self.slot_type_ok(sh.types[i], v) { self.err(&format!("value does not match the declared type of field {} of {}", String::from_utf8_lossy(self.bytes_of(name)), sh.name)) }
+                    if !self.slot_type_ok(sh.types.at(i), v) { self.err(&format!("value does not match the declared type of field {} of {}", String::from_utf8_lossy(self.bytes_of(name)), sh.name)) }
                     self.set_slot(tv, i, v);
                     return;
                 }

@@ -79,7 +79,7 @@ pub fn analyze(it: &Interp, count: usize) -> Option<Vec<ImageModule>> {
             let shape = &it.heap.shapes[id as usize];
             let mut out = shallow(id);
             for (slot, ty) in shape.names.iter().zip(&shape.types) {
-                let ty = match ty { SlotTy::Num => "num".to_string(), SlotTy::Str => "str".to_string(), SlotTy::Bool => "bool".to_string(), SlotTy::Record(r) => format!("rec:{}", shallow(*r)), SlotTy::Any => "any".to_string() };
+                let ty = match ty { SlotTy::Num => "num".to_string(), SlotTy::Str => "str".to_string(), SlotTy::Bool => "bool".to_string(), SlotTy::Record(r) => format!("rec:{}", shallow(r)), SlotTy::Any => "any".to_string() };
                 out.push_str(&format!(" {}:{ty}", text(*slot)));
             }
             let mut owners = BTreeSet::new();

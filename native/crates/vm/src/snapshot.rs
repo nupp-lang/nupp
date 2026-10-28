@@ -653,7 +653,7 @@ fn refuse_open_file(vm: &mut Interp, value: Value) -> Result<()> {
 }
 fn guard(vm: &Interp, policies: &mut Policies) {
     if let Some(&id) = vm.heap.shape_identities.get(FILE_IDENTITY) {
-        let name = vm.heap.shapes[id as usize].name.clone();
+        let name = vm.heap.shapes[id as usize].name.to_string();
         let policy = policies.shapes.entry(name).or_default();
         if policy.before_save.is_none() {
             policy.before_save = Some(refuse_open_file);

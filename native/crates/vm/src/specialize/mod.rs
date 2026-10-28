@@ -526,7 +526,7 @@ impl Interp {
                 if !shapes.all(|s| s == Some(shape)) { return None; }
                 let sh = self.heap.shapes.get(shape as usize)?;
                 let slot = sh.slot_of(name)?;
-                let number = match sh.types[slot] { SlotTy::Any => false, SlotTy::Num => true, _ => return None };
+                let number = match sh.types.at(slot) { SlotTy::Any => false, SlotTy::Num => true, _ => return None };
                 Some(SiteSpec::Store { shape, slot: slot as u16, number })
             }
             _ => None,

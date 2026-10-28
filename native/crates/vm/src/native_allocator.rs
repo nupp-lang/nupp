@@ -126,6 +126,13 @@ impl NativeAllocator {
         unsafe { crate::native_byte_array::ByteArray::new(self.heap.as_ptr(), length, capacity) }
     }
 
+    pub(crate) fn shape_metadata(&self, name: &str, types: &[crate::heap::SlotTy]) -> (crate::native_shape_metadata::ShapeName, crate::native_shape_metadata::ShapeTypes) {
+        // Locals release every completed allocation if later construction fails.
+        let name = unsafe { crate::native_shape_metadata::ShapeName::new(self.heap.as_ptr(), name) };
+        let types = unsafe { crate::native_shape_metadata::ShapeTypes::new(self.heap.as_ptr(), types) };
+        (name, types)
+    }
+
     pub(crate) fn shape_methods(&self) -> crate::native_shape_methods::ShapeMethods {
         unsafe { crate::native_shape_methods::ShapeMethods::new(self.heap.as_ptr()) }
     }
@@ -393,6 +400,39 @@ mod shape_backing_tests {
         drop(restore);
         assert_eq!(map.insert(Value(99), Value::NIL), None);
         assert_eq!(map.get(&Value(99)), Some(&Value::NIL));
+    }
+
+    #[test]
+    fn shape_metadata_refusal_keeps_old_hints_and_releases_partial_name() {
+        use crate::heap::SlotTy;
+        let owner = NativeAllocator::new();
+        let (_, mut hints) = owner.shape_metadata("old", &[SlotTy::Num]);
+        let seed = owner.byte_array(1, 1);
+        let pointer = seed.as_ptr();
+        drop(seed);
+        let arena = owner.arena.as_ptr().cast::<ArenaPrefix>();
+        let restore = unsafe {
+            let guard = RestoreArena(arena, (*arena).limit, (*arena).growable);
+            (*arena).limit = (*arena).cursor;
+            (*arena).growable = false;
+            guard
+        };
+        let old_pointer = hints.words().as_ptr();
+        let source = vec![Value(3); 1024];
+        assert_eq!(unsafe { crate::native_shape_metadata::nupp_shape_types_replace(&mut hints, source.as_ptr(), source.len() as u64) }, 2);
+        assert_eq!(hints.iter().collect::<Vec<_>>(), [SlotTy::Num]);
+        assert_eq!(hints.words().as_ptr(), old_pointer);
+        assert_eq!(unsafe { *old_pointer }, Value(1));
+        let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            owner.shape_metadata("x", &vec![SlotTy::Any; 1024]);
+        }));
+        assert!(refused.is_err());
+        let reused = owner.byte_array(1, 1);
+        assert_eq!(reused.as_ptr(), pointer, "partial name construction leaked backing");
+        drop(reused);
+        drop(restore);
+        hints.replace(&[SlotTy::Record(u32::MAX)]);
+        assert_eq!(hints.at(0), SlotTy::Record(u32::MAX));
     }
 
 }

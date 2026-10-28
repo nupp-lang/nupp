@@ -158,7 +158,7 @@ fn durable_shapes_transients_hooks_and_in_place_identity() {
     );
     assert_eq!(get(&mut target, existing, "x"), Value::num(12.0));
     assert_eq!(get(&mut target, existing, "cache"), Value::num(99.0));
-    target.heap.shapes[sid as usize].types[0] = SlotTy::Bool;
+    target.heap.shapes[sid as usize].types.set(0, SlotTy::Bool);
     assert!(
         persist::load_graph(&mut target, &data, &policies, None)
             .unwrap_err()

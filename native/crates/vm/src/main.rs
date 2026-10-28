@@ -576,7 +576,7 @@ pub(crate) fn main() {
         eprintln!("  provable exact (the register was written by NewRecord of the shape, in straight-line code): {prov_hits} accesses at {prov_sites} sites");
         if std::env::var("SLOT_STATS_SITES").is_ok() { let mut rows: Vec<_> = st.iter().filter(|(k, _)| k.2).collect(); rows.sort_by(|a, b| b.1.cmp(a.1)); for ((f, pc, _), n) in rows.iter().take(8) { let func = &it.funcs[*f as usize]; let lo = pc.saturating_sub(3); eprintln!("  site {} pc {pc} x{n} provable={}: {}", func.name, provable(func, *pc), (lo..=*pc).map(|i| format!("{:?}", func.code[i])).collect::<Vec<_>>().join(" ; ")); } }
         let mut by_shape: Vec<(&(u32, u32), &u64)> = it.slot_miss_shapes.iter().collect(); by_shape.sort_by(|a, b| b.1.cmp(a.1));
-        let name = |s: u32| -> String { if s == u32::MAX { "table".to_string() } else if s == u32::MAX - 1 { "non-object".to_string() } else { it.heap.shapes[s as usize].name.clone() } };
+        let name = |s: u32| -> String { if s == u32::MAX { "table".to_string() } else if s == u32::MAX - 1 { "non-object".to_string() } else { it.heap.shapes[s as usize].name.to_string() } };
         for ((a, f), n) in by_shape.iter().take(15) { eprintln!("  assumed {} found {}: {n}", name(*a), name(*f)); }
     }
     if let Some(st) = it.op_stats.as_ref() { let mut rows: Vec<(&&str, &u64)> = st.iter().collect(); rows.sort_by(|a, b| b.1.cmp(a.1)); let total: u64 = st.values().sum(); eprintln!("ops executed {total}"); for (n, c) in rows.iter().take(40) { eprintln!("  {n}\t{c}\t{:.1}%", **c as f64 * 100.0 / total as f64); } }

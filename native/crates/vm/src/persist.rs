@@ -168,7 +168,7 @@ pub fn policies_from_value(vm: &mut Interp, value: Value) -> Result<Policies> {
             {
                 vm.heap.shapes[unsafe { p.as_ref().shape() } as usize]
                     .name
-                    .clone()
+                    .to_string()
             } else {
                 text(vm, shape)?
             };
@@ -568,7 +568,7 @@ fn schema(vm: &Interp, p: &Policies, id: usize) -> Schema {
             .names
             .iter()
             .zip(&s.types)
-            .map(|(&n, &t)| {
+            .map(|(&n, t)| {
                 (
                     String::from_utf8_lossy(vm.bytes_of(n)).into_owned(),
                     ty_name(vm, t, p),
@@ -828,7 +828,7 @@ fn save_graph_mode(
             if kind == KIND_RECORD {
                 let name = vm.heap.shapes[unsafe { p.as_ref().shape() } as usize]
                     .name
-                    .clone();
+                    .to_string();
                 if let Some(hook) = policies.shapes.get(&name).and_then(|p| p.before_save) {
                     hook(vm, v)?;
                 }
@@ -874,7 +874,7 @@ fn save_graph_mode(
                     } else { source_shape };
                     payload.u32(saved_shape)?;
                     let shape = &vm.heap.shapes[h.shape() as usize];
-                    let policy = policies.shapes.get(&shape.name);
+                    let policy = policies.shapes.get(shape.name.as_str());
                     let slots: Vec<Value> = h
                         .slots()
                         .iter()
@@ -966,8 +966,8 @@ fn save_graph_mode(
             while cursor < plain_shapes.len() {
                 for ty in &vm.heap.shapes[plain_shapes[cursor]].types {
                     if let SlotTy::Record(id) = ty {
-                        plain_shape_ids.entry(*id as usize).or_insert_with(|| {
-                            plain_shapes.push(*id as usize);
+                        plain_shape_ids.entry(id as usize).or_insert_with(|| {
+                            plain_shapes.push(id as usize);
                             plain_shapes.len() - 1
                         });
                     }
@@ -1102,7 +1102,7 @@ fn bind_schemas(
             });
         }
         if (ids[i] as usize) >= known.len() {
-            vm.heap.shapes[ids[i] as usize].types = types;
+            vm.heap.shapes[ids[i] as usize].types.replace(&types);
         }
     }
     Ok(ids)
@@ -1229,7 +1229,7 @@ fn validate_types(vm: &Interp, objects: &[Value]) -> Result<()> {
             let h = unsafe { p.as_ref() };
             if h.kind == KIND_RECORD {
                 let shape = &vm.heap.shapes[h.shape() as usize];
-                for (i, (&v, &ty)) in h.slots().iter().zip(&shape.types).enumerate() {
+                for (i, (&v, ty)) in h.slots().iter().zip(&shape.types).enumerate() {
                     if !typed(vm, v, ty) {
                         return Err(format!(
                             "invalid typed field {}.{}",
@@ -1467,11 +1467,11 @@ fn load_graph_mode(
                 for (index, value) in fields.iter().enumerate() {
                     let field = String::from_utf8_lossy(vm.bytes_of(shape.names[index]));
                     let deferred = matches!(value, Ref::Bits(n) if *n == Value::NIL.0)
-                        && policies.shapes.get(&shape.name).is_some_and(|p| {
+                        && policies.shapes.get(shape.name.as_str()).is_some_and(|p| {
                             p.transient.contains(field.as_ref())
                                 && (p.after_load.is_some() || p.after_load_value.is_some())
                         });
-                    let fits = match shape.types[index] {
+                    let fits = match shape.types.at(index) {
                         SlotTy::Any => true,
                         SlotTy::Num => match value {
                             Ref::Bits(n) => Value(*n).is_num(),
@@ -1673,7 +1673,7 @@ fn load_graph_mode(
                 continue;
             }
             if let Node::Record(s, ..) = n {
-                let name = vm.heap.shapes[shape_ids[*s] as usize].name.clone();
+                let name = vm.heap.shapes[shape_ids[*s] as usize].name.to_string();
                 if let Some(hook) = policies.shapes.get(&name).and_then(|p| p.after_load) {
                     hook(vm, objects[i])?;
                 }

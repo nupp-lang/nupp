@@ -307,7 +307,7 @@ unsafe extern "C" {
 }
 #[cfg(feature = "native-runtime")]
 const _: () = {
-    assert!(crate::dispatch::OBJECT_ABI == 25);
+    assert!(crate::dispatch::OBJECT_ABI == 26);
     assert!(std::mem::size_of::<Value>() == 8);
     assert!(std::mem::size_of::<StoragePayload>() == 32);
     assert!(std::mem::align_of::<StoragePayload>() == 8);
@@ -351,12 +351,12 @@ impl Shape {
     }
 }
 pub struct Shape {
-    pub name: String,
+    pub name: crate::native_shape_metadata::ShapeName,
     /// A structural shape (a closed constructor's field set) accepts fields
     /// beyond its slots in the record's overflow; a nominal one does not.
     pub structural: bool,
     pub names: crate::native_value_array::ValueArray, // interned strings
-    pub types: Vec<SlotTy>,
+    pub types: crate::native_shape_metadata::ShapeTypes,
     /// Slot by name: an open-addressed table of (name bits, slot) with a
     /// power-of-two size, empty entries zero, that the core probes the same
     /// way; names are interned, so bits compare as identity.
@@ -474,7 +474,9 @@ impl Heap {
         #[cfg(feature = "native-runtime")]
         {
             let (names, table, mask) = self.allocator.shape_backing(names);
-            self.shapes.push(Shape { name: name.to_string(), structural: name.starts_with("struct:"), names, types: types.to_vec(), methods: self.allocator.shape_methods(), table, mask, mm_cache: 0 });
+            let structural = name.starts_with("struct:");
+            let (name, types) = self.allocator.shape_metadata(name, types);
+            self.shapes.push(Shape { name, structural, names, types, methods: self.allocator.shape_methods(), table, mask, mm_cache: 0 });
             (self.shapes.len() - 1) as u32
         }
         #[cfg(not(feature = "native-runtime"))]

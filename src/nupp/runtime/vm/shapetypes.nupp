@@ -1,0 +1,70 @@
+module nupp.runtime.vm.shapetypes
+
+-- Slot hints use canonical words, never a host enum layout. Scalars are 0..3;
+-- a record is tag 4 in the high word and its complete u32 shape id below it.
+-- These words are metadata, not managed child edges.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const backing = require("nupp.runtime.vm.backing")
+
+local function shapeTypeWordValid(word: uint64): boolean
+    return word <= 3ULL or word >> 32ULL == 4ULL
+end
+
+export function shapeTypesReplace(types: heap.ValueArray*, source: voidptr, count: uint64): uint64
+    @unsafe do
+        if types.owner == 0ULL or types.length > types.capacity or types.capacity > backing.wordBackingMaximum() then
+            return 1ULL
+        end
+        if types.base == 0ULL and types.capacity > 0ULL then
+            return 1ULL
+        end
+        if types.base ~= 0ULL and types.capacity == 0ULL then
+            return 1ULL
+        end
+        if count > backing.wordBackingMaximum() then
+            return 1ULL
+        end
+        if count > 0ULL and native.address(source) == 0ULL then
+            return 1ULL
+        end
+        local i: uint64 = 0ULL
+        while i < count do
+            if not shapeTypeWordValid(native.load64(source, native.index(i * 8ULL))) then
+                return 1ULL
+            end
+            i = i + 1ULL
+        end
+        local fresh: uint64 = 0ULL
+        if count > 0ULL then
+            fresh = backing.wordBackingTake(native.pointer(types.owner) as heap.Heap*, count)
+            if fresh == 0ULL then
+                return 2ULL
+            end
+        end
+        i = 0ULL
+        while i < count do
+            native.store64(native.pointer(fresh), native.index(i * 8ULL), native.load64(source, native.index(i * 8ULL)))
+            i = i + 1ULL
+        end
+        local before = types.base
+        types.base = fresh
+        types.length = count
+        types.capacity = count
+        backing.wordBackingRelease(before)
+        return 0ULL
+    end
+end
+
+export function shapeTypesSet(types: heap.ValueArray*, index: uint64, word: uint64): uint64
+    @unsafe do
+        if types.owner == 0ULL or types.base == 0ULL or types.length > types.capacity then
+            return 1ULL
+        end
+        if index >= types.length or not shapeTypeWordValid(word) then
+            return 1ULL
+        end
+        native.store64(native.pointer(types.base), native.index(index * 8ULL), word)
+        return 0ULL
+    end
+end
