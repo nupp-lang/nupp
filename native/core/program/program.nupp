@@ -1,0 +1,220 @@
+module nupp.core.program
+
+local opcodes = require("nupp.compiler.vm.opcodes")
+local graphimage = require("nupp.compiler.vm.graphimage")
+local program = {}
+
+program.names = {
+    "CoreStop",
+    "IK",
+    "IMov",
+    "IAddK",
+    "IMaskU32",
+    "IAdd",
+    "ISub",
+    "IAnd",
+    "IOr",
+    "IXor",
+    "INot",
+    "IShl",
+    "IShrU"
+}
+local ids = {}
+for i, name in ipairs(program.names) do
+    ids[name] = i - 1
+end
+local zeros = string.rep(string.char(0), 8)
+
+local function integer(value: any, maximum: integer): integer
+    assert(type(value) == "number" and value % 1 == 0 and value >= 0 and value <= maximum, "invalid program integer")
+    return value as integer
+end
+
+local function word(value: integer): string
+    return graphimage.wideBytes(value)
+end
+
+local function readWord(bytes: string, offset: integer): integer
+    assert(offset >= 0 and offset + 8 <= #bytes, "truncated program word")
+    local value: integer = 0
+    for i = 7, 0, -1 do
+        local b = assert(bytes:byte(offset + i + 1))
+        assert(value <= 35184372088831, "program extent exceeds exact range")
+        value = value * 256 + b
+    end
+
+    return value
+end
+
+function program.verify(code: string, slots: integer): nil
+    integer(slots, 256)
+    assert(slots > 0 and #code > 0 and #code % 16 == 0 and #code / 16 <= 1048576, "invalid program extent")
+    local defined = {}
+    for offset = 0, #code - 16, 16 do
+        local id = assert(code:byte(offset + 1))
+        local name = program.names[id + 1]
+        assert(name ~= nil, "unknown core opcode")
+        local a, b, c = code:byte(offset + 2, offset + 4)
+        assert(a < slots, "program register outside frame")
+        assert(code:sub(offset + 5, offset + 8) == zeros:sub(1, 4), "nonzero instruction padding")
+        if id == 0 then
+            assert(offset + 16 == #code and defined[a], "invalid program return")
+            assert(b == 0 and c == 0 and code:sub(offset + 9, offset + 16) == zeros, "invalid stop encoding")
+        else
+            assert(offset + 16 < #code, "program has no stop")
+            local signature = assert(opcodes.describe(name))
+            assert(
+                signature.flow == "next" and not signature.frame and #signature.windows == 0,
+                "unsupported core flow"
+            )
+            assert(
+                signature.operands[1].class == "i" and signature.operands[1].mode == "def",
+                "invalid core definition"
+            )
+            local registers = {a, b, c}
+            for at, operand in ipairs(signature.operands) do
+                if operand.class == "i" then
+                    assert(at == 1 or operand.mode == "use", "unsupported core register mode")
+                    local register = registers[at]
+                    assert(register < slots, "program register outside frame")
+                    if operand.mode == "use" or operand.mode == "both" then
+                        assert(defined[register], "program register read before definition")
+                    end
+                else
+                    assert(operand.class == "n", "unsupported core operand")
+                end
+            end
+            local arity = #signature.operands
+            if name == "IK" then
+                assert(b == 0 and c == 0, "invalid immediate encoding")
+            elseif name == "IAddK" then
+                assert(c == 0, "invalid immediate encoding")
+            else
+                assert(code:sub(offset + 9, offset + 16) == zeros, "nonzero unused immediate")
+                if arity == 2 then
+                    assert(c == 0, "nonzero unused register")
+                end
+            end
+            defined[a] = true
+        end
+    end
+end
+
+function program.encode(instructions: {any}, result: integer): any
+    assert(#instructions < 1048576, "program instruction budget exceeded")
+    local bytes = {}
+    local slots: integer = 0
+    for _, instruction in ipairs(instructions) do
+        opcodes.check(instruction)
+        local name = instruction[1]
+        local id = ids[name]
+        assert(id ~= nil and id ~= 0, "unsupported first-program opcode " .. tostring(name))
+        local signature = assert(opcodes.describe(name))
+        local registers = {0, 0, 0}
+        local immediate = zeros
+        for at, operand in ipairs(signature.operands) do
+            local value = instruction[at + 1]
+            if operand.class == "i" then
+                local register = integer(value, 255)
+                registers[at] = register
+                slots = math.max(slots, register + 1)
+            else
+                assert(operand.class == "n", "unsupported first-program operand")
+                immediate = type(value) == "string" and graphimage.wideTextBytes(value) or graphimage.wideBytes(value)
+            end
+        end
+        bytes[#bytes + 1] = string.char(id, registers[1], registers[2], registers[3], 0, 0, 0, 0) .. immediate
+    end
+    integer(result, 255)
+    bytes[#bytes + 1] = string.char(0, result, 0, 0, 0, 0, 0, 0) .. zeros
+    local code = table.concat(bytes)
+    program.verify(code, slots)
+
+    return {code = code, slots = slots, count = #bytes, result = result}
+end
+
+function program.data(code: string, slots: integer, handlers: {integer}, codeBytes: integer): string
+    program.verify(code, slots)
+    integer(codeBytes, 2147483647)
+    assert(codeBytes > 0 and #handlers == #program.names, "invalid handler table")
+    local parts = {word((#code / 16) as integer), word(slots), word(32), word(32 + #code), code}
+    for _, offset in ipairs(handlers) do
+        integer(offset, codeBytes - 1)
+        assert(offset % 4 == 0, "unaligned handler offset")
+        parts[#parts + 1] = word(offset)
+    end
+    local bytes = table.concat(parts)
+    program.verifyData(bytes, codeBytes)
+
+    return bytes
+end
+
+function program.verifyData(bytes: string, codeBytes: integer): nil
+    integer(codeBytes, 2147483647)
+    local count = readWord(bytes, 0)
+    local slots = readWord(bytes, 8)
+    local body = readWord(bytes, 16)
+    local handlers = readWord(bytes, 24)
+    assert(count > 0 and count <= 1048576 and body == 32, "invalid program header")
+    assert(handlers == body + count * 16 and #bytes == handlers + #program.names * 8, "invalid program size")
+    program.verify(bytes:sub(body + 1, handlers), slots)
+    for i = 0, #program.names - 1 do
+        local offset = readWord(bytes, handlers + i * 8)
+        assert(offset < codeBytes and offset % 4 == 0, "invalid handler offset")
+    end
+end
+
+function program.fromListing(text: string): any
+    local header = assert(text:match("^[^\n]+"), "missing program header")
+    local name, id, parameters, registers, floats, signature = header:match(
+        "^function (%S+) (%d+) (%d+) (%d+) (%d+) (%S+)$"
+    )
+    assert(
+        name
+        and tonumber(id) ~= nil
+        and tonumber(parameters) == 0
+        and tonumber(registers) ~= nil
+        and tonumber(floats) ~= nil
+        and signature == ":v",
+        "first program requires a closed zero-argument function"
+    )
+    local instructions = {}
+    for line in text:gmatch("[^\n]+") do
+        local body = line:match("^  (.*)$")
+        if body and (body:match("^source %S+$") or body:match("^lines [%dx ]+$")) then
+            -- Metadata carries no executable operands.
+        elseif body then
+            local instruction = {}
+            for token in body:gmatch("%S+") do
+                if #instruction == 0 then
+                    instruction[1] = token
+                else
+                    local signature = opcodes.describe(instruction[1])
+                    local operand = signature and signature.operands[#instruction]
+                    instruction[#instruction + 1] = operand and operand.class == "n" and token
+                        or tonumber(token)
+                        or token
+                end
+            end
+            instructions[#instructions + 1] = instruction
+        else
+            assert(line == header or line == "end", "unknown program listing record")
+        end
+    end
+    local stop = table.remove(instructions)
+    local box = table.remove(instructions)
+    assert(
+        stop and box and stop[1] == "Ret" and box[1] == "IBox" and stop[2] == box[2],
+        "first program requires one raw integer return"
+    )
+    opcodes.check(stop)
+    opcodes.check(box)
+    local result = program.encode(instructions, box[3])
+    assert(result.slots <= assert(tonumber(registers)), "program slot outside declared extent")
+    result.name = name
+    result.listing = text
+
+    return result
+end
+
+export = program
