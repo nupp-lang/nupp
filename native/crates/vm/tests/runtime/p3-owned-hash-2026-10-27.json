@@ -1,0 +1,111 @@
+{
+  "sourceCommit": "517d2a20a5e60d799f62cbd7fdf3dfe349939550",
+  "sourceTree": "9c6faaaf576ad37aef4c05e8e77c180fb631e0ac",
+  "scope": "Combined ABI16 Nupp hash ownership, integer initialization, weak indexes and 68 common graph handlers. P3 remains open.",
+  "platform": "aarch64-apple-darwin",
+  "objectAbi": 16,
+  "aotAbi": 4,
+  "artifacts": {
+    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-composed16/compiler.image": "0318dc22e38bf8a6a3f35445aa61e59bdc095b14e3544273a23ca9dcca5e35ad",
+    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-composed16/aot/runtime-current": "1947253421c7c761ac4f813ec3ba8826c7b8ac5845981cb12ba0b52a052f5281",
+    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-composed16/aot/native/runtime.o": "ff692fb73b26a97fc804df575466b24ef8b751fbaa7637523a1ec9f84aab075f",
+    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-composed16/aot/native/runtime.o.rs": "12af7f6d9073d675d3d796b91bf976d97cdf9c4cc75cf776f9d023ed5d69c8f1",
+    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-composed16/aot/native/runtime.clif": "a7576d533b8a1c6a02d8ec64a5e9308bf75f69b96a8d9a55606a88005df21163",
+    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-composed16/aot/compiler.o.manifest": "55cb81df548a46b01190c04cf8361e55f5741ca25ee3cbe233ce9e0a23744ae0",
+    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-composed16/worker": "033f2070722fb5b610ed75b5d93a24eb5e7b00ab65cfe64a0472085718845628",
+    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-composed16/worker.image": "1b6cc8e9b1ce1511724ba3130523c17886a7fa6a09eae956672c306f48dbd65f"
+  },
+  "productSource": "1d034f7c7e3ebb48758746e64385a9268d0f94cc",
+  "sourceCheck": {
+    "ok": true,
+    "modules": 561,
+    "diagnostics": 0,
+    "result": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-composed16/source-check.json"
+  },
+  "pinnedThreeStageFixpoint": {
+    "ok": true,
+    "result": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-composed16/fixpoint.json"
+  },
+  "rust": {
+    "passed": 673,
+    "failed": 0,
+    "ignored": 6,
+    "targets": 75,
+    "docTestsRun": true
+  },
+  "rustSelections": {
+    "features": "aot,native-runtime,allocation-metrics",
+    "inheritedControls": {
+      "NO_JIT": "1",
+      "NO_AOT": "1",
+      "result": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-composed16/rust.log",
+      "sameCounts": true
+    },
+    "controlsRemoved": {
+      "NO_JIT": "absent",
+      "NO_AOT": "absent",
+      "result": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-composed16/rust-tiers.log",
+      "summary": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-composed16/rust-tiers-summary.json"
+    },
+    "nestedSummariesExcluded": 6
+  },
+  "aot": {
+    "compiledFunctions": 6211,
+    "imageFunctions": 6211,
+    "freshProcesses": 2,
+    "passed": 13,
+    "executableMemoryDenied": true,
+    "result": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-composed16/aot/smoke/results.json"
+  },
+  "cli": {
+    "passed": 94,
+    "packagedProgramExecuted": true,
+    "result": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-composed16/root-cli/summary.json"
+  },
+  "nativeInterpreterCompiler": {
+    "jitDisabled": true,
+    "aotDisabled": true,
+    "clifByteIdentical": true
+  },
+  "sourceSelectedWorker": {
+    "source": "517d2a20a5e60d799f62cbd7fdf3dfe349939550",
+    "workerPayloadFlags": 2,
+    "workerPayloadEqualsImage": true,
+    "sharedPassed": 2085,
+    "isolatedNativePassed": 47,
+    "skipped": 0,
+    "notExecuted": 0,
+    "sharedResult": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-composed16/shared-tests-corrected.json",
+    "isolatedResult": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-composed16/isolated-native-remaining.json"
+  },
+  "corrections": [
+    {
+      "kind": "testIsolation",
+      "commit": "ea53fe56f383139dccf60ef373fd7bc4cf47d25a",
+      "reason": "Parallel tests could reuse an unmapped address before the release assertion. Run lifetime observations in isolated child processes.",
+      "original": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-composed16/rust-first-failed.log",
+      "serialControl": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-composed16/native-allocator-serial.log",
+      "isolatedProof": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-composed16/native-allocator-isolated.log"
+    },
+    {
+      "kind": "testFixtureDependencies",
+      "commit": "517d2a20a5e60d799f62cbd7fdf3dfe349939550",
+      "reason": "Two object graph fixtures omitted newly required arena/heap/backing source modules. Only fixture inputs changed.",
+      "original": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-composed16/shared-tests.jsonl",
+      "exactCorrection": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-composed16/object-fixtures-corrected.json"
+    }
+  ],
+  "sourceCounts": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-composed16/source-counts-final.json",
+  "platformAcceptance": {
+    "status": "pending; no adoption claimed",
+    "run": "https://github.com/nupp-lang/nupp/actions/runs/40603490825",
+    "source": "ea53fe56f383139dccf60ef373fd7bc4cf47d25a",
+    "windows": "cold runtime built; synthetic fixture path string comparison failed; portable path correction in progress"
+  },
+  "limits": [
+    "No main integration; last adopted migration refs remain P2 until platform acceptance.",
+    "Later iterator, child traversal, numeric/byte backing, sweep and shape cuts are not covered by this receipt.",
+    "P3 collector scheduling/roots and remaining resources, P1b graph completion and P4-P8 remain open.",
+    "Performance measurement remains deferred."
+  ]
+}
