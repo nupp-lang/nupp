@@ -5,6 +5,10 @@ mod platform;
 #[path = "../tests/support/abi.rs"]
 mod abi;
 
+#[cfg(test)]
+#[path = "../tests/support/scratch.rs"]
+mod scratch;
+
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -94,6 +98,9 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, String> {
     }
     let mut code = platform::Mapping::new(spec.code)?;
     let mut data = platform::Mapping::new(spec.data)?;
+    #[cfg(test)]
+    let scratch = scratch::Mapping::new(spec.scratch)?;
+    #[cfg(not(test))]
     let scratch = platform::Mapping::new(spec.scratch)?;
     code.copy(&payload[..spec.code]);
     data.copy(&payload[spec.code..]);
@@ -127,6 +134,8 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, String> {
     let status = unsafe { abi::invoke(entry, packet.as_ptr(), output.as_mut_ptr()) };
     #[cfg(not(all(test, target_arch = "aarch64")))]
     let status = unsafe { entry(packet.as_ptr(), output.as_mut_ptr()) };
+    #[cfg(test)]
+    scratch.verify()?;
     if status != 0 {
         return Err(format!("Nupp entry refused with transport status {status}"));
     }

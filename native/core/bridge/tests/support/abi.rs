@@ -100,3 +100,24 @@ fn generated_entry_refuses_short_regions() {
         );
     }
 }
+
+#[test]
+#[ignore = "requires actual Nupp-produced bundle/input and opaque expected transport status"]
+fn generated_entry_returns_requested_status() {
+    let bundle =
+        PathBuf::from(std::env::var_os("CORE_TEST_BUNDLE").expect("CORE_TEST_BUNDLE required"));
+    let words = input(&PathBuf::from(
+        std::env::var_os("CORE_TEST_INPUT").expect("CORE_TEST_INPUT required"),
+    ))
+    .expect("read input artifact");
+    let status: u64 = std::env::var("CORE_TEST_STATUS")
+        .expect("CORE_TEST_STATUS required")
+        .parse()
+        .expect("integer transport status");
+    assert_ne!(status, 0, "successful entry uses the output test");
+    let error = execute(&bundle, &words).expect_err("expected generated-entry refusal");
+    assert_eq!(
+        error,
+        format!("Nupp entry refused with transport status {status}")
+    );
+}
