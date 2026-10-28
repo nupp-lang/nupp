@@ -74,10 +74,106 @@
       "status": "passed"
     },
     "vectors": "8 handlers x4 aliases x4 bit vectors: zero, all ones, sign bit, wrapping arithmetic and arbitrary high bits. Original and bound graphs each execute against independent Python word expectations.",
-    "dispatch": "Test callback explicitly compares next pc+16 and all five forwarded arguments: registers, integer window, task, VM, dispatch table. All four integer slots compared after return.",
+    "dispatch": "Test callback explicitly compares next pc+16 and all five forwarded arguments: registers, integer window, float window, context, dispatch table. All four integer slots compared after return.",
     "oracleLimit": "Existing native_jit normalizes all signatures to host ABI. Test adapter mechanically changes only return_call_indirect to call_indirect plus return. Production tail ABI remains structurally preserved, not natively proven here.",
     "readabilityRewrite": "Generated cases.json and cases.tsv byte-identical before/after Python expansion.",
-    "format": "All changed Nupp/Lua formatted; git diff --check passed. No broad suite/fixpoint or timing claim for unused isolated module."
+    "format": "All changed Nupp/Lua formatted; git diff --check passed. Ordinary pinned fixpoint and explicit pinned residual module check/emit passed. No broad suite or timing claim for unused isolated module.",
+    "pinnedFixpoint": {
+      "status": "passed",
+      "source": "c9ae40521a10ecd5dc86e9bbf3468a25d25e5399",
+      "sourceSha256": {
+        "src/nupp/compiler/vm/residual.nupp": "d2671c5070bed46037162fbc9d1c5600f0109055740be03ad7b6147770dca629",
+        "tests/residualtest.lua": "dee83a3574bd9c7c27e03f1b43b5b8b46496ede401c37bba0c1ef069153f3066",
+        "tests/groups.lua": "bcc7f8984b96756a8e1dba475ffa312467d1d7429222f5ae06dc86bcb646de08",
+        "scripts/toolchain.pins": "2ab625df10c700ab3c0b1c7dcbe8571c101a52f4c7f9c3b8d449e2ffead0adf4",
+        "scripts/bootstrap-seeds.json": "db35c8bc2d2a8b6cbaa9078be9c126874c0752c0c8530b46387a0b7a629d20c7",
+        "nupp.lua": "a7b4535227adaae1f5a5b842ff914da2f3aaec1f8d2202055dfd5fc5453af579"
+      },
+      "runtimeSha256": "8a2c0b01bcac42a84ba07f3a8859b34c34072b5c3a2e8b1be4af2279cd0da8c2",
+      "controllerSha256": "a34dbfb3a9c54faae14f4387b1c30dac34421b4c8bf95356611ceb349ae455e6",
+      "steps": [
+        {
+          "stage": "seed",
+          "argv": [
+            "sh",
+            "scripts/toolchain",
+            "stage0-seed"
+          ],
+          "returnCode": 0
+        },
+        {
+          "stage": "fixpoint",
+          "argv": [
+            "./bin/nupp",
+            "fixpoint",
+            "--json"
+          ],
+          "returnCode": 0
+        }
+      ],
+      "seed": {
+        "path": "/Users/dowling/projects/nupp/.nupp-cache/toolchain/stage0-seed/ddb4cf0288f731e8cf212f952f0526d6373d724e146cf5d45a3640419775c3a7",
+        "runtimeSha256": "023c81cffa4c108a3ac846c869e1084db4eebaf8b7a16b9a34f7a0ae88cc6fec",
+        "imageSha256": "1df60fd46003a754a54aafea4a479e68cfde84f94a5902aa1dea6e0338ca5bdd"
+      },
+      "fixpointImageSha256": "e082ada3069afdfa544189f3c1ec47173a3780c6690ce71d981099fa5724aca8"
+    },
+    "pinnedResidualModule": {
+      "status": "passed",
+      "sourceSha256": {
+        "src/nupp/compiler/vm/residual.nupp": "d2671c5070bed46037162fbc9d1c5600f0109055740be03ad7b6147770dca629",
+        "tests/residualtest.lua": "dee83a3574bd9c7c27e03f1b43b5b8b46496ede401c37bba0c1ef069153f3066",
+        "tests/groups.lua": "bcc7f8984b96756a8e1dba475ffa312467d1d7429222f5ae06dc86bcb646de08",
+        "scripts/toolchain.pins": "2ab625df10c700ab3c0b1c7dcbe8571c101a52f4c7f9c3b8d449e2ffead0adf4",
+        "scripts/bootstrap-seeds.json": "db35c8bc2d2a8b6cbaa9078be9c126874c0752c0c8530b46387a0b7a629d20c7",
+        "nupp.lua": "a7b4535227adaae1f5a5b842ff914da2f3aaec1f8d2202055dfd5fc5453af579"
+      },
+      "seed": {
+        "path": "/Users/dowling/projects/nupp/.nupp-cache/toolchain/stage0-seed/ddb4cf0288f731e8cf212f952f0526d6373d724e146cf5d45a3640419775c3a7",
+        "runtimeSha256": "023c81cffa4c108a3ac846c869e1084db4eebaf8b7a16b9a34f7a0ae88cc6fec",
+        "imageSha256": "1df60fd46003a754a54aafea4a479e68cfde84f94a5902aa1dea6e0338ca5bdd"
+      },
+      "steps": [
+        {
+          "stage": "module-check",
+          "argv": [
+            "python3",
+            "scripts/bootstrap-seed",
+            "run",
+            "/Users/dowling/projects/nupp/.nupp-cache/toolchain/stage0-seed/ddb4cf0288f731e8cf212f952f0526d6373d724e146cf5d45a3640419775c3a7",
+            "exec",
+            "/Users/dowling/projects/nupp/.nupp-cache/toolchain/stage0-seed/ddb4cf0288f731e8cf212f952f0526d6373d724e146cf5d45a3640419775c3a7/compiler.image",
+            "nupp.tools.vm.root",
+            "check",
+            "src/nupp/compiler/vm/residual.nupp",
+            "--json"
+          ],
+          "returnCode": 0
+        },
+        {
+          "stage": "module-emit",
+          "argv": [
+            "python3",
+            "scripts/bootstrap-seed",
+            "run",
+            "/Users/dowling/projects/nupp/.nupp-cache/toolchain/stage0-seed/ddb4cf0288f731e8cf212f952f0526d6373d724e146cf5d45a3640419775c3a7",
+            "run",
+            "/Users/dowling/projects/nupp/.nupp-cache/toolchain/stage0-seed/ddb4cf0288f731e8cf212f952f0526d6373d724e146cf5d45a3640419775c3a7/compiler.image",
+            "nupp.tools.vm.project",
+            "emit",
+            "/private/tmp/nupp-native-handler-residuals",
+            "nupp.compiler.vm.residual",
+            "",
+            "--output",
+            "/private/tmp/nupp-native-handler-residuals/build/residual/pinned/residual.image"
+          ],
+          "returnCode": 0
+        }
+      ],
+      "moduleImageSha256": "093586b8d0a4a789f2a40033b3c158965ae5e151455922b3ccbc1d750ce8f629",
+      "moduleImageBytes": 109665
+    },
+    "fixpointScope": "Ordinary root fixpoint stages2/3 agree, but ROOT_EXTRAS excludes unused residual. Explicit pinned source check and residual entry image emission separately prove new module language compatibility; no stage0/current optimizer byte-equivalence claim."
   },
   "firstReds": [
     {
@@ -96,7 +192,11 @@
     "/private/tmp/nupp-native-handler-residuals/build/residual/native/receipt.json": "538553a66823a67bcb83f0143063ca7d36f3be375be9b30504927c2f51c301f9",
     "/private/tmp/nupp-native-handler-residuals/build/residual/native-host-abi/receipt.json": "1687639da0100184766c0b9af5db330a694a091205a4fefcdf48c3c61f1560e7",
     "/private/tmp/nupp-native-handler-residuals/build/residual/native-dispatch/receipt.json": "6fff461cc71783097eba65ac05d4a06a43fd691587d96abfe5debb96b26aa85c",
-    "/private/tmp/nupp-native-handler-residuals/build/residual/native-dispatch-final/receipt.json": "6503028adf96806b87d983d0a523581ded99a070b039b6013ba33c3e57e13bda"
+    "/private/tmp/nupp-native-handler-residuals/build/residual/native-dispatch-final/receipt.json": "6503028adf96806b87d983d0a523581ded99a070b039b6013ba33c3e57e13bda",
+    "/private/tmp/nupp-native-handler-residuals/build/residual/pinned/receipt.json": "6e87ffc02cb0c91b8c632f3a9408b0185972ace15059709f2905c34b74e35d27",
+    "/private/tmp/nupp-native-handler-residuals/build/residual/pinned/module-receipt.json": "70d3352f35a31a5894199bf1f23181a3f96537eb626bdf5b727dee95af5d6195",
+    "/private/tmp/nupp-native-handler-residuals/build/residual/pinned/fixpoint.out": "20e64ba977fb3e6d0bdb210a0238184fa924b96793e893f45585312ddcc185f2",
+    "/private/tmp/nupp-native-handler-residuals/build/residual/pinned/module-check.out": "536e7abb25cbbbea4026f54d113efd405998207b823ef2e3b6ff4f05eae95ced"
   },
   "nativeLogs": "/private/tmp/nupp-native-handler-residuals/build/residual/native-dispatch-final",
   "sourceAudit": {
@@ -108,7 +208,7 @@
     "priorPrototype": "Historical handler-pe-experiment remains a separate Rust/CLIF reference, not this implementation or an adoption result. P1b allocation103 work remains incomplete; this cut only consumes existing admitted integer handlers."
   },
   "nextBoundedCut": {
-    "graphStitch": "Compose a bounded straight-line sequence of these8 bound graphs with generic SSA/position renaming. Substitute handler entry parameters from the preceding dispatch args, join only retained same-body next-PC edges, retain FrameSlot memory effects and one final dispatch. Refuse branches/calls/unsupported handlers before mutation; preserve per-instruction recovery/source positions. No guest opcode switch or new arithmetic semantics.",
+    "graphStitch": "Compose a bounded straight-line sequence of these8 bound graphs with generic SSA/position renaming. Substitute the first five handler entry parameters from preceding dispatch args; preserve logical frame6 only when the value window and frame are unchanged. Join only retained same-body next-PC edges; retain FrameSlot effects and one final dispatch. Refuse branches/calls/unsupported handlers before mutation; preserve per-instruction source positions and recovery contracts. No guest opcode switch or new arithmetic semantics.",
     "machineRoute": "A shared native-graph-to-machine-IR sink is still needed. Factor existing mechanical graph operation lowering so both ordinary native lowering and residual graphs feed s0.ir Function/instruction/edge then existing link.build/select; do not create guest opcode lowering or specialize CLIF text. Direct machine routing is a separate E0 gate, not completed here.",
     "authorityAdapter": "Create opaque retained-body selection only after existing class verification and encode_function, bound to exact immutable Ins allocation, integer-window extent, instruction count excluding appended jump tables and canonical CODE_NAMES identity. Transport that verified association into Nupp without a second decoder; never certify by function ID or caller tag alone. Hotpatch/worker publication must retain the old body while compiled artifacts reference it.",
     "independentProof": "Multi-instruction aliases/read-after-write, high bits/wraparound, final PC/arguments, wrong-body/tag/extent refusal and table mutation. Compare generic stitched graph against sequential canonical handlers and existing oracle; then owned machine bytes when shared sink exists."
