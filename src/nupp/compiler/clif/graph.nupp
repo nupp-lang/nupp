@@ -199,196 +199,255 @@ function emitter.emit(g: any, options: any): string
         for i, op in ipairs(block.op) do
             local args, dst = block.args[i], block.dst[i]
             local result = dst ~= 0 and value(dst) or ""
-            if op == "NativeLeafCall" then
-                local declaration = args[1]
-                local symbol = declaration.name
-                local types, words = {}, {}
-                for index = 1, #declaration.params do
-                    types[index] = "i64"
-                    words[index] = value(args[index + 1])
-                end
-                local signature = "(" .. table.concat(types, ", ") .. ") -> i64 tail"
-                local exact = table.concat(declaration.params, ",") .. "->" .. declaration.result
-                local known = imports[symbol]
-                if not known then
-                    local sig, ref = "sig" .. tostring(importCount + 1), "fn" .. tostring(importCount)
-                    importCount = importCount + 1
-                    preamble[#preamble + 1] = sig .. " = " .. signature
-                    preamble[#preamble + 1] = ref .. " = %" .. symbol .. " " .. sig
-                    known = {signature = signature, exact = exact, ref = ref}
-                    imports[symbol] = known
-                end
-                need(known.signature == signature and known.exact == exact, "leaf signature changed")
-                line(result .. " = call " .. known.ref .. "(" .. table.concat(words, ", ") .. ")")
-            elseif op == "NativeHelperCall" then
-                local words = {}
-                for index = 2, #args do
-                    words[index - 1] = value(args[index])
-                end
-                local text = "call " .. helper(args[1]) .. "(" .. table.concat(words, ", ") .. ")"
-                line(dst ~= 0 and result .. " = " .. text or text)
-            elseif op == "NativeLoad" or op == "NativeStore" then
-                local write = op == "NativeStore"
-                local contract = args[write and 4 or 3]
-                local flags = contract.source == "live" and " notrap " or " "
-                local address = temporary("iadd " .. value(args[1]) .. ", " .. value(args[2]))
-                if write then
-                    local store = "store"
-                    if contract.kind ~= "float32" and contract.kind ~= "float64" and contract.width ~= 8 then
-                        store = ({[1] = "istore8", [2] = "istore16", [4] = "istore32"})[contract.width]
+            _ = switch op do
+                case "NativeLeafCall" -> do
+                    local declaration = args[1]
+                    local symbol = declaration.name
+                    local types, words = {}, {}
+                    for index = 1, #declaration.params do
+                        types[index] = "i64"
+                        words[index] = value(args[index + 1])
                     end
-                    line(store .. flags .. value(args[3]) .. ", " .. address)
-                else
-                    local load: string
-                    if contract.kind == "float32" or contract.kind == "float64" then
-                        load = "load." .. machineKinds[contract.kind]
-                    elseif contract.width == 8 then
-                        load = "load.i64"
-                    elseif contract.width == 4 then
-                        load = "sload32.i64"
+                    local signature = "(" .. table.concat(types, ", ") .. ") -> i64 tail"
+                    local exact = table.concat(declaration.params, ",") .. "->" .. declaration.result
+                    local known = imports[symbol]
+                    if not known then
+                        local sig, ref = "sig" .. tostring(importCount + 1), "fn" .. tostring(importCount)
+                        importCount = importCount + 1
+                        preamble[#preamble + 1] = sig .. " = " .. signature
+                        preamble[#preamble + 1] = ref .. " = %" .. symbol .. " " .. sig
+                        known = {signature = signature, exact = exact, ref = ref}
+                        imports[symbol] = known
+                    end
+                    need(known.signature == signature and known.exact == exact, "leaf signature changed")
+                    line(result .. " = call " .. known.ref .. "(" .. table.concat(words, ", ") .. ")")
+                    yield true
+                end
+                case "NativeHelperCall" -> do
+                    local words = {}
+                    for index = 2, #args do
+                        words[index - 1] = value(args[index])
+                    end
+                    local text = "call " .. helper(args[1]) .. "(" .. table.concat(words, ", ") .. ")"
+                    line(dst ~= 0 and result .. " = " .. text or text)
+                    yield true
+                end
+                case "NativeLoad", "NativeStore" -> do
+                    local write = op == "NativeStore"
+                    local contract = args[write and 4 or 3]
+                    local flags = contract.source == "live" and " notrap " or " "
+                    local address = temporary("iadd " .. value(args[1]) .. ", " .. value(args[2]))
+                    if write then
+                        local store = "store"
+                        if contract.kind ~= "float32" and contract.kind ~= "float64" and contract.width ~= 8 then
+                            store = ({[1] = "istore8", [2] = "istore16", [4] = "istore32"})[contract.width]
+                        end
+                        line(store .. flags .. value(args[3]) .. ", " .. address)
                     else
-                        load = "uload" .. tostring(contract.width * 8) .. ".i64"
+                        local load: string
+                        if contract.kind == "float32" or contract.kind == "float64" then
+                            load = "load." .. machineKinds[contract.kind]
+                        elseif contract.width == 8 then
+                            load = "load.i64"
+                        elseif contract.width == 4 then
+                            load = "sload32.i64"
+                        else
+                            load = "uload" .. tostring(contract.width * 8) .. ".i64"
+                        end
+                        line(result .. " = " .. load .. flags .. address)
                     end
-                    line(result .. " = " .. load .. flags .. address)
+                    yield true
                 end
-            elseif op == "NativeLayout" then
-                local offset = need(options.layout, "native ABI layout provider required")(args[1])
-                need(
-                    type(offset) == "number" and offset % 1 == 0 and math.abs(offset) < 9007199254740992,
-                    "exact ABI layout offset required"
-                )
-                line(result .. " = iconst.i64 " .. tostring(offset))
-            elseif op == "NativePointer" or op == "NativeAddress" then
-                line(result .. " = iadd " .. value(args[1]) .. ", " .. constant("0"))
-            elseif op == "NativeConstant" then
-                line(result .. " = iconst.i64 " .. args[1])
-            elseif op == "PointerOffset" then
-                line(result .. " = iadd " .. value(args[1]) .. ", " .. value(args[2]))
-            elseif integerOps[op] or floatOps[op] then
-                local operands = {}
-                for index, id in ipairs(args) do
-                    operands[index] = value(id)
+                case "NativeLayout" -> do
+                    local offset = need(options.layout, "native ABI layout provider required")(args[1])
+                    need(
+                        type(offset) == "number" and offset % 1 == 0 and math.abs(offset) < 9007199254740992,
+                        "exact ABI layout offset required"
+                    )
+                    line(result .. " = iconst.i64 " .. tostring(offset))
+                    yield true
                 end
-                line(result .. " = " .. (integerOps[op] or floatOps[op]) .. " " .. table.concat(operands, ", "))
-            elseif op == "NativeBoolean" then
-                line(result .. " = iconst.i8 " .. (args[1] and "1" or "0"))
-            elseif op == "NativeICmp" or op == "NativeFCmp" then
-                local predicates = op == "NativeFCmp" and compareFloat
-                    or (g.exactTypes[args[1]] == "int64" and compareSigned or compareUnsigned)
-                line(
-                    result .. " = " .. (
-                        op == "NativeFCmp" and "fcmp " or "icmp "
-                    ) .. need(
-                        predicates[args[3]],
-                        "comparison predicate required"
-                    ) .. " " .. value(args[1]) .. ", " .. value(args[2])
-                )
-            elseif op == "NativeAsWord" then
-                line(result .. " = uextend.i64 " .. value(args[1]))
-            elseif op == "NativeSelect" then
-                line(result .. " = select " .. value(args[1]) .. ", " .. value(args[2]) .. ", " .. value(args[3]))
-            elseif op == "NativeWordCast" then
-                line(result .. " = iadd " .. value(args[1]) .. ", " .. constant("0"))
-            elseif op == "NativeIntToFloat" then
-                line(
-                    result .. " = " .. (
-                        g.exactTypes[args[1]] == "uint64" and "fcvt_from_uint." or "fcvt_from_sint."
-                    ) .. machineKinds[g.exactTypes[dst]] .. " " .. value(args[1])
-                )
-            elseif op == "NativeFloatToInt" then
-                line(
-                    result .. " = " .. (
-                        g.exactTypes[dst] == "uint64" and "fcvt_to_uint_sat.i64 " or "fcvt_to_sint_sat.i64 "
-                    ) .. value(args[1])
-                )
-            elseif op == "NativeFloatConvert" then
-                local source, target = g.exactTypes[args[1]], g.exactTypes[dst]
-                if source == target then
-                    local yes = temporary("iconst.i8 1")
-                    line(result .. " = select " .. yes .. ", " .. value(args[1]) .. ", " .. value(args[1]))
-                else
+                case "NativePointer", "NativeAddress" -> do
+                    line(result .. " = iadd " .. value(args[1]) .. ", " .. constant("0"))
+                    yield true
+                end
+                case "NativeConstant" -> do
+                    line(result .. " = iconst.i64 " .. args[1])
+                    yield true
+                end
+                case "PointerOffset" -> do
+                    line(result .. " = iadd " .. value(args[1]) .. ", " .. value(args[2]))
+                    yield true
+                end
+                case "NativeBoolean" -> do
+                    line(result .. " = iconst.i8 " .. (args[1] and "1" or "0"))
+                    yield true
+                end
+                case "NativeICmp", "NativeFCmp" -> do
+                    local predicates = op == "NativeFCmp" and compareFloat
+                        or (g.exactTypes[args[1]] == "int64" and compareSigned or compareUnsigned)
                     line(
-                        result .. " = " .. (target == "float32" and "fdemote.f32 " or "fpromote.f64 ") .. value(args[1])
+                        result .. " = " .. (
+                            op == "NativeFCmp" and "fcmp " or "icmp "
+                        ) .. need(
+                            predicates[args[3]],
+                            "comparison predicate required"
+                        ) .. " " .. value(args[1]) .. ", " .. value(args[2])
                     )
+                    yield true
                 end
-            elseif op == "NativeFloatBits" or op == "NativeFloatFromBits" then
-                line(result .. " = bitcast." .. (op == "NativeFloatBits" and "i64 " or "f64 ") .. value(args[1]))
-            elseif op == "NativeFloat32Bits" then
-                local narrowed = temporary("fdemote.f32 " .. value(args[1]))
-                local bits = temporary("bitcast.i32 " .. narrowed)
-                line(result .. " = uextend.i64 " .. bits)
-            elseif op == "NativeFloat32FromBits" then
-                local low = temporary("ireduce.i32 " .. value(args[1]))
-                local decoded = temporary("bitcast.f32 " .. low)
-                line(result .. " = fpromote.f64 " .. decoded)
-            elseif op == "NativeRoundFloat32" then
-                local narrowed = temporary("fdemote.f32 " .. value(args[1]))
-                line(result .. " = fpromote.f64 " .. narrowed)
-            elseif op == "ProgramLoad" then
-                local access = args[3]
-                local load = need(programLoads[access.kind], "unsupported program load kind")
-                local address = temporary("iadd " .. value(args[1]) .. ", " .. value(args[2]))
-                line(result .. " = " .. load .. " notrap " .. address)
-            elseif op == "FrameStatus" then
-                local address = temporary(
-                    "iadd " .. value(args[1]) .. ", " .. constant(tostring(options.layout("status")))
-                )
-                line(result .. " = sload32.i64 notrap " .. address)
-            elseif op == "FrameRecover" then
-                local stackAt = temporary(
-                    "iadd " .. value(args[1]) .. ", " .. constant(tostring(options.layout("stack")))
-                )
-                local stack = temporary("load.i64 notrap " .. stackAt)
-                local curAt = temporary("iadd " .. value(args[1]) .. ", " .. constant(tostring(options.layout("cur"))))
-                local cur = temporary("load.i64 notrap " .. curAt)
-                local offset = temporary("imul " .. cur .. ", " .. constant("8"))
-                line(result .. " = iadd " .. stack .. ", " .. offset)
-            elseif op == "FrameWindow" then
-                local access = args[3]
-                if access.class == "v" then
-                    line(result .. " = iadd " .. value(args[2]) .. ", " .. constant("32"))
-                else
-                    local packed = temporary("load.i64 notrap " .. value(args[2]))
-                    local fid = temporary("band " .. packed .. ", " .. constant("4294967295"))
-                    local funcsAt = temporary(
-                        "iadd " .. value(args[1]) .. ", " .. constant(tostring(options.layout("funcs")))
+                case "NativeAsWord" -> do
+                    line(result .. " = uextend.i64 " .. value(args[1]))
+                    yield true
+                end
+                case "NativeSelect" -> do
+                    line(result .. " = select " .. value(args[1]) .. ", " .. value(args[2]) .. ", " .. value(args[3]))
+                    yield true
+                end
+                case "NativeWordCast" -> do
+                    line(result .. " = iadd " .. value(args[1]) .. ", " .. constant("0"))
+                    yield true
+                end
+                case "NativeIntToFloat" -> do
+                    line(
+                        result .. " = " .. (
+                            g.exactTypes[args[1]] == "uint64" and "fcvt_from_uint." or "fcvt_from_sint."
+                        ) .. machineKinds[g.exactTypes[dst]] .. " " .. value(args[1])
                     )
-                    local funcs = temporary("load.i64 notrap " .. funcsAt)
-                    local infoOffset = temporary(
-                        "imul " .. fid .. ", " .. constant(tostring(options.layout("FuncInfo.size")))
+                    yield true
+                end
+                case "NativeFloatToInt" -> do
+                    line(
+                        result .. " = " .. (
+                            g.exactTypes[dst] == "uint64" and "fcvt_to_uint_sat.i64 " or "fcvt_to_sint_sat.i64 "
+                        ) .. value(args[1])
                     )
-                    local info = temporary("iadd " .. funcs .. ", " .. infoOffset)
-                    local offAt = temporary(
-                        "iadd " .. info .. ", " .. constant(
-                            tostring(options.layout(access.class == "i" and "FuncInfo.off_i" or "FuncInfo.off_f"))
+                    yield true
+                end
+                case "NativeFloatConvert" -> do
+                    local source, target = g.exactTypes[args[1]], g.exactTypes[dst]
+                    if source == target then
+                        local yes = temporary("iconst.i8 1")
+                        line(result .. " = select " .. yes .. ", " .. value(args[1]) .. ", " .. value(args[1]))
+                    else
+                        line(
+                            result .. " = " .. (
+                                target == "float32" and "fdemote.f32 " or "fpromote.f64 "
+                            ) .. value(args[1])
                         )
+                    end
+                    yield true
+                end
+                case "NativeFloatBits", "NativeFloatFromBits" -> do
+                    line(result .. " = bitcast." .. (op == "NativeFloatBits" and "i64 " or "f64 ") .. value(args[1]))
+                    yield true
+                end
+                case "NativeFloat32Bits" -> do
+                    local narrowed = temporary("fdemote.f32 " .. value(args[1]))
+                    local bits = temporary("bitcast.i32 " .. narrowed)
+                    line(result .. " = uextend.i64 " .. bits)
+                    yield true
+                end
+                case "NativeFloat32FromBits" -> do
+                    local low = temporary("ireduce.i32 " .. value(args[1]))
+                    local decoded = temporary("bitcast.f32 " .. low)
+                    line(result .. " = fpromote.f64 " .. decoded)
+                    yield true
+                end
+                case "NativeRoundFloat32" -> do
+                    local narrowed = temporary("fdemote.f32 " .. value(args[1]))
+                    line(result .. " = fpromote.f64 " .. narrowed)
+                    yield true
+                end
+                case "ProgramLoad" -> do
+                    local access = args[3]
+                    local load = need(programLoads[access.kind], "unsupported program load kind")
+                    local address = temporary("iadd " .. value(args[1]) .. ", " .. value(args[2]))
+                    line(result .. " = " .. load .. " notrap " .. address)
+                    yield true
+                end
+                case "FrameStatus" -> do
+                    local address = temporary(
+                        "iadd " .. value(args[1]) .. ", " .. constant(tostring(options.layout("status")))
                     )
-                    local off = temporary("sload32.i64 notrap " .. offAt)
-                    local bytes = temporary("imul " .. off .. ", " .. constant("8"))
-                    line(result .. " = iadd " .. value(args[2]) .. ", " .. bytes)
+                    line(result .. " = sload32.i64 notrap " .. address)
+                    yield true
                 end
-            elseif op == "FrameVarargRead" then
-                local packed = temporary("load.i64 notrap " .. value(args[1]) .. "+24")
-                local count = temporary("ushr " .. packed .. ", " .. constant("49"))
-                local slots = temporary("isub " .. value(args[2]) .. ", " .. count)
-                local offset = temporary("imul " .. slots .. ", " .. constant("8"))
-                local address = temporary("iadd " .. value(args[1]) .. ", " .. offset)
-                line(result .. " = load.i64 notrap " .. address)
-            elseif op == "FrameSlotRead" or op == "FrameSlotWrite" then
-                local access = args[op == "FrameSlotRead" and 4 or 5]
-                need(
-                    (access.class == "i" or access.class == "v" or access.class == "f") and access.width == 8,
-                    "unsupported frame slot class"
-                )
-                local offset = temporary("imul " .. value(args[3]) .. ", " .. constant(tostring(access.width)))
-                local address = temporary("iadd " .. value(args[2]) .. ", " .. offset)
-                if op == "FrameSlotRead" then
-                    line(result .. " = load." .. machineKinds[access.kind] .. " notrap " .. address)
-                else
-                    line("store notrap " .. value(args[4]) .. ", " .. address)
+                case "FrameRecover" -> do
+                    local stackAt = temporary(
+                        "iadd " .. value(args[1]) .. ", " .. constant(tostring(options.layout("stack")))
+                    )
+                    local stack = temporary("load.i64 notrap " .. stackAt)
+                    local curAt = temporary(
+                        "iadd " .. value(args[1]) .. ", " .. constant(tostring(options.layout("cur")))
+                    )
+                    local cur = temporary("load.i64 notrap " .. curAt)
+                    local offset = temporary("imul " .. cur .. ", " .. constant("8"))
+                    line(result .. " = iadd " .. stack .. ", " .. offset)
+                    yield true
                 end
-            else
-                error("graph CLIF: unsupported operation " .. tostring(op), 0)
+                case "FrameWindow" -> do
+                    local access = args[3]
+                    if access.class == "v" then
+                        line(result .. " = iadd " .. value(args[2]) .. ", " .. constant("32"))
+                    else
+                        local packed = temporary("load.i64 notrap " .. value(args[2]))
+                        local fid = temporary("band " .. packed .. ", " .. constant("4294967295"))
+                        local funcsAt = temporary(
+                            "iadd " .. value(args[1]) .. ", " .. constant(tostring(options.layout("funcs")))
+                        )
+                        local funcs = temporary("load.i64 notrap " .. funcsAt)
+                        local infoOffset = temporary(
+                            "imul " .. fid .. ", " .. constant(tostring(options.layout("FuncInfo.size")))
+                        )
+                        local info = temporary("iadd " .. funcs .. ", " .. infoOffset)
+                        local offAt = temporary(
+                            "iadd " .. info .. ", " .. constant(
+                                tostring(options.layout(access.class == "i" and "FuncInfo.off_i" or "FuncInfo.off_f"))
+                            )
+                        )
+                        local off = temporary("sload32.i64 notrap " .. offAt)
+                        local bytes = temporary("imul " .. off .. ", " .. constant("8"))
+                        line(result .. " = iadd " .. value(args[2]) .. ", " .. bytes)
+                    end
+                    yield true
+                end
+                case "FrameVarargRead" -> do
+                    local packed = temporary("load.i64 notrap " .. value(args[1]) .. "+24")
+                    local count = temporary("ushr " .. packed .. ", " .. constant("49"))
+                    local slots = temporary("isub " .. value(args[2]) .. ", " .. count)
+                    local offset = temporary("imul " .. slots .. ", " .. constant("8"))
+                    local address = temporary("iadd " .. value(args[1]) .. ", " .. offset)
+                    line(result .. " = load.i64 notrap " .. address)
+                    yield true
+                end
+                case "FrameSlotRead", "FrameSlotWrite" -> do
+                    local access = args[op == "FrameSlotRead" and 4 or 5]
+                    need(
+                        (access.class == "i" or access.class == "v" or access.class == "f") and access.width == 8,
+                        "unsupported frame slot class"
+                    )
+                    local offset = temporary("imul " .. value(args[3]) .. ", " .. constant(tostring(access.width)))
+                    local address = temporary("iadd " .. value(args[2]) .. ", " .. offset)
+                    if op == "FrameSlotRead" then
+                        line(result .. " = load." .. machineKinds[access.kind] .. " notrap " .. address)
+                    else
+                        line("store notrap " .. value(args[4]) .. ", " .. address)
+                    end
+                    yield true
+                end
+                else -> do
+                    if integerOps[op] or floatOps[op] then
+                        local operands = {}
+                        for index, id in ipairs(args) do
+                            operands[index] = value(id)
+                        end
+                        line(result .. " = " .. (integerOps[op] or floatOps[op]) .. " " .. table.concat(operands, ", "))
+                    else
+                        error("graph CLIF: unsupported operation " .. tostring(op), 0)
+                    end
+                    yield true
+                end
             end
         end
         local term = block.term
