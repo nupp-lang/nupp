@@ -502,10 +502,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
             end
             local rd: integer = 0
             local _ = switch op do
-                case JUMP -> do
-                    edge(colFirstEdge[at], nextBlock)
-                    yield true
-                end
+                case JUMP -> edge(colFirstEdge[at], nextBlock)
                 case BRIF -> do
                     local condition = fusedCondition
                     if condition < 0 then
@@ -558,10 +555,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                     emit(arm.ret(30))
                     yield true
                 end
-                case TRAP -> do
-                    emit(arm.brk(colImm[at]))
-                    yield true
-                end
+                case TRAP -> emit(arm.brk(colImm[at]))
                 case CALL, CALL_INDIRECT, RETURN_CALL, RETURN_CALL_INDIRECT -> do
                     local indirect = op == CALL_INDIRECT or op == RETURN_CALL_INDIRECT
                     local tail = op == RETURN_CALL or op == RETURN_CALL_INDIRECT
@@ -649,32 +643,17 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                         or 0, nargs >= 3 and regs[3]
                         or 0
                     local _ = switch op do
-                        case ICONST -> do
-                            constant(rd, colImm[at], width)
-                            yield true
-                        end
+                        case ICONST -> constant(rd, colImm[at], width)
                         case FCONST -> do
                             local temp = temporary(false)
                             constant(temp, colImm[at], bits(kind));
                             emit(arm.fmov_from_int(bits(kind), rd, temp))
                             yield true
                         end
-                        case STACK_ADDR -> do
-                            addOffset(rd, 23, code.stackOffsets[colAux[at]] + colImm[at])
-                            yield true
-                        end
-                        case IADD -> do
-                            emit(arm.add_reg(width, rd, x, y, 0))
-                            yield true
-                        end
-                        case ISUB -> do
-                            emit(arm.sub_reg(width, rd, x, y, 0))
-                            yield true
-                        end
-                        case IMUL -> do
-                            emit(arm.madd(width, rd, x, y, 31))
-                            yield true
-                        end
+                        case STACK_ADDR -> addOffset(rd, 23, code.stackOffsets[colAux[at]] + colImm[at])
+                        case IADD -> emit(arm.add_reg(width, rd, x, y, 0))
+                        case ISUB -> emit(arm.sub_reg(width, rd, x, y, 0))
+                        case IMUL -> emit(arm.madd(width, rd, x, y, 31))
                         case UMULHI, SMULHI -> do
                             assert(width == 64, "S0 select: narrow multiply-high unsupported")
                             emit(op == UMULHI and arm.umulh(rd, x, y) or arm.smulh(rd, x, y))
@@ -703,10 +682,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                             end
                             yield true
                         end
-                        case BNOT -> do
-                            emit(arm.mvn(width, rd, x))
-                            yield true
-                        end
+                        case BNOT -> emit(arm.mvn(width, rd, x))
                         case ISHL, USHR, SSHR -> do
                             if bits(kind) < 32 then
                                 local temp = temporary(false)
@@ -842,50 +818,19 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                             end
                             yield true
                         end
-                        case FPROMOTE, FDEMOTE -> do
-                            emit(arm.fcvt(bits(kind), bits(colValueKinds[colArgs[firstArg]]), rd, x))
-                            yield true
-                        end
-                        case FADD -> do
-                            emit(arm.fadd(bits(kind), rd, x, y))
-                            yield true
-                        end
-                        case FSUB -> do
-                            emit(arm.fsub(bits(kind), rd, x, y))
-                            yield true
-                        end
-                        case FMUL -> do
-                            emit(arm.fmul(bits(kind), rd, x, y))
-                            yield true
-                        end
-                        case FDIV -> do
-                            emit(arm.fdiv(bits(kind), rd, x, y))
-                            yield true
-                        end
-                        case FNEG -> do
-                            emit(arm.fneg(bits(kind), rd, x))
-                            yield true
-                        end
-                        case FABS -> do
-                            emit(arm.fabs(bits(kind), rd, x))
-                            yield true
-                        end
-                        case SQRT -> do
-                            emit(arm.fsqrt(bits(kind), rd, x))
-                            yield true
-                        end
-                        case FLOOR -> do
-                            emit(arm.frintm(bits(kind), rd, x))
-                            yield true
-                        end
-                        case CEIL -> do
-                            emit(arm.frintp(bits(kind), rd, x))
-                            yield true
-                        end
-                        case FMA -> do
-                            emit(arm.fmadd(bits(kind), rd, x, y, z))
-                            yield true
-                        end
+                        case FPROMOTE, FDEMOTE -> emit(
+                            arm.fcvt(bits(kind), bits(colValueKinds[colArgs[firstArg]]), rd, x)
+                        )
+                        case FADD -> emit(arm.fadd(bits(kind), rd, x, y))
+                        case FSUB -> emit(arm.fsub(bits(kind), rd, x, y))
+                        case FMUL -> emit(arm.fmul(bits(kind), rd, x, y))
+                        case FDIV -> emit(arm.fdiv(bits(kind), rd, x, y))
+                        case FNEG -> emit(arm.fneg(bits(kind), rd, x))
+                        case FABS -> emit(arm.fabs(bits(kind), rd, x))
+                        case SQRT -> emit(arm.fsqrt(bits(kind), rd, x))
+                        case FLOOR -> emit(arm.frintm(bits(kind), rd, x))
+                        case CEIL -> emit(arm.frintp(bits(kind), rd, x))
+                        case FMA -> emit(arm.fmadd(bits(kind), rd, x, y, z))
                         case FCVT_FROM_SINT, FCVT_FROM_UINT -> do
                             local from = colValueKinds[colArgs[firstArg]]
                             if op == FCVT_FROM_SINT and bits(from) < 32 then
