@@ -31,7 +31,7 @@ function producer.compile(mode: string): string
     for index, name in ipairs(program.names) do
         local fn = stops[name] or functions[name]
         local g = lower.functionGraph(assert(fn), stops[name] and stopOptions or options, nativegraph)
-        local artifact = sink.compilerGraph(g, name, fn)
+        local artifact = sink.compilerGraph(g, name, fn, nil, contextOptions.modules["nupp.runtime.core.context"])
         local target = selector.target()
         if mode == "spill" then
             target.integerRegisters, target.floatRegisters = {}, {}

@@ -45,6 +45,7 @@ record sink.Result
     instructionSegment: {integer}
     instructionBlock: {integer}
     callees: any
+    contextLayout: any
 end
 
 local function copy(value: any): any
@@ -59,10 +60,61 @@ local function copy(value: any): any
     return result
 end
 
+-- Trusted checked producer input, not a runtime pointer admission API. Every
+-- forwarded context must retain a mapped SIZE-byte owner and immutable table.
+local function contextLayout(scope: any): any
+    assert(
+        type(scope) == "table"
+        and scope.name == "nupp.runtime.core.context"
+        and type(scope.path) == "string"
+        and scope.constants
+        and scope.exportedConstants,
+        "S0 graph: checked context layout required"
+    )
+
+    local function constant(name: string): integer
+        local found: integer?
+        for definition, node in pairs(scope.constants) do
+            if definition.name == name then
+                assert(
+                    found == nil
+                    and definition.filename == scope.path
+                    and definition.token.definition == definition
+                    and definition.constant
+                    and node.kind == "number"
+                    and scope.exportedConstants[name] == node.token.text,
+                    "S0 graph: context declaration identity"
+                )
+                local kind = definition.type
+                while kind and (kind.tag == "literal" or kind.tag == "const") do
+                    kind = kind.tag == "literal" and kind.base or kind.inner
+                end
+                assert(
+                    kind and (kind.tag == "integer" or kind.tag == "int64" or kind.tag == "uint64"),
+                    "S0 graph: context constant integer kind"
+                )
+                local value = literal.integer(node.token.text)
+                assert(value >= 0 and value < 16777216, "S0 graph: context extent range")
+                found = value as integer
+            end
+        end
+
+        return assert(found, "S0 graph: missing context constant " .. name)
+    end
+
+    local bytes, offset = constant("SIZE"), constant("DISPATCH_TABLE")
+    assert(
+        bytes >= 8 and bytes % 8 == 0 and offset % 8 == 0 and offset <= bytes - 8,
+        "S0 graph: context dispatch bounds"
+    )
+
+    return {owner = scope, bytes = bytes, dispatchOffset = offset}
+end
+
 -- Prototype: private compiler-result provenance is checked before public data
 -- can be observed. Loader opcode/tag and integer-window authority remain pending.
 -- The returned artifact retains the exact body owner through linking/execution.
-local function lower(bound: any, name: string, unbound: boolean, resolved: any?): sink.Result
+local function lower(bound: any, name: string, unbound: boolean, resolved: any?, context: any?): sink.Result
     local g = bound.graph
     graph.verify(g)
     assert(bound.body ~= nil, "S0 graph: retained body owner required")
@@ -76,6 +128,7 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?)
         "S0 graph: supported native entry required"
     )
     local handler = g.native.abi == "handler"
+    local layout = unbound and handler and contextLayout(context) or nil
     assert((unbound or #g.blocks == 1) and #g.blocks[1].params == 0, "S0 graph: closed entry block required")
     assert(
         #g.certificates == 0 and g.recovery == nil and g.recoveries == nil,
@@ -103,7 +156,7 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?)
     local tableValue = nextValue + 1
     nextValue = tableValue
     for index = 1, g.nparams do
-        local value = handler and index == 6 and tableValue or index + 1
+        local value = handler and not unbound and index == 6 and tableValue or index + 1
         f.params[index] = value
         ir.value(f, value, parameters[index], -1)
     end
@@ -176,7 +229,7 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?)
         blockIndex, position, operation = bi, 0, 0
         f.blockStart[bi] = #f.op + 1
         if bi == 1 then
-            if handler then
+            if handler and not unbound then
                 recipes.entry(emit, 7, 3, 32)
             end
         else
@@ -207,7 +260,7 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?)
             local result = destination ~= 0 and destination + 1 or nil
             local _ = switch op do
                 case "NativeLeafCall" -> do
-                    assert(unbound and not handler, "S0 graph: resolved leaf call requires compiler leaf")
+                    assert(unbound, "S0 graph: resolved leaf call requires compiler input")
                     local declaration = args[1]
                     local symbol = declaration.moduleName .. "." .. declaration.name
                     local target = resolved and resolved[symbol]
@@ -364,7 +417,12 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?)
                     assert(
                         unbound
                         and args[4].width == 8
-                        and (args[4].kind == "uint64" or args[4].kind == "int64" or args[4].kind == "float64"),
+                        and (
+                            args[4].kind == "uint64"
+                            or args[4].kind == "int64"
+                            or args[4].kind == "float64"
+                            or args[4].kind == "voidptr"
+                        ),
                         "S0 graph: unsupported word store"
                     )
                     local address = emit("iadd", nil, args[1] + 1, args[2] + 1, nil, "i64", 0, nil)
@@ -444,10 +502,18 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?)
             case "dispatch" -> do
                 assert(handler, "S0 graph: dispatch requires handler ABI")
                 local arguments = {}
-                for index = 1, 5 do
+                for index = 1, unbound and 6 or 5 do
                     arguments[index] = term.args[index] + 1
                 end
-                recipes.dispatch(emit, arguments, tableValue)
+                if unbound then
+                    local offset = emit("iconst", nil, nil, nil, nil, "i64", 0, tostring(layout.dispatchOffset))
+                    local address = emit("iadd", nil, arguments[5], offset, nil, "i64", 0, nil)
+                    local dispatch = emit("load", nil, address, nil, nil, "i64", 64, nil)
+                    local target = recipes.dispatchTarget(emit, arguments[1], dispatch)
+                    emit("return_call_indirect", nil, target, nil, arguments, "i64", 0, nil)
+                else
+                    recipes.dispatch(emit, arguments, tableValue)
+                end
                 yield nil
             end
             case "return" -> do
@@ -498,17 +564,18 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?)
         instructionOperation = instructions,
         instructionSegment = segments,
         instructionBlock = blocks,
-        callees = callees
+        callees = callees,
+        contextLayout = layout
     )
 end
 
 function sink.lower(bound: any, name: string): sink.Result
-    return lower(residual.snapshot(bound), name, false, nil)
+    return lower(residual.snapshot(bound), name, false, nil, nil)
 end
 
 -- Build-time checked compiler graphs only; no public runtime graph admission.
-function sink.compilerGraph(g: any, name: string, owner: any, resolved: any?): sink.Result
-    return lower({graph = g, body = owner, pc = 0, count = 1}, name, true, resolved)
+function sink.compilerGraph(g: any, name: string, owner: any, resolved: any?, context: any?): sink.Result
+    return lower({graph = g, body = owner, pc = 0, count = 1}, name, true, resolved, context)
 end
 
 export = sink

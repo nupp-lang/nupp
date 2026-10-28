@@ -512,7 +512,7 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
     end
 
     if op == "NativeLeafCall" then
-        assert(g.native.abi == "leaf", "scalar leaf calls require a leaf graph")
+        assert(g.native.abi == "leaf" or g.native.abi == "handler", "scalar leaf calls require a leaf or handler graph")
         local declaration = args[1]
         nativeContract(declaration, {
             moduleName = true,
