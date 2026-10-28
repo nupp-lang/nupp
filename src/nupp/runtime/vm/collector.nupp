@@ -174,7 +174,6 @@ local function scanObject(h: heap.Heap*, o: heap.Header*): nil
         h.stats.scanned = h.stats.scanned + 1
         if o.kind as uint64 == heap.KIND_TABLE and (o.aux as uint64) & weak.WEAK_MODES ~= 0 then
             weak.scanWeak(h, o)
-            o.color = heap.COLOR_BLACK
         else
             marking.scanStrong(h, o)
         end
@@ -301,7 +300,7 @@ export function startCycle(h: heap.Heap*): nil
         h.phase = heap.PHASE_MARKING
         h.marking = 1
         h.stats.cycles = h.stats.cycles + 1
-        h.weak.count = 0
+        weak.weakCycleReset(h)
         walkRoots(h, true, nil)
     end
 end

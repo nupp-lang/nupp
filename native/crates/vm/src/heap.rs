@@ -307,7 +307,7 @@ unsafe extern "C" {
 }
 #[cfg(feature = "native-runtime")]
 const _: () = {
-    assert!(crate::dispatch::OBJECT_ABI == 24);
+    assert!(crate::dispatch::OBJECT_ABI == 25);
     assert!(std::mem::size_of::<Value>() == 8);
     assert!(std::mem::size_of::<StoragePayload>() == 32);
     assert!(std::mem::align_of::<StoragePayload>() == 8);
@@ -424,10 +424,6 @@ pub struct Heap {
     /// 1 while marking: the threaded core reads it to decide whether a store
     /// needs the barrier's slow path.
     pub marking: u8,
-    /// Tables this cycle scanned under a weak `__mode`, with the mode's bits
-    /// (`WEAK_KEYS`, `WEAK_VALUES`); their dead entries are cleared when
-    /// marking ends, before the sweep frees the referents.
-    weak: Vec<(NonNull<Header>, u8)>,
     /// The shapes each declaration table (`F_DECLARATION`) declares, by the
     /// table's bits. A shape keeps its declaration alive while an instance of
     /// it is, so the bits hold; an entry goes when its table dies.
@@ -468,7 +464,7 @@ thread_local! { static NEVER: bool = std::env::var("GC_NEVER").is_ok(); }
 impl Heap {
     pub fn new() -> Heap {
         let env = |k: &str| std::env::var(k).is_ok();
-        Heap { channels: HashMap::default(), allocator: NativeAllocator::new(), chunk_bytes_mapped: 0, live_count: 0, root_candidates: Vec::new(), timed: env("GC_STATS"), phase: Phase::Idle, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), shape_identities: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0, weak: Vec::new(), mode_key: VT_EMPTY, record_type_key: VT_EMPTY, live_shapes: Vec::new(), declarations: HashMap::default(), mm_seen: 0, mm_keys: [VT_EMPTY; crate::metamethods::COUNT], proto_epoch: 0, proto_cache: HashMap::new(),
+        Heap { channels: HashMap::default(), allocator: NativeAllocator::new(), chunk_bytes_mapped: 0, live_count: 0, root_candidates: Vec::new(), timed: env("GC_STATS"), phase: Phase::Idle, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), shape_identities: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0, mode_key: VT_EMPTY, record_type_key: VT_EMPTY, live_shapes: Vec::new(), declarations: HashMap::default(), mm_seen: 0, mm_keys: [VT_EMPTY; crate::metamethods::COUNT], proto_epoch: 0, proto_cache: HashMap::new(),
             #[cfg(feature = "allocation-metrics")]
             metrics: crate::allocation_metrics::new(),
         }
@@ -854,7 +850,7 @@ impl Heap {
         self.phase = Phase::Marking;
         self.marking = 1;
         self.stats.cycles += 1;
-        self.weak.clear();
+        self.allocator.weak_cycle_reset();
         // Looked up before marking begins, so the lookup greys nothing; a
         // metatable naming `__mode` holds the string, so it stays alive and
         // keeps these bits for the cycle.
@@ -899,19 +895,12 @@ impl Heap {
     /// marking has finished, so white here means unreachable but for weak
     /// references; the sweep that follows frees those objects.
     fn clear_weak(&mut self) {
-        for (p, mode) in std::mem::take(&mut self.weak) {
+        let mut cursor = crate::native_allocator::WeakClearCursor::default();
+        while let Some(p) = self.allocator.weak_cycle_clear_next(&mut cursor) {
             let h = unsafe { &mut *p.as_ptr() };
-            if h.kind != KIND_TABLE { continue; }
-            let t = h.table();
-            // Nupp owns the array backing and borrows its initialized words and
-            // canonical buckets, without collection or callbacks across the view.
-            let (length, changed) = unsafe { NativeAllocator::weak_clear(t.array.as_mut_ptr(), t.array.len(), t.hash.ptr, t.hash.cap, mode) };
-            t.array.truncate(length);
             h.refresh();
-            // A cleared entry of a table an `__index` lookup walked changes
-            // what the lookup answers, as a store would: compiled code that
-            // resolved through it must not call what is about to be freed.
-            if changed && h.flags & F_PROTO != 0 { self.proto_epoch += 1; }
+            // The native borrow ended before host metadata and cache hooks run.
+            if cursor.changed != 0 && h.flags & F_PROTO != 0 { self.proto_epoch += 1; }
         }
     }
 
@@ -1006,32 +995,11 @@ impl Heap {
     /// The table is remembered so `propagate_weak` can revisit entries whose
     /// weak side is marked later, and `clear_weak` can drop what dies.
     fn scan_weak(&mut self, p: NonNull<Header>, mode: u8) {
-        let t = unsafe { (*p.as_ptr()).table_ref() };
-        Self::mark_live_entries(&mut self.allocator, t, mode);
-        self.allocator.shade(t.meta);
-        self.weak.push((p, mode));
-        unsafe { (*p.as_ptr()).color = COLOR_BLACK; }
+        self.allocator.weak_cycle_scan(p, mode);
     }
 
-    /// Greys both sides of every entry of a weak table that survives as
-    /// marking stands; answers whether anything was greyed.
-    fn mark_live_entries(allocator: &mut NativeAllocator, t: &TablePayload, mode: u8) -> bool {
-        // The shared policy reads initialized words, not Rust container layouts.
-        unsafe { allocator.weak_mark(t.array.as_ptr(), t.array.len(), t.hash.ptr, t.hash.cap, mode) }
-    }
-
-    /// Revisits every weak table this cycle scanned once marking has drained:
-    /// an entry whose weak side was marked after its table was scanned now
-    /// survives, so its other side is marked too. Answers whether marking
-    /// has more to do.
     fn propagate_weak(&mut self) -> bool {
-        let mut greyed = false;
-        for &(p, mode) in &self.weak {
-            let h = unsafe { &*p.as_ptr() };
-            if h.kind != KIND_TABLE { continue; }
-            greyed |= Self::mark_live_entries(&mut self.allocator, h.table_ref(), mode);
-        }
-        greyed
+        self.allocator.weak_cycle_propagate()
     }
 
     /// One increment of work. Marking drains grey objects; when none remain
@@ -1545,10 +1513,13 @@ mod tests {
                 .map(|&key| t.hash.position_of(key))
                 .collect();
             h.refresh();
-            heap.weak.push((table, mode));
+            h.aux_ptr = std::ptr::null_mut(); h.aux_len = 0;
+            heap.allocator.weak_cycle_remember(table, mode);
             let epoch = heap.proto_epoch;
             heap.clear_weak();
             let t = unsafe { table.as_ref().table_ref() };
+            assert_eq!(unsafe { table.as_ref().aux_len }, t.array.len() as u64);
+            assert_eq!(unsafe { table.as_ref().aux_ptr }, t.array.as_ptr() as *mut u8);
             assert_eq!(&t.array[..preserved.len()], &preserved);
             assert_eq!(
                 t.array.len(),
@@ -1616,16 +1587,12 @@ mod tests {
         table.hash.insert(first, second);
         table.hash.insert(second, tail);
         table.hash.insert(dead_key, dead_value);
-        assert!(!Heap::mark_live_entries(
-            &mut heap.allocator,
-            &table,
-            WEAK_KEYS
-        ));
+        assert!(!unsafe { heap.allocator.weak_mark(table.array.as_ptr(), table.array.len(), table.hash.ptr, table.hash.cap, WEAK_KEYS) });
         unsafe {
             (*first.as_obj().unwrap().as_ptr()).color = COLOR_BLACK;
         }
         let mut passes = 0;
-        while Heap::mark_live_entries(&mut heap.allocator, &table, WEAK_KEYS) {
+        while unsafe { heap.allocator.weak_mark(table.array.as_ptr(), table.array.len(), table.hash.ptr, table.hash.cap, WEAK_KEYS) } {
             passes += 1;
             assert!(passes <= 2, "the ephemeron chain converges");
         }

@@ -50,8 +50,8 @@ local function markLiveEntries(h: heap.Heap*, o: heap.Header*, mode: uint64): bo
         local t = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES) as heap.TableBody*
         return weakentries.weakMarkViews(
             h,
-            native.pointer(o.auxPtr),
-            o.auxLen,
+            native.pointer(t.arrayPtr),
+            t.arrayLen,
             native.pointer(t.hashPtr),
             t.hashCap,
             mode
@@ -59,63 +59,101 @@ local function markLiveEntries(h: heap.Heap*, o: heap.Header*, mode: uint64): bo
     end
 end
 
---- Scans a table under a weak mode: its metatable, and both sides of the
---- entries that survive as marking stands; the table is remembered for
---- `propagate` and `clear`.
-export function scanWeak(h: heap.Heap*, o: heap.Header*): nil
+-- The cycle owns ordered header/mode pairs in the allocator's existing word
+-- backing. A mode is snapshotted when scanned, matching the VM's cycle contract.
+-- A later metatable mode change takes effect in the next cycle.
+export function weakCycleReset(h: heap.Heap*): nil
+    @unsafe h.weak.count = 0ULL
+end
+
+export function weakCycleRemember(h: heap.Heap*, o: heap.Header*, mode: uint64): nil
     @unsafe do
-        markLiveEntries(h, o, (o.aux as uint64) & WEAK_MODES)
-        local t = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES) as heap.TableBody*
-        grayIfWhite(h, t.meta)
         heap.wordsPush(h.weak, native.address(o as voidptr))
+        heap.wordsPush(h.weak, mode & WEAK_MODES)
     end
 end
 
---- Revisits every weak table this cycle scanned once the gray stack drains:
---- an entry whose weak side was marked after its table was scanned now
---- survives. Answers whether marking has more to do.
-export function propagate(h: heap.Heap*): boolean
+export function weakCycleScan(h: heap.Heap*, o: heap.Header*, mode: uint64): nil
+    @unsafe do
+        markLiveEntries(h, o, mode)
+        local t = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES) as heap.TableBody*
+        grayIfWhite(h, t.meta)
+        weakCycleRemember(h, o, mode)
+        o.color = heap.COLOR_BLACK
+    end
+end
+
+export function scanWeak(h: heap.Heap*, o: heap.Header*): nil
+    @unsafe weakCycleScan(h, o, (o.aux as uint64) & WEAK_MODES)
+end
+
+-- Each pass revisits scan order; marking's driver repeats until the gray stack
+-- and these ephemeron edges reach a fixed point.
+export function weakCyclePropagate(h: heap.Heap*): uint64
     @unsafe do
         local grayed: boolean = false
-        local i: uint64 = 0
+        local i: uint64 = 0ULL
         while i < h.weak.count do
             local o = native.pointer(heap.wordAt(h.weak, i)) as heap.Header*
             if o.kind as uint64 == heap.KIND_TABLE then
-                if markLiveEntries(h, o, (o.aux as uint64) & WEAK_MODES) then
+                if markLiveEntries(h, o, heap.wordAt(h.weak, i + 1ULL)) then
                     grayed = true
                 end
             end
-            i = i + 1
+            i = i + 2ULL
         end
-        return grayed
+        return native.asWord(grayed)
     end
 end
 
---- Once marking has ended: drops every weak entry whose weak side is still white,
---- trimming trailing nils when an array entry is cleared. White means unreachable but
---- for weak references; the sweep that follows frees those objects.
-export function clear(h: heap.Heap*): nil
+export function propagate(h: heap.Heap*): boolean
+    return weakCyclePropagate(h) ~= 0ULL
+end
+
+-- The caller owns this borrowed cursor, never a second remembered-table list.
+-- A returned table is fully cleared before the driver refreshes host metadata.
+export struct ClearCursor
+    index: uint64
+    header: uint64
+    changed: uint64
+end
+
+export function weakCycleClearNext(h: heap.Heap*, cursor: ClearCursor*): uint64
     @unsafe do
-        local i: uint64 = 0
-        while i < h.weak.count do
+        cursor.header = 0ULL
+        cursor.changed = 0ULL
+        while cursor.index < h.weak.count do
+            local i = cursor.index
+            cursor.index = i + 2ULL
             local o = native.pointer(heap.wordAt(h.weak, i)) as heap.Header*
             if o.kind as uint64 == heap.KIND_TABLE then
-                local mode = (o.aux as uint64) & WEAK_MODES
+                local mode = heap.wordAt(h.weak, i + 1ULL)
                 local t = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES) as heap.TableBody*
+                local changed = native.pointer(native.address(cursor as voidptr) + 16ULL)
                 local length = weakentries.weakClearViews(
-                    native.pointer(o.auxPtr),
-                    o.auxLen,
+                    native.pointer(t.arrayPtr),
+                    t.arrayLen,
                     native.pointer(t.hashPtr),
                     t.hashCap,
                     mode,
-                    native.pointer(0ULL)
+                    changed
                 )
-                o.auxLen = length
                 t.arrayLen = length
+                o.auxPtr = t.arrayPtr
+                o.auxLen = length
+                cursor.header = native.address(o as voidptr)
+                return 1ULL
             end
-            i = i + 1
         end
-        h.weak.count = 0
+        weakCycleReset(h)
+        return 0ULL
+    end
+end
+
+export function clear(h: heap.Heap*): nil
+    local state = new ClearCursor(0ULL, 0ULL, 0ULL)
+    local cursor = state as ClearCursor*
+    while weakCycleClearNext(h, cursor) ~= 0ULL do
     end
 end
 

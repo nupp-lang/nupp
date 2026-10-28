@@ -46,6 +46,11 @@ unsafe extern "C" {
     fn nupp_allocator_resize(heap: *mut c_void, before: u64, after: u64, debt: u64);
     fn nupp_allocator_reclaim(heap: *mut c_void, header: *mut Header, stress: u64, quarantine: u64);
     fn nupp_allocator_snapshot(heap: *mut c_void, out: *mut u64);
+    fn nupp_weak_cycle_reset(heap: *mut c_void);
+    fn nupp_weak_cycle_remember(heap: *mut c_void, header: *mut Header, mode: u64);
+    fn nupp_weak_cycle_scan(heap: *mut c_void, header: *mut Header, mode: u64);
+    fn nupp_weak_cycle_propagate(heap: *mut c_void) -> u64;
+    fn nupp_weak_cycle_clear_next(heap: *mut c_void, cursor: *mut WeakClearCursor) -> u64;
     fn nupp_scan_strong(heap: *mut c_void, header: *mut Header) -> u64;
     fn nupp_allocator_shade(heap: *mut c_void, value: u64) -> u64;
     fn nupp_allocator_barrier(heap: *mut c_void, parent: *mut Header, child: u64, marking: u64);
@@ -243,6 +248,25 @@ impl NativeAllocator {
         }
     }
 
+    pub(crate) fn weak_cycle_reset(&mut self) {
+        linked! { unsafe { nupp_weak_cycle_reset(self.heap.as_ptr()); } }
+    }
+    pub(crate) fn weak_cycle_remember(&mut self, header: NonNull<Header>, mode: u8) {
+        linked! { unsafe { nupp_weak_cycle_remember(self.heap.as_ptr(), header.as_ptr(), mode as u64); } }
+    }
+    pub(crate) fn weak_cycle_scan(&mut self, header: NonNull<Header>, mode: u8) {
+        linked! { unsafe { nupp_weak_cycle_scan(self.heap.as_ptr(), header.as_ptr(), mode as u64); } }
+    }
+    pub(crate) fn weak_cycle_propagate(&mut self) -> bool {
+        linked! { unsafe { nupp_weak_cycle_propagate(self.heap.as_ptr()) != 0 } }
+    }
+    pub(crate) fn weak_cycle_clear_next(&mut self, cursor: &mut WeakClearCursor) -> Option<NonNull<Header>> {
+        linked! {
+            if unsafe { nupp_weak_cycle_clear_next(self.heap.as_ptr(), cursor) } == 0 { return None; }
+            NonNull::new(cursor.header as *mut Header)
+        }
+    }
+
     pub(crate) fn scan_strong(&mut self, header: NonNull<Header>) -> u64 {
         linked! { unsafe { nupp_scan_strong(self.heap.as_ptr(), header.as_ptr()) } }
     }
@@ -372,3 +396,11 @@ mod shape_backing_tests {
     }
 
 }
+
+#[repr(C)]
+#[derive(Default)]
+pub(crate) struct WeakClearCursor { pub index: u64, pub header: u64, pub changed: u64 }
+const _: () = {
+    assert!(std::mem::size_of::<WeakClearCursor>() == 24);
+    assert!(std::mem::offset_of!(WeakClearCursor, changed) == 16);
+};

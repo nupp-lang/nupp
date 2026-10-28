@@ -471,6 +471,7 @@ local WEAK = {
     -- both unrooted nodes freed.
     {"weakValues", {}, 22111},
     {"unchangedWeakExtent", {}, 22},
+    {"cycleModeSnapshot", {}, 1111},
     {"ephemerons", {}, 1111},
     {"weakBoth", {}, 111},
     {"lookupBarrier", {}, 111},

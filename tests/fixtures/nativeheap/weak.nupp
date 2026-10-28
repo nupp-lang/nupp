@@ -411,3 +411,43 @@ local function unchangedWeakExtent(): uint64
         end
     end
 end
+
+-- The remembered mode belongs to this cycle even when the header changes.
+local function cycleModeSnapshot(): uint64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            h.automatic = false
+            local t = newTable(h, a, 1, 0, gcweak.WEAK_VALUES)
+            local dead = item(h, 0)
+            putSlot(h, t, 0, dead)
+            local o = heap.objectHeader(t)
+            gcweak.weakCycleRemember(h, o, gcweak.WEAK_VALUES)
+            o.aux = 0ULL
+            o.auxPtr = 0ULL
+            o.auxLen = 0ULL
+            gcweak.clear(h)
+            local answer = 0ULL
+            if body(t).arrayLen == 0ULL and o.auxLen == 0ULL then
+                answer = answer + 1000ULL
+            end
+            if o.auxPtr == body(t).arrayPtr then
+                answer = answer + 100ULL
+            end
+            putSlot(h, t, 0, dead)
+            gcweak.weakCycleRemember(h, o, o.aux as uint64)
+            o.aux = gcweak.WEAK_VALUES
+            gcweak.clear(h)
+            if body(t).arrayLen == 1ULL and slotOf(t, 0) == dead then
+                answer = answer + 10ULL
+            end
+            gcweak.weakCycleRemember(h, o, o.aux as uint64)
+            gcweak.clear(h)
+            if body(t).arrayLen == 0ULL and h.weak.count == 0ULL then
+                answer = answer + 1ULL
+            end
+            heap.destroy(h)
+            return answer
+        end
+    end
+end
