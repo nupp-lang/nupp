@@ -50,6 +50,21 @@ function M.compilerChangeSelectsEveryPlatformAndFixpoint()
     })
 end
 
+-- Frozen whole-language emission still consumes the live graph's guest APIs.
+-- Graph work must retain the shared-lane and compiler-rebuild obligations.
+function M.graphChangesKeepFrozenToolchainChecks()
+    for _, path in ipairs({
+        "src/nupp/compiler/vm/graph.nupp",
+        "src/nupp/compiler/vm/graphemit.nupp",
+        "src/nupp/compiler/vm/graphimage.nupp",
+        "src/nupp/compiler/vm/functiongraph.nupp",
+        "src/nupp/compiler/vm/kernels.nupp",
+        "src/nupp/compiler/vm/maps.nupp"
+    }) do
+        selects(path, {"fast-checks", "fixpoint"})
+    end
+end
+
 -- The tools moved out of `nupp.compiler` still ship in the compiler's binary and
 -- are verified by its suite, so a change to one has to select what a compiler
 -- change does, and nothing less.
