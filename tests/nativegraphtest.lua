@@ -114,6 +114,66 @@ local function checkedJumps()
     return checkedWithModules({"calls", "protocol"})
 end
 
+function M.physicalHandlersRecoverOnlyVerifiedCallerWindows()
+    local _, options = checkedWithModules({"records", "protocol"})
+    options.helperModules["nupp.runtime.vm.recordhelpers"] = "nupp_rt_"
+    options.helperModules["nupp.runtime.vm.numerichelpers"] = "nupp_rt_"
+    local scope = options.modules["nupp.runtime.vm.records"]
+    for _, name in ipairs({
+        "IsRec",
+        "TagCheckRec",
+        "GetPhys",
+        "GetPhysF",
+        "GetPhysI",
+        "GetPhysU",
+        "SetPhys",
+        "SetPhysF",
+        "SetPhysI"
+    }) do
+        local fn = assert(scope.functions[name])
+        assert(nativegraph.admits(fn))
+        local g = nativegraph.compile(fn, options)
+        graph.verify(g)
+        graph.prune(g)
+        graph.verify(g)
+        local recoveries, windows, normal = 0, 0, {}
+        for _, block in ipairs(g.blocks) do
+            for index, op in ipairs(block.op) do
+                if op == "FrameRecover" then
+                    recoveries = recoveries + 1
+                elseif op == "FrameWindow" then
+                    windows = windows + 1
+                elseif op == "NativeHelperCall" then
+                    local call = block.args[index][1]
+                    assert(call.effects.mayCollect and call.effects.mayRaise and not call.effects.pure)
+                    assert(call.effects.mayPark == (call.name == "physicalGet" or call.name == "physicalSet"))
+                    if call.normalReturn then
+                        assert(call.normalReturn.frame == "caller" and call.normalReturn.synchronized)
+                        normal[#normal + 1] = call
+                    else
+                        assert(call.name == "recordMismatch" or call.name == "boxInteger")
+                    end
+                end
+            end
+        end
+        if name == "IsRec" or name == "TagCheckRec" then
+            assert(recoveries == 0 and windows == 0 and #normal == 0)
+        else
+            assert(recoveries > 0 and windows == recoveries * 3 and #normal > 0)
+            for _, call in ipairs(normal) do
+                local authority = call.normalReturn
+                call.normalReturn = nil
+                assert(not pcall(graph.verify, g), "physical field recovered windows without return authority")
+                call.normalReturn = authority
+                graph.verify(g)
+            end
+        end
+        fn.paramKinds[1] = "uint64"
+        assert(not pcall(nativegraph.compile, fn, options), "record handler bypassed signature validation")
+        fn.paramKinds[1] = "voidptr"
+    end
+end
+
 function M.byteAccessHandlersComposeLoopsAndTerminalErrors()
     local _, options = checkedWithModules({"byteops", "protocol"})
     options.helperModules["nupp.runtime.vm.bytehelpers"] = "nupp_rt_"

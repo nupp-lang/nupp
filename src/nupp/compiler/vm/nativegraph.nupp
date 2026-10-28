@@ -80,6 +80,17 @@ local stateAdmitted = {
     Park = true,
     VarargTable = true
 }
+local recordAdmitted = {
+    IsRec = true,
+    TagCheckRec = true,
+    GetPhys = true,
+    GetPhysF = true,
+    GetPhysI = true,
+    GetPhysU = true,
+    SetPhys = true,
+    SetPhysF = true,
+    SetPhysI = true
+}
 local byteAdmitted = {BytesLen = true, LoadU8 = true, LoadU8K = true, LoadU32W = true, StoreU8 = true, StoreU32 = true}
 local arithmetic = {
     ["+"] = "IAdd",
@@ -207,6 +218,7 @@ function nativegraph.admits(fn: any): boolean
             and (fn.name == "TagCheckNum" or fn.name == "StrByte" or fn.name == "NewRecord")
         )
         or (fn.scope.name == "nupp.runtime.vm.byteops" and byteAdmitted[fn.name] == true)
+        or (fn.scope.name == "nupp.runtime.vm.records" and recordAdmitted[fn.name] == true)
         or nativegraph.isLeaf(fn)
 end
 

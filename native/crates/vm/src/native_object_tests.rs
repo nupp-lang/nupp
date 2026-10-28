@@ -3,6 +3,188 @@ use super::*;
 use crate::{interp::Op, numeric::Integer, value::Value};
 
 #[test]
+fn native_physical_reads_recover_caller_after_callback_success_error_and_park() {
+    for kind in 0..4 {
+        for outcome in 0..4 {
+            let plan = crate::storage::PhysicalField {
+                identity: 0,
+                name: 1,
+                ordinal: 0,
+                offset: 0,
+                kind: if kind == 3 { 8 } else { 7 },
+            };
+            let op = match kind {
+                0 => Op::GetPhys(1, 1, plan),
+                1 => Op::GetPhysF(0, 1, plan),
+                2 => Op::GetPhysI(0, 1, plan),
+                _ => Op::GetPhysU(0, 1, plan),
+            };
+            let (mut vm, tid) = fixture(op);
+            let identity = vm.intern("PhysicalProbe");
+            let name = vm.intern("x");
+            vm.funcs[0].consts.extend([identity, name]);
+            let body = match outcome {
+                0 => "const 0 int64 -9223372036854775808\nNewTable 3\nK 4 0\nRet 4",
+                1 => "const 0 str \"physical callback failed\"\nRaise 0",
+                2 => "Park 1\nRetNil",
+                _ => "const 0 true\nK 3 0\nRet 3",
+            };
+            let callback = crate::image::load(
+                &mut vm,
+                &format!("function callback 0 2 8 2 vv:v\n{body}\nend\nentry 0\n"),
+            )
+            .unwrap();
+            let object = vm.new_table();
+            put(&mut vm, tid, 1, object);
+            put(&mut vm, tid, 2, object);
+            let meta = vm.new_table();
+            vm.register(meta);
+            let index = vm.intern("__index");
+            vm.set_index(meta, index, Value::func(callback));
+            vm.set_metatable(object, meta);
+            intput(&mut vm, tid, 0, 0x1020_3040_5060_7080);
+            let float_at = vm.tasks[tid].cur() + vm.funcs[0].off_f();
+            vm.tasks[tid].stack[float_at] = (-0.0f64).to_bits();
+            vm.entries.resize(vm.funcs.len(), 0);
+            vm.prepare_threaded();
+            vm.funcs[0].ins[1].op = Code::Slow as u8;
+            vm.heap.stress = true;
+            vm.heap.stress_steps = true;
+            vm.heap.oracle = true;
+            vm.heap.quarantine = true;
+            let ctx = direct(&mut vm, tid, 1);
+            let failed = outcome != 0 && (outcome != 3 || kind != 0);
+            assert_eq!(ctx.status == ST_ERROR, failed);
+            assert_eq!(ctx.stack, vm.tasks[tid].stack.as_mut_ptr());
+            assert_eq!(ctx.cur as usize, vm.tasks[tid].cur());
+            assert_eq!(value(&vm, tid, 2), object);
+            if !failed {
+                match kind {
+                    0 if outcome == 3 => assert_eq!(value(&vm, tid, 1), Value::TRUE),
+                    0 => assert_eq!(
+                        crate::numeric::integer(value(&vm, tid, 1)).unwrap().bits,
+                        i64::MIN as u64
+                    ),
+                    1 => assert_eq!(vm.tasks[tid].stack[float_at], (i64::MIN as f64).to_bits()),
+                    _ => assert_eq!(
+                        super::native_numeric_tests::intget(&vm, tid, 0),
+                        i64::MIN as u64
+                    ),
+                }
+            } else {
+                assert_eq!(value(&vm, tid, 1), object);
+                assert_eq!(
+                    super::native_numeric_tests::intget(&vm, tid, 0),
+                    0x1020_3040_5060_7080
+                );
+                assert_eq!(vm.tasks[tid].stack[float_at], (-0.0f64).to_bits());
+                let error = vm.pending_error.take().unwrap();
+                let text = String::from_utf8_lossy(vm.bytes_of(error));
+                assert!(text.contains(match outcome {
+                    1 => "physical callback failed",
+                    2 => "a callback parked",
+                    _ if kind == 1 => "expected a number",
+                    _ => "expected an integer",
+                }));
+            }
+            vm.full_cycle();
+            vm.check_oracle();
+            assert!(vm.heap.is_live_slot(object.as_obj().unwrap()));
+        }
+    }
+}
+
+#[test]
+fn native_physical_stores_root_boxed_arguments_and_recover_caller() {
+    for kind in 0..3 {
+        for outcome in 0..3 {
+            let plan = crate::storage::PhysicalField {
+                identity: 0,
+                name: 1,
+                ordinal: 0,
+                offset: 0,
+                kind: if kind == 1 { 10 } else { 8 },
+            };
+            let op = match kind {
+                0 => Op::SetPhys(1, plan, 2),
+                1 => Op::SetPhysF(1, plan, 0),
+                _ => Op::SetPhysI(1, plan, 0),
+            };
+            let (mut vm, tid) = fixture(op);
+            let identity = vm.intern("PhysicalProbe");
+            let name = vm.intern("x");
+            vm.funcs[0].consts.extend([identity, name]);
+            let body = match outcome {
+                0 => {
+                    "const 0 builtin rawset\nconst 1 str \"seen\"\nNewTable 9\nK 4 0\nMove 6 1\nK 7 1\nMove 8 3\nCallDyn 4 5 3\nRetNil"
+                }
+                1 => "const 0 str \"physical store failed\"\nRaise 0",
+                _ => "Park 1\nRetNil",
+            };
+            let callback = crate::image::load(
+                &mut vm,
+                &format!("function callback 0 3 12 2 vvv:v\n{body}\nend\nentry 0\n"),
+            )
+            .unwrap();
+            let object = vm.new_table();
+            put(&mut vm, tid, 1, object);
+            put(&mut vm, tid, 3, object);
+            let stored = vm.new_table();
+            put(&mut vm, tid, 2, stored);
+            let meta = vm.new_table();
+            vm.register(meta);
+            let index = vm.intern("__newindex");
+            vm.set_index(meta, index, Value::func(callback));
+            vm.set_metatable(object, meta);
+            let seen = vm.intern("seen");
+            vm.register(seen);
+            intput(&mut vm, tid, 0, 0x8000_0000_0000_0001);
+            let float_at = vm.tasks[tid].cur() + vm.funcs[0].off_f();
+            vm.tasks[tid].stack[float_at] = (-0.0f64).to_bits();
+            vm.install_globals();
+            vm.entries.resize(vm.funcs.len(), 0);
+            vm.prepare_threaded();
+            vm.funcs[0].ins[1].op = Code::Slow as u8;
+            vm.heap.stress = true;
+            vm.heap.stress_steps = true;
+            vm.heap.oracle = true;
+            vm.heap.quarantine = true;
+            let ctx = direct(&mut vm, tid, 1);
+            assert_eq!(ctx.status == ST_ERROR, outcome != 0);
+            assert_eq!(ctx.stack, vm.tasks[tid].stack.as_mut_ptr());
+            assert_eq!(ctx.cur as usize, vm.tasks[tid].cur());
+            assert_eq!(value(&vm, tid, 1), object);
+            assert_eq!(value(&vm, tid, 2), stored);
+            assert_eq!(value(&vm, tid, 3), object);
+            let actual = vm.get_index(object, seen);
+            if outcome == 0 {
+                match kind {
+                    0 => assert_eq!(actual, stored),
+                    1 => assert_eq!(actual.0, (-0.0f64).to_bits()),
+                    _ => {
+                        let integer = crate::numeric::integer(actual).unwrap();
+                        assert_eq!(integer.bits, 0x8000_0000_0000_0001);
+                    }
+                }
+            } else {
+                assert_eq!(actual, Value::NIL);
+                let error = vm.pending_error.take().unwrap();
+                let text = String::from_utf8_lossy(vm.bytes_of(error));
+                assert!(text.contains(if outcome == 1 {
+                    "physical store failed"
+                } else {
+                    "a callback parked"
+                }));
+            }
+            vm.full_cycle();
+            vm.check_oracle();
+            assert!(vm.heap.is_live_slot(object.as_obj().unwrap()));
+            assert!(vm.heap.is_live_slot(stored.as_obj().unwrap()));
+        }
+    }
+}
+
+#[test]
 fn native_objects_record_allocation_recovers_live_windows() {
     for dest in [0, 1] {
         let (mut vm, tid) = fixture(Op::NewRecord(dest, 0));

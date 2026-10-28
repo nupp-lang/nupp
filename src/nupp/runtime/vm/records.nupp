@@ -10,24 +10,18 @@ const helpers = require("nupp.runtime.vm.helpers")
 const records = require("nupp.runtime.vm.recordhelpers")
 const numeric = require("nupp.runtime.vm.numerichelpers")
 const protocol = require("nupp.runtime.vm.protocol")
+const frames = require("nupp.runtime.vm.frames")
 
 -- Every collecting/callback service invalidates window pointers. Result kinds
 -- select a logical window only after recovering the current published frame.
 local function finish(pc: voidptr, context: voidptr, value: uint64, kind: int64): uint64
-    if native.load32(context, native.layout("status")) == -4 then
+    if frames.status(context) == -4 then
         return native.fail()
     end
-    local frame = native.offset(
-        native.loadPointer(context, native.layout("stack")),
-        native.index(native.load64(context, native.layout("cur")) * 8)
-    )
-    local info = native.offset(
-        native.loadPointer(context, native.layout("funcs")),
-        native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
-    )
-    local regs = native.offset(frame, 32)
-    local ints = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_i")) * 8)
-    local floats = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_f")) * 8)
+    local frame = frames.current(context)
+    local regs = frames.values(context, frame)
+    local ints = frames.integers(context, frame)
+    local floats = frames.floats(context, frame)
     local dest = program.readByte(pc, 1)
     if kind == 0 then
         slots.writeValue(frame, regs, dest, value)
@@ -299,11 +293,13 @@ local function physicalRead(
     end
     if kind == 1 then
         value = native.bits(records.numericDouble(context, value))
+        return finish(pc, context, value, 1)
     elseif kind >= 2 then
         value = numeric.numericWord(context, value, native.chooseIndex(kind == 3, 1, 0))
+        return finish(pc, context, value, 2)
     end
 
-    return finish(pc, context, value, native.chooseIndex(kind == 3, 2, kind))
+    return finish(pc, context, value, 0)
 end
 
 local function physicalWrite(

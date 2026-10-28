@@ -2,6 +2,7 @@
 -- [handled, result, left, right]; arithmetic itself belongs to Nupp.
 local record NumericHelpers
     @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    @vmNormalReturn(context = 1, frame = "caller", outcomes = "ready-error", synchronized = true)
     numericWord: function(context: voidptr, value: uint64, unsigned: int64): uint64
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = true)
     integerBits: function(value: uint64): uint64
