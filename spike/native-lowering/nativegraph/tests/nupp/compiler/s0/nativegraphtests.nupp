@@ -186,6 +186,7 @@ local reference = require("nupp.compiler.s0.referenceclif")
 local shim = require("nupp.compiler.s0.nativegraphshim")
 local sink = require("nupp.compiler.s0.nativegraph")
 local reader = require("s0.reader")
+local ir = require("s0.ir")
 local allocate = require("s0.allocate")
 local allocationcheck = require("s0.allocationcheck")
 local selector = require("s0.select")
@@ -203,7 +204,35 @@ local function exact(a: any, b: any, path: any): any
     end
 end
 
+local function builderCases(): nil
+    local signature = new ir.Signature(params = {}, results = {}, convention = ir.INTERNAL)
+    local old, direct = ir.new("builder", signature), ir.new("builder", signature)
+    ir.instruction(old, ir.OP_ICONST, 1, ir.I64, {}, 17, 0)
+    ir.instructionRange(direct, ir.OP_ICONST, 1, ir.I64, nil, nil, nil, 1, 0, 17, 0)
+    ir.instruction(old, ir.OP_IADD, 2, ir.I64, {1, 1}, 0, 0)
+    ir.instructionRange(direct, ir.OP_IADD, 2, ir.I64, 1, 1, nil, 1, 0, 0, 0)
+    ir.instruction(old, ir.OP_RETURN_CALL_INDIRECT, 0, ir.I64, {2, 1, 2, 1, 2, 1, 2}, 0, 1)
+    ir.instructionRange(direct, ir.OP_RETURN_CALL_INDIRECT, 0, ir.I64, 2, 2, {99, 1, 2, 1, 2, 1, 99}, 2, 5, 0, 1)
+    exact(old, direct, "builder operands")
+
+    local function refused(message: string, args: any, start: integer, count: integer, result: integer): nil
+        rejects(message, function(): nil
+            ir.instructionRange(direct, ir.OP_IADD, result, ir.I64, 1, 2, args, start, count, 0, 0)
+        end)
+        exact(old, direct, "builder refusal changed columns")
+    end
+
+    refused("argument range", {1}, 0, 1, 3)
+    refused("argument range", {1}, 1, 2, 3)
+    refused("argument range", nil, 1, 1, 3)
+    local sparse: any = {1, 2, 3}
+    sparse[2] = nil
+    refused("argument range", sparse, 1, 3, 3)
+    refused("duplicate value", {1}, 1, 1, 1)
+end
+
 function M.cases(): any
+    builderCases()
     for name, source in pairs(fixtures()) do
         assert(emitter.emit(source, {name = name}) == reference.emit(source, {name = name}), "CLIF changed: " .. name)
     end

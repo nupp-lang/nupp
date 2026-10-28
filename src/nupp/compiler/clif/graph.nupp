@@ -164,7 +164,9 @@ function emitter.emit(g: any, options: any): string
     local function machine(
         op: string,
         destination: any,
-        arguments: {any},
+        first: any,
+        second: any,
+        tail: {any}?,
         kind: string,
         loadBits: integer,
         literal: string?
@@ -172,17 +174,16 @@ function emitter.emit(g: any, options: any): string
         local result = destination or (op ~= "store" and op ~= "return_call_indirect" and fresh())
         local text = switch op do
             case "iconst" -> "iconst.i64 " .. assert(literal)
-            case "load" -> (loadBits == 8 and "uload8.i64" or "load." .. kind) .. " notrap " .. arguments[1]
-            case "store" -> "store notrap " .. arguments[1] .. ", " .. arguments[2]
+            case "load" -> (loadBits == 8 and "uload8.i64" or "load." .. kind) .. " notrap " .. first
+            case "store" -> "store notrap " .. first .. ", " .. second
             case "return_call_indirect" -> do
-                local words = {}
-                for index = 2, #arguments do
-                    words[#words + 1] = arguments[index]
-                end
-                local call = "return_call_indirect sig0, " .. arguments[1] .. "(" .. table.concat(words, ", ") .. ")"
+                local call = "return_call_indirect sig0, " .. first .. "(" .. table.concat(
+                    assert(tail),
+                    ", "
+                ) .. ", " .. second .. ")"
                 yield call
             end
-            else -> op .. " " .. table.concat(arguments, ", ")
+            else -> op .. " " .. first .. ", " .. second
         end
         line(result and result .. " = " .. text or text)
 

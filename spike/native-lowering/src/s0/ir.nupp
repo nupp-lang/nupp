@@ -279,6 +279,49 @@ function ir.instruction(
     return at
 end
 
+local emptyArguments: {integer} = {}
+
+function ir.instructionRange(
+    f: ir.Function,
+    op: integer,
+    result: integer,
+    kind: integer,
+    first: integer?,
+    second: integer?,
+    args: {integer}?,
+    start: integer,
+    count: integer,
+    imm: integer,
+    aux: integer
+): integer
+    assert(start >= 1 and count >= 0 and start + count <= (args and #args or 0) + 1, "S0: argument range")
+    if args then
+        for index = start, start + count - 1 do
+            assert(rawget(args, index) ~= nil, "S0: sparse argument range")
+        end
+    end
+    if result ~= 0 then
+        assert(result > 0 and result <= 1000000, "S0: value limit")
+        assert((f.valueKinds[result] or 0) == 0, "S0: duplicate value definition")
+        assert(kind >= ir.I8 and kind <= ir.F64, "S0: invalid value kind")
+    end
+    local at = ir.instruction(f, op, result, kind, emptyArguments, imm, aux)
+    if first ~= nil then
+        f.args[#f.args + 1] = first
+    end
+    if args then
+        for index = start, start + count - 1 do
+            f.args[#f.args + 1] = args[index]
+        end
+    end
+    if second ~= nil then
+        f.args[#f.args + 1] = second
+    end
+    f.nargs[at] = count + (first ~= nil and 1 or 0) + (second ~= nil and 1 or 0)
+
+    return at
+end
+
 function ir.secondResult(f: ir.Function, at: integer, result: integer, kind: integer): nil
     assert(at == #f.op and f.result[at] ~= 0 and f.result2[at] == 0, "S0: second result placement")
     assert(f.op[at] == ir.opcode("call") or f.op[at] == ir.opcode("call_indirect"), "S0: second result requires call")

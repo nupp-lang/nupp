@@ -74,24 +74,33 @@ function sink.lower(bound: any, name: string): sink.Result
     local positions, instructions, segments = {}, {}, {}
     local position, operation, segment = 0, 0, 0
 
-    local function emit(op: string, destination: any, args: {any}, kind: string, loadBits: integer, text: string?): any
+    local function emit(
+        op: string,
+        destination: any,
+        first: any,
+        second: any,
+        tail: {any}?,
+        kind: string,
+        loadBits: integer,
+        text: string?
+    ): any
         local result: integer = destination or 0
         if result == 0 and op ~= "store" and op ~= "return_call_indirect" then
             nextValue = nextValue + 1
             result = nextValue
         end
-        local values: {integer} = {}
-        for index, value in ipairs(args) do
-            values[index] = value
-        end
         local immediate: int64 = text and literal.integer(text) or 0
         local aux = op == "return_call_indirect" and 1 or (op == "load" and loadBits or 0)
-        local at = ir.instruction(
+        local at = ir.instructionRange(
             f,
             ir.opcode(op),
             result,
             op == "store" and 0 or ir.kind(kind),
-            values,
+            first,
+            second,
+            tail,
+            1,
+            tail and #tail or 0,
             immediate,
             aux
         )
@@ -133,15 +142,15 @@ function sink.lower(bound: any, name: string): sink.Result
                     g.exactTypes[destination] == "int64" or g.exactTypes[destination] == "uint64",
                     "S0 graph: word literal required"
                 )
-                emit("iconst", result, {}, "i64", 0, args[1])
+                emit("iconst", result, nil, nil, nil, "i64", 0, args[1])
                 yield nil
             end
             case "IAdd", "ISub", "IAnd", "IOr" -> do
-                emit(ir.opNames[operations[op]], result, {args[1] + 1, args[2] + 1}, "i64", 0, nil)
+                emit(ir.opNames[operations[op]], result, args[1] + 1, args[2] + 1, nil, "i64", 0, nil)
                 yield nil
             end
             case "PointerOffset" -> do
-                emit("iadd", result, {args[1] + 1, args[2] + 1}, "i64", 0, nil)
+                emit("iadd", result, args[1] + 1, args[2] + 1, nil, "i64", 0, nil)
                 yield nil
             end
             case "FrameSlotRead", "FrameSlotWrite" -> do

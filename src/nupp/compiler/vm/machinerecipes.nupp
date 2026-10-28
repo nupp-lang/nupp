@@ -5,7 +5,9 @@ local recipes = {}
 type recipes.Emit = function(
     op: string,
     destination: any,
-    arguments: {any},
+    first: any,
+    second: any,
+    tail: {any}?,
     kind: string,
     loadBits: integer,
     literal: string?
@@ -15,8 +17,8 @@ type recipes.Emit = function(
 -- Memory widths are bits; checked slot contracts express their width in bytes.
 function recipes.entry(emit: recipes.Emit, frame: any, regs: any, frameOffset: integer): nil
     assert(frameOffset == 32, "native machine: unsupported frame window offset")
-    local offset = emit("iconst", nil, {}, "i64", 0, tostring(-frameOffset))
-    emit("iadd", frame, {regs, offset}, "i64", 0, nil)
+    local offset = emit("iconst", nil, nil, nil, nil, "i64", 0, tostring(-frameOffset))
+    emit("iadd", frame, regs, offset, nil, "i64", 0, nil)
 end
 
 function recipes.slot(
@@ -32,28 +34,23 @@ function recipes.slot(
         (access.class == "i" or access.class == "v" or access.class == "f") and access.width == 8,
         "native machine: unsupported frame slot class"
     )
-    local width = emit("iconst", nil, {}, "i64", 0, tostring(access.width))
-    local offset = emit("imul", nil, {index, width}, "i64", 0, nil)
-    local address = emit("iadd", nil, {window, offset}, "i64", 0, nil)
+    local width = emit("iconst", nil, nil, nil, nil, "i64", 0, tostring(access.width))
+    local offset = emit("imul", nil, index, width, nil, "i64", 0, nil)
+    local address = emit("iadd", nil, window, offset, nil, "i64", 0, nil)
     if access.write then
-        emit("store", nil, {value, address}, kind, 64, nil)
+        emit("store", nil, value, address, nil, kind, 64, nil)
     else
-        emit("load", destination, {address}, kind, 64, nil)
+        emit("load", destination, address, nil, nil, kind, 64, nil)
     end
 end
 
 function recipes.dispatch(emit: recipes.Emit, arguments: {any}, tableValue: any): nil
-    local opcode = emit("load", nil, {arguments[1]}, "i64", 8, nil)
-    local scale = emit("iconst", nil, {}, "i64", 0, "3")
-    local shifted = emit("ishl", nil, {opcode, scale}, "i64", 0, nil)
-    local slot = emit("iadd", nil, {tableValue, shifted}, "i64", 0, nil)
-    local target = emit("load", nil, {slot}, "i64", 64, nil)
-    local words = {target}
-    for i = 1, 5 do
-        words[#words + 1] = arguments[i]
-    end
-    words[#words + 1] = tableValue
-    emit("return_call_indirect", nil, words, "i64", 0, nil)
+    local opcode = emit("load", nil, arguments[1], nil, nil, "i64", 8, nil)
+    local scale = emit("iconst", nil, nil, nil, nil, "i64", 0, "3")
+    local shifted = emit("ishl", nil, opcode, scale, nil, "i64", 0, nil)
+    local slot = emit("iadd", nil, tableValue, shifted, nil, "i64", 0, nil)
+    local target = emit("load", nil, slot, nil, nil, "i64", 64, nil)
+    emit("return_call_indirect", nil, target, tableValue, arguments, "i64", 0, nil)
 end
 
 export = recipes
