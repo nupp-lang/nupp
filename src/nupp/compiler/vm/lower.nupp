@@ -2552,8 +2552,24 @@ function lower.emit(
                     left = coerce(f, left, leftClass, "v")
                     right = coerce(f, right, rightClass, "v")
                     local target = (want ~= "f" and want ~= "i" and want ~= "u") and dst or nil
-                    local values = (op == ">" or op == ">=") and {right, left} or {left, right}
-                    return builtinRegisters(f, "wide.i64." .. operations[op], values, target), "v"
+                    -- Numeric checks retain fractional and NaN comparisons,
+                    -- while preventing strings and metamethods from entering
+                    -- the generic ordering handler through an erased assertion.
+                    if leftClass == "v" then
+                        f:op("TagCheckNum", left, left)
+                    end
+                    if rightClass == "v" then
+                        f:op("TagCheckNum", right, right)
+                    end
+                    target = target or f:reg()
+                    local reverse = op == ">" or op == ">="
+                    f:op(
+                        (op == "<=" or op == ">=") and "Le" or "Lt",
+                        target,
+                        reverse and right or left,
+                        reverse and left or right
+                    )
+                    return target, "v"
                 end
                 local target = (want ~= "f" and want ~= "i" and want ~= "u") and dst or nil
                 if op == ">" or op == ">=" then
@@ -4582,7 +4598,26 @@ function lower.emit(
             )
             f:place(skip)
         elseif k == "callStmt" then
-            expr(f, node.expr, nil, "v")
+            local call = node.expr
+            local args = call.args and call.args.exprs or {}
+            if call.kind == "call"
+                and not (call.args and call.args.loweredArgs)
+                and resolvedBuiltin(f, call.obj) == "assert"
+                and #args == 2
+                and args[2].kind == "string"
+            then
+                -- Evaluate each argument once. Successful statement assertions
+                -- have no result; failures retain the ordinary builtin call.
+                local value, message = f:reg(), f:reg()
+                exprAs(f, args[1], "v", value)
+                exprAs(f, args[2], "v", message)
+                local done = f:label()
+                f:branch("JmpIf", value, done)
+                builtinRegisters(f, "assert", {value, message})
+                f:place(done)
+            else
+                expr(f, node.expr, nil, "v")
+            end
         elseif k == "returnStmt" then
             local exprs = node.exprs or {}
             if node.constructorReturn then

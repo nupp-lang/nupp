@@ -435,4 +435,61 @@ return sum, both
     test.equal(both, false)
 end
 
+function M.signedWideValueOrderingKeepsExactIntegersFractionsAndNaN()
+    local listing = {}
+    local greater, fractional, nanLess, nanAtMost = compile(
+        "vmindexkeytest.numericOrdering.fragment",
+        [[
+local large: any = 9007199254740993LL
+local rounded: any = 9007199254740992.0
+local first: any = 1.5
+local second: any = 1.25
+local nan: any = 0 / 0
+return (large as integer) > (rounded as integer),
+    (first as integer) <= (second as integer),
+    (nan as integer) < 0LL, (nan as integer) >= 0LL
+]],
+        listing
+    )
+    local checked, ordered = false, false
+    for _, fn in ipairs(listing) do
+        for _, instruction in ipairs(fn.instructions) do
+            checked = checked or instruction.op == "TagCheckNum"
+            ordered = ordered or instruction.op == "Lt" or instruction.op == "Le"
+        end
+    end
+    test.assert(checked and ordered)
+    test.equal(greater, true)
+    test.equal(fractional, false)
+    test.equal(nanLess, false)
+    test.equal(nanAtMost, false)
+end
+
+function M.signedWideOrderingRejectsStringsAndMetamethods()
+    local strings, objects, calls = compile(
+        "vmindexkeytest.numericOrderingRefusals.fragment",
+        [[
+local first: any = "2"
+local second: any = "3"
+local calls = 0
+local object: any = setmetatable({}, {
+    __lt = function(): boolean
+        calls += 1
+        return true
+    end
+})
+local strings = pcall(function(): boolean
+    return (first as integer) < (second as integer)
+end)
+local objects = pcall(function(): boolean
+    return (object as integer) < (object as integer)
+end)
+return strings, objects, calls
+]]
+    )
+    test.equal(strings, false)
+    test.equal(objects, false)
+    test.equal(calls, 0)
+end
+
 return M
