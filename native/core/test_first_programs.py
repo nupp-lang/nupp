@@ -159,6 +159,58 @@ def main():
                         "budget": budget, "cancelled": cancelled, "expectedStatus": status,
                         "returnCode": code, "wallSmokeNs": wall})
                     save()
+        if args.control_flow:
+            # Wire fixtures exercise both canonical back-edge handlers. Nupp's
+            # verifier admits each packet before the owned code executes it;
+            # this driver does not interpret their guest instructions.
+            def record(op, a=0, b=0, c=0, displacement=0, immediate=0):
+                return struct.pack("<4BiQ", op, a, b, c, displacement, immediate)
+
+            edge_cases = (
+                ("unconditional-cycle", record(19, displacement=-1),
+                 ((0, 0, 2, None), (2, 0, 2, None), (0, 1, 3, None))),
+                ("conditional-cycle", record(1, immediate=0)
+                 + record(20, displacement=-1) + record(0),
+                 ((0, 0, 2, None), (2, 0, 2, None), (0, 1, 3, None))),
+                ("untaken-back-edge", record(1, immediate=1)
+                 + record(20, displacement=-1) + record(0),
+                 ((0, 0, 0, 1), (0, 1, 0, 1))),
+                ("forward-edge", record(1, immediate=7) + record(19) + record(0),
+                 ((0, 0, 0, 7), (0, 1, 0, 7))),
+            )
+            for name, code_bytes, probes in edge_cases:
+                source = out / (name + ".program")
+                source.write_bytes(code_bytes)
+                report["inputs"][str(source)] = sha(source)
+                for mode in ("normal", "spill"):
+                    directory = out / (name + "-" + mode)
+                    run(name + "-" + mode + "-build", ["python3", builder,
+                        "--program", source, "--slots", "1", "--output", directory,
+                        "--mode", mode, "--compiler-image", image])
+                    proof = json.loads((directory / "proof.json").read_text())
+                    assert proof["status"] == "verified-owned-bundle"
+                    bundle = directory / "core.bundle"
+                    for index, (budget, cancelled, status, expected) in enumerate(probes):
+                        label = name + "-" + mode + "-" + str(index)
+                        inputs = out / (label + "-input.bin")
+                        inputs.write_bytes(struct.pack("<QQ", budget, cancelled))
+                        result = out / (label + "-result.bin")
+                        sentinel = b"preserve output on failure"
+                        result.write_bytes(sentinel)
+                        code, wall = run(label, [bridge, bundle, inputs, result], None)
+                        if status == 0:
+                            assert code == 0 and result.read_bytes() == struct.pack("<Q", expected), label
+                        else:
+                            assert code != 0 and result.read_bytes() == sentinel, label
+                            error = (out / (label + ".err")).read_text()
+                            assert f"Nupp entry refused with transport status {status}" in error, (label, error)
+                        report.setdefault("edgePolicy", []).append({"fixture": name,
+                            "mode": mode, "budget": budget, "cancelled": cancelled,
+                            "expectedStatus": status, "expectedBits": expected,
+                            "returnCode": code, "bundleSha256": sha(bundle),
+                            "producerProofSha256": sha(directory / "proof.json"),
+                            "wallSmokeNs": wall})
+                        save()
         original = bundles[0].read_bytes()
         malformed = {"truncated": original[:71], "wrong-magic": b"X" + original[1:],
                      "trailing-byte": original + b"\0"}
