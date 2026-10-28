@@ -379,7 +379,9 @@ function nativegraph.compile(fn: any, options: any): any
         elseif n.kind == "dotIndex" then
             local moduleName, name = member(n)
             need(
-                moduleName == "nupp.runtime.vm.values" or moduleName == "nupp.runtime.vm.heap",
+                moduleName == "nupp.runtime.vm.values"
+                or moduleName == "nupp.runtime.vm.heap"
+                or moduleName == "nupp.runtime.core.context",
                 "unsupported module constant"
             )
             local home = options.modules and options.modules[moduleName]

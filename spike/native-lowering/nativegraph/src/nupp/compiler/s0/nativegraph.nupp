@@ -7,6 +7,9 @@ local ir = require("s0.ir")
 local literal = require("s0.literal")
 local sink = {}
 local integerOps: {[string]: string} = recipes.integerOps
+local comparisons: {
+    [string]: string
+} = {["=="] = "eq", ["~="] = "ne", ["<"] = "lt", ["<="] = "le", [">"] = "gt", [">="] = "ge"}
 
 record sink.Result
     machine: ir.Function
@@ -20,6 +23,7 @@ record sink.Result
     instructionPosition: {integer}
     instructionOperation: {integer}
     instructionSegment: {integer}
+    instructionBlock: {integer}
 end
 
 local function copy(value: any): any
@@ -47,19 +51,16 @@ local function lower(bound: any, name: string, unbound: boolean): sink.Result
         "S0 graph: six-word native entry required"
     )
     local handler = g.native.abi == "handler"
-    assert(#g.blocks == 1 and #g.blocks[1].params == 0, "S0 graph: single closed block required")
-    local block = g.blocks[1]
+    assert((unbound or #g.blocks == 1) and #g.blocks[1].params == 0, "S0 graph: closed entry block required")
     assert(
         #g.certificates == 0 and g.recovery == nil and g.recoveries == nil,
         "S0 graph: recovery metadata unsupported"
     )
-    for _, certificate in ipairs(block.cert) do
-        assert(certificate == 0, "S0 graph: certificates unsupported")
+    for _, block in ipairs(g.blocks) do
+        for _, certificate in ipairs(block.cert) do
+            assert(certificate == 0, "S0 graph: certificates unsupported")
+        end
     end
-    assert(
-        block.term.kind == "dispatch" or not handler and block.term.kind == "return",
-        "S0 graph: terminal transfer required"
-    )
     local signature = new ir.Signature(
         params = {ir.I64, ir.I64, ir.I64, ir.I64, ir.I64, ir.I64},
         results = {ir.I64},
@@ -77,8 +78,8 @@ local function lower(bound: any, name: string, unbound: boolean): sink.Result
         f.params[index] = value
         ir.value(f, value, ir.I64, -1)
     end
-    local positions, instructions, segments = {}, {}, {}
-    local position, operation, segment = 0, 0, 0
+    local positions, instructions, segments, blocks = {}, {}, {}, {}
+    local position, operation, segment, blockIndex = 0, 0, 0, 1
 
     local function emit(
         op: string,
@@ -91,17 +92,24 @@ local function lower(bound: any, name: string, unbound: boolean): sink.Result
         text: string?
     ): any
         local result: integer = destination or 0
-        if result == 0 and op ~= "store" and op ~= "return_call_indirect" and op ~= "return" then
+        if result == 0
+            and op ~= "store"
+            and op ~= "return_call_indirect"
+            and op ~= "return"
+            and op ~= "jump"
+            and op ~= "brif"
+        then
             nextValue = nextValue + 1
             result = nextValue
         end
         local immediate: int64 = text and literal.integer(text) or 0
-        local aux = op == "return_call_indirect" and 1 or (op == "load" and loadBits or 0)
+        local aux = op == "return_call_indirect" and 1
+            or ((op == "load" or op == "sload" or op == "icmp") and loadBits or 0)
         local at = ir.instructionRange(
             f,
             ir.opcode(op),
             result,
-            (op == "store" or op == "return") and 0 or ir.kind(kind),
+            (op == "store" or op == "return" or op == "jump" or op == "brif") and 0 or ir.kind(kind),
             first,
             second,
             tail,
@@ -110,108 +118,222 @@ local function lower(bound: any, name: string, unbound: boolean): sink.Result
             immediate,
             aux
         )
-        positions[at], instructions[at], segments[at] = position, operation, segment
+        positions[at], instructions[at], segments[at], blocks[at] = position, operation, segment, blockIndex
 
         return result
     end
 
-    if handler then
-        recipes.entry(emit, 7, 3, 32)
-    end
     local sourceSegments = bound.segments
-        or {{pc = bound.pc, source = g.source, first = 1, last = #block.op, dispatch = block.term}}
-    assert(#sourceSegments == (bound.count or 1), "S0 graph: segment count")
-    local nextOperation = 1
-    for index, item in ipairs(sourceSegments) do
-        assert(
-            item.first == nextOperation and item.last >= item.first and item.last <= #block.op,
-            "S0 graph: segment coverage"
-        )
-        assert(item.pc == bound.pc + (index - 1) * 16, "S0 graph: segment PC")
-        nextOperation = item.last + 1
+    if not unbound then
+        local block = g.blocks[1]
+        sourceSegments = sourceSegments
+            or {{pc = bound.pc, source = g.source, first = 1, last = #block.op, dispatch = block.term}}
+        assert(#sourceSegments == (bound.count or 1), "S0 graph: segment count")
+        local nextOperation = 1
+        for index, item in ipairs(sourceSegments) do
+            assert(
+                item.first == nextOperation and item.last >= item.first and item.last <= #block.op,
+                "S0 graph: segment coverage"
+            )
+            assert(item.pc == bound.pc + (index - 1) * 16, "S0 graph: segment PC")
+            nextOperation = item.last + 1
+        end
+        assert(nextOperation == #block.op + 1, "S0 graph: segment coverage")
     end
-    assert(nextOperation == #block.op + 1, "S0 graph: segment coverage")
-    local detached = copy(sourceSegments)
-    for index, op in ipairs(block.op) do
-        operation, position = index, block.pos[index]
-        for at, item in ipairs(sourceSegments) do
-            if index >= item.first and index <= item.last then
-                segment = at
-                if index == item.first then
-                    detached[at].firstMachine = #f.op + 1
+    local detached = copy(sourceSegments or {})
+    for bi, block in ipairs(g.blocks) do
+        blockIndex, position, operation = bi, 0, 0
+        f.blockStart[bi] = #f.op + 1
+        if bi == 1 then
+            if handler then
+                recipes.entry(emit, 7, 3, 32)
+            end
+        else
+            f.firstParam[bi], f.nparams[bi] = #f.params + 1, #block.params
+            for _, parameter in ipairs(block.params) do
+                local value = (parameter as integer) + 1
+                f.params[#f.params + 1] = value
+                ir.value(f, value, g.exactTypes[parameter] == "boolean" and ir.I8 or ir.I64, -bi)
+            end
+        end
+        if unbound then
+            segment = bi
+            detached[bi] = {block = bi, source = copy(g.source), first = 1, last = #block.op, firstMachine = #f.op + 1}
+        end
+        for index, op in ipairs(block.op) do
+            operation, position = index, block.pos[index]
+            if not unbound then
+                for at, item in ipairs(sourceSegments) do
+                    if index >= item.first and index <= item.last then
+                        segment = at
+                        if index == item.first then
+                            detached[at].firstMachine = #f.op + 1
+                        end
+                    end
+                end
+            end
+            local args, destination = block.args[index], block.dst[index]
+            local result = destination ~= 0 and destination + 1 or nil
+            local _ = switch op do
+                case "NativeConstant" -> do
+                    assert(
+                        g.exactTypes[destination] == "int64" or g.exactTypes[destination] == "uint64",
+                        "S0 graph: word literal required"
+                    )
+                    emit("iconst", result, nil, nil, nil, "i64", 0, args[1])
+                    yield nil
+                end
+                case "IAdd", "ISub", "NativeIMul", "NativeUDiv", "IAnd", "IOr", "IXor", "INot", "IShl", "IShrU" -> do
+                    emit(
+                        assert(integerOps[op]),
+                        result,
+                        args[1] + 1,
+                        args[2] and args[2] + 1 or nil,
+                        nil,
+                        g.exactTypes[destination] == "boolean" and "i8" or "i64",
+                        0,
+                        nil
+                    )
+                    yield nil
+                end
+                case "NativeBoolean" -> do
+                    emit("iconst", result, nil, nil, nil, "i8", 0, args[1] and "1" or "0")
+                    yield nil
+                end
+                case "NativeICmp" -> do
+                    local condition = assert(comparisons[args[3]], "S0 graph: unknown integer comparison")
+                    if condition ~= "eq" and condition ~= "ne" then
+                        condition = (g.exactTypes[args[1]] == "int64" and "s" or "u") .. condition
+                    end
+                    emit("icmp", result, args[1] + 1, args[2] + 1, nil, "i8", ir.condition(condition), nil)
+                    yield nil
+                end
+                case "NativeAsWord" -> do
+                    emit("uextend", result, args[1] + 1, nil, nil, "i64", 0, nil)
+                    yield nil
+                end
+                case "NativeWordCast", "NativePointer", "NativeAddress" -> do
+                    local zero = emit("iconst", nil, nil, nil, nil, "i64", 0, "0")
+                    emit("iadd", result, args[1] + 1, zero, nil, "i64", 0, nil)
+                    yield nil
+                end
+                case "NativeStore" -> do
+                    assert(
+                        unbound and args[4].width == 8 and (args[4].kind == "uint64" or args[4].kind == "int64"),
+                        "S0 graph: unsupported word store"
+                    )
+                    local address = emit("iadd", nil, args[1] + 1, args[2] + 1, nil, "i64", 0, nil)
+                    emit("store", nil, args[3] + 1, address, nil, "i64", 64, nil)
+                    yield nil
+                end
+                case "ProgramLoad", "NativeLoad" -> do
+                    assert(unbound, "S0 graph: unbound load requires compiler input")
+                    local access = args[3]
+                    local width = (access.width as integer) * 8
+                    assert(
+                        (width == 8 or width == 32 or width == 64)
+                        and (g.exactTypes[destination] == "int64" or g.exactTypes[destination] == "uint64")
+                        and (width ~= 8 or access.signed ~= true),
+                        "S0 graph: unsupported word load"
+                    )
+                    local address = emit("iadd", nil, args[1] + 1, args[2] + 1, nil, "i64", 0, nil)
+                    emit(
+                        (access.kind == "int32" or access.signed == true and width < 64) and "sload" or "load",
+                        result,
+                        address,
+                        nil,
+                        nil,
+                        "i64",
+                        width,
+                        nil
+                    )
+                    yield nil
+                end
+                case "PointerOffset" -> do
+                    emit("iadd", result, args[1] + 1, args[2] + 1, nil, "i64", 0, nil)
+                    yield nil
+                end
+                case "FrameSlotRead", "FrameSlotWrite" -> do
+                    local access = args[op == "FrameSlotRead" and 4 or 5]
+                    assert(
+                        access.class == "i" and (access.kind == "uint64" or access.kind == "int64"),
+                        "S0 graph: integer bits slot required"
+                    )
+                    recipes.slot(
+                        emit,
+                        result,
+                        args[2] + 1,
+                        args[3] + 1,
+                        op == "FrameSlotWrite" and args[4] + 1 or nil,
+                        access,
+                        "i64"
+                    )
+                    yield nil
+                end
+                else -> do
+                    error("S0 graph: unsupported bound operation " .. op, 0)
+                end
+            end
+            if not unbound then
+                for at, item in ipairs(sourceSegments) do
+                    if index == item.last then
+                        detached[at].lastMachine = #f.op
+                    end
                 end
             end
         end
-        local args, destination = block.args[index], block.dst[index]
-        local result = destination ~= 0 and destination + 1 or nil
-        local _ = switch op do
-            case "NativeConstant" -> do
-                assert(
-                    g.exactTypes[destination] == "int64" or g.exactTypes[destination] == "uint64",
-                    "S0 graph: word literal required"
-                )
-                emit("iconst", result, nil, nil, nil, "i64", 0, args[1])
-                yield nil
-            end
-            case "IAdd", "ISub", "NativeIMul", "NativeUDiv", "IAnd", "IOr", "IXor", "INot", "IShl", "IShrU" -> do
-                emit(assert(integerOps[op]), result, args[1] + 1, args[2] and args[2] + 1 or nil, nil, "i64", 0, nil)
-                yield nil
-            end
-            case "ProgramLoad", "NativeLoad" -> do
-                assert(unbound, "S0 graph: unbound load requires compiler input")
-                local access = args[3]
-                local width = (access.width as integer) * 8
-                assert(
-                    (width == 8 or width == 64)
-                    and (g.exactTypes[destination] == "int64" or g.exactTypes[destination] == "uint64")
-                    and (width ~= 8 or access.signed ~= true),
-                    "S0 graph: unsupported word load"
-                )
-                local address = emit("iadd", nil, args[1] + 1, args[2] + 1, nil, "i64", 0, nil)
-                emit("load", result, address, nil, nil, "i64", width, nil)
-                yield nil
-            end
-            case "PointerOffset" -> do
-                emit("iadd", result, args[1] + 1, args[2] + 1, nil, "i64", 0, nil)
-                yield nil
-            end
-            case "FrameSlotRead", "FrameSlotWrite" -> do
-                local access = args[op == "FrameSlotRead" and 4 or 5]
-                assert(access.class == "i" and access.kind == "uint64", "S0 graph: integer bits slot required")
-                recipes.slot(
-                    emit,
-                    result,
-                    args[2] + 1,
-                    args[3] + 1,
-                    op == "FrameSlotWrite" and args[4] + 1 or nil,
-                    access,
-                    "i64"
-                )
-                yield nil
-            end
-            else -> do
-                error("S0 graph: unsupported bound operation " .. op, 0)
-            end
+        position, operation = block.term.pos, #block.op + 1
+        if unbound then
+            detached[bi].lastMachine = #f.op
+        else
+            segment = #sourceSegments
         end
-        for at, item in ipairs(sourceSegments) do
-            if index == item.last then
-                detached[at].lastMachine = #f.op
+        local term = block.term
+        local _ = switch term.kind do
+            case "dispatch" -> do
+                assert(handler, "S0 graph: dispatch requires handler ABI")
+                local arguments = {}
+                for index = 1, 5 do
+                    arguments[index] = term.args[index] + 1
+                end
+                recipes.dispatch(emit, arguments, tableValue)
+                yield nil
             end
+            case "return" -> do
+                assert(not handler, "S0 graph: scalar return requires leaf ABI")
+                emit("return", nil, term.value + 1, nil, nil, "i64", 0, nil)
+                yield nil
+            end
+            case "nativeFail" -> do
+                local zero = emit("iconst", nil, nil, nil, nil, "i64", 0, "0")
+                emit("return", nil, zero, nil, nil, "i64", 0, nil)
+                yield nil
+            end
+            case "jump", "branch" -> do
+                assert(unbound, "S0 graph: bound control flow unsupported")
+                emit(
+                    term.kind == "jump" and "jump" or "brif",
+                    nil,
+                    term.kind == "branch" and term.value + 1 or nil,
+                    nil,
+                    nil,
+                    "i64",
+                    0,
+                    nil
+                )
+                for _, edge in ipairs(term.edges) do
+                    local arguments = {}
+                    for index, value in ipairs(edge.args) do
+                        arguments[index] = value + 1
+                    end
+                    ir.edge(f, #f.op, edge.target, arguments)
+                end
+                yield nil
+            end
+            else -> error("S0 graph: unsupported terminator " .. term.kind, 0)
         end
+        f.blockEnd[bi] = #f.op
     end
-    position, operation, segment = block.term.pos, #block.op + 1, #sourceSegments
-    local arguments = {}
-    if handler then
-        for index = 1, 5 do
-            arguments[index] = block.term.args[index] + 1
-        end
-    end
-    if handler then
-        recipes.dispatch(emit, arguments, tableValue)
-    else
-        emit("return", nil, block.term.value + 1, nil, nil, "i64", 0, nil)
-    end
-    f.blockEnd[1] = #f.op
 
     return new sink.Result(
         machine = f,
@@ -223,7 +345,8 @@ local function lower(bound: any, name: string, unbound: boolean): sink.Result
         segments = detached,
         instructionPosition = positions,
         instructionOperation = instructions,
-        instructionSegment = segments
+        instructionSegment = segments,
+        instructionBlock = blocks
     )
 end
 

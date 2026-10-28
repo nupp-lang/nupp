@@ -88,17 +88,25 @@ local function checked(source: any, path: string, moduleName: string): (any, any
     for _, diagnostic in ipairs((checker.check(values, VALUES, env, {}))) do
         assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
     end
-    local constants = {}
-    for _, block in ipairs(values.root.blocks) do
-        for _, stat in ipairs(block.stats) do
-            if stat.kind == "exportStmt" and stat.stat and stat.stat.kind == "localStmt" then
-                local declared = stat.stat
-                if declared.isConst and #declared.names == 1 and declared.exprs[1].kind == "number" then
-                    constants[declared.names[1].text] = declared.exprs[1].token.text:gsub("[Uu]?[Ll][Ll]$", "")
+
+    local function constantsFrom(tree: any): any
+        local constants = {}
+        for _, block in ipairs(tree.root.blocks) do
+            for _, stat in ipairs(block.stats) do
+                if stat.kind == "exportStmt" and stat.stat and stat.stat.kind == "localStmt" then
+                    local declared = stat.stat
+                    if declared.isConst and #declared.names == 1 and declared.exprs[1].kind == "number" then
+                        constants[declared.names[1].text] = declared.exprs[1].token.text:gsub("[Uu]?[Ll][Ll]$", "")
+                    end
                 end
             end
         end
+
+        return constants
     end
+
+    scope.exportedConstants = constantsFrom(parsed)
+    local constants = constantsFrom(values)
 
     return functions, {modules = {[scope.name] = scope, ["nupp.runtime.vm.values"] = {exportedConstants = constants}}}
 end
@@ -108,6 +116,12 @@ function producer.compile(mode: string): string
     local functions, options = checked(read(CORE), CORE, "nupp.runtime.vm.core")
     local stopPath = ROOT .. "/native/core/src/nupp/runtime/core/entry.nupp"
     local stops, stopOptions = checked(read(stopPath), stopPath, "nupp.runtime.core.entry")
+    local callsPath = ROOT .. "/native/core/src/nupp/runtime/core/calls.nupp"
+    local _, callsOptions = checked(read(callsPath), callsPath, "nupp.runtime.core.calls")
+    local contextPath = ROOT .. "/native/core/src/nupp/runtime/core/context.nupp"
+    local _, contextOptions = checked(read(contextPath), contextPath, "nupp.runtime.core.context")
+    options.modules["nupp.runtime.vm.calls"] = callsOptions.modules["nupp.runtime.core.calls"]
+    options.modules["nupp.runtime.core.context"] = contextOptions.modules["nupp.runtime.core.context"]
     local codes, metrics = {}, {}
     for index, name in ipairs(program.names) do
         local fn = index == 1 and stops[name] or functions[name]
@@ -120,11 +134,17 @@ function producer.compile(mode: string): string
         local allocation = allocate.run(artifact.machine, target)
         assert(allocationcheck.run(artifact.machine, target, allocation))
         codes[index] = selector.run(artifact.machine, allocation)
+        local graphOps = 0
+        for _, block in ipairs(g.blocks) do
+            graphOps = graphOps + #block.op
+        end
         metrics[
             index
         ] = {
             name = name,
-            graphOps = #g.blocks[1].op,
+            graphOps = graphOps,
+            blocks = #g.blocks,
+            edges = #artifact.machine.edgeTarget,
             machineOps = #artifact.machine.op,
             words = #codes[index].words,
             spillSlots = allocation.spillSlots,

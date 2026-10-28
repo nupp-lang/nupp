@@ -81,7 +81,8 @@ def main():
         result = json.loads(json.loads(raw))
         selected.write_text(json.dumps(result, indent=2) + "\n")
     result = json.loads(selected.read_text())
-    assert result["mode"] == args.mode and len(result["offsets"]) == 13
+    assert result["mode"] == args.mode and 13 <= len(result["offsets"]) <= 256
+    assert len(result["offsets"]) == len(result["handlers"]) == len(result["frames"])
     code = b"".join(struct.pack("<I", word & 0xffffffff) for word in result["words"])
     (out / "code.bin").write_bytes(code)
     offsets = ",".join(map(str, result["offsets"]))
@@ -89,7 +90,7 @@ def main():
     data = (out / "data.bin").read_bytes()
     header = struct.pack("<8s8Q", b"NUPPCORE", 1, 1, result["entry"], len(code), len(data), result["scratchBytes"], 1, 0)
     (out / "core.bundle").write_bytes(header + code + data)
-    proof.update(status="verified-owned-bundle", image={"path": str(image), "sha256": sha(image)}, selection={"path": str(selected), "sha256": sha(selected)}, handlers=result["handlers"], frames=result["frames"], scratchBytes=result["scratchBytes"], artifacts={p.name: sha(p) for p in [out / "code.bin", out / "data.bin", out / "core.bundle"]})
+    proof.update(status="verified-owned-bundle", image={"path": str(image), "sha256": sha(image)}, selection={"path": str(selected), "sha256": sha(selected)}, handlers=result["handlers"], frames=result["frames"], scratchBytes=result["scratchBytes"], spillOffset=result["spillOffset"], artifacts={p.name: sha(p) for p in [out / "code.bin", out / "data.bin", out / "core.bundle"]})
     save()
     print(out / "core.bundle", flush=True)
 
