@@ -1,5 +1,6 @@
 local G = require("nupp.compiler.vm.graph")
 local image = require("nupp.compiler.vm.graphimage")
+local graphemit = require("nupp.compiler.vm.graphemit")
 local helpercontract = require("nupp.compiler.vm.helpercontract")
 local framecontract = require("nupp.compiler.vm.framecontract")
 local M = {}
@@ -33,21 +34,44 @@ local function rejects(call, message)
     end
 end
 
+function M.imageAndListingConsumeVerifiedGraphsOnly()
+    local g = G.new(0)
+    g.name = "graphOnly"
+    G.block(g).term = {kind = "return", edges = {}}
+    local seen = 0
+    local encoded = graphemit.image({g}, {shapes = {}, modules = {}}, function(value)
+        assert(value == g)
+        seen = seen + 1
+    end)
+    assert(seen == 1 and encoded == image.encode({functions = {g}}))
+    local listing = graphemit.listing({name = g.name, id = 0, nparams = 0}, g)
+    assert(#listing.instructions == 1 and listing.instructions[1].op == "RetNil")
+    local invalidSeen = false
+    rejects(function()
+        graphemit.image({{graph = g}}, {shapes = {}, modules = {}}, function()
+            invalidSeen = true
+        end)
+    end)
+    assert(not invalidSeen)
+    rejects(function()
+        graphemit.listing({name = g.name}, {blocks = {{code = {}, term = {kind = "return"}}}})
+    end)
+    assert(image.encoder().addRegisters == nil)
+end
+
 function M.floatingConstantPoolsPreserveSignedZero()
     local positive, negative = assert(tonumber("0.0")), assert(tonumber("-0.0"))
     assert(math.type(positive) == "float" and math.type(negative) == "float")
     local encoder = image.encoder()
-    encoder.addRegisters({
-        name = "zeros",
-        nparams = 0,
-        positions = {},
-        blocks = {},
-        constants = {
-            {kind = "num", value = positive},
-            {kind = "num", value = negative},
-            {kind = "num", value = positive},
-        },
-    })
+    local g = G.new(0)
+    g.name = "zeros"
+    g.constants = {
+        {kind = "num", value = positive},
+        {kind = "num", value = negative},
+        {kind = "num", value = positive},
+    }
+    G.block(g).term = {kind = "return", edges = {}}
+    encoder.add(g)
     local encoded = encoder.finish({})
     local offset = #image.MAGIC + 1
 
@@ -306,12 +330,6 @@ function M.nativeGraphsCannotDeriveOrSerializeAsGuestInstructions()
     rejects(
         function()
             image.encoder().add(g)
-        end,
-        "native-system graphs cannot be encoded"
-    )
-    rejects(
-        function()
-            image.encoder().addRegisters(g)
         end,
         "native-system graphs cannot be encoded"
     )

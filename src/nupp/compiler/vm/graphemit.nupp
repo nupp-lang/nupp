@@ -7,7 +7,6 @@ the listing inspection shows of a function, which is the stream the runtime
 derives from its graph.
 ]]
 
-local convert = require("nupp.compiler.vm.convert")
 local numbertext = require("nupp.compiler.numbertext")
 local G = require("nupp.compiler.vm.graph")
 local graphimage = require("nupp.compiler.vm.graphimage")
@@ -37,117 +36,22 @@ function graphemit.shapes(order: {any}): {any}
     return shapes
 end
 
---- The image of `functions` under `header` (`shapes` in allocation order,
---- `modules` with each one's chunk and path, `entry`). Each function is
---- converted, handed to `seen` with what was kept of it, encoded, and its
---- blocks and constants let go: what the lowering built shrinks as the image
---- grows.
---- @raises string when a function's blocks do not convert or a kernel's
---- graph does not verify.
-function graphemit.image(functions: {any}, header: any, seen: (function(f: any, kept: any): nil)?): string
+--- Encodes verified function graphs under the image header.
+---
+--- The optional `seen` callback receives each graph before encoding.
+--- @raises string when a graph does not verify
+function graphemit.image(functions: {any}, header: any, seen: (function(g: any): nil)?): string
     local encoder = graphimage.encoder()
     for i = 1, #functions do
-        local f = functions[i]
-        local kept = convert.blocks(f)
+        local g = functions[i]
+        G.verify(g)
         if seen then
-            seen(f, kept)
+            seen(g)
         end
-        if kept.graph then
-            encoder.add(kept.graph)
-        else
-            encoder.addRegisters(kept)
-        end
-        f.blocks, f.current, f.graph, f.consts, f.constIndex = {}, nil, nil, {}, {}
+        encoder.add(g)
     end
 
     return encoder.finish({shapes = graphemit.shapes(header.shapes), modules = header.modules, entry = header.entry})
-end
-
--- The stream the runtime derives from a register-form function, as
--- `graph::derive` lays it out: blocks in order, a jump to the next block
--- left out, a branch whose untaken target is next as one test.
-local function derive(kept: any): any
-    local code, starts, patches, tables, tablePatches = {}, {}, {}, {}, {}
-    local blocks = kept.blocks
-    local box = kept.nparams + 1
-
-    local function emit(...: any): nil
-        code[#code + 1] = {...}
-    end
-
-    local function jump(target: integer): nil
-        patches[#patches + 1] = {at = #code + 1, target = target, field = 2}
-        emit("Jmp", 0)
-    end
-
-    for bi = 1, #blocks do
-        local b = blocks[bi]
-        starts[bi] = #code + 1
-        for k = 1, #b.code do
-            code[#code + 1] = b.code[k]
-        end
-        local t = b.term
-        local kind, targets = t.kind, t.targets
-        if kind == "jump" then
-            if targets[1] ~= bi + 1 then
-                jump(targets[1])
-            end
-        elseif kind == "branch" then
-            local reg, integer = t.value % 256, t.value >= 256
-            if not integer and targets[1] ~= bi + 1 and targets[2] == bi + 1 then
-                patches[#patches + 1] = {at = #code + 1, target = targets[1], field = 3}
-                emit("JmpIf", reg, 0)
-            else
-                patches[#patches + 1] = {at = #code + 1, target = targets[2], field = 3}
-                emit(integer and "JmpIfIZero" or "JmpIfNot", reg, 0)
-                if targets[1] ~= bi + 1 then
-                    jump(targets[1])
-                end
-            end
-        elseif kind == "switch" then
-            local at = #code + 1
-            local index = #tables + 1
-            tables[index] = {}
-            tablePatches[#tablePatches + 1] = {at = at, index = index, targets = targets}
-            emit("Switch", t.value % 256, index - 1)
-        elseif kind == "returns" then
-            emit("RetN", t.value, t.count)
-        elseif kind == "raise" then
-            emit("Raise", t.constant)
-        elseif t.value == nil then
-            emit("RetNil")
-        else
-            local class, reg = math.floor(t.value / 256), t.value % 256
-            if class == 2 and kept.ret == "f" then
-                emit("FRet", reg)
-            elseif class == 2 then
-                emit("FBox", box, reg)
-                emit("Ret", box)
-            elseif class == 1 then
-                emit("IBox", box, reg)
-                emit("Ret", box)
-            else
-                emit("Ret", reg)
-            end
-        end
-    end
-    for _, p in ipairs(patches) do
-        code[p.at][p.field] = starts[p.target] - p.at - 1
-    end
-
-    for _, patch in ipairs(tablePatches) do
-        for i, target in ipairs(patch.targets) do
-            tables[patch.index][i] = starts[target] - patch.at - 1
-        end
-    end
-
-    return {
-        code = code,
-        consts = kept.constants,
-        nregs = kept.registers[1],
-        nfregs = kept.registers[2],
-        tables = tables
-    }
 end
 
 -- Every byte outside printable ASCII is escaped, so a listing is ASCII text
@@ -158,11 +62,9 @@ local function quote(s: string): string
     end) .. '"'
 end
 
---- What inspection shows of function `f`, given what was kept of it: its
---- instructions as the runtime derives them, each with its source line, and
---- the function's text in the image listing format.
-function graphemit.listing(f: any, kept: any): any
-    local derived = kept.graph and G.lower(kept.graph) or derive(kept)
+--- Returns the executable listing of verified graph `g` for function `f`.
+function graphemit.listing(f: any, g: any): any
+    local derived = G.lower(g)
     local lines: {
         string
     } = {

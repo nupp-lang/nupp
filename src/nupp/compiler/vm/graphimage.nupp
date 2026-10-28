@@ -245,9 +245,8 @@ function image.encoder(): any
         end
     end
 
-    -- What every function begins with: its name and signature, its flags (1
-    -- a map kernel, 2 register form), the frame's register counts as a
-    -- register-form function sets them, its constants and positions.
+    -- Every function begins with its name, signature, map flag, frame
+    -- register counts, constants and positions.
     local function header(fn: any, flags: integer): nil
         word(str(fn.name))
         word(str(fn.module or ""))
@@ -314,74 +313,16 @@ function image.encoder(): any
         end
     end
 
-    local function raw(r: integer): integer
-        return r
-    end
-
     local function done(): nil
         nfunctions = nfunctions + 1
         functionParts[nfunctions] = table.concat(body, "", 1, nbody)
-    end
-
-    --- Encodes a lowered function as the image's next one, in register form:
-    --- `r` is what `nupp.compiler.vm.convert` keeps of it, blocks of the
-    --- lowering's instructions over registers, each with its ending.
-    local function addRegisters(r: any): nil
-        assert(r.native == nil, "native-system graphs cannot be encoded as VM images")
-        -- One buffer for every function's words: only the first `nbody` are
-        -- this function's, so it is never cleared or grown again.
-        nbody = 0
-        header(r, 2)
-        local blocks = r.blocks
-        word(#blocks)
-        for bi = 1, #blocks do
-            local b = blocks[bi]
-            local code, pos = b.code, b.pos
-            word(#code)
-            for k = 1, #code do
-                local ins = code[k]
-                local op = ins[1] as string
-                local sig = G.signatures[op]
-                -- The lowering's operands, with the result pulled out where
-                -- the signature has one; an absent optional operand (a SIMD
-                -- descriptor's source element) is the element itself.
-                local args, result = {}, nil
-                local argAt = 0
-                for j = 1, sig.n + (sig.result ~= "-" and 1 or 0) do
-                    local value = ins[j + 1]
-                    if value == nil then
-                        value = ins[3]
-                    end
-                    if j == sig.resultAt then
-                        result = value as integer
-                    else
-                        argAt = argAt + 1
-                        args[argAt] = value
-                    end
-                end
-                word(str(op))
-                operands(op, args, result, raw)
-                word(pos[k] == 0 and NONE or pos[k] - 1)
-            end
-            local t = b.term
-            word(assert(termKinds[t.kind], "unknown terminator"))
-            word(t.value or NONE)
-            word(t.constant or NONE)
-            word(t.count or NONE)
-            local targets = t.targets
-            word(#targets)
-            for i = 1, #targets do
-                word(targets[i] - 1)
-            end
-        end
-        done()
     end
 
     local function minus1(v: integer): integer
         return v - 1
     end
 
-    --- Encodes kernel graph `g` as the image's next function.
+    --- Encodes verified graph `g` as the image's next function.
     --- @raises string when the graph does not verify, a wide literal is not
     --- an exact integer, or a region annotation does not describe its graph.
     local function add(g: any): nil
@@ -532,7 +473,7 @@ function image.encoder(): any
         return table.concat(parts)
     end
 
-    return {add = add, addRegisters = addRegisters, finish = finish}
+    return {add = add, finish = finish}
 end
 
 --- Encodes an image whose graphs are `functions`, beside the optional
