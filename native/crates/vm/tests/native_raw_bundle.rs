@@ -9,16 +9,21 @@ use nupp_vm::native_raw_bundle::{HOST_IMPORT_NAMES, host_symbol, layout_digest_h
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::process::{Command, Output};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
+        static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
+        let serial = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
         let unique = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let dir =
-            std::env::temp_dir().join(format!("nupp-raw-bundle-{}-{unique}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "nupp-raw-bundle-{}-{unique}-{serial}",
+            std::process::id()
+        ));
         std::fs::create_dir(&dir).unwrap();
         // Assembler-checked C entry: preserve x19/LR, call import zero with no
         // arguments, write its word result, restore the native frame and return.
