@@ -18,6 +18,7 @@ const BAD_RETURN = 10ULL
 const BAD_NESTED = 11ULL
 const BAD_REFUSAL = 12ULL
 const BAD_REUSE = 13ULL
+const BAD_CODE_ALIAS = 14ULL
 
 local function copy(to: voidptr, from: voidptr, bytes: uint64): uint64
     local at: uint64 = 0ULL
@@ -281,6 +282,24 @@ export function CoreFrameProbe(
         return BAD_LAYOUT
     end
     copy(native.offset(regs, 1664), calleePlan, native.sizeOf<frames.WindowPlan>())
+    -- Both aliases are real mapped buffers; neither is executed as code.
+    local aliasIndex: uint64 = 0ULL
+    while aliasIndex < 2ULL do
+        local codeAlias = native.address(calleePlan)
+        if aliasIndex == 1ULL then
+            codeAlias = native.address(calleeInfo)
+        end
+        native.store64(calleeInfo, native.fieldOffset<frames.FunctionInfo>("code"), codeAlias)
+        copy(native.offset(regs, 1728), calleeInfo, native.sizeOf<frames.FunctionInfo>())
+        if frames.planFixed(calleeInfo, calleePlan) ~= 0ULL
+            or same(native.offset(regs, 1664), calleePlan, native.sizeOf<frames.WindowPlan>()) == 0ULL
+            or same(native.offset(regs, 1728), calleeInfo, native.sizeOf<frames.FunctionInfo>()) == 0ULL
+        then
+            return BAD_CODE_ALIAS
+        end
+        aliasIndex = aliasIndex + 1ULL
+    end
+    native.store64(calleeInfo, native.fieldOffset<frames.FunctionInfo>("code"), native.address(pc))
     native.store64(calleeInfo, native.fieldOffset<frames.FunctionInfo>("flags"), 1ULL)
     if frames.planFixed(calleeInfo, calleePlan) ~= 0ULL then
         return BAD_PLAN
@@ -338,6 +357,38 @@ export function CoreFrameProbe(
     native.store64(rootSlots, 8, fortyTwo)
     native.store64(rootSlots, 16, values.TRUE)
     native.store64(rootSlots, 24, values.FALSE)
+    -- Exercise all mutable owners while preserving valid mapped extents.
+    aliasIndex = 0ULL
+    while aliasIndex < 4ULL do
+        local codeAlias = native.address(state)
+        if aliasIndex == 1ULL then
+            codeAlias = native.address(segment)
+        elseif aliasIndex == 2ULL then
+            codeAlias = helperBase
+        elseif aliasIndex == 3ULL then
+            codeAlias = native.address(rootSlots)
+        end
+        native.store64(calleeInfo, native.fieldOffset<frames.FunctionInfo>("code"), codeAlias)
+        snapshot(regs, state, segment, root, rootBytes, ints)
+        if frames.prepareFixed(state, root, calleeInfo, values.NIL, 0ULL, 1ULL, 4ULL, calleePlan) ~= 0ULL
+            or unchanged(regs, state, segment, root, rootBytes, ints) == 0ULL
+            or native.load64(calleeInfo, native.fieldOffset<frames.FunctionInfo>("code")) ~= codeAlias
+        then
+            return BAD_CODE_ALIAS
+        end
+        aliasIndex = aliasIndex + 1ULL
+    end
+    native.store64(calleeInfo, native.fieldOffset<frames.FunctionInfo>("code"), native.address(pc))
+    native.store64(rootInfo, native.fieldOffset<frames.FunctionInfo>("code"), native.address(rootSlots))
+    native.store64(root, native.fieldOffset<frames.Frame>("code"), native.address(rootSlots))
+    snapshot(regs, state, segment, root, rootBytes, ints)
+    if frames.prepareFixed(state, root, calleeInfo, values.NIL, 0ULL, 1ULL, 4ULL, calleePlan) ~= 0ULL
+        or unchanged(regs, state, segment, root, rootBytes, ints) == 0ULL
+    then
+        return BAD_CODE_ALIAS
+    end
+    native.store64(rootInfo, native.fieldOffset<frames.FunctionInfo>("code"), native.address(pc))
+    native.store64(root, native.fieldOffset<frames.Frame>("code"), native.address(pc))
     snapshot(regs, state, segment, root, rootBytes, ints)
     if frames.prepareFixed(state, root, calleeInfo, values.NIL, 0ULL, 1ULL, 8ULL, calleePlan) ~= 0ULL
         or unchanged(regs, state, segment, root, rootBytes, ints) == 0ULL
@@ -376,6 +427,17 @@ export function CoreFrameProbe(
     then
         return BAD_PENDING
     end
+    native.store64(calleeInfo, native.fieldOffset<frames.FunctionInfo>("code"), native.address(rootSlots))
+    native.store64(child, native.fieldOffset<frames.Frame>("code"), native.address(rootSlots))
+    snapshot(regs, state, segment, root, rootBytes, ints)
+    if frames.publish(state, root, child, 1ULL) ~= 0ULL
+        or frames.abortPrepared(state, root, child) ~= 0ULL
+        or unchanged(regs, state, segment, root, rootBytes, ints) == 0ULL
+    then
+        return BAD_CODE_ALIAS
+    end
+    native.store64(calleeInfo, native.fieldOffset<frames.FunctionInfo>("code"), native.address(pc))
+    native.store64(child, native.fieldOffset<frames.Frame>("code"), native.address(pc))
     if frames.abortPrepared(state, root, child) ~= 1ULL
         or native.load64(segment, native.fieldOffset<arena.Segment>("cursor")) ~= native.address(ints)
         or native.load64(root, native.fieldOffset<frames.Frame>("child")) ~= 0ULL
@@ -404,6 +466,16 @@ export function CoreFrameProbe(
     then
         return BAD_PUBLISH
     end
+    native.store64(calleeInfo, native.fieldOffset<frames.FunctionInfo>("code"), native.address(rootSlots))
+    native.store64(child, native.fieldOffset<frames.Frame>("code"), native.address(rootSlots))
+    snapshot(regs, state, segment, root, rootBytes, ints)
+    if frames.returnScalar(state, child, values.TRUE) ~= 0ULL
+        or unchanged(regs, state, segment, root, rootBytes, ints) == 0ULL
+    then
+        return BAD_CODE_ALIAS
+    end
+    native.store64(calleeInfo, native.fieldOffset<frames.FunctionInfo>("code"), native.address(pc))
+    native.store64(child, native.fieldOffset<frames.Frame>("code"), native.address(pc))
     native.store64(child, native.fieldOffset<frames.Frame>("resultSlot"), 8ULL)
     snapshot(regs, state, segment, root, rootBytes, ints)
     if frames.returnScalar(state, child, values.TRUE) ~= 0ULL

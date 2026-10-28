@@ -129,7 +129,14 @@ local function describe(info: voidptr, plan: voidptr, write: uint64): uint64
     if instructions == 0ULL or instructions > 1048576ULL then
         return 0ULL
     end
-    if range(native.load64(info, native.fieldOffset<FunctionInfo>("code")), instructions * 16ULL, 8ULL) == 0ULL then
+    local code = native.load64(info, native.fieldOffset<FunctionInfo>("code"))
+    local codeBytes = instructions * 16ULL
+    if range(code, codeBytes, 8ULL) == 0ULL then
+        return 0ULL
+    end
+    if overlaps(code, codeBytes, source, native.sizeOf<FunctionInfo>())
+        or overlaps(code, codeBytes, output, native.sizeOf<WindowPlan>())
+    then
         return 0ULL
     end
     if native.load64(info, native.fieldOffset<FunctionInfo>("bodyOwner")) == 0ULL then
@@ -264,12 +271,13 @@ local function stableMetadata(state: voidptr, info: voidptr, plan: voidptr): uin
     then
         return 0ULL
     end
-    if overlaps(
-        native.load64(info, native.fieldOffset<FunctionInfo>("code")),
-        native.load64(info, native.fieldOffset<FunctionInfo>("instructionCount")) * 16ULL,
-        base,
-        limit - base
-    ) then
+    local code = native.load64(info, native.fieldOffset<FunctionInfo>("code"))
+    local codeBytes = native.load64(info, native.fieldOffset<FunctionInfo>("instructionCount")) * 16ULL
+    if overlaps(code, codeBytes, base, limit - base)
+        or overlaps(code, codeBytes, native.address(state), native.sizeOf<State>())
+        or overlaps(code, codeBytes, native.address(segment), native.sizeOf<arena.Segment>())
+        or overlaps(code, codeBytes, helperBase, helperBytes)
+    then
         return 0ULL
     end
 
@@ -423,6 +431,12 @@ local function validFrame(state: voidptr, frame: voidptr): uint64
     end
     if overlaps(address, bytes, native.address(info), native.sizeOf<FunctionInfo>())
         or overlaps(address, bytes, native.address(plan), native.sizeOf<WindowPlan>())
+        or overlaps(
+            address,
+            bytes,
+            native.load64(info, native.fieldOffset<FunctionInfo>("code")),
+            native.load64(info, native.fieldOffset<FunctionInfo>("instructionCount")) * 16ULL
+        )
     then
         return 0ULL
     end
@@ -471,6 +485,12 @@ export function prepareFixed(
     local callerBytes = native.load64(caller, native.fieldOffset<Frame>("reservationBytes"))
     if overlaps(native.address(info), native.sizeOf<FunctionInfo>(), native.address(caller), callerBytes)
         or overlaps(native.address(plan), native.sizeOf<WindowPlan>(), native.address(caller), callerBytes)
+        or overlaps(
+            native.load64(info, native.fieldOffset<FunctionInfo>("code")),
+            native.load64(info, native.fieldOffset<FunctionInfo>("instructionCount")) * 16ULL,
+            native.address(caller),
+            callerBytes
+        )
     then
         return 0ULL
     end
@@ -663,6 +683,12 @@ local function linked(state: voidptr, parent: voidptr, child: voidptr): uint64
     local plan = native.loadPointer(child, native.fieldOffset<Frame>("windowPlan"))
     if overlaps(native.address(info), native.sizeOf<FunctionInfo>(), parentAddress, parentBytes)
         or overlaps(native.address(plan), native.sizeOf<WindowPlan>(), parentAddress, parentBytes)
+        or overlaps(
+            native.load64(info, native.fieldOffset<FunctionInfo>("code")),
+            native.load64(info, native.fieldOffset<FunctionInfo>("instructionCount")) * 16ULL,
+            parentAddress,
+            parentBytes
+        )
     then
         return 0ULL
     end
