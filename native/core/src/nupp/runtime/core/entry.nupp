@@ -13,3 +13,15 @@ export function CoreStop(
     local slot = native.load8(pc, 1)
     return native.load64(ints, slot * 8)
 end
+
+export function CoreFloatStop(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local slot = native.load8(pc, 1)
+    return native.bits(native.fromBits(native.load64(floats, slot * 8)))
+end

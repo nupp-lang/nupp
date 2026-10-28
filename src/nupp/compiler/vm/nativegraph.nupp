@@ -233,7 +233,7 @@ end
 function nativegraph.isLeaf(fn: any): boolean
     return fn.scope ~= nil
         and (
-            (fn.scope.name == "nupp.runtime.core.entry" and fn.name == "CoreStop")
+            (fn.scope.name == "nupp.runtime.core.entry" and (fn.name == "CoreStop" or fn.name == "CoreFloatStop"))
             or fn.scope.name == "nupp.runtime.vm.objecthash" and (fn.name == "slotHash" or fn.name == "stringHash")
             or fn.scope.name == "nupp.runtime.vm.objectweak" and fn.name == "weakLookupAction"
             or fn.scope.name == "nupp.runtime.vm.objecttable"

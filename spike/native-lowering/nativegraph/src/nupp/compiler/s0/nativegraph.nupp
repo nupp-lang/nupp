@@ -11,6 +11,26 @@ local comparisons: {
     [string]: string
 } = {["=="] = "eq", ["~="] = "ne", ["<"] = "lt", ["<="] = "le", [">"] = "gt", [">="] = "ge"}
 
+local floatOps: {
+    [string]: string
+} = {
+    FAdd = "fadd",
+    FSub = "fsub",
+    FMul = "fmul",
+    FDiv = "fdiv",
+    FNeg = "fneg",
+    NativeFloor = "floor",
+    NativeCeil = "ceil",
+    NativeSqrt = "sqrt"
+}
+local machineKinds: {
+    [string]: string
+} = {voidptr = "i64", int64 = "i64", uint64 = "i64", boolean = "i8", float32 = "f32", float64 = "f64"}
+
+local function machineKind(kind: any): string
+    return assert(machineKinds[kind], "S0 graph: unsupported exact kind")
+end
+
 record sink.Result
     machine: ir.Function
     body: any
@@ -104,7 +124,7 @@ local function lower(bound: any, name: string, unbound: boolean): sink.Result
         end
         local immediate: int64 = text and literal.integer(text) or 0
         local aux = op == "return_call_indirect" and 1
-            or ((op == "load" or op == "sload" or op == "icmp") and loadBits or 0)
+            or ((op == "load" or op == "sload" or op == "icmp" or op == "fcmp") and loadBits or 0)
         local at = ir.instructionRange(
             f,
             ir.opcode(op),
@@ -153,7 +173,7 @@ local function lower(bound: any, name: string, unbound: boolean): sink.Result
             for _, parameter in ipairs(block.params) do
                 local value = (parameter as integer) + 1
                 f.params[#f.params + 1] = value
-                ir.value(f, value, g.exactTypes[parameter] == "boolean" and ir.I8 or ir.I64, -bi)
+                ir.value(f, value, ir.kind(machineKind(g.exactTypes[parameter])), -bi)
             end
         end
         if unbound then
@@ -200,12 +220,45 @@ local function lower(bound: any, name: string, unbound: boolean): sink.Result
                     emit("iconst", result, nil, nil, nil, "i8", 0, args[1] and "1" or "0")
                     yield nil
                 end
-                case "NativeICmp" -> do
+                case "NativeICmp", "NativeFCmp" -> do
                     local condition = assert(comparisons[args[3]], "S0 graph: unknown integer comparison")
-                    if condition ~= "eq" and condition ~= "ne" then
+                    if op == "NativeICmp" and condition ~= "eq" and condition ~= "ne" then
                         condition = (g.exactTypes[args[1]] == "int64" and "s" or "u") .. condition
                     end
-                    emit("icmp", result, args[1] + 1, args[2] + 1, nil, "i8", ir.condition(condition), nil)
+                    emit(
+                        op == "NativeICmp" and "icmp" or "fcmp",
+                        result,
+                        args[1] + 1,
+                        args[2] + 1,
+                        nil,
+                        "i8",
+                        ir.condition(condition),
+                        nil
+                    )
+                    yield nil
+                end
+                case "FAdd", "FSub", "FMul", "FDiv", "FNeg", "NativeFloor", "NativeCeil", "NativeSqrt" -> do
+                    emit(
+                        assert(floatOps[op]),
+                        result,
+                        args[1] + 1,
+                        args[2] and args[2] + 1 or nil,
+                        nil,
+                        machineKind(g.exactTypes[destination]),
+                        0,
+                        nil
+                    )
+                    yield nil
+                end
+                case "NativeIntToFloat", "NativeFloatToInt" -> do
+                    local code = op == "NativeIntToFloat"
+                        and (g.exactTypes[args[1]] == "uint64" and "fcvt_from_uint" or "fcvt_from_sint")
+                        or (g.exactTypes[destination] == "uint64" and "fcvt_to_uint_sat" or "fcvt_to_sint_sat")
+                    emit(code, result, args[1] + 1, nil, nil, machineKind(g.exactTypes[destination]), 0, nil)
+                    yield nil
+                end
+                case "NativeFloatBits", "NativeFloatFromBits" -> do
+                    emit("bitcast", result, args[1] + 1, nil, nil, machineKind(g.exactTypes[destination]), 0, nil)
                     yield nil
                 end
                 case "NativeAsWord" -> do
@@ -219,11 +272,13 @@ local function lower(bound: any, name: string, unbound: boolean): sink.Result
                 end
                 case "NativeStore" -> do
                     assert(
-                        unbound and args[4].width == 8 and (args[4].kind == "uint64" or args[4].kind == "int64"),
+                        unbound
+                        and args[4].width == 8
+                        and (args[4].kind == "uint64" or args[4].kind == "int64" or args[4].kind == "float64"),
                         "S0 graph: unsupported word store"
                     )
                     local address = emit("iadd", nil, args[1] + 1, args[2] + 1, nil, "i64", 0, nil)
-                    emit("store", nil, args[3] + 1, address, nil, "i64", 64, nil)
+                    emit("store", nil, args[3] + 1, address, nil, machineKind(g.exactTypes[args[3]]), 64, nil)
                     yield nil
                 end
                 case "ProgramLoad", "NativeLoad" -> do
@@ -232,7 +287,11 @@ local function lower(bound: any, name: string, unbound: boolean): sink.Result
                     local width = (access.width as integer) * 8
                     assert(
                         (width == 8 or width == 32 or width == 64)
-                        and (g.exactTypes[destination] == "int64" or g.exactTypes[destination] == "uint64")
+                        and (
+                            g.exactTypes[destination] == "int64"
+                            or g.exactTypes[destination] == "uint64"
+                            or width == 64 and g.exactTypes[destination] == "float64"
+                        )
                         and (width ~= 8 or access.signed ~= true),
                         "S0 graph: unsupported word load"
                     )
@@ -243,7 +302,7 @@ local function lower(bound: any, name: string, unbound: boolean): sink.Result
                         address,
                         nil,
                         nil,
-                        "i64",
+                        machineKind(g.exactTypes[destination]),
                         width,
                         nil
                     )
@@ -256,8 +315,9 @@ local function lower(bound: any, name: string, unbound: boolean): sink.Result
                 case "FrameSlotRead", "FrameSlotWrite" -> do
                     local access = args[op == "FrameSlotRead" and 4 or 5]
                     assert(
-                        access.class == "i" and (access.kind == "uint64" or access.kind == "int64"),
-                        "S0 graph: integer bits slot required"
+                        access.class == "i" and (access.kind == "uint64" or access.kind == "int64")
+                        or access.class == "f" and access.kind == "float64",
+                        "S0 graph: raw numeric slot required"
                     )
                     recipes.slot(
                         emit,
@@ -266,7 +326,7 @@ local function lower(bound: any, name: string, unbound: boolean): sink.Result
                         args[3] + 1,
                         op == "FrameSlotWrite" and args[4] + 1 or nil,
                         access,
-                        "i64"
+                        machineKind(access.kind)
                     )
                     yield nil
                 end
