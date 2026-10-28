@@ -144,7 +144,7 @@ fn lua_number(s: &str) -> Option<f64> {
         if ip.is_empty() && fp.is_empty() { return None; }
         let mut v = 0f64; for c in ip.chars() { v = v * 16.0 + c.to_digit(16)? as f64; }
         let mut scale = 1.0 / 16.0; for c in fp.chars() { v += c.to_digit(16)? as f64 * scale; scale /= 16.0; }
-        if let Some(e) = exp { let e: i32 = e.parse().ok()?; v *= 2f64.powi(e); }
+        if let Some(e) = exp { let e: i32 = e.parse().ok()?; v = crate::numeric::scale_power_of_two(v, e); }
         return Some(v);
     }
     if !s.chars().all(|c| c.is_ascii_digit() || c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-') { return None; }
