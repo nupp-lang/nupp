@@ -13,21 +13,28 @@ end
 -- checked syntax, resolves lexical bindings and constructs closed CFG blocks.
 function frontend.compile(fn: any, options: any, profile: any): any
     need(fn and fn.body and fn.scope and fn.node, "checked function owner required")
-    need(fn.node.body == fn.body, "checked function body identity required")
+    local moduleOwner = fn.kind == "module"
+    need(
+        moduleOwner and fn.node == fn.body and fn.body.kind == "chunk"
+        or not moduleOwner and (fn.node.body == fn.body or fn.node == fn.body and fn.body.kind == "shortfn"),
+        "checked owner body identity required"
+    )
     need(
         type(fn.name) == "string" and type(fn.scope.path) == "string" and type(fn.scope.name) == "string",
         "checked function source required"
     )
     need(type(profile) == "table", "explicit lowering profile required")
     options = options or {}
-    local g = profile.initialize(fn, options)
+    local initialize = moduleOwner and need(profile.initializeModule, "profile does not support module initialization")
+        or profile.initialize
+    local g = initialize(fn, options)
     g.source = {path = fn.scope.path, module = fn.scope.name, name = fn.name}
     local body, scope = fn.body, fn.scope
     local block = graph.block(g)
     local bindings: {[any]: integer} = {}
     local bindingOrder: {any} = {}
     local inlining, loops = {}, {}
-    for index, parameter in ipairs(body.params) do
+    for index, parameter in ipairs(moduleOwner and {} or body.params) do
         local key = parameter.name.definition or parameter.name
         bindings[key] = index
         bindingOrder[#bindingOrder + 1] = key
@@ -176,6 +183,14 @@ function frontend.compile(fn: any, options: any, profile: any): any
     local function callee(call: any): any
         if call.kind ~= "call" then
             return nil
+        end
+        if options.program then
+            need(call.obj.kind == "name", "qualified or indirect callee lacks a stable composition target")
+            local token = call.obj.token
+            local definition = token and token.definition
+            local target = definition and options.program.functionsByDefinition[definition]
+            need(not target or not definition.reassigned, "composed function declaration was reassigned")
+            return target
         end
         if call.obj.kind == "name" then
             local target = scope.functions and scope.functions[call.obj.token.text]
@@ -369,8 +384,15 @@ function frontend.compile(fn: any, options: any, profile: any): any
             end
         end
     end
-    need(body.body and body.body.stats, "statement-bodied function required")
-    statements(body.body.stats)
+    if moduleOwner then
+        for _, sourceBlock in ipairs(body.blocks) do
+            need(sourceBlock.kind == "block" and sourceBlock.stats, "unsupported module initializer block")
+            statements(sourceBlock.stats)
+        end
+    else
+        need(body.body and body.body.stats, "statement-bodied function required")
+        statements(body.body.stats)
+    end
     need(block == nil, "function falls through without a return or transfer")
     graph.verify(g)
 

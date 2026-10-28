@@ -1,0 +1,686 @@
+module nupp.compiler.vm.programgraph
+
+local cst = require("nupp.compiler.syntax.cst")
+local lexer = require("nupp.compiler.syntax.lexer")
+local graph = require("nupp.compiler.vm.graph")
+local graphimage = require("nupp.compiler.vm.graphimage")
+local graphemit = require("nupp.compiler.vm.graphemit")
+local lower = require("nupp.compiler.vm.lower")
+local program = {}
+
+local typeSyntax = {
+    tconst = true,
+    tkeyof = true,
+    twriteof = true,
+    tliteral = true,
+    tname = true,
+    ttypecall = true,
+    tparen = true,
+    tmap = true,
+    tshape = true,
+    tshapeField = true,
+    ttuple = true,
+    tpack = true,
+    tpackUnion = true,
+    tarray = true,
+    tfunc = true,
+    tfuncParam = true,
+    topt = true,
+    tptr = true,
+    tcarray = true,
+    tmember = true,
+    tmapped = true,
+    tunion = true,
+    tintersection = true,
+    errorType = true,
+    tpredicate = true,
+    tborrows = true,
+    tpreserves = true,
+    generics = true,
+    annotationApply = true,
+}
+
+local function bindingMode(definition: any): string
+    -- bindType/bindPack create lexical definitions too. Only bindVar records
+    -- a function depth, including a nominal declaration's runtime value.
+    if definition.functionDepth == nil then
+        return "type"
+    end
+    return definition.constant and "value" or "cell"
+end
+
+local function need(ok: any, message: string): any
+    assert(ok, "program graph: " .. message)
+    return ok
+end
+
+local function kind(t: any): string
+    while t and (t.tag == "literal" or t.tag == "const") do
+        t = t.tag == "literal" and t.base or t.inner
+    end
+    return t and t.tag or "missing"
+end
+
+-- Values are kept beside their source and exact bytes. Integers never pass
+-- through tonumber; float NaNs use the graph image's canonical quiet NaN.
+local function literal(node: any): any
+    if node.kind == "paren" then
+        return literal(node.expr)
+    end
+    local negative = node.kind == "unop" and node.op.text == "-" and node.operand.kind == "number"
+    local value = negative and node.operand or node
+    if value.kind == "number" then
+        local text = value.token.text:gsub("_", "")
+        local ty = kind(value.inferredType)
+        local integer = ty == "integer" or ty == "int64" or ty == "uint64"
+        text = text:gsub("[Uu]?[Ll][Ll]$", "")
+        text = (negative and "-" or "") .. text
+        if integer then
+            return {kind = ty == "uint64" and "uint64" or "int64", text = text, bytes = graphimage.wideTextBytes(text)}
+        end
+        local number = need(tonumber(text), "unsupported float literal " .. text)
+        -- Unary negation of a parsed positive zero retains its IEEE sign even
+        -- when the host parses an integer-looking zero as an integer.
+        if negative and number == 0 then
+            number = -0.0
+        end
+        return {kind = "num", text = text, bytes = graphimage.floatBytes(number)}
+    elseif value.kind == "string" then
+        local raw = value.token.text
+        local bytes = lexer.stringValue(raw)
+        if bytes == nil then
+            local equals = need(raw:match("^%[(=*)%["), "unsupported string literal")
+            local decoded = raw:sub(#equals + 3, -#equals - 3):gsub("\r\n", "\n"):gsub("\n\r", "\n"):gsub("\r", "\n")
+            bytes = decoded:gsub("^\n", "")
+        end
+        return {kind = "str", bytes = bytes}
+    elseif value.kind == "dedentString" then
+        return {kind = "str", bytes = lexer.dedentLongString(value.token.text)}
+    elseif value.kind == "trueExpr" or value.kind == "falseExpr" or value.kind == "nilExpr" then
+        return {
+            kind = value.kind == "trueExpr" and "true" or value.kind == "falseExpr" and "false" or "nil",
+            bytes = ""
+        }
+    end
+
+    return nil
+end
+
+local function functionName(node: any, id: integer): string
+    if node.kind == "localFuncStmt" or node.kind == "inlineMethod" then
+        return node.name.text
+    elseif node.kind == "funcStmt" then
+        local parts = {}
+        for _, token in ipairs(node.name) do
+            parts[#parts + 1] = token.text
+        end
+        return table.concat(parts)
+    end
+
+    return "<function " .. tostring(id) .. ">"
+end
+
+-- This walk discovers semantic owners, not instructions. Only ordered CST
+-- children are visited: named fields alias them and checker metadata has cycles.
+function program.describe(modules: {any}, entryModule: string): any
+    local p: any = {
+        modules = {},
+        owners = {},
+        bindings = {},
+        constants = {},
+        references = {},
+        externals = {},
+        externalReferences = {},
+        intrinsics = {},
+        externalsByDefinition = {},
+        imports = {},
+        byDefinition = {},
+        functionsByDefinition = {},
+        byBody = {},
+        byNode = {},
+        immutable = {}
+    }
+    local moduleNames, topLevel, sourcePaths = {}, {}, {}
+    for _, input in ipairs(modules) do
+        need(type(input.name) == "string" and type(input.path) == "string", "module source required")
+        need(not moduleNames[input.name], "duplicate module " .. input.name)
+        sourcePaths[input.path] = true
+        local parsed = need(input.parsed, "checked parse required")
+        need(parsed.root and parsed.symbols and parsed.moduleName == input.name, "checked module identity required")
+        need(input.diagnostics ~= nil and #parsed.errors == 0, "checked diagnostics required")
+        for _, diagnostic in ipairs(input.diagnostics) do
+            need(diagnostic.severity ~= "error", "module has checker errors")
+        end
+        local scope: any = {name = input.name, path = input.path, constants = {}, functions = {}, exports = {}}
+        local owner: any = {
+            id = #p.owners,
+            kind = "module",
+            name = "<init>",
+            node = parsed.root,
+            body = parsed.root,
+            scope = scope,
+            captures = {},
+            constants = {},
+            paramKinds = {},
+            captureByDefinition = {}
+        }
+        p.owners[#p.owners + 1] = owner
+        p.byBody[owner.body] = owner
+        for _, block in ipairs(parsed.root.blocks) do
+            for _, stat in ipairs(block.stats or {}) do
+                topLevel[stat.kind == "exportStmt" and stat.stat or stat] = true
+            end
+        end
+        local module = {name = input.name, path = input.path, chunk = owner.id, parsed = parsed}
+        p.modules[#p.modules + 1], moduleNames[input.name] = module, module
+        if input.name == entryModule then
+            p.entry = owner.id
+        end
+    end
+    need(p.entry ~= nil, "entry module is missing")
+
+    local function binding(token: any, owner: any): nil
+        local definition = token.definition
+        if definition and definition.lexical and definition.token == token then
+            need(p.byDefinition[definition] == nil, "duplicate checked declaration")
+            local b: any = {
+                id = #p.bindings,
+                definition = definition,
+                token = token,
+                owner = owner.id,
+                mode = bindingMode(definition)
+            }
+            p.bindings[#p.bindings + 1], p.byDefinition[definition] = b, b
+        end
+    end
+
+    local discover: function(any, any): nil
+    discover = function(node: any, owner: any): nil
+        if cst.isToken(node) then
+            binding(node, owner)
+            return
+        end
+        if node.kind == "funcbody" then
+            need(p.byBody[node] == owner, "unsupported checked function owner")
+        end
+        local isDeclaration = cst.FUNCTION_DECLARATIONS[node.kind]
+        local body = node.kind == "shortfn" and node or isDeclaration and node.body
+        need(not isDeclaration or body ~= nil, "function declaration lacks a checked body")
+        if body and p.byBody[body] ~= owner then
+            local signature = need(body.signatureType, "checked function signature required")
+            local child: any = {
+                id = #p.owners,
+                kind = "function",
+                name = functionName(node, #p.owners),
+                node = node,
+                body = body,
+                parent = owner.id,
+                scope = owner.scope,
+                signature = signature,
+                paramKinds = {},
+                captures = {},
+                constants = {},
+                captureByDefinition = {}
+            }
+            for index, parameter in ipairs(body.params) do
+                child.paramKinds[index] = kind(parameter.name.inferredType)
+            end
+            child.resultKind = #signature.rets == 1 and kind(signature.rets[1]) or nil
+            local declaration = (node.kind == "localFuncStmt" or node.kind == "inlineMethod") and node.name
+                or node.kind == "funcStmt" and node.name[#node.name]
+                or nil
+            if declaration then
+                child.definition = need(declaration.definition, "checked function declaration required")
+                need(
+                    p.functionsByDefinition[child.definition] == nil,
+                    "multiple bodies for checked function declaration"
+                )
+                p.functionsByDefinition[child.definition] = child
+            end
+            p.owners[#p.owners + 1], p.byBody[body] = child, child
+            if node.kind == "shortfn" then
+                for _, part in ipairs(node) do
+                    discover(part, child)
+                end
+            else
+                for _, part in ipairs(node) do
+                    discover(part, part == body and child or owner)
+                end
+            end
+            return
+        end
+        for _, child in ipairs(node) do
+            discover(child, owner)
+        end
+    end
+    -- All module and function identities exist before references are resolved.
+    for _, module in ipairs(p.modules) do
+        discover(module.parsed.root, p.owners[module.chunk + 1])
+        for _, definition in ipairs(module.parsed.symbols) do
+            need(
+                not definition.lexical or p.byDefinition[definition] ~= nil,
+                "checked declaration outside ordered syntax is unsupported"
+            )
+        end
+    end
+
+    for _, b in ipairs(p.bindings) do
+        local required = b.definition.requiredModule
+        if required then
+            local target = need(moduleNames[required], "required checked module is missing: " .. required)
+            p.imports[#p.imports + 1] = {binding = b.id, target = target.chunk}
+        end
+    end
+
+    local capture: function(any, any, string?): any
+    capture = function(owner: any, b: any, mode: string?): any
+        need(owner.id ~= b.owner, "cannot capture an owned local")
+        need(b.mode ~= "type", "erased type declaration cannot be captured")
+        local existing = owner.captureByDefinition[b.definition]
+        if existing then
+            need(mode == nil or existing.mode == mode, "conflicting capture modes")
+            return existing
+        end
+        local parent = need(owner.parent ~= nil and p.owners[owner.parent + 1], "capture escapes lexical ancestry")
+        local source = parent.id == b.owner and b.id or capture(parent, b, nil).id
+        local item: any = {
+            id = #owner.captures,
+            binding = b.id,
+            definition = b.definition,
+            mode = mode or b.mode,
+            sourceOwner = parent.id,
+            sourceKind = parent.id == b.owner and "local" or "capture",
+            source = source,
+            recursive = owner.definition == b.definition
+        }
+        owner.captures[#owner.captures + 1], owner.captureByDefinition[b.definition] = item, item
+
+        return item
+    end
+
+    -- Ownership clauses have checker-resolved outer bindings. Install them
+    -- before ordinary reads so explicit take/borrow modes cannot be lost.
+    for _, owner in ipairs(p.owners) do
+        if owner.kind == "function" then
+            for _, spec in ipairs({
+                {items = owner.body.takenCaptures, mode = "take"},
+                {items = owner.body.borrowCaptures, mode = "borrow"}
+            }) do
+                for _, item in ipairs(spec.items or {}) do
+                    local definition = item.outer and item.outer.definition
+                    local b = need(p.byDefinition[definition], "ownership capture lacks checked outer declaration")
+                    local captured = capture(owner, b, spec.mode)
+                    captured.ownership = item
+                    captured.inner = item.inner and item.inner.definition or nil
+                end
+            end
+        end
+    end
+
+    local function reference(token: any, owner: any): nil
+        local definition = token and token.definition
+        local location = tostring(
+            token and token.text
+        ) .. " at " .. owner.scope.path .. ":" .. tostring(token and token.line)
+        need(definition ~= nil, "unresolved executable reference " .. location)
+        if definition.token == token then
+            return
+        end
+        local b = p.byDefinition[definition]
+        if not b then
+            need(
+                definition.token and type(definition.filename) == "string" and not sourcePaths[definition.filename],
+                "lexical reference has no catalog declaration: " .. location .. " declared " .. tostring(
+                    definition.name
+                ) .. " at " .. tostring(
+                    definition.filename
+                ) .. ":" .. tostring(definition.token and definition.token.line)
+            )
+            local external = p.externalsByDefinition[definition]
+            if not external then
+                external = {
+                    id = #p.externals,
+                    definition = definition,
+                    path = definition.filename,
+                    token = definition.token
+                }
+                p.externals[#p.externals + 1], p.externalsByDefinition[definition] = external, external
+            end
+            p.externalReferences[#p.externalReferences + 1] = {owner = owner.id, external = external.id, token = token}
+            return
+        end
+        local role = b.mode == "type" and "type" or "value"
+        p.references[#p.references + 1] = {token = token, binding = b.id, owner = owner.id, role = role}
+        if role == "value" and b.owner ~= owner.id then
+            capture(owner, b, nil)
+        end
+    end
+
+    local collect: function(any, any): nil
+    collect = function(node: any, owner: any): nil
+        if cst.isToken(node) or typeSyntax[node.kind] then
+            return
+        end
+        local bodyOwner = p.byBody[node]
+        if bodyOwner then
+            owner = bodyOwner
+        end
+        if node.kind == "name" then
+            reference(node.token, owner)
+        elseif node.kind == "funcname" then
+            -- A qualified declaration reads its receiver, whereas a plain
+            -- function declaration introduces its own checked binding.
+            reference(node.base, owner)
+        end
+        local intrinsic = node.kind == "call" and node.ownershipIntrinsic
+        if intrinsic then
+            -- The checker resolves the reserved callee before ordinary name
+            -- inference. Its marker is a dependency, not a fabricated binding.
+            p.intrinsics[#p.intrinsics + 1] = {id = #p.intrinsics, owner = owner.id, node = node, operation = intrinsic}
+        end
+        local constant = literal(node)
+        if constant then
+            constant.id, constant.owner, constant.node = #p.constants, owner.id, node
+            p.constants[#p.constants + 1], p.byNode[node] = constant, constant
+            owner.constants[#owner.constants + 1] = constant.id
+            return
+        end
+        for _, child in ipairs(node) do
+            if not intrinsic or child ~= node.obj then
+                collect(child, owner)
+            end
+        end
+        if node.kind == "localStmt"
+            and node.isConst
+            and topLevel[node]
+            and owner.kind == "module"
+            and not node.pattern
+        then
+            for index, token in ipairs(node.names) do
+                local b = need(p.byDefinition[token.definition], "const declaration missing")
+                local constant = node.exprs and p.byNode[node.exprs[index]]
+                if constant and not b.definition.reassigned then
+                    b.initializer = node.exprs[index]
+                    p.immutable[b.definition] = constant
+                end
+            end
+        end
+    end
+    for _, module in ipairs(p.modules) do
+        collect(module.parsed.root, p.owners[module.chunk + 1])
+    end
+    program.verify(p)
+
+    return p
+end
+
+function program.verify(p: any): boolean
+    need(p.owners and p.modules and p.bindings and p.constants, "catalog required")
+    need(p.entry ~= nil and p.owners[p.entry + 1] and p.owners[p.entry + 1].kind == "module", "invalid module entry")
+    local modules = {}
+    for _, module in ipairs(p.modules) do
+        local owner = need(p.owners[module.chunk + 1], "invalid initializer reference")
+        need(
+            owner.kind == "module" and owner.node == module.parsed.root and owner.body == module.parsed.root,
+            "initializer must own checked module root"
+        )
+        need(
+            owner.scope.name == module.name and owner.scope.path == module.path and not modules[module.name],
+            "module identity mismatch"
+        )
+        modules[module.name] = owner
+    end
+    for definition, b in pairs(p.byDefinition) do
+        need(b.definition == definition and p.bindings[b.id + 1] == b, "stale binding identity map")
+    end
+    for definition, owner in pairs(p.functionsByDefinition) do
+        need(owner.definition == definition and p.owners[owner.id + 1] == owner, "stale function identity map")
+    end
+    for node, constant in pairs(p.byNode) do
+        need(constant.node == node and p.constants[constant.id + 1] == constant, "stale constant identity map")
+    end
+    for definition, external in pairs(p.externalsByDefinition) do
+        need(
+            external.definition == definition and p.externals[external.id + 1] == external,
+            "stale external identity map"
+        )
+    end
+    for index, external in ipairs(p.externals) do
+        need(
+            external.id == index - 1 and p.externalsByDefinition[external.definition] == external,
+            "external identity mismatch"
+        )
+        need(
+            external.token == external.definition.token
+            and external.path == external.definition.filename
+            and not p.byDefinition[external.definition],
+            "external declaration mismatch"
+        )
+        for _, module in ipairs(p.modules) do
+            need(module.path ~= external.path, "external declaration belongs to a catalog module")
+        end
+    end
+    for _, reference in ipairs(p.externalReferences) do
+        local external = need(p.externals[reference.external + 1], "invalid external reference")
+        need(
+            p.owners[reference.owner + 1] and reference.token.definition == external.definition,
+            "external reference identity mismatch"
+        )
+    end
+    local intrinsicNodes = {}
+    for index, intrinsic in ipairs(p.intrinsics) do
+        need(intrinsic.id == index - 1 and p.owners[intrinsic.owner + 1], "invalid intrinsic owner")
+        need(
+            intrinsic.node.kind == "call"
+            and intrinsic.node.ownershipIntrinsic == intrinsic.operation
+            and type(intrinsic.operation) == "string"
+            and not intrinsicNodes[intrinsic.node],
+            "checked intrinsic identity mismatch"
+        )
+        intrinsicNodes[intrinsic.node] = true
+    end
+    local constantOwners = {}
+    for body, owner in pairs(p.byBody) do
+        need(owner.body == body and p.owners[owner.id + 1] == owner, "missing reserved owner")
+    end
+    for index, b in ipairs(p.bindings) do
+        need(b.id == index - 1 and p.owners[b.owner + 1], "invalid binding owner")
+        need(
+            b.definition == b.token.definition and b.definition.token == b.token and p.byDefinition[b.definition] == b,
+            "binding identity mismatch"
+        )
+        need(b.mode == bindingMode(b.definition), "binding mode mismatch")
+    end
+    for index, owner in ipairs(p.owners) do
+        need(owner.id == index - 1 and p.byBody[owner.body] == owner, "owner identity mismatch")
+        need(modules[owner.scope.name] ~= nil, "owner module is missing")
+        if owner.kind == "function" then
+            need(owner.parent ~= nil and owner.parent < owner.id and owner.parent >= 0, "invalid lexical parent")
+            need(p.owners[owner.parent + 1].scope == owner.scope, "parent crosses modules")
+            need(
+                not owner.definition or p.functionsByDefinition[owner.definition] == owner,
+                "function declaration identity mismatch"
+            )
+            need(
+                owner.body.signatureType == owner.signature
+                and (owner.node == owner.body or owner.node.body == owner.body),
+                "checked function identity mismatch"
+            )
+        else
+            need(
+                owner.kind == "module" and modules[owner.scope.name] == owner and owner.parent == nil,
+                "invalid initializer owner"
+            )
+        end
+        for definition, item in pairs(owner.captureByDefinition) do
+            need(item.definition == definition and owner.captures[item.id + 1] == item, "stale capture identity map")
+        end
+        for slot, item in ipairs(owner.captures) do
+            local b = need(p.bindings[item.binding + 1], "capture binding is missing")
+            need(
+                item.id == slot - 1
+                and item.definition == b.definition
+                and owner.captureByDefinition[b.definition] == item,
+                "capture identity mismatch"
+            )
+            need(item.sourceOwner == owner.parent, "capture must cross one lexical parent")
+            local parent = need(p.owners[item.sourceOwner + 1], "capture parent missing")
+            if item.sourceKind == "local" then
+                need(b.owner == parent.id and item.source == b.id, "invalid local capture source")
+            else
+                local source = parent.captures[item.source + 1]
+                need(
+                    item.sourceKind == "capture" and source and source.binding == b.id,
+                    "invalid forwarded capture source"
+                )
+            end
+            need(item.recursive == (owner.definition == b.definition), "recursive capture identity mismatch")
+            if item.mode == "take" or item.mode == "borrow" then
+                need(
+                    item.ownership and item.ownership.outer.definition == b.definition,
+                    "ownership capture identity mismatch"
+                )
+                local list = item.mode == "take" and owner.body.takenCaptures or owner.body.borrowCaptures
+                local found = false
+                for _, checked in ipairs(list or {}) do
+                    found = found or checked == item.ownership
+                end
+                need(found, "ownership capture lacks checked contract")
+                need(
+                    item.inner == (item.ownership.inner and item.ownership.inner.definition or nil),
+                    "taken binding identity mismatch"
+                )
+            else
+                need(item.mode == b.mode, "invalid capture mode")
+            end
+        end
+        for _, id in ipairs(owner.constants) do
+            need(p.constants[id + 1] and p.constants[id + 1].owner == owner.id, "invalid owner constant reference")
+            need(not constantOwners[id], "duplicate owner constant reference")
+            constantOwners[id] = true
+        end
+    end
+    for _, imported in ipairs(p.imports) do
+        local b = need(p.bindings[imported.binding + 1], "invalid import binding")
+        local target = need(p.owners[imported.target + 1], "invalid import initializer")
+        need(
+            target.kind == "module" and b.definition.requiredModule == target.scope.name,
+            "checked import target mismatch"
+        )
+    end
+    for _, reference in ipairs(p.references) do
+        local b = need(p.bindings[reference.binding + 1], "invalid lexical reference")
+        local owner = need(p.owners[reference.owner + 1], "invalid reference owner")
+        need(reference.token.definition == b.definition, "reference declaration identity mismatch")
+        local captured = owner.captureByDefinition[b.definition]
+        need(reference.role == (b.mode == "type" and "type" or "value"), "reference role mismatch")
+        need(
+            reference.role == "type" or owner.id == b.owner or captured and owner.captures[captured.id + 1] == captured,
+            "reference lacks capture transport"
+        )
+    end
+    for index, constant in ipairs(p.constants) do
+        need(constantOwners[index - 1], "constant missing from owner")
+        need(
+            constant.id == index - 1 and p.owners[constant.owner + 1] and p.byNode[constant.node] == constant,
+            "invalid constant identity"
+        )
+        local expected = need(literal(constant.node), "constant no longer literal")
+        need(
+            expected.kind == constant.kind and expected.bytes == constant.bytes and expected.text == constant.text,
+            "constant payload mismatch"
+        )
+    end
+    for definition, constant in pairs(p.immutable) do
+        local b = need(p.byDefinition[definition], "immutable binding missing")
+        need(
+            definition.constant and not definition.reassigned and p.owners[b.owner + 1].kind == "module",
+            "mutable initializer cannot be substituted"
+        )
+        need(
+            p.constants[constant.id + 1] == constant and constant.owner == b.owner and b.initializer == constant.node,
+            "immutable constant reference mismatch"
+        )
+    end
+
+    return true
+end
+
+function program.select(p: any, moduleName: string, name: string): any
+    program.verify(p)
+    local selected
+    for _, owner in ipairs(p.owners) do
+        if owner.kind == "function" and owner.scope.name == moduleName and owner.name == name then
+            need(selected == nil, "ambiguous selected function")
+            selected = owner
+        end
+    end
+
+    return need(selected, "missing checked function")
+end
+
+function program.functionGraph(p: any, owner: any, profile: any): any
+    program.verify(p)
+    need(p.owners[owner.id + 1] == owner, "foreign function owner")
+    for _, reference in ipairs(p.externalReferences) do
+        need(reference.owner ~= owner.id, "external execution bindings are not established")
+    end
+    for _, intrinsic in ipairs(p.intrinsics) do
+        need(intrinsic.owner ~= owner.id, "intrinsic execution is not established: " .. intrinsic.operation)
+    end
+    local g = lower.functionGraph(owner, {program = p}, profile)
+    g.name, g.module, g.path, g.programOwner = owner.name, owner.scope.name, owner.scope.path, owner.id
+
+    return g
+end
+
+-- No graph is omitted, and no image is returned after a partial lowering.
+-- Profiles must explicitly support real module initializer owners.
+function program.compile(p: any, profile: any): any
+    program.verify(p)
+    need(#p.externals == 0, "external execution bindings are not established")
+    need(#p.intrinsics == 0, "intrinsic execution is not established")
+    local graphs, modules = {}, {}
+    for index, owner in ipairs(p.owners) do
+        graphs[index] = program.functionGraph(p, owner, profile)
+    end
+    for index, module in ipairs(p.modules) do
+        modules[index] = {name = module.name, path = module.path, chunk = module.chunk}
+    end
+    for index, g in ipairs(graphs) do
+        need(g.programOwner == index - 1, "incomplete graph table")
+        graph.verify(g)
+        for _, block in ipairs(g.blocks) do
+            for at, op in ipairs(block.op) do
+                local args = block.args[at]
+                if op == "NewClosure" then
+                    local target = need(p.owners[args[1] + 1], "invalid closure function reference")
+                    need(
+                        target.kind == "function" and target.parent == g.programOwner,
+                        "closure crosses lexical parent"
+                    )
+                    need(args[3] == #target.captures, "closure capture count mismatch")
+                elseif op == "GetUpval" then
+                    need(args[1] >= 0 and args[1] < #p.owners[index].captures, "invalid graph capture reference")
+                end
+            end
+        end
+        for _, constant in ipairs(g.constants) do
+            if constant.kind == "func" then
+                need(
+                    p.owners[constant.value + 1] and p.owners[constant.value + 1].kind == "function",
+                    "invalid graph function reference"
+                )
+            end
+        end
+    end
+
+    return {graphs = graphs, header = {shapes = {}, modules = modules, entry = p.entry}, catalog = p}
+end
+
+function program.image(p: any, profile: any): string
+    local complete = program.compile(p, profile)
+    return graphemit.image(complete.graphs, complete.header)
+end
+
+export = program

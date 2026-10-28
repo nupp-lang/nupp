@@ -32,8 +32,18 @@ local function scalar(kind: string): nil
     need(kind == "int64" or kind == "boolean", "unsupported exact kind " .. kind)
 end
 
+function guest.initializeModule(fn: any, options: any): any
+    error("guest graph: module initializer execution is not established", 0)
+end
+
 function guest.initialize(fn: any, options: any): any
     local body = fn.body
+    need(
+        fn.node.kind ~= "inlineMethod"
+        and fn.node.kind ~= "constructorDecl"
+        and (not fn.node.name or not fn.node.name.method),
+        "guest methods and constructors are unsupported"
+    )
     need(body and #body.params == 0 and #fn.paramKinds == 0, "initial guest profile requires zero parameters")
     need(not body.varargParam and not body.generics and not body.captureTakes, "plain closed guest function required")
     local result = fn.resultKind == "integer" and "int64" or fn.resultKind
@@ -112,7 +122,28 @@ function guest.literal(ctx: any, node: any, expected: string?): integer
 end
 
 function guest.constant(ctx: any, node: any, expected: string?): integer
-    error("guest graph: module and captured constants are outside the initial profile", 0)
+    local catalog = ctx.options.program
+    local definition = node.kind == "name" and node.token.definition or nil
+    local constant = catalog and definition and catalog.immutable[definition]
+    need(constant ~= nil, "reference requires a checked immutable module scalar constant")
+    need(
+        constant.kind == "int64" or constant.kind == "true" or constant.kind == "false",
+        "unsupported module constant kind"
+    )
+    local valueKind = constant.kind == "int64" and "int64" or "boolean"
+    need(expected == nil or expected == valueKind, "module constant changes exact kind")
+    if constant.kind == "int64" then
+        -- The initial profile admits signed decimal scalars only. Use its exact
+        -- lexical range check even though the wider catalog can retain hex.
+        local source = constant.node
+        while source.kind == "paren" do
+            source = source.expr
+        end
+        local negative = source.kind == "unop"
+        return ctx.emit(node, "IK", {decimal(negative and source.operand or source, negative)}, valueKind)
+    end
+
+    return ctx.emit(node, "IK", {constant.kind == "true" and "1" or "0"}, valueKind)
 end
 
 function guest.unary(ctx: any, node: any, expected: string?): integer

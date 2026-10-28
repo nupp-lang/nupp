@@ -56,7 +56,7 @@ def main():
         assert digest(path) == freeze["artifacts"][selection[key]]["sha256"], key
     source = ROOT / "native/core/program"
     fixtures = sorted((source / "fixtures").glob("*.nupp"))
-    expected = {"add", "bits", "conditional", "conditional-false", "join", "loop", "signed-conditional", "wrap", "zero", "parallel", "zero-loop", "boolean-join"}
+    expected = {"add", "bits", "conditional", "conditional-false", "join", "loop", "signed-conditional", "wrap", "zero", "parallel", "zero-loop", "boolean-join", "module-constant"}
     assert {fixture.stem for fixture in fixtures} == expected
     names_source = (source / "program.nupp").read_text()
     names_block = re.search(r"program\.names = \{(.*?)\n\}", names_source, re.S)

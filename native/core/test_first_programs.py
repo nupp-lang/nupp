@@ -11,7 +11,7 @@ import time
 
 EXPECTED = {"add": 42, "wrap": 0x8000000000000000, "bits": 1}
 CONTROL_FLOW = {"conditional": 42, "conditional-false": 99,
-                "signed-conditional": 42, "join": 42, "loop": 15, "zero": 0, "parallel": 20, "zero-loop": 0, "boolean-join": 42, "copy-cycle": 30}
+                "signed-conditional": 42, "join": 42, "loop": 15, "zero": 0, "parallel": 20, "zero-loop": 0, "boolean-join": 42, "copy-cycle": 30, "module-constant": 42}
 
 
 def sha(path):

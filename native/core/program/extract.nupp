@@ -3,7 +3,7 @@ module nupp.core.extract
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("nupp.compiler.check")
 local environment = require("nupp.compiler.project.env")
-local lower = require("nupp.compiler.vm.lower")
+local programgraph = require("nupp.compiler.vm.programgraph")
 local guest = require("nupp.compiler.vm.guestprofile")
 local graph = require("nupp.compiler.vm.graph")
 local program = require("nupp.core.program")
@@ -23,44 +23,14 @@ function extract.compile(source: string, selected: string): any
     for _, diagnostic in ipairs(diagnostics) do
         assert(diagnostic.severity ~= "error", diagnostic.msg)
     end
-    local found
-    for _, block in ipairs(parsed.root.blocks) do
-        for _, stat in ipairs(block.stats) do
-            local node: any = stat.kind == "exportStmt" and stat.stat or stat
-            if node.kind == "funcStmt" or node.kind == "localFuncStmt" then
-                local name = node.kind == "localFuncStmt" and node.name.text or ""
-                if node.kind == "funcStmt" then
-                    for _, token in ipairs(node.name) do
-                        name = name .. token.text
-                    end
-                end
-                if name == selected then
-                    assert(node.kind ~= "funcStmt" or not node.name.method, "core selected function cannot be a method")
-                    assert(found == nil, "ambiguous first-program function")
-                    local body = node.body
-                    assert(
-                        #body.params == 0 and not body.varargParam and not body.generics,
-                        "first program must be closed"
-                    )
-                    local signature = assert(body.signatureType, "checked function signature required")
-                    assert(#signature.rets == 1, "first program requires one result")
-                    local owner = {
-                        name = name,
-                        node = node,
-                        body = body,
-                        paramKinds = {},
-                        resultKind = signature.rets[1].tag,
-                        scope = {name = "core_fixture", path = path, constants = {}, functions = {}, exports = {}}
-                    }
-                    local g = lower.functionGraph(owner, {}, guest)
-                    g.name, g.module = name, "core_fixture"
-                    found = program.fromBlocks(g)
-                end
-            end
-        end
-    end
+    local catalog = programgraph.describe(
+        {{name = "core_fixture", path = path, parsed = parsed, diagnostics = diagnostics}},
+        "core_fixture"
+    )
+    local owner = programgraph.select(catalog, "core_fixture", selected)
+    local g = programgraph.functionGraph(catalog, owner, guest)
 
-    return assert(found, "missing checked first-program function")
+    return program.fromBlocks(g)
 end
 
 function extract.image(source: string, selected: string): string
