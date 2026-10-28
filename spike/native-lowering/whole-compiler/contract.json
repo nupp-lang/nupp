@@ -34,7 +34,7 @@
   ],
   "metrics": [
     "Whole process wall seconds including image loading, checking/lowering and output",
-    "Peak RSS from macOS /usr/bin/time -l",
+    "Direct measured-child peak RSS and CPU from wait4; platform units converted to bytes",
     "Compiler-reported check timing and compiled/reused module counts",
     "Output and executable/object sizes",
     "Full emit compiled frame entry count"
