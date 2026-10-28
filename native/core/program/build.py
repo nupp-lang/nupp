@@ -33,18 +33,32 @@ def main():
     (project / "nupp.lua").write_text("return {include = {" + ",".join(json.dumps(str(path)) for path in ["src", ROOT / "src", ROOT / "native/crates/vm/lib", ROOT / "native/crates/vm/decls"]) + "}}\n")
     env = {key: value for key, value in os.environ.items() if not key.startswith(("NUPP_", "JIT_", "GC_", "LUA")) and key not in ("NO_AOT", "NO_JIT", "AOT_VERBOSE", "OP_STATS", "BUILTIN_STATS", "TABLE_STATS")}
     env.update(NO_AOT="1", NO_JIT="1", NUPP_VM_AUTO_REBUILD="0", NUPP_VM_EMIT_CACHE="", NUPP_COMPILER_ROOT=str(ROOT), NUPP_VM_BINARY=str(tools["stage0-runtime"]), NUPP_VM_CLI_IMAGE=str(tools["stage0-compiler.image"]))
-    proof = {"scope": "Pinned frozen stage zero is a build tool only; no Rust execution oracle or linked VM", "inputs": {str(path): digest(path) for path in [*tools.values(), BOOT / "freeze.json", Path(__file__), *source.glob("*.nupp"), *source.glob("fixtures/*.nupp")]}, "steps": [], "artifacts": {}}
+    compiler_sources = {}
+    for directory in ("src", "decls", "native/crates/vm/lib", "native/crates/vm/decls"):
+        for path in sorted((ROOT / directory).rglob("*")):
+            if path.is_file():
+                compiler_sources[str(path.relative_to(ROOT))] = digest(path)
+    source_manifest = out / "compiler-source-manifest.json"
+    source_manifest.write_text(json.dumps(compiler_sources, indent=2) + "\n")
+    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    proof = {"compilerSourceManifest": {"path": str(source_manifest), "sha256": digest(source_manifest), "files": len(compiler_sources), "revision": revision}, "scope": "Pinned frozen stage zero is a build tool only; no Rust execution oracle or linked VM", "inputs": {str(path): digest(path) for path in [*tools.values(), BOOT / "freeze.json", Path(__file__), *source.glob("*.nupp"), *source.glob("fixtures/*.nupp")]}, "steps": [], "artifacts": {}}
     def save():
         (out / "proof.json").write_text(json.dumps(proof, indent=2) + "\n")
-    def run(label, command, cwd=project):
+    def verify():
+        assert digest(source_manifest) == proof["compilerSourceManifest"]["sha256"]
         for path, expected in proof["inputs"].items():
             assert digest(path) == expected, path
+        for path, expected in compiler_sources.items():
+            assert digest(ROOT / path) == expected, path
+    def run(label, command, cwd=project):
+        verify()
         print(label, flush=True)
         save()
         with (out / (label + ".out")).open("xb") as stdout, (out / (label + ".err")).open("xb") as stderr:
             result = subprocess.run(list(map(str, command)), cwd=cwd, env=env, stdout=stdout, stderr=stderr, timeout=900)
         proof["steps"].append({"name": label, "command": list(map(str, command)), "returnCode": result.returncode})
         save()
+        verify()
         assert result.returncode == 0, label
         return (out / (label + ".out")).read_bytes()
     vm, compiler = tools["stage0-runtime"], tools["stage0-compiler.image"]
@@ -52,6 +66,8 @@ def main():
     assert checked["ok"], checked
     image = out / "extract.image"
     run("compile", [vm, "run", compiler, "nupp.tools.vm.project", "emit", project, "nupp.core.extract", "nupp.compiler.syntax.triviaarena.table,nupp.compiler.project.projectconfig", "src", "--output", image, "--tasks"])
+    proof["inputs"][str(image)] = digest(image)
+    save()
     tested = json.loads(run("verifier-tests", [vm, "run", image, "nupp.core.extract", "test", "--tasks"]))
     assert tested == 13, tested
     for fixture in sorted((source / "fixtures").glob("*.nupp")):
@@ -63,6 +79,7 @@ def main():
         run(name + "-program", [vm, "run", image, "nupp.core.extract", "image", "@" + str(fixture), "First.answer", "--output", code, "--tasks"])
         assert code.read_bytes() == bytes(metadata["bytes"])
     proof["artifacts"] = {str(path): digest(path) for path in sorted(out.iterdir()) if path.is_file() and path.name != "proof.json"}
+    verify()
     proof["status"] = "verified-first-program-artifacts"
     save()
     print(out / "proof.json", flush=True)
