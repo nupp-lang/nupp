@@ -14,6 +14,9 @@ local shim = require("nupp.core.shim")
 local json = require("nupp.codec.json")
 local graphimage = require("nupp.compiler.vm.graphimage")
 local producer = {}
+-- Zero-register allocation uses a larger explicit fixture budget. The core
+-- shim default remains 64 KiB and still refuses chains that do not fit it.
+const SCRATCH_BYTES = 131072
 
 local function selected(g: any, owner: any, mode: string, resolved: any): (any, any)
     local artifact = sink.compilerGraph(g, owner.name, owner, resolved)
@@ -111,8 +114,8 @@ function producer.compile(mode: string): string
     end
     local code, metric = selected(root.graph, root.owner, mode, resolved)
     local extent = linker.assemble({}, {code}, codes, 1073741824).callBytes
-    assert(extent + shim.dispatchOffset + 16 <= shim.scratchBytes, "frame helper extent " .. tostring(extent))
-    local result = shim.build({code}, codes)
+    assert(extent + shim.dispatchOffset + 16 <= SCRATCH_BYTES, "frame helper extent " .. tostring(extent))
+    local result = shim.build({code}, codes, SCRATCH_BYTES)
     assert(result.callBytes == extent)
     result.handlers, result.functions, result.mode = {metric}, metrics, mode
     local negatives = {}
@@ -122,6 +125,22 @@ function producer.compile(mode: string): string
         negatives[#negatives + 1] = name
     end
 
+    reject(
+        "invalid scratch capacity",
+        function(): any
+            return shim.build({code}, codes, 65537)
+        end,
+        "core shim scratch bound"
+    )
+    if mode == "spill" then
+        reject(
+            "default scratch capacity remains bounded",
+            function(): any
+                return shim.build({code}, codes)
+            end,
+            "call-chain spill extent"
+        )
+    end
     local symbol = framesName .. ".overlaps"
     local target = resolved[symbol]
     assert(target.graph.native.result == "boolean")
@@ -179,7 +198,7 @@ function producer.data(selection: string): string
     assert(offset >= 0 and offset < codeBytes and offset % 4 == 0)
     assert(extent > 0 and extent < 65536 and extent % 16 == 0)
     assert(base == ((shim.dispatchOffset + 8 + 15) & -16))
-    assert(base + extent <= result.scratchBytes and result.scratchBytes == shim.scratchBytes)
+    assert(base + extent <= result.scratchBytes and result.scratchBytes == SCRATCH_BYTES)
     local instruction = string.rep(string.char(0), 4)
         .. graphimage.wideBytes(extent):sub(1, 4)
         .. graphimage.wideBytes(base)

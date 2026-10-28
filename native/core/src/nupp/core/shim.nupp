@@ -15,7 +15,12 @@ shim.dispatchOffset, shim.spillOffset = 8352, 8464
 
 -- Input code and initialized program data are trusted, verified build artifacts.
 -- Entry extent checks do not authenticate arbitrary replacement code or data.
-function shim.build(codes: {any}, functions: {[string]: any}?): any
+function shim.build(codes: {any}, functions: {[string]: any}?, capacity: integer?): any
+    local scratchBytes = capacity or shim.scratchBytes
+    assert(
+        scratchBytes >= shim.scratchBytes and scratchBytes <= 1048576 and scratchBytes % 65536 == 0,
+        "core shim scratch bound"
+    )
     assert(#codes >= 1 and #codes <= 256, "core shim handler count")
     local spillOffset = (shim.dispatchOffset + #codes * 8 + 15) & -16
     local words: {integer} = {}
@@ -46,10 +51,10 @@ function shim.build(codes: {any}, functions: {[string]: any}?): any
         at: integer,
         condition: integer
     }} = {}
-    for _, check in ipairs({{0, 1, 1}, {48, shim.scratchBytes, 3}, {88, 1, 3}, {32, 48 + #codes * 8, 3}, {80, 2, 8}}) do
+    for _, check in ipairs({{0, 1, 1}, {48, scratchBytes, 3}, {88, 1, 3}, {32, 48 + #codes * 8, 3}, {80, 2, 8}}) do
         emit(arm.ldr(8, 16, 0, check[1]))
         local value = check[2]
-        emit(arm.movz(64, 17, value == 65536 and 1 or value, value == 65536 and 1 or 0))
+        emit(arm.movz(64, 17, value >= 65536 and (value >> 16) or value, value >= 65536 and 1 or 0))
         emit(arm.cmp_reg(64, 16, 17))
         refusals[#refusals + 1] = {at = #words + 1, condition = check[3]}
         emit(arm.b_cond(check[3], 0))
@@ -130,14 +135,14 @@ function shim.build(codes: {any}, functions: {[string]: any}?): any
     end
     emit(arm.add_imm(64, 31, 31, 176, 0))
     emit(arm.ret(30))
-    local linked = linker.assemble(words, codes, functions or {}, shim.scratchBytes - spillOffset)
+    local linked = linker.assemble(words, codes, functions or {}, scratchBytes - spillOffset)
 
     return {
         words = linked.words,
         offsets = linked.offsets,
         frames = linked.frames,
         callBytes = linked.callBytes,
-        scratchBytes = shim.scratchBytes,
+        scratchBytes = scratchBytes,
         spillOffset = spillOffset,
         entry = 0
     }

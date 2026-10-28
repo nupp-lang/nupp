@@ -69,7 +69,8 @@ def main():
                 result = json.loads(json.loads(run('select-' + label, [vm, 'run', image, 'nupp.core.frameproducer', 'compile', mode, '--tasks'])))
                 (out / (label + '.json')).write_text(json.dumps(result, indent=2) + '\n')
                 assert len(result['offsets']) == len(result['handlers']) == 1 and len(result['functions']) == 23
-                assert len(result['refusals']) == 4
+                assert len(result['refusals']) == (6 if mode == 'spill' else 5)
+                assert result['scratchBytes'] == 131072
                 assert result['handlers'][0]['calls'] >= 4 and sum(f['calls'] for f in result['functions']) >= 10
                 assert result['callBytes'] > result['frames'][0]
                 assert result['spillOffset'] + result['callBytes'] <= result['scratchBytes']
