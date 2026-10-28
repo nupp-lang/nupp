@@ -399,8 +399,33 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
     end
 
     local function edge(e: integer, nextBlock: integer): nil
-        for p = a.firstMove[e], a.firstMove[e] + a.nmoves[e] - 1 do
-            move(a.moveSource[p], a.moveTarget[p], a.moveKind[p])
+        local first, last = a.firstMove[e], a.firstMove[e] + a.nmoves[e] - 1
+        local scratchFree = true
+        for p = first, last do
+            scratchFree = scratchFree and a.moveSource[p] ~= 17 and a.moveTarget[p] ~= 17
+        end
+        local p = first
+        while p <= last do
+            local source, destination = a.moveSource[p], a.moveTarget[p]
+            -- Spill copies retain all 64 bits. Exclude a write feeding the next
+            -- read, and protect x16 when the parallel schedule uses its scratch.
+            if scratchFree
+                and p < last
+                and source < 0
+                and destination < 0
+                and a.moveSource[p + 1] == source - 1
+                and a.moveTarget[p + 1] == destination - 1
+                and destination ~= source - 1
+                and source >= -62
+                and destination >= -62
+            then
+                emit(arm.ldp(64, 16, 17, 23, spillOffset(source), 0))
+                emit(arm.stp(64, 16, 17, 23, spillOffset(destination), 0))
+                p = p + 2
+            else
+                move(source, destination, a.moveKind[p])
+                p = p + 1
+            end
         end
         if f.edgeTarget[e] ~= nextBlock then
             localWord[#localWord + 1], localBlock[#localBlock + 1] = #code.words + 1, f.edgeTarget[e]
