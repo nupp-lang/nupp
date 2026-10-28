@@ -4,9 +4,11 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
+import struct
 
 ROOT = Path(__file__).resolve().parents[3]
 BOOT = ROOT.parent / "native-core-bootstrap"
@@ -14,9 +16,37 @@ BOOT = ROOT.parent / "native-core-bootstrap"
 def digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
+def inspect_program(code, metadata, fixture, names):
+    raw = code.read_bytes()
+    assert len(raw) == metadata["count"] * 16
+    records = [
+        {"pc": offset // 16, "id": raw[offset],
+         "a": raw[offset + 1], "b": raw[offset + 2], "c": raw[offset + 3],
+         "displacement": struct.unpack("<i", raw[offset + 4:offset + 8])[0]}
+        for offset in range(0, len(raw), 16)
+    ]
+    jump, conditional, stop = [names.index(name) for name in ("Jmp", "JmpIfIZero", "CoreStop")]
+    compares = {index for index, name in enumerate(names) if name.startswith("ICmp")}
+    stops = [record["a"] for record in records if record["id"] == stop]
+    assert stops == metadata["returns"]
+    return {
+        "records": len(records), "slots": metadata["slots"], "returns": stops,
+        "compareCount": sum(record["id"] in compares for record in records),
+        "conditionalCount": sum(record["id"] == conditional for record in records),
+        "negativeJmpCount": sum(record["id"] == jump and record["displacement"] < 0 for record in records),
+        "nonnegativeJmpCount": sum(record["id"] == jump and record["displacement"] >= 0 for record in records),
+        "stopCount": len(stops),
+        "jumps": [record for record in records if record["id"] in (jump, conditional)],
+        "programSha256": digest(code),
+        "metadataSha256": digest(code.with_suffix(".json")),
+        "fixtureSha256": digest(fixture),
+    }
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--reference", type=Path, help="preserved program artifacts for exact byte reproduction")
     args = parser.parse_args()
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=False)
@@ -25,6 +55,19 @@ def main():
     for key, path in tools.items():
         assert digest(path) == freeze["artifacts"][key]["sha256"], key
     source = ROOT / "native/core/program"
+    fixtures = sorted((source / "fixtures").glob("*.nupp"))
+    expected = {"add", "bits", "conditional", "conditional-false", "join", "loop", "signed-conditional", "wrap", "zero"}
+    assert {fixture.stem for fixture in fixtures} == expected
+    names_source = (source / "program.nupp").read_text()
+    names_block = re.search(r"program\.names = \{(.*?)\n\}", names_source, re.S)
+    assert names_block, "missing Nupp opcode names"
+    names = re.findall(r'"([A-Za-z][A-Za-z0-9]*)"', names_block.group(1))
+    assert len(names) == 21 and len(set(names)) == 21
+    reference_inputs = {}
+    reference = args.reference.resolve() if args.reference else None
+    if reference:
+        for path in [reference / "proof.json", reference / "mechanism.json", *[reference / (name + suffix) for name in sorted(expected) for suffix in (".program", ".json")]]:
+            reference_inputs[str(path)] = digest(path)
     project = out / "project"
     modules = project / "src/nupp/core"
     modules.mkdir(parents=True)
@@ -42,11 +85,17 @@ def main():
     source_manifest.write_text(json.dumps(compiler_sources, indent=2) + "\n")
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     proof = {"compilerSourceManifest": {"path": str(source_manifest), "sha256": digest(source_manifest), "files": len(compiler_sources), "revision": revision}, "scope": "Pinned frozen stage zero is a build tool only; no Rust execution oracle or linked VM", "inputs": {str(path): digest(path) for path in [*tools.values(), BOOT / "freeze.json", Path(__file__), *source.glob("*.nupp"), *source.glob("fixtures/*.nupp")]}, "steps": [], "artifacts": {}}
+    proof["inputs"].update(reference_inputs)
+    proof["opcodeNames"] = names
+    proof["fixtureCount"] = len(fixtures)
+    if reference:
+        proof["reference"] = str(reference)
+        proof["referenceProgramsIdentical"] = 0
     def save():
         (out / "proof.json").write_text(json.dumps(proof, indent=2) + "\n")
     def verify():
         assert digest(source_manifest) == proof["compilerSourceManifest"]["sha256"]
-        for path, expected in proof["inputs"].items():
+        for path, expected in {**proof["inputs"], **proof["artifacts"]}.items():
             assert digest(path) == expected, path
         for path, expected in compiler_sources.items():
             assert digest(ROOT / path) == expected, path
@@ -69,9 +118,10 @@ def main():
     proof["inputs"][str(image)] = digest(image)
     save()
     tested = json.loads(run("verifier-tests", [vm, "run", image, "nupp.core.extract", "test", "--tasks"]))
-    assert isinstance(tested, int) and tested >= 13, tested
+    assert tested == 27, tested
     proof["verifierCases"] = tested
-    for fixture in sorted((source / "fixtures").glob("*.nupp")):
+    mechanism = {}
+    for fixture in fixtures:
         name = fixture.stem
         raw = run(name + "-inspect", [vm, "run", image, "nupp.core.extract", "inspect", "@" + str(fixture), "First.answer", "--tasks"])
         metadata = json.loads(json.loads(raw))
@@ -79,6 +129,23 @@ def main():
         code = out / (name + ".program")
         run(name + "-program", [vm, "run", image, "nupp.core.extract", "image", "@" + str(fixture), "First.answer", "--output", code, "--tasks"])
         assert code.read_bytes() == bytes(metadata["bytes"])
+        if reference:
+            assert code.read_bytes() == (reference / code.name).read_bytes(), name
+            assert metadata == json.loads((reference / (name + ".json")).read_text()), name
+            proof["referenceProgramsIdentical"] += 1
+        mechanism[name] = inspect_program(code, metadata, fixture, names)
+        proof["artifacts"][str(code)] = digest(code)
+        proof["artifacts"][str(out / (name + ".json"))] = digest(out / (name + ".json"))
+        save()
+    for name in ("conditional", "conditional-false", "signed-conditional"):
+        assert mechanism[name]["conditionalCount"] > 0 and mechanism[name]["stopCount"] == 2
+    assert mechanism["join"]["conditionalCount"] > 0
+    assert mechanism["loop"]["conditionalCount"] > 0 and mechanism["loop"]["negativeJmpCount"] == 1
+    mechanism["loop"]["expectedTakenBackEdges"] = 5
+    mechanism["loop"]["basis"] = "Checked source cursor 1 through limit 5 inclusive, increment 1, and one negative body-exit jump; expected count is a source contract, not a Python execution oracle."
+    mechanism_path = out / "mechanism.json"
+    mechanism_path.write_text(json.dumps(mechanism, indent=2) + "\n")
+    proof["mechanism"] = {"path": str(mechanism_path), "sha256": digest(mechanism_path)}
     proof["artifacts"] = {str(path): digest(path) for path in sorted(out.iterdir()) if path.is_file() and path.name != "proof.json"}
     verify()
     proof["status"] = "verified-first-program-artifacts"
