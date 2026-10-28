@@ -473,6 +473,48 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
     for _, value in ipairs(f.edgeArgs) do
         uses[value] = uses[value] + 1
     end
+    -- Decide folds before emission so a sole-use literal has no machine result.
+    local immediates: {[integer]: integer} = {}
+    local immediateArgs: {[integer]: integer} = {}
+    local omitted: {[integer]: boolean} = {}
+    for at, op in ipairs(colOp) do
+        local shift = op == ISHL or op == USHR or op == SSHR
+        local arithmetic = op == IADD or op == ISUB
+        if shift or arithmetic or op == ICMP then
+            local position: integer = 2
+            local value = colArgs[colFirstArg[at] + 1]
+            local definition = colDefinitions[value]
+            if op == IADD and (definition <= 0 or colOp[definition] ~= ICONST) then
+                position, value = 1, colArgs[colFirstArg[at]]
+                definition = colDefinitions[value]
+            end
+            local width = bits(colValueKinds[value])
+            if definition > 0 and colOp[definition] == ICONST and width >= 32 then
+                local literal = colImm[definition]
+                if width == 32 then
+                    literal = literal & 0xffffffff
+                    if arithmetic and literal >= 0x80000000 then
+                        literal = literal - 0x100000000
+                    end
+                end
+                if shift then
+                    literal = literal & (width - 1)
+                end
+                if shift
+                    or (
+                        literal >= (arithmetic and -16773120 or 0)
+                        and literal <= 16773120
+                        and (math.abs(literal) < 4096 or literal % 4096 == 0)
+                    )
+                then
+                    immediates[at], immediateArgs[at] = literal, position
+                    if uses[value] == 1 then
+                        omitted[definition] = true
+                    end
+                end
+            end
+        end
+    end
     for order, block in ipairs(a.blockOrder) do
         local nextBlock = a.blockOrder[order + 1] or 0
         local fusedCondition: integer = -1
@@ -481,6 +523,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
             local before = #code.words
             local op, result, kind = colOp[at], colResult[at], colKind[at]
             local firstArg, nargs = colFirstArg[at], colNargs[at]
+            local immediate, immediateArg = immediates[at], immediateArgs[at] or 0
             local fused = op == ICMP
                 and at < colBlockEnd[block]
                 and colOp[at + 1] == BRIF
@@ -632,9 +675,9 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                 else -> do
                     for p = 1, nargs do
                         local value = colArgs[firstArg + p - 1]
-                        regs[p] = source(value)
+                        regs[p] = p == immediateArg and 0 or source(value)
                     end
-                    if result ~= 0 and not fused then
+                    if result ~= 0 and not fused and not omitted[at] then
                         rd = destination(result)
                     end
                     local width = machine(kind)
@@ -643,7 +686,12 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                         or 0, nargs >= 3 and regs[3]
                         or 0
                     local _ = switch op do
-                        case ICONST -> constant(rd, colImm[at], width)
+                        case ICONST -> do
+                            if not omitted[at] then
+                                constant(rd, colImm[at], width)
+                            end
+                            yield true
+                        end
                         case FCONST -> do
                             local temp = temporary(false)
                             constant(temp, colImm[at], bits(kind));
@@ -651,8 +699,21 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                             yield true
                         end
                         case STACK_ADDR -> addOffset(rd, 23, code.stackOffsets[colAux[at]] + colImm[at])
-                        case IADD -> emit(arm.add_reg(width, rd, x, y, 0))
-                        case ISUB -> emit(arm.sub_reg(width, rd, x, y, 0))
+                        case IADD, ISUB -> do
+                            if immediate ~= nil then
+                                local amount = immediate < 0 and -immediate or immediate
+                                local shifted = amount > 4095 and 1 or 0
+                                local encoded = shifted == 1 and amount >> 12 or amount
+                                local base = immediateArg == 1 and y or x
+                                emit(
+                                    (op == ISUB) ~= (immediate < 0) and arm.sub_imm(width, rd, base, encoded, shifted)
+                                    or arm.add_imm(width, rd, base, encoded, shifted)
+                                )
+                            else
+                                emit(op == IADD and arm.add_reg(width, rd, x, y, 0) or arm.sub_reg(width, rd, x, y, 0))
+                            end
+                            yield true
+                        end
                         case IMUL -> emit(arm.madd(width, rd, x, y, 31))
                         case UMULHI, SMULHI -> do
                             assert(width == 64, "S0 select: narrow multiply-high unsupported")
@@ -694,11 +755,20 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                                     x = signed
                                 end
                             end
-                            emit(
-                                op == ISHL and arm.lslv(width, rd, x, y)
-                                or op == USHR and arm.lsrv(width, rd, x, y)
-                                or arm.asrv(width, rd, x, y)
-                            )
+                            if immediate ~= nil then
+                                local rotation = op == ISHL and (-immediate & (width - 1)) or immediate
+                                local last = op == ISHL and width - 1 - immediate or width - 1
+                                emit(
+                                    op == SSHR and arm.sbfm(width, rd, x, rotation, last)
+                                    or arm.ubfm(width, rd, x, rotation, last)
+                                )
+                            else
+                                emit(
+                                    op == ISHL and arm.lslv(width, rd, x, y)
+                                    or op == USHR and arm.lsrv(width, rd, x, y)
+                                    or arm.asrv(width, rd, x, y)
+                                )
+                            end
                             yield true
                         end
                         case POPCNT -> do
@@ -760,7 +830,18 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                                 emit(arm.sbfm(32, ty, y, 0, bits(operandKind) - 1));
                                 x, y = tx, ty
                             end
-                            emit(arm.cmp_reg(w, x, y));
+                            if immediate ~= nil then
+                                emit(
+                                    arm.cmp_imm(
+                                        w,
+                                        x,
+                                        immediate > 4095 and immediate >> 12 or immediate,
+                                        immediate > 4095 and 1 or 0
+                                    )
+                                )
+                            else
+                                emit(arm.cmp_reg(w, x, y))
+                            end
                             local cc = assert(integerConditions[condition], "S0 select: integer comparison")
                             if fused then
                                 fusedCondition = cc
@@ -872,6 +953,8 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                                 )
                             elseif store then
                                 emit(arm.str(bytes, value, address, offset))
+                            elseif op == SLOAD and bytes == 4 and machine(valueKind) == 64 then
+                                emit(arm.ldrsw(value, address, offset))
                             else
                                 emit(arm.ldr(bytes, value, address, offset))
                                 if op == SLOAD then
@@ -882,7 +965,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                         end
                         else -> error("S0 select: unsupported operation " .. tostring(ir.opNames[op]))
                     end
-                    finish(fused and 0 or result, rd)
+                    finish((fused or omitted[at]) and 0 or result, rd)
                     yield true
                 end
             end
