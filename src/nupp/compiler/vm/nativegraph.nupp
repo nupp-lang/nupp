@@ -81,6 +81,10 @@ local stateAdmitted = {
     VarargTable = true
 }
 local recordAdmitted = {
+    GetSlot = true,
+    GetSlotF = true,
+    SetSlot = true,
+    SetSlotF = true,
     IsRec = true,
     TagCheckRec = true,
     GetPhys = true,

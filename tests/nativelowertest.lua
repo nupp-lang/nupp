@@ -831,6 +831,15 @@ function M.wholeCoreHandlersUseTheNuppGraph()
     end
 end
 
+function M.wholeRecordSlotHandlersUseTheNuppGraph()
+    local clif = coreClif()
+    for _, name in ipairs({"GetSlot", "GetSlotF", "SetSlot", "SetSlotF"}) do
+        local text = functionText(clif, name)
+        assert(text:find("Nupp native graph: " .. name, 1, true), name .. " bypassed the Nupp graph")
+        assert(text:find("return_call_indirect sig0, ", 1, true), name .. " lost its dispatch")
+    end
+end
+
 function M.wholePhysicalAndRecordTagHandlersUseTheNuppGraph()
     local clif = coreClif()
     for _, name in ipairs({

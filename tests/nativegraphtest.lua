@@ -114,6 +114,64 @@ local function checkedJumps()
     return checkedWithModules({"calls", "protocol"})
 end
 
+function M.recordSlotHandlersSeparateFastAndRecoveredWindows()
+    local _, options = checkedWithModules({"records", "protocol"})
+    options.helperModules["nupp.runtime.vm.recordhelpers"] = "nupp_rt_"
+    local scope = options.modules["nupp.runtime.vm.records"]
+    for _, name in ipairs({"GetSlot", "GetSlotF", "SetSlot", "SetSlotF"}) do
+        local fn = assert(scope.functions[name])
+        assert(nativegraph.admits(fn))
+        local g = nativegraph.compile(fn, options)
+        graph.verify(g)
+        graph.prune(g)
+        graph.verify(g)
+        local recovered, windows, dispatches, normal = 0, 0, 0, nil
+        for _, block in ipairs(g.blocks) do
+            if block.term.kind == "dispatch" then
+                dispatches = dispatches + 1
+            end
+            for index, op in ipairs(block.op) do
+                if op == "FrameRecover" then
+                    recovered = recovered + 1
+                elseif op == "FrameWindow" then
+                    windows = windows + 1
+                elseif op == "NativeHelperCall" then
+                    local call = block.args[index][1]
+                    if call.name == "recordIndex" or call.name == "newIndex" then
+                        assert(call.effects.mayCollect and call.effects.mayPark and call.effects.mayRaise)
+                        assert(call.normalReturn.frame == "caller" and call.normalReturn.synchronized)
+                        normal = call
+                    elseif call.name == "slotNumberError" then
+                        assert(call.effects.mayCollect and call.effects.mayRaise and not call.effects.mayPark)
+                        assert(call.normalReturn == nil and block.term.kind == "nativeFail")
+                    else
+                        assert(call.name == "barrier")
+                        assert(not call.effects.mayCollect and not call.effects.mayPark and not call.effects.mayRaise)
+                        assert(call.normalReturn == nil)
+                    end
+                end
+            end
+        end
+        assert(recovered == 1 and windows == 3 and dispatches == 2)
+        assert(normal and normal.name == (name:match("^Get") and "recordIndex" or "newIndex"))
+        local authority = normal.normalReturn
+        normal.normalReturn = nil
+        assert(not pcall(graph.verify, g), "slot callback recovered without return authority")
+        normal.normalReturn = authority
+        graph.verify(g)
+        if name:match("^Get") then
+            local composed = {}
+            for _, declaration in ipairs(g.compositions) do
+                composed[declaration.name] = true
+            end
+            assert(composed.slotReadManaged and composed.slotReadResult)
+        end
+        fn.paramKinds[1] = "uint64"
+        assert(not pcall(nativegraph.compile, fn, options), "slot handler bypassed signature validation")
+        fn.paramKinds[1] = "voidptr"
+    end
+end
+
 function M.physicalHandlersRecoverOnlyVerifiedCallerWindows()
     local _, options = checkedWithModules({"records", "protocol"})
     options.helperModules["nupp.runtime.vm.recordhelpers"] = "nupp_rt_"

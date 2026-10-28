@@ -34,6 +34,52 @@ local function finish(pc: voidptr, context: voidptr, value: uint64, kind: int64)
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
 
+local function slotReadResult(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr,
+    value: uint64,
+    floating: int64
+): uint64
+    if floating ~= 0 then
+        if native.either(value & values.QNAN ~= values.QNAN, value == values.QNAN) == false then
+            protocol.publishPc(pc, context)
+            records.slotNumberError(context)
+            return native.fail()
+        end
+        slots.writeFloat(frame, floats, program.readByte(pc, 1), native.fromBits(value))
+    else
+        slots.writeValue(frame, regs, program.readByte(pc, 1), value)
+    end
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function slotReadManaged(pc: voidptr, context: voidptr, object: uint64, floating: int64): uint64
+    protocol.publishPc(pc, context)
+    local shape = native.offset(
+        native.loadPointer(context, native.layout("shapes")),
+        native.index(native.word(program.readSigned32(pc, 4)) & values.LOW_WORD) * native.layout("ShapeInfo.size")
+    )
+    local name = native.load64(
+        native.loadPointer(shape, native.layout("ShapeInfo.names")),
+        program.readInteger(pc, 8) * 8
+    )
+    local value = records.recordIndex(context, object, name)
+    if frames.status(context) == -4 then
+        return native.fail()
+    end
+    local frame = frames.current(context)
+    local regs = frames.values(context, frame)
+    local ints = frames.integers(context, frame)
+    local floats = frames.floats(context, frame)
+
+    return slotReadResult(pc, regs, ints, floats, context, frame, value, floating)
+end
+
 local function slotRead(
     pc: voidptr,
     regs: voidptr,
@@ -71,38 +117,10 @@ local function slotRead(
         )
     end
     if fast == 0 then
-        protocol.publishPc(pc, context)
-        local shape = native.offset(
-            native.loadPointer(context, native.layout("shapes")),
-            native.index(native.word(program.readSigned32(pc, 4)) & values.LOW_WORD) * native.layout("ShapeInfo.size")
-        )
-        local name = native.load64(
-            native.loadPointer(shape, native.layout("ShapeInfo.names")),
-            program.readInteger(pc, 8) * 8
-        )
-        value = records.recordIndex(context, object, name)
-        if native.load32(context, native.layout("status")) == -4 then
-            return native.fail()
-        end
-    end
-    if floating ~= 0 then
-        if not native.either(value & values.QNAN ~= values.QNAN, value == values.QNAN) then
-            protocol.publishPc(pc, context)
-            records.slotNumberError(context)
-            return native.fail()
-        end
-        if fast == 0 then
-            return finish(pc, context, value, 1)
-        end
-        slots.writeFloat(frame, floats, program.readByte(pc, 1), native.fromBits(value))
-    else
-        if fast == 0 then
-            return finish(pc, context, value, 0)
-        end
-        slots.writeValue(frame, regs, program.readByte(pc, 1), value)
+        return slotReadManaged(pc, context, object, floating)
     end
 
-    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    return slotReadResult(pc, regs, ints, floats, context, frame, value, floating)
 end
 
 local function slotWrite(
