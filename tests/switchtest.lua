@@ -1121,4 +1121,101 @@ end
     testAssert.equal(codes, "NUPP2137")
 end
 
+local function compiledSwitch(source, expectedTable)
+    local result, diagnostics = checked(source)
+    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "switch source checks")
+    local listing = {}
+    program.image(result, "switch_table_test", "switch-table-test.nupp", listing)
+    local images = {}
+    for i, entry in ipairs(listing) do
+        images[i] = entry.image
+    end
+    local text = table.concat(images, "\n")
+    testAssert.equal(text:find("  Switch ", 1, true) ~= nil, expectedTable, text)
+
+    return program.run(result, "switch_table_test", "switch-table-test.nupp")
+end
+
+function M.denseIntegerTablesKeepNegativeMinimaHolesAndDefaults()
+    testAssert.equal(
+        compiledSwitch(
+            [[
+local function f(x: integer): integer
+    return switch x do
+        case -3 -> 11
+        case -2, 0 -> 17
+        else -> 23
+    end
+end
+return f(-4) + f(-3) + f(-2) + f(-1) + f(0) + f(1)
+]],
+            true
+        ),
+        114
+    )
+end
+
+function M.denseIntegerTablesUseCheckedNamedConstantsAndOneSelectorEvaluation()
+    testAssert.equal(
+        compiledSwitch(
+            [[
+const A: 10 = 10
+const B: 11 = 11
+const C: 12 = 12
+local calls = 0
+local function next(): integer
+    calls = calls + 1
+    return 11
+end
+local value = switch next() do
+    case A -> 10
+    case B -> 20
+    case C -> 30
+    else -> 40
+end
+return value + calls
+]],
+            true
+        ),
+        21
+    )
+end
+
+function M.sparseAndFloatingSwitchesKeepEqualityFallback()
+    testAssert.equal(
+        compiledSwitch(
+            [[
+local function f(x: integer): integer
+    return switch x do
+        case -10000 -> 1
+        case 0 -> 2
+        case 10000 -> 3
+        else -> 4
+    end
+end
+return f(-10000) + f(0) + f(10000) + f(1)
+]],
+            false
+        ),
+        10
+    )
+    testAssert.equal(
+        compiledSwitch(
+            [[
+local function f(x: number): integer
+    return switch x do
+        case 1 -> 10
+        case 2 -> 20
+        case 3 -> 30
+        else -> 40
+    end
+end
+return f(2.0) + f(2.5)
+]],
+            false
+        ),
+        60
+    )
+end
+
 return M

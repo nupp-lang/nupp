@@ -44,7 +44,7 @@ local function answer(command)
     return result:succeeded() and 0 or 1, result.output, reported
 end
 
-local glue = nil
+local glue = os.getenv("NUPP_NATIVE_JIT_TOOL")
 
 local function glueTool()
     if not glue then
@@ -463,23 +463,49 @@ function M.selfEdgesRespectTheExecutionBudget()
     end
 end
 
-function M.theEmitterRefusesVectorCodeAndJumpTables()
+function M.theEmitterAcceptsJumpTablesAndRefusesVectorCode()
     local fn = guest.parse(
         table.concat(
             {
                 "function switched 0 1 4 1 v:v",
-                "  table 0 0 1",
+                "  table 0 6 0 3",
                 "  IUnbox 0 1",
                 "  Switch 0 0",
-                "  RetNil",
-                "  RetNil",
+                "  IK 0 11",
+                "  IBox 2 0",
+                "  Ret 2",
+                "  IK 0 22",
+                "  IBox 2 0",
+                "  Ret 2",
+                "  IK 0 33",
+                "  IBox 2 0",
+                "  Ret 2",
                 "end",
             },
             "\n"
         )
     )
     local clif, reason = guest.emit(fn, layouts(), {nested = 0})
-    assert(clif == nil and reason:find("Switch"), "a jump table was accepted: " .. tostring(reason))
+    assert(clif and clif:find("br_table", 1, true), "a jump table was refused: " .. tostring(reason))
+    local path = tempDirectory() .. "/switch.clif"
+    write(path, guest.harness(fn, clif, layouts()))
+    for _, case in ipairs({{-1, 33}, {0, 11}, {1, 22}, {2, 33}, {4294967296, 33}}) do
+        local status, output = capture(
+            ("%s native jit %s integer_0 %s"):format(quote(glueTool()), quote(path), quote(case[1]))
+        )
+        assert(status == 0 and output:gsub("%s+$", "") == tostring(case[2]), output)
+    end
+    fn.nparams = 0
+    fn.signature = ":v"
+    fn.code[1].name = "IK"
+    for _, word in ipairs({"-9223372036854775808", "9223372036854775807"}) do
+        fn.code[1].operands = {"0", word}
+        local wide, problem = guest.emit(fn, layouts(), {nested = 0})
+        assert(wide, problem)
+        write(path, guest.harness(fn, wide, layouts()))
+        local status, output = capture(("%s native jit %s integer_0"):format(quote(glueTool()), quote(path)))
+        assert(status == 0 and output:gsub("%s+$", "") == "33", output)
+    end
     local vectors = guest.parse("function vectors 0 1 4 1 v:v\n  VAdd 0 0 0\n  RetNil\nend\n")
     clif, reason = guest.emit(vectors, layouts(), {nested = 0})
     assert(clif == nil and reason:find("VAdd"), "vector code was accepted: " .. tostring(reason))

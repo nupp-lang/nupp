@@ -36,7 +36,7 @@ stack may have moved.
 This temporary emitter retains its existing inline fast paths. Boundary
 operations run one shared Nupp handler through `nupp_jit_step`, then compiled
 code continues at the published frame position. There is no Rust instruction
-executor. Functions using vector registers or a jump table are not compiled.
+executor. Functions using vector registers are not compiled.
 The derived tier replaces this emitter by specializing the shared handlers
 through the Nupp graph.
 ]]
@@ -658,11 +658,10 @@ local HELPERS: {
 guest.HELPERS = HELPERS
 
 --- Instructions the function cannot be compiled with: vector code, the
---- typed-native proof instructions, and jump tables.
+--- typed-native proof instructions.
 local INELIGIBLE: {
     [string]: boolean
 } = {
-    Switch = true,
     VAdd = true,
     Simd = true,
     SpanLen = true,
@@ -2483,6 +2482,29 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                 local cond = emit("icmp ne " .. I(num(ins, 2)) .. ", " .. k("0"))
                 setV(d, boolWord(cond))
                 condOf[d] = cond
+                yield true
+            end
+            case "Switch" -> do
+                local offsets = need(fn.tables[num(ins, 2) + 1], "jump table") as {integer}
+                local value = I(num(ins, 1))
+                local limit = k(tostring(#offsets - 1))
+                local index = emit(
+                    "ireduce.i32 " .. emit(
+                        "select " .. emit("icmp ult " .. value .. ", " .. limit) .. ", " .. value .. ", " .. limit
+                    )
+                )
+                local targets: {ssa.Block} = {}
+                for i = 1, #offsets do
+                    targets[i] = newBlock()
+                end
+                b.dispatch(index, targets)
+                local saved = snapshot()
+                for i, offset in ipairs(offsets) do
+                    seal(targets[i])
+                    b.current = targets[i]
+                    restore(saved)
+                    enterBlock(pc + 1 + offset, pc)
+                end
                 yield true
             end
             case "Jmp" -> do

@@ -73,6 +73,7 @@ export record Block
     branchReg: integer?
     target: Block?
     fall: Block?
+    switchTargets: {Block}?
     ret: Instruction?
 
     --- Its position among the placed blocks, 0 until it is placed.
@@ -308,6 +309,12 @@ export record Fn
         local fall = new Block()
         current.ends, current.branchOp, current.branchReg, current.target, current.fall = "branch", op, reg, b, fall
         self:place(fall)
+    end
+
+    function dispatch(self, reg: integer, targets: {Block}): nil
+        local current = self:block()
+        current.ends, current.branchReg, current.switchTargets = "switch", reg, targets
+        self:place(new Block())
     end
 
     --- Forgets every block, for a body lowered again from nothing.

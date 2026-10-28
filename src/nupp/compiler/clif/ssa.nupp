@@ -51,6 +51,7 @@ record ssa.Builder
     constant: function(kind: string, text: string): string
     jump: function(to: ssa.Block, args: {string}): nil
     branch: function(cond: string, yes: ssa.Block, no: ssa.Block): nil
+    dispatch: function(index: string, targets: {ssa.Block}): nil
     finish: function(values: {string}): nil
     terminate: function(text: string): nil
     here: function(): ssa.Block
@@ -137,6 +138,21 @@ function ssa.new(): ssa.Builder
         block.term = {kind = "brif", cond = cond, targets = {{block = yes, args = {}}, {block = no, args = {}}}}
         link(block, yes)
         link(block, no)
+        b.current = nil
+    end
+
+    local function dispatch(index: string, targets: {ssa.Block}): nil
+        need(#targets > 0, "switch without default")
+        local block = here()
+        local edges, seen = {}, {}
+        for i, target in ipairs(targets) do
+            edges[i] = {block = target, args = {}}
+            if not seen[target] then
+                link(block, target);
+                seen[target] = true
+            end
+        end
+        block.term = {kind = "br_table", index = index, targets = edges}
         b.current = nil
     end
 
@@ -376,6 +392,16 @@ function ssa.new(): ssa.Builder
                 ] = "    brif " .. resolve(
                     term.cond
                 ) .. ", " .. target(term.targets[1]) .. ", " .. target(term.targets[2])
+            elseif term.kind == "br_table" then
+                local cases = {}
+                for i = 2, #term.targets do
+                    cases[#cases + 1] = target(term.targets[i])
+                end
+                out[
+                    #out + 1
+                ] = "    br_table " .. resolve(
+                    term.index
+                ) .. ", " .. target(term.targets[1]) .. ", [" .. table.concat(cases, ", ") .. "]"
             elseif term.kind == "text" then
                 out[#out + 1] = "    " .. term.text
             else
@@ -402,6 +428,7 @@ function ssa.new(): ssa.Builder
         constant = constant,
         jump = jump,
         branch = branch,
+        dispatch = dispatch,
         finish = finish,
         terminate = terminate,
         here = here,

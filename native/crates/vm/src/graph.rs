@@ -532,14 +532,15 @@ fn decode_registers(table: &Table, r: &mut Reader, image: &Image, nfunctions: us
         }
         let insts = Span { start, len };
         let term = r.word()?;
-        if term > RETURNS || term == SWITCH || term == PARK { return Err("terminator kind".into()); }
+        if term > RETURNS || term == PARK { return Err("terminator kind".into()); }
         let value = r.word()?;
         if value != NONE { key(value)?; }
         let constant = r.optional(g.constants.len(), "raise constant")?;
         let count = r.word()?;
         if term == RETURNS && (value == NONE || count == NONE || count > 255) { return Err("returns terminator".into()); }
         let ntargets = r.count(1)?;
-        let expected = match term { JUMP => 1, BRANCH => 2, _ => 0 };
+        if term == SWITCH && ntargets == 0 { return Err("switch without default".into()); }
+        let expected = match term { JUMP => 1, BRANCH => 2, SWITCH => ntargets, _ => 0 };
         if ntargets != expected { return Err("edge count".into()); }
         let start = g.edges.len() as u32;
         for _ in 0..ntargets {
@@ -618,11 +619,11 @@ fn verify_registers(table: &Table, image: &Image, g: &Graph, scratch: &mut Scrat
         }
         if b.value != NONE {
             let (class, reg) = ((b.value >> 8) as u8, (b.value & 0xff) as usize);
-            let ok = match b.term { BRANCH => matches!(class, V | I), RETURN => matches!(class, V | I | F), RETURNS => class == V, _ => false };
+            let ok = match b.term { BRANCH => matches!(class, V | I), SWITCH => class == I, RETURN => matches!(class, V | I | F), RETURNS => class == V, _ => false };
             if !ok { return Err(format!("block {bid}: ending value class")); }
             let n = if b.term == RETURNS { let n = b.count as u8; if n >= 128 { (n & 127) as usize + 8 } else { n as usize }.max(1) } else { 1 };
             within(class, reg + n - 1)?;
-        } else if matches!(b.term, BRANCH | RETURNS) {
+        } else if matches!(b.term, BRANCH | SWITCH | RETURNS) {
             return Err(format!("block {bid}: ending without a value"));
         }
         if b.term == RAISE && b.constant == NONE { return Err(format!("block {bid}: raise without a constant")); }
@@ -998,7 +999,7 @@ pub fn derive(table: &Table, image: &Image, g: &Graph, d: &mut Derivation) -> Re
             }
             SWITCH => {
                 let at = code.len();
-                code.push(Op::Switch(r8(physical(b.value), "switch index")?, r16(jump_tables.len() as u32, "jump table")?)); debug.push((0, 0));
+                code.push(Op::Switch(r8(end_reg(b.value), "switch index")?, r16(jump_tables.len() as u32, "jump table")?)); debug.push((0, 0));
                 jump_tables.push((0, vec![0; edges.len() - 1]));
                 let mut targets: Vec<Result<u32, usize>> = Vec::with_capacity(edges.len());
                 let mut trampolines = Vec::new();

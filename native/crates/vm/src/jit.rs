@@ -2101,10 +2101,8 @@ impl<M: Module> Compiler<M> {
                     Op::SetMethod(shape, k, v) => { let sv = b.ins().iconst(types::I64, shape as i64); let name = kval!(k); let fv = rv!(v); hcall!("j_set_method", &[sv, name, fv]); }
                     Op::Switch(r, t) => {
                         let idx = iv!(r);
-                        let zero = b.ins().iconst(types::I64, 0);
                         let big = b.ins().iconst(types::I64, i32::MAX as i64);
-                        let nonneg = b.ins().smax(idx, zero);
-                        let clamped = b.ins().umin(nonneg, big);
+                        let clamped = b.ins().umin(idx, big);
                         let idx32 = b.ins().ireduce(types::I32, clamped);
                         let (def, tbl) = &f.jump_tables[t as usize];
                         let def_call = b.func.dfg.block_call(target(*def), &[]);

@@ -67,7 +67,7 @@ end
 -- `graph::derive` lays it out: blocks in order, a jump to the next block
 -- left out, a branch whose untaken target is next as one test.
 local function derive(kept: any): any
-    local code, starts, patches = {}, {}, {}
+    local code, starts, patches, tables, tablePatches = {}, {}, {}, {}, {}
     local blocks = kept.blocks
     local box = kept.nparams + 1
 
@@ -104,6 +104,12 @@ local function derive(kept: any): any
                     jump(targets[1])
                 end
             end
+        elseif kind == "switch" then
+            local at = #code + 1
+            local index = #tables + 1
+            tables[index] = {}
+            tablePatches[#tablePatches + 1] = {at = at, index = index, targets = targets}
+            emit("Switch", t.value % 256, index - 1)
         elseif kind == "returns" then
             emit("RetN", t.value, t.count)
         elseif kind == "raise" then
@@ -129,7 +135,19 @@ local function derive(kept: any): any
         code[p.at][p.field] = starts[p.target] - p.at - 1
     end
 
-    return {code = code, consts = kept.constants, nregs = kept.registers[1], nfregs = kept.registers[2]}
+    for _, patch in ipairs(tablePatches) do
+        for i, target in ipairs(patch.targets) do
+            tables[patch.index][i] = starts[target] - patch.at - 1
+        end
+    end
+
+    return {
+        code = code,
+        consts = kept.constants,
+        nregs = kept.registers[1],
+        nfregs = kept.registers[2],
+        tables = tables
+    }
 end
 
 -- Every byte outside printable ASCII is escaped, so a listing is ASCII text
@@ -172,6 +190,13 @@ function graphemit.listing(f: any, kept: any): any
             value = numbertext.literal(value as number)
         end
         lines[#lines + 1] = ("  const %d %s %s"):format(i - 1, c.kind, tostring(value))
+    end
+    for i, offsets in ipairs(derived.tables or {}) do
+        local words = {}
+        for j, offset in ipairs(offsets) do
+            words[j] = tostring(offset)
+        end
+        lines[#lines + 1] = ("  table %d %s"):format(i - 1, table.concat(words, " "))
     end
     -- The source line of every instruction, run-length encoded: `L` for one
     -- instruction, `LxN` for N in a row, 0 where none is known.

@@ -67,6 +67,10 @@ function convert.blocks(f: any): any
             elseif ends == "branch" then
                 push(b.target)
                 push(b.fall)
+            elseif ends == "switch" then
+                for _, target in ipairs(b.switchTargets) do
+                    push(target)
+                end
             elseif ends ~= "return" then
                 error("a block the entry reaches does not end", 0)
             end
@@ -127,6 +131,12 @@ function convert.blocks(f: any): any
             else
                 term = {kind = "branch", value = value, targets = {fall, taken}}
             end
+        elseif ends == "switch" then
+            local targets = {}
+            for i, target in ipairs(b.switchTargets) do
+                targets[i] = number[through(target)]
+            end
+            term = {kind = "switch", value = 256 + b.branchReg, targets = targets}
         else
             local ret = b.ret
             local op = ret[1]
