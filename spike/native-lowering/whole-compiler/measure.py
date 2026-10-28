@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Validate or explicitly measure matched full native compiler commands."""
 import argparse
+import os
 import json
 import math
 import random
 import re
 import shutil
+import signal
+import sys
 import statistics
 import subprocess
 import time
@@ -25,6 +28,27 @@ def interval(ratios):
     logs = list(map(math.log, ratios))
     boots = [math.exp(statistics.mean(rng.choices(logs, k=len(logs)))) for _ in range(10000)]
     return [percentile(boots, .025), percentile(boots, .975)]
+
+
+
+def run_with_resources(command, cwd, environment, stdout, stderr, timeout):
+    """Collect this child's wait4 usage without privileged system queries."""
+    with subprocess.Popen(command, cwd=cwd, env=environment, stdout=stdout, stderr=stderr) as process:
+        def expired(signum, frame):
+            raise subprocess.TimeoutExpired(command, timeout)
+        previous = signal.signal(signal.SIGALRM, expired)
+        signal.alarm(timeout)
+        try:
+            _, status, usage = os.wait4(process.pid, 0)
+            process.returncode = os.waitstatus_to_exitcode(status)
+        except BaseException:
+            process.kill()
+            process.wait()
+            raise
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, previous)
+        return subprocess.CompletedProcess(command, process.returncode), usage
 
 
 def main():
@@ -90,10 +114,12 @@ def main():
         row = {'mode': mode, 'workload': workload, 'pair': index, 'warmup': warmup, 'argv': command, 'cwd': str(cwd), 'controls': {key: env.get(key) for key in ['NO_JIT', 'NO_AOT', 'NO_GC', 'NUPP_CACHE_DIR', 'NUPP_VM_AUTO_REBUILD', 'NUPP_COMPILER_ROOT', 'AOT_VERBOSE']}, 'status': 'running'}
         report['rows'].append(row)
         prepare.save(receipt, report)
-        timed = ['/usr/bin/time', '-l', '-o', str(prefix) + '.resource', *command] if args.measure and not warmup else command
         with prefix.with_suffix('.out').open('w') as out, prefix.with_suffix('.err').open('w') as err:
             start = time.perf_counter() if args.measure and not warmup else None
-            result = subprocess.run(timed, cwd=cwd, env=env, stdout=out, stderr=err, timeout=3600)
+            if args.measure and not warmup:
+                result, usage = run_with_resources(command, cwd, env, out, err, 3600)
+            else:
+                result = subprocess.run(command, cwd=cwd, env=env, stdout=out, stderr=err, timeout=3600)
             if start is not None:
                 row['wallSeconds'] = time.perf_counter() - start
         row['returnCode'] = result.returncode
@@ -118,10 +144,11 @@ def main():
             elif not warmup:
                 assert data['timing']['reusedModules'] > 0, 'Warm check did not reuse modules'
         if 'wallSeconds' in row:
-            resources = Path(str(prefix) + '.resource').read_text()
-            found = re.search(r'(\d+)\s+maximum resident set size', resources)
-            assert found
-            row['peakRssBytes'] = int(found[1])
+            row['peakRssBytes'] = int(usage.ru_maxrss) * (1 if sys.platform == 'darwin' else 1024)
+            row['userCpuSeconds'] = usage.ru_utime
+            row['systemCpuSeconds'] = usage.ru_stime
+            row['resourceMethod'] = 'wait4 for the measured direct child; macOS ru_maxrss bytes'
+            prepare.save(Path(str(prefix) + '.resource.json'), {key: row[key] for key in ['peakRssBytes', 'userCpuSeconds', 'systemCpuSeconds', 'resourceMethod']})
             if workload == 'emit':
                 row['wholePipelineMillisecondsPerFunction'] = 1000 * row['wallSeconds'] / row['emittedFunctions']
         prepare.save(receipt, report)
