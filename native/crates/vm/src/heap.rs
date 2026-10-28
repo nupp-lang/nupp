@@ -408,7 +408,6 @@ pub struct Heap {
     allocator: NativeAllocator,
     chunk_bytes_mapped: u64,
     live_count: usize,
-    /// The root walk's candidate buffer, kept between walks.
     /// `GC_STATS=1`: time collection and report it at exit.
     timed: bool,
     phase: Phase,
