@@ -14,7 +14,7 @@ local json = require("nupp.codec.json")
 local graphimage = require("nupp.compiler.vm.graphimage")
 local producer = {}
 local MODULE = "nupp.runtime.core.arena"
-local names = {"initialize", "reserve", "release", "reset"}
+local names = {"initialize", "reserve", "canRelease", "release", "reset"}
 
 local function selected(g: any, owner: any, mode: string, resolved: any): (any, any)
     local artifact = sink.compilerGraph(g, owner.name, owner, resolved)
@@ -66,7 +66,17 @@ function producer.compile(mode: string, fixture: string): string
         local item = resolved[symbol]
         local code, metric = selected(item.graph, item.owner, mode, resolved)
         codes[symbol], metrics[#metrics + 1] = code, metric
-        assert(#code.fixupKind == 0, "arena services must remain closed leaves")
+        if name == "release" then
+            assert(
+                #code.fixupKind == 1
+                and code.fixupKind[1] == selector.BL26
+                and code.fixupName[1] == MODULE .. ".canRelease"
+                and code.fixupAddend[1] == 0,
+                "release must call checked canRelease once"
+            )
+        else
+            assert(#code.fixupKind == 0, "arena validator and allocation services must remain closed leaves")
+        end
     end
     assert(fixture == "arena" or fixture == "boolean")
     local probePath = ROOT .. "/native/core/tests/" .. fixture .. "-probe.nupp"

@@ -66,10 +66,14 @@ def main():
                 label = fixture + '-' + mode
                 result = json.loads(json.loads(run('select-' + label, [vm, 'run', image, 'nupp.core.arenaproducer', 'compile', mode, fixture, '--tasks'])))
                 (out / (label + '.json')).write_text(json.dumps(result, indent=2) + '\n')
-                assert len(result['offsets']) == len(result['handlers']) == 1 and len(result['functions']) == 4
+                assert len(result['offsets']) == len(result['handlers']) == 1 and len(result['functions']) == 5
                 assert len(result['refusals']) == 10
-                assert result['handlers'][0]['calls'] >= 4 and all(f['calls'] == 0 for f in result['functions'])
+                functions = {f['name']: f for f in result['functions']}
+                assert set(functions) == {'initialize', 'reserve', 'canRelease', 'release', 'reset'}
+                assert result['handlers'][0]['calls'] >= 4
+                assert all(f['calls'] == (1 if name == 'release' else 0) for name, f in functions.items())
                 assert result['callBytes'] > result['frames'][0]
+                assert result['callBytes'] >= result['frames'][0] + functions['release']['frameBytes'] + functions['canRelease']['frameBytes']
                 assert result['spillOffset'] + result['callBytes'] <= result['scratchBytes']
                 if mode == 'spill':
                     metrics = result['handlers'] + result['functions']
