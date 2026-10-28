@@ -1,0 +1,17 @@
+[package]
+name = "nupp-s0-cranelift-control"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+cranelift-codegen = "=0.135.5"
+cranelift-native = "=0.135.5"
+cranelift-reader = "=0.135.5"
+serde_json = "1"
+sha2 = "0.10"
+
+[profile.release]
+debug = false
