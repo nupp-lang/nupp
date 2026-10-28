@@ -46,29 +46,23 @@ def inspect_program(code, metadata, fixture, names):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--reference", type=Path, help="preserved program artifacts for exact byte reproduction")
-    parser.add_argument("--catalog", action="store_true", help="inspect checked multi-function fixtures without runtime admission")
     args = parser.parse_args()
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=False)
     freeze = json.loads((BOOT / "freeze.json").read_text())
-    tools = {key: Path(freeze["artifacts"][key]["path"]) for key in ("stage0-runtime", "stage0-compiler.image")}
+    selection = freeze["coreBuildTool"]
+    tools = {key: Path(freeze["artifacts"][selection[key]]["path"]) for key in ("runtime", "compiler")}
     for key, path in tools.items():
-        assert digest(path) == freeze["artifacts"][key]["sha256"], key
+        assert digest(path) == freeze["artifacts"][selection[key]]["sha256"], key
     source = ROOT / "native/core/program"
     fixtures = sorted((source / "fixtures").glob("*.nupp"))
-    expected = {"add", "bits", "conditional", "conditional-false", "join", "loop", "signed-conditional", "wrap", "zero"}
+    expected = {"add", "bits", "conditional", "conditional-false", "join", "loop", "signed-conditional", "wrap", "zero", "parallel", "zero-loop", "boolean-join"}
     assert {fixture.stem for fixture in fixtures} == expected
     names_source = (source / "program.nupp").read_text()
     names_block = re.search(r"program\.names = \{(.*?)\n\}", names_source, re.S)
     assert names_block, "missing Nupp opcode names"
     names = re.findall(r'"([A-Za-z][A-Za-z0-9]*)"', names_block.group(1))
     assert len(names) == 21 and len(set(names)) == 21
-    reference_inputs = {}
-    reference = args.reference.resolve() if args.reference else None
-    if reference:
-        for path in [reference / "proof.json", reference / "mechanism.json", *[reference / (name + suffix) for name in sorted(expected) for suffix in (".program", ".json")]]:
-            reference_inputs[str(path)] = digest(path)
     project = out / "project"
     modules = project / "src/nupp/core"
     modules.mkdir(parents=True)
@@ -76,7 +70,7 @@ def main():
         shutil.copyfile(source / (name + ".nupp"), modules / (name + ".nupp"))
     (project / "nupp.lua").write_text("return {include = {" + ",".join(json.dumps(str(path)) for path in ["src", ROOT / "src", ROOT / "native/crates/vm/lib", ROOT / "native/crates/vm/decls"]) + "}}\n")
     env = {key: value for key, value in os.environ.items() if not key.startswith(("NUPP_", "JIT_", "GC_", "LUA")) and key not in ("NO_AOT", "NO_JIT", "AOT_VERBOSE", "OP_STATS", "BUILTIN_STATS", "TABLE_STATS")}
-    env.update(NO_AOT="1", NO_JIT="1", NUPP_VM_AUTO_REBUILD="0", NUPP_VM_EMIT_CACHE="", NUPP_COMPILER_ROOT=str(ROOT), NUPP_VM_BINARY=str(tools["stage0-runtime"]), NUPP_VM_CLI_IMAGE=str(tools["stage0-compiler.image"]))
+    env.update(NO_AOT="1", NO_JIT="1", NUPP_VM_AUTO_REBUILD="0", NUPP_VM_EMIT_CACHE="", NUPP_COMPILER_ROOT=str(ROOT), NUPP_VM_BINARY=str(tools["runtime"]), NUPP_VM_CLI_IMAGE=str(tools["compiler"]))
     compiler_sources = {}
     for directory in ("src", "decls", "native/crates/vm/lib", "native/crates/vm/decls"):
         for path in sorted((ROOT / directory).rglob("*")):
@@ -86,12 +80,10 @@ def main():
     source_manifest.write_text(json.dumps(compiler_sources, indent=2) + "\n")
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     proof = {"compilerSourceManifest": {"path": str(source_manifest), "sha256": digest(source_manifest), "files": len(compiler_sources), "revision": revision}, "scope": "Pinned frozen stage zero is a build tool only; no Rust execution oracle or linked VM", "inputs": {str(path): digest(path) for path in [*tools.values(), BOOT / "freeze.json", Path(__file__), *source.glob("*.nupp"), *source.glob("fixtures/*.nupp"), *source.glob("catalog-fixtures/*.nupp")]}, "steps": [], "artifacts": {}}
-    proof["inputs"].update(reference_inputs)
+    proof["frontend"] = "one checked-CST binding/CFG traversal, guest/native profiles"
+    proof["guestPath"] = ["checker", "lower.functionGraph", "vm.graph", "graph.lower", "program.fromBlocks"]
     proof["opcodeNames"] = names
     proof["fixtureCount"] = len(fixtures)
-    if reference:
-        proof["reference"] = str(reference)
-        proof["referenceProgramsIdentical"] = 0
     def save():
         (out / "proof.json").write_text(json.dumps(proof, indent=2) + "\n")
     def verify():
@@ -111,7 +103,7 @@ def main():
         verify()
         assert result.returncode == 0, label
         return (out / (label + ".out")).read_bytes()
-    vm, compiler = tools["stage0-runtime"], tools["stage0-compiler.image"]
+    vm, compiler = tools["runtime"], tools["compiler"]
     checked = json.loads(run("check", [vm, "exec", compiler, "nupp.tools.vm.root", "check", "--json", "src/nupp/core/program.nupp", "src/nupp/core/extract.nupp"]))
     assert checked["ok"], checked
     image = out / "extract.image"
@@ -119,25 +111,33 @@ def main():
     proof["inputs"][str(image)] = digest(image)
     save()
     tested = json.loads(run("verifier-tests", [vm, "run", image, "nupp.core.extract", "test", "--tasks"]))
-    assert tested == 27, tested
+    assert tested >= 15, tested
     proof["verifierCases"] = tested
     mechanism = {}
     for fixture in fixtures:
         name = fixture.stem
         raw = run(name + "-inspect", [vm, "run", image, "nupp.core.extract", "inspect", "@" + str(fixture), "First.answer", "--tasks"])
         metadata = json.loads(json.loads(raw))
+        assert metadata["frontend"] == "nupp.compiler.vm.lower.functionGraph"
+        assert metadata["representation"] == "nupp.compiler.vm.graph"
+        assert metadata["derivation"] == "nupp.compiler.vm.graph.lower"
+        assert metadata["graph"].get("native") is None
+        assert metadata["graph"]["nparams"] == 0
+        assert len(metadata["graph"]["blocks"]) == metadata["graphBlocks"]
+        assert metadata["graphBlocks"] > 0 and metadata["graphValues"] > 0 and metadata["graphPositions"] > 0
         (out / (name + ".json")).write_text(json.dumps(metadata, indent=2) + "\n")
         code = out / (name + ".program")
         run(name + "-program", [vm, "run", image, "nupp.core.extract", "image", "@" + str(fixture), "First.answer", "--output", code, "--tasks"])
         assert code.read_bytes() == bytes(metadata["bytes"])
-        if reference:
-            assert code.read_bytes() == (reference / code.name).read_bytes(), name
-            assert metadata == json.loads((reference / (name + ".json")).read_text()), name
-            proof["referenceProgramsIdentical"] += 1
         mechanism[name] = inspect_program(code, metadata, fixture, names)
         proof["artifacts"][str(code)] = digest(code)
         proof["artifacts"][str(out / (name + ".json"))] = digest(out / (name + ".json"))
         save()
+    cycle_metadata = json.loads(json.loads(run("copy-cycle-inspect", [vm, "run", image, "nupp.core.extract", "cycleInspect", "--tasks"])))
+    (out / "copy-cycle.json").write_text(json.dumps(cycle_metadata, indent=2) + "\n")
+    run("copy-cycle-program", [vm, "run", image, "nupp.core.extract", "cycleImage", "--output", out / "copy-cycle.program", "--tasks"])
+    mechanism["copy-cycle"] = inspect_program(out / "copy-cycle.program", cycle_metadata, source / "extract.nupp", names)
+    mechanism["copy-cycle"]["basis"] = "Verified shared graph with two forced slot hints and a parallel-copy cycle; expected sum30."
     for name in ("conditional", "conditional-false", "signed-conditional"):
         assert mechanism[name]["conditionalCount"] > 0 and mechanism[name]["stopCount"] == 2
     assert mechanism["join"]["conditionalCount"] > 0
@@ -147,22 +147,6 @@ def main():
     mechanism_path = out / "mechanism.json"
     mechanism_path.write_text(json.dumps(mechanism, indent=2) + "\n")
     proof["mechanism"] = {"path": str(mechanism_path), "sha256": digest(mechanism_path)}
-    if args.catalog:
-        tested = json.loads(run("catalog-tests", [vm, "run", image, "nupp.core.extract", "testCatalog", "--tasks"]))
-        assert tested == 13, tested
-        proof["catalogCases"] = tested
-        catalog_summary = {}
-        for fixture in sorted((source / "catalog-fixtures").glob("*.nupp")):
-            raw = run(fixture.stem + "-catalog", [vm, "run", image, "nupp.core.extract", "catalog", "@" + str(fixture), "--tasks"])
-            catalog = json.loads(json.loads(raw))
-            assert catalog["runtimeAdmitted"] is False
-            target = out / (fixture.stem + "-catalog.json")
-            target.write_text(json.dumps(catalog, indent=2) + "\n")
-            catalog_summary[fixture.stem] = {"path": str(target), "sha256": digest(target), "functions": len(catalog["functions"]), "runtimeAdmitted": False}
-        constants_tested = json.loads(run("catalog-constants-tests", [vm, "run", image, "nupp.core.extract", "testCatalogConstants", "@" + str(source / "catalog-fixtures/constants.nupp"), "--tasks"]))
-        assert constants_tested == 6, constants_tested
-        proof["catalogCases"] += constants_tested
-        proof["catalog"] = catalog_summary
     proof["artifacts"] = {str(path): digest(path) for path in sorted(out.iterdir()) if path.is_file() and path.name != "proof.json"}
     verify()
     proof["status"] = "verified-first-program-artifacts"

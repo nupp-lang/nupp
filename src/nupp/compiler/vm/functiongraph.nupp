@@ -117,7 +117,8 @@ function frontend.compile(fn: any, options: any, profile: any): any
                 pos = position(node)
             }
             resume(right)
-            bindings[key] = expression(node.rhs, boolean)
+            local rhs = expression(node.rhs, boolean)
+            bindings[key] = rhs
             jump(done, node)
             resume(done)
             local result = bindings[key]

@@ -261,51 +261,57 @@ function program.encode(instructions: {any}, result: integer): any
     return encodeInstructions(copied)
 end
 
-function program.fromBlocks(kept: any): any
-    assert(not kept.graph and #kept.blocks > 0 and #kept.constants == 0, "unsupported core function graph")
-    local instructions, starts, patches = {}, {}, {}
-    for index, block in ipairs(kept.blocks) do
-        starts[index] = #instructions + 1
-        local term, limit = block.term, #block.code
-        local result = nil
-        if term.kind == "return" then
-            local box = block.code[limit]
-            assert(box and box[1] == "IBox" and term.value == box[2], "core return requires an adjacent integer box")
-            opcodes.check(box)
-            integer(box[2], 255)
-            result, limit = box[3], limit - 1
-        end
-        for i = 1, limit do
-            instructions[#instructions + 1] = block.code[i]
-        end
-
-        local function jump(name: string, target: integer, register: integer?): nil
-            integer(target, #kept.blocks)
-            assert(target >= 1, "invalid core block target")
-            instructions[#instructions + 1] = register ~= nil and {name, register, 0} or {name, 0}
-            patches[#patches + 1] = {at = #instructions, target = target, field = register ~= nil and 3 or 2}
-        end
-
-        if term.kind == "return" then
-            assert(#term.targets == 0 and term.value ~= nil, "invalid core return")
-            instructions[#instructions + 1] = {"CoreStop", result}
-        elseif term.kind == "jump" then
-            assert(#term.targets == 1, "invalid core jump")
-            jump("Jmp", term.targets[1])
-        else
-            assert(
-                term.kind == "branch" and #term.targets == 2 and term.value >= 256 and term.value < 512,
-                "core branch requires an integer condition"
-            )
-            jump("JmpIfIZero", term.targets[2], integer(term.value - 256, 255))
-            jump("Jmp", term.targets[1])
+function program.fromBlocks(g: any): any
+    assert(g.native == nil and g.nparams == 0 and #g.blocks > 0, "core requires a closed guest graph")
+    assert(#g.constants == 0 and not g.vararg, "unsupported core graph metadata")
+    graph.verify(g)
+    graph.prune(g)
+    graph.verify(g)
+    for _, block in ipairs(g.blocks) do
+        if block.term.kind == "return" then
+            assert(block.term.value and g.types[block.term.value] == "i", "core requires an integer graph return")
         end
     end
-    for _, patch in ipairs(patches) do
-        instructions[patch.at][patch.field] = starts[patch.target] - patch.at - 1
+    -- Slot assignment, edge copies and branch layout belong to graph.lower.
+    -- This bounded entry projects its integer return to CoreStop. It does not
+    -- discover blocks, rename registers or reconstruct control flow.
+    local derived = graph.lower(g)
+    local instructions, projected, branches = {}, {}, {}
+    local at: integer = 1
+    while at <= #derived.code do
+        local instruction = derived.code[at]
+        projected[at] = #instructions + 1
+        if instruction[1] == "IBox" then
+            local returned = derived.code[at + 1]
+            assert(returned and returned[1] == "Ret" and returned[2] == instruction[2], "unsupported core boxing")
+            instructions[#instructions + 1] = {"CoreStop", instruction[3]}
+            at = at + 2
+        else
+            assert(ids[instruction[1]] ~= nil, "unsupported core graph operation " .. tostring(instruction[1]))
+            local copy = {}
+            for i, operand in ipairs(instruction) do
+                copy[i] = operand
+            end
+            instructions[#instructions + 1] = copy
+            local field = instruction[1] == "Jmp" and 2 or instruction[1] == "JmpIfIZero" and 3 or nil
+            if field then
+                branches[#branches + 1] = {at = #instructions, field = field, target = at + instruction[field] + 1}
+            end
+            at = at + 1
+        end
+    end
+    for _, branch in ipairs(branches) do
+        local target = assert(projected[branch.target], "core branch enters a removed return record")
+        instructions[branch.at][branch.field] = target - branch.at - 1
     end
     local encoded = encodeInstructions(instructions)
-    encoded.name = kept.name
+    encoded.name = g.name
+    encoded.frontend = "nupp.compiler.vm.lower.functionGraph"
+    encoded.representation = "nupp.compiler.vm.graph"
+    encoded.derivation = "nupp.compiler.vm.graph.lower"
+    encoded.graphBlocks, encoded.graphValues = #g.blocks, #g.types
+    encoded.graphPositions = #g.positions
+    encoded.graph = g
 
     return encoded
 end
@@ -338,316 +344,6 @@ function program.verifyData(bytes: string, codeBytes: integer): nil
     for i = 0, #program.names - 1 do
         local offset = readWord(bytes, handlers + i * 8)
         assert(offset < codeBytes and offset % 4 == 0, "invalid handler offset")
-    end
-end
-
-function program.fromListing(text: string): any
-    local header = assert(text:match("^[^\n]+"), "missing program header")
-    local name, id, parameters, registers, floats, signature = header:match(
-        "^function (%S+) (%d+) (%d+) (%d+) (%d+) (%S+)$"
-    )
-    assert(
-        name
-        and tonumber(id) ~= nil
-        and tonumber(parameters) == 0
-        and tonumber(registers) ~= nil
-        and tonumber(floats) ~= nil
-        and signature == ":v",
-        "first program requires a closed zero-argument function"
-    )
-    local instructions = {}
-    for line in text:gmatch("[^\n]+") do
-        local body = line:match("^  (.*)$")
-        if body and (body:match("^source %S+$") or body:match("^lines [%dx ]+$")) then
-            -- Metadata carries no executable operands.
-        elseif body then
-            local instruction = {}
-            for token in body:gmatch("%S+") do
-                if #instruction == 0 then
-                    instruction[1] = token
-                else
-                    local signature = opcodes.describe(instruction[1])
-                    local operand = signature and signature.operands[#instruction]
-                    instruction[#instruction + 1] = operand and operand.class == "n" and token
-                        or tonumber(token)
-                        or token
-                end
-            end
-            instructions[#instructions + 1] = instruction
-        else
-            assert(line == header or line == "end", "unknown program listing record")
-        end
-    end
-    local stop = table.remove(instructions)
-    local box = table.remove(instructions)
-    assert(
-        stop and box and stop[1] == "Ret" and box[1] == "IBox" and stop[2] == box[2],
-        "first program requires one raw integer return"
-    )
-    opcodes.check(stop)
-    opcodes.check(box)
-    integer(stop[2], 255)
-    local result = program.encode(instructions, box[3])
-    assert(result.slots <= assert(tonumber(registers)), "program slot outside declared extent")
-    result.name = name
-    result.listing = text
-
-    return result
-end
-
-local function hex(bytes: string): string
-    local parts = {}
-    for i = 1, #bytes do
-        parts[i] = string.format("%02x", assert(bytes:byte(i)))
-    end
-
-    return table.concat(parts)
-end
-
-program.hex = hex
-
-local function constant(c: any): any
-    local kind, value = c.kind, c.value
-    assert(graphimage.constantKinds[kind] ~= nil, "unknown catalog constant kind")
-    local result: any = {kind = kind}
-    if kind == "num" then
-        result.bitsLE = hex(graphimage.floatBytes(value))
-    elseif kind == "int64" or kind == "uint64" then
-        result.bitsLE = hex(type(value) == "string" and graphimage.wideTextBytes(value) or graphimage.wideBytes(value))
-        result.text = tostring(value)
-    elseif kind == "str" or kind == "builtin" then
-        result.bytes = hex(value)
-    elseif kind == "func" then
-        result.functionId = integer(value, 4294967295)
-    end
-
-    return result
-end
-
-function program.catalogFunction(f: any, kept: any): any
-    assert(not kept.graph, "function catalog requires register-form compiler output")
-    local captures, captureNames = {}, {}
-    for name, index in pairs(f.upvalIndex) do
-        integer(index, #f.upvals - 1)
-        assert(captureNames[index + 1] == nil, "duplicate capture index")
-        captureNames[index + 1] = name
-    end
-    for index, source in ipairs(f.upvals) do
-        local capture: any = {index = index - 1, nameBytes = hex(assert(captureNames[index])), kind = source.kind}
-        if source.kind == "local" then
-            capture.reg = integer(source.reg, 255)
-        elseif source.kind == "spill" then
-            capture.keyBytes = hex(source.key)
-        else
-            assert(source.kind == "upval", "unknown capture source")
-            capture.indexInParent = integer(source.index, 4294967295)
-        end
-        captures[index] = capture
-    end
-    local constants, blocks = {}, {}
-    for index, c in ipairs(kept.constants) do
-        constants[index] = constant(c)
-        constants[index].index = index - 1
-    end
-    local unavailable, opCounts = {}, {}
-    for bi, b in ipairs(kept.blocks) do
-        local code = {}
-        for ii, instruction in ipairs(b.code) do
-            opcodes.check(instruction)
-            local name = instruction[1]
-            local described = assert(opcodes.describe(name))
-            local signature = assert(graph.signatures[name])
-            local operands, arg = {}, 0
-            for at = 1, #instruction - 1 do
-                local value, operand = instruction[at + 1], described.operands[at]
-                local letter
-                if at == signature.resultAt then
-                    letter = signature.result
-                else
-                    arg += 1
-                    letter = signature.args[arg]
-                end
-                local item: any = {class = operand.class, mode = operand.mode}
-                if letter == "L" then
-                    item.bitsLE = hex(
-                        type(value) == "string" and graphimage.wideTextBytes(value) or graphimage.wideBytes(value)
-                    )
-                    item.encoding = "integer64"
-                elseif letter == "D" then
-                    item.bitsLE = hex(graphimage.floatBytes(value))
-                    item.encoding = "binary64"
-                elseif type(value) == "string" then
-                    item.bytes = hex(value)
-                else
-                    item.value = value
-                end
-                operands[at] = item
-            end
-            code[ii] = {op = name, operands = operands, position = b.pos[ii]}
-            opCounts[name] = (opCounts[name] or 0) + 1
-            if ids[name] == nil then
-                unavailable["opcode:" .. name] = true
-            end
-        end
-        local t, targets = b.term, {}
-        for index, target in ipairs(t.targets) do
-            targets[index] = target
-        end
-        blocks[
-            bi
-        ] = {
-            index = bi,
-            code = code,
-            term = {kind = t.kind, value = t.value, count = t.count, constant = t.constant, targets = targets}
-        }
-        if t.kind == "return" or t.kind == "returns" then
-            unavailable["guest-return"] = true
-        elseif t.kind ~= "jump" and t.kind ~= "branch" then
-            unavailable["terminator:" .. t.kind] = true
-        end
-    end
-    if #captures > 0 then
-        unavailable["upvalue-storage"] = true
-    end
-    if #constants > 0 then
-        unavailable["constant-pool"] = true
-    end
-    if kept.nparams > 0 then
-        unavailable["parameter-transport"] = true
-    end
-    if kept.vararg then
-        unavailable["varargs"] = true
-    end
-    if f.spillReg ~= nil or f.spillCount ~= nil then
-        unavailable["frame-spills"] = true
-    end
-    if (f.cleanupDepth or 0) > 0 then
-        unavailable["cleanup"] = true
-    end
-    local missing = {}
-    for capability in pairs(unavailable) do
-        missing[#missing + 1] = capability
-    end
-    table.sort(missing)
-
-    return {
-        id = f.id,
-        name = kept.name,
-        module = kept.module,
-        parent = f.parent and f.parent.id,
-        nparams = kept.nparams,
-        sig = kept.sig,
-        ret = kept.ret,
-        vararg = kept.vararg,
-        registers = kept.registers,
-        frameLayout = "unassigned",
-        compilerRegisters = {
-            values = f.nregs,
-            scalars = f.nfregs,
-            vectors = f.nvregs,
-            maxValues = f.maxRegs,
-            maxScalars = f.maxFregs
-        },
-        spillReg = f.spillReg,
-        spillCount = f.spillCount,
-        cleanupDepth = f.cleanupDepth or 0,
-        captures = captures,
-        constants = constants,
-        positions = kept.positions,
-        blocks = blocks,
-        opcodeCounts = opCounts,
-        runtimeAdmitted = false,
-        unavailableCapabilities = missing
-    }
-end
-
-function program.verifyCatalog(catalog: any): nil
-    assert(
-        catalog.version == 1 and catalog.kind == "checked-function-catalog" and catalog.runtimeAdmitted == false,
-        "invalid function catalog"
-    )
-    local functions = catalog.functions
-    assert(#functions > 0 and #functions <= 65536, "invalid catalog function count")
-    integer(catalog.entryFunctionId, #functions - 1)
-    for index, f in ipairs(functions) do
-        assert(f.id == index - 1 and f.runtimeAdmitted == false, "catalog function identity changed")
-        assert(#f.sig == f.nparams and #f.registers == 3, "invalid catalog function signature")
-        for _, class in ipairs(f.registers) do
-            integer(class, 4294967295)
-        end
-        local parent
-        if f.parent ~= nil then
-            integer(f.parent, (f.id - 1) as integer)
-            parent = functions[f.parent + 1]
-        end
-        for ui, capture in ipairs(f.captures) do
-            assert(parent and capture.index == ui - 1, "invalid catalog capture owner")
-            if capture.kind == "local" then
-                integer(capture.reg, (parent.registers[1] - 1) as integer)
-            elseif capture.kind == "upval" then
-                integer(capture.indexInParent, #parent.captures - 1)
-            else
-                assert(capture.kind == "spill" and type(capture.keyBytes) == "string", "invalid catalog capture")
-            end
-        end
-        for ci, c in ipairs(f.constants) do
-            assert(c.index == ci - 1 and graphimage.constantKinds[c.kind] ~= nil, "invalid catalog constant identity")
-            if c.kind == "func" then
-                integer(c.functionId, #functions - 1)
-            elseif c.kind == "num" or c.kind == "int64" or c.kind == "uint64" then
-                assert(
-                    type(c.bitsLE) == "string" and #c.bitsLE == 16 and c.bitsLE:match("^[0-9a-f]+$"),
-                    "invalid catalog constant bits"
-                )
-            elseif c.kind == "str" or c.kind == "builtin" then
-                assert(
-                    type(c.bytes) == "string" and #c.bytes % 2 == 0 and not c.bytes:find("[^0-9a-f]"),
-                    "invalid catalog constant bytes"
-                )
-            end
-        end
-        assert(#f.blocks > 0 and #f.blocks <= 1048576, "invalid catalog block count")
-        local instructions = 0
-        for bi, b in ipairs(f.blocks) do
-            assert(b.index == bi, "catalog block order changed")
-            instructions += #b.code
-            assert(instructions <= 1048576, "catalog instruction budget exceeded")
-            for _, instruction in ipairs(b.code) do
-                local described = assert(opcodes.describe(instruction.op))
-                assert(
-                    #instruction.operands >= described.min and #instruction.operands <= described.max,
-                    "invalid catalog operands"
-                )
-                for at, operand in ipairs(instruction.operands) do
-                    local expected = described.operands[at]
-                    assert(
-                        operand.class == expected.class and operand.mode == expected.mode,
-                        "catalog operand descriptor changed"
-                    )
-                    if operand.class == "fn" then
-                        integer(operand.value, #functions - 1)
-                    elseif operand.class == "k" then
-                        integer(operand.value, #f.constants - 1)
-                    end
-                end
-            end
-            local t = b.term
-            assert(
-                t.kind == "jump"
-                or t.kind == "branch"
-                or t.kind == "switch"
-                or t.kind == "return"
-                or t.kind == "returns"
-                or t.kind == "raise",
-                "unknown catalog terminator"
-            )
-            for _, target in ipairs(t.targets) do
-                assert(integer(target, #f.blocks) > 0, "invalid catalog block target")
-            end
-        end
-    end
-    for _, m in ipairs(catalog.modules) do
-        integer(m.chunk, #functions - 1)
     end
 end
 

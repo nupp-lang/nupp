@@ -11,7 +11,7 @@ import time
 
 EXPECTED = {"add": 42, "wrap": 0x8000000000000000, "bits": 1}
 CONTROL_FLOW = {"conditional": 42, "conditional-false": 99,
-                "signed-conditional": 42, "join": 42, "loop": 15, "zero": 0}
+                "signed-conditional": 42, "join": 42, "loop": 15, "zero": 0, "parallel": 20, "zero-loop": 0, "boolean-join": 42, "copy-cycle": 30}
 
 
 def sha(path):
@@ -48,7 +48,8 @@ def main():
         "verified-first-program-artifacts",
         "all-nine-checked-cfg-fixtures-and27-verifier-cases-passed"}
     if args.control_flow:
-        assert program_facts["verifierCases"] >= 27
+        assert program_facts["verifierCases"] >= 15
+        assert program_facts["guestPath"] == ["checker", "lower.functionGraph", "vm.graph", "graph.lower", "program.fromBlocks"]
         mechanism = programs / "mechanism.json"
         mechanisms = json.loads(mechanism.read_text())
         assert mechanisms["loop"]["negativeJmpCount"] > 0

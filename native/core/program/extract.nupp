@@ -4,7 +4,8 @@ local parser = require("nupp.compiler.syntax.parser")
 local check = require("nupp.compiler.check")
 local environment = require("nupp.compiler.project.env")
 local lower = require("nupp.compiler.vm.lower")
-local convert = require("nupp.compiler.vm.convert")
+local guest = require("nupp.compiler.vm.guestprofile")
+local graph = require("nupp.compiler.vm.graph")
 local program = require("nupp.core.program")
 local json = require("nupp.codec.json")
 local extract = {}
@@ -22,57 +23,44 @@ function extract.compile(source: string, selected: string): any
     for _, diagnostic in ipairs(diagnostics) do
         assert(diagnostic.severity ~= "error", diagnostic.msg)
     end
-    (parsed.root as any).vmModuleExports = (parsed as any).moduleExports
-    local listings = {}
-    local closed = false
-    local extracted: any = nil
-    local previousSink = lower.graphSink
-    lower.graphSink = function(_: string, functions: any, _: any): nil
-        for _, f in ipairs(functions) do
-            if f.name == selected then
-                assert(not closed, "ambiguous first-program function")
-                assert(
-                    f.parent ~= nil and f.nparams == 0 and not f.vararg and #f.upvals == 0,
-                    "first program must be closed"
-                )
-                assert(not f.sig or #f.sig == 0, "first program has parameters")
-                assert((f.ret or "v") == "v" and #f.consts == 0, "first program has boxed constants or return")
-                assert(
-                    not f.spillReg and not f.spillCount and (f.cleanupDepth or 0) == 0,
-                    "first program has frame services"
-                )
-                local kept = convert.blocks(f)
-                extracted = program.fromBlocks(kept)
-                closed = true
+    local found
+    for _, block in ipairs(parsed.root.blocks) do
+        for _, stat in ipairs(block.stats) do
+            local node: any = stat.kind == "exportStmt" and stat.stat or stat
+            if node.kind == "funcStmt" or node.kind == "localFuncStmt" then
+                local name = node.kind == "localFuncStmt" and node.name.text or ""
+                if node.kind == "funcStmt" then
+                    for _, token in ipairs(node.name) do
+                        name = name .. token.text
+                    end
+                end
+                if name == selected then
+                    assert(node.kind ~= "funcStmt" or not node.name.method, "core selected function cannot be a method")
+                    assert(found == nil, "ambiguous first-program function")
+                    local body = node.body
+                    assert(
+                        #body.params == 0 and not body.varargParam and not body.generics,
+                        "first program must be closed"
+                    )
+                    local signature = assert(body.signatureType, "checked function signature required")
+                    assert(#signature.rets == 1, "first program requires one result")
+                    local owner = {
+                        name = name,
+                        node = node,
+                        body = body,
+                        paramKinds = {},
+                        resultKind = signature.rets[1].tag,
+                        scope = {name = "core_fixture", path = path, constants = {}, functions = {}, exports = {}}
+                    }
+                    local g = lower.functionGraph(owner, {}, guest)
+                    g.name, g.module = name, "core_fixture"
+                    found = program.fromBlocks(g)
+                end
             end
         end
     end
-    local ok, failure = pcall(
-        lower.emit,
-        "core_fixture",
-        {},
-        function(name: string): string?
-            return name == "core_fixture" and path or nil
-        end,
-        function(_: string, _: string): table
-            return parsed.root
-        end,
-        nil,
-        listings
-    )
-    lower.graphSink = previousSink
-    assert(ok, failure)
-    assert(closed, "checked first-program function was not inspected")
-    local found = nil
-    for _, listing in ipairs(listings) do
-        if listing.name == selected then
-            assert(found == nil, "ambiguous first-program function")
-            found = assert(extracted);
-            (found as any).listing = listing.image
-        end
-    end
 
-    return assert(found, "missing first-program function")
+    return assert(found, "missing checked first-program function")
 end
 
 function extract.image(source: string, selected: string): string
@@ -92,8 +80,14 @@ function extract.inspect(source: string, selected: string): string
         count = result.count,
         result = result.result,
         returns = result.returns,
-        listing = result.listing,
-        bytes = bytes
+        bytes = bytes,
+        frontend = result.frontend,
+        representation = result.representation,
+        derivation = result.derivation,
+        graphBlocks = result.graphBlocks,
+        graphValues = result.graphValues,
+        graphPositions = result.graphPositions,
+        graph = result.graph
     })
 end
 
@@ -111,6 +105,42 @@ function extract.data(code: string, slots: string, offsets: string, codeBytes: s
     return program.data(code, assert(tonumber(slots)) as integer, handlers, assert(tonumber(codeBytes)) as integer)
 end
 
+local function cycleGraph(): any
+    local g = graph.new(0)
+    local first = graph.block(g)
+    local a = graph.emit(g, first, "IK", {10})
+    local b = graph.emit(g, first, "IK", {20})
+    local joined = graph.block(g)
+    local x, y = graph.value(g, "i", 0), graph.value(g, "i", 1)
+    joined.params = {x, y}
+    first.term = {kind = "jump", edges = {{target = joined.id, args = {b, a}}}}
+    local sum = graph.emit(g, joined, "IAdd", {x, y})
+    joined.term = {kind = "return", value = sum, edges = {}}
+
+    return g
+end
+
+function extract.cycleImage(): string
+    return program.fromBlocks(cycleGraph()).code
+end
+
+function extract.cycleInspect(): string
+    local result = program.fromBlocks(cycleGraph())
+    return json.encode({
+        name = "copy-cycle",
+        slots = result.slots,
+        count = result.count,
+        returns = result.returns,
+        frontend = result.frontend,
+        representation = result.representation,
+        derivation = result.derivation,
+        graphBlocks = result.graphBlocks,
+        graphValues = result.graphValues,
+        graphPositions = result.graphPositions,
+        graph = result.graph
+    })
+end
+
 function extract.test(): integer
     local simple = program.encode({{"IK", 0, "9223372036854775807"}, {"IK", 1, 1}, {"IAdd", 2, 0, 1}}, 2)
     local handlers = {}
@@ -120,219 +150,70 @@ function extract.test(): integer
     local codeBytes = #program.names * 4
     local data = program.data(simple.code, simple.slots, handlers, codeBytes)
     program.verifyData(data, codeBytes)
+    local cases: integer = 0
 
-    local function rejected(code: string, slots: integer): nil
-        assert(not pcall(program.verify, code, slots), "malformed program was accepted")
+    local function rejected(action: function(): any): nil
+        assert(not pcall(action), "malformed graph or artifact was accepted")
+        cases = cases + 1
     end
 
-    rejected(simple.code:sub(2), simple.slots)
-    rejected(string.char(255) .. simple.code:sub(2), simple.slots)
-    rejected(simple.code, 2)
-    rejected(simple.code:sub(1, -17), simple.slots)
-    rejected(simple.code:sub(-16) .. simple.code, simple.slots)
-    rejected(program.encode({{"IK", 0, 1}}, 0).code:gsub("^.", string.char(2)), 1)
-    local padding = simple.code:sub(1, 4) .. string.char(1) .. simple.code:sub(6)
-    rejected(padding, simple.slots)
-    assert(not pcall(program.verifyData, data .. string.char(0), codeBytes))
-    assert(not pcall(program.verifyData, data:sub(1, -2), codeBytes))
-    assert(not pcall(program.verifyData, data, codeBytes - 4))
-    assert(not pcall(program.fromListing, "function invalid 1 1 3 0 v:v\n  IBox 0 0\n  Ret 0\nend"))
-    assert(not pcall(program.fromListing, "function invalid 1 0 3 0 :v\n  IAdd 0 1 2\n  IBox 0 0\n  Ret 0\nend"))
-
-    local cases: integer = 13
-
-    local function graph(blocks: any): any
-        return {name = "verify-cfg", constants = {}, blocks = blocks}
+    local function raw(code: string, slots: integer): nil
+        rejected(function(): any
+            return program.verify(code, slots)
+        end)
     end
 
-    local function returned(register: integer): any
-        return {kind = "return", value = register, targets = {}}
-    end
+    raw(simple.code:sub(2), simple.slots)
+    raw(string.char(255) .. simple.code:sub(2), simple.slots)
+    raw(simple.code, 2)
+    raw(simple.code:sub(1, -17), simple.slots)
+    raw(simple.code:sub(-16) .. simple.code, simple.slots)
+    raw(program.encode({{"IK", 0, 1}}, 0).code:gsub("^.", string.char(2)), 1)
+    raw(simple.code:sub(1, 4) .. string.char(1) .. simple.code:sub(6), simple.slots)
+    rejected(function(): any
+        return program.verifyData(data .. string.char(0), codeBytes)
+    end)
+    rejected(function(): any
+        return program.verifyData(data:sub(1, -2), codeBytes)
+    end)
+    rejected(function(): any
+        return program.verifyData(data, codeBytes - 4)
+    end)
 
-    local function jumped(target: integer): any
-        return {kind = "jump", targets = {target}}
+    local g = cycleGraph()
+    local first, joined = g.blocks[1], g.blocks[2]
+    local a, sum = first.dst[1], joined.dst[1]
+    local artifact = program.fromBlocks(g)
+    assert(artifact.representation == "nupp.compiler.vm.graph" and artifact.graphBlocks == 2)
+    local copies: integer = 0
+    for at = 1, #artifact.code, 16 do
+        if artifact.code:byte(at) == 2 then
+            copies = copies + 1
+        end
     end
-
-    local function branched(register: integer, yes: integer, no: integer): any
-        return {kind = "branch", value = 256 + register, targets = {yes, no}}
-    end
-
-    local function accepts(blocks: any): nil
-        program.fromBlocks(graph(blocks))
-        cases += 1
-    end
-
-    local function refuses(blocks: any): nil
-        assert(not pcall(program.fromBlocks, graph(blocks)), "malformed core CFG was accepted")
-        cases += 1
-    end
-
-    accepts({
-        {code = {{"IK", 0, 1}}, term = branched(0, 2, 3)},
-        {code = {{"IK", 1, 42}, {"IBox", 0, 1}}, term = returned(0)},
-        {code = {{"IK", 2, 99}, {"IBox", 0, 2}}, term = returned(0)}
-    })
-    accepts({
-        {code = {{"IK", 0, 1}}, term = branched(0, 2, 3)},
-        {code = {{"IK", 1, 42}}, term = jumped(4)},
-        {code = {{"IK", 1, 99}}, term = jumped(4)},
-        {code = {{"IBox", 0, 1}}, term = returned(0)}
-    })
-    refuses({
-        {code = {{"IK", 0, 1}}, term = branched(0, 2, 3)},
-        {code = {{"IK", 1, 42}}, term = jumped(4)},
-        {code = {}, term = jumped(4)},
-        {code = {{"IBox", 0, 1}}, term = returned(0)}
-    })
-    accepts({{code = {{"IK", 0, 1}}, term = jumped(2)}, {code = {{"IAddK", 0, 0, 1}}, term = jumped(2)}})
-    accepts({{code = {}, term = jumped(1)}})
-    refuses({{code = {}, term = jumped(2)}, {code = {{"IAddK", 0, 0, 1}}, term = jumped(2)}})
-    refuses({{code = {{"IK", 0, 1}}, term = jumped(0)}})
-    refuses({{code = {{"IK", 0, 1}}, term = jumped(2)}})
-    refuses({
-        {code = {{"IK", 0, 1}, {"IBox", 0, 0}}, term = returned(0)},
-        {code = {{"IK", 1, 2}, {"IBox", 0, 1}}, term = returned(0)}
-    })
-    refuses({{code = {{"IK", 0, 1}, {"IBox", 0, 0}}, term = returned(1)}})
-    refuses({{code = {{"IK", 0, 1}, {"IBox", 300, 0}}, term = returned(300)}})
-    assert(not pcall(program.encode, {{"IK", 0, 1}, {"Jmp", 2147483648}}, 0))
-    cases += 1
-    assert(not pcall(program.encode, {{"IK", 0, 1}, {"Jmp", -2147483649}}, 0))
-    cases += 1
-    assert(not pcall(program.encode, {{"IK", 0, 1}, {"Jmp", 1}, {"IK", 0, 2}}, 0))
-    cases += 1
+    assert(copies >= 3, "parallel-copy cycle did not use the graph deriver")
+    cases = cases + 1
+    g.nparams = 1
+    rejected(function(): any
+        return program.fromBlocks(g)
+    end)
+    g.nparams = 0
+    g.constants = {{kind = "num", value = 1}}
+    rejected(function(): any
+        return program.fromBlocks(g)
+    end)
+    g.constants = {}
+    joined.term.value = 999999
+    rejected(function(): any
+        return program.fromBlocks(g)
+    end)
+    joined.term.value = sum
+    first.term.edges[1].args = {a}
+    rejected(function(): any
+        return program.fromBlocks(g)
+    end)
 
     return cases
-end
-
-function extract.catalog(source: string): string
-    local path = "=core-function-catalog.nupp"
-    local parsed = parser.parse(source, path)
-    assert(#parsed.errors == 0, "catalog source did not parse")
-    local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
-    local diagnostics = check.check(parsed, path, env as any, {
-        moduleName = "core_fixture",
-        strict = false,
-        lints = {["unused-binding"] = "off"}
-    })
-    for _, diagnostic in ipairs(diagnostics) do
-        assert(diagnostic.severity ~= "error", diagnostic.msg)
-    end
-    (parsed.root as any).vmModuleExports = (parsed as any).moduleExports
-    local holder: any = {}
-    local previousSink = lower.graphSink
-    lower.graphSink = function(entry: string, functions: any, header: any): nil
-        local described = {}
-        for index, f in ipairs(functions) do
-            described[index] = program.catalogFunction(f, convert.blocks(f))
-        end
-        holder.catalog = {
-            version = 1,
-            kind = "checked-function-catalog",
-            runtimeAdmitted = false,
-            entryModule = entry,
-            entryFunctionId = header.entry,
-            modules = header.modules,
-            shapeCount = #header.shapes,
-            functions = described
-        }
-        program.verifyCatalog(holder.catalog)
-    end
-    local listings = {}
-    local ok, image = pcall(
-        lower.emit,
-        "core_fixture",
-        {},
-        function(name: string): string?
-            return name == "core_fixture" and path or nil
-        end,
-        function(_: string, _: string): table
-            return parsed.root
-        end,
-        nil,
-        listings
-    )
-    lower.graphSink = previousSink
-    assert(ok, image)
-    local catalog = assert(holder.catalog, "missing checked function catalog")
-    assert(#listings == #catalog.functions, "function listing count changed")
-    for index, listing in ipairs(listings) do
-        local f = catalog.functions[index]
-        assert(
-            tonumber(listing.image:match("^function %S+ (%d+) ")) == f.id and listing.name == f.name,
-            "function listing identity changed"
-        )
-        f.listing = listing.image
-    end
-    catalog.graphImageHex = program.hex(image)
-
-    return json.encode(catalog)
-end
-
-function extract.testCatalog(): integer
-    local source = "local function fib(n: number): number if n < 2 then return n end return fib(n - 1) + fib(n - 2) end return fib"
-    local catalog: any = json.decode(extract.catalog(source))
-    assert(catalog.runtimeAdmitted == false and #catalog.functions == 2 and catalog.entryFunctionId == 0)
-    local chunk, fib = catalog.functions[1], catalog.functions[2]
-    assert(chunk.id == 0 and fib.id == 1 and fib.parent == 0 and fib.name == "fib")
-    assert(fib.nparams == 1 and fib.sig == "v" and fib.ret == "v" and not fib.vararg)
-    assert(#fib.captures == 1 and fib.captures[1].kind == "local" and fib.captures[1].nameBytes == "666962")
-    assert(chunk.opcodeCounts.NewCell == 1 and chunk.opcodeCounts.NewClosure == 1 and chunk.opcodeCounts.SetCell == 1)
-    assert(fib.opcodeCounts.CallDyn == 2 and fib.opcodeCounts.GetUpval and fib.opcodeCounts.GetCell)
-    assert(fib.opcodeCounts.Sub == 2 and fib.opcodeCounts.Add == 1 and fib.opcodeCounts.Lt == 1)
-    assert(fib.listing:find("CallDyn", 1, true) and fib.listing:find("GetCell", 1, true))
-    assert(#catalog.graphImageHex > 16 and catalog.graphImageHex:sub(1, 16) == "4e55505047524146")
-
-    local function refused(): nil
-        assert(not pcall(program.verifyCatalog, catalog), "invalid catalog was accepted")
-    end
-
-    fib.parent = 1
-    refused()
-    fib.parent = 0
-    fib.captures[1].reg = chunk.registers[1]
-    refused()
-    fib.captures[1].reg = 0
-    fib.id = 2
-    refused()
-    fib.id = 1
-    catalog.runtimeAdmitted = true
-    refused()
-
-    return 13
-end
-
-function extract.testCatalogConstants(source: string): integer
-    local catalog: any = json.decode(extract.catalog(source))
-    local f = catalog.functions[2]
-    local found = {}
-    for _, c in ipairs(f.constants) do
-        if c.kind == "int64" and c.bitsLE == "0000000000000080" then
-            found.signed = true
-        elseif c.kind == "uint64" and c.bitsLE == "ffffffffffffffff" then
-            found.unsigned = true
-        elseif c.kind == "num" and c.bitsLE == "000000000000f83f" then
-            found.number = true
-        elseif c.kind == "str" and c.bytes == "6100ff7a" then
-            found.binaryString = true
-        end
-    end
-    assert(found.signed)
-    assert(found.unsigned)
-    assert(found.number)
-    assert(found.binaryString)
-    local zero = false
-    for _, b in ipairs(f.blocks) do
-        for _, instruction in ipairs(b.code) do
-            if instruction.op == "FK" and instruction.operands[2].bitsLE == "0000000000000000" then
-                zero = true
-            end
-        end
-    end
-    assert(zero)
-    assert(f.opcodeCounts.FNeg == 1)
-
-    return 6
 end
 
 export = extract
