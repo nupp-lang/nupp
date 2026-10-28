@@ -3,6 +3,7 @@ module nupp.core.producer
 local ROOT = assert(os.getenv("NUPP_COMPILER_ROOT"))
 local CORE = ROOT .. "/src/nupp/runtime/vm/core.nupp"
 local nativegraph = require("nupp.compiler.vm.nativegraph")
+local lower = require("nupp.compiler.vm.lower")
 local sink = require("nupp.compiler.s0.nativegraph")
 local allocate = require("s0.allocate")
 local allocationcheck = require("s0.allocationcheck")
@@ -25,10 +26,11 @@ function producer.compile(mode: string): string
     local _, contextOptions = checked(read(contextPath), contextPath, "nupp.runtime.core.context")
     options.modules["nupp.runtime.vm.calls"] = callsOptions.modules["nupp.runtime.core.calls"]
     options.modules["nupp.runtime.core.context"] = contextOptions.modules["nupp.runtime.core.context"]
+    options.abi, stopOptions.abi = "handler", "leaf"
     local codes, metrics = {}, {}
     for index, name in ipairs(program.names) do
         local fn = stops[name] or functions[name]
-        local g = nativegraph.compile(assert(fn), stops[name] and stopOptions or options)
+        local g = lower.functionGraph(assert(fn), stops[name] and stopOptions or options, nativegraph)
         local artifact = sink.compilerGraph(g, name, fn)
         local target = selector.target()
         if mode == "spill" then

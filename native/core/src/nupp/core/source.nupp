@@ -31,21 +31,13 @@ local function functionsFrom(parsed: any, scope: any): any
                     kinds[index] = parameter.type.resolvedType.tag
                 end
                 local result = body.signatureType.rets[1] and body.signatureType.rets[1].tag
-                local handler = result == "uint64" and #kinds == 6
-                for _, kind in ipairs(kinds) do
-                    if kind ~= "voidptr" then
-                        handler = false
-                    end
-                end
                 local fn = {
                     name = name,
                     node = node,
                     body = body,
                     scope = scope,
                     paramKinds = kinds,
-                    resultKind = result ~= "nil" and result or nil,
-                    isHandler = handler,
-                    isSupport = not handler and name:match("Slow$") ~= nil
+                    resultKind = result ~= "nil" and result or nil
                 }
                 scope.functions[name] = fn
                 if stat.kind == "exportStmt" then
@@ -70,6 +62,7 @@ function front.checked(source: any, path: string, moduleName: string): (any, any
     for _, diagnostic in ipairs((checker.check(parsed, path, env, {}))) do
         assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
     end
+    assert(parsed.declaredModuleName == moduleName, "checked native module identity differs from requested module")
     local scope = {name = moduleName, path = path}
     local functions = functionsFrom(parsed, scope)
     -- Reproduce the existing checked module record supplied by the native

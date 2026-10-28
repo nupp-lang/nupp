@@ -3,6 +3,7 @@ module nupp.core.frameproducer
 local ROOT = assert(os.getenv("NUPP_COMPILER_ROOT"))
 local front = require("nupp.core.source")
 local nativegraph = require("nupp.compiler.vm.nativegraph")
+local lower = require("nupp.compiler.vm.lower")
 local sink = require("nupp.compiler.s0.nativegraph")
 local allocate = require("s0.allocate")
 local allocationcheck = require("s0.allocationcheck")
@@ -71,7 +72,7 @@ function producer.compile(mode: string): string
     for _, group in ipairs(groups) do
         for name, owner in pairs(group.functions) do
             local symbol = group.name .. "." .. name
-            local ok, g = pcall(nativegraph.compile, owner, {modules = modules})
+            local ok, g = pcall(lower.functionGraph, owner, {modules = modules, abi = "leaf"}, nativegraph)
             assert(ok, symbol .. ": " .. tostring(g))
             resolved[symbol] = {graph = g, owner = owner}
             if name == "CoreFrameProbe" then
