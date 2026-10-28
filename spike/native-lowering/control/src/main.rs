@@ -1,4 +1,5 @@
 //! Measurement control only. The candidate backend is written in Nupp.
+mod execute;
 use cranelift_codegen::Context;
 use cranelift_codegen::ir::{ExternalName, UserExternalName};
 use cranelift_codegen::settings::{self, Configurable};
@@ -8,6 +9,9 @@ use std::time::Instant;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("execute") {
+        return execute::run(&args[2..]);
+    }
     if args.len() != 5 {
         return Err("usage: control CORPUS.clif default|single_pass none|speed REPEATS".into());
     }

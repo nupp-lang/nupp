@@ -61,7 +61,7 @@ def generate(project, directory):
     for index in range(64):
         name = 'loop' + str(index)
         op1, op2 = rng.choice(['iadd', 'isub', 'bxor']), rng.choice(['iadd', 'imul', 'bor'])
-        add(name, f'''function %{name}(i64, i64, i64) -> (i64, i64) tail {{
+        add(name, f'''function %{name}(i64, i64, i64) -> i64, i64 tail {{
 block0(v0: i64, v1: i64, v2: i64):
     jump block1(v0, v1, v2)
 block1(v3: i64, v4: i64, v5: i64):
@@ -158,6 +158,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('runtime', 'compiler-image', 'raw-runtime', 'output'):
         parser.add_argument('--' + name, type=Path, required=True)
+    parser.add_argument('--cranelift-control', type=Path)
     args = parser.parse_args()
     runtime, compiler, raw, output = [p.resolve() for p in (args.runtime, args.compiler_image, args.raw_runtime, args.output)]
     project = Path(__file__).resolve().parent
@@ -168,15 +169,28 @@ def main():
         assert digest(frozen) == digest(raw)
     else:
         shutil.copy2(raw, frozen)
+    control = None
+    if args.cranelift_control:
+        control = output / 'cranelift-runner'
+        if control.exists():
+            assert digest(control) == digest(args.cranelift_control)
+        else:
+            shutil.copy2(args.cranelift_control, control)
     env = dict(os.environ, NO_AOT='1', NO_JIT='1', NUPP_VM_AUTO_REBUILD='0',
                NUPP_COMPILER_ROOT=str(root), NUPP_VM_BINARY=str(runtime), NUPP_VM_CLI_IMAGE=str(compiler))
     layout = subprocess.check_output([str(frozen), 'native', 'raw-layout'], text=True).strip()
     sources = list((project / 'src/s0').glob('*.nupp')) + [Path(__file__).resolve(), project / 'generate_oracle_cases.py']
+    if control:
+        sources += list((project / 'control/src').glob('*.rs')) + [project / 'control/Cargo.toml', project / 'control/Cargo.lock']
     report = dict(status='running', scope='Owned ARM64 versus MIR oracle correctness; no timing verdict',
                   source=subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip(),
                   artifacts={str(p): digest(p) for p in (runtime, compiler, raw, frozen)},
                   sourceFiles={str(p.relative_to(root)): digest(p) for p in sources},
                   layoutDigest=layout, passed=0, steps=[], failures=[])
+
+    if control:
+        report.update(scope='Owned ARM64, MIR oracle and Cranelift correctness; no timing verdict', craneliftPassed=0)
+        report['artifacts'].update({str(p): digest(p) for p in (args.cranelift_control.resolve(), control)})
 
     def save():
         (output / 'receipt.json').write_text(json.dumps(report, indent=2) + '\n')
@@ -225,8 +239,23 @@ def main():
                 save()
                 raise SystemExit('native mismatch: ' + str(directory))
             report['passed'] += 1
+            if control and mode == 'normal':
+                control_output = directory / 'cranelift-output.bin'
+                result = subprocess.run([str(control), 'execute', str(cases_path / (name + '.clif')),
+                                         str(inputs), str(control_output)], capture_output=True, timeout=10)
+                data = control_output.read_bytes() if result.returncode == 0 else b''
+                actual = list(struct.unpack('<QQQ', data)) if len(data) == 24 else None
+                if actual is None or actual[0] != 0 or any(not equivalent(actual[index + 1], expected[index], kind, case['arithmeticNaNsEquivalent']) for index, kind in enumerate(case['resultKinds'])):
+                    report['status'] = 'cranelift-failed'
+                    report['failures'].append(dict(case=case, expected=expected, actual=actual,
+                                                   returnCode=result.returncode, stderr=result.stderr.decode(errors='replace')))
+                    save()
+                    raise SystemExit('Cranelift mismatch: ' + str(directory))
+                report['craneliftPassed'] += 1
         print(mode, len(cases), 'passed', flush=True)
         save()
+    if control:
+        assert report['craneliftPassed'] == len(cases)
     assert all(digest(Path(path)) == value for path, value in report['artifacts'].items())
     assert all(digest(root / path) == value for path, value in report['sourceFiles'].items())
     report.update(status='passed', casesSha256=digest(cases_path / 'cases.json'),
