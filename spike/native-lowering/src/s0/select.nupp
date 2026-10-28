@@ -1082,8 +1082,19 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
             code.opWords[colOp[at]] = code.opWords[colOp[at]] + #code.words - before
         end
     end
+    local redirects: {[integer]: integer} = {}
+    for order = #a.blockOrder, 1, -1 do
+        local block = a.blockOrder[order]
+        local at = colBlockStart[block]
+        local edge = colFirstEdge[at]
+        if at == colBlockEnd[block] and colOp[at] == JUMP and a.nmoves[edge] == 0 then
+            local targetBlock = f.edgeTarget[edge]
+            redirects[block] = redirects[targetBlock] or targetBlock
+        end
+    end
     for p, word in ipairs(localWord) do
-        code.words[word] = arm.b((code.blockWord[localBlock[p]] - word) * 4)
+        local block = localBlock[p]
+        code.words[word] = arm.b((code.blockWord[redirects[block] or block] - word) * 4)
     end
 
     return code

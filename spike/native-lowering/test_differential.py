@@ -154,7 +154,7 @@ block0(v0: i64):
     return cases
 
 
-def main():
+def main(generate_cases=generate, prepare_module='s0.differentialtests', extra_sources=()):
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('runtime', 'compiler-image', 'raw-runtime', 'output'):
         parser.add_argument('--' + name, type=Path, required=True)
@@ -180,6 +180,7 @@ def main():
                NUPP_COMPILER_ROOT=str(root), NUPP_VM_BINARY=str(runtime), NUPP_VM_CLI_IMAGE=str(compiler))
     layout = subprocess.check_output([str(frozen), 'native', 'raw-layout'], text=True).strip()
     sources = list((project / 'src/s0').glob('*.nupp')) + [Path(__file__).resolve(), project / 'generate_oracle_cases.py']
+    sources += list(extra_sources)
     if control:
         sources += list((project / 'control/src').glob('*.rs')) + [project / 'control/Cargo.toml', project / 'control/Cargo.lock']
     report = dict(status='running', scope='Owned ARM64 versus MIR oracle correctness; no timing verdict',
@@ -206,13 +207,13 @@ def main():
 
     cases_path = output / 'cases'
     cases_path.mkdir()
-    cases = generate(project, cases_path)
+    cases = generate_cases(project, cases_path)
     report['cases'] = len(cases)
     run('check', [root / 'bin/nupp', 'check', '--json'])
     image = output / 'differential.image'
     run('emit', [runtime, 'run', compiler, 'nupp.tools.vm.project', 'emit', project,
-                 's0.differentialtests', '', '--output', image])
-    run('prepare', [runtime, 'run', image, 's0.differentialtests', 'prepare', cases_path, layout])
+                 prepare_module, '', '--output', image])
+    run('prepare', [runtime, 'run', image, prepare_module, 'prepare', cases_path, layout])
     report['imageSha256'] = digest(image)
     oracle = {}
     for line in (cases_path / 'oracle.tsv').read_text().splitlines():
