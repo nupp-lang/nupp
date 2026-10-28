@@ -74,7 +74,7 @@ ALLOCATOR_TARGETS = (
     "object_shapes", "object_tables", "record_tables", "weak_tables",
     "weak_indexes", "value_table_ownership", "iterator_payloads", "child_walk",
     "numeric_storage_payloads", "object_walk", "byte_backing", "strong_scan", "weak_cycle",
-    "shape_methods", "shape_metadata", "shape_registry",
+    "shape_methods", "shape_metadata", "shape_registry", "root_candidates",
 )
 
 
