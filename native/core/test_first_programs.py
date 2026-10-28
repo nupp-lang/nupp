@@ -10,6 +10,8 @@ import subprocess
 import time
 
 EXPECTED = {"add": 42, "wrap": 0x8000000000000000, "bits": 1}
+CONTROL_FLOW = {"conditional": 42, "conditional-false": 99,
+                "signed-conditional": 42, "join": 42, "loop": 15, "zero": 0}
 
 
 def sha(path):
@@ -23,6 +25,7 @@ def main():
     parser.add_argument("--builder", type=Path, required=True)
     parser.add_argument("--compiler-image", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--control-flow", action="store_true")
     args = parser.parse_args()
     bridge, programs, builder, image, out = [p.resolve() for p in
         (args.bridge, args.programs, args.builder, args.compiler_image, args.output)]
@@ -41,7 +44,20 @@ def main():
         report["inputs"][str(image)] = sha(image)
     program_proof = programs / "proof.json"
     program_facts = json.loads(program_proof.read_text())
-    assert program_facts["status"] == "verified-first-program-artifacts"
+    assert program_facts["status"] in {
+        "verified-first-program-artifacts",
+        "all-nine-checked-cfg-fixtures-and27-verifier-cases-passed"}
+    if args.control_flow:
+        assert program_facts["verifierCases"] >= 27
+        mechanism = programs / "mechanism.json"
+        mechanisms = json.loads(mechanism.read_text())
+        assert mechanisms["loop"]["negativeJmpCount"] > 0
+        for name in ("conditional", "conditional-false", "signed-conditional", "join", "loop"):
+            assert mechanisms[name]["conditionalCount"] > 0
+        for name, facts in mechanisms.items():
+            assert sha(programs / (name + ".program")) == facts["programSha256"]
+            assert sha(programs / (name + ".json")) == facts["metadataSha256"]
+        report["inputs"][str(mechanism)] = sha(mechanism)
     report["inputs"][str(program_proof)] = sha(program_proof)
     provenance = programs / "driver-hardening.json"
     if provenance.exists():
@@ -64,8 +80,9 @@ def main():
 
     try:
         bundles = []
+        expected_cases = dict(EXPECTED, **(CONTROL_FLOW if args.control_flow else {}))
         fixtures = [(name, expected, programs / (name + ".program"),
-                     programs / (name + ".json")) for name, expected in EXPECTED.items()]
+                     programs / (name + ".json")) for name, expected in expected_cases.items()]
         # Repeat a checked closed body to exercise tail dispatch far beyond the
         # bounded spill arena's capacity if a transfer leaked its frame extent.
         # This adds no new instruction or arithmetic implementation.
@@ -94,7 +111,7 @@ def main():
                 assert produced["status"] == "verified-owned-bundle"
                 assert produced["mode"] == mode
                 handlers = produced["handlers"]
-                assert len(handlers) == 13
+                assert len(handlers) >= 13
                 spill_slots = sum(item["spillSlots"] for item in handlers)
                 if mode == "spill":
                     assert spill_slots > 0, "forced-spill mode did not allocate spills"
@@ -113,6 +130,35 @@ def main():
                     "allocatedSpillSlots": spill_slots, "wallSmokeNs": wall})
                 bundles.append(bundle)
                 save()
+        if args.control_flow:
+            loop_bytes = (programs / "loop.program").read_bytes()
+            records = [loop_bytes[i:i + 16] for i in range(0, len(loop_bytes), 16)]
+            assert any(row[0] == 20 for row in records), "loop has no conditional transfer"
+            assert any(row[0] == 19 and struct.unpack_from("<i", row, 4)[0] < 0
+                       for row in records), "loop has no back edge"
+            for mode in ("normal", "spill"):
+                bundle = out / ("loop-" + mode) / "core.bundle"
+                for label, budget, cancelled, status in (
+                    ("exact-budget", 5, 0, 0), ("short-budget", 4, 0, 2),
+                    ("zero-budget", 0, 0, 2), ("cancelled", (1 << 64) - 1, 1, 3),
+                    ("cancel-priority", 0, 1, 3)):
+                    name = mode + "-" + label
+                    inputs = out / (name + "-input.bin")
+                    inputs.write_bytes(struct.pack("<QQ", budget, cancelled))
+                    result = out / (name + "-result.bin")
+                    sentinel = b"preserve output on failure"
+                    result.write_bytes(sentinel)
+                    code, wall = run(name, [bridge, bundle, inputs, result], None)
+                    if status == 0:
+                        assert code == 0 and result.read_bytes() == struct.pack("<Q", 15), name
+                    else:
+                        assert code != 0 and result.read_bytes() == sentinel, name
+                        error = (out / (name + ".err")).read_text()
+                        assert f"Nupp entry refused with transport status {status}" in error, (name, error)
+                    report.setdefault("policy", []).append({"mode": mode, "probe": label,
+                        "budget": budget, "cancelled": cancelled, "expectedStatus": status,
+                        "returnCode": code, "wallSmokeNs": wall})
+                    save()
         original = bundles[0].read_bytes()
         malformed = {"truncated": original[:71], "wrong-magic": b"X" + original[1:],
                      "trailing-byte": original + b"\0"}
