@@ -391,6 +391,25 @@ local function slot(location: integer): integer
     return location > 0 and location or 96 - location
 end
 
+record allocate.MoveWorkspace
+    counts: {integer}
+    writer: {integer}
+    pending: {boolean}
+    queue: {integer}
+    readers: {integer}
+    nextReader: {integer}
+end
+
+function allocate.workspace(): allocate.MoveWorkspace
+    return new allocate.MoveWorkspace(counts = {}, writer = {}, pending = {}, queue = {}, readers = {}, nextReader = {})
+end
+
+local function appendMove(a: allocate.Allocation, source: integer, destination: integer, kind: integer): nil
+    a.moveSource[
+        #a.moveSource + 1
+    ], a.moveTarget[#a.moveTarget + 1], a.moveKind[#a.moveKind + 1] = source, destination, kind
+end
+
 -- Inputs and outputs are parallel assignments. A destination becomes ready when
 -- no pending assignment reads it. Breaking a cycle saves one source in scratch.
 function allocate.parallel(
@@ -398,45 +417,65 @@ function allocate.parallel(
     destination: {integer},
     kinds: {integer},
     target: allocate.Target,
-    a: allocate.Allocation
+    a: allocate.Allocation,
+    workspace: allocate.MoveWorkspace?
 ): nil
-    local counts, writer, pending, queue = {}, {}, {}, {}
-    local readers, nextReader = {}, {}
+    local counts: {integer}
+    local writer: {integer}
+    local pending: {boolean}
+    local queue: {integer}
+    local readers: {integer}
+    local nextReader: {integer}
+    if workspace ~= nil then
+        counts, writer, pending, queue = workspace.counts, workspace.writer, workspace.pending, workspace.queue
+        readers, nextReader = workspace.readers, workspace.nextReader
+    else
+        counts, writer, pending, queue, readers, nextReader = {}, {}, {}, {}, {}, {}
+    end
+    -- Only current source/destination locations and scratch can be inspected.
+    -- Reset their entries; all other backing capacity remains reusable.
+    for i = 1, #source do
+        local s, d = slot(source[i]), slot(destination[i])
+        counts[s], counts[d], writer[s], writer[d], readers[s], readers[d], pending[i] = 0, 0, 0, 0, 0, 0, false
+    end
+    for class = 1, 2 do
+        local scratch = slot(class == 1 and target.scratchInt or target.scratchFloat)
+        counts[scratch], writer[scratch], readers[scratch] = 0, 0, 0
+    end
+    local queued: integer = 0
     local remaining = 0
     for i = 1, #source do
         assert(source[i] ~= 0 and destination[i] ~= 0, "S0 allocation: invalid move location")
         if source[i] ~= destination[i] then
             local s, d = slot(source[i]), slot(destination[i])
-            assert(writer[d] == nil, "S0 allocation: duplicate move destination")
-            counts[s], writer[d], pending[i] = (counts[s] or 0) + 1, i, true
-            nextReader[i], readers[s] = readers[s] or 0, i
+            assert(writer[d] == 0, "S0 allocation: duplicate move destination")
+            counts[s], writer[d], pending[i] = counts[s] + 1, i, true
+            nextReader[i], readers[s] = readers[s], i
             remaining = remaining + 1
         end
     end
     for i = 1, #source do
-        if pending[i] and (counts[slot(destination[i])] or 0) == 0 then
-            queue[#queue + 1] = i
+        if pending[i] and counts[slot(destination[i])] == 0 then
+            queued = queued + 1
+            queue[queued] = i
         end
     end
-    local read = 1
+    local read: integer = 1
     local first: integer = 1
 
-    local function emit(s: integer, d: integer, kind: integer): nil
-        a.moveSource[#a.moveSource + 1], a.moveTarget[#a.moveTarget + 1], a.moveKind[#a.moveKind + 1] = s, d, kind
-    end
-
     while remaining > 0 do
-        if read <= #queue then
+        if read <= queued then
             local i = queue[read]
             read = read + 1
             if pending[i] then
-                emit(source[i], destination[i], kinds[i])
+                appendMove(a, source[i], destination[i], kinds[i])
                 pending[i], remaining = false, remaining - 1
                 local s = slot(source[i])
                 counts[s] = counts[s] - 1
                 local dependent = writer[s]
-                if counts[s] == 0 and dependent ~= nil and pending[dependent] then
-                    queue[#queue + 1] = dependent
+                if counts[s] == 0 and dependent ~= 0 and pending[dependent] then
+                    queued = queued + 1
+                    queue[queued] = dependent
                 end
             end
         else
@@ -445,7 +484,7 @@ function allocate.parallel(
             end
             local saved = source[first]
             local scratch = ir.isFloat(kinds[first]) and target.scratchFloat or target.scratchInt
-            emit(saved, scratch, kinds[first])
+            appendMove(a, saved, scratch, kinds[first])
             local i = readers[slot(saved)]
             while i ~= 0 do
                 if pending[i] then
@@ -455,8 +494,9 @@ function allocate.parallel(
             end
             counts[slot(scratch)], counts[slot(saved)] = counts[slot(saved)], 0
             local dependent = writer[slot(saved)]
-            assert(dependent ~= nil and pending[dependent], "S0 allocation: invalid move cycle")
-            queue[#queue + 1] = dependent
+            assert(dependent ~= 0 and pending[dependent], "S0 allocation: invalid move cycle")
+            queued = queued + 1
+            queue[queued] = dependent
         end
     end
 end
@@ -465,9 +505,15 @@ function allocate.run(f: ir.Function, target: allocate.Target): allocate.Allocat
     local a = newAllocation(f)
     intervals(f, a)
     registers(f, a, target)
+    local source: {integer} = {}
+    local destination: {integer} = {}
+    local kinds: {integer} = {}
+    local workspace = allocate.workspace()
     for e = 1, #f.edgeTarget do
-        local source, destination, kinds = {}, {}, {}
         local b = f.edgeTarget[e]
+        for p = #source, f.edgeNargs[e] + 1, -1 do
+            source[p], destination[p], kinds[p] = nil, nil, nil
+        end
         for p = 0, f.edgeNargs[e] - 1 do
             local v, parameter = f.edgeArgs[f.edgeFirstArg[e] + p], f.params[f.firstParam[b] + p]
             source[
@@ -475,7 +521,7 @@ function allocate.run(f: ir.Function, target: allocate.Target): allocate.Allocat
             ], destination[p + 1], kinds[p + 1] = a.location[v], a.location[parameter], f.valueKinds[parameter]
         end
         a.firstMove[e] = #a.moveSource + 1
-        allocate.parallel(source, destination, kinds, target, a)
+        allocate.parallel(source, destination, kinds, target, a, workspace)
         a.nmoves[e] = #a.moveSource + 1 - a.firstMove[e]
     end
 

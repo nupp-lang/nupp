@@ -155,6 +155,8 @@ block0(v0: i64):
     badMoves.nmoves[edge] = badMoves.nmoves[edge] - 1
     assert(not pcall(check.run, f, t, badMoves))
     local seed: integer = 1729
+    local workspace = allocate.workspace()
+    local reuse = allocate.run(f, t)
     for test = 1, 1000 do
         local locations = test % 2 == 0 and {1, 2, 25, -1, -2, -3} or {65, 66, 73, -4, -5, -6}
         local source: {integer} = {}
@@ -164,15 +166,29 @@ block0(v0: i64):
         state = {}
         for index, location in ipairs(locations) do
             state[location] = index + test * 10
+            expected[location] = state[location]
         end
-        for index, location in ipairs(locations) do
+        for index = 1, test % 7 do
+            local location = locations[index]
             seed = (seed * 48271) % 2147483647
             source[index], destination[index] = locations[seed % #locations + 1], location
             kinds[index] = test % 2 == 0 and ir.I64 or ir.F64
             expected[location] = assert(state[source[index]])
         end
+        local copied: {integer} = {}
+        for p, value in ipairs(source) do
+            copied[p] = value
+        end
+        local reused = #reuse.moveSource + 1
         first = #a.moveSource + 1
         allocate.parallel(source, destination, kinds, t, a)
+        allocate.parallel(copied, destination, kinds, t, reuse, workspace)
+        assert(#reuse.moveSource - reused == #a.moveSource - first)
+        for offset = 0, #a.moveSource - first do
+            assert(a.moveSource[first + offset] == reuse.moveSource[reused + offset])
+            assert(a.moveTarget[first + offset] == reuse.moveTarget[reused + offset])
+            assert(a.moveKind[first + offset] == reuse.moveKind[reused + offset])
+        end
         assert(#a.moveSource - first + 1 <= 2 * #source)
         for m = first, #a.moveSource do
             state[a.moveTarget[m]] = assert(state[a.moveSource[m]])
