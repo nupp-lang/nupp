@@ -16,6 +16,7 @@ local operations = {
 }
 local templates: any = setmetatable({}, {__mode = "k"})
 local bodies: any = setmetatable({}, {__mode = "k"})
+local results: any = setmetatable({}, {__mode = "k"})
 
 local function need(ok: any, message: string): any
     return assert(ok, "residual: " .. message)
@@ -149,7 +150,96 @@ function residual.bind(template: any, body: any, expectedBody: any, pc: number):
     end
     graph.verify(bound)
 
-    return {graph = bound, body = body, pc = pc}
+    local result = {graph = bound, body = body, pc = pc}
+    results[result] = {template = template, body = body, pc = pc}
+
+    return result
+end
+
+-- A bound result is a view, not authority. Stitching rebinds its privately
+-- retained template/body/PC before copying any graph into the sequence.
+function residual.stitch(sequence: any): any
+    need(type(sequence) == "table" and getmetatable(sequence) == nil, "plain sequence table required")
+    local count = #sequence
+    need(count >= 1 and count <= 64, "sequence extent")
+    local entries, snapshot = 0, {}
+    for key, result in pairs(sequence) do
+        need(integer(key, 1, count), "sequence must be a dense array")
+        snapshot[key] = result
+        entries = entries + 1
+    end
+    need(entries == count, "sequence must be a dense array")
+    local first = need(results[snapshot[1]], "unknown bound result")
+    local sources = {}
+    for index, result in ipairs(snapshot) do
+        local kept = need(results[result], "unknown bound result")
+        need(rawequal(kept.body, first.body), "sequence body identity mismatch")
+        need(kept.pc == first.pc + (index - 1) * 16, "sequence must advance one instruction")
+        local source = residual.bind(kept.template, kept.body, first.body, kept.pc).graph
+        local block = source.blocks[1]
+        need(#source.certificates == 0, "sequence certificates unsupported")
+        for i = 2, 6 do
+            need(block.term.args[i] == i, "sequence changes a frame window or context")
+        end
+        for _, certificate in ipairs(block.cert) do
+            need(certificate == 0, "sequence certificates unsupported")
+        end
+        sources[index] = source
+    end
+    local original = sources[1]
+    local joined = graph.newNative(copy(original.native.params), original.native.result, original.native.abi)
+    joined.native, joined.source = copy(original.native), copy(original.source)
+    local block = graph.block(joined)
+    local incoming = {1, 2, 3, 4, 5, 6}
+    local segments = {}
+    for index, source in ipairs(sources) do
+        local from = source.blocks[1]
+        local values, positions = copy(incoming), {}
+        for id, position in ipairs(source.positions) do
+            positions[id] = #joined.positions + 1
+            joined.positions[#joined.positions + 1] = copy(position)
+        end
+        local start = #block.op + 1
+        for at, operation in ipairs(from.op) do
+            local signature = graph.signatures[operation]
+            local args = {}
+            for i, argument in ipairs(from.args[at]) do
+                local class = signature.args[i]
+                if graph.classes[class] ~= nil or class == "a" then
+                    args[i] = need(values[argument], "sequence value unavailable")
+                else
+                    args[i] = copy(argument)
+                end
+            end
+            local destination = from.dst[at]
+            local kind = destination ~= 0 and source.exactTypes[destination] or nil
+            local value = graph.emitNative(joined, block, operation, args, kind, positions[from.pos[at]] or 0)
+            if destination ~= 0 then
+                values[destination] = value
+            end
+        end
+        local term = copy(from.term)
+        for i, argument in ipairs(from.term.args) do
+            term.args[i] = need(values[argument], "sequence dispatch value unavailable")
+        end
+        term.pos = positions[from.term.pos] or 0
+        block.term = term
+        segments[
+            index
+        ] = {
+            pc = first.pc + (index - 1) * 16,
+            source = copy(source.source),
+            first = start,
+            last = #block.op,
+            dispatch = copy(term)
+        }
+        -- Dispatch preserves the value window in this bounded slice, so its
+        -- reconstructed logical frame remains the same sixth graph parameter.
+        incoming = {term.args[1], term.args[2], term.args[3], term.args[4], term.args[5], incoming[6]}
+    end
+    graph.verify(joined)
+
+    return {graph = joined, body = first.body, pc = first.pc, count = #sources, segments = segments}
 end
 
 export = residual

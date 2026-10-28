@@ -351,4 +351,231 @@ function M.emitNativeFixturesWhenRequested()
     end
 end
 
+local function sequence(specification, firstPC)
+    firstPC = firstPC or 0
+    local bytes, templates = {}, {}
+    for index, step in ipairs(specification) do
+        local tag = opcode(step.name)
+        templates[index] = residual.prepare(fixtures()[step.name], tag)
+        bytes[index] = instruction(tag, step.a, step.b, step.c, step.hex):sub(1, 16)
+    end
+    bytes[#bytes + 1] = string.rep("\0", 16)
+    local body = residual.retain(string.rep("\0", firstPC) .. table.concat(bytes), 4)
+    local bound = {}
+    for index, template in ipairs(templates) do
+        bound[index] = residual.bind(template, body, body, firstPC + (index - 1) * 16)
+    end
+
+    return body, bound
+end
+
+local function sequenceSteps(count)
+    local names = {"IK", "IMov", "IAddK", "IMaskU32", "IAdd", "ISub", "IAnd", "IOr"}
+    local steps = {}
+    for i = 1, count do
+        steps[i] = {name = names[(i - 1) % #names + 1], a = 1, b = 1, c = 2, hex = "ffffffffffffffff"}
+    end
+
+    return steps
+end
+
+function M.stitchesCanonicalGraphsWithoutDroppingFrameEffects()
+    local body, bound = sequence(sequenceSteps(8))
+    local result = residual.stitch(bound)
+    assert(rawequal(result.body, body) and result.pc == 0 and result.count == 8)
+    graph.verify(result.graph)
+    local block = result.graph.blocks[1]
+    local previousPC, count = 1, 0
+    for index, original in ipairs(bound) do
+        local source = original.graph
+        local segment = result.segments[index]
+        assert(segment.pc == (index - 1) * 16 and segment.first == count + 1)
+        assert(same(segment.source, source.source))
+        for at, operation in ipairs(source.blocks[1].op) do
+            local nextAt = count + at
+            assert(block.op[nextAt] == operation and operation ~= "ProgramLoad")
+            local signature = graph.signatures[operation]
+            for argument, kind in ipairs(signature.args) do
+                if graph.classes[kind] == nil and kind ~= "a" then
+                    assert(
+                        same(source.blocks[1].args[at][argument], block.args[nextAt][argument]),
+                        "changed literal or access contract"
+                    )
+                end
+            end
+            local originalResult, joinedResult = source.blocks[1].dst[at], block.dst[nextAt]
+            if originalResult ~= 0 then
+                assert(source.exactTypes[originalResult] == result.graph.exactTypes[joinedResult])
+            end
+            local oldPosition = source.positions[source.blocks[1].pos[at]]
+            local newPosition = result.graph.positions[block.pos[nextAt]]
+            assert(same(oldPosition, newPosition), "lost source position")
+            if operation == "PointerOffset" then
+                assert(block.args[nextAt][1] == previousPC, "wrong successor PC binding")
+            end
+        end
+        previousPC = segment.dispatch.args[1]
+        for i = 2, 6 do
+            assert(segment.dispatch.args[i] == i, "changed frame or window")
+        end
+        assert(same(result.graph.positions[segment.dispatch.pos], source.positions[source.blocks[1].term.pos]))
+        count = count + #source.blocks[1].op
+        assert(segment.last == count)
+    end
+    assert(#block.op == count and block.term.args[1] == previousPC)
+end
+
+function M.stitchUsesPrivateBindingAuthority()
+    local body, bound = sequence(sequenceSteps(3))
+    local expected = residual.stitch(bound)
+    for _, item in ipairs(bound) do
+        item.graph.blocks[1].op[1] = "unsupported"
+        item.body, item.pc = {}, -1
+    end
+    local actual = residual.stitch(bound)
+    assert(same(expected.graph, actual.graph))
+    assert(rawequal(actual.body, body))
+    actual.graph.blocks[1].op[1] = "mutated"
+    assert(same(expected.graph, residual.stitch(bound).graph))
+end
+
+function M.stitchRejectsGapsBodiesAndForgedViews()
+    local _, bound = sequence(sequenceSteps(3))
+    local _, other = sequence(sequenceSteps(3))
+    local before = residual.stitch({bound[1]}).graph
+    rejects("sequence extent", function()
+        residual.stitch({})
+    end)
+    rejects("plain sequence table", function()
+        residual.stitch(false)
+    end)
+    rejects("unknown bound result", function()
+        residual.stitch({{graph = bound[1].graph}})
+    end)
+    rejects("body identity", function()
+        residual.stitch({bound[1], other[2]})
+    end)
+    rejects("advance one instruction", function()
+        residual.stitch({bound[1], bound[3]})
+    end)
+    rejects("advance one instruction", function()
+        residual.stitch({bound[2], bound[1]})
+    end)
+    local suffix = residual.stitch({bound[2], bound[3]})
+    assert(suffix.pc == 16 and suffix.count == 2 and suffix.segments[2].pc == 32)
+    rejects("dense array", function()
+        residual.stitch({bound[1], extra = bound[2]})
+    end)
+    local many = {}
+    for i = 1, 65 do
+        many[i] = bound[1]
+    end
+    rejects("sequence extent", function()
+        residual.stitch(many)
+    end)
+    assert(same(before, residual.stitch({bound[1]}).graph), "refusal changed a retained binding")
+end
+
+function M.stitchRejectsWindowAndLogicalFrameChanges()
+    for _, parameter in ipairs({2, 3, 4, 5, 6}) do
+        local tag = opcode("IK")
+        local source = residual.inspect(residual.prepare(fixtures().IK, tag)).graph
+        source.blocks[1].term.args[parameter] = parameter == 2 and 3 or 2
+        rejects("native dispatch changes frame/window/context identity", function()
+            local template = residual.prepare(source, tag)
+            local body = residual.retain(instruction(tag, 0, 1, 2, "ffffffffffffffff"), 4)
+            local bound = residual.bind(template, body, body, 0)
+            residual.stitch({bound})
+        end)
+    end
+end
+
+function M.stitchRetainsSingleAndMaximumSequences()
+    for _, count in ipairs({1, 64}) do
+        local body, bound = sequence(sequenceSteps(count))
+        local result = residual.stitch(bound)
+        assert(rawequal(result.body, body) and result.count == count)
+        assert(#result.segments == count and result.segments[count].pc == (count - 1) * 16)
+        graph.verify(result.graph)
+    end
+end
+
+function M.sequenceAdmissionRejectsNonDispatchControl()
+    local tag = opcode("IK")
+    local source = residual.inspect(residual.prepare(fixtures().IK, tag)).graph
+    source.blocks[1].term = {kind = "nativeFail", edges = {}}
+    rejects("bounded dispatch block", function()
+        residual.prepare(source, tag)
+    end)
+    source = residual.inspect(residual.prepare(fixtures().IK, tag)).graph
+    local nextBlock = graph.block(source)
+    nextBlock.term = {kind = "nativeFail", edges = {}}
+    source.blocks[1].term = {kind = "jump", edges = {{target = nextBlock.id, args = {}}}}
+    rejects("single closed block", function()
+        residual.prepare(source, tag)
+    end)
+end
+
+function M.stitchRefusesSequenceMetatablesWithoutCallingHooks()
+    local _, bound = sequence(sequenceSteps(2))
+    local called = 0
+
+    local function hook()
+        called = called + 1
+        error("sequence hook executed")
+    end
+
+    for _, meta in ipairs({
+        {__len = hook},
+        {__pairs = hook},
+        {__index = hook},
+        {__metatable = false, __len = hook, __pairs = hook, __index = hook}
+    }) do
+        local forged = setmetatable({bound[1], bound[2]}, meta)
+        rejects("plain sequence table", function()
+            residual.stitch(forged)
+        end)
+        assert(called == 0)
+    end
+    setmetatable(bound[1], {__index = hook, __eq = hook})
+    assert(residual.stitch(bound).count == 2 and called == 0)
+end
+
+function M.emitNativeSequencesWhenRequested()
+    local directory = os.getenv("NUPP_RESIDUAL_SEQUENCE_OUT")
+    if not directory then
+        return
+    end
+    local current, steps, firstPC = nil, {}, 0
+
+    local function emit()
+        if not current then
+            return
+        end
+        local _, bound = sequence(steps, firstPC)
+        local joined = residual.stitch(bound)
+        local file = assert(io.open(directory .. "/" .. current .. ".clif", "wb"))
+        local seen = {}
+        for _, step in ipairs(steps) do
+            if not seen[step.name] then
+                file:write(emitter.emit(fixtures()[step.name], {name = "original_" .. step.name}), "\n")
+                seen[step.name] = true
+            end
+        end
+        file:write(emitter.emit(joined.graph, {name = "stitched"}), "\n")
+        file:close()
+    end
+
+    for line in read(directory .. "/cases.tsv"):gmatch("[^\n]+") do
+        local label, pc, name, a, b, c, hex = line:match("^(%S+) (%d+) (%S+) (%d+) (%d+) (%d+) (%x+)$")
+        assert(label, line)
+        if current ~= label then
+            emit()
+            current, steps, firstPC = label, {}, tonumber(pc)
+        end
+        steps[#steps + 1] = {name = name, a = tonumber(a), b = tonumber(b), c = tonumber(c), hex = hex}
+    end
+    emit()
+end
+
 return M
