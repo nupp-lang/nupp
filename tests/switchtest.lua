@@ -1062,4 +1062,63 @@ function M.aTaskStatusSwitchNeedsNoElse()
     testAssert.equal(diagnosticCodes(status), "", "tasks.Status names the same union")
 end
 
+function M.bareNamedConstantsSelectStaticArms()
+    local first, second, third, fourth = run(
+        [[
+const RETURN: 17 = 17
+const CALL: 18 = 18
+const TAIL_CALL: 19 = 19
+local function choose(op: integer): string
+    return switch op do
+        case RETURN -> do
+            local result = "return"
+            yield result
+        end
+        case CALL, TAIL_CALL -> "call"
+        else -> "other"
+    end
+end
+return choose(RETURN), choose(CALL), choose(TAIL_CALL), choose(20)
+]]
+    )
+    testAssert.equal(first, "return")
+    testAssert.equal(second, "call")
+    testAssert.equal(third, "call")
+    testAssert.equal(fourth, "other")
+end
+
+function M.namedCasesKeepGuardsParenthesesAndResultLambdas()
+    local first, second, third = run(
+        [[
+const READ: "read" = "read"
+const WRITE: "write" = "write"
+local function choose(mode: string, enabled: boolean): string
+    local action = switch mode do
+        case READ where enabled -> value -> value .. "!"
+        case (READ), WRITE -> value -> value
+        else -> value -> "other"
+    end
+    return action(mode)
+end
+return choose(READ, true), choose(READ, false), choose(WRITE, false)
+]]
+    )
+    testAssert.equal(first, "read!")
+    testAssert.equal(second, "read")
+    testAssert.equal(third, "write")
+end
+
+function M.bareNonconstantCaseRemainsACheckerError()
+    local codes = diagnosticCodes(
+        [[
+local dynamic: integer = 17
+local result = switch 17 do
+    case dynamic -> 1
+    else -> 0
+end
+]]
+    )
+    testAssert.equal(codes, "NUPP2137")
+end
+
 return M

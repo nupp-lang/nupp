@@ -57,8 +57,8 @@ local access = switch mode do
 end
 ```
 
-The parentheses are required today: a bare `case READ ->` does not parse,
-because the name and arrow are taken for the start of a short function.
+The parentheses are optional: `case READ ->` and `case READ, WRITE ->` use
+named constants directly.
 
 ## Type cases, binding, and destructuring
 

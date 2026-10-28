@@ -147,10 +147,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     -- context.
     local noMethod = 0
     -- Nonzero where a bare `name ->` must not be read as a short function, because
-    -- something else in the grammar owns that arrow. A switch arm's `where` guard is
-    -- the case: `where b -> "yes"` is a guard `b` and an arm result, not a lambda
-    -- taking `b`. Bracketed contexts clear it, so a lambda nested in a guard still
-    -- parses as one.
+    -- something else in the grammar owns that arrow. Switch case values and
+    -- `where` guards end at the arm's arrow. Bracketed contexts clear it, so a
+    -- nested short function still parses as one.
     local noArrow = 0
     -- `continue` is a soft keyword, but once recognized it must belong to the innermost
     -- loop. Function bodies reset this depth because a loop outside a closure cannot be
@@ -2029,6 +2028,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 end
             else
                 arm.patternKind = "static"
+                noArrow = noArrow + 1
                 repeat
                     arm.values[#arm.values + 1] = add(arm, parseExp())
                     if cur().kind ~= "," then
@@ -2036,6 +2036,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     end
                     add(arm, advance())
                 until false
+                noArrow = noArrow - 1
             end
             -- `where` narrows the arm with a predicate the pattern cannot state.
             -- It is spelled `where` rather than `and` because case values are read
