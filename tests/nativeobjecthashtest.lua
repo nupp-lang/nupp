@@ -273,6 +273,9 @@ function M.tableProbeUsesTheSharedLeafGraphAndNilBucketContract()
         {
             ROOT .. "/src/nupp/runtime/vm/values.nupp",
             ROOT .. "/src/nupp/runtime/vm/objecthash.nupp",
+            ROOT .. "/src/nupp/runtime/vm/arena.nupp",
+            ROOT .. "/src/nupp/runtime/vm/heap.nupp",
+            ROOT .. "/src/nupp/runtime/vm/backing.nupp",
             ROOT .. "/src/nupp/runtime/vm/objecttable.nupp"
         },
         {include = {"src"}}
@@ -289,6 +292,9 @@ function M.tableGrowthLeavesRetainCheckedGraphCallsAndOwnedBufferAccess()
         {
             ROOT .. "/src/nupp/runtime/vm/values.nupp",
             ROOT .. "/src/nupp/runtime/vm/objecthash.nupp",
+            ROOT .. "/src/nupp/runtime/vm/arena.nupp",
+            ROOT .. "/src/nupp/runtime/vm/heap.nupp",
+            ROOT .. "/src/nupp/runtime/vm/backing.nupp",
             ROOT .. "/src/nupp/runtime/vm/objecttable.nupp"
         },
         {include = {"src"}}
