@@ -1,0 +1,151 @@
+module nupp.core.producer
+
+local ROOT = assert(os.getenv("NUPP_COMPILER_ROOT"))
+local CORE = ROOT .. "/src/nupp/runtime/vm/core.nupp"
+local VALUES = ROOT .. "/src/nupp/runtime/vm/values.nupp"
+local parser = require("nupp.compiler.syntax.parser")
+local checker = require("nupp.compiler.check")
+local environment = require("nupp.compiler.project.env")
+local trivia = require("nupp.compiler.syntax.triviaarena")
+local provider = require("nupp.compiler.syntax.triviaarena.table")
+local nativegraph = require("nupp.compiler.vm.nativegraph")
+local sink = require("nupp.compiler.s0.nativegraph")
+local allocate = require("s0.allocate")
+local allocationcheck = require("s0.allocationcheck")
+local selector = require("s0.select")
+local shim = require("nupp.core.shim")
+local program = require("nupp.core.program")
+local json = require("nupp.codec.json")
+require("nupp.compiler.project.projectconfig")
+require("nupp.compiler.hash")
+local producer = {}
+
+local function read(path: any): any
+    local file = assert(io.open(path, "rb"))
+    local text = file:read("*a")
+    file:close()
+    return text
+end
+
+local function functionsFrom(parsed: any, scope: any): any
+    scope.functions, scope.exports = {}, {}
+    for _, block in ipairs(parsed.root.blocks) do
+        for _, stat in ipairs(block.stats) do
+            local node = stat.kind == "exportStmt" and stat.stat or stat
+            if node and (node.kind == "localFuncStmt" or node.kind == "funcStmt") then
+                local body = node.body
+                local name = node.kind == "localFuncStmt" and node.name.text or node.name.base.text
+                local kinds = {}
+                for index, parameter in ipairs(body.params) do
+                    kinds[index] = parameter.type.resolvedType.tag
+                end
+                local result = body.signatureType.rets[1] and body.signatureType.rets[1].tag
+                local handler = result == "uint64" and #kinds == 6
+                for _, kind in ipairs(kinds) do
+                    if kind ~= "voidptr" then
+                        handler = false
+                    end
+                end
+                local fn = {
+                    name = name,
+                    node = node,
+                    body = body,
+                    scope = scope,
+                    paramKinds = kinds,
+                    resultKind = result ~= "nil" and result or nil,
+                    isHandler = handler,
+                    isSupport = not handler and name:match("Slow$") ~= nil
+                }
+                scope.functions[name] = fn
+                if stat.kind == "exportStmt" then
+                    scope.exports[name] = fn
+                end
+            end
+        end
+    end
+
+    return scope.functions
+end
+
+local function checked(source: any, path: string, moduleName: string): (any, any)
+    trivia.installDefault(provider)
+    local env: any = environment.new(ROOT, {
+        cache = false,
+        nativeCompilerServices = false,
+        config = {include = {"src", "native/core/src"}}
+    })
+    local parsed: any = parser.parse(source, path)
+    assert(#parsed.errors == 0, "core fixture did not parse")
+    for _, diagnostic in ipairs((checker.check(parsed, path, env, {}))) do
+        assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
+    end
+    local scope = {name = moduleName, path = path}
+    local functions = functionsFrom(parsed, scope)
+    -- Reproduce the existing checked module record supplied by the native
+    -- lowering, taking the constant's lexical text from the actual source.
+    local values: any = parser.parse(read(VALUES), VALUES)
+    assert(#values.errors == 0)
+    for _, diagnostic in ipairs((checker.check(values, VALUES, env, {}))) do
+        assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
+    end
+    local constants = {}
+    for _, block in ipairs(values.root.blocks) do
+        for _, stat in ipairs(block.stats) do
+            if stat.kind == "exportStmt" and stat.stat and stat.stat.kind == "localStmt" then
+                local declared = stat.stat
+                if declared.isConst and #declared.names == 1 and declared.exprs[1].kind == "number" then
+                    constants[declared.names[1].text] = declared.exprs[1].token.text:gsub("[Uu]?[Ll][Ll]$", "")
+                end
+            end
+        end
+    end
+
+    return functions, {modules = {[scope.name] = scope, ["nupp.runtime.vm.values"] = {exportedConstants = constants}}}
+end
+
+function producer.compile(mode: string): string
+    assert(mode == "normal" or mode == "spill", "invalid allocation mode")
+    local functions, options = checked(read(CORE), CORE, "nupp.runtime.vm.core")
+    local stopPath = ROOT .. "/native/core/src/nupp/runtime/core/entry.nupp"
+    local stops, stopOptions = checked(read(stopPath), stopPath, "nupp.runtime.core.entry")
+    local codes, metrics = {}, {}
+    for index, name in ipairs(program.names) do
+        local fn = index == 1 and stops[name] or functions[name]
+        local g = nativegraph.compile(assert(fn), index == 1 and stopOptions or options)
+        local artifact = sink.compilerGraph(g, name, fn)
+        local target = selector.target()
+        if mode == "spill" then
+            target.integerRegisters, target.floatRegisters = {}, {}
+        end
+        local allocation = allocate.run(artifact.machine, target)
+        assert(allocationcheck.run(artifact.machine, target, allocation))
+        codes[index] = selector.run(artifact.machine, allocation)
+        metrics[
+            index
+        ] = {
+            name = name,
+            graphOps = #g.blocks[1].op,
+            machineOps = #artifact.machine.op,
+            words = #codes[index].words,
+            spillSlots = allocation.spillSlots,
+            integerRegisters = #target.integerRegisters,
+            floatRegisters = #target.floatRegisters
+        }
+    end
+    local result = shim.build(codes)
+    result.handlers, result.mode = metrics, mode
+
+    return json.encode(result)
+end
+
+function producer.data(path: string, slots: string, offsets: string, codeBytes: string): string
+    local code = read(path)
+    local handlers = {}
+    for text in offsets:gmatch("[^,]+") do
+        handlers[#handlers + 1] = assert(tonumber(text))
+    end
+
+    return program.data(code, assert(tonumber(slots)) as integer, handlers, assert(tonumber(codeBytes)) as integer)
+end
+
+export = producer

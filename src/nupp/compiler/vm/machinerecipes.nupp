@@ -1,6 +1,18 @@
 module nupp.compiler.vm.machinerecipes
 
 local recipes = {}
+recipes.integerOps = {
+    IAdd = "iadd",
+    ISub = "isub",
+    NativeIMul = "imul",
+    NativeUDiv = "udiv",
+    IAnd = "band",
+    IOr = "bor",
+    IXor = "bxor",
+    INot = "bnot",
+    IShl = "ishl",
+    IShrU = "ushr"
+}
 
 type recipes.Emit = function(
     op: string,

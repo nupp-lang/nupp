@@ -1,0 +1,15 @@
+module nupp.runtime.core.entry
+
+const native = require("nupp.runtime.vm.intrinsics")
+
+export function CoreStop(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local slot = native.load8(pc, 1)
+    return native.load64(ints, slot * 8)
+end
