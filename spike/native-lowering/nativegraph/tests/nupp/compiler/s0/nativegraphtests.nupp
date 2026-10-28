@@ -261,20 +261,50 @@ function M.cases(): any
         end
     end
     local single = residual.stitch({bindings[1]})
+    local expected = sink.lower(single, "private")
     single.segments[1].first = 2
-    rejects("segment coverage", function(): nil
-        sink.lower(single, "bad")
-    end)
-    single = residual.stitch({bindings[1]})
     single.graph.recovery = {}
-    rejects("recovery metadata", function(): nil
-        sink.lower(single, "bad")
-    end)
-    single = residual.stitch({bindings[1]})
     single.graph.blocks[1].cert[1] = 1
-    assert(not pcall(sink.lower, single, "bad"))
-    -- Unbound canonical handlers retain ProgramLoad and must refuse.
-    assert(not pcall(sink.lower, {graph = fixtures().IK, body = owner, pc = 0}, "unbound"))
+    single.graph.blocks[1].args[1] = {"wrong"}
+    single.body, single.pc, single.count = false, -16, 999
+    local called = 0
+
+    local function hook(): any
+        called = called + 1
+        error("result hook executed")
+    end
+
+    setmetatable(single, {__index = hook, __pairs = hook, __len = hook})
+    exact(sink.lower(single, "private").machine, expected.machine, "private mutation")
+    local snapshot = residual.snapshot(single)
+    snapshot.graph.blocks[1].args[1] = {"wrong again"}
+    snapshot.segments[1].dispatch.args[1] = -1
+    exact(sink.lower(single, "private").machine, expected.machine, "snapshot mutation")
+    for _, forged in ipairs({
+        snapshot,
+        {graph = fixtures().IK, body = owner, pc = 0},
+        setmetatable({}, {
+            __index = hook,
+            __pairs = hook
+        })
+    }) do
+        rejects("unknown residual result", function(): nil
+            sink.lower(forged, "forged")
+        end)
+    end
+    assert(called == 0)
+    -- Unsupported canonical metadata still refuses after private admission.
+    local source = fixtures().IK
+    source.recovery = {}
+    local template = residual.prepare(source, opcode("IK"))
+    local body = residual.retain(instruction(opcode("IK"), 0, 1, 2, "0000000000000000"), 4)
+    local recovery = residual.bind(template, body, body, 0)
+    rejects("recovery metadata", function(): nil
+        sink.lower(recovery, "recovery")
+    end)
+    rejects("recovery metadata", function(): nil
+        residual.stitch({recovery})
+    end)
 
     return "direct MIR: " .. #cases .. " cases, " .. instructions .. " instructions, " .. words .. " selected words"
 end

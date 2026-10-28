@@ -38,6 +38,34 @@ local function copy(value: any): any
     return result
 end
 
+local function resultState(result: any): any
+    need(type(result) == "table", "unknown residual result")
+    return need(rawget(results, result), "unknown residual result")
+end
+
+local function view(state: any): any
+    return {
+        graph = copy(state.graph),
+        body = state.body,
+        pc = state.pc,
+        count = state.count,
+        segments = copy(state.segments)
+    }
+end
+
+local function publish(state: any): any
+    local result = view(state)
+    results[result] = state
+    return result
+end
+
+-- A result's identity admits a fresh detached snapshot. Public fields and
+-- metatables are never inspected; the exact retained body owner is preserved.
+-- This authenticates compiler provenance, not loader tags or window extents.
+function residual.snapshot(result: any): any
+    return view(resultState(result))
+end
+
 -- Prototype precondition: a trusted loader supplies the existing runtime
 -- dispatch catalog's tag for this checked handler. This is not a verifier for
 -- untrusted bytecode or for the catalog association; production needs that
@@ -150,14 +178,11 @@ function residual.bind(template: any, body: any, expectedBody: any, pc: number):
     end
     graph.verify(bound)
 
-    local result = {graph = bound, body = body, pc = pc}
-    results[result] = {template = template, body = body, pc = pc}
-
-    return result
+    return publish({graph = bound, template = template, body = body, pc = pc})
 end
 
--- A bound result is a view, not authority. Stitching rebinds its privately
--- retained template/body/PC before copying any graph into the sequence.
+-- A bound result is a view, not authority. Stitching copies its private
+-- canonical graph; aggregate results are not single-instruction bindings.
 function residual.stitch(sequence: any): any
     need(type(sequence) == "table" and getmetatable(sequence) == nil, "plain sequence table required")
     local count = #sequence
@@ -169,15 +194,17 @@ function residual.stitch(sequence: any): any
         entries = entries + 1
     end
     need(entries == count, "sequence must be a dense array")
-    local first = need(results[snapshot[1]], "unknown bound result")
+    local first = resultState(snapshot[1])
     local sources = {}
     for index, result in ipairs(snapshot) do
-        local kept = need(results[result], "unknown bound result")
+        local kept = resultState(result)
+        need(kept.template ~= nil, "single bound result required")
         need(rawequal(kept.body, first.body), "sequence body identity mismatch")
         need(kept.pc == first.pc + (index - 1) * 16, "sequence must advance one instruction")
-        local source = residual.bind(kept.template, kept.body, first.body, kept.pc).graph
+        local source = copy(kept.graph)
         local block = source.blocks[1]
         need(#source.certificates == 0, "sequence certificates unsupported")
+        need(source.recovery == nil and source.recoveries == nil, "sequence recovery metadata unsupported")
         for i = 2, 6 do
             need(block.term.args[i] == i, "sequence changes a frame window or context")
         end
@@ -239,7 +266,7 @@ function residual.stitch(sequence: any): any
     end
     graph.verify(joined)
 
-    return {graph = joined, body = first.body, pc = first.pc, count = #sources, segments = segments}
+    return publish({graph = joined, body = first.body, pc = first.pc, count = #sources, segments = segments})
 end
 
 export = residual

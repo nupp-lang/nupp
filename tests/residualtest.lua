@@ -449,7 +449,7 @@ function M.stitchRejectsGapsBodiesAndForgedViews()
     rejects("plain sequence table", function()
         residual.stitch(false)
     end)
-    rejects("unknown bound result", function()
+    rejects("unknown residual result", function()
         residual.stitch({{graph = bound[1].graph}})
     end)
     rejects("body identity", function()
@@ -539,6 +539,58 @@ function M.stitchRefusesSequenceMetatablesWithoutCallingHooks()
     end
     setmetatable(bound[1], {__index = hook, __eq = hook})
     assert(residual.stitch(bound).count == 2 and called == 0)
+end
+
+function M.privateSnapshotsIgnorePublicMutationAndHooks()
+    local body, bound = sequence(sequenceSteps(2))
+    for _, result in ipairs({bound[1], residual.stitch(bound)}) do
+        local expected = residual.snapshot(result)
+        local detached = residual.snapshot(result)
+        detached.graph.blocks[1].args[1][1] = "corrupt"
+        detached.graph.source.name = "corrupt"
+        if detached.segments then
+            detached.segments[1].dispatch.args[1] = -1
+        end
+        local hooks = 0
+
+        local function hook()
+            hooks = hooks + 1
+            error("result hook executed")
+        end
+
+        for key in pairs(result) do
+            result[key] = nil
+        end
+        setmetatable(result, {__index = hook, __pairs = hook, __len = hook, __eq = hook})
+        local actual = residual.snapshot(result)
+        assert(same(actual.graph, expected.graph) and same(actual.segments, expected.segments))
+        assert(actual.pc == expected.pc and actual.count == expected.count and rawequal(actual.body, body))
+        local forged = setmetatable({}, {__index = result, __pairs = hook, __len = hook, __eq = hook})
+        rejects("unknown residual result", function()
+            residual.snapshot(forged)
+        end)
+        rejects("unknown residual result", function()
+            residual.snapshot(detached)
+        end)
+        assert(hooks == 0)
+    end
+    rejects("single bound result", function()
+        residual.stitch({residual.stitch(bound)})
+    end)
+end
+
+function M.privateResultRetainsBodyAfterPublicOwnerRemoval()
+    local body, bindings = sequence(sequenceSteps(2))
+    local weak = setmetatable({body}, {__mode = "v"})
+    local result = residual.stitch(bindings)
+    result.body, result.graph, result.segments = nil, nil, nil
+    body, bindings = nil, nil
+    collectgarbage("collect")
+    collectgarbage("collect")
+    local snapshot = residual.snapshot(result)
+    assert(weak[1] ~= nil and rawequal(weak[1], snapshot.body))
+    assert(snapshot.count == 2 and #snapshot.segments == 2)
+    graph.verify(snapshot.graph)
 end
 
 function M.emitNativeSequencesWhenRequested()

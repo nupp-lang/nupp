@@ -1,6 +1,7 @@
 module nupp.compiler.s0.nativegraph
 
 local graph = require("nupp.compiler.vm.graph")
+local residual = require("nupp.compiler.vm.residual")
 local recipes = require("nupp.compiler.vm.machinerecipes")
 local ir = require("s0.ir")
 local literal = require("s0.literal")
@@ -33,10 +34,11 @@ local function copy(value: any): any
     return result
 end
 
--- Prototype: input is a trusted compiler-produced bound result, not a loader
--- capability. Graph verification does not authenticate its mutable public view.
+-- Prototype: private compiler-result provenance is checked before public data
+-- can be observed. Loader opcode/tag and integer-window authority remain pending.
 -- The returned artifact retains the exact body owner through linking/execution.
 function sink.lower(bound: any, name: string): sink.Result
+    bound = residual.snapshot(bound)
     local g = bound.graph
     graph.verify(g)
     assert(bound.body ~= nil, "S0 graph: retained body owner required")
