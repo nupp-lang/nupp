@@ -205,4 +205,134 @@ function extract.test(): integer
     return cases
 end
 
+function extract.catalog(source: string): string
+    local path = "=core-function-catalog.nupp"
+    local parsed = parser.parse(source, path)
+    assert(#parsed.errors == 0, "catalog source did not parse")
+    local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
+    local diagnostics = check.check(parsed, path, env as any, {
+        moduleName = "core_fixture",
+        strict = false,
+        lints = {["unused-binding"] = "off"}
+    })
+    for _, diagnostic in ipairs(diagnostics) do
+        assert(diagnostic.severity ~= "error", diagnostic.msg)
+    end
+    (parsed.root as any).vmModuleExports = (parsed as any).moduleExports
+    local holder: any = {}
+    local previousSink = lower.graphSink
+    lower.graphSink = function(entry: string, functions: any, header: any): nil
+        local described = {}
+        for index, f in ipairs(functions) do
+            described[index] = program.catalogFunction(f, convert.blocks(f))
+        end
+        holder.catalog = {
+            version = 1,
+            kind = "checked-function-catalog",
+            runtimeAdmitted = false,
+            entryModule = entry,
+            entryFunctionId = header.entry,
+            modules = header.modules,
+            shapeCount = #header.shapes,
+            functions = described
+        }
+        program.verifyCatalog(holder.catalog)
+    end
+    local listings = {}
+    local ok, image = pcall(
+        lower.emit,
+        "core_fixture",
+        {},
+        function(name: string): string?
+            return name == "core_fixture" and path or nil
+        end,
+        function(_: string, _: string): table
+            return parsed.root
+        end,
+        nil,
+        listings
+    )
+    lower.graphSink = previousSink
+    assert(ok, image)
+    local catalog = assert(holder.catalog, "missing checked function catalog")
+    assert(#listings == #catalog.functions, "function listing count changed")
+    for index, listing in ipairs(listings) do
+        local f = catalog.functions[index]
+        assert(
+            tonumber(listing.image:match("^function %S+ (%d+) ")) == f.id and listing.name == f.name,
+            "function listing identity changed"
+        )
+        f.listing = listing.image
+    end
+    catalog.graphImageHex = program.hex(image)
+
+    return json.encode(catalog)
+end
+
+function extract.testCatalog(): integer
+    local source = "local function fib(n: number): number if n < 2 then return n end return fib(n - 1) + fib(n - 2) end return fib"
+    local catalog: any = json.decode(extract.catalog(source))
+    assert(catalog.runtimeAdmitted == false and #catalog.functions == 2 and catalog.entryFunctionId == 0)
+    local chunk, fib = catalog.functions[1], catalog.functions[2]
+    assert(chunk.id == 0 and fib.id == 1 and fib.parent == 0 and fib.name == "fib")
+    assert(fib.nparams == 1 and fib.sig == "v" and fib.ret == "v" and not fib.vararg)
+    assert(#fib.captures == 1 and fib.captures[1].kind == "local" and fib.captures[1].nameBytes == "666962")
+    assert(chunk.opcodeCounts.NewCell == 1 and chunk.opcodeCounts.NewClosure == 1 and chunk.opcodeCounts.SetCell == 1)
+    assert(fib.opcodeCounts.CallDyn == 2 and fib.opcodeCounts.GetUpval and fib.opcodeCounts.GetCell)
+    assert(fib.opcodeCounts.Sub == 2 and fib.opcodeCounts.Add == 1 and fib.opcodeCounts.Lt == 1)
+    assert(fib.listing:find("CallDyn", 1, true) and fib.listing:find("GetCell", 1, true))
+    assert(#catalog.graphImageHex > 16 and catalog.graphImageHex:sub(1, 16) == "4e55505047524146")
+
+    local function refused(): nil
+        assert(not pcall(program.verifyCatalog, catalog), "invalid catalog was accepted")
+    end
+
+    fib.parent = 1
+    refused()
+    fib.parent = 0
+    fib.captures[1].reg = chunk.registers[1]
+    refused()
+    fib.captures[1].reg = 0
+    fib.id = 2
+    refused()
+    fib.id = 1
+    catalog.runtimeAdmitted = true
+    refused()
+
+    return 13
+end
+
+function extract.testCatalogConstants(source: string): integer
+    local catalog: any = json.decode(extract.catalog(source))
+    local f = catalog.functions[2]
+    local found = {}
+    for _, c in ipairs(f.constants) do
+        if c.kind == "int64" and c.bitsLE == "0000000000000080" then
+            found.signed = true
+        elseif c.kind == "uint64" and c.bitsLE == "ffffffffffffffff" then
+            found.unsigned = true
+        elseif c.kind == "num" and c.bitsLE == "000000000000f83f" then
+            found.number = true
+        elseif c.kind == "str" and c.bytes == "6100ff7a" then
+            found.binaryString = true
+        end
+    end
+    assert(found.signed)
+    assert(found.unsigned)
+    assert(found.number)
+    assert(found.binaryString)
+    local zero = false
+    for _, b in ipairs(f.blocks) do
+        for _, instruction in ipairs(b.code) do
+            if instruction.op == "FK" and instruction.operands[2].bitsLE == "0000000000000000" then
+                zero = true
+            end
+        end
+    end
+    assert(zero)
+    assert(f.opcodeCounts.FNeg == 1)
+
+    return 6
+end
+
 export = extract

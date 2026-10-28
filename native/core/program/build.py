@@ -47,6 +47,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--reference", type=Path, help="preserved program artifacts for exact byte reproduction")
+    parser.add_argument("--catalog", action="store_true", help="inspect checked multi-function fixtures without runtime admission")
     args = parser.parse_args()
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=False)
@@ -84,7 +85,7 @@ def main():
     source_manifest = out / "compiler-source-manifest.json"
     source_manifest.write_text(json.dumps(compiler_sources, indent=2) + "\n")
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-    proof = {"compilerSourceManifest": {"path": str(source_manifest), "sha256": digest(source_manifest), "files": len(compiler_sources), "revision": revision}, "scope": "Pinned frozen stage zero is a build tool only; no Rust execution oracle or linked VM", "inputs": {str(path): digest(path) for path in [*tools.values(), BOOT / "freeze.json", Path(__file__), *source.glob("*.nupp"), *source.glob("fixtures/*.nupp")]}, "steps": [], "artifacts": {}}
+    proof = {"compilerSourceManifest": {"path": str(source_manifest), "sha256": digest(source_manifest), "files": len(compiler_sources), "revision": revision}, "scope": "Pinned frozen stage zero is a build tool only; no Rust execution oracle or linked VM", "inputs": {str(path): digest(path) for path in [*tools.values(), BOOT / "freeze.json", Path(__file__), *source.glob("*.nupp"), *source.glob("fixtures/*.nupp"), *source.glob("catalog-fixtures/*.nupp")]}, "steps": [], "artifacts": {}}
     proof["inputs"].update(reference_inputs)
     proof["opcodeNames"] = names
     proof["fixtureCount"] = len(fixtures)
@@ -146,6 +147,22 @@ def main():
     mechanism_path = out / "mechanism.json"
     mechanism_path.write_text(json.dumps(mechanism, indent=2) + "\n")
     proof["mechanism"] = {"path": str(mechanism_path), "sha256": digest(mechanism_path)}
+    if args.catalog:
+        tested = json.loads(run("catalog-tests", [vm, "run", image, "nupp.core.extract", "testCatalog", "--tasks"]))
+        assert tested == 13, tested
+        proof["catalogCases"] = tested
+        catalog_summary = {}
+        for fixture in sorted((source / "catalog-fixtures").glob("*.nupp")):
+            raw = run(fixture.stem + "-catalog", [vm, "run", image, "nupp.core.extract", "catalog", "@" + str(fixture), "--tasks"])
+            catalog = json.loads(json.loads(raw))
+            assert catalog["runtimeAdmitted"] is False
+            target = out / (fixture.stem + "-catalog.json")
+            target.write_text(json.dumps(catalog, indent=2) + "\n")
+            catalog_summary[fixture.stem] = {"path": str(target), "sha256": digest(target), "functions": len(catalog["functions"]), "runtimeAdmitted": False}
+        constants_tested = json.loads(run("catalog-constants-tests", [vm, "run", image, "nupp.core.extract", "testCatalogConstants", "@" + str(source / "catalog-fixtures/constants.nupp"), "--tasks"]))
+        assert constants_tested == 6, constants_tested
+        proof["catalogCases"] += constants_tested
+        proof["catalog"] = catalog_summary
     proof["artifacts"] = {str(path): digest(path) for path in sorted(out.iterdir()) if path.is_file() and path.name != "proof.json"}
     verify()
     proof["status"] = "verified-first-program-artifacts"
