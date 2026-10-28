@@ -17,7 +17,15 @@ program.names = {
     "IXor",
     "INot",
     "IShl",
-    "IShrU"
+    "IShrU",
+    "ICmpEq",
+    "ICmpNe",
+    "ICmpLt",
+    "ICmpLe",
+    "ICmpSLt",
+    "ICmpSLe",
+    "Jmp",
+    "JmpIfIZero"
 }
 local ids = {}
 for i, name in ipairs(program.names) do
@@ -46,91 +54,259 @@ local function readWord(bytes: string, offset: integer): integer
     return value
 end
 
+local function signed32(bytes: string, offset: integer): integer
+    local a, b, c, d = bytes:byte(offset + 1, offset + 4)
+    local value = a + b * 256 + c * 65536 + d * 16777216
+    return value >= 2147483648 and value - 4294967296 or value
+end
+
 function program.verify(code: string, slots: integer): nil
     integer(slots, 256)
     assert(slots > 0 and #code > 0 and #code % 16 == 0 and #code / 16 <= 1048576, "invalid program extent")
-    local defined = {}
-    for offset = 0, #code - 16, 16 do
-        local id = assert(code:byte(offset + 1))
+    local count = (#code / 16) as integer
+    local successors, reads, writes, leaders = {}, {}, {}, {[1] = true}
+    for pc = 1, count do
+        local offset = (pc - 1) * 16
+        local id, a, b, c = code:byte(offset + 1, offset + 4)
         local name = program.names[id + 1]
         assert(name ~= nil, "unknown core opcode")
-        local a, b, c = code:byte(offset + 2, offset + 4)
-        assert(a < slots, "program register outside frame")
-        assert(code:sub(offset + 5, offset + 8) == zeros:sub(1, 4), "nonzero instruction padding")
+        local used, nextPCs = {}, {}
+        reads[pc], successors[pc] = used, nextPCs
+        local displacement = signed32(code, offset + 4)
+        local immediate = code:sub(offset + 9, offset + 16)
         if id == 0 then
-            assert(offset + 16 == #code and defined[a], "invalid program return")
-            assert(b == 0 and c == 0 and code:sub(offset + 9, offset + 16) == zeros, "invalid stop encoding")
+            assert(
+                a < slots and b == 0 and c == 0 and displacement == 0 and immediate == zeros,
+                "invalid stop encoding"
+            )
+            used[1] = a
         else
-            assert(offset + 16 < #code, "program has no stop")
             local signature = assert(opcodes.describe(name))
-            assert(
-                signature.flow == "next" and not signature.frame and #signature.windows == 0,
-                "unsupported core flow"
-            )
-            assert(
-                signature.operands[1].class == "i" and signature.operands[1].mode == "def",
-                "invalid core definition"
-            )
+            assert(not signature.frame and #signature.windows == 0, "unsupported core frame effect")
             local registers = {a, b, c}
+            local hasImmediate = false
             for at, operand in ipairs(signature.operands) do
                 if operand.class == "i" then
-                    assert(at == 1 or operand.mode == "use", "unsupported core register mode")
                     local register = registers[at]
                     assert(register < slots, "program register outside frame")
-                    if operand.mode == "use" or operand.mode == "both" then
-                        assert(defined[register], "program register read before definition")
+                    if operand.mode == "def" then
+                        assert(at == 1 and writes[pc] == nil, "unsupported core definition")
+                        writes[pc] = register
+                    else
+                        assert(operand.mode == "use", "unsupported core register mode")
+                        used[#used + 1] = register
                     end
+                elseif operand.class == "n" then
+                    assert(name == "IK" or name == "IAddK", "unsupported core immediate")
+                    hasImmediate = true
                 else
-                    assert(operand.class == "n", "unsupported core operand")
+                    assert(operand.class == "j", "unsupported core operand")
                 end
             end
-            local arity = #signature.operands
-            if name == "IK" then
-                assert(b == 0 and c == 0, "invalid immediate encoding")
-            elseif name == "IAddK" then
-                assert(c == 0, "invalid immediate encoding")
+            if not hasImmediate then
+                assert(immediate == zeros, "nonzero unused immediate")
+            end
+            if signature.flow == "jump" or signature.flow == "branch" then
+                assert(name == "Jmp" or name == "JmpIfIZero", "unsupported core branch")
+                assert(writes[pc] == nil and b == 0 and c == 0, "invalid branch registers")
+                if name == "Jmp" then
+                    assert(a == 0, "invalid jump register")
+                end
+                local target = pc + displacement + 1
+                assert(target >= 1 and target <= count, "program jump outside body")
+                nextPCs[1], leaders[target] = target, true
+                if signature.flow == "branch" then
+                    assert(pc < count, "program branch falls outside body")
+                    nextPCs[2], leaders[pc + 1] = pc + 1, true
+                elseif pc < count then
+                    leaders[pc + 1] = true
+                end
             else
-                assert(code:sub(offset + 9, offset + 16) == zeros, "nonzero unused immediate")
-                if arity == 2 then
+                assert(signature.flow == "next" and writes[pc] == a, "unsupported core flow")
+                assert(displacement == 0, "nonzero instruction padding")
+                if name == "IK" then
+                    assert(b == 0 and c == 0, "invalid immediate encoding")
+                elseif name == "IAddK" or #signature.operands == 2 then
                     assert(c == 0, "nonzero unused register")
                 end
+                assert(pc < count, "program falls outside body")
+                nextPCs[1] = pc + 1
             end
-            defined[a] = true
+        end
+        if id == 0 and pc < count then
+            leaders[pc + 1] = true
+        end
+    end
+    local reached, stack = {}, {1}
+    while #stack > 0 do
+        local pc = table.remove(stack)
+        if not reached[pc] then
+            reached[pc] = true
+            for _, target in ipairs(successors[pc]) do
+                stack[#stack + 1] = target
+            end
+        end
+    end
+    for pc = 1, count do
+        assert(reached[pc], "unreachable program instruction")
+    end
+    local blocks, owner = {}, {}
+    for pc = 1, count do
+        if leaders[pc] then
+            blocks[
+                #blocks + 1
+            ] = {first = pc, last = pc, required = {}, generated = {}, predecessors = {}, incoming = {}}
+        end
+        local block = blocks[#blocks]
+        owner[pc], block.last = #blocks, pc
+        for _, register in ipairs(reads[pc]) do
+            if not block.generated[register] then
+                block.required[register] = true
+            end
+        end
+        if writes[pc] ~= nil then
+            block.generated[writes[pc]] = true
+        end
+    end
+    for index, block in ipairs(blocks) do
+        for _, target in ipairs(successors[block.last]) do
+            local predecessors = blocks[owner[target]].predecessors
+            predecessors[#predecessors + 1] = index
+        end
+        if index ~= 1 then
+            for register = 0, slots - 1 do
+                block.incoming[register] = true
+            end
+        end
+    end
+    local changed = true
+    while changed do
+        changed = false
+        for index, block in ipairs(blocks) do
+            if index ~= 1 then
+                for register = 0, slots - 1 do
+                    if block.incoming[register] then
+                        for _, predecessor in ipairs(block.predecessors) do
+                            local before = blocks[predecessor]
+                            if not before.incoming[register] and not before.generated[register] then
+                                block.incoming[register], changed = nil, true
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    for _, block in ipairs(blocks) do
+        for register in pairs(block.required) do
+            assert(block.incoming[register], "program register read before definition")
         end
     end
 end
 
-function program.encode(instructions: {any}, result: integer): any
-    assert(#instructions < 1048576, "program instruction budget exceeded")
-    local bytes = {}
-    local slots: integer = 0
+local function encodeInstructions(instructions: {any}): any
+    assert(#instructions > 0 and #instructions <= 1048576, "program instruction budget exceeded")
+    local bytes, returns = {}, {}
+    local slots: integer = 1
     for _, instruction in ipairs(instructions) do
-        opcodes.check(instruction)
         local name = instruction[1]
         local id = ids[name]
-        assert(id ~= nil and id ~= 0, "unsupported first-program opcode " .. tostring(name))
-        local signature = assert(opcodes.describe(name))
+        assert(id ~= nil, "unsupported core opcode " .. tostring(name))
         local registers = {0, 0, 0}
-        local immediate = zeros
-        for at, operand in ipairs(signature.operands) do
-            local value = instruction[at + 1]
-            if operand.class == "i" then
-                local register = integer(value, 255)
-                registers[at] = register
-                slots = math.max(slots, register + 1)
-            else
-                assert(operand.class == "n", "unsupported first-program operand")
-                immediate = type(value) == "string" and graphimage.wideTextBytes(value) or graphimage.wideBytes(value)
+        local immediate, displacement = zeros, zeros:sub(1, 4)
+        if name == "CoreStop" then
+            assert(#instruction == 2, "invalid stop operands")
+            registers[1] = integer(instruction[2], 255)
+            slots = math.max(slots, registers[1] + 1)
+            returns[#returns + 1] = registers[1]
+        else
+            opcodes.check(instruction)
+            local signature = assert(opcodes.describe(name))
+            for at, operand in ipairs(signature.operands) do
+                local value = instruction[at + 1]
+                if operand.class == "i" then
+                    local register = integer(value, 255)
+                    registers[at] = register
+                    slots = math.max(slots, register + 1)
+                elseif operand.class == "j" then
+                    assert(
+                        type(value) == "number" and value % 1 == 0 and value >= -2147483648 and value <= 2147483647,
+                        "invalid signed jump displacement"
+                    )
+                    displacement = graphimage.wideTextBytes(tostring(value)):sub(1, 4)
+                else
+                    assert(operand.class == "n", "unsupported core operand")
+                    immediate = type(value) == "string" and graphimage.wideTextBytes(value)
+                        or graphimage.wideBytes(value)
+                end
             end
         end
-        bytes[#bytes + 1] = string.char(id, registers[1], registers[2], registers[3], 0, 0, 0, 0) .. immediate
+        bytes[#bytes + 1] = string.char(id, registers[1], registers[2], registers[3]) .. displacement .. immediate
     end
-    integer(result, 255)
-    bytes[#bytes + 1] = string.char(0, result, 0, 0, 0, 0, 0, 0) .. zeros
     local code = table.concat(bytes)
     program.verify(code, slots)
 
-    return {code = code, slots = slots, count = #bytes, result = result}
+    return {code = code, slots = slots, count = #bytes, result = #returns == 1 and returns[1] or nil, returns = returns}
+end
+
+function program.encode(instructions: {any}, result: integer): any
+    local copied = {}
+    for _, instruction in ipairs(instructions) do
+        copied[#copied + 1] = instruction
+    end
+    copied[#copied + 1] = {"CoreStop", integer(result, 255)}
+
+    return encodeInstructions(copied)
+end
+
+function program.fromBlocks(kept: any): any
+    assert(not kept.graph and #kept.blocks > 0 and #kept.constants == 0, "unsupported core function graph")
+    local instructions, starts, patches = {}, {}, {}
+    for index, block in ipairs(kept.blocks) do
+        starts[index] = #instructions + 1
+        local term, limit = block.term, #block.code
+        local result = nil
+        if term.kind == "return" then
+            local box = block.code[limit]
+            assert(box and box[1] == "IBox" and term.value == box[2], "core return requires an adjacent integer box")
+            opcodes.check(box)
+            integer(box[2], 255)
+            result, limit = box[3], limit - 1
+        end
+        for i = 1, limit do
+            instructions[#instructions + 1] = block.code[i]
+        end
+
+        local function jump(name: string, target: integer, register: integer?): nil
+            integer(target, #kept.blocks)
+            assert(target >= 1, "invalid core block target")
+            instructions[#instructions + 1] = register ~= nil and {name, register, 0} or {name, 0}
+            patches[#patches + 1] = {at = #instructions, target = target, field = register ~= nil and 3 or 2}
+        end
+
+        if term.kind == "return" then
+            assert(#term.targets == 0 and term.value ~= nil, "invalid core return")
+            instructions[#instructions + 1] = {"CoreStop", result}
+        elseif term.kind == "jump" then
+            assert(#term.targets == 1, "invalid core jump")
+            jump("Jmp", term.targets[1])
+        else
+            assert(
+                term.kind == "branch" and #term.targets == 2 and term.value >= 256 and term.value < 512,
+                "core branch requires an integer condition"
+            )
+            jump("JmpIfIZero", term.targets[2], integer(term.value - 256, 255))
+            jump("Jmp", term.targets[1])
+        end
+    end
+    for _, patch in ipairs(patches) do
+        instructions[patch.at][patch.field] = starts[patch.target] - patch.at - 1
+    end
+    local encoded = encodeInstructions(instructions)
+    encoded.name = kept.name
+
+    return encoded
 end
 
 function program.data(code: string, slots: integer, handlers: {integer}, codeBytes: integer): string
@@ -209,6 +385,7 @@ function program.fromListing(text: string): any
     )
     opcodes.check(stop)
     opcodes.check(box)
+    integer(stop[2], 255)
     local result = program.encode(instructions, box[3])
     assert(result.slots <= assert(tonumber(registers)), "program slot outside declared extent")
     result.name = name

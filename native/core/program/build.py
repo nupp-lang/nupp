@@ -69,7 +69,8 @@ def main():
     proof["inputs"][str(image)] = digest(image)
     save()
     tested = json.loads(run("verifier-tests", [vm, "run", image, "nupp.core.extract", "test", "--tasks"]))
-    assert tested == 13, tested
+    assert isinstance(tested, int) and tested >= 13, tested
+    proof["verifierCases"] = tested
     for fixture in sorted((source / "fixtures").glob("*.nupp")):
         name = fixture.stem
         raw = run(name + "-inspect", [vm, "run", image, "nupp.core.extract", "inspect", "@" + str(fixture), "First.answer", "--tasks"])
