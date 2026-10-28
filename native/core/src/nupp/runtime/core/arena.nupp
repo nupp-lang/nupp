@@ -132,8 +132,8 @@ export function reserve(segment: voidptr, bytes: uint64, alignment: uint64, mark
 end
 
 -- Marks are trusted runtime metadata, not capabilities for untrusted bytes.
--- The caller must finish result copies, cleanups, roots, and borrows first.
-export function release(segment: voidptr, mark: voidptr): uint64
+-- Read-only validation does not establish lifetime safety or reserve a release.
+export function canRelease(segment: voidptr, mark: voidptr): uint64
     local owner = native.address(segment)
     local descriptorBytes = native.sizeOf<Segment>()
     if owner == 0ULL or (owner & 7ULL) ~= 0ULL or owner > 0xffffffffffffffffULL - descriptorBytes then
@@ -185,6 +185,19 @@ export function release(segment: voidptr, mark: voidptr): uint64
     if residentMark and markEnd > before then
         return 0ULL
     end
+
+    return 1ULL
+end
+
+-- The caller finishes result copies, cleanups, roots, and borrows before release.
+-- A canRelease/copy/release sequence holds exclusive ownership throughout, with
+-- no safepoint, callback, or other mutation of the segment or mark in between.
+export function release(segment: voidptr, mark: voidptr): uint64
+    if canRelease(segment, mark) ~= 1ULL then
+        return 0ULL
+    end
+    local before = native.load64(mark, native.fieldOffset<Mark>("before"))
+    local previous = native.load64(mark, native.fieldOffset<Mark>("previous"))
     native.store64(segment, native.fieldOffset<Segment>("cursor"), before)
     native.store64(segment, native.fieldOffset<Segment>("top"), previous)
 
