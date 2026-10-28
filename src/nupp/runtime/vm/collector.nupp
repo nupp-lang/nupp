@@ -174,10 +174,10 @@ local function scanObject(h: heap.Heap*, o: heap.Header*): nil
         h.stats.scanned = h.stats.scanned + 1
         if o.kind as uint64 == heap.KIND_TABLE and (o.aux as uint64) & weak.WEAK_MODES ~= 0 then
             weak.scanWeak(h, o)
+            o.color = heap.COLOR_BLACK
         else
-            eachChild(h, o, nil)
+            marking.scanStrong(h, o)
         end
-        o.color = heap.COLOR_BLACK
     end
 end
 

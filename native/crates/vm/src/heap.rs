@@ -307,7 +307,7 @@ unsafe extern "C" {
 }
 #[cfg(feature = "native-runtime")]
 const _: () = {
-    assert!(crate::dispatch::OBJECT_ABI == 22);
+    assert!(crate::dispatch::OBJECT_ABI == 23);
     assert!(std::mem::size_of::<Value>() == 8);
     assert!(std::mem::size_of::<StoragePayload>() == 32);
     assert!(std::mem::align_of::<StoragePayload>() == 8);
@@ -993,16 +993,9 @@ impl Heap {
             let shape = h.shape() as usize;
             if let Some(live) = self.live_shapes.get_mut(shape) { *live = true; }
         }
-        let allocator = &mut self.allocator;
+        let _children = self.allocator.scan_strong(p);
         #[cfg(feature = "allocation-metrics")]
-        let mut children = 0u64;
-        Self::each_child(h, &mut |v| {
-            #[cfg(feature = "allocation-metrics")]
-            { children += 1; }
-            allocator.shade(v); });
-        #[cfg(feature = "allocation-metrics")]
-        if let Some(m) = &self.metrics { let mut m = m.borrow_mut(); m.scanned_objects += 1; m.child_slots += children; }
-        unsafe { (*p.as_ptr()).color = COLOR_BLACK; }
+        if let Some(m) = &self.metrics { let mut m = m.borrow_mut(); m.scanned_objects += 1; m.child_slots += _children; }
     }
 
     /// A weak table's strong references: its metatable and both sides of
@@ -1762,6 +1755,47 @@ mod tests {
         unsafe {
             assert_eq!((*objects[1].as_ptr()).epoch, 23);
             assert_eq!((*objects[3].as_ptr()).epoch, 23);
+        }
+    }
+
+    #[cfg(feature = "native-runtime")]
+    #[test]
+    fn strong_scan_counts_all_canonical_kinds_and_shades_owned_children() {
+        let mut h = Heap::new(); h.automatic_collection = false;
+        let roots = R(std::cell::RefCell::new(Vec::new()));
+        let child = h.new_string("child", &roots);
+        let name = h.intern("field", &roots);
+        let shape = h.shape("Scan", &[name], &[SlotTy::Any]);
+        let record = h.new_record(shape, &roots);
+        let table = h.new_table(&roots);
+        unsafe {
+            let r = &mut *record.as_obj().unwrap().as_ptr();
+            r.slots_mut()[0] = child; r.record_array().push(Value::NIL);
+            r.ensure_record_extra().fields.insert(child, Value::FALSE);
+            let t = &mut *table.as_obj().unwrap().as_ptr();
+            t.table().array.push(Value::NIL); t.table().array.push(child);
+            t.table().hash.insert(child, Value::TRUE); t.table().meta = child; t.refresh();
+        }
+        let cases = vec![
+            (child, 0, false),
+            (h.box_integer(crate::numeric::Integer { bits: i64::MAX as u64, unsigned: false }, &roots), 0, false),
+            (h.new_bytes(8, &roots), 0, false), (h.new_storage(1, &roots), 0, false),
+            (h.new_cell(Value::NIL, &roots), 1, false),
+            (h.new_cell(child, &roots), 1, true),
+            (h.new_closure(0, &[Value::NIL, child, child, Value::FALSE], &roots), 4, true),
+            (h.new_slice(child, 0, 2, &roots), 1, true),
+            (h.new_iter(1, child, Value::NIL, vec![Value::NIL, child, Value::FALSE], &roots), 5, true),
+            (h.new_userdata(Box::new(17u64), Value::NIL, child, 8, &roots), 2, true),
+            (record, 5, true), (table, 5, true),
+        ];
+        for (value, slots, edge) in cases {
+            assert!(h.allocator.gray_pop().is_none());
+            for object in h.objects() { unsafe { (*object.as_ptr()).color = COLOR_WHITE; } }
+            let parent = value.as_obj().unwrap(); unsafe { (*parent.as_ptr()).color = COLOR_GRAY; }
+            assert_eq!(h.allocator.scan_strong(parent), slots);
+            assert_eq!(unsafe { parent.as_ref().color }, COLOR_BLACK);
+            if edge { assert_eq!(h.allocator.gray_pop(), child.as_obj()); }
+            assert!(h.allocator.gray_pop().is_none());
         }
     }
 

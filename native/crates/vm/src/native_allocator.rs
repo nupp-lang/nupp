@@ -46,6 +46,7 @@ unsafe extern "C" {
     fn nupp_allocator_resize(heap: *mut c_void, before: u64, after: u64, debt: u64);
     fn nupp_allocator_reclaim(heap: *mut c_void, header: *mut Header, stress: u64, quarantine: u64);
     fn nupp_allocator_snapshot(heap: *mut c_void, out: *mut u64);
+    fn nupp_scan_strong(heap: *mut c_void, header: *mut Header) -> u64;
     fn nupp_allocator_shade(heap: *mut c_void, value: u64) -> u64;
     fn nupp_allocator_barrier(heap: *mut c_void, parent: *mut Header, child: u64, marking: u64);
     fn nupp_allocator_barrier_shade(heap: *mut c_void, value: u64);
@@ -236,6 +237,10 @@ impl NativeAllocator {
             unsafe { nupp_allocator_weak_clear(array, length as u64, buckets, capacity, mode as u64, out.as_mut_ptr()); }
             (usize::try_from(out[0]).expect("weak array length"), out[1] != 0)
         }
+    }
+
+    pub(crate) fn scan_strong(&mut self, header: NonNull<Header>) -> u64 {
+        linked! { unsafe { nupp_scan_strong(self.heap.as_ptr(), header.as_ptr()) } }
     }
 
     pub(crate) fn next_object(&self, cursor: &mut ObjectCursor) -> Option<NonNull<Header>> {

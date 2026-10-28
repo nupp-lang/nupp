@@ -438,6 +438,7 @@ fn allocator_support_names(
 
 fn allocator_entry(name: &str) -> Option<(&'static str, usize, bool)> {
     Some(match name {
+        "scanStrong" => ("nupp_scan_strong", 2, true),
         "objectNext" => ("nupp_object_next", 2, true),
         "sweepBegin" => ("nupp_sweep_begin", 2, false),
         "sweepNext" => ("nupp_sweep_next", 2, true),
@@ -664,7 +665,7 @@ fn require_allocator_support(
 /// and every opcode number they handle, asserted where the object is linked.
 fn metadata_header() -> String {
     let mut metadata = String::from("// Generated with the native object. Private ABI.\n");
-    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 22;\n");
+    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 23;\n");
     metadata.push_str(
         "const _: () = { assert!(HDR == 4); assert!(std::mem::size_of::<Ins>() == 16); assert!(crate::interp::MAX_RESULTS == 128);\n",
     );

@@ -4,6 +4,7 @@ const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const objectweak = require("nupp.runtime.vm.objectweak")
 const values = require("nupp.runtime.vm.values")
+const childwalk = require("nupp.runtime.vm.childwalk")
 
 -- The candidate header stays owned while these operations run. Queue growth
 -- maps native backing but never collects, parks, or calls guest code.
@@ -19,6 +20,23 @@ export function shadeValue(h: heap.Heap*, value: uint64): boolean
         o.color = heap.COLOR_GRAY
         heap.grayPush(h, o)
         return true
+    end
+end
+
+-- The driver has handled weak-mode and record-liveness hooks. Every child slot
+-- counts, including scalars and nil. References are already valid owned objects;
+-- only root candidates need the separate live-slot check.
+export function scanStrong(h: heap.Heap*, o: heap.Header*): uint64
+    @unsafe do
+        local state = new childwalk.Cursor(0ULL, 0ULL, values.NIL)
+        local cursor = state as childwalk.Cursor*
+        local children = 0ULL
+        while childwalk.childNext(o, cursor) ~= 0ULL do
+            children = children + 1ULL
+            shadeValue(h, cursor.value)
+        end
+        o.color = heap.COLOR_BLACK
+        return children
     end
 end
 
