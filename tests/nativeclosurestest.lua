@@ -21,6 +21,7 @@ local function capture(command)
     local output = pipe:read("*a")
     pipe:close()
     local status = tonumber(output:match("__exit__:(%d+)%s*$"))
+
     return status, (output:gsub("__exit__:%d+%s*$", ""))
 end
 
@@ -33,7 +34,12 @@ end
 
 -- The installed compiler image, which the linked runtime runs as the plain one does.
 local function installedImage()
+    local selected = os.getenv("NUPP_VM_CLI_IMAGE")
+    if selected then
+        return selected
+    end
     local generation = read(ROOT .. "/.nupp/vm-cli/current"):gsub("%s+$", "")
+
     return ROOT .. "/.nupp/vm-cli/" .. generation .. "/compiler.image"
 end
 
@@ -45,6 +51,7 @@ local function linkedRuntime()
         assert(status == 0, "scripts/vm-cli runtime --link failed: " .. output:sub(-6000))
         linked = assert(output:match("([^\r\n]+)%s*$"), "vm-cli runtime named no runtime")
     end
+
     return linked
 end
 
@@ -59,6 +66,7 @@ local function fixtures()
     end
     pipe:close()
     assert(#names > 0, "no closure fixtures")
+
     return names
 end
 
@@ -68,13 +76,15 @@ local function differential(name, environment)
     local path = FIXTURES .. "/" .. name .. ".nupp"
     local status, plain = capture("./bin/nupp run " .. quote(path))
     assert(status == 0, name .. " failed on the installed runtime: " .. plain:sub(-4000))
-    local selection = ("NUPP_VM_CLI_IMAGE=%s NUPP_VM_BINARY=%s %s"):format(
-        quote(installedImage()), quote(linkedRuntime()), environment or "")
+    local selection = (
+        "NUPP_VM_CLI_IMAGE=%s NUPP_VM_BINARY=%s %s"
+    ):format(quote(installedImage()), quote(linkedRuntime()), environment or "")
     local native
     status, native = capture(selection .. " ./bin/nupp run " .. quote(path))
     assert(status == 0, name .. " failed on the native core: " .. native:sub(-4000))
     assert(plain == native, name .. " answers differently on the native core:\n" .. native:sub(-4000))
     assert(plain:find("\n", 1, true), name .. " printed nothing")
+
     return plain
 end
 
