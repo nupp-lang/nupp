@@ -94,6 +94,7 @@ return {
         "nativerecordstest",
         "nativeclosurestest",
         "nativeheaptest",
-        "specializationcontracttest"
+        "specializationcontracttest",
+        "residualtest"
     },
 }

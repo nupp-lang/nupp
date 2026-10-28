@@ -1,0 +1,155 @@
+module nupp.compiler.vm.residual
+
+local graph = require("nupp.compiler.vm.graph")
+local residual = {}
+local names = {IK = true, IMov = true, IAddK = true, IMaskU32 = true, IAdd = true, ISub = true, IAnd = true, IOr = true}
+local operations = {
+    NativeConstant = true,
+    ProgramLoad = true,
+    FrameSlotRead = true,
+    FrameSlotWrite = true,
+    PointerOffset = true,
+    IAdd = true,
+    ISub = true,
+    IAnd = true,
+    IOr = true
+}
+local templates: any = setmetatable({}, {__mode = "k"})
+local bodies: any = setmetatable({}, {__mode = "k"})
+
+local function need(ok: any, message: string): any
+    return assert(ok, "residual: " .. message)
+end
+
+local function integer(value: any, low: number, high: number): boolean
+    return type(value) == "number" and value == math.floor(value) and value >= low and value <= high
+end
+
+local function copy(value: any): any
+    if type(value) ~= "table" then
+        return value
+    end
+    local result = {}
+    for key, item in pairs(value) do
+        result[key] = copy(item)
+    end
+
+    return result
+end
+
+-- Prototype precondition: a trusted loader supplies the existing runtime
+-- dispatch catalog's tag for this checked handler. This is not a verifier for
+-- untrusted bytecode or for the catalog association; production needs that
+-- authoritative adapter. There is no second opcode catalog or decoder here.
+function residual.prepare(source: any, opcode: number): any
+    graph.verify(source)
+    need(integer(opcode, 0, 255), "invalid opcode tag")
+    need(source.native and source.native.abi == "handler", "handler graph required")
+    need(source.source and names[source.source.name], "handler outside initial slice")
+    need(#source.blocks == 1 and #source.blocks[1].params == 0, "single closed block required")
+    local block = source.blocks[1]
+    need(#block.op <= 64 and block.term.kind == "dispatch", "bounded dispatch block required")
+    local constants, bindings, decoded, slots = {}, {}, {}, {}
+    for index, op in ipairs(block.op) do
+        need(operations[op], "unsupported operation " .. op)
+        local args, dst = block.args[index], block.dst[index]
+        if op == "NativeConstant" then
+            local text = args[1]
+            if source.exactTypes[dst] == "int64" and text:match("^%d+$") and #text <= 2 then
+                constants[dst] = tonumber(text)
+            end
+        elseif op == "ProgramLoad" then
+            local access = args[3]
+            local offset = constants[args[2]]
+            need(args[1] == 1 and offset ~= nil, "program load requires entry code and constant offset")
+            need(access.kind == "uint8" or access.kind == "uint64", "unsupported program kind")
+            need(offset >= 1 and offset + access.width <= 16, "program load exceeds instruction")
+            local binding = {
+                instruction = index,
+                value = dst,
+                offset = offset,
+                width = access.width,
+                kind = access.kind
+            }
+            bindings[#bindings + 1], decoded[dst] = binding, binding
+        elseif op == "FrameSlotRead" or op == "FrameSlotWrite" then
+            local access = args[op == "FrameSlotRead" and 4 or 5]
+            need(access.class == "i" and access.kind == "uint64", "integer bits slot required")
+            local binding = decoded[args[3]]
+            need(binding and binding.kind == "uint8", "slot index requires decoded byte")
+            slots[#slots + 1] = binding.value
+        elseif op == "PointerOffset" then
+            need(args[1] == 1 and constants[args[2]] == 16, "only next-instruction pointer allowed")
+        end
+    end
+    need(#bindings >= 1 and #bindings <= 4, "operand binding count")
+    local pc = block.term.args[1]
+    local nextPointer = false
+    for i, op in ipairs(block.op) do
+        if block.dst[i] == pc and op == "PointerOffset" then
+            nextPointer = true
+        end
+    end
+    need(nextPointer, "dispatch must advance one instruction")
+    local handle = {}
+    templates[handle] = {graph = copy(source), bindings = bindings, slots = slots, opcode = opcode}
+
+    return handle
+end
+
+-- Bytes are immutable and owned by this handle. Equal bytes retained twice
+-- are distinct bodies. The owner supplies its verified integer-window extent.
+function residual.retain(bytes: string, integerSlots: number): any
+    need(
+        type(bytes) == "string" and #bytes >= 32 and #bytes <= 16777216 and #bytes % 16 == 0,
+        "invalid retained body extent"
+    )
+    need(integer(integerSlots, 1, 256), "invalid integer window extent")
+    local handle = {}
+    bodies[handle] = {bytes = bytes, integerSlots = integerSlots}
+
+    return handle
+end
+
+-- Inspection returns detached data; it cannot mutate the template authority.
+function residual.inspect(template: any): any
+    return copy(need(templates[template], "unknown template"))
+end
+
+local function word(bytes: string, start: number, width: number): string
+    local digits = {}
+    for offset = width - 1, 0, -1 do
+        digits[#digits + 1] = string.format("%02x", bytes:byte(start + offset))
+    end
+
+    return "0x" .. table.concat(digits)
+end
+
+-- expectedBody is the retained allocation identity held by the compilation
+-- request. The returned result keeps that owner alive beside the bound graph.
+function residual.bind(template: any, body: any, expectedBody: any, pc: number): any
+    local prepared = need(templates[template], "unknown template")
+    local retained = need(bodies[body], "unknown retained body")
+    need(rawequal(body, expectedBody), "retained body identity mismatch")
+    need(integer(pc, 0, #retained.bytes - 32) and pc % 16 == 0, "instruction extent or alignment")
+    need(retained.bytes:byte(pc + 1) == prepared.opcode, "selected handler opcode mismatch")
+    local bound = copy(prepared.graph)
+    local block, values = bound.blocks[1], {}
+    for _, binding in ipairs(prepared.bindings) do
+        local start = pc + binding.offset + 1
+        local literal = word(retained.bytes, start, binding.width)
+        block.op[binding.instruction] = "NativeConstant"
+        block.args[binding.instruction] = {literal}
+        if binding.width == 1 then
+            values[binding.value] = retained.bytes:byte(start)
+        end
+    end
+    for _, id in ipairs(prepared.slots) do
+        need(values[id] < retained.integerSlots, "slot exceeds integer window")
+    end
+    graph.verify(bound)
+
+    return {graph = bound, body = body, pc = pc}
+end
+
+export = residual
