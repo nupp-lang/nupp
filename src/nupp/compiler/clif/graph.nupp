@@ -1,6 +1,7 @@
 module nupp.compiler.clif.graph
 
 local graph = require("nupp.compiler.vm.graph")
+local recipes = require("nupp.compiler.vm.machinerecipes")
 local emitter = {}
 local integerOps = {
     IAdd = "iadd",
@@ -160,6 +161,34 @@ function emitter.emit(g: any, options: any): string
         return temporary("iconst.i64 " .. text)
     end
 
+    local function machine(
+        op: string,
+        destination: any,
+        arguments: {any},
+        kind: string,
+        loadBits: integer,
+        literal: string?
+    ): any
+        local result = destination or (op ~= "store" and op ~= "return_call_indirect" and fresh())
+        local text = switch op do
+            case "iconst" -> "iconst.i64 " .. assert(literal)
+            case "load" -> (loadBits == 8 and "uload8.i64" or "load." .. kind) .. " notrap " .. arguments[1]
+            case "store" -> "store notrap " .. arguments[1] .. ", " .. arguments[2]
+            case "return_call_indirect" -> do
+                local words = {}
+                for index = 2, #arguments do
+                    words[#words + 1] = arguments[index]
+                end
+                local call = "return_call_indirect sig0, " .. arguments[1] .. "(" .. table.concat(words, ", ") .. ")"
+                yield call
+            end
+            else -> op .. " " .. table.concat(arguments, ", ")
+        end
+        line(result and result .. " = " .. text or text)
+
+        return result
+    end
+
     local function edge(e: any): string
         local args = {}
         for i, id in ipairs(e.args) do
@@ -194,7 +223,7 @@ function emitter.emit(g: any, options: any): string
         out[#out + 1] = ""
         out[#out + 1] = "block" .. tostring(block.id - 1) .. "(" .. table.concat(params, ", ") .. "):"
         if bi == 1 and handler then
-            line(value(6) .. " = iadd " .. value(2) .. ", " .. constant(tostring(-frameOffset)))
+            recipes.entry(machine, value(6), value(2), frameOffset)
         end
         for i, op in ipairs(block.op) do
             local args, dst = block.args[i], block.dst[i]
@@ -423,17 +452,15 @@ function emitter.emit(g: any, options: any): string
                 end
                 case "FrameSlotRead", "FrameSlotWrite" -> do
                     local access = args[op == "FrameSlotRead" and 4 or 5]
-                    need(
-                        (access.class == "i" or access.class == "v" or access.class == "f") and access.width == 8,
-                        "unsupported frame slot class"
+                    recipes.slot(
+                        machine,
+                        dst ~= 0 and result or nil,
+                        value(args[2]),
+                        value(args[3]),
+                        op == "FrameSlotWrite" and value(args[4]) or nil,
+                        access,
+                        machineKinds[access.kind]
                     )
-                    local offset = temporary("imul " .. value(args[3]) .. ", " .. constant(tostring(access.width)))
-                    local address = temporary("iadd " .. value(args[2]) .. ", " .. offset)
-                    if op == "FrameSlotRead" then
-                        line(result .. " = load." .. machineKinds[access.kind] .. " notrap " .. address)
-                    else
-                        line("store notrap " .. value(args[4]) .. ", " .. address)
-                    end
                     yield true
                 end
                 else -> do
@@ -471,17 +498,11 @@ function emitter.emit(g: any, options: any): string
             line("return " .. constant("0"))
         elseif term.kind == "dispatch" then
             need(managed, "leaf cannot dispatch")
-            local args = term.args
-            local opcode = temporary("uload8.i64 notrap " .. value(args[1]))
-            local shifted = temporary("ishl " .. opcode .. ", " .. constant("3"))
-            local slot = temporary("iadd " .. tableValue .. ", " .. shifted)
-            local target = temporary("load.i64 notrap " .. slot)
             local words = {}
             for i = 1, 5 do
-                words[i] = value(args[i])
+                words[i] = value(term.args[i])
             end
-            words[6] = tableValue
-            line("return_call_indirect sig0, " .. target .. "(" .. table.concat(words, ", ") .. ")")
+            recipes.dispatch(machine, words, tableValue)
         else
             error("graph CLIF: unsupported terminator " .. tostring(term.kind), 0)
         end
