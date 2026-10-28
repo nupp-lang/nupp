@@ -398,12 +398,14 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
         end
     end
 
-    local function edge(e: integer): nil
+    local function edge(e: integer, nextBlock: integer): nil
         for p = a.firstMove[e], a.firstMove[e] + a.nmoves[e] - 1 do
             move(a.moveSource[p], a.moveTarget[p], a.moveKind[p])
         end
-        localWord[#localWord + 1], localBlock[#localBlock + 1] = #code.words + 1, f.edgeTarget[e]
-        emit(arm.b(0))
+        if f.edgeTarget[e] ~= nextBlock then
+            localWord[#localWord + 1], localBlock[#localBlock + 1] = #code.words + 1, f.edgeTarget[e]
+            emit(arm.b(0))
+        end
     end
 
     local function symbolic(kind: integer, name: string): nil
@@ -459,12 +461,31 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
     local colValueKinds = f.valueKinds
     local allocationLocation = a.location
 
-    for _, block in ipairs(a.blockOrder) do
+    -- Edge arguments count as uses too: a branch may both test a boolean and
+    -- carry it into a successor. Only its sole adjacent test can use flags.
+    local uses: {integer} = {}
+    for value = 1, #colValueKinds do
+        uses[value] = 0
+    end
+    for _, value in ipairs(colArgs) do
+        uses[value] = uses[value] + 1
+    end
+    for _, value in ipairs(f.edgeArgs) do
+        uses[value] = uses[value] + 1
+    end
+    for order, block in ipairs(a.blockOrder) do
+        local nextBlock = a.blockOrder[order + 1] or 0
+        local fusedCondition: integer = -1
         code.blockWord[block] = #code.words + 1
         for at = colBlockStart[block], colBlockEnd[block] do
             local before = #code.words
             local op, result, kind = colOp[at], colResult[at], colKind[at]
             local firstArg, nargs = colFirstArg[at], colNargs[at]
+            local fused = op == ICMP
+                and at < colBlockEnd[block]
+                and colOp[at + 1] == BRIF
+                and colArgs[colFirstArg[at + 1]] == result
+                and uses[result] == 1
             borrowedCount, occupiedStamp, usedStamp = 0, occupiedStamp + 1, usedStamp + 1
             for p = colFirstArg[at], colFirstArg[at] + colNargs[at] - 1 do
                 local value = colArgs[p]
@@ -482,19 +503,30 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
             local rd: integer = 0
             local _ = switch op do
                 case JUMP -> do
-                    edge(colFirstEdge[at])
+                    edge(colFirstEdge[at], nextBlock)
                     yield true
                 end
                 case BRIF -> do
-                    local condition = source(colArgs[firstArg])
-                    -- Scratch restores precede branching and do not change flags.
-                    emit(arm.cmp_imm(32, condition, 0, 0))
-                    finish(0, 0)
+                    local condition = fusedCondition
+                    if condition < 0 then
+                        local value = source(colArgs[firstArg])
+                        emit(arm.cmp_imm(32, value, 0, 0))
+                        condition = target.NE
+                        finish(0, 0)
+                    end
+                    -- Only loads restore borrowed scratch after CMP; flags survive.
+                    -- The final edge can fall through, after its own parallel moves.
+                    local first, last = colFirstEdge[at], colFirstEdge[at] + 1
+                    local skip = condition ~ 1
+                    if f.edgeTarget[first] == nextBlock and f.edgeTarget[last] ~= nextBlock then
+                        first, last, skip = last, first, condition
+                    end
                     local branch = #code.words + 1
-                    emit(arm.b_cond(target.EQ, 0))
-                    edge(colFirstEdge[at])
-                    code.words[branch] = arm.b_cond(target.EQ, (#code.words + 1 - branch) * 4)
-                    edge(colFirstEdge[at] + 1)
+                    emit(arm.b_cond(skip, 0))
+                    edge(first, 0)
+                    code.words[branch] = arm.b_cond(skip, (#code.words + 1 - branch) * 4)
+                    edge(last, nextBlock)
+                    fusedCondition = -1
                     yield true
                 end
                 case RETURN -> do
@@ -608,7 +640,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                         local value = colArgs[firstArg + p - 1]
                         regs[p] = source(value)
                     end
-                    if result ~= 0 then
+                    if result ~= 0 and not fused then
                         rd = destination(result)
                     end
                     local width = machine(kind)
@@ -753,9 +785,12 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                                 x, y = tx, ty
                             end
                             emit(arm.cmp_reg(w, x, y));
-                            emit(
-                                arm.cset(32, rd, assert(integerConditions[condition], "S0 select: integer comparison"))
-                            )
+                            local cc = assert(integerConditions[condition], "S0 select: integer comparison")
+                            if fused then
+                                fusedCondition = cc
+                            else
+                                emit(arm.cset(32, rd, cc))
+                            end
                             yield true
                         end
                         case FCMP -> do
@@ -902,7 +937,7 @@ function selector.run(f: ir.Function, a: allocate.Allocation): selector.Code
                         end
                         else -> error("S0 select: unsupported operation " .. tostring(ir.opNames[op]))
                     end
-                    finish(result, rd)
+                    finish(fused and 0 or result, rd)
                     yield true
                 end
             end
