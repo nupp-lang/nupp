@@ -1,0 +1,222 @@
+module nupp.runtime.core.arena
+
+const native = require("nupp.runtime.vm.intrinsics")
+
+-- The caller lends mapped, writable descriptor and mark storage and a stable
+-- mapped payload range. Integer bounds checks do not prove mapping ownership.
+-- No operation publishes roots, zeroes payloads, grows mappings, or collects.
+export struct Segment
+    base: uint64
+    limit: uint64
+    cursor: uint64
+    issued: uint64
+    top: uint64
+end
+
+export struct Mark
+    owner: uint64
+    serial: uint64
+    previous: uint64
+    before: uint64
+    finish: uint64
+    payload: uint64
+    bytes: uint64
+end
+
+-- Initialization requires a fresh zeroed descriptor for this mapping lifetime.
+-- Successful operations return one; refusal returns zero without any write.
+export function initialize(segment: voidptr, base: uint64, bytes: uint64): uint64
+    local owner = native.address(segment)
+    local descriptorBytes = native.sizeOf<Segment>()
+    if owner == 0ULL or (owner & 7ULL) ~= 0ULL or owner > 0xffffffffffffffffULL - descriptorBytes then
+        return 0ULL
+    end
+    local descriptorEnd = owner + descriptorBytes
+    if base == 0ULL or bytes == 0ULL or bytes > 0xffffffffffffffffULL - base then
+        return 0ULL
+    end
+    local limit = base + bytes
+    if owner < limit and base < descriptorEnd then
+        return 0ULL
+    end
+    if native.load64(segment, native.fieldOffset<Segment>("base")) ~= 0ULL then
+        return 0ULL
+    end
+    if native.load64(segment, native.fieldOffset<Segment>("limit")) ~= 0ULL then
+        return 0ULL
+    end
+    if native.load64(segment, native.fieldOffset<Segment>("cursor")) ~= 0ULL then
+        return 0ULL
+    end
+    if native.load64(segment, native.fieldOffset<Segment>("issued")) ~= 0ULL then
+        return 0ULL
+    end
+    if native.load64(segment, native.fieldOffset<Segment>("top")) ~= 0ULL then
+        return 0ULL
+    end
+    native.store64(segment, native.fieldOffset<Segment>("base"), base)
+    native.store64(segment, native.fieldOffset<Segment>("limit"), limit)
+    native.store64(segment, native.fieldOffset<Segment>("cursor"), base)
+
+    return 1ULL
+end
+
+-- Output mark storage is exclusively borrowed and must hold no live mark.
+-- The caller retains it outside the segment or wholly below its old cursor.
+-- Active-mark reuse violates this precondition; it is not detected here.
+-- Payload bytes remain uninitialized.
+export function reserve(segment: voidptr, bytes: uint64, alignment: uint64, mark: voidptr): uint64
+    local owner = native.address(segment)
+    local descriptorBytes = native.sizeOf<Segment>()
+    if owner == 0ULL or (owner & 7ULL) ~= 0ULL or owner > 0xffffffffffffffffULL - descriptorBytes then
+        return 0ULL
+    end
+    local descriptorEnd = owner + descriptorBytes
+    local base = native.load64(segment, native.fieldOffset<Segment>("base"))
+    local limit = native.load64(segment, native.fieldOffset<Segment>("limit"))
+    local cursor = native.load64(segment, native.fieldOffset<Segment>("cursor"))
+    local issued = native.load64(segment, native.fieldOffset<Segment>("issued"))
+    local top = native.load64(segment, native.fieldOffset<Segment>("top"))
+    if base == 0ULL or limit <= base or cursor < base or cursor > limit or top > issued then
+        return 0ULL
+    end
+    if owner < limit and base < descriptorEnd then
+        return 0ULL
+    end
+    if (top == 0ULL and cursor ~= base) or (top ~= 0ULL and cursor == base) then
+        return 0ULL
+    end
+    local markAddress = native.address(mark)
+    local markBytes = native.sizeOf<Mark>()
+    if markAddress == 0ULL or (markAddress & 7ULL) ~= 0ULL or markAddress > 0xffffffffffffffffULL - markBytes then
+        return 0ULL
+    end
+    local markEnd = markAddress + markBytes
+    if markAddress < descriptorEnd and owner < markEnd then
+        return 0ULL
+    end
+    local residentMark = markAddress < limit and base < markEnd
+    if residentMark and (markAddress < base or markEnd > cursor) then
+        return 0ULL
+    end
+    if bytes == 0ULL or alignment == 0ULL or (alignment & (alignment - 1ULL)) ~= 0ULL then
+        return 0ULL
+    end
+    if issued == 0xffffffffffffffffULL then
+        return 0ULL
+    end
+    local mask = alignment - 1ULL
+    local padding = (0ULL - cursor) & mask
+    local remaining = limit - cursor
+    if padding > remaining then
+        return 0ULL
+    end
+    if bytes > remaining - padding then
+        return 0ULL
+    end
+    local payload = cursor + padding
+    local finish = payload + bytes
+    local serial = issued + 1ULL
+    native.store64(mark, native.fieldOffset<Mark>("owner"), owner)
+    native.store64(mark, native.fieldOffset<Mark>("serial"), serial)
+    native.store64(mark, native.fieldOffset<Mark>("previous"), top)
+    native.store64(mark, native.fieldOffset<Mark>("before"), cursor)
+    native.store64(mark, native.fieldOffset<Mark>("finish"), finish)
+    native.store64(mark, native.fieldOffset<Mark>("payload"), payload)
+    native.store64(mark, native.fieldOffset<Mark>("bytes"), bytes)
+    native.store64(segment, native.fieldOffset<Segment>("cursor"), finish)
+    native.store64(segment, native.fieldOffset<Segment>("issued"), serial)
+    native.store64(segment, native.fieldOffset<Segment>("top"), serial)
+
+    return 1ULL
+end
+
+-- Marks are trusted runtime metadata, not capabilities for untrusted bytes.
+-- The caller must finish result copies, cleanups, roots, and borrows first.
+export function release(segment: voidptr, mark: voidptr): uint64
+    local owner = native.address(segment)
+    local descriptorBytes = native.sizeOf<Segment>()
+    if owner == 0ULL or (owner & 7ULL) ~= 0ULL or owner > 0xffffffffffffffffULL - descriptorBytes then
+        return 0ULL
+    end
+    local descriptorEnd = owner + descriptorBytes
+    local base = native.load64(segment, native.fieldOffset<Segment>("base"))
+    local limit = native.load64(segment, native.fieldOffset<Segment>("limit"))
+    local cursor = native.load64(segment, native.fieldOffset<Segment>("cursor"))
+    local issued = native.load64(segment, native.fieldOffset<Segment>("issued"))
+    local top = native.load64(segment, native.fieldOffset<Segment>("top"))
+    if base == 0ULL or limit <= base or cursor < base or cursor > limit or top > issued then
+        return 0ULL
+    end
+    if owner < limit and base < descriptorEnd then
+        return 0ULL
+    end
+    if (top == 0ULL and cursor ~= base) or (top ~= 0ULL and cursor == base) then
+        return 0ULL
+    end
+    local markAddress = native.address(mark)
+    local markBytes = native.sizeOf<Mark>()
+    if markAddress == 0ULL or (markAddress & 7ULL) ~= 0ULL or markAddress > 0xffffffffffffffffULL - markBytes then
+        return 0ULL
+    end
+    local markEnd = markAddress + markBytes
+    if markAddress < descriptorEnd and owner < markEnd then
+        return 0ULL
+    end
+    local residentMark = markAddress < limit and base < markEnd
+    if residentMark and (markAddress < base or markEnd > cursor) then
+        return 0ULL
+    end
+    local serial = native.load64(mark, native.fieldOffset<Mark>("serial"))
+    local previous = native.load64(mark, native.fieldOffset<Mark>("previous"))
+    local before = native.load64(mark, native.fieldOffset<Mark>("before"))
+    local finish = native.load64(mark, native.fieldOffset<Mark>("finish"))
+    local payload = native.load64(mark, native.fieldOffset<Mark>("payload"))
+    local bytes = native.load64(mark, native.fieldOffset<Mark>("bytes"))
+    if native.load64(mark, native.fieldOffset<Mark>("owner")) ~= owner or serial == 0ULL or serial ~= top then
+        return 0ULL
+    end
+    if previous >= serial or finish ~= cursor or before < base or before > payload or payload >= finish then
+        return 0ULL
+    end
+    if bytes ~= finish - payload or (previous == 0ULL and before ~= base) or (previous ~= 0ULL and before == base) then
+        return 0ULL
+    end
+    if residentMark and markEnd > before then
+        return 0ULL
+    end
+    native.store64(segment, native.fieldOffset<Segment>("cursor"), before)
+    native.store64(segment, native.fieldOffset<Segment>("top"), previous)
+
+    return 1ULL
+end
+
+-- Reset cannot discard live reservations or rewind the serial counter.
+export function reset(segment: voidptr): uint64
+    local owner = native.address(segment)
+    local descriptorBytes = native.sizeOf<Segment>()
+    if owner == 0ULL or (owner & 7ULL) ~= 0ULL or owner > 0xffffffffffffffffULL - descriptorBytes then
+        return 0ULL
+    end
+    local descriptorEnd = owner + descriptorBytes
+    local base = native.load64(segment, native.fieldOffset<Segment>("base"))
+    local limit = native.load64(segment, native.fieldOffset<Segment>("limit"))
+    local cursor = native.load64(segment, native.fieldOffset<Segment>("cursor"))
+    local issued = native.load64(segment, native.fieldOffset<Segment>("issued"))
+    local top = native.load64(segment, native.fieldOffset<Segment>("top"))
+    if base == 0ULL or limit <= base or cursor < base or cursor > limit or top > issued then
+        return 0ULL
+    end
+    if owner < limit and base < descriptorEnd then
+        return 0ULL
+    end
+    if (top == 0ULL and cursor ~= base) or (top ~= 0ULL and cursor == base) then
+        return 0ULL
+    end
+    if top ~= 0ULL then
+        return 0ULL
+    end
+    native.store64(segment, native.fieldOffset<Segment>("cursor"), base)
+
+    return 1ULL
+end
