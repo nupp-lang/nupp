@@ -307,7 +307,7 @@ unsafe extern "C" {
 }
 #[cfg(feature = "native-runtime")]
 const _: () = {
-    assert!(crate::dispatch::OBJECT_ABI == 27);
+    assert!(crate::dispatch::OBJECT_ABI == 28);
     assert!(std::mem::size_of::<Value>() == 8);
     assert!(std::mem::size_of::<StoragePayload>() == 32);
     assert!(std::mem::align_of::<StoragePayload>() == 8);
@@ -381,6 +381,9 @@ pub struct Shape {
 
 /// Who can enumerate the roots (4.5): every task's registers, every frame's
 /// closure, constant pools, handle scopes, registered handles.
+/// Providers enumerate stable value storage without observing mark colors or
+/// collecting. The visitor may shade headers and grow private, nonmoving gray
+/// backing; it never invokes guest code or moves the values being enumerated.
 pub trait Roots {
     fn each_root(&self, f: &mut dyn FnMut(Value));
     /// The roots a rescan while marking must revisit: those that can change.
@@ -406,7 +409,6 @@ pub struct Heap {
     chunk_bytes_mapped: u64,
     live_count: usize,
     /// The root walk's candidate buffer, kept between walks.
-    root_candidates: Vec<NonNull<Header>>,
     /// `GC_STATS=1`: time collection and report it at exit.
     timed: bool,
     phase: Phase,
@@ -475,7 +477,7 @@ impl Heap {
         let env = |k: &str| std::env::var(k).is_ok();
         let allocator = NativeAllocator::new();
         let shapes = allocator.shape_registry();
-        Heap { channels: HashMap::default(), allocator, chunk_bytes_mapped: 0, live_count: 0, root_candidates: Vec::new(), timed: env("GC_STATS"), phase: Phase::Idle, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes, shape_identities: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0, mode_key: VT_EMPTY, record_type_key: VT_EMPTY, live_shapes: Vec::new(), declarations: HashMap::default(), mm_seen: 0, mm_keys: [VT_EMPTY; crate::metamethods::COUNT], proto_epoch: 0, proto_cache: HashMap::new(),
+        Heap { channels: HashMap::default(), allocator, chunk_bytes_mapped: 0, live_count: 0, timed: env("GC_STATS"), phase: Phase::Idle, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes, shape_identities: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0, mode_key: VT_EMPTY, record_type_key: VT_EMPTY, live_shapes: Vec::new(), declarations: HashMap::default(), mm_seen: 0, mm_keys: [VT_EMPTY; crate::metamethods::COUNT], proto_epoch: 0, proto_cache: HashMap::new(),
             #[cfg(feature = "allocation-metrics")]
             metrics: crate::allocation_metrics::new(),
         }
@@ -921,25 +923,20 @@ impl Heap {
     }
 
     fn mark_roots(&mut self, roots: &dyn Roots, rescan: bool) {
-        let mut cands: Vec<NonNull<Header>> = std::mem::take(&mut self.root_candidates);
-        cands.clear();
+        let allocator = &mut self.allocator;
+        let mut candidates = 0u64;
         #[cfg(feature = "allocation-metrics")]
         let mut root_slots = 0u64;
         let mut visit = |v: Value| {
             #[cfg(feature = "allocation-metrics")]
             { root_slots += 1; }
-            if let Some(p) = v.as_obj() { cands.push(p); }
+            candidates += allocator.root_candidate(v);
         };
         if rescan { roots.each_mutable_root(&mut visit); } else { roots.each_root(&mut visit); }
         self.stats.root_walks += 1;
-        self.stats.root_candidates += cands.len() as u64;
+        self.stats.root_candidates += candidates;
         #[cfg(feature = "allocation-metrics")]
-        if let Some(m) = &self.metrics { let mut m = m.borrow_mut(); m.root_slots += root_slots; m.root_object_candidates += cands.len() as u64; m.root_passes += 1; }
-        for &p in &cands {
-            if !self.is_live_slot(p) { continue; }
-            self.allocator.shade(Value::obj(p));
-        }
-        self.root_candidates = cands;
+        if let Some(m) = &self.metrics { let mut m = m.borrow_mut(); m.root_slots += root_slots; m.root_object_candidates += candidates; m.root_passes += 1; }
         #[cfg(feature = "allocation-metrics")]
         if let Some(m) = &self.metrics { m.borrow_mut().shape_root_slots += self.shapes.iter().map(|s| s.names.len() + 2 * s.methods.len()).sum::<usize>() as u64; }
         let allocator = &mut self.allocator;
@@ -1187,6 +1184,40 @@ mod tests {
     use super::*;
     struct R(std::cell::RefCell<Vec<Value>>);
     impl Roots for R { fn each_root(&self, f: &mut dyn FnMut(Value)) { for &v in self.0.borrow().iter() { f(v); } } }
+
+    #[cfg(feature = "native-runtime")]
+    #[test]
+    fn root_visitors_preserve_counts_and_mutable_rescans_under_borrow() {
+        struct BorrowedRoots { all: std::cell::RefCell<Vec<Value>>, mutable: std::cell::RefCell<Vec<Value>> }
+        impl Roots for BorrowedRoots {
+            fn each_root(&self, visit: &mut dyn FnMut(Value)) { for &value in self.all.borrow().iter() { visit(value); } }
+            fn each_mutable_root(&self, visit: &mut dyn FnMut(Value)) { for &value in self.mutable.borrow().iter() { visit(value); } }
+        }
+        let mut heap = Heap::new(); heap.automatic_collection = false;
+        let empty = R(std::cell::RefCell::new(vec![]));
+        let immutable = heap.new_cell(Value::NIL, &empty);
+        let mutable = heap.new_cell(Value::NIL, &empty);
+        let added = heap.new_cell(Value::NIL, &empty);
+        let tag = crate::value::QNAN | crate::value::T_OBJ;
+        let roots = BorrowedRoots {
+            all: std::cell::RefCell::new(vec![immutable, mutable, Value::NIL, Value(tag), Value(tag | 1), mutable]),
+            mutable: std::cell::RefCell::new(vec![mutable, added, Value::FALSE, Value(tag | 2)]),
+        };
+        #[cfg(feature = "allocation-metrics")]
+        { heap.metrics = Some(crate::allocation_metrics::for_test()); }
+        heap.mark_roots(&roots, false);
+        assert_eq!(heap.allocator.gray_pop(), mutable.as_obj());
+        assert_eq!(heap.allocator.gray_pop(), immutable.as_obj());
+        assert!(heap.allocator.gray_empty());
+        unsafe { (*immutable.as_obj().unwrap().as_ptr()).color = COLOR_WHITE; }
+        heap.mark_roots(&roots, true);
+        assert_eq!(heap.allocator.gray_pop(), added.as_obj());
+        assert!(heap.allocator.gray_empty());
+        assert_eq!(unsafe { immutable.as_obj().unwrap().as_ref().color }, COLOR_WHITE);
+        assert_eq!((heap.stats.root_walks, heap.stats.root_candidates), (2, 7));
+        #[cfg(feature = "allocation-metrics")]
+        { let metrics = heap.metrics.as_ref().unwrap().borrow(); assert_eq!((metrics.root_passes, metrics.root_slots, metrics.root_object_candidates), (2, 10, 7)); }
+    }
 
     #[cfg(feature = "native-runtime")]
     #[test]

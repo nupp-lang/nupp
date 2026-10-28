@@ -23,6 +23,24 @@ export function shadeValue(h: heap.Heap*, value: uint64): boolean
     end
 end
 
+-- Root words may contain stale or unrelated bits. Count nonnull object tags
+-- before validating the slot; owned child references use shadeValue directly.
+-- Gray growth only takes a pool slot or maps a new nonmoving arena chunk.
+export function rootCandidate(h: heap.Heap*, value: uint64): uint64
+    if value & values.TAG_MASK ~= values.TAG_OBJ then
+        return 0ULL
+    end
+    local address = value & values.PAYLOAD
+    if address == 0ULL then
+        return 0ULL
+    end
+    if heap.isLiveSlot(h, address) then
+        shadeValue(h, value)
+    end
+
+    return 1ULL
+end
+
 -- The driver has handled weak-mode and record-liveness hooks. Every child slot
 -- counts, including scalars and nil. References are already valid owned objects;
 -- only root candidates need the separate live-slot check.

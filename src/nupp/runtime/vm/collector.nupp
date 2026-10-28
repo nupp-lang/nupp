@@ -182,15 +182,7 @@ end
 
 --- Grays a root candidate when it addresses a live slot (5.1).
 local function shadeRoot(h: heap.Heap*, value: uint64): nil
-    @unsafe do
-        if value & values.TAG_MASK == values.TAG_OBJ then
-            h.stats.rootCandidates = h.stats.rootCandidates + 1
-            local address = value & values.PAYLOAD
-            if heap.isLiveSlot(h, address) then
-                shade(h, value)
-            end
-        end
-    end
+    @unsafe h.stats.rootCandidates = h.stats.rootCandidates + marking.rootCandidate(h, value)
 end
 
 --- A root word for the oracle: pushed when it addresses a live slot.

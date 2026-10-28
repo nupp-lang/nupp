@@ -541,3 +541,25 @@ local function collectNanos(live: uint64): uint64
         end
     end
 end
+
+-- Null object tags are not candidates; stale nonnull tags still count.
+local function nonnullRootCandidates(): uint64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            h.automatic = false
+            local roots = rootsIn(a, 5ULL)
+            collector.register(h, roots, 5ULL)
+            local live = node(h, 0ULL)
+            setRoot(roots, 0ULL, values.TAG_OBJ)
+            setRoot(roots, 1ULL, values.TAG_OBJ | 1ULL)
+            setRoot(roots, 2ULL, values.NIL)
+            setRoot(roots, 3ULL, live)
+            setRoot(roots, 4ULL, live)
+            collector.fullCycle(h)
+            local answer = h.stats.rootCandidates * 100ULL + h.stats.rootWalks * 10ULL + h.liveCount
+            heap.destroy(h)
+            return answer
+        end
+    end
+end

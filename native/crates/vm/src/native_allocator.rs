@@ -51,6 +51,7 @@ unsafe extern "C" {
     fn nupp_weak_cycle_scan(heap: *mut c_void, header: *mut Header, mode: u64);
     fn nupp_weak_cycle_propagate(heap: *mut c_void) -> u64;
     fn nupp_weak_cycle_clear_next(heap: *mut c_void, cursor: *mut WeakClearCursor) -> u64;
+    fn nupp_root_candidate(heap: *mut c_void, value: u64) -> u64;
     fn nupp_scan_strong(heap: *mut c_void, header: *mut Header) -> u64;
     fn nupp_allocator_shade(heap: *mut c_void, value: u64) -> u64;
     fn nupp_allocator_barrier(heap: *mut c_void, parent: *mut Header, child: u64, marking: u64);
@@ -276,6 +277,10 @@ impl NativeAllocator {
             if unsafe { nupp_weak_cycle_clear_next(self.heap.as_ptr(), cursor) } == 0 { return None; }
             NonNull::new(cursor.header as *mut Header)
         }
+    }
+
+    pub(crate) fn root_candidate(&mut self, value: Value) -> u64 {
+        linked! { unsafe { nupp_root_candidate(self.heap.as_ptr(), value.0) } }
     }
 
     pub(crate) fn scan_strong(&mut self, header: NonNull<Header>) -> u64 {

@@ -270,6 +270,7 @@ local GRAPHS = {
     -- Four held, then the constant and the kept handle; the released index reused.
     {"handlesAndScopes", {}, 40021},
     {"scopedRegistration", {}, 20},
+    {"nonnullRootCandidates", {}, 621},
 }
 
 function M.theCollectorKeepsWhatIsReachableAndFreesTheRest()
