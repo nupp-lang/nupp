@@ -76,40 +76,49 @@ function bound.extent(functions: {ir.Function}, frames: {integer}, handlers: {in
         first[index], count[index] = #target + 1, 0
         for at, opcode in ipairs(f.op) do
             local op = ir.opNames[opcode]
-            assert(op ~= "call_indirect", "S0 core: non-tail indirect extent in " .. f.name)
-            if op == "return_call_indirect" then
-                assert(
-                    f.nargs[at] == 7 and tableIdentity(f, f.args[f.firstArg[at] + 6]),
-                    "S0 core: indirect table argument " .. f.name
-                )
-                local load = f.definitions[f.args[f.firstArg[at]]]
-                assert(
-                    load > 0 and f.op[load] == ir.opcode("load") and f.aux[load] == 64 and f.imm[load] == 0,
-                    "S0 core: indirect target load " .. f.name
-                )
-                local add = f.definitions[f.args[f.firstArg[load]]]
-                assert(add > 0 and f.op[add] == ir.opcode("iadd"), "S0 core: indirect table address " .. f.name)
-                local base, offset = f.args[f.firstArg[add]], f.args[f.firstArg[add] + 1]
-                assert(tableIdentity(f, base), "S0 core: indirect table origin " .. f.name)
-                local shift = f.definitions[offset]
-                assert(shift > 0 and f.op[shift] == ir.opcode("ishl"), "S0 core: dispatch scale " .. f.name)
-                local byte = f.definitions[f.args[f.firstArg[shift]]]
-                local three = f.definitions[f.args[f.firstArg[shift] + 1]]
-                assert(
-                    byte > 0 and f.op[byte] == ir.opcode("load") and f.aux[byte] == 8,
-                    "S0 core: dispatch index range " .. f.name
-                )
-                assert(
-                    three > 0 and f.op[three] == ir.opcode("iconst") and f.imm[three] == 3,
-                    "S0 core: dispatch index scale " .. f.name
-                )
-                edge(index, dispatch, 0);
-                requiresTable(index)
-            elseif op == "call" or op == "return_call" then
-                local callee = named[f.importNames[f.aux[at]]]
-                if callee then
-                    edge(index, callee, op == "call" and frames[index] or 0)
+            local _ = switch op do
+                case "call_indirect" -> do
+                    assert(false, "S0 core: non-tail indirect extent in " .. f.name)
+                    yield nil
                 end
+                case "return_call_indirect" -> do
+                    assert(
+                        f.nargs[at] == 7 and tableIdentity(f, f.args[f.firstArg[at] + 6]),
+                        "S0 core: indirect table argument " .. f.name
+                    )
+                    local load = f.definitions[f.args[f.firstArg[at]]]
+                    assert(
+                        load > 0 and f.op[load] == ir.opcode("load") and f.aux[load] == 64 and f.imm[load] == 0,
+                        "S0 core: indirect target load " .. f.name
+                    )
+                    local add = f.definitions[f.args[f.firstArg[load]]]
+                    assert(add > 0 and f.op[add] == ir.opcode("iadd"), "S0 core: indirect table address " .. f.name)
+                    local base, offset = f.args[f.firstArg[add]], f.args[f.firstArg[add] + 1]
+                    assert(tableIdentity(f, base), "S0 core: indirect table origin " .. f.name)
+                    local shift = f.definitions[offset]
+                    assert(shift > 0 and f.op[shift] == ir.opcode("ishl"), "S0 core: dispatch scale " .. f.name)
+                    local byte = f.definitions[f.args[f.firstArg[shift]]]
+                    local three = f.definitions[f.args[f.firstArg[shift] + 1]]
+                    assert(
+                        byte > 0 and f.op[byte] == ir.opcode("load") and f.aux[byte] == 8,
+                        "S0 core: dispatch index range " .. f.name
+                    )
+                    assert(
+                        three > 0 and f.op[three] == ir.opcode("iconst") and f.imm[three] == 3,
+                        "S0 core: dispatch index scale " .. f.name
+                    )
+                    edge(index, dispatch, 0);
+                    requiresTable(index)
+                    yield nil
+                end
+                case "call", "return_call" -> do
+                    local callee = named[f.importNames[f.aux[at]]]
+                    if callee then
+                        edge(index, callee, op == "call" and frames[index] or 0)
+                    end
+                    yield nil
+                end
+                else -> nil
             end
         end
     end
@@ -136,14 +145,18 @@ function bound.extent(functions: {ir.Function}, frames: {integer}, handlers: {in
     end
     for _, f in ipairs(functions) do
         for at, opcode in ipairs(f.op) do
-            if opcode == ir.opcode("call") or opcode == ir.opcode("return_call") then
-                local callee = named[f.importNames[f.aux[at]]]
-                if callee and dependent[callee] then
-                    assert(
-                        f.nargs[at] > 0 and tableIdentity(f, f.args[f.firstArg[at] + f.nargs[at] - 1]),
-                        "S0 core: direct dispatch argument " .. f.name
-                    )
+            local _ = switch ir.opNames[opcode] do
+                case "call", "return_call" -> do
+                    local callee = named[f.importNames[f.aux[at]]]
+                    if callee and dependent[callee] then
+                        assert(
+                            f.nargs[at] > 0 and tableIdentity(f, f.args[f.firstArg[at] + f.nargs[at] - 1]),
+                            "S0 core: direct dispatch argument " .. f.name
+                        )
+                    end
+                    yield nil
                 end
+                else -> nil
             end
         end
     end

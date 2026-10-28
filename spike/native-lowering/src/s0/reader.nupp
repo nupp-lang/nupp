@@ -210,60 +210,92 @@ local function body(header: string, lines: {string}): ir.Function
             local immediate: int64 = 0
             local aux: integer = 0
             local edges: {string} = {}
-            if operation == "iconst" then
-                immediate = reader.integer(rest)
-            elseif operation == "f64const" or operation == "f32const" then
-                kind = operation == "f64const" and ir.F64 or ir.F32
-                immediate, operation = floatBits(rest, kind), "fconst"
-            elseif operation == "icmp" or operation == "fcmp" then
-                local condition, tail = rest:match("^(%w+)%s+(.*)$")
-                aux, args, kind = ir.condition(assert(condition)), arguments(assert(tail)), ir.I8
-            elseif operation == "jump" or operation == "brif" then
-                if operation == "brif" then
-                    args = {id(assert(rest:match("^(v%d+),")))}
+            local dispatch = operation
+            if operation:match("^[su]load%d+$") then
+                dispatch = "load"
+            elseif operation:match("^istore%d+$") then
+                dispatch = "store"
+            end
+            local _ = switch dispatch do
+                case "iconst" -> do
+                    immediate = reader.integer(rest)
+                    yield nil
                 end
-                for edge in rest:gmatch("block%d+%([^%)]*%)") do
-                    edges[#edges + 1] = edge
+                case "f64const", "f32const" -> do
+                    kind = operation == "f64const" and ir.F64 or ir.F32
+                    immediate, operation = floatBits(rest, kind), "fconst"
+                    yield nil
                 end
-                assert(#edges == (operation == "jump" and 1 or 2), "S0 reader: branch edges")
-            elseif operation == "call" or operation == "return_call" then
-                local ref, given = rest:match("^(fn%d+)%((.-)%)$")
-                aux, args = assert(imports[assert(ref)], "S0 reader: unknown import"), arguments(assert(given))
-                local called = f.signatures[f.importSignatures[aux]]
-                kind = called.results[1] or 0
-                kind2 = called.results[2] or 0
-            elseif operation == "call_indirect" or operation == "return_call_indirect" then
-                local ref, pointer, given = rest:match("^(sig%d+),%s*(v%d+)%((.-)%)$")
-                aux, args = assert(sigs[assert(ref)], "S0 reader: unknown indirect signature"), {id(assert(pointer))}
-                for _, value in ipairs(arguments(assert(given))) do
-                    args[#args + 1] = value
+                case "icmp", "fcmp" -> do
+                    local condition, tail = rest:match("^(%w+)%s+(.*)$")
+                    aux, args, kind = ir.condition(assert(condition)), arguments(assert(tail)), ir.I8
+                    yield nil
                 end
-                kind = f.signatures[aux].results[1] or 0
-                kind2 = f.signatures[aux].results[2] or 0
-            elseif operation == "load" or operation:match("^[su]load%d+$") then
-                local address, offset = memoryAddress(rest)
-                args, immediate = {address}, offset
-                aux = (
-                    tonumber(operation:match("%d+$"))
-                    or (kind == ir.I8 and 8 or (kind == ir.I32 or kind == ir.F32) and 32 or 64)
-                ) as integer
-                operation = operation:sub(1, 1) == "s" and "sload" or "load"
-            elseif operation == "store" or operation:match("^istore%d+$") then
-                rest = rest:gsub("^notrap%s+", ""):gsub("^aligned%s+", "")
-                local value, address = rest:match("^(v%d+),%s*(.*)$")
-                local base, offset = memoryAddress(assert(address))
-                args, immediate = {id(assert(value)), base}, offset
-                aux = (tonumber(operation:match("%d+$")) or 0) as integer
-                operation = "store"
-            elseif operation == "stack_addr" then
-                local slotName, offset = rest:match("^(ss%d+)(.*)$")
-                aux = assert(slots[assert(slotName)], "S0 reader: unknown stack slot")
-                immediate = trim(offset or "") == "" and 0 or reader.integer(trim(offset or ""))
-            elseif operation == "trap" then
-                assert(rest:match("^user%d+$"), "S0 reader: unknown trap code")
-                immediate = assert(tonumber(rest:match("%d+$"))) as integer
-            else
-                args = arguments(rest)
+                case "jump", "brif" -> do
+                    if operation == "brif" then
+                        args = {id(assert(rest:match("^(v%d+),")))}
+                    end
+                    for edge in rest:gmatch("block%d+%([^%)]*%)") do
+                        edges[#edges + 1] = edge
+                    end
+                    assert(#edges == (operation == "jump" and 1 or 2), "S0 reader: branch edges")
+                    yield nil
+                end
+                case "call", "return_call" -> do
+                    local ref, given = rest:match("^(fn%d+)%((.-)%)$")
+                    aux, args = assert(imports[assert(ref)], "S0 reader: unknown import"), arguments(assert(given))
+                    local called = f.signatures[f.importSignatures[aux]]
+                    kind = called.results[1] or 0
+                    kind2 = called.results[2] or 0
+                    yield nil
+                end
+                case "call_indirect", "return_call_indirect" -> do
+                    local ref, pointer, given = rest:match("^(sig%d+),%s*(v%d+)%((.-)%)$")
+                    aux, args = assert(
+                        sigs[assert(ref)],
+                        "S0 reader: unknown indirect signature"
+                    ), {id(assert(pointer))}
+                    for _, value in ipairs(arguments(assert(given))) do
+                        args[#args + 1] = value
+                    end
+                    kind = f.signatures[aux].results[1] or 0
+                    kind2 = f.signatures[aux].results[2] or 0
+                    yield nil
+                end
+                case "load" -> do
+                    local address, offset = memoryAddress(rest)
+                    args, immediate = {address}, offset
+                    aux = (
+                        tonumber(operation:match("%d+$"))
+                        or (kind == ir.I8 and 8 or (kind == ir.I32 or kind == ir.F32) and 32 or 64)
+                    ) as integer
+                    operation = operation:sub(1, 1) == "s" and "sload" or "load"
+                    yield nil
+                end
+                case "store" -> do
+                    rest = rest:gsub("^notrap%s+", ""):gsub("^aligned%s+", "")
+                    local value, address = rest:match("^(v%d+),%s*(.*)$")
+                    local base, offset = memoryAddress(assert(address))
+                    args, immediate = {id(assert(value)), base}, offset
+                    aux = (tonumber(operation:match("%d+$")) or 0) as integer
+                    operation = "store"
+                    yield nil
+                end
+                case "stack_addr" -> do
+                    local slotName, offset = rest:match("^(ss%d+)(.*)$")
+                    aux = assert(slots[assert(slotName)], "S0 reader: unknown stack slot")
+                    immediate = trim(offset or "") == "" and 0 or reader.integer(trim(offset or ""))
+                    yield nil
+                end
+                case "trap" -> do
+                    assert(rest:match("^user%d+$"), "S0 reader: unknown trap code")
+                    immediate = assert(tonumber(rest:match("%d+$"))) as integer
+                    yield nil
+                end
+                else -> do
+                    args = arguments(rest)
+                    yield nil
+                end
             end
             if kind == 0 and result ~= 0 then
                 local source = operation == "select" and args[2] or args[1]
