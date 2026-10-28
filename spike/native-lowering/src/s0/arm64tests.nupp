@@ -824,6 +824,42 @@ export function refusals(): string
 end
 
 export function registers(): string
+    assert(
+        table.concat(target.integerRegisters, ",") == "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,25,26,27,28,29",
+        "exact integerRegisters bank"
+    )
+    assert(
+        table.concat(
+            target.floatRegisters,
+            ","
+        ) == "65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95",
+        "exact floatRegisters bank"
+    )
+    assert(table.concat(target.reserved, ",") == "17,18,19,20,21,22,23,24,30,31,32,96", "exact reserved bank")
+    assert(table.concat(target.cIntegerArguments, ",") == "1,2,3,4,5,6,7,8", "exact cIntegerArguments bank")
+    assert(table.concat(target.cFloatArguments, ",") == "65,66,67,68,69,70,71,72", "exact cFloatArguments bank")
+    assert(
+        table.concat(target.cIntegerPreserved, ",") == "20,21,22,23,24,25,26,27,28,29,30",
+        "exact cIntegerPreserved bank"
+    )
+    assert(table.concat(target.cFloatPreserved, ",") == "73,74,75,76,77,78,79,80", "exact cFloatPreserved bank")
+    assert(
+        table.concat(target.cIntegerClobbered, ",") == "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,31",
+        "exact cIntegerClobbered bank"
+    )
+    assert(
+        table.concat(
+            target.cFloatClobbered,
+            ","
+        ) == "65,66,67,68,69,70,71,72,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96",
+        "exact cFloatClobbered bank"
+    )
+    assert(
+        table.concat(target.cAllocatableIntegerPreserved, ",") == "25,26,27,28,29",
+        "exact cAllocatableIntegerPreserved bank"
+    )
+    assert(table.concat(target.internalIntegerPreserved, ",") == "", "exact internalIntegerPreserved bank")
+    assert(table.concat(target.internalFloatPreserved, ",") == "", "exact internalFloatPreserved bank")
     local reserved: {[integer]: boolean} = {}
     for _, physical in ipairs(target.reserved) do
         assert(not reserved[physical])
