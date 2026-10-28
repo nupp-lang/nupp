@@ -84,4 +84,46 @@ return {increment = increment, forward = forward}
     end
 end
 
+function M.emitTypedWalkArtifactsWhenRequested()
+    local directory = os.getenv("NUPP_TYPED_CST_ARTIFACTS")
+    if not directory then
+        return
+    end
+    local project = require("nupp.tools.vm.project")
+    local fs = require("nupp.compiler.fs")
+    local json = require("nupp.codec.json")
+    local report = {}
+    for _, module in ipairs({"analysis", "callfacts"}) do
+        local relative = "src/nupp/compiler/" .. module .. ".nupp"
+        local path = fs.absolute(relative)
+        report[module] = {}
+        for _, variant in ipairs({"numeric-baseline", "typed"}) do
+            local source = variant == "typed" and path or directory .. "/numeric-baseline/" .. relative
+            local functions, image = project.inspect(fs.absolute("."), path, assert(fs.readFile(source)))
+            local file = assert(io.open(directory .. "/" .. module .. "-" .. variant .. ".listing", "wb"))
+            file:write(image)
+            file:close()
+            local totals = {}
+            local rows = {}
+            for _, fn in ipairs(functions) do
+                local counts = {}
+                for _, instruction in ipairs(fn.instructions) do
+                    counts[instruction.op] = (counts[instruction.op] or 0) + 1
+                    totals[instruction.op] = (totals[instruction.op] or 0) + 1
+                end
+                rows[#rows + 1] = {name = fn.name, counts = counts}
+            end
+            report[module][variant] = {totals = totals, functions = rows}
+        end
+        local before = report[module]["numeric-baseline"].totals
+        local after = report[module].typed.totals
+        testAssert.equal((after.GetIdxI or 0) - (before.GetIdxI or 0), 8, "each cursor reaches integer indexing")
+        testAssert.equal((before.GetIdx or 0) - (after.GetIdx or 0), 8, "generic child indexing disappears")
+        testAssert.equal((after.ICmpSLe or 0) - (before.ICmpSLe or 0), 8, "each bound uses integer comparison")
+    end
+    local file = assert(io.open(directory .. "/mechanism.json", "wb"))
+    file:write(json.encode(report))
+    file:close()
+end
+
 return M

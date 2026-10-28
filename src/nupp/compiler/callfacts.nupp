@@ -101,9 +101,12 @@ local function writes(root)
                 end
             end
         end
-        for childIndex = 1, #node do
+        local childLimit: integer = #node
+        local childIndex: integer = 1
+        while childIndex <= childLimit do
             local child = node[childIndex]
             walk(child)
+            childIndex = childIndex + 1
         end
     end
 
@@ -347,9 +350,12 @@ local function walkBody(body, params, definitions, changed, annotate)
             end
             return true
         elseif kind == "call" or kind == "methodCall" or kind == "safeCall" then
-            for childIndex = 1, #node do
+            local childLimit: integer = #node
+            local childIndex: integer = 1
+            while childIndex <= childLimit do
                 local child = node[childIndex]
                 visit(child, facts, pending)
+                childIndex = childIndex + 1
             end
             local summary = relation(node, definitions)
             local args = node.args and node.args.exprs or {}
@@ -422,9 +428,12 @@ local function walkBody(body, params, definitions, changed, annotate)
             if kind ~= "binop" then
                 complete, badReturn = false, true
             end
-            for childIndex = 1, #node do
+            local childLimit: integer = #node
+            local childIndex: integer = 1
+            while childIndex <= childLimit do
                 local child = node[childIndex]
                 visit(child, copy(facts), copy(pending))
+                childIndex = childIndex + 1
             end
             for key in pairs(facts) do
                 facts[key] = nil
@@ -434,9 +443,12 @@ local function walkBody(body, params, definitions, changed, annotate)
             end
             return false
         end
-        for childIndex = 1, #node do
+        local childLimit: integer = #node
+        local childIndex: integer = 1
+        while childIndex <= childLimit do
             local child = node[childIndex]
             visit(child, facts, pending)
+            childIndex = childIndex + 1
         end
 
         return false
@@ -524,9 +536,12 @@ local function markUnstable(root)
             or node.kind == "forinStmt"
             or node.kind == "whileStmt"
             or node.kind == "repeatStmt"
-        for childIndex = 1, #node do
+        local childLimit: integer = #node
+        local childIndex: integer = 1
+        while childIndex <= childLimit do
             local child = node[childIndex]
             collect(child, depth + (nested and 1 or 0))
+            childIndex = childIndex + 1
         end
     end
 
@@ -582,9 +597,12 @@ local function markUnstable(root)
                 end
             end
         end
-        for childIndex = 1, #node do
+        local childLimit: integer = #node
+        local childIndex: integer = 1
+        while childIndex <= childLimit do
             local child = node[childIndex]
             escapes(child, node, depth + (NESTED[node.kind] and 1 or 0))
+            childIndex = childIndex + 1
         end
     end
 
@@ -640,9 +658,12 @@ local function markUnstable(root)
                 node.importedEffects, node.importedRelations = nil, nil
             end
         end
-        for childIndex = 1, #node do
+        local childLimit: integer = #node
+        local childIndex: integer = 1
+        while childIndex <= childLimit do
             local child = node[childIndex]
             annotate(child)
+            childIndex = childIndex + 1
         end
     end
 
@@ -671,9 +692,12 @@ function callfacts.reset(root: any): nil
             node.relationalAccess = nil
         end
         node.callBoundsProven, node.unstableCall, node.unstableFact = nil, nil, nil
-        for childIndex = 1, #node do
+        local childLimit: integer = #node
+        local childIndex: integer = 1
+        while childIndex <= childLimit do
             local child = node[childIndex]
             visit(child)
+            childIndex = childIndex + 1
         end
     end
 

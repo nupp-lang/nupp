@@ -419,9 +419,12 @@ local function collectFunctions(root)
             end
             return
         end
-        for childIndex = 1, #node do
+        local childLimit: integer = #node
+        local childIndex: integer = 1
+        while childIndex <= childLimit do
             local child = node[childIndex]
             walk(child)
+            childIndex = childIndex + 1
         end
     end
 
@@ -509,9 +512,12 @@ local function inferFunction(info, byDefinition)
                 end
             end
         end
-        for childIndex = 1, #node do
+        local childLimit: integer = #node
+        local childIndex: integer = 1
+        while childIndex <= childLimit do
             local child = node[childIndex]
             collectBindings(child)
+            childIndex = childIndex + 1
         end
     end
 
@@ -786,11 +792,14 @@ local function inferFunction(info, byDefinition)
                 end
             end
         end
-        for childIndex = 1, #node do
+        local childLimit: integer = #node
+        local childIndex: integer = 1
+        while childIndex <= childLimit do
             local child = node[childIndex]
             if not cst.isToken(child) then
                 walk(child, targetContext)
             end
+            childIndex = childIndex + 1
         end
     end
     walk(bodyContents(info.body), false)
@@ -856,9 +865,12 @@ local function inferFunction(info, byDefinition)
                 end
             end
         end
-        for childIndex = 1, #node do
+        local childLimit: integer = #node
+        local childIndex: integer = 1
+        while childIndex <= childLimit do
             local child = node[childIndex]
             cleanupEffects(child)
+            childIndex = childIndex + 1
         end
     end
 
@@ -973,9 +985,12 @@ local function aliasClasses(body, byDefinition)
                 end
             end
         end
-        for childIndex = 1, #node do
+        local childLimit: integer = #node
+        local childIndex: integer = 1
+        while childIndex <= childLimit do
             local child = node[childIndex]
             walk(child)
+            childIndex = childIndex + 1
         end
     end
 
@@ -1095,9 +1110,12 @@ function queries.body(body: any, byDefinition: any): any
                 return node.kind == "name" and node.definition == definition and 1 or 0
             end
             local total = 0
-            for childIndex = 1, #node do
+            local childLimit: integer = #node
+            local childIndex: integer = 1
+            while childIndex <= childLimit do
                 local child = node[childIndex]
                 total = total + count(child)
+                childIndex = childIndex + 1
             end
 
             return total
@@ -1146,9 +1164,12 @@ function queries.body(body: any, byDefinition: any): any
             elseif node.kind == "localFuncStmt" and node.name then
                 declared[node.name] = true
             end
-            for childIndex = 1, #node do
+            local childLimit: integer = #node
+            local childIndex: integer = 1
+            while childIndex <= childLimit do
                 local child = node[childIndex]
                 collect(child)
+                childIndex = childIndex + 1
             end
         end
 
@@ -1171,9 +1192,12 @@ function queries.body(body: any, byDefinition: any): any
 
                 return
             end
-            for childIndex = 1, #node do
+            local childLimit: integer = #node
+            local childIndex: integer = 1
+            while childIndex <= childLimit do
                 local child = node[childIndex]
                 walk(child)
+                childIndex = childIndex + 1
             end
         end
 

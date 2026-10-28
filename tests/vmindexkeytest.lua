@@ -66,6 +66,56 @@ return tostring(first), tostring(second), tostring(minimum), tostring(nextMinimu
     test.equal(maximum, "9223372036854775807")
 end
 
+function M.signedDecimalLiteralsUseRawConstantsOnlyInIntegerContexts()
+    local listing = {}
+    local api = compile(
+        "vmindexkeytest.rawDecimalConstants.fragment",
+        [[
+local Probe = {}
+function Probe.integer(): (string, string, string)
+    local zero: integer = 0
+    local exact: integer = 9007199254740993
+    local maximum: integer = 9223372036854775807LL
+    return tostring(zero), tostring(exact), tostring(maximum)
+end
+function Probe.boxed(): any
+    return 9007199254740993
+end
+function Probe.hex(): string
+    local minimum: integer = 0x8000000000000000
+    return tostring(minimum)
+end
+function Probe.unsigned(): string
+    local value: uint64 = 18446744073709551615ULL
+    return tostring(value)
+end
+return Probe
+]],
+        listing
+    )
+    local functions = {}
+    for _, fn in ipairs(listing) do
+        local counts = {}
+        for _, instruction in ipairs(fn.instructions) do
+            counts[instruction.op] = (counts[instruction.op] or 0) + 1
+        end
+        functions[fn.name] = counts
+    end
+    local integer = assert(functions["Probe.integer"])
+    test.equal(integer.IK, 3)
+    test.equal(integer.IUnbox or 0, 0)
+    test.equal(assert(functions["Probe.boxed"]).IK or 0, 0)
+    test.equal(assert(functions["Probe.hex"]).IK or 0, 0)
+    test.equal(assert(functions["Probe.unsigned"]).IK or 0, 0)
+    local zero, exact, maximum = api.integer()
+    test.equal(zero, "0")
+    test.equal(exact, "9007199254740993")
+    test.equal(maximum, "9223372036854775807")
+    test.equal(tostring(api.boxed()), "9007199254740993")
+    test.equal(api.hex(), "-9223372036854775808")
+    test.equal(tostring(api.unsigned()), "18446744073709551615")
+end
+
 function M.aZeroHeadIntegerCallReachesIndexWithNil()
     local run = compile(
         "vmindexkeytest.aZeroHeadIntegerCallReachesIndexWithNil.fragment",
@@ -490,6 +540,166 @@ return strings, objects, calls
     test.equal(strings, false)
     test.equal(objects, false)
     test.equal(calls, 0)
+end
+
+function M.signedLiteralOperandsRequestRawBitsWithoutUnboxing()
+    local listing = {}
+    local api = compile(
+        "vmindexkeytest.signedLiteralHints.fragment",
+        [[
+local Probe = {}
+function Probe.add(value: integer): integer return value + 1 end
+function Probe.left(value: integer): integer return (1LL) + value end
+function Probe.subtract(value: integer): integer return value - 1LL end
+function Probe.band(value: integer): integer return value & 3LL end
+function Probe.bor(value: integer): integer return value | 8LL end
+function Probe.bxor(value: integer): integer return value ~ 3LL end
+function Probe.boundaries(): (string, string, string)
+    local zero: integer = 0
+    local largest: integer = 9223372036854775807LL
+    return tostring(zero + 9007199254740993LL), tostring(largest + 1LL), tostring(0LL - largest - 1LL)
+end
+return Probe
+]],
+        listing
+    )
+    local expected = {
+        ["Probe.add"] = true,
+        ["Probe.left"] = true,
+        ["Probe.subtract"] = true,
+        ["Probe.band"] = true,
+        ["Probe.bor"] = true,
+        ["Probe.bxor"] = true
+    }
+    for _, fn in ipairs(listing) do
+        if expected[fn.name] then
+            local raw, unbox = 0, 0
+            for _, instruction in ipairs(fn.instructions) do
+                if instruction.op == "IK" then
+                    raw = raw + 1
+                end
+                if instruction.op == "IUnbox" then
+                    unbox = unbox + 1
+                end
+            end
+            test.equal(raw, 1, fn.name .. " literal is exact raw bits")
+            test.equal(unbox, 1, fn.name .. " keeps its value-parameter conversion")
+            expected[fn.name] = nil
+        end
+    end
+    test.equal(next(expected), nil, "all named functions inspected")
+    test.equal(api.add(7), 8)
+    test.equal(pcall(api.add, 1.5), false)
+    test.equal(pcall(api.add, "7"), false)
+    test.equal(api.left(7), 8)
+    test.equal(api.subtract(7), 6)
+    test.equal(api.band(7), 3)
+    test.equal(api.bor(7), 15)
+    test.equal(api.bxor(7), 4)
+    local exact, overflow, minimum = api.boundaries()
+    test.equal(exact, "9007199254740993")
+    test.equal(overflow, "-9223372036854775808")
+    test.equal(minimum, "-9223372036854775808")
+end
+
+function M.signedLiteralHintsKeepHexUnsignedAndValueFallbacks()
+    local listing = {}
+    local api = compile(
+        "vmindexkeytest.signedLiteralFallbacks.fragment",
+        [[
+local Probe = {}
+function Probe.hex(value: integer): integer return value + 0x1LL end
+function Probe.oversizedHex(value: integer): integer return value + 0x10000000000000001LL end
+function Probe.boxed(): any return 9007199254740993LL end
+function Probe.unsigned(): string
+    local value: uint64 = 18446744073709551615ULL
+    local sum: uint64 = value + 1ULL
+    return tostring(sum)
+end
+function Probe.cast(value: integer): integer return value + ((1.5 as any) as integer) end
+return Probe
+]],
+        listing
+    )
+    for _, fn in ipairs(listing) do
+        if fn.name == "Probe.hex"
+            or fn.name == "Probe.oversizedHex"
+            or fn.name == "Probe.boxed"
+            or fn.name == "Probe.unsigned"
+            or fn.name == "Probe.cast"
+        then
+            local raw = 0
+            for _, instruction in ipairs(fn.instructions) do
+                if instruction.op == "IK" then
+                    raw = raw + 1
+                end
+            end
+            test.equal(raw, 0, fn.name .. " stays outside the literal hint")
+        end
+    end
+    test.equal(api.hex(7), 8)
+    test.equal(api.oversizedHex(7), 8)
+    test.equal(tostring(api.boxed()), "9007199254740993")
+    test.equal(api.unsigned(), "0")
+    test.equal(pcall(api.cast, 7), false)
+end
+
+function M.signedLiteralHintsPreserveOperandEffectsAndSnapshots()
+    local events, sum, reverse, shifted = compile(
+        "vmindexkeytest.signedLiteralHintOrder.fragment",
+        [[
+local events = ""
+local current: integer = 7
+local function left(): integer
+    events ..= "L"
+    return current
+end
+local function right(): integer
+    events ..= "R"
+    current = 20
+    return 3
+end
+local sum = left() + right()
+local reverse = 1LL + right()
+local shifted = current + do
+    events ..= "D"
+    current = 100
+    yield 2LL
+end
+return events, sum, reverse, shifted
+]]
+    )
+    test.equal(events, "LRRD")
+    test.equal(sum, 10)
+    test.equal(reverse, 4)
+    test.equal(shifted, 22)
+end
+
+function M.signedLiteralHintsPreserveCheckedFailureOrder()
+    local events, fractional, missing, text = compile(
+        "vmindexkeytest.signedLiteralHintErrors.fragment",
+        [[
+local events = ""
+local function bad(): integer
+    events ..= "L"
+    return (1.5 as any) as integer
+end
+local function right(): integer
+    events ..= "R"
+    return 1
+end
+local fractional = pcall(function(): integer return bad() + right() end)
+local empty: any = nil
+local missing = pcall(function(): integer return (empty as integer) + 1LL end)
+local word: any = "7"
+local text = pcall(function(): integer return 1LL + (word as integer) end)
+return events, fractional, missing, text
+]]
+    )
+    test.equal(events, "LR")
+    test.equal(fractional, false)
+    test.equal(missing, false)
+    test.equal(text, false)
 end
 
 return M

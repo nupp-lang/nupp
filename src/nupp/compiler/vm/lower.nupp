@@ -668,6 +668,14 @@ function lower.emit(
         return wideKind(t) ~= nil or isNumeric(t) or tag == "int32" or tag == "uint32"
     end
 
+    local function signedLiteral(node)
+        while node.kind == "paren" do
+            node = node.expr
+        end
+
+        return node.kind == "number" and (wideKind(node.inferredType) == "i64" or node.wideIntegerLiteralTag == "int64")
+    end
+
     local function unsignedProducer(node)
         if node.kind == "paren" then
             return unsignedProducer(node.expr)
@@ -2425,6 +2433,15 @@ function lower.emit(
             if tag == "int64" and text:sub(1, 2):lower() == "0x" and #text > 18 then
                 text = "0x" .. text:sub(-16)
             end
+            if want == "i"
+                and tag == "int64"
+                and text:match("^%d+$")
+                and (#text < 19 or (#text == 19 and text <= "9223372036854775807"))
+            then
+                local d = f:freg()
+                f:op("IK", d, text)
+                return d, "i"
+            end
             local d = (want ~= "f" and want ~= "i" and want ~= "u" and dst) or f:reg()
             f:op("K", d, f:const(tag, text))
             return d, "v"
@@ -2522,11 +2539,21 @@ function lower.emit(
                     -- Evaluate both operands before checking either conversion,
                     -- as the wide builtin does. Integer registers are already
                     -- exact; other classes keep the checked value boundary.
-                    local left, leftClass = expr(f, node.lhs)
+                    local left, leftClass = expr(
+                        f,
+                        node.lhs,
+                        nil,
+                        direct[op] and signedLiteral(node.lhs) and "i" or nil
+                    )
                     local saved = leftClass == "v" and f:reg() or f:freg()
                     f:op(leftClass == "v" and "Move" or leftClass == "f" and "FMov" or "IMov", saved, left)
                     left = saved
-                    local right, rightClass = expr(f, node.rhs)
+                    local right, rightClass = expr(
+                        f,
+                        node.rhs,
+                        nil,
+                        direct[op] and signedLiteral(node.rhs) and "i" or nil
+                    )
                     if direct[op] then
                         if leftClass ~= "i" then
                             left = coerce(f, coerce(f, left, leftClass, "v"), "v", "i")
