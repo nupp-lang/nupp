@@ -26,9 +26,13 @@ local function functionsFrom(parsed: any, scope: any): any
             if node and (node.kind == "localFuncStmt" or node.kind == "funcStmt") then
                 local body = node.body
                 local name = node.kind == "localFuncStmt" and node.name.text or node.name.base.text
-                local kinds = {}
+                local kinds, annotations, types, definitions, modeTokens = {}, {}, {}, {}, {}
                 for index, parameter in ipairs(body.params) do
                     kinds[index] = parameter.type.resolvedType.tag
+                    annotations[index] = parameter.type.resolvedType
+                    definitions[index] = parameter.name.definition
+                    types[index] = parameter.name.definition.type
+                    modeTokens[index] = parameter.modeTok
                 end
                 local result = body.signatureType.rets[1] and body.signatureType.rets[1].tag
                 local fn = {
@@ -37,6 +41,14 @@ local function functionsFrom(parsed: any, scope: any): any
                     body = body,
                     scope = scope,
                     paramKinds = kinds,
+                    checkedSignature = body.signatureType,
+                    parameterAnnotations = annotations,
+                    parameterTypes = types,
+                    parameterDefinitions = definitions,
+                    parameterModeTokens = modeTokens,
+                    parameterModes = body.signatureType.paramModes,
+                    parameterPack = body.signatureType.paramPack,
+                    resultType = body.signatureType.rets[1],
                     resultKind = result or "nil"
                 }
                 scope.functions[name] = fn

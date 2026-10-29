@@ -1,6 +1,7 @@
 module nupp.compiler.s0.nativegraph
 
 local graph = require("nupp.compiler.vm.graph")
+local physical = require("nupp.compiler.vm.nativephysical")
 local residual = require("nupp.compiler.vm.residual")
 local recipes = require("nupp.compiler.vm.machinerecipes")
 local ir = require("s0.ir")
@@ -117,6 +118,13 @@ end
 local function lower(bound: any, name: string, unbound: boolean, resolved: any?, context: any?): sink.Result
     local g = bound.graph
     graph.verify(g)
+    if g.nativePhysical then
+        assert(g.native.abi == "leaf", "S0 graph: physical graphs require leaf ABI")
+        assert(
+            unbound and g.nativePhysical.context.target == "aarch64-apple-darwin",
+            "S0 graph: physical graph requires explicit owned ARM64 target"
+        )
+    end
     assert(bound.body ~= nil, "S0 graph: retained body owner required")
     assert(name:match("^[%w_%.]+$") ~= nil, "S0 graph: invalid name")
     assert(
@@ -408,6 +416,33 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                 end
                 case "NativeAsWord" -> do
                     emit("uextend", result, args[1] + 1, nil, nil, "i64", 0, nil)
+                    yield nil
+                end
+                case "NativePointerView" -> do
+                    physical.validateCast(args[2])
+                    assert(
+                        g.nativePhysical.values[args[1]] == args[2].source
+                        and g.nativePhysical.values[destination] == args[2].target,
+                        "S0 graph: physical pointer view identity"
+                    )
+                    local zero = emit("iconst", nil, nil, nil, nil, "i64", 0, "0")
+                    emit("iadd", result, args[1] + 1, zero, nil, "i64", 0, nil)
+                    yield nil
+                end
+                case "NativeFieldLoad" -> do
+                    local access = args[2]
+                    physical.validateField(access)
+                    assert(
+                        g.nativePhysical.values[args[1]] == access.receiver
+                        and access.width == 8
+                        and not access.signed
+                        and not access.write
+                        and access.valueType.tag == "uint64",
+                        "S0 graph: uint64 physical field contract"
+                    )
+                    local offset = emit("iconst", nil, nil, nil, nil, "i64", 0, tostring(access.offset))
+                    local address = emit("iadd", nil, args[1] + 1, offset, nil, "i64", 0, nil)
+                    emit("load", result, address, nil, nil, "i64", 64, nil)
                     yield nil
                 end
                 case "NativeWordCast", "NativePointer", "NativeAddress" -> do

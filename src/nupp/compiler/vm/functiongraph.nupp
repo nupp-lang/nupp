@@ -190,8 +190,10 @@ function frontend.compile(fn: any, options: any, profile: any): any
             or node.kind == "falseExpr"
         then
             return invoke("literal", node, expected)
+        elseif node.kind == "castExpr" then
+            return invoke("cast", node, expected)
         elseif node.kind == "dotIndex" then
-            return invoke("constant", node, expected)
+            return invoke(profile.fieldRead and "fieldRead" or "constant", node, expected)
         elseif node.kind == "unop" then
             return invoke("unary", node, expected)
         elseif node.kind == "call" then
@@ -251,7 +253,10 @@ function frontend.compile(fn: any, options: any, profile: any): any
             then
                 transported[key] = value
             else
-                local parameter = profile.newValue(g, profile.valueKind(g, value))
+                local parameter = (
+                    profile.copyValue and profile.copyValue(g, value)
+                    or profile.newValue(g, profile.valueKind(g, value))
+                )
                 target.params[#target.params + 1] = parameter
                 args[#args + 1] = value
                 keys[#keys + 1] = key
@@ -490,7 +495,10 @@ function frontend.compile(fn: any, options: any, profile: any): any
                         if unchanged then
                             bindings[key] = original
                         else
-                            local parameter = profile.newValue(g, profile.valueKind(g, original))
+                            local parameter = (
+                                profile.copyValue and profile.copyValue(g, original)
+                                or profile.newValue(g, profile.valueKind(g, original))
+                            )
                             join.params[#join.params + 1] = parameter
                             transported[#transported + 1] = key
                             bindings[key] = parameter
@@ -539,6 +547,9 @@ function frontend.compile(fn: any, options: any, profile: any): any
                     scoped[key] = bindings[key]
                 end
                 bindings, bindingOrder = scoped, outer
+            elseif stat.kind == "pragmaStmt" then
+                invoke("checkedPragma", stat, nil)
+                statements({need(stat.stat, "scoped pragma body required")})
             elseif stat.kind == "exportStmt" and profile.exportStatement then
                 if stat.stat then
                     invoke("exportStatement", stat, nil)

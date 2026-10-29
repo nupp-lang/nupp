@@ -49,6 +49,7 @@ end
 --- @raises string when the graph requires an unsupported machine operation
 function emitter.emit(g: any, options: any): string
     graph.verify(g)
+    need(g.nativePhysical == nil, "physical graphs require owned machine emission")
     local native = need(g.native, "native graph required")
     need(native.result ~= "nil", "zero-result leaves require owned machine emission")
     local handler = native.abi == "handler"

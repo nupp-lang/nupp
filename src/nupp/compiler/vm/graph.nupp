@@ -10,6 +10,7 @@ module nupp.compiler.vm.graph
 local graph = {}
 
 local frameverify = require("nupp.compiler.vm.frameverify")
+local physical = require("nupp.compiler.vm.nativephysical")
 
 -- One signature per opcode: the result class is the uppercase letter, at the
 -- position the VM's operand order puts it; every other letter is one operand.
@@ -112,6 +113,8 @@ signatures.NativeLoad = "Iii#"
 signatures.NativeStore = "iia#"
 signatures.NativeLayout = "I#"
 signatures.NativePointer = "Ii"
+signatures.NativePointerView = "Ii#"
+signatures.NativeFieldLoad = "Ii#"
 signatures.NativeAddress = "Ii"
 signatures.ProgramLoad = "Iii#"
 signatures.FrameSlotRead = "Iiii#"
@@ -148,6 +151,8 @@ local nativeOnly = {
     NativeStore = true,
     NativeLayout = true,
     NativePointer = true,
+    NativePointerView = true,
+    NativeFieldLoad = true,
     NativeAddress = true,
     ProgramLoad = true,
     FrameSlotRead = true,
@@ -526,6 +531,24 @@ end
 
 local function verifyNativeOperation(g: any, op: string, args: any, dst: integer): nil
     local kinds, kind = g.exactTypes, g.exactTypes[dst]
+    local physicalValues = g.nativePhysical and g.nativePhysical.values
+    if physicalValues then
+        local sig = parsed[op]
+        for index, value in ipairs(args) do
+            if classes[operandClass(sig, index)] or operandClass(sig, index) == "a" then
+                local descriptor = physicalValues[value]
+                if descriptor and descriptor.pointee ~= nil then
+                    assert(
+                        index == 1 and (op == "NativePointerView" or op == "NativeFieldLoad"),
+                        "typed pointer operation boundary is unsupported"
+                    )
+                end
+            end
+        end
+        if physicalValues[dst] then
+            assert(op == "NativePointer" or op == "NativePointerView", "unsupported physical value origin")
+        end
+    end
     if g.native.abi == "leaf" then
         assert(
             op ~= "NativeHelperCall"
@@ -644,6 +667,29 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
             not effects.pure or not (effects.mayCollect or effects.mayPark or effects.mayRaise),
             "native pure helper cannot collect, park or raise"
         )
+    elseif op == "NativePointerView" then
+        hasKind(args[1], "voidptr")
+        assert(kind == "voidptr" and physicalValues, "physical pointer view requires sidecars")
+        local contract = args[2]
+        physical.validateCast(contract)
+        assert(
+            physicalValues[args[1]] == contract.source and physicalValues[dst] == contract.target,
+            "physical pointer view source/result identity differs"
+        )
+    elseif op == "NativeFieldLoad" then
+        hasKind(args[1], "voidptr")
+        assert(kind == "uint64" and physicalValues, "physical field load requires sidecars")
+        local access = args[2]
+        physical.validateField(access)
+        assert(physicalValues[args[1]] == access.receiver, "physical field receiver identity differs")
+        assert(
+            not access.write
+            and access.width == 8
+            and not access.signed
+            and access.storage.storageType.tag == "uint64"
+            and access.valueType.tag == "uint64",
+            "only uint64 physical field reads are admitted"
+        )
     elseif op == "NativeLoad" or op == "NativeStore" then
         local write = op == "NativeStore"
         local contract = args[write and 4 or 3]
@@ -680,6 +726,13 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
     elseif op == "NativeLayout" then
         assert(kind == "int64" and type(args[1]) == "string" and args[1]:match("^[%w_%.]+$"), "native ABI layout name")
     elseif op == "NativePointer" or op == "NativeAddress" then
+        if physicalValues and physicalValues[dst] then
+            local descriptor = physicalValues[dst]
+            assert(
+                op == "NativePointer" and descriptor.storageType.tag == "voidptr",
+                "generic pointer origin cannot establish a pointee"
+            )
+        end
         hasKind(args[1], op == "NativePointer" and "uint64" or "voidptr")
         assert(kind == (op == "NativePointer" and "voidptr" or "uint64"), "native pointer bit conversion kind")
     elseif op == "NativeConstant" then
@@ -1057,6 +1110,27 @@ function graph.verify(g: any): nil
         error("assertion failed", 0)
     end
     local native = g.native ~= nil
+    if g.nativePhysical then
+        assert(native and type(g.nativePhysical.values) == "table", "native physical sidecars require native graph")
+        -- Handler/managed admission must first model these accesses in frameverify.
+        assert(g.native.abi == "leaf", "physical graphs require leaf ABI")
+        physical.validateContext(g.nativePhysical.context)
+        for value, descriptor in pairs(g.nativePhysical.values) do
+            assert(
+                type(value) == "number" and value % 1 == 0 and value > nparams and value <= #types,
+                "physical parameter/invalid value is unsupported"
+            )
+            physical.validate(descriptor)
+            assert(
+                descriptor.context == g.nativePhysical.context
+                and descriptor.machineKind == "voidptr"
+                and g.exactTypes[value] == "voidptr"
+                and #descriptor.ownership == 0
+                and not descriptor.nullable,
+                "physical value type/context differs"
+            )
+        end
+    end
     if g.exactTypes ~= nil and not native then
         assert(type(g.exactTypes) == "table" and #g.exactTypes == #types, "missing graph exact types")
         for index, kind in ipairs(g.exactTypes) do
@@ -1310,6 +1384,8 @@ function graph.verify(g: any): nil
             )
             for i = 1, 6 do
                 assert(usable(t.args[i]) and g.exactTypes[t.args[i]] == "voidptr", "native dispatch operand kind")
+                local descriptor = g.nativePhysical and g.nativePhysical.values[t.args[i]]
+                assert(not descriptor or descriptor.pointee == nil, "typed pointer dispatch is unsupported")
             end
             local pos = t.pos or 0
             assert(pos >= 0 and pos % 1 == 0 and pos <= #g.positions, "native dispatch source position outside table")
@@ -1338,6 +1414,8 @@ function graph.verify(g: any): nil
                 "native tail argument count"
             )
             for index, parameter in ipairs(declaration.params) do
+                local descriptor = g.nativePhysical and g.nativePhysical.values[t.args[index]]
+                assert(not descriptor or descriptor.pointee == nil, "typed pointer tail call is unsupported")
                 assert(
                     nativeClasses[parameter] and usable(t.args[index]) and g.exactTypes[t.args[index]] == parameter,
                     "native tail operand kind"
@@ -1448,6 +1526,14 @@ function graph.verify(g: any): nil
                 end
                 if g.exactTypes ~= nil then
                     assert(g.exactTypes[v] == g.exactTypes[targetParams[i + offset]], "graph edge exact kind mismatch")
+                    if g.nativePhysical then
+                        local from = g.nativePhysical.values[v]
+                        local to = g.nativePhysical.values[targetParams[i + offset]]
+                        assert(
+                            from == nil and to == nil or from and to and physical.same(from, to),
+                            "graph edge physical type mismatch"
+                        )
+                    end
                 end
             end
         end
@@ -1529,7 +1615,7 @@ function graph.prune(g: any): nil
     -- Surviving values are renumbered densely, the function parameters first
     -- so they keep their ids. Each block records which of its parameter
     -- positions survived so edge arguments compact to match.
-    local remap, types, slots, exactTypes = {}, {}, {}, {}
+    local remap, types, slots, exactTypes, physicalTypes = {}, {}, {}, {}, {}
     local count: integer = 0
     local gTypes, gSlots = g.types, g.slots
 
@@ -1538,6 +1624,9 @@ function graph.prune(g: any): nil
         remap[v], types[count], slots[count] = count, gTypes[v], gSlots[v]
         if g.exactTypes ~= nil then
             exactTypes[count] = g.exactTypes[v]
+        end
+        if g.nativePhysical then
+            physicalTypes[count] = g.nativePhysical.values[v]
         end
 
         return count
@@ -1630,6 +1719,9 @@ function graph.prune(g: any): nil
     g.types, g.slots = types, slots
     if g.exactTypes ~= nil then
         g.exactTypes = exactTypes
+    end
+    if g.nativePhysical then
+        g.nativePhysical.values = physicalTypes
     end
 end
 

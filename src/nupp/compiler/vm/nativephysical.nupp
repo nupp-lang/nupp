@@ -7,6 +7,7 @@ local qualifiers = {affine = true, borrowed = true, pinned = true}
 local contexts: any = setmetatable({}, {__mode = "k"})
 local origins: any = setmetatable({}, {__mode = "k"})
 local accesses: any = setmetatable({}, {__mode = "k"})
+local casts: any = setmetatable({}, {__mode = "k"})
 
 local function need(ok: any, message: string): any
     assert(ok, "native physical: " .. message)
@@ -20,9 +21,14 @@ function physical.new(target: string): any
     return context
 end
 
-local function derive(context: any, checked: any): any
+function physical.validateContext(context: any): boolean
     local held = need(contexts[context], "unknown target context")
     need(context.target == held.target and context.abi == targetLayout.ABI, "target context changed")
+    return true
+end
+
+local function derive(context: any, checked: any): any
+    physical.validateContext(context)
     need(checked and type(checked.id) == "string" and checked.id ~= "", "resolved checked type required")
     local raw, ownership = checked, {}
     while qualifiers[raw.tag] or raw.tag == "literal" or raw.tag == "const" do
@@ -163,6 +169,66 @@ function physical.same(left: any, right: any): boolean
     return true
 end
 
+local function plainPointer(descriptor: any): nil
+    physical.validate(descriptor)
+    need(
+        descriptor.machineKind == "voidptr" and #descriptor.ownership == 0 and not descriptor.nullable,
+        "plain nonnullable pointer representation required"
+    )
+end
+
+function physical.cast(source: any, node: any): any
+    plainPointer(source)
+    need(node and node.kind == "castExpr" and node.expr, "checked pointer cast required")
+    need(node.expr.inferredType == source.checkedType, "cast checked source differs")
+    local target = physical.describe(source.context, node.inferredType)
+    plainPointer(target)
+    need(
+        source.storageBytes == target.storageBytes and source.layout.alignment == target.layout.alignment,
+        "pointer representation differs"
+    )
+    local contract = {source = source, target = target, node = node}
+    casts[
+        contract
+    ] = {
+        source = source,
+        target = target,
+        node = node,
+        expression = node.expr,
+        sourceType = node.expr.inferredType,
+        targetType = node.inferredType
+    }
+
+    return contract
+end
+
+function physical.validateCast(contract: any): boolean
+    local held = need(casts[contract], "unknown checked pointer cast")
+    need(
+        contract.source == held.source and contract.target == held.target and contract.node == held.node,
+        "pointer cast identity changed"
+    )
+    need(
+        held.node.kind == "castExpr"
+        and held.node.expr == held.expression
+        and held.expression.inferredType == held.sourceType
+        and held.node.inferredType == held.targetType,
+        "pointer cast checked types changed"
+    )
+    plainPointer(contract.source)
+    plainPointer(contract.target)
+    need(
+        contract.source.checkedType == held.sourceType
+        and contract.target.checkedType == held.targetType
+        and contract.source.context == contract.target.context
+        and contract.source.storageBytes == contract.target.storageBytes
+        and contract.source.layout.alignment == contract.target.layout.alignment,
+        "pointer cast representation changed"
+    )
+
+    return true
+end
+
 local function fieldContract(receiver: any, node: any, write: boolean): any
     physical.validate(receiver)
     need(#receiver.ownership == 0, "qualified access requires a lifetime permission proof")
@@ -220,13 +286,22 @@ function physical.field(receiver: any, node: any, write: boolean): any
     local access = fieldContract(receiver, node, write)
     accesses[
         access
-    ] = {receiver = receiver, node = node, write = write, name = access.name, declaration = access.declaration}
+    ] = {
+        receiver = receiver,
+        node = node,
+        object = node.obj,
+        token = node.name,
+        write = write,
+        name = access.name,
+        declaration = access.declaration
+    }
 
     return access
 end
 
 function physical.validateField(access: any): boolean
     local held = need(accesses[access], "unknown physical field contract")
+    need(held.node.obj == held.object and held.node.name == held.token, "checked field expression identity changed")
     local expected = fieldContract(held.receiver, held.node, held.write)
     need(expected.name == held.name and expected.declaration == held.declaration, "checked member identity changed")
     for _, key in ipairs({

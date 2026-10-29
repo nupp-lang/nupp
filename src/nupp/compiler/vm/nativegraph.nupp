@@ -1,6 +1,7 @@
 module nupp.compiler.vm.nativegraph
 
 local graph = require("nupp.compiler.vm.graph")
+local physical = require("nupp.compiler.vm.nativephysical")
 local nativelayout = require("nupp.compiler.vm.nativelayout")
 local programcontract = require("nupp.compiler.vm.programcontract")
 local slotcontract = require("nupp.compiler.vm.slotcontract")
@@ -152,6 +153,7 @@ function nativegraph.initialize(fn: any, options: any): any
     need(nativegraph.admits(fn), "checked native function required")
     local abi = options.abi or fn.nativeABI
     need(abi == "handler" or abi == "leaf" or abi == "support", "explicit native ABI required")
+    need(options.physicalTarget == nil or abi == "leaf", "physical graphs require leaf ABI")
     local body = fn.body
     need(not body.varargParam and not body.generics and not body.captureTakes, "plain native function required")
     need(#body.params == #fn.paramKinds and #body.params >= 1 and #body.params <= 8, "native parameter count")
@@ -173,7 +175,29 @@ function nativegraph.initialize(fn: any, options: any): any
         need(graph.nativeLeafDeclaration(fn).result == result, "checked native result kind")
     end
 
-    return graph.newNative(fn.paramKinds, result, abi)
+    local g = graph.newNative(fn.paramKinds, result, abi)
+    if options.physicalTarget ~= nil then
+        need(
+            fn.checkedSignature == body.signatureType
+            and fn.parameterPack == body.signatureType.paramPack
+            and fn.parameterModes == body.signatureType.paramModes
+            and fn.resultType == body.signatureType.rets[1],
+            "retained checked physical signature required"
+        )
+        for index, parameter in ipairs(body.params) do
+            need(
+                fn.parameterAnnotations[index] == parameter.type.resolvedType
+                and fn.parameterDefinitions[index] == parameter.name.definition
+                and fn.parameterTypes[index] == parameter.name.definition.type
+                and fn.parameterModeTokens[index] == parameter.modeTok,
+                "physical parameter metadata differs"
+            )
+        end
+        g.nativePhysical = {context = physical.new(options.physicalTarget), values = {}}
+    end
+    fn.physicalContext = g.nativePhysical and g.nativePhysical.context or nil
+
+    return g
 end
 
 function nativegraph.kind(t: any): string
@@ -190,8 +214,103 @@ end
 
 function nativegraph.localKind(token: any, fn: any): string
     local kind = exactKind(token.inferredType)
+    if kind == "ptr" and fn.physicalContext then
+        kind = "voidptr"
+    end
     need(exactKinds[kind], "exact native local kind required: " .. fn.name .. "." .. token.text .. " is " .. kind)
+
     return kind
+end
+
+function nativegraph.copyValue(g: any, original: integer): integer
+    local value = graph.nativeValue(g, nativegraph.valueKind(g, original))
+    if g.nativePhysical then
+        g.nativePhysical.values[value] = g.nativePhysical.values[original]
+    end
+
+    return value
+end
+
+function nativegraph.initializeBinding(ctx: any, node: any, key: any, value: integer): integer
+    if ctx.g.nativePhysical then
+        local descriptor = ctx.g.nativePhysical.values[value]
+        if descriptor then
+            physical.validate(descriptor)
+            need(key.type == descriptor.checkedType, "physical local checked type differs")
+        else
+            need(exactKind(key.type) ~= "ptr", "typed pointer local requires checked view")
+        end
+    end
+
+    return value
+end
+
+function nativegraph.writeBinding(ctx: any, node: any, key: any, previous: integer, value: integer): integer
+    nativegraph.initializeBinding(ctx, node, key, value)
+    if ctx.g.nativePhysical then
+        local before, after = ctx.g.nativePhysical.values[previous], ctx.g.nativePhysical.values[value]
+        need(
+            before == nil and after == nil or before and after and physical.same(before, after),
+            "physical assignment changes checked type"
+        )
+    end
+
+    return value
+end
+
+function nativegraph.readBinding(ctx: any, node: any, key: any, value: integer, expected: string?): integer
+    need(expected == nil or nativegraph.valueKind(ctx.g, value) == expected, "local changes exact kind")
+    local descriptor = ctx.g.nativePhysical and ctx.g.nativePhysical.values[value]
+    if descriptor then
+        physical.validate(descriptor)
+        need(node.inferredType == descriptor.checkedType, "physical local read changes checked type")
+    end
+
+    return value
+end
+
+function nativegraph.checkedPragma(ctx: any, node: any): nil
+    need(
+        ctx.g.nativePhysical
+        and node.name
+        and node.name.text == "unsafe"
+        and node.annotationDefinition
+        and node.annotationDefinition.name == "unsafe",
+        "checked unsafe scope required for physical profile"
+    )
+end
+
+function nativegraph.cast(ctx: any, node: any, expected: string?): integer
+    local sidecar = need(ctx.g.nativePhysical, "physical pointer casts require explicit target")
+    need(expected == nil or expected == "voidptr", "pointer cast changes machine representation")
+    local source = ctx.expression(node.expr, "voidptr")
+    local descriptor = need(sidecar.values[source], "pointer cast source lacks checked physical type")
+    local contract = physical.cast(descriptor, node)
+    local value = ctx.emit(node, "NativePointerView", {source, contract}, "voidptr")
+    sidecar.values[value] = contract.target
+
+    return value
+end
+
+function nativegraph.fieldRead(ctx: any, node: any, expected: string?): integer
+    local checked = node.obj.inferredType
+    if not checked or exactKind(checked) ~= "ptr" then
+        return nativegraph.constant(ctx, node, expected)
+    end
+    local sidecar = need(ctx.g.nativePhysical, "physical field requires explicit target")
+    need(expected == nil or expected == "uint64", "physical field result requires uint64")
+    local receiver = ctx.expression(node.obj, "voidptr")
+    local descriptor = need(sidecar.values[receiver], "field receiver lacks checked physical type")
+    local access = physical.field(descriptor, node, false)
+    need(
+        access.width == 8
+        and not access.signed
+        and access.storage.storageType.tag == "uint64"
+        and access.valueType.tag == "uint64",
+        "only uint64 physical field reads are admitted"
+    )
+
+    return ctx.emit(node, "NativeFieldLoad", {receiver, access}, "uint64")
 end
 
 function nativegraph.emit(ctx: any, node: any, op: string, args: any, kind: string?): integer?
@@ -415,11 +534,21 @@ function nativegraph.call(ctx: any, n: any, expected: string?): integer
         signature(n, {}, "uint64")
         need(expected == nil or expected == "uint64", "native type layout changes exact kind")
         local property = name == "sizeOf" and "size" or "alignment"
-        return emit(n, "NativeConstant", {nativelayout.constant(n, property)}, "uint64") as integer
+        return emit(
+            n,
+            "NativeConstant",
+            {nativelayout.constant(n, property, ctx.g.nativePhysical and ctx.g.nativePhysical.context.target or nil)},
+            "uint64"
+        ) as integer
     elseif moduleName == "nupp.runtime.vm.intrinsics" and name == "fieldOffset" then
         signature(n, {"string"}, "int64")
         need(expected == nil or expected == "int64", "native field offset changes exact kind")
-        return emit(n, "NativeConstant", {nativelayout.fieldOffset(n)}, "int64") as integer
+        return emit(
+            n,
+            "NativeConstant",
+            {nativelayout.fieldOffset(n, ctx.g.nativePhysical and ctx.g.nativePhysical.context.target or nil)},
+            "int64"
+        ) as integer
     elseif moduleName == "nupp.runtime.vm.intrinsics" and name == "layout" then
         signature(n, {"string"}, "int64")
         need(expected == nil or expected == "int64", "layout offset changes exact kind")
@@ -443,7 +572,16 @@ function nativegraph.call(ctx: any, n: any, expected: string?): integer
         local operation = intrinsicUnary[name]
         signature(n, {operation[2]}, operation[3])
         need(expected == nil or expected == operation[3], "intrinsic changes exact result kind")
-        return emit(n, operation[1], {expression(args[1], operation[2])}, operation[3]) as integer
+        local value = emit(n, operation[1], {expression(args[1], operation[2])}, operation[3]) as integer
+        if ctx.g.nativePhysical and operation[1] == "NativePointer" then
+            local descriptor = physical.describe(ctx.g.nativePhysical.context, n.inferredType)
+            need(
+                descriptor.storageType.tag == "voidptr" and #descriptor.ownership == 0 and not descriptor.nullable,
+                "native pointer result requires checked plain pointer"
+            )
+            ctx.g.nativePhysical.values[value] = descriptor
+        end
+        return value
     elseif moduleName == "nupp.runtime.vm.intrinsics" and name == "offset" then
         signature(n, {"voidptr", "int64"}, "voidptr")
         need(expected == nil or expected == "voidptr", "pointer offset changes exact kind")
