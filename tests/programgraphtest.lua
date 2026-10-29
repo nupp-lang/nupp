@@ -67,6 +67,22 @@ function M.reservesRealInitializersBeforeFunctionOwners()
     )
 end
 
+function M.variadicCatalogRefusesNamelessCheckedParameter()
+    local input = checked("local function first(value: integer, ...: integer): integer return value end\nreturn first")
+    local body = input.parsed.root.blocks[1].stats[1].body
+    test.equal(#body.params, 2)
+    test.equal(body.params[1].name.text, "value")
+    test.equal(body.params[2].vararg, true)
+    test.equal(body.params[2].name, nil)
+    test.equal(body.signatureType.vararg, true)
+    refuses(
+        function()
+            program.describe({input}, input.name)
+        end,
+        "program graph: parameter ownership or variadic lowering is unsupported"
+    )
+end
+
 function M.shadowingAndGrandparentCapturesKeepDeclarationIdentity()
     local p = describe(
         [[

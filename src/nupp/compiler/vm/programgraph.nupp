@@ -243,6 +243,7 @@ function program.describe(modules: {any}, entryModule: string): any
                 captureByDefinition = {}
             }
             for index, parameter in ipairs(body.params) do
+                need(parameter.name and not parameter.vararg, "parameter ownership or variadic lowering is unsupported")
                 child.paramKinds[index] = kind(parameter.name.inferredType)
             end
             child.resultKind = #signature.rets == 1 and kind(signature.rets[1]) or nil
