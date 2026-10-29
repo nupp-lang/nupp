@@ -60,6 +60,24 @@ function frontend.compile(fn: any, options: any, profile: any): any
     end
 
     ctx.emit = emit
+    ctx.storage = function(key: any): integer
+        return need(bindings[key], "capture requires an initialized lexical binding")
+    end
+    ctx.bind = function(key: any, value: integer): nil
+        need(bindings[key] == nil, "duplicate local binding")
+        bindings[key] = value
+        bindingOrder[#bindingOrder + 1] = key
+    end
+
+    local function initializeBinding(node: any, key: any, value: integer): integer
+        context()
+        return profile.initializeBinding and profile.initializeBinding(ctx, node, key, value) or value
+    end
+
+    local function writeBinding(node: any, key: any, value: integer): nil
+        context()
+        bindings[key] = profile.writeBinding and profile.writeBinding(ctx, node, key, bindings[key], value) or value
+    end
 
     local function invoke(name: string, node: any, expected: any): any
         context()
@@ -82,9 +100,18 @@ function frontend.compile(fn: any, options: any, profile: any): any
             if value == nil then
                 return invoke("constant", node, expected)
             end
-            need(expected == nil or profile.valueKind(g, value) == expected, "local changes exact kind")
             context()
+            if profile.readBinding then
+                return profile.readBinding(ctx, node, node.token.definition or node.token, value, expected)
+            end
+            need(expected == nil or profile.valueKind(g, value) == expected, "local changes exact kind")
             return value as integer
+        elseif node.kind == "funcExpr" or node.kind == "shortfn" then
+            return invoke("closure", node, expected)
+        elseif profile.valueLiteral
+            and (node.kind == "string" or node.kind == "dedentString" or node.kind == "nilExpr")
+        then
+            return invoke("valueLiteral", node, expected)
         elseif node.kind == "number"
             or node.kind == "true"
             or node.kind == "false"
@@ -103,6 +130,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
             if operator ~= "and" and operator ~= "or" then
                 return invoke("binary", node, expected)
             end
+            need(not profile.checkLogical or profile.checkLogical(ctx, node), "unsupported logical expression")
             local boolean = profile.booleanKind
             need(expected == nil or expected == boolean, "logical expression requires boolean result")
             need(
@@ -257,15 +285,40 @@ function frontend.compile(fn: any, options: any, profile: any): any
     statements = function(stats: any): nil
         for _, stat in ipairs(stats) do
             need(block ~= nil or stat.kind == "emptyStmt", "statement after dispatch")
+            context()
+            if profile.checkStatement then
+                profile.checkStatement(ctx, stat)
+            end
             if stat.kind == "localStmt" then
-                need(#stat.names == #stat.exprs and not stat.pattern, "plain initialized locals required")
-                for index, token in ipairs(stat.names) do
-                    local key = token.definition or token
-                    need(bindings[key] == nil, "duplicate local binding")
-                    local kind = profile.localKind(token, fn)
-                    local value = expression(stat.exprs[index], kind)
-                    bindings[key] = value
-                    bindingOrder[#bindingOrder + 1] = key
+                if stat.pattern then
+                    invoke("erasedPattern", stat, nil)
+                else
+                    need(#stat.exprs <= #stat.names, "too many local initializer values")
+                    need(profile.missingLocal or #stat.names == #stat.exprs, "plain initialized locals required")
+                    local values = {}
+                    -- All RHS see the old lexical environment. Publication and
+                    -- cell allocation happen only after every RHS was evaluated.
+                    for index, token in ipairs(stat.names) do
+                        local kind = profile.localKind(token, fn)
+                        values[index] = stat.exprs[index] and expression(stat.exprs[index], kind)
+                            or invoke("missingLocal", stat, kind)
+                    end
+                    for index, token in ipairs(stat.names) do
+                        local key = token.definition or token
+                        ctx.bind(key, initializeBinding(stat, key, values[index]))
+                    end
+                end
+            elseif stat.kind == "localFuncStmt" and profile.closure then
+                local key = stat.name.definition or stat.name
+                local initial = invoke("recursiveBinding", stat, key)
+                if initial then
+                    ctx.bind(key, initial)
+                end
+                local value = invoke("closure", stat, nil)
+                if initial then
+                    writeBinding(stat, key, value)
+                else
+                    ctx.bind(key, initializeBinding(stat, key, value))
                 end
             elseif stat.kind == "assignStmt" then
                 need(#stat.targets == #stat.exprs, "parallel local assignment requires one value per target")
@@ -278,7 +331,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
                     values[index] = expression(stat.exprs[index], profile.valueKind(g, previous))
                 end
                 for index, key in ipairs(keys) do
-                    bindings[key] = values[index]
+                    writeBinding(stat, key, values[index])
                 end
             elseif stat.kind == "callStmt" then
                 invoke("statementCall", stat.expr, nil)
@@ -377,12 +430,29 @@ function frontend.compile(fn: any, options: any, profile: any): any
                     scoped[key] = bindings[key]
                 end
                 bindings, bindingOrder = scoped, outer
+            elseif stat.kind == "exportStmt" and profile.exportStatement then
+                if stat.stat then
+                    invoke("exportStatement", stat, nil)
+                    statements({stat.stat})
+                else
+                    invoke("exportStatement", stat, nil)
+                end
+            elseif stat.kind == "moduleStmt" or stat.kind == "typeAlias" then
+                invoke("erasedStatement", stat, nil)
             elseif stat.kind == "returnStmt" then
                 invoke("returnStatement", stat, nil)
             elseif stat.kind ~= "emptyStmt" then
                 error("function graph: unsupported checked statement " .. tostring(stat.kind), 0)
             end
         end
+    end
+    if profile.entryBindings then
+        context()
+        for index, parameter in ipairs(moduleOwner and {} or body.params) do
+            local key = parameter.name.definition or parameter.name
+            bindings[key] = initializeBinding(parameter, key, index)
+        end
+        invoke("entryBindings", fn.node, nil)
     end
     if moduleOwner then
         for _, sourceBlock in ipairs(body.blocks) do
@@ -392,6 +462,9 @@ function frontend.compile(fn: any, options: any, profile: any): any
     else
         need(body.body and body.body.stats, "statement-bodied function required")
         statements(body.body.stats)
+    end
+    if block and profile.fallthrough then
+        invoke("fallthrough", fn.node, nil)
     end
     need(block == nil, "function falls through without a return or transfer")
     graph.verify(g)

@@ -55,6 +55,23 @@ local function need(ok: any, message: string): any
     return ok
 end
 
+local function storagePlan(p: any): any
+    local storage = {}
+    for _, b in ipairs(p.bindings) do
+        storage[b.definition] = b.mode == "type" and "erased" or "value"
+    end
+    for _, owner in ipairs(p.owners) do
+        for _, item in ipairs(owner.captures) do
+            local b = need(p.bindings[item.binding + 1], "capture binding is missing")
+            if b.mode == "cell" or item.recursive then
+                storage[b.definition] = "cell"
+            end
+        end
+    end
+
+    return storage
+end
+
 local function kind(t: any): string
     while t and (t.tag == "literal" or t.tag == "const") do
         t = t.tag == "literal" and t.base or t.inner
@@ -135,6 +152,8 @@ function program.describe(modules: {any}, entryModule: string): any
         intrinsics = {},
         externalsByDefinition = {},
         imports = {},
+        requires = {},
+        requireByNode = {},
         byDefinition = {},
         functionsByDefinition = {},
         byBody = {},
@@ -373,6 +392,19 @@ function program.describe(modules: {any}, entryModule: string): any
             -- function declaration introduces its own checked binding.
             reference(node.base, owner)
         end
+        local loader = node.kind == "call" and node.runtimeLoader == "require"
+        if loader then
+            local target = node.requiredModule and moduleNames[node.requiredModule]
+            local item = {
+                id = #p.requires,
+                owner = owner.id,
+                node = node,
+                module = node.requiredModule,
+                typeOnly = node.typeOnlyRequire == true,
+                target = target and target.chunk or nil
+            }
+            p.requires[#p.requires + 1], p.requireByNode[node] = item, item
+        end
         local intrinsic = node.kind == "call" and node.ownershipIntrinsic
         if intrinsic then
             -- The checker resolves the reserved callee before ordinary name
@@ -387,7 +419,7 @@ function program.describe(modules: {any}, entryModule: string): any
             return
         end
         for _, child in ipairs(node) do
-            if not intrinsic or child ~= node.obj then
+            if not (intrinsic or loader) or child ~= node.obj then
                 collect(child, owner)
             end
         end
@@ -409,6 +441,19 @@ function program.describe(modules: {any}, entryModule: string): any
     end
     for _, module in ipairs(p.modules) do
         collect(module.parsed.root, p.owners[module.chunk + 1])
+    end
+    -- Capture ownership mode is independent of its transported representation.
+    -- Only shared mutable bindings and recursive declaration self-references
+    -- require a cell; a recursive const function still needs publication after
+    -- its closure has captured that cell.
+    local storage = storagePlan(p)
+    for _, b in ipairs(p.bindings) do
+        b.storage = storage[b.definition]
+    end
+    for _, owner in ipairs(p.owners) do
+        for _, item in ipairs(owner.captures) do
+            item.storage = p.bindings[item.binding + 1].storage
+        end
     end
     program.verify(p)
 
@@ -461,6 +506,27 @@ function program.verify(p: any): boolean
             need(module.path ~= external.path, "external declaration belongs to a catalog module")
         end
     end
+    local requireNodes = {}
+    for index, item in ipairs(p.requires) do
+        local node = item.node
+        need(item.id == index - 1 and p.owners[item.owner + 1], "invalid require callsite owner")
+        need(
+            node.kind == "call" and node.runtimeLoader == "require" and not requireNodes[node],
+            "require callsite lacks checked loader identity"
+        )
+        need(
+            p.requireByNode[node] == item
+            and item.module == node.requiredModule
+            and item.typeOnly == (node.typeOnlyRequire == true),
+            "require callsite metadata mismatch"
+        )
+        local target = item.module and modules[item.module]
+        need(item.target == (target and target.id or nil), "require callsite target mismatch")
+        requireNodes[node] = true
+    end
+    for node, item in pairs(p.requireByNode) do
+        need(item.node == node and p.requires[item.id + 1] == item, "stale require callsite map")
+    end
     for _, reference in ipairs(p.externalReferences) do
         local external = need(p.externals[reference.external + 1], "invalid external reference")
         need(
@@ -484,6 +550,7 @@ function program.verify(p: any): boolean
     for body, owner in pairs(p.byBody) do
         need(owner.body == body and p.owners[owner.id + 1] == owner, "missing reserved owner")
     end
+    local storage = storagePlan(p)
     for index, b in ipairs(p.bindings) do
         need(b.id == index - 1 and p.owners[b.owner + 1], "invalid binding owner")
         need(
@@ -491,6 +558,7 @@ function program.verify(p: any): boolean
             "binding identity mismatch"
         )
         need(b.mode == bindingMode(b.definition), "binding mode mismatch")
+        need(b.storage == storage[b.definition], "binding storage mismatch")
     end
     for index, owner in ipairs(p.owners) do
         need(owner.id == index - 1 and p.byBody[owner.body] == owner, "owner identity mismatch")
@@ -524,6 +592,7 @@ function program.verify(p: any): boolean
                 and owner.captureByDefinition[b.definition] == item,
                 "capture identity mismatch"
             )
+            need(item.storage == b.storage, "capture storage mismatch")
             need(item.sourceOwner == owner.parent, "capture must cross one lexical parent")
             local parent = need(p.owners[item.sourceOwner + 1], "capture parent missing")
             if item.sourceKind == "local" then
@@ -660,6 +729,9 @@ function program.verifyGraphs(p: any, graphs: {any}): nil
         local g = graphs[index]
         need(type(g) == "table", "incomplete graph table")
         local owner = p.owners[index]
+        need(g.native == nil, "core guest program cannot admit a native graph")
+        local nparams = owner.kind == "module" and 0 or #owner.body.params
+        need(g.nparams == nparams, "graph parameter count differs from checked owner")
         need(g.programOwner == owner.id, "graph owner identity mismatch")
         need(
             g.name == owner.name and g.module == owner.scope.name and g.path == owner.scope.path,

@@ -6,15 +6,20 @@ local program = require("nupp.compiler.vm.programgraph")
 local guest = require("nupp.compiler.vm.guestprofile")
 local graph = require("nupp.compiler.vm.graph")
 local graphimage = require("nupp.compiler.vm.graphimage")
+local tagged = require("nupp.compiler.vm.taggedprofile")
 local json = require("nupp.codec.json")
 local M = {}
 
-local function checked(source, name)
+local function checked(source, name, preparedEnvironment)
     name = name or "programgraph_fixture"
     local path = "=" .. name .. ".nupp"
     local parsed = parser.parse(source, path)
     test.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
-    local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
+    local env = preparedEnvironment or environment.new(".", {
+        memoryOnly = true,
+        cache = false,
+        nativeCompilerServices = false
+    })
     local diagnostics = checker.check(parsed, path, env, {
         moduleName = name,
         strict = false,
@@ -139,6 +144,13 @@ nupp.drop(borrowed)
             if capture.mode == "take" or capture.mode == "borrow" then
                 found[capture.mode] = capture
                 test.equal(capture.ownership.outer.definition, capture.definition)
+                assert(capture.storage == "value" or capture.storage == "cell")
+                refuses(
+                    function()
+                        program.functionGraph(p, f, tagged)
+                    end,
+                    "qualified captures require ownership cleanup and lifetime lowering"
+                )
             end
         end
     end
@@ -257,6 +269,12 @@ return Point
                     program.functionGraph(p, f, guest)
                 end,
                 "methods and constructors are unsupported"
+            )
+            refuses(
+                function()
+                    program.functionGraph(p, f, tagged)
+                end,
+                "unsupported function declaration form"
             )
         end
     end
@@ -850,6 +868,379 @@ function M.compileAlwaysChecksReferencesAndRefusesRawClosureWindows()
             program.compile(p, profile)
         end,
         "core program requires explicit closure capture SSA operands"
+    )
+end
+
+-- These tests inspect graph construction only. They do not execute closures,
+-- cells or module initializers in the frozen VM or claim core runtime support.
+local function operations(g, wanted)
+    local out = {}
+    for _, block in ipairs(g.blocks) do
+        for at, op in ipairs(block.op) do
+            if not wanted or op == wanted then
+                out[#out + 1] = {op = op, args = block.args[at], dst = block.dst[at], pos = block.pos[at]}
+            end
+        end
+    end
+
+    return out
+end
+
+function M.taggedModuleCompletionReturnsZeroOrOneValue()
+    for _, source in ipairs({"", "return", "local value = 4"}) do
+        local p = describe(source)
+        local complete = program.compile(p, tagged)
+        test.equal(#complete.graphs, #p.owners)
+        local term = complete.graphs[1].blocks[1].term
+        test.equal(term.kind, "return")
+        test.equal(term.value, nil)
+    end
+    local named = checked("module programgraphfixture\nlocal value = 4", "programgraphfixture")
+    local initialized = program.compile(program.describe({named}, "programgraphfixture"), tagged)
+    test.equal(initialized.graphs[1].blocks[1].term.kind, "return")
+    test.equal(initialized.graphs[1].blocks[1].term.value, nil)
+    local p = describe("return 9223372036854775807LL")
+    local g = program.compile(p, tagged).graphs[1]
+    test.equal(g.constants[1].value, "9223372036854775807")
+    test.equal(g.blocks[1].term.value, operations(g, "K")[1].dst)
+    refuses(
+        function()
+            program.compile(describe("return 1, 2"), tagged)
+        end,
+        "multiple results"
+    )
+end
+
+function M.taggedSimultaneousLocalsReadOldBindingsBeforePublication()
+    local p = describe([[
+local x = 7
+local x, y = 8, x
+return y
+]])
+    local g = program.compile(p, tagged).graphs[1]
+    local constants = operations(g, "K")
+    test.equal(#constants, 2)
+    test.equal(g.blocks[1].term.value, constants[1].dst)
+    test.equal(#operations(g, "NewCell"), 0)
+end
+
+function M.taggedRecursiveConstFunctionPublishesThroughSelfCell()
+    for _, prefix in ipairs({"local", "const"}) do
+        local p = describe(prefix .. " function recur(): any return recur end\nreturn recur")
+        local f = owner(p, "recur")
+        local binding = p.byDefinition[f.definition]
+        test.equal(binding.storage, "cell")
+        test.equal(f.captures[1].mode, prefix == "const" and "value" or "cell")
+        test.equal(f.captures[1].storage, "cell")
+        local complete = program.compile(p, tagged)
+        local ops = operations(complete.graphs[1])
+        test.equal(ops[1].op, "Nil")
+        test.equal(ops[2].op, "NewCell")
+        test.equal(ops[3].op, "Closure")
+        test.equal(ops[3].args[1], f.id)
+        test.equal(ops[3].args[2], ops[2].dst)
+        test.equal(ops[4].op, "SetCell")
+        test.equal(ops[4].args[1], ops[2].dst)
+        test.equal(ops[4].args[2], ops[3].dst)
+        local inside = operations(complete.graphs[f.id + 1])
+        test.equal(inside[1].op, "GetUpval")
+        test.equal(inside[2].op, "GetCell")
+        test.equal(inside[2].args[1], inside[1].dst)
+    end
+end
+
+function M.taggedFunctionExpressionCapturesPreviousSameNamedDeclaration()
+    local p = describe([[
+local f = 9
+local f = function(): any return f end
+return f
+]])
+    local child = p.owners[2]
+    test.equal(child.definition, nil)
+    test.equal(child.captures[1].recursive, false)
+    local complete = program.compile(p, tagged)
+    local g = complete.graphs[1]
+    local cell = operations(g, "NewCell")[1]
+    local closure = operations(g, "Closure")[1]
+    test.equal(#operations(g, "NewCell"), 1)
+    test.equal(#operations(g, "SetCell"), 0)
+    test.equal(closure.args[2], cell.dst)
+    test.equal(g.blocks[1].term.value, closure.dst)
+end
+
+function M.taggedMutationAndForwardingKeepOneCellIdentity()
+    local p = describe(
+        [[
+local value = 1
+local function outer(): any
+    local function read(): any return value end
+    value = 2
+    return read
+end
+return outer
+]]
+    )
+    local outer, read = owner(p, "outer"), owner(p, "read")
+    local complete = program.compile(p, tagged)
+    local init = complete.graphs[1]
+    local cell = operations(init, "NewCell")[1]
+    test.equal(operations(init, "Closure")[1].args[2], cell.dst)
+    local g = complete.graphs[outer.id + 1]
+    local incoming = operations(g, "GetUpval")[1]
+    test.equal(#operations(g, "NewCell"), 0)
+    test.equal(operations(g, "Closure")[1].args[2], incoming.dst)
+    test.equal(operations(g, "SetCell")[1].args[1], incoming.dst)
+    test.equal(read.captures[1].source, outer.captures[1].id)
+    test.equal(read.captures[1].storage, "cell")
+end
+
+function M.taggedCapturedParameterWrapsOnceAtEntry()
+    local p = describe(
+        [[
+local function outer(value: any): any
+    local function read(): any return value end
+    value = 2
+    return read
+end
+return outer
+]]
+    )
+    local outer = owner(p, "outer")
+    local g = program.compile(p, tagged).graphs[outer.id + 1]
+    local cell = operations(g, "NewCell")[1]
+    test.equal(cell.args[1], 1)
+    test.equal(operations(g, "Closure")[1].args[2], cell.dst)
+    test.equal(operations(g, "SetCell")[1].args[1], cell.dst)
+    test.equal(#operations(g, "NewCell"), 1)
+end
+
+function M.taggedRequireUsesCheckedCallsiteAndSourceOrder()
+    local dependency = checked("return 7", "lexical_dependency")
+    local consumer = checked(
+        [[local before = 1
+local imported = require("lexical_dependency")
+local after = 2
+return imported]],
+        "lexical_consumer"
+    )
+    local p = program.describe({consumer, dependency}, "lexical_consumer")
+    test.equal(#p.requires, 1)
+    test.equal(#p.externals, 0)
+    local site = p.requires[1]
+    test.equal(site.node.runtimeLoader, "require")
+    test.equal(site.target, 1)
+    local g = program.compile(p, tagged).graphs[1]
+    local ops = operations(g)
+    test.equal(ops[1].op, "K")
+    test.equal(ops[2].op, "Require")
+    test.equal(ops[3].op, "K")
+    test.equal(g.positions[ops[2].pos].line, 2)
+    test.equal(g.constants[ops[2].args[1] + 1].value, "lexical_dependency")
+    test.equal(g.blocks[1].term.value, ops[2].dst)
+    site.target = 0
+    refuses(
+        function()
+            program.verify(p)
+        end,
+        "require callsite target mismatch"
+    )
+end
+
+function M.taggedDynamicAndShadowedLoadersRefuse()
+    local p = describe([[local name = "unknown_module"
+return require(name)]])
+    test.equal(#p.requires, 1)
+    refuses(
+        function()
+            program.compile(p, tagged)
+        end,
+        "dynamic or missing require target"
+    )
+    local shadowed = describe([[local function require(name: any): any return name end
+return require("anything")]])
+    test.equal(#shadowed.requires, 0)
+    refuses(
+        function()
+            program.compile(shadowed, tagged)
+        end,
+        "only checked static require calls"
+    )
+end
+
+function M.taggedTypeOnlyRequireEmitsNoRuntimeLoader()
+    local T = require("nupp.compiler.types")
+    local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
+    -- The checker resolves a real type-only pattern against a supplied module
+    -- interface. No runtimeLoader/typeOnlyRequire markers are set by this test.
+    env.loaded.lexical_types = {
+        type = T.any,
+        exports = {types = {Count = T.integer}, typeDefs = {}, values = {}, valueDefs = {}},
+    }
+    local consumer = checked([[local {type Count} = require("lexical_types")
+return 3]], "lexical_consumer", env)
+    local dependency = checked("local type Count = integer", "lexical_types")
+    local p = program.describe({consumer, dependency}, "lexical_consumer")
+    test.equal(#p.requires, 1)
+    test.equal(p.requires[1].typeOnly, true)
+    local complete = program.compile(p, tagged)
+    test.equal(#operations(complete.graphs[1], "Require"), 0)
+    test.equal(#operations(complete.graphs[1], "K"), 1)
+end
+
+function M.taggedUnsupportedBodiesAreNotOmitted()
+    for _, source in ipairs({
+        "local function unused(): any return {} end\nreturn 1",
+        "local function unused(): nil while true do end end\nreturn 1",
+        "local function unused(): any return print(1) end\nreturn 1",
+    }) do
+        local p = describe(source)
+        local ok = pcall(program.compile, p, tagged)
+        test.equal(ok, false)
+    end
+    local p = describe("local value = 1\nlocal function read(): any return value end\nreturn read")
+    local b = p.bindings[p.owners[2].captures[1].binding + 1]
+    b.storage = "value"
+    refuses(
+        function()
+            program.verify(p)
+        end,
+        "binding storage mismatch"
+    )
+end
+
+function M.taggedLiteralConstantsRetainExactValues()
+    for _, item in ipairs({
+        {"true", "true"},
+        {"false", "false"},
+        {'"a\\000\\255z"', "str", "a\0\255z"},
+        {'[==[\nlong\nbytes]==]', "str", "long\nbytes"},
+        {'dedent [[\n    alpha\n    beta\n    ]]', "str", "alpha\nbeta\n"},
+        {"-9223372036854775808LL", "int64", "-9223372036854775808"},
+        {"18446744073709551615ULL", "uint64", "18446744073709551615"},
+        {"-0.0", "num"},
+    }) do
+        local p = describe("return " .. item[1])
+        local g = program.compile(p, tagged).graphs[1]
+        local k = g.constants[operations(g, "K")[1].args[1] + 1]
+        test.equal(k.kind, item[2])
+        if item[3] ~= nil then
+            test.equal(k.value, item[3])
+        end
+        if k.kind == "num" then
+            test.equal(graphimage.floatBytes(k.value), string.rep("\0", 7) .. "\128")
+        end
+    end
+    local nilGraph = program.compile(describe("return nil"), tagged).graphs[1]
+    test.equal(#nilGraph.constants, 0)
+    test.equal(nilGraph.blocks[1].term.value, operations(nilGraph, "Nil")[1].dst)
+    -- There is no NaN literal. Constructing one by arithmetic is not silently
+    -- folded into a new numeric semantics path by this lexical profile.
+    refuses(
+        function()
+            program.compile(describe("return 0 / 0"), tagged)
+        end,
+        "arithmetic is outside lexical construction"
+    )
+end
+
+function M.taggedUnsupportedControlAndFunctionContractsRefuse()
+    for _, source in ipairs({
+        "local function f(): nil for i = 1, 3 do end end\nreturn f",
+        "local function f(iter: any): nil for value in iter do end end\nreturn f",
+        "local function f(): nil if true then return end end\nreturn f",
+    }) do
+        refuses(
+            function()
+                program.compile(describe(source), tagged)
+            end,
+            "control flow is outside lexical construction"
+        )
+    end
+    refuses(
+        function()
+            program.compile(describe("return true and false"), tagged)
+        end,
+        "logical expressions are outside lexical construction"
+    )
+    refuses(
+        function()
+            program.compile(describe("return || -> true"), tagged)
+        end,
+        "checked function signature required"
+    )
+    refuses(
+        function()
+            program.compile(describe("local function f(borrows value: any): nil return end\nreturn f"), tagged)
+        end,
+        "parameter ownership or variadic lowering is unsupported"
+    )
+end
+
+function M.scalarSimultaneousLocalsKeepExactOldBinding()
+    local p = describe(
+        [[
+local function answer(): integer
+    local x: integer = 7
+    local x: integer, y: integer = 8, x
+    return y
+end
+return answer
+]]
+    )
+    local g = program.functionGraph(p, owner(p, "answer"), guest)
+    local ops = operations(g, "IK")
+    test.equal(#ops, 2)
+    test.equal(ops[1].args[1], "7")
+    test.equal(ops[2].args[1], "8")
+    test.equal(g.blocks[1].term.value, ops[1].dst)
+end
+
+function M.completeGuestGraphsBindParametersAndRefuseNativeProfiles()
+    local p = describe("local function identity(value: any): any return value end\nreturn identity")
+
+    local function fixture(replaced, count, native)
+        local graphs = {}
+        for index, checkedOwner in ipairs(p.owners) do
+            local nparams = checkedOwner.kind == "module" and 0 or #checkedOwner.body.params
+            local g = index == replaced and native and graph.newNative({"uint64"}, "uint64", "leaf")
+                or graph.new(index == replaced and count or nparams)
+            g.programOwner = checkedOwner.id
+            g.name, g.module, g.path = checkedOwner.name, checkedOwner.scope.name, checkedOwner.scope.path
+            local block = graph.block(g)
+            block.term = {kind = "return", value = g.native and 1 or nil, edges = {}}
+            graph.verify(g)
+            graphs[index] = g
+        end
+
+        return graphs
+    end
+
+    program.verifyGraphs(p, fixture(nil))
+    refuses(
+        function()
+            program.verifyGraphs(p, fixture(1, 1))
+        end,
+        "graph parameter count differs from checked owner"
+    )
+    refuses(
+        function()
+            program.verifyGraphs(p, fixture(2, 0))
+        end,
+        "graph parameter count differs from checked owner"
+    )
+    refuses(
+        function()
+            program.verifyGraphs(p, fixture(2, 2))
+        end,
+        "graph parameter count differs from checked owner"
+    )
+    -- Native leaf construction still verifies independently; only complete
+    -- guest-program admission rejects the otherwise valid native graph.
+    refuses(
+        function()
+            program.verifyGraphs(p, fixture(2, 1, true))
+        end,
+        "core guest program cannot admit a native graph"
     )
 end
 

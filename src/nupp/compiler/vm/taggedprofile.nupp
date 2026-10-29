@@ -1,0 +1,246 @@
+module nupp.compiler.vm.taggedprofile
+
+local graph = require("nupp.compiler.vm.graph")
+local tagged = {booleanKind = "tagged"}
+
+local function need(ok: any, message: string): any
+    assert(ok, "tagged graph: " .. message)
+    return ok
+end
+
+local function catalog(ctx: any): any
+    local p = need(ctx.options.program, "checked program catalog required")
+    need(p.owners[ctx.fn.id + 1] == ctx.fn, "foreign checked owner")
+    return p
+end
+
+local function binding(ctx: any, key: any): any
+    return need(catalog(ctx).byDefinition[key], "missing checked lexical declaration")
+end
+
+local function ordinaryCaptures(owner: any): nil
+    for _, item in ipairs(owner.captures) do
+        need(
+            item.mode == "value" or item.mode == "cell",
+            "qualified captures require ownership cleanup and lifetime lowering"
+        )
+    end
+end
+
+function tagged.initializeModule(fn: any, options: any): any
+    need(options.program and options.program.owners[fn.id + 1] == fn, "checked module owner required")
+    return graph.new(0)
+end
+
+function tagged.initialize(fn: any, options: any): any
+    need(options.program and options.program.owners[fn.id + 1] == fn, "checked function owner required")
+    need(fn.node.kind == "localFuncStmt" or fn.node.kind == "funcExpr", "unsupported function declaration form")
+    local body = fn.body
+    need(
+        not body.varargParam and not body.generics and not body.yieldPack and not body.resumePack,
+        "variadic, generic and suspended functions are unsupported"
+    )
+    need(
+        #fn.signature.rets <= 1 and not fn.signature.retPack.tail and not fn.signature.retPack.alternatives,
+        "multiple or open results are unsupported"
+    )
+    ordinaryCaptures(fn)
+    for _, parameter in ipairs(body.params) do
+        need(
+            parameter.name and not parameter.vararg and not parameter.modeTok and not parameter.constTok,
+            "parameter ownership or variadic lowering is unsupported"
+        )
+    end
+
+    return graph.new(#body.params)
+end
+
+function tagged.valueKind(g: any, id: integer): string
+    need(g.types[id] == "v", "tagged value required")
+    return "tagged"
+end
+
+function tagged.newValue(g: any, kind: string): integer
+    need(kind == "tagged", "tagged value required")
+    return graph.value(g, "v")
+end
+
+function tagged.localKind(token: any, fn: any): string
+    return "tagged"
+end
+
+function tagged.emit(ctx: any, node: any, op: string, args: any, kind: string?): integer?
+    need(kind == nil or kind == "tagged", "tagged result required")
+    return graph.emit(ctx.g, ctx.block, op, args, ctx.position(node))
+end
+
+local function pool(ctx: any, kind: string, value: any): integer
+    local index = #ctx.g.constants
+    ctx.g.constants[index + 1] = {kind = kind, value = value}
+    return index
+end
+
+function tagged.literal(ctx: any, node: any, expected: string?): integer
+    need(expected == nil or expected == "tagged", "literal requires tagged destination")
+    local constant = need(catalog(ctx).byNode[node], "literal lacks checked constant identity")
+    if constant.kind == "nil" then
+        return ctx.emit(node, "Nil", {}, "tagged")
+    end
+    local value = constant.bytes
+    if constant.kind == "int64" or constant.kind == "uint64" then
+        value = constant.text
+    elseif constant.kind == "num" then
+        value = need(tonumber(constant.text), "invalid checked numeric constant")
+        if value == 0 and constant.text:sub(1, 1) == "-" then
+            value = -0.0
+        end
+    end
+
+    return ctx.emit(node, "K", {pool(ctx, constant.kind, value)}, "tagged")
+end
+
+function tagged.valueLiteral(ctx: any, node: any, expected: string?): integer
+    return tagged.literal(ctx, node, expected)
+end
+
+function tagged.constant(ctx: any, node: any, expected: string?): integer
+    error("tagged graph: unresolved lexical or external value", 0)
+end
+
+function tagged.unary(ctx: any, node: any, expected: string?): integer
+    need(catalog(ctx).byNode[node] ~= nil, "nonliteral unary operations are unsupported")
+    return tagged.literal(ctx, node, expected)
+end
+
+function tagged.binary(ctx: any, node: any, expected: string?): integer
+    error("tagged graph: arithmetic is outside lexical construction", 0)
+end
+
+function tagged.checkLogical(ctx: any, node: any): boolean
+    error("tagged graph: logical expressions are outside lexical construction", 0)
+end
+
+function tagged.missingLocal(ctx: any, node: any, expected: string?): integer
+    return ctx.emit(node, "Nil", {}, "tagged")
+end
+
+function tagged.initializeBinding(ctx: any, node: any, key: any, value: integer): integer
+    local b = binding(ctx, key)
+    need(b.owner == ctx.fn.id and b.storage ~= "erased", "invalid local storage owner")
+    return b.storage == "cell" and ctx.emit(node, "NewCell", {value}, "tagged") or value
+end
+
+function tagged.readBinding(ctx: any, node: any, key: any, value: integer, expected: string?): integer
+    need(expected == nil or expected == "tagged", "lexical read requires tagged value")
+    return binding(ctx, key).storage == "cell" and ctx.emit(node, "GetCell", {value}, "tagged") or value
+end
+
+function tagged.writeBinding(ctx: any, node: any, key: any, previous: integer, value: integer): integer
+    local b = binding(ctx, key)
+    need(not b.definition.constant or node.kind == "localFuncStmt", "assignment to immutable declaration")
+    if b.storage == "cell" then
+        ctx.emit(node, "SetCell", {previous, value}, nil)
+        return previous
+    end
+    need(b.owner == ctx.fn.id, "assignment cannot replace captured value storage")
+
+    return value
+end
+
+function tagged.entryBindings(ctx: any, node: any): nil
+    ordinaryCaptures(ctx.fn)
+    for _, item in ipairs(ctx.fn.captures) do
+        local value = ctx.emit(node, "GetUpval", {item.id}, "tagged")
+        ctx.bind(item.definition, value)
+    end
+end
+
+function tagged.recursiveBinding(ctx: any, node: any, key: any): integer?
+    if binding(ctx, key).storage == "cell" then
+        local value = ctx.emit(node, "Nil", {}, "tagged")
+        return ctx.emit(node, "NewCell", {value}, "tagged")
+    end
+
+    return nil
+end
+
+function tagged.closure(ctx: any, node: any, expected: string?): integer
+    need(expected == nil or expected == "tagged", "closure requires tagged destination")
+    need(node.kind == "localFuncStmt" or node.kind == "funcExpr", "unsupported function declaration form")
+    local target = need(catalog(ctx).byBody[node.body], "closure lacks checked owner")
+    need(target.node == node and target.parent == ctx.fn.id, "closure owner identity mismatch")
+    ordinaryCaptures(target)
+    local args = {target.id}
+    for _, item in ipairs(target.captures) do
+        -- Forward the stored value itself. A shared cell must not be read and
+        -- reconstructed when an intermediate closure forwards it.
+        args[#args + 1] = ctx.storage(item.definition)
+    end
+
+    return ctx.emit(node, "Closure", args, "tagged")
+end
+
+local function requireSite(ctx: any, node: any): any
+    local item = need(catalog(ctx).requireByNode[node], "only checked static require calls are supported")
+    need(item.owner == ctx.fn.id and node.runtimeLoader == "require", "foreign require callsite")
+    need(type(item.module) == "string" and item.target ~= nil, "dynamic or missing require target is unsupported")
+    return item
+end
+
+function tagged.call(ctx: any, node: any, expected: string?): integer
+    local item = requireSite(ctx, node)
+    need(not item.typeOnly, "type-only require cannot produce a runtime value")
+    return ctx.emit(node, "Require", {pool(ctx, "str", item.module)}, "tagged")
+end
+
+function tagged.statementCall(ctx: any, node: any): nil
+    tagged.call(ctx, node, nil)
+end
+
+function tagged.erasedPattern(ctx: any, stat: any): nil
+    local source = need(stat.patternSource, "pattern lacks checked source")
+    local item = requireSite(ctx, source)
+    need(item.typeOnly and #stat.pattern > 0, "runtime destructuring is unsupported")
+    for _, entry in ipairs(stat.pattern) do
+        need(entry.typeOnly ~= nil, "mixed runtime destructuring is unsupported")
+    end
+end
+
+function tagged.erasedStatement(ctx: any, stat: any): nil
+    need(stat.kind == "moduleStmt" or stat.kind == "typeAlias", "unsupported erased statement")
+end
+
+function tagged.checkStatement(ctx: any, stat: any): nil
+    need(
+        stat.kind ~= "whileStmt"
+        and stat.kind ~= "ifStmt"
+        and stat.kind ~= "breakStmt"
+        and stat.kind ~= "continueStmt"
+        and stat.kind ~= "fornumStmt"
+        and stat.kind ~= "forinStmt"
+        and stat.kind ~= "repeatStmt",
+        "control flow is outside lexical construction"
+    )
+    need(not stat.comptimeFunction and not stat.comptimeTok, "compile-time declarations are unsupported")
+end
+
+function tagged.exportStatement(ctx: any, stat: any): nil
+    need(ctx.fn.kind == "module" and stat.value and not stat.stat, "named export assembly is unsupported")
+    local value = ctx.expression(stat.value, "tagged")
+    ctx.block.term = {kind = "return", value = value, edges = {}, pos = ctx.position(stat)}
+    ctx.block = nil
+end
+
+function tagged.returnStatement(ctx: any, stat: any): nil
+    need(#stat.exprs <= 1, "multiple results are unsupported")
+    local value = stat.exprs[1] and ctx.expression(stat.exprs[1], "tagged") or nil
+    ctx.block.term = {kind = "return", value = value, edges = {}, pos = ctx.position(stat)}
+    ctx.block = nil
+end
+
+function tagged.fallthrough(ctx: any, node: any): nil
+    ctx.block.term = {kind = "return", edges = {}, pos = ctx.position(node.eof or node)}
+    ctx.block = nil
+end
+
+export = tagged
