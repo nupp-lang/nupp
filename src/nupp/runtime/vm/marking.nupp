@@ -17,8 +17,9 @@ export function shadeValue(h: heap.Heap*, value: uint64): boolean
         if o.color as uint64 ~= heap.COLOR_WHITE then
             return false
         end
-        o.color = heap.COLOR_GRAY
+        -- A refused queue growth must leave no unqueued gray object.
         heap.grayPush(h, o)
+        o.color = heap.COLOR_GRAY
         return true
     end
 end
