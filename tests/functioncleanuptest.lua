@@ -275,6 +275,38 @@ end
     assert(text:find("call:later cleanup:1 failure", 1, true), text)
 end
 
+function M.failurePreparationPrecedesLexicalCleanup()
+    for _, body in ipairs({"later()", 'error("failure")'}) do
+        local owner, scope = checked("local storage = acquire(1)\n" .. body .. "\nreturn 7")
+        local profile, events = recording(scope, {later = true})
+        profile.beforeFailure = function(ctx)
+            local list = events[ctx.block.id] or {}
+            events[ctx.block.id] = list
+            list[#list + 1] = {name = "prepare-failure"}
+        end
+        local g = frontend.compile(owner, {}, profile)
+        graph.verify(g)
+        local text = trace(g, events)
+        assert(text:find("prepare-failure cleanup:1 failure", 1, true), text)
+        local _, count = text:gsub("prepare%-failure", "")
+        assert(count == 1 and not text:find("return:7", 1, true), text)
+    end
+end
+
+function M.failurePreparationCannotReplaceContinuation()
+    local owner, scope = checked("local storage = acquire(1)\nlater()\nreturn 7")
+    local profile = recording(scope, {later = true})
+    profile.beforeFailure = function(ctx)
+        ctx.block = nil
+    end
+    refuses(
+        function()
+            frontend.compile(owner, {}, profile)
+        end,
+        "failure preparation must preserve control flow"
+    )
+end
+
 function M.laterArgumentFailureKeepsCallerOwner()
     local g, events = compile([[
 local owner = acquire(1)

@@ -586,6 +586,15 @@ function frontend.compile(fn: any, options: any, profile: any): any
 
     ctx.fail = function(node: any): nil
         need(cleanupEnabled and block, "failure requires an active cleanup profile")
+        if profile.beforeFailure then
+            -- A profile may retain caller-owned backing before any lexical
+            -- terminal runs. It must preserve this failure continuation.
+            context()
+            local active = heldScope()
+            profile.beforeFailure(ctx, node)
+            need(ctx.block == block and block.term == nil, "failure preparation must preserve control flow")
+            checkHeldScope(active)
+        end
         unwind(0, node, "failure", protectedRoots())
         closeRoots(node, "failure")
         unwind(0, node, "failure")
