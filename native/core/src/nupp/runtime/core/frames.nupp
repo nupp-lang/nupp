@@ -814,6 +814,46 @@ export function abortPrepared(state: voidptr, caller: voidptr, child: voidptr): 
     return 1ULL
 end
 
+-- Retire one published child without producing a value. The caller exclusively
+-- owns mapped metadata and retains the helper arena outside the released span.
+-- No callback, collection, work-budget or cancellation check occurs here.
+export function abortActive(state: voidptr, callee: voidptr): uint64
+    if validState(state) == 0ULL or validFrame(state, callee) == 0ULL then
+        return 0ULL
+    end
+    local parent = native.loadPointer(callee, native.fieldOffset<Frame>("previous"))
+    if linked(state, parent, callee) == 0ULL then
+        return 0ULL
+    end
+    local depth = native.load64(state, native.fieldOffset<State>("depth"))
+    if native.load64(state, native.fieldOffset<State>("active")) ~= native.address(callee)
+        or native.load64(callee, native.fieldOffset<Frame>("phase")) ~= ACTIVE
+        or native.load64(parent, native.fieldOffset<Frame>("phase")) ~= WAITING
+        or depth <= 1ULL
+        or native.load64(
+            parent,
+            native.fieldOffset<Frame>("resumePC")
+        ) >= native.load64(parent, native.fieldOffset<Frame>("instructionCount"))
+    then
+        return 0ULL
+    end
+    local segment = native.loadPointer(state, native.fieldOffset<State>("segment"))
+    local mark = native.offset(parent, native.fieldOffset<Frame>("childMark"))
+    -- All fallible checks precede writes. Exclusive ownership and no safepoint
+    -- preserve the validated LIFO relation until release finishes.
+    if arena.release(segment, mark) == 0ULL then
+        return 0ULL
+    end
+    -- Never dereference callee after release, or write the parent's result slot.
+    native.store64(parent, native.fieldOffset<Frame>("child"), 0ULL)
+    native.store64(parent, native.fieldOffset<Frame>("phase"), ACTIVE)
+    native.store64(state, native.fieldOffset<State>("lastResultCount"), 0ULL)
+    native.store64(state, native.fieldOffset<State>("depth"), depth - 1ULL)
+    native.store64(state, native.fieldOffset<State>("active"), native.address(parent))
+
+    return 1ULL
+end
+
 -- The canonical Ret handler selects the value before calling this leaf.
 -- This service decodes no instruction and performs no dispatch. Tagged values
 -- must already satisfy their heap lifetime contract; frame objects are refused.
