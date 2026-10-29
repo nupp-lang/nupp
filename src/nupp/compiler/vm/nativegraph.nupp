@@ -2,6 +2,7 @@ module nupp.compiler.vm.nativegraph
 
 local graph = require("nupp.compiler.vm.graph")
 local physical = require("nupp.compiler.vm.nativephysical")
+local unit = require("nupp.compiler.vm.nativeunit")
 local nativelayout = require("nupp.compiler.vm.nativelayout")
 local programcontract = require("nupp.compiler.vm.programcontract")
 local slotcontract = require("nupp.compiler.vm.slotcontract")
@@ -151,6 +152,7 @@ end
 
 function nativegraph.initialize(fn: any, options: any): any
     need(nativegraph.admits(fn), "checked native function required")
+    local sharedContext = unit.begin(fn, options)
     local abi = options.abi or fn.nativeABI
     need(abi == "handler" or abi == "leaf" or abi == "support", "explicit native ABI required")
     need(options.physicalTarget == nil or abi == "leaf", "physical graphs require leaf ABI")
@@ -193,7 +195,7 @@ function nativegraph.initialize(fn: any, options: any): any
                 "physical parameter metadata differs"
             )
         end
-        g.nativePhysical = {context = physical.new(options.physicalTarget), values = {}}
+        g.nativePhysical = {context = sharedContext or physical.new(options.physicalTarget), values = {}}
     end
     fn.physicalContext = g.nativePhysical and g.nativePhysical.context or nil
 
@@ -317,7 +319,19 @@ function nativegraph.emit(ctx: any, node: any, op: string, args: any, kind: stri
     return graph.emitNative(ctx.g, ctx.block, op, args, kind, ctx.position(node))
 end
 
+function nativegraph.finish(ctx: any): nil
+    unit.finish(ctx.fn)
+end
+
+function nativegraph.resolveCallee(ctx: any, call: any): (boolean, any)
+    if unit.contains(ctx.fn) then
+        return true, unit.callee(ctx.fn, call)
+    end
+    return false, nil
+end
+
 function nativegraph.declaration(ctx: any, call: any, target: any): any
+    unit.call(ctx.fn, call, target)
     need(target and target.node and target.body and target.scope, "checked callee definition required")
     need(target.nativeABI ~= "handler", "a handler requires dispatch")
     local result = target.resultKind or "nil"

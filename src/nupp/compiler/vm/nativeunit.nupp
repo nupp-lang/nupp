@@ -1,0 +1,458 @@
+module nupp.compiler.vm.nativeunit
+
+local physical = require("nupp.compiler.vm.nativephysical")
+local unit = {}
+local owners: any = setmetatable({}, {__mode = "k"})
+local options: any = setmetatable({}, {__mode = "k"})
+
+local function need(ok: any, message: string): any
+    assert(ok, "native unit: " .. message)
+    return ok
+end
+
+local function read(path: string): string?
+    local file = io.open(path, "rb")
+    if not file then
+        return nil
+    end
+    local source = file:read("*a")
+    file:close()
+
+    return source
+end
+
+function unit.functionsFrom(parsed: any, scope: any): any
+    scope.functions, scope.exports = {}, {}
+    for _, block in ipairs(parsed.root.blocks) do
+        for _, stat in ipairs(block.stats) do
+            local node = stat.kind == "exportStmt" and stat.stat or stat
+            if node and (node.kind == "localFuncStmt" or node.kind == "funcStmt") then
+                local body = node.body
+                local name = node.kind == "localFuncStmt" and node.name.text or node.name.base.text
+                local kinds, annotations, types, definitions, modeTokens = {}, {}, {}, {}, {}
+                for index, parameter in ipairs(body.params) do
+                    kinds[index] = parameter.type.resolvedType.tag
+                    annotations[index] = parameter.type.resolvedType
+                    definitions[index] = parameter.name.definition
+                    types[index] = parameter.name.definition.type
+                    modeTokens[index] = parameter.modeTok
+                end
+                local result = body.signatureType.rets[1] and body.signatureType.rets[1].tag
+                local fn = {
+                    name = name,
+                    node = node,
+                    body = body,
+                    scope = scope,
+                    paramKinds = kinds,
+                    checkedSignature = body.signatureType,
+                    parameterAnnotations = annotations,
+                    parameterTypes = types,
+                    parameterDefinitions = definitions,
+                    parameterModeTokens = modeTokens,
+                    parameterModes = body.signatureType.paramModes,
+                    parameterPack = body.signatureType.paramPack,
+                    resultType = body.signatureType.rets[1],
+                    resultKind = result or "nil"
+                }
+                scope.functions[name] = fn
+                if stat.kind == "exportStmt" then
+                    scope.exports[name] = fn
+                end
+            end
+        end
+    end
+
+    return scope.functions
+end
+
+function unit.constantsFrom(tree: any): any
+    local constants = {}
+    for _, block in ipairs(tree.root.blocks) do
+        for _, stat in ipairs(block.stats) do
+            if stat.kind == "exportStmt" and stat.stat and stat.stat.kind == "localStmt" then
+                local declared = stat.stat
+                if declared.isConst and #declared.names == 1 and declared.exprs[1].kind == "number" then
+                    constants[declared.names[1].text] = declared.exprs[1].token.text:gsub("[Uu]?[Ll][Ll]$", "")
+                end
+            end
+        end
+    end
+
+    return constants
+end
+
+function unit.constants(parsed: any, scope: any): nil
+
+    scope.constants = {}
+    for _, block in ipairs(parsed.root.blocks) do
+        for _, stat in ipairs(block.stats) do
+            local declared = stat.kind == "exportStmt" and stat.stat or stat
+            if declared
+                and declared.kind == "localStmt"
+                and declared.isConst
+                and #declared.names == 1
+                and declared.exprs[1].kind == "number"
+            then
+                local token = declared.names[1]
+                scope.constants[token.definition or token] = declared.exprs[1]
+            end
+        end
+    end
+    scope.exportedConstants = unit.constantsFrom(parsed)
+end
+
+local function token(fn: any): any
+    return fn.node.kind == "localFuncStmt" and fn.node.name or fn.node.name.base
+end
+
+local function mapSame(actual: any, held: any): boolean
+    if type(actual) ~= "table" or getmetatable(actual) ~= nil then
+        return false
+    end
+    for key, value in pairs(held) do
+        if actual[key] ~= value then
+            return false
+        end
+    end
+    for key, value in pairs(actual) do
+        if held[key] ~= value then
+            return false
+        end
+    end
+
+    return true
+end
+
+local function copyMap(source: any): any
+    local result = {}
+    for key, value in pairs(source or {}) do
+        result[key] = value
+    end
+
+    return result
+end
+
+local function validate(state: any, source: boolean): nil
+    need(not state.invalid, "sealed unit was invalidated")
+    if source then
+        for path, text in pairs(state.sources) do
+            if (read(path) or false) ~= text then
+                state.invalid = true
+                error("native unit: sealed source changed: " .. path, 0)
+            end
+        end
+    end
+    physical.validateContext(state.context)
+    need(mapSame(state.modules, state.moduleMap), "module map changed")
+    for _, saved in ipairs(state.scopes) do
+        local scope = saved.scope
+        need(
+            getmetatable(scope) == nil and scope.name == saved.name and scope.path == saved.path,
+            "module identity changed"
+        )
+        need(mapSame(scope.functions, saved.functions) and mapSame(scope.exports, saved.exports), "owner map changed")
+        need(
+            scope.checkedExports == saved.checkedExports and getmetatable(scope.checkedExports) == nil,
+            "checked export record changed"
+        )
+        need(
+            mapSame(scope.constants, saved.constants) and mapSame(scope.exportedConstants, saved.exportedConstants),
+            "constant map changed"
+        )
+        for node, literal in pairs(saved.literals) do
+            need(
+                node.kind == "number"
+                and node.token == literal.token
+                and node.token.text == literal.text
+                and node.inferredType == literal.type,
+                "checked constant changed"
+            )
+        end
+        need(mapSame(scope.checkedExports.valueDefs, saved.valueDefs), "export definitions changed")
+        need(mapSame(scope.checkedExports.typeDefs, saved.typeDefs), "type definitions changed")
+        need(mapSame(scope.checkedExports.types, saved.types), "export types changed")
+    end
+    for fn, held in pairs(state.owners) do
+        need(
+            getmetatable(fn) == nil and fn.node == held.node and fn.body == held.body and fn.scope == held.scope,
+            "owner identity changed"
+        )
+        need(fn.definition == held.definition and token(fn).definition == held.definition, "owner definition changed")
+        need(
+            fn.node.body == held.body
+            and fn.checkedSignature == held.signature
+            and fn.body.signatureType == held.signature,
+            "owner signature changed"
+        )
+        need(not held.definition.reassigned, "function declaration was reassigned")
+    end
+end
+
+-- The incremental project stays private. Its import/update/overlay APIs never
+-- escape this constructor; every file must exist before checking starts.
+function unit.session(projectRoot: string, requested: any, target: string, include: any?): any
+    -- Lazy imports avoid native profile -> unit -> checker -> profile loading.
+    local incremental = require("nupp.compiler.project.incremental")
+    local trivia = require("nupp.compiler.syntax.triviaarena")
+    trivia.installDefault(require("nupp.compiler.syntax.triviaarena.table"))
+    require("nupp.compiler.project.projectconfig")
+    require("nupp.compiler.hash")
+    need(type(requested) == "table" and #requested > 0, "nonempty module batch required")
+    local roots = {}
+    for index, path in ipairs(include or {"src", "native/core/src"}) do
+        roots[index] = path
+    end
+    local project = incremental.new(projectRoot, {
+        cache = false,
+        nativeCompilerServices = false,
+        config = {include = roots}
+    })
+    local state: any = {
+        context = physical.new(target),
+        sources = {},
+        checked = {},
+        modules = {},
+        scopes = {},
+        owners = {},
+        definitions = {},
+        bindings = {},
+        invalid = false
+    }
+
+    local function remember(path: string, text: any): nil
+        need(state.sources[path] == nil or state.sources[path] == text, "source changed during check: " .. path)
+        state.sources[path] = text
+    end
+
+    local function snapshot(path: string): nil
+        local text = need(read(path), "source is not staged: " .. path)
+        need(project.fileText(path) == text, "checked source revision differs: " .. path)
+        remember(path, text)
+    end
+
+    local function load(path: string): any
+        if state.checked[path] then
+            return state.checked[path]
+        end
+        snapshot(path)
+        local result = project.checkFile(path)
+        for _, diagnostic in ipairs(result.diags or {}) do
+            need(diagnostic.severity ~= "error", tostring(diagnostic.code) .. ": " .. tostring(diagnostic.msg))
+        end
+        need(result.result and result.exports and not result.syntax and not result.missing, "checked module required")
+        need(project.fileText(path) == state.sources[path], "checked source revision differs")
+        state.checked[path] = result
+        for _, name in ipairs(project.moduleDependencies(path)) do
+            local dependency = project.modulePath(name)
+            if dependency then
+                load(dependency)
+            end
+        end
+        for _, dependency in ipairs(project.projectDependencies(path)) do
+            for _, dependencyPath in ipairs(project.projectDependencyPaths(dependency.name, dependency.key)) do
+                snapshot(dependencyPath)
+            end
+        end
+        for _, input in ipairs(project.externalInputs(path)) do
+            -- Missing include candidates are also stable inputs: changing their
+            -- existence must invalidate the unit rather than silently resolve.
+            local bytes = read(input.path) or false
+            need(
+                (project.externalFile(input.path) or false) == bytes,
+                "checked external revision differs: " .. input.path
+            )
+            remember(input.path, bytes)
+        end
+
+        return result
+    end
+
+    local requestedNames = {}
+    for _, request in ipairs(requested) do
+        need(
+            type(request.path) == "string" and type(request.moduleName) == "string",
+            "explicit module path/name required"
+        )
+        need(not requestedNames[request.moduleName], "duplicate requested module")
+        requestedNames[request.moduleName] = request.path
+        need(project.modulePath(request.moduleName) == request.path, "requested module resolution differs")
+        load(request.path)
+    end
+    -- Freeze declaration-index sources too: these can supply nominal types even
+    -- when a module's expression graph never invokes them.
+    for _, path in ipairs(project.projectFiles()) do
+        snapshot(path)
+    end
+    local config = projectRoot .. "/nupp.lua"
+    remember(config, read(config) or false)
+    for name, path in pairs(requestedNames) do
+        local checked = state.checked[path]
+        local parsed = checked.result
+        need(parsed.declaredModuleName == name, "checked module name differs")
+        local scope = {name = name, path = path, checkedExports = checked.exports}
+        local functions = unit.functionsFrom(parsed, scope)
+        unit.constants(parsed, scope)
+        state.modules[name] = scope
+        for _, fn in pairs(functions) do
+            local definition = need(token(fn).definition, "checked function definition required")
+            fn.definition = definition
+            local held = {
+                state = state,
+                node = fn.node,
+                body = fn.body,
+                scope = scope,
+                definition = definition,
+                signature = fn.checkedSignature
+            }
+            state.owners[fn], owners[fn], state.definitions[definition] = held, held, fn
+        end
+    end
+    -- Owners borrow checked CST/type objects immutably. This API seals the
+    -- issued records and scalar constant inputs; it is not a validator for
+    -- arbitrary in-place corruption of the entire checked syntax/type graph.
+    -- Export keys and implementation definitions are separate. This first
+    -- bridge accepts direct function definitions only; synthetic table exports
+    -- and arbitrary value aliases are refused instead of guessed from names.
+    for _, scope in pairs(state.modules) do
+        scope.exports = {}
+        for name, definition in pairs(scope.checkedExports.valueDefs or {}) do
+            local fn = state.definitions[definition]
+            if fn then
+                scope.exports[name] = fn
+                state.bindings[definition] = {definition = definition, owner = fn, scope = scope, name = name}
+            end
+        end
+        local literals = {}
+        for _, node in pairs(scope.constants) do
+            literals[node] = {token = node.token, text = node.token.text, type = node.inferredType}
+        end
+        state.scopes[
+            #state.scopes + 1
+        ] = {
+            scope = scope,
+            name = scope.name,
+            path = scope.path,
+            functions = copyMap(scope.functions),
+            exports = copyMap(scope.exports),
+            checkedExports = scope.checkedExports,
+            constants = copyMap(scope.constants),
+            exportedConstants = copyMap(scope.exportedConstants),
+            literals = literals,
+            valueDefs = copyMap(scope.checkedExports.valueDefs),
+            typeDefs = copyMap(scope.checkedExports.typeDefs),
+            types = copyMap(scope.checkedExports.types)
+        }
+    end
+    state.moduleMap = copyMap(state.modules)
+    local api = {}
+    function api.validate(): boolean
+        validate(state, true)
+        return true
+    end
+
+    function api.module(name: string): any
+        validate(state, false)
+        return need(state.modules[name], "module is outside sealed batch")
+    end
+
+    function api.options(fn: any, abi: string): any
+        validate(state, true)
+        need(state.owners[fn], "owner is outside sealed batch")
+        need(abi == "leaf" or abi == "handler" or abi == "support", "explicit native ABI required")
+        local result = {modules = state.modules, abi = abi, nativeUnit = api}
+        if abi == "leaf" then
+            result.physicalTarget = target
+        end
+        options[
+            result
+        ] = {state = state, fn = fn, abi = abi, unit = api, target = result.physicalTarget, fields = copyMap(result)}
+
+        return result
+    end
+
+    validate(state, true)
+
+    return api
+end
+
+-- Called once at graph construction, not for every operation. Copied options
+-- and public lookalikes do not acquire the private unit's target context.
+function unit.begin(fn: any, supplied: any): any
+    local held = owners[fn]
+    if not held then
+        need(supplied.nativeUnit == nil, "unknown unit owner/options")
+        return nil
+    end
+    local issued = need(options[supplied], "issued unit options required")
+    need(issued.state == held.state and issued.fn == fn, "options owner differs")
+    need(mapSame(supplied, issued.fields) and supplied.modules == held.state.modules, "unit options changed")
+    validate(held.state, true)
+
+    return issued.target and held.state.context or nil
+end
+
+function unit.finish(fn: any): nil
+    local held = owners[fn]
+    if held then
+        validate(held.state, true)
+    end
+end
+
+function unit.contains(fn: any): boolean
+    return owners[fn] ~= nil
+end
+
+function unit.callee(fn: any, call: any): any
+    local held = need(owners[fn], "unknown caller owner")
+    local state = held.state
+    -- begin() validated the sealed transaction. Resolution stays identity-only
+    -- and does not reread every source or rescan every owner per instruction.
+    need(
+        not state.invalid and fn.scope == held.scope and fn.body == held.body and fn.definition == held.definition,
+        "caller owner changed"
+    )
+    if call.kind ~= "call" then
+        return nil
+    end
+    if call.obj.kind == "name" then
+        local definition = call.obj.token.definition
+        need(definition and not definition.reassigned, "unstable local callee")
+        -- Unknown globals remain the profile's responsibility (including any
+        -- supported intrinsic); no body is guessed from their textual name.
+        return state.definitions[definition]
+    end
+    if call.obj.kind == "dotIndex" and call.obj.obj.kind == "name" then
+        local receiver = call.obj.obj.token.definition
+        need(receiver and not receiver.reassigned and receiver.requiredModule, "unstable imported module")
+        local scope = state.modules[receiver.requiredModule]
+        -- Non-unit modules still go through the native profile's existing
+        -- checked intrinsic contracts. They never acquire a body binding here.
+        if not scope then
+            return nil
+        end
+        local definition = call.obj.name.definition
+        need(
+            definition and scope.checkedExports.valueDefs[call.obj.name.text] == definition,
+            "imported member definition differs"
+        )
+        local binding = need(state.bindings[definition], "export has no exact function-body binding")
+        need(
+            binding.scope == scope and binding.definition == definition and not definition.reassigned,
+            "export binding differs"
+        )
+        return binding.owner
+    end
+    error("native unit: unsupported callee expression", 0)
+end
+
+function unit.call(fn: any, call: any, target: any): nil
+    if owners[fn] or owners[target] then
+        need(
+            owners[fn] and owners[target] and owners[fn].state == owners[target].state,
+            "callee belongs to another unit"
+        )
+        need(unit.callee(fn, call) == target, "checked callee definition differs")
+    end
+end
+
+export = unit

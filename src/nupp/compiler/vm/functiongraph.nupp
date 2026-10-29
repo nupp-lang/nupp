@@ -315,6 +315,12 @@ function frontend.compile(fn: any, options: any, profile: any): any
         if call.kind ~= "call" then
             return nil
         end
+        if profile.resolveCallee then
+            local handled, target = profile.resolveCallee(ctx, call)
+            if handled then
+                return target
+            end
+        end
         if options.program then
             need(call.obj.kind == "name", "qualified or indirect callee lacks a stable composition target")
             local token = call.obj.token
@@ -589,6 +595,9 @@ function frontend.compile(fn: any, options: any, profile: any): any
     need(next(heldScope()) == nil, "function leaked a held-value handle")
     need(block == nil, "function falls through without a return or transfer")
     graph.verify(g)
+    if profile.finish then
+        profile.finish(ctx)
+    end
 
     return g
 end

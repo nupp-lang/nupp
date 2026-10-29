@@ -9,6 +9,7 @@ local trivia = require("nupp.compiler.syntax.triviaarena")
 local provider = require("nupp.compiler.syntax.triviaarena.table")
 require("nupp.compiler.project.projectconfig")
 require("nupp.compiler.hash")
+local unit = require("nupp.compiler.vm.nativeunit")
 local front = {}
 
 function front.read(path: any): any
@@ -16,50 +17,6 @@ function front.read(path: any): any
     local text = file:read("*a")
     file:close()
     return text
-end
-
-local function functionsFrom(parsed: any, scope: any): any
-    scope.functions, scope.exports = {}, {}
-    for _, block in ipairs(parsed.root.blocks) do
-        for _, stat in ipairs(block.stats) do
-            local node = stat.kind == "exportStmt" and stat.stat or stat
-            if node and (node.kind == "localFuncStmt" or node.kind == "funcStmt") then
-                local body = node.body
-                local name = node.kind == "localFuncStmt" and node.name.text or node.name.base.text
-                local kinds, annotations, types, definitions, modeTokens = {}, {}, {}, {}, {}
-                for index, parameter in ipairs(body.params) do
-                    kinds[index] = parameter.type.resolvedType.tag
-                    annotations[index] = parameter.type.resolvedType
-                    definitions[index] = parameter.name.definition
-                    types[index] = parameter.name.definition.type
-                    modeTokens[index] = parameter.modeTok
-                end
-                local result = body.signatureType.rets[1] and body.signatureType.rets[1].tag
-                local fn = {
-                    name = name,
-                    node = node,
-                    body = body,
-                    scope = scope,
-                    paramKinds = kinds,
-                    checkedSignature = body.signatureType,
-                    parameterAnnotations = annotations,
-                    parameterTypes = types,
-                    parameterDefinitions = definitions,
-                    parameterModeTokens = modeTokens,
-                    parameterModes = body.signatureType.paramModes,
-                    parameterPack = body.signatureType.paramPack,
-                    resultType = body.signatureType.rets[1],
-                    resultKind = result or "nil"
-                }
-                scope.functions[name] = fn
-                if stat.kind == "exportStmt" then
-                    scope.exports[name] = fn
-                end
-            end
-        end
-    end
-
-    return scope.functions
 end
 
 function front.checked(source: any, path: string, moduleName: string): (any, any)
@@ -76,7 +33,7 @@ function front.checked(source: any, path: string, moduleName: string): (any, any
     end
     assert(parsed.declaredModuleName == moduleName, "checked native module identity differs from requested module")
     local scope = {name = moduleName, path = path}
-    local functions = functionsFrom(parsed, scope)
+    local functions = unit.functionsFrom(parsed, scope)
     -- Reproduce the existing checked module record supplied by the native
     -- lowering, taking the constant's lexical text from the actual source.
     local values: any = parser.parse(front.read(VALUES), VALUES)
@@ -85,41 +42,15 @@ function front.checked(source: any, path: string, moduleName: string): (any, any
         assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
     end
 
-    local function constantsFrom(tree: any): any
-        local constants = {}
-        for _, block in ipairs(tree.root.blocks) do
-            for _, stat in ipairs(block.stats) do
-                if stat.kind == "exportStmt" and stat.stat and stat.stat.kind == "localStmt" then
-                    local declared = stat.stat
-                    if declared.isConst and #declared.names == 1 and declared.exprs[1].kind == "number" then
-                        constants[declared.names[1].text] = declared.exprs[1].token.text:gsub("[Uu]?[Ll][Ll]$", "")
-                    end
-                end
-            end
-        end
-
-        return constants
-    end
-
-    scope.constants = {}
-    for _, block in ipairs(parsed.root.blocks) do
-        for _, stat in ipairs(block.stats) do
-            local declared = stat.kind == "exportStmt" and stat.stat or stat
-            if declared
-                and declared.kind == "localStmt"
-                and declared.isConst
-                and #declared.names == 1
-                and declared.exprs[1].kind == "number"
-            then
-                local token = declared.names[1]
-                scope.constants[token.definition or token] = declared.exprs[1]
-            end
-        end
-    end
-    scope.exportedConstants = constantsFrom(parsed)
-    local constants = constantsFrom(values)
+    unit.constants(parsed, scope)
+    local constants = unit.constantsFrom(values)
 
     return functions, {modules = {[scope.name] = scope, ["nupp.runtime.vm.values"] = {exportedConstants = constants}}}
+end
+
+-- All requested real files must be staged before the batch is checked.
+function front.session(projectRoot: string, modules: any, target: string, include: any?): any
+    return unit.session(projectRoot, modules, target, include)
 end
 
 export = front
