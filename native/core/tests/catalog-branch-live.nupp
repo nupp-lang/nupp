@@ -1,0 +1,23 @@
+module nupp.core.catalogbranchlive
+
+local function choose(flag: boolean): boolean
+    local function identity(value: boolean): boolean
+        return value
+    end
+
+    local held: boolean = true
+    local result: boolean = false
+    if flag then
+        local held: boolean = false
+        result = identity(held)
+    else
+        result = identity(held)
+    end
+    if result then
+        return held
+    end
+
+    return identity(held)
+end
+
+export = choose(true)

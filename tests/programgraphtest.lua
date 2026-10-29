@@ -1163,7 +1163,7 @@ function M.taggedUnsupportedControlAndFunctionContractsRefuse()
     for _, source in ipairs({
         "local function f(): nil for i = 1, 3 do end end\nreturn f",
         "local function f(iter: any): nil for value in iter do end end\nreturn f",
-        "local function f(): nil if true then return end end\nreturn f",
+        "local function f(): nil while true do return end end\nreturn f",
     }) do
         refuses(
             function()

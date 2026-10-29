@@ -392,7 +392,7 @@ return require("value")]])
 end
 
 function M.taggedArithmeticAndControlRemainOutsideTheCut()
-    for _, source in ipairs({"return 1 + 2", "return true and false", "if true then return 1 end; return 2"}) do
+    for _, source in ipairs({"return 1 + 2", "return true and false", "while true do return 1 end; return 2"}) do
         refuses(
             function()
                 compile(source)

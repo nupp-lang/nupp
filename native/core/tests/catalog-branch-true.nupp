@@ -1,0 +1,11 @@
+module nupp.core.catalogbranchtrue
+
+local function choose(flag: boolean): boolean
+    if flag then
+        return true
+    else
+        return false
+    end
+end
+
+export = choose(true)

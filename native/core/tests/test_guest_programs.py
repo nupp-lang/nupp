@@ -14,8 +14,11 @@ ROOT = Path(__file__).resolve().parents[3]
 BOOT = ROOT.parent / "native-core-bootstrap"
 CASES = {"boolean": 0x7FFB000000000000, "nilValue": 0x7FF9000000000000,
          "live": 0x7FFB000000000000, "fresh": 0x7FFB000000000000,
-         "nested": 0x7FFB000000000000}
-FIXTURES = ("catalog-boolean", "catalog-nil", "catalog-live", "catalog-fresh", "catalog-nested")
+         "nested": 0x7FFB000000000000,
+         "branchTrue": 0x7FFB000000000000, "branchFalse": 0x7FFA000000000000,
+         "branchElseif": 0x7FFB000000000000, "branchLive": 0x7FFB000000000000}
+FIXTURES = ("catalog-boolean", "catalog-nil", "catalog-live", "catalog-fresh", "catalog-nested",
+            "catalog-branch-true", "catalog-branch-false", "catalog-branch-elseif", "catalog-branch-live")
 
 
 def sha(path):
@@ -29,7 +32,11 @@ def main():
     parser.add_argument("--guard-proof", type=Path, default=ROOT / "native/core/bridge/guard-validation.json")
     parser.add_argument("--guard-binary", type=Path)
     parser.add_argument("--scratch-bytes", type=int, choices=(65536, 131072), default=65536)
+    parser.add_argument("--cases", nargs="+", choices=tuple(CASES),
+                        help="Run these fixed cases and their supplemental audits (default: all).")
     args = parser.parse_args()
+    selected_cases = [name for name in CASES if args.cases is None or name in args.cases]
+    omitted_cases = [name for name in CASES if name not in selected_cases]
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=False)
     freeze = json.loads((BOOT / "freeze.json").read_text())
@@ -65,6 +72,8 @@ def main():
               Path(__file__), args.bridge, proof, guard_binary, *map(Path, guard_sources),
               BOOT / "freeze.json", *tools.values()]}
     report = {"status": "running", "inputs": inputs, "steps": [], "programs": [], "failures": [], "audits": [],
+              "selectedCases": selected_cases, "omittedCases": omitted_cases,
+              "preflightFixtures": list(FIXTURES),
               "scope": "Trusted checked-source complete catalog derives actual executable programs. "
                        "Fresh Closure0 instances, fixed CallK and exactly one Boolean/NIL Ret execute "
                        "through Nupp entry/frame services; native raw admission, RetNil, arbitrary "
@@ -180,7 +189,8 @@ def main():
         report["imageSha256"] = sha(image)
         empty = out / "empty.bin"
         empty.write_bytes(b"")
-        for case_name, expected_word in CASES.items():
+        for case_name in selected_cases:
+            expected_word = CASES[case_name]
             for mode in ("normal", "spill"):
                 case = case_name + "-" + mode
                 selected = json.loads(json.loads(run("select-" + case, [vm, "run", image,
@@ -188,6 +198,9 @@ def main():
                 selection = out / (case + ".json")
                 selection.write_text(json.dumps(selected, indent=2) + "\n")
                 assert selected["caseName"] == case_name and selected["mode"] == mode
+                if mode == "spill":
+                    normal = json.loads((out / (case_name + "-normal.json")).read_text())
+                    assert selected["programs"] == normal["programs"], "allocation mode changes guest streams"
                 assert selected["scratchBytes"] == args.scratch_bytes
                 metrics = selected["metrics"]
                 assert metrics and sum(item["spillSlots"] for item in metrics) > 0
@@ -233,6 +246,8 @@ def main():
         audit_cases = [("fresh", "success"), ("nilValue", "success"), ("nested", "success"),
                        ("nested", "budget0"), ("nested", "budget2"), ("nested", "budget4"),
                        ("nested", "cancel")]
+        audit_cases = [(case_name, scenario) for case_name, scenario in audit_cases
+                       if case_name in selected_cases]
         for mode in ("normal", "spill"):
             for case_name, scenario in audit_cases:
                 case = f"audit-{case_name}-{mode}-{scenario}"

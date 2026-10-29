@@ -244,10 +244,31 @@ function tagged.erasedStatement(ctx: any, stat: any): nil
     need(stat.kind == "moduleStmt" or stat.kind == "typeAlias", "unsupported erased statement")
 end
 
+local function booleanCondition(t: any): boolean
+    while t and (t.tag == "literal" or t.tag == "const" or t.tag == "constrained") do
+        t = t.tag == "const" and t.inner or t.base
+    end
+    if t and t.tag == "union" and #t.members > 0 then
+        for _, member in ipairs(t.members) do
+            if not booleanCondition(member) then
+                return false
+            end
+        end
+        return true
+    end
+
+    return t ~= nil and t.tag == "boolean"
+end
+
 function tagged.checkStatement(ctx: any, stat: any): nil
+    if stat.kind == "ifStmt" then
+        for _, clause in ipairs(stat.clauses) do
+            need(not clause.binding, "binding conditions are unsupported")
+            need(booleanCondition(clause.cond.inferredType), "if condition requires a checked Boolean")
+        end
+    end
     need(
         stat.kind ~= "whileStmt"
-        and stat.kind ~= "ifStmt"
         and stat.kind ~= "breakStmt"
         and stat.kind ~= "continueStmt"
         and stat.kind ~= "fornumStmt"

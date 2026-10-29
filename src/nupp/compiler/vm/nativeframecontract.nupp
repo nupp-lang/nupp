@@ -483,7 +483,11 @@ local function buildGuest(caseName: string, audited: boolean): any
         nilValue = "catalog-nil",
         live = "catalog-live",
         fresh = "catalog-fresh",
-        nested = "catalog-nested"
+        nested = "catalog-nested",
+        branchTrue = "catalog-branch-true",
+        branchFalse = "catalog-branch-false",
+        branchElseif = "catalog-branch-elseif",
+        branchLive = "catalog-branch-live"
     }
     local fixture = need(fixtures[caseName], "unknown fixed guest program")
     need(current == nil, "nested construction")

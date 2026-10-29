@@ -1,0 +1,17 @@
+module nupp.core.catalogbranchelseif
+
+local function choose(first: boolean, second: boolean): boolean
+    local function identity(value: boolean): boolean
+        return value
+    end
+
+    if identity(first) then
+        return false
+    elseif identity(second) then
+        return true
+    else
+        return false
+    end
+end
+
+export = choose(false, true)
