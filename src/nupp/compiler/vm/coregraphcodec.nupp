@@ -138,7 +138,7 @@ local function flatten(p: any, wire: any): any
     local constantIds, ownerIds, signatureIds = names(
         wire.constantKinds
     ), names(wire.ownerKinds), names(wire.signatureKinds)
-    add("schema", {version = wire.version, profile = wire.profile, capabilities = 0, returns = 1})
+    add("schema", wire.policy)
     for _, owner in ipairs(p.catalog) do
         add("catalog", {
             id = owner.id,
@@ -427,10 +427,10 @@ local function inflate(tables: any, entry: integer, wire: any): any
     need(#tables.schema == 1, "one schema record required")
     local policy = one("schema", 0)
     need(
-        policy.version == wire.version
-        and policy.profile == wire.profile
-        and policy.capabilities == 0
-        and policy.returns == 1,
+        policy.version == wire.policy.version
+        and policy.profile == wire.policy.profile
+        and policy.capabilities == wire.policy.capabilities
+        and policy.returns == wire.policy.returns,
         "unknown schema policy"
     )
     local definition = schema.describe()

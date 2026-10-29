@@ -24,8 +24,8 @@ local function copyArray(values: any): any
     return result
 end
 
--- Section fields describe the proposed persistent contract only. Encoded
--- record strides/extents and a wire reader are not established by this module.
+-- describe() supplies the semantic schema. wire() supplies physical records
+-- consumed by the host codec and generated native layout checks.
 function schema.describe(): any
     local described: any = {
         magic = "NUPPCGRF",
@@ -197,6 +197,7 @@ function schema.wire(): any
         return {name = name, stride = stride, fields = fields}
     end
 
+    result.policy = {version = result.version, profile = result.profile, capabilities = 0, returns = 1}
     result.header = descriptor(
         "header",
         40,
