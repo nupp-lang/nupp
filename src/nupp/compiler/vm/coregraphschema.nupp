@@ -133,4 +133,83 @@ function schema.describe(): any
     return described
 end
 
+-- Fixed records carry references and spans, never executable opcode policy.
+-- Each field descriptor is consumed by both writer and reader. The profile's
+-- canonical operation signatures still come from describe()/graph.signatures.
+local wireRecords: {
+    any
+} = {
+    {"schema", 16, "version:u32 profile:u32 capabilities:u32 returns:u32"},
+    {"catalog", 24, "id:u32 kind:u32 parent:u32 signature:u32 graph:u32 effect:u32"},
+    {"signatures", 24, "id:u32 kind:u32 result:u32 paramsFirst:u32 paramsCount:u32 reserved:zero"},
+    {
+        "graphs",
+        80,
+        "owner:u32 nparams:u32 nv:u32 ni:u32 nf:u32 nx:u32 valuesFirst:u32 valuesCount:u32 constantsFirst:u32 constantsCount:u32 blocksFirst:u32 blocksCount:u32 positionsFirst:u32 positionsCount:u32 name:u32 module:u32 path:u32 source:u32 certificates:zero reserved:zero"
+    },
+    {"blocks", 24, "id:u32 paramsFirst:u32 paramsCount:u32 opsFirst:u32 opsCount:u32 term:u32"},
+    {
+        "terms",
+        40,
+        "kind:u32 value:u32 callee:u32 result:u32 contract:u32 pos:u32 argsFirst:u32 argsCount:u32 edgesFirst:u32 edgesCount:u32"
+    },
+    {"contracts", 32, "id:u32 owner:u32 block:u32 callsite:u32 target:u32 signature:u32 effect:u32 reserved:zero"},
+    {"positions", 16, "line:u32 column:u32 source:u32 reserved:zero"},
+    {"sourceBindings", 16, "name:u32 module:u32 path:u32 reserved:zero"},
+    {"positionSources", 8, "moduleName:u32 path:u32"},
+    {"modules", 16, "name:u32 path:u32 chunk:u32 reserved:zero"},
+    {"values", 8, "class:zero slot:u32"},
+    {"constants", 8, "kind:u32 payload:zero"},
+    {"operations", 24, "opcode:u32 dst:u32 argsFirst:u32 argsCount:u32 pos:u32 cert:zero"},
+    {"edges", 16, "target:u32 argsFirst:u32 argsCount:u32 reserved:zero"},
+    {"words", 4, "value:u32"},
+    {"strings", 16, "offset:u64 bytes:u32 reserved:zero"},
+    {"bytes", 1, ""}
+}
+
+function schema.wire(): any
+    local result: any = {
+        magic = "NUPPCGRF",
+        version = 1,
+        profile = 1,
+        headerBytes = 48,
+        directoryBytes = 32,
+        fileLimit = 67108864,
+        recordsLimit = 1048576,
+        stringLimit = 16777216,
+        expandedLimit = 1048576,
+        sections = {},
+        ownerKinds = {{id = 0, name = "module"}, {id = 1, name = "function"}},
+        signatureKinds = {{id = 0, name = "initializer"}, {id = 1, name = "callable"}},
+        constantKinds = {{id = 0, name = "nil"}, {id = 1, name = "true"}, {id = 2, name = "false"}},
+        header = {},
+        directory = {}
+    }
+
+    local function descriptor(name: string, stride: integer, declaration: string): any
+        local fields, offset = {}, 0
+        for field, kind in declaration:gmatch("(%w+):(%w+)") do
+            fields[#fields + 1] = {name = field, kind = kind, offset = offset}
+            offset += kind == "u64" and 8 or 4
+        end
+        assert(offset == stride or stride == 1 and #fields == 0, "wire descriptor stride differs")
+
+        return {name = name, stride = stride, fields = fields}
+    end
+
+    result.header = descriptor(
+        "header",
+        40,
+        "version:u32 profile:u32 sections:u32 entry:u32 bytes:u64 flags:zero reserved:zero directory:u64"
+    )
+    result.directory = descriptor("directory", 32, "kind:u32 stride:u32 count:u64 offset:u64 bytes:u64")
+    for index, row in ipairs(wireRecords) do
+        local item = descriptor(row[1], row[2], row[3])
+        item.id = index - 1
+        result.sections[index] = item
+    end
+
+    return result
+end
+
 export = schema

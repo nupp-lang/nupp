@@ -1,0 +1,601 @@
+module nupp.compiler.vm.coregraphcodec
+
+local schema = require("nupp.compiler.vm.coregraphschema")
+local semantic = require("nupp.compiler.vm.coregraphverify")
+local codec = {}
+local NONE: integer = 4294967295
+
+local function need(ok: any, message: string): any
+    assert(ok, "core graph codec: " .. message)
+    return ok
+end
+
+local function bounded(value: any, limit: integer): integer
+    need(type(value) == "number" and value >= 0 and value <= limit and value % 1 == 0, "invalid bounded word")
+    return value as integer
+end
+
+local function absent(value: any): integer
+    return value == nil and NONE or value
+end
+
+local function aligned(value: number): integer
+    bounded(value, 67108864)
+    return (math.floor((value + 7) / 8) * 8) as integer
+end
+
+local function bytes32(value: integer): string
+    bounded(value, NONE)
+    return string.char(
+        value % 256,
+        math.floor(value / 256) % 256,
+        math.floor(value / 65536) % 256,
+        math.floor(value / 16777216) % 256
+    )
+end
+
+local function read32(bytes: string, offset: number): integer
+    bounded(offset, 67108864)
+    need(offset >= 0 and offset <= #bytes - 4, "truncated word")
+    local a, b, c, d = bytes:byte(offset + 1, offset + 4)
+    return a + b * 256 + c * 65536 + d * 16777216
+end
+
+local function writeRecord(descriptor: any, row: any): string
+    local parts = {}
+    for _, field in ipairs(descriptor.fields) do
+        local value = row[field.name]
+        if field.kind == "zero" then
+            need(value == nil or value == 0, "reserved field is nonzero")
+            value = 0
+        end
+        parts[#parts + 1] = bytes32(bounded(value, NONE))
+        if field.kind == "u64" then
+            -- Every supported extent is capped below 2^32. Encode an exact
+            -- zero high limb instead of converting a host numeric u64.
+            parts[#parts + 1] = bytes32(0)
+        end
+    end
+
+    return table.concat(parts)
+end
+
+local function readRecord(descriptor: any, bytes: string, offset: number): any
+    bounded(offset, 67108864)
+    need(offset >= 0 and descriptor.stride <= #bytes - offset, "truncated record")
+    local row = {}
+    for _, field in ipairs(descriptor.fields) do
+        local value = read32(bytes, offset + field.offset)
+        if field.kind == "u64" then
+            need(read32(bytes, offset + field.offset + 4) == 0, "u64 extent high limb exceeds profile")
+        elseif field.kind == "zero" then
+            need(value == 0, "reserved field is nonzero")
+        end
+        row[field.name] = value
+    end
+
+    return row
+end
+
+local function sectionBudget(budget: any, section: any, count: integer, wire: any): nil
+    if section.name == "bytes" then
+        need(count <= wire.stringLimit, "string byte limit exceeded")
+    else
+        budget.records += count
+        need(budget.records <= wire.recordsLimit, "aggregate record limit exceeded")
+        budget.expansion += count * (1 + #section.fields * 2)
+        need(budget.expansion <= wire.expandedLimit, "record expansion limit exceeded")
+    end
+end
+
+local function names(items: any): any
+    local result = {}
+    for _, item in ipairs(items) do
+        result[item.name] = item.id
+    end
+
+    return result
+end
+
+local function flatten(p: any, wire: any): any
+    local tables, dictionary, texts, textBytes = {}, {}, {}, 0
+    for _, section in ipairs(wire.sections) do
+        tables[section.name] = {}
+    end
+
+    local function add(name: string, row: any): integer
+        local rows = tables[name]
+        local id = #rows
+        rows[id + 1] = row
+        return id
+    end
+
+    local function stringId(value: string): integer
+        local previous = dictionary[value]
+        if previous ~= nil then
+            return previous
+        end
+        need(#value <= 1048576 and #value <= wire.stringLimit - textBytes, "string byte limit exceeded")
+        local id = add("strings", {offset = textBytes, bytes = #value})
+        texts[#texts + 1] = value
+        textBytes += #value
+        dictionary[value] = id
+
+        return id
+    end
+
+    local function words(values: any): (integer, integer)
+        local first = #tables.words
+        for _, value in ipairs(values) do
+            add("words", {value = value})
+        end
+
+        return first, #values
+    end
+
+    local operationIds, termIds = names(p.schema.operations), names(p.schema.terms)
+    local scalars = names(p.schema.scalarKinds)
+    local constantIds, ownerIds, signatureIds = names(
+        wire.constantKinds
+    ), names(wire.ownerKinds), names(wire.signatureKinds)
+    add("schema", {version = wire.version, profile = wire.profile, capabilities = 0, returns = 1})
+    for _, owner in ipairs(p.catalog) do
+        add("catalog", {
+            id = owner.id,
+            kind = ownerIds[owner.kind],
+            parent = absent(owner.parent),
+            signature = owner.signature,
+            graph = owner.graph,
+            effect = owner.effect
+        })
+    end
+    for _, signature in ipairs(p.signatures) do
+        local params = {}
+        for index, kind in ipairs(signature.params) do
+            params[index] = scalars[kind]
+        end
+        local first, count = words(params)
+        add("signatures", {
+            id = signature.id,
+            kind = signatureIds[signature.kind],
+            result = scalars[signature.result],
+            paramsFirst = first,
+            paramsCount = count
+        })
+    end
+    for _, module in ipairs(p.modules) do
+        add("modules", {name = stringId(module.name), path = stringId(module.path), chunk = module.chunk})
+    end
+    for _, contract in ipairs(p.contracts) do
+        add("contracts", contract)
+    end
+    for _, g in ipairs(p.graphs) do
+        local row: any = {
+            owner = g.programOwner,
+            nparams = g.nparams,
+            nv = g.counts.v,
+            ni = g.counts.i,
+            nf = g.counts.f,
+            nx = g.counts.x,
+            valuesFirst = #tables.values,
+            valuesCount = #g.types,
+            constantsFirst = #tables.constants,
+            constantsCount = #g.constants,
+            blocksFirst = #tables.blocks,
+            blocksCount = #g.blocks,
+            positionsFirst = #tables.positions,
+            positionsCount = #g.positions,
+            name = stringId(g.name),
+            module = stringId(g.module),
+            path = stringId(g.path),
+            source = NONE
+        }
+        if g.source then
+            row.source = add("sourceBindings", {
+                name = stringId(g.source.name),
+                module = stringId(g.source.module),
+                path = stringId(g.source.path)
+            })
+        end
+        for index in ipairs(g.types) do
+            add("values", {slot = g.slots[index]})
+        end
+        for _, constant in ipairs(g.constants) do
+            add("constants", {kind = constantIds[constant.kind]})
+        end
+        for _, position in ipairs(g.positions) do
+            local source = NONE
+            if position.source then
+                source = add("positionSources", {
+                    moduleName = stringId(position.source.moduleName),
+                    path = stringId(position.source.path)
+                })
+            end
+            add("positions", {line = position.line, column = position.column, source = source})
+        end
+        for _, block in ipairs(g.blocks) do
+            local first, count = words(block.params)
+            local b: any = {
+                id = block.id,
+                paramsFirst = first,
+                paramsCount = count,
+                opsFirst = #tables.operations,
+                opsCount = #block.op,
+                term = #tables.terms
+            }
+            for at, op in ipairs(block.op) do
+                first, count = words(block.args[at])
+                add("operations", {
+                    opcode = operationIds[op],
+                    dst = block.dst[at],
+                    argsFirst = first,
+                    argsCount = count,
+                    pos = block.pos[at],
+                    cert = block.cert[at]
+                })
+            end
+            local term = block.term
+            first, count = 0, 0
+            if term.kind == "invoke" then
+                first, count = words(term.args)
+            end
+            local t: any = {
+                kind = termIds[term.kind],
+                value = absent(term.value),
+                callee = absent(term.callee),
+                result = absent(term.result),
+                contract = absent(term.contract),
+                pos = absent(term.pos),
+                argsFirst = first,
+                argsCount = count,
+                edgesFirst = #tables.edges,
+                edgesCount = #term.edges
+            }
+            for _, edge in ipairs(term.edges) do
+                first, count = words(edge.args)
+                add("edges", {target = edge.target, argsFirst = first, argsCount = count})
+            end
+            add("terms", t)
+            add("blocks", b)
+        end
+        add("graphs", row)
+    end
+    tables.bytes = table.concat(texts)
+
+    return tables
+end
+
+function codec.encode(p: any): string
+    semantic.semantic(p)
+    local wire = schema.wire()
+    local tables = flatten(p, wire)
+    local payloads, directory, offset = {}, {}, wire.headerBytes + #wire.sections * wire.directoryBytes
+    local budget = {records = 0, expansion = 0}
+    for index, section in ipairs(wire.sections) do
+        local rows, parts = tables[section.name], {}
+        local count = #rows
+        sectionBudget(budget, section, count, wire)
+        if section.name == "bytes" then
+            parts[1] = rows
+        else
+            for _, row in ipairs(rows) do
+                parts[#parts + 1] = writeRecord(section, row)
+            end
+        end
+        local bytes = table.concat(parts)
+        need(#bytes == count * section.stride, "encoded section extent differs")
+        offset = aligned(offset)
+        need(#bytes <= wire.fileLimit - offset, "file byte limit exceeded")
+        directory[index] = {kind = section.id, stride = section.stride, count = count, offset = offset, bytes = #bytes}
+        payloads[index] = bytes
+        offset += #bytes
+    end
+    local header = {
+        version = wire.version,
+        profile = wire.profile,
+        sections = #wire.sections,
+        entry = p.entry,
+        bytes = offset,
+        directory = wire.headerBytes
+    }
+    local parts = {wire.magic, writeRecord(wire.header, header)}
+    for _, row in ipairs(directory) do
+        parts[#parts + 1] = writeRecord(wire.directory, row)
+    end
+    local at = wire.headerBytes + #wire.sections * wire.directoryBytes
+    for index, bytes in ipairs(payloads) do
+        parts[#parts + 1] = string.rep("\0", directory[index].offset - at)
+        parts[#parts + 1] = bytes
+        at = directory[index].offset + #bytes
+    end
+
+    return table.concat(parts)
+end
+
+local function readSections(bytes: string, wire: any): (any, integer)
+    need(#bytes <= wire.fileLimit and #bytes >= wire.headerBytes, "invalid file extent")
+    need(bytes:sub(1, 8) == wire.magic, "unknown graph magic")
+    local header = readRecord(wire.header, bytes, 8)
+    need(header.version == wire.version and header.profile == wire.profile, "unsupported graph version/profile")
+    need(
+        header.sections == #wire.sections and header.directory == wire.headerBytes and header.bytes == #bytes,
+        "invalid graph header extent"
+    )
+    local directory, at = {}, wire.headerBytes + #wire.sections * wire.directoryBytes
+    local budget = {records = 0, expansion = 0}
+    need(at <= #bytes, "truncated section directory")
+    for index, section in ipairs(wire.sections) do
+        local row = readRecord(wire.directory, bytes, wire.headerBytes + (index - 1) * wire.directoryBytes)
+        need(row.kind == section.id and row.stride == section.stride, "unknown/reordered section or stride")
+        need(row.offset == aligned(at) and row.offset <= #bytes, "noncanonical section offset")
+        for padding = at + 1, row.offset do
+            need(bytes:byte(padding) == 0, "nonzero alignment padding")
+        end
+        local limit = section.name == "bytes" and wire.stringLimit or wire.recordsLimit
+        need(
+            row.count <= limit and row.count <= math.floor((#bytes - row.offset) / row.stride),
+            "section count/extent exceeds bounds"
+        )
+        need(row.bytes == row.count * row.stride, "section size differs")
+        sectionBudget(budget, section, row.count, wire)
+        at = row.offset + row.bytes
+        directory[index] = row
+    end
+    need(at == #bytes, "trailing file bytes")
+    local tables = {}
+    for index, section in ipairs(wire.sections) do
+        local row = directory[index]
+        if section.name == "bytes" then
+            tables.bytes = bytes:sub(row.offset + 1, row.offset + row.bytes)
+        else
+            local rows = {}
+            for item = 1, row.count do
+                rows[item] = readRecord(section, bytes, row.offset + (item - 1) * row.stride)
+            end
+            tables[section.name] = rows
+        end
+    end
+
+    return tables, header.entry
+end
+
+local function inflate(tables: any, entry: integer, wire: any): any
+    local used, stringValues, stringSeen, nextByte, expansion, stringExpansion = {}, {}, {}, 0, 0, 0
+    for _, section in ipairs(wire.sections) do
+        used[section.name] = {}
+    end
+
+    local function charge(count: integer): nil
+        need(count <= wire.expandedLimit - expansion, "decoded expansion limit exceeded")
+        expansion += count
+    end
+
+    local function claim(name: string, first: integer, count: integer, maximum: integer): nil
+        local rows = tables[name]
+        need(first <= #rows and count <= #rows - first and count <= maximum, "invalid owned section span")
+        charge(count)
+        for index = first + 1, first + count do
+            need(not used[name][index], "overlapping owned section span")
+            used[name][index] = true
+        end
+    end
+
+    local function one(name: string, id: integer): any
+        claim(name, id, 1, 1)
+        return tables[name][id + 1]
+    end
+
+    for index, row in ipairs(tables.strings) do
+        need(
+            row.offset == nextByte and row.bytes <= 1048576 and row.bytes <= #tables.bytes - nextByte,
+            "invalid string byte partition"
+        )
+        local value = tables.bytes:sub(nextByte + 1, nextByte + row.bytes)
+        need(not stringSeen[value], "duplicate interned string")
+        stringSeen[value] = true
+        stringValues[index] = value
+        nextByte += row.bytes
+    end
+    need(nextByte == #tables.bytes, "unused string bytes")
+
+    local function stringAt(id: integer): string
+        local value = need(stringValues[id + 1], "string reference outside table")
+        need(#value <= wire.stringLimit - stringExpansion, "decoded string expansion limit exceeded")
+        stringExpansion += #value
+        used.strings[id + 1] = true
+        charge(1)
+
+        return value
+    end
+
+    local function words(first: integer, count: integer, maximum: integer): any
+        claim("words", first, count, maximum)
+        local values = {}
+        for index = 1, count do
+            values[index] = tables.words[first + index].value
+        end
+
+        return values
+    end
+
+    local function optional(row: any, key: string, value: integer): nil
+        if value ~= NONE then
+            row[key] = value
+        end
+    end
+
+    need(#tables.schema == 1, "one schema record required")
+    local policy = one("schema", 0)
+    need(
+        policy.version == wire.version
+        and policy.profile == wire.profile
+        and policy.capabilities == 0
+        and policy.returns == 1,
+        "unknown schema policy"
+    )
+    local definition = schema.describe()
+    local p: any = {
+        schema = definition,
+        entry = entry,
+        catalog = {},
+        signatures = {},
+        graphs = {},
+        modules = {},
+        contracts = {}
+    }
+    claim("catalog", 0, #tables.catalog, 256)
+    for index, row in ipairs(tables.catalog) do
+        local kind = need(wire.ownerKinds[row.kind + 1], "unknown owner kind").name
+        local owner: any = {id = row.id, kind = kind, signature = row.signature, graph = row.graph, effect = row.effect}
+        optional(owner, "parent", row.parent)
+        p.catalog[index] = owner
+    end
+    claim("signatures", 0, #tables.signatures, 256)
+    for index, row in ipairs(tables.signatures) do
+        local kind = need(wire.signatureKinds[row.kind + 1], "unknown signature kind").name
+        local params = words(row.paramsFirst, row.paramsCount, 239)
+        for at, kind in ipairs(params) do
+            params[at] = need(definition.scalarKinds[kind + 1], "unknown scalar kind").name
+        end
+        p.signatures[
+            index
+        ] = {
+            id = row.id,
+            kind = kind,
+            result = need(definition.scalarKinds[row.result + 1], "unknown scalar result").name,
+            params = params
+        }
+    end
+    claim("modules", 0, #tables.modules, 1)
+    for index, row in ipairs(tables.modules) do
+        p.modules[index] = {name = stringAt(row.name), path = stringAt(row.path), chunk = row.chunk}
+    end
+    claim("contracts", 0, #tables.contracts, 1048576)
+    for index, row in ipairs(tables.contracts) do
+        p.contracts[
+            index
+        ] = {
+            id = row.id,
+            owner = row.owner,
+            block = row.block,
+            callsite = row.callsite,
+            target = row.target,
+            signature = row.signature,
+            effect = row.effect
+        }
+    end
+    claim("graphs", 0, #tables.graphs, 256)
+    for index, row in ipairs(tables.graphs) do
+        local g: any = {
+            programOwner = row.owner,
+            nparams = row.nparams,
+            counts = {v = row.nv, i = row.ni, f = row.nf, x = row.nx},
+            name = stringAt(row.name),
+            module = stringAt(row.module),
+            path = stringAt(row.path),
+            types = {},
+            slots = {},
+            constants = {},
+            blocks = {},
+            positions = {},
+            certificates = {}
+        }
+        if row.source ~= NONE then
+            local source = one("sourceBindings", row.source)
+            g.source = {name = stringAt(source.name), module = stringAt(source.module), path = stringAt(source.path)}
+        end
+        claim("values", row.valuesFirst, row.valuesCount, 65536)
+        for at = 1, row.valuesCount do
+            g.types[at], g.slots[at] = "v", tables.values[row.valuesFirst + at].slot
+        end
+        claim("constants", row.constantsFirst, row.constantsCount, 65536)
+        for at = 1, row.constantsCount do
+            local constant = tables.constants[row.constantsFirst + at]
+            g.constants[
+                at
+            ] = {kind = need(wire.constantKinds[constant.kind + 1], "unknown constant kind").name, value = ""}
+        end
+        claim("positions", row.positionsFirst, row.positionsCount, 1048576)
+        for at = 1, row.positionsCount do
+            local position = tables.positions[row.positionsFirst + at]
+            local copied: any = {line = position.line, column = position.column}
+            if position.source ~= NONE then
+                local source = one("positionSources", position.source)
+                copied.source = {moduleName = stringAt(source.moduleName), path = stringAt(source.path)}
+            end
+            g.positions[at] = copied
+        end
+        claim("blocks", row.blocksFirst, row.blocksCount, 4096)
+        for bi = 1, row.blocksCount do
+            local block = tables.blocks[row.blocksFirst + bi]
+            local b: any = {
+                id = block.id,
+                params = words(block.paramsFirst, block.paramsCount, 65536),
+                op = {},
+                dst = {},
+                args = {},
+                pos = {},
+                cert = {}
+            }
+            claim("operations", block.opsFirst, block.opsCount, 1048576)
+            for at = 1, block.opsCount do
+                local operation = tables.operations[block.opsFirst + at]
+                b.op[at] = need(definition.operations[operation.opcode + 1], "unknown operation ID").name
+                b.dst[at], b.pos[at], b.cert[at] = operation.dst, operation.pos, operation.cert
+                b.args[at] = words(operation.argsFirst, operation.argsCount, 1048576)
+            end
+            local term = one("terms", block.term)
+            local t: any = {kind = need(definition.terms[term.kind + 1], "unknown term ID").name, edges = {}}
+            optional(t, "pos", term.pos)
+            if t.kind == "invoke" then
+                need(term.value == NONE, "invoke has a hidden value")
+                optional(t, "callee", term.callee)
+                optional(t, "result", term.result)
+                optional(t, "contract", term.contract)
+                t.args = words(term.argsFirst, term.argsCount, 239)
+            else
+                need(
+                    term.callee == NONE
+                    and term.result == NONE
+                    and term.contract == NONE
+                    and term.argsFirst == 0
+                    and term.argsCount == 0,
+                    "hidden non-invoke fields"
+                )
+                if t.kind == "return" or t.kind == "branch" then
+                    optional(t, "value", term.value)
+                else
+                    need(term.value == NONE, "jump has a hidden value")
+                end
+            end
+            claim("edges", term.edgesFirst, term.edgesCount, 2)
+            for ei = 1, term.edgesCount do
+                local edge = tables.edges[term.edgesFirst + ei]
+                t.edges[ei] = {target = edge.target, args = words(edge.argsFirst, edge.argsCount, 65536)}
+            end
+            b.term, g.blocks[bi] = t, b
+        end
+        p.graphs[index] = g
+    end
+    for _, section in ipairs(wire.sections) do
+        if section.name ~= "bytes" then
+            for index in ipairs(tables[section.name]) do
+                need(used[section.name][index], "unused section record " .. section.name)
+            end
+        end
+    end
+
+    return p
+end
+
+function codec.decode(bytes: string): any
+    need(type(bytes) == "string", "encoded bytes required")
+    local wire = schema.wire()
+    local tables, entry = readSections(bytes, wire)
+    local p = inflate(tables, entry, wire)
+    semantic.semantic(p)
+
+    return p
+end
+
+export = codec

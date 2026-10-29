@@ -1100,7 +1100,7 @@ local edgeCounts = {
     nativeFail = 0
 }
 
-function graph.verify(g: any): nil
+local function verifyGraph(g: any, invokeArity: any): nil
     local blocks, types, slots, counts = g.blocks, g.types, g.slots, g.counts
     if not (#blocks > 0 and #blocks <= 100000 and #types == #slots) then
         error("assertion failed", 0)
@@ -1348,9 +1348,9 @@ function graph.verify(g: any): nil
                 edges = true,
                 pos = true
             })
-            invokeContract(t.contract)
+            local arity = invokeArity(t, index)
             dense(t.args)
-            assert(#t.args == #t.contract.call.args.exprs, "invoke must retain every evaluated argument")
+            assert(#t.args == arity, "invoke must retain every evaluated argument")
             assert(usable(t.callee) and types[t.callee] == "v", "invoke callee must be usable tagged SSA")
             for _, value in ipairs(t.args) do
                 assert(usable(value) and types[value] == "v", "invoke argument must be usable tagged SSA")
@@ -1553,6 +1553,43 @@ function graph.verify(g: any): nil
             error("certificate cites values outside the integer class", 0)
         end
     end
+end
+
+function graph.verify(g: any): nil
+    verifyGraph(g, function(term: any, index: integer): integer
+        invokeContract(term.contract)
+        return #term.contract.call.args.exprs
+    end)
+end
+
+-- Structural SSA validation only. Numeric arities do not prove checked source,
+-- catalog membership, effects, or executable admission. Those remain separate.
+function graph.verifyGuestStructure(g: any, arities: any): nil
+    assert(
+        g.native == nil and g.nativePhysical == nil and g.exactTypes == nil,
+        "guest structure cannot admit native or physical sidecars"
+    )
+    dense(arities)
+    assert(#arities == #g.blocks, "guest structure requires one arity per block")
+    for index, block in ipairs(g.blocks) do
+        local arity = arities[index]
+        if block.term and block.term.kind == "invoke" then
+            assert(
+                type(arity) == "number" and arity >= 0 and arity < 240 and arity % 1 == 0,
+                "invalid numeric invoke arity"
+            )
+            local id = block.term.contract
+            assert(
+                type(id) == "number" and id >= 0 and id < 1048576 and id % 1 == 0,
+                "guest structure requires numeric contract IDs"
+            )
+        else
+            assert(arity == 4294967295, "non-invoke block must have absent arity")
+        end
+    end
+    verifyGraph(g, function(term: any, index: integer): integer
+        return arities[index]
+    end)
 end
 
 --- Removes the transported parameters no block uses downstream, with the

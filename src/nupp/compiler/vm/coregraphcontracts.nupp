@@ -2,6 +2,7 @@ module nupp.compiler.vm.coregraphcontracts
 
 local program = require("nupp.compiler.vm.programgraph")
 local schema = require("nupp.compiler.vm.coregraphschema")
+local semantic = require("nupp.compiler.vm.coregraphverify")
 local contracts = {}
 
 local function need(ok: any, message: string): any
@@ -41,15 +42,6 @@ local function dense(value: any, maximum: integer): integer
     need(count == length, "sparse semantic array")
 
     return length
-end
-
-local function words(value: any): any
-    local result = {}
-    for index = 1, dense(value, 1048576) do
-        result[index] = integer(value[index], 4294967295)
-    end
-
-    return result
 end
 
 local function text(value: any): string
@@ -141,241 +133,6 @@ local function intern(signatures: any, index: any, signature: any): integer
     return id
 end
 
-local function graphCopy(g: any): any
-    fields(g, "nparams blocks types slots counts constants positions certificates name module path programOwner source")
-    local copy: any = {
-        nparams = integer(g.nparams, 239),
-        programOwner = integer(g.programOwner, 255),
-        name = text(g.name),
-        module = text(g.module),
-        path = text(g.path),
-        blocks = {},
-        types = {},
-        slots = words(g.slots),
-        counts = {},
-        constants = {},
-        positions = {},
-        certificates = {}
-    }
-    if g.source ~= nil then
-        fields(g.source, "name module path")
-        copy.source = {name = text(g.source.name), module = text(g.source.module), path = text(g.source.path)}
-        need(
-            copy.source.name == copy.name and copy.source.module == copy.module and copy.source.path == copy.path,
-            "graph source binding differs"
-        )
-    end
-    fields(g.counts, "v i f x")
-    for _, class in ipairs({"v", "i", "f", "x"}) do
-        copy.counts[class] = integer(g.counts[class], 65536)
-        need(class == "v" or copy.counts[class] == 0, "only tagged values are admitted")
-    end
-    need(dense(g.types, 65536) == #copy.slots, "value columns differ")
-    for index, class in ipairs(g.types) do
-        need(class == "v", "only tagged values are admitted")
-        copy.types[index] = class
-    end
-    need(dense(g.certificates, 1048576) == 0, "certificates are unsupported")
-    for index = 1, dense(g.constants, 65536) do
-        local constant = g.constants[index]
-        fields(constant, "kind value")
-        need(
-            constant.kind == "true" or constant.kind == "false" or constant.kind == "nil",
-            "only Boolean/NIL constants are admitted"
-        )
-        need(constant.value == "", "unexpected Boolean/NIL constant payload")
-        copy.constants[index] = {kind = constant.kind, value = constant.value}
-    end
-    for index = 1, dense(g.positions, 1048576) do
-        local position = g.positions[index]
-        fields(position, "line column source")
-        local copied: any = {line = integer(position.line, 4294967295), column = integer(position.column, 4294967295)}
-        if position.source ~= nil then
-            fields(position.source, "moduleName path")
-            copied.source = {moduleName = text(position.source.moduleName), path = text(position.source.path)}
-        end
-        copy.positions[index] = copied
-        need(position.line > 0 and position.column > 0, "source positions are one-based")
-    end
-    for index = 1, dense(g.blocks, 4096) do
-        local block = g.blocks[index]
-        fields(block, "id params op dst args pos cert term")
-        local b: any = {
-            id = integer(block.id, 4096),
-            params = words(block.params),
-            op = {},
-            dst = words(block.dst),
-            args = {},
-            pos = words(block.pos),
-            cert = words(block.cert)
-        }
-        need(b.id == index, "block order differs")
-        local count = dense(block.op, 1048576)
-        need(
-            count == dense(block.args, 1048576) and count == #b.dst and count == #b.pos and count == #b.cert,
-            "operation columns differ"
-        )
-        for at = 1, count do
-            b.op[at], b.args[at] = text(block.op[at]), words(block.args[at])
-            need(b.cert[at] == 0 and b.pos[at] <= #copy.positions, "unsupported operation certificate/position")
-        end
-        local term = block.term
-        plain(term)
-        local kind = term.kind
-        if kind == "invoke" then
-            fields(term, "kind callee args contract result edges pos")
-        elseif kind == "return" or kind == "branch" then
-            fields(term, "kind value edges pos")
-        else
-            need(kind == "jump", "unsupported terminator")
-            fields(term, "kind edges pos")
-        end
-        local t: any = {kind = kind, edges = {}}
-        for _, key in ipairs({"value", "callee", "result", "pos"}) do
-            if term[key] ~= nil then
-                t[key] = integer(term[key], 4294967295)
-            end
-        end
-        if t.pos ~= nil then
-            need(t.pos <= #copy.positions, "invalid terminator position")
-        end
-        if kind == "invoke" then
-            t.args = words(term.args)
-            -- The checked contract is authenticated separately and replaced by
-            -- a semantic contract ID. It is never copied into persistent data.
-        end
-        for edgeIndex = 1, dense(term.edges, 2) do
-            local edge = term.edges[edgeIndex]
-            fields(edge, "target args")
-            t.edges[edgeIndex] = {target = integer(edge.target, 4096), args = words(edge.args)}
-        end
-        b.term, copy.blocks[index] = t, b
-    end
-
-    return copy
-end
-
-local function topological(nodes: any, edges: any, entry: integer?): any
-    local incoming, ready, result = {}, {}, {}
-    for index = 1, #nodes do
-        incoming[index] = 0
-    end
-    for _, targets in ipairs(edges) do
-        for _, target in ipairs(targets) do
-            need(incoming[target] ~= nil, "invalid graph dependency")
-            incoming[target] += 1
-        end
-    end
-    if entry ~= nil then
-        need(incoming[entry] == 0, "entry has an incoming edge")
-        ready[1] = entry
-    else
-        for index = 1, #nodes do
-            if incoming[index] == 0 then
-                ready[#ready + 1] = index
-            end
-        end
-    end
-    local at = 1
-    while at <= #ready do
-        local index = ready[at]
-        at += 1
-        result[#result + 1] = index
-        for _, target in ipairs(edges[index]) do
-            incoming[target] -= 1
-            if incoming[target] == 0 then
-                ready[#ready + 1] = target
-            end
-        end
-    end
-    need(#result == #nodes, "cyclic or unreachable graph is unsupported")
-
-    return result
-end
-
--- This transient classification only derives initializer results and checks the
--- admitted scalar subset. It is not a runtime handle/tag authentication proof.
--- A function:<owner> classification identifies only the possible code target.
--- It never identifies a closure instance or permits interning, CSE, or equality
--- by target. Every Closure operation and every invocation remains in the graph.
-local function resultKind(g: any, signature: any, output: any): string
-    local kinds, edges = {}, {}
-    for index, kind in ipairs(signature.params) do
-        kinds[index] = kind
-    end
-
-    local function assign(id: integer, kind: string): nil
-        need(kinds[id] == nil or kinds[id] == kind, "incompatible scalar join")
-        kinds[id] = kind
-    end
-
-    for index, block in ipairs(g.blocks) do
-        edges[index] = {}
-        for at, edge in ipairs(block.term.edges) do
-            edges[index][at] = edge.target
-        end
-    end
-    local returned
-    for _, index in ipairs(topological(g.blocks, edges, 1)) do
-        local block = g.blocks[index]
-        for _, id in ipairs(block.params) do
-            need(kinds[id] ~= nil, "unresolved scalar block parameter")
-        end
-        for at, op in ipairs(block.op) do
-            local args = block.args[at]
-            local kind = switch op do
-                case "K" -> do
-                    local constant = need(g.constants[args[1] + 1], "constant index differs")
-                    yield constant.kind == "nil" and "nil" or "boolean"
-                end
-                case "Nil" -> "nil"
-                case "Move" -> need(kinds[args[1]], "unresolved scalar move")
-                case "Closure" -> do
-                    need(#args == 1, "only zero-capture closures are admitted")
-                    local target = need(output.catalog[args[1] + 1], "closure owner is missing")
-                    need(target.kind == "function" and target.parent == g.programOwner, "closure owner differs")
-                    local provenance = "function:" .. args[1]
-                    yield provenance
-                end
-                else -> error("core graph contracts: unsupported operation", 0)
-            end
-            assign(block.dst[at], kind)
-        end
-        local term = block.term
-        if term.kind == "return" then
-            -- Scalar result kind describes the caller-observed padded value.
-            -- The copied term still distinguishes no value from a NIL SSA
-            -- value; it is never rewritten to a native zero-result ABI.
-            local kind = term.value and need(kinds[term.value], "unresolved return") or "nil"
-            need(kind == "boolean" or kind == "nil", "initializer/function must return Boolean/NIL")
-            need(returned == nil or returned == kind, "incompatible scalar returns")
-            returned = kind
-        elseif term.kind == "invoke" then
-            local contract = output.contracts[term.contract + 1]
-            local target = output.signatures[contract.signature + 1]
-            need(kinds[term.callee] == "function:" .. contract.target, "actual callee provenance differs")
-            need(#term.args == #target.params, "call arity differs")
-            for at, id in ipairs(term.args) do
-                need(kinds[id] == target.params[at], "call scalar argument differs")
-            end
-            if term.result ~= nil then
-                assign(term.result, target.result)
-            end
-        elseif term.kind == "branch" then
-            need(kinds[term.value] == "boolean" or kinds[term.value] == "nil", "unsupported branch value")
-        end
-        for _, edge in ipairs(term.edges) do
-            local params = g.blocks[edge.target].params
-            local offset = term.kind == "invoke" and term.result ~= nil and 1 or 0
-            for at, id in ipairs(edge.args) do
-                assign(params[at + offset], need(kinds[id], "unresolved edge value"))
-            end
-        end
-    end
-
-    return need(returned, "missing scalar return")
-end
-
 function contracts.normalize(compiled: any): any
     fields(compiled, "graphs header catalog")
     local p, graphs = compiled.catalog, compiled.graphs
@@ -430,7 +187,7 @@ function contracts.normalize(compiled: any): any
             )
         end
         output.catalog[index], callEdges[index] = record, {}
-        output.graphs[index] = graphCopy(graphs[index])
+        output.graphs[index] = semantic.copyGraph(graphs[index])
     end
     -- This is the authoritative source-side gate. Decoders must never call it
     -- with fabricated checker objects. Call-front adds callsite membership.
@@ -482,12 +239,12 @@ function contracts.normalize(compiled: any): any
             end
         end
     end
-    topological(output.catalog, callEdges, nil)
+    semantic.topological(output.catalog, callEdges, nil)
     for index, g in ipairs(output.graphs) do
         local owner = output.catalog[index]
         local signature = owner.kind == "module" and {kind = "initializer", params = {}}
             or output.signatures[owner.signature + 1]
-        local result = resultKind(g, signature, output)
+        local result = semantic.resultKind(g, signature, output)
         if owner.kind == "module" then
             need(g.nparams == 0, "initializer has parameters")
             owner.signature = intern(output.signatures, signatureIndex, {
