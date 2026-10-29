@@ -1,0 +1,7 @@
+module nupp.core.catalogboolean
+
+local function identity(value: boolean): boolean
+    return value
+end
+
+export = identity(true)

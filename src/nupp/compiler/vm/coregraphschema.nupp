@@ -1,0 +1,136 @@
+module nupp.compiler.vm.coregraphschema
+
+local graph = require("nupp.compiler.vm.graph")
+local opcodes = require("nupp.compiler.vm.opcodes")
+local schema = {}
+
+-- IDs and admission policy are versioned here. Operand definitions are copied
+-- from the canonical graph tables; these rows do not define execution behavior.
+local operations = {
+    {name = "K", signature = "Vk", effect = 0},
+    {name = "Nil", signature = "V", effect = 0},
+    {name = "Move", signature = "Vv", effect = 0},
+    -- Zero captures do not make creation pure: each evaluation still creates
+    -- an instance. Catalog owner identity is not closure value identity.
+    {name = "Closure", signature = "Vn", effect = 1}
+}
+
+local function copyArray(values: any): any
+    local result = {}
+    for index, value in ipairs(values) do
+        result[index] = value
+    end
+
+    return result
+end
+
+-- Section fields describe the proposed persistent contract only. Encoded
+-- record strides/extents and a wire reader are not established by this module.
+function schema.describe(): any
+    local described: any = {
+        magic = "NUPPCGRF",
+        version = 1,
+        profile = "boolean-nil-acyclic-v1",
+        byteOrder = "little",
+        alignment = 8,
+        absent = 4294967295,
+        limits = {owners = 256, blocks = 4096, values = 65536, items = 1048576},
+        scalarKinds = {{id = 0, name = "boolean"}, {id = 1, name = "nil"}},
+        effects = {
+            {id = 0, mayCollect = false, mayRaise = false, mayPark = false, pure = true},
+            {id = 1, mayCollect = true, mayRaise = true, mayPark = false, pure = false}
+        },
+        terms = {
+            {id = 0, name = "return", edges = 0, effect = 0},
+            {id = 1, name = "jump", edges = 1, effect = 0},
+            {id = 2, name = "branch", edges = 2, effect = 0},
+            {id = 3, name = "invoke", edges = 1, effect = 1}
+        },
+        operations = {},
+        sections = {
+            {id = 0, name = "schema", fields = {"version", "profile", "operations", "terms", "scalarKinds", "effects"}},
+            {id = 1, name = "catalog", fields = {"id", "kind", "parent", "signature", "graph", "effect"}},
+            {id = 2, name = "signatures", fields = {"id", "kind", "params", "result"}},
+            {
+                id = 3,
+                name = "graphs",
+                fields = {
+                    "programOwner",
+                    "nparams",
+                    "counts",
+                    "types",
+                    "slots",
+                    "constants",
+                    "blocks",
+                    "positions",
+                    "certificates",
+                    "name",
+                    "module",
+                    "path",
+                    "source"
+                }
+            },
+            {id = 4, name = "blocks", fields = {"id", "params", "op", "dst", "args", "pos", "cert", "term"}},
+            {
+                id = 5,
+                name = "terms",
+                fields = {"kind", "value", "callee", "args", "contract", "result", "edges", "pos"}
+            },
+            {
+                id = 6,
+                name = "contracts",
+                fields = {"id", "owner", "block", "callsite", "target", "signature", "effect"}
+            },
+            {id = 7, name = "positions", fields = {"line", "column", "source"}},
+            {id = 8, name = "sourceBindings", fields = {"name", "module", "path"}},
+            {id = 9, name = "positionSources", fields = {"moduleName", "path"}}
+        },
+        directory = {"kind:u32", "stride:u32", "count:u64", "offset:u64", "bytes:u64"},
+        capabilities = {
+            native = false,
+            physical = false,
+            captures = false,
+            varargs = false,
+            suspension = false,
+            external = false,
+            cachedStream = false
+        },
+        returns = {
+            absentValueProduces = 0,
+            presentValueProduces = 1,
+            signatureNilIsVoid = false,
+            paddingBelongsToCaller = true
+        },
+        runtimeChecks = {calleeOwner = true, scalarArguments = true, scalarResult = true}
+    }
+    for index, policy in ipairs(operations) do
+        local signature = assert(graph.signatures[policy.name], "missing canonical graph signature")
+        assert(graph.signatureText[policy.name] == policy.signature, "canonical graph signature changed")
+        assert(not signature.terminator, "operation became a terminator")
+        local ordinary = opcodes.describe(policy.name)
+        if ordinary then
+            assert(not ordinary.frame and #ordinary.windows == 0, "implicit operation transport is unsupported")
+        else
+            assert(policy.name == "Closure" and signature.coreOnly and signature.macro, "unknown graph-only operation")
+        end
+        described.operations[
+            index
+        ] = {
+            id = index - 1,
+            name = policy.name,
+            signature = graph.signatureText[policy.name],
+            args = copyArray(signature.args),
+            result = signature.result,
+            resultAt = signature.resultAt,
+            arity = signature.n,
+            variadic = signature.variadic == true,
+            variadicClass = signature.variadicClass,
+            effect = policy.effect,
+            admittedCaptureCount = policy.name == "Closure" and 0 or nil
+        }
+    end
+
+    return described
+end
+
+export = schema
