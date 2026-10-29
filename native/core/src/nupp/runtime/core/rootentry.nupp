@@ -1,0 +1,183 @@
+module nupp.runtime.core.rootentry
+
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.core.arena")
+const frames = require("nupp.runtime.core.frames")
+
+-- Pointer-free, trusted checked-layout metadata in the retained data mapping,
+-- borrowed immutably. Offsets are relative; no serialized address is used.
+export struct Descriptor
+    version: uint64
+    functionId: uint64
+    bodyOffset: uint64
+    instructionCount: uint64
+    valueCount: uint64
+    integerCount: uint64
+    floatCount: uint64
+    vectorCount: uint64
+    tableOffset: uint64
+    handlerCount: uint64
+end
+
+-- Entry-lifetime metadata is outside both the logical pool and helper storage.
+-- It is fresh for start; reuse of a live or retired entry must use the lifecycle
+-- services instead of resetting the segment serial or zeroing its descriptor.
+export struct Storage
+    state: frames.State
+    segment: arena.Segment
+    root: frames.RootControl
+    info: frames.FunctionInfo
+    plan: frames.WindowPlan
+end
+
+local function range(base: uint64, bytes: uint64, alignment: uint64): uint64
+    if base == 0ULL or bytes == 0ULL or (base & (alignment - 1ULL)) ~= 0ULL or bytes > 0xffffffffffffffffULL - base then
+        return 0ULL
+    end
+
+    return 1ULL
+end
+
+local function overlap(a: uint64, an: uint64, b: uint64, bn: uint64): boolean
+    return a < b + bn and b < a + an
+end
+
+-- Only used before a root is published, when start proved every original
+-- storage word was zero and beginRoot refused without reserving or writing.
+local function rollback(storage: voidptr): uint64
+    local at: uint64 = 0ULL
+    while at < native.sizeOf<Storage>() do
+        native.store64(storage, native.index(at), 0ULL)
+        at = at + 8ULL
+    end
+
+    return 0ULL
+end
+
+-- The loader lends actual mapped ranges; these checks cannot authenticate an
+-- integer as a mapping. All mutable storage must be fresh and exclusively held.
+export function start(
+    data: voidptr,
+    dataBytes: uint64,
+    storage: voidptr,
+    pool: voidptr,
+    poolBytes: uint64,
+    helper: voidptr,
+    helperBytes: uint64
+): uint64
+    local source, output = native.address(data), native.address(storage)
+    local base, spill = native.address(pool), native.address(helper)
+    local bytes = native.sizeOf<Storage>()
+    if range(source, dataBytes, 8ULL) == 0ULL
+        or dataBytes < native.sizeOf<Descriptor>()
+        or range(output, bytes, 8ULL) == 0ULL
+        or range(base, poolBytes, 16ULL) == 0ULL
+        or range(spill, helperBytes, 16ULL) == 0ULL
+    then
+        return 0ULL
+    end
+    if overlap(source, dataBytes, output, bytes)
+        or overlap(source, dataBytes, base, poolBytes)
+        or overlap(source, dataBytes, spill, helperBytes)
+        or overlap(output, bytes, base, poolBytes)
+        or overlap(output, bytes, spill, helperBytes)
+        or overlap(base, poolBytes, spill, helperBytes)
+    then
+        return 0ULL
+    end
+    local body = native.load64(data, native.fieldOffset<Descriptor>("bodyOffset"))
+    local count = native.load64(data, native.fieldOffset<Descriptor>("instructionCount"))
+    local table = native.load64(data, native.fieldOffset<Descriptor>("tableOffset"))
+    local handlers = native.load64(data, native.fieldOffset<Descriptor>("handlerCount"))
+    local nv = native.load64(data, native.fieldOffset<Descriptor>("valueCount"))
+    local ni = native.load64(data, native.fieldOffset<Descriptor>("integerCount"))
+    local nf = native.load64(data, native.fieldOffset<Descriptor>("floatCount"))
+    local nx = native.load64(data, native.fieldOffset<Descriptor>("vectorCount"))
+    if native.load64(data, native.fieldOffset<Descriptor>("version")) ~= 1ULL
+        or native.load64(data, native.fieldOffset<Descriptor>("functionId")) > 0xffffffffULL
+        or count == 0ULL
+        or count > 1048576ULL
+        or handlers == 0ULL
+        or handlers > 256ULL
+        or nv == 0ULL
+        or nv > 256ULL
+        or ni > 256ULL
+        or nf > 256ULL
+        or nx > 256ULL
+        or body < native.sizeOf<Descriptor>()
+        or (body & 7ULL) ~= 0ULL
+        or body > dataBytes
+        or count * 16ULL > dataBytes - body
+        or table < body + count * 16ULL
+        or (table & 7ULL) ~= 0ULL
+        or table > dataBytes
+        or handlers * 8ULL ~= dataBytes - table
+    then
+        return 0ULL
+    end
+    local needed = frames.fixedBytes(nv, ni, nf, nx)
+    if needed > poolBytes then
+        return 0ULL
+    end
+    local state = native.offset(storage, native.fieldOffset<Storage>("state"))
+    local segment = native.offset(storage, native.fieldOffset<Storage>("segment"))
+    local control = native.offset(storage, native.fieldOffset<Storage>("root"))
+    local info = native.offset(storage, native.fieldOffset<Storage>("info"))
+    local plan = native.offset(storage, native.fieldOffset<Storage>("plan"))
+    -- Refuse reuse before any stores, including uninitialized nonzero metadata.
+    local at: uint64 = 0ULL
+    while at < bytes do
+        if native.load64(storage, native.index(at)) ~= 0ULL then
+            return 0ULL
+        end
+        at = at + 8ULL
+    end
+    if arena.initialize(segment, base, poolBytes) == 0ULL then
+        return 0ULL
+    end
+    native.store64(state, native.fieldOffset<frames.State>("segment"), native.address(segment))
+    native.store64(state, native.fieldOffset<frames.State>("limit"), 1ULL)
+    native.store64(state, native.fieldOffset<frames.State>("helperBase"), spill)
+    native.store64(state, native.fieldOffset<frames.State>("helperBytes"), helperBytes)
+    native.store64(info, native.fieldOffset<frames.FunctionInfo>("version"), 1ULL)
+    native.store64(
+        info,
+        native.fieldOffset<frames.FunctionInfo>("id"),
+        native.load64(data, native.fieldOffset<Descriptor>("functionId"))
+    )
+    native.store64(info, native.fieldOffset<frames.FunctionInfo>("bodyOwner"), source)
+    native.store64(info, native.fieldOffset<frames.FunctionInfo>("code"), source + body)
+    native.store64(info, native.fieldOffset<frames.FunctionInfo>("instructionCount"), count)
+    native.store64(info, native.fieldOffset<frames.FunctionInfo>("valueCount"), nv)
+    native.store64(info, native.fieldOffset<frames.FunctionInfo>("integerCount"), ni)
+    native.store64(info, native.fieldOffset<frames.FunctionInfo>("floatCount"), nf)
+    native.store64(info, native.fieldOffset<frames.FunctionInfo>("vectorCount"), nx)
+    -- The first scalar, closed root has no managed code owner or root map. Its
+    -- bodyOwner is retained mapping identity, never a fabricated tagged object.
+    if frames.planFixed(info, plan) == 0ULL then
+        return rollback(storage)
+    end
+    local frame = frames.beginRoot(state, control, info, plan)
+    if frame == 0ULL then
+        return rollback(storage)
+    end
+
+    return frame
+end
+
+-- Entry invokes this only after handler return, using the actual root identity.
+-- The retained completion value is never taken from the handler's raw return.
+export function complete(storage: voidptr, frame: voidptr, serial: uint64): uint64
+    local state = native.offset(storage, native.fieldOffset<Storage>("state"))
+    local control = native.offset(storage, native.fieldOffset<Storage>("root"))
+    -- Serial belongs to the original begin and is retained by the entry outside
+    -- the pool. Never replace it with the latest token at this reused address.
+    if native.load64(control, native.fieldOffset<frames.RootControl>("phase")) == frames.ROOT_COMPLETE then
+        return frames.retireRoot(state, control, frame, serial)
+    end
+    -- Abort success still means execution failure. Entry suppresses output.
+    -- If abort refuses, the active frame is retained, never silently reset.
+    local _ = frames.abortRoot(state, control, frame, serial)
+
+    return 0ULL
+end

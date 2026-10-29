@@ -106,7 +106,7 @@ function producer.compile(mode: string): string
         end
     end
     table.sort(names)
-    assert(#names == 23 and root, "frame service inventory")
+    assert(#names == 32 and root, "frame service inventory including shared root lifecycle")
     for _, symbol in ipairs(names) do
         local item = resolved[symbol]
         local code, metric = selected(item.graph, item.owner, mode, resolved)
