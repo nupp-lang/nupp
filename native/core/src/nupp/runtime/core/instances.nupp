@@ -1,0 +1,251 @@
+module nupp.runtime.core.instances
+
+const native = require("nupp.runtime.vm.intrinsics")
+const values = require("nupp.runtime.vm.values")
+
+-- Descriptors and embedded pointers are trusted entry-owned metadata, never
+-- wire data or guest-mutable input. The caller lends actual mapped storage;
+-- range() checks arithmetic/alignment only and cannot authenticate mappings.
+-- Mutable storage is exclusively held and changed only by these services;
+-- live registries may share World and immutable catalogs, but never descriptor
+-- or entry storage. The caller retains the immutable approved target table for
+-- each registry's entire live interval. Its address is owner identity, not proof
+-- of a mapping or catalog. These checks do not make arbitrary corruption safe.
+-- World storage outlives every registry and is never reset or copied for reuse.
+-- All mutable extents must also be outside executing helper/control storage;
+-- the entry supplies that lifetime separation. This service cannot discover it.
+-- Calls are serialized; these publication stores are not a concurrent protocol.
+export struct World
+    next: uint64
+end
+
+export struct Registry
+    world: uint64
+    entries: uint64
+    capacity: uint64
+    first: uint64
+    used: uint64
+    catalog: uint64
+    catalogBytes: uint64
+    targetCount: uint64
+    phase: uint64
+end
+
+export struct Instance
+    handle: uint64
+    owner: uint64
+    index: uint64
+    target: uint64
+end
+
+const LIVE = 1ULL
+const RETIRED = 2ULL
+const MAX_ENTRIES = 1048576ULL
+const MAX_TARGET = 0xffffffffULL
+
+local function range(base: uint64, bytes: uint64): uint64
+    if base == 0ULL or bytes == 0ULL or (base & 7ULL) ~= 0ULL or bytes > 0xffffffffffffffffULL - base then
+        return 0ULL
+    end
+    return 1ULL
+end
+
+local function overlaps(a: uint64, an: uint64, b: uint64, bn: uint64): boolean
+    return a < b + bn and b < a + an
+end
+
+local function regions(
+    world: uint64,
+    registry: uint64,
+    entries: uint64,
+    capacity: uint64,
+    catalog: uint64,
+    catalogBytes: uint64,
+    targets: uint64
+): uint64
+    if capacity == 0ULL or capacity > MAX_ENTRIES or targets == 0ULL or targets > MAX_ENTRIES then
+        return 0ULL
+    end
+    local wb, rb = native.sizeOf<World>(), native.sizeOf<Registry>()
+    local eb = capacity * native.sizeOf<Instance>()
+    if range(world, wb) == 0ULL
+        or range(registry, rb) == 0ULL
+        or range(entries, eb) == 0ULL
+        or range(catalog, catalogBytes) == 0ULL
+        or targets * 8ULL > catalogBytes
+    then
+        return 0ULL
+    end
+    if overlaps(world, wb, registry, rb)
+        or overlaps(world, wb, entries, eb)
+        or overlaps(world, wb, catalog, catalogBytes)
+        or overlaps(registry, rb, entries, eb)
+        or overlaps(registry, rb, catalog, catalogBytes)
+        or overlaps(entries, eb, catalog, catalogBytes)
+    then
+        return 0ULL
+    end
+
+    return 1ULL
+end
+
+-- Only fresh zeroed storage may become a world. There is intentionally no reset.
+-- next == PAYLOAD + 1 is the exhausted sentinel, never a handle payload.
+export function initializeWorld(world: voidptr): uint64
+    if range(native.address(world), native.sizeOf<World>()) == 0ULL then
+        return 0ULL
+    end
+    if native.load64(world, native.fieldOffset<World>("next")) ~= 0ULL then
+        return 0ULL
+    end
+    native.store64(world, native.fieldOffset<World>("next"), 1ULL)
+
+    return 1ULL
+end
+
+-- capacity zero is refused. Entries need capacity*sizeof(Instance) mapped bytes;
+-- they need not be zero: only indices below used are published. Registry must be
+-- fresh zero storage; retired descriptors cannot be initialized again.
+export function initialize(
+    world: voidptr,
+    registry: voidptr,
+    entries: voidptr,
+    capacity: uint64,
+    catalog: voidptr,
+    catalogBytes: uint64,
+    targetCount: uint64
+): uint64
+    local w, r, e, c = native.address(world), native.address(registry), native.address(entries), native.address(catalog)
+    if regions(w, r, e, capacity, c, catalogBytes, targetCount) == 0ULL then
+        return 0ULL
+    end
+    local first = native.load64(world, native.fieldOffset<World>("next"))
+    if first == 0ULL or first > values.PAYLOAD or capacity > values.PAYLOAD - first + 1ULL then
+        return 0ULL
+    end
+    local at: uint64 = 0ULL
+    while at < native.sizeOf<Registry>() do
+        if native.load64(registry, native.index(at)) ~= 0ULL then
+            return 0ULL
+        end
+        at = at + 8ULL
+    end
+    -- Every refusing check precedes reservation. Once reserved, even an aborted
+    -- publication must burn the entire range; no rollback may decrement World.
+    -- phase zero exposes nothing, and phase LIVE publishes the complete state.
+    native.store64(world, native.fieldOffset<World>("next"), first + capacity)
+    native.store64(registry, native.fieldOffset<Registry>("world"), w)
+    native.store64(registry, native.fieldOffset<Registry>("entries"), e)
+    native.store64(registry, native.fieldOffset<Registry>("capacity"), capacity)
+    native.store64(registry, native.fieldOffset<Registry>("first"), first)
+    native.store64(registry, native.fieldOffset<Registry>("catalog"), c)
+    native.store64(registry, native.fieldOffset<Registry>("catalogBytes"), catalogBytes)
+    native.store64(registry, native.fieldOffset<Registry>("targetCount"), targetCount)
+    native.store64(registry, native.fieldOffset<Registry>("phase"), LIVE)
+
+    return 1ULL
+end
+
+local function valid(registry: voidptr, catalog: voidptr): uint64
+    local r = native.address(registry)
+    if range(r, native.sizeOf<Registry>()) == 0ULL then
+        return 0ULL
+    end
+    if native.load64(registry, native.fieldOffset<Registry>("phase")) ~= LIVE then
+        return 0ULL
+    end
+    local w = native.load64(registry, native.fieldOffset<Registry>("world"))
+    local e = native.load64(registry, native.fieldOffset<Registry>("entries"))
+    local capacity = native.load64(registry, native.fieldOffset<Registry>("capacity"))
+    local c = native.load64(registry, native.fieldOffset<Registry>("catalog"))
+    local cb = native.load64(registry, native.fieldOffset<Registry>("catalogBytes"))
+    local targets = native.load64(registry, native.fieldOffset<Registry>("targetCount"))
+    if c ~= native.address(catalog) or regions(w, r, e, capacity, c, cb, targets) == 0ULL then
+        return 0ULL
+    end
+    local first = native.load64(registry, native.fieldOffset<Registry>("first"))
+    local used = native.load64(registry, native.fieldOffset<Registry>("used"))
+    if first == 0ULL or first > values.PAYLOAD or capacity > values.PAYLOAD - first + 1ULL or used > capacity then
+        return 0ULL
+    end
+    -- w is a retained mapped World under the entry's trusted metadata contract.
+    local next = native.load64(native.pointer(w), native.fieldOffset<World>("next"))
+    if next < first + capacity or next > values.PAYLOAD + 1ULL then
+        return 0ULL
+    end
+
+    return 1ULL
+end
+
+-- The target table contains approved logical uint32 IDs, not native addresses.
+-- This service does not validate code, effects, signatures, or a serialized image.
+export function create(registry: voidptr, catalog: voidptr, index: uint64): uint64
+    if valid(registry, catalog) == 0ULL then
+        return 0ULL
+    end
+    local used = native.load64(registry, native.fieldOffset<Registry>("used"))
+    local capacity = native.load64(registry, native.fieldOffset<Registry>("capacity"))
+    local count = native.load64(registry, native.fieldOffset<Registry>("targetCount"))
+    if used == capacity or index >= count then
+        return 0ULL
+    end
+    local target = native.load64(catalog, native.index(index * 8ULL))
+    if target > MAX_TARGET then
+        return 0ULL
+    end
+    local first = native.load64(registry, native.fieldOffset<Registry>("first"))
+    local entries = native.load64(registry, native.fieldOffset<Registry>("entries"))
+    local entry = native.pointer(entries + used * native.sizeOf<Instance>())
+    local handle = values.TAG_FUNC | (first + used)
+    native.store64(entry, native.fieldOffset<Instance>("handle"), handle)
+    native.store64(entry, native.fieldOffset<Instance>("owner"), native.address(catalog))
+    native.store64(entry, native.fieldOffset<Instance>("index"), index)
+    native.store64(entry, native.fieldOffset<Instance>("target"), target)
+    native.store64(registry, native.fieldOffset<Registry>("used"), used + 1ULL)
+
+    return handle
+end
+
+-- Zero means refusal; success is logical target+1, so target zero is unambiguous.
+-- The caller keeps this result internal. No guest function contains a pointer.
+export function resolve(registry: voidptr, catalog: voidptr, handle: uint64): uint64
+    if valid(registry, catalog) == 0ULL or (handle & values.TAG_MASK) ~= values.TAG_FUNC then
+        return 0ULL
+    end
+    local id = handle & values.PAYLOAD
+    local first = native.load64(registry, native.fieldOffset<Registry>("first"))
+    local used = native.load64(registry, native.fieldOffset<Registry>("used"))
+    if id < first or id - first >= used then
+        return 0ULL
+    end
+    local entries = native.load64(registry, native.fieldOffset<Registry>("entries"))
+    local entry = native.pointer(entries + (id - first) * native.sizeOf<Instance>())
+    if native.load64(entry, native.fieldOffset<Instance>("handle")) ~= handle
+        or native.load64(entry, native.fieldOffset<Instance>("owner")) ~= native.address(catalog)
+    then
+        return 0ULL
+    end
+    local index = native.load64(entry, native.fieldOffset<Instance>("index"))
+    local target = native.load64(entry, native.fieldOffset<Instance>("target"))
+    if index >= native.load64(registry, native.fieldOffset<Registry>("targetCount")) or target > MAX_TARGET then
+        return 0ULL
+    end
+    if native.load64(catalog, native.index(index * 8ULL)) ~= target then
+        return 0ULL
+    end
+
+    return target + 1ULL
+end
+
+-- This only changes phase: it does not release mappings or a managed owner.
+-- Caller releases catalog/entry storage only after all use of the retired run
+-- stops. World remains retained. Independent worlds may issue equal words, so
+-- this bounded subset forbids handle inputs, outputs and imports altogether.
+export function retire(registry: voidptr, catalog: voidptr): uint64
+    if valid(registry, catalog) == 0ULL then
+        return 0ULL
+    end
+    native.store64(registry, native.fieldOffset<Registry>("phase"), RETIRED)
+
+    return 1ULL
+end
