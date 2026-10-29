@@ -101,11 +101,21 @@ local function signature(n: any, params: {string}, result: string): nil
     while t and wrappers[t.tag] do
         t = t[wrappers[t.tag]]
     end
-    need(t and t.tag == "func" and #t.params == #params and #t.rets == 1, "checked call signature required")
+    need(
+        t
+        and t.tag == "func"
+        and #t.params == #params
+        and t.retPack
+        and not t.retPack.tail
+        and not t.retPack.alternatives
+        and #t.rets <= 1
+        and #t.retPack.head == #t.rets,
+        "closed checked call signature required"
+    )
     for index, kind in ipairs(params) do
         need(exactKind(t.params[index]) == kind, "call parameter kind differs from its contract")
     end
-    need(exactKind(t.rets[1]) == result, "call result kind differs from its contract")
+    need((#t.rets == 0 and "nil" or exactKind(t.rets[1])) == result, "call result kind differs from its contract")
     need(#(n.args.exprs or {}) == #params, "call argument count differs from its contract")
 end
 
@@ -145,7 +155,11 @@ function nativegraph.initialize(fn: any, options: any): any
     local body = fn.body
     need(not body.varargParam and not body.generics and not body.captureTakes, "plain native function required")
     need(#body.params == #fn.paramKinds and #body.params >= 1 and #body.params <= 8, "native parameter count")
-    need(fn.resultKind == "uint64" or abi == "leaf" and fn.resultKind == "boolean", "exact native result required")
+    local result = fn.resultKind
+    need(
+        result == "uint64" or abi == "leaf" and (result == "boolean" or result == "nil"),
+        "exact native result required"
+    )
     for index, parameter in ipairs(body.params) do
         local kind = fn.paramKinds[index]
         need(exactKinds[kind], "exact native parameter required")
@@ -155,8 +169,11 @@ function nativegraph.initialize(fn: any, options: any): any
         end
     end
     fn.nativeABI = abi
+    if abi == "leaf" then
+        need(graph.nativeLeafDeclaration(fn).result == result, "checked native result kind")
+    end
 
-    return graph.newNative(fn.paramKinds, fn.resultKind, abi)
+    return graph.newNative(fn.paramKinds, result, abi)
 end
 
 function nativegraph.kind(t: any): string
@@ -220,7 +237,8 @@ function nativegraph.inlineContract(ctx: any, call: any, target: any, returns: b
     local declaration = nativegraph.declaration(ctx, call, target)
     need(target.nativeABI ~= "support", "support functions require tail transfer")
     need(
-        returns and target.resultKind == ctx.fn.resultKind or not returns and target.resultKind == nil,
+        returns and target.resultKind == ctx.fn.resultKind
+        or not returns and (target.resultKind == nil or target.resultKind == "nil"),
         "helper continuation differs from its result"
     )
 
@@ -345,6 +363,7 @@ function nativegraph.call(ctx: any, n: any, expected: string?): integer
         ctx.checkedCallee(n, target)
         local declaration = graph.nativeLeafDeclaration(target)
         need(declaration.abi == "leaf", "scalar call requires leaf ABI")
+        need(declaration.result ~= "nil", "void leaf cannot be consumed as a value")
         need(expected == nil or expected == declaration.result, "leaf call changes exact result kind")
         local operands = {declaration}
         for index, kind in ipairs(declaration.params) do
@@ -490,7 +509,16 @@ function nativegraph.statementCall(ctx: any, call: any): nil
         emit(call, "NativeHelperCall", operands, nil)
     elseif ctx.callee(call) then
         local target = ctx.callee(call)
-        if leaf and target.nativeABI ~= "support" then
+        if target.nativeABI ~= "support" and target.resultKind == "nil" then
+            ctx.checkedCallee(call, target)
+            local declaration = graph.nativeLeafDeclaration(target)
+            need(declaration.result == "nil", "void statement requires a checked void leaf")
+            local operands = {declaration}
+            for index, kind in ipairs(declaration.params) do
+                operands[index + 1] = expression(args[index], kind)
+            end
+            emit(call, "NativeLeafCall", operands, nil)
+        elseif leaf and target.nativeABI ~= "support" then
             expression(call, nil)
         else
             ctx.inline(call, target, false)
@@ -505,9 +533,17 @@ function nativegraph.returnStatement(ctx: any, stat: any): nil
     local leaf = ctx.g.native.abi == "leaf"
     local expression = ctx.expression
     if leaf then
-        need(#stat.exprs == 1, "native leaf returns one scalar")
-        local value = expression(stat.exprs[1], fn.resultKind)
-        ctx.block.term = {kind = "return", value = value, edges = {}, pos = ctx.position(stat)}
+        if ctx.g.native.result == "nil" then
+            need(
+                #stat.exprs == 0 or #stat.exprs == 1 and stat.exprs[1].kind == "nilExpr",
+                "void leaf return must be empty or explicit nil"
+            )
+            ctx.block.term = {kind = "return", edges = {}, pos = ctx.position(stat)}
+        else
+            need(#stat.exprs == 1, "native leaf returns one scalar")
+            local value = expression(stat.exprs[1], fn.resultKind)
+            ctx.block.term = {kind = "return", value = value, edges = {}, pos = ctx.position(stat)}
+        end
         ctx.block = nil
     else
         need(#stat.exprs == 1 and stat.exprs[1].kind == "call", "native transfer return required")
@@ -549,6 +585,14 @@ function nativegraph.returnStatement(ctx: any, stat: any): nil
             error("native graph: unsupported checked transfer", 0)
         end
     end
+end
+
+-- Only an authenticated void leaf may end without an explicit return.
+function nativegraph.fallthrough(ctx: any, node: any): nil
+    need(ctx.g.native.abi == "leaf" and ctx.g.native.result == "nil", "native scalar or handler cannot fall through")
+    need(graph.nativeLeafDeclaration(ctx.fn).result == "nil", "checked void fallthrough required")
+    ctx.block.term = {kind = "return", edges = {}, pos = ctx.position(node)}
+    ctx.block = nil
 end
 
 -- Compatibility entry only; the shared lowering owns all CST traversal.

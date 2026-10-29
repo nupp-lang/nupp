@@ -145,7 +145,7 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
     end
     local signature = new ir.Signature(
         params = parameters,
-        results = {ir.kind(machineKind(g.native.result))},
+        results = g.native.result == "nil" and {} or {ir.kind(machineKind(g.native.result))},
         convention = ir.INTERNAL
     )
     local f = ir.new(name, signature)
@@ -256,7 +256,8 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                     end
                 end
             end
-            local args, destination = block.args[index], block.dst[index]
+            local args = block.args[index]
+            local destination: integer = block.dst[index]
             local result = destination ~= 0 and destination + 1 or nil
             local _ = switch op do
                 case "NativeLeafCall" -> do
@@ -266,6 +267,7 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                     local target = resolved and resolved[symbol]
                     assert(target and target.owner and target.graph, "S0 graph: unresolved leaf " .. symbol)
                     local other, owner = target.graph, target.owner
+                    local checked = graph.nativeLeafDeclaration(owner)
                     assert(
                         other.native.abi == "leaf"
                         and other.native.result == declaration.result
@@ -285,13 +287,13 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                         "S0 graph: leaf source mismatch"
                     )
                     assert(
-                        owner.resultKind == declaration.result and #owner.paramKinds == #declaration.params,
+                        checked.result == declaration.result and #checked.params == #declaration.params,
                         "S0 graph: checked leaf signature mismatch"
                     )
                     local kinds: {integer} = {}
                     for at, kind in ipairs(declaration.params) do
                         assert(
-                            other.native.params[at] == kind and owner.paramKinds[at] == kind,
+                            other.native.params[at] == kind and checked.params[at] == kind,
                             "S0 graph: leaf parameter mismatch"
                         )
                         kinds[at] = ir.kind(machineKind(kind))
@@ -300,7 +302,7 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                     if not imported then
                         local sig = new ir.Signature(
                             params = kinds,
-                            results = {ir.kind(machineKind(declaration.result))},
+                            results = declaration.result == "nil" and {} or {ir.kind(machineKind(declaration.result))},
                             convention = ir.INTERNAL
                         )
                         f.signatures[#f.signatures + 1] = sig
@@ -315,8 +317,8 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                     local at = ir.instruction(
                         f,
                         ir.opcode("call"),
-                        result as integer,
-                        ir.kind(machineKind(declaration.result)),
+                        result or 0,
+                        declaration.result == "nil" and 0 or ir.kind(machineKind(declaration.result)),
                         values,
                         0,
                         assert(imported)
@@ -518,7 +520,11 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
             end
             case "return" -> do
                 assert(not handler, "S0 graph: scalar return requires leaf ABI")
-                emit("return", nil, term.value + 1, nil, nil, machineKind(g.native.result), 0, nil)
+                if g.native.result == "nil" then
+                    emit("return", nil, nil, nil, nil, "i64", 0, nil)
+                else
+                    emit("return", nil, term.value + 1, nil, nil, machineKind(g.native.result), 0, nil)
+                end
                 yield nil
             end
             case "nativeFail" -> do

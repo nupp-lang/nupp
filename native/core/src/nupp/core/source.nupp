@@ -37,7 +37,7 @@ local function functionsFrom(parsed: any, scope: any): any
                     body = body,
                     scope = scope,
                     paramKinds = kinds,
-                    resultKind = result ~= "nil" and result or nil
+                    resultKind = result or "nil"
                 }
                 scope.functions[name] = fn
                 if stat.kind == "exportStmt" then

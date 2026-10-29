@@ -479,9 +479,20 @@ function graph.nativeLeafDeclaration(fn: any): any
         params[index] = kind
     end
     local signature = body.signatureType
-    assert(signature and #signature.rets == 1, "native leaf checked result count")
-    local result = checkedNativeKind(signature.rets[1])
-    assert(result == fn.resultKind and (result == "uint64" or result == "boolean"), "native leaf checked result kind")
+    assert(
+        signature
+        and signature.retPack
+        and not signature.retPack.tail
+        and not signature.retPack.alternatives
+        and #signature.rets <= 1
+        and #signature.retPack.head == #signature.rets,
+        "native leaf requires a closed checked result"
+    )
+    local result = #signature.rets == 0 and "nil" or checkedNativeKind(signature.rets[1])
+    assert(
+        result == fn.resultKind and (result == "uint64" or result == "boolean" or result == "nil"),
+        "native leaf checked result kind"
+    )
 
     return {
         moduleName = fn.scope.name,
@@ -567,7 +578,8 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
             hasKind(args[index + 1], parameter)
         end
         assert(
-            (declaration.result == "uint64" or declaration.result == "boolean") and kind == declaration.result,
+            declaration.result == "nil" and dst == 0 and kind == nil
+            or (declaration.result == "uint64" or declaration.result == "boolean") and kind == declaration.result,
             "native leaf result kind"
         )
     elseif op == "NativeHelperCall" then
@@ -872,7 +884,10 @@ function graph.verify(g: any): nil
         local signature = g.native
         assert(
             type(signature) == "table"
-            and (signature.result == "uint64" or signature.abi == "leaf" and signature.result == "boolean"),
+            and (
+                signature.result == "uint64"
+                or signature.abi == "leaf" and (signature.result == "boolean" or signature.result == "nil")
+            ),
             "invalid native result signature"
         )
         if signature.abi == "handler" then
@@ -1108,7 +1123,11 @@ function graph.verify(g: any): nil
             assert(usable(t.value) and g.exactTypes[t.value] == "boolean", "native branch requires a boolean condition")
         elseif native and kind == "return" then
             assert(g.native.abi == "leaf", "native handler cannot return a scalar")
-            assert(usable(t.value) and g.exactTypes[t.value] == g.native.result, "native leaf return kind")
+            assert(
+                g.native.result == "nil" and t.value == nil
+                or g.native.result ~= "nil" and usable(t.value) and g.exactTypes[t.value] == g.native.result,
+                "native leaf return kind"
+            )
         elseif native and kind ~= "jump" then
             error("native graph requires a jump, branch, dispatch or leaf return", 0)
         elseif kind == "branch" then

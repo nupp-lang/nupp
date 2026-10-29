@@ -50,6 +50,7 @@ end
 function emitter.emit(g: any, options: any): string
     graph.verify(g)
     local native = need(g.native, "native graph required")
+    need(native.result ~= "nil", "zero-result leaves require owned machine emission")
     local handler = native.abi == "handler"
     local isSupport = native.abi == "support"
     local managed = handler or isSupport
@@ -232,6 +233,7 @@ function emitter.emit(g: any, options: any): string
             _ = switch op do
                 case "NativeLeafCall" -> do
                     local declaration = args[1]
+                    need(declaration.result ~= "nil", "zero-result calls require owned machine emission")
                     local symbol = declaration.name
                     local types, words = {}, {}
                     for index = 1, #declaration.params do
