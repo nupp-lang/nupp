@@ -67,8 +67,13 @@ export struct Pool
     live: int64
 end
 
+const MAXIMUM: uint64 = 0xffffffffffffffffULL
+
 local function roundUp(value: uint64, alignment: uint64): uint64
-    return (value + alignment - 1) & ~(alignment - 1)
+    if alignment == 0ULL or (alignment & (alignment - 1ULL)) ~= 0ULL or value > MAXIMUM - (alignment - 1ULL) then
+        error("arena: invalid aligned extent")
+    end
+    return (value + (alignment - 1ULL)) & ~(alignment - 1ULL)
 end
 
 local function metadataOffset(): uint64
@@ -90,10 +95,18 @@ export function close(takes a: Arena*): nil
 end
 
 local function openWith(bytes: uint64, growable: boolean): affine(Arena*, close)
-    local mapped = roundUp(bytes + headerBytes(), os.pageSize())
+    local header = headerBytes()
+    if bytes > MAXIMUM - header then
+        error("arena: requested extent overflows")
+    end
+    local mapped = roundUp(bytes + header, os.pageSize())
     local base = os.mapPages(mapped)
     if base == nil then
         error("arena: the system refused the mapping")
+    end
+    if native.address(base) > MAXIMUM - mapped then
+        os.unmapPages(base, mapped)
+        error("arena: mapped extent overflows")
     end
     local chunk = base as Chunk*
     local a = native.offset(base, native.index(metadataOffset())) as Arena*
@@ -101,7 +114,7 @@ local function openWith(bytes: uint64, growable: boolean): affine(Arena*, close)
         chunk.previous = nil
         chunk.bytes = mapped
         a.chunk = chunk
-        a.cursor = native.address(base) + headerBytes()
+        a.cursor = native.address(base) + header
         a.limit = native.address(base) + mapped
         a.chunkBytes = mapped
         a.growable = growable
@@ -128,6 +141,10 @@ local function grow(a: Arena*): boolean
     if base == nil then
         return false
     end
+    if native.address(base) > MAXIMUM - a.chunkBytes then
+        os.unmapPages(base, a.chunkBytes)
+        return false
+    end
     local chunk = base as Chunk*
     @unsafe do
         chunk.previous = a.chunk
@@ -145,15 +162,29 @@ end
 --- system refuses a growable one another chunk. The answer borrows the
 --- arena, so it cannot outlive it.
 export function alloc(borrows a: Arena*, bytes: uint64, alignment: uint64): voidptr? borrows (a)
-    local start = roundUp(a.cursor, alignment)
-    if start + bytes > a.limit then
-        if not a.growable or bytes + native.sizeOf<Chunk>() > a.chunkBytes then
+    if alignment == 0ULL or (alignment & (alignment - 1ULL)) ~= 0ULL then
+        return @unsafe borrowFrom(nil as voidptr?, a)
+    end
+    local start: uint64 = 0ULL
+    if a.cursor <= MAXIMUM - (alignment - 1ULL) then
+        start = roundUp(a.cursor, alignment)
+    end
+    if start == 0ULL or start > a.limit or bytes > a.limit - start then
+        local header = native.sizeOf<Chunk>()
+        if not a.growable or a.chunkBytes < header or bytes > a.chunkBytes - header then
             return @unsafe borrowFrom(nil as voidptr?, a)
         end
         if not grow(a) then
             return @unsafe borrowFrom(nil as voidptr?, a)
         end
+        if a.cursor > MAXIMUM - (alignment - 1ULL) then
+            return @unsafe borrowFrom(nil as voidptr?, a)
+        end
         start = roundUp(a.cursor, alignment)
+        -- The new mapping can need different alignment padding from the old one.
+        if start > a.limit or bytes > a.limit - start then
+            return @unsafe borrowFrom(nil as voidptr?, a)
+        end
     end
     @unsafe a.cursor = start + bytes
 
@@ -192,22 +223,26 @@ end
 --- A pool of `slotBytes`-byte slots over the arena, itself allocated from it.
 --- A slot is at least a word, so a free one can link the next.
 export function pool(borrows a: Arena*, slotBytes: uint64): Pool*? borrows (a)
+    if slotBytes > MAXIMUM - 7ULL then
+        return @unsafe borrowFrom(nil as Pool*?, a)
+    end
+    local slot: uint64 = slotBytes
+    if slot < 8ULL then
+        slot = 8ULL
+    end
+    local rounded = roundUp(slot, 8ULL)
     local raw = alloc(a, native.sizeOf<Pool>(), native.alignmentOf<Pool>())
     if raw == nil then
         return @unsafe borrowFrom(nil as Pool*?, a)
     end
     local p = raw as Pool*
-    local slot: uint64 = slotBytes
-    if slot < 8 then
-        slot = 8
-    end
     -- The pool lives in the arena it serves, so the pointer it keeps to the
     -- arena is as long-lived as the pool itself: the one store of a borrow
     -- the checker takes on the author's word.
     @unsafe do
         p.arena = a
         p.free = nil
-        p.slotBytes = roundUp(slot, 8)
+        p.slotBytes = rounded
         p.live = 0
     end
 

@@ -249,11 +249,6 @@ end
 function M.existingBorrowedServicesAndTypedPointerBoundariesStillRefuse()
     local bodies = {
         [[local function read(words: heap.Words*): uint64 @unsafe do return words.base end end]],
-        [[local function read(address: uint64): heap.Words* return native.pointer(address) as heap.Words* end]],
-        [[local function read(address: uint64): uint64
-            local header = native.pointer(address) as heap.Header*
-            @unsafe do return header.epoch as uint64 end
-        end]],
         [[local function read(address: uint64): uint64
             local words = native.pointer(address) as heap.Words*
             return native.address(words)
@@ -283,6 +278,414 @@ function M.existingBorrowedServicesAndTypedPointerBoundariesStillRefuse()
             lower.functionGraph(owners.read, {abi = "leaf", physicalTarget = TARGET}, profile)
         end,
         "physical parameter metadata differs"
+    )
+end
+
+function M.booleanLeafParametersAndCallsRetainExactCheckedKinds()
+    local source = [[
+local function choose(flag: boolean): boolean
+    return flag
+end
+local function caller(word: uint64): boolean
+    local live = choose(word == 7ULL)
+    local yes = choose(true)
+    local no = choose(false)
+    if no then return yes end
+    return live
+end
+]]
+    local leaf = compile(source, "choose")
+    assert(leaf.native.params[1] == "boolean" and leaf.exactTypes[1] == "boolean")
+    assert(leaf.native.result == "boolean")
+    local g = compile(source, "caller")
+    local found, positive, negative = 0, false, false
+    local callArgs
+    for _, block in ipairs(g.blocks) do
+        for at, op in ipairs(block.op) do
+            if op == "NativeBoolean" then
+                positive = positive or block.args[at][1] == true
+                negative = negative or block.args[at][1] == false
+            elseif op == "NativeLeafCall" then
+                found = found + 1
+                local args = block.args[at]
+                assert(args[1].params[1] == "boolean" and args[1].result == "boolean")
+                assert(g.exactTypes[args[2]] == "boolean" and g.exactTypes[block.dst[at]] == "boolean")
+                callArgs = args
+            end
+        end
+    end
+    assert(found == 3 and positive and negative)
+    local saved = callArgs[2]
+    callArgs[2] = 1 -- uint64 caller parameter shares a register class, not a type.
+    refuses(function()
+        G.verify(g)
+    end)
+    callArgs[2] = saved
+    G.verify(g)
+end
+
+function M.headerLoadsRetainProjectedKindsAndWritesRetainCheckedWidths()
+    local g = compile(
+        [[
+local function read(address: uint64, kind: uint64, epoch: uint64): uint64
+    local h = native.pointer(address) as heap.Header*
+    @unsafe do
+        h.kind = kind
+        h.epoch = epoch
+        h.aux = 0
+        h.auxPtr = address + 32ULL
+        h.auxLen = 1ULL
+        local tag = h.kind
+        local cycle = h.epoch
+        if tag == 255 then cycle = h.aux end
+        return (tag as uint64) + (cycle as uint64)
+    end
+end
+]]
+    )
+    local seen, stores = {}, {}
+    for _, block in ipairs(g.blocks) do
+        for at, op in ipairs(block.op) do
+            local args = block.args[at]
+            if op == "NativeFieldLoad" then
+                local access = args[2]
+                assert(g.exactTypes[block.dst[at]] == "uint32")
+                assert(access.valueType == T.uint32)
+                assert(access.width == (access.name == "kind" and 1 or 4))
+                seen[access.name] = true
+            elseif op == "NativeStore" then
+                local contract = args[4]
+                local field = contract.field
+                assert(field and physical.validateField(field) and field.write)
+                assert(contract.width == field.width and contract.signed == field.signed)
+                stores[field.name] = field.width
+            end
+        end
+    end
+    assert(seen.kind and seen.epoch and seen.aux)
+    assert(stores.kind == 1 and stores.epoch == 4 and stores.aux == 4)
+    assert(stores.auxPtr == 8 and stores.auxLen == 8)
+    G.prune(g)
+    G.verify(g)
+end
+
+function M.fieldStoresRejectChangedOffsetsAndForgedOrReadContracts()
+    local g = compile(
+        [[
+local function read(address: uint64, value: uint64): uint64
+    local h = native.pointer(address) as heap.Header*
+    @unsafe do h.epoch = value; return h.epoch as uint64 end
+end
+]]
+    )
+    local _, _, store = operation(g, "NativeStore")
+    local _, _, load = operation(g, "NativeFieldLoad")
+    local field, contract = store[4].field, store[4]
+    mutation(g, contract, "field", load[2], "physical store receiver identity differs")
+    mutation(g, contract, "width", 8, "physical store layout differs")
+    mutation(g, contract, "signed", true, "physical store layout differs")
+    mutation(g, store, 2, 2, "physical store offset differs")
+    local forged = {}
+    for key, value in pairs(field) do
+        forged[key] = value
+    end
+    mutation(g, contract, "field", forged, "unknown physical field contract")
+    mutation(g, field.node, "fixedWidthPhysicalStore", nil, "checked physical store")
+    -- The offset is an ordinary SSA constant, but changing its value must not
+    -- turn an authenticated field store into an arbitrary pointer write.
+    for _, block in ipairs(g.blocks) do
+        for at, dst in ipairs(block.dst) do
+            if dst == store[2] then
+                mutation(g, block.args[at], 1, "0", "physical store offset differs")
+            end
+        end
+    end
+end
+
+function M.parallelFieldsCaptureReceiversBeforeRhsAndStoreRightToLeft()
+    local g = compile(
+        [[
+local function read(first: uint64, second: uint64): uint64
+    local a = native.pointer(first) as heap.Header*
+    local b = native.pointer(second) as heap.Header*
+    local value = 0ULL
+    @unsafe do
+        a, a.auxPtr, a.auxPtr, value, value = b, 11ULL, 22ULL, 33ULL, 44ULL
+        return a.auxPtr + value
+    end
+end
+]]
+    )
+    local block = g.blocks[1]
+    local values, stores = {}, {}
+    for at, op in ipairs(block.op) do
+        local args = block.args[at]
+        if op == "NativeConstant" then
+            values[block.dst[at]] = args[1]
+        end
+        if op == "NativeStore" then
+            stores[#stores + 1] = args
+        end
+    end
+    assert(#stores == 2)
+    assert(values[stores[1][3]] == "22" and values[stores[2][3]] == "11")
+    assert(stores[1][1] == stores[2][1], "both LHS addresses retain the original a")
+    local _, _, load = operation(g, "NativeFieldLoad")
+    assert(load[1] ~= stores[1][1], "the post-assignment read uses rebound a")
+    local _, _, sum = operation(g, "IAdd")
+    assert(values[sum[2]] == "33", "duplicate local retains its leftmost RHS")
+end
+
+function M.fieldReceiverAndEarlierCallRhsSurviveLaterShortCircuitJoin()
+    local g = compile(
+        [[
+local function touch(address: uint64): uint64
+    native.store64(native.pointer(address), 0, 77ULL)
+    return 91ULL
+end
+local function read(address: uint64, flag: uint64): uint64
+    local h = native.pointer(address) as heap.Header*
+    @unsafe do
+        h.auxPtr, h.auxLen = touch(address), native.asWord(flag == 0ULL or (flag == 1ULL and flag ~= 2ULL))
+        return h.auxPtr + h.auxLen
+    end
+end
+]]
+    )
+    local callBlock, _, _, call = operation(g, "NativeLeafCall")
+    local storeBlock = operation(g, "NativeStore")
+    assert(callBlock ~= storeBlock, "later RHS must create a real join")
+    local transported = false
+    for _, block in ipairs(g.blocks) do
+        for _, edge in ipairs(block.term.edges) do
+            for _, value in ipairs(edge.args) do
+                if value == call then
+                    transported = true
+                end
+            end
+        end
+    end
+    assert(transported, "first call RHS survives the later short-circuit branch")
+    G.prune(g)
+    G.verify(g)
+end
+
+function M.localCursorFieldReceiverSurvivesNominalCopiesAndJoin()
+    local g = compile(
+        [[
+local struct Cursor value: uint64 end
+local function read(seed: uint64): uint64
+    local state = new Cursor(seed)
+    local cursor = state as Cursor*
+    @unsafe do
+        cursor.value = native.asWord(seed == 0ULL or seed == 1ULL)
+        return cursor.value
+    end
+end
+]]
+    )
+    local _, _, localArgs, localValue = operation(g, "NativeLocal")
+    local descriptor = g.nativePhysical.values[localValue]
+    local copies = 0
+    for _, value in pairs(g.nativePhysical.values) do
+        if value == descriptor then
+            copies = copies + 1
+        end
+    end
+    assert(copies > 1, "nominal local storage is transported without cloning its descriptor")
+    local _, _, store = operation(g, "NativeStore")
+    assert(physical.localOrigin(store[4].field.receiver) == localArgs[1])
+    G.prune(g)
+    G.verify(g)
+end
+
+function M.capturedFieldReceiverRejectsAnotherSameLayoutPointerAtJoin()
+    local g = compile(
+        [[
+local function read(address: uint64, flag: uint64): uint64
+    local h = native.pointer(address) as heap.Header*
+    local other = native.pointer(address + 8ULL) as heap.Header*
+    @unsafe do
+        h.auxPtr, h.auxLen = 91ULL, native.asWord(flag == 0ULL or (flag == 1ULL and flag ~= 2ULL))
+        return h.auxPtr + other.auxLen
+    end
+end
+]]
+    )
+    local pointers = {}
+    for _, block in ipairs(g.blocks) do
+        for at, op in ipairs(block.op) do
+            if op == "NativePointerView" then
+                pointers[#pointers + 1] = block.dst[at]
+            end
+        end
+    end
+    assert(#pointers == 2)
+    local _, _, store = operation(g, "NativeStore")
+    assert(physical.same(g.nativePhysical.values[pointers[1]], g.nativePhysical.values[pointers[2]]))
+    local incoming = {}
+    for _, block in ipairs(g.blocks) do
+        for _, edge in ipairs(block.term.edges) do
+            for index, value in ipairs(edge.args) do
+                local target = g.blocks[edge.target].params[index]
+                local inputs = incoming[target] or {}
+                inputs[#inputs + 1] = {edge = edge, index = index, value = value}
+                incoming[target] = inputs
+            end
+        end
+    end
+    local queue, seen, cursor, selected = {store[1]}, {}, 1, nil
+    while cursor <= #queue and not selected do
+        local value = queue[cursor]
+        cursor = cursor + 1
+        if not seen[value] then
+            seen[value] = true
+            for _, input in ipairs(incoming[value] or {}) do
+                if input.value == pointers[1] then
+                    selected = input;
+                    break
+                end
+                queue[#queue + 1] = input.value
+            end
+        end
+    end
+    assert(selected, "captured receiver must be transported from its original SSA value")
+    mutation(g, selected.edge.args, selected.index, pointers[2], "captured field receiver transport differs")
+    G.prune(g)
+    G.verify(g)
+end
+
+function M.signedPhysicalLoadsRetainTheirProjectionAndDoNotWidenImplicitly()
+    local g = compile(
+        [[
+local struct SignedWords
+    byte: int8
+    half: int16
+    word: int32
+end
+local function read(address: uint64): uint64
+    local p = native.pointer(address) as SignedWords*
+    @unsafe do
+        p.byte = -1
+        p.half = -32768
+        p.word = -2147483648
+        return (p.byte as uint64) + (p.half as uint64) + (p.word as uint64)
+    end
+end
+]]
+    )
+    local widths = {}
+    for _, block in ipairs(g.blocks) do
+        for at, op in ipairs(block.op) do
+            if op == "NativeFieldLoad" then
+                local access = block.args[at][2]
+                assert(access.signed and access.valueType == T.int32)
+                assert(g.exactTypes[block.dst[at]] == "int32")
+                widths[access.width] = true
+            end
+        end
+    end
+    assert(widths[1] and widths[2] and widths[4])
+    refuses(
+        function()
+            compile(
+                [[
+local function read(address: uint64): uint64
+    local h = native.pointer(address) as heap.Header*
+    @unsafe do return h.epoch end
+end
+]]
+            )
+        end,
+        "NUPP2002"
+    )
+end
+
+function M.rawConstructorStoresUseExistingNarrowMemoryContracts()
+    local g = compile(
+        [[
+local function read(address: uint64, kind: uint64, size: int64): uint64
+    local p = native.pointer(address)
+    native.store8(p, native.fieldOffset<heap.Header>("kind"), kind)
+    native.store32(p, native.fieldOffset<heap.Header>("size"), size)
+    native.store64(p, native.fieldOffset<heap.Header>("auxLen"), 1ULL)
+    return native.word(native.load8(p, native.fieldOffset<heap.Header>("kind")))
+end
+]]
+    )
+    local widths = {}
+    for _, block in ipairs(g.blocks) do
+        for at, op in ipairs(block.op) do
+            if op == "NativeStore" then
+                local access = block.args[at][4]
+                assert(access.field == nil and access.write and access.source == "borrowed")
+                widths[access.width] = true
+            end
+        end
+    end
+    assert(widths[1] and widths[4] and widths[8])
+end
+
+function M.projectedIntegerConstantsAndResultTypesRemainBounded()
+    local g = compile(
+        [[
+local function read(address: uint64): uint64
+    local h = native.pointer(address) as heap.Header*
+    @unsafe do
+        local epoch = h.epoch
+        if epoch == 4294967295 then return 1ULL end
+        return epoch as uint64
+    end
+end
+]]
+    )
+    local _, _, _, load = operation(g, "NativeFieldLoad")
+    mutation(g, g.exactTypes, load, "uint64", "physical field load changes projected result type")
+    local found = false
+    for _, block in ipairs(g.blocks) do
+        for at, op in ipairs(block.op) do
+            if op == "NativeConstant" and g.exactTypes[block.dst[at]] == "uint32" then
+                assert(block.args[at][1] == "4294967295")
+                mutation(g, block.args[at], 1, "4294967296", "native constant exceeds 32 bits")
+                mutation(g, block.args[at], 1, "-1", "native uint32 constant cannot be negative")
+                found = true
+            end
+        end
+    end
+    assert(found)
+end
+
+function M.narrowedRawReadsRetainCheckedUnsafeEvidence()
+    local g = compile(
+        [[
+local function read(address: uint64): uint64
+    local h = native.pointer(address) as heap.Header*
+    @unsafe do
+        h.kind = 1
+        return h.kind as uint64
+    end
+end
+]]
+    )
+    local _, _, args = operation(g, "NativeFieldLoad")
+    local node = args[2].node
+    assert(node.resolvedType == T.uint32)
+    assert(node.unsafeOwnershipOperation == "raw pointer dereference")
+    mutation(g, node, "unsafeOwnershipOperation", nil, "checked unsafe pointer access required")
+    mutation(g, node, "resolvedType", nil, "checked field result type differs")
+    refuses(
+        function()
+            compile(
+                [[
+local function read(address: uint64): uint64
+    local h = native.pointer(address) as heap.Header*
+    @unsafe h.kind = 1
+    return h.kind as uint64
+end
+]]
+            )
+        end,
+        "checked unsafe pointer access required"
     )
 end
 

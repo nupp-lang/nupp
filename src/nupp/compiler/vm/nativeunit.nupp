@@ -1,6 +1,7 @@
 module nupp.compiler.vm.nativeunit
 
 local physical = require("nupp.compiler.vm.nativephysical")
+local cst = require("nupp.compiler.syntax.cst")
 local unit = {}
 local owners: any = setmetatable({}, {__mode = "k"})
 local options: any = setmetatable({}, {__mode = "k"})
@@ -19,6 +20,43 @@ local function read(path: string): string?
     file:close()
 
     return source
+end
+
+-- Membership only: the common function walker remains the sole lowering.
+-- Canonical CST children exclude checker/type backreferences and their cycles.
+local function occurrences(body: any): any
+    local found, ordinal = {}, 0
+    local visit: function(any, any, integer?): nil
+    visit = function(node, parent, index)
+        if cst.isToken(node) then
+            return
+        end
+        need(found[node] == nil, "checked syntax occurrence is shared")
+        ordinal = ordinal + 1
+        found[
+            node
+        ] = {
+            parent = parent,
+            index = index,
+            kind = node.kind,
+            ordinal = ordinal,
+            inferredType = node.inferredType,
+            ownershipIntrinsic = node.ownershipIntrinsic,
+            isNew = node.isNew,
+            structConstruct = node.structConstruct,
+            constructorCall = node.constructorCall,
+            constructorEntry = node.constructorEntry
+        }
+        if node ~= body and node.kind == "funcbody" then
+            return
+        end
+        for at, child in ipairs(node) do
+            visit(child, node, at)
+        end
+    end
+    visit(body, nil, nil)
+
+    return found
 end
 
 function unit.functionsFrom(parsed: any, scope: any): any
@@ -132,6 +170,68 @@ local function copyMap(source: any): any
     return result
 end
 
+-- Checked CST/type records have their original compiler record metatables.
+-- Compare raw fields without invoking iteration/index hooks; exposed issuer
+-- maps still use the stricter plain-map check above.
+local function copyRecord(source: any): any
+    local fields = {}
+    for key, value in next, source do
+        fields[key] = value
+    end
+
+    return {metatable = getmetatable(source), fields = fields}
+end
+
+local function recordSame(actual: any, held: any): boolean
+    if type(actual) ~= "table" or getmetatable(actual) ~= held.metatable then
+        return false
+    end
+    for key, value in next, held.fields do
+        if rawget(actual, key) ~= value then
+            return false
+        end
+    end
+    for key, value in next, actual do
+        if rawget(held.fields, key) ~= value then
+            return false
+        end
+    end
+
+    return true
+end
+
+local function validateCleanup(saved: any): nil
+    unit.occurrence(saved.owner, saved.annotation)
+    need(
+        saved.annotation.resolvedType == saved.type
+        and saved.annotation.arguments == saved.arguments
+        and mapSame(saved.arguments, saved.argumentsMap)
+        and saved.arguments[2] == saved.terminal
+        and recordSame(saved.terminal, saved.terminalMap)
+        and saved.token.definition == saved.definition
+        and mapSame(saved.token, saved.tokenMap)
+        and not saved.definition.reassigned,
+        "cleanup annotation declaration changed"
+    )
+    need(
+        saved.type.cleanups == saved.chain
+        and mapSame(saved.chain, saved.chainMap)
+        and recordSame(saved.cleanup, saved.cleanupMap),
+        "checked cleanup record changed"
+    )
+    need(
+        token(saved.target).definition == saved.definition
+        and saved.target.checkedSignature == saved.signature
+        and saved.target.body == saved.targetBody
+        and saved.target.body.signatureType == saved.signature
+        and token(saved.target).cleanupRegistrations == saved.registrations
+        and mapSame(saved.registrations, saved.registrationsMap)
+        and mapSame(saved.registration, saved.registrationMap)
+        and recordSame(saved.registered, saved.registeredMap),
+        "cleanup registration changed"
+    )
+end
+
 local function validate(state: any, source: boolean): nil
     need(not state.invalid, "sealed unit was invalidated")
     if source then
@@ -171,6 +271,10 @@ local function validate(state: any, source: boolean): nil
         need(mapSame(scope.checkedExports.valueDefs, saved.valueDefs), "export definitions changed")
         need(mapSame(scope.checkedExports.typeDefs, saved.typeDefs), "type definitions changed")
         need(mapSame(scope.checkedExports.types, saved.types), "export types changed")
+        need(mapSame(scope.checkedExports.values, saved.values), "export values changed")
+    end
+    for _, saved in ipairs(state.cleanupBindings) do
+        validateCleanup(saved)
     end
     for fn, held in pairs(state.owners) do
         need(
@@ -208,6 +312,8 @@ function unit.session(projectRoot: string, requested: any, target: string, inclu
         config = {include = roots}
     })
     local state: any = {
+        projectRoot = projectRoot,
+        errorDefinition = project.env.globals.error.definition,
         context = physical.new(target),
         sources = {},
         checked = {},
@@ -216,6 +322,7 @@ function unit.session(projectRoot: string, requested: any, target: string, inclu
         owners = {},
         definitions = {},
         bindings = {},
+        cleanupBindings = {},
         invalid = false
     }
 
@@ -302,9 +409,72 @@ function unit.session(projectRoot: string, requested: any, target: string, inclu
                 body = fn.body,
                 scope = scope,
                 definition = definition,
-                signature = fn.checkedSignature
+                signature = fn.checkedSignature,
+                occurrences = occurrences(fn.body)
             }
             state.owners[fn], owners[fn], state.definitions[definition] = held, held, fn
+        end
+    end
+    -- Cleanup records are not interned: the declaration registration and the
+    -- affine annotation carry distinct records. Bind their checked declaration
+    -- token before comparing the registered ID and signature, then seal both.
+    for owner, held in pairs(state.owners) do
+        for annotation in pairs(held.occurrences) do
+            local t = annotation.resolvedType
+            local arguments = annotation.arguments
+            if t and t.tag == "affine" and arguments and #arguments == 2 then
+                local terminal = arguments[2]
+                local named = nil
+                for _, child in ipairs(terminal) do
+                    if cst.isToken(child) and child.kind == "name" then
+                        named = child
+                    end
+                end
+                local target = named and state.definitions[named.definition] or nil
+                if target then
+                    local registrations = token(target).cleanupRegistrations or {}
+                    for _, cleanup in ipairs(t.cleanups) do
+                        for _, registration in ipairs(registrations) do
+                            local registered = registration.cleanup
+                            if cleanup.kind == "function"
+                                and registered.kind == "function"
+                                and cleanup.id == registered.id
+                                and cleanup.functionType == target.checkedSignature
+                                and registered.functionType == target.checkedSignature
+                                and not registration.after
+                            then
+                                state.cleanupBindings[
+                                    #state.cleanupBindings + 1
+                                ] = {
+                                    owner = owner,
+                                    annotation = annotation,
+                                    type = t,
+                                    arguments = arguments,
+                                    argumentsMap = copyMap(arguments),
+                                    terminal = terminal,
+                                    terminalMap = copyRecord(terminal),
+                                    token = named,
+                                    tokenMap = copyMap(named),
+                                    definition = named.definition,
+                                    target = target,
+                                    targetBody = target.body,
+                                    signature = target.checkedSignature,
+                                    chain = t.cleanups,
+                                    chainMap = copyMap(t.cleanups),
+                                    cleanup = cleanup,
+                                    cleanupMap = copyRecord(cleanup),
+                                    registrations = registrations,
+                                    registrationsMap = copyMap(registrations),
+                                    registration = registration,
+                                    registrationMap = copyMap(registration),
+                                    registered = registered,
+                                    registeredMap = copyRecord(registered)
+                                }
+                            end
+                        end
+                    end
+                end
+            end
         end
     end
     -- Owners borrow checked CST/type objects immutably. This API seals the
@@ -340,7 +510,8 @@ function unit.session(projectRoot: string, requested: any, target: string, inclu
             literals = literals,
             valueDefs = copyMap(scope.checkedExports.valueDefs),
             typeDefs = copyMap(scope.checkedExports.typeDefs),
-            types = copyMap(scope.checkedExports.types)
+            types = copyMap(scope.checkedExports.types),
+            values = copyMap(scope.checkedExports.values)
         }
     end
     state.moduleMap = copyMap(state.modules)
@@ -370,6 +541,7 @@ function unit.session(projectRoot: string, requested: any, target: string, inclu
         return result
     end
 
+    state.api = api
     validate(state, true)
 
     return api
@@ -400,6 +572,108 @@ end
 
 function unit.contains(fn: any): boolean
     return owners[fn] ~= nil
+end
+
+function unit.occurrence(fn: any, node: any): boolean
+    local held = need(owners[fn], "unknown occurrence owner")
+    need(
+        not held.state.invalid
+        and fn.body == held.body
+        and fn.node == held.node
+        and fn.node.body == held.body
+        and fn.scope == held.scope
+        and fn.definition == held.definition,
+        "occurrence owner changed"
+    )
+    need(type(node) == "table", "checked occurrence required")
+    local current = node
+    while current do
+        local saved = need(held.occurrences[current], "occurrence is outside checked owner")
+        need(current.kind == saved.kind, "checked occurrence kind changed")
+        if saved.parent == nil then
+            need(current == held.body, "checked occurrence root changed")
+        else
+            need(saved.parent[saved.index] == current, "checked occurrence parent changed")
+        end
+        current = saved.parent
+    end
+
+    return true
+end
+
+-- Detached enumeration of the same private membership index, not a source
+-- authority object. Consumers still authenticate each selected occurrence.
+function unit.occurrences(fn: any): any
+    local held = need(owners[fn], "unknown occurrence owner")
+    local result = {}
+    for node, saved in pairs(held.occurrences) do
+        unit.occurrence(fn, node)
+        result[saved.ordinal] = node
+    end
+
+    return result
+end
+
+-- This classifies an already checked occurrence for service reachability only.
+-- Representation and borrowed-root validation remain in physical.borrowView.
+function unit.borrowFrom(fn: any, call: any): boolean
+    unit.occurrence(fn, call)
+    local saved = owners[fn].occurrences[call]
+    need(call.ownershipIntrinsic == saved.ownershipIntrinsic, "checked ownership intrinsic changed")
+    if saved.ownershipIntrinsic ~= "borrowFrom" then
+        return false
+    end
+    need(
+        call.kind == "call"
+        and call.inferredType == saved.inferredType
+        and #call.args.exprs == 2
+        and call.args.exprs[2].kind == "name",
+        "checked borrowFrom occurrence changed"
+    )
+    unit.occurrence(fn, call.obj)
+    unit.occurrence(fn, call.args.exprs[1])
+    unit.occurrence(fn, call.args.exprs[2])
+
+    return true
+end
+
+-- A plain struct constructor is lowered through its newExpr parent, not an
+-- ordinary call edge. Physical localRecipe retains layout/storage admission.
+function unit.localConstructionChild(fn: any, call: any): boolean
+    unit.occurrence(fn, call)
+    local held = owners[fn]
+    local saved = held.occurrences[call]
+    need(
+        call.isNew == saved.isNew
+        and call.structConstruct == saved.structConstruct
+        and call.constructorCall == saved.constructorCall
+        and call.constructorEntry == saved.constructorEntry,
+        "checked construction call changed"
+    )
+    if saved.isNew ~= true then
+        return false
+    end
+    local parent = saved.parent
+    unit.occurrence(fn, parent)
+    local checked = held.occurrences[parent].inferredType
+    need(
+        parent.kind == "newExpr"
+        and parent.call == call
+        and parent.inferredType == checked
+        and call.inferredType == saved.inferredType
+        and checked
+        and checked == saved.inferredType
+        and checked.tag == "nominal"
+        and checked.declKind == "struct"
+        and saved.structConstruct
+        and not saved.constructorCall
+        and not saved.constructorEntry
+        and (not checked.constructors or #checked.constructors == 0),
+        "plain checked construction child required"
+    )
+    unit.occurrence(fn, call.obj)
+
+    return true
 end
 
 function unit.callee(fn: any, call: any): any
@@ -453,6 +727,247 @@ function unit.call(fn: any, call: any, target: any): nil
         )
         need(unit.callee(fn, call) == target, "checked callee definition differs")
     end
+end
+
+-- Closed declaration-only OS module. Function bodies remain under the ordinary
+-- unit resolver; this API cannot bind an arbitrary foreign module or symbol.
+-- Closed service construction uses these owner-bound lookups, never a copied
+-- module/options table supplied by the caller.
+function unit.ownerModule(fn: any, name: string): any
+    local held = need(owners[fn], "unknown service owner")
+    validate(held.state, false)
+    return need(held.state.modules[name], "service module is outside sealed unit")
+end
+
+function unit.ownerContext(fn: any): any
+    local held = need(owners[fn], "unknown service context owner")
+    validate(held.state, false)
+    return held.state.context
+end
+
+function unit.ownerOptions(fn: any, abi: string): any
+    local held = need(owners[fn], "unknown service owner")
+    return held.state.api.options(fn, abi)
+end
+
+function unit.sameOwners(left: any, right: any): boolean
+    local a, b = owners[left], owners[right]
+    return a ~= nil and b ~= nil and a.state == b.state
+end
+
+-- The literal text remains source evidence, not an allocated guest string.
+-- Shadowed names never acquire raising semantics from their text.
+function unit.cleanupTypes(fn: any, site: any): any
+    unit.occurrence(fn, site)
+    local result, seen = {}, {}
+
+    local function add(t: any): nil
+        if t and t.tag == "affine" and not seen[t] then
+            seen[t] = true
+            result[#result + 1] = t
+        end
+    end
+
+    add(site.inferredType)
+    if site.acquiredType then
+        need(site.ownerCleanups == site.acquiredType.cleanups, "with cleanup metadata changed")
+        add(site.acquiredType)
+    end
+    for index, owner in pairs(site.automaticOwners or {}) do
+        need(
+            site.kind == "localStmt"
+            and owner.stat == site
+            and owner.index == index
+            and owner.expr == site.exprs[index]
+            and owner.token == site.names[index]
+            and owner.entry.automaticOwner == owner,
+            "automatic cleanup owner differs"
+        )
+        need(owner.type == owner.entry.t and owner.cleanups == owner.type.cleanups, "automatic cleanup type differs")
+        add(owner.type)
+    end
+    for _, parameter in ipairs(fn.body.params) do
+        if site == parameter then
+            add(parameter.type.resolvedType)
+        end
+    end
+    for index, annotation in ipairs(fn.body.rets or {}) do
+        if site == annotation then
+            local result, resolved = fn.checkedSignature.rets[index], annotation.resolvedType
+            -- Primitive result syntax need not retain resolvedType. Only an
+            -- affine result participates in the cleanup declaration bridge.
+            if result and result.tag == "affine" or resolved and resolved.tag == "affine" then
+                need(resolved == result, "checked cleanup result annotation changed")
+                add(resolved)
+            end
+        end
+    end
+
+    return result
+end
+
+function unit.cleanupTarget(fn: any, site: any, t: any, cleanup: any): any
+    local held = need(owners[fn], "unknown cleanup owner")
+    local present = false
+    for _, candidate in ipairs(unit.cleanupTypes(fn, site)) do
+        if candidate == t then
+            present = true
+        end
+    end
+    need(present and t.tag == "affine", "cleanup type is not from checked site")
+    present = false
+    for _, candidate in ipairs(t.cleanups) do
+        if candidate == cleanup then
+            present = true
+        end
+    end
+    need(present and cleanup.kind == "function" and cleanup.functionType, "closed free-function cleanup required")
+    local result = nil
+    for _, saved in ipairs(held.state.cleanupBindings) do
+        if saved.cleanup == cleanup then
+            validateCleanup(saved)
+            need(result == nil or result == saved.target, "ambiguous checked cleanup")
+            result = saved.target
+        end
+    end
+
+    return need(result, "cleanup declaration is outside sealed unit")
+end
+
+function unit.literalRaise(fn: any, call: any): any
+    local held = need(owners[fn], "unknown raise owner")
+    unit.occurrence(fn, call)
+    if call.kind ~= "call" or call.obj.kind ~= "name" or call.obj.token.definition ~= held.state.errorDefinition then
+        return nil
+    end
+    need(not call.obj.token.definition.reassigned and #call.args.exprs == 1, "closed literal raise required")
+    local argument = call.args.exprs[1]
+    unit.occurrence(fn, argument)
+    local token = argument.token
+    local location = fn.scope.name .. "." .. fn.name .. " at " .. fn.scope.path .. ":" .. tostring(
+        token and token.line or 0
+    )
+    need(
+        argument.kind == "string" and token and token.kind == "string",
+        "service error requires a checked literal string: " .. location
+    )
+    local source = held.state.sources[fn.scope.path]
+    need(
+        source
+        and argument[1] == token
+        and type(token.text) == "string"
+        and type(token.offset) == "number"
+        and token.offset >= 1
+        and token.offset % 1 == 0
+        and source:sub(token.offset, token.offset + #token.text - 1) == token.text,
+        "service error literal token changed: " .. location
+    )
+    local lexer = require("nupp.compiler.syntax.lexer")
+    local literal = lexer.stringValue(token.text)
+    local checked = held.occurrences[argument].inferredType
+    local types = require("nupp.compiler.types")
+    need(
+        literal ~= nil
+        and checked
+        and checked == argument.inferredType
+        and checked.tag == "literal"
+        and checked.base == types.string
+        and checked.constant == literal,
+        "service error requires a checked literal string: " .. location
+    )
+
+    return {definition = held.state.errorDefinition, literal = literal, node = call}
+end
+
+function unit.osDeclaration(fn: any, call: any): any
+    local held = need(owners[fn], "OS caller is outside sealed unit")
+    validate(held.state, true)
+    unit.occurrence(fn, call)
+    need(
+        call.kind == "call" and call.obj.kind == "dotIndex" and call.obj.obj.kind == "name",
+        "OS call requires a checked imported member"
+    )
+    local receiver = call.obj.obj.token.definition
+    local definition = call.obj.name.definition
+    local path = held.state.projectRoot .. "/src/nupp/runtime/vm/os.d.nupp"
+    need(
+        receiver and not receiver.reassigned and receiver.requiredModule == "nupp.runtime.vm.os",
+        "OS receiver identity differs"
+    )
+    need(
+        definition and definition.filename == path and held.state.sources[path] ~= nil,
+        "OS declaration is not the frozen source"
+    )
+    unit.occurrence(fn, call.obj)
+    unit.occurrence(fn, call.obj.obj)
+    local actual = held.occurrences[call.obj].inferredType
+    need(actual == call.obj.inferredType, "OS checked signature occurrence changed")
+    local record = receiver.type
+    while record and (record.tag == "const" or record.tag == "literal") do
+        record = record.tag == "literal" and record.base or record.inner
+    end
+    need(record and record.tag == "typeobject", "OS checked declaration table required")
+    record = record.of
+    while record and (record.tag == "const" or record.tag == "literal") do
+        record = record.tag == "literal" and record.base or record.inner
+    end
+    need(record and record.tag == "nominal", "OS checked record required")
+    local name = call.obj.name.text
+    -- Match the checker's declaration-table member lookup, including Self
+    -- specialization, while retaining the checked occurrence's exact identity.
+    local member = record.staticByname and record.staticByname[name]
+    local memberDefinition = record.staticFieldDefs and record.staticFieldDefs[name]
+    if not member then
+        member = record.byname and record.byname[name]
+        memberDefinition = record.fieldDefs and record.fieldDefs[name]
+    end
+    need(member and memberDefinition == definition, "OS checked member identity differs")
+    local generics = require("nupp.compiler.types.generics")
+    local resolved = generics.specializeSelf(record, member, record)
+    local types = require("nupp.compiler.types")
+    -- Imported dot members retain resolvedType before the checker applies its
+    -- interned sendable callable view. Both identities must still agree.
+    need(
+        call.obj.resolvedType == resolved and types.withSendable(resolved) == actual,
+        "OS checked member signature differs"
+    )
+
+    return {
+        definition = definition,
+        signature = call.obj.inferredType,
+        context = held.state.context,
+        path = path,
+        owner = fn,
+        name = name,
+        call = call
+    }
+end
+
+-- The call occurrence and exported value belong to the same sealed checking
+-- transaction. An imported callable may be a distinct public signature object.
+function unit.callSignature(fn: any, call: any, target: any): (any, any)
+    unit.occurrence(fn, call)
+    unit.occurrence(fn, call.obj)
+    unit.call(fn, call, target)
+    local state = owners[fn].state
+    local actual = owners[fn].occurrences[call.obj].inferredType
+    need(actual == call.obj.inferredType, "checked call signature occurrence changed")
+    local exported = target.checkedSignature
+    if call.obj.kind == "dotIndex" then
+        local scope = target.scope
+        local name = call.obj.name.text
+        need(scope.exports[name] == target, "checked export target changed")
+        exported = scope.checkedExports.values[name]
+        local saved
+        for _, snapshot in ipairs(state.scopes) do
+            if snapshot.scope == scope then
+                saved = snapshot.values[name]
+            end
+        end
+        need(exported ~= nil and exported == saved, "checked export signature changed")
+    end
+
+    return actual, exported
 end
 
 export = unit

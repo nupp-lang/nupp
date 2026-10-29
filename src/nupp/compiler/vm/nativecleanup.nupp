@@ -1,0 +1,226 @@
+module nupp.compiler.vm.nativecleanup
+
+local graph = require("nupp.compiler.vm.graph")
+local cleanup = require("nupp.compiler.vm.functioncleanup")
+local service = require("nupp.compiler.vm.nativeservice")
+
+local nativecleanup = {}
+local primitive = {["nil"] = true, boolean = true, int64 = true, uint64 = true, float32 = true, float64 = true}
+local scalarPlans = setmetatable({}, {__mode = "k"})
+
+local function need(ok: any, message: string): any
+    assert(ok, "native cleanup: " .. message)
+    return ok
+end
+
+local function scoped(ctx: any): nil
+    service.verify(ctx.g)
+    need(
+        ctx.g.nativeService
+        and service.owner(ctx.g.nativeService) == ctx.fn
+        and service.needsCleanup(ctx.g.nativeService),
+        "cleanup requires a privately issued scoped service graph"
+    )
+end
+
+local function scalarResult(ctx: any, stage: any?): any
+    local signature = ctx.fn.body.signatureType
+    need(
+        signature
+        and signature.retPack
+        and not signature.retPack.tail
+        and not signature.retPack.alternatives
+        and #signature.rets <= 1,
+        "closed checked return required"
+    )
+    local t = signature.rets[1]
+    while t and (t.tag == "literal" or t.tag == "const") do
+        t = t.tag == "literal" and t.base or t.inner
+    end
+    need(
+        not t
+        or primitive[t.tag]
+        or t.tag == "affine"
+        or ctx.g.nativePhysical and ctx.g.nativePhysical.signature and ctx.g.nativePhysical.signature.dependent ~= nil,
+        "pointer return requires an exact root and backing-lifetime adapter"
+    )
+    -- Even uint64 may contain a tagged value or an address. Machine/source
+    -- kind alone cannot establish the absence of a managed root obligation.
+    need(type(service.unmanagedReturn) == "function", "unmanaged return issuer is not available")
+
+    return need(service.unmanagedReturn(ctx, stage), "return lacks exact unmanaged source and effect evidence")
+end
+
+-- Only the closed service producer chooses this derived profile. Merely
+-- copying callbacks cannot issue a service graph or a cleanup declaration.
+-- Default native profiles retain their existing refusal and control behavior.
+function nativecleanup.profile(base: any): any
+    need(type(base) == "table" and getmetatable(base) == nil, "plain native profile required")
+    local profile = {}
+    for key, value in pairs(base) do
+        profile[key] = value
+    end
+    profile.initialize = function(owner: any, options: any): any
+        local g = base.initialize(owner, options)
+        service.verify(g)
+        need(
+            g.nativeService and service.owner(g.nativeService) == owner and service.needsCleanup(g.nativeService),
+            "cleanup profile requires an issued scoped owner"
+        )
+
+        return g
+    end
+    profile.cleanupFlag = function(ctx: any, node: any, value: boolean): integer
+        scoped(ctx)
+        return ctx.emit(node, "NativeBoolean", {value}, "boolean") as integer
+    end
+    profile.cleanupPlan = function(ctx: any, node: any, t: any, chain: any): any
+        scoped(ctx)
+        need(cleanup.type(t) == t and chain == t.cleanups, "checked affine cleanup chain required")
+        need(
+            #chain == 1,
+            "native service cleanup requires one terminal until per-terminal retention guards are available"
+        )
+        local declarations = {}
+        for index, item in ipairs(chain) do
+            local target = service.cleanupTarget(ctx, node, t, item)
+            -- The ordinary declaration builder still refuses takes/affine
+            -- until its separate private service capability is composed.
+            -- Do not erase qualifiers to get a pointer-shaped declaration.
+            local declaration = graph.nativeLeafDeclaration(
+                target,
+                ctx.g.nativePhysical and ctx.g.nativePhysical.context,
+                nil,
+                nil,
+                service.cleanupSignature(ctx, node, t, item)
+            )
+            need(
+                declaration.service == service.cleanupSignature(ctx, node, t, item),
+                "cleanup declaration lacks the exact service ABI"
+            )
+            declarations[index] = service.cleanupDeclaration(ctx, node, t, item, declaration)
+        end
+
+        return {graph = ctx.g, declarations = declarations}
+    end
+    profile.cleanupAllowed = function(ctx: any, node: any, plan: any): integer
+        scoped(ctx)
+        need(plan.graph == ctx.g, "foreign cleanup plan")
+        local layout = service.layout(ctx)
+        local offset = ctx.emit(
+            node,
+            "NativeConstant",
+            {tostring(need(layout.offsets.retainBacking, "checked retained-backing field required"))},
+            "int64"
+        )
+        local retained = ctx.emit(
+            node,
+            "NativeLoad",
+            {
+                service.scope(ctx),
+                offset,
+                {source = "borrowed", kind = "uint64", width = 8, signed = false, write = false}
+            },
+            "uint64"
+        )
+        local zero = ctx.emit(node, "NativeConstant", {"0"}, "uint64")
+
+        return ctx.emit(node, "NativeICmp", {retained, zero, "=="}, "boolean") as integer
+    end
+    profile.cleanupRun = function(ctx: any, node: any, plan: any, value: integer, reason: string): nil
+        scoped(ctx)
+        need(plan.graph == ctx.g, "foreign cleanup plan")
+        for index = #plan.declarations, 1, -1 do
+            local declaration = plan.declarations[index]
+            local operands = service.operands(ctx, declaration, {value})
+            table.insert(operands, 1, declaration)
+            ctx.emit(node, "NativeLeafCall", operands, nil)
+        end
+        -- Cleanup calls drain despite sticky failure. The common walker
+        -- checks cleanupStatus after all required terminals have run.
+    end
+    profile.cleanupStatus = function(ctx: any, node: any): integer
+        scoped(ctx)
+        local layout = service.layout(ctx)
+        local offset = ctx.emit(node, "NativeConstant", {tostring(layout.offsets.error)}, "int64")
+        local status = ctx.emit(
+            node,
+            "NativeLoad",
+            {
+                service.scope(ctx),
+                offset,
+                {source = "borrowed", kind = "uint64", width = 8, signed = false, write = false}
+            },
+            "uint64"
+        )
+        local zero = ctx.emit(node, "NativeConstant", {"0"}, "uint64")
+
+        return ctx.emit(node, "NativeICmp", {status, zero, "=="}, "boolean") as integer
+    end
+    profile.failure = function(ctx: any, node: any): nil
+        scoped(ctx)
+        -- A private error terminal has no source success value. In particular,
+        -- it must not manufacture a null result for a nonnullable pointer.
+        need(type(service.failure) == "function", "private service failure terminal is not available")
+        service.failure(ctx, node)
+    end
+    profile.stageReturn = function(ctx: any, node: any, falling: boolean): any
+        scoped(ctx)
+        local kind, values = ctx.g.native.result, {}
+        if kind == "nil" then
+            need(
+                falling or #node.exprs == 0 or #node.exprs == 1 and node.exprs[1].kind == "nilExpr",
+                "void service return must be empty or explicit nil"
+            )
+        else
+            need(not falling and #node.exprs == 1, "native service returns one value")
+            values[1] = ctx.expression(node.exprs[1], kind)
+            if not ctx.hasContinuation() then
+                return nil
+            end
+        end
+
+        local stage = {values = values, node = node}
+        stage.proof = scalarResult(ctx, stage)
+
+        return stage
+    end
+    profile.rootReturn = function(ctx: any, node: any, stage: any, held: any): any
+        scoped(ctx)
+        local proof = stage.proof
+        service.returnTail(ctx, proof)
+        local plan = {}
+        scalarPlans[plan] = {graph = ctx.g, proof = proof}
+
+        return plan
+    end
+    profile.rootBacking = function(ctx: any, node: any, plan: any): any
+        need(scalarPlans[plan] and scalarPlans[plan].graph == ctx.g, "foreign scalar return plan")
+        return {}
+    end
+    profile.closeReturnRoots = function(ctx: any, node: any, plan: any, reason: string): integer
+        need(scalarPlans[plan] and scalarPlans[plan].graph == ctx.g, "foreign scalar return plan")
+        service.returnTail(ctx, scalarPlans[plan].proof)
+        -- This exact issued source/effect proof has no root registration.
+        -- Pointer and ownership-qualified results are still refused above.
+        return profile.cleanupFlag(ctx, node, true)
+    end
+    profile.retainRootBacking = function(ctx: any, node: any, plan: any): nil
+        scoped(ctx)
+        need(scalarPlans[plan] and scalarPlans[plan].graph == ctx.g, "foreign scalar return plan")
+        need(type(service.retainRoots) == "function", "private backing retention is not available")
+        service.retainRoots(ctx, node)
+    end
+    profile.finishReturn = function(ctx: any, node: any, stage: any, values: any, plan: any): nil
+        scoped(ctx)
+        need(scalarPlans[plan] and scalarPlans[plan].graph == ctx.g and #values <= 1, "foreign staged scalar return")
+        service.returnTail(ctx, scalarPlans[plan].proof)
+        ctx.block.term = {kind = "return", value = values[1], edges = {}, pos = ctx.position(node)}
+        service.returnTail(ctx, scalarPlans[plan].proof, ctx.block.term)
+        ctx.block = nil
+    end
+
+    return profile
+end
+
+export = nativecleanup

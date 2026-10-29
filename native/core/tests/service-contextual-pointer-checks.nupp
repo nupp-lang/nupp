@@ -1,0 +1,120 @@
+module nupp.core.servicecontextualpointerchecks
+
+-- Actual fixed-catalog graph checks only. No allocator or collector execution.
+local graph = require("nupp.compiler.vm.graph")
+local lower = require("nupp.compiler.vm.lower")
+local nativegraph = require("nupp.compiler.vm.nativegraph")
+local cleanup = require("nupp.compiler.vm.nativecleanup")
+local physical = require("nupp.compiler.vm.nativephysical")
+local service = require("nupp.compiler.vm.nativeservice")
+local types = require("nupp.compiler.types")
+local M = {}
+
+local function refuses(callback: function(): nil, fragment: string?): nil
+    local ok, message = pcall(callback)
+    assert(not ok, "invalid contextual pointer accepted")
+    assert(fragment == nil or tostring(message):find(fragment, 1, true), tostring(message))
+end
+
+local function nilViews(g: any, required: boolean): nil
+    local definitions, count = {}, 0
+    for _, block in ipairs(g.blocks) do
+        for at, value in ipairs(block.dst) do
+            if value ~= 0 then
+                definitions[value] = {block = block, at = at}
+            end
+        end
+    end
+    for _, block in ipairs(g.blocks) do
+        for at, op in ipairs(block.op) do
+            if op == "NativePointerView" and physical.viewKind(block.args[at][2]) == "nil" then
+                count = count + 1
+                local args = block.args[at]
+                local view = args[2]
+                physical.validateCast(view)
+                assert(view.node.kind == "nilExpr" and view.target.nullable)
+                local pointer = assert(definitions[args[1]])
+                assert(pointer.block.op[pointer.at] == "NativePointer")
+                local bits = pointer.block.args[pointer.at][1]
+                local constant = assert(definitions[bits])
+                assert(constant.block.op[constant.at] == "NativeConstant")
+                local literal = constant.block.args[constant.at]
+                assert(literal[1] == "0")
+                literal[1] = "1"
+                local ok, message = pcall(graph.verify, g)
+                literal[1] = "0"
+                assert(not ok and tostring(message):find("actual zero input", 1, true), tostring(message))
+                -- An integer SSA zero is not the checked pointer literal.
+                local saved = args[1]
+                args[1] = bits
+                ok = pcall(graph.verify, g)
+                args[1] = saved
+                assert(not ok, "integer zero acquired optional pointer authority")
+                local copy = {}
+                for key, value in pairs(view) do
+                    copy[key] = value
+                end
+                refuses(
+                    function(): nil
+                        physical.validateCast(copy)
+                    end,
+                    "unknown checked pointer cast"
+                )
+                graph.verify(g)
+            end
+        end
+    end
+    assert(not required or count > 0, "actual contextual nil projection missing")
+end
+
+function M.check(build: any): nil
+    local wanted = {
+        ["nupp.runtime.core.pagemappings"] = {entry = true, map = true},
+        ["nupp.runtime.vm.collector"] = {walkRoots = true, startCycle = true, markSome = true}
+    }
+    local count: integer = 0
+    refuses(
+        function(): nil
+            physical.nilArgument({}, 1)
+        end,
+        "unknown checked pointer signature"
+    )
+    for _, owner in ipairs(service.owners(build.catalog)) do
+        if wanted[owner.scope.name] and wanted[owner.scope.name][owner.name] then
+            count = count + 1
+            local options = service.options(build.catalog, owner)
+            local capability = service.signature(owner, options)
+            local profile = service.needsCleanup(capability) and cleanup.profile(nativegraph) or nativegraph
+            local g = lower.functionGraph(owner, options, profile)
+            graph.verify(g);
+            service.verifyScope(g)
+            local needsNil = owner.name == "map" or owner.name == "startCycle" or owner.name == "markSome"
+            nilViews(g, needsNil)
+            if owner.name == "entry" then
+                local returned = false
+                for _, block in ipairs(g.blocks) do
+                    if block.term.kind == "return" then
+                        local value = block.term.value
+                        local original = assert(g.nativePhysical.values[value])
+                        assert(physical.rawReturn(original))
+                        local borrowed = physical.describe(original.context, types.borrowed(original.checkedType))
+                        assert(not physical.rawReturn(borrowed))
+                        g.nativePhysical.values[value] = borrowed
+                        local ok = pcall(graph.verify, g)
+                        g.nativePhysical.values[value] = original
+                        assert(not ok, "raw return erased a borrowed descriptor")
+                        returned = true
+                    end
+                end
+                assert(returned)
+            end
+            graph.prune(g)
+            graph.verify(g);
+            service.verifyScope(g)
+            nilViews(g, needsNil)
+        end
+    end
+    assert(count == 5, "contextual pointer source inventory differs")
+end
+
+export = M

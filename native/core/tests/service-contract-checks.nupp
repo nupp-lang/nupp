@@ -1,0 +1,94 @@
+module nupp.core.heapservicechecks
+
+-- Draft assertions for the combined workload producer after buildHeapServices.
+-- No synthetic source owner, public issuance hook or independent native probe.
+local graph = require("nupp.compiler.vm.graph")
+local service = require("nupp.compiler.vm.nativeservice")
+local M = {}
+
+local function refuses(callback: function(): nil, text: string?): nil
+    local ok, message = pcall(callback)
+    assert(not ok, "unsupported service contract accepted")
+    if text then
+        assert(tostring(message):find(text, 1, true), tostring(message))
+    end
+end
+
+function M.check(build: any): nil
+    refuses(
+        function(): nil
+            service.failure({g = {}, fn = {}, block = {}}, {})
+        end,
+        "issued service graph"
+    )
+    refuses(
+        function(): nil
+            service.verify({nativeService = {}, native = {abi = "leaf"}})
+        end,
+        "unissued"
+    )
+    local failures, guardedResults = 0, 0
+    for _, resolved in pairs(build.resolved) do
+        local g = resolved.graph
+        service.verifyScope(g)
+        for _, block in ipairs(g.blocks) do
+            if service.isFailure(g, block.term) then
+                failures = failures + 1
+                local original = block.term
+                local copied = {}
+                for key, value in pairs(original) do
+                    copied[key] = value
+                end
+                block.term = copied
+                refuses(
+                    function(): nil
+                        graph.verify(g)
+                    end,
+                    "native failure exit"
+                )
+                block.term = original
+
+                -- Reusing an actually issued term does not mint a dominating
+                -- error fact. Keep its graph identity, remove entry effects.
+                local entry = g.blocks[1]
+                local saved = {op = entry.op, args = entry.args, dst = entry.dst, type = entry.type, term = entry.term}
+                entry.op, entry.args, entry.dst, entry.type, entry.term = {}, {}, {}, {}, original
+                refuses(
+                    function(): nil
+                        service.verifyScope(g)
+                    end,
+                    "dominating nonzero error edge"
+                )
+                for key, value in pairs(saved) do
+                    entry[key] = value
+                end
+            end
+            for index, op in ipairs(block.op) do
+                if op == "NativeLeafCall"
+                    and block.dst[index] ~= 0
+                    and block.term.kind == "branch"
+                    and #block.op == index + 4
+                then
+                    local declaration = block.args[index][1]
+                    if declaration.service then
+                        guardedResults = guardedResults + 1
+                        local args = block.term.edges[2].args
+                        args[#args + 1] = block.dst[index]
+                        refuses(
+                            function(): nil
+                                service.verifyScope(g)
+                            end,
+                            "failed service result escapes"
+                        )
+                        args[#args] = nil
+                    end
+                end
+            end
+        end
+        service.verifyScope(g)
+    end
+    assert(failures > 0, "combined source closure did not exercise literal failure")
+    assert(guardedResults > 0, "combined source closure did not exercise guarded scalar result")
+end
+
+export = M

@@ -63,6 +63,30 @@ function producer.compile(mode: string): string
         )
     end
     local g = probe.graph
+    -- Plain graph data remains structurally sealed; only privately issued
+    -- physical records use identity borrowing inside the same seal.
+    local counts = g.counts
+    g.counts = copy(counts)
+    graph.verify(g)
+    g.counts.v += 1
+    reject(
+        "changed plain graph data",
+        function(): any
+            return graph.verify(g)
+        end,
+        "issued graph changed"
+    )
+    g.counts = copy(counts)
+    setmetatable(g.counts, {__index = {}})
+    reject(
+        "plain graph metatable",
+        function(): any
+            return graph.verify(g)
+        end,
+        "issued graph changed"
+    )
+    g.counts = counts
+    graph.verify(g)
     local marker = g.nativeFinalFrame
     g.nativeFinalFrame = nil
     reject(

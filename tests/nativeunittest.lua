@@ -87,6 +87,210 @@ local function callOf(fn)
     return fn.body.body.stats[1].exprs[1]
 end
 
+local CLEANUP_MODEL = MODEL
+    .. [[
+local function release(takes value: integer): nil end
+export function acquire(value: integer): affine(integer, release) return value end
+export function useOwned(): integer
+    local value = acquire(1)
+    return 7
+end
+]]
+
+local function cleanupFixture(callback)
+    project(
+        function(dir)
+            local s = session(dir)
+            local scope = s.module("model")
+            local owner = scope.functions.useOwned
+            local site = owner.body.body.stats[1]
+            local t = site.automaticOwners[1].type
+            local annotation = scope.functions.acquire.body.rets[1]
+            local terminal
+            for _, child in ipairs(annotation.arguments[2]) do
+                if child.kind == "name" then
+                    terminal = child
+                end
+            end
+            assert(terminal and terminal.definition == scope.functions.release.definition)
+            callback(s, scope, owner, site, t, terminal)
+        end,
+        CLEANUP_MODEL
+    )
+end
+
+local function shallow(record)
+    local result = {}
+    for key, value in pairs(record) do
+        result[key] = value
+    end
+
+    return result
+end
+
+function M.cleanupBindsDistinctCheckedRegistrationAndAnnotationRecords()
+    cleanupFixture(function(s, scope, owner, site, t)
+        local target = scope.functions.release
+        local registered = target.node.name.cleanupRegistrations[1].cleanup
+        assert(registered ~= t.cleanups[1] and registered.id == t.cleanups[1].id)
+        assert(registered.functionType == target.checkedSignature)
+        assert(unit.cleanupTarget(owner, site, t, t.cleanups[1]) == target)
+        assert(s.validate())
+    end)
+end
+
+function M.cleanupResultAnnotationUsesSealedDeclaration()
+    cleanupFixture(function(s, scope, owner, site, t)
+        local acquire = scope.functions.acquire
+        local annotation = acquire.body.rets[1]
+        local result = acquire.resultType
+        assert(unit.cleanupTarget(acquire, annotation, result, result.cleanups[1]) == scope.functions.release)
+        refuses(
+            function()
+                unit.cleanupTarget(acquire, shallow(annotation), result, result.cleanups[1])
+            end,
+            "occurrence"
+        )
+        local saved = annotation.resolvedType
+        annotation.resolvedType = scope.functions.identity.resultType
+        refuses(
+            function()
+                unit.cleanupTarget(acquire, annotation, result, result.cleanups[1])
+            end,
+            "result annotation changed"
+        )
+        annotation.resolvedType = saved
+        assert(s.validate())
+    end)
+end
+
+function M.ordinaryNilResultHasNoCleanupAnnotation()
+    cleanupFixture(function(s, scope)
+        local release = scope.functions.release
+        local annotation = release.body.rets[1]
+        assert(release.checkedSignature.rets[1].tag == "nil")
+        assert(#unit.cleanupTypes(release, annotation) == 0)
+        local saved = annotation.resolvedType
+        annotation.resolvedType = scope.functions.acquire.resultType
+        refuses(
+            function()
+                unit.cleanupTypes(release, annotation)
+            end,
+            "result annotation changed"
+        )
+        annotation.resolvedType = saved
+        assert(#unit.cleanupTypes(release, annotation) == 0)
+        assert(s.validate())
+    end)
+end
+
+function M.copiedAndReplacedCleanupRecordsRefuse()
+    cleanupFixture(function(s, scope, owner, site, t)
+        local original = t.cleanups[1]
+        local copied = shallow(original)
+        refuses(
+            function()
+                unit.cleanupTarget(owner, site, t, copied)
+            end,
+            "cleanup"
+        )
+        t.cleanups[1] = copied
+        refuses(
+            function()
+                unit.cleanupTarget(owner, site, t, copied)
+            end,
+            "cleanup"
+        )
+        t.cleanups[1] = original
+        local registration = scope.functions.release.node.name.cleanupRegistrations[1]
+        local registered = registration.cleanup
+        registration.cleanup = shallow(registered)
+        refuses(
+            function()
+                unit.cleanupTarget(owner, site, t, original)
+            end,
+            "registration changed"
+        )
+        registration.cleanup = registered
+        local metatable = getmetatable(registered)
+        assert(type(metatable) == "table", "checked Cleanup must retain its record metatable")
+        setmetatable(registered, {})
+        refuses(
+            function()
+                unit.cleanupTarget(owner, site, t, original)
+            end,
+            "registration changed"
+        )
+        setmetatable(registered, metatable)
+        assert(s.validate())
+    end)
+end
+
+function M.changedCleanupTerminalDefinitionAndSignatureRefuse()
+    cleanupFixture(function(s, scope, owner, site, t, terminal)
+        local definition = terminal.definition
+        terminal.definition = scope.functions.identity.definition
+        refuses(
+            function()
+                unit.cleanupTarget(owner, site, t, t.cleanups[1])
+            end,
+            "annotation declaration changed"
+        )
+        terminal.definition = definition
+        local signature = t.cleanups[1].functionType
+        t.cleanups[1].functionType = scope.functions.identity.checkedSignature
+        refuses(
+            function()
+                unit.cleanupTarget(owner, site, t, t.cleanups[1])
+            end,
+            "cleanup record changed"
+        )
+        t.cleanups[1].functionType = signature
+        assert(s.validate())
+    end)
+end
+
+function M.foreignCleanupCannotUseMatchingLocalDeclaration()
+    cleanupFixture(function(s, scope, owner, site, t, terminal)
+        cleanupFixture(function(other, foreign, foreignOwner, foreignSite, foreignType)
+            -- Types intern globally by module cleanup key and payload type.
+            -- Sharing that immutable type does not share checked source owners.
+            assert(t == foreignType and t.cleanups[1] == foreignType.cleanups[1])
+            assert(scope.functions.release.definition ~= foreign.functions.release.definition)
+            assert(not unit.sameOwners(owner, foreignOwner))
+            assert(unit.cleanupTarget(owner, site, t, foreignType.cleanups[1]) == scope.functions.release)
+            assert(
+                unit.cleanupTarget(foreignOwner, foreignSite, foreignType, t.cleanups[1]) == foreign.functions.release
+            )
+            refuses(
+                function()
+                    unit.cleanupTarget(owner, foreignSite, t, t.cleanups[1])
+                end,
+                "occurrence"
+            )
+            local foreignRegistration = foreign.functions.release.node.name.cleanupRegistrations[1].cleanup
+            assert(foreignRegistration ~= t.cleanups[1])
+            refuses(
+                function()
+                    unit.cleanupTarget(owner, site, t, foreignRegistration)
+                end,
+                "cleanup"
+            )
+            local definition = terminal.definition
+            terminal.definition = foreign.functions.release.definition
+            refuses(
+                function()
+                    unit.cleanupTarget(owner, site, t, t.cleanups[1])
+                end,
+                "annotation declaration changed"
+            )
+            terminal.definition = definition
+            assert(other.validate())
+        end)
+        assert(s.validate())
+    end)
+end
+
 function M.importedDeclarationAndModuleAliasUseExactCheckedIdentity()
     project(function(dir)
         local s = session(dir)
@@ -131,12 +335,9 @@ function M.importedNominalTypesShareCheckedDefinitionsNotNames()
         local separate = physical.describe(b.nativePhysical.context, foreign.parameterAnnotations[1])
         assert(physical.same(first, same))
         assert(not physical.same(first, separate))
-        refuses(
-            function()
-                compile(s, imported)
-            end,
-            "exact native parameter required"
-        )
+        local borrowed = compile(s, imported)
+        assert(borrowed.nativePhysical.signature.borrowing)
+        assert(borrowed.nativePhysical.signature.params[1].checkedType == imported.parameterTypes[1])
     end)
 end
 
@@ -343,6 +544,250 @@ const native = require("nupp.runtime.vm.intrinsics")
 export function use(value: uint64): uint64 return native.word(native.index(value)) end
 ]]
     )
+end
+
+local RAISE_MODEL = MODEL
+    .. [=[
+export function quoted(seed: uint64): uint64
+    return error("heap: the arena is full")
+end
+export function escaped(seed: uint64): uint64
+    return error("line\nquoted \"text\"\tend")
+end
+export function emptyMessage(seed: uint64): uint64
+    return error("")
+end
+export function longMessage(seed: uint64): uint64
+    return error([[long message]])
+end
+const fixedMessage = "fixed message"
+export function namedMessage(seed: uint64): uint64
+    return error(fixedMessage)
+end
+export function joinedMessage(seed: uint64): uint64
+    return error("left" .. "right")
+end
+export function shadowed(error: function(message: string): uint64): uint64
+    return error("ordinary callback")
+end
+]=]
+
+local function raisesFixture(callback)
+    project(
+        function(dir)
+            local s = session(dir)
+            callback(s, s.module("model").functions)
+        end,
+        RAISE_MODEL
+    )
+end
+
+function M.literalRaiseUsesCheckedDecodedStringBytes()
+    raisesFixture(function(s, functions)
+        local expected = {quoted = "heap: the arena is full", escaped = "line\nquoted \"text\"\tend", emptyMessage = ""}
+        for name, value in pairs(expected) do
+            local owner = functions[name]
+            local call = callOf(owner)
+            local argument = call.args.exprs[1]
+            assert(argument.kind == "string" and argument.token.value == nil)
+            assert(argument.inferredType.tag == "literal")
+            local raising = assert(unit.literalRaise(owner, call))
+            test.equal(raising.literal, value)
+            assert(raising.node == call)
+        end
+        assert(unit.literalRaise(functions.shadowed, callOf(functions.shadowed)) == nil)
+        assert(s.validate())
+    end)
+end
+
+function M.literalRaiseRefusesNonliteralSyntaxAndUnprovedLongStrings()
+    raisesFixture(function(_, functions)
+        assert(callOf(functions.namedMessage).args.exprs[1].inferredType.tag == "literal")
+        -- Long brackets parse, but the checker deliberately leaves their type
+        -- as string; this narrow service policy does not invent literal proof.
+        assert(callOf(functions.longMessage).args.exprs[1].kind == "string")
+        for _, name in ipairs({"namedMessage", "joinedMessage", "longMessage"}) do
+            local owner = functions[name]
+            refuses(
+                function()
+                    unit.literalRaise(owner, callOf(owner))
+                end,
+                "service error requires a checked literal string: model." .. name
+            )
+        end
+    end)
+end
+
+function M.literalRaiseRejectsChangedTokenAndCheckedType()
+    raisesFixture(function(_, functions)
+        local owner = functions.quoted
+        local call = callOf(owner)
+        local argument = call.args.exprs[1]
+        local text = argument.token.text
+        argument.token.text = '"different message"'
+        refuses(
+            function()
+                unit.literalRaise(owner, call)
+            end,
+            "literal token changed"
+        )
+        argument.token.text = text
+        -- Even an alternate token with identical decoded bytes is not the
+        -- exact token checked at this frozen source location.
+        argument.token.text = "'heap: the arena is full'"
+        refuses(
+            function()
+                unit.literalRaise(owner, call)
+            end,
+            "literal token changed"
+        )
+        argument.token.text = text
+        local checked = argument.inferredType
+        argument.inferredType = callOf(functions.escaped).args.exprs[1].inferredType
+        refuses(
+            function()
+                unit.literalRaise(owner, call)
+            end,
+            "checked literal string"
+        )
+        argument.inferredType = checked
+        test.equal(unit.literalRaise(owner, call).literal, "heap: the arena is full")
+    end)
+end
+
+function M.actualArenaAllocBorrowFromIsNotAnOrdinaryCallee()
+    local s = unit.session(
+        ROOT,
+        {{path = ROOT .. "/src/nupp/runtime/vm/arena.nupp", moduleName = "nupp.runtime.vm.arena"}},
+        TARGET
+    )
+    local owner = s.module("nupp.runtime.vm.arena").functions.alloc
+    local calls = 0
+    for _, node in ipairs(unit.occurrences(owner)) do
+        if node.kind == "call" and node.ownershipIntrinsic == "borrowFrom" then
+            calls = calls + 1
+            assert(node.obj.kind == "name" and node.obj.token.definition == nil)
+            assert(unit.borrowFrom(owner, node))
+            refuses(
+                function()
+                    unit.callee(owner, node)
+                end,
+                "unstable local callee"
+            )
+            node.ownershipIntrinsic = nil
+            refuses(
+                function()
+                    unit.borrowFrom(owner, node)
+                end,
+                "checked ownership intrinsic changed"
+            )
+            node.ownershipIntrinsic = "borrowFrom"
+            assert(unit.borrowFrom(owner, node))
+            refuses(
+                function()
+                    unit.borrowFrom(owner, shallow(node))
+                end,
+                "outside checked owner"
+            )
+            refuses(
+                function()
+                    unit.borrowFrom(s.module("nupp.runtime.vm.arena").functions.pool, node)
+                end,
+                "outside checked owner"
+            )
+        end
+    end
+    assert(calls == 6, "actual alloc borrowFrom sites changed")
+    assert(s.validate())
+end
+
+function M.shadowedBorrowFromRetainsCheckedLocalCallee()
+    project(
+        function(dir)
+            local s = session(dir)
+            local scope = s.module("model")
+            local owner = scope.functions.useBorrowName
+            local call = callOf(owner)
+            assert(not unit.borrowFrom(owner, call))
+            assert(unit.callee(owner, call) == scope.functions.borrowFrom)
+            call.ownershipIntrinsic = "borrowFrom"
+            refuses(
+                function()
+                    unit.borrowFrom(owner, call)
+                end,
+                "checked ownership intrinsic changed"
+            )
+            call.ownershipIntrinsic = nil
+            assert(unit.callee(owner, call) == scope.functions.borrowFrom)
+        end,
+        MODEL
+        .. [[
+local function borrowFrom(value: uint64): uint64 return value end
+export function useBorrowName(value: uint64): uint64 return borrowFrom(value) end
+]]
+    )
+end
+
+function M.actualCollectorCursorConstructorChildIsNotACallEdge()
+    local s = unit.session(
+        ROOT,
+        {{path = ROOT .. "/src/nupp/runtime/vm/collector.nupp", moduleName = "nupp.runtime.vm.collector"}},
+        TARGET
+    )
+    local owner = s.module("nupp.runtime.vm.collector").functions.eachChild
+    local found = 0
+    for _, node in ipairs(unit.occurrences(owner)) do
+        if node.kind == "newExpr" then
+            found = found + 1
+            local call = node.call
+            assert(call.isNew and call.structConstruct and unit.localConstructionChild(owner, call))
+            local original = call.structConstruct
+            call.structConstruct = "forged"
+            refuses(
+                function()
+                    unit.localConstructionChild(owner, call)
+                end,
+                "checked construction call changed"
+            )
+            call.structConstruct = original
+            refuses(
+                function()
+                    unit.localConstructionChild(owner, shallow(call))
+                end,
+                "outside checked owner"
+            )
+            local originalCall = node.call
+            node.call = shallow(call)
+            refuses(
+                function()
+                    unit.localConstructionChild(owner, call)
+                end,
+                "plain checked construction child"
+            )
+            node.call = originalCall
+            assert(unit.localConstructionChild(owner, call))
+        end
+    end
+    assert(found == 1, "actual eachChild constructor sites changed")
+    assert(s.validate())
+end
+
+function M.ordinaryCallCannotAcquireConstructionClassification()
+    project(function(dir)
+        local s = session(dir)
+        local owner = s.module("client").functions.use
+        local call = callOf(owner)
+        assert(not unit.localConstructionChild(owner, call))
+        call.isNew, call.structConstruct = true, "forged"
+        refuses(
+            function()
+                unit.localConstructionChild(owner, call)
+            end,
+            "checked construction call changed"
+        )
+        call.isNew, call.structConstruct = nil, nil
+        assert(unit.callee(owner, call) == s.module("model").functions.identity)
+    end)
 end
 
 return M

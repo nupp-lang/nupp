@@ -1,0 +1,243 @@
+module nupp.compiler.vm.nativeos
+
+local unit = require("nupp.compiler.vm.nativeunit")
+local physical = require("nupp.compiler.vm.nativephysical")
+local effects = require("nupp.compiler.vm.helpercontract")
+local layout = require("nupp.compiler.targetlayout")
+local os = {}
+local issued: any = setmetatable({}, {__mode = "k"})
+local definitions = {
+    mapPages = {slot = 0, params = {"uint64"}, result = "voidptr", cResult = "uint64"},
+    unmapPages = {slot = 1, params = {"voidptr", "uint64"}, result = "nil", cResult = "uint64"},
+    pageSize = {slot = 2, params = {}, result = "uint64", cResult = "uint64"}
+}
+
+local function need(value: any, message: string): any
+    assert(value, "native OS: " .. message)
+    return value
+end
+
+local function same(actual: any, expected: any): nil
+    need(type(actual) == "table" and getmetatable(actual) == nil, "plain contract required")
+    for key, value in pairs(actual) do
+        need(expected[key] == value, "contract field changed")
+    end
+    for key, value in pairs(expected) do
+        need(actual[key] == value, "contract field missing")
+    end
+end
+
+local function shape(bound: any): any
+    local spec = need(definitions[bound.name], "unsupported OS import")
+    local checked = bound.signature
+    need(
+        checked
+        and checked.tag == "func"
+        and checked.paramPack
+        and checked.retPack
+        and not checked.paramPack.tail
+        and not checked.retPack.tail
+        and not checked.retPack.alternatives
+        and #checked.params == #spec.params
+        and #checked.paramPack.head == #spec.params
+        and #checked.rets == 1
+        and #checked.retPack.head == 1,
+        "closed OS signature required"
+    )
+    for index, kind in ipairs(spec.params) do
+        need(
+            checked.params[index].tag == kind
+            and checked.paramPack.head[index] == checked.params[index]
+            and checked.paramModes[index] == "plain",
+            "OS parameter differs"
+        )
+    end
+    local result = checked.rets[1]
+    need(checked.retPack.head[1] == result and not checked.borrowsResult, "OS result contract differs")
+    if bound.name == "mapPages" then
+        local descriptor = physical.describe(bound.context, result)
+        need(
+            descriptor.machineKind == "voidptr"
+            and descriptor.nullable
+            and #descriptor.ownership == 0
+            and descriptor.pointee == nil,
+            "map must retain optional void pointer result"
+        )
+    else
+        need(result.tag == spec.result, "OS result differs")
+    end
+    local effect = effects.read(bound.definition, bound.name)
+    need(not effect.mayCollect and not effect.mayPark and not effect.mayRaise and not effect.pure, "OS effects differ")
+    need(effects.normalReturn(bound.definition, bound.name) == nil, "OS normal-return contract differs")
+
+    return spec
+end
+
+function os.call(owner: any, call: any): any
+    local bound = unit.osDeclaration(owner, call)
+    local spec = shape(bound)
+    need(#call.args.exprs == #spec.params, "OS source argument count")
+    local params, snapshot = {}, {}
+    for index, kind in ipairs(spec.params) do
+        params[index], snapshot[index] = kind, kind
+    end
+    local out = nil
+    if bound.name == "unmapPages" then
+        -- Only this reviewed wrapper consumes the real C status. Other nil
+        -- source calls must not silently discard it or invent a hidden scope.
+        need(
+            owner.scope.name == "nupp.runtime.core.pagemappings"
+            and owner.name == "unmapOwned"
+            and owner.paramKinds[1] == "voidptr",
+            "unmap requires explicit owned wrapper scope"
+        )
+        local scope = need(owner.scope.checkedExports.types.Scope, "checked page Scope required")
+        local target = need(layout.of(scope, bound.context.target), "page Scope layout required")
+        local status = need(target.offsets.status, "page Scope status field")
+        need(
+            scope.byname.status.tag == "uint64" and status % 8 == 0 and status <= target.size - 8,
+            "page Scope status layout"
+        )
+        out = {parameter = 1, offset = status, bytes = target.size, type = scope}
+    end
+    local effect = {mayCollect = false, mayPark = false, mayRaise = false, pure = false}
+    local machineResult = bound.name == "mapPages" and "voidptr" or spec.cResult
+    local declaration = {
+        moduleName = "nupp.runtime.vm.os",
+        name = bound.name,
+        params = params,
+        result = machineResult,
+        effects = effect
+    }
+    local result = bound.name == "mapPages" and physical.describe(bound.context, bound.signature.rets[1]) or nil
+    issued[
+        declaration
+    ] = {
+        bound = bound,
+        slot = spec.slot,
+        params = snapshot,
+        effect = effect,
+        result = result,
+        out = out,
+        fields = {
+            moduleName = declaration.moduleName,
+            name = declaration.name,
+            params = params,
+            result = machineResult,
+            effects = effect
+        }
+    }
+
+    return declaration
+end
+
+function os.isIssued(declaration: any): boolean
+    return issued[declaration] ~= nil
+end
+
+function os.validate(declaration: any, owner: any?): any
+    local held = need(issued[declaration], "unissued import contract")
+    same(declaration, held.fields)
+    same(declaration.params, held.params)
+    same(declaration.effects, {mayCollect = false, mayPark = false, mayRaise = false, pure = false})
+    local bound = unit.osDeclaration(held.bound.owner, held.bound.call)
+    need(owner == nil or owner == bound.owner, "OS source owner differs")
+    need(
+        bound.definition == held.bound.definition
+        and bound.signature == held.bound.signature
+        and bound.context == held.bound.context,
+        "OS checked source changed"
+    )
+    need(shape(bound).slot == held.slot, "OS slot changed")
+    if held.result then
+        physical.validate(held.result)
+    end
+
+    return true
+end
+
+function os.result(declaration: any): any
+    os.validate(declaration)
+    return issued[declaration].result
+end
+
+function os.status(declaration: any): any
+    os.validate(declaration)
+    local out = issued[declaration].out
+    return out and {parameter = out.parameter, offset = out.offset, bytes = out.bytes} or nil
+end
+
+function os.slot(declaration: any, owner: any?): integer
+    os.validate(declaration, owner)
+    return issued[declaration].slot
+end
+
+-- Runtime heap images may not expose unjournaled C mappings. Generic checked
+-- graph inspection can describe mapPages, but authenticated publication admits
+-- it only through the fixed Nupp ledger wrapper in the same retained unit.
+function os.ownedSlot(declaration: any, owner: any): integer
+    local slot = os.slot(declaration, owner)
+    if slot == 0 then
+        need(
+            owner.scope.name == "nupp.runtime.core.pagemappings" and owner.name == "map",
+            "published map requires owned ledger wrapper"
+        )
+    end
+
+    return slot
+end
+
+function os.graph(declaration: any, g: any, args: any, dst: integer): nil
+    os.validate(declaration)
+    local held = issued[declaration]
+    local owner = held.bound.owner
+    need(
+        g.source
+        and g.source.path == owner.scope.path
+        and g.source.module == owner.scope.name
+        and g.source.name == owner.name,
+        "OS graph source differs"
+    )
+    if held.result then
+        need(
+            g.nativePhysical
+            and g.nativePhysical.context == held.bound.context
+            and g.nativePhysical.values[dst] == held.result,
+            "OS optional result origin differs"
+        )
+    end
+    if held.out then
+        need(g.exactTypes[held.out.parameter] == "voidptr", "OS status output is not the explicit wrapper scope")
+    end
+end
+
+-- Raw status is a visible SSA value and its scope write is a normal graph store.
+-- No machine-only mutation is hidden behind the source's nil result.
+function os.verifyStores(g: any): nil
+    for _, block in ipairs(g.blocks) do
+        for index, op in ipairs(block.op) do
+            local declaration = op == "NativeHelperCall" and block.args[index][1] or nil
+            local held = declaration and issued[declaration]
+            if held and held.out then
+                os.validate(declaration)
+                need(
+                    block.op[index + 1] == "NativeConstant"
+                    and block.args[index + 1][1] == tostring(held.out.offset)
+                    and g.exactTypes[block.dst[index + 1]] == "int64"
+                    and block.op[index + 2] == "NativeStore",
+                    "unmap status capture is incomplete"
+                )
+                local stored = block.args[index + 2]
+                need(
+                    stored[1] == held.out.parameter
+                    and stored[2] == block.dst[index + 1]
+                    and stored[3] == block.dst[index],
+                    "unmap status output differs"
+                )
+                same(stored[4], {source = "borrowed", kind = "uint64", width = 8, signed = false, write = true})
+            end
+        end
+    end
+end
+
+export = os

@@ -8,7 +8,10 @@ module nupp.compiler.vm.nativeframecontract
 -- selection/linking. Generic allocation/selection and raw machine words remain
 -- available for legacy diagnostics; rebuilding unissued artifacts through them
 -- does not carry this proof. This is not an authenticity scheme for raw bytes.
+local physical = require("nupp.compiler.vm.nativephysical")
 local contract = {}
+local nativeos = require("nupp.compiler.vm.nativeos")
+local service = require("nupp.compiler.vm.nativeservice")
 local owners: any = setmetatable({}, {__mode = "k"})
 local graphs: any = setmetatable({}, {__mode = "k"})
 local markers: any = setmetatable({}, {__mode = "k"})
@@ -77,17 +80,35 @@ local function read(path: string): string
     return text
 end
 
--- Graph columns contain plain data. Physical context and the issuance marker
--- are separately held by identity, never copied or turned into permissions.
-local function copy(value: any): any
+-- Plain graph data is copied structurally. Issued physical contracts retain
+-- their exact identity and revalidate their borrowed checked objects instead
+-- of recursively traversing CST/type graphs. The issuance marker and physical
+-- context remain separately held, never copied into permissions.
+local function copy(value: any, active: any?): any
     if type(value) ~= "table" then
         return value
     end
+    if nativeos.isIssued(value) then
+        nativeos.validate(value);
+        return value
+    end
+    if service.isIssued(value) then
+        service.validateIssued(value);
+        return value
+    end
+    local retained = physical.retainIssued(value)
+    if retained then
+        return retained
+    end
     need(getmetatable(value) == nil, "graph seal requires plain records")
+    local visiting = active or {}
+    need(not visiting[value], "graph seal rejects unissued cyclic records")
+    visiting[value] = true
     local result = {}
     for key, item in pairs(value) do
-        result[key] = copy(item)
+        result[key] = copy(item, visiting)
     end
+    visiting[value] = nil
 
     return result
 end
@@ -96,7 +117,21 @@ local function same(actual: any, saved: any): boolean
     if type(actual) ~= "table" or type(saved) ~= "table" then
         return actual == saved
     end
-    if getmetatable(actual) ~= nil then
+    if nativeos.isIssued(saved) then
+        nativeos.validate(saved)
+        return actual == saved
+    end
+    if service.isIssued(saved) then
+        service.validateIssued(saved)
+        return actual == saved
+    end
+    -- Inspect the saved issued identity before the candidate's fields. A
+    -- structural copy cannot substitute for the original proof object.
+    local retained = physical.retainIssued(saved)
+    if retained then
+        return actual == retained
+    end
+    if physical.retainIssued(actual) or getmetatable(actual) ~= nil then
         return false
     end
     for key, value in pairs(saved) do
@@ -130,6 +165,10 @@ local function guestExecutable(): any
 end
 
 local function validateSource(state: any): nil
+    if state.serviceCatalog then
+        service.validateCatalog(state.serviceCatalog);
+        return
+    end
     need(read(state.snapshotPath) == state.snapshotText, "frozen build snapshot changed")
     for path, text in pairs(state.snapshot.sources) do
         need(read(state.root .. "/" .. path) == text, "reviewed source changed: " .. path)
@@ -185,7 +224,8 @@ function contract.record(ctx: any, node: any, op: string, args: any): nil
     need(current and current.graph == ctx.g and current.owner == ctx.fn, "operation outside closed construction")
     if op == "NativeLeafCall" then
         local unit = require("nupp.compiler.vm.nativeunit")
-        local target = need(unit.callee(ctx.fn, node), "call lacks sealed checked declaration")
+        local target = held.state.serviceCatalog and service.recordTarget(ctx.g, args[1], node)
+            or need(unit.callee(ctx.fn, node), "call lacks sealed checked declaration")
         need(owners[target] == held.state, "call target outside fixed source set")
         local index = #ctx.block.op
         held.calls[ctx.block] = held.calls[ctx.block] or {}
@@ -213,6 +253,8 @@ function contract.finish(ctx: any): nil
     held.physical, held.seal = ctx.g.nativePhysical, copy(shape(ctx.g))
     if held.physical then
         held.context, held.values, held.valueMap = held.physical.context, held.physical.values, {}
+        held.signature = physical.retainIssued(held.physical.signature)
+        need(held.signature == held.physical.signature, "physical signature is unissued")
         for key, descriptor in pairs(held.values) do
             held.valueMap[key] = descriptor
         end
@@ -248,6 +290,8 @@ function contract.verify(g: any): boolean
         if held.physical then
             need(
                 held.physical.context == held.context
+                and held.physical.signature == held.signature
+                and physical.retainIssued(held.signature) == held.signature
                 and held.physical.values == held.values
                 and getmetatable(held.values) == nil,
                 "issued physical context changed"
@@ -762,6 +806,44 @@ function contract.validateGuest(result: any): nil
         expected += 1
     end
     need(count == expected, "guest resolved inventory changed")
+end
+
+-- The allocator/collector service closure uses the same original Result/Code
+-- issuance as final-frame services. Its scalar service policy is distinct from
+-- final-frame ownership verification; no frame or collection claim is added.
+function contract.buildHeapServices(): any
+    need(current == nil, "nested construction")
+    local build = service.build()
+    local state = {serviceCatalog = build.catalog, roles = {}, resolved = {}, finalOwners = {}, context = nil}
+    local all = service.owners(build.catalog)
+    for _, owner in ipairs(all) do
+        owners[owner], owner.nativeABI = state, "leaf"
+    end
+    local lowerName, profileName, cleanupName = "lower", "nativegraph", "nativecleanup"
+    local lower: any = require("nupp.compiler.vm." .. lowerName)
+    local base: any = require("nupp.compiler.vm." .. profileName)
+    local cleanup: any = require("nupp.compiler.vm." .. cleanupName)
+    local scopedProfile = cleanup.profile(base)
+    local resolved = {}
+    local building = ""
+    local ok, problem = pcall(function(): nil
+        for _, owner in ipairs(all) do
+            building = owner.scope.name .. "." .. owner.name .. " (" .. owner.scope.path .. ")"
+            local options = service.options(build.catalog, owner)
+            local signature = service.signature(owner, options)
+            local profile = service.needsCleanup(signature) and scopedProfile or base
+            current = {state = state, owner = owner}
+            local g = lower.functionGraph(owner, options, profile)
+            state.resolved[owner] = g
+            resolved[owner.scope.name .. "." .. owner.name] = {graph = g, owner = owner}
+            current = nil
+        end
+    end)
+    current = nil
+    need(ok, (not ok and "heap service " .. building .. ": " or "") .. tostring(problem))
+    validateSource(state)
+
+    return {resolved = resolved, entries = build.entries, context = nil, inventory = service.inventory(build.catalog)}
 end
 
 export = contract

@@ -1125,3 +1125,244 @@ export function abortRoot(state: voidptr, control: voidptr, frame: voidptr, seri
 
     return 1ULL
 end
+
+-- Read-only admission for an external root-publication buffer. State, control,
+-- metadata and the complete initialized frame chain are immutable borrows for
+-- this call. The caller supplies mapped storage, never forged integer pointers.
+-- A live publication additionally forbids frame transitions and suspension;
+-- these checks alone cannot establish that temporal effect/borrow contract.
+export function rootRangeCount(
+    state: voidptr,
+    control: voidptr,
+    serial: uint64,
+    external: uint64,
+    bytes: uint64
+): uint64
+    if validStorage(state) == 0ULL
+        or range(native.address(control), native.sizeOf<RootControl>(), 8ULL) == 0ULL
+        or range(external, bytes, 8ULL) == 0ULL
+        or serial == 0ULL
+    then
+        return 0ULL
+    end
+    local segment = native.loadPointer(state, native.fieldOffset<State>("segment"))
+    local base = native.load64(segment, native.fieldOffset<arena.Segment>("base"))
+    local limit = native.load64(segment, native.fieldOffset<arena.Segment>("limit"))
+    local controlAddress = native.address(control)
+    local controlBytes = native.sizeOf<RootControl>()
+    if overlaps(controlAddress, controlBytes, base, limit - base)
+        or overlaps(controlAddress, controlBytes, native.address(state), native.sizeOf<State>())
+        or overlaps(controlAddress, controlBytes, native.address(segment), native.sizeOf<arena.Segment>())
+        or overlaps(
+            controlAddress,
+            controlBytes,
+            native.load64(state, native.fieldOffset<State>("helperBase")),
+            native.load64(state, native.fieldOffset<State>("helperBytes"))
+        )
+        or overlaps(external, bytes, base, limit - base)
+        or overlaps(external, bytes, controlAddress, controlBytes)
+        or overlaps(external, bytes, native.address(state), native.sizeOf<State>())
+        or overlaps(external, bytes, native.address(segment), native.sizeOf<arena.Segment>())
+        or overlaps(
+            external,
+            bytes,
+            native.load64(state, native.fieldOffset<State>("helperBase")),
+            native.load64(state, native.fieldOffset<State>("helperBytes"))
+        )
+    then
+        return 0ULL
+    end
+    local rootMark = native.offset(control, native.fieldOffset<RootControl>("mark"))
+    if native.load64(control, native.fieldOffset<RootControl>("state")) ~= native.address(state)
+        or native.load64(rootMark, native.fieldOffset<arena.Mark>("owner")) ~= native.address(segment)
+        or native.load64(rootMark, native.fieldOffset<arena.Mark>("serial")) ~= serial
+        or serial > native.load64(segment, native.fieldOffset<arena.Segment>("issued"))
+    then
+        return 0ULL
+    end
+    local phase = native.load64(control, native.fieldOffset<RootControl>("phase"))
+    local count = native.load64(control, native.fieldOffset<RootControl>("count"))
+    local depth = native.load64(state, native.fieldOffset<State>("depth"))
+    local active = native.load64(state, native.fieldOffset<State>("active"))
+    if count > 1ULL
+        or (count == 0ULL and native.load64(control, native.fieldOffset<RootControl>("value")) ~= values.NIL)
+    then
+        return 0ULL
+    end
+    if phase == ROOT_RETIRED then
+        if active ~= 0ULL
+            or depth ~= 0ULL
+            or native.load64(control, native.fieldOffset<RootControl>("frame")) ~= 0ULL
+        then
+            return 0ULL
+        end
+        -- Retained result only: never dereference the retired frame address.
+        return 1ULL
+    end
+    if (phase ~= ROOT_ACTIVE and phase ~= ROOT_COMPLETE)
+        or (phase == ROOT_ACTIVE and count ~= 0ULL)
+        or (phase == ROOT_COMPLETE and count ~= 1ULL)
+        or depth == 0ULL
+        or depth > native.load64(state, native.fieldOffset<State>("limit"))
+        or depth > 65536ULL
+        or depth > (limit - base) // native.sizeOf<Frame>()
+    then
+        return 0ULL
+    end
+    local cursor = native.load64(segment, native.fieldOffset<arena.Segment>("cursor"))
+    if active < base or active > cursor or native.sizeOf<Frame>() > cursor - active then
+        return 0ULL
+    end
+    local frame = native.pointer(active)
+    local prepared = native.load64(frame, native.fieldOffset<Frame>("child"))
+    local total = depth
+    if prepared ~= 0ULL then
+        total = total + 1ULL
+        frame = native.pointer(prepared)
+    end
+    if phase == ROOT_COMPLETE and (depth ~= 1ULL or prepared ~= 0ULL) then
+        return 0ULL
+    end
+    local top = native.load64(segment, native.fieldOffset<arena.Segment>("top"))
+    if top > native.load64(segment, native.fieldOffset<arena.Segment>("issued")) then
+        return 0ULL
+    end
+    local below: uint64 = 0ULL
+    local visited: uint64 = 0ULL
+    while visited < total do
+        local address = native.address(frame)
+        if address < base
+            or address > cursor
+            or native.sizeOf<Frame>() > cursor - address
+            or validFrame(state, frame) == 0ULL
+        then
+            return 0ULL
+        end
+        if prepared ~= 0ULL and visited == 1ULL and address ~= active then
+            return 0ULL
+        end
+        local expectedPhase = WAITING
+        if visited == 0ULL and prepared ~= 0ULL then
+            expectedPhase = PREPARED
+        elseif address == active then
+            expectedPhase = ACTIVE
+        end
+        if native.load64(frame, native.fieldOffset<Frame>("phase")) ~= expectedPhase
+            or native.load64(frame, native.fieldOffset<Frame>("child")) ~= below
+        then
+            return 0ULL
+        end
+        local info = native.loadPointer(frame, native.fieldOffset<Frame>("functionInfo"))
+        local plan = native.loadPointer(frame, native.fieldOffset<Frame>("windowPlan"))
+        if rootStorage(state, control, info, plan) == 0ULL
+            or overlaps(external, bytes, native.address(info), native.sizeOf<FunctionInfo>())
+            or overlaps(external, bytes, native.address(plan), native.sizeOf<WindowPlan>())
+            or overlaps(
+                external,
+                bytes,
+                native.load64(info, native.fieldOffset<FunctionInfo>("code")),
+                native.load64(info, native.fieldOffset<FunctionInfo>("instructionCount")) * 16ULL
+            )
+        then
+            return 0ULL
+        end
+        local previous = native.load64(frame, native.fieldOffset<Frame>("previous"))
+        local mark = rootMark
+        if previous ~= 0ULL then
+            if previous < base or previous > address or native.sizeOf<Frame>() > address - previous then
+                return 0ULL
+            end
+            local parent = native.pointer(previous)
+            mark = native.offset(parent, native.fieldOffset<Frame>("childMark"))
+            if native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= CALLER_DESTINATION
+                or native.load64(frame, native.fieldOffset<Frame>("resultOwner")) ~= previous
+                or native.load64(
+                    frame,
+                    native.fieldOffset<Frame>("resultSlot")
+                ) >= native.load64(parent, native.fieldOffset<Frame>("valueCount"))
+            then
+                return 0ULL
+            end
+        elseif visited + 1ULL ~= total
+            or address ~= native.load64(control, native.fieldOffset<RootControl>("frame"))
+            or native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= ROOT_DESTINATION
+            or native.load64(frame, native.fieldOffset<Frame>("resultOwner")) ~= controlAddress
+            or native.load64(frame, native.fieldOffset<Frame>("resultSlot")) ~= 0ULL
+        then
+            return 0ULL
+        end
+        local before = native.load64(mark, native.fieldOffset<arena.Mark>("before"))
+        local older = native.load64(mark, native.fieldOffset<arena.Mark>("previous"))
+        if native.load64(frame, native.fieldOffset<Frame>("resultCount")) ~= 1ULL
+            or native.load64(frame, native.fieldOffset<Frame>("frameMark")) ~= native.address(mark)
+            or native.load64(mark, native.fieldOffset<arena.Mark>("owner")) ~= native.address(segment)
+            or native.load64(mark, native.fieldOffset<arena.Mark>("serial")) ~= top
+            or top == 0ULL
+            or older >= top
+            or native.load64(mark, native.fieldOffset<arena.Mark>("finish")) ~= cursor
+            or native.load64(mark, native.fieldOffset<arena.Mark>("payload")) ~= address
+            or before < base
+            or before > address
+            or address >= cursor
+            or native.load64(mark, native.fieldOffset<arena.Mark>("bytes")) ~= cursor - address
+            or native.load64(frame, native.fieldOffset<Frame>("reservationBytes")) ~= cursor - address
+            or (older == 0ULL and before ~= base)
+        then
+            return 0ULL
+        end
+        if previous ~= 0ULL then
+            local parent = native.pointer(previous)
+            if previous > before
+                or native.load64(parent, native.fieldOffset<Frame>("reservationBytes")) > before - previous
+            then
+                return 0ULL
+            end
+        end
+        below = address
+        frame = native.pointer(previous)
+        top, cursor = older, before
+        visited = visited + 1ULL
+    end
+    if native.address(frame) ~= 0ULL then
+        return 0ULL
+    end
+
+    return total * 2ULL + 1ULL
+end
+
+-- Writes only after full admission. The output is disjoint caller-owned mapped
+-- storage; no callback, allocation, safepoint or frame mutation may intervene.
+-- Each pair is a base address and a tagged-word count, not a legacy frame word.
+export function rootRanges(state: voidptr, control: voidptr, serial: uint64, output: voidptr, capacity: uint64): uint64
+    if capacity == 0ULL or capacity > 0x0fffffffffffffffULL then
+        return 0ULL
+    end
+    local count = rootRangeCount(state, control, serial, native.address(output), capacity * 16ULL)
+    if count == 0ULL or count > capacity then
+        return 0ULL
+    end
+    native.store64(output, 0, native.address(control) + native.fieldOffset<RootControl>("value"))
+    native.store64(output, 8, native.load64(control, native.fieldOffset<RootControl>("count")))
+    local frame = native.loadPointer(state, native.fieldOffset<State>("active"))
+    if native.address(frame) ~= 0ULL then
+        local child = native.loadPointer(frame, native.fieldOffset<Frame>("child"))
+        if native.address(child) ~= 0ULL then
+            frame = child
+        end
+    end
+    local at: uint64 = 16ULL
+    while native.address(frame) ~= 0ULL do
+        native.store64(output, native.index(at), native.load64(frame, native.fieldOffset<Frame>("values")))
+        native.store64(output, native.index(at + 8ULL), native.load64(frame, native.fieldOffset<Frame>("liveValues")))
+        native.store64(
+            output,
+            native.index(at + 16ULL),
+            native.address(frame) + native.fieldOffset<Frame>("closureRoot")
+        )
+        native.store64(output, native.index(at + 24ULL), 1ULL)
+        at = at + 32ULL
+        frame = native.loadPointer(frame, native.fieldOffset<Frame>("previous"))
+    end
+
+    return count
+end

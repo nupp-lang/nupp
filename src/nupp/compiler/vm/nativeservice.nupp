@@ -1,0 +1,2471 @@
+module nupp.compiler.vm.nativeservice
+
+local unit = require("nupp.compiler.vm.nativeunit")
+local layout = require("nupp.compiler.targetlayout")
+local service = {}
+local scopedCalls: any = setmetatable({}, {__mode = "k"})
+local ownerCatalogs: any = setmetatable({}, {__mode = "k"})
+local catalogs: any = setmetatable({}, {__mode = "k"})
+local signatures: any = setmetatable({}, {__mode = "k"})
+local supplied: any = setmetatable({}, {__mode = "k"})
+local graphs: any = setmetatable({}, {__mode = "k"})
+local calls: any = setmetatable({}, {__mode = "k"})
+local failures: any = setmetatable({}, {__mode = "k"})
+local unmanaged: any = setmetatable({}, {__mode = "k"})
+local allowed = {
+    ["nupp.runtime.vm.arena"] = true,
+    ["nupp.runtime.vm.heap"] = true,
+    ["nupp.runtime.vm.collector"] = true,
+    ["nupp.runtime.vm.marking"] = true,
+    ["nupp.runtime.vm.gcweak"] = true,
+    ["nupp.runtime.vm.childwalk"] = true,
+    ["nupp.runtime.vm.objectwalk"] = true,
+    ["nupp.runtime.vm.values"] = true,
+    ["nupp.runtime.vm.objectconstruct"] = true,
+    ["nupp.runtime.vm.backing"] = true,
+    ["nupp.runtime.vm.weakentries"] = true,
+    ["nupp.runtime.vm.weakindex"] = true,
+    ["nupp.runtime.vm.objectweak"] = true,
+    ["nupp.runtime.vm.objecthash"] = true,
+    ["nupp.runtime.vm.objecttable"] = true,
+    ["nupp.runtime.core.pagemappings"] = true,
+    ["nupp.runtime.core.servicescope"] = true
+}
+local rawOwners = {["nupp.runtime.core.pagemappings"] = true, ["nupp.runtime.core.servicescope"] = true}
+local osNames = {mapPages = true, unmapPages = true, pageSize = true}
+
+local function need(ok: any, message: string): any
+    assert(ok, "native service: " .. message)
+    return ok
+end
+
+local function member(node: any): (string?, string?)
+    if node.kind ~= "dotIndex" or node.obj.kind ~= "name" then
+        return nil, nil
+    end
+    local definition = node.obj.token.definition
+
+    return definition and definition.requiredModule, node.name.text
+end
+
+local function held(signature: any): any
+    local item = need(signatures[signature], "unissued service signature")
+    need(next(signature) == nil and getmetatable(signature) == nil, "service signature changed")
+    need(
+        unit.contains(item.owner)
+        and item.owner.body == item.body
+        and item.owner.checkedSignature == item.checked
+        and item.owner.scope == item.scope,
+        "service checked owner changed"
+    )
+
+    return item
+end
+
+-- The catalogue borrows the same checked unit, not caller-created function or
+-- effect tables. Enumeration is the unit's canonical membership index; this
+-- module never walks syntax or lowers an expression.
+local function catalog(entry: any, roots: any, review: any): any
+    need(
+        unit.contains(entry) and allowed[entry.scope.name] and not rawOwners[entry.scope.name],
+        "entry is outside the closed allocator service modules"
+    )
+    local state = {
+        entry = entry,
+        owners = {},
+        order = {},
+        calls = {},
+        raises = {},
+        reverse = {},
+        keys = {},
+        review = review
+    }
+    local pending = {}
+
+    local function add(owner: any): any
+        need(unit.sameOwners(entry, owner) and allowed[owner.scope.name], "callee outside closed service unit")
+        local item = state.owners[owner]
+        if not item then
+            need(#state.order < 1024, "service owner limit")
+            local signature = {}
+            item = {
+                owner = owner,
+                body = owner.body,
+                checked = owner.checkedSignature,
+                scope = owner.scope,
+                effect = owner.body.effectSummary,
+                signature = signature,
+                state = state,
+                scoped = false,
+                raw = rawOwners[owner.scope.name] == true,
+                id = #state.order + 1,
+                key = {}
+            }
+            signatures[signature] = item
+            state.owners[owner], state.order[#state.order + 1] = item, item
+            state.reverse[owner] = {}
+            pending[#pending + 1] = item
+        end
+
+        return item
+    end
+
+    local function edge(from: any, target: any): nil
+        add(target)
+        state.reverse[target][from.owner] = true
+    end
+
+    add(entry)
+    for _, root in ipairs(roots) do
+        add(root)
+    end
+    local cursor = 1
+    while cursor <= #pending do
+        local item = pending[cursor]
+        local owner = item.owner
+        for ordinal, node in ipairs(unit.occurrences(owner)) do
+            if node.kind == "call" then
+                unit.occurrence(owner, node)
+                local raising = unit.literalRaise(owner, node)
+                if raising then
+                    need(not item.raw, "infrastructure cannot raise")
+                    item.scoped, item.raises = true, true
+                    state.raises[
+                        node
+                    ] = {owner = owner, literal = raising.literal, site = ordinal, definition = raising.definition}
+                    local target = need(
+                        unit.ownerModule(owner, "nupp.runtime.core.servicescope").exports.fail,
+                        "missing checked first-error helper"
+                    )
+                    edge(item, target)
+                    state.calls[node] = {owner = owner, target = target, raising = true}
+                else
+                    local moduleName, name = member(node.obj)
+                    if moduleName == "nupp.runtime.vm.os" then
+                        local bound = unit.osDeclaration(owner, node)
+                        need(osNames[name], "unsupported OS service")
+                        if item.raw then
+                            need(
+                                name ~= "mapPages"
+                                or owner.scope.name == "nupp.runtime.core.pagemappings" and owner.name == "map",
+                                "raw map bypasses ownership ledger"
+                            )
+                            need(
+                                name ~= "unmapPages"
+                                or owner.scope.name == "nupp.runtime.core.pagemappings" and owner.name == "unmapOwned",
+                                "raw unmap bypasses status capture"
+                            )
+                        else
+                            local wrapper = unit.ownerModule(owner, "nupp.runtime.core.servicescope")
+                            local target = need(wrapper.exports[name], "missing exact OS wrapper")
+                            edge(item, target)
+                            item.scoped = true
+                            state.calls[node] = {owner = owner, target = target, os = bound}
+                        end
+                    elseif moduleName ~= "nupp.runtime.vm.intrinsics"
+                        and not unit.borrowFrom(owner, node)
+                        and not unit.localConstructionChild(owner, node)
+                    then
+                        local token = node.obj.token or node.obj.name
+                        local location = owner.scope.name
+                            .. "."
+                            .. owner.name
+                            .. " at "
+                            .. owner.scope.path
+                            .. ":"
+                            .. tostring(
+                                token and token.line or 0
+                            )
+                        local ok, target = pcall(unit.callee, owner, node)
+                        if not ok then
+                            error(tostring(target) .. " [" .. location .. "]", 0)
+                        end
+                        need(target, "unresolved service call: " .. location)
+                        edge(item, target)
+                        state.calls[node] = {owner = owner, target = target}
+                    end
+                end
+            end
+            for _, t in ipairs(unit.cleanupTypes(owner, node)) do
+                need(not item.raw, "explicit infrastructure has an affine cleanup")
+                item.scoped, item.cleanup = true, true
+                for _, cleanup in ipairs(t.cleanups) do
+                    edge(item, unit.cleanupTarget(owner, node, t, cleanup))
+                end
+            end
+        end
+        cursor = cursor + 1
+    end
+    -- Reverse worklist computes the transitive scope closure once, including
+    -- cycles; no repeated whole-owner scans and no blanket ABI extension.
+    local queue = {}
+    for _, item in ipairs(state.order) do
+        if item.scoped then
+            queue[#queue + 1] = item
+        end
+    end
+    cursor = 1
+    while cursor <= #queue do
+        for caller in pairs(state.reverse[queue[cursor].owner]) do
+            local item = state.owners[caller]
+            if not item.scoped then
+                need(not item.raw, "explicit infrastructure calls a hidden-scope service")
+                item.scoped = true
+                queue[#queue + 1] = item
+            end
+        end
+        cursor = cursor + 1
+    end
+    for _, item in ipairs(state.order) do
+        local count = #item.owner.body.params
+        need(count <= 8 and count + (item.scoped and 1 or 0) <= 8, "service INTERNAL parameter limit")
+        item.sourceCount, item.scopeParameter = count, item.scoped and count + 1 or nil
+    end
+    local scope = unit.ownerModule(entry, "nupp.runtime.core.servicescope")
+    local scopeType = need(scope.checkedExports.types.ServiceScope, "checked ServiceScope required")
+    local context = unit.ownerContext(entry)
+    state.layout = need(layout.of(scopeType, context.target), "ServiceScope layout required")
+    need(
+        scopeType.byname.error.tag == "uint64"
+        and state.layout.offsets.error % 8 == 0
+        and state.layout.offsets.error <= state.layout.size - 8,
+        "ServiceScope error field"
+    )
+    unit.finish(entry)
+    for owner in pairs(state.owners) do
+        local list = ownerCatalogs[owner] or {}
+        list[#list + 1] = state
+        ownerCatalogs[owner] = list
+    end
+    local result = {}
+    catalogs[result] = state
+
+    return result
+end
+
+function service.options(catalog: any, owner: any): any
+    local state = need(catalogs[catalog], "unissued service catalogue")
+    local item = need(state.owners[owner], "owner outside service closure")
+    held(item.signature)
+    local result = unit.ownerOptions(owner, "leaf")
+    supplied[result] = item
+
+    return result
+end
+
+function service.signature(owner: any, options: any): any
+    local item = supplied[options]
+    if not item then
+        return nil
+    end
+    need(held(item.signature).owner == owner, "service options owner differs")
+
+    return item.signature
+end
+
+function service.owner(signature: any): any
+    return held(signature).owner
+end
+
+-- Signature evidence only. The fixed reviewed service unit supplies these
+-- exact owners and the checker's actual Arena/terminal identities. This query
+-- grants no pointer conversion, takes-call permission or return root plan.
+function service.arenaOwnership(signature: any, owner: any, parameter: integer?): any
+    local item = held(signature)
+    need(item.owner == owner and item.scoped and not item.raw, "foreign arena ownership signature")
+    local home = unit.ownerModule(owner, "nupp.runtime.vm.arena")
+    need(owner.scope == home, "arena ownership requires the reviewed arena module")
+    local arenaType = need(home.checkedExports.types.Arena, "checked Arena type is absent")
+    local close = need(home.exports.close, "checked Arena terminal is absent")
+    local closeItem = need(item.state.owners[close], "Arena terminal is outside the service closure")
+    held(closeItem.signature)
+    local checked = item.checked
+    if parameter ~= nil then
+        need(
+            owner == close
+            and parameter == 1
+            and #owner.body.params == 1
+            and #checked.rets == 1
+            and checked.rets[1].tag == "nil",
+            "only the exact Arena terminal takes boundary is supported"
+        )
+        local node = owner.body.params[1]
+        local annotation, bound = node.type.resolvedType, node.name.definition.type
+        need(
+            checked.params[1] == annotation
+            and checked.paramPack.head[1] == annotation
+            and checked.paramModes[1] == "takes"
+            and checked.paramPack.modes[1] == "takes"
+            and node.modeTok
+            and node.modeTok.text == "takes"
+            and annotation.tag == "ptr"
+            and annotation.elem == arenaType
+            and bound.tag == "affine"
+            and bound.inner == annotation
+            and #(bound.cleanups or {}) == 0,
+            "checked Arena takes binding differs"
+        )
+        return bound
+    end
+    need(
+        owner == home.exports.open or owner == home.exports.openGrowable or owner == home.functions.openWith,
+        "only the reviewed Arena constructors return ownership"
+    )
+    local result = owner.resultType
+    need(
+        #checked.rets == 1
+        and checked.rets[1] == result
+        and checked.retPack.head[1] == result
+        and checked.retPack.modes[1] == "plain"
+        and checked.borrowsParam == nil
+        and checked.borrowsResult == nil
+        and result.tag == "affine"
+        and result.inner.tag == "ptr"
+        and result.inner.elem == arenaType
+        and #result.cleanups == 1,
+        "checked Arena owner result differs"
+    )
+    local terminal = result.cleanups[1]
+    need(
+        terminal.kind == "function" and terminal.functionType == close.checkedSignature,
+        "Arena result terminal signature differs"
+    )
+    -- Consume the sealed annotation/declaration bridge, never a matching name
+    -- or the distinct cleanup registration record's table identity.
+    need(
+        unit.cleanupTarget(owner, owner.body.rets[1], result, terminal) == close,
+        "Arena result lacks the exact checked terminal registration"
+    )
+
+    return result
+end
+
+-- These reviewed records borrow raw storage from an Arena, Pool, or Heap metadata.
+-- Heap metadata is arena-backed; managed Header allocations are excluded.
+-- This query identifies the backing contract, not a rooted managed value.
+function service.dependentReturn(signature: any, owner: any): any
+    local item = held(signature)
+    need(item.owner == owner and not item.raw, "foreign dependent return signature")
+    local arena = unit.ownerModule(owner, "nupp.runtime.vm.arena")
+    local heap = unit.ownerModule(owner, "nupp.runtime.vm.heap")
+    local metadata = owner == heap.exports.classAt
+    need(item.scoped or metadata, "foreign dependent return signature")
+    local backing
+    if owner == arena.exports.alloc or owner == arena.exports.pool then
+        backing = arena.checkedExports.types.Arena
+    elseif owner == arena.exports.take then
+        backing = arena.checkedExports.types.Pool
+    elseif owner == heap.functions.zeroWords
+        or owner == heap.functions.zeroSet
+        or owner == heap.functions.zeroIndex
+        or owner == heap.exports.create
+    then
+        backing = arena.checkedExports.types.Arena
+    elseif metadata then
+        backing = heap.checkedExports.types.Heap
+        local result = owner.resultType
+        need(
+            result.tag == "borrowed"
+            and result.inner.tag == "ptr"
+            and result.inner.elem == heap.checkedExports.types.SizeClass,
+            "dependent metadata result declaration differs"
+        )
+    end
+    need(backing ~= nil, "dependent return is outside reviewed Arena/Pool storage")
+    local checked, parameter = item.checked, owner.body.params[1]
+    local annotation = parameter and parameter.type.resolvedType
+    need(
+        item.body.effectSummary == item.effect
+        and checked.borrowsParam == 1
+        and checked.borrowsResult == 1
+        and checked.paramModes[1] == "borrows"
+        and checked.paramPack.modes[1] == "borrows"
+        and annotation
+        and annotation.tag == "ptr"
+        and annotation.elem == backing
+        and parameter.name.definition == owner.parameterDefinitions[1]
+        and checked.rets[1] == owner.resultType,
+        "dependent return backing declaration differs"
+    )
+
+    return owner.resultType
+end
+
+function service.sourceCount(signature: any): integer
+    return held(signature).sourceCount
+end
+
+function service.parameters(signature: any, source: any): any
+    local item = held(signature)
+    need(#source == item.sourceCount, "service checked source parameter count")
+    local result = {}
+    for index, kind in ipairs(source) do
+        result[index] = kind
+    end
+    if item.scoped then
+        result[#result + 1] = "voidptr"
+    end
+
+    return result
+end
+
+function service.attach(g: any, signature: any): nil
+    local item = held(signature)
+    need(g.nparams == item.sourceCount + (item.scoped and 1 or 0), "service graph parameter count")
+    g.nativeService, graphs[g] = signature, item
+end
+
+function service.verify(g: any): nil
+    if not g.nativeService then
+        need(graphs[g] == nil, "service graph lost contract");
+        return
+    end
+    local item = held(g.nativeService)
+    need(
+        graphs[g] == item and g.native.abi == "leaf" and g.nparams == item.sourceCount + (item.scoped and 1 or 0),
+        "service graph identity differs"
+    )
+    if item.scoped then
+        need(g.native.params[item.scopeParameter] == "voidptr", "scope ABI differs")
+    end
+    if g.source then
+        need(
+            g.source.path == item.scope.path
+            and g.source.module == item.scope.name
+            and g.source.name == item.owner.name,
+            "service graph source differs"
+        )
+    end
+end
+
+function service.entryBindings(ctx: any): nil
+    local item = graphs[ctx.g]
+    if item and item.scoped then
+        ctx.bind(item.key, item.scopeParameter)
+    end
+end
+
+function service.scope(ctx: any): integer
+    local item = need(graphs[ctx.g], "service graph required")
+    need(item.scoped, "service has no scope operand")
+    return ctx.storage(item.key)
+end
+
+function service.target(ctx: any, node: any): any
+    local item = graphs[ctx.g]
+    if not item then
+        return nil
+    end
+    local call = item.state.calls[node]
+    if not call then
+        return nil
+    end
+    need(call.owner == ctx.fn, "service call owner differs")
+    unit.occurrence(ctx.fn, node)
+    if call.raising then
+        need(unit.literalRaise(ctx.fn, node) ~= nil, "checked literal raise changed")
+    elseif call.os then
+        local actual = unit.osDeclaration(ctx.fn, node)
+        need(
+            actual.definition == call.os.definition and actual.signature == call.os.signature,
+            "redirected OS identity changed"
+        )
+    else
+        unit.call(ctx.fn, node, call.target)
+    end
+
+    return call.target
+end
+
+function service.calleeSignature(ctx: any, node: any, target: any): any
+    local item = graphs[ctx.g]
+    if not item then
+        return nil
+    end
+    need(service.target(ctx, node) == target, "callee outside service closure")
+
+    return item.state.owners[target].signature
+end
+
+function service.redirect(ctx: any, node: any): boolean
+    local item = graphs[ctx.g]
+    return item ~= nil and item.state.calls[node] ~= nil and item.state.calls[node].os ~= nil
+end
+
+function service.sourceParameters(ctx: any, node: any, declaration: any): any
+    local item = graphs[ctx.g]
+    if not item then
+        return declaration.params
+    end
+    local target = held(declaration.service)
+    local first = service.redirect(ctx, node) and 2 or 1
+    local result = {}
+    for index = first, target.sourceCount do
+        result[#result + 1] = declaration.params[index]
+    end
+
+    return result
+end
+
+function service.declaration(ctx: any, node: any, target: any, declaration: any): any
+    local item = graphs[ctx.g]
+    if not item then
+        return declaration
+    end
+    need(service.target(ctx, node) == target, "call outside service catalogue")
+    local callee = item.state.owners[target]
+    local signature = callee.signature
+    need(declaration.service == signature, "callee service ABI differs")
+    calls[
+        declaration
+    ] = {
+        caller = item,
+        target = callee,
+        node = node,
+        os = item.state.calls[node].os,
+        raising = item.state.calls[node].raising,
+        params = declaration.params,
+        kinds = {},
+        result = declaration.result
+    }
+    for index, kind in ipairs(declaration.params) do
+        calls[declaration].kinds[index] = kind
+    end
+    calls[declaration].fields = {}
+    for key, value in pairs(declaration) do
+        calls[declaration].fields[key] = value
+    end
+
+    return declaration
+end
+
+function service.operands(ctx: any, declaration: any, values: any): any
+    local call = calls[declaration]
+    if not call then
+        return values
+    end
+    need(call.caller == graphs[ctx.g], "foreign service call")
+    if call.os then
+        table.insert(values, 1, service.scope(ctx))
+    end
+    if call.target.scoped then
+        values[#values + 1] = service.scope(ctx)
+    end
+
+    return values
+end
+
+function service.cleanupTarget(ctx: any, node: any, t: any, cleanup: any): any
+    local item = need(graphs[ctx.g], "cleanup requires issued service graph")
+    local target = unit.cleanupTarget(ctx.fn, node, t, cleanup)
+    need(item.state.owners[target], "cleanup target outside complete service catalogue")
+    return target
+end
+
+function service.cleanupSignature(ctx: any, node: any, t: any, cleanup: any): any
+    local target = service.cleanupTarget(ctx, node, t, cleanup)
+    return graphs[ctx.g].state.owners[target].signature
+end
+
+function service.cleanupDeclaration(ctx: any, node: any, t: any, cleanup: any, declaration: any): any
+    local target = service.cleanupTarget(ctx, node, t, cleanup)
+    local caller, callee = graphs[ctx.g], graphs[ctx.g].state.owners[target]
+    need(declaration.service == callee.signature and declaration.result == "nil", "cleanup boundary differs")
+    local record = {
+        caller = caller,
+        target = callee,
+        node = node,
+        cleanup = cleanup,
+        cleanupType = t,
+        params = declaration.params,
+        kinds = {},
+        result = declaration.result,
+        fields = {}
+    }
+    for index, kind in ipairs(declaration.params) do
+        record.kinds[index] = kind
+    end
+    for key, value in pairs(declaration) do
+        record.fields[key] = value
+    end
+    calls[declaration] = record
+
+    return declaration
+end
+
+function service.layout(ctx: any): any
+    local item = need(graphs[ctx.g], "service graph required")
+    local offsets = {}
+    for key, value in pairs(item.state.layout.offsets) do
+        offsets[key] = value
+    end
+
+    return {size = item.state.layout.size, offsets = offsets}
+end
+
+function service.needsCleanup(signature: any): boolean
+    return held(signature).scoped
+end
+
+function service.raise(ctx: any, node: any): any
+    local item = graphs[ctx.g]
+    local raising = item and item.state.raises[node]
+    if not raising then
+        return nil
+    end
+    need(
+        raising.owner == ctx.fn and unit.literalRaise(ctx.fn, node).literal == raising.literal,
+        "service literal raise differs"
+    )
+
+    return {owner = item.id, site = raising.site, target = item.state.calls[node].target}
+end
+
+-- Failure is an ABI exit, not an expression producing a success value.
+-- The verifier independently requires an exact sticky-error fact on this path.
+function service.failure(ctx: any, node: any): nil
+    local item = need(graphs[ctx.g], "failure requires an issued service graph")
+    need(item.scoped and ctx.fn == item.owner and ctx.block, "failure outside scoped continuation")
+    local term = {kind = "nativeFail", edges = {}, pos = ctx.position(node)}
+    failures[term] = {graph = ctx.g, item = item, edges = term.edges, position = term.pos}
+    ctx.block.term, ctx.block = term, nil
+end
+
+function service.isFailure(g: any, term: any): boolean
+    local saved = failures[term]
+    if not saved then
+        return false
+    end
+    need(
+        saved.graph == g and graphs[g] == saved.item and held(saved.item.signature) == saved.item,
+        "foreign service failure"
+    )
+    need(
+        getmetatable(term) == nil
+        and term.kind == "nativeFail"
+        and term.edges == saved.edges
+        and getmetatable(term.edges) == nil
+        and next(term.edges) == nil
+        and term.pos == saved.position,
+        "service failure changed"
+    )
+    for key in pairs(term) do
+        need(key == "kind" or key == "edges" or key == "pos", "failure carries a value")
+    end
+
+    return true
+end
+
+-- These records cover only the actual reviewed Arena constructor chain.
+-- They are not a general graph seal or a raw pointer ownership registry.
+local arenaRows: any = setmetatable({}, {__mode = "k"})
+local arenaPlans: any = setmetatable({}, {__mode = "k"})
+
+local function arenaHome(item: any): any
+    if item.scope.name ~= "nupp.runtime.vm.arena" then
+        return nil
+    end
+    local home = unit.ownerModule(item.owner, "nupp.runtime.vm.arena")
+    if item.owner == home.exports.open
+        or item.owner == home.exports.openGrowable
+        or item.owner == home.functions.openWith
+    then
+        service.arenaOwnership(item.signature, item.owner)
+        return home
+    end
+
+    return nil
+end
+
+-- Row identities survive prune; phi indices do not. Follow the actual incoming
+-- values, refusing cycles, to obtain a stable witness for relevant store data.
+local function arenaValueKey(g: any, value: integer, active: any?): string
+    if value <= g.nparams then
+        return "parameter:" .. tostring(value)
+    end
+    active = active or {}
+    need(not active[value], "Arena constructor value has cyclic provenance")
+    active[value] = true
+    for _, block in ipairs(g.blocks) do
+        for index, dst in ipairs(block.dst) do
+            if dst == value then
+                active[value] = nil
+                return "operation:" .. tostring(block.id) .. ":" .. tostring(index)
+            end
+        end
+        for index, parameter in ipairs(block.params) do
+            if parameter == value then
+                local parts = {"phi:" .. tostring(block.id)}
+                for _, prior in ipairs(g.blocks) do
+                    for at, edge in ipairs(prior.term and prior.term.edges or {}) do
+                        if edge.target == block.id then
+                            parts[
+                                #parts + 1
+                            ] = tostring(
+                                prior.id
+                            ) .. ":" .. tostring(at) .. "=" .. arenaValueKey(g, edge.args[index], active)
+                        end
+                    end
+                end
+                need(#parts > 1, "Arena constructor phi has no input")
+                active[value] = nil
+                return table.concat(parts, ";")
+            end
+        end
+    end
+    error("native service: Arena constructor value has no definition", 0)
+end
+
+-- Called only by the existing common profile's emission callback. Retain
+-- source/row identity for the mapping and pointer chain, plus checked stores.
+function service.recordArena(ctx: any, node: any, op: string, args: any): nil
+    local item = graphs[ctx.g]
+    if not item or not arenaHome(item) then
+        return
+    end
+    unit.occurrence(item.owner, node)
+    local rows = arenaRows[ctx.g] or {}
+    arenaRows[ctx.g] = rows
+    local record = {node = node, block = ctx.block, at = #ctx.block.op, op = op, args = args}
+    if op == "NativeStore" and args[4].field then
+        record.store = {arenaValueKey(ctx.g, args[1]), arenaValueKey(ctx.g, args[2]), arenaValueKey(ctx.g, args[3])}
+        record.access = args[4].field
+    end
+    rows[#rows + 1] = record
+end
+
+local function arenaRow(g: any, node: any, op: string): any
+    local found = nil
+    for _, row in ipairs(arenaRows[g] or {}) do
+        if row.node == node and row.op == op then
+            need(found == nil, "Arena source operation lowered more than once")
+            need(
+                g.blocks[row.block.id] == row.block
+                and row.block.op[row.at] == op
+                and row.block.args[row.at] == row.args,
+                "Arena source operation changed"
+            )
+            found = row
+        end
+    end
+
+    return need(found, "Arena source operation is absent")
+end
+
+local function arenaInitializer(owner: any, expression: any): any
+    need(
+        expression.kind == "name" and expression.token.definition and not expression.token.definition.reassigned,
+        "Arena return requires an unchanged checked binding"
+    )
+    local found = nil
+    for _, node in ipairs(unit.occurrences(owner)) do
+        if node.kind == "localStmt" then
+            for index, name in ipairs(node.names) do
+                if name.definition == expression.token.definition then
+                    need(found == nil and #node.names == #node.exprs, "Arena initializer differs")
+                    found = node.exprs[index]
+                end
+            end
+        end
+    end
+
+    return need(found, "Arena initializer is absent")
+end
+
+-- Only this exact raw offset in the checked constructor gets a plain voidptr
+-- sidecar. It confers no mapping, ownership, bounds or dereference permission.
+function service.arenaOffset(ctx: any, node: any, value: integer): nil
+    local item = graphs[ctx.g]
+    local home = item and arenaHome(item)
+    if not home or item.owner ~= home.functions.openWith then
+        return
+    end
+    unit.occurrence(item.owner, node)
+    local moduleName, name = member(node.obj)
+    if moduleName ~= "nupp.runtime.vm.intrinsics" or name ~= "offset" then
+        return
+    end
+    local physical = require("nupp.compiler.vm.nativephysical")
+    local descriptor = physical.describe(ctx.g.nativePhysical.context, node.inferredType)
+    need(
+        descriptor.storageType.tag == "voidptr" and #descriptor.ownership == 0 and not descriptor.nullable,
+        "Arena offset must remain a plain checked pointer"
+    )
+    local row = arenaRow(ctx.g, node, "PointerOffset")
+    need(row.block.dst[row.at] == value, "Arena offset result differs")
+    row.offsetDescriptor, row.offsetType = descriptor, node.inferredType
+    row.offsetOperands = {arenaValueKey(ctx.g, row.args[1]), arenaValueKey(ctx.g, row.args[2])}
+    ctx.g.nativePhysical.values[value] = descriptor
+end
+
+-- Only the already emitted checked constructor offset may carry this raw
+-- descriptor. This validates an origin; it grants no typed arithmetic rule.
+function service.arenaOffsetOrigin(g: any, args: any, value: integer): boolean
+    local item = graphs[g]
+    local home = item and arenaHome(item)
+    if not home or item.owner ~= home.functions.openWith then
+        return false
+    end
+    for _, row in ipairs(arenaRows[g] or {}) do
+        if row.offsetDescriptor and row.args == args then
+            arenaRow(g, row.node, "PointerOffset")
+            unit.occurrence(item.owner, row.node)
+            need(
+                row.block.dst[row.at] == value
+                and row.node.inferredType == row.offsetType
+                and g.nativePhysical.values[value] == row.offsetDescriptor,
+                "Arena offset source or descriptor changed"
+            )
+            require("nupp.compiler.vm.nativephysical").validate(row.offsetDescriptor)
+            for index = 1, 2 do
+                need(arenaValueKey(g, args[index]) == row.offsetOperands[index], "Arena offset operand changed")
+            end
+            return true
+        end
+    end
+
+    return false
+end
+
+-- Relevant pointer/word operands may be transported through joins or a
+-- checked representation view. Other computations cannot invent this origin.
+local function arenaReaches(g: any, value: integer, row: any, word: boolean?, active: any?): boolean
+    if value == row.block.dst[row.at] then
+        return true
+    end
+    if value <= g.nparams then
+        return false
+    end
+    active = active or {}
+    if active[value] then
+        return false
+    end
+    active[value] = true
+    for _, block in ipairs(g.blocks) do
+        for index, dst in ipairs(block.dst) do
+            if dst == value then
+                local op, args = block.op[index], block.args[index]
+                if op == "NativePointerView" and not word then
+                    local physical = require("nupp.compiler.vm.nativephysical")
+                    physical.validateCast(args[2])
+                    local mode = physical.viewKind(args[2])
+                    if mode == "nonnull" or mode == "binding" or mode == nil then
+                        local result = arenaReaches(g, args[1], row, word, active)
+                        active[value] = nil
+                        return result
+                    end
+                elseif op == "NativeWordCast" and word then
+                    local result = arenaReaches(g, args[1], row, word, active)
+                    active[value] = nil
+                    return result
+                end
+                active[value] = nil
+                return false
+            end
+        end
+        for index, parameter in ipairs(block.params) do
+            if parameter == value then
+                local found = false
+                for _, prior in ipairs(g.blocks) do
+                    for _, edge in ipairs(prior.term and prior.term.edges or {}) do
+                        if edge.target == block.id then
+                            found = true
+                            if not arenaReaches(g, edge.args[index], row, word, active) then
+                                active[value] = nil
+                                return false
+                            end
+                        end
+                    end
+                end
+                active[value] = nil
+                return found
+            end
+        end
+    end
+    active[value] = nil
+
+    return false
+end
+
+local function arenaRecipe(ctx: any, node: any, source: any): any
+    local item = need(graphs[ctx.g], "Arena return requires an issued service graph")
+    local home = need(arenaHome(item), "owning return is outside reviewed Arena constructors")
+    unit.occurrence(item.owner, node)
+    need(node.kind == "returnStmt" and #node.exprs == 1, "Arena returns exactly one owner")
+    local result = service.arenaOwnership(item.signature, item.owner)
+    local expression = node.exprs[1]
+    local recipe = {
+        item = item,
+        home = home,
+        node = node,
+        expression = expression,
+        result = result,
+        source = source,
+        block = ctx.block,
+        boundary = #ctx.block.op
+    }
+    if item.owner ~= home.functions.openWith then
+        need(
+            expression.kind == "call" and service.target(ctx, expression) == home.functions.openWith,
+            "Arena forwarding requires the exact checked constructor call"
+        )
+        recipe.call = expression
+        recipe.mode = "forward"
+    else
+        local cast = arenaInitializer(item.owner, expression)
+        need(
+            cast.kind == "castExpr" and cast.inferredType == result.inner and expression.inferredType == result.inner,
+            "Arena construction pointer type differs"
+        )
+        local offset = cast.expr
+        local moduleName, name = member(offset.obj)
+        need(
+            offset.kind == "call"
+            and moduleName == "nupp.runtime.vm.intrinsics"
+            and name == "offset"
+            and #offset.args.exprs == 2,
+            "Arena construction requires its checked pointer derivation"
+        )
+        local map = arenaInitializer(item.owner, offset.args.exprs[1])
+        local mapping = item.state.calls[map]
+        local scope = unit.ownerModule(item.owner, "nupp.runtime.core.servicescope")
+        need(
+            mapping and mapping.os and mapping.target == scope.exports.mapPages,
+            "Arena construction lacks the exact retained mapping wrapper"
+        )
+        local index = offset.args.exprs[2]
+        local indexModule, indexName = member(index.obj)
+        need(
+            index.kind == "call"
+            and indexModule == "nupp.runtime.vm.intrinsics"
+            and indexName == "index"
+            and #index.args.exprs == 1,
+            "Arena metadata offset projection differs"
+        )
+        local metadata = index.args.exprs[1]
+        need(
+            metadata.kind == "call" and unit.callee(item.owner, metadata) == home.functions.metadataOffset,
+            "Arena metadata offset helper differs"
+        )
+        recipe.mode, recipe.cast, recipe.offset, recipe.map, recipe.metadata = "create", cast, offset, map, metadata
+    end
+
+    return recipe
+end
+
+-- Check only the lifetime interval from this acquisition to this staged
+-- return. Failure-only branches may retire their mapping, but cannot rejoin.
+local function arenaInterval(g: any, recipe: any, acquisition: any, stores: any): nil
+    local stop, boundary = recipe.block, recipe.boundary
+    need(g.blocks[stop.id] == stop and #stop.op >= boundary, "Arena staging point changed")
+    local predecessors, reaches = {}, {[stop.id] = true}
+    for _, block in ipairs(g.blocks) do
+        for _, edge in ipairs(block.term and block.term.edges or {}) do
+            local list = predecessors[edge.target] or {}
+            predecessors[edge.target] = list
+            list[#list + 1] = block
+        end
+    end
+
+    local function dominates(row: any): boolean
+        if row.block == stop then
+            return row.at <= boundary
+        end
+        local active, memo = {}, {}
+        local visit: function(any): boolean
+        visit = function(block)
+            if block == row.block then
+                return true
+            end
+            if block.id == 1 or active[block] then
+                return false
+            end
+            if memo[block] ~= nil then
+                return memo[block]
+            end
+            active[block] = true
+            local incoming = predecessors[block.id] or {}
+            local okay = #incoming > 0
+            for _, prior in ipairs(incoming) do
+                if not visit(prior) then
+                    okay = false
+                end
+            end
+            active[block], memo[block] = nil, okay
+
+            return okay
+        end
+
+        return visit(stop)
+    end
+
+    need(dominates(acquisition), "Arena acquisition does not dominate publication")
+    for _, row in ipairs(stores) do
+        need(dominates(row), "Arena initialization does not dominate publication")
+    end
+    local queue = {stop}
+    local cursor: integer = 1
+    while cursor <= #queue do
+        local block = queue[cursor]
+        cursor = cursor + 1
+        for _, prior in ipairs(predecessors[block.id] or {}) do
+            if not reaches[prior.id] then
+                reaches[prior.id] = true;
+                queue[#queue + 1] = prior
+            end
+        end
+    end
+    local storeRows = {}
+    for _, row in ipairs(stores) do
+        storeRows[row.args] = row
+    end
+    local metadata = recipe.metadata and arenaRow(g, recipe.metadata, "NativeLeafCall")
+    local plain = {
+        NativeConstant = true,
+        NativeBoolean = true,
+        NativeICmp = true,
+        NativePointer = true,
+        NativePointerView = true,
+        NativeAddress = true,
+        NativeWordCast = true,
+        PointerOffset = true,
+        IAdd = true,
+        ISub = true
+    }
+    local active, seen = {}, {}
+    local visit: function(any, integer): nil
+    visit = function(block, first)
+        need(not active[block], "Arena acquisition interval has a cycle")
+        if seen[block] then
+            return
+        end
+        active[block] = true
+        local last = block == stop and boundary or #block.op
+        local constants = {}
+        for index = first, last do
+            local op, args, dst = block.op[index], block.args[index], block.dst[index]
+            if op == "NativeConstant" then
+                constants[dst] = args[1]
+            end
+            if op == "NativeLeafCall" then
+                need(
+                    metadata
+                    and metadata.block == block
+                    and metadata.at == index
+                    and calls[args[1]]
+                    and calls[args[1]].target.owner == recipe.home.functions.metadataOffset,
+                    "Arena success interval contains a retiring, allocating or foreign call"
+                )
+            elseif op == "NativeStore" then
+                need(storeRows[args], "Arena success interval writes outside checked initialization")
+            elseif op == "NativeLoad" then
+                local scope = {block = {dst = {recipe.item.scopeParameter}}, at = 1}
+                local memory = args[3]
+                need(
+                    arenaReaches(g, args[1], scope)
+                    and constants[args[2]] == tostring(recipe.item.state.layout.offsets.error)
+                    and memory.kind == "uint64"
+                    and memory.width == 8
+                    and memory.signed == false
+                    and memory.write == false,
+                    "Arena success interval reads outside exact service status"
+                )
+            else
+                need(plain[op], "Arena success interval contains an unsupported effect")
+            end
+        end
+        if block ~= stop then
+            need(
+                block.term.kind == "jump" or block.term.kind == "branch",
+                "Arena interval loses its normal continuation"
+            )
+            for _, edge in ipairs(block.term.edges) do
+                if reaches[edge.target] then
+                    need(edge.target ~= acquisition.block.id, "Arena interval reenters acquisition")
+                    visit(g.blocks[edge.target], 1)
+                end
+            end
+        end
+        active[block], seen[block] = nil, true
+    end
+    visit(acquisition.block, acquisition.at + 1)
+    need(seen[stop], "Arena staging point is unreachable from acquisition")
+end
+
+local function verifyArenaRecipe(g: any, recipe: any, value: integer): nil
+    local item, home = recipe.item, recipe.home
+    need(
+        graphs[g] == item
+        and arenaHome(item) == home
+        and service.arenaOwnership(item.signature, item.owner) == recipe.result,
+        "Arena return owner/body/signature changed"
+    )
+    unit.occurrence(item.owner, recipe.node)
+    need(recipe.node.exprs[1] == recipe.expression, "Arena selected return changed")
+    local physical = require("nupp.compiler.vm.nativephysical")
+    local row, acquisition
+    local stores = {}
+    if recipe.mode == "forward" then
+        physical.arenaForward(item.owner, recipe.source, recipe.call, g.nativePhysical.signature)
+        row = arenaRow(g, recipe.call, "NativeLeafCall")
+        acquisition = row
+        local call = need(calls[row.args[1]], "Arena forwarding call is unissued")
+        need(
+            call.caller == item and call.target.owner == home.functions.openWith and call.node == recipe.call,
+            "Arena forwarding callee changed"
+        )
+    else
+        local mapping = arenaRow(g, recipe.map, "NativeLeafCall")
+        acquisition = mapping
+        local mapped = need(calls[mapping.args[1]], "Arena mapping call is unissued")
+        need(mapped.caller == item and mapped.os and mapped.node == recipe.map, "Arena mapping owner changed")
+        local offset = arenaRow(g, recipe.offset, "PointerOffset")
+        local metadata = arenaRow(g, recipe.metadata, "NativeLeafCall")
+        need(
+            arenaReaches(g, offset.args[1], mapping) and arenaReaches(g, offset.args[2], metadata, true),
+            "Arena mapping or offset SSA changed"
+        )
+        row = arenaRow(g, recipe.cast, "NativePointerView")
+        need(arenaReaches(g, row.args[1], offset), "Arena result is not the derived mapped pointer")
+        local view = row.args[2]
+        physical.validateCast(view)
+        need(view.node == recipe.cast and view.target.checkedType == recipe.result.inner, "Arena result cast changed")
+        local seen = {}
+        for _, store in ipairs(arenaRows[g] or {}) do
+            if store.store then
+                local args = store.args
+                need(
+                    store.block.op[store.at] == "NativeStore"
+                    and store.block.args[store.at] == args
+                    and args[4].field == store.access,
+                    "Arena initialization store changed"
+                )
+                physical.validateField(store.access)
+                for index = 1, 3 do
+                    need(arenaValueKey(g, args[index]) == store.store[index], "Arena initialization operand changed")
+                end
+                local access = store.access
+                local arenaField = recipe.result.inner.elem.writeFieldDefs[access.name] == access.declaration
+                local chunkType = home.checkedExports.types.Chunk
+                local chunkField = chunkType.writeFieldDefs[access.name] == access.declaration
+                need(arenaField or chunkField, "Arena initialization writes foreign storage")
+                need(
+                    arenaReaches(g, args[1], arenaField and offset or mapping),
+                    "Arena initialization receiver changed"
+                )
+                need(not seen[access.declaration], "Arena initialization field repeated")
+                seen[access.declaration] = true
+                stores[#stores + 1] = store
+            end
+        end
+        for _, t in ipairs({recipe.result.inner.elem, home.checkedExports.types.Chunk}) do
+            for _, definition in pairs(t.writeFieldDefs) do
+                need(seen[definition], "Arena initialization field missing")
+            end
+        end
+    end
+    need(arenaReaches(g, value, row), "Arena staged result changed acquisition instance")
+    arenaInterval(g, recipe, acquisition, stores)
+end
+
+function service.validateArenaReturn(proof: any, owner: any, source: any, node: any): any
+    local plan = need(arenaPlans[proof], "unissued Arena return plan")
+    need(
+        next(proof) == nil
+        and getmetatable(proof) == nil
+        and plan.item.owner == owner
+        and plan.source == source
+        and plan.node == node,
+        "Arena return view identity differs"
+    )
+    held(plan.item.signature)
+    need(service.arenaOwnership(plan.item.signature, owner) == plan.result, "Arena result type changed")
+
+    return plan.result
+end
+
+-- The graph inventory may validate a transported creation descriptor; only
+-- the exact private return view introduced the corresponding affine origin.
+function service.validateArenaValue(proof: any, owner: any, descriptor: any): boolean
+    local plan = need(arenaPlans[proof], "unissued Arena creation origin")
+    service.validateArenaReturn(proof, owner, plan.source, plan.node)
+    need(
+        plan.mode == "create"
+        and plan.view
+        and require("nupp.compiler.vm.nativephysical").same(plan.view.target, descriptor),
+        "Arena creation value differs"
+    )
+
+    return true
+end
+
+-- An implicit terminal has no source call node. Its existing private cleanup
+-- registration is the call authority; the actual acquired instance is separate.
+function service.arenaCleanup(g: any, declaration: any, actual: any?): boolean
+    local call = calls[declaration]
+    if not call or not call.cleanup then
+        return false
+    end
+    local home = need(arenaHome(call.caller), "implicit Arena cleanup caller is outside constructor forwarding")
+    need(
+        graphs[g] == call.caller
+        and call.target.owner == home.exports.close
+        and call.node.kind == "call"
+        and call.cleanupType == call.node.inferredType
+        and call.cleanupType == service.arenaOwnership(call.caller.signature, call.caller.owner),
+        "implicit Arena cleanup registration differs"
+    )
+    need(
+        unit.cleanupTarget(call.caller.owner, call.node, call.cleanupType, call.cleanup) == call.target.owner,
+        "implicit Arena cleanup target changed"
+    )
+    service.validateIssued(declaration)
+    if actual then
+        require(
+            "nupp.compiler.vm.nativephysical"
+        ).arenaCleanupOperand(call.caller.owner, actual, call.node, declaration.physical)
+    end
+
+    return true
+end
+
+-- A forwarded call result is already an acquired affine owner. Unlike a raw
+-- construction failure, every failure exit must consume it exactly once or
+-- prove the explicit retained-backing state that forbids retirement.
+local function verifyArenaFailure(g: any, record: any, failed: any, canReturn: any, scopeOrigin: any): nil
+    local physical = require("nupp.compiler.vm.nativephysical")
+    local definitions, incoming = {}, {}
+    for _, block in ipairs(g.blocks) do
+        for index, value in ipairs(block.dst) do
+            if value ~= 0 then
+                definitions[value] = {op = block.op[index], args = block.args[index]}
+            end
+        end
+        for _, edge in ipairs(block.term.edges) do
+            for index, value in ipairs(g.blocks[edge.target].params) do
+                local list = incoming[value] or {}
+                incoming[value] = list
+                list[#list + 1] = edge.args[index]
+            end
+        end
+    end
+
+    local function owner(value: any): boolean
+        if type(value) ~= "number" then
+            return false
+        end
+        local descriptor = g.nativePhysical.values[value]
+
+        return descriptor ~= nil and physical.sameArenaOwner(record.arena.source, descriptor)
+    end
+
+    local literal: function(integer, any, any): boolean?
+    literal = function(value, facts, active)
+        if facts[value] ~= nil then
+            return facts[value]
+        end
+        if active[value] then
+            return nil
+        end
+        local definition = definitions[value]
+        if definition then
+            if definition.op == "NativeBoolean" then
+                return definition.args[1]
+            end
+            return nil
+        end
+        local list = incoming[value]
+        if not list or #list == 0 then
+            return nil
+        end
+        active[value] = true
+        local result = literal(list[1], facts, active)
+        for index = 2, #list do
+            if literal(list[index], facts, active) ~= result then
+                result = nil;
+                break
+            end
+        end
+        active[value] = nil
+
+        return result
+    end
+    -- Cleanup is acyclic. Visit each feasible path with its own Boolean
+    -- bindings rather than merging live flags from mutually exclusive edges.
+    local active = {}
+    local work: integer = 0
+    local visit: function(any, boolean, boolean, any): nil
+    visit = function(block, retired, retained, facts)
+        work = work + 1
+        need(work <= 10000, "Arena failure proof work limit")
+        need(not canReturn[block.id], "Arena failure rejoins successful publication")
+        need(not active[block], "Arena failure cleanup has a cycle")
+        active[block] = true
+        local constants, retainedLoads, tests = {}, {}, {}
+        for index, op in ipairs(block.op) do
+            local args, dst = block.args[index], block.dst[index]
+            if op == "NativeConstant" then
+                constants[dst] = args[1]
+            end
+            if op == "NativeLoad"
+                and scopeOrigin[args[1]]
+                and constants[args[2]] == tostring(record.item.state.layout.offsets.retainBacking)
+                and args[3].kind == "uint64"
+                and args[3].width == 8
+                and args[3].signed == false
+                and args[3].write == false
+            then
+                retainedLoads[dst] = true
+            elseif op == "NativeICmp"
+                and retainedLoads[args[1]]
+                and constants[args[2]] == "0"
+                and (args[3] == "==" or args[3] == "~=")
+            then
+                tests[dst] = args[3]
+            end
+            local consumes = false
+            for argument = op == "NativeLeafCall" and 2 or 1, #args do
+                if owner(args[argument]) then
+                    need(
+                        op == "NativeLeafCall"
+                        and argument == 2
+                        and not consumes
+                        and not retired
+                        and not retained
+                        and service.arenaCleanup(g, args[1], g.nativePhysical.values[args[2]]),
+                        "Arena failure reuses or misroutes its acquired owner"
+                    )
+                    consumes = true
+                end
+            end
+            if consumes then
+                retired = true
+            end
+            local call = op == "NativeLeafCall" and calls[args[1]]
+            if call and call.retention then
+                retained = true
+            end
+        end
+        local term = block.term
+        need(not owner(term.value), "Arena failure tests its acquired owner")
+        if term.kind == "nativeFail" then
+            need(service.isFailure(g, term), "Arena failure terminal is unissued")
+            need(retired or retained, "Arena failure leaves its acquired owner live")
+        else
+            need(term.kind == "jump" or term.kind == "branch", "Arena failure has no cleanup exit")
+            local known: boolean? = nil
+            if term.kind == "branch" then
+                known = literal(term.value, facts, {})
+                -- Retention is sticky. Unknown/false carries no proof of
+                -- zero, but a prior retention fact excludes a clear edge.
+                if retained and tests[term.value] then
+                    known = tests[term.value] == "~="
+                end
+            end
+            for index, edge in ipairs(term.edges) do
+                if known == nil or (index == 1) == known then
+                    local nextRetained = retained
+                    if tests[term.value] then
+                        nextRetained = retained or (index == 1) ~= (tests[term.value] == "==")
+                    end
+                    local branchFacts, nextFacts = {}, {}
+                    for value, truth in pairs(facts) do
+                        branchFacts[value] = truth
+                    end
+                    if term.kind == "branch" then
+                        branchFacts[term.value] = index == 1
+                    end
+                    for value, truth in pairs(branchFacts) do
+                        nextFacts[value] = truth
+                    end
+                    local target = g.blocks[edge.target]
+                    for at, parameter in ipairs(target.params) do
+                        if g.exactTypes[parameter] == "boolean" then
+                            nextFacts[parameter] = literal(edge.args[at], branchFacts, {})
+                        end
+                    end
+                    visit(target, retired, nextRetained, nextFacts)
+                end
+            end
+        end
+        active[block] = nil
+    end
+    for _, step in ipairs(failed) do
+        visit(step.block, false, false, {})
+    end
+end
+
+-- Nil has no returned root. Non-nil primitive results may instead use a
+-- bounded no-effect transport interval; this grants no caller rooting claim.
+function service.unmanagedReturn(ctx: any, stage: any?): any
+    local item = need(graphs[ctx.g], "unmanaged return requires an issued service graph")
+    held(item.signature)
+    local checked = item.checked
+    need(
+        ctx.fn == item.owner
+        and item.scoped
+        and checked
+        and checked.retPack
+        and not checked.retPack.tail
+        and not checked.retPack.alternatives
+        and #checked.rets == 1
+        and #checked.retPack.head == 1
+        and checked.retPack.head[1] == checked.rets[1]
+        and item.body.effectSummary == item.effect,
+        "return needs an exact root and backing plan"
+    )
+    if checked.rets[1].tag == "nil" then
+        local proof = unmanaged[item.signature]
+        if not proof then
+            proof = {}
+            unmanaged[item.signature] = proof
+        end
+        need(getmetatable(proof) == nil and next(proof) == nil, "unmanaged return capability changed")
+        return proof
+    end
+    local kind = checked.rets[1].tag
+    need(stage and #stage.values == 1 and ctx.block, "return-tail staging point required")
+    local g, block, value = ctx.g, ctx.block, stage.values[1]
+    local arena, arenaProof, dependent
+    if kind == "affine" then
+        local physical = require("nupp.compiler.vm.nativephysical")
+        local source = need(
+            g.nativePhysical and g.nativePhysical.values[value],
+            "Arena return lacks its physical source"
+        )
+        arena = arenaRecipe(ctx, stage.node, source)
+        verifyArenaRecipe(g, arena, value)
+        arenaProof = {}
+        arenaPlans[arenaProof] = arena
+        local view = physical.arenaReturnView(ctx.fn, source, stage.node, arenaProof)
+        value = ctx.emit(stage.node, "NativePointerView", {value, view}, "voidptr")
+        g.nativePhysical.values[value] = view.target
+        stage.values[1] = value
+        arena.view = view
+        kind = "voidptr"
+    elseif g.nativePhysical and g.nativePhysical.signature and g.nativePhysical.signature.dependent then
+        local physical = require("nupp.compiler.vm.nativephysical")
+        local source = need(g.nativePhysical.values[value], "dependent return lacks its physical source")
+        dependent = physical.dependentReturnView(ctx.fn, source, stage.node, g.nativePhysical.signature)
+        -- An explicit identity row before common holds keeps pointer phis
+        -- stable across pruning without a pointer select or a new borrow.
+        value = ctx.emit(stage.node, "NativePointerView", {value, dependent}, "voidptr")
+        g.nativePhysical.values[value] = dependent.target
+        stage.values[1] = value
+        kind = "voidptr"
+    else
+        need(
+            kind == "uint64" or kind == "int64" or kind == "boolean",
+            "return-tail proof currently requires an exact integer or Boolean primitive"
+        )
+        need(
+            g.exactTypes[value] == kind and not (g.nativePhysical and g.nativePhysical.values[value]),
+            "return-tail result carries physical ownership"
+        )
+    end
+    local definition = nil
+    for index, destination in ipairs(block.dst) do
+        if destination == value then
+            definition = index
+        end
+    end
+    local parameter = value <= g.nparams and value or nil
+    if not definition and not parameter then
+        -- A phi has no stable row after pruning compacts block parameters.
+        -- Existing select preserves all integer/Boolean bits and creates an
+        -- ordinary definition row. Future removal must rederive or refuse.
+        local yes = ctx.emit(stage.node, "NativeBoolean", {true}, "boolean")
+        value = ctx.emit(stage.node, "NativeSelect", {yes, value, value}, kind)
+        stage.values[1] = value
+        definition = #block.op
+    end
+    local proof = {}
+    local record = {
+        graph = g,
+        item = item,
+        block = block,
+        kind = kind,
+        checkedResult = checked.rets[1],
+        arena = arena,
+        arenaProof = arenaProof,
+        dependent = dependent,
+        boundary = #block.op,
+        boundaryArgs = block.args[#block.op],
+        boundaryOp = block.op[#block.op],
+        definition = definition,
+        definitionArgs = definition and block.args[definition],
+        definitionOp = definition and block.op[definition],
+        parameter = parameter
+    }
+    unmanaged[proof] = record
+    local list = unmanaged[g] or {}
+    unmanaged[g] = list
+    list[#list + 1] = proof
+
+    return proof
+end
+
+-- Validation only: callers cannot mint a plan by supplying a table or term.
+function service.returnTail(ctx: any, proof: any, term: any?): nil
+    local item = need(graphs[ctx.g], "return plan requires an issued service graph")
+    held(item.signature)
+    need(
+        ctx.fn == item.owner and getmetatable(proof) == nil and next(proof) == nil,
+        "return plan source or capability changed"
+    )
+    if unmanaged[item.signature] == proof then
+        need(item.checked.rets[1].tag == "nil", "nil return contract changed")
+        return
+    end
+    local record = need(unmanaged[proof], "unissued return-tail plan")
+    need(
+        record.graph == ctx.g
+        and record.item == item
+        and item.checked.rets[1] == record.checkedResult
+        and item.body.effectSummary == item.effect,
+        "return-tail owner or result changed"
+    )
+    if term then
+        need(
+            record.term == nil and ctx.block and ctx.block.term == term and term.kind == "return",
+            "return-tail completion differs"
+        )
+        record.term = term
+    end
+end
+
+-- Edges may carry both a lexical binding and a held result. Keep every
+-- actual alias, intersecting at success joins rather than deduplicating SSA.
+local function returnAliases(g: any, edge: any, values: any): any
+    local result, target = {}, g.blocks[edge.target]
+    for value in pairs(values) do
+        if value <= g.nparams then
+            result[value] = true
+        end
+    end
+    for index, value in ipairs(edge.args) do
+        if values[value] then
+            result[target.params[index]] = true
+        end
+    end
+
+    return result
+end
+
+local function returnReachability(g: any): (any, any)
+    local predecessors, reverse, canReturn, returnQueue = {}, {}, {}, {}
+    for _, block in ipairs(g.blocks) do
+        if block.term.kind == "return" then
+            canReturn[block.id] = true
+            returnQueue[#returnQueue + 1] = block.id
+        end
+        for _, edge in ipairs(block.term.edges) do
+            local list = predecessors[edge.target] or {}
+            predecessors[edge.target] = list
+            list[#list + 1] = edge
+            local back = reverse[edge.target] or {}
+            reverse[edge.target] = back
+            back[#back + 1] = block.id
+        end
+    end
+    local returnCursor: integer = 1
+    while returnCursor <= #returnQueue do
+        local target = returnQueue[returnCursor]
+        returnCursor = returnCursor + 1
+        for _, source in ipairs(reverse[target] or {}) do
+            if not canReturn[source] then
+                canReturn[source] = true
+                returnQueue[#returnQueue + 1] = source
+            end
+        end
+    end
+
+    return canReturn, predecessors
+end
+
+local function verifyReturnTails(g: any, item: any, origin: any): nil
+    local plans = unmanaged[g] or {}
+    local covered = {}
+    local canReturn, predecessors = returnReachability(g)
+    for _, proof in ipairs(plans) do
+        local record = need(unmanaged[proof], "missing return-tail plan")
+        local start = record.block
+        need(
+            record.graph == g
+            and record.item == item
+            and record.term
+            and g.blocks[start.id] == start
+            and #start.op >= record.boundary
+            and start.args[record.boundary] == record.boundaryArgs
+            and start.op[record.boundary] == record.boundaryOp,
+            "return-tail staging boundary changed"
+        )
+        local value = record.parameter
+        if record.definition then
+            need(
+                start.args[record.definition] == record.definitionArgs
+                and start.op[record.definition] == record.definitionOp,
+                "return-tail result definition changed"
+            )
+            value = start.dst[record.definition]
+        end
+        need(value and g.exactTypes[value] == record.kind, "return-tail result identity changed")
+        if record.arena then
+            local args = start.args[record.definition]
+            need(
+                start.op[record.definition] == "NativePointerView" and args[2] == record.arena.view,
+                "Arena staged view changed"
+            )
+            service.validateArenaReturn(record.arenaProof, item.owner, record.arena.source, record.arena.node)
+            verifyArenaRecipe(g, record.arena, args[1])
+        elseif record.dependent then
+            local args = start.args[record.definition]
+            local physical = require("nupp.compiler.vm.nativephysical")
+            need(
+                start.op[record.definition] == "NativePointerView"
+                and args[2] == record.dependent
+                and g.nativePhysical.values[args[1]] == record.dependent.source
+                and g.nativePhysical.values[value] == record.dependent.target,
+                "dependent return staging identity changed"
+            )
+            physical.validateCast(record.dependent)
+        end
+        local queue, seen, allowedEdges = {
+            {block = start, at = record.boundary + 1, values = {[value] = true}, zero = false}
+        }, {}, {}
+        local zeroAt = {}
+        local failed, found = {}, false
+        local cursor: integer = 1
+        while cursor <= #queue do
+            local step = queue[cursor]
+            cursor = cursor + 1
+            local block = step.block
+            local previous, aliases, changed = seen[block], {}, seen[block] == nil
+            if previous then
+                for candidate in pairs(previous) do
+                    if step.values[candidate] then
+                        aliases[candidate] = true
+                    else
+                        changed = true
+                    end
+                end
+            else
+                for candidate in pairs(step.values) do
+                    aliases[candidate] = true
+                end
+            end
+            need(next(aliases) ~= nil, "return-tail joins change result identity")
+            local zero = step.zero == true and (previous == nil or zeroAt[block] == true)
+            if previous and zero ~= zeroAt[block] then
+                changed = true
+            end
+            if changed then
+                seen[block], zeroAt[block] = aliases, zero
+                local constants, errorLoads, errorTests = {}, {}, {}
+                for index = step.at, #block.op do
+                    local op, args, dst = block.op[index], block.args[index], block.dst[index]
+                    if op == "NativeConstant" then
+                        constants[dst] = args[1]
+                    elseif op == "NativeLoad" then
+                        local memory, offset = args[3], constants[args[2]]
+                        need(
+                            origin[args[1]]
+                            and memory.kind == "uint64"
+                            and memory.width == 8
+                            and memory.signed == false
+                            and memory.write == false
+                            and (
+                                offset == tostring(item.state.layout.offsets.error)
+                                or offset == tostring(item.state.layout.offsets.retainBacking)
+                            ),
+                            "return-tail load is not a checked status read"
+                        )
+                        if offset == tostring(item.state.layout.offsets.error) then
+                            errorLoads[dst] = true
+                        end
+                    else
+                        if op == "NativeICmp"
+                            and errorLoads[args[1]]
+                            and constants[args[2]] == "0"
+                            and (args[3] == "==" or args[3] == "~=")
+                        then
+                            errorTests[dst] = args[3]
+                        end
+                        need(
+                            op == "NativeBoolean" or op == "NativeICmp",
+                            "return-tail contains a call, write or unsupported operation"
+                        )
+                    end
+                end
+                local term = block.term
+                if term.kind == "return" then
+                    need(
+                        term == record.term and aliases[term.value] == true,
+                        "return-tail publishes a different result"
+                    )
+                    need(zero, "return-tail lacks a dominating zero-error edge")
+                    covered[term], found = true, true
+                elseif term.kind == "nativeFail" then
+                    need(service.isFailure(g, term), "return-tail failure is not issued")
+                    need(
+                        not record.arena or record.arena.mode ~= "forward",
+                        "Arena failure leaves its acquired owner live"
+                    )
+                else
+                    need(term.kind == "jump" or term.kind == "branch", "return-tail transfer is unsupported")
+                    for edgeIndex, edge in ipairs(term.edges) do
+                        local target = g.blocks[edge.target]
+                        need(target ~= start, "return-tail cycles through its staging point")
+                        local predicate = term.kind == "branch" and errorTests[term.value]
+                        if predicate and ((edgeIndex == 1) ~= (predicate == "==")) then
+                            need(not canReturn[target.id], "return-tail error edge rejoins publication")
+                        end
+                        local forwarded = returnAliases(g, edge, aliases)
+                        if canReturn[target.id] then
+                            need(next(forwarded) ~= nil, "return-tail success drops its result")
+                            allowedEdges[edge] = true
+                            local nextZero = zero
+                            if predicate then
+                                nextZero = (edgeIndex == 1) == (predicate == "==")
+                            end
+                            queue[#queue + 1] = {block = target, at = 1, values = forwarded, zero = nextZero}
+                        else
+                            failed[#failed + 1] = {block = target, values = forwarded}
+                        end
+                    end
+                end
+            end
+        end
+        need(found, "return-tail has no matching successful return")
+        for block in pairs(seen) do
+            if block ~= start then
+                for _, edge in ipairs(predecessors[block.id] or {}) do
+                    need(allowedEdges[edge], "return-tail predecessor bypasses staging")
+                end
+            end
+        end
+        if record.arena and record.arena.mode == "forward" then
+            verifyArenaFailure(g, record, failed, canReturn, origin)
+        else
+            -- Failure-only regions can unwind. A held result may still occupy
+            -- unused phi parameters before prune; it must never be consumed.
+            local failureSeen = {}
+            local nextFailure: integer = 1
+            while nextFailure <= #failed do
+                local step = failed[nextFailure]
+                nextFailure = nextFailure + 1
+                local block, values = step.block, step.values
+                local visited, changed = failureSeen[block], failureSeen[block] == nil
+                if not visited then
+                    visited = {};
+                    failureSeen[block] = visited
+                end
+                for value in pairs(values) do
+                    if not visited[value] then
+                        visited[value], changed = true, true
+                    end
+                end
+                if changed then
+                    need(not canReturn[block.id], "failed return-tail rejoins publication")
+                    for index, op in ipairs(block.op) do
+                        local first = op == "NativeLeafCall" and 2 or 1
+                        for argument = first, #block.args[index] do
+                            need(not visited[block.args[index][argument]], "failed return-tail consumes its result")
+                        end
+                    end
+                    need(not visited[block.term.value], "failed return-tail tests its result")
+                    for _, edge in ipairs(block.term.edges) do
+                        failed[#failed + 1] = {block = g.blocks[edge.target], values = returnAliases(g, edge, visited)}
+                    end
+                end
+            end
+        end
+    end
+    if item.scoped and item.checked.rets[1].tag ~= "nil" then
+        for _, block in ipairs(g.blocks) do
+            need(block.term.kind ~= "return" or covered[block.term], "primitive return lacks verified transport tail")
+        end
+    end
+end
+
+function service.retainRoots(ctx: any, node: any): nil
+    local item = need(graphs[ctx.g], "retention requires an issued service graph")
+    need(item.scoped, "retention requires explicit service scope")
+    local target = need(
+        unit.ownerModule(item.owner, "nupp.runtime.core.servicescope").exports.retain,
+        "retention helper is absent"
+    )
+    local callee = need(item.state.owners[target], "retention helper outside closed catalog")
+    -- Lazy require avoids a module import cycle; the declaration still follows
+    -- the ordinary checked leaf signature and existing INTERNAL call path.
+    local declaration = require(
+        "nupp.compiler.vm.graph"
+    ).nativeLeafDeclaration(target, ctx.g.nativePhysical and ctx.g.nativePhysical.context, nil, nil, callee.signature)
+    need(
+        #declaration.params == 1 and declaration.params[1] == "voidptr" and declaration.result == "nil",
+        "retention helper signature changed"
+    )
+    local record = {
+        caller = item,
+        target = callee,
+        node = node,
+        retention = true,
+        params = declaration.params,
+        kinds = {"voidptr"},
+        result = "nil",
+        fields = {}
+    }
+    for key, value in pairs(declaration) do
+        record.fields[key] = value
+    end
+    calls[declaration] = record
+    ctx.emit(node, "NativeLeafCall", {declaration, service.scope(ctx)}, nil)
+end
+
+function service.afterCall(ctx: any, node: any, declaration: any, result: integer?): integer?
+    local call = calls[declaration]
+    if not call or call.cleanup or not (call.os or call.target.scoped) then
+        return result
+    end
+    need(type(ctx.afterCall) == "function", "service failure continuation is not installed")
+    local scope = service.scope(ctx)
+    local offset = ctx.emit(node, "NativeConstant", {tostring(call.caller.state.layout.offsets.error)}, "int64")
+    local status = ctx.emit(
+        node,
+        "NativeLoad",
+        {scope, offset, {source = "borrowed", kind = "uint64", width = 8, signed = false, write = false}},
+        "uint64"
+    )
+    local zero = ctx.emit(node, "NativeConstant", {"0"}, "uint64")
+    local okay = ctx.emit(node, "NativeICmp", {status, zero, "=="}, "boolean")
+
+    return ctx.afterCall(node, result, okay)
+end
+
+function service.callGraph(g: any, declaration: any, args: any): nil
+    local call = need(calls[declaration], "unissued service call")
+    service.validateIssued(declaration)
+    if call.retention then
+        need(
+            call.target.owner == unit.ownerModule(call.caller.owner, "nupp.runtime.core.servicescope").exports.retain,
+            "retention helper identity changed"
+        )
+    elseif call.cleanup then
+        need(
+            unit.cleanupTarget(call.caller.owner, call.node, call.cleanupType, call.cleanup) == call.target.owner,
+            "cleanup registration changed"
+        )
+    end
+    need(
+        graphs[g] == call.caller
+        and held(declaration.service) == call.target
+        and declaration.params == call.params
+        and declaration.result == call.result,
+        "service call contract changed"
+    )
+    need(#args == #call.kinds + 1 and #declaration.params == #call.kinds, "service operand count")
+    for index, kind in ipairs(call.kinds) do
+        need(declaration.params[index] == kind, "service parameter kind changed")
+    end
+    -- Scope identity must be the entry argument or its exact CFG transport.
+    -- Ordinary graph verification checks SSA/edge kinds; service.verifyScope
+    -- below adds the identity constraint rather than trusting a voidptr kind.
+end
+
+function service.checked(signature: any, owner: any, checked: any): any
+    need(held(signature).owner == owner, "resolved service owner differs")
+    checked.params = service.parameters(signature, checked.params)
+    checked.service = signature
+    return checked
+end
+
+-- Must-facts belong to actual CFG edges, never to a caller Boolean option.
+-- Entry has no failure/retention fact; joins intersect every incoming path.
+local function verifyFailureFlow(g: any, item: any, origin: any, reachable: any): nil
+    if not item.scoped then
+        return
+    end
+    local incoming, input, output, tests, raised = {}, {}, {}, {}, {}
+    for _, block in ipairs(g.blocks) do
+        incoming[block.id], output[block.id] = {}, {}
+        input[
+            block.id
+        ] = {
+            error = block.id ~= 1 and reachable[block.id] == true,
+            clear = block.id ~= 1 and reachable[block.id] == true
+        }
+    end
+    for _, block in ipairs(g.blocks) do
+        local constants, loads, comparisons = {}, {}, {}
+        raised[block.id] = {}
+        for index, op in ipairs(block.op) do
+            local args, dst = block.args[index], block.dst[index]
+            if op == "NativeConstant" and (g.exactTypes[dst] == "int64" or g.exactTypes[dst] == "uint64") then
+                constants[dst] = args[1]
+            elseif op == "NativeLoad" and origin[args[1]] then
+                local access, offset = args[3], constants[args[2]]
+                need(
+                    access.kind == "uint64"
+                    and access.width == 8
+                    and access.signed == false
+                    and access.write == false
+                    and g.exactTypes[dst] == "uint64",
+                    "service scope load changes exact representation"
+                )
+                if offset == tostring(item.state.layout.offsets.error) then
+                    loads[dst] = "error"
+                elseif offset == tostring(item.state.layout.offsets.retainBacking) then
+                    loads[dst] = "retain"
+                else
+                    need(false, "service scope load outside status fields")
+                end
+            elseif op == "NativeICmp"
+                and loads[args[1]]
+                and constants[args[2]] == "0"
+                and g.exactTypes[args[1]] == "uint64"
+                and g.exactTypes[args[2]] == "uint64"
+                and (args[3] == "==" or args[3] == "~=")
+            then
+                comparisons[dst] = {field = loads[args[1]], equal = args[3] == "=="}
+            elseif op == "NativeLeafCall" then
+                local call = need(calls[args[1]], "unissued call in scoped service graph")
+                loads, comparisons = {}, {}
+                if call.raising then
+                    local evidence = item.state.raises[call.node]
+                    need(
+                        evidence
+                        and constants[args[3]] == "1"
+                        and constants[args[4]] == tostring(item.id)
+                        and constants[args[5]] == tostring(evidence.site),
+                        "literal failure arguments changed"
+                    )
+                    raised[block.id][index] = true
+                elseif call.retention then
+                    raised[block.id][index] = true
+                end
+            end
+            -- Hidden scope cannot be published, cast or used as an arbitrary
+            -- address. Only exact status loads and authenticated call slots use it.
+            for argument, value in ipairs(args) do
+                if type(value) == "number" and origin[value] then
+                    local permitted = op == "NativeLoad" and argument == 1
+                    if op == "NativeLeafCall" then
+                        local call = calls[args[1]]
+                        local parameter = call
+                            and ((call.os or call.raising or call.retention) and 1 or call.target.scopeParameter)
+                        permitted = parameter ~= nil and argument == parameter + 1
+                    end
+                    need(permitted, "service scope escapes or is mutated outside its closed helpers")
+                end
+            end
+        end
+        tests[block.id] = block.term.kind == "branch" and comparisons[block.term.value] or nil
+        for index, edge in ipairs(block.term.edges or {}) do
+            incoming[edge.target][#incoming[edge.target] + 1] = {block = block.id, edge = index}
+            output[block.id][index] = {error = reachable[block.id] == true, clear = reachable[block.id] == true}
+        end
+    end
+    local changed = true
+    while changed do
+        changed = false
+        for _, block in ipairs(g.blocks) do
+            local fact = {error = false, clear = false}
+            if block.id ~= 1 and reachable[block.id] and #incoming[block.id] > 0 then
+                fact.error, fact.clear = true, true
+                for _, predecessor in ipairs(incoming[block.id]) do
+                    local edge = output[predecessor.block][predecessor.edge]
+                    fact.error = fact.error and reachable[predecessor.block] == true and edge.error
+                    fact.clear = fact.clear and reachable[predecessor.block] == true and edge.clear
+                end
+            end
+            input[block.id] = {error = fact.error, clear = fact.clear}
+            for index, op in ipairs(block.op) do
+                if op == "NativeLeafCall" then
+                    fact.clear = false
+                end
+                if raised[block.id][index] then
+                    fact.error = true
+                end
+            end
+            local test = tests[block.id]
+            for index in ipairs(block.term.edges or {}) do
+                local edge = {error = fact.error, clear = fact.clear}
+                if test then
+                    local zero = (index == 1) == test.equal
+                    if test.field == "error" then
+                        edge.error = not zero
+                    else
+                        edge.clear = zero
+                    end
+                end
+                local previous = output[block.id][index]
+                if edge.error ~= previous.error or edge.clear ~= previous.clear then
+                    output[block.id][index], changed = edge, true
+                end
+            end
+        end
+    end
+    for _, block in ipairs(g.blocks) do
+        local error, clear = input[block.id].error, input[block.id].clear
+        for index, op in ipairs(block.op) do
+            if op == "NativeLeafCall" then
+                local call = calls[block.args[index][1]]
+                if call.cleanup then
+                    need(reachable[block.id] and clear, "cleanup lacks current retained-backing permission")
+                end
+                clear = false
+                if raised[block.id][index] then
+                    error = true
+                end
+            end
+        end
+        if service.isFailure(g, block.term) then
+            need(reachable[block.id] and error, "service failure lacks a dominating nonzero error edge")
+        end
+    end
+end
+
+function service.verifyScope(g: any): nil
+    service.verify(g)
+    local item = graphs[g]
+    if not item then
+        return
+    end
+    local reachable, queue = {[1] = true}, {1}
+    local cursor: integer = 1
+    while cursor <= #queue do
+        for _, edge in ipairs(g.blocks[queue[cursor]].term.edges or {}) do
+            if not reachable[edge.target] then
+                reachable[edge.target] = true
+                queue[#queue + 1] = edge.target
+            end
+        end
+        cursor = cursor + 1
+    end
+    local origin, incoming = {}, {}
+    if item.scoped then
+        origin[item.scopeParameter] = true
+    end
+    for _, block in ipairs(g.blocks) do
+        incoming[block.id] = {}
+        for _, value in ipairs(block.params) do
+            origin[value] = reachable[block.id] == true
+        end
+    end
+    for _, block in ipairs(g.blocks) do
+        for _, edge in ipairs(block.term.edges or {}) do
+            local target = g.blocks[edge.target]
+            for index, value in ipairs(target.params) do
+                local list = incoming[target.id][value] or {}
+                incoming[target.id][value] = list
+                list[#list + 1] = {block = block.id, value = edge.args[index]}
+            end
+        end
+    end
+    local changed = true
+    while changed do
+        changed = false
+        for _, block in ipairs(g.blocks) do
+            for _, value in ipairs(block.params) do
+                if origin[value] then
+                    local edges = incoming[block.id][value] or {}
+                    local valid = #edges > 0
+                    for _, edge in ipairs(edges) do
+                        if not reachable[edge.block] or not origin[edge.value] then
+                            valid = false
+                        end
+                    end
+                    if not valid then
+                        origin[value], changed = false, true
+                    end
+                end
+            end
+        end
+    end
+    -- A mixed phi cannot hide a scope escape by losing exact identity.
+    local tainted = {}
+    if item.scoped then
+        tainted[item.scopeParameter] = true
+    end
+    changed = true
+    while changed do
+        changed = false
+        for _, block in ipairs(g.blocks) do
+            for _, edge in ipairs(block.term.edges or {}) do
+                for index, value in ipairs(edge.args) do
+                    local target = g.blocks[edge.target].params[index]
+                    if tainted[value] and not tainted[target] then
+                        tainted[target], changed = true, true
+                    end
+                end
+            end
+        end
+    end
+    for value in pairs(tainted) do
+        need(origin[value], "service scope phi changes identity")
+    end
+    for _, block in ipairs(g.blocks) do
+        need(not block.term.value or not origin[block.term.value], "service scope escapes through terminator")
+    end
+    verifyFailureFlow(g, item, origin, reachable)
+    verifyReturnTails(g, item, origin)
+    local canReturn = returnReachability(g)
+    for _, block in ipairs(g.blocks) do
+        for index, op in ipairs(block.op) do
+            if op == "NativeLeafCall" then
+                local args = block.args[index]
+                local call = calls[args[1]]
+                if call then
+                    service.callGraph(g, args[1], args)
+                    if not call.cleanup and (call.os or call.target.scoped) then
+                        need(
+                            #block.op == index + 4
+                            and block.op[index + 1] == "NativeConstant"
+                            and block.args[index + 1][1] == tostring(item.state.layout.offsets.error)
+                            and block.op[index + 2] == "NativeLoad"
+                            and block.args[index + 2][2] == block.dst[index + 1]
+                            and origin[block.args[index + 2][1]]
+                            and block.args[index + 2][3].kind == "uint64"
+                            and block.args[index + 2][3].width == 8
+                            and block.args[index + 2][3].signed == false
+                            and block.args[index + 2][3].write == false
+                            and g.exactTypes[block.dst[index + 2]] == "uint64"
+                            and g.exactTypes[block.dst[index + 3]] == "uint64"
+                            and block.op[index + 3] == "NativeConstant"
+                            and block.args[index + 3][1] == "0"
+                            and block.op[index + 4] == "NativeICmp"
+                            and block.args[index + 4][1] == block.dst[index + 2]
+                            and block.args[index + 4][2] == block.dst[index + 3]
+                            and block.args[index + 4][3] == "=="
+                            and block.term.kind == "branch"
+                            and block.term.value == block.dst[index + 4],
+                            "service result lacks immediate exact success continuation"
+                        )
+                        need(
+                            not canReturn[block.term.edges[2].target],
+                            "failed service continuation rejoins normal return"
+                        )
+                        local result = block.dst[index]
+                        if result ~= 0 then
+                            for _, value in ipairs(block.term.edges[2].args) do
+                                need(value ~= result, "failed service result escapes into cleanup")
+                            end
+                        end
+                    end
+                    local parameter = (call.os or call.raising or call.retention) and 1 or call.target.scopeParameter
+                    if parameter then
+                        need(
+                            reachable[block.id] and origin[args[parameter + 1]],
+                            "call scope is not the retained entry scope"
+                        )
+                    end
+                end
+            end
+        end
+    end
+end
+
+function service.inventory(catalog: any): any
+    local state = need(catalogs[catalog], "unissued service catalogue")
+    local result = {}
+    for _, item in ipairs(state.order) do
+        result[
+            #result + 1
+        ] = {
+            moduleName = item.scope.name,
+            name = item.owner.name,
+            sourceParameters = item.sourceCount,
+            machineParameters = item.sourceCount + (item.scoped and 1 or 0),
+            hasScope = item.scoped,
+            raises = item.raises == true
+        }
+    end
+
+    return result
+end
+
+local scopedPolicy = {
+    ["nupp.runtime.vm.arena.grow"] = {[1] = true},
+    ["nupp.runtime.vm.childwalk.childRun"] = {[3] = true},
+    ["nupp.runtime.vm.childwalk.childPairs"] = {[2] = true},
+    ["nupp.runtime.vm.childwalk.childNext"] = {[2] = true},
+    ["nupp.runtime.vm.objectwalk.objectNext"] = {[2] = true},
+    ["nupp.runtime.vm.objectwalk.sweepNext"] = {[2] = true},
+    ["nupp.runtime.vm.gcweak.weakCycleClearNext"] = {[2] = true}
+}
+
+-- This closed raw-lifetime policy is reviewed source, not inferred escape
+-- analysis. It grants no retention, suspension or publication permission.
+function service.scopedCall(caller: any, node: any, target: any, index: integer): any
+    unit.call(caller, node, target)
+    unit.occurrence(caller, node)
+    local policy = scopedPolicy[target.scope.name .. "." .. target.name]
+    need(policy and policy[index], "plain call lacks reviewed scoped lifetime policy")
+    local state = nil
+    for _, candidate in ipairs(ownerCatalogs[caller] or {}) do
+        local call = candidate.calls[node]
+        if call and call.owner == caller and call.target == target and not call.os and not call.raising then
+            state = candidate
+            break
+        end
+    end
+    need(state ~= nil, "scoped call is outside closed service catalogue")
+    local proof = {}
+    scopedCalls[
+        proof
+    ] = {
+        state = state,
+        caller = caller,
+        node = node,
+        target = target,
+        index = index,
+        callerBody = caller.body,
+        targetBody = target.body
+    }
+
+    return proof
+end
+
+function service.validateScopedCall(proof: any, caller: any, node: any, target: any, index: integer): nil
+    local saved = need(scopedCalls[proof], "unissued scoped-call proof")
+    need(
+        next(proof) == nil
+        and getmetatable(proof) == nil
+        and saved.caller == caller
+        and saved.node == node
+        and saved.target == target
+        and saved.index == index
+        and caller.body == saved.callerBody
+        and target.body == saved.targetBody,
+        "scoped-call identity changed"
+    )
+    unit.call(caller, node, target)
+    unit.occurrence(caller, node)
+end
+
+function service.isIssued(value: any): boolean
+    return signatures[value] ~= nil or calls[value] ~= nil or failures[value] ~= nil
+end
+
+function service.validateIssued(value: any): nil
+    if failures[value] then
+        service.isFailure(failures[value].graph, value);
+        return
+    end
+    if signatures[value] then
+        held(value);
+        return
+    end
+    local call = need(calls[value], "unissued service record")
+    need(
+        value.service == call.target.signature and value.params == call.params and value.result == call.result,
+        "service call record changed"
+    )
+    local target = held(value.service).owner
+    need(
+        value.moduleName == target.scope.name
+        and value.name == target.name
+        and value.source
+        and getmetatable(value.source) == nil
+        and value.source.path == target.scope.path
+        and value.source.module == target.scope.name
+        and value.source.name == target.name,
+        "service declaration source changed"
+    )
+    for key in pairs(value.source) do
+        need(key == "path" or key == "module" or key == "name", "service source field added")
+    end
+    need(
+        getmetatable(value) == nil and getmetatable(value.params) == nil and #value.params == #call.kinds,
+        "service record shape changed"
+    )
+    for key, expected in pairs(call.fields) do
+        need(value[key] == expected, "service record field changed")
+    end
+    for key in pairs(value) do
+        need(call.fields[key] ~= nil, "service record field added")
+    end
+    for index, kind in ipairs(call.kinds) do
+        need(value.params[index] == kind, "service call kind changed")
+    end
+end
+
+local paths = {
+    {"nupp.runtime.vm.arena", "src/nupp/runtime/vm/arena.nupp"},
+    {"nupp.runtime.vm.heap", "src/nupp/runtime/vm/heap.nupp"},
+    {"nupp.runtime.vm.collector", "src/nupp/runtime/vm/collector.nupp"},
+    {"nupp.runtime.vm.marking", "src/nupp/runtime/vm/marking.nupp"},
+    {"nupp.runtime.vm.gcweak", "src/nupp/runtime/vm/gcweak.nupp"},
+    {"nupp.runtime.vm.childwalk", "src/nupp/runtime/vm/childwalk.nupp"},
+    {"nupp.runtime.vm.objectwalk", "src/nupp/runtime/vm/objectwalk.nupp"},
+    {"nupp.runtime.vm.objectconstruct", "src/nupp/runtime/vm/objectconstruct.nupp"},
+    {"nupp.runtime.vm.backing", "src/nupp/runtime/vm/backing.nupp"},
+    {"nupp.runtime.vm.weakentries", "src/nupp/runtime/vm/weakentries.nupp"},
+    {"nupp.runtime.vm.weakindex", "src/nupp/runtime/vm/weakindex.nupp"},
+    {"nupp.runtime.vm.objectweak", "src/nupp/runtime/vm/objectweak.nupp"},
+    {"nupp.runtime.vm.objecthash", "src/nupp/runtime/vm/objecthash.nupp"},
+    {"nupp.runtime.vm.objecttable", "src/nupp/runtime/vm/objecttable.nupp"},
+    {"nupp.runtime.vm.values", "src/nupp/runtime/vm/values.nupp"},
+    {"nupp.runtime.core.pagemappings", "native/core/src/nupp/runtime/core/pagemappings.nupp"},
+    {"nupp.runtime.core.servicescope", "native/core/src/nupp/runtime/core/servicescope.nupp"}
+}
+local roots = {
+    {"nupp.runtime.vm.arena", "open"},
+    {"nupp.runtime.vm.arena", "openGrowable"},
+    {"nupp.runtime.vm.arena", "close"},
+    {"nupp.runtime.vm.heap", "create"},
+    {"nupp.runtime.vm.heap", "destroy"},
+    {"nupp.runtime.vm.collector", "allocate"},
+    {"nupp.runtime.vm.collector", "fullCycle"},
+    {"nupp.runtime.vm.objectconstruct", "cellInitialize"},
+    {"nupp.runtime.vm.objectconstruct", "closureInitialize"},
+    {"nupp.runtime.core.servicescope", "initialize"},
+    {"nupp.runtime.core.servicescope", "close"},
+    {"nupp.runtime.core.servicescope", "retain"}
+}
+
+local function read(path: string): string
+    local file = io.open(path, "rb")
+    if not file then
+        error("native service: missing reviewed service source: " .. path)
+    end
+    local text = file:read("*a")
+    file:close()
+
+    return text
+end
+
+local function reviewUnchanged(review: any): nil
+    need(read(review.path) == review.text, "service build snapshot changed")
+    for path, text in pairs(review.snapshot.sources) do
+        need(read(review.root .. "/" .. path) == text, "reviewed service source changed: " .. path)
+    end
+end
+
+-- Fixed producer input and fixed source closure, following the existing closed
+-- final-frame producer boundary. The host build filesystem and reviewed
+-- snapshot are trusted; this is not arbitrary-source nonescape authentication.
+function service.build(): any
+    local root = need(os.getenv("NUPP_COMPILER_ROOT"), "build source root required")
+    local path = root .. "/build/core-heap-services/snapshot.json"
+    local text = read(path)
+    local snapshot = require("nupp.codec.json").decode(text)
+    need(snapshot.version == 1 and snapshot.target == "aarch64-apple-darwin", "service snapshot version/target")
+    local requested = {}
+    for index, source in ipairs(paths) do
+        need(snapshot.sources[source[2]] == read(root .. "/" .. source[2]), "service source snapshot differs")
+        requested[index] = {moduleName = source[1], path = root .. "/" .. source[2]}
+    end
+    for _, source in ipairs({
+        "src/nupp/runtime/vm/os.d.nupp",
+        "src/nupp/runtime/vm/intrinsics.d.nupp",
+        "src/nupp/compiler/vm/nativeservice.nupp",
+        "src/nupp/compiler/vm/nativeos.nupp"
+    }) do
+        need(snapshot.sources[source] == read(root .. "/" .. source), "service policy snapshot differs")
+    end
+    local review = {root = root, path = path, text = text, snapshot = snapshot}
+    reviewUnchanged(review)
+    local checked = unit.session(root, requested, snapshot.target)
+    local entries = {}
+    for index, source in ipairs(roots) do
+        entries[index] = need(checked.module(source[1]).exports[source[2]], "fixed service entry is missing")
+    end
+    local result = catalog(entries[1], entries, review)
+
+    return {catalog = result, entries = entries}
+end
+
+function service.owners(catalogue: any): any
+    local state = need(catalogs[catalogue], "unissued service catalogue")
+    reviewUnchanged(state.review)
+    local result = {}
+    for index, item in ipairs(state.order) do
+        result[index] = item.owner
+    end
+
+    return result
+end
+
+function service.validateCatalog(catalogue: any): nil
+    local state = need(catalogs[catalogue], "unissued service catalogue")
+    reviewUnchanged(state.review)
+    unit.finish(state.entry)
+end
+
+function service.recordTarget(g: any, declaration: any, node: any): any
+    local call = need(calls[declaration], "unissued service operation")
+    need(graphs[g] == call.caller, "service operation owner/site differs")
+    -- A terminal retains its checked acquisition/binding declaration, but
+    -- runs at an actual exit occurrence. Ordinary calls retain exact sites.
+    if call.cleanup then
+        unit.occurrence(call.caller.owner, node)
+    else
+        need(call.node == node, "service operation owner/site differs")
+    end
+    service.validateIssued(declaration)
+    if call.retention then
+        need(
+            call.target.owner == unit.ownerModule(call.caller.owner, "nupp.runtime.core.servicescope").exports.retain,
+            "retention helper source differs"
+        )
+    elseif call.cleanup then
+        need(
+            unit.cleanupTarget(call.caller.owner, call.node, call.cleanupType, call.cleanup) == call.target.owner,
+            "service cleanup source differs"
+        )
+    elseif call.os then
+        local actual = unit.osDeclaration(call.caller.owner, node)
+        need(
+            actual.definition == call.os.definition and actual.signature == call.os.signature,
+            "service OS source differs"
+        )
+    elseif call.raising then
+        need(unit.literalRaise(call.caller.owner, node), "service raise source differs")
+    else
+        unit.call(call.caller.owner, node, call.target.owner)
+    end
+
+    return call.target.owner
+end
+
+-- A redirected OS call has a checked external source call and a different
+-- exact Nupp wrapper target. Its existing private service record binds both;
+-- it cannot carry an ordinary same-target physical call-site signature.
+function service.redirectedCall(g: any, declaration: any): boolean
+    local call = calls[declaration]
+    if not call or not call.os then
+        return false
+    end
+    need(graphs[g] == call.caller, "redirected pointer caller differs")
+    service.validateIssued(declaration)
+    local catalogCall = call.caller.state.calls[call.node]
+    need(
+        catalogCall
+        and catalogCall.owner == call.caller.owner
+        and catalogCall.target == call.target.owner
+        and catalogCall.os == call.os,
+        "redirected pointer catalog binding differs"
+    )
+    need(
+        service.recordTarget(g, declaration, call.node) == call.target.owner,
+        "redirected pointer source identity differs"
+    )
+    need(
+        declaration.physical and declaration.physical.owner == call.target.owner,
+        "redirected pointer signature owner differs"
+    )
+
+    return true
+end
+
+function service.finish(g: any): nil
+    local item = graphs[g]
+    if item then
+        service.verifyScope(g)
+        reviewUnchanged(item.state.review)
+        unit.finish(item.owner)
+    end
+end
+
+export = service

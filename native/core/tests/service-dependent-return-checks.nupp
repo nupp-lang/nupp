@@ -1,0 +1,175 @@
+module nupp.core.servicedependentreturnchecks
+
+-- Construction/identity checks only, using the actual closed service catalog.
+local graph = require("nupp.compiler.vm.graph")
+local lower = require("nupp.compiler.vm.lower")
+local nativegraph = require("nupp.compiler.vm.nativegraph")
+local cleanup = require("nupp.compiler.vm.nativecleanup")
+local physical = require("nupp.compiler.vm.nativephysical")
+local service = require("nupp.compiler.vm.nativeservice")
+local M = {}
+
+local function refuses(callback: function(): nil, expected: string): nil
+    local ok, message = pcall(callback)
+    assert(not ok and tostring(message):find(expected, 1, true), tostring(message))
+end
+
+local function views(g: any): nil
+    local count: integer = 0
+    for _, block in ipairs(g.blocks) do
+        for at, op in ipairs(block.op) do
+            if op == "NativePointerView" and physical.viewKind(block.args[at][2]) == "dependentReturn" then
+                count = count + 1
+                local view = block.args[at][2]
+                physical.validateCast(view)
+                assert(view.source ~= view.target and physical.sameValue(view.source, view.target))
+                assert(
+                    view.source.checkedType == view.target.checkedType and view.source.nullable == view.target.nullable
+                )
+                assert(physical.dependent(view.target))
+                local signature = g.nativePhysical.signature
+                assert(physical.returnValue(signature, view.target))
+                -- Same type and nullable bit do not supply the backing owner.
+                local fresh = physical.describe(view.source.context, view.source.checkedType)
+                refuses(
+                    function(): nil
+                        physical.dependentReturnView(signature.owner, fresh, view.node, signature)
+                    end,
+                    "lacks its exact backing dependency"
+                )
+                local copied = {}
+                for key, value in pairs(view) do
+                    copied[key] = value
+                end
+                refuses(
+                    function(): nil
+                        physical.validateCast(copied)
+                    end,
+                    "unknown checked pointer cast"
+                )
+                local saved = view.target
+                view.target = fresh
+                local ok, message = pcall(physical.validateCast, view)
+                view.target = saved
+                assert(
+                    not ok and tostring(message):find("issued physical record field changed", 1, true),
+                    tostring(message)
+                )
+                physical.validateCast(view)
+                -- A phi descriptor cannot also become the new result's
+                -- destination. Replacing the issued target must refuse.
+                saved = g.nativePhysical.values[block.dst[at]]
+                g.nativePhysical.values[block.dst[at]] = view.source
+                ok, message = pcall(graph.verify, g)
+                g.nativePhysical.values[block.dst[at]] = saved
+                assert(not ok, "dependent view reused its source descriptor as a result")
+                graph.verify(g)
+            end
+        end
+    end
+    assert(count > 0, "actual dependent return view missing")
+end
+
+local function metadata(g: any, owner: any): nil
+    local signature = g.nativePhysical.signature
+    local checked = owner.checkedSignature
+    assert(checked.borrowsParam == 1 and checked.borrowsResult == 1)
+    assert(checked.paramModes[1] == "borrows" and owner.parameterModeTokens[1].text == "borrows")
+    assert(owner.parameterTypes[1].tag == "borrowed")
+    assert(owner.resultType.tag == "borrowed" and signature.dependent == 1)
+    local borrowed: integer = 0
+    local returns: integer = 0
+    for _, block in ipairs(g.blocks) do
+        for at, op in ipairs(block.op) do
+            if op == "NativeBorrowPointer" and physical.viewKind(block.args[at][3]) == "borrow" then
+                borrowed = borrowed + 1
+                local view = block.args[at][3]
+                assert(view.node.ownershipIntrinsic == "borrowFrom")
+                assert(view.node.args.exprs[2].token.definition == owner.parameterDefinitions[1])
+                physical.validateCast(view)
+                assert(physical.returnValue(signature, view.target))
+                local erased = physical.describe(view.target.context, view.target.checkedType)
+                assert(not physical.returnValue(signature, erased), "metadata return lost its backing dependency")
+                local value = block.dst[at]
+                local saved = g.nativePhysical.values[value]
+                g.nativePhysical.values[value] = erased
+                local ok = pcall(graph.verify, g)
+                g.nativePhysical.values[value] = saved
+                assert(not ok, "metadata result accepted an erased dependency")
+                graph.verify(g)
+                local savedSource = view.source
+                view.source = g.nativePhysical.values[1]
+                local accepted = pcall(graph.verify, g)
+                view.source = savedSource
+                assert(not accepted, "metadata view accepted a different pointer source")
+                graph.verify(g)
+            end
+        end
+        if block.term and block.term.kind == "return" then
+            returns = returns + 1
+            assert(physical.returnValue(signature, g.nativePhysical.values[block.term.value]))
+        end
+    end
+    assert(borrowed == 1 and returns == 1, "actual classAt borrow/return shape differs")
+end
+
+function M.check(build: any): nil
+    local wanted = {
+        ["nupp.runtime.vm.arena"] = {alloc = true, pool = true, take = true},
+        ["nupp.runtime.vm.heap"] = {zeroWords = true, zeroSet = true, zeroIndex = true, create = true}
+    }
+    local count: integer = 0
+    local managed = false
+    local metadataCount: integer = 0
+    for _, owner in ipairs(service.owners(build.catalog)) do
+        if wanted[owner.scope.name] and wanted[owner.scope.name][owner.name] then
+            count = count + 1
+            local options = service.options(build.catalog, owner)
+            local capability = service.signature(owner, options)
+            assert(service.dependentReturn(capability, owner) == owner.resultType)
+            refuses(
+                function(): nil
+                    service.dependentReturn({}, owner)
+                end,
+                "unissued service signature"
+            )
+            local g = lower.functionGraph(owner, options, cleanup.profile(nativegraph))
+            graph.verify(g);
+            service.verifyScope(g);
+            views(g)
+            graph.prune(g)
+            graph.verify(g);
+            service.verifyScope(g);
+            views(g)
+        elseif owner.scope.name == "nupp.runtime.vm.heap" and owner.name == "classAt" then
+            metadataCount = metadataCount + 1
+            local options = service.options(build.catalog, owner)
+            local capability = service.signature(owner, options)
+            assert(service.dependentReturn(capability, owner) == owner.resultType)
+            assert(not service.needsCleanup(capability), "classAt unexpectedly gained cleanup scope")
+            local saved = owner.checkedSignature.borrowsParam
+            owner.checkedSignature.borrowsParam = nil
+            local ok, message = pcall(service.dependentReturn, capability, owner)
+            owner.checkedSignature.borrowsParam = saved
+            assert(not ok and tostring(message):find("backing declaration differs", 1, true), tostring(message))
+            local g = lower.functionGraph(owner, options, nativegraph)
+            graph.verify(g)
+            metadata(g, owner)
+            graph.prune(g)
+            graph.verify(g)
+            metadata(g, owner)
+        elseif owner.scope.name == "nupp.runtime.vm.heap" and owner.name == "allocRaw" then
+            managed = true
+            local capability = service.signature(owner, service.options(build.catalog, owner))
+            refuses(
+                function(): nil
+                    service.dependentReturn(capability, owner)
+                end,
+                "outside reviewed Arena/Pool storage"
+            )
+        end
+    end
+    assert(count == 7 and metadataCount == 1 and managed, "closed dependent/metadata/managed source inventory differs")
+end
+
+export = M

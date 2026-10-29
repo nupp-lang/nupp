@@ -1,0 +1,81 @@
+module nupp.compiler.vm.functioncleanup
+
+local cleanup = {}
+
+local function need(ok: any, message: string): any
+    assert(ok, "function cleanup: " .. message)
+    return ok
+end
+
+-- These are checked syntax queries, not cleanup-call authority. A profile must
+-- bind each retained cleanup to its actual checked declaration and signature.
+function cleanup.type(t: any): any
+    if not t or t.tag ~= "affine" then
+        return nil
+    end
+    need(
+        t.inner and t.inner.tag ~= "optional" and t.inner.tag ~= "union",
+        "optional or conditional owner cleanup is unsupported"
+    )
+    need(#(t.cleanups or {}) > 0, "owner lacks an exact cleanup chain")
+    for _, item in ipairs(t.cleanups) do
+        need(item.kind == "function" and item.functionType, "only checked free-function cleanup is supported")
+    end
+
+    return t
+end
+
+function cleanup.localOwner(stat: any, index: integer): any
+    local owner = stat.automaticOwners and stat.automaticOwners[index]
+    if not owner then
+        return nil
+    end
+    local token = stat.names[index]
+    need(
+        owner.stat == stat
+        and owner.index == index
+        and owner.expr == stat.exprs[index]
+        and owner.token == token
+        and owner.entry
+        and owner.entry.definition == token.definition
+        and owner.entry.automaticOwner == owner
+        and owner.type == owner.entry.t,
+        "local owner does not match its checked binding"
+    )
+    need(
+        not owner.optional and not owner.correlated and not owner.guards,
+        "conditional local owner cleanup is unsupported"
+    )
+    local t = need(cleanup.type(owner.type), "local owner requires an affine type")
+    need(owner.cleanups == t.cleanups, "local owner cleanup chain changed")
+
+    return owner
+end
+
+function cleanup.acquisition(binding: any): any
+    local t = need(cleanup.type(binding.acquiredType), "with requires a checked affine acquisition")
+    need(
+        binding.ownerCleanups == t.cleanups
+        and binding.name
+        and binding.name.definition
+        and binding.name.definition.type
+        and binding.name.definition.type.tag == "borrowed",
+        "with binding lost checked acquisition or borrowed view"
+    )
+
+    return t
+end
+
+function cleanup.move(move: any): any
+    need(move and not move.field and not move.owner, "partial-field ownership transfer is unsupported")
+    return move
+end
+
+function cleanup.source(node: any): any
+    while node and (node.kind == "paren" or node.kind == "castExpr") do
+        node = node.expr
+    end
+    return node
+end
+
+export = cleanup

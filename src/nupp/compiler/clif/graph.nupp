@@ -8,6 +8,7 @@ local integerOps = {
     ISub = "isub",
     NativeIMul = "imul",
     NativeUDiv = "udiv",
+    NativeURem = "urem",
     IAnd = "band",
     IOr = "bor",
     IXor = "bxor",

@@ -1,0 +1,287 @@
+module nupp.runtime.core.pagemappings
+
+const native = require("nupp.runtime.vm.intrinsics")
+const os = require("nupp.runtime.vm.os")
+
+-- Explicit mapped metadata, retained outside every mapping owned here and
+-- outside logical frames/helper spill storage. Exclusive, no suspend/callback.
+-- A failed close consumes the scope and retains failed mappings; never reset it.
+export struct Scope
+    records: uint64
+    capacity: uint64
+    issued: uint64
+    live: uint64
+    phase: uint64
+    status: uint64
+    cleanupFailed: uint64
+end
+
+export struct Mapping
+    base: uint64
+    bytes: uint64
+    serial: uint64
+    state: uint64
+end
+
+const LIMIT: uint64 = 281474976710656ULL
+const MAXIMUM: uint64 = 0xffffffffffffffffULL
+const MAX_RECORDS: uint64 = 4096ULL
+
+local function extent(base: uint64, bytes: uint64): boolean
+    return base ~= 0ULL and bytes ~= 0ULL and bytes <= MAXIMUM - base
+end
+
+local function overlap(a: uint64, an: uint64, b: uint64, bn: uint64): boolean
+    return a < b + bn and b < a + an
+end
+
+-- All pointer parameters are borrowed mapped extents, not integer-address
+-- authentication. Caller retains exclusive access through the entire scope.
+export function initialize(
+    scope: voidptr,
+    scopeBytes: uint64,
+    records: voidptr,
+    recordBytes: uint64,
+    capacity: uint64
+): uint64
+    local sb, rb = native.address(scope), native.address(records)
+    if scopeBytes < native.sizeOf<Scope>()
+        or capacity == 0ULL
+        or capacity > MAX_RECORDS
+        or recordBytes < capacity * native.sizeOf<Mapping>()
+        or not extent(sb, scopeBytes)
+        or not extent(rb, recordBytes)
+        or (sb & 7ULL) ~= 0ULL
+        or (rb & 7ULL) ~= 0ULL
+    then
+        return 0ULL
+    end
+    if overlap(sb, scopeBytes, rb, recordBytes) then
+        return 0ULL
+    end
+    local at: uint64 = 0ULL
+    while at < native.sizeOf<Scope>() do
+        if native.load64(scope, native.index(at)) ~= 0ULL then
+            return 0ULL
+        end
+        at = at + 8ULL
+    end
+    at = 0ULL
+    while at < capacity * native.sizeOf<Mapping>() do
+        native.store64(records, native.index(at), 0ULL)
+        at = at + 8ULL
+    end
+    native.store64(scope, native.fieldOffset<Scope>("records"), rb)
+    native.store64(scope, native.fieldOffset<Scope>("capacity"), capacity)
+    native.store64(scope, native.fieldOffset<Scope>("phase"), 1ULL)
+
+    return 1ULL
+end
+
+local function valid(scope: voidptr): boolean
+    if native.load64(scope, native.fieldOffset<Scope>("phase")) ~= 1ULL then
+        return false
+    end
+    local base = native.load64(scope, native.fieldOffset<Scope>("records"))
+    local count = native.load64(scope, native.fieldOffset<Scope>("capacity"))
+
+    return count ~= 0ULL
+        and count <= MAX_RECORDS
+        and extent(base, count * native.sizeOf<Mapping>())
+        and (base & 7ULL) == 0ULL
+        and native.load64(scope, native.fieldOffset<Scope>("live")) <= count
+end
+
+local function entry(scope: voidptr, index: uint64): voidptr
+    return native.pointer(native.load64(scope, native.fieldOffset<Scope>("records")) + index * native.sizeOf<Mapping>())
+end
+
+local function reserve(scope: voidptr, bytes: uint64): uint64
+    if not valid(scope) then
+        return 0ULL
+    end
+    local serial = native.load64(scope, native.fieldOffset<Scope>("issued"))
+    if serial >= 0xffffffffffffULL then
+        return 0ULL
+    end
+    local count = native.load64(scope, native.fieldOffset<Scope>("capacity"))
+    local index: uint64 = 0ULL
+    while index < count do
+        local record = entry(scope, index)
+        if native.load64(record, native.fieldOffset<Mapping>("state")) == 0ULL then
+            serial = serial + 1ULL
+            native.store64(record, native.fieldOffset<Mapping>("base"), 0ULL)
+            native.store64(record, native.fieldOffset<Mapping>("bytes"), bytes)
+            native.store64(record, native.fieldOffset<Mapping>("serial"), serial)
+            native.store64(record, native.fieldOffset<Mapping>("state"), 1ULL)
+            native.store64(scope, native.fieldOffset<Scope>("issued"), serial)
+            return (serial << 16) | (index + 1ULL)
+        end
+        index = index + 1ULL
+    end
+
+    return 0ULL
+end
+
+local function owns(scope: voidptr, token: uint64, state: uint64): boolean
+    if not valid(scope) then
+        return false
+    end
+    local index = token & 65535ULL
+    if index == 0ULL
+        or index > native.load64(scope, native.fieldOffset<Scope>("capacity"))
+        or (token >> 16) == 0ULL
+    then
+        return false
+    end
+    local record = entry(scope, index - 1ULL)
+
+    return native.load64(record, native.fieldOffset<Mapping>("serial")) == token >> 16
+        and native.load64(record, native.fieldOffset<Mapping>("state")) == state
+end
+
+-- This exact checked wrapper is the only source nil OS call with raw C-status
+-- capture. The profile emits a visible graph store to Scope.status immediately
+-- after the C call. All ownership/error decisions below remain ordinary Nupp.
+export function unmapOwned(scope: voidptr, token: uint64): uint64
+    if not owns(scope, token, 2ULL) then
+        return 0ULL
+    end
+    local record = entry(scope, (token & 65535ULL) - 1ULL)
+    local base = native.load64(record, native.fieldOffset<Mapping>("base"))
+    local bytes = native.load64(record, native.fieldOffset<Mapping>("bytes"))
+    if base == 0ULL or bytes == 0ULL then
+        return 0ULL
+    end
+    native.store64(scope, native.fieldOffset<Scope>("status"), MAXIMUM)
+    os.unmapPages(native.pointer(base), bytes)
+    if native.load64(scope, native.fieldOffset<Scope>("status")) ~= 0ULL then
+        native.store64(scope, native.fieldOffset<Scope>("cleanupFailed"), 1ULL)
+        return 0ULL
+    end
+    native.store64(record, native.fieldOffset<Mapping>("state"), 0ULL)
+    native.store64(record, native.fieldOffset<Mapping>("base"), 0ULL)
+    native.store64(
+        scope,
+        native.fieldOffset<Scope>("live"),
+        native.load64(scope, native.fieldOffset<Scope>("live")) - 1ULL
+    )
+
+    return 1ULL
+end
+
+-- Mapping failure is a normal optional result, never a fabricated success or
+-- managed error allocation. Record capacity is reserved before the OS call.
+export function map(scope: voidptr, bytes: uint64): voidptr?
+    local page = os.pageSize()
+    if page == 0ULL
+        or (page & (page - 1ULL)) ~= 0ULL
+        or bytes == 0ULL
+        or bytes > LIMIT
+        or page > LIMIT
+        or bytes > LIMIT - (page - 1ULL)
+    then
+        return nil
+    end
+    local rounded = (bytes + page - 1ULL) & ~(page - 1ULL)
+    local token = reserve(scope, rounded)
+    if token == 0ULL then
+        return nil
+    end
+    local record = entry(scope, (token & 65535ULL) - 1ULL)
+    local mapped = os.mapPages(rounded)
+    if mapped == nil then
+        native.store64(record, native.fieldOffset<Mapping>("state"), 0ULL)
+        return nil
+    end
+    local base = native.address(mapped)
+    native.store64(record, native.fieldOffset<Mapping>("base"), base)
+    native.store64(record, native.fieldOffset<Mapping>("state"), 2ULL)
+    native.store64(
+        scope,
+        native.fieldOffset<Scope>("live"),
+        native.load64(scope, native.fieldOffset<Scope>("live")) + 1ULL
+    )
+    if base == 0ULL or base >= LIMIT or rounded > LIMIT - base then
+        local _ = unmapOwned(scope, token)
+        return nil
+    end
+
+    return mapped
+end
+
+-- Adapts existing source unmap(base,bytes) calls only after a caller explicitly
+-- supplies this ledger scope. Source-service propagation is a separate gate.
+export function unmap(scope: voidptr, base: voidptr, bytes: uint64): uint64
+    if not valid(scope) then
+        return 0ULL
+    end
+    local page = os.pageSize()
+    if page == 0ULL
+        or page > LIMIT
+        or (page & (page - 1ULL)) ~= 0ULL
+        or bytes == 0ULL
+        or bytes > LIMIT - (page - 1ULL)
+    then
+        native.store64(scope, native.fieldOffset<Scope>("cleanupFailed"), 1ULL)
+        return 0ULL
+    end
+    local rounded = (bytes + page - 1ULL) & ~(page - 1ULL)
+    local index: uint64 = 0ULL
+    while index < native.load64(scope, native.fieldOffset<Scope>("capacity")) do
+        local record = entry(scope, index)
+        if native.load64(record, native.fieldOffset<Mapping>("state")) == 2ULL
+            and native.load64(record, native.fieldOffset<Mapping>("base")) == native.address(base)
+            and native.load64(record, native.fieldOffset<Mapping>("bytes")) == rounded
+        then
+            return unmapOwned(
+                scope,
+                (native.load64(record, native.fieldOffset<Mapping>("serial")) << 16) | (index + 1ULL)
+            )
+        end
+        index = index + 1ULL
+    end
+    native.store64(scope, native.fieldOffset<Scope>("cleanupFailed"), 1ULL)
+
+    return 0ULL
+end
+
+-- Call only after all final-frame/range borrowers are proven retired. No
+-- callbacks, allocation, collection or cancellation checks during this drain.
+export function close(scope: voidptr): uint64
+    if not valid(scope) then
+        return 0ULL
+    end
+    local index: uint64 = 0ULL
+    local count = native.load64(scope, native.fieldOffset<Scope>("capacity"))
+    while index < count do
+        local record = entry(scope, index)
+        local state = native.load64(record, native.fieldOffset<Mapping>("state"))
+        if state == 1ULL or state > 2ULL then
+            native.store64(scope, native.fieldOffset<Scope>("cleanupFailed"), 1ULL)
+            native.store64(scope, native.fieldOffset<Scope>("phase"), 3ULL)
+            return 0ULL
+        end
+        index = index + 1ULL
+    end
+    index = 0ULL
+    while index < count do
+        local record = entry(scope, index)
+        if native.load64(record, native.fieldOffset<Mapping>("state")) == 2ULL then
+            local _ = unmapOwned(
+                scope,
+                (native.load64(record, native.fieldOffset<Mapping>("serial")) << 16) | (index + 1ULL)
+            )
+        end
+        index = index + 1ULL
+    end
+    if native.load64(scope, native.fieldOffset<Scope>("live")) ~= 0ULL
+        or native.load64(scope, native.fieldOffset<Scope>("cleanupFailed")) ~= 0ULL
+    then
+        native.store64(scope, native.fieldOffset<Scope>("phase"), 3ULL)
+        return 0ULL
+    end
+    native.store64(scope, native.fieldOffset<Scope>("phase"), 2ULL)
+
+    return 1ULL
+end

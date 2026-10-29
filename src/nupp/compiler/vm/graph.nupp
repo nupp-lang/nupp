@@ -13,6 +13,8 @@ local frameverify = require("nupp.compiler.vm.frameverify")
 local finalframe = require("nupp.compiler.vm.nativeframecontract")
 local graphcopies = require("nupp.compiler.vm.graphcopies")
 local physical = require("nupp.compiler.vm.nativephysical")
+local nativeos = require("nupp.compiler.vm.nativeos")
+local service = require("nupp.compiler.vm.nativeservice")
 
 -- One signature per opcode: the result class is the uppercase letter, at the
 -- position the VM's operand order puts it; every other letter is one operand.
@@ -111,13 +113,16 @@ signatures.VExtractI = "Ix##"
 signatures.NativeConstant = "I#"
 signatures.NativeHelperCall = "I#"
 signatures.NativeLeafCall = "I#"
+signatures.NativeLocal = "I#"
 signatures.NativeLoad = "Iii#"
 signatures.NativeStore = "iia#"
 signatures.NativeLayout = "I#"
 signatures.NativePointer = "Ii"
 signatures.NativePointerView = "Ii#"
+signatures.NativeBorrowPointer = "Iii#"
 signatures.NativeFieldLoad = "Ii#"
 signatures.NativeAddress = "Ii"
+signatures.NativeBorrowAddress = "Ii#"
 signatures.ProgramLoad = "Iii#"
 signatures.FrameSlotRead = "Iiii#"
 signatures.FrameVarargRead = "Iii#"
@@ -129,6 +134,7 @@ signatures.PointerOffset = "Iii"
 signatures.NativeBoolean = "I#"
 signatures.NativeIMul = "Iii"
 signatures.NativeUDiv = "Iii"
+signatures.NativeURem = "Iii"
 signatures.NativeICmp = "Iii#"
 signatures.NativeFCmp = "Iff#"
 signatures.NativeAsWord = "Ii"
@@ -149,13 +155,16 @@ local nativeOnly = {
     NativeConstant = true,
     NativeHelperCall = true,
     NativeLeafCall = true,
+    NativeLocal = true,
     NativeLoad = true,
     NativeStore = true,
     NativeLayout = true,
     NativePointer = true,
     NativePointerView = true,
+    NativeBorrowPointer = true,
     NativeFieldLoad = true,
     NativeAddress = true,
+    NativeBorrowAddress = true,
     ProgramLoad = true,
     FrameSlotRead = true,
     FrameVarargRead = true,
@@ -167,6 +176,7 @@ local nativeOnly = {
     NativeBoolean = true,
     NativeIMul = true,
     NativeUDiv = true,
+    NativeURem = true,
     NativeICmp = true,
     NativeFCmp = true,
     NativeAsWord = true,
@@ -189,6 +199,7 @@ local nativeArithmetic = {
     ISub = true,
     NativeIMul = true,
     NativeUDiv = true,
+    NativeURem = true,
     IAnd = true,
     IOr = true,
     IXor = true,
@@ -201,7 +212,16 @@ local nativeArithmetic = {
     FDiv = true,
     FNeg = true
 }
-local nativeClasses = {voidptr = "i", int64 = "i", uint64 = "i", boolean = "i", float32 = "f", float64 = "f"}
+local nativeClasses = {
+    voidptr = "i",
+    int32 = "i",
+    uint32 = "i",
+    int64 = "i",
+    uint64 = "i",
+    boolean = "i",
+    float32 = "f",
+    float64 = "f"
+}
 local nativeFloatKinds = {float32 = true, float64 = true}
 local terminators = {
     Jmp = true,
@@ -260,6 +280,7 @@ end
 -- the common closed-block verifier and transport pruning.
 parsed.NativeHelperCall.variadic = true
 parsed.NativeLeafCall.variadic = true
+parsed.NativeLocal.variadic = true
 parsed.Closure.variadic = true
 parsed.Closure.variadicClass = "v"
 parsed.Closure.coreOnly = true
@@ -344,9 +365,13 @@ end
 
 --- Allocates an exact native value in the graph's existing storage classes.
 function graph.nativeValue(g: any, kind: string, slot: integer?): integer
-    assert(g.native ~= nil and nativeClasses[kind], "invalid native graph value kind")
+    assert(
+        g.native ~= nil and nativeClasses[kind] and (kind ~= "int32" and kind ~= "uint32" or g.nativePhysical ~= nil),
+        "invalid native graph value kind"
+    )
     local id = graph.value(g, nativeClasses[kind], slot)
     g.exactTypes[id] = kind
+
     return id
 end
 
@@ -442,7 +467,17 @@ local function nativeInteger(text: any, kind: string): nil
         end
         assert(carry == 0, "native integer constant exceeds 64 bits")
     end
-    if kind == "int64" then
+    if kind == "int32" or kind == "uint32" then
+        assert(limbs[3] == 0 and limbs[4] == 0, "native constant exceeds 32 bits")
+        if kind == "int32" then
+            assert(
+                limbs[2] < 32768 or negative and limbs[2] == 32768 and limbs[1] == 0,
+                "native constant exceeds int32"
+            )
+        else
+            assert(not negative, "native uint32 constant cannot be negative")
+        end
+    elseif kind == "int64" then
         assert(
             limbs[4] < 32768 or (negative and limbs[4] == 32768 and limbs[1] == 0 and limbs[2] == 0 and limbs[3] == 0),
             "native constant exceeds int64"
@@ -468,7 +503,7 @@ end
 
 -- A declaration is derived from its checked function owner, never a name list.
 -- The machine sink also binds this source/signature to the retained target.
-function graph.nativeLeafDeclaration(fn: any): any
+function graph.nativeLeafDeclaration(fn: any, context: any?, call: any?, caller: any?, serviceSignature: any?): any
     assert(type(fn) == "table" and fn.node and fn.body and fn.scope, "checked native leaf owner required")
     assert(
         fn.node.body == fn.body and fn.nativeABI ~= "handler" and fn.nativeABI ~= "support",
@@ -476,13 +511,19 @@ function graph.nativeLeafDeclaration(fn: any): any
     )
     assert(fn.scope.functions and fn.scope.functions[fn.name] == fn, "native leaf checked declaration identity")
     local params, body = {}, fn.body
+    local pointer = physical.signature(fn, context, call, caller, serviceSignature)
     assert(
-        #body.params == #fn.paramKinds and #body.params >= 1 and #body.params <= 8,
+        #body.params == #fn.paramKinds and (#body.params >= 1 or serviceSignature ~= nil) and #body.params <= 8,
         "native leaf checked parameter count"
     )
     for index, parameter in ipairs(body.params) do
-        local kind = checkedNativeKind(parameter.type and parameter.type.resolvedType)
-        assert(nativeClasses[kind] and kind == fn.paramKinds[index], "native leaf checked parameter kind")
+        local kind = pointer and pointer.params[index] and parameter.type.resolvedType.tag
+            or checkedNativeKind(parameter.type and parameter.type.resolvedType)
+        assert(kind == fn.paramKinds[index], "native leaf checked parameter kind")
+        if pointer and pointer.params[index] then
+            kind = pointer.params[index].machineKind
+        end
+        assert(nativeClasses[kind], "native leaf checked parameter kind")
         params[index] = kind
     end
     local signature = body.signatureType
@@ -495,20 +536,32 @@ function graph.nativeLeafDeclaration(fn: any): any
         and #signature.retPack.head == #signature.rets,
         "native leaf requires a closed checked result"
     )
-    local result = #signature.rets == 0 and "nil" or checkedNativeKind(signature.rets[1])
+    local result = pointer and pointer.result and signature.rets[1].tag
+        or #signature.rets == 0 and "nil"
+        or checkedNativeKind(signature.rets[1])
     assert(
-        result == fn.resultKind and (result == "uint64" or result == "boolean" or result == "nil"),
+        result == fn.resultKind
+        and (
+            result == "uint64"
+            or result == "boolean"
+            or result == "nil"
+            or result == "voidptr" and signature.rets[1].tag == "voidptr"
+            or pointer and pointer.result
+        ),
         "native leaf checked result kind"
     )
 
-    return {
+    local declaration = {
         moduleName = fn.scope.name,
         name = fn.name,
         params = params,
-        result = result,
+        result = pointer and pointer.result and pointer.result.machineKind or result,
         abi = "leaf",
+        physical = pointer,
         source = {path = fn.scope.path, module = fn.scope.name, name = fn.name}
     }
+
+    return serviceSignature and service.checked(serviceSignature, fn, declaration) or declaration
 end
 
 local function declarationSource(declaration: any): nil
@@ -531,7 +584,7 @@ local function declarationSource(declaration: any): nil
     )
 end
 
-local function verifyNativeOperation(g: any, op: string, args: any, dst: integer): nil
+local function verifyNativeOperation(g: any, op: string, args: any, dst: integer, constants: any): nil
     local kinds, kind = g.exactTypes, g.exactTypes[dst]
     local physicalValues = g.nativePhysical and g.nativePhysical.values
     if physicalValues then
@@ -539,21 +592,50 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
         for index, value in ipairs(args) do
             if classes[operandClass(sig, index)] or operandClass(sig, index) == "a" then
                 local descriptor = physicalValues[value]
-                if descriptor and descriptor.pointee ~= nil then
+                if descriptor
+                    and (
+                        descriptor.pointee ~= nil
+                        or descriptor.nullable
+                        or #descriptor.ownership ~= 0
+                        or physical.localOrigin(descriptor) ~= nil
+                    )
+                then
                     assert(
-                        index == 1 and (op == "NativePointerView" or op == "NativeFieldLoad"),
+                        index == 1
+                        and (
+                            op == "NativePointerView"
+                            or op == "NativeFieldLoad"
+                            or op == "NativeBorrowAddress"
+                            or op == "NativeStore" and args[4].field ~= nil
+                        )
+                        or op == "NativeStore" and index == 3 and args[4].retention ~= nil
+                        or op == "NativeBorrowPointer"
+                        or op == "NativeICmp" and (args[3] == "==" or args[3] == "~=")
+                        or op == "NativeLeafCall" and index > 1 and args[1].physical ~= nil,
                         "typed pointer operation boundary is unsupported"
                     )
                 end
             end
         end
         if physicalValues[dst] then
-            assert(op == "NativePointer" or op == "NativePointerView", "unsupported physical value origin")
+            assert(
+                op == "NativePointer"
+                or op == "PointerOffset"
+                or op == "NativePointerView"
+                or op == "NativeBorrowPointer"
+                or op == "NativeFieldLoad"
+                or op == "NativeLocal"
+                or op == "NativeLeafCall" and args[1].physical ~= nil
+                or op == "NativeHelperCall"
+                and nativeos.isIssued(args[1])
+                and nativeos.result(args[1]) == physicalValues[dst],
+                "unsupported physical value origin"
+            )
         end
     end
     if g.native.abi == "leaf" then
         assert(
-            op ~= "NativeHelperCall"
+            (op ~= "NativeHelperCall" or nativeos.isIssued(args[1]))
             and op ~= "ProgramLoad"
             and op ~= "FrameSlotRead"
             and op ~= "FrameSlotWrite"
@@ -569,7 +651,29 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
         assert(kinds[value] == expected, "native graph operand kind mismatch")
     end
 
-    if op == "NativeLeafCall" then
+    if op == "NativeLocal" then
+        local contract = args[1]
+        physical.validateLocal(contract)
+        assert(
+            g.source
+            and g.source.path == contract.owner.scope.path
+            and g.source.module == contract.owner.scope.name
+            and g.source.name == contract.owner.name,
+            "physical local checked source owner differs"
+        )
+        assert(
+            g.native.abi == "leaf"
+            and physicalValues
+            and kind == "voidptr"
+            and physicalValues[dst] == contract.descriptor
+            and #args == #contract.params + 1,
+            "physical local construction contract differs"
+        )
+        for index, parameter in ipairs(contract.params) do
+            hasKind(args[index + 1], parameter)
+            assert(not physicalValues[args[index + 1]], "local initializer cannot contain a pointer")
+        end
+    elseif op == "NativeLeafCall" then
         assert(g.native.abi == "leaf" or g.native.abi == "handler", "scalar leaf calls require a leaf or handler graph")
         local declaration = args[1]
         nativeContract(declaration, {
@@ -578,13 +682,18 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
             params = true,
             result = true,
             abi = true,
-            source = true
+            source = true,
+            physical = true,
+            service = true
         })
         declarationSource(declaration)
+        if declaration.service then
+            service.callGraph(g, declaration, args)
+        end
         assert(declaration.abi == "leaf", "native leaf declaration ABI")
         assert(
             type(declaration.params) == "table"
-            and #declaration.params >= 1
+            and (#declaration.params >= 1 or declaration.service ~= nil)
             and #declaration.params <= 8
             and #args == #declaration.params + 1,
             "native leaf argument count"
@@ -604,11 +713,76 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
         end
         assert(
             declaration.result == "nil" and dst == 0 and kind == nil
-            or (declaration.result == "uint64" or declaration.result == "boolean") and kind == declaration.result,
+            or (declaration.result == "uint64" or declaration.result == "boolean" or declaration.result == "voidptr")
+            and kind == declaration.result,
             "native leaf result kind"
         )
+        local pointer = declaration.physical
+        if pointer then
+            physical.validateSignature(pointer)
+            assert(
+                g.nativePhysical and pointer.context == g.nativePhysical.context,
+                "pointer call target context differs"
+            )
+            assert(
+                #pointer.params == (
+                    declaration.service and service.sourceCount(declaration.service) or #declaration.params
+                )
+                and pointer.owner.scope.name == declaration.moduleName
+                and pointer.owner.name == declaration.name
+                and pointer.owner.scope.path == declaration.source.path,
+                "pointer call source differs"
+            )
+            local arenaCleanup = declaration.service and service.arenaCleanup(g, declaration)
+            local redirected = declaration.service and service.redirectedCall(g, declaration)
+            if not arenaCleanup and not redirected then
+                physical.validateCall(pointer, g.source)
+            end
+            for index, parameter in ipairs(pointer.params) do
+                local actual = physicalValues[args[index + 1]]
+                if actual and physical.localOrigin(actual) then
+                    assert(
+                        physical.validateLocalCall(pointer, index, actual),
+                        "local pointer call lacks lifetime proof"
+                    )
+                end
+                assert(
+                    parameter == false or declaration.params[index] == parameter.machineKind,
+                    "pointer call machine parameter differs"
+                )
+                assert(
+                    parameter == false and (actual == nil or actual.pointee == nil)
+                    or parameter
+                    and actual
+                    and (
+                        arenaCleanup and index == 1 and service.arenaCleanup(g, declaration, actual)
+                        or not arenaCleanup and physical.argument(parameter, actual)
+                    ),
+                    "pointer call argument descriptor differs"
+                )
+                if pointer.dependent == index then
+                    assert(
+                        actual and physical.callInput(pointer, index, actual, physical.fieldOrigin(actual)),
+                        "dependent call argument root differs"
+                    )
+                end
+            end
+            local actual = physicalValues[dst]
+            assert(
+                pointer.result == nil or declaration.result == pointer.result.machineKind,
+                "pointer call machine result differs"
+            )
+            assert(
+                pointer.result == nil and actual == nil
+                or pointer.result and actual and physical.callResult(pointer, actual),
+                "pointer call result descriptor differs"
+            )
+        end
     elseif op == "NativeHelperCall" then
         local declaration = args[1]
+        if nativeos.isIssued(declaration) then
+            nativeos.graph(declaration, g, args, dst)
+        end
         nativeContract(declaration, {
             moduleName = true,
             name = true,
@@ -669,33 +843,92 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
             not effects.pure or not (effects.mayCollect or effects.mayPark or effects.mayRaise),
             "native pure helper cannot collect, park or raise"
         )
+    elseif op == "NativeBorrowAddress" then
+        hasKind(args[1], "voidptr")
+        local contract = args[2]
+        physical.validateCast(contract)
+        physical.validateViewOwner(contract, g.source)
+        assert(
+            kind == "uint64"
+            and physicalValues
+            and physical.viewKind(contract) == "address"
+            and physicalValues[args[1]] == contract.source
+            and physicalValues[dst] == nil,
+            "borrowed address source/result differs"
+        )
+    elseif op == "NativeBorrowPointer" then
+        hasKind(args[1], "voidptr");
+        hasKind(args[2], "voidptr")
+        local contract = args[3]
+        physical.validateCast(contract)
+        physical.validateViewOwner(contract, g.source)
+        assert(
+            kind == "voidptr"
+            and physicalValues
+            and physical.viewKind(contract) == "borrow"
+            and physicalValues[args[1]] == contract.source
+            and physicalValues[dst] == contract.target
+            and physicalValues[args[2]]
+            and physical.borrowArgument(contract, physicalValues[args[2]]),
+            "borrow pointer operands differ"
+        )
     elseif op == "NativePointerView" then
         hasKind(args[1], "voidptr")
         assert(kind == "voidptr" and physicalValues, "physical pointer view requires sidecars")
         local contract = args[2]
         physical.validateCast(contract)
+        physical.validateViewOwner(contract, g.source)
+        assert(
+            physical.viewKind(contract) ~= "borrow" and physical.viewKind(contract) ~= "address",
+            "borrow/address view requires dedicated operation"
+        )
         assert(
             physicalValues[args[1]] == contract.source and physicalValues[dst] == contract.target,
             "physical pointer view source/result identity differs"
         )
     elseif op == "NativeFieldLoad" then
         hasKind(args[1], "voidptr")
-        assert(kind == "uint64" and physicalValues, "physical field load requires sidecars")
+        assert(physicalValues, "physical field load requires sidecars")
         local access = args[2]
         physical.validateField(access)
         assert(physicalValues[args[1]] == access.receiver, "physical field receiver identity differs")
         assert(
-            not access.write
-            and access.width == 8
-            and not access.signed
-            and access.storage.storageType.tag == "uint64"
-            and access.valueType.tag == "uint64",
-            "only uint64 physical field reads are admitted"
+            not access.borrowSignature or access.borrowSignature == g.nativePhysical.signature,
+            "borrowed field signature owner differs"
         )
+        assert(not access.write, "physical field load cannot write")
+        if access.storage.machineKind == "voidptr" then
+            physical.validateFieldOwner(access, g.source)
+            assert(
+                kind == "voidptr"
+                and physicalValues[dst] == access.storage
+                and access.width == 8
+                and not access.signed
+                and #access.storage.ownership == 0
+                and physical.fieldOrigin(physicalValues[dst]) == access,
+                "pointer field must retain its actual checked result type"
+            )
+        elseif access.valueType.tag == "boolean" then
+            assert(kind == "boolean" and physical.booleanField(access), "physical Boolean field differs")
+        else
+            assert(
+                kind == physical.integerField(access) and access.valueType.tag == kind,
+                "physical field load changes projected result type"
+            )
+        end
     elseif op == "NativeLoad" or op == "NativeStore" then
         local write = op == "NativeStore"
         local contract = args[write and 4 or 3]
-        nativeContract(contract, {source = true, kind = true, width = true, signed = true, write = true})
+        nativeContract(contract, {
+            source = true,
+            kind = true,
+            width = true,
+            signed = true,
+            write = true,
+            field = true,
+            retention = true
+        })
+        assert(contract.field or contract.retention == nil, "retention requires checked field")
         local source = g.native.abi == "leaf" and "borrowed" or "live"
         assert(
             contract.source == source and contract.write == write,
@@ -704,7 +937,48 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
         assert(type(contract.signed) == "boolean", "native memory requires explicit signedness")
         local width, memoryKind = contract.width, contract.kind
         assert(width == 1 or width == 2 or width == 4 or width == 8, "native memory width")
-        if memoryKind == "float64" or memoryKind == "float32" then
+        if contract.field then
+            local access = contract.field
+            physical.validateFieldOwner(access, g.source)
+            assert(
+                not access.borrowSignature or access.borrowSignature == g.nativePhysical.signature,
+                "borrowed store signature owner differs"
+            )
+            assert(
+                write and access.write and physicalValues and physicalValues[args[1]] == access.receiver,
+                "physical store receiver identity differs"
+            )
+            assert(width == access.width and contract.signed == access.signed, "physical store layout differs")
+            assert(
+                constants[args[2]] == tostring(access.offset) and kinds[args[2]] == "int64",
+                "physical store offset differs from checked field"
+            )
+            if access.storage.machineKind == "voidptr" then
+                assert(
+                    memoryKind == "voidptr"
+                    and contract.retention
+                    and physical.storeValue(contract.retention, access, physicalValues[args[3]], g.source),
+                    "pointer field store lacks exact checked retention"
+                )
+            elseif access.storage.machineKind == "boolean" then
+                assert(
+                    memoryKind == "boolean" and physical.booleanField(access) and not contract.retention,
+                    "Boolean field store differs"
+                )
+            else
+                physical.integerField(access)
+                assert(
+                    not contract.retention
+                    and (
+                        memoryKind == "int32"
+                        or memoryKind == "uint32"
+                        or memoryKind == "int64"
+                        or memoryKind == "uint64"
+                    ),
+                    "physical store requires an exact integer RHS"
+                )
+            end
+        elseif memoryKind == "float64" or memoryKind == "float32" then
             assert(width == (memoryKind == "float64" and 8 or 4) and not contract.signed, "native float memory width")
         elseif width == 8 then
             assert(
@@ -731,7 +1005,11 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
         if physicalValues and physicalValues[dst] then
             local descriptor = physicalValues[dst]
             assert(
-                op == "NativePointer" and descriptor.storageType.tag == "voidptr",
+                op == "NativePointer"
+                and descriptor.storageType.tag == "voidptr"
+                and #descriptor.ownership == 0
+                and not descriptor.nullable
+                and not physical.dependent(descriptor),
                 "generic pointer origin cannot establish a pointee"
             )
         end
@@ -749,7 +1027,9 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
             assert(nativeFloatKinds[operandKind], "native float comparison requires an exact float kind")
         else
             assert(
-                operandKind == "int64"
+                operandKind == "int32"
+                or operandKind == "uint32"
+                or operandKind == "int64"
                 or operandKind == "uint64"
                 or operandKind == "voidptr"
                 or operandKind == "boolean",
@@ -776,8 +1056,11 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
     elseif op == "NativeWordCast" then
         local source = kinds[args[1]]
         assert(
-            (source == "int64" or source == "uint64" or source == "voidptr")
-            and (kind == "int64" or kind == "uint64" or kind == "voidptr"),
+            (
+                (source == "int64" or source == "uint64" or source == "voidptr")
+                and (kind == "int64" or kind == "uint64" or kind == "voidptr")
+            )
+            or physicalValues and (source == "int32" or source == "uint32") and (kind == "int64" or kind == "uint64"),
             "native word cast requires exact word/pointer kinds"
         )
     elseif op == "NativeIntToFloat" then
@@ -882,10 +1165,26 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
             assert(kind == contract.kind, "native slot result kind mismatch")
         end
     elseif op == "PointerOffset" then
+        if physicalValues and physicalValues[dst] and not service.arenaOffsetOrigin(g, args, dst) then
+            -- Raw offset preserves only the unchecked machine pointer. It
+            -- cannot establish a pointee, dependency or local-storage origin.
+            for _, value in ipairs({args[1], dst}) do
+                local descriptor = physicalValues[value]
+                assert(
+                    not descriptor
+                    or descriptor.storageType.tag == "voidptr"
+                    and #descriptor.ownership == 0
+                    and not descriptor.nullable
+                    and not physical.dependent(descriptor)
+                    and not physical.localOrigin(descriptor),
+                    "raw pointer offset cannot establish a typed or owned origin"
+                )
+            end
+        end
         hasKind(args[1], "voidptr")
         hasKind(args[2], "int64")
         assert(kind == "voidptr", "native pointer offset result kind")
-    elseif op == "NativeUDiv" then
+    elseif op == "NativeUDiv" or op == "NativeURem" then
         assert(kind == "uint64" and #args == 2, "native division requires two unsigned words")
         hasKind(args[1], "uint64")
         hasKind(args[2], "uint64")
@@ -1119,18 +1418,57 @@ local function verifyGraph(g: any, invokeArity: any): nil
         physical.validateContext(g.nativePhysical.context)
         for value, descriptor in pairs(g.nativePhysical.values) do
             assert(
-                type(value) == "number" and value % 1 == 0 and value > nparams and value <= #types,
-                "physical parameter/invalid value is unsupported"
+                type(value) == "number" and value % 1 == 0 and value >= 1 and value <= #types,
+                "physical invalid value is unsupported"
             )
             physical.validate(descriptor)
+            if #descriptor.ownership ~= 0 then
+                local signature, matched = g.nativePhysical.signature, physical.dependent(descriptor)
+                assert(signature, "qualified graph value requires checked signature")
+                if descriptor.checkedType.tag == "affine" then
+                    matched = physical.affineValue(signature.owner, descriptor)
+                end
+                for index, parameter in ipairs(signature.params) do
+                    if parameter
+                        and physical.borrowingParameter(signature, index)
+                        and physical.same(descriptor, parameter)
+                    then
+                        matched = true
+                    end
+                end
+                assert(matched, "borrowed graph value differs from checked parameter")
+            end
             assert(
                 descriptor.context == g.nativePhysical.context
                 and descriptor.machineKind == "voidptr"
-                and g.exactTypes[value] == "voidptr"
-                and #descriptor.ownership == 0
-                and not descriptor.nullable,
+                and g.exactTypes[value] == "voidptr",
                 "physical value type/context differs"
             )
+        end
+    end
+    if g.nativePhysical and g.nativePhysical.signature then
+        local signature = g.nativePhysical.signature
+        physical.validateSignature(signature)
+        assert(
+            signature.context == g.nativePhysical.context
+            and #signature.params == (g.nativeService and service.sourceCount(g.nativeService) or nparams)
+            and g.source
+            and signature.owner.scope.path == g.source.path
+            and signature.owner.scope.name == g.source.module
+            and signature.owner.name == g.source.name,
+            "physical graph signature owner/context differs"
+        )
+        for index, descriptor in ipairs(signature.params) do
+            local actual = g.nativePhysical.values[index]
+            assert(
+                descriptor == false and actual == nil
+                or descriptor and actual and physical.sameValue(descriptor, actual),
+                "physical entry parameter differs"
+            )
+        end
+    elseif g.nativePhysical then
+        for value in pairs(g.nativePhysical.values) do
+            assert(value > nparams, "physical parameter requires checked signature")
         end
     end
     if g.exactTypes ~= nil and not native then
@@ -1148,7 +1486,8 @@ local function verifyGraph(g: any, invokeArity: any): nil
             type(signature) == "table"
             and (
                 signature.result == "uint64"
-                or signature.abi == "leaf" and (signature.result == "boolean" or signature.result == "nil")
+                or signature.abi == "leaf"
+                and (signature.result == "boolean" or signature.result == "nil" or signature.result == "voidptr")
             ),
             "invalid native result signature"
         )
@@ -1169,15 +1508,24 @@ local function verifyGraph(g: any, invokeArity: any): nil
                 assert(nativeClasses[kind] ~= nil, "native support exact parameter kind")
             end
         else
-            assert(signature.abi == "leaf" and nparams >= 1 and nparams <= 8, "invalid native leaf signature")
+            assert(
+                signature.abi == "leaf" and (nparams >= 1 or g.nativeService ~= nil) and nparams <= 8,
+                "invalid native leaf signature"
+            )
             assert(#signature.params == nparams, "native leaf parameter count")
             for _, kind in ipairs(signature.params) do
-                assert(kind == "voidptr" or kind == "int64" or kind == "uint64", "native leaf parameter kind")
+                assert(
+                    kind == "voidptr" or kind == "int64" or kind == "uint64" or kind == "boolean",
+                    "native leaf parameter kind"
+                )
             end
         end
         assert(type(g.exactTypes) == "table" and #g.exactTypes == #types, "missing native exact types")
         for i = 1, #types do
             assert(nativeClasses[g.exactTypes[i]] == types[i], "invalid native exact type")
+            if g.exactTypes[i] == "int32" or g.exactTypes[i] == "uint32" then
+                assert(g.nativePhysical, "projected physical integers require checked physical context")
+            end
         end
         for i = 1, nparams do
             assert(signature.params[i] == g.exactTypes[i], "native entry parameter kind")
@@ -1252,6 +1600,7 @@ local function verifyGraph(g: any, invokeArity: any): nil
     end
 
     local ncerts = #g.certificates
+    local localContracts, localCount, localBytes = {}, 0, 0
     for index = 1, #blocks do
         local b = blocks[index]
         local ops, dsts, allArgs, params, certs = b.op, b.dst, b.args, b.params, b.cert
@@ -1259,6 +1608,7 @@ local function verifyGraph(g: any, invokeArity: any): nil
             error("assertion failed", 0)
         end
         localValues, occupied = {}, {}
+        local constants = {}
         for i = 1, #params do
             if not (params[i] > nparams) then
                 error("function parameters are not block parameters", 0)
@@ -1329,7 +1679,23 @@ local function verifyGraph(g: any, invokeArity: any): nil
                     b.pos[i] >= 0 and b.pos[i] % 1 == 0 and b.pos[i] <= #g.positions,
                     "native source position outside table"
                 )
-                verifyNativeOperation(g, ops[i], args, dsts[i])
+                verifyNativeOperation(g, ops[i], args, dsts[i], constants)
+                if ops[i] == "NativeConstant" then
+                    constants[dsts[i]] = args[1]
+                elseif ops[i] == "NativeLocal" then
+                    local contract = args[1]
+                    assert(
+                        index == 1 and not localContracts[contract],
+                        "physical local requires unique entry construction"
+                    )
+                    localContracts[contract] = true
+                    localCount, localBytes = localCount
+                        + 1, localBytes
+                        + contract.layout.size
+                        + contract.layout.alignment
+                        - 1
+                    assert(localCount <= 64 and localBytes <= 65536, "physical local arena extent exceeds bound")
+                end
             end
         end
         local t = assert(b.term, "unterminated graph block")
@@ -1387,7 +1753,10 @@ local function verifyGraph(g: any, invokeArity: any): nil
             for i = 1, 6 do
                 assert(usable(t.args[i]) and g.exactTypes[t.args[i]] == "voidptr", "native dispatch operand kind")
                 local descriptor = g.nativePhysical and g.nativePhysical.values[t.args[i]]
-                assert(not descriptor or descriptor.pointee == nil, "typed pointer dispatch is unsupported")
+                assert(
+                    not descriptor or descriptor.pointee == nil and not physical.localOrigin(descriptor),
+                    "typed pointer dispatch is unsupported"
+                )
             end
             local pos = t.pos or 0
             assert(pos >= 0 and pos % 1 == 0 and pos <= #g.positions, "native dispatch source position outside table")
@@ -1417,7 +1786,10 @@ local function verifyGraph(g: any, invokeArity: any): nil
             )
             for index, parameter in ipairs(declaration.params) do
                 local descriptor = g.nativePhysical and g.nativePhysical.values[t.args[index]]
-                assert(not descriptor or descriptor.pointee == nil, "typed pointer tail call is unsupported")
+                assert(
+                    not descriptor or descriptor.pointee == nil and not physical.localOrigin(descriptor),
+                    "typed pointer tail call is unsupported"
+                )
                 assert(
                     nativeClasses[parameter] and usable(t.args[index]) and g.exactTypes[t.args[index]] == parameter,
                     "native tail operand kind"
@@ -1442,7 +1814,11 @@ local function verifyGraph(g: any, invokeArity: any): nil
         elseif kind == "nativeFail" then
             assert(
                 native
-                and (g.native.abi == "handler" or g.native.abi == "support")
+                and (
+                    g.native.abi == "handler"
+                    or g.native.abi == "support"
+                    or g.native.abi == "leaf" and service.isFailure(g, t)
+                )
                 and t.args == nil
                 and t.value == nil,
                 "native failure exit requires a handler graph and carries no values"
@@ -1451,11 +1827,26 @@ local function verifyGraph(g: any, invokeArity: any): nil
             assert(usable(t.value) and g.exactTypes[t.value] == "boolean", "native branch requires a boolean condition")
         elseif native and kind == "return" then
             assert(g.native.abi == "leaf", "native handler cannot return a scalar")
+            local descriptor = t.value and g.nativePhysical and g.nativePhysical.values[t.value]
+            assert(
+                not descriptor or not physical.localOrigin(descriptor),
+                "physical local address cannot escape through return"
+            )
             assert(
                 g.native.result == "nil" and t.value == nil
                 or g.native.result ~= "nil" and usable(t.value) and g.exactTypes[t.value] == g.native.result,
                 "native leaf return kind"
             )
+            if g.nativePhysical then
+                local signature = g.nativePhysical.signature
+                local expected = signature and signature.result
+                local actual = t.value and g.nativePhysical.values[t.value]
+                assert(
+                    expected == nil and (actual == nil or g.native.result == "voidptr" and physical.rawReturn(actual))
+                    or expected and actual and physical.returnValue(signature, actual),
+                    "physical return descriptor differs"
+                )
+            end
         elseif native and kind ~= "jump" then
             error("native graph requires a jump, branch, dispatch or leaf return", 0)
         elseif kind == "branch" then
@@ -1528,14 +1919,7 @@ local function verifyGraph(g: any, invokeArity: any): nil
                 end
                 if g.exactTypes ~= nil then
                     assert(g.exactTypes[v] == g.exactTypes[targetParams[i + offset]], "graph edge exact kind mismatch")
-                    if g.nativePhysical then
-                        local from = g.nativePhysical.values[v]
-                        local to = g.nativePhysical.values[targetParams[i + offset]]
-                        assert(
-                            from == nil and to == nil or from and to and physical.same(from, to),
-                            "graph edge physical type mismatch"
-                        )
-                    end
+
                 end
             end
         end
@@ -1544,6 +1928,10 @@ local function verifyGraph(g: any, invokeArity: any): nil
         if not (defined[v]) then
             error("undefined graph value", 0)
         end
+    end
+    if g.nativePhysical then
+        physical.verifyTransport(g)
+        physical.verifyViews(g)
     end
     local final = finalframe.verify(g)
     if native and g.native.abi ~= "leaf" and not final then
@@ -1563,6 +1951,11 @@ function graph.verify(g: any): nil
         invokeContract(term.contract)
         return #term.contract.call.args.exprs
     end)
+    if g.native then
+        nativeos.verifyStores(g);
+        service.verifyScope(g)
+    end
+
 end
 
 -- Structural SSA validation only. Numeric arities do not prove checked source,

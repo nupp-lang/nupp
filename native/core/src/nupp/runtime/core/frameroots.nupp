@@ -1,0 +1,345 @@
+module nupp.runtime.core.frameroots
+
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+const frames = require("nupp.runtime.core.frames")
+
+-- Entry lends mapped, mutually disjoint storage and exclusive Heap.ranges/tasks
+-- plus final frame topology for the whole allocating-service extent. No frame
+-- transition, suspension, foreign callback, or legacy root-vector mutation is
+-- permitted while published. This is an effect/borrow precondition, not a fact
+-- established by comparing snapshots at close. Nested scopes are LIFO only.
+-- The existing collector is unchanged; descriptors are its ordinary root pairs.
+-- Capacity must be provisioned before guest execution. These helpers never grow
+-- backing, allocate, collect, or reinterpret raw windows as tagged values.
+export struct Result
+    value: uint64
+    count: uint64
+    ready: uint64
+end
+
+-- Fresh Scope is all zero. Its storage is never reset or copied while reusable.
+-- Result starts {NIL, 0, 0}; input words already contain valid tagged values.
+-- Result, inputs and Scope outlive every nested scope and collection. Ownership
+-- of actual tagged references and immutable mapped metadata belongs to caller.
+export struct Scope
+    heap: uint64
+    ranges: uint64
+    base: uint64
+    capacity: uint64
+    before: uint64
+    after: uint64
+    tasks: uint64
+    taskBase: uint64
+    taskCapacity: uint64
+    state: uint64
+    control: uint64
+    rootSerial: uint64
+    result: uint64
+    serial: uint64
+    phase: uint64
+end
+
+const LIVE = 1ULL
+const CLOSED = 2ULL
+const MAX_WORDS = 1048576ULL
+
+local function range(base: uint64, bytes: uint64): uint64
+    if base == 0ULL or bytes == 0ULL or (base & 7ULL) ~= 0ULL or bytes > 0xffffffffffffffffULL - base then
+        return 0ULL
+    end
+    return 1ULL
+end
+
+local function overlaps(a: uint64, an: uint64, b: uint64, bn: uint64): boolean
+    return an ~= 0ULL and bn ~= 0ULL and a < b + bn and b < a + an
+end
+
+local function outsideFrames(state: voidptr, control: voidptr, serial: uint64, base: uint64, bytes: uint64): uint64
+    return frames.rootRangeCount(state, control, serial, base, bytes)
+end
+
+-- This explicit bound caps publication/refusal work and root-descriptor backing;
+-- it does not change Heap.Words or limit other frozen-runtime uses of that type.
+local function words(vector: voidptr): uint64
+    if range(native.address(vector), native.sizeOf<heap.Words>()) == 0ULL then
+        return 0ULL
+    end
+    local count = native.load64(vector, native.fieldOffset<heap.Words>("count"))
+    local capacity = native.load64(vector, native.fieldOffset<heap.Words>("capacity"))
+    if count > capacity or capacity > MAX_WORDS then
+        return 0ULL
+    end
+    local base = native.load64(vector, native.fieldOffset<heap.Words>("base"))
+    if capacity == 0ULL then
+        if base ~= 0ULL then
+            return 0ULL
+        end
+    elseif range(base, capacity * 8ULL) == 0ULL
+        or overlaps(base, capacity * 8ULL, native.address(vector), native.sizeOf<heap.Words>())
+    then
+        return 0ULL
+    end
+
+    return 1ULL
+end
+
+-- Refusal publishes nothing and changes no supplied storage. The caller must
+-- not respond to capacity refusal by allocating before establishing roots.
+export function publish(
+    scope: voidptr,
+    h: voidptr,
+    state: voidptr,
+    control: voidptr,
+    rootSerial: uint64,
+    inputs: voidptr,
+    inputCount: uint64,
+    result: voidptr
+): uint64
+    local sa, ha, ra = native.address(scope), native.address(h), native.address(result)
+    local sb, hb, rb = native.sizeOf<Scope>(), native.sizeOf<heap.Heap>(), native.sizeOf<Result>()
+    if range(sa, sb) == 0ULL or range(ha, hb) == 0ULL or range(ra, rb) == 0ULL or inputCount > MAX_WORDS then
+        return 0ULL
+    end
+    local ia, ib = native.address(inputs), inputCount * 8ULL
+    if (inputCount == 0ULL and ia ~= 0ULL)
+        or (inputCount ~= 0ULL and range(ia, ib) == 0ULL)
+        or overlaps(sa, sb, ha, hb)
+        or overlaps(sa, sb, ra, rb)
+        or overlaps(sa, sb, ia, ib)
+        or overlaps(ha, hb, ra, rb)
+        or overlaps(ha, hb, ia, ib)
+        or overlaps(ra, rb, ia, ib)
+    then
+        return 0ULL
+    end
+    local phase = native.load64(scope, native.fieldOffset<Scope>("phase"))
+    local token = native.load64(scope, native.fieldOffset<Scope>("serial"))
+    if phase == 0ULL then
+        local at: uint64 = 0ULL
+        while at < sb do
+            if native.load64(scope, native.index(at)) ~= 0ULL then
+                return 0ULL
+            end
+            at = at + 8ULL
+        end
+    elseif phase ~= CLOSED or native.load64(scope, native.fieldOffset<Scope>("heap")) ~= ha or token == 0ULL then
+        return 0ULL
+    end
+    if token == 0xffffffffffffffffULL
+        or native.load64(result, native.fieldOffset<Result>("value")) ~= values.NIL
+        or native.load64(result, native.fieldOffset<Result>("count")) ~= 0ULL
+        or native.load64(result, native.fieldOffset<Result>("ready")) ~= 0ULL
+    then
+        return 0ULL
+    end
+    local ranges = native.loadPointer(h, native.fieldOffset<heap.Heap>("ranges"))
+    local tasks = native.loadPointer(h, native.fieldOffset<heap.Heap>("tasks"))
+    if words(ranges) == 0ULL
+        or words(tasks) == 0ULL
+        or native.load64(tasks, native.fieldOffset<heap.Words>("count")) ~= 0ULL
+    then
+        return 0ULL
+    end
+    local va, ta, vb = native.address(ranges), native.address(tasks), native.sizeOf<heap.Words>()
+    local base = native.load64(ranges, native.fieldOffset<heap.Words>("base"))
+    local capacity = native.load64(ranges, native.fieldOffset<heap.Words>("capacity"))
+    local before = native.load64(ranges, native.fieldOffset<heap.Words>("count"))
+    local backing = capacity * 8ULL
+    local taskBase = native.load64(tasks, native.fieldOffset<heap.Words>("base"))
+    local taskCapacity = native.load64(tasks, native.fieldOffset<heap.Words>("capacity"))
+    local taskBytes = taskCapacity * 8ULL
+    if capacity == 0ULL
+        or (before & 1ULL) ~= 0ULL
+        or overlaps(va, vb, ta, vb)
+        or overlaps(va, vb, ha, hb)
+        or overlaps(ta, vb, ha, hb)
+        or overlaps(va, vb, sa, sb)
+        or overlaps(ta, vb, sa, sb)
+        or overlaps(va, vb, ra, rb)
+        or overlaps(ta, vb, ra, rb)
+        or overlaps(va, vb, ia, ib)
+        or overlaps(ta, vb, ia, ib)
+        or overlaps(base, backing, ha, hb)
+        or overlaps(base, backing, sa, sb)
+        or overlaps(base, backing, ra, rb)
+        or overlaps(base, backing, ia, ib)
+        or overlaps(base, backing, ta, vb)
+        or overlaps(base, backing, taskBase, taskBytes)
+        or overlaps(taskBase, taskBytes, ha, hb)
+        or overlaps(taskBase, taskBytes, sa, sb)
+        or overlaps(taskBase, taskBytes, ra, rb)
+        or overlaps(taskBase, taskBytes, ia, ib)
+        or overlaps(taskBase, taskBytes, va, vb)
+    then
+        return 0ULL
+    end
+    local pairs = outsideFrames(state, control, rootSerial, base, backing)
+    if pairs == 0ULL
+        or outsideFrames(state, control, rootSerial, sa, sb) == 0ULL
+        or outsideFrames(state, control, rootSerial, ha, hb) == 0ULL
+        or outsideFrames(state, control, rootSerial, ra, rb) == 0ULL
+        or outsideFrames(state, control, rootSerial, va, vb) == 0ULL
+        or outsideFrames(state, control, rootSerial, ta, vb) == 0ULL
+        or (ib ~= 0ULL and outsideFrames(state, control, rootSerial, ia, ib) == 0ULL)
+        or (taskBytes ~= 0ULL and outsideFrames(state, control, rootSerial, taskBase, taskBytes) == 0ULL)
+    then
+        return 0ULL
+    end
+    if pairs > (capacity - before) // 2ULL or capacity - before - pairs * 2ULL < 4ULL then
+        return 0ULL
+    end
+    -- Existing registered roots are borrowed ranges too. Reject overlaps with
+    -- writable adapter metadata/backing; do not overwrite an enclosing root.
+    local index: uint64 = 0ULL
+    while index < before do
+        local oldBase = native.load64(native.pointer(base), native.index(index * 8ULL))
+        local oldCount = native.load64(native.pointer(base), native.index((index + 1ULL) * 8ULL))
+        if oldCount > 0x1fffffffffffffffULL then
+            return 0ULL
+        end
+        local oldBytes = oldCount * 8ULL
+        if oldBytes ~= 0ULL
+            and (
+                range(oldBase, oldBytes) == 0ULL
+                or overlaps(oldBase, oldBytes, sa, sb)
+                or overlaps(oldBase, oldBytes, base, backing)
+                or overlaps(oldBase, oldBytes, ra, rb)
+                or overlaps(oldBase, oldBytes, va, vb)
+                or overlaps(oldBase, oldBytes, ta, vb)
+            )
+        then
+            return 0ULL
+        end
+        index = index + 2ULL
+    end
+    local output = native.pointer(base + before * 8ULL)
+    if frames.rootRanges(state, control, rootSerial, output, pairs) ~= pairs then
+        return 0ULL
+    end
+    -- No fallible operation or safepoint follows rootRanges' first store.
+    native.store64(output, native.index(pairs * 16ULL), ia)
+    native.store64(output, native.index(pairs * 16ULL + 8ULL), inputCount)
+    native.store64(output, native.index(pairs * 16ULL + 16ULL), ra + native.fieldOffset<Result>("value"))
+    native.store64(output, native.index(pairs * 16ULL + 24ULL), 1ULL)
+    local after = before + pairs * 2ULL + 4ULL
+    token = token + 1ULL
+    native.store64(scope, native.fieldOffset<Scope>("heap"), ha)
+    native.store64(scope, native.fieldOffset<Scope>("ranges"), va)
+    native.store64(scope, native.fieldOffset<Scope>("base"), base)
+    native.store64(scope, native.fieldOffset<Scope>("capacity"), capacity)
+    native.store64(scope, native.fieldOffset<Scope>("before"), before)
+    native.store64(scope, native.fieldOffset<Scope>("after"), after)
+    native.store64(scope, native.fieldOffset<Scope>("tasks"), ta)
+    native.store64(scope, native.fieldOffset<Scope>("taskBase"), taskBase)
+    native.store64(scope, native.fieldOffset<Scope>("taskCapacity"), taskCapacity)
+    native.store64(scope, native.fieldOffset<Scope>("state"), native.address(state))
+    native.store64(scope, native.fieldOffset<Scope>("control"), native.address(control))
+    native.store64(scope, native.fieldOffset<Scope>("rootSerial"), rootSerial)
+    native.store64(scope, native.fieldOffset<Scope>("result"), ra)
+    native.store64(scope, native.fieldOffset<Scope>("serial"), token)
+    native.store64(scope, native.fieldOffset<Scope>("phase"), LIVE)
+    native.store64(ranges, native.fieldOffset<heap.Words>("count"), after)
+
+    return token
+end
+
+local function current(scope: voidptr, serial: uint64): uint64
+    if range(native.address(scope), native.sizeOf<Scope>()) == 0ULL
+        or serial == 0ULL
+        or native.load64(scope, native.fieldOffset<Scope>("phase")) ~= LIVE
+        or native.load64(scope, native.fieldOffset<Scope>("serial")) ~= serial
+    then
+        return 0ULL
+    end
+    local h = native.loadPointer(scope, native.fieldOffset<Scope>("heap"))
+    local vector = native.loadPointer(scope, native.fieldOffset<Scope>("ranges"))
+    local tasks = native.loadPointer(scope, native.fieldOffset<Scope>("tasks"))
+    if native.load64(h, native.fieldOffset<heap.Heap>("ranges")) ~= native.address(vector)
+        or native.load64(h, native.fieldOffset<heap.Heap>("tasks")) ~= native.address(tasks)
+        or native.load64(
+            vector,
+            native.fieldOffset<heap.Words>("base")
+        ) ~= native.load64(scope, native.fieldOffset<Scope>("base"))
+        or native.load64(
+            vector,
+            native.fieldOffset<heap.Words>("capacity")
+        ) ~= native.load64(scope, native.fieldOffset<Scope>("capacity"))
+        or native.load64(
+            vector,
+            native.fieldOffset<heap.Words>("count")
+        ) ~= native.load64(scope, native.fieldOffset<Scope>("after"))
+        or native.load64(tasks, native.fieldOffset<heap.Words>("count")) ~= 0ULL
+        or native.load64(
+            tasks,
+            native.fieldOffset<heap.Words>("base")
+        ) ~= native.load64(scope, native.fieldOffset<Scope>("taskBase"))
+        or native.load64(
+            tasks,
+            native.fieldOffset<heap.Words>("capacity")
+        ) ~= native.load64(scope, native.fieldOffset<Scope>("taskCapacity"))
+    then
+        return 0ULL
+    end
+
+    return outsideFrames(
+        native.loadPointer(scope, native.fieldOffset<Scope>("state")),
+        native.loadPointer(scope, native.fieldOffset<Scope>("control")),
+        native.load64(scope, native.fieldOffset<Scope>("rootSerial")),
+        native.address(scope),
+        native.sizeOf<Scope>()
+    )
+end
+
+-- A constructor must publish its valid tagged return before any later safepoint.
+-- Zero produced values remain distinct from one produced NIL. No tag conversion
+-- or ownership admission is performed here. Refusal preserves the registered slot.
+export function storeResult(scope: voidptr, serial: uint64, value: uint64, produced: uint64): uint64
+    if produced > 1ULL or current(scope, serial) == 0ULL then
+        return 0ULL
+    end
+    local result = native.loadPointer(scope, native.fieldOffset<Scope>("result"))
+    if native.load64(result, native.fieldOffset<Result>("ready")) ~= 0ULL
+        or native.load64(result, native.fieldOffset<Result>("count")) ~= 0ULL
+        or native.load64(result, native.fieldOffset<Result>("value")) ~= values.NIL
+    then
+        return 0ULL
+    end
+    if produced == 0ULL then
+        value = values.NIL
+    end
+    native.store64(result, native.fieldOffset<Result>("value"), value)
+    native.store64(result, native.fieldOffset<Result>("count"), produced)
+    native.store64(result, native.fieldOffset<Result>("ready"), 1ULL)
+
+    return 1ULL
+end
+
+-- Tagged result ownership transfers to an already-rooted destination before a
+-- subsequent safepoint. Failure/cancellation may close an unproduced NIL result.
+-- A refused close retains all registrations and their backing lifetimes.
+export function close(scope: voidptr, serial: uint64): uint64
+    if current(scope, serial) == 0ULL then
+        return 0ULL
+    end
+    local result = native.loadPointer(scope, native.fieldOffset<Scope>("result"))
+    local count = native.load64(result, native.fieldOffset<Result>("count"))
+    local ready = native.load64(result, native.fieldOffset<Result>("ready"))
+    if count > 1ULL
+        or ready > 1ULL
+        or (ready == 0ULL and count ~= 0ULL)
+        or (count == 0ULL and native.load64(result, native.fieldOffset<Result>("value")) ~= values.NIL)
+    then
+        return 0ULL
+    end
+    local vector = native.loadPointer(scope, native.fieldOffset<Scope>("ranges"))
+    native.store64(
+        vector,
+        native.fieldOffset<heap.Words>("count"),
+        native.load64(scope, native.fieldOffset<Scope>("before"))
+    )
+    native.store64(scope, native.fieldOffset<Scope>("phase"), CLOSED)
+
+    return 1ULL
+end

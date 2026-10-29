@@ -2,6 +2,7 @@ module nupp.compiler.vm.functiongraph
 
 local graph = require("nupp.compiler.vm.graph")
 local cst = require("nupp.compiler.syntax.cst")
+local cleanup = require("nupp.compiler.vm.functioncleanup")
 local frontend = {}
 
 local function need(ok: any, message: string): any
@@ -38,6 +39,27 @@ function frontend.compile(fn: any, options: any, profile: any): any
     -- behind a profile's back.
     local handles = {}
     local inlining, loops = {}, {}
+    -- Only an explicit profile opts into cleanup and failure control. Legacy
+    -- profiles keep their existing graph operations and refusal boundaries.
+    local cleanupEnabled = profile.cleanupPlan ~= nil
+    local cleanups, cleanupOwners, returnRoots = {}, {}, {}
+    if cleanupEnabled then
+        for _, name in ipairs({
+            "cleanupFlag",
+            "cleanupAllowed",
+            "cleanupRun",
+            "cleanupStatus",
+            "failure",
+            "stageReturn",
+            "rootReturn",
+            "rootBacking",
+            "closeReturnRoots",
+            "retainRootBacking",
+            "finishReturn"
+        }) do
+            need(type(profile[name]) == "function", "cleanup profile lacks " .. name)
+        end
+    end
     for index, parameter in ipairs(moduleOwner and {} or body.params) do
         local key = parameter.name.definition or parameter.name
         bindings[key] = index
@@ -64,6 +86,9 @@ function frontend.compile(fn: any, options: any, profile: any): any
     end
 
     ctx.emit = emit
+    ctx.hasContinuation = function(): boolean
+        return block ~= nil
+    end
     ctx.storage = function(key: any): integer
         return need(bindings[key], "capture requires an initialized lexical binding")
     end
@@ -126,7 +151,14 @@ function frontend.compile(fn: any, options: any, profile: any): any
     ctx.operands = function(nodes: any, kinds: any): any
         local held, values = {}, {}
         for index, kind in ipairs(kinds) do
-            held[index] = ctx.hold(ctx.expression(nodes[index], kind))
+            local value = ctx.expression(nodes[index], kind)
+            if not block then
+                for previous = #held, 1, -1 do
+                    ctx.release(held[previous])
+                end
+                return nil
+            end
+            held[index] = ctx.hold(value)
         end
         for index, handle in ipairs(held) do
             values[index] = ctx.readHeld(handle)
@@ -144,6 +176,9 @@ function frontend.compile(fn: any, options: any, profile: any): any
     end
 
     local function writeBinding(node: any, key: any, value: integer): nil
+        if cleanupEnabled then
+            need(not cleanup.type(key.type), "assignment to an owning local requires reinitialization support")
+        end
         context()
         bindings[key] = profile.writeBinding and profile.writeBinding(ctx, node, key, bindings[key], value) or value
     end
@@ -162,8 +197,12 @@ function frontend.compile(fn: any, options: any, profile: any): any
     local branch: function(string?): any
     local resume: function(any): nil
     local jump: function(any, any): nil
-    local expression: function(any, string?): integer
-    expression = function(node: any, expected: string?): integer
+    local expression: function(any, string?): integer?
+    local unwind: function(integer, any, string, any?): nil
+    local registerCleanup: function(any, any, any, integer): nil
+    local transfer: function(any, any): nil
+    local expressionBody: function(any, string?): integer?
+    expressionBody = function(node: any, expected: string?): integer?
         if node.kind == "paren" then
             return expression(node.expr, expected)
         elseif node.kind == "name" then
@@ -190,6 +229,8 @@ function frontend.compile(fn: any, options: any, profile: any): any
             or node.kind == "falseExpr"
         then
             return invoke("literal", node, expected)
+        elseif node.kind == "newExpr" then
+            return invoke("construction", node, expected)
         elseif node.kind == "castExpr" then
             return invoke("cast", node, expected)
         elseif node.kind == "dotIndex" then
@@ -212,7 +253,16 @@ function frontend.compile(fn: any, options: any, profile: any): any
                 and profile.kind(node.rhs.inferredType) == boolean,
                 "logical expression requires exact booleans"
             )
+            local cleanupDepth = #cleanups
             local lhs = expression(node.lhs, boolean)
+            if not block then
+                return nil
+            end
+            need(
+                not cleanupEnabled or #cleanups == cleanupDepth,
+                "owning temporaries in logical expressions require conditional cleanup"
+            )
+            assert(lhs ~= nil, "function graph: continued logical operand requires a value")
             local key = {}
             bindings[key], bindingOrder[#bindingOrder + 1] = lhs, key
             local parent = block
@@ -226,8 +276,15 @@ function frontend.compile(fn: any, options: any, profile: any): any
             }
             resume(right)
             local rhs = expression(node.rhs, boolean)
-            bindings[key] = rhs
-            jump(done, node)
+            need(
+                not cleanupEnabled or #cleanups == cleanupDepth,
+                "owning temporaries in logical expressions require conditional cleanup"
+            )
+            if block then
+                assert(rhs ~= nil, "function graph: continued logical operand requires a value")
+                bindings[key] = rhs
+                jump(done, node)
+            end
             resume(done)
             local result = bindings[key]
             bindings[key], bindingOrder[#bindingOrder] = nil, nil
@@ -235,6 +292,30 @@ function frontend.compile(fn: any, options: any, profile: any): any
             return result as integer
         end
         error("function graph: unsupported checked expression " .. tostring(node.kind), 0)
+    end
+    expression = function(node: any, expected: string?): integer?
+        if cleanupEnabled then
+            need(
+                not node.automaticOwnerReinit and not node.automaticOwnerReinitializations and not node.affineAggregate,
+                "owner reinitialization or aggregate cleanup is unsupported"
+            )
+        end
+        local value = expressionBody(node, expected)
+        if not block then
+            return nil
+        end
+        assert(value ~= nil, "function graph: continued expression requires a value")
+        -- A fresh result owns its cleanup before a later initializer/argument
+        -- can fail. Publishing it as a local/with owner or taking it consumes
+        -- this temporary, never the original owner's obligation twice.
+        if cleanupEnabled and block and node.kind == "call" then
+            local t = cleanup.type(node.inferredType)
+            if t then
+                registerCleanup(node, node.statementOwner or node, t, value)
+            end
+        end
+
+        return value
     end
     ctx.expression = expression
     branch = function(resultKind: string?): any
@@ -278,7 +359,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
         block, bindings, bindingOrder = state.block, state.bindings, state.order
     end
 
-    jump = function(state: any, node: any): nil
+    local function currentEdge(state: any): any
         local args = {}
         for _, key in ipairs(state.order) do
             if state.bindings[key] <= g.nparams then
@@ -288,8 +369,332 @@ function frontend.compile(fn: any, options: any, profile: any): any
         for index, key in ipairs(state.keys) do
             args[index] = need(bindings[key], "loop loses a checked local binding")
         end
-        block.term = {kind = "jump", edges = {{target = state.block.id, args = args}}, pos = position(node)}
+
+        return {target = state.block.id, args = args}
+    end
+
+    jump = function(state: any, node: any): nil
+        block.term = {kind = "jump", edges = {currentEdge(state)}, pos = position(node)}
         block = nil
+    end
+
+    local function flag(node: any, value: boolean): integer
+        context()
+        local result = profile.cleanupFlag(ctx, node, value)
+        need(
+            ctx.block == block and profile.valueKind(g, result) == profile.booleanKind,
+            "cleanup flag must be an ordinary Boolean value"
+        )
+
+        return result
+    end
+
+    local function removeBinding(key: any): nil
+        bindings[key] = nil
+        for index, item in ipairs(bindingOrder) do
+            if item == key then
+                table.remove(bindingOrder, index)
+                return
+            end
+        end
+        need(block == nil, "missing cleanup binding")
+    end
+
+    registerCleanup = function(site: any, owner: any, t: any, value: integer): nil
+        need(cleanupEnabled and block, "cleanup acquisition requires an active cleanup profile")
+        need(cleanupOwners[owner] == nil, "cleanup owner registered twice")
+        context()
+        local active = heldScope()
+        local plan = need(profile.cleanupPlan(ctx, site, t, t.cleanups), "checked cleanup plan required")
+        need(ctx.block == block, "cleanup planning must not change control flow")
+        checkHeldScope(active)
+        local entry = {owner = owner, site = site, plan = plan, value = {}, live = {}, temporary = site.kind == "call"}
+        ctx.bind(entry.value, value)
+        ctx.bind(entry.live, flag(site, true))
+        cleanups[#cleanups + 1], cleanupOwners[owner] = entry, entry
+    end
+
+    transfer = function(node: any, owner: any): nil
+        local entry = need(cleanupOwners[cleanup.move(owner)], "transfer lacks a registered checked owner")
+        bindings[entry.live] = flag(node, false)
+    end
+
+    local function expressionOwner(node: any): any
+        local source = cleanup.source(node)
+        if not source then
+            return nil
+        end
+        if source.automaticOwnerMove then
+            return cleanup.move(source.automaticOwnerMove)
+        elseif source.kind == "call" and cleanup.type(source.inferredType) then
+            return source.statementOwner or source
+        end
+
+        return nil
+    end
+
+    local function transferExpression(node: any): nil
+        local owner = expressionOwner(node)
+        if owner then
+            transfer(node, owner)
+        end
+    end
+
+    -- A profile calls this only after resolving the checked callee and
+    -- evaluating every argument, immediately before the actual call. Nested
+    -- calls have already updated their own independent live flags.
+    ctx.beforeCall = function(node: any): nil
+        need(cleanupEnabled and block and node.kind == "call", "checked call transfer requires cleanup profile")
+        for _, move in ipairs(node.automaticOwnerMoves or {}) do
+            transfer(node, move)
+        end
+        local t = node.obj.inferredType
+        need(t and t.tag == "func" and t.paramPack, "checked closed call signature required")
+        for index, argument in ipairs(node.args.exprs) do
+            if t.paramPack.modes and t.paramPack.modes[index] == "takes" then
+                local source = cleanup.source(argument)
+                if source and source.kind == "call" and cleanup.type(source.inferredType) then
+                    transfer(source, source.statementOwner or source)
+                end
+            end
+        end
+        context()
+    end
+
+    local function runCleanup(entry: any, node: any, reason: string): nil
+        local condition, parent = bindings[entry.live], block
+        local yes, done = branch(), branch()
+        parent.term = {kind = "branch", value = condition, edges = {yes.edge, done.edge}, pos = position(node)}
+        resume(yes)
+        context()
+        local permission = profile.cleanupAllowed(ctx, node, entry.plan)
+        need(
+            ctx.block == block and profile.valueKind(g, permission) == profile.booleanKind,
+            "cleanup requires an explicit backing-retention guard"
+        )
+        local checked, allowed = block, branch()
+        checked.term = {
+            kind = "branch",
+            value = permission,
+            edges = {allowed.edge, currentEdge(done)},
+            pos = position(node)
+        }
+        resume(allowed)
+        -- A retained outer scope leaves this owner live; never disarm or
+        -- invoke its terminal merely because an inner operation failed.
+        -- Clear before invoking a terminal, including a failing terminal.
+        -- cleanupRun must retain sticky failure and continue cleanup; it
+        -- must not use the ordinary afterCall error edge recursively.
+        bindings[entry.live] = flag(node, false)
+        context()
+        local active = heldScope()
+        profile.cleanupRun(ctx, node, entry.plan, bindings[entry.value], reason)
+        block = ctx.block
+        need(block ~= nil, "cleanup must continue to remaining obligations")
+        checkHeldScope(active)
+        jump(done, node)
+        resume(done)
+    end
+
+    unwind = function(depth: integer, node: any, reason: string, retained: any?): nil
+        need(depth >= 0 and depth <= #cleanups, "invalid cleanup depth")
+        for index = #cleanups, depth + 1, -1 do
+            local entry = cleanups[index]
+            if not retained or not retained[entry] then
+                runCleanup(entry, node, reason)
+            end
+        end
+        context()
+    end
+
+    local function finishTemporaries(depth: integer, node: any): nil
+        local hadTemporary = false
+        for index = #cleanups, depth + 1, -1 do
+            local entry = cleanups[index]
+            if entry.temporary then
+                hadTemporary = true
+                if block then
+                    runCleanup(entry, node, "statement")
+                end
+                removeBinding(entry.live)
+                removeBinding(entry.value)
+                cleanupOwners[entry.owner] = nil
+                table.remove(cleanups, index)
+            end
+        end
+        context()
+        if block and hadTemporary then
+            local success = profile.cleanupStatus(ctx, node)
+            ctx.afterCall(node, nil, success)
+        end
+    end
+
+    local function forgetCleanups(depth: integer): nil
+        for index = #cleanups, depth + 1, -1 do
+            local entry = cleanups[index]
+            removeBinding(entry.live)
+            removeBinding(entry.value)
+            cleanupOwners[entry.owner], cleanups[index] = nil, nil
+        end
+    end
+
+    local function protectedRoots(): any
+        local protected = {}
+        for _, entry in ipairs(returnRoots) do
+            for owner in pairs(entry.backing) do
+                protected[owner] = true
+            end
+        end
+
+        return protected
+    end
+
+    local function closeRoots(node: any, reason: string): nil
+        for index = #returnRoots, 1, -1 do
+            local entry = returnRoots[index]
+            local condition, parent = bindings[entry.live], block
+            local yes, done = branch(), branch()
+            parent.term = {kind = "branch", value = condition, edges = {yes.edge, done.edge}, pos = position(node)}
+            resume(yes)
+            context()
+            local active = heldScope()
+            -- Closing is nonallocating/nonraising, but may refuse. The profile
+            -- records sticky failure; a refusal retains registrations and all
+            -- backing owners. Never retry close or release that storage here.
+            local success = profile.closeReturnRoots(ctx, node, entry.plan, reason)
+            need(
+                ctx.block == block and profile.valueKind(g, success) == profile.booleanKind,
+                "return root retirement requires an explicit success condition"
+            )
+            checkHeldScope(active)
+            local closing, closed, refused = block, branch(), branch()
+            closing.term = {kind = "branch", value = success, edges = {closed.edge, refused.edge}, pos = position(node)}
+            resume(refused)
+            context()
+            profile.retainRootBacking(ctx, node, entry.plan)
+            need(ctx.block == block, "root backing retention must not change control flow")
+            unwind(0, node, "failure", protectedRoots())
+            invoke("failure", node, nil)
+            need(block == nil, "root retirement refusal must terminate")
+            resume(closed)
+            bindings[entry.live] = flag(node, false)
+            jump(done, node)
+            resume(done)
+        end
+        context()
+    end
+
+    ctx.fail = function(node: any): nil
+        need(cleanupEnabled and block, "failure requires an active cleanup profile")
+        unwind(0, node, "failure", protectedRoots())
+        closeRoots(node, "failure")
+        unwind(0, node, "failure")
+        invoke("failure", node, nil)
+        need(block == nil, "failure profile must terminate")
+    end
+
+    ctx.afterCall = function(node: any, value: integer?, success: integer): integer?
+        need(
+            cleanupEnabled and block and profile.valueKind(g, success) == profile.booleanKind,
+            "call continuation requires a checked Boolean success condition"
+        )
+        local parent = block
+        local no = branch()
+        local held = value and ctx.hold(value) or nil
+        local yes = branch()
+        parent.term = {kind = "branch", value = success, edges = {yes.edge, no.edge}, pos = position(node)}
+        resume(no)
+        ctx.fail(node)
+        resume(yes)
+        local result = held and ctx.readHeld(held) or nil
+        if held then
+            ctx.release(held)
+        end
+        context()
+
+        return result
+    end
+
+    local function finishScope(depth: integer, node: any): nil
+        local hadCleanup = #cleanups > depth
+        if block then
+            unwind(depth, node, "scope")
+        end
+        forgetCleanups(depth)
+        if block and hadCleanup then
+            context()
+            local success = profile.cleanupStatus(ctx, node)
+            ctx.afterCall(node, nil, success)
+        end
+    end
+
+    local function cleanupReturn(node: any, falling: boolean): nil
+        -- The profile stages zero/one result and roots it before any terminal
+        -- can allocate. SSA retention alone is deliberately not a GC proof.
+        context()
+        local stage = profile.stageReturn(ctx, node, falling)
+        block = ctx.block
+        if not block then
+            return
+        end
+        need(stage and stage.values and #stage.values <= 1, "closed staged return required")
+        local held = {}
+        for index, value in ipairs(stage.values) do
+            held[index] = ctx.hold(value)
+        end
+        context()
+        local roots = need(profile.rootReturn(ctx, node, stage, held), "return cleanup requires a root plan")
+        block = ctx.block
+        need(block ~= nil, "return rooting must retain a success continuation")
+        local rootEntry = {plan = roots, live = {}, backing = {}}
+        -- The profile must bind these to checked ownership identities and
+        -- prove their eventual teardown cannot allocate after root retirement.
+        -- Neither helper names nor raw pointer machine kinds establish this.
+        for _, owner in ipairs(profile.rootBacking(ctx, node, roots)) do
+            rootEntry.backing[need(cleanupOwners[owner], "root backing lacks a registered checked owner")] = true
+        end
+        need(ctx.block == block, "root backing query must not change control flow")
+        ctx.bind(rootEntry.live, flag(node, true))
+        returnRoots[#returnRoots + 1] = rootEntry
+        local retained = {}
+        if not falling then
+            for _, value in ipairs(node.exprs or {}) do
+                local owner = expressionOwner(value)
+                if owner then
+                    retained[need(cleanupOwners[owner], "returned owner lacks cleanup")] = true
+                end
+            end
+        end
+        -- A selected owning result is still ours until all other cleanup has
+        -- succeeded. If a terminal fails, the failure path also discharges it.
+        local protected = protectedRoots()
+        for entry in pairs(retained) do
+            protected[entry] = true
+        end
+        unwind(0, node, "return", protected)
+        local success = profile.cleanupStatus(ctx, node)
+        ctx.afterCall(node, nil, success)
+        closeRoots(node, "return")
+        unwind(0, node, "return", retained)
+        success = profile.cleanupStatus(ctx, node)
+        ctx.afterCall(node, nil, success)
+        for entry in pairs(retained) do
+            transfer(node, entry.owner)
+        end
+        local values = {}
+        for index, handle in ipairs(held) do
+            values[index] = ctx.readHeld(handle)
+        end
+        context()
+        profile.finishReturn(ctx, node, stage, values, roots)
+        block = ctx.block
+        need(block == nil, "staged return must terminate after cleanup status is checked")
+        for index = #held, 1, -1 do
+            ctx.release(held[index])
+        end
+        need(returnRoots[#returnRoots] == rootEntry, "return root scopes must be nested")
+        returnRoots[#returnRoots] = nil
+        removeBinding(rootEntry.live)
     end
 
     ctx.invoke = function(node: any, calleeValue: integer, args: any, contract: any, keepResult: boolean): integer?
@@ -358,6 +763,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
     local statements: function(any): nil
 
     local function inline(call: any, target: any, returns: boolean): nil
+        need(not cleanupEnabled, "cleanup profiles require ordinary calls, not body inlining")
         context()
         local declaration = profile.inlineContract(ctx, call, target, returns)
         need(not inlining[target], "recursive composed helper")
@@ -390,8 +796,21 @@ function frontend.compile(fn: any, options: any, profile: any): any
     ctx.inline = inline
     statements = function(stats: any): nil
         for _, stat in ipairs(stats) do
+            local statementDepth = #cleanups
+            if cleanupEnabled and not block then
+                return
+            end
             need(block ~= nil or stat.kind == "emptyStmt", "statement after dispatch")
             context()
+            if cleanupEnabled then
+                need(
+                    not stat.automaticOwnerReinit
+                    and not stat.ownerCleanupGuards
+                    and not stat.affineAggregate
+                    and not stat.affineInitializer,
+                    "partial, reinitialized or closure owner cleanup is unsupported"
+                )
+            end
             if profile.checkStatement then
                 profile.checkStatement(ctx, stat)
             end
@@ -406,16 +825,32 @@ function frontend.compile(fn: any, options: any, profile: any): any
                     -- cell allocation happen only after every RHS was evaluated.
                     for index, token in ipairs(stat.names) do
                         local kind = profile.localKind(token, fn)
-                        values[
-                            index
-                        ] = ctx.hold(
-                            stat.exprs[index] and expression(stat.exprs[index], kind)
-                            or invoke("missingLocal", stat, kind)
-                        )
+                        local value
+                        if stat.exprs[index] then
+                            value = expression(stat.exprs[index], kind)
+                        else
+                            value = invoke("missingLocal", stat, kind)
+                        end
+                        if not block then
+                            for previous = #values, 1, -1 do
+                                ctx.release(values[previous])
+                            end
+                            finishTemporaries(statementDepth, stat)
+                            return
+                        end
+                        values[index] = ctx.hold(value)
                     end
                     for index, token in ipairs(stat.names) do
                         local key = token.definition or token
-                        ctx.bind(key, initializeBinding(stat, key, ctx.readHeld(values[index])))
+                        local value = ctx.readHeld(values[index])
+                        if cleanupEnabled then
+                            local owner = cleanup.localOwner(stat, index)
+                            if owner then
+                                transferExpression(stat.exprs[index])
+                                registerCleanup(stat, owner, owner.type, value)
+                            end
+                        end
+                        ctx.bind(key, initializeBinding(stat, key, value))
                     end
                     for index = #values, 1, -1 do
                         ctx.release(values[index])
@@ -435,24 +870,85 @@ function frontend.compile(fn: any, options: any, profile: any): any
                 end
             elseif stat.kind == "assignStmt" then
                 need(#stat.targets == #stat.exprs, "parallel local assignment requires one value per target")
-                local values, keys = {}, {}
+                local values, targets = {}, {}
+                -- Capture every LHS address before the RHS list. A later RHS
+                -- may branch or change memory, so receivers are held as SSA.
                 for index, target in ipairs(stat.targets) do
-                    need(target.kind == "name", "unsupported checked assignment target")
-                    local key = target.token.definition or target.token
-                    local previous = need(bindings[key], "assignment requires a checked local binding")
-                    keys[index] = key
-                    values[index] = ctx.hold(expression(stat.exprs[index], profile.valueKind(g, previous)))
+                    if target.kind == "name" then
+                        local key = target.token.definition or target.token
+                        local previous = need(bindings[key], "assignment requires a checked local binding")
+                        targets[index] = {key = key, kind = profile.valueKind(g, previous)}
+                    else
+                        local prepared = invoke("assignmentTarget", target, stat.exprs[index])
+                        if not block then
+                            for _, old in ipairs(targets) do
+                                if old.heldReceiver then
+                                    ctx.release(old.heldReceiver)
+                                end
+                            end
+                            finishTemporaries(statementDepth, stat)
+                            return
+                        end
+                        prepared.heldReceiver = ctx.hold(prepared.receiver)
+                        targets[index] = prepared
+                    end
                 end
-                for index, key in ipairs(keys) do
-                    writeBinding(stat, key, ctx.readHeld(values[index]))
+                for index, target in ipairs(targets) do
+                    local value = expression(stat.exprs[index], target.kind)
+                    if not block then
+                        for previous = #values, 1, -1 do
+                            ctx.release(values[previous])
+                        end
+                        for _, old in ipairs(targets) do
+                            if old.heldReceiver then
+                                ctx.release(old.heldReceiver)
+                            end
+                        end
+                        finishTemporaries(statementDepth, stat)
+                        return
+                    end
+                    values[index] = ctx.hold(value)
+                end
+                -- Lua stores right to left: a repeated destination retains
+                -- its leftmost assignment. All RHS values are already held.
+                for index = #targets, 1, -1 do
+                    if not block then
+                        break
+                    end
+                    local target = targets[index]
+                    if target.key then
+                        writeBinding(stat, target.key, ctx.readHeld(values[index]))
+                    else
+                        context()
+                        profile.assignTarget(
+                            ctx,
+                            stat.targets[index],
+                            target,
+                            ctx.readHeld(target.heldReceiver),
+                            ctx.readHeld(values[index])
+                        )
+                        block = ctx.block
+                    end
                 end
                 for index = #values, 1, -1 do
                     ctx.release(values[index])
                 end
+                for index = #targets, 1, -1 do
+                    if targets[index].heldReceiver then
+                        ctx.release(targets[index].heldReceiver)
+                    end
+                end
             elseif stat.kind == "callStmt" then
                 invoke("statementCall", stat.expr, nil)
             elseif stat.kind == "ifStmt" then
-                local originalBindings, originalOrder = bindings, bindingOrder
+                -- A condition call can append a temporary held result before
+                -- resuming into a new binding table. Keep only the enclosing
+                -- lexical/held scope, not that predecessor's mutated array.
+                local originalBindings, originalOrder = {}, {}
+                for _, key in ipairs(bindingOrder) do
+                    originalOrder[#originalOrder + 1] = key
+                    originalBindings[key] = bindings[key]
+                end
                 local incoming = {}
 
                 local function continuation(): nil
@@ -463,7 +959,15 @@ function frontend.compile(fn: any, options: any, profile: any): any
 
                 for _, clause in ipairs(stat.clauses) do
                     need(not clause.binding, "unsupported checked binding clause")
+                    local conditionDepth = #cleanups
                     local condition = expression(clause.cond, profile.booleanKind)
+                    if not block then
+                        break
+                    end
+                    need(
+                        not cleanupEnabled or #cleanups == conditionDepth,
+                        "owning temporaries in a condition require conditional cleanup"
+                    )
                     local parent = block
                     local yes, no = branch(), branch()
                     parent.term = {
@@ -473,12 +977,20 @@ function frontend.compile(fn: any, options: any, profile: any): any
                         pos = position(clause)
                     }
                     resume(yes)
+                    local depth = #cleanups
                     statements(clause.body.stats)
+                    if cleanupEnabled then
+                        finishScope(depth, clause)
+                    end
                     continuation()
                     resume(no)
                 end
-                if stat.elseClause then
+                if stat.elseClause and block then
+                    local depth = #cleanups
                     statements(stat.elseClause.body.stats)
+                    if cleanupEnabled then
+                        finishScope(depth, stat.elseClause)
+                    end
                 end
                 continuation()
                 block = nil
@@ -528,12 +1040,25 @@ function frontend.compile(fn: any, options: any, profile: any): any
                 local header = branch()
                 before.term = {kind = "jump", edges = {header.edge}, pos = position(stat)}
                 resume(header)
+                local conditionDepth = #cleanups
                 local condition = expression(stat.cond, profile.booleanKind)
+                need(
+                    not cleanupEnabled or #cleanups == conditionDepth,
+                    "owning temporaries in a loop condition require iteration cleanup"
+                )
+                if not block then
+                    finishTemporaries(statementDepth, stat)
+                    return
+                end
                 local body, exit = branch(), branch()
                 block.term = {kind = "branch", value = condition, edges = {body.edge, exit.edge}, pos = position(stat)}
-                loops[#loops + 1] = {exit = exit, continueTo = header}
+                loops[#loops + 1] = {exit = exit, continueTo = header, cleanupDepth = #cleanups}
                 resume(body)
+                local depth = #cleanups
                 statements(stat.body.stats)
+                if cleanupEnabled then
+                    finishScope(depth, stat)
+                end
                 if block then
                     jump(header, stat)
                 end
@@ -541,13 +1066,53 @@ function frontend.compile(fn: any, options: any, profile: any): any
                 resume(exit)
             elseif stat.kind == "breakStmt" or stat.kind == "continueStmt" then
                 local loop = need(loops[#loops], "loop transfer outside a checked loop")
+                if cleanupEnabled then
+                    unwind(loop.cleanupDepth, stat, stat.kind)
+                    local success = profile.cleanupStatus(ctx, stat)
+                    ctx.afterCall(stat, nil, success)
+                end
                 jump(stat.kind == "breakStmt" and loop.exit or loop.continueTo, stat)
             elseif stat.kind == "doStmt" then
                 local outer = {}
                 for index, key in ipairs(bindingOrder) do
                     outer[index] = key
                 end
+                local depth = #cleanups
                 statements(stat.body.stats)
+                if cleanupEnabled then
+                    finishScope(depth, stat)
+                end
+                local scoped = {}
+                for _, key in ipairs(outer) do
+                    scoped[key] = bindings[key]
+                end
+                bindings, bindingOrder = scoped, outer
+            elseif stat.kind == "withStmt" then
+                need(cleanupEnabled, "with requires a cleanup-aware profile")
+                local depth, outer = #cleanups, {}
+                for index, key in ipairs(bindingOrder) do
+                    outer[index] = key
+                end
+                for _, binding in ipairs(stat.bindings) do
+                    local t = cleanup.acquisition(binding)
+                    local value = expression(binding.expr, profile.kind(t.inner))
+                    if not block then
+                        finishScope(depth, stat)
+                        local scoped = {}
+                        for _, key in ipairs(outer) do
+                            scoped[key] = bindings[key]
+                        end
+                        bindings, bindingOrder = scoped, outer
+                        return
+                    end
+                    assert(value ~= nil, "function graph: successful acquisition requires a value")
+                    transferExpression(binding.expr)
+                    registerCleanup(binding, binding, t, value)
+                    local key = binding.name.definition or binding.name
+                    ctx.bind(key, initializeBinding(binding, key, value))
+                end
+                statements(stat.body.stats)
+                finishScope(depth, stat)
                 local scoped = {}
                 for _, key in ipairs(outer) do
                     scoped[key] = bindings[key]
@@ -566,9 +1131,16 @@ function frontend.compile(fn: any, options: any, profile: any): any
             elseif stat.kind == "moduleStmt" or stat.kind == "typeAlias" then
                 invoke("erasedStatement", stat, nil)
             elseif stat.kind == "returnStmt" then
-                invoke("returnStatement", stat, nil)
+                if cleanupEnabled then
+                    cleanupReturn(stat, false)
+                else
+                    invoke("returnStatement", stat, nil)
+                end
             elseif stat.kind ~= "emptyStmt" then
                 error("function graph: unsupported checked statement " .. tostring(stat.kind), 0)
+            end
+            if cleanupEnabled then
+                finishTemporaries(statementDepth, stat)
             end
         end
     end
@@ -589,8 +1161,13 @@ function frontend.compile(fn: any, options: any, profile: any): any
         need(body.body and body.body.stats, "statement-bodied function required")
         statements(body.body.stats)
     end
-    if block and profile.fallthrough then
+    if block and cleanupEnabled then
+        cleanupReturn(fn.node, true)
+    elseif block and profile.fallthrough then
         invoke("fallthrough", fn.node, nil)
+    end
+    if cleanupEnabled then
+        forgetCleanups(0)
     end
     need(next(heldScope()) == nil, "function leaked a held-value handle")
     need(block == nil, "function falls through without a return or transfer")

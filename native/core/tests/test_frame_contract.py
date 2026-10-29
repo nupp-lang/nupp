@@ -158,7 +158,7 @@ def main():
             assert len(selected["offsets"]) == len(selected["frames"]) == 2
             metrics = selected["metrics"]
             assert len(selected["dataflowRefusals"]) == 17
-            assert len(selected["provenanceRefusals"]) == 18
+            assert len(selected["provenanceRefusals"]) == 20
             assert len({item["name"] for item in selected["dataflowRefusals"]}) == 17
             high_water = selected["spillOffset"] + selected["callBytes"]
             assert selected["callBytes"] > max(selected["frames"])

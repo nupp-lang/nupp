@@ -419,4 +419,23 @@ function M.weakLookupPolicyIsAWordOnlySharedGraphLeaf()
     end
 end
 
+function M.nativeUnsignedRemainderRetainsItsTrapAndExactKind()
+    local g = G.newNative({"uint64", "uint64"}, "uint64", "leaf")
+    local b = G.block(g)
+    G.emitNative(g, b, "NativeURem", {1, 2}, "uint64")
+    b.term = {kind = "return", value = 1, edges = {}}
+    G.verify(g)
+    G.prune(g)
+    G.verify(g)
+    assert(clif.emit(g, {name = "unusedRemainder"}):find("urem", 1, true))
+    for _, operandKind in ipairs({"int64", "boolean"}) do
+        local bad = G.newNative({operandKind, operandKind}, "uint64", "leaf")
+        local entry = G.block(bad)
+        local value = G.emitNative(bad, entry, "NativeURem", {1, 2}, "uint64")
+        entry.term = {kind = "return", value = value, edges = {}}
+        local ok = pcall(G.verify, bad)
+        assert(not ok, "remainder accepted non-unsigned operands")
+    end
+end
+
 return M

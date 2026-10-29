@@ -8,10 +8,34 @@ local contexts: any = setmetatable({}, {__mode = "k"})
 local origins: any = setmetatable({}, {__mode = "k"})
 local accesses: any = setmetatable({}, {__mode = "k"})
 local casts: any = setmetatable({}, {__mode = "k"})
+local constructions: any = setmetatable({}, {__mode = "k"})
+local localOrigins: any = setmetatable({}, {__mode = "k"})
+local signatures: any = setmetatable({}, {__mode = "k"})
+local views: any = setmetatable({}, {__mode = "k"})
+local stores: any = setmetatable({}, {__mode = "k"})
 
 local function need(ok: any, message: string): any
     assert(ok, "native physical: " .. message)
     return ok
+end
+
+local function recordFields(value: any): any
+    local saved = {}
+    for key, item in pairs(value) do
+        saved[key] = item
+    end
+
+    return saved
+end
+
+local function sameRecord(value: any, saved: any): nil
+    need(getmetatable(value) == nil, "issued physical record metatable changed")
+    for key, item in pairs(saved) do
+        need(value[key] == item, "issued physical record field changed: " .. tostring(key))
+    end
+    for key in pairs(value) do
+        need(saved[key] ~= nil, "issued physical record field added: " .. tostring(key))
+    end
 end
 
 function physical.new(target: string): any
@@ -47,7 +71,11 @@ local function derive(context: any, checked: any): any
     end
     local pointer = representation.tag == "ptr" or representation.tag == "voidptr"
     need(
-        pointer or fixed.isPhysical(representation) or representation.tag == "boolean" or representation.tag == "nil",
+        (representation.tag == "nominal" and representation.declKind == "struct")
+        or pointer
+        or fixed.isPhysical(representation)
+        or representation.tag == "boolean"
+        or representation.tag == "nil",
         "unsupported physical value type"
     )
     local loaded = fixed.loaded(raw)
@@ -68,7 +96,7 @@ local function derive(context: any, checked: any): any
         nullable = nullable,
         pointee = pointee,
         declaration = declaration,
-        machineKind = pointer and "voidptr" or loaded.tag,
+        machineKind = (pointer or representation.tag == "nominal") and "voidptr" or loaded.tag,
         layout = layout,
         storageBytes = layout and layout.size or 0,
         signed = representation.tag:sub(1, 3) == "int",
@@ -151,7 +179,8 @@ end
 function physical.same(left: any, right: any): boolean
     physical.validate(left)
     physical.validate(right)
-    if left.context ~= right.context
+    if localOrigins[left] ~= localOrigins[right]
+        or left.context ~= right.context
         or left.checkedType ~= right.checkedType
         or left.pointee ~= right.pointee
         or left.declaration ~= right.declaration
@@ -169,24 +198,965 @@ function physical.same(left: any, right: any): boolean
     return true
 end
 
-local function plainPointer(descriptor: any): nil
-    physical.validate(descriptor)
-    need(
-        descriptor.machineKind == "voidptr" and #descriptor.ownership == 0 and not descriptor.nullable,
-        "plain nonnullable pointer representation required"
-    )
+local function pointerType(checked: any): boolean
+    local value, qualified = checked, false
+    while value and (qualifiers[value.tag] or value.tag == "const" or value.tag == "literal") do
+        qualified = qualified or qualifiers[value.tag] == true
+        value = value.tag == "literal" and value.base or value.inner
+    end
+    if value and value.tag == "union" then
+        for _, member in ipairs(value.members) do
+            if pointerType(member) or member.tag == "voidptr" then
+                return true
+            end
+        end
+    end
+
+    return value ~= nil and (value.tag == "ptr" or qualified and value.tag == "voidptr")
 end
 
-function physical.cast(source: any, node: any): any
-    plainPointer(source)
+-- Fixed private lazy edge: nativeservice already imports nativeunit, which
+-- imports this module. The graph/closed producer retains the service module.
+local function serviceModule(): any
+    local moduleName = "nativeservice"
+    return require("nupp.compiler.vm." .. moduleName)
+end
+
+local function arenaOwnership(capability: any, owner: any, parameter: integer?): any
+    return serviceModule().arenaOwnership(capability, owner, parameter)
+end
+
+local function signatureShape(owner: any, context: any, serviceSignature: any?): any
+    local body, checked = owner.body, owner.checkedSignature
+    need(owner.node.body == body and body.signatureType == checked, "checked signature owner differs")
+    need(owner.scope.functions[owner.name] == owner, "checked signature declaration differs")
+    local token = owner.node.kind == "localFuncStmt" and owner.node.name or owner.node.name.base
+    need(
+        token
+        and token.definition
+        and token.definition.token == token
+        and not token.definition.reassigned
+        and (owner.definition == nil or owner.definition == token.definition),
+        "checked pointer definition differs"
+    )
+    need(
+        checked
+        and checked.tag == "func"
+        and not checked.foreign
+        and not checked.vararg
+        and not checked.yieldPack
+        and not checked.resumePack
+        and not body.generics
+        and not body.captureTakes
+        and checked.paramPack
+        and not checked.paramPack.tail
+        and not checked.paramPack.alternatives
+        and checked.retPack
+        and not checked.retPack.tail
+        and not checked.retPack.alternatives
+        and #checked.rets <= 1
+        and #checked.retPack.head == #checked.rets
+        and #checked.params == #body.params
+        and #checked.paramPack.head == #body.params
+        and owner.parameterPack == checked.paramPack
+        and owner.parameterModes == checked.paramModes
+        and owner.resultType == checked.rets[1],
+        "closed retained pointer signature required"
+    )
+    local dependent = checked.borrowsParam
+    need(
+        not checked.borrowsSelf
+        and (
+            dependent == nil and checked.borrowsResult == nil
+            or type(dependent) == "number"
+            and dependent % 1 == 0
+            and dependent >= 1
+            and dependent <= #body.params
+            and checked.borrowsResult == 1
+            and checked.paramModes[dependent] == "borrows"
+        ),
+        "single borrowed-result source required"
+    )
+    for _, key in ipairs({
+        "borrowsParams",
+        "preservesResults",
+        "partitionResults",
+        "preservesPaths",
+        "typeParams",
+        "packParams",
+        "constParams"
+    }) do
+        need(
+            checked[key] == nil or next(checked[key]) == nil,
+            "pointer result lifetime or generic contract is unsupported"
+        )
+    end
+    local params, borrowing = {}, false
+    for index, parameter in ipairs(body.params) do
+        local annotation, definition = parameter.type.resolvedType, parameter.name.definition
+        need(
+            owner.parameterAnnotations[index] == annotation
+            and owner.parameterDefinitions[index] == definition
+            and owner.parameterTypes[index] == definition.type
+            and owner.parameterModeTokens[index] == parameter.modeTok
+            and checked.params[index] == annotation
+            and checked.paramPack.head[index] == annotation,
+            "retained pointer parameter differs"
+        )
+        if pointerType(annotation) or annotation.tag == "voidptr" and checked.paramModes[index] == "borrows" then
+            local declared = physical.describe(context, annotation)
+            need(#declared.ownership == 0, "plain pointer annotation required")
+            local mode = checked.paramModes[index]
+            need(checked.paramPack.modes[index] == mode, "pointer parameter pack mode differs")
+            if mode == "borrows" then
+                local unit = require("nupp.compiler.vm.nativeunit")
+                need(unit.contains(owner), "borrowed pointer requires sealed checked unit")
+                need(
+                    definition.type.tag == "borrowed"
+                    and definition.type.inner == annotation
+                    and (parameter.modeTok == nil or parameter.modeTok.text == "borrows"),
+                    "checked borrowed parameter binding differs"
+                )
+                params[index], borrowing = physical.describe(context, definition.type), true
+            elseif mode == "takes" then
+                need(serviceSignature ~= nil, "takes pointer requires a private service signature")
+                local owned = arenaOwnership(serviceSignature, owner, index)
+                need(owned == definition.type, "service takes binding changed")
+                params[index] = physical.describe(context, owned)
+            else
+                need(
+                    mode == "plain" and parameter.modeTok == nil and definition.type == annotation,
+                    "plain nonnullable pointer parameter required"
+                )
+                params[index] = declared
+            end
+        else
+            need(
+                checked.paramModes[index] == "plain"
+                and checked.paramPack.modes[index] == "plain"
+                and parameter.modeTok == nil
+                and definition.type == annotation,
+                "nonpointer parameters require plain checked transport"
+            )
+            params[index] = false
+        end
+    end
+    local result = nil
+    need(
+        not borrowing or not pointerType(owner.resultType) or dependent ~= nil,
+        "borrowed pointer result requires dependent source"
+    )
+    if pointerType(owner.resultType) then
+        result = physical.describe(context, owner.resultType)
+        local owning = false
+        if owner.resultType.tag == "affine" then
+            need(serviceSignature ~= nil, "affine pointer requires a private service signature")
+            owning = arenaOwnership(serviceSignature, owner) == owner.resultType
+        end
+        need(
+            (
+                dependent == nil and #result.ownership == 0
+                or dependent == nil and owning and #result.ownership == 1 and result.ownership[1] == owner.resultType
+                or dependent ~= nil and #result.ownership == 1 and result.ownership[1].tag == "borrowed"
+            )
+            and checked.retPack.head[1] == owner.resultType
+            and checked.retPack.modes[1] == "plain",
+            "checked pointer result capability differs"
+        )
+    end
+    if dependent then
+        need(result and params[dependent] and params[dependent] ~= false, "borrowed result is not a pointer")
+    end
+
+    return {
+        owner = owner,
+        context = context,
+        checkedSignature = checked,
+        params = params,
+        result = result,
+        borrowing = borrowing,
+        dependent = dependent
+    }
+end
+
+-- A result's dependency is instantiated at its checked call, never inferred
+-- from pointer bits. Binding counters are not consulted after scope teardown.
+local function rootSnapshot(node: any): any
+    local facts = node.resultCapabilityFacts and node.resultCapabilityFacts[1] or node.capabilityFacts
+    local roots = need(facts and facts.roots, "checked borrowed expression roots required")
+    need(#roots > 0, "checked borrowed expression roots are empty")
+    local saved, keys = {}, {}
+    for index, root in ipairs(roots) do
+        need(root.definition and root.definition.token, "borrow root declaration required")
+        saved[index], keys[index] = root, root.definition
+    end
+    for index in pairs(roots) do
+        need(
+            type(index) == "number" and index % 1 == 0 and index >= 1 and index <= #saved,
+            "borrow root array is not dense"
+        )
+    end
+
+    return {node = node, facts = facts, roots = roots, saved = saved, keys = keys}
+end
+
+local function validateRoots(dependency: any): nil
+    if dependency.node then
+        local node = dependency.node
+        local facts = node.resultCapabilityFacts and node.resultCapabilityFacts[1] or node.capabilityFacts
+        need(facts == dependency.facts and facts.roots == dependency.roots, "borrow root facts changed")
+        sameRecord(facts.roots, dependency.saved)
+        for index, root in ipairs(dependency.saved) do
+            need(root.definition == dependency.keys[index], "borrow root declaration changed")
+        end
+    end
+end
+
+local function sameDependency(left: any, right: any): boolean
+    if left == nil or right == nil then
+        return left == right
+    end
+    validateRoots(left);
+    validateRoots(right)
+    if #left.keys ~= #right.keys then
+        return false
+    end
+    for index, key in ipairs(left.keys) do
+        if key ~= right.keys[index] then
+            return false
+        end
+    end
+
+    return true
+end
+
+local function withDependency(descriptor: any, dependency: any): any
+    local copied = physical.describe(descriptor.context, descriptor.checkedType)
+    origins[copied].dependency = dependency
+    return copied
+end
+
+function physical.dependent(descriptor: any): boolean
+    physical.validate(descriptor)
+    local dependency = origins[descriptor].dependency
+    if dependency then
+        validateRoots(dependency)
+    end
+
+    return dependency ~= nil
+end
+
+function physical.sameValue(left: any, right: any): boolean
+    return physical.same(left, right)
+        and sameDependency(origins[left].dependency, origins[right].dependency)
+        and origins[left].field == origins[right].field
+        and origins[left].ownerSource == origins[right].ownerSource
+        and origins[left].ownerBorrow == origins[right].ownerBorrow
+end
+
+-- Only SSA transport may combine different raw field origins. Ordinary value
+-- equality remains strict, and roots/local storage must agree on every edge.
+local function compatibleTransport(left: any, right: any): boolean
+    return physical.same(left, right)
+        and sameDependency(origins[left].dependency, origins[right].dependency)
+        and origins[left].ownerSource == origins[right].ownerSource
+        and origins[left].ownerBorrow == origins[right].ownerBorrow
+end
+
+local function carryOrigin(source: any, target: any): nil
+    origins[target].dependency = origins[source].dependency
+    origins[target].field = origins[source].field
+    origins[target].transport = origins[source].transport
+    origins[target].ownerBorrow = origins[source].ownerBorrow
+    origins[target].ownerSource = origins[source].ownerSource
+    localOrigins[target] = localOrigins[source]
+end
+
+function physical.copyValue(g: any, source: any): any
+    physical.validate(source)
+    if source.storageType.tag == "nominal" then
+        return source
+    end
+    local target = physical.describe(source.context, source.checkedType)
+    carryOrigin(source, target)
+    -- No one incoming field access can authorize all paths through this phi.
+    origins[target].field = nil
+    origins[target].phi = true
+    origins[target].transport = {graph = setmetatable({g}, {__mode = "v"}), incoming = {}}
+
+    return target
+end
+
+-- Called after ordinary SSA/edge verification. Rebuild the private origin
+-- union from actual incoming edges, so pruning/remapping needs no ID cache.
+function physical.verifyTransport(g: any): nil
+    need(g.native ~= nil, "physical transport requires native graph")
+    local values, destinations, incoming = g.nativePhysical.values, {}, {}
+    local descriptorValues, incomingValues = {}, {}
+    for _, block in ipairs(g.blocks) do
+        for _, value in ipairs(block.params) do
+            local descriptor = values[value]
+            local transport = descriptor and origins[descriptor].transport
+            if transport and origins[descriptor].phi then
+                need(transport.graph[1] == g and not destinations[transport], "physical phi destination differs")
+                destinations[transport], incoming[transport] = value, {}
+            end
+        end
+    end
+    for value, descriptor in pairs(values) do
+        descriptorValues[descriptor] = descriptorValues[descriptor] == nil and value or false
+        local transport = origins[descriptor].transport
+        if transport and origins[descriptor].phi then
+            need(destinations[transport] == value, "physical phi must define one block parameter")
+        end
+    end
+    for _, block in ipairs(g.blocks) do
+        local offset = block.term.kind == "invoke" and block.term.result ~= nil and 1 or 0
+        for _, edge in ipairs(block.term.edges) do
+            local params = g.blocks[edge.target].params
+            for index, value in ipairs(edge.args) do
+                local source, target = values[value], values[params[index + offset]]
+                local transport = target and origins[target].transport
+                if transport and origins[target].phi then
+                    need(
+                        source and compatibleTransport(source, target),
+                        "physical phi type, roots or local origin differ"
+                    )
+                    local inputs = incoming[transport]
+                    inputs[#inputs + 1] = source
+                    local targetValue = params[index + offset]
+                    local valueInputs = incomingValues[targetValue] or {}
+                    valueInputs[#valueInputs + 1] = value
+                    incomingValues[targetValue] = valueInputs
+                else
+                    need(
+                        source == nil and target == nil or source and target and physical.sameValue(source, target),
+                        "graph edge physical type mismatch"
+                    )
+                end
+            end
+        end
+    end
+    -- The list is private and conveys no extra field/call permission. Its
+    -- entries may themselves be phis, retaining loop provenance without an
+    -- expanding path walk or selecting one predecessor as the origin.
+    for transport, inputs in pairs(incoming) do
+        need(#inputs > 0, "physical phi lacks an incoming value")
+        transport.incoming = setmetatable(inputs, {__mode = "v"})
+    end
+    for _, block in ipairs(g.blocks) do
+        for at, op in ipairs(block.op) do
+            local args = block.args[at]
+            local access = op == "NativeStore" and args[4].field
+            local captured = access and accesses[access].transport
+            if captured then
+                need(captured.graph[1] == g, "captured field graph differs")
+                local root = need(descriptorValues[captured.source.receiver], "captured field receiver is not unique")
+                local queue, seen, found = {args[1]}, {}, false
+                local cursor: integer = 1
+                while cursor <= #queue do
+                    local value = queue[cursor]
+                    cursor = cursor + 1
+                    if value == root then
+                        found = true
+                    elseif not seen[value] then
+                        seen[value] = true
+                        local inputs = need(incomingValues[value], "captured field receiver transport differs")
+                        for _, input in ipairs(inputs) do
+                            queue[#queue + 1] = input
+                        end
+                    end
+                end
+                need(found, "captured field receiver lacks original SSA input")
+            end
+        end
+    end
+end
+
+local function bindingExpression(owner: any, node: any, key: any, checked: any?): any
+    require("nupp.compiler.vm.nativeunit").occurrence(owner, node)
+    need(key.token and key.token.definition == key, "checked binding definition required")
+    local found
+    if node.kind == "localStmt" then
+        for index, token in ipairs(node.names) do
+            if token.definition == key then
+                local expression = need(node.exprs[index], "physical binding requires an explicit RHS")
+                if checked == nil or expression.inferredType == checked then
+                    found = expression
+                end
+            end
+        end
+    elseif node.kind == "assignStmt" then
+        for index, target in ipairs(node.targets) do
+            if target.kind == "name" and target.token.definition == key then
+                local expression = need(node.exprs[index], "physical assignment requires an explicit RHS")
+                if checked == nil or expression.inferredType == checked then
+                    found = expression
+                end
+            end
+        end
+    end
+
+    return need(found, "physical binding occurrence differs")
+end
+
+local function widening(source: any, target: any): boolean
+    physical.validate(source)
+    physical.validate(target)
+    if source.context ~= target.context
+        or source.machineKind ~= "voidptr"
+        or target.machineKind ~= "voidptr"
+        or source.nullable
+        or not target.nullable
+        or source.pointee ~= target.pointee
+        or source.declaration ~= target.declaration
+        or source.storageBytes ~= target.storageBytes
+        or source.layout.alignment ~= target.layout.alignment
+        or #source.ownership ~= #target.ownership
+    then
+        return false
+    end
+    for index, qualifier in ipairs(source.ownership) do
+        if qualifier ~= target.ownership[index] then
+            return false
+        end
+    end
+
+    return true
+end
+
+function physical.binding(owner: any, source: any, node: any, key: any): any
+    if node.kind == "withBinding" then
+        need(node.name.definition == key, "with definition differs")
+        return physical.ownerView(owner, source, node, nil)
+    end
+    local expression = bindingExpression(owner, node, key, source.checkedType)
+    need(expression.inferredType == source.checkedType, "binding checked RHS differs")
+    local target = physical.describe(source.context, key.type)
+    need(widening(source, target), "only checked nonnull-to-optional binding widening is supported")
+    carryOrigin(source, target)
+    local contract = {source = source, target = target, node = node}
+    views[
+        contract
+    ] = {
+        mode = "binding",
+        owner = owner,
+        node = node,
+        definition = key,
+        expression = expression,
+        sourceType = expression.inferredType,
+        checked = key.type,
+        fields = recordFields(contract)
+    }
+
+    return contract
+end
+
+function physical.assignment(owner: any, node: any, key: any, before: any, after: any): boolean
+    if not compatibleTransport(before, after) then
+        return false
+    end
+    bindingExpression(owner, node, key)
+    need(before.checkedType == key.type and after.checkedType == key.type, "physical assignment checked type differs")
+
+    return compatibleTransport(before, after)
+end
+
+function physical.pointerType(checked: any): boolean
+    return pointerType(checked)
+end
+
+-- These records retain checked type identities; the ABI pointer word alone
+-- cannot authorize a typed argument, return, field access or lifetime escape.
+-- Borrow modes retain the sealed checker's contract. Mapping validity and the
+-- backing arena's lifetime remain the caller's core-service preconditions.
+function physical.signature(owner: any, context: any, call: any?, caller: any?, serviceSignature: any?): any
+    local needed = pointerType(owner.resultType)
+    for _, value in ipairs(owner.parameterAnnotations or {}) do
+        needed = needed or pointerType(value)
+    end
+    if not needed then
+        return nil
+    end
+    need(context ~= nil, "typed signature requires physical target")
+    local contract = signatureShape(owner, context, serviceSignature)
+    for index, descriptor in ipairs(contract.params) do
+        if descriptor and #descriptor.ownership == 1 and descriptor.ownership[1].tag == "borrowed" then
+            origins[descriptor].dependency = {keys = {owner.parameterDefinitions[index]}}
+        end
+    end
+    if contract.dependent then
+        if call then
+            require("nupp.compiler.vm.nativeunit").occurrence(caller, call)
+        end
+        local dependency = call and rootSnapshot(call) or {keys = {owner.parameterDefinitions[contract.dependent]}}
+        contract.result = withDependency(contract.result, dependency)
+    end
+    local callSignature, exportSignature
+    if call and caller and require("nupp.compiler.vm.nativeunit").contains(caller) then
+        callSignature, exportSignature = require("nupp.compiler.vm.nativeunit").callSignature(caller, call, owner)
+    end
+    signatures[
+        contract
+    ] = {
+        owner = owner,
+        context = context,
+        checked = contract.checkedSignature,
+        serviceSignature = serviceSignature,
+        node = owner.node,
+        body = owner.body,
+        scope = owner.scope,
+        name = owner.name,
+        path = owner.scope.path,
+        module = owner.scope.name,
+        definition = (owner.node.kind == "localFuncStmt" and owner.node.name or owner.node.name.base).definition,
+        call = call,
+        callSignature = callSignature,
+        exportSignature = exportSignature,
+        object = call and call.obj or nil,
+        caller = caller,
+        callerNode = caller and caller.node,
+        callerBody = caller and caller.body,
+        callerScope = caller and caller.scope,
+        callerName = caller and caller.name,
+        fields = recordFields(contract),
+        parameters = recordFields(contract.params)
+    }
+    physical.validateSignature(contract)
+    for index, descriptor in ipairs(contract.params) do
+        if descriptor and descriptor.checkedType.tag == "affine" then
+            origins[descriptor].ownerSource = {signature = contract, parameter = index}
+        end
+    end
+    if contract.result and contract.result.checkedType.tag == "affine" and call then
+        origins[contract.result].ownerSource = {signature = contract, call = call, caller = caller}
+    end
+
+    return contract
+end
+
+function physical.validateSignature(contract: any): boolean
+    local held = need(signatures[contract], "unknown checked pointer signature")
+    need(getmetatable(contract) == nil, "issued physical record metatable changed")
+    local owner = held.owner
+    need(
+        contract.owner == owner
+        and contract.context == held.context
+        and contract.checkedSignature == held.checked
+        and owner.node == held.node
+        and owner.body == held.body
+        and owner.scope == held.scope
+        and owner.name == held.name
+        and owner.scope.path == held.path
+        and owner.scope.name == held.module,
+        "pointer signature owner/source changed"
+    )
+    local token = owner.node.kind == "localFuncStmt" and owner.node.name or owner.node.name.base
+    need(token.definition == held.definition, "pointer definition identity changed")
+    local expected = signatureShape(owner, held.context, held.serviceSignature)
+    need(
+        expected.checkedSignature == held.checked
+        and #contract.params == #expected.params
+        and contract.borrowing == expected.borrowing
+        and contract.dependent == expected.dependent,
+        "pointer signature changed"
+    )
+    for index, descriptor in ipairs(expected.params) do
+        need(
+            descriptor == false and contract.params[index] == false
+            or descriptor and contract.params[index] and physical.same(contract.params[index], descriptor),
+            "pointer parameter type changed"
+        )
+    end
+    for index in pairs(contract.params) do
+        need(
+            type(index) == "number" and index % 1 == 0 and index >= 1 and index <= #expected.params,
+            "pointer parameter index changed"
+        )
+    end
+    need(
+        expected.result == nil and contract.result == nil
+        or expected.result and contract.result and physical.same(contract.result, expected.result),
+        "pointer result type changed"
+    )
+    if held.call then
+        local call = held.call
+        if expected.borrowing then
+            local unit = require("nupp.compiler.vm.nativeunit")
+            need(held.caller and unit.contains(held.caller), "borrowed call requires sealed caller")
+            unit.call(held.caller, call, owner)
+        end
+        need(call.kind == "call" and call.obj == held.object, "pointer call expression changed")
+        local signature = call.obj.inferredType
+        while signature and (signature.tag == "const" or signature.tag == "literal") do
+            signature = signature.tag == "literal" and signature.base or signature.inner
+        end
+        if held.callSignature then
+            local actual, exported = require("nupp.compiler.vm.nativeunit").callSignature(held.caller, call, owner)
+            need(
+                actual == held.callSignature and exported == held.exportSignature and signature == actual,
+                "pointer call/export signature identity changed"
+            )
+            for _, candidate in ipairs({actual, exported}) do
+                need(
+                    candidate.tag == "func"
+                    and not candidate.foreign
+                    and not candidate.vararg
+                    and not candidate.yieldPack
+                    and not candidate.resumePack
+                    and candidate.paramPack
+                    and not candidate.paramPack.tail
+                    and not candidate.paramPack.alternatives
+                    and candidate.retPack
+                    and not candidate.retPack.tail
+                    and not candidate.retPack.alternatives
+                    and #candidate.params == #held.checked.params
+                    and #candidate.rets == #held.checked.rets
+                    and #candidate.paramPack.head == #candidate.params
+                    and #candidate.retPack.head == #candidate.rets
+                    and candidate.borrowsParam == held.checked.borrowsParam
+                    and candidate.borrowsResult == held.checked.borrowsResult,
+                    "pointer exported signature shape differs"
+                )
+                for index, value in ipairs(held.checked.params) do
+                    need(
+                        candidate.params[index] == value
+                        and candidate.paramPack.head[index] == value
+                        and candidate.paramModes[index] == held.checked.paramModes[index]
+                        and candidate.paramPack.modes[index] == held.checked.paramPack.modes[index],
+                        "pointer exported parameter differs"
+                    )
+                end
+                for index, value in ipairs(held.checked.rets) do
+                    need(
+                        candidate.rets[index] == value
+                        and candidate.retPack.head[index] == value
+                        and candidate.retPack.modes[index] == held.checked.retPack.modes[index],
+                        "pointer exported result differs"
+                    )
+                end
+            end
+        else
+            need(signature == held.checked, "pointer call checked signature differs: " .. owner.name)
+        end
+        need(
+            owner.resultType == nil
+            or call.inferredType == owner.resultType
+            or owner.resultType.tag == "nil" and call.inferredType == nil,
+            "pointer call checked result differs: " .. owner.name
+        )
+        local definition = call.obj.kind == "name" and call.obj.token.definition
+            or call.obj.kind == "dotIndex" and call.obj.name.definition
+        need(definition == held.definition, "pointer call checked declaration differs")
+        need(#call.args.exprs == #expected.params, "pointer call argument count differs")
+        for index, descriptor in ipairs(expected.params) do
+            local checked = held.checked.params[index]
+            if descriptor and call.args.exprs[index].kind == "nilExpr" then
+                local expression = call.args.exprs[index]
+                require("nupp.compiler.vm.nativeunit").occurrence(held.caller, expression)
+                need(
+                    expression.inferredType
+                    and expression.inferredType.tag == "nil"
+                    and descriptor.nullable
+                    and (
+                        #descriptor.ownership == 0
+                        or #descriptor.ownership == 1 and descriptor.ownership[1].tag == "borrowed"
+                    ),
+                    "literal nil requires an optional checked pointer parameter"
+                )
+            elseif descriptor then
+                local actual = physical.describe(held.context, call.args.exprs[index].inferredType)
+                -- This is the checked source relation, not the SSA argument
+                -- permission. An affine argument still needs its separately
+                -- issued borrowed view before NativeLeafCall can consume it.
+                local borrowedOwner = held.caller
+                    and held.callSignature
+                    and descriptor.checkedType.tag == "borrowed"
+                    and actual.checkedType.tag == "affine"
+                    and descriptor.checkedType.inner == actual.checkedType.inner
+                need(
+                    physical.argument(descriptor, actual) or borrowedOwner,
+                    "pointer call argument checked type differs"
+                )
+            elseif checked.tag == "voidptr" then
+                need(call.args.exprs[index].inferredType == checked, "pointer call argument checked type differs")
+            end
+        end
+    end
+    if contract.dependent then
+        need(physical.dependent(contract.result), "borrowed result dependency missing")
+        local dependency = origins[contract.result].dependency
+        if held.call then
+            require("nupp.compiler.vm.nativeunit").occurrence(held.caller, held.call)
+            need(dependency.node == held.call, "borrowed result belongs to another call")
+        else
+            need(
+                #dependency.keys == 1 and dependency.keys[1] == owner.parameterDefinitions[contract.dependent],
+                "borrowed result formal differs"
+            )
+        end
+    end
+    sameRecord(contract.params, held.parameters)
+    sameRecord(contract, held.fields)
+
+    return true
+end
+
+local function pointerShape(parameter: any, actual: any): boolean
+    return parameter.context == actual.context
+        and parameter.machineKind == "voidptr"
+        and actual.machineKind == "voidptr"
+        and parameter.pointee == actual.pointee
+        and parameter.declaration == actual.declaration
+        and (parameter.nullable or not actual.nullable)
+        and parameter.storageBytes == actual.storageBytes
+end
+
+function physical.argument(parameter: any, actual: any): boolean
+    physical.validate(parameter)
+    physical.validate(actual)
+    if #parameter.ownership == 0 then
+        return #actual.ownership == 0 and pointerShape(parameter, actual) and not physical.dependent(actual)
+    end
+    need(
+        #parameter.ownership == 1 and parameter.ownership[1].tag == "borrowed",
+        "unsupported pointer parameter capability"
+    )
+    local ownership = #actual.ownership == 0 or #actual.ownership == 1 and actual.ownership[1].tag == "borrowed"
+
+    return ownership and pointerShape(parameter, actual)
+end
+
+function physical.borrowingParameter(signature: any, index: integer): boolean
+    physical.validateSignature(signature)
+    local descriptor = signature.params[index]
+    return descriptor ~= nil
+        and descriptor ~= false
+        and #descriptor.ownership == 1
+        and descriptor.ownership[1].tag == "borrowed"
+end
+
+function physical.validateCall(signature: any, source: any): boolean
+    physical.validateSignature(signature)
+    local held = signatures[signature]
+    local caller = held.caller
+    need(
+        held.call
+        and caller
+        and caller.node == held.callerNode
+        and caller.body == held.callerBody
+        and caller.node.body == held.callerBody
+        and caller.scope == held.callerScope
+        and caller.name == held.callerName
+        and caller.scope.functions[caller.name] == caller,
+        "call-specific pointer signature required"
+    )
+    need(
+        source
+        and source.path == caller.scope.path
+        and source.module == caller.scope.name
+        and source.name == caller.name,
+        "pointer caller graph source differs"
+    )
+
+    return true
+end
+
+function physical.callArgument(signature: any, index: integer, node: any): boolean
+    physical.validateSignature(signature)
+    local held = signatures[signature]
+    return held.call ~= nil and held.call.args.exprs[index] == node and physical.borrowingParameter(signature, index)
+end
+
+local function localCallOrigin(signature: any, index: integer, descriptor: any): any
+    physical.validateSignature(signature)
+    local origin = physical.localOrigin(descriptor)
+    if not origin then
+        return nil
+    end
+    local held = signatures[signature]
+    need(held.call and held.caller and origin.owner == held.caller, "local pointer call belongs to another owner")
+    need(
+        signature.params[index] and pointerShape(signature.params[index], descriptor),
+        "local pointer call changes checked layout"
+    )
+    need(signature.result == nil and held.owner.resultKind ~= "voidptr", "local pointer call cannot return a pointer")
+
+    return origin
+end
+
+-- Record the actual local instance before emission. Verification may validate
+-- this association, but cannot mint a new scoped lifetime permission.
+function physical.bindLocalCall(signature: any, index: integer, descriptor: any): nil
+    local origin = localCallOrigin(signature, index, descriptor)
+    if not origin then
+        return
+    end
+    local held = signatures[signature]
+    held.localCalls = held.localCalls or {}
+    local saved = held.localCalls[index]
+    if saved then
+        need(saved.origin == origin, "local pointer call instance changed")
+        return
+    end
+    local scoped
+    if not physical.callArgument(signature, index, held.call.args.exprs[index]) then
+        need(
+            #signature.params[index].ownership == 0 and #descriptor.ownership == 0,
+            "local pointer requires borrowed or reviewed plain formal"
+        )
+        scoped = require("nupp.compiler.vm.nativeservice").scopedCall(held.caller, held.call, held.owner, index)
+    end
+    held.localCalls[index] = {origin = origin, scoped = scoped}
+end
+
+function physical.validateLocalCall(signature: any, index: integer, descriptor: any): boolean
+    local origin = localCallOrigin(signature, index, descriptor)
+    if not origin then
+        return true
+    end
+    local held = signatures[signature]
+    local saved = held.localCalls and held.localCalls[index]
+    need(saved and saved.origin == origin, "local pointer call instance changed")
+    if physical.callArgument(signature, index, held.call.args.exprs[index]) then
+        need(saved.scoped == nil, "borrowed local call permission changed")
+    else
+        require(
+            "nupp.compiler.vm.nativeservice"
+        ).validateScopedCall(saved.scoped, held.caller, held.call, held.owner, index)
+    end
+
+    return true
+end
+
+function physical.returnValue(signature: any, descriptor: any): boolean
+    physical.validateSignature(signature)
+    if signature.result == nil or descriptor == nil then
+        return signature.result == descriptor
+    end
+    local expected = signature.result
+    physical.validate(descriptor)
+
+    if #expected.ownership == 1 and expected.ownership[1].tag == "affine" then
+        -- A terminal-less takes binding is not the constructor's returned
+        -- obligation, even when both have the same pointer representation.
+        return physical.same(expected, descriptor)
+    end
+
+    return pointerShape(expected, descriptor)
+        and #expected.ownership == #descriptor.ownership
+        and sameDependency(origins[expected].dependency, origins[descriptor].dependency)
+end
+
+-- Raw pointer bits do not acquire a pointee, borrow or local lifetime by
+-- returning. Typed/nullable/qualified results still require their signature.
+function physical.rawReturn(descriptor: any): boolean
+    physical.validate(descriptor)
+    return descriptor.checkedType.tag == "voidptr"
+        and descriptor.storageType.tag == "voidptr"
+        and descriptor.machineKind == "voidptr"
+        and not descriptor.nullable
+        and descriptor.pointee == nil
+        and #descriptor.ownership == 0
+        and not physical.dependent(descriptor)
+        and not physical.localOrigin(descriptor)
+end
+
+function physical.callInput(signature: any, index: integer, descriptor: any, access: any?): boolean
+    physical.validateSignature(signature)
+    if signature.dependent ~= index then
+        return true
+    end
+    physical.validate(descriptor)
+    local dependency = origins[descriptor].dependency
+    if access and dependency == nil then
+        physical.validateField(access)
+        need(
+            access.storage == descriptor and physical.callArgument(signature, index, access.node),
+            "dependent call field source differs"
+        )
+        dependency = origins[access.receiver].dependency
+    end
+
+    return dependency ~= nil and sameDependency(dependency, origins[signature.result].dependency)
+end
+
+function physical.callResult(signature: any, descriptor: any): boolean
+    physical.validateSignature(signature)
+    if signature.result == nil or descriptor == nil then
+        return signature.result == descriptor
+    end
+
+    return signature.result == descriptor and physical.sameValue(signature.result, descriptor)
+end
+
+function physical.sameSignature(left: any, right: any): boolean
+    physical.validateSignature(left)
+    physical.validateSignature(right)
+    if left.owner ~= right.owner
+        or left.context ~= right.context
+        or left.checkedSignature ~= right.checkedSignature
+        or #left.params ~= #right.params
+    then
+        return false
+    end
+    for index, descriptor in ipairs(left.params) do
+        local other = right.params[index]
+        if descriptor == false and other ~= false
+            or descriptor and (not other or not physical.same(descriptor, other))
+        then
+            return false
+        end
+    end
+
+    return left.result == nil and right.result == nil
+        or left.result ~= nil and right.result ~= nil and physical.same(left.result, right.result)
+end
+
+function physical.cast(source: any, node: any, owner: any?): any
+    physical.validate(source)
+    need(source.machineKind == "voidptr" and not source.nullable, "pointer cast requires nonnullable source")
     need(node and node.kind == "castExpr" and node.expr, "checked pointer cast required")
     need(node.expr.inferredType == source.checkedType, "cast checked source differs")
     local target = physical.describe(source.context, node.inferredType)
-    plainPointer(target)
     need(
-        source.storageBytes == target.storageBytes and source.layout.alignment == target.layout.alignment,
-        "pointer representation differs"
+        target.machineKind == "voidptr" and #source.ownership == #target.ownership,
+        "pointer cast changes ownership or nullability"
     )
+    if #source.ownership ~= 0 then
+        require("nupp.compiler.vm.nativeunit").occurrence(owner, node)
+        need(
+            #source.ownership == 1
+            and source.ownership[1].tag == "borrowed"
+            and target.ownership[1].tag == "borrowed"
+            and physical.dependent(source),
+            "pointer cast loses borrowed source"
+        )
+        origins[target].dependency = rootSnapshot(node)
+        need(sameDependency(origins[source].dependency, origins[target].dependency), "cast borrow roots differ")
+    end
+    local localOwner = localOrigins[source]
+    if localOwner then
+        physical.validate(target)
+        need(
+            target.machineKind == "voidptr" and #target.ownership == 0 and not target.nullable,
+            "plain nonnullable pointer representation required"
+        )
+        physical.validateLocal(localOwner)
+        need(
+            target.storageType.tag == "ptr" and target.pointee == localOwner.checkedType,
+            "local address must retain exact struct pointee"
+        )
+        localOrigins[target] = localOwner
+    else
+        need(
+            source.storageBytes == target.storageBytes and source.layout.alignment == target.layout.alignment,
+            "pointer representation differs"
+        )
+    end
+    origins[target].field = origins[source].field
+    origins[target].transport = origins[source].transport
+    localOrigins[target] = localOrigins[source]
     local contract = {source = source, target = target, node = node}
     casts[
         contract
@@ -195,15 +1165,973 @@ function physical.cast(source: any, node: any): any
         target = target,
         node = node,
         expression = node.expr,
+        owner = owner,
         sourceType = node.expr.inferredType,
-        targetType = node.inferredType
+        targetType = node.inferredType,
+        fields = recordFields(contract)
     }
 
     return contract
 end
 
+-- Origins are created by a checked call-specific signature or an exact
+-- takes formal. Equal affine types cannot substitute one local owner for
+-- another. Binding retains the original descriptor and SSA cleanup value.
+local function acquiredOrigin(owner: any, source: any, expression: any): any
+    local origin = need(origins[source].ownerSource, "affine source lacks checked acquisition origin")
+    local signature = origin.signature
+    physical.validateSignature(signature)
+    local held = signatures[signature]
+    need(
+        origin.call == expression
+        and origin.caller == owner
+        and held.call == expression
+        and held.caller == owner
+        and signature.result
+        and physical.same(signature.result, source),
+        "affine acquisition source differs"
+    )
+    require("nupp.compiler.vm.nativeunit").occurrence(owner, expression)
+    need(expression.inferredType == source.checkedType, "affine acquisition checked type differs")
+
+    return origin
+end
+
+-- Validation only: every affine graph value retains an issued formal,
+-- acquisition or reviewed creation origin. Equal pointer types are insufficient.
+function physical.affineValue(owner: any, descriptor: any): boolean
+    physical.validate(descriptor)
+    if descriptor.checkedType.tag ~= "affine" then
+        return false
+    end
+    local origin = need(origins[descriptor].ownerSource, "affine graph value lacks ownership origin")
+    local service = serviceModule()
+    if origin.creation then
+        return service.validateArenaValue(origin.creation, owner, descriptor)
+    end
+    local signature = origin.signature
+    physical.validateSignature(signature)
+    local held = signatures[signature]
+    if origin.parameter then
+        need(
+            signature.owner == owner
+            and signature.params[origin.parameter]
+            and physical.sameValue(signature.params[origin.parameter], descriptor)
+            and service.arenaOwnership(held.serviceSignature, owner, origin.parameter) == descriptor.checkedType,
+            "affine parameter origin differs"
+        )
+    else
+        acquiredOrigin(owner, descriptor, origin.call)
+        need(
+            service.arenaOwnership(held.serviceSignature, signature.owner) == descriptor.checkedType,
+            "affine acquisition constructor differs"
+        )
+    end
+
+    return true
+end
+
+-- This is a source-identity query, not an owning-pointer conversion.
+function physical.arenaForward(owner: any, source: any, expression: any, signature: any): any
+    physical.validateSignature(signature)
+    need(signature.owner == owner, "Arena forwarding caller differs")
+    local expected = serviceModule().arenaOwnership(signatures[signature].serviceSignature, owner)
+    need(source.checkedType == expected, "Arena forwarding obligation differs")
+    local origin = acquiredOrigin(owner, source, expression)
+    local home = require("nupp.compiler.vm.nativeunit").ownerModule(owner, "nupp.runtime.vm.arena")
+    need(origin.signature.owner == home.functions.openWith, "Arena forwarding constructor differs")
+
+    return origin
+end
+
+function physical.sameArenaOwner(left: any, right: any): boolean
+    physical.validate(left)
+    physical.validate(right)
+    local origin = origins[left].ownerSource
+    return origin ~= nil and origin == origins[right].ownerSource and physical.same(left, right)
+end
+
+-- Preserve the exact existing checked dependency, including nullable
+-- success. The new SSA row is only an identity; it grants no new lifetime.
+function physical.dependentReturnView(owner: any, source: any, node: any, signature: any): any
+    physical.validateSignature(signature)
+    local held = signatures[signature]
+    need(signature.owner == owner and held.call == nil, "dependent return needs its definition signature")
+    serviceModule().dependentReturn(held.serviceSignature, owner)
+    require("nupp.compiler.vm.nativeunit").occurrence(owner, node)
+    need(
+        signature.dependent == 1
+        and source.machineKind == "voidptr"
+        and not localOrigins[source]
+        and physical.returnValue(signature, source),
+        "dependent return source lacks its exact backing dependency"
+    )
+    local target = physical.describe(source.context, source.checkedType)
+    carryOrigin(source, target)
+    -- The source may be a phi. Retain its origin union, not its private
+    -- destination flag: this descriptor belongs to a new operation result.
+    local contract = {source = source, target = target, node = node}
+    views[
+        contract
+    ] = {
+        mode = "dependentReturn",
+        owner = owner,
+        node = node,
+        checked = source.checkedType,
+        source = source,
+        target = target,
+        signature = signature,
+        fields = recordFields(contract)
+    }
+
+    return contract
+end
+
+-- The target's affine qualifier comes only from the closed service plan. A
+-- public cast or copied descriptor cannot mint the plan or a new obligation.
+function physical.arenaReturnView(owner: any, source: any, node: any, proof: any): any
+    physical.validate(source)
+    local checked = serviceModule().validateArenaReturn(proof, owner, source, node)
+    need(
+        source.machineKind == "voidptr"
+        and not source.nullable
+        and (source.checkedType == checked or source.checkedType == checked.inner)
+        and not localOrigins[source],
+        "Arena return source cannot create this obligation"
+    )
+    local target = physical.describe(source.context, checked)
+    origins[target].ownerSource = origins[source].ownerSource or {creation = proof}
+    local contract = {source = source, target = target, node = node}
+    views[
+        contract
+    ] = {
+        mode = "arenaReturn",
+        owner = owner,
+        node = node,
+        checked = checked,
+        proof = proof,
+        fields = recordFields(contract),
+        sourceType = source.checkedType,
+        source = source,
+        target = target,
+        origin = origins[target].ownerSource
+    }
+
+    return contract
+end
+
+function physical.arenaCleanupOperand(owner: any, source: any, expression: any, target: any): boolean
+    physical.validate(source)
+    physical.validateSignature(target)
+    local service = serviceModule()
+    local bound = service.arenaOwnership(signatures[target].serviceSignature, target.owner, 1)
+    local origin = acquiredOrigin(owner, source, expression)
+    local home = require("nupp.compiler.vm.nativeunit").ownerModule(owner, "nupp.runtime.vm.arena")
+    need(
+        target.owner == home.exports.close
+        and origin.signature.owner == home.functions.openWith
+        and source.checkedType.tag == "affine"
+        and source.checkedType.inner == bound.inner
+        and #source.checkedType.cleanups == 1
+        and source.checkedType.cleanups[1].functionType == target.owner.checkedSignature,
+        "Arena cleanup instance or exact terminal differs"
+    )
+
+    return true
+end
+
+-- Entry validation retains the signature's existing takes origin. A consumed
+-- formal is not a local acquisition and gains no automatic cleanup registration.
+function physical.takesEntry(owner: any, signature: any, source: any, node: any, key: any, value: integer): nil
+    physical.validateSignature(signature)
+    physical.validate(source)
+    local held = signatures[signature]
+    need(
+        signature.owner == owner
+        and held.call == nil
+        and held.serviceSignature ~= nil
+        and value >= 1
+        and value <= #owner.body.params
+        and owner.body.params[value] == node
+        and owner.parameterDefinitions[value] == key
+        and node.name.definition == key
+        and signature.params[value] == source
+        and owner.parameterModes[value] == "takes"
+        and key.type == source.checkedType,
+        "takes entry requires its exact checked parameter and SSA"
+    )
+    local origin = need(origins[source].ownerSource, "takes entry lacks issued parameter origin")
+    need(
+        origin.signature == signature
+        and origin.parameter == value
+        and origin.call == nil
+        and origin.binding == nil
+        and serviceModule().arenaOwnership(held.serviceSignature, owner, value) == source.checkedType,
+        "takes entry ownership origin differs"
+    )
+end
+
+function physical.bindOwner(owner: any, source: any, node: any, key: any): nil
+    require("nupp.compiler.vm.nativeunit").occurrence(owner, node)
+    need(node.kind == "localStmt", "owning assignment transfer is unsupported")
+    local cleanup = require("nupp.compiler.vm.functioncleanup")
+    local found
+    for index, token in ipairs(node.names) do
+        if token.definition == key then
+            local automatic = need(cleanup.localOwner(node, index), "checked automatic owner required")
+            need(automatic.type == source.checkedType, "automatic owner type differs")
+            local origin = acquiredOrigin(owner, source, automatic.expr)
+            need(origin.binding == nil or origin.binding == automatic, "affine acquisition already bound")
+            origin.binding = automatic
+            found = true
+        end
+    end
+    need(found, "owning local definition differs")
+end
+
+-- A use of an owning pointer borrows its checked binding; it does not move
+-- the source value or erase its cleanup obligation. The original descriptor
+-- remains affine. Only the new NativePointerView result has this projection.
+local function ownerEvidence(owner: any, source: any, node: any, signature: any?): any
+    local unit = require("nupp.compiler.vm.nativeunit")
+    local cleanup = require("nupp.compiler.vm.functioncleanup")
+    unit.occurrence(owner, node)
+    physical.validate(source)
+    need(
+        source.checkedType.tag == "affine"
+        and #source.ownership == 1
+        and source.ownership[1] == source.checkedType
+        and source.machineKind == "voidptr"
+        and not source.nullable
+        and source.checkedType.inner.tag == "ptr",
+        "owner view requires an exact nonnull affine pointer"
+    )
+    if node.kind == "withBinding" then
+        local acquired = cleanup.acquisition(node)
+        local origin = acquiredOrigin(owner, source, node.expr)
+        need(origin.binding == nil, "with acquisition is already a local owner")
+        need(acquired == source.checkedType and node.expr.inferredType == acquired, "with acquisition source differs")
+        local definition = node.name.definition
+        need(definition.token == node.name, "with binding definition differs")
+        return {mode = "with", definition = definition, record = node, sourceType = acquired}
+    end
+    need(
+        node.kind == "name" and node.token.definition and node.inferredType == source.checkedType,
+        "checked owning name required"
+    )
+    local definition = node.token.definition
+    need(definition.type == source.checkedType, "owning binding type differs")
+    for index, parameter in ipairs(owner.parameterDefinitions) do
+        if parameter == definition then
+            need(signature and signature.owner == owner, "takes view requires its issued signature")
+            physical.validateSignature(signature)
+            local held = signatures[signature]
+            local origin = need(origins[source].ownerSource, "takes source lacks issued parameter origin")
+            need(origin.signature == signature and origin.parameter == index, "takes source parameter differs")
+            need(held.serviceSignature ~= nil, "takes view requires private service capability")
+            need(
+                owner.parameterModes[index] == "takes" and signature.params[index].checkedType == source.checkedType,
+                "takes binding signature differs"
+            )
+            return {
+                mode = "takes",
+                definition = definition,
+                record = owner.body.params[index],
+                index = index,
+                sourceType = source.checkedType,
+                signature = signature
+            }
+        end
+    end
+    for _, stat in ipairs(unit.occurrences(owner)) do
+        if stat.kind == "localStmt" then
+            for index, token in ipairs(stat.names) do
+                if token.definition == definition then
+                    local automatic = need(cleanup.localOwner(stat, index), "checked automatic owner required")
+                    need(automatic.type == source.checkedType, "automatic owner type differs")
+                    local origin = acquiredOrigin(owner, source, automatic.expr)
+                    need(origin.binding == automatic, "owning local source differs")
+                    return {
+                        mode = "local",
+                        definition = definition,
+                        record = automatic,
+                        stat = stat,
+                        index = index,
+                        sourceType = source.checkedType
+                    }
+                end
+            end
+        end
+    end
+    error("native physical: owner occurrence lacks checked acquisition", 0)
+end
+
+function physical.ownerView(owner: any, source: any, node: any, signature: any?): any
+    local evidence = ownerEvidence(owner, source, node, signature)
+    local checked = require("nupp.compiler.types").borrowed(source.checkedType.inner)
+    if evidence.mode == "with" then
+        need(evidence.definition.type == checked, "with borrowed binding type differs")
+    end
+    local target = physical.describe(source.context, checked)
+    carryOrigin(source, target)
+    origins[target].dependency = {keys = {evidence.definition}}
+    local contract = {source = source, target = target, node = node}
+    views[
+        contract
+    ] = {
+        mode = "owner",
+        owner = owner,
+        node = node,
+        checked = checked,
+        sourceType = source.checkedType,
+        evidence = evidence,
+        signature = signature,
+        fields = recordFields(contract)
+    }
+    origins[target].ownerBorrow = contract
+
+    return contract
+end
+
+-- Only a checked borrowing call operand gets a projection. Takes operands
+-- still use the affine source and fail at their separate unimplemented gate.
+function physical.ownerArgument(signature: any, index: integer, source: any, callerSignature: any?): any
+    physical.validateSignature(signature)
+    local held = signatures[signature]
+    need(
+        held.call and held.caller and physical.borrowingParameter(signature, index),
+        "owner argument requires exact checked borrowing call"
+    )
+    local node = held.call.args.exprs[index]
+    local contract = physical.ownerView(held.caller, source, node, callerSignature)
+    views[contract].callSignature, views[contract].argument = signature, index
+    need(physical.argument(signature.params[index], contract.target), "owner argument pointee differs")
+
+    return contract
+end
+
+local function ownerReceiver(receiver: any, node: any): any
+    local contract = origins[receiver].ownerBorrow
+    if not contract then
+        return nil
+    end
+    physical.validateCast(contract)
+    local view = views[contract]
+    require("nupp.compiler.vm.nativeunit").occurrence(view.owner, node)
+    need(node.kind == "name" and node.token.definition == view.evidence.definition, "owner receiver definition differs")
+    need(
+        node.inferredType == view.sourceType or node.inferredType == view.checked,
+        "owner receiver checked type differs"
+    )
+    if node.capabilityFacts and node.capabilityFacts.roots then
+        need(sameDependency(origins[receiver].dependency, rootSnapshot(node)), "owner receiver roots differ")
+    end
+    need(
+        physical.same(receiver, contract.target)
+        and sameDependency(origins[receiver].dependency, origins[contract.target].dependency),
+        "owner receiver projection differs"
+    )
+
+    return view.owner
+end
+
+-- Refined/nil/borrow views are issued from checked occurrences. The graph
+-- separately verifies the actual null predicate or zero input before use.
+function physical.occurrence(owner: any, source: any, node: any): any
+    local unit = require("nupp.compiler.vm.nativeunit")
+    unit.occurrence(owner, node)
+    physical.validate(source)
+    local target = physical.describe(source.context, node.inferredType)
+    need(
+        node.kind == "name"
+        and node.token.definition
+        and source.nullable
+        and not target.nullable
+        and target.machineKind == "voidptr"
+        and source.pointee == target.pointee
+        and #source.ownership == #target.ownership,
+        "checked nonnull pointer occurrence required"
+    )
+    local dependency = origins[source].dependency
+    if dependency then
+        if node.capabilityFacts and node.capabilityFacts.roots then
+            origins[target].dependency = rootSnapshot(node)
+            need(sameDependency(dependency, origins[target].dependency), "refined borrow roots differ")
+        else
+            need(
+                #dependency.keys == 1 and dependency.keys[1] == node.token.definition,
+                "refined formal borrow identity differs"
+            )
+            origins[target].dependency = dependency
+        end
+    end
+    origins[target].field = origins[source].field
+    origins[target].transport = origins[source].transport
+    origins[target].ownerBorrow = origins[source].ownerBorrow
+    origins[target].ownerSource = origins[source].ownerSource
+    localOrigins[target] = localOrigins[source]
+    local contract = {source = source, target = target, node = node}
+    views[
+        contract
+    ] = {
+        mode = "nonnull",
+        owner = owner,
+        node = node,
+        checked = node.inferredType,
+        definition = node.token.definition,
+        fields = recordFields(contract)
+    }
+
+    return contract
+end
+
+-- Context comes only from an authenticated checked call or return site.
+-- The existing nil-view graph rule additionally requires actual zero bits.
+function physical.nilArgument(signature: any, index: integer): any
+    physical.validateSignature(signature)
+    local held = signatures[signature]
+    local node = held.call and held.call.args.exprs[index]
+    if not node or node.kind ~= "nilExpr" then
+        return nil
+    end
+    local formal = signature.params[index]
+    need(formal and formal.nullable, "literal nil requires an optional pointer formal")
+    local unit = require("nupp.compiler.vm.nativeunit")
+    unit.occurrence(held.caller, held.call)
+    unit.occurrence(held.caller, node)
+    local target = physical.describe(held.context, held.checked.params[index])
+    need(
+        node.inferredType
+        and node.inferredType.tag == "nil"
+        and target.nullable
+        and #target.ownership == 0
+        and physical.argument(formal, target),
+        "contextual nil argument type differs"
+    )
+    local contract = {target = target, node = node}
+    views[
+        contract
+    ] = {
+        mode = "nil",
+        contextual = "argument",
+        owner = held.caller,
+        signature = signature,
+        index = index,
+        site = held.call,
+        node = node,
+        expression = node,
+        nilType = node.inferredType,
+        checked = target.checkedType,
+        fields = recordFields(contract)
+    }
+
+    return contract
+end
+
+function physical.nilReturn(signature: any, owner: any, statement: any): any
+    physical.validateSignature(signature)
+    local held = signatures[signature]
+    need(
+        held.owner == owner and held.call == nil and statement.kind == "returnStmt" and #statement.exprs == 1,
+        "contextual nil return owner or statement differs"
+    )
+    local node = statement.exprs[1]
+    local unit = require("nupp.compiler.vm.nativeunit")
+    unit.occurrence(owner, statement)
+    unit.occurrence(owner, node)
+    local target = physical.describe(held.context, held.checked.rets[1])
+    need(
+        node.kind == "nilExpr"
+        and node.inferredType
+        and node.inferredType.tag == "nil"
+        and target.nullable
+        and #target.ownership == 0
+        and physical.returnValue(signature, target),
+        "contextual nil return requires a plain optional pointer result"
+    )
+    local contract = {target = target, node = node}
+    views[
+        contract
+    ] = {
+        mode = "nil",
+        contextual = "return",
+        owner = owner,
+        signature = signature,
+        site = statement,
+        node = node,
+        expression = node,
+        nilType = node.inferredType,
+        checked = target.checkedType,
+        fields = recordFields(contract)
+    }
+
+    return contract
+end
+
+function physical.nilView(owner: any, context: any, node: any): any
+    local unit = require("nupp.compiler.vm.nativeunit")
+    unit.occurrence(owner, node)
+    need(node.kind == "castExpr" and node.expr.kind == "nilExpr", "checked typed nil cast required")
+    local target = physical.describe(context, node.inferredType)
+    need(
+        target.machineKind == "voidptr" and target.nullable and #target.ownership == 0,
+        "typed nil requires optional plain pointer"
+    )
+    local contract = {target = target, node = node}
+    views[
+        contract
+    ] = {
+        mode = "nil",
+        owner = owner,
+        node = node,
+        expression = node.expr,
+        checked = node.inferredType,
+        fields = recordFields(contract)
+    }
+
+    return contract
+end
+
+function physical.borrowView(owner: any, source: any, node: any): any
+    local unit = require("nupp.compiler.vm.nativeunit")
+    unit.occurrence(owner, node)
+    need(
+        node.kind == "call"
+        and node.ownershipIntrinsic == "borrowFrom"
+        and #node.args.exprs == 2
+        and node.args.exprs[2].kind == "name",
+        "checked borrowFrom occurrence required"
+    )
+    physical.validate(source)
+    local target = physical.describe(source.context, node.inferredType)
+    need(
+        #source.ownership == 0
+        and #target.ownership == 1
+        and target.ownership[1].tag == "borrowed"
+        and source.machineKind == "voidptr"
+        and source.storageType == target.storageType,
+        "borrowFrom representation differs"
+    )
+    origins[target].dependency = rootSnapshot(node)
+    local root = node.args.exprs[2].token.definition
+    need(
+        #origins[target].dependency.keys == 1 and origins[target].dependency.keys[1] == root,
+        "borrowFrom root differs from checked source"
+    )
+    origins[target].field = origins[source].field
+    origins[target].transport = origins[source].transport
+    localOrigins[target] = localOrigins[source]
+    local contract = {source = source, target = target, node = node}
+    views[
+        contract
+    ] = {
+        mode = "borrow",
+        owner = owner,
+        node = node,
+        expression = node.args.exprs[1],
+        root = node.args.exprs[2],
+        definition = root,
+        checked = node.inferredType,
+        fields = recordFields(contract)
+    }
+
+    return contract
+end
+
+-- Address extraction is an existing checked intrinsic. It exposes scalar bits,
+-- never a new pointer capability; source ownership and roots remain immutable.
+function physical.address(owner: any, source: any, node: any): any
+    require("nupp.compiler.vm.nativeunit").occurrence(owner, node)
+    physical.validate(source)
+    local callee = node.obj
+    local signature = callee and callee.inferredType
+    need(
+        node.kind == "call"
+        and callee
+        and callee.kind == "dotIndex"
+        and callee.obj.kind == "name"
+        and callee.obj.token.definition
+        and callee.obj.token.definition.requiredModule == "nupp.runtime.vm.intrinsics"
+        and callee.name.text == "address"
+        and callee.name.definition
+        and signature
+        and signature.tag == "func"
+        and #signature.params == 1
+        and signature.params[1].tag == "voidptr"
+        and #signature.rets == 1
+        and signature.rets[1].tag == "uint64"
+        and #node.args.exprs == 1
+        and node.unsafeOwnershipOperation == "borrowed pointer passed to a plain parameter",
+        "checked address intrinsic required"
+    )
+    need(
+        source.machineKind == "voidptr"
+        and not source.nullable
+        and #source.ownership == 1
+        and source.ownership[1].tag == "borrowed"
+        and physical.dependent(source)
+        and node.args.exprs[1].inferredType == source.checkedType,
+        "address requires exact nonnullable borrowed source"
+    )
+    local target = physical.describe(source.context, node.inferredType)
+    need(target.machineKind == "uint64" and #target.ownership == 0, "address result must be scalar")
+    local contract = {source = source, target = target, node = node}
+    views[
+        contract
+    ] = {
+        mode = "address",
+        owner = owner,
+        node = node,
+        checked = node.inferredType,
+        expression = node.args.exprs[1],
+        callee = callee,
+        definition = callee.name.definition,
+        moduleDefinition = callee.obj.token.definition,
+        signature = signature,
+        parameter = signature.params[1],
+        result = signature.rets[1],
+        params = signature.params,
+        rets = signature.rets,
+        fields = recordFields(contract)
+    }
+
+    return contract
+end
+
+function physical.borrowArgument(contract: any, descriptor: any): boolean
+    physical.validateCast(contract)
+    local held = views[contract]
+    need(held and held.mode == "borrow", "borrow view required")
+    physical.validate(descriptor)
+
+    return descriptor.context == contract.target.context
+        and sameDependency(origins[descriptor].dependency, origins[contract.target].dependency)
+end
+
+function physical.viewKind(contract: any): string?
+    local held = views[contract]
+    return held and held.mode or nil
+end
+
+-- Run only after the ordinary graph verifier has established SSA and edges.
+-- Work backwards through actual edges, translating phi arguments and retaining
+-- branch truth constraints. This recognizes short-circuit null guards without
+-- recreating the checker's syntax analysis. Unproved cyclic paths refuse.
+function physical.verifyViews(g: any): nil
+    local definitions, predecessors = {}, {}
+    for index, block in ipairs(g.blocks) do
+        predecessors[index] = predecessors[index] or {}
+        for at, op in ipairs(block.op) do
+            if block.dst[at] ~= 0 then
+                definitions[block.dst[at]] = {op = op, args = block.args[at]}
+            end
+        end
+        for edgeIndex, edge in ipairs(block.term.edges) do
+            predecessors[edge.target] = predecessors[edge.target] or {}
+            table.insert(predecessors[edge.target], {source = index, edge = edge, index = edgeIndex})
+        end
+    end
+
+    local function zero(value: integer): boolean
+        local d = definitions[value]
+        if not d or d.op ~= "NativePointer" then
+            return false
+        end
+        local bits = definitions[d.args[1]]
+
+        return bits ~= nil and bits.op == "NativeConstant" and bits.args[1] == "0"
+    end
+
+    local function guarded(start: integer, pointer: integer): boolean
+        local active, work = {}, 0
+        local visit: function(integer, integer, any): boolean
+        visit = function(index, value, facts)
+            work = work + 1
+            need(work <= 100000, "nonnull proof work limit exceeded")
+            local block = g.blocks[index]
+            for condition, truth in pairs(facts) do
+                local d = definitions[condition]
+                if d and d.op == "NativeBoolean" and d.args[1] ~= truth then
+                    return true
+                end
+                if d and d.op == "NativeICmp" and (d.args[3] == "==" or d.args[3] == "~=") then
+                    local compared = d.args[1] == value and zero(d.args[2]) or d.args[2] == value and zero(d.args[1])
+                    if compared and (d.args[3] == "~=") == truth then
+                        return true
+                    end
+                end
+            end
+            if index == 1 or active[index] or #predecessors[index] == 0 then
+                return false
+            end
+            active[index] = true
+            for _, incoming in ipairs(predecessors[index]) do
+                local replaced = {}
+                for at, parameter in ipairs(block.params) do
+                    replaced[parameter] = incoming.edge.args[at]
+                end
+                local prior, possible = {}, true
+                for condition, truth in pairs(facts) do
+                    local key = replaced[condition] or condition
+                    if prior[key] ~= nil and prior[key] ~= truth then
+                        possible = false
+                    end
+                    prior[key] = truth
+                end
+                local term = g.blocks[incoming.source].term
+                if term.kind == "branch" then
+                    local truth = incoming.index == 1
+                    if prior[term.value] ~= nil and prior[term.value] ~= truth then
+                        possible = false
+                    end
+                    prior[term.value] = truth
+                end
+                if possible and not visit(incoming.source, replaced[value] or value, prior) then
+                    active[index] = nil
+                    return false
+                end
+            end
+            active[index] = nil
+
+            return true
+        end
+
+        return visit(start, pointer, {})
+    end
+
+    for index, block in ipairs(g.blocks) do
+        for at, op in ipairs(block.op) do
+            if op == "NativeStore" and block.args[at][4].retention then
+                local args = block.args[at]
+                if physical.nilStore(args[4].retention) then
+                    need(zero(args[3]), "nil field store requires actual zero input")
+                end
+            elseif op == "NativePointerView" then
+                local args = block.args[at]
+                local mode = physical.viewKind(args[2])
+                if mode == "nil" then
+                    need(zero(args[1]), "typed nil view requires actual zero input")
+                elseif mode == "nonnull" then
+                    need(guarded(index, args[1]), "nonnull occurrence lacks graph null guard")
+                end
+            end
+        end
+    end
+end
+
+function physical.validateViewOwner(contract: any, source: any): nil
+    local held = views[contract] or casts[contract]
+    if held and held.owner then
+        local owner = held.owner
+        need(
+            source
+            and source.path == owner.scope.path
+            and source.module == owner.scope.name
+            and source.name == owner.name,
+            "pointer occurrence graph owner differs"
+        )
+    end
+end
+
 function physical.validateCast(contract: any): boolean
+    local view = views[contract]
+    if view then
+        require("nupp.compiler.vm.nativeunit").occurrence(view.owner, view.node)
+        sameRecord(contract, view.fields)
+        need(
+            view.node == contract.node
+            and (
+                view.mode == "binding"
+                or view.mode == "owner"
+                or view.mode == "arenaReturn"
+                or view.mode == "dependentReturn"
+                or view.mode == "nil" and view.contextual ~= nil
+                or view.node.inferredType == view.checked
+            )
+            and contract.target.checkedType == view.checked,
+            "pointer occurrence type changed"
+        )
+        physical.validate(contract.target)
+        if contract.source then
+            physical.validate(contract.source)
+        end
+        if view.mode == "dependentReturn" then
+            physical.validateSignature(view.signature)
+            local held = signatures[view.signature]
+            serviceModule().dependentReturn(held.serviceSignature, view.owner)
+            need(
+                view.signature.owner == view.owner
+                and held.call == nil
+                and contract.source == view.source
+                and contract.target == view.target
+                and view.source ~= view.target
+                and physical.sameValue(view.source, view.target)
+                and origins[view.target].dependency == origins[view.source].dependency
+                and origins[view.target].transport == origins[view.source].transport
+                and origins[view.target].phi == nil
+                and not localOrigins[view.source]
+                and not localOrigins[view.target]
+                and physical.returnValue(view.signature, view.source),
+                "dependent return identity or backing changed"
+            )
+        elseif view.mode == "arenaReturn" then
+            local checked = serviceModule().validateArenaReturn(view.proof, view.owner, contract.source, view.node)
+            need(
+                contract.source == view.source
+                and contract.target == view.target
+                and checked == view.checked
+                and contract.source.checkedType == view.sourceType
+                and contract.target.context == contract.source.context
+                and contract.target.pointee == contract.source.pointee
+                and origins[contract.target].ownerSource == view.origin,
+                "Arena return ownership view changed"
+            )
+        elseif view.mode == "owner" then
+            local evidence = ownerEvidence(view.owner, contract.source, view.node, view.signature)
+            if view.callSignature then
+                physical.validateSignature(view.callSignature)
+                local call = signatures[view.callSignature]
+                need(
+                    call.caller == view.owner
+                    and call.call.args.exprs[view.argument] == view.node
+                    and physical.borrowingParameter(view.callSignature, view.argument)
+                    and physical.argument(view.callSignature.params[view.argument], contract.target),
+                    "owning borrowed call occurrence differs"
+                )
+            end
+            sameRecord(evidence, view.evidence)
+            need(
+                contract.source.checkedType == view.sourceType
+                and view.checked == require("nupp.compiler.types").borrowed(view.sourceType.inner)
+                and contract.target.context == contract.source.context
+                and contract.target.pointee == contract.source.pointee
+                and origins[contract.target].ownerBorrow == contract
+                and #origins[contract.target].dependency.keys == 1
+                and origins[contract.target].dependency.keys[1] == evidence.definition,
+                "owner projection changed"
+            )
+            if evidence.mode == "with" then
+                need(evidence.definition.type == view.checked, "with borrowed binding changed")
+            end
+        elseif view.mode == "binding" then
+            need(
+                bindingExpression(view.owner, view.node, view.definition, view.sourceType) == view.expression
+                and view.definition.type == view.checked
+                and view.expression.inferredType == view.sourceType
+                and contract.source.checkedType == view.sourceType
+                and widening(contract.source, contract.target)
+                and sameDependency(origins[contract.source].dependency, origins[contract.target].dependency)
+                and localOrigins[contract.source] == localOrigins[contract.target]
+                and origins[contract.source].transport == origins[contract.target].transport,
+                "optional binding occurrence changed"
+            )
+        elseif view.mode == "nonnull" then
+            need(
+                view.node.kind == "name"
+                and view.node.token.definition == view.definition
+                and contract.source.nullable
+                and not contract.target.nullable
+                and contract.source.pointee == contract.target.pointee
+                and sameDependency(origins[contract.source].dependency, origins[contract.target].dependency)
+                and localOrigins[contract.source] == localOrigins[contract.target]
+                and origins[contract.source].transport == origins[contract.target].transport,
+                "nonnull occurrence changed"
+            )
+        elseif view.mode == "nil" then
+            if view.contextual then
+                physical.validateSignature(view.signature)
+                local held = signatures[view.signature]
+                require("nupp.compiler.vm.nativeunit").occurrence(view.owner, view.site)
+                need(
+                    view.node == view.expression
+                    and view.node.kind == "nilExpr"
+                    and view.node.inferredType == view.nilType
+                    and view.nilType.tag == "nil"
+                    and contract.target.nullable
+                    and #contract.target.ownership == 0,
+                    "contextual nil occurrence changed"
+                )
+                if view.contextual == "argument" then
+                    need(
+                        held.caller == view.owner
+                        and held.call == view.site
+                        and held.call.args.exprs[view.index] == view.node
+                        and held.checked.params[view.index] == view.checked
+                        and physical.argument(view.signature.params[view.index], contract.target),
+                        "contextual nil call binding changed"
+                    )
+                else
+                    need(
+                        view.contextual == "return"
+                        and held.owner == view.owner
+                        and held.call == nil
+                        and view.site.kind == "returnStmt"
+                        and #view.site.exprs == 1
+                        and view.site.exprs[1] == view.node
+                        and held.checked.rets[1] == view.checked
+                        and physical.returnValue(view.signature, contract.target),
+                        "contextual nil return binding changed"
+                    )
+                end
+            else
+                need(
+                    view.node.kind == "castExpr"
+                    and view.node.expr == view.expression
+                    and view.expression.kind == "nilExpr"
+                    and contract.target.nullable,
+                    "typed nil occurrence changed"
+                )
+            end
+        elseif view.mode == "address" then
+            need(
+                view.node.obj == view.callee
+                and view.node.unsafeOwnershipOperation == "borrowed pointer passed to a plain parameter"
+                and view.callee.inferredType == view.signature
+                and view.callee.name.definition == view.definition
+                and view.callee.name.text == "address"
+                and view.callee.obj.token.definition == view.moduleDefinition
+                and view.moduleDefinition.requiredModule == "nupp.runtime.vm.intrinsics"
+                and view.signature.params == view.params
+                and view.signature.rets == view.rets
+                and #view.params == 1
+                and #view.rets == 1
+                and view.params[1] == view.parameter
+                and view.rets[1] == view.result
+                and view.parameter.tag == "voidptr"
+                and view.result.tag == "uint64"
+                and view.node.args.exprs[1] == view.expression
+                and #view.node.args.exprs == 1
+                and view.expression.inferredType == contract.source.checkedType
+                and not contract.source.nullable
+                and #contract.source.ownership == 1
+                and contract.source.ownership[1].tag == "borrowed"
+                and physical.dependent(contract.source)
+                and contract.target.machineKind == "uint64",
+                "borrowed address occurrence changed"
+            )
+        else
+            need(
+                view.mode == "borrow"
+                and view.node.ownershipIntrinsic == "borrowFrom"
+                and view.node.args.exprs[1] == view.expression
+                and view.node.args.exprs[2] == view.root
+                and view.root.token.definition == view.definition
+                and view.expression.inferredType == contract.source.checkedType
+                and #contract.source.ownership == 0
+                and #contract.target.ownership == 1
+                and contract.target.ownership[1].tag == "borrowed"
+                and contract.source.storageType == contract.target.storageType,
+                "borrowFrom occurrence changed"
+            )
+            need(physical.dependent(contract.target), "borrowFrom dependency missing")
+        end
+        return true
+    end
     local held = need(casts[contract], "unknown checked pointer cast")
+    if #contract.source.ownership ~= 0 then
+        require("nupp.compiler.vm.nativeunit").occurrence(held.owner, held.node)
+    end
+    need(getmetatable(contract) == nil, "issued physical record metatable changed")
     need(
         contract.source == held.source and contract.target == held.target and contract.node == held.node,
         "pointer cast identity changed"
@@ -215,29 +2143,94 @@ function physical.validateCast(contract: any): boolean
         and held.node.inferredType == held.targetType,
         "pointer cast checked types changed"
     )
-    plainPointer(contract.source)
-    plainPointer(contract.target)
+    physical.validate(contract.source)
+    physical.validate(contract.target)
+    need(
+        not contract.source.nullable
+        and #contract.source.ownership == #contract.target.ownership
+        and sameDependency(origins[contract.source].dependency, origins[contract.target].dependency),
+        "pointer cast capability changed"
+    )
     need(
         contract.source.checkedType == held.sourceType
         and contract.target.checkedType == held.targetType
         and contract.source.context == contract.target.context
-        and contract.source.storageBytes == contract.target.storageBytes
-        and contract.source.layout.alignment == contract.target.layout.alignment,
+        and (
+            localOrigins[contract.source] ~= nil
+            or contract.source.storageBytes == contract.target.storageBytes
+            and contract.source.layout.alignment == contract.target.layout.alignment
+        ),
         "pointer cast representation changed"
     )
+
+    local localOwner = localOrigins[contract.source]
+    if localOwner then
+        physical.validateLocal(localOwner)
+        need(
+            localOrigins[contract.target] == localOwner
+            and contract.target.storageType.tag == "ptr"
+            and contract.target.pointee == localOwner.checkedType,
+            "local address origin changed"
+        )
+    end
+    sameRecord(contract, held.fields)
 
     return true
 end
 
-local function fieldContract(receiver: any, node: any, write: boolean): any
+local function fieldContract(receiver: any, node: any, write: boolean, signature: any?): any
     physical.validate(receiver)
-    need(#receiver.ownership == 0, "qualified access requires a lifetime permission proof")
+    local borrowed = #receiver.ownership ~= 0
+    local projected = borrowed and ownerReceiver(receiver, node.obj) or nil
+    if projected then
+        require("nupp.compiler.vm.nativeunit").occurrence(projected, node)
+        if signature then
+            physical.validateSignature(signature)
+            need(signature.owner == projected, "owner receiver signature differs")
+        end
+    elseif borrowed then
+        need(signature ~= nil, "qualified access requires checked owner")
+        physical.validateSignature(signature)
+        local owner = signature.owner
+        require("nupp.compiler.vm.nativeunit").occurrence(owner, node)
+        need(
+            node.obj and node.obj.kind == "name" and physical.dependent(receiver),
+            "borrowed field requires checked rooted receiver"
+        )
+        local dependency = origins[receiver].dependency
+        if node.obj.capabilityFacts and node.obj.capabilityFacts.roots then
+            need(sameDependency(dependency, rootSnapshot(node.obj)), "borrowed receiver roots differ")
+        else
+            local parameter = nil
+            for index, definition in ipairs(owner.parameterDefinitions) do
+                if node.obj.token.definition == definition then
+                    parameter = index
+                end
+            end
+            need(
+                parameter
+                and physical.borrowingParameter(signature, parameter)
+                and pointerShape(signature.params[parameter], receiver)
+                and sameDependency(dependency, origins[signature.params[parameter]].dependency),
+                "borrowed receiver owner differs"
+            )
+        end
+    end
     need(not receiver.nullable, "nullable access requires a checked nonnull refinement")
     local owner = receiver.pointee
     need(owner and owner.tag == "nominal" and owner.declKind == "struct", "typed struct pointer required")
     need(node and node.kind == "dotIndex" and node.obj and node.name, "checked direct field access required")
-    need(node.obj.inferredType == receiver.checkedType, "receiver checked type differs")
-    need(node.unsafeOwnershipOperation == "raw pointer dereference", "checked unsafe pointer access required")
+    need(projected or node.obj.inferredType == receiver.checkedType, "receiver checked type differs")
+    if borrowed then
+        need(node.unsafeOwnershipOperation == nil, "borrowed access cannot use unsafe ownership escape")
+    else
+        need(
+            node.unsafeOwnershipOperation == "raw pointer dereference",
+            "checked unsafe pointer access required: " .. node.name.text .. " write=" .. tostring(
+                write
+            ) .. " marker=" .. tostring(node.unsafeOwnershipOperation)
+        )
+    end
     need((node.assignmentTarget == true) == write, "read/write access differs")
     if write then
         need(node.fixedWidthPhysicalStore == true, "checked physical store required")
@@ -269,6 +2262,7 @@ local function fieldContract(receiver: any, node: any, write: boolean): any
     return {
         receiver = receiver,
         node = node,
+        borrowSignature = borrowed and signature or nil,
         declaration = declaration,
         name = name,
         storage = described,
@@ -282,31 +2276,73 @@ local function fieldContract(receiver: any, node: any, write: boolean): any
     }
 end
 
-function physical.field(receiver: any, node: any, write: boolean): any
-    local access = fieldContract(receiver, node, write)
+function physical.field(receiver: any, node: any, write: boolean, signature: any?, owner: any?): any
+    local access = fieldContract(receiver, node, write, signature)
+    local sourceOwner = owner or signature and signature.owner
+    if access.storage.machineKind == "voidptr" then
+        require("nupp.compiler.vm.nativeunit").occurrence(sourceOwner, node)
+        origins[access.storage].field = access
+    end
     accesses[
         access
     ] = {
         receiver = receiver,
         node = node,
+        owner = sourceOwner,
         object = node.obj,
         token = node.name,
         write = write,
+        signature = signature,
+        receiverRoots = #receiver.ownership ~= 0
+        and node.obj.capabilityFacts
+        and node.obj.capabilityFacts.roots
+        and rootSnapshot(node.obj)
+        or nil,
         name = access.name,
-        declaration = access.declaration
+        declaration = access.declaration,
+        fields = recordFields(access)
     }
 
     return access
 end
 
+-- A staged LHS keeps its original checked field permission. Resuming it
+-- through a phi needs a new exact receiver contract, not same-type authority.
+-- verifyTransport checks the actual incoming SSA paths after the CFG closes.
+function physical.rebindField(g: any, access: any, receiver: any): any
+    physical.validateField(access)
+    if receiver == access.receiver then
+        return access
+    end
+    need(
+        access.write and receiver and compatibleTransport(access.receiver, receiver),
+        "physical store receiver identity differs"
+    )
+    local origin = origins[receiver]
+    need(origin.phi and origin.transport.graph[1] == g, "physical store receiver lacks held transport")
+    local held = accesses[access]
+    local rebound = physical.field(receiver, held.node, held.write, held.signature, held.owner)
+    accesses[rebound].transport = {graph = setmetatable({g}, {__mode = "v"}), source = access}
+
+    return rebound
+end
+
 function physical.validateField(access: any): boolean
     local held = need(accesses[access], "unknown physical field contract")
+    if access.storage.machineKind == "voidptr" then
+        require("nupp.compiler.vm.nativeunit").occurrence(held.owner, held.node)
+    end
+    need(getmetatable(access) == nil, "issued physical record metatable changed")
     need(held.node.obj == held.object and held.node.name == held.token, "checked field expression identity changed")
-    local expected = fieldContract(held.receiver, held.node, held.write)
+    if held.receiverRoots then
+        validateRoots(held.receiverRoots)
+    end
+    local expected = fieldContract(held.receiver, held.node, held.write, held.signature)
     need(expected.name == held.name and expected.declaration == held.declaration, "checked member identity changed")
     for _, key in ipairs({
         "receiver",
         "node",
+        "borrowSignature",
         "declaration",
         "name",
         "valueType",
@@ -320,8 +2356,403 @@ function physical.validateField(access: any): boolean
     end
     need(physical.same(access.storage, expected.storage), "field storage type changed")
     need(sameLayout(access.layout, expected.layout), "field layout changed")
+    sameRecord(access, held.fields)
+    if held.transport then
+        local source = held.transport.source
+        physical.validateField(source)
+        need(
+            held.transport.graph[1] ~= nil
+            and source.node == access.node
+            and source.write
+            and access.write
+            and compatibleTransport(source.receiver, access.receiver),
+            "captured field source differs"
+        )
+    end
 
     return true
+end
+
+-- Fixed scalar locals are private helper-arena storage, never heap objects.
+-- Checked CST/type objects are immutable borrows from the issuing compilation.
+local function localRecipe(owner: any, context: any, node: any): any
+    need(
+        owner
+        and owner.node
+        and owner.node.body == owner.body
+        and owner.scope.functions[owner.name] == owner
+        and owner.checkedSignature == owner.body.signatureType,
+        "local construction requires exact checked owner"
+    )
+    need(node and node.kind == "newExpr" and node.call and node.call.isNew == true, "checked new expression required")
+    local call, checked = node.call, node.inferredType
+    need(
+        checked
+        and checked.tag == "nominal"
+        and checked.declKind == "struct"
+        and call.inferredType == checked
+        and call.structConstruct
+        and not call.constructorEntry
+        and not call.constructorCall,
+        "plain checked struct construction required"
+    )
+    need(not checked.constructors or #checked.constructors == 0, "custom constructor unsupported")
+    local layout, why = targetLayout.of(checked, context.target)
+    need(layout, why or "local lacks target layout")
+    need(
+        layout.size > 0 and layout.size <= 4096 and layout.alignment > 0 and layout.alignment <= 16,
+        "local extent/alignment exceeds helper bound"
+    )
+    local fields, byname = {}, {}
+    for index, field in ipairs(layout.fields) do
+        local storage = checked.byname and checked.byname[field.name]
+        need(
+            storage
+            and fixed.isPhysical(storage)
+            and not qualifiers[storage.tag]
+            and not field.bitWidth
+            and not field.bitOffset,
+            "local requires whole fixed scalar fields"
+        )
+        local scalar = physical.describe(context, storage)
+        need(
+            field.size == scalar.storageBytes and field.offset >= 0 and field.offset + field.size <= layout.size,
+            "local scalar layout differs"
+        )
+        fields[index] = {name = field.name, offset = field.offset, width = field.size, storage = storage}
+        byname[field.name] = fields[index]
+    end
+    need(#fields > 0 and #fields <= 64, "local field count exceeds bound")
+    local bindings, params, nodes, seen = {}, {}, {}, {}
+    need(type(call.recordFields) == "table", "checked constructor field order required")
+    for index, binding in ipairs(call.recordFields) do
+        local field = need(byname[binding.name], "initializer field absent from layout")
+        need(not seen[binding.name], "duplicate physical initializer")
+        seen[binding.name] = true
+        local expression = need(binding.node or binding.defaultValue, "initializer expression absent")
+        local source = need(expression.inferredType, "checked initializer type absent")
+        while source.tag == "literal" or source.tag == "const" do
+            source = source.tag == "literal" and source.base or source.inner
+        end
+        local kind = source.tag
+        if kind == "integer" then
+            need(
+                expression.kind == "number"
+                and expression.inferredType.tag == "literal"
+                and type(expression.inferredType.constant) == "number"
+                and fixed.physicalLiteralFits(expression.inferredType.constant, field.storage),
+                "narrow local initializer requires checked literal"
+            )
+            kind = field.storage.tag:sub(1, 4) == "uint" and "uint64" or "int64"
+        end
+        need(
+            kind == "int64"
+            or kind == "uint64"
+            or kind == "float32"
+            or kind == "float64"
+            or kind == "int32"
+            or kind == "uint32",
+            "unsupported local initializer representation"
+        )
+        local storageFloat = field.storage.tag == "float32" or field.storage.tag == "float64"
+        local sourceFloat = kind == "float32" or kind == "float64"
+        need(
+            storageFloat == sourceFloat and (not storageFloat or kind == field.storage.tag),
+            "physical local initializer needs explicit numeric conversion"
+        )
+        bindings[
+            index
+        ] = {
+            name = field.name,
+            offset = field.offset,
+            width = field.width,
+            storage = field.storage,
+            node = expression,
+            binding = binding
+        }
+        params[index], nodes[index] = kind, expression
+    end
+
+    return {
+        owner = owner,
+        context = context,
+        node = node,
+        checkedType = checked,
+        layout = layout,
+        fields = fields,
+        bindings = bindings,
+        params = params,
+        nodes = nodes,
+        result = "voidptr"
+    }
+end
+
+function physical.localConstruction(owner: any, context: any, node: any): any
+    local contract = localRecipe(owner, context, node)
+    local descriptor = physical.describe(context, contract.checkedType)
+    contract.descriptor = descriptor
+    constructions[
+        contract
+    ] = {owner = owner, context = context, node = node, descriptor = descriptor, fields = recordFields(contract)}
+    localOrigins[descriptor] = contract
+
+    return contract
+end
+
+function physical.validateLocal(contract: any): boolean
+    local held = need(constructions[contract], "unknown local construction")
+    sameRecord(contract, held.fields)
+    local expected = localRecipe(held.owner, held.context, held.node)
+    for _, key in ipairs({"owner", "context", "node", "checkedType", "result"}) do
+        need(contract[key] == expected[key], "local construction identity changed")
+    end
+    need(
+        contract.descriptor == held.descriptor and localOrigins[held.descriptor] == contract,
+        "local descriptor identity changed"
+    )
+    need(sameLayout(contract.layout, expected.layout), "local layout changed")
+    for _, key in ipairs({"fields", "bindings", "params", "nodes"}) do
+        need(type(contract[key]) == "table" and #contract[key] == #expected[key], "local recipe extent changed")
+        for index, item in ipairs(expected[key]) do
+            local actual = contract[key][index]
+            if key == "fields" or key == "bindings" then
+                need(type(actual) == "table", "local field recipe changed")
+                for name, value in pairs(item) do
+                    need(actual[name] == value, "local field recipe identity changed")
+                end
+            else
+                need(actual == item, "local operand recipe changed")
+            end
+        end
+    end
+
+    return true
+end
+
+function physical.localOrigin(descriptor: any): any
+    physical.validate(descriptor)
+    local contract = localOrigins[descriptor]
+    if contract then
+        physical.validateLocal(contract)
+    end
+
+    return contract
+end
+
+function physical.fieldOrigin(descriptor: any): any
+    physical.validate(descriptor)
+    local access = origins[descriptor].field
+    if access then
+        physical.validateField(access)
+    end
+
+    return access
+end
+
+function physical.validateFieldOwner(access: any, source: any): nil
+    physical.validateField(access)
+    local owner = accesses[access].owner
+    if owner then
+        need(
+            source
+            and source.path == owner.scope.path
+            and source.module == owner.scope.name
+            and source.name == owner.name,
+            "field result graph owner differs"
+        )
+    end
+end
+
+-- A retained borrowed store is the existing unsafe source assertion. This
+-- contract checks its exact occurrence, types and roots, not arena outlives.
+function physical.store(access: any, owner: any, rhs: any, descriptor: any?): any
+    physical.validateField(access)
+    require("nupp.compiler.vm.nativeunit").occurrence(owner, rhs)
+    need(access.write and access.storage.machineKind == "voidptr", "checked pointer field store required")
+    local zero = rhs.kind == "nilExpr"
+    if zero then
+        need(
+            descriptor == nil and access.storage.nullable and rhs.inferredType.tag == "nil",
+            "nil store requires optional pointer field"
+        )
+    else
+        physical.validate(descriptor)
+        need(
+            descriptor.checkedType == rhs.inferredType and pointerShape(access.storage, descriptor),
+            "pointer store representation differs"
+        )
+        need(
+            #descriptor.ownership == 0
+            or #descriptor.ownership == 1
+            and descriptor.ownership[1].tag == "borrowed"
+            and physical.dependent(descriptor)
+            and rhs.unsafeOwnershipOperation == "borrowed pointer stored through a reference",
+            "borrowed field retention requires checked unsafe store"
+        )
+    end
+    local dependency = descriptor and origins[descriptor].dependency or nil
+    local roots, formal = nil, nil
+    if dependency then
+        if rhs.capabilityFacts and rhs.capabilityFacts.roots then
+            roots = rootSnapshot(rhs)
+            need(sameDependency(dependency, roots), "stored pointer roots differ")
+        else
+            need(
+                rhs.kind == "name" and #dependency.keys == 1 and rhs.token.definition == dependency.keys[1],
+                "stored formal root differs"
+            )
+            for index, definition in ipairs(owner.parameterDefinitions) do
+                if definition == rhs.token.definition and owner.parameterModes[index] == "borrows" then
+                    formal = definition
+                end
+            end
+            need(formal, "stored borrowed expression roots required")
+        end
+    end
+    local proof = {field = access, source = descriptor, node = rhs}
+    stores[
+        proof
+    ] = {
+        owner = owner,
+        node = rhs,
+        checked = rhs.inferredType,
+        zero = zero,
+        unsafe = rhs.unsafeOwnershipOperation,
+        roots = roots,
+        formal = formal,
+        fields = recordFields(proof)
+    }
+
+    return proof
+end
+
+function physical.validateStore(proof: any): boolean
+    local held = need(stores[proof], "unknown checked pointer store")
+    sameRecord(proof, held.fields)
+    require("nupp.compiler.vm.nativeunit").occurrence(held.owner, held.node)
+    physical.validateField(proof.field)
+    need(
+        proof.field.write
+        and proof.field.storage.machineKind == "voidptr"
+        and proof.node == held.node
+        and held.node.inferredType == held.checked
+        and held.node.unsafeOwnershipOperation == held.unsafe,
+        "checked pointer store changed"
+    )
+    if held.zero then
+        need(
+            proof.source == nil
+            and held.node.kind == "nilExpr"
+            and held.checked.tag == "nil"
+            and proof.field.storage.nullable,
+            "checked nil store changed"
+        )
+    else
+        physical.validate(proof.source)
+        need(
+            proof.source.checkedType == held.checked and pointerShape(proof.field.storage, proof.source),
+            "pointer store representation changed"
+        )
+        if held.roots or held.formal then
+            local dependency = origins[proof.source].dependency
+            if held.roots then
+                validateRoots(held.roots)
+            end
+            need(
+                held.unsafe == "borrowed pointer stored through a reference"
+                and (
+                    held.roots and sameDependency(dependency, held.roots)
+                    or held.formal
+                    and held.node.kind == "name"
+                    and held.node.token.definition == held.formal
+                    and dependency
+                    and #dependency.keys == 1
+                    and dependency.keys[1] == held.formal
+                ),
+                "stored pointer root/permission changed"
+            )
+        else
+            need(#proof.source.ownership == 0, "pointer store loses borrowed permission")
+        end
+    end
+
+    return true
+end
+
+function physical.storeValue(proof: any, access: any, descriptor: any?, source: any): boolean
+    physical.validateStore(proof)
+    local owner = stores[proof].owner
+    return proof.field == access
+        and proof.source == descriptor
+        and source.path == owner.scope.path
+        and source.module == owner.scope.name
+        and source.name == owner.name
+end
+
+function physical.nilStore(proof: any): boolean
+    physical.validateStore(proof)
+    return stores[proof].zero
+end
+
+function physical.booleanField(access: any): boolean
+    physical.validateField(access)
+    need(
+        access.storage.storageType.tag == "boolean"
+        and access.valueType.tag == "boolean"
+        and access.width == 1
+        and not access.signed,
+        "exact Boolean field required"
+    )
+
+    return true
+end
+
+-- Only existing issuers can place records in these private maps. Retaining a
+-- record borrows its checked objects; it neither copies them nor issues a call,
+-- storage, mapping or lifetime permission to an unrecognized table.
+function physical.retainIssued(value: any): any
+    if type(value) ~= "table" then
+        return nil
+    end
+    if accesses[value] then
+        physical.validateField(value)
+    elseif casts[value] or views[value] then
+        physical.validateCast(value)
+    elseif signatures[value] then
+        physical.validateSignature(value)
+    elseif stores[value] then
+        physical.validateStore(value)
+    elseif constructions[value] then
+        physical.validateLocal(value)
+    else
+        return nil
+    end
+
+    return value
+end
+
+-- Keep storage width separate from the value produced by a checked load.
+local integerStorage = {
+    int8 = true,
+    uint8 = true,
+    int16 = true,
+    uint16 = true,
+    int32 = true,
+    uint32 = true,
+    int64 = true,
+    uint64 = true
+}
+
+function physical.integerField(access: any): string
+    physical.validateField(access)
+    need(integerStorage[access.storage.storageType.tag], "physical field requires integer storage")
+    local kind = fixed.loaded(access.storage.storageType).tag
+    need(
+        kind == "int32" or kind == "uint32" or kind == "int64" or kind == "uint64",
+        "physical field requires an exact projected integer"
+    )
+
+    return kind
 end
 
 export = physical

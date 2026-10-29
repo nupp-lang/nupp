@@ -415,18 +415,32 @@ end
 
 -- ---- words over mappings ---------------------------------------------------
 
+const MAXIMUM: uint64 = 0xffffffffffffffffULL
+const MAX_WORDS: uint64 = 0x1fffffffffffffffULL
+
 local function pageRound(bytes: uint64): uint64
     @unsafe do
         local page = os.pageSize()
-        return (bytes + page - 1) & ~(page - 1)
+        if page == 0ULL or (page & (page - 1ULL)) ~= 0ULL or bytes > MAXIMUM - (page - 1ULL) then
+            error("heap: invalid page extent")
+        end
+        return (bytes + (page - 1ULL)) & ~(page - 1ULL)
     end
 end
 
 local function mapOrFail(bytes: uint64): uint64
     @unsafe do
-        local base = os.mapPages(bytes)
+        if bytes == 0ULL then
+            error("heap: empty mapping extent")
+        end
+        local mapped = pageRound(bytes)
+        local base = os.mapPages(mapped)
         if base == nil then
             error("heap: the system refused a mapping")
+        end
+        if native.address(base) > MAXIMUM - mapped then
+            os.unmapPages(base, mapped)
+            error("heap: mapped extent overflows")
         end
         return native.address(base)
     end
@@ -455,12 +469,23 @@ end
 
 local function wordsGrow(v: Words*, least: uint64): nil
     @unsafe do
-        local capacity: uint64 = v.capacity * 2
-        if capacity < 512 then
-            capacity = 512
+        if least > MAX_WORDS or v.capacity > MAX_WORDS or v.count > v.capacity then
+            error("heap: word vector extent overflows")
+        end
+        local capacity: uint64 = v.capacity
+        if capacity < 512ULL then
+            capacity = 512ULL
+        elseif capacity > MAX_WORDS // 2ULL then
+            capacity = MAX_WORDS
+        else
+            capacity = capacity * 2ULL
         end
         while capacity < least do
-            capacity = capacity * 2
+            if capacity > MAX_WORDS // 2ULL then
+                capacity = MAX_WORDS
+            else
+                capacity = capacity * 2ULL
+            end
         end
         local fresh = mapOrFail(capacity * 8)
         local i: uint64 = 0
@@ -476,6 +501,9 @@ end
 
 export function wordsPush(v: Words*, word: uint64): nil
     @unsafe do
+        if v.capacity > MAX_WORDS or v.count > v.capacity then
+            error("heap: invalid word vector extent")
+        end
         if v.count == v.capacity then
             wordsGrow(v, v.count + 1)
         end
@@ -556,6 +584,9 @@ end
 
 local function setRehash(s: WordSet*): nil
     @unsafe do
+        if s.mask >= MAX_WORDS or s.count >= MAX_WORDS then
+            error("heap: word set extent overflows")
+        end
         local oldTable = s.table
         local oldSize: uint64 = 0
         if oldTable ~= 0 then
@@ -563,9 +594,15 @@ local function setRehash(s: WordSet*): nil
         end
         local size: uint64 = 512
         while size * 3 < (s.count + 1) * 4 do
+            if size > MAX_WORDS // 2ULL then
+                error("heap: word set extent overflows")
+            end
             size = size * 2
         end
         if size <= oldSize then
+            if oldSize > MAX_WORDS // 2ULL then
+                error("heap: word set extent overflows")
+            end
             size = oldSize * 2
         end
         s.table = mapOrFail(size * 8)
@@ -584,6 +621,9 @@ end
 
 export function setAdd(s: WordSet*, word: uint64): nil
     @unsafe do
+        if s.mask >= MAX_WORDS or s.count >= MAX_WORDS then
+            error("heap: word set extent overflows")
+        end
         if s.table == 0 or (s.count + 1) * 4 > (s.mask + 1) * 3 then
             setRehash(s)
         end
@@ -695,9 +735,9 @@ export function classBytes(i: uint64): uint64
     end
 end
 
-export function classAt(h: Heap*, i: uint64): SizeClass*
+export function classAt(borrows h: Heap*, i: uint64): SizeClass* borrows (h)
     @unsafe do
-        return native.pointer(h.classes + i * native.sizeOf<SizeClass>()) as SizeClass*
+        return borrowFrom(native.pointer(h.classes + i * native.sizeOf<SizeClass>()) as SizeClass*, h)
     end
 end
 
@@ -865,7 +905,7 @@ end
 --- A fresh chunk's base, carved from the current region or a new one.
 local function carveChunk(h: Heap*): uint64
     @unsafe do
-        if h.regionCursor + CHUNK_BYTES > h.regionLimit then
+        if h.regionCursor > h.regionLimit or CHUNK_BYTES > h.regionLimit - h.regionCursor then
             local bytes: uint64 = (REGION_CHUNKS + 1) * CHUNK_BYTES
             local base = mapOrFail(bytes)
             h.stats.chunkBytesMapped = h.stats.chunkBytesMapped + bytes
@@ -948,6 +988,9 @@ end
 
 local function allocLarge(h: Heap*, size: uint64): uint64
     @unsafe do
+        if size > MAXIMUM - LARGE_PREFIX then
+            error("heap: large object extent overflows")
+        end
         local bytes = pageRound(size + LARGE_PREFIX)
         local base = mapOrFail(bytes)
         native.store64(native.pointer(base), 0, h.large.count)

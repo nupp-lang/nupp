@@ -6,7 +6,13 @@ local link = {}
 
 -- Build-time local Nupp calls only. Typed callers and targets are checked by
 -- the graph sink before selection; this layer resolves code offsets and extent.
-local function assemble(prefix: {integer}, roots: {any}, functions: {[string]: any}, available: integer): any
+local function assemble(
+    prefix: {integer},
+    roots: {any},
+    functions: {[string]: any},
+    available: integer,
+    imports: any?
+): any
     local names: {string} = {}
     for name in pairs(functions) do
         names[#names + 1] = name
@@ -27,15 +33,22 @@ local function assemble(prefix: {integer}, roots: {any}, functions: {[string]: a
         assert(extent >= 0 and extent % 16 == 0, "core link frame alignment")
         assert(frame <= available, "core link call-chain spill extent")
         for at, kind in ipairs(code.fixupKind) do
-            assert(kind == selector.B26 or kind == selector.BL26, "core link non-Nupp fixup")
-            local target = functions[code.fixupName[at]]
-            assert(target, "core link unresolved function")
-            local child = height(target)
-            local held = kind == selector.BL26 and frame or 0
-            assert(child <= available - held, "core link call-chain spill extent")
-            local needed = child + held
-            if needed > extent then
-                extent = needed
+            if kind == selector.IMPORT_LOAD then
+                assert(
+                    imports and imports[code] and imports[code][code.fixupName[at]] ~= nil,
+                    "core link unissued OS import"
+                )
+            else
+                assert(kind == selector.B26 or kind == selector.BL26, "core link non-Nupp fixup")
+                local target = functions[code.fixupName[at]]
+                assert(target, "core link unresolved function")
+                local child = height(target)
+                local held = kind == selector.BL26 and frame or 0
+                assert(child <= available - held, "core link call-chain spill extent")
+                local needed = child + held
+                if needed > extent then
+                    extent = needed
+                end
             end
         end
         visiting[code], heights[code] = nil, extent
@@ -90,11 +103,18 @@ local function assemble(prefix: {integer}, roots: {any}, functions: {[string]: a
                 word >= 1 and word <= #code.words and word % 1 == 0 and code.fixupAddend[at] == 0,
                 "core link fixup placement"
             )
-            local target = functions[code.fixupName[at]]
-            local base, slot = offset as integer, word as integer
-            local delta = (locations[target] as integer) - (base + (slot - 1) * 4)
-            assert(delta % 4 == 0 and delta >= -134217728 and delta < 134217728, "core link branch range")
-            words[base // 4 + slot] = code.fixupKind[at] == selector.B26 and arm.b(delta) or arm.bl(delta)
+            if code.fixupKind[at] == selector.IMPORT_LOAD then
+                local index = assert(imports and imports[code])[code.fixupName[at]]
+                assert(index ~= nil and index >= 0 and index < 3 and index % 1 == 0, "core link OS import index")
+                local base, slot, importIndex = offset as integer, word as integer, index as integer
+                words[base // 4 + slot] = arm.ldr(8, 16, 22, importIndex * 8)
+            else
+                local target = functions[code.fixupName[at]]
+                local base, slot = offset as integer, word as integer
+                local delta = (locations[target] as integer) - (base + (slot - 1) * 4)
+                assert(delta % 4 == 0 and delta >= -134217728 and delta < 134217728, "core link branch range")
+                words[base // 4 + slot] = code.fixupKind[at] == selector.B26 and arm.b(delta) or arm.bl(delta)
+            end
         end
     end
 
@@ -113,7 +133,7 @@ function link.assemble(prefix: {integer}, roots: {any}, functions: {[string]: an
         sink.refuseLegacyCode(code)
     end
 
-    return assemble(prefix, roots, functions, available)
+    return assemble(prefix, roots, functions, available, nil)
 end
 
 -- Transport-only prefix words remain trusted builder input. All Nupp bodies
@@ -126,11 +146,17 @@ function link.assembleAuthenticated(
     available: integer
 ): any
     local sink = require("nupp.compiler.s0.nativegraph")
+    local imports = {}
 
     local function verify(code: any): nil
         sink.verifyCode(code)
-        for _, symbol in ipairs(code.fixupName) do
-            sink.verifyCodeTarget(code, symbol, assert(functions[symbol], "core link unresolved function"))
+        imports[code] = {}
+        for index, symbol in ipairs(code.fixupName) do
+            if code.fixupKind[index] == selector.IMPORT_LOAD then
+                imports[code][symbol] = sink.verifyCodeImport(code, symbol)
+            else
+                sink.verifyCodeTarget(code, symbol, assert(functions[symbol], "core link unresolved function"))
+            end
         end
     end
 
@@ -141,7 +167,7 @@ function link.assembleAuthenticated(
         verify(code)
     end
 
-    return assemble(prefix, roots, functions, available)
+    return assemble(prefix, roots, functions, available, imports)
 end
 
 export = link

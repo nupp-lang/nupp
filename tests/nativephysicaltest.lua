@@ -104,7 +104,7 @@ function M.existingWordServicesRetainBorrowedBindingAuthority()
             function()
                 physical.field(qualified, reads[1], false)
             end,
-            "lifetime permission proof"
+            "qualified access requires checked owner"
         )
         refuses(
             function()
@@ -227,7 +227,7 @@ function M.fieldAccessRequiresCheckedReceiverMemberAndUnsafeEvidence()
         function()
             physical.field(physical.describe(context, T.borrowed(descriptor.checkedType)), node, false)
         end,
-        "lifetime permission proof"
+        "qualified access requires checked owner"
     )
     local store = fields(findFunction(tree, "write").body)[1]
     store.fixedWidthPhysicalStore = nil
@@ -250,7 +250,7 @@ function M.opaquePointerIsLazyAndUnsupportedStorageRefuses()
         function()
             physical.describe(context, empty)
         end,
-        "unsupported physical value type"
+        "an empty struct has no C layout"
     )
     refuses(
         function()

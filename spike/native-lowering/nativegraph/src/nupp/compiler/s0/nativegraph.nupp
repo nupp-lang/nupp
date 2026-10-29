@@ -6,6 +6,8 @@ local residual = require("nupp.compiler.vm.residual")
 local recipes = require("nupp.compiler.vm.machinerecipes")
 local ir = require("s0.ir")
 local literal = require("s0.literal")
+local nativeos = require("nupp.compiler.vm.nativeos")
+local service = require("nupp.compiler.vm.nativeservice")
 local sink = {}
 local finalframe = require("nupp.compiler.vm.nativeframecontract")
 local issuedResults: any = setmetatable({}, {__mode = "k"})
@@ -29,7 +31,16 @@ local floatOps: {
 }
 local machineKinds: {
     [string]: string
-} = {voidptr = "i64", int64 = "i64", uint64 = "i64", boolean = "i8", float32 = "f32", float64 = "f64"}
+} = {
+    voidptr = "i64",
+    int32 = "i64",
+    uint32 = "i64",
+    int64 = "i64",
+    uint64 = "i64",
+    boolean = "i8",
+    float32 = "f32",
+    float64 = "f64"
+}
 
 local function machineKind(kind: any): string
     return assert(machineKinds[kind], "S0 graph: unsupported exact kind")
@@ -50,6 +61,7 @@ record sink.Result
     instructionBlock: {integer}
     callees: any
     contextLayout: any
+    osImports: any
 end
 
 local function copy(value: any): any
@@ -134,7 +146,7 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
         g.native
         and (
             g.native.abi == "handler" and g.nparams == 6
-            or unbound and g.native.abi == "leaf" and g.nparams >= 1 and g.nparams <= 8
+            or unbound and g.native.abi == "leaf" and (g.nparams >= 1 or g.nativeService ~= nil) and g.nparams <= 8
         ),
         "S0 graph: supported native entry required"
     )
@@ -173,7 +185,7 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
         ir.value(f, value, parameters[index], -1)
     end
     local positions, instructions, segments, blocks, callees = {}, {}, {}, {}, {}
-    local imports = {}
+    local imports, pageImports = {}, {}
     local selectTail: {any} = {}
     local position, operation, segment, blockIndex = 0, 0, 0, 1
 
@@ -200,7 +212,11 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
         end
         local immediate: int64 = text and literal.integer(text) or 0
         local aux = op == "return_call_indirect" and 1
-            or ((op == "load" or op == "sload" or op == "icmp" or op == "fcmp") and loadBits or 0)
+            or (
+                (op == "load" or op == "sload" or op == "icmp" or op == "fcmp" or op == "store" and loadBits ~= 64)
+                and loadBits
+                or 0
+            )
         local at = ir.instructionRange(
             f,
             ir.opcode(op),
@@ -279,7 +295,30 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                     local target = resolved and resolved[symbol]
                     assert(target and target.owner and target.graph, "S0 graph: unresolved leaf " .. symbol)
                     local other, owner = target.graph, target.owner
-                    local checked = graph.nativeLeafDeclaration(owner)
+                    local checked = graph.nativeLeafDeclaration(
+                        owner,
+                        g.nativePhysical and g.nativePhysical.context or nil,
+                        nil,
+                        nil,
+                        declaration.service
+                    )
+                    if declaration.physical or checked.physical then
+                        assert(
+                            declaration.physical
+                            and checked.physical
+                            and other.nativePhysical
+                            and other.nativePhysical.signature
+                            and physical.sameSignature(declaration.physical, checked.physical)
+                            and physical.sameSignature(declaration.physical, other.nativePhysical.signature),
+                            "S0 graph: checked pointer leaf signature mismatch"
+                        )
+                    end
+                    if declaration.service then
+                        service.verify(other)
+                        assert(other.nativeService == declaration.service, "S0 graph: service closure differs")
+                    else
+                        assert(other.nativeService == nil, "S0 graph: missing service ABI")
+                    end
                     assert(
                         other.native.abi == "leaf"
                         and other.native.result == declaration.result
@@ -338,6 +377,44 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                     positions[at], instructions[at], segments[at], blocks[at] = position, operation, segment, blockIndex
                     yield nil
                 end
+                case "NativeHelperCall" -> do
+                    assert(unbound, "S0 graph: OS call requires checked compiler input")
+                    local declaration = args[1]
+                    local slot = nativeos.slot(declaration, bound.body)
+                    local symbol = "core_os_" .. tostring(slot)
+                    local imported = imports[symbol]
+                    if not imported then
+                        local kinds = {}
+                        for at, kind in ipairs(declaration.params) do
+                            kinds[at] = ir.kind(machineKind(kind))
+                        end
+                        f.signatures[
+                            #f.signatures + 1
+                        ] = new ir.Signature(
+                            params = kinds,
+                            results = {ir.kind(machineKind(declaration.result))},
+                            convention = ir.C
+                        )
+                        imported = #f.importNames + 1
+                        f.importNames[imported], f.importSignatures[imported] = symbol, #f.signatures
+                        imports[symbol], pageImports[symbol] = imported, declaration
+                    end
+                    local values = {}
+                    for at = 2, #args do
+                        values[#values + 1] = (args[at] as integer) + 1
+                    end
+                    local at = ir.instruction(
+                        f,
+                        ir.opcode("call"),
+                        assert(result),
+                        ir.kind(machineKind(declaration.result)),
+                        values,
+                        0,
+                        imported
+                    )
+                    positions[at], instructions[at], segments[at], blocks[at] = position, operation, segment, blockIndex
+                    yield nil
+                end
                 case "NativeConstant" -> do
                     assert(
                         g.exactTypes[destination] == "int64" or g.exactTypes[destination] == "uint64",
@@ -346,7 +423,7 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                     emit("iconst", result, nil, nil, nil, "i64", 0, args[1])
                     yield nil
                 end
-                case "IAdd", "ISub", "NativeIMul", "NativeUDiv", "IAnd", "IOr", "IXor", "INot", "IShl", "IShrU" -> do
+                case "IAdd", "ISub", "NativeIMul", "NativeUDiv", "NativeURem", "IAnd", "IOr", "IXor", "INot", "IShl", "IShrU" -> do
                     emit(
                         assert(integerOps[op]),
                         result,
@@ -380,7 +457,9 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                 case "NativeICmp", "NativeFCmp" -> do
                     local condition = assert(comparisons[args[3]], "S0 graph: unknown integer comparison")
                     if op == "NativeICmp" and condition ~= "eq" and condition ~= "ne" then
-                        condition = (g.exactTypes[args[1]] == "int64" and "s" or "u") .. condition
+                        condition = (
+                            (g.exactTypes[args[1]] == "int64" or g.exactTypes[args[1]] == "int32") and "s" or "u"
+                        ) .. condition
                     end
                     emit(
                         op == "NativeICmp" and "icmp" or "fcmp",
@@ -422,6 +501,53 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                     emit("uextend", result, args[1] + 1, nil, nil, "i64", 0, nil)
                     yield nil
                 end
+                case "NativeLocal" -> do
+                    local contract = args[1]
+                    physical.validateLocal(contract)
+                    assert(
+                        g.nativePhysical.values[destination] == contract.descriptor and contract.owner == bound.body,
+                        "S0 graph: local construction identity"
+                    )
+                    local slot = #f.stackBytes + 1
+                    f.stackBytes[slot], f.stackAlign[slot] = contract.layout.size, contract.layout.alignment
+                    emit("stack_addr", result, nil, nil, nil, "i64", 0, "0")
+                    f.aux[#f.op] = slot
+                    local zero = emit("iconst", nil, nil, nil, nil, "i64", 0, "0")
+                    -- Private zeroed storage includes target padding. All source
+                    -- initializer SSA operands have already been evaluated.
+                    local offset = 0
+                    while offset < contract.layout.size do
+                        local remaining = contract.layout.size - offset
+                        local width = remaining >= 8 and 8 or remaining >= 4 and 4 or remaining >= 2 and 2 or 1
+                        local displacement = emit("iconst", nil, nil, nil, nil, "i64", 0, tostring(offset))
+                        local address = emit("iadd", nil, result, displacement, nil, "i64", 0, nil)
+                        emit("store", 0, zero, address, nil, "i64", 0, nil)
+                        f.aux[#f.op] = width == 8 and 0 or width * 8
+                        offset = offset + width
+                    end
+                    for index, binding in ipairs(contract.bindings) do
+                        assert(
+                            binding.width == 1 or binding.width == 2 or binding.width == 4 or binding.width == 8,
+                            "S0 graph: unsupported physical local field width"
+                        )
+                        local displacement = emit("iconst", nil, nil, nil, nil, "i64", 0, tostring(binding.offset))
+                        local address = emit("iadd", nil, result, displacement, nil, "i64", 0, nil)
+                        emit("store", 0, args[index + 1] + 1, address, nil, machineKind(contract.params[index]), 0, nil)
+                        f.aux[#f.op] = binding.width == 8 and 0 or binding.width * 8
+                    end
+                    yield nil
+                end
+                case "NativeBorrowPointer" -> do
+                    physical.validateCast(args[3])
+                    assert(
+                        g.nativePhysical.values[args[1]] == args[3].source
+                        and g.nativePhysical.values[destination] == args[3].target,
+                        "S0 graph: borrow pointer identity"
+                    )
+                    local zero = emit("iconst", nil, nil, nil, nil, "i64", 0, "0")
+                    emit("iadd", result, args[1] + 1, zero, nil, "i64", 0, nil)
+                    yield nil
+                end
                 case "NativePointerView" -> do
                     physical.validateCast(args[2])
                     assert(
@@ -437,16 +563,50 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                     local access = args[2]
                     physical.validateField(access)
                     assert(
+                        access.width == 1 or access.width == 2 or access.width == 4 or access.width == 8,
+                        "S0 graph: unsupported physical field width"
+                    )
+                    assert(
                         g.nativePhysical.values[args[1]] == access.receiver
-                        and access.width == 8
-                        and not access.signed
                         and not access.write
-                        and access.valueType.tag == "uint64",
-                        "S0 graph: uint64 physical field contract"
+                        and (
+                            access.valueType.tag == "boolean" and physical.booleanField(access)
+                            or access.storage.machineKind == "voidptr"
+                            and access.width == 8
+                            and not access.signed
+                            and g.nativePhysical.values[destination] == access.storage
+                            or physical.integerField(access) == g.exactTypes[destination]
+                        ),
+                        "S0 graph: checked physical field contract"
                     )
                     local offset = emit("iconst", nil, nil, nil, nil, "i64", 0, tostring(access.offset))
                     local address = emit("iadd", nil, args[1] + 1, offset, nil, "i64", 0, nil)
-                    emit("load", result, address, nil, nil, "i64", 64, nil)
+                    if access.valueType.tag == "boolean" then
+                        local raw = emit("load", nil, address, nil, nil, "i8", 8, nil)
+                        local zero = emit("iconst", nil, nil, nil, nil, "i8", 0, "0")
+                        emit("icmp", result, raw, zero, nil, "i8", ir.condition("ne"), nil)
+                    else
+                        emit(
+                            access.signed and access.width < 8 and "sload" or "load",
+                            result,
+                            address,
+                            nil,
+                            nil,
+                            "i64",
+                            access.width * 8,
+                            nil
+                        )
+                    end
+                    yield nil
+                end
+                case "NativeBorrowAddress" -> do
+                    physical.validateCast(args[2])
+                    assert(
+                        physical.viewKind(args[2]) == "address" and g.nativePhysical.values[args[1]] == args[2].source,
+                        "S0 graph: checked borrowed address"
+                    )
+                    local zero = emit("iconst", nil, nil, nil, nil, "i64", 0, "0")
+                    emit("iadd", result, args[1] + 1, zero, nil, "i64", 0, nil)
                     yield nil
                 end
                 case "NativeWordCast", "NativePointer", "NativeAddress" -> do
@@ -455,19 +615,52 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                     yield nil
                 end
                 case "NativeStore" -> do
+                    local access = args[4]
                     assert(
                         unbound
-                        and args[4].width == 8
+                        and (access.width == 1 or access.width == 2 or access.width == 4 or access.width == 8)
                         and (
-                            args[4].kind == "uint64"
-                            or args[4].kind == "int64"
-                            or args[4].kind == "float64"
-                            or args[4].kind == "voidptr"
+                            access.kind == "uint64"
+                            or access.kind == "int64"
+                            or access.field
+                            and (access.kind == "uint32" or access.kind == "int32" or access.kind == "boolean")
+                            or access.width == 8 and (access.kind == "float64" or access.kind == "voidptr")
                         ),
-                        "S0 graph: unsupported word store"
+                        "S0 graph: unsupported scalar store"
                     )
+                    if access.field then
+                        if access.field.storage.machineKind == "voidptr" then
+                            assert(
+                                access.retention
+                                and physical.storeValue(
+                                    access.retention,
+                                    access.field,
+                                    g.nativePhysical.values[args[3]],
+                                    g.source
+                                ),
+                                "S0 graph: checked pointer store"
+                            )
+                        elseif access.field.storage.machineKind == "boolean" then
+                            physical.booleanField(access.field)
+                        else
+                            physical.integerField(access.field)
+                        end
+                        assert(
+                            g.nativePhysical.values[args[1]] == access.field.receiver,
+                            "S0 graph: physical store receiver identity differs"
+                        )
+                    end
                     local address = emit("iadd", nil, args[1] + 1, args[2] + 1, nil, "i64", 0, nil)
-                    emit("store", nil, args[3] + 1, address, nil, machineKind(g.exactTypes[args[3]]), 64, nil)
+                    emit(
+                        "store",
+                        nil,
+                        args[3] + 1,
+                        address,
+                        nil,
+                        machineKind(g.exactTypes[args[3]]),
+                        access.width * 8,
+                        nil
+                    )
                     yield nil
                 end
                 case "ProgramLoad", "NativeLoad" -> do
@@ -475,7 +668,7 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                     local access = args[3]
                     local width = (access.width as integer) * 8
                     assert(
-                        (width == 8 or width == 32 or width == 64)
+                        (width == 8 or width == 16 or width == 32 or width == 64)
                         and (
                             g.exactTypes[destination] == "int64"
                             or g.exactTypes[destination] == "uint64"
@@ -578,8 +771,25 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                 yield nil
             end
             case "nativeFail" -> do
-                local zero = emit("iconst", nil, nil, nil, nil, "i64", 0, "0")
-                emit("return", nil, zero, nil, nil, "i64", 0, nil)
+                local scoped = service.isFailure(g, term)
+                if scoped and g.native.result == "nil" then
+                    emit("return", nil, nil, nil, nil, "i64", 0, nil)
+                else
+                    local kind = scoped and machineKind(g.native.result) or "i64"
+                    -- These bits satisfy only the closed machine return ABI.
+                    -- No graph result exists and the caller must test scope.
+                    local zero = emit(
+                        (kind == "f32" or kind == "f64") and "fconst" or "iconst",
+                        nil,
+                        nil,
+                        nil,
+                        nil,
+                        kind,
+                        0,
+                        "0"
+                    )
+                    emit("return", nil, zero, nil, nil, kind, 0, nil)
+                end
                 yield nil
             end
             case "jump", "branch" -> do
@@ -621,7 +831,8 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
         instructionSegment = segments,
         instructionBlock = blocks,
         callees = callees,
-        contextLayout = layout
+        contextLayout = layout,
+        osImports = pageImports
     )
 end
 
@@ -676,7 +887,14 @@ function sink.compilerGraph(g: any, name: string, owner: any, resolved: any?, co
             callees[symbol] = {graph = item.graph, owner = item.owner}
         end
         local machine = snapshot(result.machine)
-        issuedResults[result] = {graph = g, owner = owner, machine = machine, callees = callees}
+        local pageImports = {}
+        for symbol, declaration in pairs(result.osImports) do
+            nativeos.validate(declaration, owner)
+            pageImports[symbol] = declaration
+        end
+        issuedResults[
+            result
+        ] = {graph = g, owner = owner, machine = machine, callees = callees, osImports = pageImports}
     end
 
     return result
@@ -744,6 +962,16 @@ function sink.verifyCodeTarget(code: any, symbol: string, target: any): nil
         "S0 graph: fixup changed its checked target/Result"
     )
     finalframe.target(source.graph, source.owner, destination.graph, destination.owner)
+end
+
+function sink.verifyCodeImport(code: any, symbol: string): integer
+    sink.verifyCode(code)
+    local held = issuedCodes[code].held
+    local declaration = assert(held.osImports[symbol], "S0 graph: unissued OS import")
+    local slot = nativeos.ownedSlot(declaration, held.owner)
+    assert(symbol == "core_os_" .. tostring(slot), "S0 graph: OS import identity differs")
+
+    return slot
 end
 
 export = sink
