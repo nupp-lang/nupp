@@ -1,0 +1,891 @@
+module nupp.runtime.core.returncontractprobe
+
+const native = require("nupp.runtime.vm.intrinsics")
+const values = require("nupp.runtime.vm.values")
+const arena = require("nupp.runtime.core.arena")
+const frames = require("nupp.runtime.core.frames")
+const access = require("nupp.runtime.core.frameaccess")
+const context = require("nupp.runtime.core.context")
+
+-- Snapshot words follow the RootControl copy at800 (at most128 bytes).
+-- All are aligned and end at968, inside setup's cleared1024-byte metadata.
+const ROOT_CURSOR: int64 = 928
+const ROOT_TOP: int64 = 936
+const ROOT_ISSUED: int64 = 944
+const CHILD_ISSUED: int64 = 952
+const ENTRY_PC: int64 = 960
+
+local function info(target: voidptr, code: uint64, identity: uint64, count: uint64): uint64
+    native.store64(target, native.fieldOffset<frames.FunctionInfo>("version"), 1ULL)
+    native.store64(target, native.fieldOffset<frames.FunctionInfo>("id"), identity)
+    native.store64(target, native.fieldOffset<frames.FunctionInfo>("bodyOwner"), code)
+    native.store64(target, native.fieldOffset<frames.FunctionInfo>("code"), code)
+    native.store64(target, native.fieldOffset<frames.FunctionInfo>("instructionCount"), count)
+    native.store64(target, native.fieldOffset<frames.FunctionInfo>("valueCount"), 8ULL)
+    native.store64(target, native.fieldOffset<frames.FunctionInfo>("integerCount"), 8ULL)
+    native.store64(target, native.fieldOffset<frames.FunctionInfo>("floatCount"), 8ULL)
+
+    return 1ULL
+end
+
+-- The fixed test entry lends two disjoint 2048-byte scratch windows, retained
+-- 48-byte code and the actual whole-chain x23 helper extent. These are mapped
+-- entry-owned bytes, not arbitrary supplied addresses. State/metadata occupy
+-- the first window; the second is the logical frame arena. Neither is a root
+-- solely because it was passed through the diagnostic shim's six arguments.
+export function setup(state: voidptr, pc: voidptr, pool: voidptr, helper: voidptr, helperBytes: uint64): uint64
+    local first, second, spill = native.address(state), native.address(pool), native.address(helper)
+    if first == 0ULL
+        or second == 0ULL
+        or spill == 0ULL
+        or helperBytes == 0ULL
+        or first > 0xfffffffffffff7ffULL
+        or second > 0xfffffffffffff7ffULL
+        or helperBytes > 0xffffffffffffffffULL - spill
+        or (first < second + 2048ULL and second < first + 2048ULL)
+        or (first < spill + helperBytes and spill < first + 2048ULL)
+        or (second < spill + helperBytes and spill < second + 2048ULL)
+        or native.sizeOf<frames.State>() > 64ULL
+        or native.sizeOf<arena.Segment>() > 64ULL
+        or native.sizeOf<frames.RootControl>() > 128ULL
+        or native.sizeOf<frames.FunctionInfo>() > 128ULL
+        or native.sizeOf<frames.WindowPlan>() > 128ULL
+    then
+        return 0ULL
+    end
+    local at: uint64 = 0ULL
+    while at < 1024ULL do
+        native.store64(state, native.index(at), 0ULL)
+        at = at + 8ULL
+    end
+    local segment = native.offset(state, 64)
+    local control = native.offset(state, 128)
+    local rootInfo, rootPlan = native.offset(state, 256), native.offset(state, 384)
+    local childInfo, childPlan = native.offset(state, 512), native.offset(state, 640)
+    if arena.initialize(segment, second, 2048ULL) ~= 1ULL then
+        return 0ULL
+    end
+    native.store64(state, native.fieldOffset<frames.State>("limit"), 4ULL)
+    native.store64(state, native.fieldOffset<frames.State>("segment"), native.address(segment))
+    native.store64(state, native.fieldOffset<frames.State>("helperBase"), spill)
+    native.store64(state, native.fieldOffset<frames.State>("helperBytes"), helperBytes)
+    local rootFields = info(rootInfo, native.address(pc), 1ULL, 2ULL)
+    local childFields = info(childInfo, native.address(pc) + 32ULL, 2ULL, 1ULL)
+    if frames.planFixed(rootInfo, rootPlan) ~= 1ULL or frames.planFixed(childInfo, childPlan) ~= 1ULL then
+        return 0ULL
+    end
+    local root = frames.beginRoot(state, control, rootInfo, rootPlan)
+    -- beginRoot returns an address, not publish's one-valued success status.
+    if root == 0ULL then
+        return 0ULL
+    end
+    -- Save the original root/control immediately after begin, before preparation
+    -- or publication can change anything. This entry-owned copy outlives both
+    -- logical reservations and includes the root serial and zero result count.
+    native.store64(state, 768, root)
+    native.store64(state, ENTRY_PC, native.address(pc))
+    at = 0ULL
+    while at < native.sizeOf<frames.RootControl>() do
+        native.store64(state, native.index(800ULL + at), native.load64(control, native.index(at)))
+        at = at + 8ULL
+    end
+    local rootValues = native.loadPointer(native.pointer(root), native.fieldOffset<frames.Frame>("values"))
+    native.store64(rootValues, 0, values.FALSE)
+    native.store64(rootValues, 8, values.TRUE)
+    native.store64(rootValues, 16, values.FALSE)
+    native.store64(rootValues, 24, values.FALSE)
+    -- Capture the root-only reservation, before the child advances the arena.
+    native.store64(state, ROOT_CURSOR, native.load64(segment, native.fieldOffset<arena.Segment>("cursor")))
+    native.store64(state, ROOT_TOP, native.load64(segment, native.fieldOffset<arena.Segment>("top")))
+    native.store64(state, ROOT_ISSUED, native.load64(segment, native.fieldOffset<arena.Segment>("issued")))
+    local child = frames.prepareFixed(state, native.pointer(root), childInfo, values.NIL, 0ULL, 0ULL, 2ULL, childPlan)
+    if child == 0ULL then
+        return 0ULL
+    end
+    native.store64(state, CHILD_ISSUED, native.load64(segment, native.fieldOffset<arena.Segment>("issued")))
+    local selected: uint64 = values.TRUE
+    if native.load8(pc, 1) == 1 then
+        selected = values.NIL
+    end
+    local childValues = native.loadPointer(native.pointer(child), native.fieldOffset<frames.Frame>("values"))
+    native.store64(childValues, 24, selected)
+    native.store64(state, 776, child)
+    native.store64(state, 784, selected)
+
+    return child
+end
+
+local function touch(state: voidptr): nil
+    native.store64(state, native.fieldOffset<frames.State>("lastResultCount"), 0ULL)
+end
+
+export function CoreReturnContract(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    local extent = native.word(native.load32(pc, 4))
+    local offset = native.load64(pc, 8)
+    local helper = native.offset(ctx, native.index(offset))
+    local child = setup(ints, pc, floats, helper, extent)
+    if child == 0ULL then
+        return native.fail()
+    end
+    local caller = native.pointer(access.active(ints))
+    local published = frames.publish(ints, caller, native.pointer(child), 1ULL)
+    if published ~= 1ULL then
+        return native.fail()
+    end
+    local current = native.pointer(access.active(ints))
+    local currentValues = native.pointer(access.values(ints, current))
+    -- Select before retirement: no callee address is dereferenced afterward.
+    local selected = native.load64(currentValues, 24)
+    local returned = frames.returnScalar(ints, current, selected)
+    if returned ~= 1ULL then
+        return native.fail()
+    end
+    local parent = native.pointer(access.active(ints))
+    local parentPC = native.pointer(access.pc(ints, parent))
+    local parentValues = native.pointer(access.values(ints, parent))
+    local parentIntegers = native.pointer(access.integers(ints, parent))
+    local parentFloats = native.pointer(access.floats(ints, parent))
+    access.refresh(ints, parent, ctx)
+
+    return native.dispatch(parentPC, parentValues, parentIntegers, parentFloats, ctx, parent)
+end
+
+export function CoreReturnTrue(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    local extent = native.word(native.load32(pc, 4))
+    local offset = native.load64(pc, 8)
+    local helper = native.offset(ctx, native.index(offset))
+    local child = setup(ints, pc, floats, helper, extent)
+    if child == 0ULL then
+        return native.fail()
+    end
+    local caller = native.pointer(access.active(ints))
+    local published = frames.publish(ints, caller, native.pointer(child), 1ULL)
+    if published ~= 1ULL then
+        return native.fail()
+    end
+    local current = native.pointer(access.active(ints))
+    local currentValues = native.pointer(access.values(ints, current))
+    -- Select before retirement: no callee address is dereferenced afterward.
+    local selected = native.load64(currentValues, 24)
+    local returned = frames.returnScalar(ints, current, selected)
+    if returned == 1ULL then
+        local parent = native.pointer(access.active(ints))
+        local parentPC = native.pointer(access.pc(ints, parent))
+        local parentValues = native.pointer(access.values(ints, parent))
+        local parentIntegers = native.pointer(access.integers(ints, parent))
+        local parentFloats = native.pointer(access.floats(ints, parent))
+        access.refresh(ints, parent, ctx)
+        return native.dispatch(parentPC, parentValues, parentIntegers, parentFloats, ctx, parent)
+    else
+        return native.fail()
+    end
+end
+
+-- Terminal diagnostic only: returning one scalar has resumed the real root,
+-- but has NOT completed or retired that root. Its result count remains zero.
+export function CoreReturnCapture(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    local control = native.loadPointer(frame, native.fieldOffset<frames.Frame>("resultOwner"))
+    local state = native.loadPointer(control, native.fieldOffset<frames.RootControl>("state"))
+    local code = native.load64(frame, native.fieldOffset<frames.Frame>("code"))
+    local entryPC = native.load64(state, ENTRY_PC)
+    local rootInfo = native.offset(state, 256)
+    if code ~= entryPC
+        or native.load64(rootInfo, native.fieldOffset<frames.FunctionInfo>("code")) ~= entryPC
+        or native.load64(frame, native.fieldOffset<frames.Frame>("functionInfo")) ~= native.address(rootInfo)
+    then
+        return 93ULL
+    end
+    local segment = native.loadPointer(state, native.fieldOffset<frames.State>("segment"))
+    local issued = native.load64(state, CHILD_ISSUED)
+    local helperOffset = native.load64(native.pointer(entryPC), 8)
+    local expected: uint64 = values.TRUE
+    if native.load8(native.pointer(entryPC), 1) == 1 then
+        expected = values.NIL
+    end
+    if native.load64(state, 768) ~= native.address(frame)
+        or native.load64(state, 776) == native.address(frame)
+        or native.load64(segment, native.fieldOffset<arena.Segment>("cursor")) ~= native.load64(state, ROOT_CURSOR)
+        or native.load64(segment, native.fieldOffset<arena.Segment>("top")) ~= native.load64(state, ROOT_TOP)
+        or native.load64(state, ROOT_TOP) == 0ULL
+        or native.load64(state, ROOT_ISSUED) == 0ULL
+        or issued ~= native.load64(state, ROOT_ISSUED) + 1ULL
+        or native.load64(segment, native.fieldOffset<arena.Segment>("issued")) ~= issued
+        or native.load64(state, native.fieldOffset<frames.State>("active")) ~= native.address(frame)
+        or native.load64(state, native.fieldOffset<frames.State>("depth")) ~= 1ULL
+        or native.load64(state, native.fieldOffset<frames.State>("lastResultCount")) ~= 1ULL
+        or native.load64(frame, native.fieldOffset<frames.Frame>("phase")) ~= frames.ACTIVE
+        or native.load64(frame, native.fieldOffset<frames.Frame>("child")) ~= 0ULL
+        or native.load64(frame, native.fieldOffset<frames.Frame>("previous")) ~= 0ULL
+        or native.load64(frame, native.fieldOffset<frames.Frame>("resumePC")) ~= 1ULL
+        or native.load64(control, native.fieldOffset<frames.RootControl>("phase")) ~= frames.ROOT_ACTIVE
+        or native.load64(control, native.fieldOffset<frames.RootControl>("count")) ~= 0ULL
+        or native.load64(control, native.fieldOffset<frames.RootControl>("value")) ~= values.NIL
+        or native.address(pc) ~= entryPC + 16ULL
+        or native.address(regs) ~= native.load64(frame, native.fieldOffset<frames.Frame>("values"))
+        or native.address(ints) ~= native.load64(frame, native.fieldOffset<frames.Frame>("integers"))
+        or native.address(floats) ~= native.load64(frame, native.fieldOffset<frames.Frame>("floats"))
+        or native.address(ctx) + helperOffset ~= native.load64(state, native.fieldOffset<frames.State>("helperBase"))
+        or native.load64(ctx, context.CODE_START) ~= entryPC
+        or native.address(frame) == native.address(regs) - 32ULL
+        or native.address(frame) == native.load64(ctx, context.DISPATCH_TABLE)
+        or native.load64(regs, 0) ~= values.FALSE
+        or native.load64(regs, 8) ~= values.TRUE
+        or native.load64(state, 784) ~= expected
+        or native.load64(regs, 16) ~= expected
+        or native.load64(regs, 24) ~= values.FALSE
+    then
+        return 91ULL
+    end
+    local at: uint64 = 0ULL
+    while at < native.sizeOf<frames.RootControl>() do
+        if native.load64(control, native.index(at)) ~= native.load64(state, native.index(800ULL + at)) then
+            return 92ULL
+        end
+        at = at + 8ULL
+    end
+
+    return 42ULL
+end
+
+-- Fixed checked negative handlers exercise dataflow before private sealing.
+
+export function RejectReturnNoSuccess(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    local extent = native.word(native.load32(pc, 4))
+    local offset = native.load64(pc, 8)
+    local helper = native.offset(ctx, native.index(offset))
+    local child = setup(ints, pc, floats, helper, extent)
+    if child == 0ULL then
+        return native.fail()
+    end
+    local caller = native.pointer(access.active(ints))
+    local published = frames.publish(ints, caller, native.pointer(child), 1ULL)
+    if published ~= 1ULL then
+        return native.fail()
+    end
+    local current = native.pointer(access.active(ints))
+    local currentValues = native.pointer(access.values(ints, current))
+    -- Select before retirement: no callee address is dereferenced afterward.
+    local selected = native.load64(currentValues, 24)
+    local returned = frames.returnScalar(ints, current, selected)
+    local parent = native.pointer(access.active(ints))
+    local parentPC = native.pointer(access.pc(ints, parent))
+    local parentValues = native.pointer(access.values(ints, parent))
+    local parentIntegers = native.pointer(access.integers(ints, parent))
+    local parentFloats = native.pointer(access.floats(ints, parent))
+    access.refresh(ints, parent, ctx)
+
+    return native.dispatch(parentPC, parentValues, parentIntegers, parentFloats, ctx, parent)
+end
+
+export function RejectReturnFailure(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    local extent = native.word(native.load32(pc, 4))
+    local offset = native.load64(pc, 8)
+    local helper = native.offset(ctx, native.index(offset))
+    local child = setup(ints, pc, floats, helper, extent)
+    if child == 0ULL then
+        return native.fail()
+    end
+    local caller = native.pointer(access.active(ints))
+    local published = frames.publish(ints, caller, native.pointer(child), 1ULL)
+    if published ~= 1ULL then
+        return native.fail()
+    end
+    local current = native.pointer(access.active(ints))
+    local currentValues = native.pointer(access.values(ints, current))
+    -- Select before retirement: no callee address is dereferenced afterward.
+    local selected = native.load64(currentValues, 24)
+    local returned = frames.returnScalar(ints, current, selected)
+    if returned == 1ULL then
+        return native.fail()
+    end
+    local stale = native.address(current)
+    local parent = native.pointer(access.active(ints))
+    local parentPC = native.pointer(access.pc(ints, parent))
+    local parentValues = native.pointer(access.values(ints, parent))
+    local parentIntegers = native.pointer(access.integers(ints, parent))
+    local parentFloats = native.pointer(access.floats(ints, parent))
+    access.refresh(ints, parent, ctx)
+
+    return native.dispatch(parentPC, parentValues, parentIntegers, parentFloats, ctx, parent)
+end
+
+export function RejectReturnOtherResult(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    local extent = native.word(native.load32(pc, 4))
+    local offset = native.load64(pc, 8)
+    local helper = native.offset(ctx, native.index(offset))
+    local child = setup(ints, pc, floats, helper, extent)
+    if child == 0ULL then
+        return native.fail()
+    end
+    local caller = native.pointer(access.active(ints))
+    local published = frames.publish(ints, caller, native.pointer(child), 1ULL)
+    if published ~= 1ULL then
+        return native.fail()
+    end
+    local current = native.pointer(access.active(ints))
+    local currentValues = native.pointer(access.values(ints, current))
+    -- Select before retirement: no callee address is dereferenced afterward.
+    local selected = native.load64(currentValues, 24)
+    local returned = frames.returnScalar(ints, current, selected)
+    if published ~= 1ULL then
+        return native.fail()
+    end
+    local parent = native.pointer(access.active(ints))
+    local parentPC = native.pointer(access.pc(ints, parent))
+    local parentValues = native.pointer(access.values(ints, parent))
+    local parentIntegers = native.pointer(access.integers(ints, parent))
+    local parentFloats = native.pointer(access.floats(ints, parent))
+    access.refresh(ints, parent, ctx)
+
+    return native.dispatch(parentPC, parentValues, parentIntegers, parentFloats, ctx, parent)
+end
+
+export function RejectReturnWrongState(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    local extent = native.word(native.load32(pc, 4))
+    local offset = native.load64(pc, 8)
+    local helper = native.offset(ctx, native.index(offset))
+    local child = setup(ints, pc, floats, helper, extent)
+    if child == 0ULL then
+        return native.fail()
+    end
+    local caller = native.pointer(access.active(ints))
+    local published = frames.publish(ints, caller, native.pointer(child), 1ULL)
+    if published ~= 1ULL then
+        return native.fail()
+    end
+    local current = native.pointer(access.active(ints))
+    local currentValues = native.pointer(access.values(ints, current))
+    -- Select before retirement: no callee address is dereferenced afterward.
+    local selected = native.load64(currentValues, 24)
+    local returned = frames.returnScalar(regs, current, selected)
+    if returned ~= 1ULL then
+        return native.fail()
+    end
+    local parent = native.pointer(access.active(ints))
+    local parentPC = native.pointer(access.pc(ints, parent))
+    local parentValues = native.pointer(access.values(ints, parent))
+    local parentIntegers = native.pointer(access.integers(ints, parent))
+    local parentFloats = native.pointer(access.floats(ints, parent))
+    access.refresh(ints, parent, ctx)
+
+    return native.dispatch(parentPC, parentValues, parentIntegers, parentFloats, ctx, parent)
+end
+
+export function RejectReturnStaleFrame(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    local extent = native.word(native.load32(pc, 4))
+    local offset = native.load64(pc, 8)
+    local helper = native.offset(ctx, native.index(offset))
+    local child = setup(ints, pc, floats, helper, extent)
+    if child == 0ULL then
+        return native.fail()
+    end
+    local caller = native.pointer(access.active(ints))
+    local published = frames.publish(ints, caller, native.pointer(child), 1ULL)
+    if published ~= 1ULL then
+        return native.fail()
+    end
+    local current = native.pointer(access.active(ints))
+    local currentValues = native.pointer(access.values(ints, current))
+    -- Select before retirement: no callee address is dereferenced afterward.
+    local selected = native.load64(currentValues, 24)
+    local returned = frames.returnScalar(ints, current, selected)
+    if returned ~= 1ULL then
+        return native.fail()
+    end
+    local stale = native.address(current)
+    local parent = native.pointer(access.active(ints))
+    local parentPC = native.pointer(access.pc(ints, parent))
+    local parentValues = native.pointer(access.values(ints, parent))
+    local parentIntegers = native.pointer(access.integers(ints, parent))
+    local parentFloats = native.pointer(access.floats(ints, parent))
+    access.refresh(ints, parent, ctx)
+
+    return native.dispatch(parentPC, parentValues, parentIntegers, parentFloats, ctx, parent)
+end
+
+export function RejectReturnStaleWindow(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    local extent = native.word(native.load32(pc, 4))
+    local offset = native.load64(pc, 8)
+    local helper = native.offset(ctx, native.index(offset))
+    local child = setup(ints, pc, floats, helper, extent)
+    if child == 0ULL then
+        return native.fail()
+    end
+    local caller = native.pointer(access.active(ints))
+    local published = frames.publish(ints, caller, native.pointer(child), 1ULL)
+    if published ~= 1ULL then
+        return native.fail()
+    end
+    local current = native.pointer(access.active(ints))
+    local currentValues = native.pointer(access.values(ints, current))
+    -- Select before retirement: no callee address is dereferenced afterward.
+    local selected = native.load64(currentValues, 24)
+    local returned = frames.returnScalar(ints, current, selected)
+    if returned ~= 1ULL then
+        return native.fail()
+    end
+    local stale = native.load64(currentValues, 0)
+    local parent = native.pointer(access.active(ints))
+    local parentPC = native.pointer(access.pc(ints, parent))
+    local parentValues = native.pointer(access.values(ints, parent))
+    local parentIntegers = native.pointer(access.integers(ints, parent))
+    local parentFloats = native.pointer(access.floats(ints, parent))
+    access.refresh(ints, parent, ctx)
+
+    return native.dispatch(parentPC, parentValues, parentIntegers, parentFloats, ctx, parent)
+end
+
+export function RejectReturnStaleCode(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    local extent = native.word(native.load32(pc, 4))
+    local offset = native.load64(pc, 8)
+    local helper = native.offset(ctx, native.index(offset))
+    local child = setup(ints, pc, floats, helper, extent)
+    if child == 0ULL then
+        return native.fail()
+    end
+    local caller = native.pointer(access.active(ints))
+    local published = frames.publish(ints, caller, native.pointer(child), 1ULL)
+    if published ~= 1ULL then
+        return native.fail()
+    end
+    local current = native.pointer(access.active(ints))
+    local currentValues = native.pointer(access.values(ints, current))
+    -- Select before retirement: no callee address is dereferenced afterward.
+    local selected = native.load64(currentValues, 24)
+    local oldCode = access.code(ints, current)
+    local returned = frames.returnScalar(ints, current, selected)
+    if returned ~= 1ULL then
+        return native.fail()
+    end
+    local stale = native.pointer(oldCode)
+    local parent = native.pointer(access.active(ints))
+    local parentPC = native.pointer(access.pc(ints, parent))
+    local parentValues = native.pointer(access.values(ints, parent))
+    local parentIntegers = native.pointer(access.integers(ints, parent))
+    local parentFloats = native.pointer(access.floats(ints, parent))
+    access.refresh(ints, parent, ctx)
+
+    return native.dispatch(parentPC, parentValues, parentIntegers, parentFloats, ctx, parent)
+end
+
+export function RejectReturnStalePC(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    local extent = native.word(native.load32(pc, 4))
+    local offset = native.load64(pc, 8)
+    local helper = native.offset(ctx, native.index(offset))
+    local child = setup(ints, pc, floats, helper, extent)
+    if child == 0ULL then
+        return native.fail()
+    end
+    local caller = native.pointer(access.active(ints))
+    local published = frames.publish(ints, caller, native.pointer(child), 1ULL)
+    if published ~= 1ULL then
+        return native.fail()
+    end
+    local current = native.pointer(access.active(ints))
+    local currentValues = native.pointer(access.values(ints, current))
+    -- Select before retirement: no callee address is dereferenced afterward.
+    local selected = native.load64(currentValues, 24)
+    local oldPC = access.pc(ints, current)
+    local returned = frames.returnScalar(ints, current, selected)
+    if returned ~= 1ULL then
+        return native.fail()
+    end
+    local stale = native.pointer(oldPC)
+    local parent = native.pointer(access.active(ints))
+    local parentPC = native.pointer(access.pc(ints, parent))
+    local parentValues = native.pointer(access.values(ints, parent))
+    local parentIntegers = native.pointer(access.integers(ints, parent))
+    local parentFloats = native.pointer(access.floats(ints, parent))
+    access.refresh(ints, parent, ctx)
+
+    return native.dispatch(parentPC, parentValues, parentIntegers, parentFloats, ctx, parent)
+end
+
+export function RejectReturnLoaded(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    local extent = native.word(native.load32(pc, 4))
+    local offset = native.load64(pc, 8)
+    local helper = native.offset(ctx, native.index(offset))
+    local child = setup(ints, pc, floats, helper, extent)
+    if child == 0ULL then
+        return native.fail()
+    end
+    local caller = native.pointer(access.active(ints))
+    local published = frames.publish(ints, caller, native.pointer(child), 1ULL)
+    if published ~= 1ULL then
+        return native.fail()
+    end
+    local current = native.pointer(access.active(ints))
+    local currentValues = native.pointer(access.values(ints, current))
+    -- Select before retirement: no callee address is dereferenced afterward.
+    local selected = native.load64(currentValues, 24)
+    local loaded = native.load64(current, 0)
+    local returned = frames.returnScalar(ints, current, selected)
+    if returned ~= 1ULL then
+        return native.fail()
+    end
+    local stale = native.pointer(loaded)
+    local parent = native.pointer(access.active(ints))
+    local parentPC = native.pointer(access.pc(ints, parent))
+    local parentValues = native.pointer(access.values(ints, parent))
+    local parentIntegers = native.pointer(access.integers(ints, parent))
+    local parentFloats = native.pointer(access.floats(ints, parent))
+    access.refresh(ints, parent, ctx)
+
+    return native.dispatch(parentPC, parentValues, parentIntegers, parentFloats, ctx, parent)
+end
+
+export function RejectReturnSelectedLate(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    local extent = native.word(native.load32(pc, 4))
+    local offset = native.load64(pc, 8)
+    local helper = native.offset(ctx, native.index(offset))
+    local child = setup(ints, pc, floats, helper, extent)
+    if child == 0ULL then
+        return native.fail()
+    end
+    local caller = native.pointer(access.active(ints))
+    local published = frames.publish(ints, caller, native.pointer(child), 1ULL)
+    if published ~= 1ULL then
+        return native.fail()
+    end
+    local current = native.pointer(access.active(ints))
+    local currentValues = native.pointer(access.values(ints, current))
+    -- Select before retirement: no callee address is dereferenced afterward.
+    local selected = native.load64(currentValues, 24)
+    local returned = frames.returnScalar(ints, current, selected)
+    if returned ~= 1ULL then
+        return native.fail()
+    end
+    local stale = native.load64(currentValues, 24)
+    local parent = native.pointer(access.active(ints))
+    local parentPC = native.pointer(access.pc(ints, parent))
+    local parentValues = native.pointer(access.values(ints, parent))
+    local parentIntegers = native.pointer(access.integers(ints, parent))
+    local parentFloats = native.pointer(access.floats(ints, parent))
+    access.refresh(ints, parent, ctx)
+
+    return native.dispatch(parentPC, parentValues, parentIntegers, parentFloats, ctx, parent)
+end
+
+export function RejectReturnChildOffset(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    local extent = native.word(native.load32(pc, 4))
+    local offset = native.load64(pc, 8)
+    local helper = native.offset(ctx, native.index(offset))
+    local child = setup(ints, pc, floats, helper, extent)
+    if child == 0ULL then
+        return native.fail()
+    end
+    local caller = native.pointer(access.active(ints))
+    local published = frames.publish(ints, caller, native.pointer(child), 1ULL)
+    if published ~= 1ULL then
+        return native.fail()
+    end
+    local current = native.pointer(access.active(ints))
+    local currentValues = native.pointer(access.values(ints, current))
+    -- Select before retirement: no callee address is dereferenced afterward.
+    local selected = native.load64(currentValues, 24)
+    local offsetChild = native.offset(current, 8)
+    local returned = frames.returnScalar(ints, current, selected)
+    if returned ~= 1ULL then
+        return native.fail()
+    end
+    local stale = native.load64(offsetChild, 0)
+    local parent = native.pointer(access.active(ints))
+    local parentPC = native.pointer(access.pc(ints, parent))
+    local parentValues = native.pointer(access.values(ints, parent))
+    local parentIntegers = native.pointer(access.integers(ints, parent))
+    local parentFloats = native.pointer(access.floats(ints, parent))
+    access.refresh(ints, parent, ctx)
+
+    return native.dispatch(parentPC, parentValues, parentIntegers, parentFloats, ctx, parent)
+end
+
+export function RejectReturnOldCaller(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    local extent = native.word(native.load32(pc, 4))
+    local offset = native.load64(pc, 8)
+    local helper = native.offset(ctx, native.index(offset))
+    local child = setup(ints, pc, floats, helper, extent)
+    if child == 0ULL then
+        return native.fail()
+    end
+    local caller = native.pointer(access.active(ints))
+    local published = frames.publish(ints, caller, native.pointer(child), 1ULL)
+    if published ~= 1ULL then
+        return native.fail()
+    end
+    local current = native.pointer(access.active(ints))
+    local currentValues = native.pointer(access.values(ints, current))
+    -- Select before retirement: no callee address is dereferenced afterward.
+    local selected = native.load64(currentValues, 24)
+    local returned = frames.returnScalar(ints, current, selected)
+    if returned ~= 1ULL then
+        return native.fail()
+    end
+    local stale = native.address(caller)
+    local parent = native.pointer(access.active(ints))
+    local parentPC = native.pointer(access.pc(ints, parent))
+    local parentValues = native.pointer(access.values(ints, parent))
+    local parentIntegers = native.pointer(access.integers(ints, parent))
+    local parentFloats = native.pointer(access.floats(ints, parent))
+    access.refresh(ints, parent, ctx)
+
+    return native.dispatch(parentPC, parentValues, parentIntegers, parentFloats, ctx, parent)
+end
+
+export function RejectReturnJoin(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    local extent = native.word(native.load32(pc, 4))
+    local offset = native.load64(pc, 8)
+    local helper = native.offset(ctx, native.index(offset))
+    local child = setup(ints, pc, floats, helper, extent)
+    if child == 0ULL then
+        return native.fail()
+    end
+    local caller = native.pointer(access.active(ints))
+    local published = frames.publish(ints, caller, native.pointer(child), 1ULL)
+    if published ~= 1ULL then
+        return native.fail()
+    end
+    local current = native.pointer(access.active(ints))
+    local currentValues = native.pointer(access.values(ints, current))
+    -- Select before retirement: no callee address is dereferenced afterward.
+    local selected = native.load64(currentValues, 24)
+    local returned = frames.returnScalar(ints, current, selected)
+    local success: uint64 = 0ULL
+    if returned == 1ULL then
+        success = 1ULL
+    end
+    local parent = native.pointer(access.active(ints))
+    local parentPC = native.pointer(access.pc(ints, parent))
+    local parentValues = native.pointer(access.values(ints, parent))
+    local parentIntegers = native.pointer(access.integers(ints, parent))
+    local parentFloats = native.pointer(access.floats(ints, parent))
+    access.refresh(ints, parent, ctx)
+
+    return native.dispatch(parentPC, parentValues, parentIntegers, parentFloats, ctx, parent)
+end
+
+export function RejectReturnWrongContext(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    local extent = native.word(native.load32(pc, 4))
+    local offset = native.load64(pc, 8)
+    local helper = native.offset(ctx, native.index(offset))
+    local child = setup(ints, pc, floats, helper, extent)
+    if child == 0ULL then
+        return native.fail()
+    end
+    local caller = native.pointer(access.active(ints))
+    local published = frames.publish(ints, caller, native.pointer(child), 1ULL)
+    if published ~= 1ULL then
+        return native.fail()
+    end
+    local current = native.pointer(access.active(ints))
+    local currentValues = native.pointer(access.values(ints, current))
+    -- Select before retirement: no callee address is dereferenced afterward.
+    local selected = native.load64(currentValues, 24)
+    local returned = frames.returnScalar(ints, current, selected)
+    if returned ~= 1ULL then
+        return native.fail()
+    end
+    local parent = native.pointer(access.active(ints))
+    local parentPC = native.pointer(access.pc(ints, parent))
+    local parentValues = native.pointer(access.values(ints, parent))
+    local parentIntegers = native.pointer(access.integers(ints, parent))
+    local parentFloats = native.pointer(access.floats(ints, parent))
+    access.refresh(ints, parent, pc)
+
+    return native.dispatch(parentPC, parentValues, parentIntegers, parentFloats, ctx, parent)
+end
+
+export function RejectReturnOldRefresh(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    local extent = native.word(native.load32(pc, 4))
+    local offset = native.load64(pc, 8)
+    local helper = native.offset(ctx, native.index(offset))
+    local child = setup(ints, pc, floats, helper, extent)
+    if child == 0ULL then
+        return native.fail()
+    end
+    local caller = native.pointer(access.active(ints))
+    local published = frames.publish(ints, caller, native.pointer(child), 1ULL)
+    if published ~= 1ULL then
+        return native.fail()
+    end
+    local current = native.pointer(access.active(ints))
+    local currentValues = native.pointer(access.values(ints, current))
+    -- Select before retirement: no callee address is dereferenced afterward.
+    local selected = native.load64(currentValues, 24)
+    access.refresh(ints, current, ctx)
+    local returned = frames.returnScalar(ints, current, selected)
+    if returned ~= 1ULL then
+        return native.fail()
+    end
+    local parent = native.pointer(access.active(ints))
+    local parentPC = native.pointer(access.pc(ints, parent))
+    local parentValues = native.pointer(access.values(ints, parent))
+    local parentIntegers = native.pointer(access.integers(ints, parent))
+    local parentFloats = native.pointer(access.floats(ints, parent))
+
+    return native.dispatch(parentPC, parentValues, parentIntegers, parentFloats, ctx, parent)
+end
+
+export function RejectReturnUnknownCall(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    local extent = native.word(native.load32(pc, 4))
+    local offset = native.load64(pc, 8)
+    local helper = native.offset(ctx, native.index(offset))
+    local child = setup(ints, pc, floats, helper, extent)
+    if child == 0ULL then
+        return native.fail()
+    end
+    local caller = native.pointer(access.active(ints))
+    local published = frames.publish(ints, caller, native.pointer(child), 1ULL)
+    if published ~= 1ULL then
+        return native.fail()
+    end
+    local current = native.pointer(access.active(ints))
+    local currentValues = native.pointer(access.values(ints, current))
+    -- Select before retirement: no callee address is dereferenced afterward.
+    local selected = native.load64(currentValues, 24)
+    local returned = frames.returnScalar(ints, current, selected)
+    if returned ~= 1ULL then
+        return native.fail()
+    end
+    touch(ints)
+    local parent = native.pointer(access.active(ints))
+    local parentPC = native.pointer(access.pc(ints, parent))
+    local parentValues = native.pointer(access.values(ints, parent))
+    local parentIntegers = native.pointer(access.integers(ints, parent))
+    local parentFloats = native.pointer(access.floats(ints, parent))
+    access.refresh(ints, parent, ctx)
+
+    return native.dispatch(parentPC, parentValues, parentIntegers, parentFloats, ctx, parent)
+end

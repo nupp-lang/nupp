@@ -201,6 +201,15 @@ function verifier.verify(g: any, calls: any): nil
                         local owner = atom("publish:" .. dst, {kind = "owner", state = prior.state})
                         result = atom("published:" .. dst, {kind = "pending", owner = owner, test = "one"})
                         state.pending[result] = true
+                    elseif role == "returnScalar" then
+                        local prior = frameOwner(state, operands[1], operands[2])
+                        -- The selected scalar is consumed before the service retires
+                        -- the callee. Even a failure invalidates cached authority.
+                        -- The checked body restores the real parent only on one.
+                        kill(state)
+                        local owner = atom("return:" .. dst, {kind = "owner", state = prior.state})
+                        result = atom("returned:" .. dst, {kind = "pending", owner = owner, test = "one"})
+                        state.pending[result] = true
                     elseif role == "active" then
                         result = access(state, "frame", stateOwner(state, operands[1]))
                     elseif role == "refresh" then
