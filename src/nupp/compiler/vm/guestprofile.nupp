@@ -178,8 +178,8 @@ function guest.binary(ctx: any, node: any, expected: string?): integer
         local kind = guest.kind(node.lhs.inferredType)
         scalar(kind)
         need(kind == "int64" or operator == "==" or operator == "~=", "ordered boolean comparison is unsupported")
-        local left = ctx.expression(node.lhs, kind)
-        local right = ctx.expression(node.rhs, kind)
+        local operands = ctx.operands({node.lhs, node.rhs}, {kind, kind})
+        local left, right = operands[1], operands[2]
         local operation = comparisons[operator]
         if operator == ">" or operator == ">=" then
             operation = operator == ">" and "ICmpSLt" or "ICmpSLe"
@@ -190,8 +190,8 @@ function guest.binary(ctx: any, node: any, expected: string?): integer
     need(expected == nil or expected == "int64", "integer operation changes exact kind")
     need(guest.kind(node.inferredType) == "int64", "unsupported binary result kind")
     local operation = need(arithmetic[operator], "unsupported integer operator " .. operator)
-    local left = ctx.expression(node.lhs, "int64")
-    local right = ctx.expression(node.rhs, "int64")
+    local operands = ctx.operands({node.lhs, node.rhs}, {"int64", "int64"})
+    local left, right = operands[1], operands[2]
 
     return ctx.emit(node, operation, {left, right}, "int64")
 end

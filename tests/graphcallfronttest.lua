@@ -1,0 +1,512 @@
+local parser = require("nupp.compiler.syntax.parser")
+local checker = require("nupp.compiler.check")
+local environment = require("nupp.compiler.project.env")
+local program = require("nupp.compiler.vm.programgraph")
+local tagged = require("nupp.compiler.vm.taggedprofile")
+local native = require("nupp.compiler.vm.nativegraph")
+local guest = require("nupp.compiler.vm.guestprofile")
+local fs = require("nupp.compiler.fs")
+local ROOT = fs.absolute(assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]")) .. "/..")
+local graph = require("nupp.compiler.vm.graph")
+local lower = require("nupp.compiler.vm.lower")
+local M = {}
+
+local function checked(source)
+    local name, path = "callfront_fixture", "=callfront_fixture.nupp"
+    local parsed = parser.parse(source, path)
+    assert(#parsed.errors == 0, parsed.errors[1] and parsed.errors[1].msg)
+    local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
+    local diagnostics = checker.check(parsed, path, env, {
+        moduleName = name,
+        strict = false,
+        lints = {["unused-binding"] = "off"}
+    })
+    for _, diagnostic in ipairs(diagnostics) do
+        assert(diagnostic.severity ~= "error", diagnostic.msg)
+    end
+
+    return program.describe({{name = name, path = path, parsed = parsed, diagnostics = diagnostics}}, name)
+end
+
+local function compile(source, profile)
+    local catalog = checked(source)
+    local complete = program.compile(catalog, profile or tagged)
+    return complete.graphs[1], catalog, complete
+end
+
+local function refuses(action, text)
+    local ok, problem = pcall(action)
+    assert(not ok, "accepted invalid frontend state")
+    assert(tostring(problem):find(text, 1, true), tostring(problem))
+end
+
+local function clone(profile)
+    local out = {}
+    for key, value in pairs(profile) do
+        out[key] = value
+    end
+
+    return out
+end
+
+local function calls(g)
+    local out = {}
+    for _, block in ipairs(g.blocks) do
+        if block.term.kind == "invoke" then
+            out[#out + 1] = {block = block, term = block.term}
+        end
+    end
+
+    return out
+end
+
+local function operations(g, wanted)
+    local out = {}
+    for _, block in ipairs(g.blocks) do
+        for at, op in ipairs(block.op) do
+            if op == wanted then
+                out[#out + 1] = {block = block, dst = block.dst[at], args = block.args[at]}
+            end
+        end
+    end
+
+    return out
+end
+
+local function constant(g, text)
+    for _, operation in ipairs(operations(g, "K")) do
+        if tostring(g.constants[operation.args[1] + 1].value) == text then
+            return operation.dst
+        end
+    end
+    error("missing fixture constant " .. text)
+end
+
+-- Follow explicit invoke transport only; this does not evaluate guest code.
+local function sourceOf(g, call, value)
+    if value <= g.nparams then
+        return value
+    end
+    local target = g.blocks[call.edges[1].target]
+    local offset = call.result and 1 or 0
+    for index = offset + 1, #target.params do
+        if target.params[index] == value then
+            return call.edges[1].args[index - offset]
+        end
+    end
+    error("missing carried fixture value")
+end
+
+function M.nestedCalleeAndArgumentsResumeTheCurrentContinuation()
+    local g = compile(
+        [[
+local function f(a: integer, b: integer): integer return a end
+local function g(): integer return 7 end
+local function h(): integer return 8 end
+return f(g(), h())
+]]
+    )
+    local invoked = calls(g)
+    assert(#invoked == 3)
+    assert(invoked[1].term.contract.owner.name == "g" and invoked[2].term.contract.owner.name == "h")
+    local first, second, last = invoked[1].term, invoked[2].term, invoked[3].term
+    assert(g.blocks[first.edges[1].target] == invoked[2].block)
+    assert(g.blocks[second.edges[1].target] == invoked[3].block)
+    assert(last.contract.owner.name == "f" and sourceOf(g, second, last.args[1]) == first.result)
+    assert(last.args[2] == second.result)
+    local closure = operations(g, "Closure")[1].dst
+    assert(sourceOf(g, first, sourceOf(g, second, last.callee)) == closure)
+    assert(g.blocks[last.edges[1].target].term.value == last.result)
+    graph.prune(g)
+    graph.verify(g)
+end
+
+function M.localRHSUsesOldBindingsAndRetainsEarlierUnpublishedValue()
+    local g = compile(
+        [[
+local function f(value: integer): integer return value end
+local x: integer = 7
+local x: integer, y: integer = 8, f(x)
+return x
+]]
+    )
+    local call = calls(g)[1].term
+    assert(call.args[1] == constant(g, "7"), "new shadow was published during RHS evaluation")
+    local target = g.blocks[call.edges[1].target]
+    assert(sourceOf(g, call, target.term.value) == constant(g, "8"))
+    graph.prune(g)
+    graph.verify(g)
+    assert(call.result == nil, "unused result should become explicit discard")
+end
+
+function M.parallelAssignmentSnapshotsAllRHSBeforeWrites()
+    local g = compile(
+        [[
+local function f(value: integer): integer return value end
+local x: integer, y: integer = 1, 2
+x, y = y, f(x)
+return x
+]]
+    )
+    local call = calls(g)[1].term
+    assert(call.args[1] == constant(g, "1"))
+    assert(sourceOf(g, call, g.blocks[call.edges[1].target].term.value) == constant(g, "2"))
+    graph.prune(g)
+    graph.verify(g)
+end
+
+function M.closureSnapshotSurvivesLaterInitializerCall()
+    local g = compile(
+        [[
+local function f(): integer return 0 end
+local value: integer = 7
+local captured, result = function(): integer return value end, f()
+return captured
+]]
+    )
+    local closure = operations(g, "Closure")[2]
+    local cell = operations(g, "NewCell")[1]
+    assert(closure.args[2] == cell.dst, "capture was replaced by a loaded value")
+    local call = calls(g)[1].term
+    assert(sourceOf(g, call, g.blocks[call.edges[1].target].term.value) == closure.dst)
+    graph.prune(g)
+    graph.verify(g)
+end
+
+function M.recursiveSelfAndGrandparentForwardingRetainStoredCells()
+    local _, catalog, complete = compile(
+        [[
+local function self(): any return self end
+local shared: integer = 4
+local function middle(): integer
+    local function leaf(): integer return shared end
+    return leaf()
+end
+return middle
+]]
+    )
+    local self = program.select(catalog, "callfront_fixture", "self")
+    local recursive = complete.graphs[self.id + 1]
+    assert(#calls(recursive) == 0)
+    assert(recursive.blocks[1].term.value == operations(recursive, "GetCell")[1].dst)
+    local middle = program.select(catalog, "callfront_fixture", "middle")
+    local forwarded = complete.graphs[middle.id + 1]
+    assert(operations(forwarded, "Closure")[1].args[2] == operations(forwarded, "GetUpval")[1].dst)
+    for _, g in ipairs(complete.graphs) do
+        graph.prune(g);
+        graph.verify(g)
+    end
+end
+
+function M.recursiveInvokeRequiresPositiveBodySummary()
+    local p = checked("local function self(value: integer): integer return self(value) end; return self")
+    local owner = program.select(p, "callfront_fixture", "self")
+    assert(owner.body.effectSummary.top == true)
+    refuses(
+        function()
+            program.compile(p, tagged)
+        end,
+        "nonsuspending body summary"
+    )
+end
+
+function M.discardedCallKeepsBindingsButDoesNotTransportOriginalParameters()
+    local _, catalog, complete = compile(
+        [[
+local function f(): integer return 2 end
+local function outer(value: integer): integer
+    local saved = 7
+    f()
+    return value
+end
+return outer
+]]
+    )
+    local owner = program.select(catalog, "callfront_fixture", "outer")
+    local g = complete.graphs[owner.id + 1]
+    local call = calls(g)[1].term
+    assert(call.result == nil and g.blocks[call.edges[1].target].term.value == 1)
+    for _, argument in ipairs(call.edges[1].args) do
+        assert(argument ~= 1)
+    end
+end
+
+function M.callCatalogRejectsForeignCallerAndTargetIdentity()
+    local _, catalog, complete = compile([[
+local function f(value: integer): integer return value end
+return f(3)
+]])
+    local call = calls(complete.graphs[1])[1].term
+    local site = catalog.callByNode[call.contract.call]
+    local owner = site.owner
+    site.owner = call.contract.owner.id
+    refuses(
+        function()
+            program.verifyGraphs(catalog, complete.graphs)
+        end,
+        "callsite does not belong"
+    )
+    site.owner = owner
+    local foreign = checked("local function f(value: integer): integer return value end; return f(3)")
+    call.contract.owner = program.select(foreign, "callfront_fixture", "f")
+    refuses(
+        function()
+            program.verifyGraphs(catalog, complete.graphs)
+        end,
+        "body identity"
+    )
+end
+
+function M.callCatalogRejectsSparseAndStaleMembership()
+    local source = [[
+local function f(): integer return 1 end
+local function other(): integer return f() end
+return f()
+]]
+    for _, mode in ipairs({"hole", "string", "fraction", "trailing", "stale", "missing"}) do
+        local p = checked(source)
+        assert(#p.calls == 2)
+        local first, second = p.calls[1], p.calls[2]
+        local other = program.select(p, "callfront_fixture", "other").id
+        local diagnostic = "callsite array"
+        if mode == "hole" then
+            p.calls[1], p.callByNode[first.node] = nil, nil
+            second.owner = other
+        elseif mode == "string" then
+            p.calls.extra = first
+        elseif mode == "fraction" then
+            p.calls[1.5] = first
+        elseif mode == "trailing" then
+            p.calls[10] = first
+        elseif mode == "stale" then
+            p.callByNode[{}] = first
+            diagnostic = "stale callsite map"
+        else
+            p.callByNode[first.node] = nil
+            diagnostic = "callsite declaration identity mismatch"
+        end
+        refuses(
+            function()
+                program.verify(p)
+            end,
+            diagnostic
+        )
+    end
+end
+
+function M.foreignReleasedAndLeakedHandlesRefuse()
+    for _, mode in ipairs({"foreign", "released", "leaked"}) do
+        local profile = clone(tagged)
+        profile.literal = function(ctx, node, expected)
+            local value = tagged.literal(ctx, node, expected)
+            if mode == "foreign" then
+                ctx.readHeld({})
+            end
+            local handle = ctx.hold(value)
+            if mode == "released" then
+                ctx.release(handle);
+                ctx.readHeld(handle)
+            end
+
+            return value
+        end
+        local diagnostic = mode == "foreign" and "foreign held-value"
+            or mode == "released" and "released held-value"
+            or "leaked a held-value"
+        refuses(
+            function()
+                compile("return 1", profile)
+            end,
+            diagnostic
+        )
+    end
+end
+
+function M.discardedInvokeTransportsAnEnclosingTemporary()
+    local profile = clone(tagged)
+    local before, after
+    profile.statementCall = function(ctx, node)
+        before = ctx.emit(node, "Nil", {}, "tagged")
+        local handle = ctx.hold(before)
+        tagged.statementCall(ctx, node)
+        after = ctx.readHeld(handle)
+        ctx.emit(node, "Move", {after}, "tagged")
+        ctx.release(handle)
+    end
+    local g = compile("local function f(): integer return 1 end; f(); return nil", profile)
+    local call = calls(g)[1].term
+    assert(call.result == nil and before ~= after and sourceOf(g, call, after) == before)
+    graph.prune(g)
+    graph.verify(g)
+end
+
+function M.nestedHookCannotReleaseItsCallersHandle()
+    local profile, enclosing = clone(tagged), nil
+    profile.call = function(ctx, node, expected)
+        if node.obj.token.text == "f" then
+            enclosing = ctx.hold(ctx.emit(node, "Nil", {}, "tagged"))
+            local value = tagged.call(ctx, node, expected)
+            ctx.release(enclosing)
+            return value
+        end
+        ctx.release(enclosing)
+
+        return tagged.call(ctx, node, expected)
+    end
+    refuses(
+        function()
+            compile(
+                "local function f(x: integer): integer return x end; local function g(): integer return 1 end; return f(g())",
+                profile
+            )
+        end,
+        "released an enclosing held-value handle"
+    )
+end
+
+function M.branchEvaluationCannotLeakAHandle()
+    local p = checked(
+        "local function compare(a: integer, b: integer): boolean return (a < b) == (true and false) end; return compare"
+    )
+    local owner = program.select(p, "callfront_fixture", "compare")
+    owner.nativeABI = "leaf"
+    owner.scope.functions[owner.name] = owner
+    local profile = clone(native)
+    profile.literal = function(ctx, node, expected)
+        local value = native.literal(ctx, node, expected)
+        ctx.hold(value)
+        return value
+    end
+    refuses(
+        function()
+            lower.functionGraph(owner, {abi = "leaf"}, profile)
+        end,
+        "leaked a held-value handle"
+    )
+end
+
+function M.shadowedRequireIsAnOrdinaryCheckedCall()
+    local g, catalog = compile([[local function require(name: string): string return name end
+return require("value")]])
+    assert(#catalog.requires == 0 and #operations(g, "Require") == 0 and #calls(g) == 1)
+end
+
+function M.taggedArithmeticAndControlRemainOutsideTheCut()
+    for _, source in ipairs({"return 1 + 2", "return true and false", "if true then return 1 end; return 2"}) do
+        refuses(
+            function()
+                compile(source)
+            end,
+            "tagged graph"
+        )
+    end
+end
+
+function M.nativeBinaryLeftSurvivesBranchingRightOperand()
+    local p = checked(
+        [[
+local function compare(a: integer, b: integer, c: integer, d: integer): boolean
+    return (a < b) == ((c < d) and (a < d))
+end
+return compare
+]]
+    )
+    local owner = program.select(p, "callfront_fixture", "compare")
+    owner.nativeABI = "leaf"
+    owner.scope.functions[owner.name] = owner
+    local g = lower.functionGraph(owner, {abi = "leaf"}, native)
+    graph.verify(g)
+    graph.prune(g)
+    graph.verify(g)
+    assert(#g.blocks > 1)
+    local comparisons = operations(g, "NativeICmp")
+    local last = comparisons[#comparisons]
+    assert(last.args[3] == "==")
+    assert(last.args[1] ~= comparisons[1].dst, "left comparison was not reloaded after branching")
+end
+
+function M.logicalTemporaryHoldingAParameterStillTransportsItsResult()
+    local p = checked("local function choose(a: boolean, b: boolean): boolean return a and b end; return choose")
+    local owner = program.select(p, "callfront_fixture", "choose")
+    -- Unit-only logical profile: executable tagged logical support remains refused.
+    local profile = clone(tagged)
+    profile.checkLogical = function()
+        return true
+    end
+    profile.kind = function(t)
+        assert(guest.kind(t) == "boolean")
+        return "tagged"
+    end
+    local g = lower.functionGraph(owner, {program = p}, profile)
+    graph.verify(g)
+    graph.prune(g)
+    graph.verify(g)
+    for _, block in ipairs(g.blocks) do
+        if block.term.kind == "return" then
+            assert(block.term.value > g.nparams, "logical result incorrectly retained the original lhs")
+        end
+    end
+end
+
+function M.reassignedParameterRetainsBranchTransport()
+    local p = checked(
+        [[local function choose(value: uint64, change: uint64): uint64
+    if change ~= 0ULL then value = 42ULL end
+    return value
+end
+return choose]]
+    )
+    local owner = program.select(p, "callfront_fixture", "choose")
+    assert(owner.body.params[1].name.definition.reassigned)
+    owner.nativeABI = "leaf"
+    owner.scope.functions[owner.name] = owner
+    local g = lower.functionGraph(owner, {abi = "leaf"}, native)
+    graph.verify(g)
+    graph.prune(g)
+    graph.verify(g)
+    for _, block in ipairs(g.blocks) do
+        if block.term.kind == "return" then
+            assert(block.term.value > g.nparams, "mutable parameter lost its joined value")
+        end
+    end
+end
+
+function M.voidLeafArgumentsRetainEarlierValuesAcrossBranches()
+    local p = checked(
+        [[local function sink(first: boolean, second: boolean): nil return end
+local function caller(a: integer, b: integer): nil
+    sink(a < b, true and a < b)
+end
+return caller]]
+    )
+    local owner = program.select(p, "callfront_fixture", "caller")
+    local target = program.select(p, "callfront_fixture", "sink")
+    owner.nativeABI, target.nativeABI = "leaf", "leaf"
+    owner.scope.functions[owner.name] = owner
+    owner.scope.functions.sink = target
+    local g = lower.functionGraph(owner, {abi = "leaf"}, native)
+    graph.verify(g)
+    graph.prune(g)
+    graph.verify(g)
+    local comparisons, invoked = operations(g, "NativeICmp"), operations(g, "NativeLeafCall")
+    assert(#invoked == 1 and invoked[1].dst == 0 and invoked[1].args[1].result == "nil")
+    assert(invoked[1].args[2] ~= comparisons[1].dst, "void-call first operand was not reloaded")
+end
+
+function M.closedGuestFixtureRetainsOuterComparisonAcrossLogicalRHS()
+    local file = assert(io.open(ROOT .. "/native/core/program/call-front-fixtures/held-branch.nupp", "rb"))
+    local source = file:read("*a")
+    file:close()
+    local p = checked(source)
+    local owner = program.select(p, "callfront_fixture", "First.answer")
+    local g = lower.functionGraph(owner, {program = p}, guest)
+    graph.verify(g)
+    graph.prune(g)
+    graph.verify(g)
+    assert(#calls(g) == 0 and #g.blocks > 1)
+    local comparison = operations(g, "ICmpEq")
+    assert(#comparison == 2)
+    assert(comparison[2].args[1] ~= operations(g, "ICmpSLt")[1].dst, "outer comparison did not reload its computed lhs")
+end
+
+return M

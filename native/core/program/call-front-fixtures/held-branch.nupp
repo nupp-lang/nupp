@@ -1,0 +1,11 @@
+local First = {}
+function First.answer(): integer
+    local n: integer = 4
+    if (n < 5) == (n == 4 and n < 6) then
+        return 42
+    else
+        return 99
+    end
+end
+
+return First

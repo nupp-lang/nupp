@@ -187,14 +187,48 @@ local function requireSite(ctx: any, node: any): any
     return item
 end
 
+local function invoke(ctx: any, node: any, keepResult: boolean): integer?
+    local p = catalog(ctx)
+    local site = need(p.callByNode[node], "ordinary call lacks checked callsite")
+    need(site.owner == ctx.fn.id, "callsite belongs to another owner")
+    local target = need(ctx.callee(node), "call requires a stable checked declaration")
+    need(
+        p.owners[target.id + 1] == target and p.functionsByDefinition[site.definition] == target,
+        "call target belongs to another catalog"
+    )
+    local contract = graph.invokeContract(target, node)
+    -- The declaration supplies an expected contract, never the runtime callee.
+    -- Evaluate that callee before any argument, and retain its snapshot across
+    -- every nested call. Runtime FunctionInfo authentication remains pending.
+    local callee = ctx.hold(ctx.expression(node.obj, "tagged"))
+    local kinds = {}
+    for index = 1, #node.args.exprs do
+        kinds[index] = "tagged"
+    end
+    local args = ctx.operands(node.args.exprs, kinds)
+    local value = ctx.readHeld(callee)
+    ctx.release(callee)
+
+    return ctx.invoke(node, value, args, contract, keepResult)
+end
+
 function tagged.call(ctx: any, node: any, expected: string?): integer
-    local item = requireSite(ctx, node)
-    need(not item.typeOnly, "type-only require cannot produce a runtime value")
-    return ctx.emit(node, "Require", {pool(ctx, "str", item.module)}, "tagged")
+    need(expected == nil or expected == "tagged", "call requires tagged destination")
+    if node.runtimeLoader == "require" then
+        local item = requireSite(ctx, node)
+        need(not item.typeOnly, "type-only require cannot produce a runtime value")
+        return ctx.emit(node, "Require", {pool(ctx, "str", item.module)}, "tagged")
+    end
+
+    return invoke(ctx, node, true) as integer
 end
 
 function tagged.statementCall(ctx: any, node: any): nil
-    tagged.call(ctx, node, nil)
+    if node.runtimeLoader == "require" then
+        tagged.call(ctx, node, nil)
+    else
+        invoke(ctx, node, false)
+    end
 end
 
 function tagged.erasedPattern(ctx: any, stat: any): nil

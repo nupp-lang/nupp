@@ -33,6 +33,10 @@ function frontend.compile(fn: any, options: any, profile: any): any
     local block = graph.block(g)
     local bindings: {[any]: integer} = {}
     local bindingOrder: {any} = {}
+    -- Opaque temporary keys use the same ordered transport as lexical keys.
+    -- Only explicit handles are read after a block change; SSA ids never remap
+    -- behind a profile's back.
+    local handles = {}
     local inlining, loops = {}, {}
     for index, parameter in ipairs(moduleOwner and {} or body.params) do
         local key = parameter.name.definition or parameter.name
@@ -69,6 +73,71 @@ function frontend.compile(fn: any, options: any, profile: any): any
         bindingOrder[#bindingOrder + 1] = key
     end
 
+    ctx.hold = function(value: integer): any
+        need(g.types[value] ~= nil, "held value is outside the graph")
+        local handle = {}
+        handles[handle], bindings[handle] = true, value
+        bindingOrder[#bindingOrder + 1] = handle
+
+        return handle
+    end
+    ctx.readHeld = function(handle: any): integer
+        need(handles[handle] ~= nil, "foreign held-value handle")
+        need(handles[handle] == true, "released held-value handle")
+        return need(bindings[handle], "released held-value handle")
+    end
+    ctx.release = function(handle: any): nil
+        ctx.readHeld(handle)
+        handles[handle], bindings[handle] = false, nil
+        for index, key in ipairs(bindingOrder) do
+            if key == handle then
+                table.remove(bindingOrder, index)
+                return
+            end
+        end
+        error("function graph: held-value order is incomplete", 0)
+    end
+
+    local function heldScope(): any
+        local active = {}
+        for _, key in ipairs(bindingOrder) do
+            if handles[key] ~= nil then
+                need(handles[key] == true, "branch restored a released held-value handle")
+                active[key] = true
+            end
+        end
+
+        return active
+    end
+
+    local function checkHeldScope(active: any): nil
+        for _, key in ipairs(bindingOrder) do
+            if handles[key] ~= nil then
+                need(handles[key] == true, "branch restored a released held-value handle")
+                need(active[key], "profile leaked a held-value handle")
+                active[key] = nil
+            end
+        end
+        need(next(active) == nil, "profile released an enclosing held-value handle")
+    end
+
+    -- Evaluate left to right, retaining every earlier operand until the last
+    -- expression finishes. This helper neither selects syntax nor operations.
+    ctx.operands = function(nodes: any, kinds: any): any
+        local held, values = {}, {}
+        for index, kind in ipairs(kinds) do
+            held[index] = ctx.hold(ctx.expression(nodes[index], kind))
+        end
+        for index, handle in ipairs(held) do
+            values[index] = ctx.readHeld(handle)
+        end
+        for index = #held, 1, -1 do
+            ctx.release(held[index])
+        end
+
+        return values
+    end
+
     local function initializeBinding(node: any, key: any, value: integer): integer
         context()
         return profile.initializeBinding and profile.initializeBinding(ctx, node, key, value) or value
@@ -82,13 +151,15 @@ function frontend.compile(fn: any, options: any, profile: any): any
     local function invoke(name: string, node: any, expected: any): any
         context()
         local hook = need(profile[name], "profile lacks " .. name)
+        local active = heldScope()
         local value = hook(ctx, node, expected)
         block = ctx.block
+        checkHeldScope(active)
 
         return value
     end
 
-    local branch: function(): any
+    local branch: function(string?): any
     local resume: function(any): nil
     local jump: function(any, any): nil
     local expression: function(any, string?): integer
@@ -164,13 +235,20 @@ function frontend.compile(fn: any, options: any, profile: any): any
         error("function graph: unsupported checked expression " .. tostring(node.kind), 0)
     end
     ctx.expression = expression
-    branch = function(): any
+    branch = function(resultKind: string?): any
         local target = graph.block(g)
+        local result
+        if resultKind then
+            result = profile.newValue(g, resultKind)
+            target.params[1] = result
+        end
         local transported, order, args, keys = {}, {}, {}, {}
         for _, key in ipairs(bindingOrder) do
             local value = bindings[key]
             order[#order + 1] = key
-            if value <= g.nparams then
+            if value <= g.nparams
+                and (handles[key] == true or key.token and key.token.definition == key and not key.reassigned)
+            then
                 transported[key] = value
             else
                 local parameter = profile.newValue(g, profile.valueKind(g, value))
@@ -183,6 +261,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
 
         return {
             block = target,
+            result = result,
             bindings = transported,
             order = order,
             keys = keys,
@@ -206,6 +285,25 @@ function frontend.compile(fn: any, options: any, profile: any): any
         end
         block.term = {kind = "jump", edges = {{target = state.block.id, args = args}}, pos = position(node)}
         block = nil
+    end
+
+    ctx.invoke = function(node: any, calleeValue: integer, args: any, contract: any, keepResult: boolean): integer?
+        need(g.native == nil and g.types[calleeValue] == "v", "guest invoke requires a tagged callee")
+        local parent = need(block, "invoke after terminator")
+        local continuation = branch(keepResult and "tagged" or nil)
+        parent.term = {
+            kind = "invoke",
+            callee = calleeValue,
+            args = args,
+            contract = contract,
+            result = continuation.result,
+            edges = {continuation.edge},
+            pos = position(node)
+        }
+        resume(continuation)
+        context()
+
+        return continuation.result
     end
 
     local function callee(call: any): any
@@ -252,10 +350,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
         context()
         local declaration = profile.inlineContract(ctx, call, target, returns)
         need(not inlining[target], "recursive composed helper")
-        local values = {}
-        for index, kind in ipairs(target.paramKinds) do
-            values[index] = expression(call.args.exprs[index], kind)
-        end
+        local values = ctx.operands(call.args.exprs, target.paramKinds)
         local outerBindings, outerOrder, outerScope = bindings, bindingOrder, scope
         bindings, bindingOrder, scope = {}, {}, target.scope
         for index, key in ipairs(outerOrder) do
@@ -300,12 +395,19 @@ function frontend.compile(fn: any, options: any, profile: any): any
                     -- cell allocation happen only after every RHS was evaluated.
                     for index, token in ipairs(stat.names) do
                         local kind = profile.localKind(token, fn)
-                        values[index] = stat.exprs[index] and expression(stat.exprs[index], kind)
+                        values[
+                            index
+                        ] = ctx.hold(
+                            stat.exprs[index] and expression(stat.exprs[index], kind)
                             or invoke("missingLocal", stat, kind)
+                        )
                     end
                     for index, token in ipairs(stat.names) do
                         local key = token.definition or token
-                        ctx.bind(key, initializeBinding(stat, key, values[index]))
+                        ctx.bind(key, initializeBinding(stat, key, ctx.readHeld(values[index])))
+                    end
+                    for index = #values, 1, -1 do
+                        ctx.release(values[index])
                     end
                 end
             elseif stat.kind == "localFuncStmt" and profile.closure then
@@ -328,10 +430,13 @@ function frontend.compile(fn: any, options: any, profile: any): any
                     local key = target.token.definition or target.token
                     local previous = need(bindings[key], "assignment requires a checked local binding")
                     keys[index] = key
-                    values[index] = expression(stat.exprs[index], profile.valueKind(g, previous))
+                    values[index] = ctx.hold(expression(stat.exprs[index], profile.valueKind(g, previous)))
                 end
                 for index, key in ipairs(keys) do
-                    writeBinding(stat, key, values[index])
+                    writeBinding(stat, key, ctx.readHeld(values[index]))
+                end
+                for index = #values, 1, -1 do
+                    ctx.release(values[index])
                 end
             elseif stat.kind == "callStmt" then
                 invoke("statementCall", stat.expr, nil)
@@ -374,7 +479,11 @@ function frontend.compile(fn: any, options: any, profile: any): any
                         local original = originalBindings[key]
                         local unchanged = original <= g.nparams
                         for _, state in ipairs(incoming) do
-                            need(state.bindings[key] ~= nil, "conditional loses a checked local")
+                            need(
+                                state.bindings[key] ~= nil,
+                                handles[key] ~= nil and "conditional loses an enclosing held-value handle"
+                                or "conditional loses a checked local"
+                            )
                             unchanged = unchanged and state.bindings[key] == original
                         end
                         bindingOrder[#bindingOrder + 1] = key
@@ -466,6 +575,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
     if block and profile.fallthrough then
         invoke("fallthrough", fn.node, nil)
     end
+    need(next(heldScope()) == nil, "function leaked a held-value handle")
     need(block == nil, "function falls through without a return or transfer")
     graph.verify(g)
 

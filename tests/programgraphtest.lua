@@ -1079,7 +1079,7 @@ return require("anything")]])
         function()
             program.compile(shadowed, tagged)
         end,
-        "only checked static require calls"
+        "invoke requires a checked scalar type"
     )
 end
 

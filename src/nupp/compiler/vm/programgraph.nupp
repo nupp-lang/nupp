@@ -154,6 +154,8 @@ function program.describe(modules: {any}, entryModule: string): any
         imports = {},
         requires = {},
         requireByNode = {},
+        calls = {},
+        callByNode = {},
         byDefinition = {},
         functionsByDefinition = {},
         byBody = {},
@@ -412,6 +414,10 @@ function program.describe(modules: {any}, entryModule: string): any
             -- inference. Its marker is a dependency, not a fabricated binding.
             p.intrinsics[#p.intrinsics + 1] = {id = #p.intrinsics, owner = owner.id, node = node, operation = intrinsic}
         end
+        if node.kind == "call" and node.obj.kind == "name" and not loader and not intrinsic then
+            local item = {id = #p.calls, owner = owner.id, node = node, definition = node.obj.token.definition}
+            p.calls[#p.calls + 1], p.callByNode[node] = item, item
+        end
         local constant = literal(node)
         if constant then
             constant.id, constant.owner, constant.node = #p.constants, owner.id, node
@@ -528,12 +534,14 @@ function program.verify(p: any): boolean
     for node, item in pairs(p.requireByNode) do
         need(item.node == node and p.requires[item.id + 1] == item, "stale require callsite map")
     end
+    local referenceOwners = {}
     for _, reference in ipairs(p.externalReferences) do
         local external = need(p.externals[reference.external + 1], "invalid external reference")
         need(
             p.owners[reference.owner + 1] and reference.token.definition == external.definition,
             "external reference identity mismatch"
         )
+        referenceOwners[reference.token] = reference.owner
     end
     local intrinsicNodes = {}
     for index, intrinsic in ipairs(p.intrinsics) do
@@ -643,12 +651,39 @@ function program.verify(p: any): boolean
         local b = need(p.bindings[reference.binding + 1], "invalid lexical reference")
         local owner = need(p.owners[reference.owner + 1], "invalid reference owner")
         need(reference.token.definition == b.definition, "reference declaration identity mismatch")
+        referenceOwners[reference.token] = reference.owner
         local captured = owner.captureByDefinition[b.definition]
         need(reference.role == (b.mode == "type" and "type" or "value"), "reference role mismatch")
         need(
             reference.role == "type" or owner.id == b.owner or captured and owner.captures[captured.id + 1] == captured,
             "reference lacks capture transport"
         )
+    end
+    need(type(p.calls) == "table", "invalid callsite array")
+    local callCount = 0
+    for index in pairs(p.calls) do
+        need(
+            type(index) == "number" and index % 1 == 0 and index >= 1 and index <= #p.calls,
+            "invalid callsite array index"
+        )
+        callCount = callCount + 1
+    end
+    need(callCount == #p.calls, "incomplete callsite array")
+    for index, item in ipairs(p.calls) do
+        local node = item.node
+        need(item.id == index - 1 and p.owners[item.owner + 1], "invalid callsite owner")
+        need(
+            node.kind == "call" and node.obj.kind == "name" and not node.runtimeLoader and not node.ownershipIntrinsic,
+            "callsite lacks ordinary checked call identity"
+        )
+        need(
+            p.callByNode[node] == item and node.obj.token.definition == item.definition,
+            "callsite declaration identity mismatch"
+        )
+        need(referenceOwners[node.obj.token] == item.owner, "callsite does not belong to its checked owner")
+    end
+    for node, item in pairs(p.callByNode) do
+        need(item.node == node and p.calls[item.id + 1] == item, "stale callsite map")
     end
     for index, constant in ipairs(p.constants) do
         need(constantOwners[index - 1], "constant missing from owner")
@@ -760,6 +795,18 @@ function program.verifyGraphs(p: any, graphs: {any}): nil
                         "invalid graph capture reference"
                     )
                 end
+            end
+            if block.term.kind == "invoke" then
+                local contract = block.term.contract
+                local site = need(p.callByNode[contract.call], "invoke lacks checked callsite")
+                need(site.owner == owner.id, "invoke callsite belongs to another owner")
+                local target = contract.owner
+                need(
+                    p.owners[target.id + 1] == target
+                    and p.functionsByDefinition[site.definition] == target
+                    and target.definition == contract.definition,
+                    "invoke callee belongs to another catalog"
+                )
             end
             if block.term.kind == "returns" then
                 explicitOperands("RetN")
