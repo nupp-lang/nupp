@@ -1,0 +1,252 @@
+module nupp.compiler.vm.nativephysical
+
+local fixed = require("nupp.compiler.types.fixedwidth")
+local targetLayout = require("nupp.compiler.targetlayout")
+local physical = {}
+local qualifiers = {affine = true, borrowed = true, pinned = true}
+local contexts: any = setmetatable({}, {__mode = "k"})
+local origins: any = setmetatable({}, {__mode = "k"})
+local accesses: any = setmetatable({}, {__mode = "k"})
+
+local function need(ok: any, message: string): any
+    assert(ok, "native physical: " .. message)
+    return ok
+end
+
+function physical.new(target: string): any
+    need(targetLayout.has(target), "explicit supported target required")
+    local context = {target = target, abi = targetLayout.ABI}
+    contexts[context] = {target = target}
+    return context
+end
+
+local function derive(context: any, checked: any): any
+    local held = need(contexts[context], "unknown target context")
+    need(context.target == held.target and context.abi == targetLayout.ABI, "target context changed")
+    need(checked and type(checked.id) == "string" and checked.id ~= "", "resolved checked type required")
+    local raw, ownership = checked, {}
+    while qualifiers[raw.tag] or raw.tag == "literal" or raw.tag == "const" do
+        if qualifiers[raw.tag] then
+            ownership[#ownership + 1] = raw
+        end
+        raw = raw.tag == "literal" and raw.base or raw.inner
+    end
+    local nullable = false
+    local representation = raw
+    if raw.tag == "union" then
+        need(raw.hasNil and #raw.members == 2, "only one optional pointer type is supported")
+        representation = raw.members[1].tag == "nil" and raw.members[2] or raw.members[1]
+        need(representation.tag == "ptr" or representation.tag == "voidptr", "optional value is not a pointer")
+        nullable = true
+    end
+    local pointer = representation.tag == "ptr" or representation.tag == "voidptr"
+    need(
+        pointer or fixed.isPhysical(representation) or representation.tag == "boolean" or representation.tag == "nil",
+        "unsupported physical value type"
+    )
+    local loaded = fixed.loaded(raw)
+    local layout = nil
+    if representation.tag ~= "nil" then
+        local why
+        layout, why = targetLayout.of(raw, context.target)
+        need(layout, why or "type has no target layout")
+    end
+    local pointee = representation.tag == "ptr" and representation.elem or nil
+    local declaration = pointee and pointee.tag == "nominal" and (pointee.origin or pointee) or nil
+    local descriptor = {
+        context = context,
+        checkedType = checked,
+        storageType = raw,
+        valueType = loaded,
+        ownership = ownership,
+        nullable = nullable,
+        pointee = pointee,
+        declaration = declaration,
+        machineKind = pointer and "voidptr" or loaded.tag,
+        layout = layout,
+        storageBytes = layout and layout.size or 0,
+        signed = representation.tag:sub(1, 3) == "int",
+        arithmetic = false
+    }
+
+    return descriptor
+end
+
+local function sameLayout(actual: any, expected: any): boolean
+    if actual == nil or expected == nil then
+        return actual == expected
+    end
+    for _, key in ipairs({"target", "abi", "size", "alignment", "fingerprint"}) do
+        if actual[key] ~= expected[key] then
+            return false
+        end
+    end
+    if type(actual.fields) ~= "table" or type(actual.offsets) ~= "table" or #actual.fields ~= #expected.fields then
+        return false
+    end
+    for index, field in ipairs(expected.fields) do
+        local found = actual.fields[index]
+        if type(found) ~= "table" then
+            return false
+        end
+        for _, key in ipairs({"name", "offset", "size", "alignment", "bitOffset", "bitWidth"}) do
+            if found[key] ~= field[key] then
+                return false
+            end
+        end
+    end
+    for name, offset in pairs(expected.offsets) do
+        if actual.offsets[name] ~= offset then
+            return false
+        end
+    end
+    for name, offset in pairs(actual.offsets) do
+        if expected.offsets[name] ~= offset then
+            return false
+        end
+    end
+
+    return true
+end
+
+function physical.validate(descriptor: any): boolean
+    local held = need(origins[descriptor], "unknown physical descriptor")
+    local expected = derive(held.context, held.checkedType)
+    for _, key in ipairs({
+        "context",
+        "checkedType",
+        "storageType",
+        "valueType",
+        "nullable",
+        "pointee",
+        "declaration",
+        "machineKind",
+        "storageBytes",
+        "signed",
+        "arithmetic"
+    }) do
+        need(descriptor[key] == expected[key], "descriptor " .. key .. " changed")
+    end
+    need(type(descriptor.ownership) == "table" and #descriptor.ownership == #expected.ownership, "ownership changed")
+    for index, qualifier in ipairs(expected.ownership) do
+        need(descriptor.ownership[index] == qualifier, "ownership identity changed")
+    end
+    need(sameLayout(descriptor.layout, expected.layout), "descriptor layout changed")
+
+    return true
+end
+
+function physical.describe(context: any, checked: any): any
+    local descriptor = derive(context, checked)
+    origins[descriptor] = {context = context, checkedType = checked}
+    return descriptor
+end
+
+function physical.same(left: any, right: any): boolean
+    physical.validate(left)
+    physical.validate(right)
+    if left.context ~= right.context
+        or left.checkedType ~= right.checkedType
+        or left.pointee ~= right.pointee
+        or left.declaration ~= right.declaration
+        or left.nullable ~= right.nullable
+        or #left.ownership ~= #right.ownership
+    then
+        return false
+    end
+    for index, qualifier in ipairs(left.ownership) do
+        if qualifier ~= right.ownership[index] then
+            return false
+        end
+    end
+
+    return true
+end
+
+local function fieldContract(receiver: any, node: any, write: boolean): any
+    physical.validate(receiver)
+    need(#receiver.ownership == 0, "qualified access requires a lifetime permission proof")
+    need(not receiver.nullable, "nullable access requires a checked nonnull refinement")
+    local owner = receiver.pointee
+    need(owner and owner.tag == "nominal" and owner.declKind == "struct", "typed struct pointer required")
+    need(node and node.kind == "dotIndex" and node.obj and node.name, "checked direct field access required")
+    need(node.obj.inferredType == receiver.checkedType, "receiver checked type differs")
+    need(node.unsafeOwnershipOperation == "raw pointer dereference", "checked unsafe pointer access required")
+    need((node.assignmentTarget == true) == write, "read/write access differs")
+    if write then
+        need(node.fixedWidthPhysicalStore == true, "checked physical store required")
+    end
+    local name = node.name.text
+    local definitions = write and owner.writeFieldDefs or owner.fieldDefs
+    local declaration = need(definitions and definitions[name], "field permission is absent")
+    need(node.name.definition == declaration, "field declaration identity differs")
+    local fields = write and owner.writeByname or owner.byname
+    local storage = need(fields and fields[name], "field storage type is absent")
+    need(not declaration.bitWidth, "bitfield access is unsupported")
+    local described = physical.describe(receiver.context, storage)
+    need(#described.ownership == 0, "qualified field requires a lifetime permission proof")
+    local expected = write and storage or fixed.loaded(storage)
+    need(node.resolvedType == expected, "checked field result type differs")
+    local layout, why = targetLayout.of(owner, receiver.context.target)
+    need(layout, why or "pointee has no target layout")
+    local member = nil
+    for _, field in ipairs(layout.fields) do
+        if field.name == name then
+            member = field
+            break
+        end
+    end
+    need(member and not member.bitWidth, "field lacks whole-scalar layout")
+    need(member.size == described.storageBytes, "field storage width differs")
+    need(member.offset >= 0 and member.offset + member.size <= layout.size, "field lies outside pointee layout")
+
+    return {
+        receiver = receiver,
+        node = node,
+        declaration = declaration,
+        name = name,
+        storage = described,
+        valueType = expected,
+        write = write,
+        offset = member.offset,
+        width = member.size,
+        alignment = member.alignment,
+        signed = described.signed,
+        layout = layout
+    }
+end
+
+function physical.field(receiver: any, node: any, write: boolean): any
+    local access = fieldContract(receiver, node, write)
+    accesses[
+        access
+    ] = {receiver = receiver, node = node, write = write, name = access.name, declaration = access.declaration}
+
+    return access
+end
+
+function physical.validateField(access: any): boolean
+    local held = need(accesses[access], "unknown physical field contract")
+    local expected = fieldContract(held.receiver, held.node, held.write)
+    need(expected.name == held.name and expected.declaration == held.declaration, "checked member identity changed")
+    for _, key in ipairs({
+        "receiver",
+        "node",
+        "declaration",
+        "name",
+        "valueType",
+        "write",
+        "offset",
+        "width",
+        "alignment",
+        "signed"
+    }) do
+        need(access[key] == expected[key], "field " .. key .. " changed")
+    end
+    need(physical.same(access.storage, expected.storage), "field storage type changed")
+    need(sameLayout(access.layout, expected.layout), "field layout changed")
+
+    return true
+end
+
+export = physical
