@@ -2,6 +2,7 @@ module nupp.compiler.vm.coregraphverify
 
 local graph = require("nupp.compiler.vm.graph")
 local schema = require("nupp.compiler.vm.coregraphschema")
+local budget = require("nupp.compiler.vm.coregraphbudget")
 local verify = {}
 
 local function need(ok: any, message: string): any
@@ -292,33 +293,6 @@ function verify.resultKind(g: any, signature: any, output: any): string
     return need(returned, "missing scalar return")
 end
 
--- Bound expanded records before traversing their semantic references. Tables
--- have one owner; schema policy is compiled data, never loader-supplied code.
-local function tree(value: any, seen: any, depth: integer, budget: any): nil
-    need(depth <= 32, "semantic nesting limit exceeded")
-    budget.items += 1
-    need(budget.items <= 1048576, "semantic expansion limit exceeded")
-    local kind = type(value)
-    if kind == "table" then
-        plain(value)
-        need(not seen[value], "shared or cyclic semantic table")
-        seen[value] = true
-        for key, child in pairs(value) do
-            need(type(key) == "string" or type(key) == "number", "invalid semantic key")
-            tree(key, seen, depth + 1, budget)
-            tree(child, seen, depth + 1, budget)
-        end
-    elseif kind == "string" then
-        text(value)
-        budget.bytes += #value
-        need(budget.bytes <= 16777216, "semantic string expansion limit exceeded")
-    elseif kind == "number" then
-        integer(value, 4294967295)
-    else
-        need(kind == "boolean", "nonpersistent semantic value")
-    end
-end
-
 local function same(actual: any, expected: any): nil
     need(type(actual) == type(expected), "canonical schema differs")
     if type(expected) ~= "table" then
@@ -458,7 +432,7 @@ function verify.catalog(p: any): any
 end
 
 function verify.semantic(p: any): nil
-    tree(p, {}, 0, {items = 0, bytes = 0})
+    budget.measure(p)
     local catalog = verify.catalog(p)
     -- Source evidence is deliberately absent. The shared verifier only checks
     -- SSA structure with independently validated scalar arities for each block.

@@ -1,0 +1,406 @@
+module nupp.compiler.vm.coregraphbudget
+
+local schema = require("nupp.compiler.vm.coregraphschema")
+local shape = require("nupp.compiler.vm.coregraphshape")
+local budget = {}
+
+local function need(ok: any, message: string): any
+    assert(ok, "core graph contracts: " .. message)
+    return ok
+end
+
+local function bounded(value: any, maximum: integer): integer
+    need(type(value) == "number" and value >= 0 and value <= maximum and value % 1 == 0, "invalid bounded integer")
+    return value as integer
+end
+
+-- This is the tree admission contract, not graph verification. No partial
+-- counter result escapes refusal, and shared tables are rejected like cycles.
+function budget.measure(value: any): any
+    local seen, result = {}, {items = 0, bytes = 0, maxDepth = 0}
+
+    local function visit(child: any, depth: integer): nil
+        need(depth <= 32, "semantic nesting limit exceeded")
+        need(result.items < 1048576, "semantic expansion limit exceeded")
+        result.items += 1
+        result.maxDepth = math.max(result.maxDepth, depth)
+        local kind = type(child)
+        if kind == "table" then
+            need(getmetatable(child) == nil, "plain semantic table required")
+            need(not seen[child], "shared or cyclic semantic table")
+            seen[child] = true
+            for key, nested in pairs(child) do
+                need(type(key) == "string" or type(key) == "number", "invalid semantic key")
+                visit(key, depth + 1)
+                visit(nested, depth + 1)
+            end
+        elseif kind == "string" then
+            need(#child <= 1048576, "bounded source text required")
+            need(#child <= 16777216 - result.bytes, "semantic string expansion limit exceeded")
+            result.bytes += #child
+        elseif kind == "number" then
+            bounded(child, 4294967295)
+        else
+            need(kind == "boolean", "nonpersistent semantic value")
+        end
+    end
+
+    visit(value, 0)
+
+    return result
+end
+
+-- Fresh inflation templates mirror coregraphcodec.inflate's object shapes.
+-- They describe retained metadata costs, never operation execution. The root
+-- includes the actual canonical schema; enum text also comes from that schema.
+-- Decoded-tree equivalence tests must accompany any change to inflate.
+function budget.policy(): any
+    local definition, wire = schema.describe(), schema.wire()
+    local result: any = {
+        version = 1,
+        itemLimit = 1048576,
+        textLimit = 16777216,
+        textItemLimit = 1048576,
+        depthLimit = 32,
+        integerLimit = 4294967295,
+        recipes = {},
+        enums = {},
+        termFields = {},
+        maxDepthBound = 0
+    }
+
+    local function recipe(name: string, sample: any, subtract: integer, baseDepth: integer): nil
+        local count = budget.measure(sample)
+        result.recipes[#result.recipes + 1] = {name = name, items = count.items - subtract, bytes = count.bytes}
+        result.maxDepthBound = math.max(result.maxDepthBound, baseDepth + count.maxDepth)
+    end
+
+    local function entry(name: string, value: any, baseDepth: integer): nil
+        recipe(name, {value}, 1, baseDepth)
+    end
+
+    recipe(
+        "root",
+        {schema = definition, entry = 0, catalog = {}, signatures = {}, graphs = {}, modules = {}, contracts = {}},
+        0,
+        0
+    )
+    entry("catalog", {id = 0, kind = "", signature = 0, graph = 0, effect = 0}, 1)
+    recipe("parent", {parent = 0}, 1, 2)
+    entry("signatures", {id = 0, kind = "", result = "", params = {}}, 1)
+    entry("modules", {name = "", path = "", chunk = 0}, 1)
+    entry("contracts", {id = 0, owner = 0, block = 0, callsite = 0, target = 0, signature = 0, effect = 0}, 1)
+    entry(
+        "graphs",
+        {
+            programOwner = 0,
+            nparams = 0,
+            counts = {v = 0, i = 0, f = 0, x = 0},
+            name = "",
+            module = "",
+            path = "",
+            types = {},
+            slots = {},
+            constants = {},
+            blocks = {},
+            positions = {},
+            certificates = {}
+        },
+        1
+    )
+    recipe("sourceBindings", {source = {name = "", module = "", path = ""}}, 1, 2)
+    -- A value occupies two separate arrays. Neither array root is charged
+    -- again: it already belongs to the graph template above.
+    entry("valueType", "v", 3)
+    entry("valueSlot", 0, 3)
+    entry("constants", {kind = "", value = ""}, 3)
+    entry("positions", {line = 1, column = 1}, 3)
+    recipe("positionSources", {source = {moduleName = "", path = ""}}, 1, 4)
+    entry("blocks", {id = 0, params = {}, op = {}, dst = {}, args = {}, pos = {}, cert = {}, term = {}}, 3)
+    -- Five parallel columns, including one fresh argument array per operation.
+    entry("operationName", "", 5)
+    entry("operationDestination", 0, 5)
+    entry("operationArguments", {}, 5)
+    entry("operationPosition", 0, 5)
+    entry("operationCertificate", 0, 5)
+    entry("edges", {target = 0, args = {}}, 6)
+    -- All raw words become array entries. Signature params replace the zero
+    -- with an enum string: same item count, extra canonical text bytes.
+    entry("words", 0, 8)
+    local fields: any = {
+        ["return"] = {"value"},
+        jump = {},
+        branch = {"value"},
+        invoke = {"callee", "result", "contract"}
+    }
+    for _, term in ipairs(definition.terms) do
+        local optional = need(fields[term.name], "unsupported budget terminator")
+        local sample: any = {kind = term.name, edges = {}}
+        if term.name == "invoke" then
+            sample.args = {}
+        end
+        recipe("term_" .. term.name, sample, 1, 5)
+        local copied = {"pos"}
+        for _, field in ipairs(optional) do
+            copied[#copied + 1] = field
+        end
+        result.termFields[#result.termFields + 1] = {id = term.id, name = term.name, fields = copied}
+    end
+    for _, field in ipairs({"pos", "value", "callee", "result", "contract"}) do
+        recipe("termField_" .. field, {[field] = 0}, 1, 5)
+    end
+    for _, group in ipairs({
+        {name = "ownerKinds", values = wire.ownerKinds},
+        {name = "signatureKinds", values = wire.signatureKinds},
+        {name = "scalarKinds", values = definition.scalarKinds},
+        {name = "constantKinds", values = wire.constantKinds},
+        {name = "operations", values = definition.operations}
+    }) do
+        local values = {}
+        for _, value in ipairs(group.values) do
+            values[#values + 1] = {id = value.id, name = value.name, bytes = #value.name}
+        end
+        result.enums[#result.enums + 1] = {name = group.name, values = values}
+    end
+    -- Bind retained tree recipes to their physical rows in this one cost policy.
+    local sectionRecipes: any = {
+        schema = {},
+        catalog = {"catalog"},
+        signatures = {"signatures"},
+        graphs = {"graphs"},
+        blocks = {"blocks"},
+        terms = {},
+        contracts = {"contracts"},
+        positions = {"positions"},
+        sourceBindings = {"sourceBindings"},
+        positionSources = {"positionSources"},
+        modules = {"modules"},
+        values = {"valueType", "valueSlot"},
+        constants = {"constants"},
+        operations = {
+            "operationName",
+            "operationDestination",
+            "operationArguments",
+            "operationPosition",
+            "operationCertificate"
+        },
+        edges = {"edges"},
+        words = {"words"},
+        strings = {},
+        bytes = {}
+    }
+    local enumFields: any = {
+        catalog = {kind = "ownerKinds"},
+        signatures = {kind = "signatureKinds", result = "scalarKinds"},
+        constants = {kind = "constantKinds"},
+        operations = {opcode = "operations"}
+    }
+    result.sections = {}
+    for _, section in ipairs(wire.sections) do
+        local fields = {}
+        for _, field in ipairs(section.fields) do
+            local group = enumFields[section.name] and enumFields[section.name][field.name]
+            if group then
+                fields[#fields + 1] = {offset = field.offset, group = group}
+            end
+        end
+        result.sections[
+            #result.sections + 1
+        ] = {
+            id = section.id,
+            name = section.name,
+            recipes = need(sectionRecipes[section.name], "missing section budget binding"),
+            enums = fields
+        }
+    end
+    need(result.maxDepthBound <= result.depthLimit, "semantic nesting limit exceeded")
+
+    return result
+end
+
+-- Require plain, uniquely owned reader-shaped tables before shape.rows can
+-- inspect lengths or fields. This is not source or executable authentication.
+local function plainRows(tables: any, wire: any): nil
+    local seen, names, records = {}, {}, 0
+
+    local function plain(value: any): nil
+        need(type(value) == "table" and getmetatable(value) == nil, "plain physical table required")
+        need(not seen[value], "shared physical table")
+        seen[value] = true
+    end
+
+    plain(tables)
+    for _, section in ipairs(wire.sections) do
+        names[section.name] = true
+        local rows = tables[section.name]
+        if section.name == "bytes" then
+            need(type(rows) == "string", "physical bytes required")
+        else
+            plain(rows)
+            local count = bounded(#rows, wire.recordsLimit)
+            need(count <= wire.recordsLimit - records, "record expansion limit exceeded")
+            records += count
+            local allowed, keys = {}, 0
+            for _, field in ipairs(section.fields) do
+                allowed[field.name] = true
+            end
+            for index, row in pairs(rows) do
+                need(
+                    type(index) == "number" and index >= 1 and index <= count and index % 1 == 0,
+                    "sparse physical section"
+                )
+                keys += 1
+                plain(row)
+                for key in pairs(row) do
+                    need(allowed[key], "unknown physical field")
+                end
+            end
+            need(keys == count, "sparse physical section")
+        end
+    end
+    for name in pairs(tables) do
+        need(names[name], "unknown physical section")
+    end
+end
+
+-- Physical shape admission is repeated here. Catalog/SSA validity is separate.
+-- The caller retains immutable rows for this call. Item/text counts equal the
+-- inflated tree; maxDepthBound is conservative, not an observed-depth counter.
+function budget.rows(tables: any, entry: integer): any
+    local wire, policy = schema.wire(), budget.policy()
+    plainRows(tables, wire)
+    shape.rows(tables, wire, entry)
+    local recipes, enums, termFields = {}, {}, {}
+    for _, recipe in ipairs(policy.recipes) do
+        recipes[recipe.name] = recipe
+    end
+    for _, group in ipairs(policy.enums) do
+        enums[group.name] = group.values
+    end
+    for _, term in ipairs(policy.termFields) do
+        termFields[term.id + 1] = term
+    end
+    local result: any = {items = 0, bytes = 0, maxDepthBound = policy.maxDepthBound}
+
+    local function textBytes(count: integer): nil
+        need(count <= policy.textItemLimit, "bounded source text required")
+        need(count <= policy.textLimit - result.bytes, "semantic string expansion limit exceeded")
+        result.bytes += count
+    end
+
+    local function charge(name: string, count: integer): nil
+        local recipe = need(recipes[name], "unknown budget recipe")
+        bounded(count, policy.itemLimit)
+        need(count <= math.floor((policy.itemLimit - result.items) / recipe.items), "semantic expansion limit exceeded")
+        if recipe.bytes > 0 then
+            need(
+                count <= math.floor((policy.textLimit - result.bytes) / recipe.bytes),
+                "semantic string expansion limit exceeded"
+            )
+        end
+        result.items += recipe.items * count
+        result.bytes += recipe.bytes * count
+    end
+
+    local function stringAt(id: integer): nil
+        textBytes(tables.strings[id + 1].bytes)
+    end
+
+    local function enumAt(group: string, id: integer): nil
+        textBytes(need(enums[group][id + 1], "unknown budget enum").bytes)
+    end
+
+    charge("root", 1)
+    for _, name in ipairs({
+        "catalog",
+        "signatures",
+        "modules",
+        "contracts",
+        "graphs",
+        "sourceBindings",
+        "constants",
+        "positions",
+        "positionSources",
+        "blocks",
+        "edges",
+        "words"
+    }) do
+        charge(name, #tables[name])
+    end
+    charge("valueType", #tables.values)
+    charge("valueSlot", #tables.values)
+    for _, name in ipairs({
+        "operationName",
+        "operationDestination",
+        "operationArguments",
+        "operationPosition",
+        "operationCertificate"
+    }) do
+        charge(name, #tables.operations)
+    end
+    for _, row in ipairs(tables.catalog) do
+        enumAt("ownerKinds", row.kind)
+        if row.parent ~= wire.absent then
+            charge("parent", 1)
+        end
+    end
+    for _, row in ipairs(tables.signatures) do
+        enumAt("signatureKinds", row.kind)
+        enumAt("scalarKinds", row.result)
+        for index = 1, row.paramsCount do
+            enumAt("scalarKinds", tables.words[row.paramsFirst + index].value)
+        end
+    end
+    for _, row in ipairs(tables.modules) do
+        stringAt(row.name)
+        stringAt(row.path)
+    end
+    for _, row in ipairs(tables.graphs) do
+        stringAt(row.name)
+        stringAt(row.module)
+        stringAt(row.path)
+    end
+    for _, row in ipairs(tables.sourceBindings) do
+        stringAt(row.name)
+        stringAt(row.module)
+        stringAt(row.path)
+    end
+    for _, row in ipairs(tables.positionSources) do
+        stringAt(row.moduleName)
+        stringAt(row.path)
+    end
+    for _, row in ipairs(tables.constants) do
+        enumAt("constantKinds", row.kind)
+    end
+    for _, row in ipairs(tables.operations) do
+        enumAt("operations", row.opcode)
+    end
+    for _, row in ipairs(tables.terms) do
+        local term = need(termFields[row.kind + 1], "unknown budget terminator")
+        charge("term_" .. term.name, 1)
+        for _, field in ipairs(term.fields) do
+            if row[field] ~= wire.absent then
+                charge("termField_" .. field, 1)
+            end
+        end
+        if term.name == "invoke" then
+            need(row.value == wire.absent, "invoke has a hidden value")
+        else
+            need(
+                row.callee == wire.absent
+                and row.result == wire.absent
+                and row.contract == wire.absent
+                and row.argsFirst == 0
+                and row.argsCount == 0,
+                "hidden non-invoke fields"
+            )
+            if term.name == "jump" then
+                need(row.value == wire.absent, "jump has a hidden value")
+            end
+        end
+    end
+
+    return result
+end
+
+export = budget

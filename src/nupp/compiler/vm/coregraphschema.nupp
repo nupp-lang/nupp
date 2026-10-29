@@ -7,12 +7,12 @@ local schema = {}
 -- IDs and admission policy are versioned here. Operand definitions are copied
 -- from the canonical graph tables; these rows do not define execution behavior.
 local operations = {
-    {name = "K", signature = "Vk", effect = 0},
-    {name = "Nil", signature = "V", effect = 0},
-    {name = "Move", signature = "Vv", effect = 0},
+    {name = "K", signature = "Vk", effect = 0, provenance = "constant"},
+    {name = "Nil", signature = "V", effect = 0, provenance = "nil"},
+    {name = "Move", signature = "Vv", effect = 0, provenance = "copy"},
     -- Zero captures do not make creation pure: each evaluation still creates
     -- an instance. Catalog owner identity is not closure value identity.
-    {name = "Closure", signature = "Vn", effect = 1}
+    {name = "Closure", signature = "Vn", effect = 1, provenance = "function"}
 }
 
 local function copyArray(values: any): any
@@ -131,6 +131,25 @@ function schema.describe(): any
     end
 
     return described
+end
+
+-- Validation metadata only. Keep describe() and the v1 wire schema unchanged.
+-- These attributes classify persistent scalar provenance, not execution.
+function schema.validationPolicy(): any
+    local described, result = schema.describe(), {}
+    for index, operation in ipairs(described.operations) do
+        result[
+            index
+        ] = {
+            id = operation.id,
+            name = operation.name,
+            args = copyArray(operation.args),
+            result = operation.result,
+            provenance = operations[index].provenance
+        }
+    end
+
+    return result
 end
 
 -- Fixed records carry references and spans, never executable opcode policy.
