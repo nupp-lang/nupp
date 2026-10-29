@@ -183,6 +183,24 @@ function extract.test(): integer
         return program.fromBlocks(g)
     end)
 
+    local invokeGraph = graph.new(0)
+    local invokeBlock = graph.block(invokeGraph)
+    local invocation = {kind = "invoke", args = {}, edges = {}}
+    invokeBlock.term = invocation
+    local beforeTypes, beforeSlots = invokeGraph.types, invokeGraph.slots
+    local ok, problem = pcall(function(): any
+        return program.fromBlocks(invokeGraph)
+    end)
+    assert(
+        not ok and tostring(problem):find("core invoke execution is not established", 1, true),
+        "core invoke must refuse before verification or pruning"
+    )
+    assert(
+        invokeBlock.term == invocation and invokeGraph.types == beforeTypes and invokeGraph.slots == beforeSlots,
+        "refused invoke mutated its graph"
+    )
+    cases = cases + 1
+
     return cases
 end
 

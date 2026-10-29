@@ -262,6 +262,9 @@ function program.encode(instructions: {any}, result: integer): any
 end
 
 function program.fromBlocks(g: any): any
+    for _, block in ipairs(g.blocks) do
+        assert(not block.term or block.term.kind ~= "invoke", "core invoke execution is not established")
+    end
     assert(g.native == nil and g.nparams == 0 and #g.blocks > 0, "core requires a closed guest graph")
     assert(#g.constants == 0 and not g.vararg, "unsupported core graph metadata")
     graph.verify(g)

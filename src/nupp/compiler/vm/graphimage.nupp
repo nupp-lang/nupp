@@ -330,6 +330,7 @@ function image.encoder(): any
         -- V5 has fixed operand lists and no capture-layout catalog. Refuse
         -- before verification, region derivation or writing any function data.
         for _, block in ipairs(g.blocks) do
+            assert(not block.term or block.term.kind ~= "invoke", "invoke requires a final-core image schema")
             for _, op in ipairs(block.op) do
                 local signature = G.signatures[op]
                 assert(not (signature and signature.coreOnly), "graph operation requires a final-core image schema")

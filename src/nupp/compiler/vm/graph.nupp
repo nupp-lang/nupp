@@ -849,7 +849,193 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
     end
 end
 
+-- Invoke contracts retain checked source identities as expected ABI evidence.
+-- They do not authenticate a callee SSA value's runtime FunctionInfo or owner.
+local function dense(values: any): nil
+    assert(type(values) == "table", "invoke requires a dense array")
+    local count = 0
+    for index in pairs(values) do
+        assert(
+            type(index) == "number" and index >= 1 and index % 1 == 0 and index <= #values,
+            "invoke requires a dense array"
+        )
+        count = count + 1
+    end
+    assert(count == #values, "invoke requires a dense array")
+end
+
+local function invokeScalar(t: any): nil
+    while t and (t.tag == "literal" or t.tag == "const") do
+        t = t.tag == "literal" and t.base or t.inner
+    end
+    assert(
+        t and (t.tag == "int64" or t.tag == "number" or t.tag == "boolean" or t.tag == "string" or t.tag == "nil"),
+        "invoke requires a checked scalar type, got " .. tostring(t and t.tag)
+    )
+end
+
+local function invokeSignature(signature: any): nil
+    assert(type(signature) == "table" and signature.tag == "func", "invoke requires a checked function signature")
+    assert(
+        not signature.vararg
+        and not signature.foreign
+        and not signature.comptimeOnly
+        and not signature.noreturn
+        and not signature.yieldPack
+        and not signature.resumePack,
+        "invoke signature is outside the scalar guest subset"
+    )
+    for _, field in ipairs({
+        "typeParams",
+        "packParams",
+        "constParams",
+        "borrowsParams",
+        "preservesResults",
+        "partitionResults",
+        "preservesPaths"
+    }) do
+        assert(
+            signature[field] == nil or next(signature[field]) == nil,
+            "invoke generic or ownership contract is unsupported"
+        )
+    end
+    assert(
+        not signature.borrowsParam and not signature.borrowsSelf and not signature.borrowsResult,
+        "invoke borrowed result is unsupported"
+    )
+    for _, pack in ipairs({signature.paramPack, signature.retPack}) do
+        assert(
+            type(pack) == "table" and not pack.tail and not pack.alternatives,
+            "invoke requires closed parameter and result packs"
+        )
+        dense(pack.head)
+        dense(pack.modes)
+        assert(#pack.modes == #pack.head, "invoke pack modes differ")
+        for index, t in ipairs(pack.head) do
+            assert(pack.modes[index] == "plain", "invoke ownership mode is unsupported")
+            invokeScalar(t)
+        end
+    end
+    dense(signature.params)
+    dense(signature.rets)
+    assert(
+        #signature.paramPack.head == #signature.params
+        and #signature.retPack.head == 1
+        and #signature.rets == 1
+        and signature.retPack.head[1] == signature.rets[1],
+        "invoke requires exactly one checked scalar result"
+    )
+    for index, t in ipairs(signature.params) do
+        assert(signature.paramPack.head[index] == t, "invoke parameter pack identity differs")
+    end
+end
+
+local function invokeContract(contract: any): nil
+    nativeContract(contract, {
+        owner = true,
+        body = true,
+        definition = true,
+        signature = true,
+        call = true,
+        callSignature = true,
+        summary = true,
+        effects = true
+    })
+    local owner, call = contract.owner, contract.call
+    assert(
+        type(owner) == "table"
+        and owner.kind == "function"
+        and owner.node
+        and owner.scope
+        and owner.node.body == contract.body
+        and owner.body == contract.body
+        and owner.signature == contract.signature
+        and owner.body.signatureType == contract.signature,
+        "invoke checked body identity differs"
+    )
+    local summary = contract.summary
+    assert(
+        type(summary) == "table"
+        and owner.body.effectSummary == summary
+        and summary.yields == false
+        and summary.top == false
+        and summary.external == false,
+        "invoke requires a proven nonsuspending body summary"
+    )
+    local definition = contract.definition
+    assert(
+        type(definition) == "table"
+        and owner.definition == definition
+        and definition.token
+        and definition.token.definition == definition
+        and not definition.reassigned
+        and not definition.runtimeLoader
+        and not definition.scalarIntrinsic,
+        "invoke checked declaration identity differs"
+    )
+    assert(
+        type(call) == "table"
+        and call.kind == "call"
+        and call.obj
+        and call.obj.kind == "name"
+        and call.obj.token.definition == definition
+        and call.calleeType == contract.callSignature
+        and not call.cdefCall
+        and not call.scalarIntrinsic
+        and not call.ownershipIntrinsic
+        and not call.affineClosureCall
+        and not call.automaticOwnerMoves
+        and not call.runtimeLoader,
+        "invoke checked call identity differs"
+    )
+    invokeSignature(contract.signature)
+    invokeSignature(contract.callSignature)
+    local signature, called = contract.signature, contract.callSignature
+    assert(
+        #signature.params == #called.params and signature.rets[1] == called.rets[1],
+        "invoke checked call signature differs"
+    )
+    for index, t in ipairs(signature.params) do
+        assert(t == called.params[index], "invoke checked parameter identity differs")
+    end
+    assert(call.args and call.args.kind == "args", "invoke requires explicit positional arguments")
+    dense(call.args.exprs)
+    assert(#call.args.exprs == #called.params, "invoke checked call arity differs")
+    for _, argument in ipairs(call.args.exprs) do
+        invokeScalar(argument.inferredType)
+        assert(
+            argument.kind ~= "vararg" and argument.kind ~= "namedArg" and argument.kind ~= "pluckArg",
+            "invoke argument expansion is unsupported"
+        )
+    end
+    nativeContract(contract.effects, {mayCollect = true, mayRaise = true, mayPark = true, pure = true})
+    assert(
+        contract.effects.mayCollect == true
+        and contract.effects.mayRaise == true
+        and contract.effects.mayPark == false
+        and contract.effects.pure == false,
+        "invoke requires conservative scalar guest effects"
+    )
+end
+
+function graph.invokeContract(owner: any, call: any): any
+    local contract = {
+        owner = owner,
+        body = owner.body,
+        definition = owner.definition,
+        signature = owner.signature,
+        call = call,
+        callSignature = call.calleeType,
+        summary = owner.body.effectSummary,
+        effects = {mayCollect = true, mayRaise = true, mayPark = false, pure = false}
+    }
+    invokeContract(contract)
+
+    return contract
+end
+
 local edgeCounts = {
+    invoke = 1,
     jump = 1,
     branch = 2,
     ["return"] = 0,
@@ -921,6 +1107,31 @@ function graph.verify(g: any): nil
             assert(signature.params[i] == g.exactTypes[i], "native entry parameter kind")
         end
         assert(#g.certificates == 0, "native certificate transport is outside the leaf profile")
+    end
+    -- Count all incoming edges, including unreachable predecessors. An invoke
+    -- result is defined only by its dedicated continuation's first parameter.
+    local incoming, hasInvoke = {}, false
+    for _, block in ipairs(blocks) do
+        hasInvoke = hasInvoke or block.term and block.term.kind == "invoke"
+    end
+    if hasInvoke then
+        dense(blocks)
+        for _, block in ipairs(blocks) do
+            assert(block.term, "unterminated graph block")
+            dense(block.term.edges)
+            for _, edge in ipairs(block.term.edges) do
+                assert(
+                    type(edge) == "table"
+                    and type(edge.target) == "number"
+                    and edge.target >= 1
+                    and edge.target <= #blocks
+                    and edge.target % 1 == 0,
+                    "bad invoke graph edge"
+                )
+                dense(edge.args)
+                incoming[edge.target] = (incoming[edge.target] or 0) + 1
+            end
+        end
     end
     local defined = {}
     -- Per block: the values usable here (its parameters and earlier results)
@@ -1052,7 +1263,44 @@ function graph.verify(g: any): nil
             local pos = t.pos or 0
             assert(pos >= 0 and pos % 1 == 0 and pos <= #g.positions, "native terminator source position outside table")
         end
-        if kind == "dispatch" then
+        if kind == "invoke" then
+            assert(not native, "invoke requires a guest graph")
+            nativeContract(t, {
+                kind = true,
+                callee = true,
+                args = true,
+                contract = true,
+                result = true,
+                edges = true,
+                pos = true
+            })
+            invokeContract(t.contract)
+            dense(t.args)
+            assert(#t.args == #t.contract.call.args.exprs, "invoke must retain every evaluated argument")
+            assert(usable(t.callee) and types[t.callee] == "v", "invoke callee must be usable tagged SSA")
+            for _, value in ipairs(t.args) do
+                assert(usable(value) and types[value] == "v", "invoke argument must be usable tagged SSA")
+            end
+            assert(#edges == 1, "invoke requires one continuation")
+            local continuation = blocks[edges[1].target]
+            assert(
+                continuation and continuation.id ~= 1 and incoming[continuation.id] == 1,
+                "invoke continuation must have one predecessor"
+            )
+            dense(continuation.params)
+            if t.result ~= nil then
+                assert(
+                    valueId(t.result) and types[t.result] == "v" and continuation.params[1] == t.result,
+                    "invoke result must be the first tagged continuation parameter"
+                )
+                assert(not usable(t.result), "invoke result cannot be defined before its continuation")
+            end
+            local pos = t.pos or 0
+            assert(
+                type(pos) == "number" and pos >= 0 and pos % 1 == 0 and pos <= #g.positions,
+                "invoke source position outside table"
+            )
+        elseif kind == "dispatch" then
             assert(
                 native
                 and (g.native.abi == "handler" or g.native.abi == "support")
@@ -1176,7 +1424,8 @@ function graph.verify(g: any): nil
             end
             local target = assert(blocks[e.target], "bad graph target")
             local args, targetParams = e.args, target.params
-            if not (e.target ~= 1 and #args == #targetParams) then
+            local offset = kind == "invoke" and t.result ~= nil and 1 or 0
+            if not (e.target ~= 1 and #args + offset == #targetParams) then
                 error("bad graph edge arity", 0)
             end
             for i = 1, #args do
@@ -1189,7 +1438,7 @@ function graph.verify(g: any): nil
                         0
                     )
                 end
-                if not (types[v] == types[targetParams[i]]) then
+                if not (types[v] == types[targetParams[i + offset]]) then
                     error(
                         "graph value class mismatch: value " .. tostring(
                             v
@@ -1198,7 +1447,7 @@ function graph.verify(g: any): nil
                     )
                 end
                 if g.exactTypes ~= nil then
-                    assert(g.exactTypes[v] == g.exactTypes[targetParams[i]], "graph edge exact kind mismatch")
+                    assert(g.exactTypes[v] == g.exactTypes[targetParams[i + offset]], "graph edge exact kind mismatch")
                 end
             end
         end
@@ -1242,7 +1491,10 @@ function graph.prune(g: any): nil
         if b.term.value then
             used[b.term.value] = true
         end
-        if b.term.kind == "dispatch" or b.term.kind == "nativeTail" then
+        if b.term.kind == "invoke" then
+            used[b.term.callee] = true
+        end
+        if b.term.kind == "dispatch" or b.term.kind == "nativeTail" or b.term.kind == "invoke" then
             for _, value in ipairs(b.term.args) do
                 used[value] = true
             end
@@ -1258,12 +1510,14 @@ function graph.prune(g: any): nil
     while changed do
         changed = false
         for bi = 1, #blocks do
-            local edges = blocks[bi].term.edges
+            local term = blocks[bi].term
+            local offset = term.kind == "invoke" and term.result ~= nil and 1 or 0
+            local edges = term.edges
             for ei = 1, #edges do
                 local e = edges[ei]
                 local params, args = blocks[e.target].params, e.args
-                for i = 1, #params do
-                    local v = args[i]
+                for i = offset + 1, #params do
+                    local v = args[i - offset]
                     if used[params[i]] and not used[v] then
                         used[v] = true
                         changed = true
@@ -1335,7 +1589,14 @@ function graph.prune(g: any): nil
         if t.value then
             t.value = assert(remap[t.value])
         end
-        if t.kind == "dispatch" or t.kind == "nativeTail" then
+        local offset = t.kind == "invoke" and t.result ~= nil and 1 or 0
+        if t.kind == "invoke" then
+            t.callee = assert(remap[t.callee])
+            -- Removing the unused edge result changes only the consumer to
+            -- discard. The scalar call contract and every input remain.
+            t.result = t.result and remap[t.result] or nil
+        end
+        if t.kind == "dispatch" or t.kind == "nativeTail" or t.kind == "invoke" then
             for i = 1, #t.args do
                 t.args[i] = assert(remap[t.args[i]])
             end
@@ -1344,10 +1605,10 @@ function graph.prune(g: any): nil
         for ei = 1, #edges do
             local e = edges[ei]
             local survived, args, n = blocks[e.target].survived, e.args, 0
-            for i = 1, #survived do
+            for i = offset + 1, #survived do
                 if survived[i] then
                     n = n + 1
-                    args[n] = assert(remap[args[i]])
+                    args[n] = assert(remap[args[i - offset]])
                 end
             end
             for i = #args, n + 1, -1 do
@@ -1454,7 +1715,7 @@ function graph.regions(g: any): any
                 if r then
                     error("region on a non-branch", 0)
                 end
-                if t.kind == "jump" or t.kind == "park" then
+                if t.kind == "jump" or t.kind == "park" or t.kind == "invoke" then
                     id = t.edges[1].target
                 elseif t.kind == "switch" then
                     error("switch regions are outside this slice", 0)
@@ -1495,6 +1756,9 @@ local moves = {v = "Move", i = "IMov", f = "FMov", x = "VMov"}
 --- returns another class, or the slots exceed the register classes.
 function graph.lower(g: any): any
     assert(g.native == nil, "native graph requires machine emission")
+    for _, block in ipairs(g.blocks) do
+        assert(not block.term or block.term.kind ~= "invoke", "invoke requires final-core call lowering")
+    end
     graph.verify(g)
     local code, starts, patches = {}, {}, {}
     local lengthSlots = {}
