@@ -139,6 +139,7 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
         "S0 graph: supported native entry required"
     )
     local handler = g.native.abi == "handler"
+    local guestSlotsChecked = false
     local layout = unbound and handler and contextLayout(context) or nil
     assert((unbound or #g.blocks == 1) and #g.blocks[1].params == 0, "S0 graph: closed entry block required")
     assert(
@@ -503,11 +504,22 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                 end
                 case "FrameSlotRead", "FrameSlotWrite" -> do
                     local access = args[op == "FrameSlotRead" and 4 or 5]
-                    assert(
-                        access.class == "i" and (access.kind == "uint64" or access.kind == "int64")
-                        or access.class == "f" and access.kind == "float64",
-                        "S0 graph: raw numeric slot required"
-                    )
+                    if access.class == "v" then
+                        assert(
+                            unbound and handler and access.kind == "uint64" and access.width == 8,
+                            "S0 graph: guest word slot required"
+                        )
+                        if not guestSlotsChecked then
+                            finalframe.requireGuestSlots(g)
+                            guestSlotsChecked = true
+                        end
+                    else
+                        assert(
+                            access.class == "i" and (access.kind == "uint64" or access.kind == "int64")
+                            or access.class == "f" and access.kind == "float64",
+                            "S0 graph: raw numeric slot required"
+                        )
+                    end
                     recipes.slot(
                         emit,
                         result,
@@ -712,6 +724,14 @@ function sink.verifyCode(code: any): nil
     assert(result.body == held.owner and unchanged(result.machine, held.machine), "S0 graph: retained Result changed")
     assert(finalframe.requireOriginal(held.graph, held.owner))
     graph.verify(held.graph)
+end
+
+-- Closed multi-entry builders also bind roots that have no incoming direct
+-- call fixup (dispatch handlers and the C boundary's start/complete services).
+function sink.verifyCodeOrigin(code: any, g: any, owner: any): nil
+    sink.verifyCode(code)
+    local held = issuedCodes[code].held
+    assert(held.graph == g and held.owner == owner, "S0 graph: Code origin differs")
 end
 
 function sink.verifyCodeTarget(code: any, symbol: string, target: any): nil

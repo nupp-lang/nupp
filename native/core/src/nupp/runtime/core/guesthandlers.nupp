@@ -1,0 +1,308 @@
+module nupp.runtime.core.guesthandlers
+
+const native = require("nupp.runtime.vm.intrinsics")
+const program = require("nupp.runtime.vm.program")
+const slots = require("nupp.runtime.vm.slots")
+const values = require("nupp.runtime.vm.values")
+const frames = require("nupp.runtime.core.frames")
+const access = require("nupp.runtime.core.frameaccess")
+const ops = require("nupp.runtime.core.guestops")
+
+-- The closed checked producer binds these program/slot reads to corebytecode's
+-- canonical opcode recipes and its retained complete graph-derived byte stream.
+-- Dispatch begins only with real entry-owned State/Frame/window/code facts.
+-- RetNil, imported modules, callbacks and escaping closure handles are refused.
+
+export function K(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local dst = program.readByte(pc, 1)
+    local index = program.readSigned32(pc, 4)
+    if native.word(dst) >= native.load64(frame, native.fieldOffset<frames.Frame>("valueCount")) then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if index < 0 then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local value = ops.constant(ctx, frame, pc, native.word(index))
+    if value == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    slots.writeValue(frame, regs, dst, value)
+    local nextPC = ops.branch(ctx, frame, pc, 0)
+    if nextPC == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+
+    return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
+end
+
+export function Nil(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local dst = program.readByte(pc, 1)
+    if native.word(dst) >= native.load64(frame, native.fieldOffset<frames.Frame>("valueCount")) then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    slots.writeValue(frame, regs, dst, values.NIL)
+    local nextPC = ops.branch(ctx, frame, pc, 0)
+    if nextPC == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+
+    return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
+end
+
+export function Move(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local dst, src = program.readByte(pc, 1), program.readByte(pc, 2)
+    local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    if native.word(dst) >= count then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if native.word(src) >= count then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    slots.writeValue(frame, regs, dst, slots.readValue(frame, regs, src))
+    local nextPC = ops.branch(ctx, frame, pc, 0)
+    if nextPC == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+
+    return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
+end
+
+export function NewClosure(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    if ops.charge(ctx, frame, pc) ~= 1ULL then
+        return native.fail()
+    end
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local dst = program.readByte(pc, 1)
+    local base, captures = program.readByte(pc, 2), program.readByte(pc, 3)
+    local target = program.readWord(pc, 8)
+    local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    if native.word(dst) >= count then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if native.word(base) >= count then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if captures ~= 0 then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local handle = ops.closure(ctx, frame, pc, target)
+    if handle == 0ULL then
+        ops.fail(ctx, frame, pc, ops.RESOURCE)
+        return native.fail()
+    end
+    slots.writeValue(frame, regs, dst, handle)
+    local nextPC = ops.branch(ctx, frame, pc, 0)
+    if nextPC == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+
+    return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
+end
+
+export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
+    if ops.charge(ctx, frame, pc) ~= 1ULL then
+        return native.fail()
+    end
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local calleeSlot = program.readByte(pc, 1)
+    local base, nargs = program.readByte(pc, 2), program.readByte(pc, 3)
+    local wanted = program.readByte(pc, 4)
+    local hint = program.readWord(pc, 8)
+    if calleeSlot ~= base then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if native.word(calleeSlot) >= native.load64(frame, native.fieldOffset<frames.Frame>("valueCount")) then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if nargs > 63 then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if wanted ~= 1 then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local callee = slots.readValue(frame, regs, calleeSlot)
+    local s = native.pointer(ops.state(ctx))
+    local resumePC = ops.resume(ctx, frame, pc)
+    ops.checkpoint(ctx, frame, pc)
+    local child = ops.prepare(ctx, frame, pc, callee, native.word(base), native.word(nargs), native.word(wanted), hint)
+    if child == 0ULL then
+        ops.failure(ctx, ops.RESOURCE)
+        return native.fail()
+    end
+    local published = frames.publish(s, frame, native.pointer(child), resumePC)
+    if published ~= 1ULL then
+        -- A prepared child is retained on failure. The closed entry always
+        -- calls complete, which aborts preparation before deepest-first unwind.
+        ops.failure(ctx, ops.INVALID)
+        return native.fail()
+    end
+    local current = native.pointer(access.active(s))
+    local currentValues = native.pointer(access.values(s, current))
+    local currentIntegers = native.pointer(access.integers(s, current))
+    local currentFloats = native.pointer(access.floats(s, current))
+    local currentPC = native.pointer(access.pc(s, current))
+    access.refresh(s, current, ctx)
+
+    return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+end
+
+export function Ret(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local src = program.readByte(pc, 1)
+    if native.word(src) >= native.load64(frame, native.fieldOffset<frames.Frame>("valueCount")) then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    -- Select the produced value while the callee is live; retirement may reuse
+    -- its entire reservation. This path always produces exactly one value.
+    local value = slots.readValue(frame, regs, src)
+    if ops.result(ctx, frame, pc, value) ~= 1ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local s = native.pointer(ops.state(ctx))
+    ops.checkpoint(ctx, frame, pc)
+    if ops.root(ctx, frame) == 1ULL then
+        local finished = ops.finish(ctx, frame, value)
+        if finished ~= 1ULL then
+            ops.failure(ctx, ops.INVALID)
+            return native.fail()
+        end
+        -- native.fail is the raw-zero transport exit here, not root success.
+        -- Entry publishes only checked RootControl completion plus successful
+        -- original-root/serial retirement; the verifier requires finish == 1.
+        return native.fail()
+    end
+    local returned = frames.returnScalar(s, frame, value)
+    if returned ~= 1ULL then
+        ops.failure(ctx, ops.INVALID)
+        return native.fail()
+    end
+    local current = native.pointer(access.active(s))
+    local currentValues = native.pointer(access.values(s, current))
+    local currentIntegers = native.pointer(access.integers(s, current))
+    local currentFloats = native.pointer(access.floats(s, current))
+    local currentPC = native.pointer(access.pc(s, current))
+    access.refresh(s, current, ctx)
+
+    return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+end
+
+export function Jmp(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local displacement = program.readSigned32(pc, 4)
+    if displacement < 0 then
+        if ops.charge(ctx, frame, pc) ~= 1ULL then
+            return native.fail()
+        end
+    end
+    local target = ops.branch(ctx, frame, pc, displacement)
+    if target == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+
+    return native.dispatch(native.pointer(target), regs, ints, floats, ctx, frame)
+end
+
+export function JmpIf(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local src = program.readByte(pc, 1)
+    if native.word(src) >= native.load64(frame, native.fieldOffset<frames.Frame>("valueCount")) then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local value = slots.readValue(frame, regs, src)
+    if value ~= values.TRUE then
+        if value ~= values.FALSE then
+            if value ~= values.NIL then
+                ops.fail(ctx, frame, pc, ops.INVALID)
+                return native.fail()
+            end
+        end
+    end
+    if value ~= values.TRUE then
+        local target = ops.branch(ctx, frame, pc, 0)
+        if target == 0ULL then
+            ops.fail(ctx, frame, pc, ops.INVALID)
+            return native.fail()
+        end
+        return native.dispatch(native.pointer(target), regs, ints, floats, ctx, frame)
+    end
+    local displacement = program.readSigned32(pc, 4)
+    if displacement < 0 then
+        if ops.charge(ctx, frame, pc) ~= 1ULL then
+            return native.fail()
+        end
+    end
+    local target = ops.branch(ctx, frame, pc, displacement)
+    if target == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+
+    return native.dispatch(native.pointer(target), regs, ints, floats, ctx, frame)
+end
+
+export function Invalid(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    ops.fail(ctx, frame, pc, ops.INVALID)
+    return native.fail()
+end

@@ -1,0 +1,288 @@
+module nupp.runtime.core.guestentry
+
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.core.arena")
+const frames = require("nupp.runtime.core.frames")
+const instances = require("nupp.runtime.core.instances")
+const catalog = require("nupp.runtime.core.guestcatalog")
+const context = require("nupp.runtime.core.context")
+
+-- The closed entry transports actual mappings in this checked layout. This is
+-- neither wire input nor a way for guest values to confer mapping authority.
+-- Binding itself remains mapped and immutable through start. World is retained
+-- outside fresh entry storage and is never reset when an entry retires.
+export struct Binding
+    data: uint64
+    dataBytes: uint64
+    context: uint64
+    contextBytes: uint64
+    world: uint64
+    worldBytes: uint64
+    storage: uint64
+    storageBytes: uint64
+    pool: uint64
+    poolBytes: uint64
+    helper: uint64
+    helperBytes: uint64
+    code: uint64
+    codeBytes: uint64
+end
+
+export struct Storage
+    state: frames.State
+    segment: arena.Segment
+    root: frames.RootControl
+    registry: instances.Registry
+end
+
+-- Binding is seven homogeneous base/extent pairs. The closed builder checks
+-- every named field against this target-derived stride before issuing entry.
+local function base(binding: voidptr, index: uint64): uint64
+    if index >= 7ULL then
+        return 0ULL
+    end
+    local stride = native.fieldOffset<Binding>("context") - native.fieldOffset<Binding>("data")
+
+    return native.load64(binding, native.fieldOffset<Binding>("data") + native.index(index) * stride)
+end
+
+local function extent(binding: voidptr, index: uint64): uint64
+    if index >= 7ULL then
+        return 0ULL
+    end
+    local stride = native.fieldOffset<Binding>("context") - native.fieldOffset<Binding>("data")
+
+    return native.load64(binding, native.fieldOffset<Binding>("dataBytes") + native.index(index) * stride)
+end
+
+local function range(address: uint64, bytes: uint64, alignment: uint64): uint64
+    if address == 0ULL
+        or bytes == 0ULL
+        or (address & (alignment - 1ULL)) ~= 0ULL
+        or bytes > 0xffffffffffffffffULL - address
+    then
+        return 0ULL
+    end
+
+    return 1ULL
+end
+
+local function overlap(a: uint64, an: uint64, b: uint64, bn: uint64): boolean
+    return a < b + bn and b < a + an
+end
+
+export function storageBytes(owners: uint64, capacity: uint64): uint64
+    local catalogBytes = catalog.storageBytes(owners)
+    if catalogBytes == 0ULL or capacity == 0ULL or capacity > 1048576ULL then
+        return 0ULL
+    end
+    local entries = (((native.sizeOf<Storage>() + 15ULL) & 0xfffffffffffffff0ULL) + catalogBytes + 15ULL)
+        & 0xfffffffffffffff0ULL
+
+    return entries + capacity * native.sizeOf<instances.Instance>()
+end
+
+-- Any failure after initialization consumes this fresh Storage. The caller
+-- retains it without reset/retry; reserved World IDs remain burned. A later
+-- entry uses fresh Storage and the same retained World, never a rolled-back one.
+export function start(binding: voidptr): uint64
+    local address = native.address(binding)
+    if range(address, native.sizeOf<Binding>(), 8ULL) == 0ULL then
+        return 0ULL
+    end
+    local i: uint64 = 0ULL
+    while i < 7ULL do
+        local b, n = base(binding, i), extent(binding, i)
+        local alignment: uint64 = 8ULL
+        if i >= 3ULL then
+            alignment = 16ULL
+        end
+        if range(b, n, alignment) == 0ULL or overlap(address, native.sizeOf<Binding>(), b, n) then
+            return 0ULL
+        end
+        i = i + 1ULL
+    end
+    i = 0ULL
+    while i < 7ULL do
+        local j = i + 1ULL
+        while j < 7ULL do
+            if overlap(base(binding, i), extent(binding, i), base(binding, j), extent(binding, j)) then
+                return 0ULL
+            end
+            j = j + 1ULL
+        end
+        i = i + 1ULL
+    end
+    local data = native.pointer(base(binding, 0ULL))
+    local dataBytes = extent(binding, 0ULL)
+    if extent(binding, 1ULL) < native.word(context.SIZE)
+        or extent(binding, 2ULL) < native.sizeOf<instances.World>()
+        or catalog.validate(data, dataBytes) == 0ULL
+    then
+        return 0ULL
+    end
+    if native.load64(data, native.fieldOffset<catalog.Descriptor>("handlerCount")) ~= 256ULL then
+        return 0ULL
+    end
+    local dispatch = native.load64(data, native.fieldOffset<catalog.Descriptor>("dispatch"))
+    local codeBytes = extent(binding, 6ULL)
+    i = 0ULL
+    while i < 256ULL do
+        local target = native.load64(data, native.index(dispatch + i * 8ULL))
+        if (target & 3ULL) ~= 0ULL or target >= codeBytes or codeBytes - target < 4ULL then
+            return 0ULL
+        end
+        i = i + 1ULL
+    end
+    local owners = native.load64(data, native.fieldOffset<catalog.Descriptor>("ownerCount"))
+    local capacity = native.load64(data, native.fieldOffset<catalog.Descriptor>("instanceBound"))
+    if capacity == 0ULL then
+        capacity = 1ULL
+    end
+    local needed = storageBytes(owners, capacity)
+    if needed == 0ULL or needed > extent(binding, 3ULL) then
+        return 0ULL
+    end
+    local storage = native.pointer(base(binding, 3ULL))
+    local ctx = native.pointer(base(binding, 1ULL))
+    local at: uint64 = 0ULL
+    while at < needed do
+        if native.load64(storage, native.index(at)) ~= 0ULL then
+            return 0ULL
+        end
+        at = at + 8ULL
+    end
+    at = native.word(context.STATE)
+    while at <= native.word(context.ERROR_OWNER) do
+        if native.load64(ctx, native.index(at)) ~= 0ULL then
+            return 0ULL
+        end
+        at = at + 8ULL
+    end
+    local descriptor = native.offset(
+        storage,
+        native.index(((native.sizeOf<Storage>() + 15ULL) & 0xfffffffffffffff0ULL))
+    )
+    if catalog.initialize(data, dataBytes, descriptor, catalog.storageBytes(owners)) == 0ULL then
+        return 0ULL
+    end
+    local state = native.offset(storage, native.fieldOffset<Storage>("state"))
+    local segment = native.offset(storage, native.fieldOffset<Storage>("segment"))
+    local root = native.offset(storage, native.fieldOffset<Storage>("root"))
+    local registry = native.offset(storage, native.fieldOffset<Storage>("registry"))
+    local world = native.pointer(base(binding, 2ULL))
+    local entriesOffset = (
+        ((native.sizeOf<Storage>() + 15ULL) & 0xfffffffffffffff0ULL) + catalog.storageBytes(owners) + 15ULL
+    )
+        & 0xfffffffffffffff0ULL
+    local entries = native.offset(storage, native.index(entriesOffset))
+    local targets = native.loadPointer(descriptor, native.fieldOffset<catalog.Catalog>("targets"))
+    if native.load64(world, native.fieldOffset<instances.World>("next")) == 0ULL then
+        if instances.initializeWorld(world) == 0ULL then
+            return 0ULL
+        end
+    end
+    if instances.initialize(world, registry, entries, capacity, targets, owners * 8ULL, owners) == 0ULL then
+        return 0ULL
+    end
+    if arena.initialize(segment, base(binding, 4ULL), extent(binding, 4ULL)) == 0ULL then
+        return 0ULL
+    end
+    native.store64(state, native.fieldOffset<frames.State>("segment"), native.address(segment))
+    native.store64(
+        state,
+        native.fieldOffset<frames.State>("limit"),
+        native.load64(descriptor, native.fieldOffset<catalog.Catalog>("frameDepth"))
+    )
+    native.store64(state, native.fieldOffset<frames.State>("helperBase"), base(binding, 5ULL))
+    native.store64(state, native.fieldOffset<frames.State>("helperBytes"), extent(binding, 5ULL))
+    local entry = native.load64(descriptor, native.fieldOffset<catalog.Catalog>("entry"))
+    local info = native.offset(
+        native.loadPointer(descriptor, native.fieldOffset<catalog.Catalog>("infos")),
+        native.index(entry * native.sizeOf<frames.FunctionInfo>())
+    )
+    local plan = native.offset(
+        native.loadPointer(descriptor, native.fieldOffset<catalog.Catalog>("plans")),
+        native.index(entry * native.sizeOf<frames.WindowPlan>())
+    )
+    local frame = frames.beginRoot(state, root, info, plan)
+    if frame == 0ULL then
+        return 0ULL
+    end
+    local mark = native.offset(root, native.fieldOffset<frames.RootControl>("mark"))
+    native.store64(ctx, context.STATE, native.address(state))
+    native.store64(ctx, context.CATALOG, native.address(descriptor))
+    native.store64(ctx, context.REGISTRY, native.address(registry))
+    native.store64(ctx, context.ROOT_CONTROL, native.address(root))
+    native.store64(ctx, context.ORIGINAL_ROOT, frame)
+    native.store64(ctx, context.ROOT_SERIAL, native.load64(mark, native.fieldOffset<arena.Mark>("serial")))
+    native.store64(ctx, context.WORLD, native.address(world))
+
+    return frame
+end
+
+-- Original root/serial are also saved by the mechanical entry outside active
+-- frame caches. A failed cleanup leaves storage retained, never reset. No
+-- cancellation or work checks can interrupt deepest-first retirement.
+export function complete(ctx: voidptr, original: voidptr, serial: uint64): uint64
+    if native.load64(ctx, context.ORIGINAL_ROOT) ~= native.address(original)
+        or native.load64(ctx, context.ROOT_SERIAL) ~= serial
+    then
+        return 0ULL
+    end
+    local state = native.loadPointer(ctx, context.STATE)
+    local root = native.loadPointer(ctx, context.ROOT_CONTROL)
+    local mark = native.offset(root, native.fieldOffset<frames.RootControl>("mark"))
+    if native.load64(root, native.fieldOffset<frames.RootControl>("state")) ~= native.address(state)
+        or native.load64(root, native.fieldOffset<frames.RootControl>("frame")) ~= native.address(original)
+        or native.load64(mark, native.fieldOffset<arena.Mark>("serial")) ~= serial
+    then
+        return 0ULL
+    end
+    local registry = native.loadPointer(ctx, context.REGISTRY)
+    local descriptor = native.loadPointer(ctx, context.CATALOG)
+    local targets = native.loadPointer(descriptor, native.fieldOffset<catalog.Catalog>("targets"))
+    if native.load64(ctx, context.STATUS) == 0ULL
+        and native.load64(root, native.fieldOffset<frames.RootControl>("phase")) == frames.ROOT_COMPLETE
+    then
+        if frames.retireRoot(state, root, original, serial) == 0ULL then
+            return 0ULL
+        end
+        return instances.retire(registry, targets)
+    end
+    local depth = native.load64(state, native.fieldOffset<frames.State>("depth"))
+    local limit = native.load64(state, native.fieldOffset<frames.State>("limit"))
+    if depth == 0ULL or depth > limit then
+        return 0ULL
+    end
+    local active = native.loadPointer(state, native.fieldOffset<frames.State>("active"))
+    if native.address(active) == 0ULL then
+        return 0ULL
+    end
+    local prepared = native.load64(active, native.fieldOffset<frames.Frame>("child"))
+    if prepared ~= 0ULL then
+        if frames.abortPrepared(state, active, native.pointer(prepared)) == 0ULL then
+            return 0ULL
+        end
+    end
+    while depth > 1ULL do
+        active = native.loadPointer(state, native.fieldOffset<frames.State>("active"))
+        if frames.abortActive(state, active) == 0ULL then
+            return 0ULL
+        end
+        local nextDepth = native.load64(state, native.fieldOffset<frames.State>("depth"))
+        if nextDepth ~= depth - 1ULL then
+            return 0ULL
+        end
+        depth = nextDepth
+    end
+    if native.load64(state, native.fieldOffset<frames.State>("active")) ~= native.address(original) then
+        return 0ULL
+    end
+    if frames.abortRoot(state, root, original, serial) == 0ULL then
+        return 0ULL
+    end
+    local _ = instances.retire(registry, targets)
+
+    return 0ULL
+end

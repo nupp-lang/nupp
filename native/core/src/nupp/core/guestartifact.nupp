@@ -1,0 +1,178 @@
+module nupp.core.guestartifact
+
+local executable = require("nupp.compiler.vm.coregraphexecutable")
+local targetLayout = require("nupp.compiler.targetlayout")
+local literal = require("s0.literal")
+local artifact = {}
+
+-- This writes a trusted checked-source artifact, not a native loader token.
+-- The closed producer retains executable issuance and the exact checked layout
+-- owners through final publication; a structurally copied layout grants nothing.
+function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes: integer): any
+    executable.validate(code)
+    assert(#dispatch >= 1 and #dispatch <= 256, "guest dispatch extent")
+    local scope = assert(scopes["nupp.runtime.core.guestcatalog"])
+    local layouts = {}
+    for _, name in ipairs({"Descriptor", "Function", "Signature", "Callsite"}) do
+        local checked = assert(scope.checkedExports.types[name], "checked catalog layout")
+        assert(scope.checkedExports.typeDefs[name], "checked catalog definition")
+        local layout = assert(targetLayout.of(checked, "aarch64-apple-darwin"))
+        assert(layout.target == "aarch64-apple-darwin" and layout.alignment == 8 and layout.size % 8 == 0)
+        for _, field in ipairs(layout.fields) do
+            assert(field.size == 8 and field.offset % 8 == 0 and not field.bitWidth)
+        end
+        layouts[name] = layout
+    end
+    local records, signatures, calls = code.semantic.catalog, code.semantic.signatures, {}
+    for _, fn in ipairs(code.functions) do
+        for _, call in ipairs(fn.calls) do
+            calls[#calls + 1] = {owner = fn.owner, call = call}
+        end
+    end
+    local cursor = layouts.Descriptor.size
+    local recordOffset = cursor
+    cursor += #records * layouts.Function.size
+    local signatureOffset = cursor
+    cursor += #signatures * layouts.Signature.size
+    local callOffset = cursor
+    cursor += #calls * layouts.Callsite.size
+    local targetOffset = cursor
+    cursor += #records * 8
+    local parameterOffsets, constantOffsets, codeOffsets = {}, {}, {}
+    for index, signature in ipairs(signatures) do
+        parameterOffsets[index] = cursor
+        cursor += #signature.params * 8
+    end
+    for index, fn in ipairs(code.functions) do
+        constantOffsets[index] = cursor
+        cursor += #fn.constants * 8
+        codeOffsets[index] = cursor
+        cursor += #fn.code
+    end
+    local dispatchOffset = cursor
+    cursor += #dispatch * 8
+    assert(cursor <= 67108864 and cursor % 8 == 0, "guest artifact byte budget")
+    local bytes = {}
+    for index = 1, cursor do
+        bytes[index] = 0
+    end
+
+    local function word(at: integer, value: int64): nil
+        assert(at >= 0 and at % 8 == 0 and at + 8 <= cursor)
+        for byte = 0, 7 do
+            bytes[at + byte + 1] = (value >> (byte * 8)) & 255
+        end
+    end
+
+    local function fields(name: string, base: integer, values: any): nil
+        local layout = layouts[name]
+        for key, value in pairs(values) do
+            word((base + assert(layout.offsets[key], "catalog field")) as integer, value)
+        end
+        for _, field in ipairs(layout.fields) do
+            assert(values[field.name] ~= nil, "missing catalog field " .. field.name)
+        end
+    end
+
+    local function kind(name: string): integer
+        assert(name == "boolean" or name == "nil", "scalar signature kind")
+        return name == "boolean" and 1 or 2
+    end
+
+    fields("Descriptor", 0, {
+        version = 1,
+        bytes = cursor,
+        ownerCount = #records,
+        entry = code.entry,
+        records = recordOffset,
+        signatures = signatureOffset,
+        signatureCount = #signatures,
+        contracts = callOffset,
+        contractCount = #calls,
+        targets = targetOffset,
+        instanceBound = code.instanceCreations,
+        frameDepth = code.frameDepth,
+        dispatch = dispatchOffset,
+        handlerCount = #dispatch
+    })
+    local values = assert(scopes["nupp.runtime.vm.values"])
+    local constants = {
+        ["true"] = literal.integer(assert(values.exportedConstants.TRUE)),
+        ["false"] = literal.integer(assert(values.exportedConstants.FALSE)),
+        ["nil"] = literal.integer(assert(values.exportedConstants.NIL))
+    }
+    local nextCall = 0
+    for index, owner in ipairs(records) do
+        local fn = code.functions[index]
+        assert(fn.owner == owner.id and owner.id == index - 1)
+        fields("Function", (recordOffset + (index - 1) * layouts.Function.size) as integer, {
+            id = owner.id,
+            parentPlusOne = owner.parent ~= nil and owner.parent + 1 or 0,
+            kind = owner.kind == "module" and 0 or 1,
+            signature = owner.signature,
+            effect = owner.effect,
+            code = codeOffsets[index],
+            instructionCount = fn.instructionCount,
+            valueCount = fn.valueCount,
+            constants = constantOffsets[index],
+            constantCount = #fn.constants,
+            firstCall = nextCall,
+            callCount = #fn.calls
+        })
+        nextCall += #fn.calls
+        word((targetOffset + (index - 1) * 8) as integer, owner.id)
+        for ci, constant in ipairs(fn.constants) do
+            word((constantOffsets[index] + (ci - 1) * 8) as integer, assert(constants[constant.kind]))
+        end
+        for byte = 1, #fn.code do
+            bytes[codeOffsets[index] + byte] = fn.code:byte(byte)
+        end
+    end
+    for index, signature in ipairs(signatures) do
+        fields("Signature", (signatureOffset + (index - 1) * layouts.Signature.size) as integer, {
+            parameterCount = #signature.params,
+            resultKind = kind(signature.result),
+            parameters = parameterOffsets[index]
+        })
+        for pi, parameter in ipairs(signature.params) do
+            word((parameterOffsets[index] + (pi - 1) * 8) as integer, kind(parameter))
+        end
+    end
+    for index, entry in ipairs(calls) do
+        local call = entry.call
+        fields("Callsite", (callOffset + (index - 1) * layouts.Callsite.size) as integer, {
+            id = call.contract,
+            owner = entry.owner,
+            pc = call.pc,
+            resumePC = call.resumePC,
+            target = call.target,
+            signature = call.signature,
+            argumentCount = call.argumentCount,
+            argumentBase = call.argumentBase,
+            wanted = call.wanted,
+            resultSlot = call.resultSlot
+        })
+    end
+    for index, offset in ipairs(dispatch) do
+        assert(
+            codeBytes > 0 and codeBytes < 134217728 and offset >= 0 and offset % 4 == 0 and offset + 4 <= codeBytes,
+            "selected handler offset"
+        )
+        word((dispatchOffset + (index - 1) * 8) as integer, offset)
+    end
+    local chunks = {}
+    for at = 1, cursor, 64 do
+        chunks[#chunks + 1] = string.char(unpack(bytes, at, math.min(at + 63, cursor)))
+    end
+    executable.validate(code)
+
+    return {
+        bytes = table.concat(chunks),
+        layouts = layouts,
+        dispatchOffset = dispatchOffset,
+        codeOffsets = codeOffsets,
+        constantOffsets = constantOffsets
+    }
+end
+
+export = artifact

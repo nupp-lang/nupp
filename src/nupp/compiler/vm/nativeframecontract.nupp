@@ -16,6 +16,8 @@ local sources: any = setmetatable({}, {__mode = "k"})
 local current: any = nil
 local probeModule = "nupp.runtime.core.framecontractprobe"
 local returnModule = "nupp.runtime.core.returncontractprobe"
+local guestModule = "nupp.runtime.core.guesthandlers"
+local guestBuilds: any = setmetatable({}, {__mode = "k"})
 local negativeCases = {
     RejectNoState = "State has no successful",
     RejectSetupFailure = "State has no successful",
@@ -122,12 +124,20 @@ local function shape(g: any): any
     return result
 end
 
+local function guestExecutable(): any
+    local name = "coregraphexecutable"
+    return require("nupp.compiler.vm." .. name)
+end
+
 local function validateSource(state: any): nil
     need(read(state.snapshotPath) == state.snapshotText, "frozen build snapshot changed")
     for path, text in pairs(state.snapshot.sources) do
         need(read(state.root .. "/" .. path) == text, "reviewed source changed: " .. path)
     end
     need(state.unit.validate(), "sealed checked unit changed")
+    if state.executable then
+        guestExecutable().validate(state.executable)
+    end
     if state.frames then
         local exports = state.frames.checkedExports
         need(
@@ -218,7 +228,8 @@ function contract.verify(g: any): boolean
     if not held then
         need(g.nativeFinalFrame == nil and not sources[g.source], "copied final graph is unissued")
         need(
-            not g.source or (g.source.module ~= probeModule and g.source.module ~= returnModule),
+            not g.source
+            or (g.source.module ~= probeModule and g.source.module ~= returnModule and g.source.module ~= guestModule),
             "closed probe graph is unissued"
         )
         return false
@@ -264,7 +275,7 @@ function contract.verify(g: any): boolean
         end
     end
     if held.final then
-        require("nupp.compiler.vm.nativeframeverify").verify(g, held.calls)
+        require("nupp.compiler.vm.nativeframeverify").verify(g, held.calls, held.state.guestEntry)
     end
 
     return held.final
@@ -281,6 +292,14 @@ function contract.requireOriginal(g: any, owner: any): boolean
     validateSource(held.state)
 
     return true
+end
+
+-- Tagged words use the same eight-byte mechanical slot recipe, but only the
+-- original sealed guest handlers carry the required final owner/bounds proof.
+function contract.requireGuestSlots(g: any): nil
+    local held = need(graphs[g], "original guest handler graph required")
+    need(held.seal and held.final and held.state.guestEntry and held.abi == "handler", "sealed guest handler required")
+    need(contract.verify(g), "verified guest handler required")
 end
 
 -- The checked context used to lower dispatch is part of the issued unit,
@@ -302,7 +321,10 @@ function contract.refuse(g: any, route: string): nil
         not graphs[g]
         and g.nativeFinalFrame == nil
         and not sources[g.source]
-        and (not g.source or (g.source.module ~= probeModule and g.source.module ~= returnModule)),
+        and (
+            not g.source
+            or (g.source.module ~= probeModule and g.source.module ~= returnModule and g.source.module ~= guestModule)
+        ),
         route .. " does not carry final frame provenance"
     )
 end
@@ -450,6 +472,292 @@ end
 
 function contract.buildReturn(): any
     return build(true)
+end
+
+-- Actual guest entry is a separate closed build, independent of both diagnostic
+-- probe snapshots. The enum selects reviewed source fixtures, never a caller
+-- path, owner/effect map, checked callback or arbitrary raw graph.
+local function buildGuest(caseName: string, audited: boolean): any
+    local fixtures = {
+        boolean = "catalog-boolean",
+        nilValue = "catalog-nil",
+        live = "catalog-live",
+        fresh = "catalog-fresh",
+        nested = "catalog-nested"
+    }
+    local fixture = need(fixtures[caseName], "unknown fixed guest program")
+    need(current == nil, "nested construction")
+    local root = need(os.getenv("NUPP_COMPILER_ROOT"), "build source root required")
+    local directory = audited and "core-guest-audit" or "core-guest-programs"
+    local snapshotPath = root .. "/build/" .. directory .. "/snapshot.json"
+    local snapshotText = read(snapshotPath)
+    local snapshot = require("nupp.codec.json").decode(snapshotText)
+    need(snapshot.version == 1 and snapshot.target == "aarch64-apple-darwin", "fixed guest snapshot target")
+    local paths = {}
+    for index, item in ipairs(sharedPaths) do
+        paths[index] = item
+    end
+    for _, name in ipairs({"instances", "guestcatalog", "guestentry", "guestops", "guesthandlers"}) do
+        paths[#paths + 1] = {"nupp.runtime.core." .. name, "native/core/src/nupp/runtime/core/" .. name .. ".nupp"}
+    end
+    local negativeModule = "nupp.runtime.core.guestnegatives"
+    local auditModule = "nupp.runtime.core.guestaudit"
+    paths[#paths + 1] = {negativeModule, "native/core/tests/guest-contract-negatives.nupp"}
+    if audited then
+        paths[#paths + 1] = {auditModule, "native/core/tests/guest-lifecycle-audit.nupp"}
+    end
+    local requested = {}
+    for index, item in ipairs(paths) do
+        need(snapshot.sources[item[2]] == read(root .. "/" .. item[2]), "guest canonical source changed")
+        local path = root .. "/" .. item[2]
+        if item[1] == negativeModule then
+            path = root .. "/build/" .. directory .. "/source/nupp/runtime/core/guestnegatives.nupp"
+        end
+        if item[1] == auditModule then
+            path = root .. "/build/" .. directory .. "/source/nupp/runtime/core/guestaudit.nupp"
+        end
+        need(read(path) == snapshot.sources[item[2]], "staged guest source differs")
+        requested[index] = {moduleName = item[1], path = path}
+    end
+    for _, path in ipairs({
+        "src/nupp/runtime/vm/intrinsics.d.nupp",
+        "src/nupp/runtime/vm/program.d.nupp",
+        "src/nupp/runtime/vm/slots.d.nupp"
+    }) do
+        need(snapshot.sources[path] == read(root .. "/" .. path), "guest intrinsic declaration changed")
+    end
+    local unit = require("nupp.compiler.vm.nativeunit").session(root, requested, snapshot.target, {
+        "src",
+        "native/core/src",
+        "build/" .. directory .. "/source"
+    })
+    local state: any = {
+        root = root,
+        snapshotPath = snapshotPath,
+        snapshotText = snapshotText,
+        snapshot = snapshot,
+        unit = unit,
+        roles = {},
+        resolved = {},
+        finalOwners = {}
+    }
+    local scopes, all = {}, {}
+    for _, item in ipairs(paths) do
+        local scope = unit.module(item[1])
+        scopes[item[1]] = scope
+        if scope.name ~= "nupp.runtime.vm.values" then
+            for name, owner in pairs(scope.functions) do
+                owners[owner] = state
+                all[#all + 1] = {name = scope.name .. "." .. name, owner = owner}
+            end
+        end
+    end
+    local frames = scopes["nupp.runtime.core.frames"]
+    state.frames, state.context = frames, scopes["nupp.runtime.core.context"]
+    state.stateDefinition, state.frameDefinition = frames.checkedExports.typeDefs.State, frames.checkedExports.typeDefs.Frame
+    state.stateType, state.frameType = frames.checkedExports.types.State, frames.checkedExports.types.Frame
+    local layout = require("nupp.compiler.targetlayout")
+    state.stateLayout = copy(need(layout.of(state.stateType, snapshot.target), "State layout"))
+    state.frameLayout = copy(need(layout.of(state.frameType, snapshot.target), "Frame layout"))
+    state.guestEntry = {valueCountOffset = need(state.frameLayout.offsets.valueCount, "Frame count offset")}
+    local handlers = scopes[guestModule]
+    local handlerNames = {"K", "Nil", "Move", "NewClosure", "CallK", "Ret", "Jmp", "JmpIf", "Invalid"}
+    for _, name in ipairs(handlerNames) do
+        state.finalOwners[need(handlers.exports[name], "fixed guest handler")] = true
+    end
+    local cases = {
+        NoScalar = "return lacks exact checked scalar",
+        WrongScalar = "root completion lacks exact checked scalar",
+        NoRootIdentity = "root completion lacks exact checked scalar",
+        NoCompletion = "transport exit lacks",
+        NoFinishSuccess = "transport exit lacks",
+        WrongState = "State context differs",
+        SignedNegativeSlot = "slot lacks checked window bound",
+        SignedCountCast = "slot lacks checked window bound",
+        WrongCountWidth = "slot lacks checked window bound",
+        StaleFrame = "invalidated frame",
+        RereadAfterUnknown = "State has no successful",
+        WrongResume = "publish resume identity differs"
+    }
+    local negatives = scopes[negativeModule]
+    for name in pairs(cases) do
+        state.finalOwners[need(negatives.exports[name], "fixed guest negative")] = true
+    end
+    for _, role in ipairs({"publish", "returnScalar"}) do
+        state.roles[need(frames.exports[role], "checked frame transition")] = role
+    end
+    local access = scopes["nupp.runtime.core.frameaccess"]
+    for _, role in ipairs({"active", "values", "integers", "floats", "code", "pc", "refresh"}) do
+        state.roles[need(access.exports[role], "checked frame accessor")] = role
+    end
+    local ops = scopes["nupp.runtime.core.guestops"]
+    local roles = {
+        state = "entryState",
+        current = "current",
+        charge = "charge",
+        constant = "constant",
+        closure = "closure",
+        prepare = "prepare",
+        result = "scalarResult",
+        root = "root",
+        finish = "finish",
+        branch = "branch",
+        checkpoint = "checkpoint",
+        failure = "failure",
+        fail = "fail",
+        resume = "resume"
+    }
+    for name, role in pairs(roles) do
+        state.roles[need(ops.exports[name], "checked guest service")] = role
+    end
+    local guestPath = "native/core/tests/" .. fixture .. ".nupp"
+    local source = read(root .. "/" .. guestPath)
+    need(snapshot.sources[guestPath] == source, "checked guest source differs")
+    local parserName, checkerName, environmentName = "syntax.parser", "check", "project.env"
+    local parser: any = require("nupp.compiler." .. parserName)
+    local checker: any = require("nupp.compiler." .. checkerName)
+    local environment: any = require("nupp.compiler." .. environmentName)
+    local parsed = parser.parse(source, root .. "/" .. guestPath)
+    need(#parsed.errors == 0, "guest source parse failed")
+    local moduleName = need(
+        require("nupp.compiler.syntax.cst").declaredModule(parsed.root),
+        "guest module declaration required"
+    )
+    local env = environment.new(root, {memoryOnly = true, cache = false, nativeCompilerServices = false})
+    local diagnostics = checker.check(parsed, root .. "/" .. guestPath, env, {
+        moduleName = moduleName,
+        strict = false,
+        lints = {["unused-binding"] = "off"}
+    })
+    for _, diagnostic in ipairs(diagnostics) do
+        need(diagnostic.severity ~= "error", diagnostic.msg)
+    end
+    local programName, taggedName = "programgraph", "taggedprofile"
+    local program: any = require("nupp.compiler.vm." .. programName)
+    local tagged: any = require("nupp.compiler.vm." .. taggedName)
+    local catalog = program.describe(
+        {{name = moduleName, path = root .. "/" .. guestPath, parsed = parsed, diagnostics = diagnostics}},
+        moduleName
+    )
+    state.executable = guestExecutable().fromChecked(program.compile(catalog, tagged))
+    validateSource(state)
+    table.sort(all, function(a: any, b: any): boolean
+        return a.name < b.name
+    end)
+    local lowerName, profileName = "lower", "nativegraph"
+    local lower: any = require("nupp.compiler.vm." .. lowerName)
+    local profile: any = require("nupp.compiler.vm." .. profileName)
+    for _, item in ipairs(all) do
+        item.owner.nativeABI = state.finalOwners[item.owner] and "handler" or "leaf"
+    end
+    local resolved, refusals = {}, {}
+    local ok, problem = pcall(function(): nil
+        for _, item in ipairs(all) do
+            current = {state = state, owner = item.owner}
+            local passed, g = pcall(function(): any
+                return lower.functionGraph(item.owner, unit.options(item.owner, item.owner.nativeABI), profile)
+            end)
+            local expected = item.owner.scope == negatives and cases[item.owner.name]
+            if expected then
+                need(
+                    not passed and tostring(g):find("native final frame: " .. expected, 1, true),
+                    "guest negative missed refusal: " .. item.name .. ": " .. tostring(g)
+                )
+                refusals[#refusals + 1] = {name = item.owner.name, diagnostic = tostring(g)}
+            else
+                need(passed, item.name .. ": " .. tostring(g))
+                if item.owner.scope == handlers and item.owner.name ~= "Invalid" then
+                    require("nupp.compiler.vm.corebytecode").checkHandler(item.owner.name, g)
+                end
+                state.resolved[item.owner] = g
+                resolved[item.name] = {graph = g, owner = item.owner}
+            end
+            current = nil
+        end
+        validateSource(state)
+    end)
+    current = nil
+    need(ok, tostring(problem))
+    local result = {
+        resolved = resolved,
+        context = state.context,
+        scopes = scopes,
+        executable = state.executable,
+        handlers = handlerNames,
+        caseName = caseName,
+        audited = audited,
+        refusals = refusals
+    }
+    local scopeMap = {}
+    for name, scope in pairs(scopes) do
+        scopeMap[name] = scope
+    end
+    guestBuilds[
+        result
+    ] = {
+        state = state,
+        resolved = resolved,
+        context = state.context,
+        scopes = scopes,
+        scopeMap = scopeMap,
+        executable = state.executable,
+        handlers = copy(handlerNames),
+        caseName = caseName,
+        audited = audited
+    }
+
+    return result
+end
+
+function contract.buildGuest(caseName: string): any
+    return buildGuest(caseName, false)
+end
+
+-- Supplemental test-only leaves have no final-frame roles. The production
+-- factory neither requests nor compiles their source.
+function contract.buildGuestAudit(caseName: string): any
+    return buildGuest(caseName, true)
+end
+
+-- A public record is not a capability by shape. Final writer/shim publication
+-- must retain this exact issuance plus every original graph/owner/callee.
+function contract.validateGuest(result: any): nil
+    local held = need(
+        type(result) == "table" and getmetatable(result) == nil and rawget(guestBuilds, result),
+        "unissued guest build"
+    )
+    need(
+        result.resolved == held.resolved
+        and result.context == held.context
+        and result.scopes == held.scopes
+        and result.executable == held.executable
+        and result.caseName == held.caseName
+        and result.audited == held.audited
+        and same(result.handlers, held.handlers),
+        "guest build changed"
+    )
+    need(getmetatable(result.scopes) == nil and getmetatable(result.resolved) == nil, "guest maps must remain plain")
+    for name, scope in pairs(held.scopeMap) do
+        need(result.scopes[name] == scope, "guest scope identity changed")
+    end
+    for name, scope in pairs(result.scopes) do
+        need(held.scopeMap[name] == scope, "guest scope inventory changed")
+    end
+    validateSource(held.state)
+    local count = 0
+    for name, item in pairs(result.resolved) do
+        need(
+            name == item.owner.scope.name .. "." .. item.owner.name and held.state.resolved[item.owner] == item.graph,
+            "guest resolved owner changed"
+        )
+        need(contract.requireOriginal(item.graph, item.owner), "guest graph unissued")
+        count += 1
+    end
+    local expected = 0
+    for _ in pairs(held.state.resolved) do
+        expected += 1
+    end
+    need(count == expected, "guest resolved inventory changed")
 end
 
 export = contract

@@ -23,11 +23,14 @@ local function clone(state: any): any
         values = copy(state.values),
         active = copy(state.active),
         refreshed = copy(state.refreshed),
-        pending = copy(state.pending)
+        pending = copy(state.pending),
+        proven = copy(state.proven),
+        failed = state.failed,
+        completed = state.completed
     }
 end
 
-function verifier.verify(g: any, calls: any): nil
+function verifier.verify(g: any, calls: any, entry: any?): nil
     need(g.native.abi == "handler" and g.nparams == 6, "final probe handler signature")
     local atoms, inputs, degree, queue = {}, {}, {}, {}
 
@@ -90,7 +93,8 @@ function verifier.verify(g: any, calls: any): nil
     end
 
     local function kill(state: any): nil
-        state.active, state.refreshed, state.pending = {}, {}, {}
+        state.active, state.refreshed, state.pending, state.proven = {}, {}, {}, {}
+        state.completed = false
     end
 
     local function access(state: any, kind: string, owner: any): any
@@ -105,6 +109,12 @@ function verifier.verify(g: any, calls: any): nil
         if pending.kind == "constant" then
             pending, literal = literal, pending
         end
+        if entry and condition.unsigned and condition.right.kind == "count" then
+            local owner = condition.right.owner
+            if (condition.operator == ">=" and not yes) or (condition.operator == "<" and yes) then
+                state.proven["slot:" .. condition.left.id .. ":" .. owner.id] = true
+            end
+        end
         if literal.kind ~= "constant" or pending.kind ~= "pending" then
             return
         end
@@ -114,9 +124,47 @@ function verifier.verify(g: any, calls: any): nil
         end
         local succeeds = pending.test == "nonzero" and literal.text == "0" and yes ~= equal
             or pending.test == "one" and literal.text == "1" and yes == equal
-        if succeeds and state.pending[pending] then
-            state.active[pending.owner.state] = pending.owner
+        if state.pending[pending] then
+            if succeeds then
+                if pending.proof then
+                    state.proven[pending.proof] = true
+                end
+                if pending.completes then
+                    state.completed = true
+                elseif pending.activates ~= false then
+                    state.active[pending.owner.state] = pending.owner
+                end
+            elseif entry and pending.fails and pending.test == "one" and literal.text == "1" and yes ~= equal then
+                state.failed = true
+            end
         end
+    end
+
+    local function contextOwner(state: any, ctx: any, frame: any, pc: any?): any
+        need(entry and ctx.kind == "context" and ctx.id == "entry-context", "executable context differs")
+        local owner = need(state.active["entry-state"], "State has no successful entry/transition edge")
+        alive(state, frame)
+        need(frame.kind == "frame" and frame.owner == owner, "executable Frame owner differs")
+        if pc then
+            alive(state, pc)
+            need(pc.kind == "pc" and pc.owner == owner, "executable PC owner differs")
+        end
+
+        return owner
+    end
+
+    local function check(state: any, dst: integer, owner: any, test: string, proof: string?, fails: boolean?): any
+        local result = atom("checked:" .. dst .. ":" .. owner.id, {
+            kind = "pending",
+            owner = owner,
+            test = test,
+            proof = proof,
+            activates = false,
+            fails = fails
+        })
+        state.pending[result] = true
+
+        return result
     end
 
     local function transfer(block: any, incoming: any): any
@@ -125,6 +173,11 @@ function verifier.verify(g: any, calls: any): nil
             local args, dst = block.args[index], block.dst[index]
             local result: any = dst ~= 0 and raw(dst) or nil
             local _ = switch op do
+                case "NativeBoolean" -> do
+                    need(entry ~= nil, "unsupported authority boolean")
+                    result = raw(dst)
+                    yield nil
+                end
                 case "NativeConstant" -> do
                     result = atom("constant:" .. tostring(args[1]), {kind = "constant", text = tostring(args[1])})
                     yield nil
@@ -132,6 +185,10 @@ function verifier.verify(g: any, calls: any): nil
                 case "NativePointer", "NativeAddress", "NativeWordCast" -> do
                     result = value(state, args[1])
                     alive(state, result)
+                    if entry and result.pcResult then
+                        need(state.proven[result.proof], "branch target lacks success")
+                        result = atom("pc-result:" .. result.id, {kind = "pc", owner = result.owner})
+                    end
                     yield nil
                 end
                 case "PointerOffset", "IAdd", "ISub" -> do
@@ -152,7 +209,8 @@ function verifier.verify(g: any, calls: any): nil
                         kind = "comparison",
                         left = left,
                         right = right,
-                        operator = args[3]
+                        operator = args[3],
+                        unsigned = g.exactTypes[args[1]] == "uint64" and g.exactTypes[args[2]] == "uint64"
                     })
                     yield nil
                 end
@@ -161,10 +219,60 @@ function verifier.verify(g: any, calls: any): nil
                     alive(state, base)
                     alive(state, offset)
                     local owner = ownership(state, base) or ownership(state, offset)
-                    if owner then
+                    if entry
+                        and base.kind == "frame"
+                        and offset.kind == "constant"
+                        and offset.text == tostring(entry.valueCountOffset)
+                        and args[3].kind == "uint64"
+                        and args[3].width == 8
+                        and args[3].signed == false
+                        and args[3].write == false
+                        and args[3].source == "live"
+                    then
+                        result = access(state, "count", base.owner)
+                    elseif owner then
                         -- A loaded word might itself be an address. Conservatively
                         -- retain its owner even for ordinary scalar contents.
                         result = atom("loaded:" .. dst .. ":" .. owner.id, {kind = "loaded", owner = owner})
+                    end
+                    yield nil
+                end
+                case "ProgramLoad" -> do
+                    need(entry ~= nil, "program access requires closed executable entry")
+                    local pc, offset = value(state, args[1]), value(state, args[2])
+                    alive(state, pc)
+                    alive(state, offset)
+                    need(
+                        pc.kind == "pc" and state.proven["current:" .. pc.owner.id],
+                        "program load lacks current code proof"
+                    )
+                    need(offset.kind == "constant", "program offset is not a fixed recipe field")
+                    local at = tonumber(offset.text)
+                    local access = args[3]
+                    need(at and at >= 0 and at + access.width <= 16, "program field crosses instruction")
+                    result = atom("program:" .. dst .. ":" .. pc.owner.id, {kind = "loaded", owner = pc.owner})
+                    yield nil
+                end
+                case "FrameSlotRead", "FrameSlotWrite" -> do
+                    need(entry ~= nil, "slot access requires closed executable entry")
+                    local frame, window, slot = value(state, args[1]), value(state, args[2]), value(state, args[3])
+                    alive(state, frame)
+                    alive(state, window)
+                    alive(state, slot)
+                    need(
+                        frame.kind == "frame" and window.kind == "values" and frame.owner == window.owner,
+                        "slot window owner differs"
+                    )
+                    need(state.proven["slot:" .. slot.id .. ":" .. frame.owner.id], "slot lacks checked window bound")
+                    local descriptor = args[op == "FrameSlotRead" and 4 or 5]
+                    need(descriptor.class == "v" and descriptor.kind == "uint64", "unsupported executable slot class")
+                    if op == "FrameSlotWrite" then
+                        alive(state, value(state, args[4]))
+                    else
+                        result = atom("slot-value:" .. dst .. ":" .. frame.owner.id, {
+                            kind = "loaded",
+                            owner = frame.owner
+                        })
                     end
                     yield nil
                 end
@@ -183,7 +291,75 @@ function verifier.verify(g: any, calls: any): nil
                         alive(state, operands[operand - 1])
                     end
                     local role = call.role
-                    if role == "setup" then
+                    if entry and role == "entryState" then
+                        need(
+                            operands[1].kind == "context" and operands[1].id == "entry-context",
+                            "State context differs"
+                        )
+                        need(state.active["entry-state"], "State has no successful entry/transition edge")
+                        result = atom("entry-state", {kind = "raw"})
+                    elseif entry
+                        and (role == "current" or role == "charge" or role == "scalarResult" or role == "branch")
+                    then
+                        local prior = contextOwner(state, operands[1], operands[2], operands[3])
+                        if role == "current" then
+                            result = check(state, dst, prior, "nonzero", "current:" .. prior.id)
+                        elseif role == "charge" then
+                            result = check(state, dst, prior, "one", "charged:" .. prior.id, true)
+                        elseif role == "scalarResult" then
+                            result = check(state, dst, prior, "one", "scalar:" .. operands[4].id .. ":" .. prior.id)
+                        else
+                            result = check(state, dst, prior, "nonzero", "pc:" .. dst .. ":" .. prior.id)
+                            result.pcResult = true
+                        end
+                    elseif entry and role == "resume" then
+                        local prior = contextOwner(state, operands[1], operands[2], operands[3])
+                        result = atom("resume:" .. dst .. ":" .. prior.id, {
+                            kind = "resume",
+                            owner = prior,
+                            pc = operands[3]
+                        })
+                    elseif entry and role == "prepare" then
+                        local prior = contextOwner(state, operands[1], operands[2], operands[3])
+                        need(
+                            state.proven["charged:" .. prior.id] and state.proven["current:" .. prior.id],
+                            "prepare lacks charged current call"
+                        )
+                        result = check(state, dst, prior, "nonzero", "prepared:" .. dst)
+                        result.prepared, result.pc = true, operands[3]
+                    elseif entry and role == "root" then
+                        local prior = contextOwner(state, operands[1], operands[2])
+                        result = check(state, dst, prior, "one", "root:" .. prior.id)
+                    elseif entry and role == "finish" then
+                        local prior = contextOwner(state, operands[1], operands[2])
+                        need(
+                            state.proven["root:" .. prior.id]
+                            and state.proven["scalar:" .. operands[3].id .. ":" .. prior.id],
+                            "root completion lacks exact checked scalar"
+                        )
+                        kill(state)
+                        result = check(state, dst, prior, "one", nil)
+                        result.completes = true
+                    elseif entry and (role == "constant" or role == "closure" or role == "checkpoint") then
+                        local prior = contextOwner(state, operands[1], operands[2], operands[3])
+                        need(state.proven["current:" .. prior.id], "entry helper lacks current code proof")
+                        if role == "closure" then
+                            need(state.proven["charged:" .. prior.id], "closure lacks charge")
+                        end
+                        if dst ~= 0 then
+                            result = atom("helper-value:" .. dst .. ":" .. prior.id, {kind = "loaded", owner = prior})
+                        end
+                    elseif entry and (role == "failure" or role == "fail") then
+                        need(
+                            operands[1].kind == "context" and operands[1].id == "entry-context",
+                            "failure context differs"
+                        )
+                        if role == "fail" then
+                            contextOwner(state, operands[1], operands[2], operands[3])
+                        end
+                        kill(state)
+                        state.failed = true
+                    elseif role == "setup" then
                         need(operands[1].kind == "raw", "setup State identity")
                         kill(state)
                         local owner = atom("setup:" .. dst, {kind = "owner", state = operands[1].id})
@@ -197,12 +373,30 @@ function verifier.verify(g: any, calls: any): nil
                             and operands[3].owner == prior,
                             "prepared child belongs to another State/epoch"
                         )
+                        if entry then
+                            need(
+                                operands[3].prepared and state.proven[operands[3].proof],
+                                "publish lacks prepared child success"
+                            )
+                            need(
+                                operands[4].kind == "resume"
+                                and operands[4].owner == prior
+                                and operands[4].pc == operands[3].pc,
+                                "publish resume identity differs"
+                            )
+                        end
                         kill(state)
                         local owner = atom("publish:" .. dst, {kind = "owner", state = prior.state})
                         result = atom("published:" .. dst, {kind = "pending", owner = owner, test = "one"})
                         state.pending[result] = true
                     elseif role == "returnScalar" then
                         local prior = frameOwner(state, operands[1], operands[2])
+                        if entry then
+                            need(
+                                state.proven["scalar:" .. operands[3].id .. ":" .. prior.id],
+                                "return lacks exact checked scalar"
+                            )
+                        end
                         -- The selected scalar is consumed before the service retires
                         -- the callee. Even a failure invalidates cached authority.
                         -- The checked body restores the real parent only on one.
@@ -264,6 +458,9 @@ function verifier.verify(g: any, calls: any): nil
             alive(state, value(state, term.value))
         else
             need(term.kind == "jump" or term.kind == "nativeFail", "unsupported final continuation")
+            if entry and term.kind == "nativeFail" then
+                need(state.failed or state.completed, "transport exit lacks failure or completed root")
+            end
         end
 
         return state
@@ -284,11 +481,27 @@ function verifier.verify(g: any, calls: any): nil
             end
         end
     end
-    local initial = {values = {}, active = {}, refreshed = {}, pending = {}}
+    local initial = {
+        values = {},
+        active = {},
+        refreshed = {},
+        pending = {},
+        proven = {},
+        failed = false,
+        completed = false
+    }
     for id = 1, g.nparams do
         initial.values[id] = raw(id)
     end
     initial.values[5] = atom("entry-context", {kind = "context"})
+    if entry then
+        local owner = atom("entry-owner", {kind = "owner", state = "entry-state"})
+        initial.active[owner.state], initial.refreshed["entry-context"] = owner, owner
+        for index, kind in ipairs({"pc", "values", "integers", "floats"}) do
+            initial.values[index] = access(initial, kind, owner)
+        end
+        initial.values[6] = access(initial, "frame", owner)
+    end
     inputs[1], queue[1] = initial, 1
     cursor = 1
     while cursor <= #queue do
@@ -325,6 +538,13 @@ function verifier.verify(g: any, calls: any): nil
                 for fact in pairs(previous.pending) do
                     if not state.pending[fact] then
                         previous.pending[fact] = nil
+                    end
+                end
+                previous.failed = previous.failed and state.failed
+                previous.completed = previous.completed and state.completed
+                for proof in pairs(previous.proven) do
+                    if not state.proven[proof] then
+                        previous.proven[proof] = nil
                     end
                 end
                 for address, owner in pairs(previous.refreshed) do

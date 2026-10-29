@@ -1,0 +1,62 @@
+module nupp.compiler.vm.graphcopies
+
+local copies = {}
+
+function copies.schedule(destinations: {integer}, sources: {integer}, scratch: integer): {{integer}}
+    assert(#destinations == #sources, "parallel copy columns differ")
+    local pending, order, output = {}, {}, {}
+    for index, to in ipairs(destinations) do
+        local from = sources[index]
+        assert(to ~= scratch and from ~= scratch, "parallel copy scratch overlaps operands")
+        if to ~= from then
+            assert(pending[to] == nil, "conflicting preferred slots")
+            pending[to] = from
+            order[#order + 1] = to
+        end
+    end
+    table.sort(order)
+    local remaining = #order
+    while remaining > 0 do
+        local reads = {}
+        for _, to in ipairs(order) do
+            if pending[to] ~= nil then
+                reads[pending[to]] = true
+            end
+        end
+        local progress = false
+        for _, to in ipairs(order) do
+            local from = pending[to]
+            if from ~= nil and not reads[to] then
+                output[#output + 1] = {to, from}
+                pending[to] = nil
+                remaining -= 1
+                progress = true
+                reads = {}
+                for _, destination in ipairs(order) do
+                    if pending[destination] ~= nil then
+                        reads[pending[destination]] = true
+                    end
+                end
+            end
+        end
+        if not progress then
+            local first: integer = 0
+            for _, to in ipairs(order) do
+                if pending[to] ~= nil then
+                    first = to
+                    break
+                end
+            end
+            output[#output + 1] = {scratch, first}
+            for _, to in ipairs(order) do
+                if pending[to] == first then
+                    pending[to] = scratch
+                end
+            end
+        end
+    end
+
+    return output
+end
+
+export = copies

@@ -1,0 +1,423 @@
+module nupp.runtime.core.guestcatalog
+
+const native = require("nupp.runtime.vm.intrinsics")
+const frames = require("nupp.runtime.core.frames")
+const values = require("nupp.runtime.vm.values")
+
+-- This is the bounded executable artifact produced from the complete checked
+-- graph catalog. The caller retains its immutable mapping. Validation here
+-- proves extents and scalar metadata, not source authenticity or raw phase 4.
+export struct Descriptor
+    version: uint64
+    bytes: uint64
+    ownerCount: uint64
+    entry: uint64
+    records: uint64
+    signatures: uint64
+    signatureCount: uint64
+    contracts: uint64
+    contractCount: uint64
+    targets: uint64
+    instanceBound: uint64
+    frameDepth: uint64
+    dispatch: uint64
+    handlerCount: uint64
+end
+
+export struct Function
+    id: uint64
+    parentPlusOne: uint64
+    kind: uint64
+    signature: uint64
+    effect: uint64
+    code: uint64
+    instructionCount: uint64
+    valueCount: uint64
+    constants: uint64
+    constantCount: uint64
+    firstCall: uint64
+    callCount: uint64
+end
+
+export struct Signature
+    parameterCount: uint64
+    resultKind: uint64
+    parameters: uint64
+end
+
+export struct Callsite
+    id: uint64
+    owner: uint64
+    pc: uint64
+    resumePC: uint64
+    target: uint64
+    signature: uint64
+    argumentCount: uint64
+    argumentBase: uint64
+    wanted: uint64
+    resultSlot: uint64
+end
+
+export struct Catalog
+    data: uint64
+    dataBytes: uint64
+    records: uint64
+    count: uint64
+    signatures: uint64
+    signatureCount: uint64
+    contracts: uint64
+    contractCount: uint64
+    infos: uint64
+    plans: uint64
+    targets: uint64
+    entry: uint64
+    instanceCapacity: uint64
+    frameDepth: uint64
+    phase: uint64
+end
+
+export const BOOLEAN: uint64 = 1ULL
+export const NIL: uint64 = 2ULL
+export const INITIALIZER: uint64 = 0ULL
+export const FUNCTION: uint64 = 1ULL
+
+local function range(base: uint64, bytes: uint64): uint64
+    if base == 0ULL or bytes == 0ULL or (base & 7ULL) ~= 0ULL or bytes > 0xffffffffffffffffULL - base then
+        return 0ULL
+    end
+    return 1ULL
+end
+
+local function contains(bytes: uint64, offset: uint64, count: uint64, stride: uint64): uint64
+    if (offset & 7ULL) ~= 0ULL or offset > bytes or count > (bytes - offset) // stride then
+        return 0ULL
+    end
+    return 1ULL
+end
+
+export function scalar(kind: uint64, value: uint64): uint64
+    if kind == BOOLEAN then
+        if value == values.TRUE or value == values.FALSE then
+            return 1ULL
+        end
+    elseif kind == NIL and value == values.NIL then
+        return 1ULL
+    end
+
+    return 0ULL
+end
+
+export function storageBytes(count: uint64): uint64
+    if count == 0ULL or count > 256ULL then
+        return 0ULL
+    end
+    return native.sizeOf<Catalog>() + count * (
+        native.sizeOf<frames.FunctionInfo>() + native.sizeOf<frames.WindowPlan>()
+    )
+end
+
+-- All embedded addresses below are formed only inside the actual borrowed data
+-- range. Canonical packed ordering also proves metadata/payload disjointness.
+local function valid(data: voidptr, bytes: uint64): uint64
+    if range(native.address(data), bytes) == 0ULL or bytes < native.sizeOf<Descriptor>() then
+        return 0ULL
+    end
+    if native.load64(data, native.fieldOffset<Descriptor>("version")) ~= 1ULL
+        or native.load64(data, native.fieldOffset<Descriptor>("bytes")) ~= bytes
+    then
+        return 0ULL
+    end
+    local count = native.load64(data, native.fieldOffset<Descriptor>("ownerCount"))
+    local entry = native.load64(data, native.fieldOffset<Descriptor>("entry"))
+    local ns = native.load64(data, native.fieldOffset<Descriptor>("signatureCount"))
+    local nc = native.load64(data, native.fieldOffset<Descriptor>("contractCount"))
+    local depth = native.load64(data, native.fieldOffset<Descriptor>("frameDepth"))
+    if count == 0ULL
+        or count > 256ULL
+        or entry >= count
+        or ns == 0ULL
+        or ns > 256ULL
+        or nc > 1048576ULL
+        or depth == 0ULL
+        or depth > count
+        or native.load64(data, native.fieldOffset<Descriptor>("instanceBound")) > 1048576ULL
+    then
+        return 0ULL
+    end
+    local cursor = native.sizeOf<Descriptor>()
+    local records = native.load64(data, native.fieldOffset<Descriptor>("records"))
+    if records ~= cursor or contains(bytes, cursor, count, native.sizeOf<Function>()) == 0ULL then
+        return 0ULL
+    end
+    cursor = cursor + count * native.sizeOf<Function>()
+    local signatures = native.load64(data, native.fieldOffset<Descriptor>("signatures"))
+    if signatures ~= cursor or contains(bytes, cursor, ns, native.sizeOf<Signature>()) == 0ULL then
+        return 0ULL
+    end
+    cursor = cursor + ns * native.sizeOf<Signature>()
+    local calls = native.load64(data, native.fieldOffset<Descriptor>("contracts"))
+    if calls ~= cursor or contains(bytes, cursor, nc, native.sizeOf<Callsite>()) == 0ULL then
+        return 0ULL
+    end
+    cursor = cursor + nc * native.sizeOf<Callsite>()
+    local targets = native.load64(data, native.fieldOffset<Descriptor>("targets"))
+    if targets ~= cursor or contains(bytes, cursor, count, 8ULL) == 0ULL then
+        return 0ULL
+    end
+    cursor = cursor + count * 8ULL
+    local i: uint64 = 0ULL
+    while i < ns do
+        local signature = native.offset(data, native.index(signatures + i * native.sizeOf<Signature>()))
+        local parameters = native.load64(signature, native.fieldOffset<Signature>("parameterCount"))
+        local result = native.load64(signature, native.fieldOffset<Signature>("resultKind"))
+        if parameters > 63ULL
+            or (result ~= BOOLEAN and result ~= NIL)
+            or native.load64(signature, native.fieldOffset<Signature>("parameters")) ~= cursor
+            or contains(bytes, cursor, parameters, 8ULL) == 0ULL
+        then
+            return 0ULL
+        end
+        local p: uint64 = 0ULL
+        while p < parameters do
+            local kind = native.load64(data, native.index(cursor + p * 8ULL))
+            if kind ~= BOOLEAN and kind ~= NIL then
+                return 0ULL
+            end
+            p = p + 1ULL
+        end
+        cursor = cursor + parameters * 8ULL
+        i = i + 1ULL
+    end
+    i = 0ULL
+    local nextCall: uint64 = 0ULL
+    local total: uint64 = 0ULL
+    while i < count do
+        local fn = native.offset(data, native.index(records + i * native.sizeOf<Function>()))
+        local signatureId = native.load64(fn, native.fieldOffset<Function>("signature"))
+        local kind = native.load64(fn, native.fieldOffset<Function>("kind"))
+        local parent = native.load64(fn, native.fieldOffset<Function>("parentPlusOne"))
+        local size = native.load64(fn, native.fieldOffset<Function>("instructionCount"))
+        local nv = native.load64(fn, native.fieldOffset<Function>("valueCount"))
+        local constants = native.load64(fn, native.fieldOffset<Function>("constantCount"))
+        local callCount = native.load64(fn, native.fieldOffset<Function>("callCount"))
+        if native.load64(fn, native.fieldOffset<Function>("id")) ~= i
+            or signatureId >= ns
+            or native.load64(fn, native.fieldOffset<Function>("effect")) > 1ULL
+            or size == 0ULL
+            or size > 1048576ULL
+            or total > 1048576ULL - size
+            or nv == 0ULL
+            or nv > 250ULL
+            or constants > 65536ULL
+            or nextCall > nc
+            or callCount > nc - nextCall
+            or native.load64(fn, native.fieldOffset<Function>("firstCall")) ~= nextCall
+            or native.load64(data, native.index(targets + i * 8ULL)) ~= i
+        then
+            return 0ULL
+        end
+        if i == entry then
+            if kind ~= INITIALIZER or parent ~= 0ULL then
+                return 0ULL
+            end
+        elseif kind ~= FUNCTION or parent == 0ULL or parent > count or parent == i + 1ULL then
+            return 0ULL
+        end
+        local signature = native.offset(data, native.index(signatures + signatureId * native.sizeOf<Signature>()))
+        local nparams = native.load64(signature, native.fieldOffset<Signature>("parameterCount"))
+        if nparams >= nv or (i == entry and nparams ~= 0ULL) then
+            return 0ULL
+        end
+        if native.load64(fn, native.fieldOffset<Function>("constants")) ~= cursor
+            or contains(bytes, cursor, constants, 8ULL) == 0ULL
+        then
+            return 0ULL
+        end
+        local k: uint64 = 0ULL
+        while k < constants do
+            local value = native.load64(data, native.index(cursor + k * 8ULL))
+            if value ~= values.TRUE and value ~= values.FALSE and value ~= values.NIL then
+                return 0ULL
+            end
+            k = k + 1ULL
+        end
+        cursor = cursor + constants * 8ULL
+        if native.load64(fn, native.fieldOffset<Function>("code")) ~= cursor
+            or contains(bytes, cursor, size, 16ULL) == 0ULL
+        then
+            return 0ULL
+        end
+        cursor = cursor + size * 16ULL
+        local call: uint64 = 0ULL
+        local previousPC: uint64 = 0ULL
+        while call < callCount do
+            local index = nextCall + call
+            local site = native.offset(data, native.index(calls + index * native.sizeOf<Callsite>()))
+            local pc = native.load64(site, native.fieldOffset<Callsite>("pc"))
+            local target = native.load64(site, native.fieldOffset<Callsite>("target"))
+            local base = native.load64(site, native.fieldOffset<Callsite>("argumentBase"))
+            local nargs = native.load64(site, native.fieldOffset<Callsite>("argumentCount"))
+            if native.load64(site, native.fieldOffset<Callsite>("id")) ~= index
+                or native.load64(site, native.fieldOffset<Callsite>("owner")) ~= i
+                or pc >= size - 1ULL
+                or (call ~= 0ULL and pc <= previousPC)
+                or native.load64(site, native.fieldOffset<Callsite>("resumePC")) ~= pc + 1ULL
+                or target >= count
+                or target == entry
+                or nargs > 63ULL
+                or base >= nv - 1ULL
+                or nargs > nv - base - 1ULL
+                or native.load64(site, native.fieldOffset<Callsite>("wanted")) ~= 1ULL
+                or native.load64(site, native.fieldOffset<Callsite>("resultSlot")) ~= base + 1ULL
+            then
+                return 0ULL
+            end
+            local callee = native.offset(data, native.index(records + target * native.sizeOf<Function>()))
+            local calleeSignature = native.load64(callee, native.fieldOffset<Function>("signature"))
+            if calleeSignature >= ns
+                or native.load64(site, native.fieldOffset<Callsite>("signature")) ~= calleeSignature
+            then
+                return 0ULL
+            end
+            local cs = native.offset(data, native.index(signatures + calleeSignature * native.sizeOf<Signature>()))
+            if native.load64(cs, native.fieldOffset<Signature>("parameterCount")) ~= nargs then
+                return 0ULL
+            end
+            previousPC = pc
+            call = call + 1ULL
+        end
+        total = total + size
+        nextCall = nextCall + callCount
+        i = i + 1ULL
+    end
+    local handlers = native.load64(data, native.fieldOffset<Descriptor>("handlerCount"))
+    if nextCall ~= nc
+        or handlers == 0ULL
+        or handlers > 256ULL
+        or native.load64(data, native.fieldOffset<Descriptor>("dispatch")) ~= cursor
+        or contains(bytes, cursor, handlers, 8ULL) == 0ULL
+        or cursor + handlers * 8ULL ~= bytes
+    then
+        return 0ULL
+    end
+
+    return 1ULL
+end
+
+-- Storage is fresh, exclusively borrowed and disjoint from immutable data and
+-- the caller's logical/helper/World/control regions. No failed or retired
+-- Catalog may be reset for reuse. Publication is the final phase store.
+export function initialize(data: voidptr, bytes: uint64, storage: voidptr, available: uint64): uint64
+    if valid(data, bytes) == 0ULL then
+        return 0ULL
+    end
+    local count = native.load64(data, native.fieldOffset<Descriptor>("ownerCount"))
+    local needed = storageBytes(count)
+    local source, output = native.address(data), native.address(storage)
+    if needed > available
+        or range(output, available) == 0ULL
+        or (source < output + available and output < source + bytes)
+    then
+        return 0ULL
+    end
+    local at: uint64 = 0ULL
+    while at < needed do
+        if native.load64(storage, native.index(at)) ~= 0ULL then
+            return 0ULL
+        end
+        at = at + 8ULL
+    end
+    local records = source + native.load64(data, native.fieldOffset<Descriptor>("records"))
+    local signatures = source + native.load64(data, native.fieldOffset<Descriptor>("signatures"))
+    local infos = output + native.sizeOf<Catalog>()
+    local plans = infos + count * native.sizeOf<frames.FunctionInfo>()
+    local i: uint64 = 0ULL
+    while i < count do
+        local fn = native.pointer(records + i * native.sizeOf<Function>())
+        local info = native.pointer(infos + i * native.sizeOf<frames.FunctionInfo>())
+        local plan = native.pointer(plans + i * native.sizeOf<frames.WindowPlan>())
+        local signature = native.pointer(
+            signatures + native.load64(fn, native.fieldOffset<Function>("signature")) * native.sizeOf<Signature>()
+        )
+        native.store64(info, native.fieldOffset<frames.FunctionInfo>("version"), 1ULL)
+        native.store64(info, native.fieldOffset<frames.FunctionInfo>("id"), i)
+        native.store64(
+            info,
+            native.fieldOffset<frames.FunctionInfo>("bodyOwner"),
+            records + i * native.sizeOf<Function>()
+        )
+        native.store64(
+            info,
+            native.fieldOffset<frames.FunctionInfo>("code"),
+            source + native.load64(fn, native.fieldOffset<Function>("code"))
+        )
+        native.store64(
+            info,
+            native.fieldOffset<frames.FunctionInfo>("instructionCount"),
+            native.load64(fn, native.fieldOffset<Function>("instructionCount"))
+        )
+        native.store64(
+            info,
+            native.fieldOffset<frames.FunctionInfo>("nparams"),
+            native.load64(signature, native.fieldOffset<Signature>("parameterCount"))
+        )
+        native.store64(
+            info,
+            native.fieldOffset<frames.FunctionInfo>("valueCount"),
+            native.load64(fn, native.fieldOffset<Function>("valueCount"))
+        )
+        if frames.planFixed(info, plan) == 0ULL then
+            return 0ULL
+        end
+        i = i + 1ULL
+    end
+    local capacity = native.load64(data, native.fieldOffset<Descriptor>("instanceBound"))
+    if capacity == 0ULL then
+        capacity = 1ULL
+    end
+    native.store64(storage, native.fieldOffset<Catalog>("data"), source)
+    native.store64(storage, native.fieldOffset<Catalog>("dataBytes"), bytes)
+    native.store64(storage, native.fieldOffset<Catalog>("records"), records)
+    native.store64(storage, native.fieldOffset<Catalog>("count"), count)
+    native.store64(storage, native.fieldOffset<Catalog>("signatures"), signatures)
+    native.store64(
+        storage,
+        native.fieldOffset<Catalog>("signatureCount"),
+        native.load64(data, native.fieldOffset<Descriptor>("signatureCount"))
+    )
+    native.store64(
+        storage,
+        native.fieldOffset<Catalog>("contracts"),
+        source + native.load64(data, native.fieldOffset<Descriptor>("contracts"))
+    )
+    native.store64(
+        storage,
+        native.fieldOffset<Catalog>("contractCount"),
+        native.load64(data, native.fieldOffset<Descriptor>("contractCount"))
+    )
+    native.store64(storage, native.fieldOffset<Catalog>("infos"), infos)
+    native.store64(storage, native.fieldOffset<Catalog>("plans"), plans)
+    native.store64(
+        storage,
+        native.fieldOffset<Catalog>("targets"),
+        source + native.load64(data, native.fieldOffset<Descriptor>("targets"))
+    )
+    native.store64(
+        storage,
+        native.fieldOffset<Catalog>("entry"),
+        native.load64(data, native.fieldOffset<Descriptor>("entry"))
+    )
+    native.store64(storage, native.fieldOffset<Catalog>("instanceCapacity"), capacity)
+    native.store64(
+        storage,
+        native.fieldOffset<Catalog>("frameDepth"),
+        native.load64(data, native.fieldOffset<Descriptor>("frameDepth"))
+    )
+    native.store64(storage, native.fieldOffset<Catalog>("phase"), 1ULL)
+
+    return 1ULL
+end
+
+export function validate(data: voidptr, bytes: uint64): uint64
+    return valid(data, bytes)
+end

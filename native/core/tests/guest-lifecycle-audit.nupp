@@ -1,0 +1,268 @@
+module nupp.runtime.core.guestaudit
+
+const native = require("nupp.runtime.vm.intrinsics")
+const frames = require("nupp.runtime.core.frames")
+const arena = require("nupp.runtime.core.arena")
+const instances = require("nupp.runtime.core.instances")
+const entry = require("nupp.runtime.core.guestentry")
+const catalog = require("nupp.runtime.core.guestcatalog")
+const context = require("nupp.runtime.core.context")
+const values = require("nupp.runtime.vm.values")
+
+-- Fixed test-only checked leaves. The test transport lends explicit disjoint
+-- mapped audit storage and a completed primary entry's retained Binding. These
+-- functions grant no handler/frame facts and do not replace primary outputs.
+local function copy(dst: voidptr, src: voidptr, bytes: uint64): nil
+    local at: uint64 = 0ULL
+    while at < bytes do
+        native.store64(dst, native.index(at), native.load64(src, native.index(at)))
+        at = at + 8ULL
+    end
+end
+
+local function same(a: voidptr, b: voidptr, bytes: uint64): uint64
+    local at: uint64 = 0ULL
+    while at < bytes do
+        if native.load64(a, native.index(at)) ~= native.load64(b, native.index(at)) then
+            return 0ULL
+        end
+        at = at + 8ULL
+    end
+
+    return 1ULL
+end
+
+-- The actual program has already returned through mandatory complete. Inspect
+-- retained metadata only; retired Frame/window bytes are not dereferenced.
+export function after(ctx: voidptr, used: uint64, status: uint64, value: uint64, owner: uint64, pc: uint64): uint64
+    local state = native.loadPointer(ctx, context.STATE)
+    local root = native.loadPointer(ctx, context.ROOT_CONTROL)
+    local segment = native.loadPointer(state, native.fieldOffset<frames.State>("segment"))
+    local registry = native.loadPointer(ctx, context.REGISTRY)
+    local world = native.loadPointer(ctx, context.WORLD)
+    local mark = native.offset(root, native.fieldOffset<frames.RootControl>("mark"))
+    if native.load64(ctx, context.STATUS) ~= status
+        or native.load64(ctx, context.ERROR_OWNER) ~= owner
+        or native.load64(ctx, context.ERROR_PC) ~= pc
+        or native.load64(state, native.fieldOffset<frames.State>("active")) ~= 0ULL
+        or native.load64(state, native.fieldOffset<frames.State>("depth")) ~= 0ULL
+        or native.load64(root, native.fieldOffset<frames.RootControl>("frame")) ~= 0ULL
+        or native.load64(root, native.fieldOffset<frames.RootControl>("phase")) ~= frames.ROOT_RETIRED
+        or native.load64(root, native.fieldOffset<frames.RootControl>("state")) ~= native.address(state)
+        or native.load64(mark, native.fieldOffset<arena.Mark>("serial")) ~= native.load64(ctx, context.ROOT_SERIAL)
+        or native.load64(
+            segment,
+            native.fieldOffset<arena.Segment>("cursor")
+        ) ~= native.load64(segment, native.fieldOffset<arena.Segment>("base"))
+        or native.load64(segment, native.fieldOffset<arena.Segment>("top")) ~= 0ULL
+    then
+        return 1ULL
+    end
+    local first = native.load64(registry, native.fieldOffset<instances.Registry>("first"))
+    local capacity = native.load64(registry, native.fieldOffset<instances.Registry>("capacity"))
+    if native.load64(registry, native.fieldOffset<instances.Registry>("used")) ~= used
+        or native.load64(registry, native.fieldOffset<instances.Registry>("phase")) ~= 2ULL
+        or native.load64(world, native.fieldOffset<instances.World>("next")) ~= first + capacity
+        or used > capacity
+    then
+        return 2ULL
+    end
+    local entries = native.loadPointer(registry, native.fieldOffset<instances.Registry>("entries"))
+    local catalogOwner = native.load64(registry, native.fieldOffset<instances.Registry>("catalog"))
+    local index: uint64 = 0ULL
+    while index < used do
+        local item = native.offset(entries, native.index(index * native.sizeOf<instances.Instance>()))
+        if native.load64(item, native.fieldOffset<instances.Instance>("handle")) ~= (values.TAG_FUNC | (first + index))
+            or native.load64(item, native.fieldOffset<instances.Instance>("owner")) ~= catalogOwner
+        then
+            return 3ULL
+        end
+        index = index + 1ULL
+    end
+    if status == 0ULL then
+        if native.load64(root, native.fieldOffset<frames.RootControl>("count")) ~= 1ULL
+            or native.load64(root, native.fieldOffset<frames.RootControl>("value")) ~= value
+            or native.load64(state, native.fieldOffset<frames.State>("lastResultCount")) ~= 1ULL
+        then
+            return 4ULL
+        end
+    elseif native.load64(root, native.fieldOffset<frames.RootControl>("count")) ~= 0ULL
+        or native.load64(root, native.fieldOffset<frames.RootControl>("value")) ~= values.NIL
+        or native.load64(state, native.fieldOffset<frames.State>("lastResultCount")) ~= 0ULL
+    then
+        return 5ULL
+    end
+
+    return 0ULL
+end
+
+-- Reuse is exclusively through beginRoot, which advances the retained arena
+-- serial. The context deliberately retains the OLD identity. Even with the
+-- same frame address, complete must refuse before touching the newer child.
+-- Snapshot covers the full entry-owned metadata/pool prefix, excluding native
+-- helper frames and the disjoint audit buffer. All sizes come from the builder.
+export function stale(
+    ctx: voidptr,
+    snapshot: voidptr,
+    prefixBytes: uint64,
+    helper: voidptr,
+    helperBytes: uint64
+): uint64
+    local state = native.loadPointer(ctx, context.STATE)
+    local root = native.loadPointer(ctx, context.ROOT_CONTROL)
+    local descriptor = native.loadPointer(ctx, context.CATALOG)
+    local oldRoot = native.load64(ctx, context.ORIGINAL_ROOT)
+    local oldSerial = native.load64(ctx, context.ROOT_SERIAL)
+    local id = native.load64(descriptor, native.fieldOffset<catalog.Catalog>("entry"))
+    local info = native.offset(
+        native.loadPointer(descriptor, native.fieldOffset<catalog.Catalog>("infos")),
+        native.index(id * native.sizeOf<frames.FunctionInfo>())
+    )
+    local plan = native.offset(
+        native.loadPointer(descriptor, native.fieldOffset<catalog.Catalog>("plans")),
+        native.index(id * native.sizeOf<frames.WindowPlan>())
+    )
+    native.store64(state, native.fieldOffset<frames.State>("helperBase"), native.address(helper))
+    native.store64(state, native.fieldOffset<frames.State>("helperBytes"), helperBytes)
+    local nextRoot = frames.beginRoot(state, root, info, plan)
+    if nextRoot == 0ULL or nextRoot ~= oldRoot then
+        return 10ULL
+    end
+    local mark = native.offset(root, native.fieldOffset<frames.RootControl>("mark"))
+    local serial = native.load64(mark, native.fieldOffset<arena.Mark>("serial"))
+    if serial <= oldSerial then
+        return 11ULL
+    end
+    local parent = native.pointer(nextRoot)
+    local prepared = frames.prepareFixed(state, parent, info, values.NIL, 0ULL, 0ULL, 1ULL, plan)
+    if prepared == 0ULL then
+        return 12ULL
+    end
+    copy(snapshot, ctx, prefixBytes)
+    if entry.complete(ctx, native.pointer(oldRoot), oldSerial) ~= 0ULL or same(snapshot, ctx, prefixBytes) == 0ULL then
+        return 13ULL
+    end
+    if frames.publish(state, parent, native.pointer(prepared), 1ULL) ~= 1ULL then
+        return 14ULL
+    end
+    copy(snapshot, ctx, prefixBytes)
+    if entry.complete(ctx, native.pointer(oldRoot), oldSerial) ~= 0ULL or same(snapshot, ctx, prefixBytes) == 0ULL then
+        return 15ULL
+    end
+    if frames.abortActive(state, native.pointer(prepared)) ~= 1ULL then
+        return 16ULL
+    end
+    if frames.abortRoot(state, root, parent, serial) ~= 1ULL then
+        return 17ULL
+    end
+    if native.load64(state, native.fieldOffset<frames.State>("active")) ~= 0ULL
+        or native.load64(state, native.fieldOffset<frames.State>("depth")) ~= 0ULL
+    then
+        return 18ULL
+    end
+    -- Separately exercise complete's deferred prepared-child cleanup with a
+    -- genuine CURRENT token. This is test-induced failure, not a new guest op
+    -- or a claim that correct immutable publish inputs normally fail.
+    local currentRoot = frames.beginRoot(state, root, info, plan)
+    if currentRoot == 0ULL then
+        return 26ULL
+    end
+    local currentSerial = native.load64(mark, native.fieldOffset<arena.Mark>("serial"))
+    native.store64(ctx, context.ORIGINAL_ROOT, currentRoot)
+    native.store64(ctx, context.ROOT_SERIAL, currentSerial)
+    native.store64(ctx, context.STATUS, context.BUDGET_STATUS)
+    local currentChild = frames.prepareFixed(
+        state,
+        native.pointer(currentRoot),
+        info,
+        values.NIL,
+        0ULL,
+        0ULL,
+        1ULL,
+        plan
+    )
+    if currentChild == 0ULL then
+        return 27ULL
+    end
+    if entry.complete(ctx, native.pointer(currentRoot), currentSerial) ~= 0ULL then
+        return 28ULL
+    end
+    local segment = native.loadPointer(state, native.fieldOffset<frames.State>("segment"))
+    if native.load64(state, native.fieldOffset<frames.State>("active")) ~= 0ULL
+        or native.load64(state, native.fieldOffset<frames.State>("depth")) ~= 0ULL
+        or native.load64(root, native.fieldOffset<frames.RootControl>("phase")) ~= frames.ROOT_RETIRED
+        or native.load64(
+            segment,
+            native.fieldOffset<arena.Segment>("cursor")
+        ) ~= native.load64(segment, native.fieldOffset<arena.Segment>("base"))
+        or native.load64(segment, native.fieldOffset<arena.Segment>("top")) ~= 0ULL
+    then
+        return 29ULL
+    end
+
+    return 0ULL
+end
+
+-- A deliberately too-small logical pool makes start fail AFTER registry ID
+-- reservation. All new regions are fresh and disjoint, supplied by the fixed
+-- audit transport. This consumed Storage is retained and is never reset/retried.
+export function failedStart(
+    binding: voidptr,
+    workspace: voidptr,
+    workspaceBytes: uint64,
+    helper: voidptr,
+    helperBytes: uint64
+): uint64
+    local storageBytes = native.load64(binding, native.fieldOffset<entry.Binding>("storageBytes"))
+    local bindingBytes = (native.sizeOf<entry.Binding>() + 15ULL) & 0xfffffffffffffff0ULL
+    local storageOffset = bindingBytes + native.word(context.SIZE)
+    local poolOffset = (storageOffset + storageBytes + 15ULL) & 0xfffffffffffffff0ULL
+    if workspaceBytes < poolOffset + 16ULL then
+        return 20ULL
+    end
+    local at: uint64 = 0ULL
+    while at < poolOffset + 16ULL do
+        if native.load64(workspace, native.index(at)) ~= 0ULL then
+            return 21ULL
+        end
+        at = at + 8ULL
+    end
+    copy(workspace, binding, native.sizeOf<entry.Binding>())
+    local ctx = native.offset(workspace, native.index(bindingBytes))
+    local storage = native.offset(workspace, native.index(storageOffset))
+    local pool = native.offset(workspace, native.index(poolOffset))
+    native.store64(workspace, native.fieldOffset<entry.Binding>("context"), native.address(ctx))
+    native.store64(workspace, native.fieldOffset<entry.Binding>("contextBytes"), native.word(context.SIZE))
+    native.store64(workspace, native.fieldOffset<entry.Binding>("storage"), native.address(storage))
+    native.store64(workspace, native.fieldOffset<entry.Binding>("pool"), native.address(pool))
+    native.store64(workspace, native.fieldOffset<entry.Binding>("poolBytes"), 16ULL)
+    native.store64(workspace, native.fieldOffset<entry.Binding>("helper"), native.address(helper))
+    native.store64(workspace, native.fieldOffset<entry.Binding>("helperBytes"), helperBytes)
+    local world = native.loadPointer(binding, native.fieldOffset<entry.Binding>("world"))
+    local before = native.load64(world, native.fieldOffset<instances.World>("next"))
+    if entry.start(workspace) ~= 0ULL then
+        return 22ULL
+    end
+    local registry = native.offset(storage, native.fieldOffset<entry.Storage>("registry"))
+    local capacity = native.load64(registry, native.fieldOffset<instances.Registry>("capacity"))
+    local state = native.offset(storage, native.fieldOffset<entry.Storage>("state"))
+    if capacity == 0ULL
+        or native.load64(world, native.fieldOffset<instances.World>("next")) ~= before + capacity
+        or native.load64(registry, native.fieldOffset<instances.Registry>("first")) ~= before
+        or native.load64(registry, native.fieldOffset<instances.Registry>("used")) ~= 0ULL
+        or native.load64(registry, native.fieldOffset<instances.Registry>("phase")) ~= 1ULL
+        or native.load64(state, native.fieldOffset<frames.State>("active")) ~= 0ULL
+        or native.load64(state, native.fieldOffset<frames.State>("depth")) ~= 0ULL
+    then
+        return 23ULL
+    end
+    local targets = native.loadPointer(registry, native.fieldOffset<instances.Registry>("catalog"))
+    if instances.retire(registry, targets) ~= 1ULL then
+        return 24ULL
+    end
+    if native.load64(world, native.fieldOffset<instances.World>("next")) ~= before + capacity then
+        return 25ULL
+    end
+
+    return 0ULL
+end

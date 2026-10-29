@@ -1,0 +1,12 @@
+module nupp.core.catalogfresh
+
+local function make(value: boolean): boolean
+    local function identity(input: boolean): boolean
+        return input
+    end
+
+    return identity(value)
+end
+
+local _ignored = make(false)
+export = make(true)

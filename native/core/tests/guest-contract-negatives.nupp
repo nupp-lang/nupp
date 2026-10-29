@@ -1,0 +1,227 @@
+module nupp.runtime.core.guestnegatives
+
+const native = require("nupp.runtime.vm.intrinsics")
+const frames = require("nupp.runtime.core.frames")
+const slots = require("nupp.runtime.vm.slots")
+const values = require("nupp.runtime.vm.values")
+const ops = require("nupp.runtime.core.guestops")
+const access = require("nupp.runtime.core.frameaccess")
+
+-- These are fixed reviewed negative bodies, compiled only far enough to hit
+-- dataflow refusal. They are never selected, linked or executed as guest code.
+export function NoScalar(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    local s = native.pointer(ops.state(ctx))
+    local _returned = frames.returnScalar(s, frame, values.TRUE)
+    return native.fail()
+end
+
+export function WrongScalar(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    if ops.result(ctx, frame, pc, values.TRUE) ~= 1ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if ops.root(ctx, frame) ~= 1ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local _completed = ops.finish(ctx, frame, values.FALSE)
+
+    return native.fail()
+end
+
+export function NoRootIdentity(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    if ops.result(ctx, frame, pc, values.TRUE) ~= 1ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local _completed = ops.finish(ctx, frame, values.TRUE)
+
+    return native.fail()
+end
+
+export function NoCompletion(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    return native.fail()
+end
+
+export function NoFinishSuccess(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    if ops.result(ctx, frame, pc, values.TRUE) ~= 1ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if ops.root(ctx, frame) ~= 1ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local _completed = ops.finish(ctx, frame, values.TRUE)
+
+    return native.fail()
+end
+
+export function WrongState(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    local _s = native.pointer(ops.state(pc))
+    return native.fail()
+end
+
+export function SignedNegativeSlot(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    local count = native.loadIndex(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    local slot: int64 = -1
+    if slot < count then
+        local _value = slots.readValue(frame, regs, slot)
+    end
+    ops.fail(ctx, frame, pc, ops.INVALID)
+
+    return native.fail()
+end
+
+export function SignedCountCast(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    local count = native.index(native.load64(frame, native.fieldOffset<frames.Frame>("valueCount")))
+    local slot: int64 = -1
+    if slot < count then
+        slots.writeValue(frame, regs, slot, values.TRUE)
+    end
+    ops.fail(ctx, frame, pc, ops.INVALID)
+
+    return native.fail()
+end
+
+export function WrongCountWidth(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    local count = native.word(native.load32(frame, native.fieldOffset<frames.Frame>("valueCount")))
+    local slot: int64 = 0
+    if native.word(slot) < count then
+        local _value = slots.readValue(frame, regs, slot)
+    end
+    ops.fail(ctx, frame, pc, ops.INVALID)
+
+    return native.fail()
+end
+
+export function StaleFrame(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    if ops.result(ctx, frame, pc, values.TRUE) ~= 1ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local s = native.pointer(ops.state(ctx))
+    local returned = frames.returnScalar(s, frame, values.TRUE)
+    if returned ~= 1ULL then
+        ops.failure(ctx, ops.INVALID)
+        return native.fail()
+    end
+    local _stale = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    ops.failure(ctx, ops.INVALID)
+
+    return native.fail()
+end
+
+local function unknown(ctx: voidptr): nil
+    native.store64(ctx, 0, 0ULL)
+end
+
+export function RereadAfterUnknown(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    unknown(ctx)
+    local s = native.pointer(ops.state(ctx))
+    local _current = native.pointer(access.active(s))
+    return native.fail()
+end
+
+export function WrongResume(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    if ops.charge(ctx, frame, pc) ~= 1ULL then
+        return native.fail()
+    end
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local s = native.pointer(ops.state(ctx))
+    local child = ops.prepare(ctx, frame, pc, 0ULL, 0ULL, 0ULL, 1ULL, 1ULL)
+    if child == 0ULL then
+        ops.failure(ctx, ops.INVALID)
+        return native.fail()
+    end
+    local _published = frames.publish(s, frame, native.pointer(child), 1ULL)
+
+    return native.fail()
+end

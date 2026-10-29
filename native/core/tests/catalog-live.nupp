@@ -1,0 +1,9 @@
+module nupp.core.cataloglive
+
+local function identity(value: boolean): boolean
+    return value
+end
+
+local held = true
+local _result = identity(false)
+export = held

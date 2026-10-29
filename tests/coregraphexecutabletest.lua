@@ -1,0 +1,259 @@
+local test = require("nupp.test")
+local parser = require("nupp.compiler.syntax.parser")
+local checker = require("nupp.compiler.check")
+local environment = require("nupp.compiler.project.env")
+local program = require("nupp.compiler.vm.programgraph")
+local tagged = require("nupp.compiler.vm.taggedprofile")
+local executable = require("nupp.compiler.vm.coregraphexecutable")
+local bytecode = require("nupp.compiler.vm.corebytecode")
+local copies = require("nupp.compiler.vm.graphcopies")
+local graph = require("nupp.compiler.vm.graph")
+local M = {}
+
+local function checked(text)
+    local path, name = "=core_executable.nupp", "core_executable"
+    local parsed = parser.parse(text, path)
+    test.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
+    local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
+    local diagnostics = checker.check(parsed, path, env, {
+        moduleName = name,
+        strict = false,
+        lints = {["unused-binding"] = "off"}
+    })
+    for _, diagnostic in ipairs(diagnostics) do
+        assert(diagnostic.severity ~= "error", diagnostic.msg)
+    end
+    local p = program.describe({{name = name, path = path, parsed = parsed, diagnostics = diagnostics}}, name)
+
+    return program.compile(p, tagged)
+end
+
+local function refuses(action, message)
+    local ok, problem = pcall(action)
+    test.equal(ok, false)
+    assert(tostring(problem):find(message, 1, true), tostring(problem))
+end
+
+local function identity(kind, value)
+    return checked(
+        "local function identity(value: "
+        .. kind
+        .. "): "
+        .. kind
+        .. " return value end\nreturn identity("
+        .. value
+        .. ")"
+    )
+end
+
+function M.completeBooleanAndNilInitializersRetainActualClosureAndCall()
+    for _, fixture in ipairs({{"boolean", "true"}, {"nil", "nil"}}) do
+        local input = identity(fixture[1], fixture[2])
+        local output = executable.fromChecked(input)
+        executable.validate(output)
+        test.equal(#output.functions, #input.catalog.owners)
+        test.equal(output.frameDepth, 2)
+        test.equal(output.instanceCapacity, 1)
+        local root = output.functions[output.entry + 1]
+        test.equal(#root.calls, 1)
+        test.equal(root.closureCount, 1)
+        local call = root.calls[1]
+        test.equal(call.resultSlot, call.argumentBase + 1)
+        test.equal(call.wanted, 1)
+        test.equal(call.argumentCount, 1)
+        test.equal(call.resumePC, call.pc + 1)
+        test.equal(root.instructions[call.pc + 1][1], "CallK")
+        test.equal(root.code:byte(call.pc * 16 + 4), 1)
+        test.equal(root.code:byte(call.pc * 16 + 5), 1)
+        test.equal(#root.code, root.instructionCount * 16)
+        test.equal(executable.checkedOwner(output, call.target), input.catalog.owners[call.target + 1])
+        for _, fn in ipairs(output.functions) do
+            assert(fn.copyScratch < fn.callBase and fn.callBase + 1 < fn.valueCount)
+            assert(fn.valueCount <= 250)
+            for _, instruction in ipairs(fn.instructions) do
+                assert(instruction[1] ~= "RetNil")
+            end
+        end
+    end
+end
+
+function M.discardedResultsStillReserveOneSlotAndPreserveCalls()
+    local output = executable.fromChecked(
+        checked(
+            [[
+local function identity(value: boolean): boolean return value end
+identity(false)
+return identity(true)
+]]
+        )
+    )
+    local root = output.functions[output.entry + 1]
+    test.equal(#root.calls, 2)
+    test.equal(root.calls[1].discarded, true)
+    test.equal(root.calls[2].discarded, false)
+    for _, call in ipairs(root.calls) do
+        test.equal(call.wanted, 1)
+        test.equal(call.resultSlot, root.callBase + 1)
+    end
+end
+
+function M.liveThroughValuesStayOutsideCallWindow()
+    local output = executable.fromChecked(
+        checked(
+            [[
+local function identity(value: boolean): boolean return value end
+local held = true
+local result = identity(false)
+return held
+]]
+        )
+    )
+    local root = output.functions[output.entry + 1]
+    local call = root.calls[1]
+    local continuation = root.instructions[call.resumePC + 1]
+    assert(continuation[1] == "Move" or continuation[1] == "Jmp")
+    local moves = 0
+    for pc = call.resumePC + 1, #root.instructions do
+        local ins = root.instructions[pc]
+        if ins[1] == "Jmp" then
+            break
+        end
+        test.equal(ins[1], "Move")
+        assert(ins[2] < root.copyScratch)
+        moves = moves + 1
+    end
+    assert(moves > 0)
+end
+
+function M.parallelCopiesPreserveCyclesDuplicatesAndIdentity()
+    local moves = copies.schedule({1, 2, 3, 4}, {2, 1, 1, 4}, 5)
+    local words = {"first", "second", "third", "fourth"}
+    for _, move in ipairs(moves) do
+        words[move[1]] = words[move[2]]
+    end
+    test.equal(words[1], "second")
+    test.equal(words[2], "first")
+    test.equal(words[3], "first")
+    test.equal(words[4], "fourth")
+    test.equal(#moves, 4)
+    refuses(
+        function()
+            copies.schedule({1}, {5}, 5)
+        end,
+        "scratch overlaps"
+    )
+end
+
+function M.absentReturnsRefuseIncludingUnusedCatalogOwners()
+    refuses(
+        function()
+            executable.fromChecked(checked("local function unused(): nil return end\nreturn true"))
+        end,
+        "absent return"
+    )
+    refuses(
+        function()
+            executable.fromChecked(checked("return"))
+        end,
+        "absent return"
+    )
+end
+
+function M.flaggedArgumentCountsAndPhysicalOverflowRefuse()
+    local params, args = {}, {}
+    for index = 1, 64 do
+        params[index], args[index] = "p" .. index .. ": boolean", "true"
+    end
+    refuses(
+        function()
+            executable.fromChecked(
+                checked(
+                    "local function many(" .. table.concat(
+                        params,
+                        ","
+                    ) .. "): boolean return p1 end\nreturn many(" .. table.concat(args, ",") .. ")"
+                )
+            )
+        end,
+        "capacity"
+    )
+    local input = identity("boolean", "true")
+    input.graphs[1].counts.v = 249
+    refuses(
+        function()
+            executable.fromChecked(input)
+        end,
+        "physical slots"
+    )
+    refuses(
+        function()
+            bytecode.encode({"CallK", 1, 10, 10, 64, 1})
+        end,
+        "fixed scalar CallK"
+    )
+    refuses(
+        function()
+            bytecode.encode({"CallK", 1, 10, 10, 0, 0})
+        end,
+        "fixed scalar CallK"
+    )
+end
+
+function M.byteRecipesBindCanonicalOperandsAndFieldOffsets()
+    local call = bytecode.encode({"CallK", 7, 10, 10, 3, 1})
+    local desc = bytecode.describe("CallK")
+    test.equal(call:byte(1), desc.id)
+    test.equal(call:byte(2), 10)
+    test.equal(call:byte(3), 10)
+    test.equal(call:byte(4), 3)
+    test.equal(call:byte(5), 1)
+    test.equal(call:byte(9), 7)
+    local closure = bytecode.encode({"NewClosure", 4, 7, 9, 0})
+    test.equal(closure:byte(2), 4)
+    test.equal(closure:byte(3), 9)
+    test.equal(closure:byte(4), 0)
+    test.equal(closure:byte(9), 7)
+    local back = bytecode.encode({"Jmp", -1})
+    for at = 5, 8 do
+        test.equal(back:byte(at), 255)
+    end
+    refuses(
+        function()
+            bytecode.encode({"RetNil"})
+        end,
+        "unsupported final-core encoding"
+    )
+end
+
+function M.copiedOrMutatedExecutableDoesNotRetainCheckedBinding()
+    local output = executable.fromChecked(identity("boolean", "true"))
+    local fake = {}
+    for key, value in pairs(output) do
+        fake[key] = value
+    end
+    refuses(
+        function()
+            executable.checkedOwner(fake, 0)
+        end,
+        "unissued executable"
+    )
+    output.functions[1].code = "changed"
+    refuses(
+        function()
+            executable.validate(output)
+        end,
+        "metadata changed"
+    )
+end
+
+function M.frozenGraphRouteStillRefusesInvoke()
+    local input = identity("boolean", "true")
+    refuses(
+        function()
+            graph.lower(input.graphs[1])
+        end,
+        "invoke requires final-core"
+    )
+end
+
+return M

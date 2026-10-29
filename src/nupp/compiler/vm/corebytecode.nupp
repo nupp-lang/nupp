@@ -1,0 +1,144 @@
+module nupp.compiler.vm.corebytecode
+
+local opcodes = require("nupp.compiler.vm.opcodes")
+local bytecode = {}
+
+-- Final-core byte recipes. These are not the frozen VM's serialized image ABI.
+-- Each tuple binds one canonical operand to its byte offset and encoded width.
+local recipes: any = {
+    K = {{"v", "def", 1, 1}, {"k", "use", 4, 4}},
+    Move = {{"v", "def", 1, 1}, {"v", "use", 2, 1}},
+    Nil = {{"v", "def", 1, 1}},
+    NewClosure = {{"v", "def", 1, 1}, {"fn", "use", 8, 8}, {"v", "check", 2, 1}, {"n", "use", 3, 1}},
+    CallK = {{"fn", "use", 8, 8}, {"v", "use", 1, 1}, {"v", "def", 2, 1}, {"n", "use", 3, 1}, {"n", "use", 4, 1}},
+    Ret = {{"v", "use", 1, 1}},
+    Jmp = {{"j", "use", 4, 4}},
+    JmpIf = {{"v", "use", 1, 1}, {"j", "use", 4, 4}}
+}
+local policies: any = {
+    K = {"next", ""},
+    Move = {"next", ""},
+    Nil = {"next", ""},
+    NewClosure = {"next", "v:uses@3+1:4:n"},
+    CallK = {"next", "v:check@3+1:4:fixedmax1 v:check@3+1:5:minus1 v:uses@3+1:4:callargs"},
+    Ret = {"stop", ""},
+    Jmp = {"jump", ""},
+    JmpIf = {"branch", ""}
+}
+local ids = {}
+for index, name in ipairs(opcodes.names()) do
+    ids[name] = index - 1
+end
+
+local function recipe(name: string): any
+    local result = assert(recipes[name], "unsupported final-core encoding")
+    local canonical = assert(opcodes.describe(name))
+    assert(#canonical.operands == #result and not canonical.frame, "canonical operand recipe differs")
+    local policy = policies[name]
+    assert(
+        canonical.flow == policy[1] and table.concat(canonical.windows, " ") == policy[2],
+        "canonical flow/window recipe differs"
+    )
+    for index, field in ipairs(result) do
+        local operand = canonical.operands[index]
+        assert(
+            operand.class == field[1] and operand.mode == field[2] and not operand.optional,
+            "canonical operand recipe differs"
+        )
+    end
+    assert(ids[name] < 256, "canonical opcode exceeds byte dispatch")
+
+    return result
+end
+
+function bytecode.describe(name: string): any
+    local fields = {}
+    for index, field in ipairs(recipe(name)) do
+        fields[index] = {class = field[1], mode = field[2], offset = field[3], bytes = field[4]}
+    end
+
+    return {name = name, id = ids[name], bytes = 16, fields = fields}
+end
+
+function bytecode.encode(instruction: any): string
+    local name = instruction[1]
+    local fields = recipe(name)
+    opcodes.check(instruction)
+    local bytes = {}
+    for index = 1, 16 do
+        bytes[index] = 0
+    end
+    bytes[1] = ids[name]
+    for index, field in ipairs(fields) do
+        local value = instruction[index + 1]
+        assert(type(value) == "number" and value % 1 == 0, "encoded operand must be an integer")
+        if field[1] == "j" then
+            assert(value >= -2147483648 and value <= 2147483647, "encoded branch exceeds signed32")
+            if value < 0 then
+                value += 4294967296
+            end
+        elseif field[1] == "v" then
+            assert(value >= 0 and value < 250, "encoded register capacity")
+        elseif field[1] == "fn" then
+            assert(value >= 0 and value < 256, "encoded catalog owner capacity")
+        elseif field[4] == 1 then
+            assert(value >= 0 and value <= 255, "encoded byte capacity")
+        else
+            assert(value >= 0 and value <= 2147483647, "encoded constant capacity")
+        end
+        for at = 1, field[4] do
+            bytes[field[3] + at] = value % 256
+            value = math.floor(value / 256)
+        end
+        assert(value == 0, "encoded operand overflow")
+    end
+    local _ = switch name do
+        case "CallK" -> do
+            assert(instruction[5] <= 63 and instruction[6] == 1, "fixed scalar CallK required")
+            assert(instruction[4] + math.max(instruction[5], 1) < 250, "encoded CallK window capacity")
+            yield nil
+        end
+        case "NewClosure" -> do
+            assert(instruction[5] == 0, "zero-capture closure required")
+            yield nil
+        end
+        else -> nil
+    end
+
+    return string.char(unpack(bytes))
+end
+
+-- Bind byte recipes to the actual shared-profile handler reads, not just an
+-- assumed historical raw operand order. The closed builder supplies its exact
+-- checked graph; this structural check by itself grants no source authority.
+function bytecode.checkHandler(name: string, g: any): nil
+    local description = bytecode.describe(name)
+    local expected, seen, constants = {}, {}, {}
+    for _, field in ipairs(description.fields) do
+        expected[field.offset] = field.bytes
+    end
+    for _, block in ipairs(g.blocks) do
+        for index, op in ipairs(block.op) do
+            if op == "NativeConstant" then
+                constants[block.dst[index]] = tonumber(block.args[index][1])
+            end
+        end
+    end
+    for _, block in ipairs(g.blocks) do
+        for index, op in ipairs(block.op) do
+            if op == "ProgramLoad" then
+                local args = block.args[index]
+                local offset = assert(constants[args[2]], "handler field offset is not constant")
+                local width = assert(expected[offset], "handler reads outside canonical fields")
+                local kind = width == 1 and "uint8" or (width == 4 and "int32" or "uint64")
+                assert(args[3].width == width and args[3].kind == kind, "handler field width/kind differs")
+                seen[offset] = true
+            end
+        end
+    end
+    for offset in pairs(expected) do
+        assert(seen[offset], "handler omits canonical field")
+    end
+end
+
+export = bytecode

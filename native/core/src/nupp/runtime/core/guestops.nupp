@@ -1,0 +1,346 @@
+module nupp.runtime.core.guestops
+
+const native = require("nupp.runtime.vm.intrinsics")
+const frames = require("nupp.runtime.core.frames")
+const instances = require("nupp.runtime.core.instances")
+const catalog = require("nupp.runtime.core.guestcatalog")
+const context = require("nupp.runtime.core.context")
+
+export const INVALID: uint64 = 4ULL
+export const RESOURCE: uint64 = 5ULL
+
+-- These helpers borrow only the entry-owned State/catalog/registry and current
+-- logical frame. Their raw signatures do not authorize arbitrary context data.
+-- The closed producer proves the disjoint mappings and exact checked bodies.
+export function state(ctx: voidptr): uint64
+    return native.load64(ctx, context.STATE)
+end
+
+export function fail(ctx: voidptr, frame: voidptr, pc: voidptr, status: uint64): nil
+    if native.load64(ctx, context.STATUS) == 0ULL then
+        native.store64(ctx, context.STATUS, status)
+        native.store64(ctx, context.ERROR_OWNER, native.load64(frame, native.fieldOffset<frames.Frame>("functionId")))
+        local code = native.load64(frame, native.fieldOffset<frames.Frame>("code"))
+        local address = native.address(pc)
+        local index: uint64 = 0ULL
+        if address >= code then
+            index = (address - code) // 16ULL
+        end
+        native.store64(ctx, context.ERROR_PC, index)
+    end
+end
+
+-- Charge before catalog/instance lookup or frame reservation. Failure records
+-- the original owner/PC once; cleanup neither charges nor overwrites the error.
+export function charge(ctx: voidptr, frame: voidptr, pc: voidptr): uint64
+    if native.load64(ctx, context.STATUS) ~= 0ULL then
+        return 0ULL
+    end
+    if native.load64(ctx, context.CANCELLED) ~= 0ULL then
+        fail(ctx, frame, pc, context.CANCELLED_STATUS)
+        return 0ULL
+    end
+    local remaining = native.load64(ctx, context.REMAINING)
+    if remaining == 0ULL then
+        fail(ctx, frame, pc, context.BUDGET_STATUS)
+        return 0ULL
+    end
+    if remaining ~= context.UNLIMITED then
+        native.store64(ctx, context.REMAINING, remaining - 1ULL)
+    end
+
+    return 1ULL
+end
+
+-- Zero refuses; success is the exact retained function record address. This
+-- checks identity and bounds, not the mappedness of a caller-invented pointer.
+export function current(ctx: voidptr, frame: voidptr, pc: voidptr): uint64
+    local s = native.loadPointer(ctx, context.STATE)
+    local c = native.loadPointer(ctx, context.CATALOG)
+    if native.load64(c, native.fieldOffset<catalog.Catalog>("phase")) ~= 1ULL
+        or native.load64(s, native.fieldOffset<frames.State>("active")) ~= native.address(frame)
+        or native.load64(frame, native.fieldOffset<frames.Frame>("phase")) ~= frames.ACTIVE
+    then
+        return 0ULL
+    end
+    local id = native.load64(frame, native.fieldOffset<frames.Frame>("functionId"))
+    if id >= native.load64(c, native.fieldOffset<catalog.Catalog>("count")) then
+        return 0ULL
+    end
+    local record = native.load64(
+        c,
+        native.fieldOffset<catalog.Catalog>("records")
+    ) + id * native.sizeOf<catalog.Function>()
+    local info = native.load64(
+        c,
+        native.fieldOffset<catalog.Catalog>("infos")
+    ) + id * native.sizeOf<frames.FunctionInfo>()
+    local plan = native.load64(
+        c,
+        native.fieldOffset<catalog.Catalog>("plans")
+    ) + id * native.sizeOf<frames.WindowPlan>()
+    local fn = native.pointer(record)
+    local code = native.load64(
+        c,
+        native.fieldOffset<catalog.Catalog>("data")
+    ) + native.load64(fn, native.fieldOffset<catalog.Function>("code"))
+    local count = native.load64(fn, native.fieldOffset<catalog.Function>("instructionCount"))
+    if native.load64(frame, native.fieldOffset<frames.Frame>("functionInfo")) ~= info
+        or native.load64(frame, native.fieldOffset<frames.Frame>("windowPlan")) ~= plan
+        or native.load64(frame, native.fieldOffset<frames.Frame>("bodyOwner")) ~= record
+        or native.load64(frame, native.fieldOffset<frames.Frame>("code")) ~= code
+        or native.load64(frame, native.fieldOffset<frames.Frame>("instructionCount")) ~= count
+        or native.load64(
+            frame,
+            native.fieldOffset<frames.Frame>("valueCount")
+        ) ~= native.load64(fn, native.fieldOffset<catalog.Function>("valueCount"))
+        or native.load64(
+            frame,
+            native.fieldOffset<frames.Frame>("values")
+        ) ~= native.address(
+            frame
+        ) + native.load64(native.pointer(plan), native.fieldOffset<frames.WindowPlan>("values"))
+    then
+        return 0ULL
+    end
+    local address = native.address(pc)
+    if address < code or ((address - code) & 15ULL) ~= 0ULL or (address - code) // 16ULL >= count then
+        return 0ULL
+    end
+
+    return record
+end
+
+export function constant(ctx: voidptr, frame: voidptr, pc: voidptr, index: uint64): uint64
+    local found = current(ctx, frame, pc)
+    if found == 0ULL then
+        return 0ULL
+    end
+    local fn = native.pointer(found)
+    if index >= native.load64(fn, native.fieldOffset<catalog.Function>("constantCount")) then
+        return 0ULL
+    end
+    local c = native.loadPointer(ctx, context.CATALOG)
+    local data = native.loadPointer(c, native.fieldOffset<catalog.Catalog>("data"))
+    local offset = native.load64(fn, native.fieldOffset<catalog.Function>("constants"))
+
+    return native.load64(data, native.index(offset + index * 8ULL))
+end
+
+export function closure(ctx: voidptr, frame: voidptr, pc: voidptr, target: uint64): uint64
+    local parent = current(ctx, frame, pc)
+    if parent == 0ULL then
+        return 0ULL
+    end
+    local c = native.loadPointer(ctx, context.CATALOG)
+    if target >= native.load64(c, native.fieldOffset<catalog.Catalog>("count")) then
+        return 0ULL
+    end
+    local fn = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("records")),
+        native.index(target * native.sizeOf<catalog.Function>())
+    )
+    if native.load64(fn, native.fieldOffset<catalog.Function>("kind")) ~= catalog.FUNCTION
+        or native.load64(
+            fn,
+            native.fieldOffset<catalog.Function>("parentPlusOne")
+        ) ~= native.load64(frame, native.fieldOffset<frames.Frame>("functionId")) + 1ULL
+    then
+        return 0ULL
+    end
+
+    return instances.create(
+        native.loadPointer(ctx, context.REGISTRY),
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("targets")),
+        target
+    )
+end
+
+-- The callee is the actual registry handle loaded from a live slot. Hint alone
+-- cannot select a body. Canonical byte fields must also match this PC's retained
+-- checked callsite, its target signature and each canonical scalar argument.
+export function prepare(
+    ctx: voidptr,
+    frame: voidptr,
+    pc: voidptr,
+    callee: uint64,
+    base: uint64,
+    nargs: uint64,
+    wanted: uint64,
+    hint: uint64
+): uint64
+    local found = current(ctx, frame, pc)
+    if found == 0ULL or nargs > 63ULL or wanted ~= 1ULL then
+        return 0ULL
+    end
+    local fn = native.pointer(found)
+    local c = native.loadPointer(ctx, context.CATALOG)
+    local count = native.load64(c, native.fieldOffset<catalog.Catalog>("count"))
+    local nv = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    if hint >= count or base >= nv - 1ULL or nargs > nv - base - 1ULL then
+        return 0ULL
+    end
+    local index = (native.address(pc) - native.load64(frame, native.fieldOffset<frames.Frame>("code"))) // 16ULL
+    local first = native.load64(fn, native.fieldOffset<catalog.Function>("firstCall"))
+    local calls = native.load64(fn, native.fieldOffset<catalog.Function>("callCount"))
+    local records = native.loadPointer(c, native.fieldOffset<catalog.Catalog>("contracts"))
+    local at: uint64 = 0ULL
+    local contract: uint64 = 0ULL
+    while at < calls do
+        local candidate = native.offset(records, native.index((first + at) * native.sizeOf<catalog.Callsite>()))
+        if native.load64(candidate, native.fieldOffset<catalog.Callsite>("pc")) == index then
+            contract = native.address(candidate)
+        end
+        at = at + 1ULL
+    end
+    if contract == 0ULL then
+        return 0ULL
+    end
+    local call = native.pointer(contract)
+    if native.load64(call, native.fieldOffset<catalog.Callsite>("target")) ~= hint
+        or native.load64(call, native.fieldOffset<catalog.Callsite>("argumentBase")) ~= base
+        or native.load64(call, native.fieldOffset<catalog.Callsite>("argumentCount")) ~= nargs
+        or native.load64(call, native.fieldOffset<catalog.Callsite>("wanted")) ~= wanted
+        or native.load64(call, native.fieldOffset<catalog.Callsite>("resultSlot")) ~= base + 1ULL
+        or native.load64(call, native.fieldOffset<catalog.Callsite>("resumePC")) ~= index + 1ULL
+    then
+        return 0ULL
+    end
+    local targets = native.loadPointer(c, native.fieldOffset<catalog.Catalog>("targets"))
+    local resolved = instances.resolve(native.loadPointer(ctx, context.REGISTRY), targets, callee)
+    if resolved == 0ULL or resolved - 1ULL ~= hint then
+        return 0ULL
+    end
+    local target = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("records")),
+        native.index(hint * native.sizeOf<catalog.Function>())
+    )
+    local signatureId = native.load64(call, native.fieldOffset<catalog.Callsite>("signature"))
+    if native.load64(target, native.fieldOffset<catalog.Function>("kind")) ~= catalog.FUNCTION
+        or native.load64(target, native.fieldOffset<catalog.Function>("signature")) ~= signatureId
+    then
+        return 0ULL
+    end
+    local signature = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("signatures")),
+        native.index(signatureId * native.sizeOf<catalog.Signature>())
+    )
+    if native.load64(signature, native.fieldOffset<catalog.Signature>("parameterCount")) ~= nargs then
+        return 0ULL
+    end
+    local data = native.loadPointer(c, native.fieldOffset<catalog.Catalog>("data"))
+    local kinds = native.load64(signature, native.fieldOffset<catalog.Signature>("parameters"))
+    local window = native.loadPointer(frame, native.fieldOffset<frames.Frame>("values"))
+    at = 0ULL
+    while at < nargs do
+        local kind = native.load64(data, native.index(kinds + at * 8ULL))
+        if catalog.scalar(kind, native.load64(window, native.index((base + 1ULL + at) * 8ULL))) == 0ULL then
+            return 0ULL
+        end
+        at = at + 1ULL
+    end
+    local info = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("infos")),
+        native.index(hint * native.sizeOf<frames.FunctionInfo>())
+    )
+    local plan = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("plans")),
+        native.index(hint * native.sizeOf<frames.WindowPlan>())
+    )
+
+    return frames.prepareFixed(
+        native.loadPointer(ctx, context.STATE),
+        frame,
+        info,
+        callee,
+        base,
+        nargs,
+        base + 1ULL,
+        plan
+    )
+end
+
+export function result(ctx: voidptr, frame: voidptr, pc: voidptr, value: uint64): uint64
+    local found = current(ctx, frame, pc)
+    if found == 0ULL then
+        return 0ULL
+    end
+    local c = native.loadPointer(ctx, context.CATALOG)
+    local id = native.load64(native.pointer(found), native.fieldOffset<catalog.Function>("signature"))
+    local signature = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("signatures")),
+        native.index(id * native.sizeOf<catalog.Signature>())
+    )
+
+    return catalog.scalar(native.load64(signature, native.fieldOffset<catalog.Signature>("resultKind")), value)
+end
+
+export function root(ctx: voidptr, frame: voidptr): uint64
+    if native.address(frame) ~= native.load64(ctx, context.ORIGINAL_ROOT) then
+        return 0ULL
+    end
+    return 1ULL
+end
+
+export function finish(ctx: voidptr, frame: voidptr, value: uint64): uint64
+    if root(ctx, frame) == 0ULL then
+        return 0ULL
+    end
+    return frames.finishRoot(
+        native.loadPointer(ctx, context.STATE),
+        native.loadPointer(ctx, context.ROOT_CONTROL),
+        frame,
+        native.load64(ctx, context.ROOT_SERIAL),
+        value
+    )
+end
+
+export function branch(ctx: voidptr, frame: voidptr, pc: voidptr, displacement: int64): uint64
+    if current(ctx, frame, pc) == 0ULL then
+        return 0ULL
+    end
+    local code = native.load64(frame, native.fieldOffset<frames.Frame>("code"))
+    local count = native.load64(frame, native.fieldOffset<frames.Frame>("instructionCount"))
+    local index = (native.address(pc) - code) // 16ULL
+    local target: uint64 = 0ULL
+    if displacement >= 0 then
+        local distance = native.word(displacement)
+        if distance >= count - index - 1ULL then
+            return 0ULL
+        end
+        target = index + 1ULL + distance
+    else
+        -- Byte encoding bounds displacement to signed32; -(d+1) is safe even
+        -- at its minimum. This formulation does not wrap an unsigned address.
+        local distance = native.word(0 - (displacement + 1))
+        if distance > index then
+            return 0ULL
+        end
+        target = index - distance
+    end
+
+    return code + target * 16ULL
+end
+
+-- Record the source position before a transition can retire its Frame. Failure
+-- handling after that call uses only retained Context and never the old frame.
+export function checkpoint(ctx: voidptr, frame: voidptr, pc: voidptr): nil
+    if native.load64(ctx, context.STATUS) == 0ULL then
+        native.store64(ctx, context.ERROR_OWNER, native.load64(frame, native.fieldOffset<frames.Frame>("functionId")))
+        native.store64(
+            ctx,
+            context.ERROR_PC,
+            (native.address(pc) - native.load64(frame, native.fieldOffset<frames.Frame>("code"))) // 16ULL
+        )
+    end
+end
+
+export function failure(ctx: voidptr, status: uint64): nil
+    if native.load64(ctx, context.STATUS) == 0ULL then
+        native.store64(ctx, context.STATUS, status)
+    end
+end
+
+export function resume(ctx: voidptr, frame: voidptr, pc: voidptr): uint64
+    return (native.address(pc) - native.load64(frame, native.fieldOffset<frames.Frame>("code"))) // 16ULL + 1ULL
+end

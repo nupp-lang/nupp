@@ -1,0 +1,283 @@
+module nupp.compiler.vm.coregraphexecutable
+
+local contracts = require("nupp.compiler.vm.coregraphcontracts")
+local semantic = require("nupp.compiler.vm.coregraphverify")
+local copies = require("nupp.compiler.vm.graphcopies")
+local bytecode = require("nupp.compiler.vm.corebytecode")
+local opcodes = require("nupp.compiler.vm.opcodes")
+local executable = {}
+local issued = setmetatable({}, {__mode = "k"})
+
+local function need(ok: any, message: string): any
+    assert(ok, "core executable: " .. message)
+    return ok
+end
+
+local function copy(value: any): any
+    if type(value) ~= "table" then
+        return value
+    end
+    local output = {}
+    for key, item in pairs(value) do
+        output[key] = copy(item)
+    end
+
+    return output
+end
+
+local function same(value: any, expected: any): boolean
+    if type(value) ~= type(expected) then
+        return false
+    elseif type(value) ~= "table" then
+        return value == expected
+    elseif getmetatable(value) ~= nil then
+        return false
+    end
+    for key, item in pairs(expected) do
+        if not same(value[key], item) then
+            return false
+        end
+    end
+    for key in pairs(value) do
+        if expected[key] == nil then
+            return false
+        end
+    end
+
+    return true
+end
+
+local function derive(g: any, catalog: any): any
+    local maximumArguments: integer = 0
+    for _, block in ipairs(g.blocks) do
+        if block.term.kind == "invoke" then
+            need(#block.term.args <= 63, "fixed CallK argument capacity")
+            maximumArguments = math.max(maximumArguments, #block.term.args) as integer
+        elseif block.term.kind == "return" then
+            need(block.term.value ~= nil, "absent return is not executable")
+        end
+    end
+    need(g.nparams <= 63, "fixed parameter capacity")
+    local valueBase = (g.nparams as integer) + 2
+    local scratch = valueBase + (g.counts.v as integer)
+    local callBase = scratch + 1
+    local highest = callBase + math.max(maximumArguments, 1)
+    need(highest < 250, "physical slots including call/copy scratch exceed capacity")
+    local instructions, positions, starts, patches, calls = {}, {}, {}, {}, {}
+    local closureCount: integer = 0
+
+    local function physical(value: integer): integer
+        need(g.types[value] == "v", "non-tagged executable value")
+        return value <= g.nparams and value or valueBase + (g.slots[value] as integer)
+    end
+
+    local function emit(instruction: any, position: integer): integer
+        opcodes.check(instruction)
+        instructions[#instructions + 1] = instruction
+        positions[#instructions] = position
+        need(#instructions <= 1048576, "instruction budget exceeded")
+
+        return #instructions
+    end
+
+    local function jump(target: integer, position: integer): nil
+        patches[#patches + 1] = {at = emit({"Jmp", 0}, position), operand = 2, target = target}
+    end
+
+    local function edgeCopies(edge: any, position: integer, result: boolean): nil
+        local params = g.blocks[edge.target].params
+        local destinations, sources = {}, {}
+        local offset: integer = result and 1 or 0
+        if result then
+            destinations[1], sources[1] = physical(params[1]), callBase + 1
+        end
+        for index, source in ipairs(edge.args) do
+            destinations[index + offset] = physical(params[index + offset])
+            sources[index + offset] = physical(source)
+        end
+        need(#destinations == #params, "continuation parameter count differs")
+        for _, move in ipairs(copies.schedule(destinations, sources, scratch)) do
+            emit({"Move", move[1], move[2]}, position)
+        end
+        jump(edge.target, position)
+    end
+
+    for _, block in ipairs(g.blocks) do
+        starts[block.id] = #instructions + 1
+        for at, op in ipairs(block.op) do
+            local args, dst, position = block.args[at], block.dst[at], block.pos[at]
+            local _ = switch op do
+                case "K" -> do
+                    emit({"K", physical(dst), args[1]}, position)
+                    yield nil
+                end
+                case "Nil" -> do
+                    emit({"Nil", physical(dst)}, position)
+                    yield nil
+                end
+                case "Move" -> do
+                    emit({"Move", physical(dst), physical(args[1])}, position)
+                    yield nil
+                end
+                case "Closure" -> do
+                    need(#args == 1, "zero-capture executable closure required")
+                    emit({"NewClosure", physical(dst), args[1], scratch, 0}, position)
+                    closureCount += 1
+                    yield nil
+                end
+                else -> error("core executable: unsupported graph operation " .. op, 0)
+            end
+        end
+        local term, position = block.term, block.term.pos or 0
+        local _ = switch term.kind do
+            case "return" -> do
+                emit({"Ret", physical(term.value)}, position)
+                yield nil
+            end
+            case "jump" -> do
+                edgeCopies(term.edges[1], position, false)
+                yield nil
+            end
+            case "branch" -> do
+                local at = emit({"JmpIf", physical(term.value), 0}, position)
+                edgeCopies(term.edges[2], position, false)
+                instructions[at][3] = #instructions - at
+                edgeCopies(term.edges[1], position, false)
+                yield nil
+            end
+            case "invoke" -> do
+                local contract = catalog.contracts[term.contract + 1]
+                need(contract.owner == g.programOwner and contract.block == block.id, "callsite owner differs")
+                -- All source values were evaluated by the common graph frontend.
+                -- The entire staging window is disjoint from every SSA location.
+                emit({"Move", callBase, physical(term.callee)}, position)
+                for index, argument in ipairs(term.args) do
+                    emit({"Move", callBase + index, physical(argument)}, position)
+                end
+                local at = emit({"CallK", contract.target, callBase, callBase, #term.args, 1}, position)
+                calls[
+                    #calls + 1
+                ] = {
+                    pc = at - 1,
+                    resumePC = at,
+                    contract = term.contract,
+                    target = contract.target,
+                    signature = contract.signature,
+                    argumentBase = callBase,
+                    argumentCount = #term.args,
+                    resultSlot = callBase + 1,
+                    wanted = 1,
+                    discarded = term.result == nil
+                }
+                edgeCopies(term.edges[1], position, term.result ~= nil)
+                yield nil
+            end
+            else -> error("core executable: unsupported terminator", 0)
+        end
+    end
+    for _, patch in ipairs(patches) do
+        instructions[patch.at][patch.operand] = need(starts[patch.target], "missing executable block") - patch.at - 1
+    end
+    local encoded = {}
+    for index, instruction in ipairs(instructions) do
+        encoded[index] = bytecode.encode(instruction)
+    end
+
+    local blockPCs = {}
+    for index, start in ipairs(starts) do
+        blockPCs[index] = start - 1
+    end
+
+    return {
+        owner = g.programOwner,
+        nparams = g.nparams,
+        valueCount = highest + 1,
+        copyScratch = scratch,
+        callBase = callBase,
+        maximumArguments = maximumArguments,
+        instructionCount = #instructions,
+        code = table.concat(encoded),
+        instructions = instructions,
+        positions = positions,
+        blockPCs = blockPCs,
+        constants = copy(g.constants),
+        calls = calls,
+        closureCount = closureCount
+    }
+end
+
+local function deriveCatalog(normalized: any): any
+    semantic.semantic(normalized)
+    local functions, total = {}, 0
+    for index, g in ipairs(normalized.graphs) do
+        functions[index] = derive(g, normalized)
+        total += functions[index].instructionCount
+        need(total <= 1048576, "complete executable instruction budget exceeded")
+    end
+    local bounds, visiting = {}, {}
+
+    local function bound(index: integer): any
+        if bounds[index] then
+            return bounds[index]
+        end
+        need(not visiting[index], "recursive executable call graph")
+        visiting[index] = true
+        local fn = functions[index]
+        local instances, depth = fn.closureCount, 1
+        for _, call in ipairs(fn.calls) do
+            local child = bound((call.target as integer) + 1)
+            instances += child.instances
+            depth = math.max(depth, child.depth + 1)
+            need(instances <= 1048576, "entry instance budget exceeded")
+        end
+        bounds[index] = {instances = instances, depth = depth}
+        visiting[index] = nil
+
+        return bounds[index]
+    end
+
+    for index = 1, #functions do
+        bound(index)
+    end
+    local root = bounds[normalized.entry + 1]
+
+    return {
+        version = 1,
+        profile = "boolean-nil-acyclic-one-result",
+        entry = normalized.entry,
+        semantic = normalized,
+        functions = functions,
+        instructionCount = total,
+        instanceCapacity = math.max(root.instances, 1),
+        instanceCreations = root.instances,
+        frameDepth = root.depth
+    }
+end
+
+-- The retained checker objects are immutable borrows within this build process.
+-- This issuer is not a native loader or production frame/effect authority.
+function executable.fromChecked(compiled: any): any
+    -- normalize admits one entry initializer only; imported module execution
+    -- and additional initializers remain refused before executable issuance.
+    local result = deriveCatalog(contracts.normalize(compiled))
+    issued[result] = {compiled = compiled, snapshot = copy(result)}
+
+    return result
+end
+
+function executable.validate(result: any): nil
+    local state = need(type(result) == "table" and rawget(issued, result), "unissued executable catalog")
+    need(same(result, state.snapshot), "issued executable metadata changed")
+    need(same(contracts.normalize(state.compiled), state.snapshot.semantic), "checked catalog changed")
+end
+
+function executable.checkedOwner(result: any, id: integer): any
+    executable.validate(result)
+    local state = issued[result]
+    local owner = need(state.compiled.catalog.owners[id + 1], "unknown checked owner")
+    need(owner.id == id, "checked owner identity differs")
+
+    return owner
+end
+
+export = executable

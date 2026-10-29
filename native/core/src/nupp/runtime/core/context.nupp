@@ -12,3 +12,14 @@ export const CANCELLED_STATUS: uint64 = 3ULL
 -- The entry owns this mapped extent; dispatch remains immutable while active.
 export const SIZE: int64 = 128
 export const DISPATCH_TABLE: int64 = 40
+
+-- These fields belong to the closed catalog entry. Diagnostic entries leave
+-- them unused; they do not infer final-frame authority from their raw contents.
+export const STATE: int64 = 48
+export const CATALOG: int64 = 56
+export const REGISTRY: int64 = 64
+export const ROOT_CONTROL: int64 = 72
+export const ORIGINAL_ROOT: int64 = 80
+export const ROOT_SERIAL: int64 = 88
+export const WORLD: int64 = 96
+export const ERROR_OWNER: int64 = 104

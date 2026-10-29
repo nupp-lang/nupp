@@ -1,0 +1,15 @@
+module nupp.core.catalognested
+
+local function outer(value: boolean): boolean
+    local function middle(input: boolean): boolean
+        local function inner(last: boolean): boolean
+            return last
+        end
+
+        return inner(input)
+    end
+
+    return middle(value)
+end
+
+export = outer(true)
