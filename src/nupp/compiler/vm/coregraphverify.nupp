@@ -338,8 +338,10 @@ local function reference(id: any, values: any): any
     return need(values[id + 1], "semantic reference outside table")
 end
 
-function verify.semantic(p: any): nil
-    tree(p, {}, 0, {items = 0, bytes = 0})
+-- Catalog relationships only. This does not prove usable SSA, scalar
+-- provenance, checked source identity, or permission to execute. Input must
+-- come from the bounded decoder or the full semantic tree-budget preflight.
+function verify.catalog(p: any): any
     fields(p, "schema entry modules catalog signatures graphs contracts")
     same(p.schema, schema.describe())
     local count = dense(p.catalog, 256)
@@ -362,9 +364,12 @@ function verify.semantic(p: any): nil
             need(kind == "boolean" or kind == "nil", "unsupported scalar parameter")
         end
     end
-    local signatures, arities, calls, used, sites, admitted = {}, {}, {}, {}, {}, {}
+    local signatures, arities, calls, used, sites, admitted, terms = {}, {}, {}, {}, {}, {}, {}
     for _, operation in ipairs(p.schema.operations) do
         admitted[operation.name] = operation
+    end
+    for _, term in ipairs(p.schema.terms) do
+        terms[term.name] = term
     end
     for index, owner in ipairs(p.catalog) do
         fields(owner, "id kind parent signature graph effect")
@@ -398,14 +403,16 @@ function verify.semantic(p: any): nil
         for bi, block in ipairs(g.blocks) do
             arities[index][bi] = 4294967295
             for at, op in ipairs(block.op) do
-                need(admitted[op], "unsupported semantic operation " .. op)
+                local operation = need(admitted[op], "unsupported semantic operation " .. op)
                 if op == "Closure" then
                     need(#block.args[at] == 1, "captures are unsupported")
                     local target = reference(block.args[at][1], p.catalog)
                     need(target.kind == "function" and target.parent == owner.id, "closure lexical target differs")
                 end
+                need(#block.args[at] == #operation.args, "operation operand count differs")
             end
             local term = block.term
+            need(#term.edges == terms[term.kind].edges, "terminator edge count differs")
             if term.kind == "invoke" then
                 local contract = reference(term.contract, p.contracts)
                 need(not used[term.contract], "reused invoke contract")
@@ -417,6 +424,7 @@ function verify.semantic(p: any): nil
                     "contract target/signature differs"
                 )
                 arities[index][bi] = #reference(contract.signature, p.signatures).params
+                need(#term.args == arities[index][bi], "invoke operand count differs")
                 calls[index][#calls[index] + 1] = target.id + 1
             end
         end
@@ -432,16 +440,8 @@ function verify.semantic(p: any): nil
         sites[contract.callsite] = true
         need(contract.effect == 1, "invoke effect must remain conservative")
     end
-    -- Source evidence is deliberately absent. The shared verifier only checks
-    -- SSA structure with independently validated scalar arities for each block.
-    for index, g in ipairs(p.graphs) do
-        graph.verifyGuestStructure(g, arities[index])
-    end
     verify.topological(p.catalog, calls, nil)
     for index, g in ipairs(p.graphs) do
-        local owner = p.catalog[index]
-        local signature = p.signatures[owner.signature + 1]
-        need(verify.resultKind(g, signature, p) == signature.result, "semantic result differs from signature")
         local effect = 0
         for _, block in ipairs(g.blocks) do
             for _, op in ipairs(block.op) do
@@ -451,7 +451,24 @@ function verify.semantic(p: any): nil
                 effect = 1
             end
         end
-        need(owner.effect == effect, "owner effect differs from graph")
+        need(p.catalog[index].effect == effect, "owner effect differs from graph")
+    end
+
+    return {arities = arities, owners = count, contracts = #p.contracts}
+end
+
+function verify.semantic(p: any): nil
+    tree(p, {}, 0, {items = 0, bytes = 0})
+    local catalog = verify.catalog(p)
+    -- Source evidence is deliberately absent. The shared verifier only checks
+    -- SSA structure with independently validated scalar arities for each block.
+    for index, g in ipairs(p.graphs) do
+        graph.verifyGuestStructure(g, catalog.arities[index])
+    end
+    for index, g in ipairs(p.graphs) do
+        local owner = p.catalog[index]
+        local signature = p.signatures[owner.signature + 1]
+        need(verify.resultKind(g, signature, p) == signature.result, "semantic result differs from signature")
     end
 end
 

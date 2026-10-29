@@ -599,6 +599,19 @@ function codec.validateShape(bytes: string): any
     return shape.rows(tables, wire, entry)
 end
 
+-- Bounded catalog diagnostics only. No graph, usable SSA, scalar result or
+-- execution authority is returned by this admission boundary.
+function codec.validateCatalog(bytes: string): any
+    need(type(bytes) == "string", "encoded bytes required")
+    local wire = schema.wire()
+    local tables, entry = readSections(bytes, wire)
+    shape.rows(tables, wire, entry)
+    local p = inflate(tables, entry, wire)
+    local catalog = semantic.catalog(p)
+
+    return {owners = catalog.owners, signatures = #p.signatures, contracts = catalog.contracts, entry = entry}
+end
+
 function codec.decode(bytes: string): any
     need(type(bytes) == "string", "encoded bytes required")
     local wire = schema.wire()
