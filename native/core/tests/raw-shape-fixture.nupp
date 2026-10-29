@@ -1,0 +1,34 @@
+module nupp.core.rawshapefixture
+
+local source = require("nupp.core.rawheaderfixture")
+local codec = require("nupp.compiler.vm.coregraphcodec")
+local schema = require("nupp.compiler.vm.coregraphschema")
+local json = require("nupp.codec.json")
+local fixture = {}
+
+function fixture.data(): string
+    return source.data()
+end
+
+function fixture.validateMany(path: string): string
+    local list = assert(io.open(path, "rb"))
+    local inputs = json.decode(list:read("*a"))
+    list:close()
+    local results = {}
+    for _, input in ipairs(inputs) do
+        local file = assert(io.open(input.path, "rb"))
+        local bytes = file:read("*a")
+        file:close()
+        local physical, metrics = pcall(codec.validateShape, bytes)
+        local semantic = pcall(codec.decode, bytes)
+        results[input.name] = {physical = physical, semantic = semantic, metrics = physical and metrics or nil}
+    end
+
+    return json.encode(results)
+end
+
+function fixture.wire(): string
+    return json.encode(schema.wire())
+end
+
+export = fixture

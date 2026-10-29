@@ -167,6 +167,52 @@ local wireRecords: {
     {"bytes", 1, ""}
 }
 
+-- Physical ownership and references are independent of SSA/type semantics.
+-- Root sections own their rows; spans/singletons own non-interned child rows;
+-- string references share interned rows and charge decoded string expansion.
+local wireShapes: {
+    any
+} = {
+    {"schema", 1, ""},
+    {
+        "catalog",
+        256,
+        "id:ref:catalog kind:enum:ownerKinds parent:optionalRef:catalog signature:ref:signatures graph:ref:graphs effect:enum:effects"
+    },
+    {
+        "signatures",
+        256,
+        "id:ref:signatures kind:enum:signatureKinds result:enum:scalarKinds paramsFirst:span:words:paramsCount:239"
+    },
+    {
+        "graphs",
+        256,
+        "owner:ref:catalog valuesFirst:span:values:valuesCount:65536 constantsFirst:span:constants:constantsCount:65536 blocksFirst:span:blocks:blocksCount:4096 positionsFirst:span:positions:positionsCount:1048576 name:string module:string path:string source:optionalOwned:sourceBindings"
+    },
+    {
+        "blocks",
+        nil,
+        "paramsFirst:span:words:paramsCount:65536 opsFirst:span:operations:opsCount:1048576 term:owned:terms"
+    },
+    {
+        "terms",
+        nil,
+        "kind:enum:terms contract:optionalRef:contracts argsFirst:span:words:argsCount:239 edgesFirst:span:edges:edgesCount:2"
+    },
+    {
+        "contracts",
+        1048576,
+        "id:ref:contracts owner:ref:catalog target:ref:catalog signature:ref:signatures effect:enum:effects"
+    },
+    {"positions", nil, "source:optionalOwned:positionSources"},
+    {"sourceBindings", nil, "name:string module:string path:string"},
+    {"positionSources", nil, "moduleName:string path:string"},
+    {"modules", 1, "name:string path:string chunk:ref:catalog"},
+    {"constants", nil, "kind:enum:constantKinds"},
+    {"operations", nil, "opcode:enum:operations argsFirst:span:words:argsCount:1048576"},
+    {"edges", nil, "argsFirst:span:words:argsCount:65536"}
+}
+
 function schema.wire(): any
     local result: any = {
         magic = "NUPPCGRF",
@@ -208,6 +254,47 @@ function schema.wire(): any
         local item = descriptor(row[1], row[2], row[3])
         item.id = index - 1
         result.sections[index] = item
+    end
+
+    local definition = schema.describe()
+    result.absent = definition.absent
+    local byName = {}
+    result.shape = {
+        stringItemLimit = 1048576,
+        roles = {"word", "zero", "bounded64", "enum", "ref", "optionalRef", "owned", "optionalOwned", "span", "string"}
+    }
+    for _, section in ipairs(result.sections) do
+        byName[section.name] = section
+        for _, field in ipairs(section.fields) do
+            field.role = {kind = field.kind == "u64" and "bounded64" or field.kind == "zero" and "zero" or "word"}
+        end
+    end
+    for _, rule in ipairs(wireShapes) do
+        local section = assert(byName[rule[1]])
+        section.rootLimit = rule[2]
+        local fields = {}
+        for _, field in ipairs(section.fields) do
+            fields[field.name] = field
+        end
+        for declaration in rule[3]:gmatch("%S+") do
+            local parts = {}
+            for part in declaration:gmatch("[^:]+") do
+                parts[#parts + 1] = part
+            end
+            local field = assert(fields[parts[1]], "unknown wire shape field")
+            local role: any = {kind = parts[2]}
+            if role.kind == "enum" then
+                role.limit = #assert(result[parts[3]] or definition[parts[3]], "unknown wire enum")
+            elseif role.kind ~= "string" then
+                role.target = assert(byName[parts[3]], "unknown wire shape target").id
+            end
+            if role.kind == "span" then
+                role.count = assert(fields[parts[4]], "unknown wire span count").name
+                role.countOffset = fields[parts[4]].offset
+                role.limit = assert(tonumber(parts[5]))
+            end
+            field.role = role
+        end
     end
 
     return result

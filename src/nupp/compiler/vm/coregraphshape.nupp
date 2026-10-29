@@ -1,0 +1,193 @@
+module nupp.compiler.vm.coregraphshape
+
+local shape = {}
+local NONE: integer = 4294967295
+
+local function need(ok: any, message: string): any
+    assert(ok, "core graph shape: " .. message)
+    return ok
+end
+
+local function word(value: any): integer
+    need(type(value) == "number" and value >= 0 and value <= NONE and value % 1 == 0, "invalid physical word")
+    return value as integer
+end
+
+-- Input rows come from the fixed-record reader or writer. This validates
+-- physical ownership only; it cannot authenticate source or executable graphs.
+function shape.rows(tables: any, wire: any, entry: integer): any
+    local used, counts, records, expansion, stringExpansion, rawExpansion = {}, {}, 0, 0, 0, 0
+    for _, section in ipairs(wire.sections) do
+        local rows = tables[section.name]
+        need(type(rows) == (section.name == "bytes" and "string" or "table"), "missing physical section")
+        local count = #rows
+        used[section.id], counts[section.id] = {}, count
+        if section.name == "bytes" then
+            need(count <= wire.stringLimit, "string byte limit exceeded")
+        else
+            records += count
+            rawExpansion += count * (1 + 2 * #section.fields)
+            need(records <= wire.recordsLimit and rawExpansion <= wire.expandedLimit, "record expansion limit exceeded")
+            local keys = 0
+            for index in pairs(rows) do
+                need(
+                    type(index) == "number" and index % 1 == 0 and index >= 1 and index <= count,
+                    "sparse physical section"
+                )
+                keys += 1
+            end
+            need(keys == count, "sparse physical section")
+            for _, row in ipairs(rows) do
+                need(type(row) == "table", "invalid physical row")
+                for _, field in ipairs(section.fields) do
+                    local value = row[field.name]
+                    if field.kind == "zero" then
+                        need(value == nil or value == 0, "reserved field is nonzero")
+                    else
+                        word(value)
+                    end
+                end
+            end
+        end
+    end
+
+    local function charge(amount: integer): nil
+        need(amount <= wire.expandedLimit - expansion, "decoded expansion limit exceeded")
+        expansion += amount
+    end
+
+    local function claim(target: integer, first: integer, count: integer, maximum: integer): nil
+        need(
+            first <= counts[target] and count <= counts[target] - first and count <= maximum,
+            "invalid owned section span"
+        )
+        charge(count)
+        for index = first + 1, first + count do
+            need(not used[target][index], "overlapping owned section span")
+            used[target][index] = true
+        end
+    end
+
+    local byName = {}
+    for _, section in ipairs(wire.sections) do
+        byName[section.name] = section
+        if section.rootLimit ~= nil then
+            claim(section.id, 0, counts[section.id], section.rootLimit)
+        end
+    end
+    need(#tables.schema == 1, "one schema record required")
+    for name, value in pairs(wire.policy) do
+        need(tables.schema[1][name] == value, "unknown schema policy")
+    end
+    need(word(entry) < #tables.catalog, "entry outside catalog")
+
+    local nextByte, order = 0, {}
+    for index, row in ipairs(tables.strings) do
+        need(
+            row.offset == nextByte
+            and row.bytes <= wire.shape.stringItemLimit
+            and row.bytes <= #tables.bytes - nextByte,
+            "invalid string byte partition"
+        )
+        nextByte += row.bytes
+        order[index] = index
+    end
+    need(nextByte == #tables.bytes, "unused string bytes")
+
+    -- Bottom-up mergesort bounds byte work by the lengths of emitted elements
+    -- on each level, including prefix-equal and empty strings. No hash probing.
+    local byteWork, mergeWork = 0, 0
+
+    local function compare(a: integer, b: integer): integer
+        local x, y = tables.strings[a], tables.strings[b]
+        local length = math.min(x.bytes, y.bytes)
+        for offset = 0, length - 1 do
+            byteWork += 1
+            local ax, bx = tables.bytes:byte(x.offset + offset + 1), tables.bytes:byte(y.offset + offset + 1)
+            if ax ~= bx then
+                return ax < bx and -1 or 1
+            end
+        end
+
+        return x.bytes == y.bytes and 0 or x.bytes < y.bytes and -1 or 1
+    end
+
+    local width, levels = 1, 0
+    while width < #order do
+        local nextOrder = {}
+        for first = 1, #order, width * 2 do
+            local left, middle = first, math.min(first + width, #order + 1)
+            local right, last = middle, math.min(first + width * 2, #order + 1)
+            for index = first, last - 1 do
+                mergeWork += 1
+                local takeLeft = right == last
+                if left < middle and right < last then
+                    local compared = compare(order[left], order[right])
+                    need(compared ~= 0, "duplicate interned string")
+                    takeLeft = compared < 0
+                end
+                if takeLeft then
+                    nextOrder[index], left = order[left], left + 1
+                else
+                    nextOrder[index], right = order[right], right + 1
+                end
+            end
+        end
+        order, width, levels = nextOrder, width * 2, levels + 1
+    end
+    need(
+        byteWork <= 2 * (#tables.bytes + #tables.strings) * (levels + 1)
+        and mergeWork <= #tables.strings * (levels + 1),
+        "string work bound exceeded"
+    )
+
+    for _, section in ipairs(wire.sections) do
+        if section.name ~= "bytes" then
+            for _, row in ipairs(tables[section.name]) do
+                for _, field in ipairs(section.fields) do
+                    local role, value = field.role, row[field.name]
+                    if role.kind == "enum" then
+                        need(value < role.limit, "unknown physical enum")
+                    elseif role.kind == "ref" or role.kind == "optionalRef" then
+                        need(
+                            role.kind == "optionalRef" and value == NONE or value < counts[role.target],
+                            "global reference outside table"
+                        )
+                    elseif role.kind == "owned" or role.kind == "optionalOwned" then
+                        if role.kind == "owned" or value ~= NONE then
+                            claim(role.target, value, 1, 1)
+                        end
+                    elseif role.kind == "span" then
+                        claim(role.target, value, row[role.count], role.limit)
+                    elseif role.kind == "string" then
+                        local stringRow = need(tables.strings[value + 1], "string reference outside table")
+                        need(
+                            stringRow.bytes <= wire.stringLimit - stringExpansion,
+                            "decoded string expansion limit exceeded"
+                        )
+                        stringExpansion += stringRow.bytes
+                        used[byName.strings.id][value + 1] = true
+                        charge(1)
+                    end
+                end
+            end
+        end
+    end
+    for _, section in ipairs(wire.sections) do
+        if section.name ~= "bytes" then
+            for index = 1, counts[section.id] do
+                need(used[section.id][index], "unused section record " .. section.name)
+            end
+        end
+    end
+
+    return {
+        records = records,
+        expansion = expansion,
+        stringExpansion = stringExpansion,
+        byteWork = byteWork,
+        mergeWork = mergeWork
+    }
+end
+
+export = shape

@@ -2,6 +2,7 @@ module nupp.compiler.vm.coregraphcodec
 
 local schema = require("nupp.compiler.vm.coregraphschema")
 local semantic = require("nupp.compiler.vm.coregraphverify")
+local shape = require("nupp.compiler.vm.coregraphshape")
 local codec = {}
 local NONE: integer = 4294967295
 
@@ -269,6 +270,7 @@ function codec.encode(p: any): string
     semantic.semantic(p)
     local wire = schema.wire()
     local tables = flatten(p, wire)
+    shape.rows(tables, wire, p.entry)
     local payloads, directory, offset = {}, {}, wire.headerBytes + #wire.sections * wire.directoryBytes
     local budget = {records = 0, expansion = 0}
     for index, section in ipairs(wire.sections) do
@@ -588,10 +590,20 @@ local function inflate(tables: any, entry: integer, wire: any): any
     return p
 end
 
+-- Physical admission only. The returned counts are diagnostics, not a graph
+-- or permission to execute. decode() still applies the full semantic verifier.
+function codec.validateShape(bytes: string): any
+    need(type(bytes) == "string", "encoded bytes required")
+    local wire = schema.wire()
+    local tables, entry = readSections(bytes, wire)
+    return shape.rows(tables, wire, entry)
+end
+
 function codec.decode(bytes: string): any
     need(type(bytes) == "string", "encoded bytes required")
     local wire = schema.wire()
     local tables, entry = readSections(bytes, wire)
+    shape.rows(tables, wire, entry)
     local p = inflate(tables, entry, wire)
     semantic.semantic(p)
 
