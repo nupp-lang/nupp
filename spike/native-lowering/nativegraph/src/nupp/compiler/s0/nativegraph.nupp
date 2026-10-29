@@ -7,6 +7,9 @@ local recipes = require("nupp.compiler.vm.machinerecipes")
 local ir = require("s0.ir")
 local literal = require("s0.literal")
 local sink = {}
+local finalframe = require("nupp.compiler.vm.nativeframecontract")
+local issuedResults: any = setmetatable({}, {__mode = "k"})
+local issuedCodes: any = setmetatable({}, {__mode = "k"})
 local integerOps: {[string]: string} = recipes.integerOps
 local comparisons: {
     [string]: string
@@ -614,9 +617,113 @@ function sink.lower(bound: any, name: string): sink.Result
     return lower(residual.snapshot(bound), name, false, nil, nil)
 end
 
+local function snapshot(value: any): any
+    if type(value) ~= "table" then
+        return value
+    end
+    local result = {}
+    for key, item in next, value do
+        result[key] = snapshot(item)
+    end
+
+    return setmetatable(result, getmetatable(value))
+end
+
+local function unchanged(actual: any, saved: any): boolean
+    if type(actual) ~= "table" or type(saved) ~= "table" then
+        return actual == saved
+    end
+    if getmetatable(actual) ~= getmetatable(saved) then
+        return false
+    end
+    for key, value in next, saved do
+        if not unchanged(rawget(actual, key), value) then
+            return false
+        end
+    end
+    for key in next, actual do
+        if rawget(saved, key) == nil then
+            return false
+        end
+    end
+
+    return true
+end
+
 -- Build-time checked compiler graphs only; no public runtime graph admission.
 function sink.compilerGraph(g: any, name: string, owner: any, resolved: any?, context: any?): sink.Result
-    return lower({graph = g, body = owner, pc = 0, count = 1}, name, true, resolved, context)
+    local authenticated = finalframe.requireOriginal(g, owner)
+    if authenticated then
+        finalframe.requireContext(g, owner, context)
+    end
+    local result = lower({graph = g, body = owner, pc = 0, count = 1}, name, true, resolved, context)
+    if authenticated then
+        local callees = {}
+        for symbol, item in pairs(result.callees) do
+            finalframe.target(g, owner, item.graph, item.owner)
+            callees[symbol] = {graph = item.graph, owner = item.owner}
+        end
+        local machine = snapshot(result.machine)
+        issuedResults[result] = {graph = g, owner = owner, machine = machine, callees = callees}
+    end
+
+    return result
+end
+
+-- This wrapper issues code provenance only after verifying the original graph
+-- and the exact MIR that compilerGraph produced. There is no annotateCode API.
+function sink.selectAuthenticated(result: sink.Result, mode: string): any
+    local held = assert(issuedResults[result], "S0 graph: original authenticated Result required")
+    assert(result.body == held.owner and unchanged(result.machine, held.machine), "S0 graph: Result changed")
+    assert(finalframe.requireOriginal(held.graph, held.owner))
+    graph.verify(held.graph)
+    local allocate = require("s0.allocate")
+    local check = require("s0.allocationcheck")
+    local selector = require("s0.select")
+    assert(mode == "normal" or mode == "spill", "S0 graph: closed allocation mode required")
+    local target = selector.target()
+    if mode == "spill" then
+        target.integerRegisters, target.floatRegisters = {}, {}
+    end
+    local allocation = allocate.run(result.machine, target)
+    assert(check.run(result.machine, target, allocation))
+    local code = selector.run(result.machine, allocation)
+    issuedCodes[code] = {result = result, held = held, code = snapshot(code)}
+
+    return {
+        code = code,
+        spillSlots = allocation.spillSlots,
+        integerRegisters = #target.integerRegisters,
+        floatRegisters = #target.floatRegisters
+    }
+end
+
+-- Identity guard for accidental downgrade into the legacy linker. Mechanical
+-- MIR/word tables remain trusted host data: reconstructing them through the
+-- generic backend is outside this closed producer's provenance contract.
+function sink.refuseLegacyCode(code: any): nil
+    assert(not issuedCodes[code], "S0 graph: issued Code requires authenticated linking")
+end
+
+function sink.verifyCode(code: any): nil
+    local saved = assert(issuedCodes[code], "S0 graph: authenticated Code required")
+    assert(unchanged(code, saved.code), "S0 graph: issued Code changed")
+    local held, result = saved.held, saved.result
+    assert(result.body == held.owner and unchanged(result.machine, held.machine), "S0 graph: retained Result changed")
+    assert(finalframe.requireOriginal(held.graph, held.owner))
+    graph.verify(held.graph)
+end
+
+function sink.verifyCodeTarget(code: any, symbol: string, target: any): nil
+    sink.verifyCode(code)
+    sink.verifyCode(target)
+    local source, destination = issuedCodes[code].held, issuedCodes[target].held
+    local callee = assert(source.callees[symbol], "S0 graph: fixup lacks retained checked callee")
+    assert(
+        callee.owner == destination.owner and callee.graph == destination.graph,
+        "S0 graph: fixup changed its checked target/Result"
+    )
+    finalframe.target(source.graph, source.owner, destination.graph, destination.owner)
 end
 
 export = sink

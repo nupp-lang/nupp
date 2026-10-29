@@ -1,0 +1,336 @@
+module nupp.compiler.vm.nativeframeverify
+
+-- Final-core facts are separate from legacy VM FrameRecover conventions.
+-- The caller is the private source issuer. This verifier never issues roles.
+local verifier = {}
+
+local function need(ok: any, message: string): any
+    assert(ok, "native final frame: " .. message)
+    return ok
+end
+
+local function copy(source: any): any
+    local result = {}
+    for key, value in pairs(source) do
+        result[key] = value
+    end
+
+    return result
+end
+
+local function clone(state: any): any
+    return {
+        values = copy(state.values),
+        active = copy(state.active),
+        refreshed = copy(state.refreshed),
+        pending = copy(state.pending)
+    }
+end
+
+function verifier.verify(g: any, calls: any): nil
+    need(g.native.abi == "handler" and g.nparams == 6, "final probe handler signature")
+    local atoms, inputs, degree, queue = {}, {}, {}, {}
+
+    local function atom(key: string, fields: any): any
+        if not atoms[key] then
+            fields.id = key
+            atoms[key] = fields
+        end
+
+        return atoms[key]
+    end
+
+    local unknown = atom("unknown", {kind = "unknown"})
+
+    local function raw(id: integer): any
+        return atom("raw:" .. id, {kind = "raw"})
+    end
+
+    local function value(state: any, id: integer): any
+        return need(state.values[id], "missing transported value fact")
+    end
+
+    local function alive(state: any, fact: any, comparison: boolean?): nil
+        need(fact ~= unknown, "mixed or missing owner at join")
+        if fact.kind == "pending" and not comparison then
+            need(
+                fact.test == "nonzero" and state.pending[fact] and state.active[fact.owner.state] == fact.owner,
+                "invalidated prepared address/status is not a pointer"
+            )
+        elseif fact.owner and fact.kind ~= "pending" then
+            need(state.active[fact.owner.state] == fact.owner, "invalidated frame/window/code/PC alias")
+        end
+        if fact.kind == "alias" then
+            alive(state, fact.base)
+        end
+    end
+
+    local function ownership(state: any, fact: any): any
+        if fact.owner then
+            return fact.owner
+        end
+        if fact.kind == "alias" then
+            return ownership(state, fact.base)
+        end
+
+        return state.active[fact.id] or state.refreshed[fact.id]
+    end
+
+    local function stateOwner(state: any, address: any): any
+        alive(state, address)
+        need(address.kind == "raw", "State address lacks exact setup identity")
+        return need(state.active[address.id], "State has no successful setup/publish edge")
+    end
+
+    local function frameOwner(state: any, address: any, frame: any): any
+        local owner = stateOwner(state, address)
+        alive(state, frame)
+        need(frame.kind == "frame" and frame.owner == owner, "active Frame owner differs")
+        return owner
+    end
+
+    local function kill(state: any): nil
+        state.active, state.refreshed, state.pending = {}, {}, {}
+    end
+
+    local function access(state: any, kind: string, owner: any): any
+        return atom(kind .. ":" .. owner.id, {kind = kind, owner = owner})
+    end
+
+    local function refine(state: any, condition: any, yes: boolean): nil
+        if condition.kind ~= "comparison" then
+            return
+        end
+        local pending, literal = condition.left, condition.right
+        if pending.kind == "constant" then
+            pending, literal = literal, pending
+        end
+        if literal.kind ~= "constant" or pending.kind ~= "pending" then
+            return
+        end
+        local equal = condition.operator == "=="
+        if not equal and condition.operator ~= "~=" then
+            return
+        end
+        local succeeds = pending.test == "nonzero" and literal.text == "0" and yes ~= equal
+            or pending.test == "one" and literal.text == "1" and yes == equal
+        if succeeds and state.pending[pending] then
+            state.active[pending.owner.state] = pending.owner
+        end
+    end
+
+    local function transfer(block: any, incoming: any): any
+        local state = clone(incoming)
+        for index, op in ipairs(block.op) do
+            local args, dst = block.args[index], block.dst[index]
+            local result: any = dst ~= 0 and raw(dst) or nil
+            local _ = switch op do
+                case "NativeConstant" -> do
+                    result = atom("constant:" .. tostring(args[1]), {kind = "constant", text = tostring(args[1])})
+                    yield nil
+                end
+                case "NativePointer", "NativeAddress", "NativeWordCast" -> do
+                    result = value(state, args[1])
+                    alive(state, result)
+                    yield nil
+                end
+                case "PointerOffset", "IAdd", "ISub" -> do
+                    local first, second = value(state, args[1]), value(state, args[2])
+                    alive(state, first)
+                    alive(state, second)
+                    local owner = ownership(state, first) or ownership(state, second)
+                    if owner then
+                        result = atom("alias:" .. dst .. ":" .. owner.id, {kind = "alias", owner = owner, base = first})
+                    end
+                    yield nil
+                end
+                case "NativeICmp" -> do
+                    local left, right = value(state, args[1]), value(state, args[2])
+                    alive(state, left, true)
+                    alive(state, right, true)
+                    result = atom("compare:" .. dst .. ":" .. left.id .. ":" .. right.id, {
+                        kind = "comparison",
+                        left = left,
+                        right = right,
+                        operator = args[3]
+                    })
+                    yield nil
+                end
+                case "NativeLoad" -> do
+                    local base, offset = value(state, args[1]), value(state, args[2])
+                    alive(state, base)
+                    alive(state, offset)
+                    local owner = ownership(state, base) or ownership(state, offset)
+                    if owner then
+                        -- A loaded word might itself be an address. Conservatively
+                        -- retain its owner even for ordinary scalar contents.
+                        result = atom("loaded:" .. dst .. ":" .. owner.id, {kind = "loaded", owner = owner})
+                    end
+                    yield nil
+                end
+                case "NativeStore" -> do
+                    for operand = 1, 3 do
+                        alive(state, value(state, args[operand]))
+                    end
+                    kill(state)
+                    yield nil
+                end
+                case "NativeLeafCall" -> do
+                    local call = need(calls[block] and calls[block][index], "call lacks checked source origin")
+                    local operands = {}
+                    for operand = 2, #args do
+                        operands[operand - 1] = value(state, args[operand])
+                        alive(state, operands[operand - 1])
+                    end
+                    local role = call.role
+                    if role == "setup" then
+                        need(operands[1].kind == "raw", "setup State identity")
+                        kill(state)
+                        local owner = atom("setup:" .. dst, {kind = "owner", state = operands[1].id})
+                        result = atom("prepared:" .. dst, {kind = "pending", owner = owner, test = "nonzero"})
+                        state.pending[result] = true
+                    elseif role == "publish" then
+                        local prior = frameOwner(state, operands[1], operands[2])
+                        need(
+                            operands[3].kind == "pending"
+                            and operands[3].test == "nonzero"
+                            and operands[3].owner == prior,
+                            "prepared child belongs to another State/epoch"
+                        )
+                        kill(state)
+                        local owner = atom("publish:" .. dst, {kind = "owner", state = prior.state})
+                        result = atom("published:" .. dst, {kind = "pending", owner = owner, test = "one"})
+                        state.pending[result] = true
+                    elseif role == "active" then
+                        result = access(state, "frame", stateOwner(state, operands[1]))
+                    elseif role == "refresh" then
+                        local owner = frameOwner(state, operands[1], operands[2])
+                        need(
+                            operands[3].kind == "context" and operands[3].id == "entry-context",
+                            "context identity differs"
+                        )
+                        state.refreshed[operands[3].id] = owner
+                    elseif role == "values"
+                        or role == "integers"
+                        or role == "floats"
+                        or role == "code"
+                        or role == "pc"
+                    then
+                        result = access(state, role, frameOwner(state, operands[1], operands[2]))
+                    else
+                        -- No silent purity inference from a name, signature or
+                        -- scalar result. Unmodeled calls invalidate all facts.
+                        kill(state)
+                        result = unknown
+                    end
+                    yield nil
+                end
+                else -> do
+                    -- The fixed handler needs only this small address/control
+                    -- vocabulary. Helpers use the ordinary leaf graph path.
+                    error("native final frame: unsupported authority operation " .. op, 0)
+                end
+            end
+            if dst ~= 0 then
+                state.values[dst] = result
+            end
+        end
+        local term = block.term
+        if term.kind == "dispatch" then
+            local args = term.args
+            local frame = value(state, args[6])
+            alive(state, frame)
+            need(frame.kind == "frame", "dispatch lacks current Frame")
+            for index, kind in ipairs({"pc", "values", "integers", "floats"}) do
+                local fact = value(state, args[index])
+                alive(state, fact)
+                need(fact.kind == kind and fact.owner == frame.owner, "dispatch PC/code/windows owner mismatch")
+            end
+            local ctx = value(state, args[5])
+            need(
+                ctx.kind == "context" and ctx.id == "entry-context" and state.refreshed[ctx.id] == frame.owner,
+                "CODE_START was not refreshed for owner"
+            )
+        elseif term.kind == "branch" then
+            alive(state, value(state, term.value))
+        else
+            need(term.kind == "jump" or term.kind == "nativeFail", "unsupported final continuation")
+        end
+
+        return state
+    end
+
+    -- This first transition slice admits acyclic handler CFGs. Runtime service
+    -- loops remain ordinary checked leaves. Cyclic epoch widening is pending.
+    local reachable, pending = {[1] = true}, {1}
+    local cursor: integer = 1
+    while cursor <= #pending do
+        local block = g.blocks[pending[cursor]]
+        cursor = cursor + 1
+        for _, edge in ipairs(block.term.edges) do
+            degree[edge.target] = (degree[edge.target] or 0) + 1
+            if not reachable[edge.target] then
+                reachable[edge.target] = true
+                pending[#pending + 1] = edge.target
+            end
+        end
+    end
+    local initial = {values = {}, active = {}, refreshed = {}, pending = {}}
+    for id = 1, g.nparams do
+        initial.values[id] = raw(id)
+    end
+    initial.values[5] = atom("entry-context", {kind = "context"})
+    inputs[1], queue[1] = initial, 1
+    cursor = 1
+    while cursor <= #queue do
+        local id = queue[cursor]
+        cursor = cursor + 1
+        local block = g.blocks[id]
+        local output = transfer(block, inputs[id])
+        for edgeIndex, edge in ipairs(block.term.edges) do
+            local state = clone(output)
+            if block.term.kind == "branch" then
+                refine(state, value(state, block.term.value), edgeIndex == 1)
+            end
+            state.values = {}
+            for parameter = 1, g.nparams do
+                state.values[parameter] = output.values[parameter]
+            end
+            for index, parameter in ipairs(g.blocks[edge.target].params) do
+                state.values[parameter] = value(output, edge.args[index])
+            end
+            local previous = inputs[edge.target]
+            if not previous then
+                inputs[edge.target] = state
+            else
+                for parameter, fact in pairs(previous.values) do
+                    if state.values[parameter] ~= fact then
+                        previous.values[parameter] = unknown
+                    end
+                end
+                for address, owner in pairs(previous.active) do
+                    if state.active[address] ~= owner then
+                        previous.active[address] = nil
+                    end
+                end
+                for fact in pairs(previous.pending) do
+                    if not state.pending[fact] then
+                        previous.pending[fact] = nil
+                    end
+                end
+                for address, owner in pairs(previous.refreshed) do
+                    if state.refreshed[address] ~= owner then
+                        previous.refreshed[address] = nil
+                    end
+                end
+            end
+            degree[edge.target] = degree[edge.target] - 1
+            if degree[edge.target] == 0 then
+                queue[#queue + 1] = edge.target
+            end
+        end
+    end
+    need(#queue == #pending, "cyclic final-frame continuation is not admitted")
+end
+
+export = verifier

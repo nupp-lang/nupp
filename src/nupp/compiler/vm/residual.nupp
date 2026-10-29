@@ -71,6 +71,7 @@ end
 -- untrusted bytecode or for the catalog association; production needs that
 -- authoritative adapter. There is no second opcode catalog or decoder here.
 function residual.prepare(source: any, opcode: number): any
+    require("nupp.compiler.vm.nativeframecontract").refuse(source, "residual preparation")
     graph.verify(source)
     need(integer(opcode, 0, 255), "invalid opcode tag")
     need(source.native and source.native.abi == "handler", "handler graph required")

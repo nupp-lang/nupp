@@ -1,0 +1,39 @@
+module nupp.runtime.core.frameaccess
+
+const native = require("nupp.runtime.vm.intrinsics")
+const frames = require("nupp.runtime.core.frames")
+const context = require("nupp.runtime.core.context")
+
+-- These reads borrow the current published Frame, not an arbitrary address.
+-- The closed producer binds their checked bodies to its State/epoch proof.
+-- Mapped storage, exclusive State ownership and retained code remain caller
+-- preconditions; raw pointer signatures alone do not establish those facts.
+export function active(state: voidptr): uint64
+    return native.load64(state, native.fieldOffset<frames.State>("active"))
+end
+
+export function values(state: voidptr, frame: voidptr): uint64
+    return native.load64(frame, native.fieldOffset<frames.Frame>("values"))
+end
+
+export function integers(state: voidptr, frame: voidptr): uint64
+    return native.load64(frame, native.fieldOffset<frames.Frame>("integers"))
+end
+
+export function floats(state: voidptr, frame: voidptr): uint64
+    return native.load64(frame, native.fieldOffset<frames.Frame>("floats"))
+end
+
+export function code(state: voidptr, frame: voidptr): uint64
+    return native.load64(frame, native.fieldOffset<frames.Frame>("code"))
+end
+
+export function pc(state: voidptr, frame: voidptr): uint64
+    local base = native.load64(frame, native.fieldOffset<frames.Frame>("code"))
+    local offset = native.load64(frame, native.fieldOffset<frames.Frame>("resumePC"))
+    return base + offset * 16ULL
+end
+
+export function refresh(state: voidptr, frame: voidptr, ctx: voidptr): nil
+    native.store64(ctx, context.CODE_START, native.load64(frame, native.fieldOffset<frames.Frame>("code")))
+end

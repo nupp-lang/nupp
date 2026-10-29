@@ -16,7 +16,7 @@ shim.dispatchOffset, shim.spillOffset = 8384, 8496
 
 -- Input code and initialized program data are trusted, verified build artifacts.
 -- Entry extent checks do not authenticate arbitrary replacement code or data.
-function shim.build(codes: {any}, functions: {[string]: any}?, capacity: integer?): any
+local function build(codes: {any}, functions: {[string]: any}?, capacity: integer?, authenticated: boolean): any
     local scratchBytes = capacity or shim.scratchBytes
     assert(
         scratchBytes >= shim.scratchBytes and scratchBytes <= 1048576 and scratchBytes % 65536 == 0,
@@ -138,7 +138,9 @@ function shim.build(codes: {any}, functions: {[string]: any}?, capacity: integer
     end
     emit(arm.add_imm(64, 31, 31, 176, 0))
     emit(arm.ret(30))
-    local linked = linker.assemble(words, codes, functions or {}, scratchBytes - spillOffset)
+    local linked = authenticated
+        and linker.assembleAuthenticated(words, codes, functions or {}, scratchBytes - spillOffset)
+        or linker.assemble(words, codes, functions or {}, scratchBytes - spillOffset)
 
     return {
         words = linked.words,
@@ -149,6 +151,14 @@ function shim.build(codes: {any}, functions: {[string]: any}?, capacity: integer
         spillOffset = spillOffset,
         entry = 0
     }
+end
+
+function shim.build(codes: {any}, functions: {[string]: any}?, capacity: integer?): any
+    return build(codes, functions, capacity, false)
+end
+
+function shim.buildAuthenticated(codes: {any}, functions: {[string]: any}?, capacity: integer?): any
+    return build(codes, functions, capacity, true)
 end
 
 export = shim

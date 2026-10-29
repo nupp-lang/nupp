@@ -3,6 +3,7 @@ module nupp.compiler.vm.nativegraph
 local graph = require("nupp.compiler.vm.graph")
 local physical = require("nupp.compiler.vm.nativephysical")
 local unit = require("nupp.compiler.vm.nativeunit")
+local finalframe = require("nupp.compiler.vm.nativeframecontract")
 local nativelayout = require("nupp.compiler.vm.nativelayout")
 local programcontract = require("nupp.compiler.vm.programcontract")
 local slotcontract = require("nupp.compiler.vm.slotcontract")
@@ -198,6 +199,7 @@ function nativegraph.initialize(fn: any, options: any): any
         g.nativePhysical = {context = sharedContext or physical.new(options.physicalTarget), values = {}}
     end
     fn.physicalContext = g.nativePhysical and g.nativePhysical.context or nil
+    finalframe.initialize(fn, g)
 
     return g
 end
@@ -316,11 +318,14 @@ function nativegraph.fieldRead(ctx: any, node: any, expected: string?): integer
 end
 
 function nativegraph.emit(ctx: any, node: any, op: string, args: any, kind: string?): integer?
-    return graph.emitNative(ctx.g, ctx.block, op, args, kind, ctx.position(node))
+    local value = graph.emitNative(ctx.g, ctx.block, op, args, kind, ctx.position(node))
+    finalframe.record(ctx, node, op, args)
+    return value
 end
 
 function nativegraph.finish(ctx: any): nil
     unit.finish(ctx.fn)
+    finalframe.finish(ctx)
 end
 
 function nativegraph.resolveCallee(ctx: any, call: any): (boolean, any)

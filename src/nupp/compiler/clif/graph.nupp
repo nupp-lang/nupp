@@ -48,6 +48,7 @@ end
 --- machine addresses occupy fresh ids beyond the graph's values.
 --- @raises string when the graph requires an unsupported machine operation
 function emitter.emit(g: any, options: any): string
+    require("nupp.compiler.vm.nativeframecontract").refuse(g, "frozen CLIF")
     graph.verify(g)
     need(g.nativePhysical == nil, "physical graphs require owned machine emission")
     local native = need(g.native, "native graph required")

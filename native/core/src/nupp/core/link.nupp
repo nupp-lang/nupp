@@ -6,7 +6,7 @@ local link = {}
 
 -- Build-time local Nupp calls only. Typed callers and targets are checked by
 -- the graph sink before selection; this layer resolves code offsets and extent.
-function link.assemble(prefix: {integer}, roots: {any}, functions: {[string]: any}, available: integer): any
+local function assemble(prefix: {integer}, roots: {any}, functions: {[string]: any}, available: integer): any
     local names: {string} = {}
     for name in pairs(functions) do
         names[#names + 1] = name
@@ -99,6 +99,49 @@ function link.assemble(prefix: {integer}, roots: {any}, functions: {[string]: an
     end
 
     return {words = words, offsets = offsets, frames = frames, callBytes = maximum}
+end
+
+-- Legacy mechanical code remains supported. An original issued Code cannot
+-- accidentally enter this route; copied/reselected raw words are unissued host
+-- artifacts and cannot claim the closed final-frame producer's proof.
+function link.assemble(prefix: {integer}, roots: {any}, functions: {[string]: any}, available: integer): any
+    local sink = require("nupp.compiler.s0.nativegraph")
+    for _, code in ipairs(roots) do
+        sink.refuseLegacyCode(code)
+    end
+    for _, code in pairs(functions) do
+        sink.refuseLegacyCode(code)
+    end
+
+    return assemble(prefix, roots, functions, available)
+end
+
+-- Transport-only prefix words remain trusted builder input. All Nupp bodies
+-- and direct call fixups must retain the original compilerGraph Result, owner
+-- and graph; identical names/signatures or replacement word arrays do not bind.
+function link.assembleAuthenticated(
+    prefix: {integer},
+    roots: {any},
+    functions: {[string]: any},
+    available: integer
+): any
+    local sink = require("nupp.compiler.s0.nativegraph")
+
+    local function verify(code: any): nil
+        sink.verifyCode(code)
+        for _, symbol in ipairs(code.fixupName) do
+            sink.verifyCodeTarget(code, symbol, assert(functions[symbol], "core link unresolved function"))
+        end
+    end
+
+    for _, code in ipairs(roots) do
+        verify(code)
+    end
+    for _, code in pairs(functions) do
+        verify(code)
+    end
+
+    return assemble(prefix, roots, functions, available)
 end
 
 export = link

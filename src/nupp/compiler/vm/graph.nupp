@@ -10,6 +10,7 @@ module nupp.compiler.vm.graph
 local graph = {}
 
 local frameverify = require("nupp.compiler.vm.frameverify")
+local finalframe = require("nupp.compiler.vm.nativeframecontract")
 local physical = require("nupp.compiler.vm.nativephysical")
 
 -- One signature per opcode: the result class is the uppercase letter, at the
@@ -1543,7 +1544,8 @@ local function verifyGraph(g: any, invokeArity: any): nil
             error("undefined graph value", 0)
         end
     end
-    if native and g.native.abi ~= "leaf" then
+    local final = finalframe.verify(g)
+    if native and g.native.abi ~= "leaf" and not final then
         frameverify.verify(g)
     end
     local certs = g.certificates
@@ -1596,6 +1598,7 @@ end
 --- values that only fed them. Nothing else is deleted: every instruction
 --- with a result keeps it, so an instruction that may fail still runs.
 function graph.prune(g: any): nil
+    finalframe.refuse(g, "pruning")
     local used = {}
     local blocks = g.blocks
     local nparams = g.nparams
