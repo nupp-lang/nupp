@@ -70,6 +70,28 @@ local memoryIntrinsics = {
     storeFloat = {kind = "float64", width = 8, signed = false, write = true}
 }
 
+-- Classification only, shared with the private service effect inventory.
+-- Unknown primitives may enter guest execution or mutate roots. Knowing a
+-- name here never authenticates a checked declaration or admits a call.
+function nativegraph.intrinsicHazards(name: string): (boolean, boolean)
+    local memory = memoryIntrinsics[name]
+    if memory then
+        return false, memory.write
+    end
+    if intrinsicUnary[name]
+        or intrinsicCalls[name]
+        or name == "sizeOf"
+        or name == "alignmentOf"
+        or name == "fieldOffset"
+        or name == "layout"
+        or name == "offset"
+    then
+        return false, false
+    end
+
+    return true, true
+end
+
 local function memoryContract(specification: any, borrowed: boolean?): any
     return {
         source = borrowed and "borrowed" or "live",

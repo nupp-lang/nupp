@@ -601,6 +601,14 @@ function unit.occurrence(fn: any, node: any): boolean
     return true
 end
 
+-- Return the original checked type only while its occurrence is unchanged.
+function unit.checkedOccurrenceType(fn: any, node: any): any
+    unit.occurrence(fn, node)
+    local checked = owners[fn].occurrences[node].inferredType
+    need(node.inferredType == checked, "checked occurrence type changed")
+    return checked
+end
+
 -- Detached enumeration of the same private membership index, not a source
 -- authority object. Consumers still authenticate each selected occurrence.
 function unit.occurrences(fn: any): any
@@ -879,39 +887,39 @@ function unit.literalRaise(fn: any, call: any): any
     return {definition = held.state.errorDefinition, literal = literal, node = call}
 end
 
-function unit.osDeclaration(fn: any, call: any): any
-    local held = need(owners[fn], "OS caller is outside sealed unit")
+local function externalDeclaration(fn: any, call: any, moduleName: string, file: string, label: string): any
+    local held = need(owners[fn], label .. " caller is outside sealed unit")
     validate(held.state, true)
     unit.occurrence(fn, call)
     need(
         call.kind == "call" and call.obj.kind == "dotIndex" and call.obj.obj.kind == "name",
-        "OS call requires a checked imported member"
+        label .. " call requires a checked imported member"
     )
     local receiver = call.obj.obj.token.definition
     local definition = call.obj.name.definition
-    local path = held.state.projectRoot .. "/src/nupp/runtime/vm/os.d.nupp"
+    local path = held.state.projectRoot .. "/src/nupp/runtime/vm/" .. file
     need(
-        receiver and not receiver.reassigned and receiver.requiredModule == "nupp.runtime.vm.os",
-        "OS receiver identity differs"
+        receiver and not receiver.reassigned and receiver.requiredModule == moduleName,
+        label .. " receiver identity differs"
     )
     need(
         definition and definition.filename == path and held.state.sources[path] ~= nil,
-        "OS declaration is not the frozen source"
+        label .. " declaration is not the frozen source"
     )
     unit.occurrence(fn, call.obj)
     unit.occurrence(fn, call.obj.obj)
     local actual = held.occurrences[call.obj].inferredType
-    need(actual == call.obj.inferredType, "OS checked signature occurrence changed")
+    need(actual == call.obj.inferredType, label .. " checked signature occurrence changed")
     local record = receiver.type
     while record and (record.tag == "const" or record.tag == "literal") do
         record = record.tag == "literal" and record.base or record.inner
     end
-    need(record and record.tag == "typeobject", "OS checked declaration table required")
+    need(record and record.tag == "typeobject", label .. " checked declaration table required")
     record = record.of
     while record and (record.tag == "const" or record.tag == "literal") do
         record = record.tag == "literal" and record.base or record.inner
     end
-    need(record and record.tag == "nominal", "OS checked record required")
+    need(record and record.tag == "nominal", label .. " checked record required")
     local name = call.obj.name.text
     -- Match the checker's declaration-table member lookup, including Self
     -- specialization, while retaining the checked occurrence's exact identity.
@@ -921,7 +929,7 @@ function unit.osDeclaration(fn: any, call: any): any
         member = record.byname and record.byname[name]
         memberDefinition = record.fieldDefs and record.fieldDefs[name]
     end
-    need(member and memberDefinition == definition, "OS checked member identity differs")
+    need(member and memberDefinition == definition, label .. " checked member identity differs")
     local generics = require("nupp.compiler.types.generics")
     local resolved = generics.specializeSelf(record, member, record)
     local types = require("nupp.compiler.types")
@@ -929,11 +937,12 @@ function unit.osDeclaration(fn: any, call: any): any
     -- interned sendable callable view. Both identities must still agree.
     need(
         call.obj.resolvedType == resolved and types.withSendable(resolved) == actual,
-        "OS checked member signature differs"
+        label .. " checked member signature differs"
     )
 
     return {
         definition = definition,
+        receiver = receiver,
         signature = call.obj.inferredType,
         context = held.state.context,
         path = path,
@@ -941,6 +950,14 @@ function unit.osDeclaration(fn: any, call: any): any
         name = name,
         call = call
     }
+end
+
+function unit.osDeclaration(fn: any, call: any): any
+    return externalDeclaration(fn, call, "nupp.runtime.vm.os", "os.d.nupp", "OS")
+end
+
+function unit.intrinsicDeclaration(fn: any, call: any): any
+    return externalDeclaration(fn, call, "nupp.runtime.vm.intrinsics", "intrinsics.d.nupp", "intrinsic")
 end
 
 -- The call occurrence and exported value belong to the same sealed checking

@@ -1449,4 +1449,39 @@ end
     assert(text:find("urem", 1, true) and not text:find("call", 1, true), text)
 end
 
+function M.optionalBorrowRepresentationRetainsExactCapabilityTypes()
+    local context = compile(fixture(), "make").nativePhysical.context
+    local payload = T.voidptr
+    local checked = T.optional(T.borrowed(payload))
+    local descriptor = physical.describe(context, checked)
+    assert(descriptor.checkedType == checked and descriptor.storageType == checked)
+    assert(descriptor.valueType == checked and descriptor.nullable and descriptor.machineKind == "voidptr")
+    assert(#descriptor.ownership == 1 and descriptor.ownership[1] == T.borrowed(payload))
+    local original = physical.describe(context, T.borrowed(T.optional(payload)))
+    assert(original.checkedType ~= descriptor.checkedType and not physical.same(original, descriptor))
+    assert(
+        original.storageBytes == descriptor.storageBytes and original.layout.alignment == descriptor.layout.alignment
+    )
+    local plain = physical.describe(context, T.optional(payload))
+    assert(not physical.argument(plain, descriptor), "optional borrow escaped through plain parameter")
+    for _, qualified in ipairs({T.affine(payload, {}), T.pinned(payload)}) do
+        refuses(
+            function()
+                physical.describe(context, T.optional(qualified))
+            end,
+            "optional value is not a pointer"
+        )
+    end
+    local saved = descriptor.ownership[1]
+    descriptor.ownership[1] = original.ownership[1]
+    refuses(
+        function()
+            physical.validate(descriptor)
+        end,
+        "ownership identity changed"
+    )
+    descriptor.ownership[1] = saved
+    physical.validate(descriptor)
+end
+
 return M

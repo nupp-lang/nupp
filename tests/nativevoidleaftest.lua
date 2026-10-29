@@ -155,12 +155,10 @@ local function pointer(p: voidptr): voidptr return p end
         end,
         "native parameter count"
     )
-    rejects(
-        function()
-            lower.functionGraph(owners.pointer, {abi = "leaf"}, profile)
-        end,
-        "exact native result required"
-    )
+    local pointer = lower.functionGraph(owners.pointer, {abi = "leaf"}, profile)
+    assert(pointer.native.result == "voidptr" and pointer.native.params[1] == "voidptr")
+    assert(pointer.blocks[1].term.kind == "return" and pointer.blocks[1].term.value == 1)
+    G.verify(pointer)
     local owner = owners.empty
     local impostor = {}
     for key, value in pairs(owner) do

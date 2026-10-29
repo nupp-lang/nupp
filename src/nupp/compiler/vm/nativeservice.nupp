@@ -62,6 +62,57 @@ local function held(signature: any): any
     return item
 end
 
+local heapEffectFlags = {"top", "external", "yields"}
+local heapEffectMaps = {"writes", "escapes", "shapes", "metatables"}
+
+local function heapEffectSnapshot(summary: any): any
+    local saved = {source = summary, flags = {}, maps = {}}
+    if summary ~= nil then
+        need(type(summary) == "table" and getmetatable(summary) == nil, "heap effect summary must be plain")
+        for _, name in ipairs(heapEffectFlags) do
+            saved.flags[name] = {value = summary[name]}
+        end
+        for _, name in ipairs(heapEffectMaps) do
+            local values = summary[name]
+            need(
+                values == nil or type(values) == "table" and getmetatable(values) == nil,
+                "heap effect map must be plain"
+            )
+            local entries = {}
+            for key, value in pairs(values or {}) do
+                entries[key] = value
+            end
+            saved.maps[name] = {source = values, entries = entries}
+        end
+    end
+
+    return saved
+end
+
+local function validateHeapEffect(saved: any, summary: any): nil
+    need(summary == saved.source, "heap effect checked summary changed")
+    if summary == nil then
+        return
+    end
+    need(getmetatable(summary) == nil, "heap effect checked summary changed")
+    for _, name in ipairs(heapEffectFlags) do
+        need(summary[name] == saved.flags[name].value, "heap effect checked summary flag changed")
+    end
+    for _, name in ipairs(heapEffectMaps) do
+        local before, values = saved.maps[name], summary[name]
+        need(
+            values == before.source and (values == nil or getmetatable(values) == nil),
+            "heap effect checked summary map changed"
+        )
+        for key, value in pairs(values or {}) do
+            need(before.entries[key] == value, "heap effect checked summary map changed")
+        end
+        for key, value in pairs(before.entries) do
+            need(values[key] == value, "heap effect checked summary map changed")
+        end
+    end
+end
+
 -- The catalogue borrows the same checked unit, not caller-created function or
 -- effect tables. Enumeration is the unit's canonical membership index; this
 -- module never walks syntax or lowers an expression.
@@ -76,6 +127,7 @@ local function catalog(entry: any, roots: any, review: any): any
         order = {},
         calls = {},
         raises = {},
+        intrinsics = {},
         reverse = {},
         keys = {},
         review = review
@@ -94,6 +146,7 @@ local function catalog(entry: any, roots: any, review: any): any
                 checked = owner.checkedSignature,
                 scope = owner.scope,
                 effect = owner.body.effectSummary,
+                heapEffect = heapEffectSnapshot(owner.body.effectSummary),
                 signature = signature,
                 state = state,
                 scoped = false,
@@ -162,6 +215,12 @@ local function catalog(entry: any, roots: any, review: any): any
                             item.scoped = true
                             state.calls[node] = {owner = owner, target = target, os = bound}
                         end
+                    elseif moduleName == "nupp.runtime.vm.intrinsics" then
+                        local checked = unit.intrinsicDeclaration(owner, node)
+                        local collects, mutates = require("nupp.compiler.vm.nativegraph").intrinsicHazards(checked.name)
+                        state.intrinsics[
+                            node
+                        ] = {owner = owner, checked = checked, collects = collects, mutates = mutates}
                     elseif moduleName ~= "nupp.runtime.vm.intrinsics"
                         and not unit.borrowFrom(owner, node)
                         and not unit.localConstructionChild(owner, node)
@@ -1630,9 +1689,14 @@ local function verifyReturnTails(g: any, item: any, origin: any): nil
             )
             physical.validateCast(record.dependent)
         end
-        local queue, seen, allowedEdges = {
-            {block = start, at = record.boundary + 1, values = {[value] = true}, zero = false}
-        }, {}, {}
+        local boundary: integer = record.boundary
+        local queue: {{
+            block: any,
+            at: integer,
+            values: any,
+            zero: boolean
+        }} = {{block = start, at = boundary + 1, values = {[value] = true}, zero = false}}
+        local seen, allowedEdges = {}, {}
         local zeroAt = {}
         local failed, found = {}, false
         local cursor: integer = 1
@@ -2391,6 +2455,118 @@ function service.validateCatalog(catalogue: any): nil
     local state = need(catalogs[catalogue], "unissued service catalogue")
     reviewUnchanged(state.review)
     unit.finish(state.entry)
+end
+
+-- Read-only upper bounds for the reviewed service closure. These two bits do
+-- not issue a managed result, a root token, or a noncollecting call permission.
+-- Raw writes may alias roots; the ordinary effect summary conservatively keeps
+-- them hazardous until an actual caller proves the destination relationship.
+function service.heapEffects(catalogue: any, owner: any): (boolean, boolean)
+    local state = need(catalogs[catalogue], "unissued service catalogue")
+    need(state.owners[owner] ~= nil, "heap effect owner is outside service catalogue")
+    reviewUnchanged(state.review)
+    unit.finish(state.entry)
+    local collector = unit.ownerModule(state.entry, "nupp.runtime.vm.collector")
+    local heap = unit.ownerModule(state.entry, "nupp.runtime.vm.heap")
+    local weak = unit.ownerModule(state.entry, "nupp.runtime.vm.gcweak")
+    -- Exact checked bodies that enter collector phases or invalidate managed
+    -- storage. Mapping pages and growing the gray stack are not collection.
+    local collecting = {}
+
+    local function seed(target: any): nil
+        need(
+            target ~= nil and unit.sameOwners(state.entry, target),
+            "heap effect seed belongs to a foreign checked unit"
+        )
+        collecting[target] = true
+    end
+
+    seed(collector.exports.startCycle)
+    seed(collector.functions.markSome)
+    seed(collector.functions.sweepSome)
+    seed(collector.exports.checkOracle)
+    seed(heap.exports.destroy)
+    seed(heap.functions.releaseLarge)
+    seed(heap.exports.retire)
+    seed(heap.exports.recycle)
+    seed(heap.exports.reclaim)
+    seed(weak.exports.release)
+    local effects, queue = {}, {}
+    for _, item in ipairs(state.order) do
+        held(item.signature)
+        validateHeapEffect(item.heapEffect, item.body.effectSummary)
+        local summary = item.effect
+        -- Unknown/external effects and escaped storage can mutate registered
+        -- roots. Host box allocation is deliberately not guest collection.
+        local mutates = summary == nil
+            or summary.top ~= false
+            or summary.external ~= false
+            or summary.yields ~= false
+            or summary.writes == nil
+            or next(summary.writes) ~= nil
+            or summary.escapes == nil
+            or next(summary.escapes) ~= nil
+            or summary.shapes == nil
+            or next(summary.shapes) ~= nil
+            or summary.metatables == nil
+            or next(summary.metatables) ~= nil
+        local collects = collecting[item.owner] == true
+        effects[item.owner] = {collects = collects, mutates = mutates}
+        if collects or mutates then
+            queue[#queue + 1] = item.owner
+        end
+    end
+    for node, primitive in pairs(state.intrinsics) do
+        local actual = unit.intrinsicDeclaration(primitive.owner, node)
+        local checked = primitive.checked
+        need(
+            actual.definition == checked.definition
+            and actual.receiver == checked.receiver
+            and actual.signature == checked.signature
+            and actual.name == checked.name
+            and actual.context == checked.context,
+            "heap effect intrinsic binding changed"
+        )
+        local effect = effects[primitive.owner]
+        effect.collects = effect.collects or primitive.collects
+        effect.mutates = effect.mutates or primitive.mutates
+        if primitive.collects or primitive.mutates then
+            queue[#queue + 1] = primitive.owner
+        end
+    end
+    -- Validate the exact resolved calls before using the private reverse edges.
+    -- Cleanup edges are part of the same unit's checked terminal registrations.
+    for node, call in pairs(state.calls) do
+        if call.raising then
+            need(unit.literalRaise(call.owner, node) ~= nil, "heap effect raise changed")
+        elseif call.os then
+            local actual = unit.osDeclaration(call.owner, node)
+            need(
+                actual.definition == call.os.definition and actual.signature == call.os.signature,
+                "heap effect OS declaration changed"
+            )
+        else
+            unit.call(call.owner, node, call.target)
+        end
+    end
+    local cursor = 1
+    while cursor <= #queue do
+        local target = queue[cursor]
+        cursor = cursor + 1
+        local source = effects[target]
+        for caller in pairs(state.reverse[target]) do
+            local previous = effects[caller]
+            local collects = previous.collects or source.collects
+            local mutates = previous.mutates or source.mutates
+            if collects ~= previous.collects or mutates ~= previous.mutates then
+                previous.collects, previous.mutates = collects, mutates
+                queue[#queue + 1] = caller
+            end
+        end
+    end
+    local result = effects[owner]
+
+    return result.collects, result.mutates
 end
 
 function service.recordTarget(g: any, declaration: any, node: any): any

@@ -63,9 +63,16 @@ local function derive(context: any, checked: any): any
     end
     local nullable = false
     local representation = raw
+    local layoutType = raw
     if raw.tag == "union" then
         need(raw.hasNil and #raw.members == 2, "only one optional pointer type is supported")
         representation = raw.members[1].tag == "nil" and raw.members[2] or raw.members[1]
+        if representation.tag == "borrowed" then
+            need(#ownership == 0, "optional pointer has nested ownership")
+            ownership[1] = representation
+            representation = representation.inner
+            layoutType = representation
+        end
         need(representation.tag == "ptr" or representation.tag == "voidptr", "optional value is not a pointer")
         nullable = true
     end
@@ -82,7 +89,9 @@ local function derive(context: any, checked: any): any
     local layout = nil
     if representation.tag ~= "nil" then
         local why
-        layout, why = targetLayout.of(raw, context.target)
+        -- Optional qualifiers change capability, not the pointer's storage.
+        -- Keep raw/checked identity; only layout uses the proven pointer arm.
+        layout, why = targetLayout.of(layoutType, context.target)
         need(layout, why or "type has no target layout")
     end
     local pointee = representation.tag == "ptr" and representation.elem or nil
@@ -1535,6 +1544,39 @@ local function ownerReceiver(receiver: any, node: any): any
     return view.owner
 end
 
+-- The checker can distribute a borrow into an optional arm at a read.
+-- This relation preserves both checked types; it does not issue a new borrow.
+local function optionalBorrowShape(source: any, target: any, definition: any): boolean
+    local checked = source.checkedType
+    local optional = checked.tag == "borrowed" and checked.inner
+    local union = target.checkedType
+    if not optional
+        or optional.tag ~= "union"
+        or not optional.hasNil
+        or #optional.members ~= 2
+        or union.tag ~= "union"
+        or not union.hasNil
+        or #union.members ~= 2
+    then
+        return false
+    end
+    local pointer = optional.members[1].tag == "nil" and optional.members[2] or optional.members[1]
+    local member = union.members[1].tag == "nil" and union.members[2] or union.members[1]
+
+    return definition.type == checked
+        and (pointer.tag == "ptr" or pointer.tag == "voidptr")
+        and member.tag == "borrowed"
+        and member.inner == pointer
+        and source.nullable
+        and target.nullable
+        and #source.ownership == 1
+        and source.ownership[1] == checked
+        and #target.ownership == 1
+        and target.ownership[1] == member
+        and pointerShape(source, target)
+        and pointerShape(target, source)
+end
+
 -- Refined/nil/borrow views are issued from checked occurrences. The graph
 -- separately verifies the actual null predicate or zero input before use.
 function physical.occurrence(owner: any, source: any, node: any): any
@@ -1542,6 +1584,29 @@ function physical.occurrence(owner: any, source: any, node: any): any
     unit.occurrence(owner, node)
     physical.validate(source)
     local target = physical.describe(source.context, node.inferredType)
+    if node.kind == "name" and node.token.definition and optionalBorrowShape(source, target, node.token.definition) then
+        need(unit.checkedOccurrenceType(owner, node) == target.checkedType, "optional borrowed checked type differs")
+        local dependency = need(origins[source].dependency, "optional borrowed occurrence lost source dependency")
+        local roots = rootSnapshot(node)
+        need(sameDependency(dependency, roots), "optional borrowed occurrence roots differ")
+        carryOrigin(source, target)
+        local contract = {source = source, target = target, node = node}
+        views[
+            contract
+        ] = {
+            mode = "optionalBorrow",
+            owner = owner,
+            node = node,
+            checked = node.inferredType,
+            definition = node.token.definition,
+            source = source,
+            target = target,
+            roots = roots,
+            dependency = dependency,
+            fields = recordFields(contract)
+        }
+        return contract
+    end
     need(
         node.kind == "name"
         and node.token.definition
@@ -2025,6 +2090,27 @@ function physical.validateCast(contract: any): boolean
                 and origins[contract.source].transport == origins[contract.target].transport,
                 "optional binding occurrence changed"
             )
+        elseif view.mode == "optionalBorrow" then
+            need(
+                require("nupp.compiler.vm.nativeunit").checkedOccurrenceType(view.owner, view.node) == view.checked,
+                "optional borrowed checked type differs"
+            )
+            need(
+                contract.source == view.source
+                and contract.target == view.target
+                and view.node.kind == "name"
+                and view.node.token.definition == view.definition
+                and optionalBorrowShape(contract.source, contract.target, view.definition)
+                and origins[contract.source].dependency == view.dependency
+                and origins[contract.target].dependency == view.dependency
+                and sameDependency(view.dependency, view.roots)
+                and origins[contract.source].field == origins[contract.target].field
+                and origins[contract.source].transport == origins[contract.target].transport
+                and origins[contract.source].ownerSource == origins[contract.target].ownerSource
+                and origins[contract.source].ownerBorrow == origins[contract.target].ownerBorrow
+                and localOrigins[contract.source] == localOrigins[contract.target],
+                "optional borrowed occurrence changed"
+            )
         elseif view.mode == "nonnull" then
             need(
                 view.node.kind == "name"
@@ -2178,6 +2264,41 @@ function physical.validateCast(contract: any): boolean
     return true
 end
 
+-- Only an ordinary checked dependent call can supply an expression receiver.
+-- Its private result snapshot must name this exact call, including after the
+-- common walker transports a staged LHS through block parameters.
+local function callReceiver(owner: any, receiver: any, call: any): (any, any, any)
+    local unit = require("nupp.compiler.vm.nativeunit")
+    unit.occurrence(owner, call)
+    need(call.kind == "call" and call.ownershipIntrinsic == nil, "ordinary dependent receiver call required")
+    local target = need(unit.callee(owner, call), "dependent receiver call lacks checked target")
+    local actual, exported = unit.callSignature(owner, call, target)
+    local checked = target.checkedSignature
+    local parameter = checked and checked.borrowsParam
+    need(
+        checked
+        and checked.tag == "func"
+        and not checked.foreign
+        and type(parameter) == "number"
+        and parameter % 1 == 0
+        and parameter >= 1
+        and parameter <= #checked.params
+        and checked.paramModes[parameter] == "borrows"
+        and checked.borrowsResult == 1
+        and #checked.rets == 1
+        and #receiver.ownership == 1
+        and receiver.ownership[1].tag == "borrowed",
+        "single checked dependent receiver result required"
+    )
+    local dependency = origins[receiver].dependency
+    need(
+        dependency and dependency.node == call and sameDependency(dependency, rootSnapshot(call)),
+        "borrowed receiver is not this checked call result"
+    )
+
+    return target, actual, exported
+end
+
 local function fieldContract(receiver: any, node: any, write: boolean, signature: any?): any
     physical.validate(receiver)
     local borrowed = #receiver.ownership ~= 0
@@ -2194,11 +2315,13 @@ local function fieldContract(receiver: any, node: any, write: boolean, signature
         local owner = signature.owner
         require("nupp.compiler.vm.nativeunit").occurrence(owner, node)
         need(
-            node.obj and node.obj.kind == "name" and physical.dependent(receiver),
+            node.obj and (node.obj.kind == "name" or node.obj.kind == "call") and physical.dependent(receiver),
             "borrowed field requires checked rooted receiver"
         )
         local dependency = origins[receiver].dependency
-        if node.obj.capabilityFacts and node.obj.capabilityFacts.roots then
+        if node.obj.kind == "call" then
+            callReceiver(owner, receiver, node.obj)
+        elseif node.obj.capabilityFacts and node.obj.capabilityFacts.roots then
             need(sameDependency(dependency, rootSnapshot(node.obj)), "borrowed receiver roots differ")
         else
             local parameter = nil
@@ -2283,6 +2406,10 @@ function physical.field(receiver: any, node: any, write: boolean, signature: any
         require("nupp.compiler.vm.nativeunit").occurrence(sourceOwner, node)
         origins[access.storage].field = access
     end
+    local callTarget, callSignature, callExport
+    if #receiver.ownership ~= 0 and node.obj.kind == "call" then
+        callTarget, callSignature, callExport = callReceiver(sourceOwner, receiver, node.obj)
+    end
     accesses[
         access
     ] = {
@@ -2293,9 +2420,11 @@ function physical.field(receiver: any, node: any, write: boolean, signature: any
         token = node.name,
         write = write,
         signature = signature,
+        callTarget = callTarget,
+        callSignature = callSignature,
+        callExport = callExport,
         receiverRoots = #receiver.ownership ~= 0
-        and node.obj.capabilityFacts
-        and node.obj.capabilityFacts.roots
+        and (node.obj.kind == "call" or node.obj.capabilityFacts and node.obj.capabilityFacts.roots)
         and rootSnapshot(node.obj)
         or nil,
         name = access.name,
@@ -2336,6 +2465,13 @@ function physical.validateField(access: any): boolean
     need(held.node.obj == held.object and held.node.name == held.token, "checked field expression identity changed")
     if held.receiverRoots then
         validateRoots(held.receiverRoots)
+    end
+    if held.callTarget then
+        local target, signature, exported = callReceiver(held.owner, held.receiver, held.object)
+        need(
+            target == held.callTarget and signature == held.callSignature and exported == held.callExport,
+            "dependent field call binding changed"
+        )
     end
     local expected = fieldContract(held.receiver, held.node, held.write, held.signature)
     need(expected.name == held.name and expected.declaration == held.declaration, "checked member identity changed")
