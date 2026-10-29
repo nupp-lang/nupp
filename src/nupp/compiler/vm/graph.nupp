@@ -93,6 +93,9 @@ for _, name in ipairs(opcodes.names()) do
     signatures[name] = pinned[name] or derive(name)
 end
 -- Graph-only macros, expanded by the lowering.
+-- A closure's captures are tagged SSA uses. The executable NewClosure
+-- window is derived only after verification and value transport.
+signatures.Closure = "Vn"
 signatures.U32Load = "Ivi"
 signatures.U32Store = "vii"
 signatures.U32Add = "Iii"
@@ -209,6 +212,7 @@ local terminators = {
     Park = true
 }
 local macros = {
+    Closure = true,
     U32Load = true,
     U32Store = true,
     U32Add = true,
@@ -249,17 +253,35 @@ end
 -- the common closed-block verifier and transport pruning.
 parsed.NativeHelperCall.variadic = true
 parsed.NativeLeafCall.variadic = true
+parsed.Closure.variadic = true
+parsed.Closure.variadicClass = "v"
+parsed.Closure.coreOnly = true
 
 local function operationArity(sig: any, args: any): boolean
     return #args == sig.n or sig.variadic == true and #args >= sig.n
 end
 
 local function operandClass(sig: any, index: integer): string
-    return sig.args[index] or (sig.variadic and "a")
+    return sig.args[index] or (sig.variadic and (sig.variadicClass or "a"))
 end
 
 graph.signatures = parsed
 graph.signatureText = signatures
+
+-- The complete program verifier supplies target existence, lexical ownership
+-- and capture-layout checks. This seam does not resolve a function by name.
+function graph.closureTarget(op: string, args: any): (integer?, integer?)
+    if op ~= "Closure" then
+        return nil, nil
+    end
+    local target = args[1]
+    assert(
+        type(target) == "number" and target >= 0 and target < 4294967295 and target % 1 == 0,
+        "invalid closure function identity"
+    )
+
+    return target as integer, #args - 1
+end
 
 local classes = {v = 0, i = 1, f = 2, x = 3}
 graph.classes = classes
@@ -953,6 +975,10 @@ function graph.verify(g: any): nil
             if sig.terminator then
                 error("terminator opcode inside a block", 0)
             end
+            if ops[i] == "Closure" then
+                assert(not native, "closure construction requires a guest graph")
+                graph.closureTarget(ops[i], args)
+            end
             if not native then
                 assert(not nativeOnly[ops[i]], "native operation requires a native graph")
             end
@@ -1464,6 +1490,18 @@ function graph.lower(g: any): any
     -- Value-class registers: the parameters, the boxing scratch, then the
     -- value slots and their copy scratch.
     local valueBase = nparams + 2
+    -- The copy scratch is the unused base of the closure window. Captures
+    -- follow it, outside every SSA slot, so repeated sources and edge-copy
+    -- cycles cannot be overwritten by staging or by the closure result.
+    local captureBase, captureCount = valueBase + counts.v, 0
+    for _, block in ipairs(g.blocks) do
+        for at, op in ipairs(block.op) do
+            if op == "Closure" then
+                captureCount = math.max(captureCount, #block.args[at] - 1)
+            end
+        end
+    end
+    assert(captureBase + captureCount < 250, "graph register capacity")
 
     local function physical(v: integer): any
         local ty = types[v]
@@ -1592,7 +1630,12 @@ function graph.lower(g: any): any
                 end
             end
             local from = #code + 1
-            if op == "U32Add" or op == "U32Sub" then
+            if op == "Closure" then
+                for capture = 2, #args do
+                    emit("Move", captureBase + capture - 1, physical(args[capture]))
+                end
+                emit("NewClosure", physical(b.dst[i]), args[1], captureBase, #args - 1)
+            elseif op == "U32Add" or op == "U32Sub" then
                 emit(op == "U32Add" and "IAdd" or "ISub", ins[2], ins[3], ins[4])
                 emit("IMaskU32", ins[2], ins[2])
             elseif op == "U32Load" or op == "U32Store" then
@@ -1759,7 +1802,7 @@ function graph.lower(g: any): any
         code = code,
         consts = g.constants,
         tables = tables,
-        nregs = valueBase + (counts.v > 0 and counts.v + 1 or 0),
+        nregs = valueBase + (counts.v > 0 and counts.v + 1 or 0) + captureCount,
         nfregs = math.max(counts.i, counts.f) + (g.map and 2 or 1),
         nvregs = counts.x + 1,
         graph = g

@@ -563,4 +563,294 @@ function M.initializerTraversalRequiresExplicitProfileAndCompleteGraphs()
     )
 end
 
+-- These are reference-verifier fixtures against real checked owners. They
+-- do not lower unsupported declarations or execute initializers/closures.
+local function closureGraphs()
+    local p = describe(
+        [[
+local value: integer = 7
+local function child(): integer return value end
+local function other(): any
+    local function nested(): integer return value end
+    return nested
+end
+return child
+]]
+    )
+    local graphs = {}
+    for index, checkedOwner in ipairs(p.owners) do
+        local g = graph.new(0)
+        g.programOwner = checkedOwner.id
+        g.name, g.module, g.path = checkedOwner.name, checkedOwner.scope.name, checkedOwner.scope.path
+        local block = graph.block(g)
+        block.term = {kind = "return", edges = {}}
+        graphs[index] = g
+    end
+    local module = graphs[1]
+    local input = graph.emit(module, module.blocks[1], "Nil", {})
+    graph.emit(module, module.blocks[1], "Closure", {owner(p, "child").id, input})
+    graph.emit(module, module.blocks[1], "Closure", {owner(p, "other").id, input})
+    local outer = graphs[owner(p, "other").id + 1]
+    local forwarded = graph.emit(outer, outer.blocks[1], "GetUpval", {0})
+    graph.emit(outer, outer.blocks[1], "Closure", {owner(p, "nested").id, forwarded})
+
+    return p, graphs
+end
+
+function M.completeGraphsValidateExplicitClosureTargetsParentsAndCounts()
+    local p, graphs = closureGraphs()
+    program.verifyGraphs(p, graphs)
+    local mutations = {
+        {
+            function(p, graphs)
+                graphs[1].blocks[1].args[2][1] = 999
+            end,
+            "invalid closure function reference"
+        },
+        {
+            function(p, graphs)
+                graphs[1].blocks[1].args[2][1] = p.entry
+            end,
+            "closure target is not a function"
+        },
+        {
+            function(p, graphs)
+                graphs[1].blocks[1].args[2][1] = owner(p, "nested").id
+            end,
+            "closure crosses lexical parent"
+        },
+        {
+            function(p, graphs)
+                graphs[1].blocks[1].args[2][2] = nil
+            end,
+            "closure capture count mismatch"
+        },
+        {
+            function(p, graphs)
+                local args = graphs[1].blocks[1].args[2]
+                args[3] = args[2]
+            end,
+            "closure capture count mismatch"
+        },
+        {
+            function(p, graphs)
+                local block = graphs[1].blocks[1]
+                block.op[2], block.args[2] = "NewClosure", {owner(p, "child").id, 0, 1}
+            end,
+            "core program requires explicit closure capture SSA operands"
+        },
+    }
+    for _, case in ipairs(mutations) do
+        local catalog, malformed = closureGraphs()
+        case[1](catalog, malformed)
+        refuses(
+            function()
+                program.verifyGraphs(catalog, malformed)
+            end,
+            case[2]
+        )
+    end
+end
+
+function M.coreRefusesCanonicalImplicitWindowsAndFrameReads()
+    local cases = {
+        {
+            "Call",
+            function(fid, value)
+                return {fid, 0}
+            end
+        },
+        {
+            "CallT",
+            function(fid, value)
+                return {fid, value, 0, 0}
+            end
+        },
+        {
+            "CallDyn",
+            function(fid, value)
+                return {value, 0}
+            end
+        },
+        {
+            "CallK",
+            function(fid, value)
+                return {fid, value, 0, 1}
+            end
+        },
+        {
+            "CallMethod",
+            function(fid, value)
+                return {0, 0}
+            end
+        },
+        {
+            "PCall",
+            function(fid, value)
+                return {0}
+            end
+        },
+        {
+            "PadResults",
+            function(fid, value)
+                return {0, 1}
+            end
+        },
+        {
+            "VarargN",
+            function(fid, value)
+                return {0, 1}
+            end
+        },
+    }
+    for _, case in ipairs(cases) do
+        local catalog, graphs = closureGraphs()
+        local g, op = graphs[1], case[1]
+        local block = g.blocks[1]
+        g.constants = {{kind = "str", value = "method"}}
+        graph.emit(g, block, op, case[2](owner(catalog, "child").id, block.dst[1]))
+        graph.verify(g)
+        refuses(
+            function()
+                program.verifyGraphs(catalog, graphs)
+            end,
+            "implicit windows/frame reads: " .. op
+        )
+
+        -- The low-level operation and its v5 encoding retain their existing
+        -- contract; this test grants no execution admission to either path.
+        local raw = graph.new(0)
+        raw.name, raw.constants = "rawWindow", g.constants
+        local rawBlock = graph.block(raw)
+        local value = graph.emit(raw, rawBlock, "Nil", {})
+        graph.emit(raw, rawBlock, op, case[2](0, value))
+        rawBlock.term = {kind = "return", edges = {}}
+        graph.verify(raw)
+        graph.lower(raw)
+        assert(type(graphimage.encode({functions = {raw}})) == "string")
+    end
+end
+
+function M.coreRefusesImplicitMultipleReturnWindows()
+    local catalog, graphs = closureGraphs()
+    local g = graphs[1]
+    g.blocks[1].term = {kind = "returns", value = g.blocks[1].dst[1], count = 2, edges = {}}
+    graph.verify(g)
+    refuses(
+        function()
+            program.verifyGraphs(catalog, graphs)
+        end,
+        "implicit windows/frame reads: RetN"
+    )
+    local raw = graph.new(0)
+    raw.name = "rawReturns"
+    local block = graph.block(raw)
+    local value = graph.emit(raw, block, "Nil", {})
+    block.term = {kind = "returns", value = value, count = 2, edges = {}}
+    graph.verify(raw)
+    assert(graph.lower(raw).code[2][1] == "RetN")
+    assert(type(graphimage.encode({functions = {raw}})) == "string")
+end
+
+function M.graphReferencesRequireExactCaptureAndFunctionIds()
+    for _, invalid in ipairs({-1, 0.5, 0 / 0, math.huge, "0", false, 999}) do
+        local catalog, graphs = closureGraphs()
+        local outer = graphs[owner(catalog, "other").id + 1]
+        outer.blocks[1].args[1][1] = invalid
+        refuses(
+            function()
+                program.verifyGraphs(catalog, graphs)
+            end,
+            "invalid graph capture reference"
+        )
+        outer.blocks[1].args[1][1] = 0
+        graphs[1].constants = {{kind = "func", value = invalid}}
+        refuses(
+            function()
+                program.verifyGraphs(catalog, graphs)
+            end,
+            "invalid graph function reference"
+        )
+    end
+end
+
+function M.completeGraphTableCannotOmitDuplicateOrRelabelOwners()
+    local mutations = {
+        {
+            function(graphs)
+                graphs[#graphs] = nil
+            end,
+            "incomplete graph table"
+        },
+        {
+            function(graphs)
+                graphs[2] = nil
+            end,
+            "incomplete graph table"
+        },
+        {
+            function(graphs)
+                graphs[#graphs + 1] = graphs[1]
+            end,
+            "incomplete graph table"
+        },
+        {
+            function(graphs)
+                graphs.extra = graphs[1]
+            end,
+            "invalid graph table index"
+        },
+        {
+            function(graphs)
+                graphs[2] = graphs[1]
+            end,
+            "graph owner identity mismatch"
+        },
+        {
+            function(graphs)
+                graphs[2].programOwner = 0
+            end,
+            "graph owner identity mismatch"
+        },
+        {
+            function(graphs)
+                graphs[2].path = "=foreign.nupp"
+            end,
+            "graph owner source mismatch"
+        },
+    }
+    for _, case in ipairs(mutations) do
+        local catalog, graphs = closureGraphs()
+        case[1](graphs)
+        refuses(
+            function()
+                program.verifyGraphs(catalog, graphs)
+            end,
+            case[2]
+        )
+    end
+end
+
+function M.compileAlwaysChecksReferencesAndRefusesRawClosureWindows()
+    local p = describe("return nil")
+    local profile = {
+        initializeModule = function()
+            return graph.new(0)
+        end,
+        returnStatement = function(ctx)
+            -- Deliberately malformed output from a test profile. The real
+            -- checked initializer contains only its supported return statement.
+            graph.emit(ctx.g, ctx.block, "NewClosure", {0, 0, 0})
+            ctx.block.term = {kind = "return", edges = {}}
+            ctx.block = nil
+        end,
+    }
+    refuses(
+        function()
+            program.compile(p, profile)
+        end,
+        "core program requires explicit closure capture SSA operands"
+    )
+end
+
 return M

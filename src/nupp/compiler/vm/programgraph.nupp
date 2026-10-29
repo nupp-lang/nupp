@@ -3,6 +3,7 @@ module nupp.compiler.vm.programgraph
 local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")
 local graph = require("nupp.compiler.vm.graph")
+local opcodes = require("nupp.compiler.vm.opcodes")
 local graphimage = require("nupp.compiler.vm.graphimage")
 local graphemit = require("nupp.compiler.vm.graphemit")
 local lower = require("nupp.compiler.vm.lower")
@@ -634,6 +635,79 @@ function program.functionGraph(p: any, owner: any, profile: any): any
     return g
 end
 
+local function explicitOperands(op: string): nil
+    local described = opcodes.describe(op)
+    if described then
+        need(
+            #described.windows == 0 and not described.frame,
+            "core program requires explicit SSA operands instead of implicit windows/frame reads: " .. op
+        )
+    end
+end
+
+-- Every checked owner has exactly one graph. This verifies program references;
+-- capture storage modes, runtime roots and execution admission remain separate.
+function program.verifyGraphs(p: any, graphs: {any}): nil
+    program.verify(p)
+    need(#graphs == #p.owners, "incomplete graph table")
+    for index in pairs(graphs) do
+        need(
+            type(index) == "number" and index % 1 == 0 and index >= 1 and index <= #p.owners,
+            "invalid graph table index"
+        )
+    end
+    for index = 1, #p.owners do
+        local g = graphs[index]
+        need(type(g) == "table", "incomplete graph table")
+        local owner = p.owners[index]
+        need(g.programOwner == owner.id, "graph owner identity mismatch")
+        need(
+            g.name == owner.name and g.module == owner.scope.name and g.path == owner.scope.path,
+            "graph owner source mismatch"
+        )
+        graph.verify(g)
+        for _, block in ipairs(g.blocks) do
+            for at, op in ipairs(block.op) do
+                local args = block.args[at]
+                need(op ~= "NewClosure", "core program requires explicit closure capture SSA operands")
+                explicitOperands(op)
+                local targetId, captureCount = graph.closureTarget(op, args)
+                if targetId ~= nil then
+                    local target = need(p.owners[targetId + 1], "invalid closure function reference")
+                    need(target.kind == "function", "closure target is not a function")
+                    need(target.parent == g.programOwner, "closure crosses lexical parent")
+                    need(captureCount == #target.captures, "closure capture count mismatch")
+                elseif op == "GetUpval" then
+                    local captureId = args[1]
+                    need(
+                        type(captureId) == "number"
+                        and captureId >= 0
+                        and captureId < #owner.captures
+                        and captureId % 1 == 0,
+                        "invalid graph capture reference"
+                    )
+                end
+            end
+            if block.term.kind == "returns" then
+                explicitOperands("RetN")
+            end
+        end
+        for _, constant in ipairs(g.constants) do
+            if constant.kind == "func" then
+                local functionId = constant.value
+                need(
+                    type(functionId) == "number"
+                    and functionId >= 0
+                    and functionId < #p.owners
+                    and functionId % 1 == 0
+                    and p.owners[functionId + 1].kind == "function",
+                    "invalid graph function reference"
+                )
+            end
+        end
+    end
+end
+
 -- No graph is omitted, and no image is returned after a partial lowering.
 -- Profiles must explicitly support real module initializer owners.
 function program.compile(p: any, profile: any): any
@@ -647,33 +721,7 @@ function program.compile(p: any, profile: any): any
     for index, module in ipairs(p.modules) do
         modules[index] = {name = module.name, path = module.path, chunk = module.chunk}
     end
-    for index, g in ipairs(graphs) do
-        need(g.programOwner == index - 1, "incomplete graph table")
-        graph.verify(g)
-        for _, block in ipairs(g.blocks) do
-            for at, op in ipairs(block.op) do
-                local args = block.args[at]
-                if op == "NewClosure" then
-                    local target = need(p.owners[args[1] + 1], "invalid closure function reference")
-                    need(
-                        target.kind == "function" and target.parent == g.programOwner,
-                        "closure crosses lexical parent"
-                    )
-                    need(args[3] == #target.captures, "closure capture count mismatch")
-                elseif op == "GetUpval" then
-                    need(args[1] >= 0 and args[1] < #p.owners[index].captures, "invalid graph capture reference")
-                end
-            end
-        end
-        for _, constant in ipairs(g.constants) do
-            if constant.kind == "func" then
-                need(
-                    p.owners[constant.value + 1] and p.owners[constant.value + 1].kind == "function",
-                    "invalid graph function reference"
-                )
-            end
-        end
-    end
+    program.verifyGraphs(p, graphs)
 
     return {graphs = graphs, header = {shapes = {}, modules = modules, entry = p.entry}, catalog = p}
 end

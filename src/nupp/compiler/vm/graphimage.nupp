@@ -327,6 +327,14 @@ function image.encoder(): any
     --- an exact integer, or a region annotation does not describe its graph.
     local function add(g: any): nil
         assert(g.native == nil, "native-system graphs cannot be encoded as VM images")
+        -- V5 has fixed operand lists and no capture-layout catalog. Refuse
+        -- before verification, region derivation or writing any function data.
+        for _, block in ipairs(g.blocks) do
+            for _, op in ipairs(block.op) do
+                local signature = G.signatures[op]
+                assert(not (signature and signature.coreOnly), "graph operation requires a final-core image schema")
+            end
+        end
         nbody = 0
         G.verify(g)
         local regions = G.regions(g)
