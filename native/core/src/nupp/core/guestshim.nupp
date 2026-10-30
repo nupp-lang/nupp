@@ -17,10 +17,14 @@ end
 -- fresh Context/Storage, then completes before the next starts. The World and
 -- immutable image persist across runs; only the final result is published.
 -- Entry, call, return and cleanup policy remains selected Nupp code.
-function shim.build(source: any, selected: {[string]: any}, capacity: integer?): any
+function shim.build(source: any, selected: {[string]: any}, capacity: integer?, raw: boolean?): any
     contract.validateGuest(source)
     local scratchBytes = capacity or 65536
-    assert(scratchBytes == 65536 or scratchBytes == 131072, "explicit guest scratch capacity")
+    assert(
+        raw and source.caseName == "raw" and scratchBytes == 33554432
+        or not raw and (scratchBytes == 65536 or scratchBytes == 131072),
+        "explicit guest scratch capacity"
+    )
     local layouts = {}
     for _, request in ipairs({
         {"Binding", "guestentry"},
@@ -28,6 +32,7 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?):
         {"Catalog", "guestcatalog"},
         {"Descriptor", "guestcatalog"},
         {"DescriptorV1", "guestcatalog"},
+        {"Request", "rawexecutable"},
         {"World", "instances"},
         {"Instance", "instances"},
         {"Frame", "frames"},
@@ -36,10 +41,12 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?):
         {"RootControl", "frames"},
         {"Mark", "arena"}
     }) do
-        local scope = source.scopes["nupp.runtime.core." .. request[2]]
-        layouts[
-            request[1]
-        ] = assert(targetLayout.of(assert(scope.checkedExports.types[request[1]]), "aarch64-apple-darwin"))
+        if request[1] ~= "Request" or raw then
+            local scope = source.scopes["nupp.runtime.core." .. request[2]]
+            layouts[
+                request[1]
+            ] = assert(targetLayout.of(assert(scope.checkedExports.types[request[1]]), "aarch64-apple-darwin"))
+        end
     end
     local binding = layouts.Binding
     local stride = binding.offsets.context - binding.offsets.data
@@ -71,7 +78,7 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?):
             align((align(layouts.Frame.size) + (fn.valueCount as integer) * 8) as integer)
         )
     end
-    local poolBytes = (executable.frameDepth as integer) * maximumFrame
+    local poolBytes = raw and 4096 or (executable.frameDepth as integer) * maximumFrame
     assert(poolBytes > 0 and poolBytes <= 1048576, "guest logical pool bound")
     local contextBytes = align(context.SIZE)
     local worldOffset = align(contextBytes * moduleCount)
@@ -80,6 +87,15 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?):
     local dispatchOffset = align((storageOffset + moduleCount * storageBytes) as integer)
     local poolOffset = align(dispatchOffset + 256 * 8)
     local spillOffset = align((poolOffset + poolBytes) as integer)
+    local requestOffset: integer = 131072
+    local rawCatalogOffset: integer = 262144
+    local rawCatalogBytes: integer = 4096
+    local rawPoolOffset: integer = 1048576
+    local rawPoolBytes: integer = 18874368
+    if raw then
+        assert(spillOffset < requestOffset and layouts.Request.size == 88, "raw request separation")
+        spillOffset = rawPoolOffset + rawPoolBytes
+    end
     assert(spillOffset < scratchBytes, "guest entry metadata/pool exceeds scratch")
     local roots, functions, rootNames = {}, {}, {}
     for _, name in ipairs(source.handlers) do
@@ -89,6 +105,10 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?):
     rootNames[
         startIndex
     ], rootNames[completeIndex] = "nupp.runtime.core.guestentry.start", "nupp.runtime.core.guestentry.complete"
+    local rawIndex = #rootNames + 1
+    if raw then
+        rootNames[rawIndex] = "nupp.runtime.core.rawexecutable.admit"
+    end
     local rootSet = {}
     for index, name in ipairs(rootNames) do
         local code, item = assert(selected[name]), assert(source.resolved[name])
@@ -135,8 +155,13 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?):
     end
 
     local function offset(dst: integer, base: integer, bytes: integer): nil
-        assert(bytes >= 0 and bytes < 16777216)
+        assert(bytes >= 0 and bytes < 33554432)
         local high, low = bytes >> 12, bytes & 4095
+        if high > 4095 then
+            emit(arm.add_imm(64, dst, base, 4095, 1));
+            base = dst
+            high -= 4095
+        end
         if high ~= 0 then
             emit(arm.add_imm(64, dst, base, high, 1));
             base = dst
@@ -162,7 +187,7 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?):
         {0, 1, 1},
         {48, scratchBytes, 3},
         {88, 1, 3},
-        {32, descriptorLayout.size, 3},
+        {32, raw and 48 or descriptorLayout.size, 3},
         {80, 2, 8}
     }) do
         emit(arm.ldr(8, 16, 0, check[1]));
@@ -170,7 +195,67 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?):
         emit(arm.cmp_reg(64, 16, 17));
         refuse(check[3])
     end
+    local selectedCodePatch: integer? = nil
+    if raw then
+        -- The bridge reports the mapping extent; only the exact selected
+        -- image may carry the offsets admitted below.
+        emit(arm.ldr(8, 16, 0, 16))
+        selectedCodePatch = #words + 1
+        emit(arm.movz(64, 17, 0, 0))
+        emit(arm.movk(64, 17, 0, 1))
+        emit(arm.cmp_reg(64, 16, 17));
+        refuse(1)
+    end
     emit(arm.ldr(8, 22, 0, 56))
+    local rawCall: integer? = nil
+    local rawRefusalAt: integer? = nil
+    local startRefusalAt: integer? = nil
+    local completeRefusalAt: integer? = nil
+    local rawDispatchPatches: {integer} = {}
+    local rawCodePatch: integer? = nil
+    if raw then
+        -- The selected offsets are filled after authenticated linking. Wire
+        -- bytes supply neither dispatch nor code authority.
+        emit(arm.ldr(8, 27, 0, 40))
+        offset(23, 27, spillOffset)
+        offset(21, 27, dispatchOffset)
+        for index = 0, 255 do
+            rawDispatchPatches[index + 1] = #words + 1
+            emit(arm.movz(64, 16, 0, 0))
+            emit(arm.movk(64, 16, 0, 1))
+            emit(arm.str(8, 16, 21, index * 8))
+        end
+        offset(24, 27, requestOffset)
+        emit(arm.ldr(8, 16, 0, 24));
+        emit(arm.str(8, 16, 24, 0))
+        emit(arm.ldr(8, 16, 0, 32));
+        emit(arm.str(8, 16, 24, 8))
+        offset(16, 27, rawCatalogOffset);
+        emit(arm.str(8, 16, 24, 16))
+        immediate(16, rawCatalogBytes);
+        emit(arm.str(8, 16, 24, 24))
+        offset(16, 27, rawPoolOffset);
+        emit(arm.str(8, 16, 24, 32))
+        immediate(16, rawPoolBytes);
+        emit(arm.str(8, 16, 24, 40))
+        offset(16, 27, spillOffset);
+        emit(arm.str(8, 16, 24, 48))
+        immediate(16, extent);
+        emit(arm.str(8, 16, 24, 56))
+        emit(arm.str(8, 21, 24, 64))
+        immediate(16, 256);
+        emit(arm.str(8, 16, 24, 72))
+        rawCodePatch = #words + 1
+        emit(arm.movz(64, 16, 0, 0))
+        emit(arm.movk(64, 16, 0, 1))
+        emit(arm.str(8, 16, 24, 80))
+        emit(arm.mov_reg(64, 0, 24))
+        rawCall = #words + 1
+        emit(arm.bl(0))
+        emit(arm.cmp_imm(64, 0, 1, 0));
+        rawRefusalAt = #words + 1
+        emit(arm.b_cond(1, 0))
+    end
     local beginCalls: {integer}, completeCalls: {integer}, stoppedBranches: {integer} = {}, {}, {}
     for moduleIndex = 1, moduleCount do
         local contextOffset = (moduleIndex - 1) * contextBytes
@@ -216,9 +301,19 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?):
         words[noCancel] = arm.b_cond(3, (#words + 1 - noCancel) * 4)
         offset(14, 27, moduleBindingOffset)
         local binding = layouts.Binding.offsets
-        emit(arm.ldr(8, 16, 0, 24));
+        if raw then
+            offset(16, 27, rawCatalogOffset)
+        else
+            emit(arm.ldr(8, 16, 0, 24))
+        end
         emit(arm.str(8, 16, 14, binding.data))
-        emit(arm.ldr(8, 16, 0, 32));
+        if raw then
+            -- The retained catalog binds its exact published length, not
+            -- the writable capacity used during raw construction.
+            emit(arm.ldr(8, 16, 16, layouts.DescriptorV1.offsets.bytes))
+        else
+            emit(arm.ldr(8, 16, 0, 32))
+        end
         emit(arm.str(8, 16, 14, binding.dataBytes))
         emit(arm.ldr(8, 16, 0, 8));
         emit(arm.str(8, 16, 14, binding.code))
@@ -241,14 +336,25 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?):
         beginCalls[moduleIndex] = #words + 1;
         emit(arm.bl(0))
         emit(arm.cmp_imm(64, 0, 0, 0));
-        refuse(0)
+        if raw then
+            startRefusalAt = #words + 1
+            emit(arm.b_cond(0, 0))
+        else
+            refuse(0)
+        end
         emit(arm.mov_reg(64, 20, 0));
         emit(arm.ldr(8, 17, 19, context.ROOT_SERIAL));
         emit(arm.str(8, 17, 31, 184))
         -- start validated all metadata before success. Materialize exactly256
         -- handler offsets into the separate mapped dispatch extent.
         emit(arm.ldr(8, 13, 31, 168));
-        emit(arm.ldr(8, 14, 13, 24));
+        if raw then
+            emit(arm.ldr(8, 27, 13, 40))
+            offset(21, 27, dispatchOffset)
+            offset(14, 27, rawCatalogOffset)
+        else
+            emit(arm.ldr(8, 14, 13, 24))
+        end
         emit(arm.ldr(8, 15, 13, 8))
         emit(arm.ldr(8, 16, 14, layouts.Descriptor.offsets.dispatch));
         emit(arm.add_reg(64, 14, 14, 16, 0))
@@ -286,7 +392,12 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?):
         emit(arm.b(0))
         words[noStatus] = arm.cbz(64, 17, (#words + 1 - noStatus) * 4)
         emit(arm.cmp_imm(64, 0, 1, 0));
-        refuse(1)
+        if raw then
+            completeRefusalAt = #words + 1
+            emit(arm.b_cond(1, 0))
+        else
+            refuse(1)
+        end
         if moduleIndex == moduleCount then
             emit(arm.ldr(8, 16, 19, context.ROOT_CONTROL));
             emit(arm.ldr(8, 17, 16, layouts.RootControl.offsets.value))
@@ -299,7 +410,29 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?):
     emit(arm.b(0))
     local failed = #words + 1;
     emit(arm.movz(64, 0, 1, 0))
+    local failedJump: integer? = nil
+    local special: {[integer]: integer} = {}
+    local specialJumps: {integer} = {}
+    if raw then
+        failedJump = #words + 1
+        emit(arm.b(0))
+        for status = 2, 4 do
+            special[status] = #words + 1
+            emit(arm.movz(64, 0, status as integer, 0))
+            specialJumps[#specialJumps + 1] = #words + 1
+            emit(arm.b(0))
+        end
+    end
     local restore = #words + 1
+    if raw then
+        words[assert(failedJump)] = arm.b((restore - assert(failedJump)) * 4)
+        for _, at in ipairs(specialJumps) do
+            words[at] = arm.b((restore - at) * 4)
+        end
+        words[assert(rawRefusalAt)] = arm.b_cond(1, (assert(special[2]) - assert(rawRefusalAt)) * 4)
+        words[assert(startRefusalAt)] = arm.b_cond(0, (assert(special[3]) - assert(startRefusalAt)) * 4)
+        words[assert(completeRefusalAt)] = arm.b_cond(1, (assert(special[4]) - assert(completeRefusalAt)) * 4)
+    end
     words[success] = arm.b((restore - success) * 4)
     for _, stopped in ipairs(stoppedBranches) do
         words[stopped] = arm.b((restore - stopped) * 4)
@@ -317,6 +450,9 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?):
     emit(arm.ret(30))
     local linked = linker.assembleAuthenticated(words, roots, functions, scratchBytes - spillOffset)
     assert(linked.callBytes == extent)
+    if raw then
+        linked.words[assert(rawCall)] = arm.bl((linked.offsets[rawIndex] as integer) - (assert(rawCall) - 1) * 4)
+    end
     for moduleIndex = 1, moduleCount do
         local beginCall, completeCall = beginCalls[moduleIndex], completeCalls[moduleIndex]
         linked.words[beginCall] = arm.bl((linked.offsets[startIndex] as integer) - (beginCall - 1) * 4)
@@ -334,6 +470,23 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?):
         if byName[name] then
             assert(index <= 256);
             dispatch[index] = byName[name]
+        end
+    end
+    if raw then
+        local bytes = #linked.words * 4
+        assert(bytes < 4294967296 and bytes % 4 == 0)
+        local codeAt = assert(selectedCodePatch)
+        linked.words[
+            codeAt
+        ], linked.words[codeAt + 1] = arm.movz(64, 17, bytes & 65535, 0), arm.movk(64, 17, bytes >> 16, 1)
+        local at = assert(rawCodePatch)
+        linked.words[at], linked.words[at + 1] = arm.movz(64, 16, bytes & 65535, 0), arm.movk(64, 16, bytes >> 16, 1)
+        for index, target in ipairs(dispatch) do
+            assert(target < bytes and target < 4294967296)
+            at = rawDispatchPatches[index]
+            linked.words[
+                at
+            ], linked.words[at + 1] = arm.movz(64, 16, target & 65535, 0), arm.movk(64, 16, target >> 16, 1)
         end
     end
     contract.validateGuest(source)
@@ -354,6 +507,10 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?):
         worldOffset = worldOffset,
         bindingOffset = bindingOffset,
         dispatchOffset = dispatchOffset,
+        rawCatalogOffset = raw and rawCatalogOffset or nil,
+        rawCatalogBytes = raw and rawCatalogBytes or nil,
+        rawPoolOffset = raw and rawPoolOffset or nil,
+        rawPoolBytes = raw and rawPoolBytes or nil,
         layouts = layouts,
         entry = 0
     }
