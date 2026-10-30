@@ -102,6 +102,12 @@ export function failedPrefix(ctx: voidptr, later: voidptr, expectedOwner: uint64
     if native.load64(ctx, context.STATUS) ~= 2ULL then
         return 1ULL
     end
+    local world = native.loadPointer(ctx, context.WORLD)
+    if native.load64(world, native.fieldOffset<instances.World>("modulePhase")) ~= 0ULL
+        or native.load64(world, native.fieldOffset<instances.World>("moduleValue")) ~= 0ULL
+    then
+        return 6ULL
+    end
     local at: uint64 = 0ULL
     while at < native.word(context.SIZE) do
         if native.load64(later, native.index(at)) ~= 0ULL then

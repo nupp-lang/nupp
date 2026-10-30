@@ -340,10 +340,12 @@ function verifier.verify(g: any, calls: any, entry: any?): nil
                         kill(state)
                         result = check(state, dst, prior, "one", nil)
                         result.completes = true
-                    elseif entry and (role == "constant" or role == "closure" or role == "checkpoint") then
+                    elseif entry
+                        and (role == "constant" or role == "moduleValue" or role == "closure" or role == "checkpoint")
+                    then
                         local prior = contextOwner(state, operands[1], operands[2], operands[3])
                         need(state.proven["current:" .. prior.id], "entry helper lacks current code proof")
-                        if role == "closure" then
+                        if role == "closure" or role == "moduleValue" then
                             need(state.proven["charged:" .. prior.id], "closure lacks charge")
                         end
                         if dst ~= 0 then

@@ -16,7 +16,7 @@ CASES = {"boolean": 0x7FFB000000000000, "nilValue": 0x7FF9000000000000,
          "nested": 0x7FFB000000000000,
          "branchTrue": 0x7FFB000000000000, "branchFalse": 0x7FFA000000000000,
          "branchElseif": 0x7FFB000000000000, "branchLive": 0x7FFB000000000000,
-         "modulePair": 0x7FFB000000000000}
+         "modulePair": 0x7FFA000000000000}
 FIXTURES = ("catalog-boolean", "catalog-nil", "catalog-live", "catalog-fresh", "catalog-nested",
             "catalog-branch-true", "catalog-branch-false", "catalog-branch-elseif", "catalog-branch-live",
             "catalog-module-prefix", "catalog-module-main")
@@ -33,7 +33,7 @@ def main():
     parser.add_argument("--guard-proof", type=Path, default=ROOT / "native/core/bridge/guard-validation.json")
     parser.add_argument("--guard-binary", type=Path)
     parser.add_argument("--bootstrap", type=Path, default=ROOT.parent / "native-core-bootstrap")
-    parser.add_argument("--scratch-bytes", type=int, choices=(65536, 131072), default=65536)
+    parser.add_argument("--scratch-bytes", type=int, choices=(65536, 131072), default=131072)
     parser.add_argument("--cases", nargs="+", choices=tuple(CASES),
                         help="Run these fixed cases and their supplemental audits (default: all).")
     args = parser.parse_args()
@@ -80,7 +80,8 @@ def main():
               "scope": "Trusted checked-source catalog derives Boolean/NIL programs, including "
                        "two ordered module initializers with fresh entry storage and retained World. "
                        "Closure0, fixed CallK and one-result Ret run through Nupp services; "
-                       "imports, named exports, arbitrary modules, raw loading and GC remain outside.",
+                       "one checked static scalar import executes after successful publication; "
+                       "named exports, cycles, arbitrary modules, raw loading and GC remain outside.",
               "guardVerifier": {"path": str(guard_binary), "sha256": sha(guard_binary),
                                 "proof": str(proof), "proofSha256": sha(proof), "sources": guard_sources}}
     env = {key: value for key, value in os.environ.items()
@@ -156,6 +157,13 @@ def main():
         audit_negative = audit_modules / "guestnegatives.nupp"
         shutil.copyfile(audit_leaf, staged_audit)
         shutil.copyfile(negative, audit_negative)
+        for source_root in (fixed, audit_fixed):
+            module_root = source_root / "source/nupp/core"
+            module_root.mkdir(parents=True, exist_ok=True)
+            for fixture_name in ("catalog-module-prefix", "catalog-module-main"):
+                staged = module_root / (fixture_name.replace("-", "") + ".nupp")
+                shutil.copyfile(ROOT / "native/core/tests" / (fixture_name + ".nupp"), staged)
+                inputs[str(staged.resolve())] = sha(staged)
         audit_canonical = [*canonical, str(audit_leaf.relative_to(ROOT))]
         audit_snapshot.write_text(json.dumps({"version": 1, "target": "aarch64-apple-darwin",
             "sources": {name: (ROOT / name).read_text() for name in audit_canonical}}, indent=2) + "\n")
@@ -215,6 +223,11 @@ def main():
                 data = bytes.fromhex(selected["dataHex"])
                 assert len(data) == selected["dataBytes"]
                 assert struct.unpack_from("<Q", data)[0] == (2 if case_name == "modulePair" else 1)
+                if case_name == "boolean":
+                    assert struct.unpack_from("<14Q", data) == (
+                        1, 2672, 2, 0, 112, 304, 2, 352, 1, 432, 1, 2, 624, 256)
+                    assert hashlib.sha256(bytes.fromhex(selected["programs"][0]["codeHex"])).hexdigest() == (
+                        "bbaf0a7f9d9dcd6953fd192d9590634ccb5dd148db52caae1f209c1399300289")
                 bundle = out / (case + ".bundle")
                 bundle.write_bytes(struct.pack("<8s8Q", b"NUPPCORE", 1, 1, selected["entry"],
                                   len(code), len(data), args.scratch_bytes, 1, 0) + code + data)
@@ -228,7 +241,19 @@ def main():
                     descriptor = struct.unpack_from("<16Q", data)
                     assert descriptor[0] == 2 and descriptor[3] == 1 and descriptor[14] == 2
                     assert descriptor[10] == selected["instanceBound"] == selected["instanceCapacity"] == 1
-                    assert selected["instanceCreations"] == 2
+                    assert selected["instanceCreations"] == 1
+                    assert any(body["owner"] == 1 and any(instruction[0] == "Require"
+                               for instruction in body["instructions"])
+                               for body in selected["programs"])
+                    entry_body = selected["programs"][1]
+                    import_pc = next(index for index, instruction in enumerate(entry_body["instructions"])
+                                     if instruction[0] == "Require")
+                    wrong_target = bytearray(data)
+                    struct.pack_into("<i", wrong_target,
+                                     selected["catalogOffsets"]["code"][1] + import_pc * 16 + 4, 1)
+                    wrong_bundle = out / (case + "-wrong-import.bundle")
+                    wrong_bundle.write_bytes(bundle.read_bytes()[:72 + len(code)] + wrong_target)
+                    guarded("refuse-" + case + "-wrong-import", wrong_bundle, empty, high_water, status=4)
                     assert struct.unpack_from("<2Q", data, descriptor[15]) == (0, 1)
                     for name, mutation in (("duplicate", "module"), ("count", "count")):
                         damaged = bytearray(data)
@@ -246,6 +271,13 @@ def main():
                 report["programs"].append({"case": case, "expectedHex": f"{expected_word:016x}",
                     "bundleSha256": sha(bundle), "selectionSha256": sha(selection), "highWater": high_water,
                     "dataflowRefusals": selected["dataflowRefusals"], "provenanceRefusals": selected["provenanceRefusals"]})
+                if case_name == "modulePair" and mode == "spill":
+                    refusal = "refuse-modulePair-spill-64KiB"
+                    run(refusal, [vm, "run", image, "nupp.core.guestprogramproducer", "compile",
+                        case_name, mode, "65536", "--tasks"], expected=1)
+                    diagnostic = (out / (refusal + ".err")).read_text()
+                    assert "core link call-chain spill extent" in diagnostic, diagnostic
+                    report["spillExtentRefusal"] = {"availableBytes": 65536, "diagnostic": diagnostic.strip()}
                 # Budget failures run the same authenticated bytes. Success is
                 # never inferred from transport alone; the primary run above
                 # checked the exact Boolean/NIL output independently.

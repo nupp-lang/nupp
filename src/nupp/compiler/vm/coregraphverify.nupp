@@ -97,10 +97,17 @@ function verify.copyGraph(g: any): any
         local constant = g.constants[index]
         fields(constant, "kind value")
         need(
-            constant.kind == "true" or constant.kind == "false" or constant.kind == "nil",
-            "only Boolean/NIL constants are admitted"
+            constant.kind == "true" or constant.kind == "false" or constant.kind == "nil" or constant.kind == "str",
+            "only Boolean/NIL constants and static module names are admitted"
         )
-        need(constant.value == "", "unexpected Boolean/NIL constant payload")
+        need(
+            constant.kind == "str"
+            and type(constant.value) == "string"
+            and #constant.value > 0
+            and #constant.value <= 256
+            or constant.kind ~= "str" and constant.value == "",
+            "invalid static module name or Boolean/NIL payload"
+        )
         copy.constants[index] = {kind = constant.kind, value = constant.value}
     end
     for index = 1, dense(g.positions, 1048576) do
@@ -243,7 +250,22 @@ function verify.resultKind(g: any, signature: any, output: any): string
             local kind = switch op do
                 case "K" -> do
                     local constant = need(g.constants[args[1] + 1], "constant index differs")
+                    need(constant.kind ~= "str", "module name cannot be loaded as a value")
                     yield constant.kind == "nil" and "nil" or "boolean"
+                end
+                case "Require" -> do
+                    local constant = need(g.constants[args[1] + 1], "require name index differs")
+                    need(constant.kind == "str", "require needs a static module name")
+                    local target
+                    for _, module in ipairs(output.modules) do
+                        if module.name == constant.value then
+                            target = module.chunk
+                        end
+                    end
+                    need(target ~= nil and target < g.programOwner, "forward or cyclic require is unsupported")
+                    local owner = need(output.catalog[target + 1], "required module owner is missing")
+                    local result = need(output.signatures[owner.signature + 1], "required module signature is missing")
+                    yield result.result
                 end
                 case "Nil" -> "nil"
                 case "Move" -> need(kinds[args[1]], "unresolved scalar move")
@@ -397,6 +419,16 @@ function verify.catalog(p: any): any
                     need(#block.args[at] == 1, "captures are unsupported")
                     local target = reference(block.args[at][1], p.catalog)
                     need(target.kind == "function" and target.parent == owner.id, "closure lexical target differs")
+                elseif op == "Require" then
+                    local constant = reference(block.args[at][1], g.constants)
+                    need(constant.kind == "str", "require needs a static module name")
+                    local target
+                    for _, candidate in ipairs(p.modules) do
+                        if candidate.name == constant.value then
+                            target = candidate.chunk
+                        end
+                    end
+                    need(target ~= nil and target < owner.id, "forward or cyclic require is unsupported")
                 end
                 need(#block.args[at] == #operation.args, "operation operand count differs")
             end

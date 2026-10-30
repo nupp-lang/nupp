@@ -129,8 +129,8 @@ end
 function M.descriptorsUseCanonicalSignaturesAndIndependentStorage()
     local first = schema.describe()
     test.equal(first.magic, "NUPPCGRF")
-    test.equal(first.version, 1)
-    test.equal(#first.operations, 4)
+    test.equal(first.version, 2)
+    test.equal(#first.operations, 5)
     for index, item in ipairs(first.operations) do
         local canonical = graph.signatures[item.name]
         test.equal(item.id, index - 1)
@@ -140,8 +140,8 @@ function M.descriptorsUseCanonicalSignaturesAndIndependentStorage()
         test.equal(item.resultAt, canonical.resultAt)
         assert(item.args ~= canonical.args)
     end
-    test.equal(first.operations[4].admittedCaptureCount, 0)
-    test.equal(first.operations[4].effect, 1)
+    test.equal(first.operations[5].admittedCaptureCount, 0)
+    test.equal(first.operations[5].effect, 1)
     assert(first.effects[2].mayCollect and first.effects[2].mayRaise and not first.effects[2].mayPark)
     first.operations[1].args[1] = "changed"
     first.sections[1].fields[1] = "changed"
@@ -222,6 +222,39 @@ function M.checkedModulesRetainDistinctInitializersAndSourceBindings()
             executable.fromChecked(input)
         end,
         "entry module must initialize last"
+    )
+end
+
+function M.checkedModuleRequiresRefuseForwardAndSelfCycles()
+    local function replaceConstant(output, owner, moduleName)
+        local g = output.graphs[owner]
+        for _, block in ipairs(g.blocks) do
+            for at, op in ipairs(block.op) do
+                if op == "K" then
+                    g.constants[block.args[at][1] + 1] = {kind = "str", value = moduleName}
+                    block.op[at] = "Require"
+                    return
+                end
+            end
+        end
+        error("test fixture has no scalar constant")
+    end
+
+    local forward = contracts.normalize(checkedModules(true))
+    replaceConstant(forward, 1, forward.modules[2].name)
+    refuses(
+        function()
+            semantic.semantic(forward)
+        end,
+        "forward or cyclic require"
+    )
+    local selfCycle = contracts.normalize(checkedModules(true))
+    replaceConstant(selfCycle, 2, selfCycle.modules[2].name)
+    refuses(
+        function()
+            semantic.semantic(selfCycle)
+        end,
+        "forward or cyclic require"
     )
 end
 
@@ -368,8 +401,8 @@ return creator(false)
     test.equal(creatorCalls, 2)
     test.equal(innerCalls, 1)
     test.equal(innerCreations, 1)
-    test.equal(output.schema.operations[4].name, "Closure")
-    test.equal(output.schema.effects[output.schema.operations[4].effect + 1].pure, false)
+    test.equal(output.schema.operations[5].name, "Closure")
+    test.equal(output.schema.effects[output.schema.operations[5].effect + 1].pure, false)
     -- This proves structural preservation only. A later runtime must execute
     -- this inner Closure twice and allocate distinct instance identities;
     -- these catalog target counts do not prove handle identity or equality.
@@ -667,7 +700,7 @@ function M.unknownCapabilityAndAlteredConstantRefuse()
         function()
             contracts.normalize(input)
         end,
-        "unexpected Boolean/NIL constant payload"
+        "invalid static module name or Boolean/NIL payload"
     )
 end
 

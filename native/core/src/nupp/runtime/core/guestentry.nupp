@@ -6,6 +6,7 @@ const frames = require("nupp.runtime.core.frames")
 const instances = require("nupp.runtime.core.instances")
 const catalog = require("nupp.runtime.core.guestcatalog")
 const context = require("nupp.runtime.core.context")
+const values = require("nupp.runtime.vm.values")
 
 -- The closed entry transports actual mappings in this checked layout. This is
 -- neither wire input nor a way for guest values to confer mapping authority.
@@ -190,6 +191,9 @@ export function start(binding: voidptr, ordinal: uint64): uint64
             return 0ULL
         end
     end
+    if version == 2ULL and native.load64(world, native.fieldOffset<instances.World>("modulePhase")) ~= ordinal then
+        return 0ULL
+    end
     if instances.initialize(world, registry, entries, capacity, targets, owners * 8ULL, owners) == 0ULL then
         return 0ULL
     end
@@ -229,6 +233,7 @@ export function start(binding: voidptr, ordinal: uint64): uint64
     native.store64(ctx, context.ORIGINAL_ROOT, frame)
     native.store64(ctx, context.ROOT_SERIAL, native.load64(mark, native.fieldOffset<arena.Mark>("serial")))
     native.store64(ctx, context.WORLD, native.address(world))
+    native.store64(ctx, context.MODULE_ORDINAL, ordinal)
 
     return frame
 end
@@ -257,10 +262,31 @@ export function complete(ctx: voidptr, original: voidptr, serial: uint64): uint6
     if native.load64(ctx, context.STATUS) == 0ULL
         and native.load64(root, native.fieldOffset<frames.RootControl>("phase")) == frames.ROOT_COMPLETE
     then
+        local data = native.loadPointer(descriptor, native.fieldOffset<catalog.Catalog>("data"))
+        local firstModule = native.load64(data, native.fieldOffset<catalog.DescriptorV1>("version")) == 2ULL
+            and native.load64(ctx, context.MODULE_ORDINAL) == 0ULL
+        local result = native.load64(root, native.fieldOffset<frames.RootControl>("value"))
+        local resultCount = native.load64(root, native.fieldOffset<frames.RootControl>("count"))
+        local publishable = resultCount == 1ULL
+            and (result == values.TRUE or result == values.FALSE or result == values.NIL)
         if frames.retireRoot(state, root, original, serial) == 0ULL then
             return 0ULL
         end
-        return instances.retire(registry, targets)
+        if instances.retire(registry, targets) == 0ULL then
+            return 0ULL
+        end
+        if firstModule then
+            if not publishable then
+                return 0ULL
+            end
+            local world = native.loadPointer(ctx, context.WORLD)
+            if native.load64(world, native.fieldOffset<instances.World>("modulePhase")) ~= 0ULL then
+                return 0ULL
+            end
+            native.store64(world, native.fieldOffset<instances.World>("moduleValue"), result)
+            native.store64(world, native.fieldOffset<instances.World>("modulePhase"), 1ULL)
+        end
+        return 1ULL
     end
     local depth = native.load64(state, native.fieldOffset<frames.State>("depth"))
     local limit = native.load64(state, native.fieldOffset<frames.State>("limit"))

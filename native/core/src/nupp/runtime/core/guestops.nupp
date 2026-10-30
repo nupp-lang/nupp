@@ -5,6 +5,7 @@ const frames = require("nupp.runtime.core.frames")
 const instances = require("nupp.runtime.core.instances")
 const catalog = require("nupp.runtime.core.guestcatalog")
 const context = require("nupp.runtime.core.context")
+const values = require("nupp.runtime.vm.values")
 
 export const INVALID: uint64 = 4ULL
 export const RESOURCE: uint64 = 5ULL
@@ -125,6 +126,35 @@ export function constant(ctx: voidptr, frame: voidptr, pc: voidptr, index: uint6
     local offset = native.load64(fn, native.fieldOffset<catalog.Function>("constants"))
 
     return native.load64(data, native.index(offset + index * 8ULL))
+end
+
+-- The first initializer publishes one immediate only after successful root
+-- retirement. A later initializer can observe that committed value once.
+export function moduleValue(ctx: voidptr, frame: voidptr, pc: voidptr, target: uint64): uint64
+    if current(ctx, frame, pc) == 0ULL or native.load64(ctx, context.MODULE_ORDINAL) ~= 1ULL then
+        return 0ULL
+    end
+    local c = native.loadPointer(ctx, context.CATALOG)
+    local data = native.loadPointer(c, native.fieldOffset<catalog.Catalog>("data"))
+    if native.load64(data, native.fieldOffset<catalog.DescriptorV1>("version")) ~= 2ULL
+        or native.load64(data, native.fieldOffset<catalog.Descriptor>("moduleCount")) ~= 2ULL
+    then
+        return 0ULL
+    end
+    local offset = native.load64(data, native.fieldOffset<catalog.Descriptor>("modules"))
+    if target ~= native.load64(data, native.index(offset)) then
+        return 0ULL
+    end
+    local world = native.loadPointer(ctx, context.WORLD)
+    if native.load64(world, native.fieldOffset<instances.World>("modulePhase")) ~= 1ULL then
+        return 0ULL
+    end
+    local value = native.load64(world, native.fieldOffset<instances.World>("moduleValue"))
+    if value ~= values.TRUE and value ~= values.FALSE and value ~= values.NIL then
+        return 0ULL
+    end
+
+    return value
 end
 
 export function closure(ctx: voidptr, frame: voidptr, pc: voidptr, target: uint64): uint64

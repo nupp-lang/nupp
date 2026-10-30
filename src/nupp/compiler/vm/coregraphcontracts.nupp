@@ -3,6 +3,7 @@ module nupp.compiler.vm.coregraphcontracts
 local program = require("nupp.compiler.vm.programgraph")
 local schema = require("nupp.compiler.vm.coregraphschema")
 local semantic = require("nupp.compiler.vm.coregraphverify")
+local cst = require("nupp.compiler.syntax.cst")
 local contracts = {}
 
 local function need(ok: any, message: string): any
@@ -143,8 +144,37 @@ function contracts.normalize(compiled: any): any
     local moduleCount = dense(compiled.header.modules, 256)
     need(moduleCount > 0 and dense(p.modules, 256) == moduleCount, "complete module table required")
     need(#p.owners == #graphs, "complete graph table required")
-    for _, key in ipairs({"externals", "externalReferences", "intrinsics", "imports", "requires"}) do
+    for _, key in ipairs({"externals", "externalReferences", "intrinsics"}) do
         need(type(p[key]) == "table" and next(p[key]) == nil, "unsupported catalog " .. key)
+    end
+    local requireSite
+    need(type(p.imports) == "table" and type(p.requires) == "table", "checked import tables required")
+    if #p.imports ~= 0 or #p.requires ~= 0 then
+        need(
+            moduleCount == 2 and #p.imports == 1 and #p.requires == 1,
+            "only one checked two-module import is executable"
+        )
+        requireSite = p.requires[1]
+        local imported = p.imports[1]
+        local first = p.modules[1]
+        need(
+            type(requireSite) == "table" and type(imported) == "table" and type(first) == "table",
+            "checked import records required"
+        )
+        need(type(requireSite.node) == "table" and type(p.requireByNode) == "table", "checked require source required")
+        local binding = type(imported.binding) == "number" and p.bindings[imported.binding + 1] or nil
+        need(type(binding) == "table" and type(binding.definition) == "table", "checked import binding required")
+        need(
+            requireSite.owner == p.entry
+            and requireSite.target == first.chunk
+            and requireSite.module == first.name
+            and not requireSite.typeOnly
+            and requireSite.node.runtimeLoader == "require"
+            and p.requireByNode[requireSite.node] == requireSite
+            and imported.target == first.chunk
+            and binding.definition.requiredModule == first.name,
+            "checked import target or source identity differs"
+        )
     end
     local definition = schema.describe()
     local output: any = {
@@ -196,6 +226,7 @@ function contracts.normalize(compiled: any): any
     -- This is the authoritative source-side gate. Decoders must never call it
     -- with fabricated checker objects. Call-front adds callsite membership.
     program.verifyGraphs(p, graphs)
+    local foundRequires = 0
     for index, g in ipairs(output.graphs) do
         need(g.programOwner == index - 1, "graph owner order differs")
         local record = output.catalog[index]
@@ -204,6 +235,19 @@ function contracts.normalize(compiled: any): any
                 local policy = need(admitted[op], "unsupported operation " .. op)
                 if op == "Closure" then
                     need(#block.args[at] == 1, "captures are unsupported")
+                elseif op == "Require" then
+                    foundRequires += 1
+                    need(requireSite and record.id == requireSite.owner, "foreign checked require")
+                    local constant = need(g.constants[block.args[at][1] + 1], "require name is missing")
+                    local token = need(cst.firstToken(requireSite.node), "checked require source position is missing")
+                    local position = need(g.positions[block.pos[at]], "require graph position is missing")
+                    need(
+                        constant.kind == "str"
+                        and constant.value == requireSite.module
+                        and position.line == token.line
+                        and position.column == token.col,
+                        "require graph differs from checked callsite"
+                    )
                 end
                 record.effect = math.max(record.effect, policy.effect)
             end
@@ -243,6 +287,7 @@ function contracts.normalize(compiled: any): any
             end
         end
     end
+    need(foundRequires == (requireSite and 1 or 0), "checked require graph is incomplete")
     semantic.topological(output.catalog, callEdges, nil)
     for index, g in ipairs(output.graphs) do
         local owner = output.catalog[index]

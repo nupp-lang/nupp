@@ -258,6 +258,7 @@ local function compile(caseName: string, mode: string, capacityText: string, sce
             #programs + 1
         ] = {
             owner = body.owner,
+            instructions = body.instructions,
             codeHex = hex(body.code),
             instructionCount = body.instructionCount,
             valueCount = body.valueCount,
@@ -277,7 +278,7 @@ local function compile(caseName: string, mode: string, capacityText: string, sce
         constants = packed.constantOffsets,
         dispatch = packed.dispatchOffset
     }
-    output.scope = "Actual checked Boolean/NIL acyclic guest programs with up to two ordered initializers, fresh entry storage, retained World, zero-capture instances, fixed CallK and one-produced Ret; no imports, named exports, RetNil, general loader, tagged objects or GC"
+    output.scope = "Checked Boolean/NIL acyclic guests with up to two ordered initializers, one static scalar import after Nupp-owned publication, fresh entry storage, retained World, zero-capture instances, fixed CallK and one-produced Ret; no named exports, cycles, RetNil, general loader, tagged objects or GC"
 
     return json.encode(output)
 end

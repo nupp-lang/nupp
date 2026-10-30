@@ -8,6 +8,7 @@ local schema = {}
 -- from the canonical graph tables; these rows do not define execution behavior.
 local operations = {
     {name = "K", signature = "Vk", effect = 0, provenance = "constant"},
+    {name = "Require", signature = "Vk", effect = 1, provenance = "module"},
     {name = "Nil", signature = "V", effect = 0, provenance = "nil"},
     {name = "Move", signature = "Vv", effect = 0, provenance = "copy"},
     -- Zero captures do not make creation pure: each evaluation still creates
@@ -29,8 +30,8 @@ end
 function schema.describe(): any
     local described: any = {
         magic = "NUPPCGRF",
-        version = 1,
-        profile = "boolean-nil-acyclic-v1",
+        version = 2,
+        profile = "boolean-nil-acyclic-import-v2",
         byteOrder = "little",
         alignment = 8,
         absent = 4294967295,
@@ -133,7 +134,7 @@ function schema.describe(): any
     return described
 end
 
--- Validation metadata only. Keep describe() and the v1 wire schema unchanged.
+-- Validation metadata only. Keep describe() and the wire schema unchanged.
 -- These attributes classify persistent scalar provenance, not execution.
 function schema.validationPolicy(): any
     local described, result = schema.describe(), {}
@@ -178,7 +179,7 @@ local wireRecords: {
     {"positionSources", 8, "moduleName:u32 path:u32"},
     {"modules", 16, "name:u32 path:u32 chunk:u32 reserved:zero"},
     {"values", 8, "class:zero slot:u32"},
-    {"constants", 8, "kind:u32 payload:zero"},
+    {"constants", 8, "kind:u32 payload:u32"},
     {"operations", 24, "opcode:u32 dst:u32 argsFirst:u32 argsCount:u32 pos:u32 cert:zero"},
     {"edges", 16, "target:u32 argsFirst:u32 argsCount:u32 reserved:zero"},
     {"words", 4, "value:u32"},
@@ -227,7 +228,7 @@ local wireShapes: {
     {"sourceBindings", nil, "name:string module:string path:string"},
     {"positionSources", nil, "moduleName:string path:string"},
     {"modules", 256, "name:string path:string chunk:ref:catalog"},
-    {"constants", nil, "kind:enum:constantKinds"},
+    {"constants", nil, "kind:enum:constantKinds payload:string"},
     {"operations", nil, "opcode:enum:operations argsFirst:span:words:argsCount:1048576"},
     {"edges", nil, "argsFirst:span:words:argsCount:65536"}
 }
@@ -235,8 +236,8 @@ local wireShapes: {
 function schema.wire(): any
     local result: any = {
         magic = "NUPPCGRF",
-        version = 1,
-        profile = 1,
+        version = 2,
+        profile = 2,
         headerBytes = 48,
         directoryBytes = 32,
         fileLimit = 67108864,
@@ -246,7 +247,12 @@ function schema.wire(): any
         sections = {},
         ownerKinds = {{id = 0, name = "module"}, {id = 1, name = "function"}},
         signatureKinds = {{id = 0, name = "initializer"}, {id = 1, name = "callable"}},
-        constantKinds = {{id = 0, name = "nil"}, {id = 1, name = "true"}, {id = 2, name = "false"}},
+        constantKinds = {
+            {id = 0, name = "nil"},
+            {id = 1, name = "true"},
+            {id = 2, name = "false"},
+            {id = 3, name = "str"}
+        },
         header = {},
         directory = {}
     }

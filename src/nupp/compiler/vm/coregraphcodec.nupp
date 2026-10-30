@@ -202,7 +202,7 @@ local function flatten(p: any, wire: any): any
             add("values", {slot = g.slots[index]})
         end
         for _, constant in ipairs(g.constants) do
-            add("constants", {kind = constantIds[constant.kind]})
+            add("constants", {kind = constantIds[constant.kind], payload = stringId(constant.value)})
         end
         for _, position in ipairs(g.positions) do
             local source = NONE
@@ -515,7 +515,10 @@ local function inflate(tables: any, entry: integer, wire: any): any
             local constant = tables.constants[row.constantsFirst + at]
             g.constants[
                 at
-            ] = {kind = need(wire.constantKinds[constant.kind + 1], "unknown constant kind").name, value = ""}
+            ] = {
+                kind = need(wire.constantKinds[constant.kind + 1], "unknown constant kind").name,
+                value = stringAt(constant.payload)
+            }
         end
         claim("positions", row.positionsFirst, row.positionsCount, 1048576)
         for at = 1, row.positionsCount do

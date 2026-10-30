@@ -1,7 +1,5 @@
 module nupp.core.catalogmodulemain
 
-local function identity(value: boolean): boolean
-    return value
-end
+local prefix = require("nupp.core.catalogmoduleprefix")
 
-export = identity(true)
+export = prefix

@@ -23,3 +23,4 @@ export const ORIGINAL_ROOT: int64 = 80
 export const ROOT_SERIAL: int64 = 88
 export const WORLD: int64 = 96
 export const ERROR_OWNER: int64 = 104
+export const MODULE_ORDINAL: int64 = 112

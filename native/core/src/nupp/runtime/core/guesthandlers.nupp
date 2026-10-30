@@ -11,7 +11,7 @@ const ops = require("nupp.runtime.core.guestops")
 -- The closed checked producer binds these program/slot reads to corebytecode's
 -- canonical opcode recipes and its retained complete graph-derived byte stream.
 -- Dispatch begins only with real entry-owned State/Frame/window/code facts.
--- RetNil, imported modules, callbacks and escaping closure handles are refused.
+-- RetNil, callbacks and escaping closure handles are refused.
 
 export function K(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
     if ops.current(ctx, frame, pc) == 0ULL then
@@ -29,6 +29,46 @@ export function K(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ct
         return native.fail()
     end
     local value = ops.constant(ctx, frame, pc, native.word(index))
+    if value == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    slots.writeValue(frame, regs, dst, value)
+    local nextPC = ops.branch(ctx, frame, pc, 0)
+    if nextPC == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+
+    return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
+end
+
+export function Require(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    if ops.charge(ctx, frame, pc) ~= 1ULL then
+        return native.fail()
+    end
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local dst = program.readByte(pc, 1)
+    local target = program.readSigned32(pc, 4)
+    if native.word(dst) >= native.load64(frame, native.fieldOffset<frames.Frame>("valueCount")) then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if target < 0 then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local value = ops.moduleValue(ctx, frame, pc, native.word(target))
     if value == 0ULL then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()

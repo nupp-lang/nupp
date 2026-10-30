@@ -135,8 +135,8 @@ function M.descriptorDrivenLayoutHasExactStridesAndHeader()
     end
     local bytes = codec.encode(fixture())
     test.equal(bytes:sub(1, 8), "NUPPCGRF")
-    test.equal(read(bytes, 8), 1)
-    test.equal(read(bytes, 12), 1)
+    test.equal(read(bytes, 8), 2)
+    test.equal(read(bytes, 12), 2)
     test.equal(read(bytes, 16), 18)
     test.equal(read(bytes, 24), #bytes)
     test.equal(read(bytes, 28), 0)
@@ -275,7 +275,7 @@ function M.headerDirectoryAndHighLimbsRefuseBeforeExpansion()
             "high limb"
         )
     end
-    for _, change in ipairs({{8, 2}, {12, 2}, {16, 19}, {24, #bytes - 1}, {32, 1}, {40, 56}, {48, 1}, {52, 8}}) do
+    for _, change in ipairs({{8, 1}, {12, 1}, {16, 19}, {24, #bytes - 1}, {32, 1}, {40, 56}, {48, 1}, {52, 8}}) do
         refuses(function()
             codec.decode(patch(bytes, change[1], change[2]))
         end)
@@ -368,18 +368,22 @@ function M.descriptorsAndCapabilitiesAreNotSerializedAuthority()
         "canonical schema"
     )
     local bytes = codec.encode(fixture())
+    local decoded = codec.decode(bytes)
+    test.equal(decoded.schema.operations[5].id, 4)
+    test.equal(decoded.schema.operations[5].name, "Closure")
     for _, change in ipairs({
         {"schema", "capabilities", 1},
         {"schema", "returns", 0},
-        {"operations", "opcode", 4},
+        {"operations", "opcode", 5},
         {"operations", "cert", 1},
         {"terms", "kind", 4},
         {"values", "class", 1},
-        {"constants", "payload", 1}
+        {"constants", "payload", 4294967295}
     }) do
-        refuses(function()
+        local ok = pcall(function()
             codec.decode(patch(bytes, field(bytes, change[1], 1, change[2]), change[3]))
         end)
+        test.equal(ok, false, change[1] .. "." .. change[2])
     end
 end
 

@@ -111,6 +111,19 @@ local function derive(g: any, catalog: any): any
                     emit({"K", physical(dst), args[1]}, position)
                     yield nil
                 end
+                case "Require" -> do
+                    local constant = need(g.constants[args[1] + 1], "require name index differs")
+                    need(constant.kind == "str", "require needs a static module name")
+                    local target
+                    for _, module in ipairs(catalog.modules) do
+                        if module.name == constant.value then
+                            target = module.chunk
+                        end
+                    end
+                    need(target ~= nil and target < g.programOwner, "forward or cyclic require is unsupported")
+                    emit({"Require", physical(dst), target}, position)
+                    yield nil
+                end
                 case "Nil" -> do
                     emit({"Nil", physical(dst)}, position)
                     yield nil

@@ -17,6 +17,8 @@ const values = require("nupp.runtime.vm.values")
 -- Calls are serialized; these publication stores are not a concurrent protocol.
 export struct World
     next: uint64
+    moduleValue: uint64
+    modulePhase: uint64
 end
 
 export struct Registry
@@ -95,7 +97,10 @@ export function initializeWorld(world: voidptr): uint64
     if range(native.address(world), native.sizeOf<World>()) == 0ULL then
         return 0ULL
     end
-    if native.load64(world, native.fieldOffset<World>("next")) ~= 0ULL then
+    if native.load64(world, native.fieldOffset<World>("next")) ~= 0ULL
+        or native.load64(world, native.fieldOffset<World>("moduleValue")) ~= 0ULL
+        or native.load64(world, native.fieldOffset<World>("modulePhase")) ~= 0ULL
+    then
         return 0ULL
     end
     native.store64(world, native.fieldOffset<World>("next"), 1ULL)

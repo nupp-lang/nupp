@@ -132,7 +132,12 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
         nextCall += #fn.calls
         word((targetOffset + (index - 1) * 8) as integer, owner.id)
         for ci, constant in ipairs(fn.constants) do
-            word((constantOffsets[index] + (ci - 1) * 8) as integer, assert(constants[constant.kind]))
+            -- A static module name is checked in the graph and encoded as a
+            -- target owner in Require. It has no runtime value-pool payload.
+            word(
+                (constantOffsets[index] + (ci - 1) * 8) as integer,
+                assert(constants[constant.kind] or constant.kind == "str" and constants["nil"])
+            )
         end
         for byte = 1, #fn.code do
             bytes[codeOffsets[index] + byte] = fn.code:byte(byte)
