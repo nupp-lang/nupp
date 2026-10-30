@@ -50,7 +50,7 @@ local collision = declarations.binding(
     )
 )
 assert(not pcall(codec.encode, codec, collision, source))
-assert(debug.render(public, source) == 'User { userId = 42, displayName = "Ada" }')
+assert(debug.render(public, source) == 'User { userId = 42LL, displayName = "Ada" }')
 assert(codec:encode(declarations.binding(User), source):find('"sessionToken":"secret"', 1, true))
 
 local record Event

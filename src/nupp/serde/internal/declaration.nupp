@@ -128,7 +128,7 @@ local record Scalar is core.Adapter<unknown, Member>
         elseif kind == "integer" then
             local decimal: string
             if self.description.width == 64 then
-                decimal = carrier.format(value)
+                decimal = carrier.format(value, self.description.signed == true)
             else
                 decimal = ("%.0f"):format((value as number) + 0)
             end
@@ -741,7 +741,8 @@ resolve = function(graph: Graph, index: integer, member: Member): core.Adapter<u
             or kind == "int16"
             or kind == "uint16"
             or kind == "int32"
-            or kind == "uint32",
+            or kind == "uint32"
+            or kind == "int64",
             "ISO epoch-seconds mapping requires a Lua integer carrier"
         )
     end
@@ -868,7 +869,7 @@ resolve = function(graph: Graph, index: integer, member: Member): core.Adapter<u
         end
         if member.representation == "iso8601Seconds" then
             assert(
-                kind == "int64" or scalar == "integer" and width ~= 64,
+                kind == "integer" or kind == "int64" or scalar == "integer" and width ~= 64,
                 "ISO epoch-seconds mapping requires a Lua integer carrier"
             )
             link.target = new EpochSeconds(description = new Description(member = member, kind = "timestamp"))

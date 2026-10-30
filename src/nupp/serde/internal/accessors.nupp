@@ -27,8 +27,10 @@ local function checkValue(info: nupp.reflect.Info, index: integer, value: any, p
         return type(value) == kind
     elseif kind == "number" then
         return type(value) == "number"
-    elseif kind == "float" then
+    elseif kind == "float32" then
         return type(value) == "number" and (value ~= value or nupp.math.f32.narrow(value) == value)
+    elseif kind == "float64" then
+        return type(value) == "number"
     elseif kind == "integer"
         or kind == "int32"
         or kind == "uint32"
@@ -170,7 +172,8 @@ local function checkable(info: nupp.reflect.Info, index: integer, seen: {[intege
         or kind == "string"
         or kind == "boolean"
         or kind == "number"
-        or kind == "float"
+        or kind == "float32"
+        or kind == "float64"
         or kind == "integer"
         or kind == "literal"
         or kind == "table"

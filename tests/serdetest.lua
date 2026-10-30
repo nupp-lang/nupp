@@ -69,7 +69,7 @@ return (new Parent(
 ]=]
     )
     local expected = 'Parent { first = Child { label = "a" }, rest = {Child { label = "b" }}, '
-        .. 'pair = {Child { label = "c" }, 1}, byName = {["only"] = Child { label = "d" }} }'
+        .. 'pair = {Child { label = "c" }, 1LL}, byName = {["only"] = Child { label = "d" }} }'
     assert(result == expected, result)
 end
 

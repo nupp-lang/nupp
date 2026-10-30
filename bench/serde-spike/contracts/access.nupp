@@ -119,7 +119,7 @@ assert(
 
 local struct Point
     x: int32
-    y: float
+    y: float32
 end
 local point = access.access(Point)
 local position = point:begin()

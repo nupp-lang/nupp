@@ -26,11 +26,11 @@ local function multiply(digits: string, byte: integer): string
     for index = #digits, 1, -1 do
         local value = (assert(digits:byte(index)) - 48) * 256 + carry
         result[#result + 1] = string.char(value % 10 + 48)
-        carry = math.floor(value / 10)
+        carry = assert(math.tointeger(math.floor(value / 10)))
     end
     while carry > 0 do
         result[#result + 1] = string.char(carry % 10 + 48)
-        carry = math.floor(carry / 10)
+        carry = assert(math.tointeger(math.floor(carry / 10)))
     end
 
     return table.concat(result):reverse()
@@ -41,7 +41,7 @@ local function complement(bytes: {integer}): nil
     for index = #bytes, 1, -1 do
         local value = 255 - bytes[index] + carry
         bytes[index] = value % 256
-        carry = math.floor(value / 256)
+        carry = assert(math.tointeger(math.floor(value / 256)))
     end
 end
 

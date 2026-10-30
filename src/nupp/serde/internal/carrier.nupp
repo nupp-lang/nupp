@@ -19,7 +19,10 @@ export function isInteger(kind: string, value: any): boolean
         return value is int64
     end
 
-    return value is uint64
+    -- The interim VM erases unsigned high-bit integers to signed integer bits.
+    -- The schema supplies signedness when a value crosses this boundary.
+
+    return value is uint64 or value is int64 and value < 0
 end
 
 --- Whether a value is a native value of a struct declaration.
@@ -53,15 +56,24 @@ export function parse(decimal: string, signed: boolean): any
     return result
 end
 
+local function unsignedDecimal(borrows value: uint64): string
+    local bits: uint64 = value | 0ULL
+    return tostring(bits)
+end
+
 --- Writes an exact 64-bit integer as decimal digits.
 --- @param value the integer
-export function format(borrows value: unknown): string
+--- @param signed whether the carrier is `int64`
+export function format(borrows value: unknown, signed: boolean): string
+    if not signed then
+        return unsignedDecimal(value as uint64)
+    end
     -- A boxed integer prints its digits; a double that holds one exactly may
     -- print in exponent form, and every digit `%.0f` writes for it is exact.
-    local text = tostring(value)
+    local text = tostring(value as int64)
     if text:find("[eE.]") then
         return ("%.0f"):format((value as number) + 0)
     end
 
-    return text
+    return (text:gsub("[Uu]?[Ll][Ll]$", ""))
 end

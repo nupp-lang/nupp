@@ -21,7 +21,7 @@ local function word(value: integer, size: integer): string
     local bytes: {string} = {}
     for index = size, 1, -1 do
         bytes[index] = string.char(value % 256)
-        value = math.floor(value / 256)
+        value = assert(math.tointeger(math.floor(value / 256)))
     end
 
     return table.concat(bytes)

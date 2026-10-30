@@ -115,5 +115,5 @@ assert(
     debug.render(
         declarations.binding(MapOwner),
         new MapOwner(values = {[2] = "two", [10] = "ten"})
-    ) == 'MapOwner { values = {[10] = "ten", [2] = "two"} }'
+    ) == 'MapOwner { values = {[10LL] = "ten", [2LL] = "two"} }'
 )
