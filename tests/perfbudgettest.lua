@@ -115,6 +115,7 @@ function M.theProjectWalkNeverListsTheOutputDirectory()
         )
     end
     assert(#listed > 0, "the walk was observed")
+
     local function has(list, suffix)
         for _, path in ipairs(list) do
             if path:sub(-#suffix) == suffix then
@@ -124,6 +125,7 @@ function M.theProjectWalkNeverListsTheOutputDirectory()
 
         return false
     end
+
     assert(has(result.project, "/src/main.nupp") and has(result.project, "/top.nupp"), "the sources are listed")
     assert(has(result.sources, "/src/main.nupp"), "the include root is listed")
     assert(not has(result.project, "stray.nupp") and not has(result.sources, "stray.nupp"), "build output is not")
@@ -141,13 +143,17 @@ end
 -- struct, and since 765713656 a struct's declaration carries its C layout,
 -- built once in the module chunk (about 210 instructions for aos's Particle),
 -- not in the timed functions.
+-- Numeric-for's overflow-safe lowering at 4c0bf1508 handles zero steps,
+-- both directions and integer/float operands. A pinned historical compiler
+-- measured frames 40 -> 62, presize 97 -> 145, soa 744 -> 1075, and
+-- trivia-record 243 -> 315. These four ceilings keep the same ~10% margin.
 local BYTECODE = {
     ["aos"] = 508,
-    ["frames"] = 45,
+    ["frames"] = 69,
     ["optparser"] = 685,
-    ["presize"] = 108,
-    ["soa"] = 818,
-    ["trivia-record"] = 272,
+    ["presize"] = 160,
+    ["soa"] = 1183,
+    ["trivia-record"] = 347,
 }
 
 function M.theBenchmarkProgramsStayWithinTheirBytecodeBudgets()
@@ -174,11 +180,9 @@ function M.theBenchmarkProgramsStayWithinTheirBytecodeBudgets()
             total = total + #fn.instructions
         end
         if total > budget then
-            failures[#failures + 1] = ("%s compiles to %d instructions, over its budget of %d"):format(
-                file,
-                total,
-                budget
-            )
+            failures[
+                #failures + 1
+            ] = ("%s compiles to %d instructions, over its budget of %d"):format(file, total, budget)
         end
     end
     assert(#failures == 0, table.concat(failures, "\n"))
@@ -197,11 +201,9 @@ local function moduleGraph(dir, count)
         end
         lines[#lines + 1] = ""
         lines[#lines + 1] = ("export record R%d\n    a: number\n    b: string\nend\n"):format(i)
-        lines[#lines + 1] = ("export function make(a: number): R%d\n    return new R%d(a = a, b = \"m%d\")\nend\n"):format(
-            i,
-            i,
-            i
-        )
+        lines[
+            #lines + 1
+        ] = ("export function make(a: number): R%d\n    return new R%d(a = a, b = \"m%d\")\nend\n"):format(i, i, i)
         lines[#lines + 1] = "export function score(x: number): number"
         lines[#lines + 1] = "    local total = x"
         for j in pairs(seen) do
@@ -259,15 +261,16 @@ function M.theCheckerAllocatesPerModuleNotPerProject()
     local large = checkerAllocation(40) / 40
     assert(
         large <= ALLOCATION_PER_MODULE,
-        ("checking allocates %.0f KB a module, over the budget of %.0f KB"):format(
-            large / 1024,
-            ALLOCATION_PER_MODULE / 1024
-        )
+        (
+            "checking allocates %.0f KB a module, over the budget of %.0f KB"
+        ):format(large / 1024, ALLOCATION_PER_MODULE / 1024)
     )
     assert(
         large / small <= ALLOCATION_GROWTH,
-        ("a module costs %.0f KB to check in a project of ten and %.0f KB in a project of forty: "
-            .. "the checker's work is growing with the project"):format(small / 1024, large / 1024)
+        (
+            "a module costs %.0f KB to check in a project of ten and %.0f KB in a project of forty: "
+            .. "the checker's work is growing with the project"
+        ):format(small / 1024, large / 1024)
     )
 end
 
@@ -318,7 +321,7 @@ function M.aStampedHelloWorldStaysSmall()
     writeFile(
         dir .. "/nupp.lua",
         'return {include = {"src"}, build = {default = "app", targets = {app = {\n'
-            .. '   kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",\n}}}}\n'
+        .. '   kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",\n}}}}\n'
     )
     writeFile(dir .. "/src/main.nupp", 'print("hello")\n')
     local out = run(dir, "build")
@@ -339,7 +342,7 @@ function M.aVectorProgramRunsFromItsBinary()
     writeFile(
         dir .. "/nupp.lua",
         'return {include = {"src"}, build = {default = "app", targets = {app = {\n'
-            .. '   kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",\n}}}}\n'
+        .. '   kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",\n}}}}\n'
     )
     writeFile(
         dir .. "/src/main.nupp",
