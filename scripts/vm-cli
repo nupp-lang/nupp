@@ -25,7 +25,7 @@ def digest(path):
         return result.hexdigest()
 
 
-def source_state():
+def source_state(excluded_prefixes=()):
     try:
         revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, stderr=subprocess.DEVNULL, text=True).strip()
     except subprocess.CalledProcessError:
@@ -39,11 +39,22 @@ def source_state():
         return {"revision": None, "fingerprint": None}
     state = hashlib.sha256()
     for name in sorted(filter(None, paths)):
+        if name.startswith(excluded_prefixes):
+            continue
         path = ROOT / os.fsdecode(name)
         state.update(name + b"\0")
         state.update(path.read_bytes() if path.is_file() else b"<missing>")
         state.update(b"\0")
     return {"revision": revision, "fingerprint": state.hexdigest()}
+
+
+def runtime_source_state():
+    """The frozen runtime lowers src with native/crates VM libraries/declarations.
+    Cargo's glue workspace also lives in native/crates. The independent native/core
+    implementation, tests and receipts are not inputs to this build. Keep CLI
+    freshness broader, and retain every other source/configuration input here.
+    """
+    return source_state((b"native/core/",))
 
 
 def selected():
@@ -429,6 +440,7 @@ def build_from(args, out, target, image):
 
 
 NATIVE_OUT = ROOT / "build/native-runtime"
+NATIVE_ARTIFACTS = ("runtime.clif", "runtime.o", "runtime.o.rs")
 # What the lowering needs beside itself when it runs as a small image of its own.
 LOWERING_EXTRAS = ",".join([
     "nupp.compiler.hostservices", "nupp.compiler.fs", "nupp.compiler.project.projectconfig",
@@ -520,16 +532,17 @@ def runtime(args):
     out = NATIVE_OUT
     target = ROOT / "build/rust/target"
     pair = execution_seed()
-    source = source_state()["fingerprint"]
+    source = runtime_source_state()["fingerprint"]
     key = {"source": source, "seed": digest(pair / "manifest.json")}
     receipt_file = out / "source.json"
-    if getattr(args, "reuse", False) and not args.link:
+    if source is not None and getattr(args, "reuse", False) and not args.link:
         try:
             receipt = json.loads(receipt_file.read_text())
-            if receipt["inputs"] == key and all(digest(out / name) == sha for name, sha in receipt["artifacts"].items()):
+            if (receipt["inputs"] == key and set(receipt["artifacts"]) == set(NATIVE_ARTIFACTS)
+                    and all(digest(out / name) == receipt["artifacts"][name] for name in NATIVE_ARTIFACTS)):
                 print(out / "runtime.o")
                 return
-        except (OSError, ValueError, KeyError):
+        except (OSError, ValueError, KeyError, TypeError):
             pass
     glue = cargo("aot", target)
     image = lowering_image(out, target, None if args.no_cache else out / "emit-cache")
@@ -537,7 +550,7 @@ def runtime(args):
     # this newly emitted image, with matching-image AOT disabled.
     obj = native_runtime_object(pair / "runtime", image, out, target, glue)
     receipt_file.write_text(json.dumps({"inputs": key, "artifacts": {
-        name: digest(out / name) for name in ("runtime.clif", "runtime.o", "runtime.o.rs")
+        name: digest(out / name) for name in NATIVE_ARTIFACTS
     }}, indent=2) + "\n")
     print(obj)
     if args.link:

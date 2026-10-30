@@ -524,4 +524,138 @@ print('CACHE_WRAPPER_OK')
     remove(dir)
 end
 
+function M.runtimeCacheExcludesOnlyIndependentCoreAndVerifiesEveryArtifact()
+    local dir, plant = plantedTree()
+    assert(os.execute(("cp '%s/scripts/vm-cli' '%s/scripts/vm-cli'"):format(ROOT, dir)) == 0)
+    plant(
+        "runtime-cache-control.py",
+        [=[
+import contextlib, io, json, runpy, subprocess
+from pathlib import Path
+from types import SimpleNamespace
+root = Path.cwd()
+fixtures = {
+    'src/runtime-input.nupp': 'runtime source',
+    'native/crates/vm/src/input.rs': 'Rust glue',
+    'native/core/tests/receipt.json': 'independent core receipt',
+    'scripts/runtime-input': 'build script',
+    'Cargo.toml': 'workspace',
+    'Cargo.lock': 'locked dependencies',
+    'rust-toolchain.toml': 'pinned toolchain',
+    '.cargo/config.toml': 'Rust configuration',
+}
+for name, contents in fixtures.items():
+    path = root / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(contents)
+subprocess.run(['git', 'init', '-q'], check=True)
+subprocess.run(['git', 'add', 'src', 'native', 'scripts', 'bin', 'templates',
+                'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.cargo'], check=True)
+module = runpy.run_path('scripts/vm-cli', run_name='runtime_cache_test')
+runtime = module['runtime']
+state = module['source_state']
+runtime_state = module['runtime_source_state']
+digest = module['digest']
+out = root / 'build/native-runtime'
+out.mkdir(parents=True)
+seed = root / 'seed'
+seed.mkdir()
+(seed / 'manifest.json').write_text('verified seed fixture')
+class CacheMiss(Exception):
+    pass
+def stop_before_build(*args, **kwargs):
+    raise CacheMiss()
+runtime.__globals__['execution_seed'] = lambda: seed
+runtime.__globals__['cargo'] = stop_before_build
+args = SimpleNamespace(reuse=True, link=False, no_cache=False)
+artifacts = ('runtime.clif', 'runtime.o', 'runtime.o.rs')
+def receipt():
+    for name in artifacts:
+        (out / name).write_text('artifact fixture: ' + name)
+    value = {'inputs': {'source': runtime_state()['fingerprint'],
+                        'seed': digest(seed / 'manifest.json')},
+             'artifacts': {name: digest(out / name) for name in artifacts}}
+    (out / 'source.json').write_text(json.dumps(value))
+    return value
+def reuse(expected):
+    captured = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(captured):
+            runtime(args)
+    except CacheMiss:
+        assert not expected, 'matching runtime unexpectedly rebuilt'
+    else:
+        assert expected, 'changed input or invalid output was reused'
+        assert captured.getvalue().strip() == str(out / 'runtime.o')
+receipt()
+reuse(True)
+base_cli, base_runtime = state()['fingerprint'], runtime_state()['fingerprint']
+core = root / 'native/core/tests/receipt.json'
+core.write_text('changed independent receipt')
+assert state()['fingerprint'] != base_cli, 'CLI freshness lost native/core'
+assert runtime_state()['fingerprint'] == base_runtime
+reuse(True)
+core.unlink()
+assert state()['fingerprint'] != base_cli
+assert runtime_state()['fingerprint'] == base_runtime
+reuse(True)
+core.write_text(fixtures['native/core/tests/receipt.json'])
+addition = root / 'native/core/new-input.nupp'
+addition.write_text('untracked independent core source')
+assert state()['fingerprint'] != base_cli
+assert runtime_state()['fingerprint'] == base_runtime
+reuse(True)
+addition.unlink()
+assert state()['fingerprint'] == base_cli
+# Every other previously keyed input remains keyed, including seed contents.
+for name in fixtures:
+    if name.startswith('native/core/'):
+        continue
+    path = root / name
+    original = path.read_bytes()
+    path.write_bytes(original + b' changed')
+    assert runtime_state()['fingerprint'] != base_runtime, name
+    reuse(False)
+    path.write_bytes(original)
+    reuse(True)
+manifest = seed / 'manifest.json'
+original = manifest.read_bytes()
+manifest.write_bytes(original + b' changed')
+reuse(False)
+manifest.write_bytes(original)
+reuse(True)
+for name in artifacts:
+    receipt()
+    (out / name).write_text('corrupt output')
+    reuse(False)
+    receipt()
+    (out / name).unlink()
+    reuse(False)
+    value = receipt()
+    del value['artifacts'][name]
+    (out / 'source.json').write_text(json.dumps(value))
+    reuse(False)
+value = receipt()
+value['artifacts']['unrelated'] = 'not a build artifact'
+(out / 'source.json').write_text(json.dumps(value))
+reuse(False)
+for malformed in ([], {'inputs': receipt()['inputs'], 'artifacts': None}):
+    (out / 'source.json').write_text(json.dumps(malformed))
+    reuse(False)
+value = receipt()
+value['inputs']['source'] = None
+(out / 'source.json').write_text(json.dumps(value))
+runtime.__globals__['runtime_source_state'] = lambda: {'fingerprint': None}
+reuse(False)
+runtime.__globals__['runtime_source_state'] = runtime_state
+receipt()
+reuse(True)
+print('RUNTIME_CACHE_SCOPE_OK')
+]=]
+    )
+    local output = capture(("cd '%s' && python3 runtime-cache-control.py 2>&1"):format(dir))
+    assert(output:find("RUNTIME_CACHE_SCOPE_OK", 1, true), output)
+    remove(dir)
+end
+
 return M
