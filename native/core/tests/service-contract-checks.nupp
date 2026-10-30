@@ -51,8 +51,8 @@ function M.check(build: any): nil
                 -- Reusing an actually issued term does not mint a dominating
                 -- error fact. Keep its graph identity, remove entry effects.
                 local entry = g.blocks[1]
-                local saved = {op = entry.op, args = entry.args, dst = entry.dst, type = entry.type, term = entry.term}
-                entry.op, entry.args, entry.dst, entry.type, entry.term = {}, {}, {}, {}, original
+                local saved = {op = entry.op, args = entry.args, dst = entry.dst, term = entry.term}
+                entry.op, entry.args, entry.dst, entry.term = {}, {}, {}, original
                 refuses(
                     function(): nil
                         service.verifyScope(g)
@@ -63,11 +63,30 @@ function M.check(build: any): nil
                     entry[key] = value
                 end
             end
+            -- Only the generated hidden-scope guard protects this call's
+            -- result. A later source call can have its own unrelated branch.
             for index, op in ipairs(block.op) do
                 if op == "NativeLeafCall"
                     and block.dst[index] ~= 0
                     and block.term.kind == "branch"
                     and #block.op == index + 4
+                    and block.op[index + 1] == "NativeConstant"
+                    and block.args[index + 1][1] == tostring(service.layout({g = g}).offsets.error)
+                    and block.op[index + 2] == "NativeLoad"
+                    and block.args[index + 2][2] == block.dst[index + 1]
+                    and block.args[index + 2][3].kind == "uint64"
+                    and block.args[index + 2][3].width == 8
+                    and block.args[index + 2][3].signed == false
+                    and block.args[index + 2][3].write == false
+                    and g.exactTypes[block.dst[index + 2]] == "uint64"
+                    and block.op[index + 3] == "NativeConstant"
+                    and block.args[index + 3][1] == "0"
+                    and g.exactTypes[block.dst[index + 3]] == "uint64"
+                    and block.op[index + 4] == "NativeICmp"
+                    and block.args[index + 4][1] == block.dst[index + 2]
+                    and block.args[index + 4][2] == block.dst[index + 3]
+                    and block.args[index + 4][3] == "=="
+                    and block.term.value == block.dst[index + 4]
                 then
                     local declaration = block.args[index][1]
                     if declaration.service then
@@ -85,7 +104,7 @@ function M.check(build: any): nil
                 end
             end
         end
-        service.verifyScope(g)
+        graph.verify(g)
     end
     assert(failures > 0, "combined source closure did not exercise literal failure")
     assert(guardedResults > 0, "combined source closure did not exercise guarded scalar result")
