@@ -1446,7 +1446,8 @@ function M.stringMethods()
 end
 
 function M.mathAndBit()
-    assertClean("local i: integer = math.floor(1.7)")
+    assertClean("local n: number = math.floor(1.7)")
+    testAssert.equal((diagsOf("local i: integer = math.floor(1.7)")), "NUPP2001:1")
     assertClean("local n: number = math.max(1, 2, 3)")
     assertClean("local i: integer = bit.band(0xFF, 0x0F)")
     assertClean("local a, b, c = bit.band(1), bit.bor(1), bit.bxor(1)")
