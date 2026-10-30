@@ -63,7 +63,7 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
     local executable = source.executable
     local moduleCount = #executable.initializers
     assert(moduleCount >= 1 and moduleCount <= 2 and executable.initializers[moduleCount] == executable.entry)
-    local descriptorLayout = source.executable.semantic.schema.version == 3 and layouts.Descriptor
+    local descriptorLayout = source.executable.semantic.schema.version >= 3 and layouts.Descriptor
         or moduleCount == 1 and layouts.DescriptorV1
         or layouts.Descriptor
     local catalogOffset = align(layouts.Storage.size)

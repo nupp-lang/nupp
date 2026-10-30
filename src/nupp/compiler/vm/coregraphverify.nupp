@@ -285,6 +285,11 @@ function verify.resultKind(g: any, signature: any, output: any): string
                     "number addition needs numeric operands"
                 )
                     and "number"
+                case "Lt" -> need(
+                    kinds[args[1]] == "number" and kinds[args[2]] == "number",
+                    "number less-than needs numeric operands"
+                )
+                    and "boolean"
                 case "Nil" -> "nil"
                 case "Move" -> need(kinds[args[1]], "unresolved scalar move")
                 case "Closure" -> do
@@ -305,7 +310,7 @@ function verify.resultKind(g: any, signature: any, output: any): string
             -- value; it is never rewritten to a native zero-result ABI.
             local kind = term.value and need(kinds[term.value], "unresolved return") or "nil"
             need(
-                kind == "boolean" or kind == "nil" or output.schema.version == 3 and kind == "number",
+                kind == "boolean" or kind == "nil" or output.schema.version >= 3 and kind == "number",
                 "unsupported scalar return"
             )
             need(returned == nil or returned == kind, "incompatible scalar returns")
@@ -360,8 +365,8 @@ end
 -- come from the bounded decoder or the full semantic tree-budget preflight.
 function verify.catalog(p: any): any
     fields(p, "schema entry modules catalog signatures graphs contracts")
-    need(p.schema.version == 2 or p.schema.version == 3, "unknown source graph profile")
-    same(p.schema, schema.describe(p.schema.version == 3))
+    need(p.schema.version == 2 or p.schema.version == 3 or p.schema.version == 4, "unknown source graph profile")
+    same(p.schema, schema.describe(p.schema.version >= 3, p.schema.version == 4))
     local count = dense(p.catalog, 256)
     need(count > 0 and dense(p.graphs, 256) == count, "complete semantic graph table required")
     local moduleCount = dense(p.modules, 256)
@@ -387,13 +392,13 @@ function verify.catalog(p: any): any
         need(
             signature.result == "boolean"
             or signature.result == "nil"
-            or p.schema.version == 3 and signature.result == "number",
+            or p.schema.version >= 3 and signature.result == "number",
             "unsupported scalar result"
         )
         dense(signature.params, 239)
         for _, kind in ipairs(signature.params) do
             need(
-                kind == "boolean" or kind == "nil" or p.schema.version == 3 and kind == "number",
+                kind == "boolean" or kind == "nil" or p.schema.version >= 3 and kind == "number",
                 "unsupported scalar parameter"
             )
         end
@@ -430,7 +435,7 @@ function verify.catalog(p: any): any
             need(modulesByOwner[ancestor.id] ~= nil, "foreign lexical root")
         end
         local g = p.graphs[index]
-        verify.copyGraph(g, p.schema.version == 3)
+        verify.copyGraph(g, p.schema.version >= 3)
         need(g.programOwner == owner.id and g.nparams == #signature.params, "graph owner/signature differs")
         local ancestor, remaining = owner, count
         while ancestor.kind ~= "module" do

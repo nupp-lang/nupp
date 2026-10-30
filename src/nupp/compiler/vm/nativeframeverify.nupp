@@ -214,6 +214,15 @@ function verifier.verify(g: any, calls: any, entry: any?): nil
                     result = raw(dst)
                     yield nil
                 end
+                case "NativeFCmp" -> do
+                    need(g.exactTypes[dst] == "boolean", "floating comparison result is not boolean")
+                    alive(state, value(state, args[1]))
+                    alive(state, value(state, args[2]))
+                    -- A scalar comparison does not establish frame or catalog
+                    -- authority.
+                    result = raw(dst)
+                    yield nil
+                end
                 case "NativeICmp" -> do
                     local left, right = value(state, args[1]), value(state, args[2])
                     alive(state, left, true)

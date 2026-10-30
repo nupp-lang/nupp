@@ -148,7 +148,7 @@ local function valid(data: voidptr, bytes: uint64): uint64
     end
     local version = native.load64(data, native.fieldOffset<DescriptorV1>("version"))
     local headerBytes = native.sizeOf<DescriptorV1>()
-    if version == 2ULL or version == 3ULL then
+    if version == 2ULL or version == 3ULL or version == 4ULL then
         headerBytes = native.sizeOf<Descriptor>()
     elseif version ~= 1ULL then
         return 0ULL
@@ -228,7 +228,7 @@ local function valid(data: voidptr, bytes: uint64): uint64
         local parameters = native.load64(signature, native.fieldOffset<Signature>("parameterCount"))
         local result = native.load64(signature, native.fieldOffset<Signature>("resultKind"))
         if parameters > 63ULL
-            or (result ~= BOOLEAN and result ~= NIL and (version ~= 3ULL or result ~= NUMBER))
+            or (result ~= BOOLEAN and result ~= NIL and (version < 3ULL or result ~= NUMBER))
             or native.load64(signature, native.fieldOffset<Signature>("parameters")) ~= cursor
             or contains(bytes, cursor, parameters, 8ULL) == 0ULL
         then
@@ -237,7 +237,7 @@ local function valid(data: voidptr, bytes: uint64): uint64
         local p: uint64 = 0ULL
         while p < parameters do
             local kind = native.load64(data, native.index(cursor + p * 8ULL))
-            if kind ~= BOOLEAN and kind ~= NIL and (version ~= 3ULL or kind ~= NUMBER) then
+            if kind ~= BOOLEAN and kind ~= NIL and (version < 3ULL or kind ~= NUMBER) then
                 return 0ULL
             end
             p = p + 1ULL
@@ -305,7 +305,7 @@ local function valid(data: voidptr, bytes: uint64): uint64
             if value ~= values.TRUE
                 and value ~= values.FALSE
                 and value ~= values.NIL
-                and (version ~= 3ULL or scalar(NUMBER, value) == 0ULL)
+                and (version < 3ULL or scalar(NUMBER, value) == 0ULL)
             then
                 return 0ULL
             end

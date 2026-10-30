@@ -1,0 +1,15 @@
+module nupp.core.catalognumberbranch
+
+local function choose(): boolean
+    if 1.5 < 2.0 then
+        if -0.0 < 0.0 then
+            return false
+        else
+            return true
+        end
+    else
+        return false
+    end
+end
+
+export = choose()

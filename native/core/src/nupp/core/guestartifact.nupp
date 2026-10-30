@@ -29,7 +29,8 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
             calls[#calls + 1] = {owner = fn.owner, call = call}
         end
     end
-    local version = code.semantic.schema.version == 3 and 3 or (#code.initializers == 1 and 1 or 2)
+    local version = code.semantic.schema.version >= 3 and code.semantic.schema.version
+        or (#code.initializers == 1 and 1 or 2)
     local descriptorName = version == 1 and "DescriptorV1" or "Descriptor"
     local cursor = layouts[descriptorName].size
     local recordOffset = cursor
@@ -81,7 +82,7 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
     end
 
     local function kind(name: string): integer
-        assert(name == "boolean" or name == "nil" or version == 3 and name == "number", "scalar signature kind")
+        assert(name == "boolean" or name == "nil" or version >= 3 and name == "number", "scalar signature kind")
         return name == "boolean" and 1 or name == "nil" and 2 or 3
     end
 
@@ -147,7 +148,7 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
             -- target owner in Require. It has no runtime value-pool payload.
             word(
                 (constantOffsets[index] + (ci - 1) * 8) as integer,
-                constant.kind == "num" and version == 3 and floatBits(constant.value)
+                constant.kind == "num" and version >= 3 and floatBits(constant.value)
                 or assert(constants[constant.kind] or constant.kind == "str" and constants["nil"])
             )
         end

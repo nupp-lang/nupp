@@ -131,6 +131,53 @@ export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
 
+export function Lt(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local dst, lhs, rhs = program.readByte(pc, 1), program.readByte(pc, 2), program.readByte(pc, 3)
+    local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    if native.word(dst) >= count then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if native.word(lhs) >= count then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if native.word(rhs) >= count then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
+    if left & values.QNAN == values.QNAN then
+        if left ~= values.QNAN then
+            ops.fail(ctx, frame, pc, ops.INVALID)
+            return native.fail()
+        end
+    end
+    if right & values.QNAN == values.QNAN then
+        if right ~= values.QNAN then
+            ops.fail(ctx, frame, pc, ops.INVALID)
+            return native.fail()
+        end
+    end
+    slots.writeValue(
+        frame,
+        regs,
+        dst,
+        native.chooseWord(native.fromBits(left) < native.fromBits(right), values.TRUE, values.FALSE)
+    )
+    local nextPC = ops.branch(ctx, frame, pc, 0)
+    if nextPC == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+
+    return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
+end
+
 export function Nil(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
     if ops.current(ctx, frame, pc) == 0ULL then
         ops.fail(ctx, frame, pc, ops.INVALID)

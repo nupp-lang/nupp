@@ -27,7 +27,8 @@ end
 
 -- describe() supplies the semantic schema. wire() supplies physical records
 -- consumed by the host codec and generated native layout checks.
-function schema.describe(numeric: boolean?): any
+function schema.describe(numeric: boolean?, ordered: boolean?): any
+    assert(not ordered or numeric, "ordered source profile requires numbers")
     local policies = {}
     for index, policy in ipairs(operations) do
         policies[index] = policy
@@ -35,14 +36,19 @@ function schema.describe(numeric: boolean?): any
     if numeric then
         policies[#policies + 1] = {name = "Add", signature = "Vvv", effect = 0, provenance = "number"}
     end
+    if ordered then
+        policies[#policies + 1] = {name = "Lt", signature = "Vvv", effect = 0, provenance = "number"}
+    end
     local scalarKinds: any = {{id = 0, name = "boolean"}, {id = 1, name = "nil"}}
     if numeric then
         scalarKinds[#scalarKinds + 1] = {id = 2, name = "number"}
     end
     local described: any = {
         magic = "NUPPCGRF",
-        version = numeric and 3 or 2,
-        profile = numeric and "number-add-source-v3" or "boolean-nil-acyclic-import-v2",
+        version = ordered and 4 or numeric and 3 or 2,
+        profile = ordered and "number-branch-source-v4"
+        or numeric and "number-add-source-v3"
+        or "boolean-nil-acyclic-import-v2",
         byteOrder = "little",
         alignment = 8,
         absent = 4294967295,

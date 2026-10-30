@@ -122,13 +122,21 @@ local function numberType(t: any): boolean
 end
 
 function tagged.binary(ctx: any, node: any, expected: string?): integer
-    need(node.op.text == "+" and (expected == nil or expected == "tagged"), "only number addition is admitted")
-    need(numberType(node.inferredType), "number result required")
+    local operation = node.op.text
+    need(
+        (operation == "+" or operation == "<") and (expected == nil or expected == "tagged"),
+        "only number addition is admitted"
+    )
+    if operation == "+" then
+        need(numberType(node.inferredType), "number result required")
+    else
+        need(typeKind(node.inferredType) == "boolean", "boolean result required")
+    end
     need(numberType(node.lhs.inferredType), "left number required")
     need(numberType(node.rhs.inferredType), "right number required")
     local operands = ctx.operands({node.lhs, node.rhs}, {"tagged", "tagged"})
 
-    return ctx.emit(node, "Add", operands, "tagged")
+    return ctx.emit(node, operation == "+" and "Add" or "Lt", operands, "tagged")
 end
 
 function tagged.checkLogical(ctx: any, node: any): boolean

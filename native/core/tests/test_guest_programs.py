@@ -18,11 +18,13 @@ CASES = {"boolean": 0x7FFB000000000000, "nilValue": 0x7FF9000000000000,
          "branchElseif": 0x7FFB000000000000, "branchLive": 0x7FFB000000000000,
          "modulePair": 0x7FFA000000000000,
          "numberAdd": 0x4017000000000000, "numberNegativeZero": 0x8000000000000000,
-         "numberNaN": 0x7FF8000000000000}
+         "numberNaN": 0x7FF8000000000000,
+         "numberBranch": 0x7FFB000000000000}
 FIXTURES = ("catalog-boolean", "catalog-nil", "catalog-live", "catalog-fresh", "catalog-nested",
             "catalog-branch-true", "catalog-branch-false", "catalog-branch-elseif", "catalog-branch-live",
             "catalog-module-prefix", "catalog-module-main",
-            "catalog-number-add", "catalog-number-negative-zero", "catalog-number-nan")
+            "catalog-number-add", "catalog-number-negative-zero", "catalog-number-nan",
+            "catalog-number-branch")
 
 
 def sha(path):
@@ -276,7 +278,8 @@ def main():
                 code = b"".join(struct.pack("<I", word) for word in selected["words"])
                 data = bytes.fromhex(selected["dataHex"])
                 assert len(data) == selected["dataBytes"]
-                assert struct.unpack_from("<Q", data)[0] == (3 if case_name.startswith("number") else 2 if case_name == "modulePair" else 1)
+                assert struct.unpack_from("<Q", data)[0] == (4 if case_name == "numberBranch" else
+                    3 if case_name.startswith("number") else 2 if case_name == "modulePair" else 1)
                 if case_name == "boolean":
                     assert struct.unpack_from("<14Q", data) == (
                         1, 2672, 2, 0, 112, 304, 2, 352, 1, 432, 1, 2, 624, 256)
@@ -340,6 +343,31 @@ def main():
                     operand_output = out / (case + "-tagged-operand-output.bin")
                     operand_output.write_bytes(sentinel)
                     run("refuse-" + case + "-tagged-operand",
+                        [args.bridge, bad_operand, empty, operand_output], expected=1)
+                    assert operand_output.read_bytes() == sentinel
+                if case_name == "numberBranch":
+                    body = selected["programs"][-1]
+                    less_than = [index for index, instruction in enumerate(body["instructions"])
+                                 if instruction[0] == "Lt"]
+                    branches = [instruction for instruction in body["instructions"]
+                                if instruction[0] == "JmpIf"]
+                    assert len(less_than) == len(branches) == 2
+                    damaged = bytearray(data)
+                    damaged[selected["catalogOffsets"]["code"][-1] + less_than[0] * 16 + 3] = 249
+                    wrong = out / (case + "-wrong-lt-slot.bundle")
+                    wrong.write_bytes(bundle.read_bytes()[:72 + len(code)] + damaged)
+                    sentinel = b"invalid numeric comparison left output unchanged"
+                    unchanged = out / (case + "-wrong-lt-slot-output.bin")
+                    unchanged.write_bytes(sentinel)
+                    run("refuse-" + case + "-wrong-lt-slot", [args.bridge, wrong, empty, unchanged], expected=1)
+                    assert unchanged.read_bytes() == sentinel
+                    malformed = bytearray(data)
+                    struct.pack_into("<Q", malformed, selected["catalogOffsets"]["constants"][-1], CASES["boolean"])
+                    bad_operand = out / (case + "-tagged-lt-operand.bundle")
+                    bad_operand.write_bytes(bundle.read_bytes()[:72 + len(code)] + malformed)
+                    operand_output = out / (case + "-tagged-lt-operand-output.bin")
+                    operand_output.write_bytes(sentinel)
+                    run("refuse-" + case + "-tagged-lt-operand",
                         [args.bridge, bad_operand, empty, operand_output], expected=1)
                     assert operand_output.read_bytes() == sentinel
                 short = run("short-" + case, [guard_binary, "--ignored", "--exact",

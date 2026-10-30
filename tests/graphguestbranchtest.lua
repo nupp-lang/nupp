@@ -352,7 +352,7 @@ function M.loopsLogicalExpressionsAndComparisonRemainRefused()
     )
     refuses(
         function()
-            compile("if 1 < 2 then return true else return false end")
+            compile("if 1 > 2 then return true else return false end")
         end,
         "only number addition is admitted"
     )
@@ -413,6 +413,54 @@ function M.declaredModuleFixturesRetainTheirCheckedBranchBodies()
         test.equal(count, fixture[3])
         assert(result.instanceCapacity >= 1 and result.frameDepth >= 2)
     end
+end
+
+function M.checkedNumericLessThanFeedsBothBranchEdges()
+    local path = ROOT .. "/native/core/tests/catalog-number-branch.nupp"
+    local file = assert(io.open(path, "rb"))
+    local text = file:read("*a")
+    file:close()
+    local complete = compile(text, path)
+    local g = ownerGraph(complete, "choose")
+    test.equal(#terms(g, "branch"), 2)
+    local comparisons = 0
+    for _, block in ipairs(g.blocks) do
+        for _, operation in ipairs(block.op) do
+            if operation == "Lt" then
+                comparisons = comparisons + 1
+            end
+        end
+    end
+    test.equal(comparisons, 2)
+    local normalized = contracts.normalize(complete, true, true)
+    semantic.semantic(normalized)
+    local result = executable.fromChecked(complete, true, true)
+    executable.validate(result)
+    test.equal(result.version, 4)
+    local lessThan, branches = 0, 0
+    for _, body in ipairs(result.functions) do
+        for _, instruction in ipairs(body.instructions) do
+            if instruction[1] == "Lt" then
+                lessThan = lessThan + 1
+            elseif instruction[1] == "JmpIf" then
+                branches = branches + 1
+            end
+        end
+    end
+    test.equal(lessThan, 2)
+    test.equal(branches, 2)
+    refuses(
+        function()
+            contracts.normalize(complete, true)
+        end,
+        "unsupported operation Lt"
+    )
+    refuses(
+        function()
+            contracts.normalize(complete)
+        end,
+        "unsupported scalar constant"
+    )
 end
 
 return M
