@@ -1,6 +1,8 @@
 module nupp.core.heapshim
 
 local arm = require("s0.arm64")
+local literal = require("s0.literal")
+local unit = require("nupp.compiler.vm.nativeunit")
 local linker = require("nupp.core.link")
 local contract = require("nupp.compiler.vm.nativeframecontract")
 local sink = require("nupp.compiler.s0.nativegraph")
@@ -69,7 +71,11 @@ function shim.build(source: any, selected: {[string]: any}, stress: boolean, sce
         {"PageScope", rootNames[1], "Scope"},
         {"Mapping", rootNames[1], "Mapping"},
         {"EntryBacking", rootNames[5], "EntryBacking"},
-        {"Descriptor", "nupp.runtime.core.rootentry.start", "Descriptor"}
+        {"Descriptor", "nupp.runtime.core.rootentry.start", "Descriptor"},
+        {"RootStorage", "nupp.runtime.core.rootentry.start", "Storage"},
+        {"FrameState", "nupp.runtime.core.frames.finishRoot", "State"},
+        {"RootControl", "nupp.runtime.core.frames.finishRoot", "RootControl"},
+        {"RootResult", "nupp.runtime.core.frameroots.publish", "Result"}
     }) do
         local scope = assert(source.resolved[row[2]]).owner.scope
         local layout = assert(targetLayout.of(assert(scope.checkedExports.types[row[3]]), "aarch64-apple-darwin"))
@@ -79,6 +85,13 @@ function shim.build(source: any, selected: {[string]: any}, stress: boolean, sce
         end
         layouts[row[1]] = layout
     end
+
+    local entryOwner = assert(source.resolved[rootNames[3]]).owner
+    local frames = unit.ownerModule(entryOwner, "nupp.runtime.core.frames")
+    local values = unit.ownerModule(entryOwner, "nupp.runtime.vm.values")
+    local retired = assert(frames.exportedConstants.ROOT_RETIRED)
+    local nilValue = assert(values.exportedConstants.NIL)
+    local trueValue = assert(values.exportedConstants.TRUE)
 
     local function size(name: string): integer
         return assert(sizes[name], "missing checked layout size")
@@ -170,6 +183,42 @@ function shim.build(source: any, selected: {[string]: any}, stress: boolean, sce
             emit(arm.cmp_imm(64, 17, 0, 0));
             refuse(1)
         end
+    end
+
+    -- Read the retained entry state independently of the service's return code.
+    -- Any refusal keeps the backing mapped and suppresses scalar success.
+    local function completedEntry(): nil
+        local function requireWord(layout: any, field: string, expected: string): nil
+            emit(arm.ldr(8, 16, 15, checkedInteger(layout.offsets[field])))
+            local value = literal.integer(expected)
+            for half = 0, 3 do
+                local part: integer = ((value >> (half * 16)) & 65535LL) as integer
+                if half == 0 then
+                    emit(arm.movz(64, 17, part, half))
+                elseif part ~= 0 then
+                    emit(arm.movk(64, 17, part, half))
+                end
+            end
+            emit(arm.cmp_reg(64, 16, 17));
+            refuse(1)
+        end
+
+        offset(15, 19, storageOffset)
+        requireWord(layouts.Storage, "entered", "1")
+        requireWord(layouts.Storage, "completed", "1")
+        local rootOffset = storageOffset + checkedInteger(layouts.Storage.offsets.root)
+        offset(15, 19, rootOffset + checkedInteger(layouts.RootStorage.offsets.state))
+        requireWord(layouts.FrameState, "active", "0")
+        requireWord(layouts.FrameState, "depth", "0")
+        offset(15, 19, rootOffset + checkedInteger(layouts.RootStorage.offsets.root))
+        requireWord(layouts.RootControl, "frame", "0")
+        requireWord(layouts.RootControl, "phase", retired)
+        requireWord(layouts.RootControl, "count", "1")
+        requireWord(layouts.RootControl, "value", trueValue)
+        offset(15, 19, storageOffset + checkedInteger(layouts.Storage.offsets.outerResult))
+        requireWord(layouts.RootResult, "value", nilValue)
+        offset(15, 19, storageOffset + checkedInteger(layouts.Storage.offsets.innerResult))
+        requireWord(layouts.RootResult, "value", nilValue)
     end
 
     emit(arm.sub_imm(64, 31, 31, 192, 0))
@@ -287,6 +336,7 @@ function shim.build(source: any, selected: {[string]: any}, stress: boolean, sce
                 emit(arm.cmp_reg(64, 16, 17));
                 refuse(1)
             end
+            completedEntry()
         elseif scenario == "release-refusal" then
             -- A mismatched extent refuses before consuming the live token. This
             -- tests source preflight refusal, not retry after an OS unmap failure.
