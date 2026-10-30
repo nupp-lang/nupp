@@ -417,7 +417,10 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                 end
                 case "NativeConstant" -> do
                     assert(
-                        g.exactTypes[destination] == "int64" or g.exactTypes[destination] == "uint64",
+                        g.exactTypes[destination] == "int64"
+                        or g.exactTypes[destination] == "uint64"
+                        or g.exactTypes[destination] == "int32"
+                        or g.exactTypes[destination] == "uint32",
                         "S0 graph: word literal required"
                     )
                     emit("iconst", result, nil, nil, nil, "i64", 0, args[1])

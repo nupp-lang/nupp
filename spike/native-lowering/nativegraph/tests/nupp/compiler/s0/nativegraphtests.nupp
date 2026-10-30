@@ -231,8 +231,100 @@ local function builderCases(): nil
     refused("duplicate value", {1}, 1, 1, 1)
 end
 
+-- Exercise the checked physical projection, including its range verifier,
+-- before selecting the exact machine immediates in both allocation modes.
+function M.projectedLiterals(): string
+    local unit = require("nupp.compiler.vm.nativeunit")
+    local graph = require("nupp.compiler.vm.graph")
+    local specifications: any = {
+        {"int32", "-2147483648", -2147483648, {"-2147483649", "2147483648"}, "native constant exceeds int32"},
+        {"int32", "2147483647", 2147483647, {}, ""},
+        {"int32", "-1", -1, {}, ""},
+        {"uint32", "4294967295", 4294967295, {"4294967296"}, "native constant exceeds 32 bits"},
+        {"uint32", "0", 0, {"-1"}, "native uint32 constant cannot be negative"}
+    }
+    for _, specification in ipairs(specifications) do
+        local kind, text = specification[1], specification[2]
+        -- Negative projected comparison literals still refuse in the source
+        -- profile. Start from its checked zero comparison, then exercise signed
+        -- boundary values directly in the verified graph consumed by this sink.
+        local sourceText = text:sub(1, 1) == "-" and "0" or text
+        local source = "module nupp.runtime.vm.core\n"
+            .. "const native = require(\"nupp.runtime.vm.intrinsics\")\n"
+            .. "local struct Narrow\n value: "
+            .. kind
+            .. "\nend\n"
+            .. "local function read(address: uint64): uint64\n"
+            .. " local p = native.pointer(address) as Narrow*\n"
+            .. " @unsafe do\n if p.value == "
+            .. sourceText
+            .. " then return 1ULL end\n end\n"
+            .. " return 0ULL\nend\n"
+        trivia.installDefault(provider)
+        local env: any = environment.new(ROOT, {
+            cache = false,
+            nativeCompilerServices = false,
+            config = {include = {"src"}}
+        })
+        local parsed: any = parser.parse(source, CORE)
+        assert(#parsed.errors == 0, "projected literal fixture parse")
+        for _, diagnostic in ipairs((checker.check(parsed, CORE, env, {}))) do
+            assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
+        end
+        local scope: any = {name = "nupp.runtime.vm.core", path = CORE}
+        local owner = unit.functionsFrom(parsed, scope).read
+        local g = nativegraph.compile(owner, {
+            abi = "leaf",
+            physicalTarget = "aarch64-apple-darwin",
+            modules = {[scope.name] = scope}
+        })
+        local count = 0
+        for _, block in ipairs(g.blocks) do
+            for at, op in ipairs(block.op) do
+                if op == "NativeConstant" and g.exactTypes[block.dst[at]] == kind then
+                    count = count + 1
+                    assert(block.args[at][1] == sourceText, "checked projected literal text")
+                    block.args[at][1] = text
+                    graph.verify(g)
+                    local artifact = sink.compilerGraph(g, "read", owner, {})
+                    local f, found = artifact.machine, false
+                    for instruction, result in ipairs(f.result) do
+                        if result == block.dst[at] + 1 then
+                            assert(f.op[instruction] == ir.OP_ICONST and f.kind[instruction] == ir.I64)
+                            assert(f.imm[instruction] == specification[3], "projected literal bits changed")
+                            found = true
+                        end
+                    end
+                    assert(found, "projected literal lost its machine definition")
+                    for _, spill in ipairs({false, true}) do
+                        local target = selector.target()
+                        if spill then
+                            target.integerRegisters, target.floatRegisters = {}, {}
+                        end
+                        local allocation = allocate.run(f, target)
+                        assert(allocationcheck.run(f, target, allocation))
+                        assert(#selector.run(f, allocation).words > 0)
+                    end
+                    for _, invalid in ipairs(specification[4]) do
+                        block.args[at][1] = invalid
+                        local ok, message = pcall(sink.compilerGraph, g, "read", owner, {})
+                        block.args[at][1] = text
+                        assert(not ok and tostring(message):find(specification[5], 1, true), tostring(message))
+                    end
+                    block.args[at][1] = sourceText
+                end
+            end
+        end
+        assert(count == 1, "exactly one projected field comparison required")
+        graph.verify(g)
+    end
+
+    return "5 projected literals, 10 selections, 4 range refusals"
+end
+
 function M.cases(): any
     builderCases()
+    M.projectedLiterals()
     for name, source in pairs(fixtures()) do
         assert(emitter.emit(source, {name = name}) == reference.emit(source, {name = name}), "CLIF changed: " .. name)
     end
