@@ -250,6 +250,11 @@ local function publicationChecks(g: any): nil
                 local ok = pcall(service.publicationArgument, g, declaration, 2, value)
                 operation.node.args.exprs[2] = expression
                 assert(not ok, "copied publication occurrence accepted")
+                local annotation = expression.type
+                expression.type = copy(annotation)
+                ok = pcall(service.publicationArgument, g, declaration, 2, value)
+                expression.type = annotation
+                assert(not ok, "publication cast annotation substitution accepted")
                 local definition = expression.expr.token.definition
                 expression.expr.token.definition = copy(definition)
                 ok = pcall(service.publicationArgument, g, declaration, 2, value)

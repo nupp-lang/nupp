@@ -936,7 +936,7 @@ local function publicationEvidence(call: any): any
         expression.kind == "castExpr"
         and expression.expr.kind == "name"
         and expression.expr.token.definition
-        and expression.type.resolvedType.tag == "voidptr",
+        and expression.type ~= nil,
         "publication requires its original Heap address cast"
     )
     local checked = expression.expr.inferredType
@@ -953,6 +953,7 @@ local function publicationEvidence(call: any): any
 
     return {
         expression = expression,
+        annotation = expression.type,
         name = expression.expr,
         definition = expression.expr.token.definition,
         checked = checked,
@@ -973,6 +974,7 @@ local function publicationSource(g: any, declaration: any): any
     need(
         saved.graph == g
         and saved.expression == evidence.expression
+        and saved.annotation == evidence.annotation
         and saved.name == evidence.name
         and saved.definition == evidence.definition
         and saved.checked == evidence.checked
