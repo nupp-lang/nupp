@@ -595,7 +595,7 @@ local simd = require("nupp.simd")
 local big = 1e100
 local ordered = simd.reducer.orderedSum(0.0)
 local compensated = simd.reducer.compensatedSum(0.0)
-for _, value in ipairs({1, big, 1, -big}) do
+for _, value in ipairs({1.0, big, 1.0, -big}) do
     ordered:add(value)
     compensated:add(value)
 end

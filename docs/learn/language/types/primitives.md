@@ -32,7 +32,9 @@ These names, and only these, resolve as bare builtin types:
 | `table` | Any table shape; compatible with each in both directions |
 | `thread` | A coroutine |
 | `userdata` | Userdata |
-| `float` | An established binary32 Lua number; widens to `number` |
+| `float` | An IEEE binary64 float, also named `float64` |
+| `float64` | An IEEE binary64 float, also named `float` |
+| `float32` | An established binary32 Lua number; widens to `number` |
 | `cdata` | Any cdata value |
 | `cstring` | const char * |
 | `voidptr` | void * |
@@ -225,7 +227,7 @@ code that produced it.
 
 ### Value refinements
 
-`float`, `int32`, and `uint32` remain ordinary unboxed Lua numbers, but entering
+`float32`, `int32`, and `uint32` remain ordinary unboxed Lua numbers, but entering
 one requires evidence that the value belongs to its set. Exact literals,
 physical loads, refined parameters and results, and the explicit conversions
 establish that evidence:
@@ -234,7 +236,7 @@ establish that evidence:
 local whole: integer = 1
 local signed: int32 = nupp.math.i32.wrap(whole)
 local unsigned: uint32 = nupp.math.u32.wrap(whole)
-local rounded: float = nupp.math.f32.narrow(0.5)
+local rounded: float32 = nupp.math.f32.narrow(0.5)
 ```
 
 The erased assertion `as` may claim one of these types but does not establish
@@ -477,7 +479,7 @@ math.huge` an infinity.
 ### When does `int32` earn its place over `integer`?
 
 When the wrapping matters. `integer` says the value is whole, while `int32`,
-`uint32`, and `float` say it belongs to a fixed-width set, which is what lets
+`uint32`, and `float32` say it belongs to a fixed-width set, which is what lets
 the `nupp.math` operations wrap and narrow the way C does. See [](nupp.math) for
 those operations.
 

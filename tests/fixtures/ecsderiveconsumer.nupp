@@ -12,7 +12,7 @@ const __nuppT1 = "caller temporary"
 @derive(provider.Component)
 @ecsname(name = "declared")
 local struct Position
-    x: number = 7
+    x: float64 = 7
 end
 
 @derive(provider.Component)
@@ -39,8 +39,7 @@ assert(provider.accepts(Position) == Position)
 assert(provider.accepts(Label) == Label)
 local rows = carray(Position, 2)
 assert(layoutof(Position).size > 0)
-@unsafe
-do
+@unsafe do
     rows[0].x = 1
 end
 local entry = assert(derive.entry(Position))

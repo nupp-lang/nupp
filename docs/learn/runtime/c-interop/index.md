@@ -33,11 +33,11 @@ For a tiny API, a direct declaration is clearer than importing a large header:
 
 ```nupp
 cdef struct nativePoint
-    x: number
-    y: number
+    x: float
+    y: float
 end
 
-cdef function point_length(borrows point: nativePoint*): number from"mini"
+cdef function point_length(borrows point: nativePoint*): float from"mini"
 ```
 
 Use Nupp's C-compatible types and preserve the library's exact function name.
@@ -659,7 +659,7 @@ field its C bit width (a boolean's is 1):
 ```nupp
 cdef union Value
     integer_value: int32
-    number_value: number
+    number_value: float
 end
 
 cdef struct Flags

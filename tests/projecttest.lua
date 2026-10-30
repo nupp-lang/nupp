@@ -608,7 +608,7 @@ return comptime do return nupp.sizeof(models.Wire) end
     testAssert.equal(body.checkedModules, 1, "a body edit checks only its module")
     testAssert.equal(body.reusedModules, 1 + runtime, "the layout reader and runtime cut off at the interface")
 
-    write(dir .. "/src/models.nupp", model:gsub("value: int32", "value: number"))
+    write(dir .. "/src/models.nupp", model:gsub("value: int32", "value: float64"))
     local changed = {}
     testAssert.equal(project.build(dir, {stats = changed}), 0)
     testAssert.equal(changed.checkedModules, 2, "a field layout edit rechecks its reader")

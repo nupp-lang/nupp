@@ -167,7 +167,7 @@ Paths are symbolic strings. Use these canonical roots:
 | `$global` | State reached through a global declaration contract |
 
 ```nupp
-@effects(reads = {"destination", "source", "source[*]"}, writes = {"destination[*]"}, shapes = {"destination"})
+@effects(reads = {"destination", "source", "source[*]"}, writes = {"destination[*]"}, shapes = {"destination"}, allocates = true)
 local function appendAll(destination: {string}, source: {string})
     for _, value in ipairs(source) do
         destination[#destination + 1] = value

@@ -197,7 +197,7 @@ function M.attachesADeriveThroughAnExportWrapper()
     -- visibility; the export is a wrapper the annotation looks through.
     checksStrictly(STRICT.exported, "the exported-derive main checks strictly")
     local output = ran(STRICT.exported, "the exported-derive main runs")
-    assert(output == "Point { x = 3 }\n", output)
+    assert(output == "Point { x = 3LL }\n", output)
 end
 
 function M.publishesAnExportedRecordAsItsWitness()
@@ -230,6 +230,7 @@ function M.runsAProviderNamingItsOwnModuleFromOutsideTheProject()
         assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
         return dir
     end
+
     local home, elsewhere = scratch(), scratch()
     local source = assert(io.open(STRICT.custom, "rb")):read("*a")
     local file = assert(io.open(home .. "/main.nupp", "wb"))

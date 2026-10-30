@@ -1722,11 +1722,11 @@ src/mini.nupp
 module mini
 
 cdef struct mini_point
-    x: number
-    y: number
+    x: float
+    y: float
 end
 
-cdef function mini_length(point: mini_point*?): number from"mini"
+cdef function mini_length(point: mini_point*?): float from"mini"
 cdef function mini_version(): int32 from"mini"
 
 export = {mini_point = mini_point, mini_length = mini_length, mini_version = mini_version}

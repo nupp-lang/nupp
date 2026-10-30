@@ -372,7 +372,7 @@ return models
             testAssert.equal(status, 0, "nupp run derive exit status: " .. readFile(errors))
             testAssert.equal(
                 readFile(output),
-                "Outer { inner = Inner { value = 0 } }\n{\"inner\":{\"value\":0}}\n",
+                "Outer { inner = Inner { value = 0LL } }\n{\"inner\":{\"value\":0}}\n",
                 "nupp run derive output"
             )
         end
