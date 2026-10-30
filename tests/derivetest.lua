@@ -122,7 +122,7 @@ return {box = boxed:debug(), inner = inner:debug()}
 ]]
     )
     testAssert.equal(result.box, 'Box { value = Item { label = "ok" } }')
-    testAssert.equal(result.inner, "Inner { count = 0 }")
+    testAssert.equal(result.inner, "Inner { count = 0LL }")
 end
 
 function M.debugsDerivedStructsAndRecordsHoldingThem()
@@ -133,8 +133,8 @@ function M.debugsDerivedStructsAndRecordsHoldingThem()
         [[
 @derive(nupp.derive.Debug)
 local struct Point
-    x: number
-    y: float
+    x: float64
+    y: float32
 end
 
 @derive(nupp.derive.Debug)
@@ -147,8 +147,8 @@ local shape = new Shape(origin = point)
 return {point = point:debug(), shape = shape:debug()}
 ]]
     )
-    testAssert.equal(result.point, "Point { x = 1, y = 2 }")
-    testAssert.equal(result.shape, "Shape { origin = Point { x = 1, y = 2 } }")
+    testAssert.equal(result.point, "Point { x = 1.0, y = 2.0 }")
+    testAssert.equal(result.shape, "Shape { origin = Point { x = 1.0, y = 2.0 } }")
 end
 
 function M.reportsProviderAndSchemaFailuresAtTheDeclaration()
@@ -484,7 +484,7 @@ local record First value: integer end
 return marker .. ":" .. (new First(value = 1)):debug()
 ]]
     )
-    testAssert.equal(result, "first:First { value = 1 }")
+    testAssert.equal(result, "first:First { value = 1LL }")
 end
 
 return M
