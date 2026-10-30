@@ -96,6 +96,39 @@ export function after(ctx: voidptr, used: uint64, status: uint64, value: uint64,
     return 0ULL
 end
 
+-- A failed first initializer must retire its root and registry before the
+-- generated entry stops. The following Context is still fresh and unpublished.
+export function failedPrefix(ctx: voidptr, later: voidptr, expectedOwner: uint64, expectedPC: uint64): uint64
+    if native.load64(ctx, context.STATUS) ~= 2ULL then
+        return 1ULL
+    end
+    local at: uint64 = 0ULL
+    while at < native.word(context.SIZE) do
+        if native.load64(later, native.index(at)) ~= 0ULL then
+            return 2ULL
+        end
+        at = at + 8ULL
+    end
+    local descriptor = native.loadPointer(ctx, context.CATALOG)
+    local owner = native.load64(ctx, context.ERROR_OWNER)
+    local pc = native.load64(ctx, context.ERROR_PC)
+    if owner >= native.load64(descriptor, native.fieldOffset<catalog.Catalog>("count")) then
+        return 3ULL
+    end
+    local fn = native.offset(
+        native.loadPointer(descriptor, native.fieldOffset<catalog.Catalog>("records")),
+        native.index(owner * native.sizeOf<catalog.Function>())
+    )
+    if pc >= native.load64(fn, native.fieldOffset<catalog.Function>("instructionCount")) then
+        return 4ULL
+    end
+    if owner ~= expectedOwner or pc ~= expectedPC then
+        return 5ULL
+    end
+
+    return 0ULL
+end
+
 -- Reuse is exclusively through beginRoot, which advances the retained arena
 -- serial. The context deliberately retains the OLD identity. Even with the
 -- same frame address, complete must refuse before touching the newer child.
@@ -240,7 +273,12 @@ export function failedStart(
     native.store64(workspace, native.fieldOffset<entry.Binding>("helperBytes"), helperBytes)
     local world = native.loadPointer(binding, native.fieldOffset<entry.Binding>("world"))
     local before = native.load64(world, native.fieldOffset<instances.World>("next"))
-    if entry.start(workspace) ~= 0ULL then
+    if entry.start(workspace, 1ULL) ~= 0ULL
+        or native.load64(world, native.fieldOffset<instances.World>("next")) ~= before
+    then
+        return 23ULL
+    end
+    if entry.start(workspace, 0ULL) ~= 0ULL then
         return 22ULL
     end
     local registry = native.offset(storage, native.fieldOffset<entry.Storage>("registry"))

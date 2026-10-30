@@ -84,8 +84,8 @@ end
 
 -- Any failure after initialization consumes this fresh Storage. The caller
 -- retains it without reset/retry; reserved World IDs remain burned. A later
--- entry uses fresh Storage and the same retained World, never a rolled-back one.
-export function start(binding: voidptr): uint64
+-- initializer uses fresh Context/Storage and the same retained World.
+export function start(binding: voidptr, ordinal: uint64): uint64
     local address = native.address(binding)
     if range(address, native.sizeOf<Binding>(), 8ULL) == 0ULL then
         return 0ULL
@@ -119,6 +119,14 @@ export function start(binding: voidptr): uint64
         or extent(binding, 2ULL) < native.sizeOf<instances.World>()
         or catalog.validate(data, dataBytes) == 0ULL
     then
+        return 0ULL
+    end
+    local version = native.load64(data, native.fieldOffset<catalog.DescriptorV1>("version"))
+    local moduleCount: uint64 = 1ULL
+    if version == 2ULL then
+        moduleCount = native.load64(data, native.fieldOffset<catalog.Descriptor>("moduleCount"))
+    end
+    if ordinal >= moduleCount then
         return 0ULL
     end
     if native.load64(data, native.fieldOffset<catalog.Descriptor>("handlerCount")) ~= 256ULL then
@@ -196,7 +204,11 @@ export function start(binding: voidptr): uint64
     )
     native.store64(state, native.fieldOffset<frames.State>("helperBase"), base(binding, 5ULL))
     native.store64(state, native.fieldOffset<frames.State>("helperBytes"), extent(binding, 5ULL))
-    local entry = native.load64(descriptor, native.fieldOffset<catalog.Catalog>("entry"))
+    local entry = native.load64(data, native.fieldOffset<catalog.DescriptorV1>("entry"))
+    if version == 2ULL then
+        local moduleOffset = native.load64(data, native.fieldOffset<catalog.Descriptor>("modules"))
+        entry = native.load64(data, native.index(moduleOffset + ordinal * 8ULL))
+    end
     local info = native.offset(
         native.loadPointer(descriptor, native.fieldOffset<catalog.Catalog>("infos")),
         native.index(entry * native.sizeOf<frames.FunctionInfo>())

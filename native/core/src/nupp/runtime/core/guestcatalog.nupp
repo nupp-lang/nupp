@@ -7,6 +7,25 @@ const values = require("nupp.runtime.vm.values")
 -- This is the bounded executable artifact produced from the complete checked
 -- graph catalog. The caller retains its immutable mapping. Validation here
 -- proves extents and scalar metadata, not source authenticity or raw phase 4.
+export struct DescriptorV1
+    version: uint64
+    bytes: uint64
+    ownerCount: uint64
+    entry: uint64
+    records: uint64
+    signatures: uint64
+    signatureCount: uint64
+    contracts: uint64
+    contractCount: uint64
+    targets: uint64
+    instanceBound: uint64
+    frameDepth: uint64
+    dispatch: uint64
+    handlerCount: uint64
+end
+
+-- Version 2 adds the checked module order. Version 1 remains accepted without
+-- reinterpretation for the frozen one-initializer executable profile.
 export struct Descriptor
     version: uint64
     bytes: uint64
@@ -22,6 +41,8 @@ export struct Descriptor
     frameDepth: uint64
     dispatch: uint64
     handlerCount: uint64
+    moduleCount: uint64
+    modules: uint64
 end
 
 export struct Function
@@ -119,18 +140,27 @@ end
 -- All embedded addresses below are formed only inside the actual borrowed data
 -- range. Canonical packed ordering also proves metadata/payload disjointness.
 local function valid(data: voidptr, bytes: uint64): uint64
-    if range(native.address(data), bytes) == 0ULL or bytes < native.sizeOf<Descriptor>() then
+    if range(native.address(data), bytes) == 0ULL or bytes < native.sizeOf<DescriptorV1>() then
         return 0ULL
     end
-    if native.load64(data, native.fieldOffset<Descriptor>("version")) ~= 1ULL
-        or native.load64(data, native.fieldOffset<Descriptor>("bytes")) ~= bytes
-    then
+    local version = native.load64(data, native.fieldOffset<DescriptorV1>("version"))
+    local headerBytes = native.sizeOf<DescriptorV1>()
+    if version == 2ULL then
+        headerBytes = native.sizeOf<Descriptor>()
+    elseif version ~= 1ULL then
+        return 0ULL
+    end
+    if bytes < headerBytes or native.load64(data, native.fieldOffset<DescriptorV1>("bytes")) ~= bytes then
         return 0ULL
     end
     local count = native.load64(data, native.fieldOffset<Descriptor>("ownerCount"))
     local entry = native.load64(data, native.fieldOffset<Descriptor>("entry"))
     local ns = native.load64(data, native.fieldOffset<Descriptor>("signatureCount"))
     local nc = native.load64(data, native.fieldOffset<Descriptor>("contractCount"))
+    local nm: uint64 = 1ULL
+    if version == 2ULL then
+        nm = native.load64(data, native.fieldOffset<Descriptor>("moduleCount"))
+    end
     local depth = native.load64(data, native.fieldOffset<Descriptor>("frameDepth"))
     if count == 0ULL
         or count > 256ULL
@@ -138,13 +168,16 @@ local function valid(data: voidptr, bytes: uint64): uint64
         or ns == 0ULL
         or ns > 256ULL
         or nc > 1048576ULL
+        or nm == 0ULL
+        or nm > 2ULL
+        or nm > count
         or depth == 0ULL
         or depth > count
         or native.load64(data, native.fieldOffset<Descriptor>("instanceBound")) > 1048576ULL
     then
         return 0ULL
     end
-    local cursor = native.sizeOf<Descriptor>()
+    local cursor = headerBytes
     local records = native.load64(data, native.fieldOffset<Descriptor>("records"))
     if records ~= cursor or contains(bytes, cursor, count, native.sizeOf<Function>()) == 0ULL then
         return 0ULL
@@ -165,6 +198,27 @@ local function valid(data: voidptr, bytes: uint64): uint64
         return 0ULL
     end
     cursor = cursor + count * 8ULL
+    local modules: uint64 = 0ULL
+    if version == 2ULL then
+        modules = native.load64(data, native.fieldOffset<Descriptor>("modules"))
+        if modules ~= cursor or contains(bytes, cursor, nm, 8ULL) == 0ULL then
+            return 0ULL
+        end
+        local previous: uint64 = 0ULL
+        local m: uint64 = 0ULL
+        while m < nm do
+            local owner = native.load64(data, native.index(modules + m * 8ULL))
+            if owner >= count or (m ~= 0ULL and owner <= previous) then
+                return 0ULL
+            end
+            previous = owner
+            m = m + 1ULL
+        end
+        if previous ~= entry then
+            return 0ULL
+        end
+        cursor = cursor + nm * 8ULL
+    end
     local i: uint64 = 0ULL
     while i < ns do
         local signature = native.offset(data, native.index(signatures + i * native.sizeOf<Signature>()))
@@ -191,6 +245,7 @@ local function valid(data: voidptr, bytes: uint64): uint64
     i = 0ULL
     local nextCall: uint64 = 0ULL
     local total: uint64 = 0ULL
+    local nextModule: uint64 = 0ULL
     while i < count do
         local fn = native.offset(data, native.index(records + i * native.sizeOf<Function>()))
         local signatureId = native.load64(fn, native.fieldOffset<Function>("signature"))
@@ -216,16 +271,24 @@ local function valid(data: voidptr, bytes: uint64): uint64
         then
             return 0ULL
         end
-        if i == entry then
+        local initializer = false
+        if nextModule < nm then
+            initializer = i == entry
+            if version == 2ULL then
+                initializer = i == native.load64(data, native.index(modules + nextModule * 8ULL))
+            end
+        end
+        if initializer then
             if kind ~= INITIALIZER or parent ~= 0ULL then
                 return 0ULL
             end
+            nextModule = nextModule + 1ULL
         elseif kind ~= FUNCTION or parent == 0ULL or parent > count or parent == i + 1ULL then
             return 0ULL
         end
         local signature = native.offset(data, native.index(signatures + signatureId * native.sizeOf<Signature>()))
         local nparams = native.load64(signature, native.fieldOffset<Signature>("parameterCount"))
-        if nparams >= nv or (i == entry and nparams ~= 0ULL) then
+        if nparams >= nv or (initializer and nparams ~= 0ULL) then
             return 0ULL
         end
         if native.load64(fn, native.fieldOffset<Function>("constants")) ~= cursor
@@ -263,7 +326,6 @@ local function valid(data: voidptr, bytes: uint64): uint64
                 or (call ~= 0ULL and pc <= previousPC)
                 or native.load64(site, native.fieldOffset<Callsite>("resumePC")) ~= pc + 1ULL
                 or target >= count
-                or target == entry
                 or nargs > 63ULL
                 or base >= nv - 1ULL
                 or nargs > nv - base - 1ULL
@@ -273,6 +335,9 @@ local function valid(data: voidptr, bytes: uint64): uint64
                 return 0ULL
             end
             local callee = native.offset(data, native.index(records + target * native.sizeOf<Function>()))
+            if native.load64(callee, native.fieldOffset<Function>("kind")) ~= FUNCTION then
+                return 0ULL
+            end
             local calleeSignature = native.load64(callee, native.fieldOffset<Function>("signature"))
             if calleeSignature >= ns
                 or native.load64(site, native.fieldOffset<Callsite>("signature")) ~= calleeSignature
@@ -291,7 +356,8 @@ local function valid(data: voidptr, bytes: uint64): uint64
         i = i + 1ULL
     end
     local handlers = native.load64(data, native.fieldOffset<Descriptor>("handlerCount"))
-    if nextCall ~= nc
+    if nextModule ~= nm
+        or nextCall ~= nc
         or handlers == 0ULL
         or handlers > 256ULL
         or native.load64(data, native.fieldOffset<Descriptor>("dispatch")) ~= cursor

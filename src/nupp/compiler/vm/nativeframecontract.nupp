@@ -545,7 +545,8 @@ local function buildGuest(caseName: string, audited: boolean): any
         branchTrue = "catalog-branch-true",
         branchFalse = "catalog-branch-false",
         branchElseif = "catalog-branch-elseif",
-        branchLive = "catalog-branch-live"
+        branchLive = "catalog-branch-live",
+        modulePair = "catalog-module-main"
     }
     local fixture = need(fixtures[caseName], "unknown fixed guest program")
     need(current == nil, "nested construction")
@@ -672,35 +673,41 @@ local function buildGuest(caseName: string, audited: boolean): any
     for name, role in pairs(roles) do
         state.roles[need(ops.exports[name], "checked guest service")] = role
     end
-    local guestPath = "native/core/tests/" .. fixture .. ".nupp"
-    local source = read(root .. "/" .. guestPath)
-    need(snapshot.sources[guestPath] == source, "checked guest source differs")
     local parserName, checkerName, environmentName = "syntax.parser", "check", "project.env"
     local parser: any = require("nupp.compiler." .. parserName)
     local checker: any = require("nupp.compiler." .. checkerName)
     local environment: any = require("nupp.compiler." .. environmentName)
-    local parsed = parser.parse(source, root .. "/" .. guestPath)
-    need(#parsed.errors == 0, "guest source parse failed")
-    local moduleName = need(
-        require("nupp.compiler.syntax.cst").declaredModule(parsed.root),
-        "guest module declaration required"
-    )
-    local env = environment.new(root, {memoryOnly = true, cache = false, nativeCompilerServices = false})
-    local diagnostics = checker.check(parsed, root .. "/" .. guestPath, env, {
-        moduleName = moduleName,
-        strict = false,
-        lints = {["unused-binding"] = "off"}
-    })
-    for _, diagnostic in ipairs(diagnostics) do
-        need(diagnostic.severity ~= "error", diagnostic.msg)
+    local fixtureNames = caseName == "modulePair" and {"catalog-module-prefix", fixture} or {fixture}
+    local modules = {}
+    local moduleName: string = ""
+    for _, name in ipairs(fixtureNames) do
+        local guestPath = "native/core/tests/" .. name .. ".nupp"
+        local source = read(root .. "/" .. guestPath)
+        need(snapshot.sources[guestPath] == source, "checked guest source differs")
+        local parsed = parser.parse(source, root .. "/" .. guestPath)
+        need(#parsed.errors == 0, "guest source parse failed")
+        local declared = need(
+            require("nupp.compiler.syntax.cst").declaredModule(parsed.root),
+            "guest module declaration required"
+        )
+        local env = environment.new(root, {memoryOnly = true, cache = false, nativeCompilerServices = false})
+        local diagnostics = checker.check(parsed, root .. "/" .. guestPath, env, {
+            moduleName = declared,
+            strict = false,
+            lints = {["unused-binding"] = "off"}
+        })
+        for _, diagnostic in ipairs(diagnostics) do
+            need(diagnostic.severity ~= "error", diagnostic.msg)
+        end
+        modules[
+            #modules + 1
+        ] = {name = declared, path = root .. "/" .. guestPath, parsed = parsed, diagnostics = diagnostics}
+        moduleName = declared
     end
     local programName, taggedName = "programgraph", "taggedprofile"
     local program: any = require("nupp.compiler.vm." .. programName)
     local tagged: any = require("nupp.compiler.vm." .. taggedName)
-    local catalog = program.describe(
-        {{name = moduleName, path = root .. "/" .. guestPath, parsed = parsed, diagnostics = diagnostics}},
-        moduleName
-    )
+    local catalog = program.describe(modules, moduleName)
     state.executable = guestExecutable().fromChecked(program.compile(catalog, tagged))
     validateSource(state)
     table.sort(all, function(a: any, b: any): boolean

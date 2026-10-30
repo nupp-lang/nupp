@@ -13,7 +13,7 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
     assert(#dispatch >= 1 and #dispatch <= 256, "guest dispatch extent")
     local scope = assert(scopes["nupp.runtime.core.guestcatalog"])
     local layouts = {}
-    for _, name in ipairs({"Descriptor", "Function", "Signature", "Callsite"}) do
+    for _, name in ipairs({"DescriptorV1", "Descriptor", "Function", "Signature", "Callsite"}) do
         local checked = assert(scope.checkedExports.types[name], "checked catalog layout")
         assert(scope.checkedExports.typeDefs[name], "checked catalog definition")
         local layout = assert(targetLayout.of(checked, "aarch64-apple-darwin"))
@@ -29,7 +29,9 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
             calls[#calls + 1] = {owner = fn.owner, call = call}
         end
     end
-    local cursor = layouts.Descriptor.size
+    local version = #code.initializers == 1 and 1 or 2
+    local descriptorName = version == 1 and "DescriptorV1" or "Descriptor"
+    local cursor = layouts[descriptorName].size
     local recordOffset = cursor
     cursor += #records * layouts.Function.size
     local signatureOffset = cursor
@@ -38,6 +40,10 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
     cursor += #calls * layouts.Callsite.size
     local targetOffset = cursor
     cursor += #records * 8
+    local moduleOffset = cursor
+    if version == 2 then
+        cursor += #code.initializers * 8
+    end
     local parameterOffsets, constantOffsets, codeOffsets = {}, {}, {}
     for index, signature in ipairs(signatures) do
         parameterOffsets[index] = cursor
@@ -79,8 +85,8 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
         return name == "boolean" and 1 or 2
     end
 
-    fields("Descriptor", 0, {
-        version = 1,
+    local descriptor: any = {
+        version = version,
         bytes = cursor,
         ownerCount = #records,
         entry = code.entry,
@@ -90,11 +96,15 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
         contracts = callOffset,
         contractCount = #calls,
         targets = targetOffset,
-        instanceBound = code.instanceCreations,
+        instanceBound = code.instanceCapacity,
         frameDepth = code.frameDepth,
         dispatch = dispatchOffset,
         handlerCount = #dispatch
-    })
+    }
+    if version == 2 then
+        descriptor.moduleCount, descriptor.modules = #code.initializers, moduleOffset
+    end
+    fields(descriptorName, 0, descriptor)
     local values = assert(scopes["nupp.runtime.vm.values"])
     local constants = {
         ["true"] = literal.integer(assert(values.exportedConstants.TRUE)),
@@ -126,6 +136,11 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
         end
         for byte = 1, #fn.code do
             bytes[codeOffsets[index] + byte] = fn.code:byte(byte)
+        end
+    end
+    if version == 2 then
+        for index, owner in ipairs(code.initializers) do
+            word((moduleOffset + (index - 1) * 8) as integer, owner)
         end
     end
     for index, signature in ipairs(signatures) do

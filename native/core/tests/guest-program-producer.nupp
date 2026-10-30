@@ -268,13 +268,16 @@ local function compile(caseName: string, mode: string, capacityText: string, sce
     output.dataHex, output.dataBytes = hex(packed.bytes), #packed.bytes
     output.mode, output.caseName, output.metrics = mode, caseName, metrics
     output.programs, output.dataflowRefusals, output.provenanceRefusals = programs, source.refusals, refusals
-    output.instanceBound, output.instanceCapacity, output.frameDepth = source.executable.instanceCreations, source.executable.instanceCapacity, source.executable.frameDepth
+    output.instanceBound = source.executable.instanceCapacity
+    output.instanceCapacity = source.executable.instanceCapacity
+    output.instanceCreations = source.executable.instanceCreations
+    output.frameDepth = source.executable.frameDepth
     output.catalogOffsets = {
         code = packed.codeOffsets,
         constants = packed.constantOffsets,
         dispatch = packed.dispatchOffset
     }
-    output.scope = "Actual checked single-initializer Boolean/NIL acyclic guest programs with fresh zero-capture instances, fixed CallK and one-produced Ret; no RetNil, general loader, tagged objects or GC"
+    output.scope = "Actual checked Boolean/NIL acyclic guest programs with up to two ordered initializers, fresh entry storage, retained World, zero-capture instances, fixed CallK and one-produced Ret; no imports, named exports, RetNil, general loader, tagged objects or GC"
 
     return json.encode(output)
 end

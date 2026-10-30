@@ -17,14 +17,17 @@ end
 function shim.build(source: any, selected: {[string]: any}, primary: any, scenario: string): any
     contract.validateGuest(source)
     assert(source.audited, "fixed audited guest source required")
+    local prefixFailure = source.caseName == "modulePair" and scenario == "budget1"
     local status: integer = 0
     local used = (source.caseName == "fresh" or source.caseName == "nested") and 3 or 1
     if scenario == "budget0" then
         status, used = 2, 0
     elseif scenario == "cancel" then
         status, used = 3, 0
+    elseif scenario == "budget1" and prefixFailure then
+        status, used = 2, 1
     elseif scenario == "budget2" then
-        assert(source.caseName == "nested");
+        assert(source.caseName == "nested" or prefixFailure);
         status, used = 2, 1
     elseif scenario == "budget4" then
         assert(source.caseName == "nested");
@@ -33,14 +36,16 @@ function shim.build(source: any, selected: {[string]: any}, primary: any, scenar
         assert(scenario == "success", "closed audit scenario")
     end
     local owner = source.executable.entry
-    if scenario == "budget2" or scenario == "budget4" then
+    if prefixFailure then
+        owner = source.executable.initializers[1]
+    elseif scenario == "budget2" or scenario == "budget4" then
         owner = source.executable.functions[owner + 1].calls[1].target
         if scenario == "budget4" then
             owner = source.executable.functions[owner + 1].calls[1].target
         end
     end
     local expectedPC: integer? = nil
-    local expectedOp = status == 0 and "Ret" or "NewClosure"
+    local expectedOp = prefixFailure and "CallK" or (status == 0 and "Ret" or "NewClosure")
     for index, instruction in ipairs(source.executable.functions[owner + 1].instructions) do
         if instruction[1] == expectedOp then
             assert(expectedPC == nil, "fixed audit checkpoint unique");
@@ -51,7 +56,7 @@ function shim.build(source: any, selected: {[string]: any}, primary: any, scenar
     local values = source.scopes["nupp.runtime.vm.values"]
     local value = literal.integer(assert(values.exportedConstants[source.caseName == "nilValue" and "NIL" or "TRUE"]))
     local roots, rootNames = {}, {}
-    for _, name in ipairs({"after", "stale", "failedStart"}) do
+    for _, name in ipairs({"after", "stale", "failedStart", "failedPrefix"}) do
         local symbol = "nupp.runtime.core.guestaudit." .. name
         local item = assert(source.resolved[symbol])
         local code = assert(selected[symbol])
@@ -138,31 +143,50 @@ function shim.build(source: any, selected: {[string]: any}, primary: any, scenar
     emit(arm.ldr(8, 20, 31, 160));
     emit(arm.ldr(8, 19, 20, 40));
     offset(23, helperOffset)
-    emit(arm.mov_reg(64, 0, 19));
-    immediate(1, used);
-    immediate(2, status);
-    immediate(3, value)
-    immediate(4, owner);
-    immediate(5, expectedPC)
-    call(linked.offsets[1]);
-    emit(arm.cmp_imm(64, 0, 0, 0));
-    refuse(1)
-    emit(arm.mov_reg(64, 0, 19));
-    offset(1, snapshotOffset);
-    immediate(2, primary.spillOffset)
-    emit(arm.mov_reg(64, 3, 23));
-    immediate(4, linked.callBytes)
-    call(linked.offsets[2]);
-    emit(arm.cmp_imm(64, 0, 0, 0));
-    refuse(1)
-    offset(0, primary.bindingOffset);
-    offset(1, workspaceOffset);
-    immediate(2, workspaceBytes)
-    emit(arm.mov_reg(64, 3, 23));
-    immediate(4, linked.callBytes)
-    call(linked.offsets[3]);
-    emit(arm.cmp_imm(64, 0, 0, 0));
-    refuse(1)
+    if prefixFailure then
+        emit(arm.mov_reg(64, 0, 19));
+        offset(1, primary.contextStride)
+        immediate(2, owner)
+        immediate(3, expectedPC)
+        call(linked.offsets[4]);
+        emit(arm.cmp_imm(64, 0, 0, 0));
+        refuse(1)
+        emit(arm.mov_reg(64, 0, 19));
+        immediate(1, 1)
+        immediate(2, 2)
+        immediate(3, literal.integer(assert(values.exportedConstants.NIL)))
+        immediate(4, owner)
+        immediate(5, expectedPC)
+        call(linked.offsets[1]);
+        emit(arm.cmp_imm(64, 0, 0, 0));
+        refuse(1)
+    else
+        emit(arm.mov_reg(64, 0, 19));
+        immediate(1, used);
+        immediate(2, status);
+        immediate(3, value)
+        immediate(4, owner);
+        immediate(5, expectedPC)
+        call(linked.offsets[1]);
+        emit(arm.cmp_imm(64, 0, 0, 0));
+        refuse(1)
+        emit(arm.mov_reg(64, 0, 19));
+        offset(1, snapshotOffset);
+        immediate(2, primary.spillOffset)
+        emit(arm.mov_reg(64, 3, 23));
+        immediate(4, linked.callBytes)
+        call(linked.offsets[2]);
+        emit(arm.cmp_imm(64, 0, 0, 0));
+        refuse(1)
+        offset(0, primary.bindingOffset);
+        offset(1, workspaceOffset);
+        immediate(2, workspaceBytes)
+        emit(arm.mov_reg(64, 3, 23));
+        immediate(4, linked.callBytes)
+        call(linked.offsets[3]);
+        emit(arm.cmp_imm(64, 0, 0, 0));
+        refuse(1)
+    end
     emit(arm.ldr(8, 0, 31, 176));
     local done = #words + 1;
     emit(arm.b(0))

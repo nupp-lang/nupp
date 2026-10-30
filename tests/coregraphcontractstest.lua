@@ -42,7 +42,7 @@ local function fixture(argument)
     )
 end
 
-local function checkedModules()
+local function checkedModules(entryLast, third)
     local inputs = {
         {name = "core.catalog.main", path = "=core_catalog_main.nupp", text = "return true"},
         {
@@ -51,6 +51,16 @@ local function checkedModules()
             text = "local function identity(value: boolean): boolean return value end\nreturn identity(false)"
         }
     }
+    if entryLast then
+        inputs[1], inputs[2] = inputs[2], inputs[1]
+    end
+    if third then
+        table.insert(inputs, #inputs, {
+            name = "core.catalog.third",
+            path = "=core_catalog_third.nupp",
+            text = "return nil"
+        })
+    end
     local modules = {}
     for index, input in ipairs(inputs) do
         local parsed = parser.parse(input.text, input.path)
@@ -66,7 +76,7 @@ local function checkedModules()
         end
         modules[index] = {name = input.name, path = input.path, parsed = parsed, diagnostics = diagnostics}
     end
-    local catalog = program.describe(modules, inputs[1].name)
+    local catalog = program.describe(modules, "core.catalog.main")
 
     return program.compile(catalog, tagged)
 end
@@ -211,7 +221,39 @@ function M.checkedModulesRetainDistinctInitializersAndSourceBindings()
         function()
             executable.fromChecked(input)
         end,
-        "additional module initializers are not executable"
+        "entry module must initialize last"
+    )
+end
+
+function M.checkedModuleInitializersDeriveExecutableInSourceOrder()
+    local input = checkedModules(true)
+    local output = executable.fromChecked(input)
+    executable.validate(output)
+    test.equal(#output.initializers, 2)
+    test.equal(output.initializers[1], 0)
+    test.equal(output.initializers[2], output.entry)
+    test.equal(output.entry, 1)
+    test.equal(output.frameDepth, 2)
+    test.equal(output.instanceCapacity, 1)
+    test.equal(output.instanceCreations, 1)
+    test.equal(output.functions[1].owner, 0)
+    test.equal(output.functions[2].owner, 1)
+    test.equal(#output.functions[1].calls, 1)
+    output.initializers[1] = output.entry
+    refuses(
+        function()
+            executable.validate(output)
+        end,
+        "issued executable metadata changed"
+    )
+end
+
+function M.executableModuleProfileRefusesThirdInitializer()
+    refuses(
+        function()
+            executable.fromChecked(checkedModules(true, true))
+        end,
+        "at most two module initializers"
     )
 end
 

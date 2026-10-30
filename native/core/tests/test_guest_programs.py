@@ -11,14 +11,15 @@ import subprocess
 import time
 
 ROOT = Path(__file__).resolve().parents[3]
-BOOT = ROOT.parent / "native-core-bootstrap"
 CASES = {"boolean": 0x7FFB000000000000, "nilValue": 0x7FF9000000000000,
          "live": 0x7FFB000000000000, "fresh": 0x7FFB000000000000,
          "nested": 0x7FFB000000000000,
          "branchTrue": 0x7FFB000000000000, "branchFalse": 0x7FFA000000000000,
-         "branchElseif": 0x7FFB000000000000, "branchLive": 0x7FFB000000000000}
+         "branchElseif": 0x7FFB000000000000, "branchLive": 0x7FFB000000000000,
+         "modulePair": 0x7FFB000000000000}
 FIXTURES = ("catalog-boolean", "catalog-nil", "catalog-live", "catalog-fresh", "catalog-nested",
-            "catalog-branch-true", "catalog-branch-false", "catalog-branch-elseif", "catalog-branch-live")
+            "catalog-branch-true", "catalog-branch-false", "catalog-branch-elseif", "catalog-branch-live",
+            "catalog-module-prefix", "catalog-module-main")
 
 
 def sha(path):
@@ -31,6 +32,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--guard-proof", type=Path, default=ROOT / "native/core/bridge/guard-validation.json")
     parser.add_argument("--guard-binary", type=Path)
+    parser.add_argument("--bootstrap", type=Path, default=ROOT.parent / "native-core-bootstrap")
     parser.add_argument("--scratch-bytes", type=int, choices=(65536, 131072), default=65536)
     parser.add_argument("--cases", nargs="+", choices=tuple(CASES),
                         help="Run these fixed cases and their supplemental audits (default: all).")
@@ -39,7 +41,8 @@ def main():
     omitted_cases = [name for name in CASES if name not in selected_cases]
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=False)
-    freeze = json.loads((BOOT / "freeze.json").read_text())
+    bootstrap = args.bootstrap.resolve()
+    freeze = json.loads((bootstrap / "freeze.json").read_text())
     tools = {role: Path(freeze["artifacts"][name]["path"])
              for role, name in freeze["coreBuildTool"].items() if role in ("runtime", "compiler")}
     for role, path in tools.items():
@@ -70,14 +73,14 @@ def main():
     fixture_paths = [ROOT / "native/core/tests" / (name + ".nupp") for name in FIXTURES]
     inputs = {str(path.resolve()): sha(path) for path in [*files, producer, negative, audit_leaf, audit_shim, *fixture_paths,
               Path(__file__), args.bridge, proof, guard_binary, *map(Path, guard_sources),
-              BOOT / "freeze.json", *tools.values()]}
+              bootstrap / "freeze.json", *tools.values()]}
     report = {"status": "running", "inputs": inputs, "steps": [], "programs": [], "failures": [], "audits": [],
               "selectedCases": selected_cases, "omittedCases": omitted_cases,
               "preflightFixtures": list(FIXTURES),
-              "scope": "Trusted checked-source complete catalog derives actual executable programs. "
-                       "Fresh Closure0 instances, fixed CallK and exactly one Boolean/NIL Ret execute "
-                       "through Nupp entry/frame services; native raw admission, RetNil, arbitrary "
-                       "modules, managed objects and GC remain outside this profile.",
+              "scope": "Trusted checked-source catalog derives Boolean/NIL programs, including "
+                       "two ordered module initializers with fresh entry storage and retained World. "
+                       "Closure0, fixed CallK and one-result Ret run through Nupp services; "
+                       "imports, named exports, arbitrary modules, raw loading and GC remain outside.",
               "guardVerifier": {"path": str(guard_binary), "sha256": sha(guard_binary),
                                 "proof": str(proof), "proofSha256": sha(proof), "sources": guard_sources}}
     env = {key: value for key, value in os.environ.items()
@@ -211,6 +214,7 @@ def main():
                 code = b"".join(struct.pack("<I", word) for word in selected["words"])
                 data = bytes.fromhex(selected["dataHex"])
                 assert len(data) == selected["dataBytes"]
+                assert struct.unpack_from("<Q", data)[0] == (2 if case_name == "modulePair" else 1)
                 bundle = out / (case + ".bundle")
                 bundle.write_bytes(struct.pack("<8s8Q", b"NUPPCORE", 1, 1, selected["entry"],
                                   len(code), len(data), args.scratch_bytes, 1, 0) + code + data)
@@ -220,6 +224,21 @@ def main():
                 run("native-" + case, [args.bridge, bundle, empty, output])
                 assert output.read_bytes() == expected_path.read_bytes()
                 guarded("guarded-" + case, bundle, empty, high_water, expected_path)
+                if case_name == "modulePair":
+                    descriptor = struct.unpack_from("<16Q", data)
+                    assert descriptor[0] == 2 and descriptor[3] == 1 and descriptor[14] == 2
+                    assert descriptor[10] == selected["instanceBound"] == selected["instanceCapacity"] == 1
+                    assert selected["instanceCreations"] == 2
+                    assert struct.unpack_from("<2Q", data, descriptor[15]) == (0, 1)
+                    for name, mutation in (("duplicate", "module"), ("count", "count")):
+                        damaged = bytearray(data)
+                        if mutation == "module":
+                            struct.pack_into("<Q", damaged, descriptor[15], 1)
+                        else:
+                            struct.pack_into("<Q", damaged, 14 * 8, 3)
+                        damaged_bundle = out / (case + "-" + name + ".bundle")
+                        damaged_bundle.write_bytes(bundle.read_bytes()[:72 + len(code)] + damaged)
+                        guarded("refuse-" + case + "-" + name, damaged_bundle, empty, high_water, status=1)
                 short = run("short-" + case, [guard_binary, "--ignored", "--exact",
                     "abi::generated_entry_refuses_short_regions", "--test-threads=1"], extra={
                         "CORE_TEST_BUNDLE": str(bundle), "CORE_TEST_INPUT": str(empty), "CORE_TEST_HIGH_WATER": "0"})
@@ -232,11 +251,18 @@ def main():
                 # checked the exact Boolean/NIL output independently.
                 budgets = ((0, 0, 2), (0, 1, 3))
                 if case_name == "nested": budgets += ((2, 0, 2), (4, 0, 2))
+                if case_name == "modulePair": budgets += ((1, 0, 2), (2, 0, 2))
                 for budget, cancel, status in budgets:
                     label = f"{case}-budget{budget}-cancel{cancel}"
                     input_path = out / (label + ".bin")
                     input_path.write_bytes(struct.pack("<QQ", budget, cancel))
                     guarded("refuse-" + label, bundle, input_path, high_water, status=status)
+                    if case_name == "modulePair" and budget in (1, 2) and cancel == 0:
+                        output_path = out / (label + "-unchanged.bin")
+                        sentinel = b"initializer refusal left output unchanged"
+                        output_path.write_bytes(sentinel)
+                        run("native-refuse-" + label, [args.bridge, bundle, input_path, output_path], expected=1)
+                        assert output_path.read_bytes() == sentinel, "failed initializer published output"
                     report["failures"].append({"case": case, "budget": budget, "cancel": cancel,
                                                "status": status, "bundleSha256": sha(bundle)})
                 save()
@@ -245,7 +271,7 @@ def main():
         # a primary program run or broaden the production entry's ABI.
         audit_cases = [("fresh", "success"), ("nilValue", "success"), ("nested", "success"),
                        ("nested", "budget0"), ("nested", "budget2"), ("nested", "budget4"),
-                       ("nested", "cancel")]
+                       ("nested", "cancel"), ("modulePair", "budget1")]
         audit_cases = [(case_name, scenario) for case_name, scenario in audit_cases
                        if case_name in selected_cases]
         for mode in ("normal", "spill"):
@@ -273,7 +299,7 @@ def main():
                     len(code), len(data), selected["scratchBytes"], 1, 0) + code + data)
                 input_path = empty
                 if scenario != "success":
-                    budget, cancel = {"budget0": (0, 0), "budget2": (2, 0),
+                    budget, cancel = {"budget0": (0, 0), "budget1": (1, 0), "budget2": (2, 0),
                                       "budget4": (4, 0), "cancel": (0, 1)}[scenario]
                     input_path = out / (case + "-input.bin")
                     input_path.write_bytes(struct.pack("<QQ", budget, cancel))

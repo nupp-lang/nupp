@@ -239,28 +239,37 @@ local function deriveCatalog(normalized: any): any
     for index = 1, #functions do
         bound(index)
     end
-    local root = bounds[normalized.entry + 1]
+    local initializers, capacity, creations, depth = {}, 1, 0, 1
+    for index, module in ipairs(normalized.modules) do
+        local owner = module.chunk
+        local extent = bounds[owner + 1]
+        initializers[index] = owner
+        capacity = math.max(capacity, extent.instances)
+        creations += extent.instances
+        depth = math.max(depth, extent.depth)
+        need(creations <= 1048576, "module instance budget exceeded")
+    end
 
     return {
         version = 1,
         profile = "boolean-nil-acyclic-one-result",
         entry = normalized.entry,
+        initializers = initializers,
         semantic = normalized,
         functions = functions,
         instructionCount = total,
-        instanceCapacity = math.max(root.instances, 1),
-        instanceCreations = root.instances,
-        frameDepth = root.depth
+        instanceCapacity = capacity,
+        instanceCreations = creations,
+        frameDepth = depth
     }
 end
 
 -- The retained checker objects are immutable borrows within this build process.
 -- This issuer is not a native loader or production frame/effect authority.
 function executable.fromChecked(compiled: any): any
-    -- The graph catalog retains every checked initializer, but this executable
-    -- profile cannot yet run another module's initialization.
     local normalized = contracts.normalize(compiled)
-    need(#normalized.modules == 1, "additional module initializers are not executable")
+    need(#normalized.modules <= 2, "at most two module initializers are executable")
+    need(normalized.modules[#normalized.modules].chunk == normalized.entry, "entry module must initialize last")
     local result = deriveCatalog(normalized)
     issued[result] = {compiled = compiled, snapshot = copy(result)}
 
