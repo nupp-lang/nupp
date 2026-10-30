@@ -721,7 +721,8 @@ local function corpus(seed, count)
     local state = seed
 
     local function pick(n)
-        state = (state * 1103515245 + 12345) % 2147483648
+        -- The product stays below 2^53, so LuaJIT and the VM draw the same rows.
+        state = (state * 48271 + 12345) % 2147483647
         return state % n + 1
     end
 
@@ -782,12 +783,106 @@ process.stdout.write(JSON.stringify(texts.map((text, index) => {
     return hrefs
 end
 
--- The standard moved on in two places the native `url` crate has not yet: it
--- percent-encodes `^` in a path, and a space ending an opaque path before its
--- query. A browser follows the newer text, so those rows are left out of the
--- comparison with it; the native and portable parsers still agree on them.
-local function newerThanTheCrate(text)
-    return text:find("[ ^|]") ~= nil
+function M.portableFilePathsPreserveRepeatedLeadingSlashes()
+    local portable = require("nupp.io.uri.whatwg")
+    local firstText = 'file:////@//">]'
+    local first = assert(portable.parse(firstText))
+    test.equal(first.text, "file:////@//%22%3E]")
+    test.equal(first.path, "//@//%22%3E]")
+
+    local reference = "//%2E%2e//" .. string.char(9) .. "{?:"
+    local baseText = "file:///C:/dir/file"
+    local second = assert(portable.parse(reference, assert(portable.parse(baseText))))
+    test.equal(second.text, "file://..//%7B?:")
+    test.equal(second.path, "//%7B")
+
+    local firstHost = hostHrefs({firstText})
+    local secondHost = hostHrefs({reference}, {baseText})
+    if firstHost ~= nil and secondHost ~= nil then
+        test.equal(first.text, firstHost[1])
+        test.equal(second.text, secondHost[1])
+    end
+end
+
+-- Exact frozen-provider differences. Node agrees with the portable parser.
+local FROZEN_PROVIDER_CASES = {
+    {
+        kind = "corpus",
+        input = "file://h.b\\/<!\\",
+        base = false,
+        native = "file://h.b/%3C!/",
+        portable = "file://h.b//%3C!/"
+    },
+    {kind = "corpus", input = "file://h.///<", base = false, native = "file://h./%3C", portable = "file://h.///%3C"},
+    {kind = "corpus", input = "file:/%2e//%2e", base = false, native = "file:///", portable = "file:////"},
+    {
+        kind = "corpus",
+        input = "file:///\\///}%2e",
+        base = false,
+        native = "file:///%7D%2e",
+        portable = "file:///////%7D%2e"
+    },
+    {kind = "corpus", input = "sc://u@h%2eC:\9\\~<'", base = false, native = "sc://u@h%2eC/\\~%3C'", portable = false},
+    {kind = "corpus", input = "file:////", base = false, native = "file:///", portable = "file:////"},
+    {
+        kind = "corpus",
+        input = "file://a_b.test%2E%2e},'///;",
+        base = false,
+        native = "file://a_b.test..},'/;",
+        portable = "file://a_b.test..},'///;"
+    },
+    {
+        kind = "corpus",
+        input = "file:/.//\"~ax y",
+        base = false,
+        native = "file:///%22~ax%20y",
+        portable = "file:////%22~ax%20y"
+    },
+    {
+        kind = "reference",
+        input = "//127.0.0.1'//",
+        base = "file:///C:/dir/file",
+        native = "file://127.0.0.1'/",
+        portable = "file://127.0.0.1'//"
+    },
+    {
+        kind = "reference",
+        input = "//017.1//",
+        base = "file:///C:/dir/file",
+        native = "file://15.0.0.1/",
+        portable = "file://15.0.0.1//"
+    },
+    {
+        kind = "reference",
+        input = "//1.2.3///",
+        base = "file:///C:/dir/file",
+        native = "file://1.2.0.3/",
+        portable = "file://1.2.0.3///"
+    },
+    {
+        kind = "reference",
+        input = "//a%2eb{//\9",
+        base = "file:///C:/dir/file",
+        native = "file://a.b{/",
+        portable = "file://a.b{//"
+    },
+    {
+        kind = "reference",
+        input = "//a%2eb/%2E%2e/\\[,\"",
+        base = "file:///C:/dir/file",
+        native = "file://a.b/[,%22",
+        portable = "file://a.b//[,%22"
+    },
+}
+
+local function frozenProviderCase(kind, input, base)
+    for _, case in ipairs(FROZEN_PROVIDER_CASES) do
+        if case.kind == kind and case.input == input and case.base == base then
+            return case
+        end
+    end
+
+    return nil
 end
 
 function M.seededCorpusAgreesAcrossProviders()
@@ -797,10 +892,17 @@ function M.seededCorpusAgreesAcrossProviders()
     local texts = corpus(20260929, 3000)
     local hrefs = hostHrefs(texts)
     local refusedInternational = 0
+    local frozenCount = 0
     for index, text in ipairs(texts) do
         local expected, expectedReason = native.parse(text)
         local found, reason = portable.parse(text)
-        if found == nil and reason == "internationalized host needs a host URL parser" then
+        local frozen = frozenProviderCase("corpus", text, false)
+        local unavailable = found == nil and reason == "internationalized host needs a host URL parser"
+        if frozen then
+            frozenCount = frozenCount + 1
+            test.equal(expected and expected.text or false, frozen.native, ("%q frozen native"):format(text))
+            test.equal(found and found.text or false, frozen.portable, ("%q frozen portable"):format(text))
+        elseif unavailable then
             refusedInternational = refusedInternational + 1
         else
             test.equal(found and found.text, expected and expected.text, ("%q portable text"):format(text))
@@ -811,10 +913,11 @@ function M.seededCorpusAgreesAcrossProviders()
             end
             test.equal(found == nil, expected == nil, ("%q acceptance: %s"):format(text, tostring(expectedReason)))
         end
-        if hrefs ~= nil and not newerThanTheCrate(text) then
-            test.equal(expected and expected.text or false, hrefs[index], ("%q host URL"):format(text))
+        if hrefs ~= nil and not unavailable then
+            test.equal(found and found.text or false, hrefs[index], ("%q portable host URL"):format(text))
         end
     end
+    test.equal(frozenCount, 8)
     assert(refusedInternational < 30, "the corpus is mostly ASCII hosts")
     if hrefs == nil then
         error("skip: node is not installed, so the host URL leg did not run", 0)
@@ -847,18 +950,26 @@ function M.seededReferencesResolveAsTheHostDoes()
         baseTexts[index] = bases[(index % #bases) + 1]
     end
     local hrefs = hostHrefs(texts, baseTexts)
+    local frozenCount = 0
     for index, text in ipairs(texts) do
         local base = assert(module.newURI(baseTexts[index]))
         local resolved = base:resolve(text)
         local parts = portable.parse(text, assert(portable.parse(baseTexts[index])))
         local label = ("%q against %s"):format(text, baseTexts[index])
-        if not (parts == nil and resolved ~= nil and text:find("[\128-\255]")) then
+        local frozen = frozenProviderCase("reference", text, baseTexts[index])
+        local portableUnavailable = parts == nil and resolved ~= nil and text:find("[\128-\255]")
+        if frozen then
+            frozenCount = frozenCount + 1
+            test.equal(resolved and resolved:toString() or false, frozen.native, label .. " frozen native")
+            test.equal(parts and parts.text or false, frozen.portable, label .. " frozen portable")
+        elseif not portableUnavailable then
             test.equal(parts and parts.text, resolved and resolved:toString(), label .. " portable")
         end
-        if hrefs ~= nil and not newerThanTheCrate(text) and not newerThanTheCrate(baseTexts[index]) then
-            test.equal(resolved and resolved:toString() or false, hrefs[index], label .. " host URL")
+        if hrefs ~= nil and not portableUnavailable then
+            test.equal(parts and parts.text or false, hrefs[index], label .. " portable host URL")
         end
     end
+    test.equal(frozenCount, 5)
     if hrefs == nil then
         error("skip: node is not installed, so the host URL leg did not run", 0)
     end
