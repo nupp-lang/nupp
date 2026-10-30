@@ -82,7 +82,7 @@ local function formalHeapArgument(g: any, signature: any, actual: any, node: any
     changed(argument, "resultCapabilityFacts", {{roots = {{definition = definition}}}})
 end
 
-local function lifetimeArguments(g: any): integer
+local function lifetimeArguments(g: any, formal: boolean?): integer
     local count: integer = 0
     for _, block in ipairs(g.blocks) do
         for index, op in ipairs(block.op) do
@@ -112,7 +112,9 @@ local function lifetimeArguments(g: any): integer
                     signature.call = original
                     assert(physical.callArgumentPermission(signature, 1, actual))
                     local operation = service.operation(g, args[1])
-                    formalHeapArgument(g, signature, actual, operation.node)
+                    if formal then
+                        formalHeapArgument(g, signature, actual, operation.node)
+                    end
                     local marker = operation.node.unsafeOwnershipOperation
                     operation.node.unsafeOwnershipOperation = nil
                     refuses(function(): nil
@@ -228,7 +230,7 @@ function M.check(build: any): nil
     assert(owner, "actual CELL constructor is absent")
     local g = lower.functionGraph(owner, service.options(build.catalog, owner), cleanup.profile(profile))
     local proof = verify(g)
-    assert(lifetimeArguments(g) >= 1, "constructor Heap call obligation missing")
+    assert(lifetimeArguments(g, true) >= 1, "constructor Heap call obligation missing")
     cell.validate(proof, g)
     refuses(function(): nil
         cell.validate({}, g)
@@ -239,7 +241,7 @@ function M.check(build: any): nil
     mutations(g)
     graph.prune(g)
     verify(g)
-    assert(lifetimeArguments(g) >= 1)
+    assert(lifetimeArguments(g, true) >= 1)
     cell.validate(proof, g)
     mutations(g)
     M.entryGraph(build)
