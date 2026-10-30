@@ -756,11 +756,21 @@ function nativegraph.unary(ctx: any, n: any, expected: string?): integer?
     local expression = ctx.expression
     local emit = ctx.emit
     local kind = exactKind(n.inferredType)
+    -- The checker can mark an unsuffixed negative literal as int64 while a
+    -- checked physical comparison needs the int32 field's representation.
+    -- Only the original integer token may project; graph verification checks
+    -- its signed range before the code can be selected.
     if ctx.g.nativePhysical
         and (expected == "int64" or expected == "int32")
-        and (kind == "integer" or kind == "number")
         and n.op.text == "-"
         and n.operand.kind == "number"
+        and (
+            kind == "integer"
+            or kind == "number"
+            or expected == "int32"
+            and kind == "int64"
+            and (n.operand.token.text:match("^%d+$") or n.operand.token.text:match("^0[xX]%x+$"))
+        )
     then
         kind = expected
     end

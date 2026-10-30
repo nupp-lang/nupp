@@ -245,10 +245,6 @@ function M.projectedLiterals(): string
     }
     for _, specification in ipairs(specifications) do
         local kind, text = specification[1], specification[2]
-        -- Negative projected comparison literals still refuse in the source
-        -- profile. Start from its checked zero comparison, then exercise signed
-        -- boundary values directly in the verified graph consumed by this sink.
-        local sourceText = text:sub(1, 1) == "-" and "0" or text
         local source = "module nupp.runtime.vm.core\n"
             .. "const native = require(\"nupp.runtime.vm.intrinsics\")\n"
             .. "local struct Narrow\n value: "
@@ -257,7 +253,7 @@ function M.projectedLiterals(): string
             .. "local function read(address: uint64): uint64\n"
             .. " local p = native.pointer(address) as Narrow*\n"
             .. " @unsafe do\n if p.value == "
-            .. sourceText
+            .. text
             .. " then return 1ULL end\n end\n"
             .. " return 0ULL\nend\n"
         trivia.installDefault(provider)
@@ -283,8 +279,7 @@ function M.projectedLiterals(): string
             for at, op in ipairs(block.op) do
                 if op == "NativeConstant" and g.exactTypes[block.dst[at]] == kind then
                     count = count + 1
-                    assert(block.args[at][1] == sourceText, "checked projected literal text")
-                    block.args[at][1] = text
+                    assert(block.args[at][1] == text, "checked projected literal text")
                     graph.verify(g)
                     local artifact = sink.compilerGraph(g, "read", owner, {})
                     local f, found = artifact.machine, false
@@ -311,7 +306,7 @@ function M.projectedLiterals(): string
                         block.args[at][1] = text
                         assert(not ok and tostring(message):find(specification[5], 1, true), tostring(message))
                     end
-                    block.args[at][1] = sourceText
+                    block.args[at][1] = text
                 end
             end
         end
@@ -319,7 +314,7 @@ function M.projectedLiterals(): string
         graph.verify(g)
     end
 
-    return "5 projected literals, 10 selections, 4 range refusals"
+    return "5 checked-source literals, 10 selections, 4 range refusals"
 end
 
 function M.cases(): any

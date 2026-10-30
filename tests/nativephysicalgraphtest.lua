@@ -655,6 +655,40 @@ end
     assert(found)
 end
 
+function M.signedFieldComparisonsProjectCheckedNegativeLiterals()
+    local source = [[
+local struct SignedWords
+    word: int32
+end
+local function read(address: uint64): uint64
+    local p = native.pointer(address) as SignedWords*
+    @unsafe do
+        if p.word == -2147483648 then return 1ULL end
+        return 0ULL
+    end
+end
+]]
+    local g = compile(source)
+    local found = false
+    for _, block in ipairs(g.blocks) do
+        for at, op in ipairs(block.op) do
+            if op == "NativeConstant" and g.exactTypes[block.dst[at]] == "int32" then
+                assert(block.args[at][1] == "-2147483648")
+                found = true
+            end
+        end
+    end
+    assert(found)
+    local outOfRange = source:gsub("-2147483648", "-2147483649")
+    refuses(function()
+        compile(outOfRange)
+    end)
+    local explicitWide = source:gsub("-2147483648", "-2147483648LL")
+    refuses(function()
+        compile(explicitWide)
+    end)
+end
+
 function M.narrowedRawReadsRetainCheckedUnsafeEvidence()
     local g = compile(
         [[
