@@ -4,12 +4,12 @@ local system = {}
 local TENTH = nupp.math.f32.narrow(0.1)
 
 local struct State
-    x: float
+    x: float32
     flags: uint32
 end
 
-local function advance(value: float, scale: float): (float, uint32)
-    local position: float = value
+local function advance(value: float32, scale: float32): (float32, uint32)
+    local position: float32 = value
     local flags: uint32 = 0
     @noalloc do
         @noraise do
@@ -21,7 +21,7 @@ local function advance(value: float, scale: float): (float, uint32)
     return position, flags
 end
 
-function system.run(): (float, uint32)
+function system.run(): (float32, uint32)
     const storage = carray(State, 8)
     const writable = span.writeCarray(storage, 8)
     do

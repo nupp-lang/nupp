@@ -48,7 +48,7 @@ end
 function M.pointersAndStructsDecode()
     local res = loaded()
     -- float parameter, struct pointer, double return
-    testAssert.equal(T.tostring(res.exports.nuppSinkScale), "function(float, SinkPoint*?): number")
+    testAssert.equal(T.tostring(res.exports.nuppSinkScale), "function(float32, SinkPoint*?): float")
     testAssert.equal(T.tostring(res.exports.nuppSinkBytes), "function(uint8*?, const uint8*?): uint8*?")
     testAssert.equal(
         T.tostring(assert(cheaderMod.typeFromString("const unsigned char *"))),
@@ -64,7 +64,7 @@ function M.completeDirectDeclaratorsDecode()
     local pointer = parameter.members[1] == T.nil_ and parameter.members[2] or parameter.members[1]
     local context = pointer.elem
     testAssert.equal(context.name, "nupp_complete_context", "typedef names the anonymous struct identity")
-    testAssert.equal(T.tostring(context.byname.matrix), "float[3][2]")
+    testAssert.equal(T.tostring(context.byname.matrix), "float32[3][2]")
     testAssert.equal(T.tostring(context.byname.callback), "function(int32)?")
     testAssert.equal(T.tostring(res.exports.nupp_complete_get_callback), "function(): function(int32)?")
     testAssert.equal(T.tostring(res.exports.nupp_complete_set_callbacks), "function((function(int32)?)*?)")
