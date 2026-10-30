@@ -177,9 +177,10 @@ local function extentTransport(g: any): nil
     verify(g)
 end
 
--- Insert a real collecting operation on each successful allocation edge,
--- before the address phi and NativePointer conversion. The declaration is
--- authenticated in the forwarding graph; it grants no permission in this one.
+-- Insert a real collecting operation in each existing success continuation,
+-- before the address phi and NativePointer conversion. Preserve CFG topology
+-- and old rows so the interval guard, rather than an earlier seal, refuses it.
+-- The declaration is authenticated only in the forwarding graph.
 local function collectingGap(g: any, declaration: any): nil
     local count: integer = 0
     local originalCount = #g.blocks
@@ -191,15 +192,32 @@ local function collectingGap(g: any, declaration: any): nil
                 if operation.target.name == "takeSlot" or operation.target.name == "allocLarge" then
                     assert(block.term.kind == "branch", "allocation lacks success edge")
                     local edge = block.term.edges[1]
-                    local target, arguments = edge.target, edge.args
-                    local injected = graph.block(g)
-                    injected.op[1], injected.dst[1] = "NativeLeafCall", 0
-                    injected.args[1], injected.pos[1], injected.cert[1] = {declaration, 1, g.nparams}, 0, 0
-                    injected.term = {kind = "jump", edges = {{target = target, args = arguments}}}
-                    edge.target, edge.args = injected.id, {}
+                    local continuation = g.blocks[edge.target]
+                    assert(
+                        continuation.term.kind == "jump"
+                        and #continuation.term.edges == 1
+                        and g.blocks[continuation.term.edges[1].target].op[1] == "NativePointer",
+                        "allocation success continuation no longer precedes Header conversion"
+                    )
+                    local incoming: integer = 0
+                    for _, prior in ipairs(g.blocks) do
+                        for _, candidate in ipairs(prior.term.edges) do
+                            if candidate.target == continuation.id then
+                                assert(prior == block and candidate == edge, "allocation continuation is shared")
+                                incoming += 1
+                            end
+                        end
+                    end
+                    assert(incoming == 1, "allocation continuation lacks its exact success predecessor")
+                    for _, column in ipairs({"op", "dst", "args", "pos", "cert"}) do
+                        assert(next(continuation[column]) == nil, "allocation continuation is no longer empty")
+                    end
+                    continuation.op[1], continuation.dst[1] = "NativeLeafCall", 0
+                    continuation.args[1], continuation.pos[1], continuation.cert[1] = {declaration, 1, g.nparams}, 0, 0
                     local ok, problem = pcall(service.verifyScope, g)
-                    edge.target, edge.args = target, arguments
-                    g.blocks[injected.id] = nil
+                    for _, column in ipairs({"op", "dst", "args", "pos", "cert"}) do
+                        continuation[column][1] = nil
+                    end
                     assert(
                         not ok and tostring(problem):find("managed interval contains an unissued operation", 1, true),
                         tostring(problem)
