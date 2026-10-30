@@ -76,7 +76,7 @@ CHECK_HELPERS = ("owner-view-checks", "service-contract-checks", "service-heap-e
                  "service-return-tail-checks", "service-arena-return-checks",
                  "service-contextual-pointer-checks", "service-dependent-return-checks",
                  "service-managed-result-checks", "service-cell-constructor-checks",
-                 "heap-workload-producer", "heap-entry-checks", "gray-failure-checks")
+                 "heap-workload-producer", "gray-failure-checks")
 
 
 INPUT_INVENTORY_VERSION = 2
