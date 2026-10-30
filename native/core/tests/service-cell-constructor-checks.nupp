@@ -55,9 +55,8 @@ local function lifetimeArguments(g: any): integer
                     refuses(function(): nil
                         physical.callArgumentPermission(copy(signature), 1, actual)
                     end)
-                    refuses(function(): nil
-                        physical.callArgumentPermission(signature, 2, actual)
-                    end)
+                    local wrongSlotOk, wrongSlot = pcall(physical.callArgumentPermission, signature, 2, actual)
+                    assert(not wrongSlotOk or wrongSlot == false, "wrong call slot acquired Heap permission")
                     local unrelated = physical.describe(actual.context, actual.checkedType)
                     refuses(function(): nil
                         physical.callArgumentPermission(signature, 1, unrelated)
@@ -237,6 +236,34 @@ function M.entries(build: any): nil
     refuses(function(): nil
         factory.requireEntry(constructor.graph, constructor.owner)
     end)
+    local predicate = assert(build.resolved["nupp.runtime.core.cellservice.validInput"])
+    local signature = assert(predicate.graph.nativePhysical.signature)
+    assert(signature.borrowing and not signature.managed)
+    local pending = false
+    for _, block in ipairs(predicate.graph.blocks) do
+        for index, op in ipairs(block.op) do
+            if op == "NativeLeafCall" then
+                local declaration = block.args[index][1]
+                assert(not service.managedCall(predicate.graph, declaration))
+                pending = pending or declaration.physical and physical.hasHeapCallUse(declaration.physical)
+            end
+        end
+    end
+    -- isLiveSlot may itself have inferred borrows, in which case this original
+    -- source needs no plain-call obligation. Never manufacture one for a test.
+    if pending then
+        local resolved = {}
+        for _, item in pairs(build.resolved) do
+            resolved[item.owner] = item.graph
+        end
+        assert(cell.hasManaged(predicate.graph, resolved), "pending Heap-only entry bypassed the lifetime gate")
+    end
+    refuses(
+        function(): nil
+            factory.requireEntry(predicate.graph, predicate.owner)
+        end,
+        "internal-only"
+    )
 end
 
 -- Construction remains provisional; this check proves the exact source-created
