@@ -121,14 +121,14 @@ def main():
         run.save()
         if not args.artifact_only:
             assert args.bridge and args.guard_proof, "native run requires --bridge and --guard-proof"
-            guard = run.guard(args.guard_proof, args.abi_test_binary)
+            guard = run.guard(args.guard_proof, args.abi_test_binary, args.bridge)
             bridge = args.bridge.resolve()
-            run.watch(bridge)
             empty, expected, output = run.out / "input.bin", run.out / "expected.bin", run.out / "output.bin"
             empty.write_bytes(b"")
             expected.write_bytes(struct.pack("<Q", 1))
             output.write_bytes(b"unmodified-output")
             report["nativeAttempted"] = True
+            run.save()
             run.run("native-bridge", [bridge, artifact, empty, output])
             assert output.read_bytes() == expected.read_bytes(), "native scalar checksum differs"
             report["nativeExecution"] = True

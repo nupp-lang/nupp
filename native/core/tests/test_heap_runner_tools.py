@@ -313,5 +313,71 @@ class RunnerReuseTests(unittest.TestCase):
             self.reuse()
 
 
+class GuardBridgeBindingTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory(prefix="nupp-bridge-proof-tests-")
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name).resolve()
+        self.guard, self.bridge = self.root / "guard", self.root / "bridge"
+        self.guard.write_bytes(b"calibrated guard")
+        self.bridge.write_bytes(b"original bridge")
+        sources = {}
+        for name in ("src/main.rs", "src/platform.rs", "tests/support/abi.rs",
+                     "tests/support/abi-aarch64.S", "tests/support/scratch.rs"):
+            path = self.root / "native/core/bridge" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(name)
+            sources[str(path)] = sha(path)
+        self.proof = {"status": "passed", "sources": sources,
+                      "binary": {"path": str(self.guard), "sha256": sha(self.guard)},
+                      "bridge": {"path": str(self.bridge), "sha256": sha(self.bridge)}}
+        self.proof_path = self.root / "proof.json"
+        self.bound = BoundRunner(self.root, self.root / "build/run", self.root / "binding", 1, {})
+
+    def verify(self, bridge=None):
+        write_json(self.proof_path, self.proof)
+        return self.bound.guard(self.proof_path, self.guard, bridge or self.bridge)
+
+    def test_exact_bridge_and_relocated_identical_bytes_pass(self):
+        self.assertEqual(self.verify(), self.guard)
+        relocated = self.root / "relocated-bridge"
+        relocated.write_bytes(self.bridge.read_bytes())
+        self.bridge.unlink()
+        self.assertEqual(self.verify(relocated), self.guard)
+        self.assertEqual(self.bound.report["nativeBridge"]["sha256"], self.proof["bridge"]["sha256"])
+        self.assertIn(str(relocated), self.bound.watched)
+
+    def test_substituted_bridge_refuses(self):
+        self.bridge.write_bytes(b"unrelated executable")
+        with self.assertRaisesRegex(AssertionError, "hash mismatch"):
+            self.verify()
+        self.assertNotIn("nativeBridge", self.bound.report)
+
+    def test_missing_or_invalid_bridge_proof_refuses(self):
+        for value in (None, {}, {"sha256": None}, {"sha256": ""}, {"sha256": "wrong"}):
+            with self.subTest(value=value):
+                self.proof["bridge"] = value
+                with self.assertRaisesRegex(AssertionError, "fresh bridge proof"):
+                    self.verify()
+        del self.proof["bridge"]
+        with self.assertRaisesRegex(AssertionError, "fresh bridge proof"):
+            self.verify()
+
+    def test_missing_bridge_file_refuses(self):
+        self.bridge.unlink()
+        with self.assertRaisesRegex(AssertionError, "executable missing"):
+            self.verify()
+
+    def test_failed_proof_or_changed_sources_refuse(self):
+        self.proof["status"] = "failed"
+        with self.assertRaises(AssertionError):
+            self.verify()
+        self.proof["status"] = "passed"
+        path = Path(next(iter(self.proof["sources"])))
+        path.write_text("changed source")
+        with self.assertRaisesRegex(AssertionError, "hash mismatch"):
+            self.verify()
+
+
 if __name__ == "__main__":
     unittest.main()

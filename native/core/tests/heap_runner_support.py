@@ -512,7 +512,7 @@ class BoundRunner:
             self.report.pop("active", None)
             self.save()
 
-    def guard(self, proof_path, binary=None):
+    def guard(self, proof_path, binary=None, bridge=None):
         proof_path = Path(proof_path).resolve()
         self.watch(proof_path)
         proof = json.loads(proof_path.read_text())
@@ -530,6 +530,16 @@ class BoundRunner:
         for name in ("src/main.rs", "src/platform.rs", "tests/support/abi.rs",
                      "tests/support/abi-aarch64.S", "tests/support/scratch.rs"):
             assert str(self.root / "native/core/bridge" / name) in sources
+        if bridge is not None:
+            bridge = Path(bridge).resolve()
+            supplied = proof.get("bridge")
+            digest = supplied.get("sha256") if isinstance(supplied, dict) else None
+            assert isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest), \
+                "guard proof lacks bridge hash; prepare a fresh bridge proof"
+            assert bridge.is_file(), "bridge executable missing"
+            self.watch(bridge, digest)
+            self.report["nativeBridge"] = {"path": str(bridge), "sha256": sha(bridge),
+                "proof": str(proof_path), "proofSha256": sha(proof_path)}
         self.report["guardVerifier"] = {"path": str(binary), "sha256": sha(binary),
             "proof": str(proof_path), "proofSha256": sha(proof_path), "sources": sources}
         return binary
