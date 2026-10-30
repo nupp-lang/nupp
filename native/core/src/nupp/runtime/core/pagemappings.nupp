@@ -23,6 +23,15 @@ export struct Mapping
     state: uint64
 end
 
+-- The one bootstrap mapping contains all retained entry metadata and helpers.
+-- It is outside its own heap ledger and is released last, after that ledger
+-- closes successfully. This is not permission for general unjournaled maps.
+export struct EntryBacking
+    base: uint64
+    bytes: uint64
+    phase: uint64
+end
+
 const LIMIT: uint64 = 281474976710656ULL
 const MAXIMUM: uint64 = 0xffffffffffffffffULL
 const MAX_RECORDS: uint64 = 4096ULL
@@ -74,6 +83,55 @@ export function initialize(
     native.store64(scope, native.fieldOffset<Scope>("records"), rb)
     native.store64(scope, native.fieldOffset<Scope>("capacity"), capacity)
     native.store64(scope, native.fieldOffset<Scope>("phase"), 1ULL)
+
+    return 1ULL
+end
+
+-- Only the authenticated mechanical entry may expose these two wrappers.
+-- Failure leaves a self-contained mapping; no bridge-scratch pointer is stored.
+export function acquireEntry(bytes: uint64): voidptr?
+    if bytes < native.sizeOf<EntryBacking>() or bytes > 67108864ULL then
+        return nil
+    end
+    local mapped = os.mapPages(bytes)
+    if mapped == nil then
+        return nil
+    end
+    native.store64(mapped, native.fieldOffset<EntryBacking>("base"), native.address(mapped))
+    native.store64(mapped, native.fieldOffset<EntryBacking>("bytes"), bytes)
+    native.store64(mapped, native.fieldOffset<EntryBacking>("phase"), 1ULL)
+
+    return mapped
+end
+
+-- statusScope is disjoint borrowed bridge storage and stays mapped through
+-- this call. The selected OS operation writes its actual C result into
+-- Scope.status immediately after unmap, exactly as for unmapOwned.
+export function releaseEntry(statusScope: voidptr, base: voidptr, bytes: uint64): uint64
+    local statusAddress, address = native.address(statusScope), native.address(base)
+    if not extent(statusAddress, native.sizeOf<Scope>())
+        or (statusAddress & 7ULL) ~= 0ULL
+        or not extent(address, bytes)
+        or bytes < native.sizeOf<EntryBacking>()
+        or bytes > 67108864ULL
+        or overlap(statusAddress, native.sizeOf<Scope>(), address, bytes)
+    then
+        return 0ULL
+    end
+    if native.load64(base, native.fieldOffset<EntryBacking>("base")) ~= address
+        or native.load64(base, native.fieldOffset<EntryBacking>("bytes")) ~= bytes
+        or native.load64(base, native.fieldOffset<EntryBacking>("phase")) ~= 1ULL
+    then
+        return 0ULL
+    end
+    -- Consume before the attempt. A failed release retains the mapping and
+    -- never permits reset/retry or use by a newly initialized service scope.
+    native.store64(base, native.fieldOffset<EntryBacking>("phase"), 2ULL)
+    native.store64(statusScope, native.fieldOffset<Scope>("status"), MAXIMUM)
+    os.unmapPages(base, bytes)
+    if native.load64(statusScope, native.fieldOffset<Scope>("status")) ~= 0ULL then
+        return 0ULL
+    end
 
     return 1ULL
 end

@@ -1,0 +1,223 @@
+module nupp.runtime.core.heapentry
+
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const collector = require("nupp.runtime.vm.collector")
+const values = require("nupp.runtime.vm.values")
+const frames = require("nupp.runtime.core.frames")
+const framearena = require("nupp.runtime.core.arena")
+const rootentry = require("nupp.runtime.core.rootentry")
+const roots = require("nupp.runtime.core.frameroots")
+const cells = require("nupp.runtime.core.cellservice")
+
+-- Entry receives actual retained mappings, never a Heap supplied by C. The
+-- checked entry-lifetime contract must bind its whole call tree to the original
+-- hidden ServiceScope. This source is not executable until that proof exists.
+export struct Binding
+    data: uint64
+    dataBytes: uint64
+    storage: uint64
+    storageBytes: uint64
+    pool: uint64
+    poolBytes: uint64
+    helper: uint64
+    helperBytes: uint64
+    stress: uint64
+end
+
+-- All storage is fresh and disjoint from frame/helper arenas and heap mappings.
+-- entered is never reset. Failure retains this storage until root teardown is
+-- proved; a fresh service scope must not adopt the failed entry or its Heap.
+export struct Storage
+    root: rootentry.Storage
+    outer: roots.Scope
+    inner: roots.Scope
+    outerResult: roots.Result
+    innerResult: roots.Result
+    input: uint64
+    entered: uint64
+    completed: uint64
+end
+
+local function base(binding: voidptr, index: uint64): uint64
+    local stride = native.fieldOffset<Binding>("storage") - native.fieldOffset<Binding>("data")
+    return native.load64(binding, native.fieldOffset<Binding>("data") + native.index(index) * stride)
+end
+
+local function extent(binding: voidptr, index: uint64): uint64
+    local stride = native.fieldOffset<Binding>("storage") - native.fieldOffset<Binding>("data")
+    return native.load64(binding, native.fieldOffset<Binding>("dataBytes") + native.index(index) * stride)
+end
+
+local function range(address: uint64, bytes: uint64, alignment: uint64): boolean
+    return address ~= 0ULL
+        and bytes ~= 0ULL
+        and (address & (alignment - 1ULL)) == 0ULL
+        and bytes <= 0xffffffffffffffffULL - address
+end
+
+local function overlap(a: uint64, an: uint64, b: uint64, bn: uint64): boolean
+    return a < b + bn and b < a + an
+end
+
+-- Root construction/retirement uses the existing final-frame lifecycle. Two
+-- registrations matter: closing the constructor's inner scope must not remove
+-- the frame slot that receives its result from the collector's roots.
+export function run(binding: voidptr): uint64
+    @unsafe do
+        local address = native.address(binding)
+        if not range(address, native.sizeOf<Binding>(), 8ULL) then
+            return 1ULL
+        end
+        local stress = native.load64(binding, native.fieldOffset<Binding>("stress"))
+        if stress > 1ULL or extent(binding, 1ULL) < native.sizeOf<Storage>() then
+            return 2ULL
+        end
+        local i: uint64 = 0ULL
+        while i < 4ULL do
+            local alignment: uint64 = 8ULL
+            if i >= 2ULL then
+                alignment = 16ULL
+            end
+            if not range(base(binding, i), extent(binding, i), alignment)
+                or overlap(address, native.sizeOf<Binding>(), base(binding, i), extent(binding, i))
+            then
+                return 3ULL
+            end
+            i = i + 1ULL
+        end
+        i = 0ULL
+        while i < 4ULL do
+            local j = i + 1ULL
+            while j < 4ULL do
+                if overlap(base(binding, i), extent(binding, i), base(binding, j), extent(binding, j)) then
+                    return 4ULL
+                end
+                j = j + 1ULL
+            end
+            i = i + 1ULL
+        end
+        local storage = native.pointer(base(binding, 1ULL))
+        local offset: uint64 = 0ULL
+        while offset < native.sizeOf<Storage>() do
+            if native.load64(storage, native.index(offset)) ~= 0ULL then
+                return 5ULL
+            end
+            offset = offset + 8ULL
+        end
+        native.store64(storage, native.fieldOffset<Storage>("entered"), 1ULL)
+        local rootStorage = native.offset(storage, native.fieldOffset<Storage>("root"))
+        local outer = native.offset(storage, native.fieldOffset<Storage>("outer"))
+        local inner = native.offset(storage, native.fieldOffset<Storage>("inner"))
+        local outerResult = native.offset(storage, native.fieldOffset<Storage>("outerResult"))
+        local innerResult = native.offset(storage, native.fieldOffset<Storage>("innerResult"))
+        local input = native.offset(storage, native.fieldOffset<Storage>("input"))
+        native.store64(outerResult, native.fieldOffset<roots.Result>("value"), values.NIL)
+        native.store64(innerResult, native.fieldOffset<roots.Result>("value"), values.NIL)
+        native.store64(input, 0, values.TRUE)
+        with a = arena.open(131072ULL) do
+            local h = heap.create(a)
+            h.stress = stress == 1ULL
+            local initial = rootentry.start(
+                native.pointer(base(binding, 0ULL)),
+                extent(binding, 0ULL),
+                rootStorage,
+                native.pointer(base(binding, 2ULL)),
+                extent(binding, 2ULL),
+                native.pointer(base(binding, 3ULL)),
+                extent(binding, 3ULL)
+            )
+            if initial == 0ULL then
+                error("heap entry: root initialization refused")
+            end
+            local frame = native.pointer(initial)
+            local state = native.offset(rootStorage, native.fieldOffset<rootentry.Storage>("state"))
+            local control = native.offset(rootStorage, native.fieldOffset<rootentry.Storage>("root"))
+            local mark = native.offset(control, native.fieldOffset<frames.RootControl>("mark"))
+            local serial = native.load64(mark, native.fieldOffset<framearena.Mark>("serial"))
+            local pairs = frames.rootRangeCount(
+                state,
+                control,
+                serial,
+                native.address(outer),
+                native.sizeOf<roots.Scope>()
+            )
+            if pairs == 0ULL or pairs > (1048576ULL - 8ULL) // 4ULL then
+                error("heap entry: root descriptor capacity refused")
+            end
+            -- Each scope publishes all frame ranges plus input/result pairs.
+            -- Provision both while the actual frame still contains only NIL.
+            local required = pairs * 4ULL + 8ULL
+            i = 0ULL
+            while i < required do
+                heap.wordsPush(h.ranges, 0ULL)
+                i = i + 1ULL
+            end
+            i = 0ULL
+            while i < required do
+                local _ = heap.wordsPop(h.ranges)
+                i = i + 1ULL
+            end
+            local outerToken = roots.publish(
+                outer,
+                h as voidptr,
+                state,
+                control,
+                serial,
+                native.pointer(0ULL),
+                0ULL,
+                outerResult
+            )
+            if outerToken == 0ULL then
+                error("heap entry: outer publication refused")
+            end
+            if cells.construct(h, inner, state, control, serial, input, innerResult) ~= 0ULL then
+                error("heap entry: cell construction refused")
+            end
+            if native.load64(innerResult, native.fieldOffset<roots.Result>("ready")) ~= 1ULL
+                or native.load64(innerResult, native.fieldOffset<roots.Result>("count")) ~= 1ULL
+            then
+                error("heap entry: missing cell result")
+            end
+            collector.fullCycle(h)
+            local value = native.load64(innerResult, native.fieldOffset<roots.Result>("value"))
+            local child = value & values.PAYLOAD
+            if value & values.TAG_MASK ~= values.TAG_OBJ or not heap.isLiveSlot(h, child) then
+                error("heap entry: rooted cell did not survive")
+            end
+            local slots = native.loadPointer(frame, native.fieldOffset<frames.Frame>("values"))
+            native.store64(slots, 0, value)
+            local innerToken = native.load64(inner, native.fieldOffset<roots.Scope>("serial"))
+            if roots.close(inner, innerToken) ~= 1ULL then
+                error("heap entry: inner close refused")
+            end
+            -- Result storage is no longer registered; no managed value escapes
+            -- this entry after the frame's reference is removed below.
+            native.store64(innerResult, native.fieldOffset<roots.Result>("value"), values.NIL)
+            collector.fullCycle(h)
+            if not heap.isLiveSlot(h, child) then
+                error("heap entry: transferred cell did not survive")
+            end
+            native.store64(slots, 0, values.NIL)
+            collector.fullCycle(h)
+            if heap.isLiveSlot(h, child) or h.liveCount ~= 0ULL then
+                error("heap entry: unrooted cell was not reclaimed")
+            end
+            if roots.close(outer, outerToken) ~= 1ULL then
+                error("heap entry: outer close refused")
+            end
+            -- Frame topology changes only after both registrations retire.
+            if frames.finishRoot(state, control, frame, serial, values.TRUE) ~= 1ULL then
+                error("heap entry: root completion refused")
+            end
+            if rootentry.complete(rootStorage, frame, serial) ~= 1ULL then
+                error("heap entry: root retirement refused")
+            end
+            heap.destroy(h)
+        end
+        -- Lexical Arena cleanup completed before publishing scalar success.
+        native.store64(storage, native.fieldOffset<Storage>("completed"), 1ULL)
+        return 0ULL
+    end
+end
