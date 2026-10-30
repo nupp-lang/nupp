@@ -10,7 +10,8 @@ from pathlib import Path
 import re
 import subprocess
 
-from heap_runner_support import runner_attachment, sha, source_paths
+from heap_runner_support import (INPUT_INVENTORY_VERSION, RUNNER_ARTIFACTS, reuse_runner,
+                                 runner_attachment, runner_inputs, sha, source_paths, verify_runner_state)
 
 
 def main():
@@ -28,18 +29,24 @@ def main():
     frozen = proof["frozen"]
     assert frozen
     assert any(s["name"] == "union-check" and s["status"] == 0 for s in proof["steps"])
-    focused = [s for s in proof["steps"] if s["name"] == "focused"]
-    assert len(focused) == 1
-    focused = focused[0]
-    assert type(focused["status"]) is int and focused["status"] in (0, 1)
-    assert focused["command"][:2] == [str(root / "bin/nupp"), "test"]
-    stdout, stderr = proof_path.parent / "focused.out", proof_path.parent / "focused.err"
-    assert sha(stdout) == focused["stdoutSHA256"] and sha(stderr) == focused["stderrSHA256"]
-    summaries = re.findall(r"(?m)^\s*(\d+) tests, (\d+) passed, (\d+) skipped, (\d+) failed", stdout.read_text())
-    assert len(summaries) == 1, "no unique terminal runner totals; build may have failed before tests"
-    total, passed, skipped, failed = map(int, summaries[0])
-    assert total > 0 and total == passed + skipped + failed
-    assert (focused["status"] == 0) == (failed == 0), "runner exit/totals disagree"
+    reused = proof.get("reusedBuild")
+    if reused:
+        assert not any(s["name"] == "focused" for s in proof["steps"])
+        assert proof["status"] == "passed"
+        assert reuse_runner(root, reused["path"], frozen, proof["tools"]) == reused
+    else:
+        focused = [s for s in proof["steps"] if s["name"] == "focused"]
+        assert len(focused) == 1
+        focused = focused[0]
+        assert type(focused["status"]) is int and focused["status"] in (0, 1)
+        assert focused["command"][:2] == [str(root / "bin/nupp"), "test"]
+        stdout, stderr = proof_path.parent / "focused.out", proof_path.parent / "focused.err"
+        assert sha(stdout) == focused["stdoutSHA256"] and sha(stderr) == focused["stderrSHA256"]
+        summaries = re.findall(r"(?m)^\s*(\d+) tests, (\d+) passed, (\d+) skipped, (\d+) failed", stdout.read_text())
+        assert len(summaries) == 1, "no unique terminal runner totals; build may have failed before tests"
+        total, passed, skipped, failed = map(int, summaries[0])
+        assert total > 0 and total == passed + skipped + failed
+        assert (focused["status"] == 0) == (failed == 0), "runner exit/totals disagree"
     for relative, digest in frozen.items():
         assert not Path(relative).is_absolute() and ".." not in Path(relative).parts
         assert sha(root / relative) == digest, "frozen source changed: " + relative
@@ -47,13 +54,7 @@ def main():
         assert sha(path) == digest, "frozen tool changed: " + path
     folder = root / "build/test-runner"
     assert not (folder / ".nupp-complete.pending").exists()
-    paths = {
-        "runner": root / "build/nupp-test",
-        "image": folder / ".nupp-vm-program.image",
-        "payload": folder / ".nupp-vm-program.payload",
-        "state": folder / ".nupp-state.json",
-        "complete": folder / ".nupp-complete",
-    }
+    paths = {name: root / relative for name, relative in RUNNER_ARTIFACTS.items()}
     artifacts = {name: {"path": str(path), "sha256": sha(path)} for name, path in paths.items()}
     state = json.loads(paths["state"].read_text())
     assert paths["complete"].read_text().strip() == state["compilerHash"]
@@ -63,6 +64,11 @@ def main():
         item = state["modules"]["nupp.compiler.vm." + name]
         assert item["sourcePath"] == "src/nupp/compiler/vm/" + name + ".nupp"
         assert item["sourcePath"] in frozen
+    inputs = None
+    if proof.get("inputInventoryVersion") == INPUT_INVENTORY_VERSION:
+        inputs = runner_inputs(frozen)
+        assert inputs == proof["runnerInputs"]
+        verify_runner_state(root, state, inputs)
     payload = paths["payload"].read_bytes()
     assert payload == paths["image"].read_bytes(), "runner payload/image mismatch"
     attachment = runner_attachment(paths["runner"].read_bytes(), payload)
@@ -86,10 +92,16 @@ def main():
                "sources": sources, "supplementalBaseSources": supplemental, "baseRef": base_ref,
                "supplementalEvidence": "bound at capture; exact accepted-base bytes; no prebuild hash claimed",
                "attachment": attachment, **artifacts,
-               "focusedEvidence": {"status": focused["status"], "total": total, "passed": passed,
-                                   "skipped": skipped, "failed": failed,
-                                   "stdoutSHA256": sha(stdout), "stderrSHA256": sha(stderr)},
                "captureDriver": {"path": str(Path(__file__).resolve()), "sha256": sha(Path(__file__))}}
+    if inputs is not None:
+        assert sources == frozen, "fresh inventory differs from prebuild proof"
+        binding.update(inputInventoryVersion=INPUT_INVENTORY_VERSION, runnerInputs=inputs)
+    if reused:
+        binding.update(status="runner-reused", reusedBuild=reused)
+    else:
+        binding["focusedEvidence"] = {"status": focused["status"], "total": total, "passed": passed,
+                                      "skipped": skipped, "failed": failed,
+                                      "stdoutSHA256": sha(stdout), "stderrSHA256": sha(stderr)}
     # Close the read/hash race while the caller retains the exclusive token.
     for item in artifacts.values():
         assert sha(item["path"]) == item["sha256"]

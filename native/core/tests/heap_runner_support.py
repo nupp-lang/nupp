@@ -53,6 +53,14 @@ def source_paths(root, ignored=()):
         assert directory.is_dir(), directory
         paths.update(p for p in directory.rglob("*")
                      if p.is_file() and p.suffix in (".nupp", ".lua", ".py"))
+    # These roots supply include modules, bundled non-code resources and build
+    # configuration. Bind every file, including template dotfiles; a suffix
+    # filter would omit resource inputs such as CSS and README.md.
+    for relative in ("src", "templates", "evals/lib", "scripts", "bin"):
+        directory = root / relative
+        if directory.exists():
+            paths.update(p for p in directory.rglob("*") if p.is_file()
+                         and "__pycache__" not in p.parts and p.suffix != ".pyc")
     # Some source manifests have an additional top-level declaration tree.
     if (root / "decls").exists():
         paths.update(p for p in (root / "decls").rglob("*") if p.is_file())
@@ -68,6 +76,98 @@ CHECK_HELPERS = ("owner-view-checks", "service-contract-checks", "service-heap-e
                  "service-contextual-pointer-checks", "service-dependent-return-checks",
                  "service-managed-result-checks", "service-cell-constructor-checks",
                  "heap-workload-producer", "heap-entry-checks", "gray-failure-checks")
+
+
+INPUT_INVENTORY_VERSION = 2
+# Audited testRunner: src/nupp + tests/runner modules, src/templates resources,
+# src/tests/runner/evals/lib includes. Config is executable Lua; unchanged bytes
+# alone cannot establish that a future config never packages a CHECK_HELPER.
+REUSE_MANIFEST_SHA256 = "a7b4535227adaae1f5a5b842ff914da2f3aaec1f8d2202055dfd5fc5453af579"
+RUNNER_ARTIFACTS = {
+    "runner": "build/nupp-test",
+    "image": "build/test-runner/.nupp-vm-program.image",
+    "payload": "build/test-runner/.nupp-vm-program.payload",
+    "state": "build/test-runner/.nupp-state.json",
+    "complete": "build/test-runner/.nupp-complete",
+}
+
+
+def runner_inputs(frozen):
+    helpers = {"native/core/tests/" + stem + ".nupp" for stem in CHECK_HELPERS}
+    assert helpers <= set(frozen), "helper inventory is incomplete"
+    return {p: h for p, h in frozen.items() if p not in helpers}
+
+
+def verify_runner_state(root, state, inputs):
+    # New dependency/generator/external-input forms need an explicit inventory
+    # extension before reuse. The current testRunner has none.
+    assert not state.get("dependencies") and not state.get("generators"), "unbound runner dependency"
+    assert state["targets"]["testRunner"] == ["build/nupp-test"]
+    assert state["outputs"]["build/nupp-test"] is True
+    assert state["modules"], "empty runner module inventory"
+    for item in state["modules"].values():
+        path = Path(item["sourcePath"])
+        if path.is_absolute():
+            path = path.relative_to(root)
+        assert ".." not in path.parts and str(path) in inputs, "runner module lacks unchanged input proof"
+        assert not item.get("externalInputs"), "unbound runner external input"
+
+
+def reuse_runner(root, binding_path, frozen, tools):
+    """Authenticate one original build; never infer a build from binary equality."""
+    assert sha(root / "nupp.lua") == REUSE_MANIFEST_SHA256, "runner manifest needs reuse inventory review"
+    binding_path = Path(binding_path).resolve()
+    binding = json.loads(binding_path.read_text())
+    assert binding["version"] == 1
+    assert binding["status"] == "runner-build-completed", "reuse requires an original completed build"
+    assert binding.get("inputInventoryVersion") == INPUT_INVENTORY_VERSION, "old binding lacks complete input inventory"
+    assert Path(binding["root"]).resolve() == root and binding["sourceUnchanged"] is True
+    previous = binding["sources"]
+    assert set(previous) == set(frozen), "source inventory changed"
+    inputs = runner_inputs(frozen)
+    assert binding["runnerInputs"] == runner_inputs(previous) == inputs, "runner input changed"
+    proof_path = Path(binding["sourceProof"])
+    assert sha(proof_path) == binding["sourceProofSha256"]
+    proof = json.loads(proof_path.read_text())
+    assert proof.get("inputInventoryVersion") == INPUT_INVENTORY_VERSION
+    assert proof["frozen"] == previous and proof["runnerInputs"] == inputs
+    assert proof["status"] == "passed" and "active" not in proof
+    assert proof["sourceUnchanged"] is True and proof["toolsUnchanged"] is True
+    assert proof["tools"] == tools, "compiler selection changed"
+    assert all(sha(path) == digest for path, digest in tools.items()), "compiler tool changed"
+    assert any(s["name"] == "union-check" and s["status"] == 0 for s in proof["steps"])
+    focused = [s for s in proof["steps"] if s["name"] == "focused"]
+    assert len(focused) == 1 and focused[0]["status"] == 0
+    assert proof["suites"] == list(SUITES)
+    assert focused[0]["command"] == [str(root / "bin/nupp"), "test", *SUITES]
+    evidence = binding["focusedEvidence"]
+    for channel in ("stdout", "stderr"):
+        digest = sha(proof_path.parent / ("focused." + ("out" if channel == "stdout" else "err")))
+        assert digest == focused[0][channel + "SHA256"] == evidence[channel + "SHA256"]
+    totals = re.findall(r"(?m)^\s*(\d+) tests, (\d+) passed, (\d+) skipped, (\d+) failed",
+                        (proof_path.parent / "focused.out").read_text())
+    assert len(totals) == 1
+    total, passed, skipped, failed = map(int, totals[0])
+    assert total > 0 and total == passed + skipped + failed
+    assert failed == 0 and passed > 0
+    assert evidence == {"status": focused[0]["status"], "total": total, "passed": passed,
+                        "skipped": skipped, "failed": failed,
+                        "stdoutSHA256": focused[0]["stdoutSHA256"],
+                        "stderrSHA256": focused[0]["stderrSHA256"]}
+    for name, relative in RUNNER_ARTIFACTS.items():
+        assert Path(binding[name]["path"]).resolve() == root / relative
+        assert sha(root / relative) == binding[name]["sha256"], "runner artifact changed: " + name
+    folder = root / "build/test-runner"
+    assert not (folder / ".nupp-complete.pending").exists()
+    state = json.loads((folder / ".nupp-state.json").read_text())
+    verify_runner_state(root, state, inputs)
+    assert (folder / ".nupp-complete").read_text().strip() == state["compilerHash"]
+    payload = (folder / ".nupp-vm-program.payload").read_bytes()
+    assert payload == (folder / ".nupp-vm-program.image").read_bytes()
+    assert runner_attachment((root / "build/nupp-test").read_bytes(), payload) == binding["attachment"]
+    changed = sorted(p for p in frozen if frozen[p] != previous[p])
+    return {"path": str(binding_path), "sha256": sha(binding_path),
+            "changedHelpers": changed, "focusedEvidence": evidence}
 
 
 def source_hashes(root):
@@ -118,6 +218,7 @@ def prepare():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--runtime", type=Path)
     parser.add_argument("--compiler-image", type=Path)
+    parser.add_argument("--reuse-runner-binding", type=Path)
     parser.add_argument("--timeout", type=int, default=1800)
     args = parser.parse_args()
     root, out = args.root.resolve(), args.output.resolve()
@@ -127,10 +228,15 @@ def prepare():
     out.mkdir(parents=True, exist_ok=False)
     frozen = source_hashes(root)
     tools = {str(path): sha(path) for path in (runtime, compiler)}
-    proof = {"version": 1, "status": "running", "scope": "compiler source and runner preparation only",
+    reused = reuse_runner(root, args.reuse_runner_binding, frozen, tools) if args.reuse_runner_binding else None
+    proof = {"inputInventoryVersion": INPUT_INVENTORY_VERSION, "runnerInputs": runner_inputs(frozen),
+             "version": 1, "status": "running", "scope": "compiler source and runner preparation only",
              "nativeExecution": False, "guestExecution": False,
              "base": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
              "frozen": frozen, "tools": tools, "steps": [], "suites": list(SUITES)}
+    if reused:
+        proof["reusedBuild"] = reused
+        proof["suites"] = []
     proof_path = out / "proof.json"
     env = {k: v for k, v in os.environ.items()
            if not k.startswith(("NUPP_", "JIT_", "GC_", "CORE_TEST_", "LUA"))
@@ -195,7 +301,10 @@ def prepare():
         checked = json.loads(run("union-check", [runtime, "exec", compiler, "nupp.tools.vm.root",
                                                 "check", "--json", *targets], project))
         assert checked["ok"], checked
-        run("focused", [root / "bin/nupp", "test", *SUITES])
+        if reused:
+            assert reuse_runner(root, args.reuse_runner_binding, frozen, tools) == reused
+        else:
+            run("focused", [root / "bin/nupp", "test", *SUITES])
         proof["status"] = "passed"
     except BaseException as error:
         proof.update(status="failed", error=repr(error))
@@ -275,7 +384,7 @@ class BoundRunner:
     def _bind(self):
         root, out, report = self.root, self.out, self.report
         binding = json.loads(self.binding_path.read_text())
-        assert binding["version"] == 1 and binding["status"] == "runner-build-completed"
+        assert binding["version"] == 1 and binding["status"] in ("runner-build-completed", "runner-reused")
         assert binding["sourceUnchanged"] is True and Path(binding["root"]).resolve() == root
         report["bindingSha256"] = self.watch(self.binding_path)
         shutil.copyfile(self.binding_path, out / "runner-binding.json")
@@ -283,6 +392,18 @@ class BoundRunner:
         self.watch(proof_path, binding["sourceProofSha256"])
         proof = json.loads(proof_path.read_text())
         frozen = proof["frozen"]
+        if binding["status"] == "runner-reused":
+            reused = reuse_runner(root, binding["reusedBuild"]["path"], frozen, proof["tools"])
+            assert reused == binding["reusedBuild"] == proof["reusedBuild"]
+            self.watch(reused["path"], reused["sha256"])
+            original = json.loads(Path(reused["path"]).read_text())
+            original_proof = Path(original["sourceProof"])
+            self.watch(original_proof, original["sourceProofSha256"])
+            for channel, suffix in (("stdout", "out"), ("stderr", "err")):
+                self.watch(original_proof.parent / ("focused." + suffix),
+                           reused["focusedEvidence"][channel + "SHA256"])
+            shutil.copyfile(original_proof, out / "original-build-proof.json")
+            shutil.copyfile(reused["path"], out / "original-build-binding.json")
         assert frozen and proof["sourceUnchanged"] is True
         assert proof["status"] != "running" and "active" not in proof
         assert any(step["name"] == "union-check" and step["status"] == 0 for step in proof["steps"])

@@ -48,8 +48,24 @@ Pure provenance tests do not invoke a compiler or execute native code:
 python3 native/core/tests/test_heap_runner_tools.py
 ```
 
-Preparation currently reruns the focused suites after helper-only edits. Reusing
-an existing runner requires both its prior completed-build/attachment evidence
-and equality of every runner module and dependency input, while the changed
-helper still needs a fresh source check and snapshot. Unchanged executable bytes
-alone do not prove that relationship; this optimization is deferred.
+After editing only existing checked helper files, reuse the original runner:
+
+```sh
+python3 native/core/tests/heap_runner_support.py \
+  --output "$PWD/build/heap-prepare-helper" \
+  --reuse-runner-binding "$PWD/build/heap-prepare/runner-binding.json"
+```
+
+Reuse requires an original passing preparation with the complete input inventory.
+Older bindings and bindings produced by reuse cannot serve as the original build.
+The current source inventory must match, with changed bytes confined to existing
+`CHECK_HELPERS` files. Runner modules, includes, resources, configuration, tools,
+state, image, payload and executable remain bound to their original hashes. A
+changed project manifest requires review of the reuse inventory before reuse is
+available again; ordinary preparation still works.
+
+Every reuse checks the helpers and their dependencies again and captures a fresh
+source snapshot. Its receipt records the original build and focused-test evidence
+separately from the current helper check; it does not claim a new focused run.
+Keep the original binding, proof and focused outputs alongside the new receipt.
+Unchanged executable bytes alone never authorize reuse.
