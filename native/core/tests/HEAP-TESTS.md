@@ -14,15 +14,24 @@ python3 native/core/tests/test_heap_graphs.py \
 
 Preparation uses the installed generation selected by `.nupp/vm-cli/current`. Supply both `--runtime` and `--compiler-image` to select a different frozen compiler. It checks the canonical helpers and their source dependencies, runs the focused compiler suites, verifies that source and tools stayed unchanged, and binds the completed test runner's exact attached image. It does not rebuild the installed compiler. Preparation, graph checks and native runs require exclusive access to this checkout's compiler and test artifacts.
 
-Generate the first transport artifact and run it with an independently calibrated bridge guard:
+Prepare the unchanged bridge and its calibrated guard in a fresh output directory:
+
+```sh
+python3 native/core/tests/prepare_heap_guard.py \
+  --output "$PWD/build/heap-guard"
+```
+
+This uses the repository Rust toolchain with offline, locked Cargo builds. It records the original bridge sources, build inputs, commands, tool versions and executable hashes, then runs all eight existing calibrations. It neither invokes the Nupp compiler nor formats or changes bridge sources. The three generated-artifact checks remain pending until an actual owned bundle is supplied. Each invocation requires a new output directory.
+
+Generate the first transport artifact and run it with that guard:
 
 ```sh
 python3 native/core/tests/test_heap_workload.py \
   --root "$PWD" --output "$PWD/build/heap-noop" \
   --runner-binding "$PWD/build/heap-prepare/runner-binding.json" \
-  --bridge /absolute/path/to/nupp-core \
-  --guard-proof /absolute/path/to/guard-proof.json \
-  --abi-test-binary /absolute/path/to/proven-guard-binary
+  --bridge "$PWD/build/heap-guard/bin/nupp-core" \
+  --guard-proof "$PWD/build/heap-guard/receipt.json" \
+  --abi-test-binary "$PWD/build/heap-guard/bin/nupp-core-abi-tests"
 ```
 
 The default is `--mode normal --scenario noop`. `--artifact-only` stops after authenticated artifact generation and does not require bridge arguments. The explicit guard binary must match the supplied proof and current bridge source hashes. A missing old worktree binary is an error; the driver cannot replace it with an unchecked executable. The existing `native/core/bridge/tests/test_guarded.py` calibrates the bridge's guard and ABI checks against generated control-flow bundles. A fresh guard receipt with the same source/binary bindings is also accepted.
@@ -46,6 +55,7 @@ Pure provenance tests do not invoke a compiler or execute native code:
 
 ```sh
 python3 native/core/tests/test_heap_runner_tools.py
+python3 native/core/tests/test_heap_guard_tools.py
 ```
 
 After editing only existing checked helper files, reuse the original runner:
