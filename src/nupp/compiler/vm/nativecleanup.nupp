@@ -41,7 +41,9 @@ local function scalarResult(ctx: any, stage: any?): any
         not t
         or primitive[t.tag]
         or t.tag == "affine"
-        or ctx.g.nativePhysical and ctx.g.nativePhysical.signature and ctx.g.nativePhysical.signature.dependent ~= nil,
+        or ctx.g.nativePhysical
+        and ctx.g.nativePhysical.signature
+        and (ctx.g.nativePhysical.signature.dependent ~= nil or ctx.g.nativePhysical.signature.managed ~= nil),
         "pointer return requires an exact root and backing-lifetime adapter"
     )
     -- Even uint64 may contain a tagged value or an address. Machine/source
@@ -156,6 +158,10 @@ function nativecleanup.profile(base: any): any
         local zero = ctx.emit(node, "NativeConstant", {"0"}, "uint64")
 
         return ctx.emit(node, "NativeICmp", {status, zero, "=="}, "boolean") as integer
+    end
+    profile.beforeFailure = function(ctx: any, node: any): nil
+        scoped(ctx)
+        service.retainConstructRoots(ctx, node)
     end
     profile.failure = function(ctx: any, node: any): nil
         scoped(ctx)

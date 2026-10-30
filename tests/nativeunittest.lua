@@ -790,4 +790,129 @@ function M.ordinaryCallCannotAcquireConstructionClassification()
     end)
 end
 
+local function externalBatchFixture(callback)
+    project(
+        function(dir)
+            assert(os.execute("mkdir -p '" .. dir .. "/src/nupp/runtime/vm'") == 0)
+            for _, name in ipairs({"effects.nupp", "intrinsics.d.nupp", "os.d.nupp"}) do
+                local source = assert(io.open(ROOT .. "/src/nupp/runtime/vm/" .. name, "rb"))
+                local text = source:read("*a")
+                source:close()
+                write(dir .. "/src/nupp/runtime/vm/" .. name, text)
+            end
+            local s = session(dir)
+            local functions = s.module("client").functions
+            callback(dir, s, functions, {
+                {owner = functions.use, call = callOf(functions.use), kind = "intrinsic"},
+                {owner = functions.page, call = callOf(functions.page), kind = "os"},
+            })
+        end,
+        nil,
+        [[
+module client
+const native = require("nupp.runtime.vm.intrinsics")
+const os = require("nupp.runtime.vm.os")
+export function use(value: uint64): int64 return native.index(value) end
+export function page(dummy: uint64): uint64 return os.pageSize() end
+]]
+    )
+end
+
+function M.externalBatchChecksEveryOriginalSiteWithoutIssuingPermission()
+    externalBatchFixture(function(dir, s, functions, sites)
+        local owner, call = functions.use, sites[1].call
+        local result = unit.externalDeclarations(owner, sites)
+        assert(result[call].definition == unit.intrinsicDeclaration(owner, call).definition)
+        assert(result[sites[2].call].definition == unit.osDeclaration(functions.page, sites[2].call).definition)
+        result[call].name = "forged"
+        assert(unit.externalDeclarations(owner, sites)[call].name == "index")
+        refuses(
+            function()
+                unit.externalDeclarations(shallow(owner), sites)
+            end,
+            "entry is outside sealed unit"
+        )
+        local foreign = session(dir).module("client").functions.use
+        refuses(
+            function()
+                unit.externalDeclarations(owner, {{owner = foreign, call = callOf(foreign), kind = "intrinsic"}})
+            end,
+            "belongs to another unit"
+        )
+        refuses(
+            function()
+                unit.externalDeclarations(owner, {{owner = shallow(owner), call = call, kind = "intrinsic"}})
+            end,
+            "caller is outside sealed unit"
+        )
+        refuses(
+            function()
+                unit.externalDeclarations(owner, {{owner = owner, call = shallow(call), kind = "intrinsic"}})
+            end,
+            "occurrence"
+        )
+        refuses(
+            function()
+                unit.externalDeclarations(owner, {sites[1], sites[1]})
+            end,
+            "occurrence repeated"
+        )
+        refuses(
+            function()
+                unit.externalDeclarations(owner, {{owner = owner, call = call, kind = "future"}})
+            end,
+            "unsupported external batch kind"
+        )
+        local definition = call.obj.name.definition
+        call.obj.name.definition = {}
+        refuses(
+            function()
+                unit.externalDeclarations(owner, sites)
+            end,
+            "declaration is not the frozen source"
+        )
+        call.obj.name.definition = definition
+        local signature = call.obj.inferredType
+        call.obj.inferredType = sites[2].call.obj.inferredType
+        refuses(
+            function()
+                unit.externalDeclarations(owner, sites)
+            end,
+            "signature occurrence changed"
+        )
+        call.obj.inferredType = signature
+        local name = call.obj.name.text
+        call.obj.name.text = "futureUnknownPrimitive"
+        refuses(
+            function()
+                unit.externalDeclarations(owner, sites)
+            end,
+            "checked member identity differs"
+        )
+        call.obj.name.text = name
+        assert(unit.externalDeclarations(owner, sites)[call].definition == definition)
+        assert(s.validate())
+    end)
+end
+
+function M.externalBatchRechecksSourceOnEveryQuery()
+    externalBatchFixture(function(dir, s, functions, sites)
+        local owner = functions.use
+        assert(unit.externalDeclarations(owner, sites)[sites[1].call])
+        write(dir .. "/src/model.nupp", MODEL .. "\n-- changed after the first batch\n")
+        refuses(
+            function()
+                unit.externalDeclarations(owner, sites)
+            end,
+            "sealed source changed"
+        )
+        refuses(
+            function()
+                unit.intrinsicDeclaration(owner, sites[1].call)
+            end,
+            "sealed unit was invalidated"
+        )
+    end)
+end
+
 return M

@@ -889,7 +889,6 @@ end
 
 local function externalDeclaration(fn: any, call: any, moduleName: string, file: string, label: string): any
     local held = need(owners[fn], label .. " caller is outside sealed unit")
-    validate(held.state, true)
     unit.occurrence(fn, call)
     need(
         call.kind == "call" and call.obj.kind == "dotIndex" and call.obj.obj.kind == "name",
@@ -953,11 +952,45 @@ local function externalDeclaration(fn: any, call: any, moduleName: string, file:
 end
 
 function unit.osDeclaration(fn: any, call: any): any
+    validate(need(owners[fn], "OS caller is outside sealed unit").state, true)
     return externalDeclaration(fn, call, "nupp.runtime.vm.os", "os.d.nupp", "OS")
 end
 
 function unit.intrinsicDeclaration(fn: any, call: any): any
+    validate(need(owners[fn], "intrinsic caller is outside sealed unit").state, true)
     return externalDeclaration(fn, call, "nupp.runtime.vm.intrinsics", "intrinsics.d.nupp", "intrinsic")
+end
+
+-- One synchronous read-only query checks the original unit once, then every
+-- original imported occurrence. There is no cached permission or skip flag.
+function unit.externalDeclarations(entry: any, sites: any): any
+    local held = need(owners[entry], "external batch entry is outside sealed unit")
+    need(type(sites) == "table" and getmetatable(sites) == nil, "plain external site batch required")
+    validate(held.state, true)
+    local result = {}
+    for _, site in ipairs(sites) do
+        need(type(site) == "table" and getmetatable(site) == nil, "plain external site required")
+        local caller = need(owners[site.owner], "external batch caller is outside sealed unit")
+        need(caller.state == held.state, "external batch caller belongs to another unit")
+        need(result[site.call] == nil, "external batch occurrence repeated")
+        if site.kind == "os" then
+            result[site.call] = externalDeclaration(site.owner, site.call, "nupp.runtime.vm.os", "os.d.nupp", "OS")
+        elseif site.kind == "intrinsic" then
+            result[
+                site.call
+            ] = externalDeclaration(
+                site.owner,
+                site.call,
+                "nupp.runtime.vm.intrinsics",
+                "intrinsics.d.nupp",
+                "intrinsic"
+            )
+        else
+            error("native unit: unsupported external batch kind", 0)
+        end
+    end
+
+    return result
 end
 
 -- The call occurrence and exported value belong to the same sealed checking

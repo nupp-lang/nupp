@@ -12,6 +12,9 @@ local graphs: any = setmetatable({}, {__mode = "k"})
 local calls: any = setmetatable({}, {__mode = "k"})
 local failures: any = setmetatable({}, {__mode = "k"})
 local unmanaged: any = setmetatable({}, {__mode = "k"})
+local managedResults: any = setmetatable({}, {__mode = "k"})
+local managedPlans: any = setmetatable({}, {__mode = "k"})
+local managedRows: any = setmetatable({}, {__mode = "k"})
 local allowed = {
     ["nupp.runtime.vm.arena"] = true,
     ["nupp.runtime.vm.heap"] = true,
@@ -29,7 +32,13 @@ local allowed = {
     ["nupp.runtime.vm.objecthash"] = true,
     ["nupp.runtime.vm.objecttable"] = true,
     ["nupp.runtime.core.pagemappings"] = true,
-    ["nupp.runtime.core.servicescope"] = true
+    ["nupp.runtime.core.servicescope"] = true,
+    ["nupp.runtime.core.cellservice"] = true,
+    ["nupp.runtime.core.heapentry"] = true,
+    ["nupp.runtime.core.rootentry"] = true,
+    ["nupp.runtime.core.frameroots"] = true,
+    ["nupp.runtime.core.frames"] = true,
+    ["nupp.runtime.core.arena"] = true
 }
 local rawOwners = {["nupp.runtime.core.pagemappings"] = true, ["nupp.runtime.core.servicescope"] = true}
 local osNames = {mapPages = true, unmapPages = true, pageSize = true}
@@ -198,14 +207,15 @@ local function catalog(entry: any, roots: any, review: any): any
                         local bound = unit.osDeclaration(owner, node)
                         need(osNames[name], "unsupported OS service")
                         if item.raw then
+                            local pages = unit.ownerModule(owner, "nupp.runtime.core.pagemappings")
                             need(
-                                name ~= "mapPages"
-                                or owner.scope.name == "nupp.runtime.core.pagemappings" and owner.name == "map",
+                                name ~= "mapPages" or owner == pages.exports.map or owner == pages.exports.acquireEntry,
                                 "raw map bypasses ownership ledger"
                             )
                             need(
                                 name ~= "unmapPages"
-                                or owner.scope.name == "nupp.runtime.core.pagemappings" and owner.name == "unmapOwned",
+                                or owner == pages.exports.unmapOwned
+                                or owner == pages.exports.releaseEntry,
                                 "raw unmap bypasses status capture"
                             )
                         else
@@ -448,6 +458,200 @@ function service.dependentReturn(signature: any, owner: any): any
     )
 
     return owner.resultType
+end
+
+-- A pending INTERNAL result obligation, distinct from an Arena borrow.
+-- Recognizing the exact allocator does not authorize an executable entry.
+function service.managedResult(signature: any, owner: any): any
+    local item = held(signature)
+    need(item.owner == owner, "managed result owner differs")
+    if item.scope.name ~= "nupp.runtime.vm.heap" and item.scope.name ~= "nupp.runtime.vm.collector" then
+        return nil
+    end
+    local heap = unit.ownerModule(owner, "nupp.runtime.vm.heap")
+    local collector = unit.ownerModule(owner, "nupp.runtime.vm.collector")
+    if owner ~= heap.exports.allocRaw and owner ~= collector.exports.allocate then
+        return nil
+    end
+    local checked, result = item.checked, owner.resultType
+    need(
+        item.scoped
+        and not item.raw
+        and #owner.body.params == 3
+        and checked.borrowsParam == nil
+        and checked.borrowsResult == nil
+        and #checked.rets == 1
+        and checked.rets[1] == result
+        and checked.retPack.head[1] == result
+        and checked.retPack.modes[1] == "plain"
+        and result.tag == "ptr"
+        and result.elem == heap.checkedExports.types.Header
+        and checked.params[1].tag == "ptr"
+        and checked.params[1].elem == heap.checkedExports.types.Heap
+        and checked.paramModes[1] == "plain"
+        and checked.paramPack.modes[1] == "plain"
+        and owner.body.params[1].modeTok == nil
+        and owner.body.params[1].type.resolvedType == checked.params[1]
+        and owner.body.params[1].name.definition.type == checked.params[1]
+        and checked.params[2].tag == "uint64"
+        and checked.params[3].tag == "uint64"
+        and checked.paramModes[2] == "plain"
+        and checked.paramModes[3] == "plain"
+        and owner.body.effectSummary == item.effect,
+        "managed allocator checked signature differs"
+    )
+    local proof = item.managedResult
+    if not proof then
+        proof = {}
+        item.managedResult = proof
+        managedResults[proof] = item
+    end
+    need(next(proof) == nil and getmetatable(proof) == nil, "managed result obligation changed")
+
+    return proof
+end
+
+function service.validateManagedResult(proof: any, owner: any): any
+    local item = need(managedResults[proof], "unissued managed result obligation")
+    need(service.managedResult(item.signature, owner) == proof, "managed result obligation owner changed")
+    return owner.resultType
+end
+
+-- Detached queries expose checked identities, never an issuance interface.
+function service.operation(g: any, declaration: any): any
+    local call = need(calls[declaration], "unissued service operation")
+    need(graphs[g] == call.caller, "service operation graph differs")
+    local target = service.recordTarget(g, declaration, call.node)
+    return {node = call.node, target = target, owner = call.caller.owner}
+end
+
+function service.managedCall(g: any, declaration: any): any
+    local operation = service.operation(g, declaration)
+    local call = calls[declaration]
+    local proof = service.managedResult(call.target.signature, call.target.owner)
+    if not proof then
+        return nil
+    end
+
+    return {
+        owner = operation.owner,
+        node = operation.node,
+        target = operation.target,
+        proof = proof,
+        heap = 1,
+        kind = 2,
+        extent = 3
+    }
+end
+
+function service.cellRoles(g: any): any
+    local item = need(graphs[g], "rooted cell requires an issued service graph")
+    if item.scope.name ~= "nupp.runtime.core.cellservice" then
+        return nil
+    end
+    local cell = unit.ownerModule(item.owner, "nupp.runtime.core.cellservice")
+    if item.owner ~= cell.exports.construct then
+        return nil
+    end
+    local roots = unit.ownerModule(item.owner, "nupp.runtime.core.frameroots")
+    local heap = unit.ownerModule(item.owner, "nupp.runtime.vm.heap")
+    local collector = unit.ownerModule(item.owner, "nupp.runtime.vm.collector")
+    local objects = unit.ownerModule(item.owner, "nupp.runtime.vm.objectconstruct")
+    local scope = unit.ownerModule(item.owner, "nupp.runtime.core.servicescope")
+    local values = unit.ownerModule(item.owner, "nupp.runtime.vm.values")
+
+    return {
+        validInput = cell.functions.validInput,
+        retain = scope.exports.retain,
+        serviceScopeType = scope.checkedExports.types.ServiceScope,
+        headerType = heap.checkedExports.types.Header,
+        kindCell = heap.exportedConstants.KIND_CELL,
+        payloadMask = values.exportedConstants.PAYLOAD,
+        owner = item.owner,
+        publish = roots.exports.publish,
+        storeResult = roots.exports.storeResult,
+        allocate = collector.exports.allocate,
+        allocRaw = heap.exports.allocRaw,
+        cellInitialize = objects.exports.cellInitialize,
+        initialized = collector.exports.initialized,
+        objectValue = heap.exports.objectValue,
+        isLiveSlot = heap.exports.isLiveSlot,
+        heapType = heap.checkedExports.types.Heap,
+        scopeType = roots.checkedExports.types.Scope,
+        resultType = roots.checkedExports.types.Result,
+        cellType = heap.checkedExports.types.CellBody
+    }
+end
+
+-- Exact entry identities are evidence for a separate proof, not authority.
+function service.entryRoles(g: any): any
+    local item = need(graphs[g], "heap entry requires an issued service graph")
+    if item.scope.name ~= "nupp.runtime.core.heapentry" then
+        return nil
+    end
+    local entry = unit.ownerModule(item.owner, "nupp.runtime.core.heapentry")
+    if item.owner ~= entry.exports.run then
+        return nil
+    end
+    local arena = unit.ownerModule(item.owner, "nupp.runtime.vm.arena")
+    local heap = unit.ownerModule(item.owner, "nupp.runtime.vm.heap")
+    local collector = unit.ownerModule(item.owner, "nupp.runtime.vm.collector")
+    local cell = unit.ownerModule(item.owner, "nupp.runtime.core.cellservice")
+    local roots = unit.ownerModule(item.owner, "nupp.runtime.core.frameroots")
+    local rootentry = unit.ownerModule(item.owner, "nupp.runtime.core.rootentry")
+    local frames = unit.ownerModule(item.owner, "nupp.runtime.core.frames")
+    local scope = unit.ownerModule(item.owner, "nupp.runtime.core.servicescope")
+    local pages = unit.ownerModule(item.owner, "nupp.runtime.core.pagemappings")
+    local values = unit.ownerModule(item.owner, "nupp.runtime.vm.values")
+
+    return {
+        owner = item.owner,
+        open = arena.exports.open,
+        close = arena.exports.close,
+        pagesInitialize = pages.exports.initialize,
+        scopeInitialize = scope.exports.initialize,
+        pagesAcquireEntry = pages.exports.acquireEntry,
+        pagesReleaseEntry = pages.exports.releaseEntry,
+        scopeClose = scope.exports.close,
+        create = heap.exports.create,
+        destroy = heap.exports.destroy,
+        fullCycle = collector.exports.fullCycle,
+        construct = cell.exports.construct,
+        publish = roots.exports.publish,
+        closeRoots = roots.exports.close,
+        start = rootentry.exports.start,
+        complete = rootentry.exports.complete,
+        finishRoot = frames.exports.finishRoot,
+        retain = scope.exports.retain,
+        bindingType = entry.checkedExports.types.Binding,
+        storageType = entry.checkedExports.types.Storage,
+        frameType = frames.checkedExports.types.Frame,
+        nilValue = values.exportedConstants.NIL,
+        heapType = heap.checkedExports.types.Heap,
+        serviceScopeType = scope.checkedExports.types.ServiceScope
+    }
+end
+
+-- A caller may inspect provisional graphs, but cannot select an allocator as
+-- an executable entry. The rooted factory separately validates its full closure.
+function service.requireUnmanagedEntry(g: any): nil
+    local item = graphs[g]
+    if item then
+        need(
+            service.managedResult(item.signature, item.owner) == nil,
+            "managed allocator requires a rooted caller; standalone entry refused"
+        )
+        for _, block in ipairs(g.blocks) do
+            for index, op in ipairs(block.op) do
+                if op == "NativeLeafCall" then
+                    need(
+                        service.managedCall(g, block.args[index][1]) == nil,
+                        "managed call requires rooted executable publication"
+                    )
+                end
+            end
+        end
+    end
 end
 
 function service.sourceCount(signature: any): integer
@@ -779,7 +983,36 @@ end
 -- source/row identity for the mapping and pointer chain, plus checked stores.
 function service.recordArena(ctx: any, node: any, op: string, args: any): nil
     local item = graphs[ctx.g]
-    if not item or not arenaHome(item) then
+    if not item then
+        return
+    end
+    if item.managedResult then
+        unit.occurrence(item.owner, node)
+        local list = managedRows[ctx.g] or {}
+        managedRows[ctx.g] = list
+        local keys, fixed = {}, {}
+        for index, value in ipairs(args) do
+            if type(value) == "number" then
+                keys[index] = arenaValueKey(ctx.g, value)
+            else
+                fixed[index] = value
+            end
+        end
+        list[
+            #list + 1
+        ] = {
+            node = node,
+            checked = node.inferredType,
+            block = ctx.block,
+            at = #ctx.block.op,
+            op = op,
+            args = args,
+            keys = keys,
+            fixed = fixed,
+            count = #args
+        }
+    end
+    if not arenaHome(item) then
         return
     end
     unit.occurrence(item.owner, node)
@@ -1227,6 +1460,322 @@ local function verifyArenaRecipe(g: any, recipe: any, value: integer): nil
     arenaInterval(g, recipe, acquisition, stores)
 end
 
+local function managedRow(g: any, node: any, op: string): any
+    local found
+    for _, row in ipairs(managedRows[g] or {}) do
+        if row.node == node and row.op == op then
+            need(found == nil, "managed source operation was lowered more than once")
+            need(
+                g.blocks[row.block.id] == row.block
+                and row.block.op[row.at] == op
+                and row.block.args[row.at] == row.args,
+                "managed source operation changed"
+            )
+            found = row
+        end
+    end
+
+    return need(found, "managed source operation is absent")
+end
+
+local function managedRecipe(ctx: any, stage: any, source: any): any
+    local item = need(graphs[ctx.g], "managed return requires an issued graph")
+    local proof = need(service.managedResult(item.signature, item.owner), "owner has no managed result")
+    local heap = unit.ownerModule(item.owner, "nupp.runtime.vm.heap")
+    local node = stage.node
+    unit.occurrence(item.owner, node)
+    need(node.kind == "returnStmt" and #node.exprs == 1, "managed return requires one checked expression")
+    local expression = node.exprs[1]
+    need(
+        unit.checkedOccurrenceType(item.owner, expression) == item.owner.resultType,
+        "managed return checked result changed"
+    )
+    local recipe = {
+        item = item,
+        proof = proof,
+        result = item.owner.resultType,
+        source = source,
+        node = node,
+        expression = expression,
+        block = ctx.block,
+        boundary = #ctx.block.op,
+        heap = heap,
+        rows = {},
+        mode = item.owner == heap.exports.allocRaw and "allocate" or "forward"
+    }
+    for _, row in ipairs(managedRows[ctx.g] or {}) do
+        recipe.rows[#recipe.rows + 1] = row
+    end
+    if recipe.mode == "forward" then
+        need(
+            expression.kind == "call" and service.target(ctx, expression) == heap.exports.allocRaw,
+            "managed forwarding requires the exact allocRaw call"
+        )
+        need(#expression.args.exprs == 3, "managed forwarding argument count differs")
+        for index, argument in ipairs(expression.args.exprs) do
+            unit.occurrence(item.owner, argument)
+            need(
+                argument.kind == "name" and argument.token.definition == item.owner.parameterDefinitions[index],
+                "managed forwarding Heap, kind or extent source differs"
+            )
+        end
+        recipe.call = expression
+    else
+        local cast = arenaInitializer(item.owner, expression)
+        need(
+            cast.kind == "castExpr" and cast.inferredType == recipe.result,
+            "managed allocation requires its checked Header cast"
+        )
+        local pointer = cast.expr
+        local declaration = unit.intrinsicDeclaration(item.owner, pointer)
+        need(
+            declaration.name == "pointer" and #pointer.args.exprs == 1,
+            "managed allocation requires its checked address conversion"
+        )
+        recipe.cast, recipe.pointer = cast, pointer
+        local found = {}
+        for _, row in ipairs(recipe.rows) do
+            if row.op == "NativeLeafCall" then
+                local call = calls[row.args[1]]
+                need(call ~= nil, "managed allocation call is unissued")
+                if call.target.owner == heap.functions.allocLarge
+                    or call.target.owner == heap.functions.takeSlot
+                    or call.target.owner == heap.exports.classFor
+                then
+                    need(found[call.target.owner] == nil, "managed allocation source call repeated")
+                    found[call.target.owner] = row
+                end
+            end
+        end
+        recipe.large = need(found[heap.functions.allocLarge], "managed large allocation source is absent")
+        recipe.slot = need(found[heap.functions.takeSlot], "managed slot allocation source is absent")
+        recipe.class = need(found[heap.exports.classFor], "managed size classification source is absent")
+    end
+
+    return recipe
+end
+
+local function verifyManagedRecipe(g: any, recipe: any, value: integer): nil
+    local item = recipe.item
+    need(
+        graphs[g] == item and service.managedResult(item.signature, item.owner) == recipe.proof,
+        "managed return owner changed"
+    )
+    unit.occurrence(item.owner, recipe.node)
+    need(recipe.node.exprs[1] == recipe.expression, "managed return expression changed")
+    local rows = {}
+    for _, row in ipairs(recipe.rows) do
+        unit.occurrence(item.owner, row.node)
+        need(
+            row.node.inferredType == row.checked
+            and g.blocks[row.block.id] == row.block
+            and row.block.op[row.at] == row.op
+            and row.block.args[row.at] == row.args
+            and #row.args == row.count,
+            "managed checked operation changed"
+        )
+        for index, key in pairs(row.keys) do
+            need(arenaValueKey(g, row.args[index]) == key, "managed operand provenance changed")
+        end
+        for index, fixed in pairs(row.fixed) do
+            need(row.args[index] == fixed, "managed operation contract changed")
+        end
+        if row.op == "NativeLeafCall" then
+            service.recordTarget(g, row.args[1], row.node)
+        end
+        rows[row.args] = row
+    end
+    local formal = function(index: integer): any
+        return {block = {dst = {index}}, at = 1}
+    end
+    local resultRow
+    local acquisitions = {}
+    local initialization = {}
+    if recipe.mode == "forward" then
+        resultRow = managedRow(g, recipe.call, "NativeLeafCall")
+        acquisitions[resultRow.block] = resultRow
+        local call = calls[resultRow.args[1]]
+        need(call.target.owner == recipe.heap.exports.allocRaw, "managed forwarding target changed")
+        for index = 1, 3 do
+            need(
+                arenaReaches(g, resultRow.args[index + 1], formal(index), index ~= 1),
+                "managed forwarding Heap, kind or extent SSA differs"
+            )
+        end
+        local origin = require("nupp.compiler.vm.nativephysical").managedOrigin(recipe.source)
+        need(
+            origin
+            and origin.call == recipe.call
+            and origin.owner == recipe.heap.exports.allocRaw
+            and origin.caller == item.owner,
+            "managed forwarded result lost allocation origin"
+        )
+    else
+        local pointer = managedRow(g, recipe.pointer, "NativePointer")
+        resultRow = managedRow(g, recipe.cast, "NativePointerView")
+        need(recipe.large.block ~= recipe.slot.block, "managed allocation alternatives share a block")
+        acquisitions[recipe.large.block], acquisitions[recipe.slot.block] = recipe.large, recipe.slot
+        need(arenaReaches(g, resultRow.args[1], pointer), "managed Header cast changed address")
+        for _, row in ipairs({recipe.large, recipe.slot, recipe.class}) do
+            need(arenaReaches(g, row.args[2], formal(1)), "managed allocation changed Heap")
+        end
+        need(arenaReaches(g, recipe.slot.args[3], recipe.class, true), "managed slot changed size class")
+        need(
+            arenaValueKey(g, recipe.large.args[3]) == arenaValueKey(g, recipe.class.args[3]),
+            "managed allocation changed extent"
+        )
+        -- All incoming address definitions must be one of the exact successful
+        -- allocation calls, never a literal address or a same-shaped call.
+        local active = {}
+        local addresses: function(integer): boolean
+        addresses = function(candidate)
+            if candidate == recipe.large.block.dst[recipe.large.at]
+                or candidate == recipe.slot.block.dst[recipe.slot.at]
+            then
+                return true
+            end
+            if candidate <= g.nparams or active[candidate] then
+                return false
+            end
+            active[candidate] = true
+            for _, block in ipairs(g.blocks) do
+                for index, parameter in ipairs(block.params) do
+                    if parameter == candidate then
+                        local count = 0
+                        for _, prior in ipairs(g.blocks) do
+                            for _, edge in ipairs(prior.term and prior.term.edges or {}) do
+                                if edge.target == block.id then
+                                    count = count + 1
+                                    if not addresses(edge.args[index]) then
+                                        active[candidate] = nil;
+                                        return false
+                                    end
+                                end
+                            end
+                        end
+                        active[candidate] = nil
+                        return count > 0
+                    end
+                end
+            end
+            active[candidate] = nil
+
+            return false
+        end
+        need(addresses(pointer.args[1]), "managed Header does not originate in the actual allocation")
+        local fields = {}
+        for _, row in ipairs(recipe.rows) do
+            if row.op == "NativeStore" and row.args[4].field then
+                local access = row.args[4].field
+                if recipe.result.elem.writeFieldDefs[access.name] == access.declaration then
+                    need(
+                        not fields[access.name] and arenaReaches(g, row.args[1], resultRow),
+                        "managed Header initialization identity differs"
+                    )
+                    fields[access.name] = row
+                end
+            end
+        end
+        for name in pairs(recipe.result.elem.writeFieldDefs) do
+            initialization[#initialization + 1] = need(fields[name], "managed Header initialization field is absent")
+        end
+        need(arenaReaches(g, fields.kind.args[3], formal(2), true), "managed allocation changed object kind")
+        need(
+            arenaValueKey(g, fields.size.args[3]) == arenaValueKey(g, recipe.class.args[3]),
+            "managed Header size differs from allocation extent"
+        )
+    end
+    need(arenaReaches(g, value, resultRow), "managed return changed allocated instance")
+    -- Scan every path that can reach this staged return, stopping at the
+    -- recorded allocation/forwarding boundary. Unknown or collecting calls
+    -- after acquisition cannot be hidden behind a same-type pointer return.
+    local predecessors = {}
+    for _, block in ipairs(g.blocks) do
+        for _, edge in ipairs(block.term and block.term.edges or {}) do
+            local incoming = predecessors[edge.target] or {}
+            predecessors[edge.target] = incoming
+            incoming[#incoming + 1] = block
+        end
+    end
+    for _, row in ipairs(initialization) do
+        local active, done = {}, {}
+        local dominates: function(any): boolean
+        dominates = function(block)
+            if block == row.block then
+                return block ~= recipe.block or row.at <= recipe.boundary
+            end
+            if block.id == 1 or active[block] then
+                return false
+            end
+            if done[block] ~= nil then
+                return done[block]
+            end
+            active[block] = true
+            local incoming = predecessors[block.id] or {}
+            local result = #incoming > 0
+            for _, prior in ipairs(incoming) do
+                if not dominates(prior) then
+                    result = false;
+                    break
+                end
+            end
+            active[block], done[block] = nil, result
+
+            return result
+        end
+        need(dominates(recipe.block), "managed Header initialization does not dominate return")
+    end
+    local active, done = {}, {}
+    local visit: function(any, integer): nil
+    visit = function(block, last)
+        need(not active[block], "managed result interval has a cycle")
+        if done[block] then
+            return
+        end
+        active[block] = true
+        local acquisition = acquisitions[block]
+        need(not acquisition or acquisition.at <= last, "managed return precedes allocation")
+        local first = acquisition and acquisition.at + 1 or 1
+        for index = first, last do
+            local op, args = block.op[index], block.args[index]
+            need(rows[args] and rows[args].op == op, "managed interval contains an unissued operation")
+            if op == "NativeLeafCall" then
+                local call = calls[args[1]]
+                need(
+                    recipe.mode == "allocate" and call and call.target.owner == recipe.heap.functions.colorAt,
+                    "managed result interval contains an allocating or unknown call"
+                )
+            elseif op == "NativeHelperCall" or op == "NativeLocal" then
+                error("native service: managed result interval has an unsupported effect", 0)
+            end
+        end
+        if not acquisition then
+            local incoming = predecessors[block.id] or {}
+            need(#incoming > 0 and block.id ~= 1, "managed return bypasses allocation")
+            for _, prior in ipairs(incoming) do
+                visit(prior, #prior.op)
+            end
+        end
+        active[block], done[block] = nil, true
+    end
+    visit(recipe.block, recipe.boundary)
+end
+
+function service.validateManagedReturn(proof: any, owner: any, source: any, node: any): any
+    local plan = need(managedPlans[proof], "unissued managed return plan")
+    need(
+        next(proof) == nil
+        and getmetatable(proof) == nil
+        and plan.item.owner == owner
+        and plan.source == source
+        and plan.node == node,
+        "managed return view identity differs"
+    )
+    need(service.validateManagedResult(plan.proof, owner) == plan.result, "managed result type changed")
+
+    return plan.result
+end
+
 function service.validateArenaReturn(proof: any, owner: any, source: any, node: any): any
     local plan = need(arenaPlans[proof], "unissued Arena return plan")
     need(
@@ -1265,13 +1814,34 @@ function service.arenaCleanup(g: any, declaration: any, actual: any?): boolean
     if not call or not call.cleanup then
         return false
     end
-    local home = need(arenaHome(call.caller), "implicit Arena cleanup caller is outside constructor forwarding")
+    local home = arenaHome(call.caller)
+    local acquired
+    if home then
+        acquired = service.arenaOwnership(call.caller.signature, call.caller.owner)
+    else
+        local owner = call.caller.owner
+        need(
+            owner.scope.name == "nupp.runtime.core.heapentry"
+            and owner == unit.ownerModule(owner, "nupp.runtime.core.heapentry").exports.run,
+            "implicit Arena cleanup caller is outside reviewed acquisition"
+        )
+        home = unit.ownerModule(owner, "nupp.runtime.vm.arena")
+        need(
+            call.node.kind == "call" and unit.callee(owner, call.node) == home.exports.open,
+            "heap entry cleanup requires its exact Arena acquisition"
+        )
+        local constructor = need(
+            call.caller.state.owners[home.exports.open],
+            "Arena acquisition is outside service closure"
+        )
+        acquired = service.arenaOwnership(constructor.signature, constructor.owner)
+    end
     need(
         graphs[g] == call.caller
         and call.target.owner == home.exports.close
         and call.node.kind == "call"
         and call.cleanupType == call.node.inferredType
-        and call.cleanupType == service.arenaOwnership(call.caller.signature, call.caller.owner),
+        and call.cleanupType == acquired,
         "implicit Arena cleanup registration differs"
     )
     need(
@@ -1485,7 +2055,7 @@ function service.unmanagedReturn(ctx: any, stage: any?): any
     local kind = checked.rets[1].tag
     need(stage and #stage.values == 1 and ctx.block, "return-tail staging point required")
     local g, block, value = ctx.g, ctx.block, stage.values[1]
-    local arena, arenaProof, dependent
+    local arena, arenaProof, dependent, managed, managedProof
     if kind == "affine" then
         local physical = require("nupp.compiler.vm.nativephysical")
         local source = need(
@@ -1501,6 +2071,19 @@ function service.unmanagedReturn(ctx: any, stage: any?): any
         g.nativePhysical.values[value] = view.target
         stage.values[1] = value
         arena.view = view
+        kind = "voidptr"
+    elseif g.nativePhysical and g.nativePhysical.signature and g.nativePhysical.signature.managed then
+        local physical = require("nupp.compiler.vm.nativephysical")
+        local source = need(g.nativePhysical.values[value], "managed return lacks its physical source")
+        managed = managedRecipe(ctx, stage, source)
+        verifyManagedRecipe(g, managed, value)
+        managedProof = {}
+        managedPlans[managedProof] = managed
+        local view = physical.managedReturnView(ctx.fn, source, stage.node, managedProof)
+        value = ctx.emit(stage.node, "NativePointerView", {value, view}, "voidptr")
+        g.nativePhysical.values[value] = view.target
+        stage.values[1] = value
+        managed.view = view
         kind = "voidptr"
     elseif g.nativePhysical and g.nativePhysical.signature and g.nativePhysical.signature.dependent then
         local physical = require("nupp.compiler.vm.nativephysical")
@@ -1548,6 +2131,8 @@ function service.unmanagedReturn(ctx: any, stage: any?): any
         arena = arena,
         arenaProof = arenaProof,
         dependent = dependent,
+        managed = managed,
+        managedProof = managedProof,
         boundary = #block.op,
         boundaryArgs = block.args[#block.op],
         boundaryOp = block.op[#block.op],
@@ -1677,6 +2262,15 @@ local function verifyReturnTails(g: any, item: any, origin: any): nil
             )
             service.validateArenaReturn(record.arenaProof, item.owner, record.arena.source, record.arena.node)
             verifyArenaRecipe(g, record.arena, args[1])
+        elseif record.managed then
+            local args = start.args[record.definition]
+            need(
+                start.op[record.definition] == "NativePointerView" and args[2] == record.managed.view,
+                "managed staged view changed"
+            )
+            service.validateManagedReturn(record.managedProof, item.owner, record.managed.source, record.managed.node)
+            require("nupp.compiler.vm.nativephysical").validateCast(record.managed.view)
+            verifyManagedRecipe(g, record.managed, args[1])
         elseif record.dependent then
             local args = start.args[record.definition]
             local physical = require("nupp.compiler.vm.nativephysical")
@@ -1884,6 +2478,27 @@ function service.retainRoots(ctx: any, node: any): nil
     end
     calls[declaration] = record
     ctx.emit(node, "NativeLeafCall", {declaration, service.scope(ctx)}, nil)
+end
+
+function service.retainConstructRoots(ctx: any, node: any): nil
+    local item = graphs[ctx.g]
+    if not item then
+        return
+    end
+    local exact
+    if item.scope.name == "nupp.runtime.core.cellservice" then
+        exact = unit.ownerModule(item.owner, "nupp.runtime.core.cellservice").exports.construct
+    elseif item.scope.name == "nupp.runtime.core.heapentry" then
+        exact = unit.ownerModule(item.owner, "nupp.runtime.core.heapentry").exports.run
+    else
+        return
+    end
+    if item.owner ~= exact then
+        return
+    end
+    need(ctx.fn == item.owner, "rooted failure owner differs")
+    unit.occurrence(item.owner, node)
+    service.retainRoots(ctx, node)
 end
 
 function service.afterCall(ctx: any, node: any, declaration: any, result: integer?): integer?
@@ -2371,7 +2986,13 @@ local paths = {
     {"nupp.runtime.vm.objecttable", "src/nupp/runtime/vm/objecttable.nupp"},
     {"nupp.runtime.vm.values", "src/nupp/runtime/vm/values.nupp"},
     {"nupp.runtime.core.pagemappings", "native/core/src/nupp/runtime/core/pagemappings.nupp"},
-    {"nupp.runtime.core.servicescope", "native/core/src/nupp/runtime/core/servicescope.nupp"}
+    {"nupp.runtime.core.servicescope", "native/core/src/nupp/runtime/core/servicescope.nupp"},
+    {"nupp.runtime.core.cellservice", "native/core/src/nupp/runtime/core/cellservice.nupp"},
+    {"nupp.runtime.core.heapentry", "native/core/src/nupp/runtime/core/heapentry.nupp"},
+    {"nupp.runtime.core.rootentry", "native/core/src/nupp/runtime/core/rootentry.nupp"},
+    {"nupp.runtime.core.frameroots", "native/core/src/nupp/runtime/core/frameroots.nupp"},
+    {"nupp.runtime.core.frames", "native/core/src/nupp/runtime/core/frames.nupp"},
+    {"nupp.runtime.core.arena", "native/core/src/nupp/runtime/core/arena.nupp"}
 }
 local roots = {
     {"nupp.runtime.vm.arena", "open"},
@@ -2383,9 +3004,15 @@ local roots = {
     {"nupp.runtime.vm.collector", "fullCycle"},
     {"nupp.runtime.vm.objectconstruct", "cellInitialize"},
     {"nupp.runtime.vm.objectconstruct", "closureInitialize"},
+    {"nupp.runtime.core.pagemappings", "initialize"},
+    {"nupp.runtime.core.pagemappings", "acquireEntry"},
+    {"nupp.runtime.core.pagemappings", "releaseEntry"},
     {"nupp.runtime.core.servicescope", "initialize"},
     {"nupp.runtime.core.servicescope", "close"},
-    {"nupp.runtime.core.servicescope", "retain"}
+    {"nupp.runtime.core.servicescope", "retain"},
+    {"nupp.runtime.core.cellservice", "construct"},
+    {"nupp.runtime.core.heapentry", "run"},
+    {"nupp.runtime.vm.collector", "initialized"}
 }
 
 local function read(path: string): string
@@ -2516,8 +3143,18 @@ function service.heapEffects(catalogue: any, owner: any): (boolean, boolean)
             queue[#queue + 1] = item.owner
         end
     end
+    local sites = {}
     for node, primitive in pairs(state.intrinsics) do
-        local actual = unit.intrinsicDeclaration(primitive.owner, node)
+        sites[#sites + 1] = {owner = primitive.owner, call = node, kind = "intrinsic"}
+    end
+    for node, call in pairs(state.calls) do
+        if call.os then
+            sites[#sites + 1] = {owner = call.owner, call = node, kind = "os"}
+        end
+    end
+    local declarations = unit.externalDeclarations(state.entry, sites)
+    for node, primitive in pairs(state.intrinsics) do
+        local actual = declarations[node]
         local checked = primitive.checked
         need(
             actual.definition == checked.definition
@@ -2540,7 +3177,7 @@ function service.heapEffects(catalogue: any, owner: any): (boolean, boolean)
         if call.raising then
             need(unit.literalRaise(call.owner, node) ~= nil, "heap effect raise changed")
         elseif call.os then
-            local actual = unit.osDeclaration(call.owner, node)
+            local actual = declarations[node]
             need(
                 actual.definition == call.os.definition and actual.signature == call.os.signature,
                 "heap effect OS declaration changed"

@@ -351,8 +351,9 @@ local function signatureShape(owner: any, context: any, serviceSignature: any?):
         end
     end
     local result = nil
+    local managed = serviceSignature and serviceModule().managedResult(serviceSignature, owner) or nil
     need(
-        not borrowing or not pointerType(owner.resultType) or dependent ~= nil,
+        not borrowing or not pointerType(owner.resultType) or dependent ~= nil or managed ~= nil,
         "borrowed pointer result requires dependent source"
     )
     if pointerType(owner.resultType) then
@@ -384,7 +385,8 @@ local function signatureShape(owner: any, context: any, serviceSignature: any?):
         params = params,
         result = result,
         borrowing = borrowing,
-        dependent = dependent
+        dependent = dependent,
+        managed = managed
     }
 end
 
@@ -461,6 +463,7 @@ function physical.sameValue(left: any, right: any): boolean
         and origins[left].field == origins[right].field
         and origins[left].ownerSource == origins[right].ownerSource
         and origins[left].ownerBorrow == origins[right].ownerBorrow
+        and origins[left].managed == origins[right].managed
 end
 
 -- Only SSA transport may combine different raw field origins. Ordinary value
@@ -470,6 +473,7 @@ local function compatibleTransport(left: any, right: any): boolean
         and sameDependency(origins[left].dependency, origins[right].dependency)
         and origins[left].ownerSource == origins[right].ownerSource
         and origins[left].ownerBorrow == origins[right].ownerBorrow
+        and origins[left].managed == origins[right].managed
 end
 
 local function carryOrigin(source: any, target: any): nil
@@ -478,6 +482,7 @@ local function carryOrigin(source: any, target: any): nil
     origins[target].transport = origins[source].transport
     origins[target].ownerBorrow = origins[source].ownerBorrow
     origins[target].ownerSource = origins[source].ownerSource
+    origins[target].managed = origins[source].managed
     localOrigins[target] = localOrigins[source]
 end
 
@@ -740,6 +745,11 @@ function physical.signature(owner: any, context: any, call: any?, caller: any?, 
     if contract.result and contract.result.checkedType.tag == "affine" and call then
         origins[contract.result].ownerSource = {signature = contract, call = call, caller = caller}
     end
+    if contract.managed and call then
+        origins[
+            contract.result
+        ].managed = {signature = contract, call = call, caller = caller, owner = owner, proof = contract.managed}
+    end
 
     return contract
 end
@@ -767,7 +777,8 @@ function physical.validateSignature(contract: any): boolean
         expected.checkedSignature == held.checked
         and #contract.params == #expected.params
         and contract.borrowing == expected.borrowing
-        and contract.dependent == expected.dependent,
+        and contract.dependent == expected.dependent
+        and contract.managed == expected.managed,
         "pointer signature changed"
     )
     for index, descriptor in ipairs(expected.params) do
@@ -1045,6 +1056,21 @@ function physical.returnValue(signature: any, descriptor: any): boolean
     end
     local expected = signature.result
     physical.validate(descriptor)
+    local managed = origins[descriptor].managed
+    if signature.managed then
+        return managed ~= nil
+            and managed.returnProof ~= nil
+            and serviceModule().validateManagedReturn(
+                managed.returnProof,
+                signature.owner,
+                managed.source,
+                managed.node
+            ) == descriptor.checkedType
+            and pointerShape(expected, descriptor)
+    end
+    if managed then
+        return false
+    end
 
     if #expected.ownership == 1 and expected.ownership[1].tag == "affine" then
         -- A terminal-less takes binding is not the constructor's returned
@@ -1069,6 +1095,7 @@ function physical.rawReturn(descriptor: any): boolean
         and #descriptor.ownership == 0
         and not physical.dependent(descriptor)
         and not physical.localOrigin(descriptor)
+        and origins[descriptor].managed == nil
 end
 
 function physical.callInput(signature: any, index: integer, descriptor: any, access: any?): boolean
@@ -1165,6 +1192,7 @@ function physical.cast(source: any, node: any, owner: any?): any
     end
     origins[target].field = origins[source].field
     origins[target].transport = origins[source].transport
+    origins[target].managed = origins[source].managed
     localOrigins[target] = localOrigins[source]
     local contract = {source = source, target = target, node = node}
     casts[
@@ -1260,6 +1288,61 @@ function physical.sameArenaOwner(left: any, right: any): boolean
     return origin ~= nil and origin == origins[right].ownerSource and physical.same(left, right)
 end
 
+-- A detached identity query. Pending managed transport never grants rooting,
+-- generic pointer escape, or an executable entry permission.
+function physical.managedOrigin(descriptor: any): any
+    physical.validate(descriptor)
+    local origin = origins[descriptor].managed
+    if not origin then
+        return nil
+    end
+    if origin.returnProof then
+        serviceModule().validateManagedReturn(origin.returnProof, origin.owner, origin.source, origin.node)
+    else
+        physical.validateSignature(origin.signature)
+        local saved = signatures[origin.signature]
+        need(
+            saved.call == origin.call
+            and saved.caller == origin.caller
+            and saved.owner == origin.owner
+            and origin.signature.managed == origin.proof,
+            "managed result call origin changed"
+        )
+    end
+
+    return {owner = origin.owner, caller = origin.caller, call = origin.call, proof = origin.proof, node = origin.node}
+end
+
+function physical.managedReturnView(owner: any, source: any, node: any, proof: any): any
+    physical.validate(source)
+    local checked = serviceModule().validateManagedReturn(proof, owner, source, node)
+    need(
+        source.checkedType == checked
+        and source.machineKind == "voidptr"
+        and not source.nullable
+        and #source.ownership == 0
+        and not localOrigins[source],
+        "managed return representation differs"
+    )
+    local target = physical.describe(source.context, checked)
+    origins[target].managed = {owner = owner, source = source, node = node, returnProof = proof, proof = proof}
+    local contract = {source = source, target = target, node = node}
+    views[
+        contract
+    ] = {
+        mode = "managedReturn",
+        owner = owner,
+        source = source,
+        target = target,
+        node = node,
+        checked = checked,
+        proof = proof,
+        fields = recordFields(contract)
+    }
+
+    return contract
+end
+
 -- Preserve the exact existing checked dependency, including nullable
 -- success. The new SSA row is only an identity; it grants no new lifetime.
 function physical.dependentReturnView(owner: any, source: any, node: any, signature: any): any
@@ -1336,9 +1419,19 @@ function physical.arenaCleanupOperand(owner: any, source: any, expression: any, 
     local bound = service.arenaOwnership(signatures[target].serviceSignature, target.owner, 1)
     local origin = acquiredOrigin(owner, source, expression)
     local home = require("nupp.compiler.vm.nativeunit").ownerModule(owner, "nupp.runtime.vm.arena")
+    local constructor = home.functions.openWith
+    if owner.scope.name == "nupp.runtime.core.heapentry" then
+        local unit = require("nupp.compiler.vm.nativeunit")
+        need(
+            owner == unit.ownerModule(owner, "nupp.runtime.core.heapentry").exports.run,
+            "Arena cleanup caller differs"
+        )
+        constructor = home.exports.open
+        need(unit.callee(owner, expression) == constructor, "Arena cleanup source acquisition differs")
+    end
     need(
         target.owner == home.exports.close
-        and origin.signature.owner == home.functions.openWith
+        and origin.signature.owner == constructor
         and source.checkedType.tag == "affine"
         and source.checkedType.inner == bound.inner
         and #source.checkedType.cleanups == 1
@@ -1634,6 +1727,7 @@ function physical.occurrence(owner: any, source: any, node: any): any
     origins[target].transport = origins[source].transport
     origins[target].ownerBorrow = origins[source].ownerBorrow
     origins[target].ownerSource = origins[source].ownerSource
+    origins[target].managed = origins[source].managed
     localOrigins[target] = localOrigins[source]
     local contract = {source = source, target = target, node = node}
     views[
@@ -2010,6 +2104,7 @@ function physical.validateCast(contract: any): boolean
                 or view.mode == "owner"
                 or view.mode == "arenaReturn"
                 or view.mode == "dependentReturn"
+                or view.mode == "managedReturn"
                 or view.mode == "nil" and view.contextual ~= nil
                 or view.node.inferredType == view.checked
             )
@@ -2020,7 +2115,21 @@ function physical.validateCast(contract: any): boolean
         if contract.source then
             physical.validate(contract.source)
         end
-        if view.mode == "dependentReturn" then
+        if view.mode == "managedReturn" then
+            need(
+                serviceModule().validateManagedReturn(
+                    view.proof,
+                    view.owner,
+                    contract.source,
+                    view.node
+                ) == view.checked
+                and contract.source == view.source
+                and contract.target == view.target
+                and origins[contract.target].managed.returnProof == view.proof
+                and origins[contract.target].managed.source == view.source,
+                "managed return view identity changed"
+            )
+        elseif view.mode == "dependentReturn" then
             physical.validateSignature(view.signature)
             local held = signatures[view.signature]
             serviceModule().dependentReturn(held.serviceSignature, view.owner)
@@ -2234,7 +2343,8 @@ function physical.validateCast(contract: any): boolean
     need(
         not contract.source.nullable
         and #contract.source.ownership == #contract.target.ownership
-        and sameDependency(origins[contract.source].dependency, origins[contract.target].dependency),
+        and sameDependency(origins[contract.source].dependency, origins[contract.target].dependency)
+        and origins[contract.source].managed == origins[contract.target].managed,
         "pointer cast capability changed"
     )
     need(

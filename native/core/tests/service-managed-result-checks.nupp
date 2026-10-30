@@ -1,0 +1,340 @@
+module nupp.core.servicemanagedresultchecks
+
+-- Actual allocator graphs remain provisional until a rooted caller closes the
+-- publication proof. These tests never execute an allocator in the frozen VM.
+local graph = require("nupp.compiler.vm.graph")
+local lower = require("nupp.compiler.vm.lower")
+local nativegraph = require("nupp.compiler.vm.nativegraph")
+local cleanup = require("nupp.compiler.vm.nativecleanup")
+local physical = require("nupp.compiler.vm.nativephysical")
+local service = require("nupp.compiler.vm.nativeservice")
+local nativeos = require("nupp.compiler.vm.nativeos")
+local M = {}
+
+local function refuses(callback: function(): nil, expected: string): nil
+    local ok, problem = pcall(callback)
+    assert(not ok and tostring(problem):find(expected, 1, true), tostring(problem))
+end
+
+local function copy(value: any): any
+    local result = {}
+    for key, item in pairs(value) do
+        result[key] = item
+    end
+
+    return result
+end
+
+local function verify(g: any): nil
+    graph.verify(g)
+    service.verifyScope(g)
+end
+
+local function views(g: any, owner: any): nil
+    local count: integer = 0
+    for _, block in ipairs(g.blocks) do
+        for index, op in ipairs(block.op) do
+            if op == "NativePointerView" and physical.viewKind(block.args[index][2]) == "managedReturn" then
+                count = count + 1
+                local view = block.args[index][2]
+                physical.validateCast(view)
+                assert(view.source ~= view.target and view.target.checkedType == owner.resultType)
+                local origin = physical.managedOrigin(view.target)
+                assert(origin and origin.owner == owner and origin.node == view.node)
+                assert(physical.returnValue(g.nativePhysical.signature, view.target))
+                local raw = physical.describe(view.source.context, view.target.checkedType)
+                assert(
+                    not physical.returnValue(g.nativePhysical.signature, raw),
+                    "raw Header acquired managed return authority"
+                )
+                refuses(
+                    function(): nil
+                        physical.managedReturnView(owner, view.source, view.node, {})
+                    end,
+                    "unissued managed return plan"
+                )
+                refuses(
+                    function(): nil
+                        physical.validateCast(copy(view))
+                    end,
+                    "unknown checked pointer cast"
+                )
+                local saved = g.nativePhysical.values[block.dst[index]]
+                g.nativePhysical.values[block.dst[index]] = raw
+                local ok = pcall(graph.verify, g)
+                g.nativePhysical.values[block.dst[index]] = saved
+                assert(not ok, "managed result descriptor erased its pending origin")
+                verify(g)
+            end
+        end
+    end
+    assert(count == 1, "actual allocator must have one managed return view")
+    refuses(
+        function(): nil
+            service.requireUnmanagedEntry(g)
+        end,
+        "standalone entry refused"
+    )
+end
+
+local function mutation(g: any): nil
+    local changed = false
+    for _, block in ipairs(g.blocks) do
+        for index, op in ipairs(block.op) do
+            local args = block.args[index]
+            if op == "NativeLeafCall" then
+                local operation = service.operation(g, args[1])
+                if operation.target.name == "classFor" or operation.target.name == "allocRaw" then
+                    local position = operation.target.name == "classFor" and 3 or 4
+                    local saved = args[position]
+                    args[position] = 2
+                    local ok, problem = pcall(service.verifyScope, g)
+                    args[position] = saved
+                    assert(
+                        not ok and tostring(problem):find("managed operand provenance changed", 1, true),
+                        tostring(problem)
+                    )
+                    verify(g)
+                    changed = true
+                end
+                local managed = service.managedCall(g, args[1])
+                if managed then
+                    assert(managed.heap == 1 and managed.kind == 2 and managed.extent == 3)
+                    local descriptor = g.nativePhysical.values[block.dst[index]]
+                    local origin = physical.managedOrigin(descriptor)
+                    assert(origin and origin.call == managed.node and origin.owner == managed.target)
+                    refuses(
+                        function(): nil
+                            service.managedCall(g, copy(args[1]))
+                        end,
+                        "unissued service operation"
+                    )
+                end
+            end
+        end
+    end
+    assert(changed, "actual allocation extent call is absent")
+end
+
+-- Insert a real collecting operation on each successful allocation edge,
+-- before the address phi and NativePointer conversion. The declaration is
+-- authenticated in the forwarding graph; it grants no permission in this one.
+local function collectingGap(g: any, declaration: any): nil
+    local count: integer = 0
+    local originalCount = #g.blocks
+    for index = 1, originalCount do
+        local block = g.blocks[index]
+        for row, op in ipairs(block.op) do
+            if op == "NativeLeafCall" then
+                local operation = service.operation(g, block.args[row][1])
+                if operation.target.name == "takeSlot" or operation.target.name == "allocLarge" then
+                    assert(block.term.kind == "branch", "allocation lacks success edge")
+                    local edge = block.term.edges[1]
+                    local target, arguments = edge.target, edge.args
+                    local injected = graph.block(g)
+                    injected.op[1], injected.dst[1] = "NativeLeafCall", 0
+                    injected.args[1], injected.pos[1], injected.cert[1] = {declaration, 1, g.nparams}, 0, 0
+                    injected.term = {kind = "jump", edges = {{target = target, args = arguments}}}
+                    edge.target, edge.args = injected.id, {}
+                    local ok, problem = pcall(service.verifyScope, g)
+                    edge.target, edge.args = target, arguments
+                    g.blocks[injected.id] = nil
+                    assert(
+                        not ok and tostring(problem):find("managed interval contains an unissued operation", 1, true),
+                        tostring(problem)
+                    )
+                    verify(g)
+                    count = count + 1
+                end
+            end
+        end
+    end
+    assert(count == 2, "managed allocation alternatives differ")
+end
+
+local function bootstrap(build: any): nil
+    local count: integer = 0
+    for _, owner in ipairs(service.owners(build.catalog)) do
+        if owner.scope.name == "nupp.runtime.core.pagemappings"
+            and (owner.name == "acquireEntry" or owner.name == "releaseEntry")
+        then
+            local g = lower.functionGraph(owner, service.options(build.catalog, owner), cleanup.profile(nativegraph))
+            local expected = owner.name == "acquireEntry" and 0 or 1
+            local found: integer = 0
+            for _, block in ipairs(g.blocks) do
+                for index, op in ipairs(block.op) do
+                    if op == "NativeHelperCall" and nativeos.isIssued(block.args[index][1]) then
+                        local declaration = block.args[index][1]
+                        assert(nativeos.ownedSlot(declaration, owner) == expected)
+                        refuses(
+                            function(): nil
+                                nativeos.ownedSlot(copy(declaration), owner)
+                            end,
+                            "unissued import contract"
+                        )
+                        refuses(
+                            function(): nil
+                                nativeos.slot(declaration, copy(owner))
+                            end,
+                            "OS source owner differs"
+                        )
+                        if expected == 1 then
+                            assert(declaration.result == "uint64")
+                            local status = nativeos.status(declaration)
+                            assert(status and status.parameter == 1 and block.op[index + 2] == "NativeStore")
+                            local stored = block.args[index + 2]
+                            local saved = stored[1]
+                            stored[1] = 2
+                            local ok, problem = pcall(nativeos.verifyStores, g)
+                            stored[1] = saved
+                            assert(
+                                not ok and tostring(problem):find("unmap status output differs", 1, true),
+                                tostring(problem)
+                            )
+                        else
+                            assert(nativeos.result(declaration).nullable)
+                        end
+                        found = found + 1
+                    end
+                end
+            end
+            assert(found == 1, "entry bootstrap must have one exact OS operation")
+            verify(g)
+            graph.prune(g)
+            verify(g)
+            assert(service.entryRoles(g) == nil, "bootstrap helper acquired heap entry roles")
+            count = count + 1
+        end
+    end
+    assert(count == 2, "entry bootstrap helper inventory differs")
+end
+
+local function entryCleanup(build: any): nil
+    local entry
+    for _, owner in ipairs(service.owners(build.catalog)) do
+        if owner.scope.name == "nupp.runtime.core.heapentry" and owner.name == "run" then
+            entry = owner
+        end
+    end
+    assert(entry, "actual heap entry is absent")
+    local g = lower.functionGraph(entry, service.options(build.catalog, entry), cleanup.profile(nativegraph))
+    local roles = service.entryRoles(g)
+    assert(roles and roles.owner == entry)
+    local other
+    for _, block in ipairs(g.blocks) do
+        for index, op in ipairs(block.op) do
+            if op == "NativeLeafCall" then
+                local operation = service.operation(g, block.args[index][1])
+                if operation.node.kind == "call"
+                    and operation.target ~= roles.open
+                    and not service.arenaCleanup(g, block.args[index][1])
+                then
+                    other = operation.node
+                end
+            end
+        end
+    end
+    assert(other, "entry alternate source call is absent")
+    local found = 0
+    for _, block in ipairs(g.blocks) do
+        for index, op in ipairs(block.op) do
+            if op == "NativeLeafCall" then
+                local args = block.args[index]
+                if service.arenaCleanup(g, args[1]) then
+                    local operation = service.operation(g, args[1])
+                    local actual = g.nativePhysical.values[args[2]]
+                    assert(operation.target == roles.close and service.arenaCleanup(g, args[1], actual))
+                    refuses(
+                        function(): nil
+                            physical.arenaCleanupOperand(copy(entry), actual, operation.node, args[1].physical)
+                        end,
+                        "affine acquisition source differs"
+                    )
+                    refuses(
+                        function(): nil
+                            physical.arenaCleanupOperand(entry, actual, other, args[1].physical)
+                        end,
+                        "affine acquisition source differs"
+                    )
+                    found = found + 1
+                end
+            end
+        end
+    end
+    assert(found > 0, "entry Arena cleanup is absent")
+    verify(g)
+    graph.prune(g)
+    verify(g)
+end
+
+function M.check(build: any): nil
+    bootstrap(build)
+    entryCleanup(build)
+    local owners = {}
+    for _, owner in ipairs(service.owners(build.catalog)) do
+        if owner.scope.name == "nupp.runtime.vm.heap" and owner.name == "allocRaw"
+            or owner.scope.name == "nupp.runtime.vm.collector" and owner.name == "allocate"
+        then
+            owners[#owners + 1] = owner
+        end
+    end
+    assert(#owners == 2, "actual managed allocator inventory differs")
+    local compiled = {}
+    for _, owner in ipairs(owners) do
+        local options = service.options(build.catalog, owner)
+        local signature = service.signature(owner, options)
+        local obligation = service.managedResult(signature, owner)
+        assert(obligation and service.validateManagedResult(obligation, owner) == owner.resultType)
+        refuses(
+            function(): nil
+                service.managedResult({}, owner)
+            end,
+            "unissued service signature"
+        )
+        refuses(
+            function(): nil
+                service.managedResult(signature, copy(owner))
+            end,
+            "managed result owner differs"
+        )
+        refuses(
+            function(): nil
+                service.validateManagedResult({}, owner)
+            end,
+            "unissued managed result obligation"
+        )
+        refuses(
+            function(): nil
+                service.dependentReturn(signature, owner)
+            end,
+            "outside reviewed Arena/Pool storage"
+        )
+        local g = lower.functionGraph(owner, options, cleanup.profile(nativegraph))
+        compiled[owner.name] = g
+        assert(g.nativePhysical.signature.managed == obligation)
+        verify(g)
+        views(g, owner)
+        mutation(g)
+        graph.prune(g)
+        verify(g)
+        views(g, owner)
+        mutation(g)
+    end
+    local collecting
+    for _, block in ipairs(compiled.allocate.blocks) do
+        for index, op in ipairs(block.op) do
+            if op == "NativeLeafCall" then
+                local declaration = block.args[index][1]
+                local operation = service.operation(compiled.allocate, declaration)
+                if operation.target.name == "safepoint" then
+                    assert(service.heapEffects(build.catalog, operation.target), "injected operation must collect")
+                    collecting = declaration
+                end
+            end
+        end
+    end
+    assert(collecting, "actual collecting call is absent")
+    collectingGap(compiled.allocRaw, collecting)
+end
+
+export = M

@@ -73,6 +73,38 @@ local function shape(bound: any): any
     return spec
 end
 
+local function pageOwner(owner: any, name: string): boolean
+    if owner.scope.name ~= "nupp.runtime.core.pagemappings" then
+        return false
+    end
+    return unit.ownerModule(owner, "nupp.runtime.core.pagemappings").exports[name] == owner
+end
+
+local function statusOutput(bound: any): any
+    if bound.name ~= "unmapPages" then
+        return nil
+    end
+    local owner = bound.owner
+    -- Both exact wrappers keep the real C status in a separately retained
+    -- explicit Scope. A nil OS result never silently discards that status.
+    need(
+        (pageOwner(owner, "unmapOwned") or pageOwner(owner, "releaseEntry")) and owner.paramKinds[1] == "voidptr",
+        "unmap requires explicit owned wrapper scope"
+    )
+    local scope = need(
+        unit.ownerModule(owner, "nupp.runtime.core.pagemappings").checkedExports.types.Scope,
+        "checked page Scope required"
+    )
+    local target = need(layout.of(scope, bound.context.target), "page Scope layout required")
+    local status = need(target.offsets.status, "page Scope status field")
+    need(
+        scope.byname.status.tag == "uint64" and status % 8 == 0 and status <= target.size - 8,
+        "page Scope status layout"
+    )
+
+    return {parameter = 1, offset = status, bytes = target.size, type = scope}
+end
+
 function os.call(owner: any, call: any): any
     local bound = unit.osDeclaration(owner, call)
     local spec = shape(bound)
@@ -81,25 +113,7 @@ function os.call(owner: any, call: any): any
     for index, kind in ipairs(spec.params) do
         params[index], snapshot[index] = kind, kind
     end
-    local out = nil
-    if bound.name == "unmapPages" then
-        -- Only this reviewed wrapper consumes the real C status. Other nil
-        -- source calls must not silently discard it or invent a hidden scope.
-        need(
-            owner.scope.name == "nupp.runtime.core.pagemappings"
-            and owner.name == "unmapOwned"
-            and owner.paramKinds[1] == "voidptr",
-            "unmap requires explicit owned wrapper scope"
-        )
-        local scope = need(owner.scope.checkedExports.types.Scope, "checked page Scope required")
-        local target = need(layout.of(scope, bound.context.target), "page Scope layout required")
-        local status = need(target.offsets.status, "page Scope status field")
-        need(
-            scope.byname.status.tag == "uint64" and status % 8 == 0 and status <= target.size - 8,
-            "page Scope status layout"
-        )
-        out = {parameter = 1, offset = status, bytes = target.size, type = scope}
-    end
+    local out = statusOutput(bound)
     local effect = {mayCollect = false, mayPark = false, mayRaise = false, pure = false}
     local machineResult = bound.name == "mapPages" and "voidptr" or spec.cResult
     local declaration = {
@@ -149,6 +163,13 @@ function os.validate(declaration: any, owner: any?): any
         "OS checked source changed"
     )
     need(shape(bound).slot == held.slot, "OS slot changed")
+    local out = statusOutput(bound)
+    if out then
+        need(held.out ~= nil, "OS status output missing")
+        same(out, held.out)
+    else
+        need(held.out == nil, "OS status output invented")
+    end
     if held.result then
         physical.validate(held.result)
     end
@@ -174,14 +195,12 @@ end
 
 -- Runtime heap images may not expose unjournaled C mappings. Generic checked
 -- graph inspection can describe mapPages, but authenticated publication admits
--- it only through the fixed Nupp ledger wrapper in the same retained unit.
+-- it only through the fixed ledger wrapper or the entry metadata bootstrap
+-- in the same retained unit. Bootstrap storage has its own terminal owner.
 function os.ownedSlot(declaration: any, owner: any): integer
     local slot = os.slot(declaration, owner)
     if slot == 0 then
-        need(
-            owner.scope.name == "nupp.runtime.core.pagemappings" and owner.name == "map",
-            "published map requires owned ledger wrapper"
-        )
+        need(pageOwner(owner, "map") or pageOwner(owner, "acquireEntry"), "published map requires owned ledger wrapper")
     end
 
     return slot
