@@ -17,18 +17,23 @@ export const Term_jump = 1ULL
 export const Term_branch = 2ULL
 export const Term_invoke = 3ULL
 export const Operation_K = 0ULL
-export const Operation_Nil = 1ULL
-export const Operation_Move = 2ULL
-export const Operation_Closure = 3ULL
+export const Operation_Require = 1ULL
+export const Operation_Nil = 2ULL
+export const Operation_Move = 3ULL
+export const Operation_Closure = 4ULL
 export const scalarKinds = 2ULL
 export const pureEffect = 0ULL
 export const invokeEffect = 1ULL
 
 export function operation(id: uint64): uint64
-    if id >= 4ULL then
+    if id >= 5ULL then
         return 4294967295ULL
     end
-    return (0x0101010000000100ULL >> (id * 16ULL)) & 65535ULL
+    if id == 4ULL then
+        return 257ULL
+    end
+
+    return (0x0100000001010100ULL >> (id * 16ULL)) & 65535ULL
 end
 
 export function term(id: uint64): uint64

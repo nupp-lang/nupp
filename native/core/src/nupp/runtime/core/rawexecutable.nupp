@@ -76,8 +76,9 @@ export function admit(request: voidptr): uint64
     if wire.version ~= policy.version
         or wire.profile ~= policy.profile
         or policy.Op_K ~= 0ULL
-        or policy.Op_Nil ~= 1ULL
-        or policy.Op_Move ~= 2ULL
+        or policy.Op_Require ~= 1ULL
+        or policy.Op_Nil ~= 2ULL
+        or policy.Op_Move ~= 3ULL
     then
         return 0ULL
     end
@@ -214,8 +215,9 @@ export function admit(request: voidptr): uint64
         end
         local admitted = switch kind do
             case 0 -> nargs == 1ULL and row(phase, wire.S_words, args, fields.F_words_value) < constants
-            case 1 -> nargs == 0ULL
-            case 2 -> nargs == 1ULL
+            case 1 -> false
+            case 2 -> nargs == 0ULL
+            case 3 -> nargs == 1ULL
                 and physical(phase, valuesFirst, row(phase, wire.S_words, args, fields.F_words_value), nv) < 250ULL
             else -> false
         end
@@ -313,11 +315,11 @@ export function admit(request: voidptr): uint64
                 )
                 yield 0ULL
             end
-            case 1 -> do
+            case 2 -> do
                 native.store8(out, native.index(base), policy.Byte_Nil)
                 yield 0ULL
             end
-            case 2 -> do
+            case 3 -> do
                 native.store8(out, native.index(base), policy.Byte_Move)
                 native.store8(
                     out,

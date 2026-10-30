@@ -35,9 +35,11 @@ def main():
     source = [ROOT / 'native/core/src/nupp/runtime/core/rawexecutable.nupp',
               *[ROOT / 'native/core/tests' / name for name in
                 ('raw-executable-fixture.nupp', 'raw-executable-producer.nupp',
-                 'raw-executable-shim.nupp')]]
+                 'raw-executable-shim.nupp', 'catalog-module-prefix.nupp',
+                 'catalog-module-main.nupp')]]
     dependencies = [ROOT / 'native/core/src/nupp/runtime/core' / (name + '.nupp')
                     for name in ('rawwire', 'rawroles', 'rawsemantics', 'rawexecutablepolicy',
+                                 'rawcatalogpolicy', 'rawbudgetpolicy', 'rawsemanticpolicy',
                                  'guestcatalog')]
     dependencies.extend(ROOT / 'src/nupp/compiler/vm' / (name + '.nupp')
                         for name in ('coregraphschema', 'corebytecode', 'coregraphcodec',
@@ -90,10 +92,16 @@ def main():
         fixture = out / 'fixture.image'
         run('fixture-emit', [vm, 'run', compiler, 'nupp.tools.vm.project', 'emit', project,
                              'nupp.core.rawexecutablefixture', '', '--output', fixture, '--tasks'], project)
-        for kind in ('true', 'false', 'nil', 'missing', 'call'):
+        for kind in ('true', 'false', 'nil', 'missing', 'call', 'require'):
             path = out / (kind + '.graph')
             run('fixture-' + kind, [vm, 'run', fixture, 'nupp.core.rawexecutablefixture',
                                    'data', kind, '--output', path, '--tasks'], project)
+        require_graph = (out / 'require.graph').read_bytes()
+        assert struct.unpack_from('<II', require_graph, 8) == (2, 2)
+        operations = struct.unpack_from('<IIQQQ', require_graph, 48 + 13 * 32)
+        assert operations[:2] == (13, 24) and operations[2] > 0
+        assert any(struct.unpack_from('<I', require_graph, operations[3] + i * 24)[0] == 1
+                   for i in range(operations[2])), 'checked graph lacks Require'
         producer = out / 'producer.image'
         run('producer-emit', [vm, 'run', compiler, 'nupp.tools.vm.project', 'emit', project,
                               'nupp.core.rawexecutableproducer', '', '--output', producer, '--tasks'], project)
@@ -108,7 +116,7 @@ def main():
                 assert any(m['spillSlots'] > 0 for m in selected['metrics'])
             assert selected['spillOffset'] + selected['callBytes'] <= selected['scratchBytes']
             code = b''.join(struct.pack('<I', w & 0xffffffff) for w in selected['words'])
-            for kind in ('true', 'false', 'nil', 'missing', 'call', 'truncated'):
+            for kind in ('true', 'false', 'nil', 'missing', 'call', 'require', 'truncated'):
                 raw = (out / (('true' if kind == 'truncated' else kind) + '.graph')).read_bytes()
                 if kind == 'truncated':
                     raw = raw[:-8]
@@ -120,7 +128,7 @@ def main():
                 returned = answer.read_bytes()
                 assert len(returned) == 129 * 8
                 status = struct.unpack_from('<Q', returned)[0]
-                if kind in ('missing', 'call', 'truncated'):
+                if kind in ('missing', 'call', 'require', 'truncated'):
                     assert status == 0 and returned[8:] == bytes(128*8), (mode, kind)
                 else:
                     assert status == 1, (mode, kind)

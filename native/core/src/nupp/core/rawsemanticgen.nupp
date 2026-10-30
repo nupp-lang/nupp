@@ -21,9 +21,9 @@ function generator.source(): string
     end
 
     local function packed(name: string, values: any): nil
-        assert(#values > 0 and #values <= 4)
+        assert(#values > 0 and #values <= 5)
         local parts = {}
-        for index = #values, 1, -1 do
+        for index = math.min(#values, 4), 1, -1 do
             local value = values[index]
             assert(value >= 0 and value <= 65535 and value % 1 == 0)
             parts[#parts + 1] = string.format("%04x", value)
@@ -33,6 +33,12 @@ function generator.source(): string
         lines[#lines + 1] = "    if id >= " .. #values .. "ULL then"
         lines[#lines + 1] = "        return 4294967295ULL"
         lines[#lines + 1] = "    end"
+        if #values == 5 then
+            lines[#lines + 1] = "    if id == 4ULL then"
+            lines[#lines + 1] = "        return " .. values[5] .. "ULL"
+            lines[#lines + 1] = "    end"
+            lines[#lines + 1] = ""
+        end
         lines[#lines + 1] = "    return (0x" .. table.concat(parts) .. "ULL >> (id * 16ULL)) & 65535ULL"
         lines[#lines + 1] = "end"
     end
@@ -50,8 +56,8 @@ function generator.source(): string
         constant("Kind_" .. kind.name, index)
     end
     constant("Kind_function", #definition.scalarKinds + 1)
-    local modes = {constant = 2, ["nil"] = 4, copy = 8, ["function"] = 16}
-    for _, mode in ipairs({"constant", "nil", "copy", "function"}) do
+    local modes = {constant = 2, ["nil"] = 4, copy = 8, ["function"] = 16, module = 32}
+    for _, mode in ipairs({"constant", "nil", "copy", "function", "module"}) do
         constant("P_" .. mode, modes[mode])
     end
     constant("P_read", 1)
@@ -73,8 +79,8 @@ function generator.source(): string
     local constants = {}
     for index, kind in ipairs(wire.constantKinds) do
         assert(kind.id == index - 1)
-        assert(kind.name == "nil" or kind.name == "true" or kind.name == "false")
-        constants[index] = assert(scalar[kind.name == "nil" and "nil" or "boolean"])
+        assert(kind.name == "nil" or kind.name == "true" or kind.name == "false" or kind.name == "str")
+        constants[index] = kind.name == "str" and 0 or assert(scalar[kind.name == "nil" and "nil" or "boolean"])
     end
     packed("constantKind", constants)
     -- Terminator control classes come from the existing canonical term view.

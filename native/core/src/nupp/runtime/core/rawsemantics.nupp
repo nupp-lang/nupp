@@ -332,6 +332,9 @@ local function structure(state: voidptr): uint64
         at = 0ULL
         while at < length do
             local rule = policy.operation(row(descriptor, wire.S_operations, first + at, fields.F_operations_opcode))
+            if (rule & policy.P_module) ~= 0ULL then
+                return 0ULL
+            end
             local args = row(descriptor, wire.S_operations, first + at, fields.F_operations_argsFirst)
             if (rule & policy.P_read) ~= 0ULL then
                 if usable(state, word(state, args), epoch) == false then

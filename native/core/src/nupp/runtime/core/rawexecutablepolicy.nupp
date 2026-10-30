@@ -1,11 +1,12 @@
 module nupp.runtime.core.rawexecutablepolicy
 
 -- Generated from the graph schema and canonical final-core byte recipes.
-export const version = 1ULL
-export const profile = 1ULL
+export const version = 2ULL
+export const profile = 2ULL
 export const Op_K = 0ULL
-export const Op_Nil = 1ULL
-export const Op_Move = 2ULL
+export const Op_Require = 1ULL
+export const Op_Nil = 2ULL
+export const Op_Move = 3ULL
 export const Byte_K = 0ULL
 export const Byte_Nil = 2ULL
 export const Byte_Move = 1ULL

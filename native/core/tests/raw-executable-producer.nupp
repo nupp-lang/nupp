@@ -13,6 +13,9 @@ local shim = require("nupp.core.rawexecutableshim")
 local generator = require("nupp.core.rawsemanticgen")
 local budgetgen = require("nupp.core.rawbudgetgen")
 local executablegen = require("nupp.core.rawexecutablegen")
+local wiregen = require("nupp.core.rawwiregen")
+local shapegen = require("nupp.core.rawshapegen")
+local cataloggen = require("nupp.core.rawcataloggen")
 local json = require("nupp.codec.json")
 local producer = {}
 
@@ -28,6 +31,18 @@ function producer.executableGenerated(): string
     return executablegen.source()
 end
 
+function producer.wireGenerated(): string
+    return wiregen.source()
+end
+
+function producer.shapeGenerated(): string
+    return shapegen.source()
+end
+
+function producer.catalogGenerated(): string
+    return cataloggen.source()
+end
+
 function producer.compile(mode: string): string
     assert(mode == "normal" or mode == "spill")
     assert(
@@ -41,6 +56,18 @@ function producer.compile(mode: string): string
     assert(
         front.read(ROOT .. "/native/core/src/nupp/runtime/core/rawexecutablepolicy.nupp") == executablegen.source(),
         "generated executable policy differs"
+    )
+    assert(
+        front.read(ROOT .. "/native/core/src/nupp/runtime/core/rawwire.nupp") == wiregen.source(),
+        "generated wire differs"
+    )
+    assert(
+        front.read(ROOT .. "/native/core/src/nupp/runtime/core/rawroles.nupp") == shapegen.source(),
+        "generated shape differs"
+    )
+    assert(
+        front.read(ROOT .. "/native/core/src/nupp/runtime/core/rawcatalogpolicy.nupp") == cataloggen.source(),
+        "generated catalog differs"
     )
     local groups, modules = {}, {}
     for _, item in ipairs({

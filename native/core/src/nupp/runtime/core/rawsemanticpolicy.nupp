@@ -13,20 +13,25 @@ export const P_constant = 2ULL
 export const P_nil = 4ULL
 export const P_copy = 8ULL
 export const P_function = 16ULL
+export const P_module = 32ULL
 export const P_read = 1ULL
 
 export function operation(id: uint64): uint64
-    if id >= 4ULL then
+    if id >= 5ULL then
         return 4294967295ULL
     end
-    return (0x0010000900040002ULL >> (id * 16ULL)) & 65535ULL
+    if id == 4ULL then
+        return 16ULL
+    end
+
+    return (0x0009000400200002ULL >> (id * 16ULL)) & 65535ULL
 end
 
 export function constantKind(id: uint64): uint64
-    if id >= 3ULL then
+    if id >= 4ULL then
         return 4294967295ULL
     end
-    return (0x000100010002ULL >> (id * 16ULL)) & 65535ULL
+    return (0x0000000100010002ULL >> (id * 16ULL)) & 65535ULL
 end
 
 export const T_return = 1ULL

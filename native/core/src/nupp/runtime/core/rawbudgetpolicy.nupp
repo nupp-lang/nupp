@@ -12,8 +12,8 @@ export const depthLimit = 32ULL
 export const integerLimit = 4294967295ULL
 export const maxDepthBound = 9ULL
 
-export const B_root_items = 459ULL
-export const B_root_bytes = 1456ULL
+export const B_root_items = 481ULL
+export const B_root_bytes = 1526ULL
 export const B_catalog_items = 12ULL
 export const B_catalog_bytes = 26ULL
 export const B_parent_items = 2ULL
@@ -112,21 +112,8 @@ export function scalarKindsBytes(id: uint64): uint64
     return (0x00030007ULL >> shift) & 65535ULL
 end
 
-export const constantKindsBytesCount = 3ULL
+export const constantKindsBytesCount = 4ULL
 export function constantKindsBytes(id: uint64): uint64
-    if id >= 3ULL then
-        return 4294967295ULL
-    end
-    local shift = id * 16ULL
-    if shift >= 64ULL then
-        return 4294967295ULL
-    end
-
-    return (0x000500040003ULL >> shift) & 65535ULL
-end
-
-export const operationsBytesCount = 4ULL
-export function operationsBytes(id: uint64): uint64
     if id >= 4ULL then
         return 4294967295ULL
     end
@@ -135,7 +122,23 @@ export function operationsBytes(id: uint64): uint64
         return 4294967295ULL
     end
 
-    return (0x0007000400030001ULL >> shift) & 65535ULL
+    return (0x0003000500040003ULL >> shift) & 65535ULL
+end
+
+export const operationsBytesCount = 5ULL
+export function operationsBytes(id: uint64): uint64
+    if id >= 5ULL then
+        return 4294967295ULL
+    end
+    if id == 4ULL then
+        return 7ULL
+    end
+    local shift = id * 16ULL
+    if shift >= 64ULL then
+        return 4294967295ULL
+    end
+
+    return (0x0004000300070001ULL >> shift) & 65535ULL
 end
 
 export const F_pos = 1ULL

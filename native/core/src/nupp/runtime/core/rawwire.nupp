@@ -4,8 +4,8 @@ module nupp.runtime.core.rawwire
 -- Regenerate and compare exactly; do not maintain these values by hand.
 const native = require("nupp.runtime.vm.intrinsics")
 
-export const version = 1ULL
-export const profile = 1ULL
+export const version = 2ULL
+export const profile = 2ULL
 export const headerBytes = 48ULL
 export const directoryBytes = 32ULL
 export const fileLimit = 67108864ULL
@@ -160,10 +160,10 @@ export function magic(data: voidptr): uint64
 end
 
 export function policy(data: voidptr, at: int64): uint64
-    if (native.word(native.load32(data, at + 0)) & 0xffffffffULL) ~= 1ULL then
+    if (native.word(native.load32(data, at + 0)) & 0xffffffffULL) ~= 2ULL then
         return 0ULL
     end
-    if (native.word(native.load32(data, at + 4)) & 0xffffffffULL) ~= 1ULL then
+    if (native.word(native.load32(data, at + 4)) & 0xffffffffULL) ~= 2ULL then
         return 0ULL
     end
     if (native.word(native.load32(data, at + 8)) & 0xffffffffULL) ~= 0ULL then

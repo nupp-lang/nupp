@@ -6,7 +6,7 @@ local generator = {}
 
 function generator.source(): string
     local graph, wire = schema.describe(), schema.wire()
-    local names = {"K", "Nil", "Move"}
+    local names = {"K", "Require", "Nil", "Move"}
     local ids = {}
     for _, item in ipairs(graph.operations) do
         ids[item.name] = item.id

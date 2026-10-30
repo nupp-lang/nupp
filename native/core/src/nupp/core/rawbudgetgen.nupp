@@ -47,9 +47,9 @@ function generator.source(): string
     -- A larger profile must deliberately extend this representation.
     local function packed(name: string, rows: any): nil
         assert(name:match("^[A-Za-z_][A-Za-z0-9_]*$"), "budget lookup name")
-        assert(#rows > 0 and #rows <= 4, "budget lookup word capacity")
+        assert(#rows > 0 and #rows <= 5, "budget lookup word capacity")
         local parts = {}
-        for index = #rows, 1, -1 do
+        for index = math.min(#rows, 4), 1, -1 do
             local row = rows[index]
             assert(row.id == index - 1, "budget lookup IDs must be dense")
             assert(row.value >= 0 and row.value <= 65535 and row.value % 1 == 0, "budget lookup lane overflow")
@@ -61,6 +61,11 @@ function generator.source(): string
         lines[#lines + 1] = "    if id >= " .. tostring(#rows) .. "ULL then"
         lines[#lines + 1] = "        return 4294967295ULL"
         lines[#lines + 1] = "    end"
+        if #rows == 5 then
+            lines[#lines + 1] = "    if id == 4ULL then"
+            lines[#lines + 1] = "        return " .. tostring(rows[5].value) .. "ULL"
+            lines[#lines + 1] = "    end"
+        end
         lines[#lines + 1] = "    local shift = id * 16ULL"
         lines[#lines + 1] = "    if shift >= 64ULL then"
         lines[#lines + 1] = "        return 4294967295ULL"
