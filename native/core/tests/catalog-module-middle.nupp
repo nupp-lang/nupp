@@ -1,0 +1,7 @@
+module nupp.core.catalogmodulemiddle
+
+local function identity(value: nil): nil
+    return value
+end
+
+export = identity(nil)

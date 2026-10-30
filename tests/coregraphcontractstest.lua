@@ -42,7 +42,7 @@ local function fixture(argument)
     )
 end
 
-local function checkedModules(entryLast, third)
+local function checkedModules(entryLast, third, fourth)
     local inputs = {
         {name = "core.catalog.main", path = "=core_catalog_main.nupp", text = "return true"},
         {
@@ -59,6 +59,13 @@ local function checkedModules(entryLast, third)
             name = "core.catalog.third",
             path = "=core_catalog_third.nupp",
             text = "return nil"
+        })
+    end
+    if fourth then
+        table.insert(inputs, #inputs, {
+            name = "core.catalog.fourth",
+            path = "=core_catalog_fourth.nupp",
+            text = "return false"
         })
     end
     local modules = {}
@@ -281,12 +288,24 @@ function M.checkedModuleInitializersDeriveExecutableInSourceOrder()
     )
 end
 
-function M.executableModuleProfileRefusesThirdInitializer()
+function M.checkedThirdInitializerDerivesSerialExecutable()
+    local output = executable.fromChecked(checkedModules(true, true))
+    executable.validate(output)
+    test.equal(#output.initializers, 3)
+    test.equal(output.initializers[1], 0)
+    test.equal(output.initializers[2], 1)
+    test.equal(output.initializers[3], output.entry)
+    test.equal(output.entry, 2)
+    test.equal(output.instanceCreations, 1)
+    test.equal(output.functions[2].instructions[1][1], "Nil")
+end
+
+function M.executableModuleProfileRefusesFourthInitializer()
     refuses(
         function()
-            executable.fromChecked(checkedModules(true, true))
+            executable.fromChecked(checkedModules(true, true, true))
         end,
-        "at most two module initializers"
+        "at most three module initializers"
     )
 end
 

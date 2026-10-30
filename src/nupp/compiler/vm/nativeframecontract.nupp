@@ -548,6 +548,7 @@ local function buildGuest(caseName: string, audited: boolean): any
         branchElseif = "catalog-branch-elseif",
         branchLive = "catalog-branch-live",
         modulePair = "catalog-module-main",
+        moduleTriple = "catalog-module-triple",
         numberAdd = "catalog-number-add",
         numberNegativeZero = "catalog-number-negative-zero",
         numberNaN = "catalog-number-nan",
@@ -667,7 +668,9 @@ local function buildGuest(caseName: string, audited: boolean): any
     end
     -- Every declared handler is checked as a final frame, even when this
     -- program's dispatch table does not select it.
-    state.finalOwners[need(handlers.exports.Require, "fixed guest import handler")] = true
+    for _, name in ipairs({"Require", "Add", "Lt"}) do
+        state.finalOwners[need(handlers.exports[name], "fixed guest handler")] = true
+    end
     local cases = {
         NoScalar = "return lacks exact checked scalar",
         WrongScalar = "root completion lacks exact checked scalar",
@@ -719,9 +722,11 @@ local function buildGuest(caseName: string, audited: boolean): any
     local parser: any = require("nupp.compiler." .. parserName)
     local checker: any = require("nupp.compiler." .. checkerName)
     local environment: any = require("nupp.compiler." .. environmentName)
-    local fixtureNames = caseName == "modulePair" and {"catalog-module-prefix", fixture} or {fixture}
+    local fixtureNames = caseName == "modulePair" and {"catalog-module-prefix", fixture}
+        or caseName == "moduleTriple" and {"catalog-module-prefix", "catalog-module-middle", fixture}
+        or {fixture}
     local project: any = nil
-    if caseName == "modulePair" then
+    if caseName == "modulePair" or caseName == "moduleTriple" then
         local incremental: any = require("nupp.compiler.project.incremental")
         require("nupp.compiler.project.projectconfig")
         require("nupp.compiler.hash")

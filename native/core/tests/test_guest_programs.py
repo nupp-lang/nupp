@@ -17,12 +17,14 @@ CASES = {"boolean": 0x7FFB000000000000, "nilValue": 0x7FF9000000000000,
          "branchTrue": 0x7FFB000000000000, "branchFalse": 0x7FFA000000000000,
          "branchElseif": 0x7FFB000000000000, "branchLive": 0x7FFB000000000000,
          "modulePair": 0x7FFA000000000000,
+         "moduleTriple": 0x7FFB000000000000,
          "numberAdd": 0x4017000000000000, "numberNegativeZero": 0x8000000000000000,
          "numberNaN": 0x7FF8000000000000,
          "numberBranch": 0x7FFB000000000000}
 FIXTURES = ("catalog-boolean", "catalog-nil", "catalog-live", "catalog-fresh", "catalog-nested",
             "catalog-branch-true", "catalog-branch-false", "catalog-branch-elseif", "catalog-branch-live",
             "catalog-module-prefix", "catalog-module-main",
+            "catalog-module-middle", "catalog-module-triple",
             "catalog-number-add", "catalog-number-negative-zero", "catalog-number-nan",
             "catalog-number-branch")
 
@@ -134,7 +136,7 @@ def main():
               "selectedCases": selected_cases, "omittedCases": omitted_cases,
               "preflightFixtures": list(FIXTURES),
               "scope": "Trusted checked-source catalog derives Boolean/NIL programs, including "
-                       "two ordered module initializers with fresh entry storage and retained World. "
+                       "up to three ordered module initializers with fresh entry storage and retained World. "
                        "Closure0, fixed CallK and one-result Ret run through Nupp services; "
                        "one checked static scalar import executes after successful publication; "
                        "named exports, cycles, arbitrary modules, raw loading and GC remain outside.",
@@ -216,7 +218,8 @@ def main():
         for source_root in (fixed, audit_fixed):
             module_root = source_root / "source/nupp/core"
             module_root.mkdir(parents=True, exist_ok=True)
-            for fixture_name in ("catalog-module-prefix", "catalog-module-main"):
+            for fixture_name in ("catalog-module-prefix", "catalog-module-main",
+                                 "catalog-module-middle", "catalog-module-triple"):
                 staged = module_root / (fixture_name.replace("-", "") + ".nupp")
                 shutil.copyfile(ROOT / "native/core/tests" / (fixture_name + ".nupp"), staged)
                 inputs[str(staged.resolve())] = sha(staged)
@@ -279,7 +282,8 @@ def main():
                 data = bytes.fromhex(selected["dataHex"])
                 assert len(data) == selected["dataBytes"]
                 assert struct.unpack_from("<Q", data)[0] == (4 if case_name == "numberBranch" else
-                    3 if case_name.startswith("number") else 2 if case_name == "modulePair" else 1)
+                    3 if case_name.startswith("number") else
+                    2 if case_name in ("modulePair", "moduleTriple") else 1)
                 if case_name == "boolean":
                     assert struct.unpack_from("<14Q", data) == (
                         1, 2672, 2, 0, 112, 304, 2, 352, 1, 432, 1, 2, 624, 256)
@@ -321,6 +325,18 @@ def main():
                         damaged_bundle = out / (case + "-" + name + ".bundle")
                         damaged_bundle.write_bytes(bundle.read_bytes()[:72 + len(code)] + damaged)
                         guarded("refuse-" + case + "-" + name, damaged_bundle, empty, high_water, status=1)
+                if case_name == "moduleTriple":
+                    descriptor = struct.unpack_from("<16Q", data)
+                    assert descriptor[0] == 2 and descriptor[3] == 2 and descriptor[14] == 3
+                    assert struct.unpack_from("<3Q", data, descriptor[15]) == (0, 1, 2)
+                    assert selected["instanceCreations"] == 2
+                    assert selected["programs"][0]["calls"] and selected["programs"][1]["calls"]
+                    assert selected["programs"][2]["owner"] == 2
+                    damaged = bytearray(data)
+                    struct.pack_into("<Q", damaged, descriptor[15] + 8, 2)
+                    wrong = out / (case + "-duplicate-middle.bundle")
+                    wrong.write_bytes(bundle.read_bytes()[:72 + len(code)] + damaged)
+                    guarded("refuse-" + case + "-duplicate-middle", wrong, empty, high_water, status=1)
                 if case_name == "numberAdd":
                     body = selected["programs"][-1]
                     add_pc = next(index for index, instruction in enumerate(body["instructions"])
@@ -390,12 +406,14 @@ def main():
                 budgets = ((0, 0, 2), (0, 1, 3))
                 if case_name == "nested": budgets += ((2, 0, 2), (4, 0, 2))
                 if case_name == "modulePair": budgets += ((1, 0, 2), (2, 0, 2))
+                if case_name == "moduleTriple": budgets += ((1, 0, 2),)
                 for budget, cancel, status in budgets:
                     label = f"{case}-budget{budget}-cancel{cancel}"
                     input_path = out / (label + ".bin")
                     input_path.write_bytes(struct.pack("<QQ", budget, cancel))
                     guarded("refuse-" + label, bundle, input_path, high_water, status=status)
-                    if case_name == "modulePair" and budget in (1, 2) and cancel == 0:
+                    if (case_name == "modulePair" and budget in (1, 2)
+                            or case_name == "moduleTriple" and budget == 1) and cancel == 0:
                         output_path = out / (label + "-unchanged.bin")
                         sentinel = b"initializer refusal left output unchanged"
                         output_path.write_bytes(sentinel)

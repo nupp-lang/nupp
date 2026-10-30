@@ -263,8 +263,10 @@ export function complete(ctx: voidptr, original: voidptr, serial: uint64): uint6
         and native.load64(root, native.fieldOffset<frames.RootControl>("phase")) == frames.ROOT_COMPLETE
     then
         local data = native.loadPointer(descriptor, native.fieldOffset<catalog.Catalog>("data"))
-        local firstModule = native.load64(data, native.fieldOffset<catalog.DescriptorV1>("version")) == 2ULL
-            and native.load64(ctx, context.MODULE_ORDINAL) == 0ULL
+        local version = native.load64(data, native.fieldOffset<catalog.DescriptorV1>("version"))
+        local ordinal = native.load64(ctx, context.MODULE_ORDINAL)
+        local nonfinal = version == 2ULL
+            and ordinal + 1ULL < native.load64(data, native.fieldOffset<catalog.Descriptor>("moduleCount"))
         local result = native.load64(root, native.fieldOffset<frames.RootControl>("value"))
         local resultCount = native.load64(root, native.fieldOffset<frames.RootControl>("count"))
         local publishable = resultCount == 1ULL
@@ -275,16 +277,16 @@ export function complete(ctx: voidptr, original: voidptr, serial: uint64): uint6
         if instances.retire(registry, targets) == 0ULL then
             return 0ULL
         end
-        if firstModule then
+        if nonfinal then
             if not publishable then
                 return 0ULL
             end
             local world = native.loadPointer(ctx, context.WORLD)
-            if native.load64(world, native.fieldOffset<instances.World>("modulePhase")) ~= 0ULL then
+            if native.load64(world, native.fieldOffset<instances.World>("modulePhase")) ~= ordinal then
                 return 0ULL
             end
             native.store64(world, native.fieldOffset<instances.World>("moduleValue"), result)
-            native.store64(world, native.fieldOffset<instances.World>("modulePhase"), 1ULL)
+            native.store64(world, native.fieldOffset<instances.World>("modulePhase"), ordinal + 1ULL)
         end
         return 1ULL
     end
