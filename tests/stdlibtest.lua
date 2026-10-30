@@ -211,9 +211,9 @@ local b: int64 = 2LL
 local c = (a + b) * b
 local wide: uint64 = 68719476735
 local bit: uint64 = 4294967296
-local decimal: uint64 = 1.0
-local exponent: uint64 = 1e3
-local hex: uint64 = 0x1p4
+local decimal: uint64 = 1.0 as uint64
+local exponent: uint64 = 1e3 as uint64
+local hex: uint64 = 0x1p4 as uint64
 local grouped: uint64 = (4294967296)
 local negative: int64 = -4294967296
 return c < a, c >> 1LL, ~c, wide & bit, decimal + exponent + hex, grouped, negative
