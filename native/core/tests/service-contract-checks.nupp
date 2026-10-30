@@ -4,6 +4,7 @@ module nupp.core.heapservicechecks
 -- No synthetic source owner, public issuance hook or independent native probe.
 local graph = require("nupp.compiler.vm.graph")
 local service = require("nupp.compiler.vm.nativeservice")
+local unit = require("nupp.compiler.vm.nativeunit")
 local M = {}
 
 local function refuses(callback: function(): nil, text: string?): nil
@@ -14,7 +15,64 @@ local function refuses(callback: function(): nil, text: string?): nil
     end
 end
 
+local function ledgerRoutes(build: any): nil
+    local entry = "nupp.runtime.core.heapentry.run"
+    local routes = {
+        ["nupp.runtime.vm.heap.mapOrFail"] = {"nupp.runtime.core.servicescope.mapPages", true},
+        ["nupp.runtime.vm.heap.unmapAt"] = {"nupp.runtime.core.servicescope.unmapPages", true},
+        ["nupp.runtime.core.servicescope.mapPages"] = {"nupp.runtime.core.pagemappings.map", false},
+        ["nupp.runtime.core.servicescope.unmapPages"] = {"nupp.runtime.core.pagemappings.unmap", false}
+    }
+    local scoped = {}
+    for _, item in ipairs(build.inventory) do
+        scoped[item.moduleName .. "." .. item.name] = item.hasScope
+    end
+    assert(scoped[entry], "heap entry lost its service scope")
+    assert(scoped["nupp.runtime.vm.heap.mapOrFail"] and scoped["nupp.runtime.vm.heap.unmapAt"])
+
+    for name, route in pairs(routes) do
+        local item = assert(build.resolved[name], "heap service closure lost " .. name)
+        local nextItem = assert(build.resolved[route[1]], "heap ledger target missing")
+        local g = item.graph
+        local matched = 0
+        if route[2] then
+            service.verifyScope(g)
+        end
+        for _, block in ipairs(g.blocks) do
+            for index, op in ipairs(block.op) do
+                if op == "NativeLeafCall" then
+                    local args = block.args[index]
+                    local declaration = args[1]
+                    if declaration.service == nextItem.graph.nativeService then
+                        local operation = service.operation(g, declaration)
+                        assert(operation.target == nextItem.owner, "heap ledger issued target differs")
+                        if route[2] then
+                            local imported = unit.osDeclaration(item.owner, operation.node)
+                            assert(imported.name == nextItem.owner.name, "heap ledger OS source differs")
+                            local original = args[2]
+                            args[2] = 1 -- A source operand cannot replace the retained entry scope.
+                            refuses(
+                                function(): nil
+                                    service.verifyScope(g)
+                                end,
+                                "call scope is not the retained entry scope"
+                            )
+                            args[2] = original
+                            service.verifyScope(g)
+                        else
+                            assert(unit.callee(item.owner, operation.node) == nextItem.owner)
+                        end
+                        matched += 1
+                    end
+                end
+            end
+        end
+        assert(matched == 1, "heap entry lost its exact ledger route: " .. name)
+    end
+end
+
 function M.check(build: any): nil
+    ledgerRoutes(build)
     refuses(
         function(): nil
             service.failure({g = {}, fn = {}, block = {}}, {})
