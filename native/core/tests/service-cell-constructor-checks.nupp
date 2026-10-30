@@ -1,0 +1,310 @@
+module nupp.core.servicecellconstructorchecks
+
+local graph = require("nupp.compiler.vm.graph")
+local lower = require("nupp.compiler.vm.lower")
+local profile = require("nupp.compiler.vm.nativegraph")
+local cleanup = require("nupp.compiler.vm.nativecleanup")
+local service = require("nupp.compiler.vm.nativeservice")
+local cell = require("nupp.compiler.vm.nativecellcontract")
+local M = {}
+
+local function refuses(callback: function(): nil, expected: string?): nil
+    local ok, problem = pcall(callback)
+    assert(not ok, "changed constructor rooting contract accepted: " .. tostring(problem))
+    if expected then
+        assert(tostring(problem):find(expected, 1, true), tostring(problem))
+    end
+end
+
+local function copy(source: any): any
+    local result = {}
+    for key, value in pairs(source) do
+        result[key] = value
+    end
+
+    return result
+end
+
+local function verify(g: any): any
+    graph.verify(g)
+    return cell.verifyConstruct(g)
+end
+
+local function changedArgument(g: any, args: any, index: integer, value: integer): nil
+    local saved = args[index]
+    args[index] = value
+    local ok, problem = pcall(cell.verifyConstruct, g)
+    args[index] = saved
+    assert(not ok, "constructor operand substitution accepted: " .. tostring(problem))
+    verify(g)
+end
+
+local function mutations(g: any): nil
+    local roles = service.cellRoles(g)
+    local counts = {publish = 0, allocate = 0, initialize = 0, initialized = 0, result = 0, retain = 0}
+    for _, block in ipairs(g.blocks) do
+        for index, op in ipairs(block.op) do
+            if op == "NativeICmp" then
+                local arguments = block.args[index]
+                local saved = arguments[3]
+                arguments[3] = "<"
+                local ok, problem = pcall(cell.verifyConstruct, g)
+                arguments[3] = saved
+                assert(not ok and tostring(problem):find("constructor comparison differs", 1, true), tostring(problem))
+                verify(g)
+            elseif op == "NativeLeafCall" then
+                local args = block.args[index]
+                local operation = service.operation(g, args[1])
+                if operation.target == roles.publish then
+                    counts.publish += 1
+                    changedArgument(g, args, 2, 3) -- Root scope is not State.
+                    changedArgument(g, args, 3, 2) -- Published Heap is not root scope.
+                    changedArgument(g, args, 9, 6) -- Result is not input storage.
+                    local success, failure = block.term.edges[1], block.term.edges[2]
+                    assert(block.term.kind == "branch" and success and failure)
+                    block.term.edges[1], block.term.edges[2] = failure, success
+                    local ok = pcall(cell.verifyConstruct, g)
+                    block.term.edges[1], block.term.edges[2] = success, failure
+                    assert(not ok, "publication failure reached allocation")
+                    verify(g)
+                elseif operation.target == roles.allocate then
+                    counts.allocate += 1
+                    changedArgument(g, args, 2, 2)
+                    changedArgument(g, args, 3, args[4])
+                    changedArgument(g, args, 5, 2)
+                    local saved = args[1]
+                    args[1] = copy(saved)
+                    local ok = pcall(cell.verifyConstruct, g)
+                    args[1] = saved
+                    assert(not ok, "copied allocator declaration acquired authority")
+                    verify(g)
+                elseif operation.target == roles.cellInitialize then
+                    counts.initialize += 1
+                    changedArgument(g, args, 2, 2)
+                    changedArgument(g, args, 3, 5)
+                elseif operation.target == roles.initialized then
+                    counts.initialized += 1
+                    changedArgument(g, args, 2, 2)
+                    changedArgument(g, args, 3, 2)
+                elseif operation.target == roles.storeResult then
+                    counts.result += 1
+                    changedArgument(g, args, 2, 3)
+                    changedArgument(g, args, 3, 5)
+                    changedArgument(g, args, 4, 5)
+                elseif operation.target == roles.retain then
+                    counts.retain += 1
+                    changedArgument(g, args, 2, 2)
+                    -- Removing retention must not leave a valid exceptional exit.
+                    local saved = {}
+                    for _, column in ipairs({"op", "args", "dst", "pos", "cert"}) do
+                        saved[column] = table.remove(block[column], index)
+                    end
+                    local ok = pcall(cell.verifyConstruct, g)
+                    for _, column in ipairs({"op", "args", "dst", "pos", "cert"}) do
+                        table.insert(block[column], index, saved[column])
+                    end
+                    assert(not ok, "exceptional constructor exit released its backing")
+                    verify(g)
+                end
+            end
+        end
+    end
+    assert(
+        counts.publish == 1
+        and counts.allocate == 1
+        and counts.initialize == 1
+        and counts.initialized == 1
+        and counts.result == 1
+        and counts.retain > 0,
+        "actual CELL constructor call sequence differs"
+    )
+end
+
+function M.check(build: any): nil
+    local owner
+    for _, item in ipairs(service.owners(build.catalog)) do
+        if item.scope.name == "nupp.runtime.core.cellservice" and item.name == "construct" then
+            assert(not owner)
+            owner = item
+        end
+    end
+    assert(owner, "actual CELL constructor is absent")
+    local g = lower.functionGraph(owner, service.options(build.catalog, owner), cleanup.profile(profile))
+    local proof = verify(g)
+    cell.validate(proof, g)
+    refuses(function(): nil
+        cell.validate({}, g)
+    end)
+    refuses(function(): nil
+        cell.validate(proof, copy(g))
+    end)
+    mutations(g)
+    graph.prune(g)
+    verify(g)
+    cell.validate(proof, g)
+    mutations(g)
+end
+
+-- This accepts only the closed factory result. It verifies that traversal roots
+-- do not become native executable entries. Pruning is tested above and by the
+-- managed allocator helper before the separate closed factory seals originals.
+function M.entries(build: any): nil
+    local factory = require("nupp.compiler.vm.nativeframecontract")
+    factory.validateHeapServices(build)
+    local count: integer = 0
+    local permitted = {}
+    assert(#build.entries == 6, "heap executable boundary must have exactly six owners")
+    for _, owner in ipairs(build.entries) do
+        permitted[owner] = true
+    end
+    for _, item in pairs(build.resolved) do
+        if not permitted[item.owner] then
+            refuses(
+                function(): nil
+                    factory.requireEntry(item.graph, item.owner)
+                end,
+                "internal-only"
+            )
+        end
+        local signature = item.graph.nativePhysical and item.graph.nativePhysical.signature
+        if signature and signature.managed then
+            graph.verify(item.graph)
+            refuses(function(): nil
+                factory.requireEntry(item.graph, item.owner)
+            end)
+            count += 1
+        end
+    end
+    assert(count == 2, "exact raw allocator closure changed")
+    local constructor = assert(build.resolved["nupp.runtime.core.cellservice.construct"])
+    refuses(function(): nil
+        factory.requireEntry(constructor.graph, constructor.owner)
+    end)
+end
+
+-- Construction remains provisional; this check proves the exact source-created
+-- entry recipe before its distinct authenticated native publication.
+function M.entryGraph(build: any): nil
+    local entryOwner, constructorOwner
+    for _, owner in ipairs(service.owners(build.catalog)) do
+        if owner.scope.name == "nupp.runtime.core.heapentry" and owner.name == "run" then
+            entryOwner = owner
+        end
+        if owner.scope.name == "nupp.runtime.core.cellservice" and owner.name == "construct" then
+            constructorOwner = owner
+        end
+    end
+    assert(entryOwner and constructorOwner)
+    local constructor = lower.functionGraph(
+        constructorOwner,
+        service.options(build.catalog, constructorOwner),
+        cleanup.profile(profile)
+    )
+    local g = lower.functionGraph(entryOwner, service.options(build.catalog, entryOwner), cleanup.profile(profile))
+    local resolved = {[constructorOwner] = constructor}
+
+    local function verifyEntry(): nil
+        graph.verify(g)
+        cell.verifyEntry(g, resolved)
+    end
+
+    local function entryMutations(): nil
+        local roles = service.entryRoles(g)
+        local changed: integer = 0
+        for _, block in ipairs(g.blocks) do
+            for index, op in ipairs(block.op) do
+                if op == "NativeLeafCall" then
+                    local args = block.args[index]
+                    local operation = service.operation(g, args[1])
+                    local argument
+                    if operation.target == roles.construct
+                        or operation.target == roles.fullCycle
+                        or operation.target == roles.destroy
+                    then
+                        argument = 2
+                    elseif operation.target == roles.publish then
+                        argument = 3
+                    elseif operation.target == roles.retain then
+                        argument = 2
+                    end
+                    if argument then
+                        local saved = args[argument]
+                        args[argument] = 1 -- Binding is not the created Heap/original scope.
+                        local ok = pcall(cell.verifyEntry, g, resolved)
+                        args[argument] = saved
+                        assert(not ok, "entry adopted an external Heap or scope")
+                        verifyEntry()
+                        changed += 1
+                    end
+                    if operation.target == roles.closeRoots then
+                        assert(block.term.kind == "branch")
+                        local predicate
+                        for row, candidate in ipairs(block.op) do
+                            if candidate == "NativeICmp" and block.args[row][1] == block.dst[index] then
+                                predicate = block.args[row]
+                            end
+                        end
+                        assert(predicate, "root close success check is missing")
+                        local saved = predicate[3]
+                        predicate[3] = saved == "==" and "~=" or "=="
+                        local ok = pcall(cell.verifyEntry, g, resolved)
+                        predicate[3] = saved
+                        assert(not ok, "failed root close reached collection/retirement")
+                        verifyEntry()
+                    end
+                end
+            end
+        end
+        assert(changed >= 7, "actual entry Heap/scope call coverage is incomplete")
+    end
+
+    verifyEntry()
+    entryMutations()
+    graph.prune(g)
+    graph.prune(constructor)
+    verifyEntry()
+    entryMutations()
+end
+
+-- Source-to-MIR/selection only. No Nupp service or selected native code executes
+-- here. Native bundle acceptance remains a separate entry/lifecycle gate.
+function M.nativeEntries(build: any, mode: string): nil
+    local sink = require("nupp.compiler.s0.nativegraph")
+    local link = require("nupp.core.link")
+    M.entries(build)
+    local count: integer = 0
+    for _, item in pairs(build.resolved) do
+        local signature = item.graph.nativePhysical and item.graph.nativePhysical.signature
+        if signature and signature.managed then
+            local result = sink.compilerGraph(item.graph, item.owner.name, item.owner, build.resolved)
+            local selected = sink.selectAuthenticated(result, mode)
+            sink.verifyCode(selected.code)
+            refuses(
+                function(): nil
+                    sink.verifyCodeEntry(selected.code)
+                end,
+                "internal-only"
+            )
+            refuses(
+                function(): nil
+                    link.assembleAuthenticated({}, {selected.code}, {}, 65536)
+                end,
+                "internal-only"
+            )
+            count += 1
+        end
+    end
+    assert(count == 2)
+    local constructor = assert(build.resolved["nupp.runtime.core.cellservice.construct"])
+    local result = sink.compilerGraph(constructor.graph, constructor.owner.name, constructor.owner, build.resolved)
+    local selected = sink.selectAuthenticated(result, mode)
+    sink.verifyCode(selected.code)
+    refuses(
+        function(): nil
+            link.assembleAuthenticated({}, {selected.code}, {}, 65536)
+        end,
+        "internal-only"
+    )
+end
+
+export = M

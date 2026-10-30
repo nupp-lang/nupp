@@ -1,0 +1,822 @@
+module nupp.compiler.vm.nativecellcontract
+
+-- Rooted construction consumes the closed service catalog's exact checked
+-- identities. It is not an owner/effect registration API or a raw-code loader.
+local contract = {}
+
+local function need(ok: any, message: string): any
+    assert(ok, "native cell: " .. message)
+    return ok
+end
+
+local function services(): any
+    local name = "nativeservice"
+    return require("nupp.compiler.vm." .. name)
+end
+
+-- The resolved map is the original factory-owned owner -> graph map. Every
+-- transitive edge must have the service issuer's checked target and a graph in
+-- that same unit. Examining only the selected root's result is insufficient.
+function contract.hasManaged(g: any, resolved: any): boolean
+    local service = services()
+    local pending, visited = {g}, {[g] = true}
+    local cursor: integer = 1
+    local managed = false
+    local count: integer = 0
+    while cursor <= #pending do
+        local current = pending[cursor]
+        cursor = cursor + 1
+        do
+            count += 1
+            need(count <= 1024, "service closure bound")
+            service.verifyScope(current)
+            local signature = current.nativePhysical and current.nativePhysical.signature
+            if signature and signature.managed then
+                managed = true
+            end
+            for _, block in ipairs(current.blocks) do
+                for index, op in ipairs(block.op) do
+                    if op == "NativeLeafCall" then
+                        local declaration = block.args[index][1]
+                        local operation = service.operation(current, declaration)
+                        need(operation and operation.target, "call lacks closed service target")
+                        if service.managedCall(current, declaration) then
+                            managed = true
+                        end
+                        local target = need(resolved[operation.target], "callee graph outside retained service unit")
+                        if not visited[target] then
+                            visited[target] = true
+                            pending[#pending + 1] = target
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return managed
+end
+
+local proofs: any = setmetatable({}, {__mode = "k"})
+
+local function duplicate(value: any): any
+    local result = {}
+    for key, item in pairs(value) do
+        result[key] = item
+    end
+
+    return result
+end
+
+local function fieldOffset(t: any, target: string, name: string): string
+    local layout = need(require("nupp.compiler.targetlayout").of(t, target), "checked layout required")
+    for _, field in ipairs(layout.fields) do
+        if field.name == name then
+            return tostring(field.offset)
+        end
+    end
+    error("native cell: missing checked field " .. name, 0)
+end
+
+local function atom(value: any): boolean
+    return type(value) == "boolean" or type(value) == "string" and value:sub(1, 1) == "#"
+end
+
+local function known(value: any, state: any): boolean?
+    if type(value) == "boolean" then
+        return value
+    end
+    if value == "validInput" then
+        return state.inputGood
+    end
+    if type(value) ~= "table" or value.operator ~= "==" and value.operator ~= "~=" then
+        return nil
+    end
+    local left, right = value.left, value.right
+    local equal
+    if left == right then
+        equal = true
+    elseif type(left) == "boolean" and type(right) == "boolean" then
+        equal = false
+    elseif left == "error" and right == "#0" or right == "error" and left == "#0" then
+        equal = state.errorClear
+    elseif left == "validInput" and type(right) == "boolean" then
+        if state.inputGood ~= nil then
+            equal = state.inputGood == right
+        end
+    elseif right == "validInput" and type(left) == "boolean" then
+        if state.inputGood ~= nil then
+            equal = state.inputGood == left
+        end
+    end
+    if equal == nil then
+        return nil
+    end
+    if value.operator == "==" then
+        return equal
+    end
+
+    return not equal
+end
+
+local function refine(value: any, truth: boolean, state: any): nil
+    if value == "validInput" then
+        state.inputGood = truth;
+        return
+    end
+    if type(value) ~= "table" or value.operator ~= "==" and value.operator ~= "~=" then
+        return
+    end
+    local equal = truth
+    if value.operator == "~=" then
+        equal = not truth
+    end
+    local left, right = value.left, value.right
+    if atom(left) then
+        left, right = right, left
+    end
+    if left == "validInput" and type(right) == "boolean" then
+        state.inputGood = equal == right
+    elseif left == "publishToken" and right == "#0" then
+        state.published = not equal
+    elseif left == "initializedStatus" and right == "#0" then
+        state.initialized = equal
+    elseif left == "storeStatus" and right == "#1" then
+        state.stored = equal
+    elseif left == "objectAddress" and right == "#0" then
+        state.nonnull = not equal
+    elseif left == "maskedAddress" and right == "objectAddress"
+        or left == "objectAddress" and right == "maskedAddress"
+    then
+        state.representable = equal
+    elseif left == "error" and right == "#0" then
+        state.errorClear = equal
+        if not equal then
+            state.failed = true
+        elseif state.pending == "allocate" then
+            state.objectLive = true
+        elseif state.pending == "initialized" then
+            state.scanned = true
+        end
+        state.pending = nil
+    end
+end
+
+-- Path-sensitive validation of this one reviewed, acyclic constructor. The
+-- graph verifier supplies SSA/type correctness; this proof supplies the exact
+-- publication interval and object/root identities, including held phis.
+function contract.verifyConstruct(g: any): any
+    local service = services()
+    service.verifyScope(g)
+    local roles = need(service.cellRoles(g), "exact checked CELL constructor required")
+    local physical = require("nupp.compiler.vm.nativephysical")
+    need(g.native.abi == "leaf" and g.nparams == 8, "constructor requires seven arguments and retained scope")
+    local target = g.nativePhysical.context.target
+    local cell = need(require("nupp.compiler.targetlayout").of(roles.cellType, target), "checked CELL layout required")
+    local errorOffset = fieldOffset(roles.serviceScopeType, target, "error")
+    local incoming = {}
+    for index = 1, 8 do
+        incoming[index] = "p" .. tostring(index)
+    end
+    local pending = {{block = g.blocks[1], env = incoming, state = {}, path = {}}}
+    local cursor: integer = 1
+    local successes: integer = 0
+    while cursor <= #pending do
+        need(cursor <= 10000, "constructor path bound")
+        local item = pending[cursor]
+        cursor = cursor + 1
+        local block, env, state = item.block, item.env, item.state
+        need(not item.path[block], "constructor must be acyclic")
+        item.path[block] = true
+        for at, op in ipairs(block.op) do
+            local args, dst = block.args[at], block.dst[at]
+            local value: any = nil
+            if op == "NativeConstant" then
+                value = "#" .. args[1]
+            elseif op == "NativeBoolean" then
+                value = args[1]
+            elseif op == "NativePointerView" then
+                physical.validateCast(args[2])
+                value = env[args[1]]
+            elseif op == "NativeAddress" then
+                need(env[args[1]] == "object" and state.objectLive, "address is not the acquired object")
+                value = "objectAddress"
+            elseif op == "IAnd" then
+                need(
+                    env[args[1]] == "objectAddress" and env[args[2]] == "#" .. roles.payloadMask,
+                    "object address mask differs"
+                )
+                value = "maskedAddress"
+            elseif op == "NativeICmp" then
+                need(args[3] == "==" or args[3] == "~=", "constructor comparison differs")
+                value = {left = env[args[1]], right = env[args[2]], operator = args[3]}
+            elseif op == "NativeLoad" then
+                local memory = args[3]
+                need(
+                    memory.width == 8 and memory.kind == "uint64" and not memory.signed and not memory.write,
+                    "constructor load descriptor differs"
+                )
+                if env[args[1]] == "p6" and env[args[2]] == "#0" then
+                    need(not state.allocated, "input reload after allocation")
+                    value = "input"
+                else
+                    need(
+                        env[args[1]] == "p8" and env[args[2]] == "#" .. errorOffset,
+                        "constructor status load is not retained scope"
+                    )
+                    value = "error"
+                end
+            elseif op == "NativeLeafCall" then
+                local operation = service.operation(g, args[1])
+                local owner = operation.target
+
+                local function argument(index: integer): any
+                    return env[args[index + 1]]
+                end
+
+                if owner == roles.validInput then
+                    need(
+                        not state.published and argument(1) == "p1" and argument(2) == "input",
+                        "input validation Heap or value differs"
+                    )
+                    value = "validInput"
+                elseif owner == roles.publish then
+                    need(
+                        state.inputGood and not state.published and not state.allocated,
+                        "publication lacks validated input"
+                    )
+                    local expected = {"p2", "p1", "p3", "p4", "p5", "p6", "#1", "p7"}
+                    for index, wanted in ipairs(expected) do
+                        need(argument(index) == wanted, "published root extent differs")
+                    end
+                    value = "publishToken"
+                elseif owner == roles.allocate then
+                    need(
+                        state.published and state.inputGood and not state.allocated and not state.failed,
+                        "allocation lacks live published roots"
+                    )
+                    need(
+                        argument(1) == "p1"
+                        and argument(2) == "#" .. roles.kindCell
+                        and argument(3) == "#" .. tostring(cell.size)
+                        and argument(4) == "p8",
+                        "CELL allocation Heap, kind, extent or scope differs"
+                    )
+                    local origin = need(
+                        physical.managedOrigin(g.nativePhysical.values[dst]),
+                        "unissued allocation result"
+                    )
+                    need(
+                        origin.call == operation.node
+                        and origin.caller == roles.owner
+                        and origin.owner == roles.allocate,
+                        "allocation origin differs"
+                    )
+                    state.allocated, state.pending, state.errorClear = true, "allocate", nil
+                    value = "object"
+                elseif owner == roles.cellInitialize then
+                    need(
+                        state.objectLive
+                        and state.published
+                        and not state.failed
+                        and argument(1) == "object"
+                        and argument(2) == "input",
+                        "CELL initialization identity differs"
+                    )
+                    value = "initializedStatus"
+                elseif owner == roles.initialized then
+                    need(
+                        state.initialized
+                        and state.objectLive
+                        and state.published
+                        and not state.failed
+                        and argument(1) == "p1"
+                        and argument(2) == "object"
+                        and argument(3) == "p8",
+                        "initialized barrier precedes safe initialization"
+                    )
+                    state.pending, state.errorClear = "initialized", nil
+                elseif owner == roles.objectValue then
+                    need(
+                        state.scanned
+                        and state.nonnull
+                        and state.representable
+                        and not state.failed
+                        and argument(1) == "object",
+                        "object tagging lacks checked live result"
+                    )
+                    value = "objectValue"
+                elseif owner == roles.storeResult then
+                    need(
+                        state.published
+                        and state.scanned
+                        and state.nonnull
+                        and state.representable
+                        and not state.failed
+                        and argument(1) == "p2"
+                        and argument(2) == "publishToken"
+                        and argument(3) == "objectValue"
+                        and argument(4) == "#1",
+                        "result publication identity differs"
+                    )
+                    value = "storeStatus"
+                elseif owner == roles.retain then
+                    need(argument(1) == "p8", "failure retained a different service scope")
+                    state.retained = true
+                else
+                    error("native cell: unreviewed constructor call", 0)
+                end
+            else
+                error("native cell: unsupported constructor operation " .. op, 0)
+            end
+            if dst ~= 0 then
+                need(value ~= nil, "constructor value lacks interval meaning")
+                env[dst] = value
+            end
+        end
+        local term = block.term
+        if term.kind == "return" then
+            local value = env[term.value]
+            need(not state.failed, "failed constructor rejoins normal return")
+            if value == "#0" then
+                need(state.stored, "successful constructor lacks registered Result")
+                successes = successes + 1
+            elseif value == "#1" or value == "#5" then
+                need(not state.published and not state.allocated, "prepublication refusal acquired storage")
+            else
+                need(
+                    (value == "#2" or value == "#3" or value == "#4") and state.published,
+                    "constructor refusal lost its live root extent"
+                )
+            end
+        elseif term.kind == "nativeFail" then
+            need(state.failed and state.retained, "exceptional exit did not retain its root backing")
+        else
+            need(term.kind == "branch" or term.kind == "jump", "constructor control transfer differs")
+            local condition: any = nil
+            local selected: boolean? = nil
+            if term.kind == "branch" then
+                condition = env[term.value]
+                selected = known(condition, state)
+            end
+            for index, edge in ipairs(term.edges) do
+                local truth = index == 1
+                if term.kind == "jump" or selected == nil or selected == truth then
+                    local nextState, nextEnv = duplicate(state), duplicate(env)
+                    if term.kind == "branch" then
+                        refine(condition, truth, nextState)
+                    end
+                    local destination = g.blocks[edge.target]
+                    for at, parameter in ipairs(destination.params) do
+                        nextEnv[parameter] = env[edge.args[at]]
+                    end
+                    pending[
+                        #pending + 1
+                    ] = {block = destination, env = nextEnv, state = nextState, path = duplicate(item.path)}
+                end
+            end
+        end
+    end
+    need(successes > 0, "constructor has no proven successful Result path")
+    local proof = {}
+    proofs[proof] = {graph = g, owner = roles.owner}
+
+    return proof
+end
+
+function contract.validate(proof: any, g: any): nil
+    local held = need(proofs[proof], "unissued rooted constructor proof")
+    need(held.graph == g and services().cellRoles(g).owner == held.owner, "rooted constructor proof owner changed")
+    contract.verifyConstruct(g)
+end
+
+-- This is an identity/order check over the original source-issued graph, not
+-- an interpreter for the entry's loops or an admission API for caller graphs.
+local function entryFacts(g: any): any
+    local facts = {definitions = {}, inputs = {}, predecessors = {}, dominators = {}}
+    for _, block in ipairs(g.blocks) do
+        facts.predecessors[block.id] = {}
+        for _, value in ipairs(block.params) do
+            facts.inputs[value] = {}
+        end
+        for index, op in ipairs(block.op) do
+            if block.dst[index] ~= 0 then
+                facts.definitions[block.dst[index]] = {block = block, at = index, op = op, args = block.args[index]}
+            end
+        end
+    end
+    for _, block in ipairs(g.blocks) do
+        for _, edge in ipairs(block.term.edges or {}) do
+            local target = g.blocks[edge.target]
+            facts.predecessors[target.id][#facts.predecessors[target.id] + 1] = block.id
+            for index, value in ipairs(target.params) do
+                local inputs = facts.inputs[value]
+                inputs[#inputs + 1] = edge.args[index]
+            end
+        end
+    end
+    for _, block in ipairs(g.blocks) do
+        local set = {}
+        for _, other in ipairs(g.blocks) do
+            set[other.id] = block.id ~= 1 or other.id == 1
+        end
+        facts.dominators[block.id] = set
+    end
+    local changed = true
+    while changed do
+        changed = false
+        for _, block in ipairs(g.blocks) do
+            if block.id ~= 1 then
+                local set = facts.dominators[block.id]
+                for id, present in pairs(set) do
+                    if present and id ~= block.id then
+                        local keep = #facts.predecessors[block.id] > 0
+                        for _, previous in ipairs(facts.predecessors[block.id]) do
+                            keep = keep and facts.dominators[previous][id]
+                        end
+                        if not keep then
+                            set[id], changed = false, true
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return facts
+end
+
+local function entryBefore(facts: any, first: any, second: any): boolean
+    if first.block == second.block then
+        return first.at < second.at
+    end
+    return facts.dominators[second.block.id][first.block.id] == true
+end
+
+-- Every ancestry leaf must be the one original value. Cycles alone cannot
+-- establish identity; a transported loop value must still reach that anchor.
+local function entryIdentity(facts: any, value: integer, anchor: integer, address: boolean?): boolean
+    local queue, seen = {value}, {}
+    local cursor: integer = 1
+    local found = false
+    while cursor <= #queue do
+        local current = queue[cursor]
+        cursor += 1
+        if current == anchor then
+            found = true
+        elseif not seen[current] then
+            seen[current] = true
+            local row, inputs = facts.definitions[current], facts.inputs[current]
+            if row
+                and (
+                    row.op == "NativePointerView"
+                    or row.op == "NativeBorrowPointer"
+                    or address and (row.op == "NativePointer" or row.op == "NativeAddress")
+                )
+            then
+                queue[#queue + 1] = row.args[1]
+            elseif inputs and #inputs > 0 then
+                for _, incoming in ipairs(inputs) do
+                    queue[#queue + 1] = incoming
+                end
+            else
+                return false
+            end
+        end
+    end
+
+    return found
+end
+
+-- Phi transport preserves a constant only when every ancestry leaf is that
+-- exact constant. A rootless cycle or any conversion cannot establish it.
+local function entryConstant(facts: any, value: integer, expected: string): boolean
+    local queue, seen = {value}, {}
+    local cursor: integer = 1
+    local found = false
+    while cursor <= #queue do
+        local current = queue[cursor]
+        cursor += 1
+        if not seen[current] then
+            seen[current] = true
+            local row, inputs = facts.definitions[current], facts.inputs[current]
+            if row then
+                if row.op ~= "NativeConstant" or row.args[1] ~= expected then
+                    return false
+                end
+                found = true
+            elseif inputs and #inputs > 0 then
+                for _, incoming in ipairs(inputs) do
+                    queue[#queue + 1] = incoming
+                end
+            else
+                return false
+            end
+        end
+    end
+
+    return found
+end
+
+local function entryReach(g: any, start: integer, target: integer): boolean
+    local queue, seen = {start}, {[start] = true}
+    local cursor: integer = 1
+    while cursor <= #queue do
+        local id = queue[cursor]
+        cursor += 1
+        if id == target then
+            return true
+        end
+        for _, edge in ipairs(g.blocks[id].term.edges or {}) do
+            if not seen[edge.target] then
+                seen[edge.target] = true;
+                queue[#queue + 1] = edge.target
+            end
+        end
+    end
+
+    return false
+end
+
+local function entryGuard(g: any, facts: any, call: any, constant: string, equal: boolean, after: any): nil
+    local found = false
+    for _, block in ipairs(g.blocks) do
+        if block.term.kind == "branch" then
+            local test = facts.definitions[block.term.value]
+            if test and test.op == "NativeICmp" and (test.args[3] == "==" or test.args[3] == "~=") then
+                local matches = entryIdentity(facts, test.args[1], call.value)
+                    and entryConstant(facts, test.args[2], constant)
+                    or entryIdentity(facts, test.args[2], call.value) and entryConstant(facts, test.args[1], constant)
+                if matches and entryBefore(facts, call, test) and entryBefore(facts, test, after) then
+                    local truth = equal
+                    if test.args[3] == "~=" then
+                        truth = not truth
+                    end
+                    local failed = block.term.edges[truth and 2 or 1]
+                    need(
+                        not entryReach(g, failed.target, after.block.id),
+                        "failed lifecycle status reaches its continuation"
+                    )
+                    found = true
+                end
+            end
+        end
+    end
+    need(found, "lifecycle continuation lacks its exact success guard")
+end
+
+local function entryRetainedFailures(g: any, facts: any, calls: any, retain: any): nil
+    local retained, outgoing = {}, {}
+    for _, block in ipairs(g.blocks) do
+        retained[block.id], outgoing[block.id] = block.id ~= 1, true
+    end
+    local changed = true
+    while changed do
+        changed = false
+        for _, block in ipairs(g.blocks) do
+            local incoming = block.id ~= 1 and #facts.predecessors[block.id] > 0
+            for _, previous in ipairs(facts.predecessors[block.id]) do
+                incoming = incoming and outgoing[previous]
+            end
+            local value = incoming
+            for _, row in ipairs(calls) do
+                if row.block == block and row.target == retain then
+                    need(entryIdentity(facts, row.args[2], 2), "entry failure retained a different scope")
+                    value = true
+                end
+            end
+            if retained[block.id] ~= incoming or outgoing[block.id] ~= value then
+                retained[block.id], outgoing[block.id], changed = incoming, value, true
+            end
+        end
+    end
+    for _, block in ipairs(g.blocks) do
+        if block.term.kind == "nativeFail" then
+            need(outgoing[block.id], "entry failure did not retain its original backing")
+        end
+    end
+end
+
+function contract.verifyEntry(g: any, resolved: any): any
+    local service = services()
+    service.verifyScope(g)
+    local roles = need(service.entryRoles(g), "only the original source-created Heap entry is executable")
+    need(
+        g.native.abi == "leaf" and g.nparams == 2 and #roles.owner.body.params == 1,
+        "entry must accept Binding plus its private scope, never a caller Heap"
+    )
+    need(
+        roles.owner.parameterAnnotations[1].tag == "voidptr" and roles.owner.resultType.tag == "uint64",
+        "entry source boundary differs"
+    )
+    local constructor = need(resolved[roles.construct], "entry constructor is outside its retained unit")
+    contract.verifyConstruct(constructor)
+    local cell = service.cellRoles(constructor)
+    local facts, calls, byOwner = entryFacts(g), {}, {}
+    for _, block in ipairs(g.blocks) do
+        for index, op in ipairs(block.op) do
+            if op == "NativeLeafCall" then
+                local operation = service.operation(g, block.args[index][1])
+                local row = {
+                    block = block,
+                    at = index,
+                    args = block.args[index],
+                    value = block.dst[index],
+                    target = operation.target
+                }
+                calls[#calls + 1] = row
+                local rows = byOwner[operation.target] or {}
+                rows[#rows + 1], byOwner[operation.target] = row, rows
+                need(not service.managedCall(g, row.args[1]), "entry bypasses rooted construction")
+            end
+        end
+    end
+
+    local function one(owner: any): any
+        local rows = byOwner[owner]
+        need(rows and #rows == 1, "entry source role must occur exactly once")
+        return rows[1]
+    end
+
+    local opened, created, started = one(roles.open), one(roles.create), one(roles.start)
+    local published, constructed, finished = one(roles.publish), one(roles.construct), one(roles.finishRoot)
+    local completed, destroyed = one(roles.complete), one(roles.destroy)
+    need(entryIdentity(facts, created.args[2], opened.value), "Heap was not created from the original owning Arena")
+    for _, row in ipairs(calls) do
+        if row.target == roles.construct or row.target == roles.fullCycle or row.target == roles.destroy then
+            need(entryIdentity(facts, row.args[2], created.value), "workload substituted its created Heap")
+        elseif row.target == roles.publish then
+            need(entryIdentity(facts, row.args[3], created.value), "published roots belong to another Heap")
+        end
+    end
+    need(
+        entryIdentity(facts, constructed.args[4], published.args[4])
+        and entryIdentity(facts, constructed.args[5], published.args[5])
+        and entryIdentity(facts, constructed.args[6], published.args[6]),
+        "constructor State/control/serial differs"
+    )
+    need(
+        entryIdentity(facts, finished.args[2], published.args[4])
+        and entryIdentity(facts, finished.args[3], published.args[5])
+        and entryIdentity(facts, finished.args[4], started.value, true)
+        and entryIdentity(facts, finished.args[5], published.args[6]),
+        "completion lost original root identity"
+    )
+    need(
+        entryIdentity(facts, completed.args[2], started.args[4])
+        and entryIdentity(facts, completed.args[3], started.value, true)
+        and entryIdentity(facts, completed.args[4], published.args[6]),
+        "retirement lost original root identity"
+    )
+    local collects, closes = byOwner[roles.fullCycle], byOwner[roles.closeRoots]
+    need(collects and #collects == 3 and closes and #closes == 2, "entry collection/root-transfer sequence differs")
+    table.sort(collects, function(a: any, b: any): boolean
+        return entryBefore(facts, a, b)
+    end)
+    local inner, outer
+    for _, row in ipairs(closes) do
+        if entryIdentity(facts, row.args[2], constructed.args[3]) then
+            inner = row
+        elseif entryIdentity(facts, row.args[2], published.args[2]) then
+            outer = row
+        else
+            error("native cell: closed a foreign root scope", 0)
+        end
+    end
+    need(inner and outer and entryIdentity(facts, outer.args[3], published.value), "root close token differs")
+    local ordered = {
+        opened,
+        created,
+        started,
+        published,
+        constructed,
+        collects[1],
+        inner,
+        collects[2],
+        collects[3],
+        outer,
+        finished,
+        completed,
+        destroyed
+    }
+    for index = 2, #ordered do
+        need(entryBefore(facts, ordered[index - 1], ordered[index]), "entry lifecycle order changed")
+    end
+    entryGuard(g, facts, started, "0", false, published)
+    entryGuard(g, facts, published, "0", false, constructed)
+    entryGuard(g, facts, constructed, "0", true, collects[1])
+    entryGuard(g, facts, inner, "1", true, collects[2])
+    entryGuard(g, facts, outer, "1", true, finished)
+    entryGuard(g, facts, finished, "1", true, completed)
+    entryGuard(g, facts, completed, "1", true, destroyed)
+    entryRetainedFailures(g, facts, calls, roles.retain)
+    local target = g.nativePhysical.context.target
+    local valueOffset = fieldOffset(cell.resultType, target, "value")
+    local slotOffset = fieldOffset(roles.frameType, target, "values")
+    local serialOffset = fieldOffset(cell.scopeType, target, "serial")
+    local resultLoad, slotsLoad, serialLoad
+    for _, block in ipairs(g.blocks) do
+        for index, op in ipairs(block.op) do
+            if op == "NativeLoad" then
+                local args = block.args[index]
+                local access = args[3]
+                if access.width == 8 and not access.signed and not access.write then
+                    local row = {block = block, at = index, value = block.dst[index], args = args}
+                    if access.kind == "uint64"
+                        and entryIdentity(facts, args[1], constructed.args[8])
+                        and entryConstant(facts, args[2], valueOffset)
+                    then
+                        need(not resultLoad, "multiple result-transfer loads")
+                        resultLoad = row
+                    elseif access.kind == "voidptr"
+                        and entryIdentity(facts, args[1], started.value, true)
+                        and entryConstant(facts, args[2], slotOffset)
+                    then
+                        need(not slotsLoad, "multiple frame-window loads")
+                        slotsLoad = row
+                    elseif access.kind == "uint64"
+                        and entryIdentity(facts, args[1], constructed.args[3])
+                        and entryConstant(facts, args[2], serialOffset)
+                    then
+                        need(not serialLoad, "multiple inner root-token loads")
+                        serialLoad = row
+                    end
+                end
+            end
+        end
+    end
+    need(
+        resultLoad and slotsLoad and serialLoad and entryIdentity(facts, inner.args[3], serialLoad.value),
+        "result/window/inner-token identity differs"
+    )
+    local transfer, clearResult, clearSlot
+    for _, block in ipairs(g.blocks) do
+        for index, op in ipairs(block.op) do
+            if op == "NativeStore" then
+                local args = block.args[index]
+                local access = args[4]
+                if access.width == 8 and access.kind == "uint64" and access.write and not access.signed then
+                    local row = {block = block, at = index}
+                    if entryIdentity(facts, args[1], slotsLoad.value) and entryConstant(facts, args[2], "0") then
+                        if entryIdentity(facts, args[3], resultLoad.value) then
+                            need(not transfer, "multiple result transfers")
+                            transfer = row
+                        elseif entryConstant(facts, args[3], roles.nilValue) then
+                            need(not clearSlot, "multiple frame-root removals")
+                            clearSlot = row
+                        else
+                            error("native cell: frame slot received an unproved value", 0)
+                        end
+                    elseif entryIdentity(facts, args[1], constructed.args[8])
+                        and entryConstant(facts, args[2], valueOffset)
+                        and entryBefore(facts, constructed, row)
+                    then
+                        need(
+                            not clearResult and entryConstant(facts, args[3], roles.nilValue),
+                            "inner Result removal differs"
+                        )
+                        clearResult = row
+                    end
+                end
+            end
+        end
+    end
+    need(transfer and clearResult and clearSlot, "registered result transfer is incomplete")
+    local transfers = {collects[1], resultLoad, transfer, inner, clearResult, collects[2], clearSlot, collects[3]}
+    for index = 2, #transfers do
+        need(
+            entryBefore(facts, transfers[index - 1], transfers[index]),
+            "result was unrooted before transfer or collection"
+        )
+    end
+    need(entryBefore(facts, slotsLoad, transfer), "frame slot was not acquired before transfer")
+    local successes: integer = 0
+    for _, block in ipairs(g.blocks) do
+        if block.term.kind == "return" and entryConstant(facts, block.term.value, "0") then
+            need(
+                entryBefore(facts, destroyed, {
+                    block = block,
+                    at = #block.op + 1
+                }),
+                "success precedes Heap destruction"
+            )
+            successes += 1
+        end
+    end
+    need(successes == 1, "entry must have one scalar success after cleanup")
+
+    return true
+end
+
+function contract.requireEntry(g: any, resolved: any): nil
+    if not contract.hasManaged(g, resolved) then
+        return
+    end
+    -- Only the original source-created Heap entry can close this lifetime.
+    -- The authenticated linker separately retains the original graph/owner;
+    -- calling this validation function on a public graph cannot issue entry
+    -- authority. The fixed C boundary must lend retained, disjoint mappings.
+    contract.verifyEntry(g, resolved)
+end
+
+export = contract

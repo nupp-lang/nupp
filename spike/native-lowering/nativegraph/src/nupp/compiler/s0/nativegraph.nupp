@@ -952,6 +952,12 @@ function sink.verifyCodeOrigin(code: any, g: any, owner: any): nil
     assert(held.graph == g and held.owner == owner, "S0 graph: Code origin differs")
 end
 
+function sink.verifyCodeEntry(code: any): nil
+    sink.verifyCode(code)
+    local held = issuedCodes[code].held
+    finalframe.requireEntry(held.graph, held.owner)
+end
+
 function sink.verifyCodeTarget(code: any, symbol: string, target: any): nil
     sink.verifyCode(code)
     sink.verifyCode(target)

@@ -21,6 +21,7 @@ local probeModule = "nupp.runtime.core.framecontractprobe"
 local returnModule = "nupp.runtime.core.returncontractprobe"
 local guestModule = "nupp.runtime.core.guesthandlers"
 local guestBuilds: any = setmetatable({}, {__mode = "k"})
+local heapBuilds: any = setmetatable({}, {__mode = "k"})
 local negativeCases = {
     RejectNoState = "State has no successful",
     RejectSetupFailure = "State has no successful",
@@ -351,6 +352,19 @@ end
 function contract.requireContext(g: any, owner: any, context: any): nil
     local held = need(graphs[g], "authenticated graph required")
     need(held.owner == owner and context == held.state.context, "checked context substitution")
+end
+
+-- Executable roots are stricter than internal checked call targets. A raw
+-- allocator cannot become an entry by selecting its already-issued graph.
+function contract.requireEntry(g: any, owner: any): nil
+    need(contract.requireOriginal(g, owner), "entry requires original issued graph")
+    local held = graphs[g]
+    if held.state.serviceCatalog then
+        need(held.state.executable and held.state.executable[owner], "service owner is internal-only")
+        local moduleName = "nativecellcontract"
+        local cell: any = require("nupp.compiler.vm." .. moduleName)
+        cell.requireEntry(g, held.state.resolved)
+    end
 end
 
 function contract.target(g: any, owner: any, targetGraph: any, targetOwner: any): nil
@@ -814,7 +828,14 @@ end
 function contract.buildHeapServices(): any
     need(current == nil, "nested construction")
     local build = service.build()
-    local state = {serviceCatalog = build.catalog, roles = {}, resolved = {}, finalOwners = {}, context = nil}
+    local state = {
+        serviceCatalog = build.catalog,
+        roles = {},
+        resolved = {},
+        finalOwners = {},
+        context = nil,
+        executable = {}
+    }
     local all = service.owners(build.catalog)
     for _, owner in ipairs(all) do
         owners[owner], owner.nativeABI = state, "leaf"
@@ -843,7 +864,78 @@ function contract.buildHeapServices(): any
     need(ok, (not ok and "heap service " .. building .. ": " or "") .. tostring(problem))
     validateSource(state)
 
-    return {resolved = resolved, entries = build.entries, context = nil, inventory = service.inventory(build.catalog)}
+    local roots
+    for _, g in pairs(state.resolved) do
+        local roles = service.entryRoles(g)
+        if roles then
+            need(roots == nil, "multiple source-owned heap entries")
+            roots = roles
+        end
+    end
+    need(roots, "source-owned heap entry is absent")
+    -- Traversal roots are not executable roots. In particular, a collector
+    -- accepting an external Heap could resume failed storage under a new scope
+    -- even when its own result is scalar. Only the exact source-owned workload
+    -- and its C setup/teardown services are entry candidates.
+    local entries = {
+        roots.owner,
+        roots.pagesInitialize,
+        roots.scopeInitialize,
+        roots.scopeClose,
+        roots.pagesAcquireEntry,
+        roots.pagesReleaseEntry
+    }
+    need(#entries == 6, "heap entry boundary is incomplete")
+    for _, owner in ipairs(entries) do
+        need(state.resolved[owner], "heap entry lacks its original checked graph")
+        need(not state.executable[owner], "heap entry boundary repeats an owner")
+        state.executable[owner] = true
+    end
+    local result = {resolved = resolved, entries = entries, context = nil, inventory = service.inventory(build.catalog)}
+    local entryMap = {}
+    for index, owner in ipairs(entries) do
+        entryMap[index] = owner
+    end
+    heapBuilds[result] = {state = state, resolved = resolved, entries = entries, entryMap = entryMap}
+
+    return result
+end
+
+function contract.validateHeapServices(result: any): nil
+    local held = need(heapBuilds[result], "unissued heap service build")
+    need(
+        getmetatable(result) == nil
+        and result.resolved == held.resolved
+        and result.entries == held.entries
+        and getmetatable(result.resolved) == nil
+        and getmetatable(result.entries) == nil,
+        "heap service build changed"
+    )
+    validateSource(held.state)
+    need(#result.entries == #held.entryMap, "heap executable entry inventory changed")
+    for index, owner in ipairs(held.entryMap) do
+        need(result.entries[index] == owner, "heap executable entry owner changed")
+    end
+    for key in pairs(result.entries) do
+        need(
+            type(key) == "number" and key % 1 == 0 and key >= 1 and key <= #held.entryMap,
+            "heap executable entry inventory changed"
+        )
+    end
+    local count: integer = 0
+    for name, item in pairs(result.resolved) do
+        need(
+            name == item.owner.scope.name .. "." .. item.owner.name and held.state.resolved[item.owner] == item.graph,
+            "heap resolved owner changed"
+        )
+        need(contract.requireOriginal(item.graph, item.owner), "heap graph unissued")
+        count += 1
+    end
+    local expected: integer = 0
+    for _ in pairs(held.state.resolved) do
+        expected += 1
+    end
+    need(count == expected, "heap resolved inventory changed")
 end
 
 export = contract

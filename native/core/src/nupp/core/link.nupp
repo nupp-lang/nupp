@@ -161,6 +161,7 @@ function link.assembleAuthenticated(
     end
 
     for _, code in ipairs(roots) do
+        sink.verifyCodeEntry(code)
         verify(code)
     end
     for _, code in pairs(functions) do

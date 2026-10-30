@@ -1,0 +1,72 @@
+module nupp.runtime.core.cellservice
+
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const collector = require("nupp.runtime.vm.collector")
+const objects = require("nupp.runtime.vm.objectconstruct")
+const values = require("nupp.runtime.vm.values")
+const roots = require("nupp.runtime.core.frameroots")
+
+-- The closed constructor/root-extent graph contract is required before
+-- executable admission. Entry lends mapped, disjoint, retained storage and a
+-- valid State/RootControl. inputs contains one tagged word. Result starts
+-- {NIL, 0, 0}; rootScope is fresh or reusable under frameroots.publish's rules.
+--
+-- Entry owns the published registration. This function never closes it:
+-- success transfers its Result into another root before close; failures retain
+-- all backing until entry safely unpublishes. A service error has no successful
+-- return and must preserve the same root extent through lexical cleanup.
+-- Status: 0 published cell, 1 publication refused, 2 initialization refused,
+-- 3 invalid object address, 4 result publication refused, 5 invalid input.
+-- Only NIL, canonical Booleans and live objects in this Heap are admitted.
+-- Existing objects have valid owned children; this does not authenticate a
+-- caller-manufactured Heap, forged mapping, or arbitrary object payload.
+local function validInput(borrows h: heap.Heap*, value: uint64): boolean
+    if value == values.NIL or value == values.FALSE or value == values.TRUE then
+        return true
+    end
+    if value & values.TAG_MASK ~= values.TAG_OBJ then
+        return false
+    end
+    local address = value & values.PAYLOAD
+    if address == 0ULL then
+        return false
+    end
+
+    return heap.isLiveSlot(h, address)
+end
+
+export function construct(
+    borrows h: heap.Heap*,
+    rootScope: voidptr,
+    state: voidptr,
+    control: voidptr,
+    rootSerial: uint64,
+    inputs: voidptr,
+    result: voidptr
+): uint64
+    @unsafe do
+        local input = native.load64(inputs, 0)
+        if not validInput(h, input) then
+            return 5ULL
+        end
+        local token = roots.publish(rootScope, h as voidptr, state, control, rootSerial, inputs, 1ULL, result)
+        if token == 0ULL then
+            return 1ULL
+        end
+        local object = collector.allocate(h, heap.KIND_CELL, native.sizeOf<heap.CellBody>())
+        if objects.cellInitialize(object as voidptr, input) ~= 0ULL then
+            return 2ULL
+        end
+        collector.initialized(h, object)
+        local address = native.address(object as voidptr)
+        if address == 0ULL or address & values.PAYLOAD ~= address then
+            return 3ULL
+        end
+        if roots.storeResult(rootScope, token, heap.objectValue(object), 1ULL) ~= 1ULL then
+            return 4ULL
+        end
+
+        return 0ULL
+    end
+end
