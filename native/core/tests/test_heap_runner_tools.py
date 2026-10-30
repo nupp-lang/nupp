@@ -516,5 +516,151 @@ class GuardBridgeBindingTests(unittest.TestCase):
             self.verify()
 
 
+class HeapMatrixTests(unittest.TestCase):
+    """Controller tests use synthetic serialized output, never issued compiler graphs."""
+    @staticmethod
+    def selection(scenario, mode):
+        return {"mode": mode, "scenario": "cell" if scenario.startswith("cell-") else scenario,
+                "collectionMode": "stress" if scenario == "cell-stress" else "normal",
+                "metrics": [{"name": "one", "spillSlots": int(mode == "spill")}],
+                "outputWords": 1, "expectedOutput": 1, "entry": 0,
+                "rootNames": ["nupp.runtime.core.pagemappings.acquireEntry", "nupp.runtime.core.pagemappings.releaseEntry"],
+                "spillOffset": 8, "callBytes": 8, "scratchBytes": 16,
+                "retainedHelperOffset": 8, "retainedCanaryOffset": 16, "retainedBytes": 32,
+                "words": [0], "dataHex": "", "dataBytes": 0}
+
+    def document(self):
+        from test_heap_workload import MATRIX
+        return {"version": 1, "sourceBuilds": 1, "loweredOwners": 1, "selectedOwners": 2,
+                "artifacts": {s + "-" + m: s + "-" + m + "-selection.json" for s, m in MATRIX}}
+
+    def test_closed_inventory_and_labels(self):
+        from test_heap_workload import matrix_artifacts
+        from test_heap_workload import MATRIX
+        directory = tempfile.TemporaryDirectory(prefix="nupp-matrix-inventory-")
+        self.addCleanup(directory.cleanup)
+        output = Path(directory.name)
+        for s, m in MATRIX:
+            (output / (s + "-" + m + "-selection.json")).write_text(json.dumps(self.selection(s, m)))
+        self.assertEqual(len(matrix_artifacts(self.document(), output)), 10)
+        for mutation in (lambda d: d["artifacts"].pop("noop-spill"),
+                         lambda d: d["artifacts"].update(extra="{}"),
+                         lambda d: d.update(sourceBuilds=10),
+                         lambda d: d.update(selectedOwners=10),
+                         lambda d: d["artifacts"].update({"noop-spill": d["artifacts"]["noop-normal"]}),
+                         lambda d: d["artifacts"].update({"cell-stress-normal": d["artifacts"]["cell-normal-normal"]})):
+            document = self.document()
+            mutation(document)
+            with self.assertRaises(AssertionError):
+                matrix_artifacts(document, output)
+
+    def controller(self, artifact_only=False, fail=None, matrix=True):
+        import test_heap_workload as workload
+        directory = tempfile.TemporaryDirectory(prefix="nupp-matrix-tools-")
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name)
+        calls, guard_calls, reports = [], [], []
+        document = self.document()
+
+        class Runner:
+            def __init__(self, source, output, binding, timeout, report):
+                self_test.assertEqual(timeout, 5400 if matrix else 1800)
+                self.root, self.out, self.report = source, output, report
+                self.out.mkdir()
+                reports.append(report)
+            def __enter__(self):
+                return self
+            def __exit__(self, kind, error, traceback):
+                if error:
+                    self.report.update(status="failed")
+                return False
+            def publish(self, suite, contents):
+                self.fixture = contents
+            def save(self):
+                pass
+            def guard(self, *args):
+                guard_calls.append(args)
+                return root / "guard"
+            def run(self, label, command, extra=None):
+                calls.append((label, command, extra))
+                if label == "owned-artifact-runner":
+                    if matrix:
+                        for s, m in workload.MATRIX:
+                            (self.out / (s + "-" + m + "-selection.json")).write_text(json.dumps(self_test.selection(s, m)))
+                        (self.out / "matrix.json").write_text(json.dumps(document))
+                    else:
+                        (self.out / "selection.json").write_text(json.dumps(self_test.selection("cell-stress", "spill")))
+                    (self.out / "artifact-produced.json").write_text(json.dumps({"status": "artifact-produced",
+                        "scenario": self.report["scenario"], "mode": self.report["mode"],
+                        "nativeExecution": False, "guestExecution": False}))
+                elif label.endswith("native-bridge"):
+                    if label == fail:
+                        raise AssertionError("synthetic bridge failure")
+                    Path(command[-1]).write_bytes(struct.pack("<Q", 1))
+                else:
+                    self_test.assertTrue(Path(extra["CORE_TEST_BUNDLE"]).is_file())
+                    self_test.assertEqual(Path(extra["CORE_TEST_EXPECTED"]).read_bytes(), struct.pack("<Q", 1))
+                    return b"1 passed; 0 failed; 0 ignored;"
+                return b""
+
+        self_test = self
+        args = ["heap", "--root", str(root), "--output", str(root / "output"),
+                "--runner-binding", str(root / "binding"), "--bridge", str(root / "bridge"),
+                "--guard-proof", str(root / "proof")]
+        args.extend(["--matrix"] if matrix else ["--mode", "spill", "--scenario", "cell-stress"])
+        if artifact_only:
+            args.append("--artifact-only")
+        with patch.object(workload, "BoundRunner", Runner), patch("sys.argv", args):
+            if fail:
+                with self.assertRaisesRegex(AssertionError, "synthetic bridge failure"):
+                    workload.main()
+            else:
+                workload.main()
+        return root / "output", calls, guard_calls, reports[0]
+
+    def test_matrix_keeps_ten_outputs_and_twenty_boundary_commands(self):
+        from test_heap_workload import MATRIX
+        output, calls, guards, report = self.controller()
+        self.assertEqual(len(guards), 1)
+        self.assertEqual(len(calls), 21)
+        self.assertEqual(report["status"], "matrix-native-boundary-passed")
+        self.assertEqual([name for name, _, _ in calls[1:]],
+            [s + "-" + m + "-" + stage for s, m in MATRIX for stage in ("native-bridge", "abi-scratch-guard")])
+        for scenario, mode in MATRIX:
+            key = scenario + "-" + mode
+            case = json.loads((output / (key + "-receipt.json")).read_text())
+            self.assertEqual(case["status"], "native-boundary-passed")
+            self.assertEqual(case["bundleSha256"], sha(output / (key + "-owned.bundle")))
+            self.assertEqual((output / (key + "-output.bin")).read_bytes(), struct.pack("<Q", 1))
+
+    def test_single_case_retains_identical_bundle_and_boundary_checks(self):
+        batch, _, _, _ = self.controller(artifact_only=True)
+        single, calls, guards, report = self.controller(matrix=False)
+        self.assertEqual((single / "owned.bundle").read_bytes(), (batch / "cell-stress-spill-owned.bundle").read_bytes())
+        original = json.dumps(self.selection("cell-stress", "spill")).encode()
+        self.assertEqual((single / "selection.json").read_bytes(), original)
+        self.assertEqual(report["selectionSha256"], sha(single / "selection.json"))
+        self.assertEqual([name for name, _, _ in calls], ["owned-artifact-runner", "native-bridge", "abi-scratch-guard"])
+        self.assertEqual(len(guards), 1)
+        self.assertEqual(report["status"], "native-boundary-passed")
+
+    def test_artifact_only_does_not_claim_native_acceptance(self):
+        output, calls, guards, report = self.controller(artifact_only=True)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(guards, [])
+        self.assertEqual(report["status"], "matrix-artifacts-produced")
+        self.assertFalse(report["nativeExecution"])
+        self.assertEqual(len(list(output.glob("*-owned.bundle"))), 10)
+
+    def test_failure_keeps_completed_case_and_stops_later_native_checks(self):
+        output, calls, guards, report = self.controller(fail="noop-spill-native-bridge")
+        self.assertEqual(report["status"], "failed")
+        self.assertEqual(report["cases"]["noop-normal"]["status"], "native-boundary-passed")
+        self.assertEqual(report["cases"]["noop-spill"]["status"], "failed")
+        self.assertEqual(report["cases"]["acquire-refusal-normal"]["status"], "not-run")
+        self.assertEqual(len(calls), 4)
+        self.assertTrue((output / "noop-normal-receipt.json").is_file())
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -18,24 +18,47 @@ local function hex(value: string): string
     end))
 end
 
+local function write(path: string, bytes: string): nil
+    local file = assert(io.open(path, "wb"))
+    file:write(bytes)
+    file:close()
+end
+
+local function progress(directory: string?, phase: string, item: string?): nil
+    if directory then
+        write(directory .. "/matrix-progress.json", json.encode({phase = phase, item = item}))
+    end
+end
+
 -- Build artifacts only. Runtime functions execute exclusively on the owned
 -- backend. Original graph/Result/Code identity is retained through final link;
 -- neither JSON nor names confer executable admission on a copied service unit.
-local function build(mode: string, stressText: string, scenario: string): string
-    assert(mode == "normal" or mode == "spill", "closed allocation mode")
-    assert(stressText == "normal" or stressText == "stress", "closed collection mode")
+local function prepare(directory: string?): (any, {string}, {[string]: any})
+    progress(directory, "building-source", nil)
     local source = contract.buildHeapServices()
     contract.validateHeapServices(source)
-    local names, selected, metrics = {}, {}, {}
+    local names: {string} = {}
+    local results: {[string]: any} = {}
     for name in pairs(source.resolved) do
         names[#names + 1] = name
     end
     table.sort(names)
     for _, name in ipairs(names) do
+        progress(directory, "lowering-owner", name)
         local item = source.resolved[name]
         graph.verify(item.graph)
-        local result = sink.compilerGraph(item.graph, item.owner.name, item.owner, source.resolved, source.context)
-        local allocation = sink.selectAuthenticated(result, mode)
+        results[name] = sink.compilerGraph(item.graph, item.owner.name, item.owner, source.resolved, source.context)
+    end
+
+    return source, names, results
+end
+
+local function selectMode(names: {string}, results: {[string]: any}, mode: string, directory: string?): (any, any)
+    assert(mode == "normal" or mode == "spill", "closed allocation mode")
+    local selected, metrics = {}, {}
+    for _, name in ipairs(names) do
+        progress(directory, "selecting-" .. mode, name)
+        local allocation = sink.selectAuthenticated(results[name], mode)
         selected[name] = allocation.code
         metrics[
             #metrics + 1
@@ -47,6 +70,18 @@ local function build(mode: string, stressText: string, scenario: string): string
             calls = #allocation.code.fixupName
         }
     end
+
+    return selected, metrics
+end
+
+local function artifact(
+    source: any,
+    selected: any,
+    metrics: any,
+    mode: string,
+    stressText: string,
+    scenario: string
+): string
     -- The shim calls authenticated linking, including the exact entry-lifetime
     -- verifier. A refused entry cannot become an artifact by stripping a seal.
     local output = shim.build(source, selected, stressText == "stress", scenario)
@@ -99,6 +134,53 @@ local function build(mode: string, stressText: string, scenario: string): string
     contract.validateHeapServices(source)
 
     return json.encode(output)
+end
+
+local function build(mode: string, stressText: string, scenario: string): string
+    assert(mode == "normal" or mode == "spill", "closed allocation mode")
+    assert(stressText == "normal" or stressText == "stress", "closed collection mode")
+    local source, names, results = prepare(nil)
+    local selected, metrics = selectMode(names, results, mode, nil)
+
+    return artifact(source, selected, metrics, mode, stressText, scenario)
+end
+
+-- One checked unit and original Result set remain in this process. Only final
+-- serialized artifacts leave it; every case still performs authenticated link
+-- and entry verification through the ordinary shim.
+function producer.matrix(directory: string): string
+    local source, names, results = prepare(directory)
+    local artifacts: {[string]: string} = {}
+    for _, mode in ipairs({"normal", "spill"}) do
+        local selected, metrics = selectMode(names, results, mode, directory)
+        for _, scenario in ipairs({"noop", "acquire-refusal", "release-refusal"}) do
+            local key = scenario .. "-" .. mode
+            progress(directory, "linking-artifact", key)
+            local filename = key .. "-selection.json"
+            write(directory .. "/" .. filename, artifact(source, selected, metrics, mode, "normal", scenario))
+            artifacts[key] = filename
+            progress(directory, "artifact-produced", key)
+        end
+        for _, stress in ipairs({"normal", "stress"}) do
+            local key = "cell-" .. stress .. "-" .. mode
+            progress(directory, "linking-artifact", key)
+            local filename = key .. "-selection.json"
+            write(directory .. "/" .. filename, artifact(source, selected, metrics, mode, stress, "cell"))
+            artifacts[key] = filename
+            progress(directory, "artifact-produced", key)
+        end
+    end
+    contract.validateHeapServices(source)
+
+    progress(directory, "matrix-artifacts-produced", nil)
+
+    return json.encode({
+        version = 1,
+        sourceBuilds = 1,
+        loweredOwners = #names,
+        selectedOwners = 2 * #names,
+        artifacts = artifacts
+    })
 end
 
 function producer.compile(mode: string, stressText: string): string
