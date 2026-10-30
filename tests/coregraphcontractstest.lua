@@ -630,12 +630,12 @@ function M.capturesAndNonBooleanSignaturesRefuse()
         end,
         "captures are unsupported"
     )
-    local integer = source("local function identity(value: integer): integer return value end\nreturn identity(7)")
+    local integer = source("local function identity(value: integer): integer return value end\nreturn nil")
     refuses(
         function()
             contracts.normalize(integer)
         end,
-        "only Boolean/NIL"
+        "unsupported scalar signature"
     )
 end
 
@@ -700,7 +700,7 @@ function M.unknownCapabilityAndAlteredConstantRefuse()
         function()
             contracts.normalize(input)
         end,
-        "invalid static module name or Boolean/NIL payload"
+        "invalid scalar constant payload"
     )
 end
 

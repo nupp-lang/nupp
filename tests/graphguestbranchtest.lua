@@ -337,7 +337,7 @@ return choose
     )
 end
 
-function M.loopsLogicalExpressionsAndArithmeticRemainRefused()
+function M.loopsLogicalExpressionsAndComparisonRemainRefused()
     refuses(
         function()
             compile("while true do return true end; return false")
@@ -354,7 +354,7 @@ function M.loopsLogicalExpressionsAndArithmeticRemainRefused()
         function()
             compile("if 1 < 2 then return true else return false end")
         end,
-        "arithmetic is outside lexical construction"
+        "only number addition is admitted"
     )
 end
 

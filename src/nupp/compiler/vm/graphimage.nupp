@@ -196,8 +196,17 @@ function image.encoder(): any
         return at
     end
 
-    local function float(x: number): integer
-        local bytes = floatBytes(x)
+    local function float(x: number | string): integer
+        -- Checked numeric literals already carry their exact binary64 bytes.
+        local bytes: string
+        if type(x) == "string" then
+            bytes = x as string
+            if #bytes ~= 8 then
+                error("float literal payload must be eight bytes", 0)
+            end
+        else
+            bytes = floatBytes(x as number)
+        end
         local at = floatIndex[bytes]
         if at == nil then
             at = nfloats

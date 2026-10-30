@@ -1143,7 +1143,9 @@ function M.taggedLiteralConstantsRetainExactValues()
             test.equal(k.value, item[3])
         end
         if k.kind == "num" then
-            test.equal(graphimage.floatBytes(k.value), string.rep("\0", 7) .. "\128")
+            local negativeZero = string.rep("\0", 7) .. "\128"
+            test.equal(k.value, negativeZero)
+            assert(program.image(p, tagged):find(negativeZero, 1, true), "graph image lost negative zero")
         end
     end
     local nilGraph = program.compile(describe("return nil"), tagged).graphs[1]
@@ -1155,7 +1157,7 @@ function M.taggedLiteralConstantsRetainExactValues()
         function()
             program.compile(describe("return 0 / 0"), tagged)
         end,
-        "arithmetic is outside lexical construction"
+        "only number addition is admitted"
     )
 end
 
