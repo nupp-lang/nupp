@@ -953,6 +953,18 @@ function service.cleanupDeclaration(ctx: any, node: any, t: any, cleanup: any, d
     for key, value in pairs(declaration) do
         record.fields[key] = value
     end
+    if node.kind == "withBinding" then
+        need(
+            require("nupp.compiler.vm.functioncleanup").acquisition(node) == t,
+            "with cleanup acquisition type differs"
+        )
+        unit.occurrence(ctx.fn, node.expr)
+        need(
+            node.expr.kind == "call" and unit.checkedOccurrenceType(ctx.fn, node.expr) == t,
+            "with cleanup requires its checked acquisition call"
+        )
+        record.acquisition = node.expr
+    end
     calls[declaration] = record
 
     return declaration
@@ -1916,6 +1928,18 @@ function service.arenaCleanup(g: any, declaration: any, actual: any?): boolean
     if not call or not call.cleanup then
         return false
     end
+    -- A with binding owns the call result after temporary ownership transfers.
+    -- Keep its registration site separate from that original acquisition call.
+    local acquisition = call.acquisition or call.node
+    if call.acquisition then
+        unit.occurrence(call.caller.owner, call.node)
+        need(call.node.kind == "withBinding" and call.node.expr == call.acquisition, "with cleanup acquisition changed")
+        need(
+            require("nupp.compiler.vm.functioncleanup").acquisition(call.node) == call.cleanupType,
+            "with cleanup acquisition type differs"
+        )
+    end
+    unit.occurrence(call.caller.owner, acquisition)
     local home = arenaHome(call.caller)
     local acquired
     if home then
@@ -1929,7 +1953,7 @@ function service.arenaCleanup(g: any, declaration: any, actual: any?): boolean
         )
         home = unit.ownerModule(owner, "nupp.runtime.vm.arena")
         need(
-            call.node.kind == "call" and unit.callee(owner, call.node) == home.exports.open,
+            acquisition.kind == "call" and unit.callee(owner, acquisition) == home.exports.open,
             "heap entry cleanup requires its exact Arena acquisition"
         )
         local constructor = need(
@@ -1941,8 +1965,8 @@ function service.arenaCleanup(g: any, declaration: any, actual: any?): boolean
     need(
         graphs[g] == call.caller
         and call.target.owner == home.exports.close
-        and call.node.kind == "call"
-        and call.cleanupType == call.node.inferredType
+        and acquisition.kind == "call"
+        and call.cleanupType == unit.checkedOccurrenceType(call.caller.owner, acquisition)
         and call.cleanupType == acquired,
         "implicit Arena cleanup registration differs"
     )
@@ -1954,7 +1978,7 @@ function service.arenaCleanup(g: any, declaration: any, actual: any?): boolean
     if actual then
         require(
             "nupp.compiler.vm.nativephysical"
-        ).arenaCleanupOperand(call.caller.owner, actual, call.node, declaration.physical)
+        ).arenaCleanupOperand(call.caller.owner, actual, acquisition, declaration.physical)
     end
 
     return true
