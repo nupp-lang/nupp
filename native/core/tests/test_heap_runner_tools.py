@@ -2,6 +2,7 @@
 """Pure provenance tests; no compiler, collector, bridge or native code runs."""
 import json
 import struct
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -9,7 +10,7 @@ from pathlib import Path
 
 from heap_runner_support import (SOURCE_DIRS, installed_compiler, runner_attachment, restore_owned,
                                  source_hashes, source_paths, stable_sources, CHECK_HELPERS,
-                                 INPUT_INVENTORY_VERSION, RUNNER_ARTIFACTS, reuse_runner,
+                                 INPUT_INVENTORY_VERSION, UNBUNDLED_CORE_SOURCES, POLICY_PATHS, RUNNER_ARTIFACTS, reuse_runner,
                                  runner_inputs, sha, write_json, BoundRunner, SUITES)
 
 
@@ -126,12 +127,21 @@ class RunnerReuseTests(unittest.TestCase):
         self.manifest = Path(__file__).resolve().parents[3] / "nupp.lua"
         (self.root / "nupp.lua").write_bytes(self.manifest.read_bytes())
         for stem in CHECK_HELPERS:
-            (self.root / "native/core/tests" / (stem + ".nupp")).write_text("module fixture")
-        for name in ("src/compiler.nupp", "templates/app/README.md", "evals/lib/helper.nupp",
+            (self.root / "native/core/tests" / (stem + ".nupp")).write_text(
+                "module nupp.core." + stem.replace("-", ""))
+        for name in POLICY_PATHS + UNBUNDLED_CORE_SOURCES:
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("original checked core source")
+        for name in ("src/compiler.nupp", "native/core/src/nupp/core/link.nupp",
+                     "templates/app/README.md", "evals/lib/helper.nupp",
                      "src/theme.css", "scripts/toolchain.pins"):
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("original input")
+        for name in ("test_heap_graphs.py", "test_heap_workload.py", "heap_runner_support.py",
+                     "capture_heap_runner.py", "HEAP-TESTS.md"):
+            (self.root / "native/core/tests" / name).write_bytes((Path(__file__).parent / name).read_bytes())
         folder = self.root / "build/test-runner"
         folder.mkdir(parents=True)
         payload = b"runner image"
@@ -193,8 +203,135 @@ class RunnerReuseTests(unittest.TestCase):
         self.assertEqual(result["focusedEvidence"], self.binding["focusedEvidence"])
         self.assertEqual(result["sha256"], sha(self.binding_path))
 
+    def test_only_nine_declared_core_sources_reuse_original_build(self):
+        self.assertEqual(set(UNBUNDLED_CORE_SOURCES),
+                         {p for p in POLICY_PATHS if p.startswith("native/core/src/")}
+                         | {"native/core/src/nupp/core/heapshim.nupp"})
+        self.assertEqual(len(UNBUNDLED_CORE_SOURCES), 9)
+        for name in UNBUNDLED_CORE_SOURCES:
+            path = self.root / name
+            with self.subTest(path=name):
+                original = path.read_bytes()
+                path.write_bytes(original + b" changed")
+                result = self.reuse()
+                self.assertEqual(result["changedCoreSources"], [name])
+                self.assertEqual(result["changedHelpers"], [])
+                self.assertEqual(result["focusedEvidence"], self.binding["focusedEvidence"])
+                path.write_bytes(original)
+
+    def test_core_inventory_addition_deletion_or_bundling_refuses(self):
+        new = self.root / "native/core/src/nupp/core/new.nupp"
+        new.write_text("new module")
+        with self.assertRaisesRegex(AssertionError, "inventory changed"):
+            self.reuse()
+        new.unlink()
+        for name in UNBUNDLED_CORE_SOURCES:
+            path = self.root / name
+            original = path.read_bytes()
+            path.unlink()
+            with self.subTest(path=name), self.assertRaises(AssertionError):
+                self.reuse()
+            path.write_bytes(original)
+            self.state["modules"]["core"] = {"sourcePath": name}
+            state_path = self.root / RUNNER_ARTIFACTS["state"]
+            write_json(state_path, self.state)
+            self.binding["state"]["sha256"] = sha(state_path)
+            self.save_binding()
+            with self.subTest(bundled=name), self.assertRaisesRegex(AssertionError, "module lacks unchanged input"):
+                self.reuse()
+        del self.state["modules"]["core"]
+
+    def test_current_check_and_source_binding_precede_core_reuse(self):
+        import capture_heap_runner
+        for name in UNBUNDLED_CORE_SOURCES:
+            (self.root / name).write_text("current source: " + name)
+        current = self.root / "build/current-core"
+        current.mkdir()
+        proof = {**self.proof, "frozen": source_hashes(self.root), "steps": [],
+                 "reusedBuild": self.reuse()}
+        proof_path, binding_path = current / "proof.json", current / "runner-binding.json"
+        def capture():
+            write_json(proof_path, proof)
+            with patch("sys.argv", ["capture", "--root", str(self.root), "--source-proof",
+                                    str(proof_path), "--output", str(binding_path)]):
+                capture_heap_runner.main()
+        with self.assertRaises(AssertionError):
+            capture()
+        proof["steps"] = [{"name": "union-check", "status": 1}]
+        with self.assertRaises(AssertionError):
+            capture()
+        proof["steps"][0]["status"] = 0
+        capture()
+        binding = json.loads(binding_path.read_text())
+        self.assertNotIn("focusedEvidence", binding)
+        self.assertEqual(binding["reusedBuild"]["focusedEvidence"], self.binding["focusedEvidence"])
+        report = {"status": "passed"}
+        with BoundRunner(self.root, self.root / "build/bound-core", binding_path, 1, report) as bound:
+            for name in UNBUNDLED_CORE_SOURCES:
+                self.assertEqual((bound.out / ".sourcefull" / name).read_bytes(),
+                                 (self.root / name).read_bytes())
+            bound.publish("corefreshnesstest", "return {}")
+            snapshot = json.loads(bound.snapshot.read_text())
+            for name in UNBUNDLED_CORE_SOURCES[:-1]:
+                self.assertEqual(snapshot["sources"][name], (self.root / name).read_text())
+            shim = self.root / UNBUNDLED_CORE_SOURCES[-1]
+            self.assertEqual(bound.watched[str(shim)], sha(shim))
+            original = shim.read_bytes()
+            shim.write_bytes(original + b" late change")
+            with self.assertRaisesRegex(AssertionError, "input changed"):
+                bound.stable()
+            shim.write_bytes(original)
+        self.assertTrue(report["inputsUnchanged"])
+
+    def test_reuse_preparation_checks_current_nine_sources_before_capture(self):
+        import capture_heap_runner
+        import heap_runner_support
+        for name in UNBUNDLED_CORE_SOURCES:
+            (self.root / name).write_text("current source: " + name)
+        compiler = Path(next(iter(self.tools)))
+        for exit_code in (1, 0):
+            out = self.root / "build" / ("prepare-core-" + str(exit_code))
+            calls = []
+            def invoke(command, **kwargs):
+                calls.append(command)
+                if "stdout" not in kwargs:
+                    self.assertEqual(len(calls), 2)
+                    self.assertEqual(Path(command[1]).name, "capture_heap_runner.py")
+                    with patch("sys.argv", command[1:]):
+                        capture_heap_runner.main()
+                else:
+                    self.assertEqual(command[:6], [str(compiler), "exec", str(compiler),
+                                     "nupp.tools.vm.root", "check", "--json"])
+                    self.assertTrue({str(self.root / p) for p in UNBUNDLED_CORE_SOURCES}
+                                    <= set(command[6:]))
+                    for name in UNBUNDLED_CORE_SOURCES:
+                        self.assertEqual((self.root / name).read_text(), "current source: " + name)
+                    kwargs["stdout"].write(json.dumps({"ok": exit_code == 0}).encode())
+                return subprocess.CompletedProcess(command, exit_code)
+            argv = ["prepare", "--root", str(self.root), "--output", str(out),
+                    "--runtime", str(compiler), "--compiler-image", str(compiler),
+                    "--reuse-runner-binding", str(self.binding_path)]
+            with self.subTest(exit_code=exit_code), patch("sys.argv", argv), \
+                 patch("heap_runner_support.subprocess.check_output", return_value="a" * 40), \
+                 patch("heap_runner_support.subprocess.run", side_effect=invoke):
+                if exit_code:
+                    with self.assertRaisesRegex(AssertionError, "union-check failed"):
+                        heap_runner_support.prepare()
+                    self.assertEqual(len(calls), 1)
+                    self.assertFalse((out / "runner-binding.json").exists())
+                else:
+                    heap_runner_support.prepare()
+                    self.assertEqual(len(calls), 2)
+                    binding = json.loads((out / "runner-binding.json").read_text())
+                    self.assertEqual(binding["status"], "runner-reused")
+                    self.assertNotIn("focusedEvidence", binding)
+                proof = json.loads((out / "proof.json").read_text())
+                self.assertEqual([s["name"] for s in proof["steps"]], ["union-check"])
+                self.assertEqual(proof["frozen"], source_hashes(self.root))
+
     def test_complete_inventory_binds_resources_includes_and_launcher(self):
-        for name in ("src/compiler.nupp", "templates/app/README.md", "evals/lib/helper.nupp",
+        for name in ("src/compiler.nupp", "native/core/src/nupp/core/link.nupp",
+                     "templates/app/README.md", "evals/lib/helper.nupp",
                      "src/theme.css", "scripts/toolchain.pins", "bin/nupp"):
             path = self.root / name
             with self.subTest(path=name):

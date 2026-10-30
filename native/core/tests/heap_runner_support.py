@@ -79,10 +79,27 @@ CHECK_HELPERS = ("owner-view-checks", "service-contract-checks", "service-heap-e
                  "heap-workload-producer", "gray-failure-checks")
 
 
-INPUT_INVENTORY_VERSION = 2
-# Audited testRunner: src/nupp + tests/runner modules, src/templates resources,
-# src/tests/runner/evals/lib includes. Config is executable Lua; unchanged bytes
-# alone cannot establish that a future config never packages a CHECK_HELPER.
+# These exact modules are absent from the audited runner's modules and resources.
+# prepare() checks all nine afresh. The eight service bodies enter the immutable
+# policy snapshot; the workload loader compiles heapshim from the watched source.
+# Keep other core modules in runner_inputs until their check/load path is audited.
+UNBUNDLED_CORE_SOURCES = (
+    "native/core/src/nupp/runtime/core/pagemappings.nupp",
+    "native/core/src/nupp/runtime/core/servicescope.nupp",
+    "native/core/src/nupp/runtime/core/cellservice.nupp",
+    "native/core/src/nupp/runtime/core/heapentry.nupp",
+    "native/core/src/nupp/runtime/core/rootentry.nupp",
+    "native/core/src/nupp/runtime/core/frameroots.nupp",
+    "native/core/src/nupp/runtime/core/frames.nupp",
+    "native/core/src/nupp/runtime/core/arena.nupp",
+    "native/core/src/nupp/core/heapshim.nupp",
+)
+INPUT_INVENTORY_VERSION = 3
+# Audited testRunner: src/nupp + tests/runner modules; resources under src,
+# templates and native/crates/vm/decls plus tests/run.lua; include roots src,
+# tests/runner and evals/lib. The two resource globs stay in compiler declarations.
+# Config is executable Lua; a changed manifest needs a new inventory review.
+# State records modules but not resources, so the manifest pin remains required.
 REUSE_MANIFEST_SHA256 = "a7b4535227adaae1f5a5b842ff914da2f3aaec1f8d2202055dfd5fc5453af579"
 RUNNER_ARTIFACTS = {
     "runner": "build/nupp-test",
@@ -96,7 +113,10 @@ RUNNER_ARTIFACTS = {
 def runner_inputs(frozen):
     helpers = {"native/core/tests/" + stem + ".nupp" for stem in CHECK_HELPERS}
     assert helpers <= set(frozen), "helper inventory is incomplete"
-    return {p: h for p, h in frozen.items() if p not in helpers}
+    unbundled = helpers | set(UNBUNDLED_CORE_SOURCES)
+    assert len(UNBUNDLED_CORE_SOURCES) == len(set(UNBUNDLED_CORE_SOURCES)) == 9
+    assert unbundled <= set(frozen), "unbundled core inventory is incomplete"
+    return {p: h for p, h in frozen.items() if p not in unbundled}
 
 
 def verify_runner_state(root, state, inputs):
@@ -168,7 +188,9 @@ def reuse_runner(root, binding_path, frozen, tools):
     assert runner_attachment((root / "build/nupp-test").read_bytes(), payload) == binding["attachment"]
     changed = sorted(p for p in frozen if frozen[p] != previous[p])
     return {"path": str(binding_path), "sha256": sha(binding_path),
-            "changedHelpers": changed, "focusedEvidence": evidence}
+            "changedHelpers": [p for p in changed if p not in UNBUNDLED_CORE_SOURCES],
+            "changedCoreSources": [p for p in changed if p in UNBUNDLED_CORE_SOURCES],
+            "focusedEvidence": evidence}
 
 
 def source_hashes(root):
