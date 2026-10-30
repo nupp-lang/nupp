@@ -197,6 +197,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
     local branch: function(string?): any
     local resume: function(any): nil
     local jump: function(any, any): nil
+    local currentEdge: function(any): any
     local expression: function(any, string?): integer?
     local unwind: function(integer, any, string, any?): nil
     local registerCleanup: function(any, any, any, integer): nil
@@ -239,6 +240,68 @@ function frontend.compile(fn: any, options: any, profile: any): any
             return invoke("unary", node, expected)
         elseif node.kind == "call" then
             return invoke("call", node, expected)
+        elseif node.kind == "switchExpr" then
+            need(profile.switchCase and not cleanupEnabled, "numeric switch profile required")
+            need(node.elseCase and #node.cases > 0, "numeric switch requires an else arm")
+            local selectorKind = profile.kind(node.selector.inferredType)
+            local resultKind = profile.kind(node.inferredType)
+            need(expected == nil or expected == resultKind, "switch changes exact result kind")
+            local selector = expression(node.selector, selectorKind)
+            if not block then
+                return nil
+            end
+            local handle = ctx.hold(selector as integer)
+            local done = branch(resultKind)
+
+            local function armValue(arm: any): integer?
+                local value = need(arm.expr, "numeric switch arm needs an expression")
+                if value.kind ~= "doExpr" then
+                    return expression(value, resultKind)
+                end
+                local stats = need(value.body and value.body.stats, "numeric switch do body required")
+                need(#stats > 0 and stats[#stats].kind == "yieldStmt", "numeric switch do arm must yield")
+                for index = 1, #stats - 1 do
+                    need(stats[index].kind == "callStmt", "numeric switch do arm only admits calls before yield")
+                    invoke("statementCall", stats[index].expr, nil)
+                    if not block then
+                        return nil
+                    end
+                end
+
+                return expression(need(stats[#stats].value, "numeric switch yield needs a value"), resultKind)
+            end
+
+            local function complete(arm: any): nil
+                local value = armValue(arm)
+                if block then
+                    local edge = currentEdge(done)
+                    table.insert(edge.args, 1, need(value, "numeric switch arm loses its value"))
+                    block.term = {kind = "jump", edges = {edge}, pos = position(arm)}
+                    block = nil
+                end
+            end
+
+            for _, arm in ipairs(node.cases) do
+                need(
+                    arm.patternKind == "static" and not arm.guard and #arm.values == 1,
+                    "numeric switch admits one unguarded static value per arm"
+                )
+                context()
+                local matched = profile.switchCase(ctx, arm.values[1], ctx.readHeld(handle), selectorKind)
+                need(block ~= nil and profile.valueKind(g, matched) == profile.booleanKind, "numeric switch match kind")
+                local parent = block
+                local yes, no = branch(), branch()
+                parent.term = {kind = "branch", value = matched, edges = {yes.edge, no.edge}, pos = position(arm)}
+                resume(yes)
+                complete(arm)
+                resume(no)
+            end
+            complete(node.elseCase)
+            resume(done)
+            ctx.release(handle)
+            context()
+
+            return done.result
         elseif node.kind == "binop" then
             local operator = node.op.text
             if operator ~= "and" and operator ~= "or" then
@@ -359,7 +422,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
         block, bindings, bindingOrder = state.block, state.bindings, state.order
     end
 
-    local function currentEdge(state: any): any
+    currentEdge = function(state: any): any
         local args = {}
         for _, key in ipairs(state.order) do
             if state.bindings[key] <= g.nparams then

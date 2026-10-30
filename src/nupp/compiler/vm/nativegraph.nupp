@@ -867,6 +867,16 @@ function nativegraph.binary(ctx: any, n: any, expected: string?): integer?
     return emit(n, op, {lhs, rhs}, kind) as integer
 end
 
+-- The shared frontend owns the CFG; this profile only admits and compares an
+-- exact numeric case. Guarded, type and computed cases remain outside it.
+function nativegraph.switchCase(ctx: any, value: any, subject: integer, kind: string): integer
+    need(kind == "int64" or kind == "uint64", "native switch needs an exact integer selector")
+    need(value.kind == "number", "native switch case needs a numeric literal")
+    local candidate = need(ctx.expression(value, kind), "native switch case lost its value")
+
+    return ctx.emit(value, "NativeICmp", {subject, candidate, "=="}, "boolean") as integer
+end
+
 function nativegraph.call(ctx: any, n: any, expected: string?): integer?
     if service.raise(ctx, n) then
         nativegraph.statementCall(ctx, n)
