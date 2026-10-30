@@ -611,7 +611,12 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
                         or op == "NativeStore" and index == 3 and args[4].retention ~= nil
                         or op == "NativeBorrowPointer"
                         or op == "NativeICmp" and (args[3] == "==" or args[3] == "~=")
-                        or op == "NativeLeafCall" and index > 1 and args[1].physical ~= nil,
+                        or op == "NativeLeafCall"
+                        and index > 1
+                        and (
+                            args[1].physical ~= nil
+                            or args[1].service and service.publicationArgument(g, args[1], index - 1, value)
+                        ),
                         "typed pointer operation boundary is unsupported"
                     )
                 end

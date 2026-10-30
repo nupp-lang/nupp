@@ -218,6 +218,88 @@ local function bootstrap(build: any): nil
     assert(count == 2, "entry bootstrap helper inventory differs")
 end
 
+-- The retained address keeps its qualified descriptor, including after
+-- prune. Source identity and actual SSA transport are independent checks.
+local function publicationChecks(g: any): nil
+    local count: integer = 0
+    for _, block in ipairs(g.blocks) do
+        for row, op in ipairs(block.op) do
+            local args = block.args[row]
+            if op == "NativeLeafCall" and service.hasPublication(g, args[1]) then
+                count = count + 1
+                local declaration, value = args[1], args[3]
+                local operation = service.operation(g, declaration)
+                local expression = operation.node.args.exprs[2]
+                local actual = g.nativePhysical.values[value]
+                assert(declaration.physical == nil and actual.checkedType.tag == "borrowed")
+                assert(service.publicationArgument(g, declaration, 2, value))
+                assert(not service.publicationArgument(g, declaration, 1, value))
+                refuses(
+                    function(): nil
+                        service.publicationArgument(g, copy(declaration), 2, value)
+                    end,
+                    "unissued publication declaration"
+                )
+                refuses(
+                    function(): nil
+                        service.publicationArgument(copy(g), declaration, 2, value)
+                    end,
+                    "publication graph owner differs"
+                )
+                operation.node.args.exprs[2] = copy(expression)
+                local ok = pcall(service.publicationArgument, g, declaration, 2, value)
+                operation.node.args.exprs[2] = expression
+                assert(not ok, "copied publication occurrence accepted")
+                local definition = expression.expr.token.definition
+                expression.expr.token.definition = copy(definition)
+                ok = pcall(service.publicationArgument, g, declaration, 2, value)
+                expression.expr.token.definition = definition
+                assert(not ok, "publication Heap binding substitution accepted")
+                local targetName = declaration.name
+                declaration.name = "storeResult"
+                ok = pcall(graph.verify, g)
+                declaration.name = targetName
+                assert(not ok, "publication target substitution accepted")
+                local ownerName = g.source.name
+                g.source.name = ownerName .. "Changed"
+                ok = pcall(graph.verify, g)
+                g.source.name = ownerName
+                assert(not ok, "publication graph source substitution accepted")
+                args[3] = args[2]
+                ok = pcall(graph.verify, g)
+                args[3] = value
+                assert(not ok, "publication different SSA accepted")
+                g.nativePhysical.values[value] = nil
+                ok = pcall(graph.verify, g)
+                g.nativePhysical.values[value] = actual
+                assert(not ok, "publication descriptor erasure accepted")
+                local raw = physical.describe(actual.context, actual.checkedType)
+                g.nativePhysical.values[value] = raw
+                ok = pcall(graph.verify, g)
+                g.nativePhysical.values[value] = actual
+                assert(not ok, "publication unrooted lookalike accepted")
+                -- Give a different existing SSA the exact descriptor. The
+                -- direct query must still reject it by its operation ancestry.
+                local alternate = args[2]
+                local saved = g.nativePhysical.values[alternate]
+                g.nativePhysical.values[alternate] = actual
+                local problem
+                ok, problem = pcall(service.publicationArgument, g, declaration, 2, alternate)
+                g.nativePhysical.values[alternate] = saved
+                assert(not ok and tostring(problem):find("SSA lineage changed", 1, true), tostring(problem))
+                verify(g)
+                refuses(
+                    function(): nil
+                        service.requireUnmanagedEntry(g)
+                    end,
+                    "rooted executable publication"
+                )
+            end
+        end
+    end
+    assert(count == 1, "actual entry must retain one original root publication")
+end
+
 local function entryCleanup(build: any): nil
     local entry
     for _, owner in ipairs(service.owners(build.catalog)) do
@@ -317,9 +399,11 @@ local function entryCleanup(build: any): nil
         end
     end
     assert(found > 0 and bindings > 0 and temporaries > 0, "entry temporary/with Arena cleanup is absent")
+    publicationChecks(g)
     verify(g)
     graph.prune(g)
     verify(g)
+    publicationChecks(g)
     assert(g.nativePhysical.signature == nil and physical.graphOwner(g) == entry)
 end
 

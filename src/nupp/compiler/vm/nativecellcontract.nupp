@@ -41,6 +41,7 @@ function contract.hasManaged(g: any, resolved: any): boolean
                         local operation = service.operation(current, declaration)
                         need(operation and operation.target, "call lacks closed service target")
                         if service.managedCall(current, declaration)
+                            or service.hasPublication(current, declaration)
                             or declaration.physical
                             and require("nupp.compiler.vm.nativephysical").hasHeapCallUse(declaration.physical)
                         then

@@ -747,7 +747,8 @@ function service.requireUnmanagedEntry(g: any): nil
             for index, op in ipairs(block.op) do
                 if op == "NativeLeafCall" then
                     need(
-                        service.managedCall(g, block.args[index][1]) == nil,
+                        service.managedCall(g, block.args[index][1]) == nil
+                        and not service.hasPublication(g, block.args[index][1]),
                         "managed call requires rooted executable publication"
                     )
                 end
@@ -904,6 +905,211 @@ function service.declaration(ctx: any, node: any, target: any, declaration: any)
     return declaration
 end
 
+-- Retained root publication is a pending lifetime obligation, never a
+-- borrowed-to-plain conversion. Only the closed entry proof can discharge it.
+local function publicationEvidence(call: any): any
+    local owner = call.caller.owner
+    if owner.scope.name ~= "nupp.runtime.core.heapentry" and owner.scope.name ~= "nupp.runtime.core.cellservice" then
+        return nil
+    end
+    local entry = unit.ownerModule(owner, "nupp.runtime.core.heapentry")
+    local cell = unit.ownerModule(owner, "nupp.runtime.core.cellservice")
+    local roots = unit.ownerModule(owner, "nupp.runtime.core.frameroots")
+    if (owner ~= entry.exports.run and owner ~= cell.exports.construct)
+        or call.target.owner ~= roots.exports.publish
+        or call.cleanup
+        or call.os
+        or call.raising
+    then
+        return nil
+    end
+    local source = call.caller.state.calls[call.node]
+    need(
+        source and source.owner == owner and source.target == roots.exports.publish,
+        "publication requires its original checked call"
+    )
+    unit.call(owner, call.node, roots.exports.publish)
+    local expression = call.node.args.exprs[2]
+    unit.occurrence(owner, expression)
+    local heap = unit.ownerModule(owner, "nupp.runtime.vm.heap")
+    need(
+        expression.kind == "castExpr"
+        and expression.expr.kind == "name"
+        and expression.expr.token.definition
+        and expression.type.resolvedType.tag == "voidptr",
+        "publication requires its original Heap address cast"
+    )
+    local checked = expression.expr.inferredType
+    local result = expression.inferredType
+    need(
+        checked.tag == "borrowed"
+        and checked.inner.tag == "ptr"
+        and checked.inner.elem == heap.checkedExports.types.Heap
+        and result.tag == "borrowed"
+        and result.inner.tag == "voidptr"
+        and call.target.checked.params[2].tag == "voidptr",
+        "publication checked Heap dependency differs"
+    )
+
+    return {
+        expression = expression,
+        name = expression.expr,
+        definition = expression.expr.token.definition,
+        checked = checked,
+        result = result
+    }
+end
+
+local function publicationSource(g: any, declaration: any): any
+    local call = need(calls[declaration], "unissued publication declaration")
+    need(graphs[g] == call.caller, "publication graph owner differs")
+    service.validateIssued(declaration)
+    local evidence = publicationEvidence(call)
+    if not evidence then
+        need(call.publication == nil, "publication source changed")
+        return nil
+    end
+    local saved = need(call.publication, "publication lacks its emitted Heap binding")
+    need(
+        saved.graph == g
+        and saved.expression == evidence.expression
+        and saved.name == evidence.name
+        and saved.definition == evidence.definition
+        and saved.checked == evidence.checked
+        and saved.result == evidence.result,
+        "publication checked source changed"
+    )
+
+    return saved
+end
+
+-- Follow only actual SSA transport to the original cast row. Every reachable
+-- phi must have an anchored path; a disconnected phi cycle is not evidence.
+local function publicationReaches(g: any, value: integer, row: any): boolean
+    local pending, seen, inputs, anchored = {value}, {}, {}, {}
+    local cursor: integer = 1
+    while cursor <= #pending do
+        local current = pending[cursor]
+        cursor = cursor + 1
+        if not seen[current] then
+            seen[current] = true
+            local found = false
+            for _, block in ipairs(g.blocks) do
+                for index, dst in ipairs(block.dst) do
+                    if dst == current then
+                        if block.op[index] ~= "NativePointerView" or block.args[index] ~= row then
+                            return false
+                        end
+                        anchored[current], found = true, true
+                    end
+                end
+                for index, parameter in ipairs(block.params) do
+                    if parameter == current then
+                        local incoming = {}
+                        for _, prior in ipairs(g.blocks) do
+                            for _, edge in ipairs(prior.term and prior.term.edges or {}) do
+                                if edge.target == block.id then
+                                    incoming[#incoming + 1] = edge.args[index]
+                                    pending[#pending + 1] = edge.args[index]
+                                end
+                            end
+                        end
+                        if #incoming == 0 then
+                            return false
+                        end
+                        inputs[current], found = incoming, true
+                    end
+                end
+            end
+            if not found then
+                return false
+            end
+        end
+    end
+    local changed = true
+    while changed do
+        changed = false
+        for current, incoming in pairs(inputs) do
+            if not anchored[current] then
+                for _, prior in ipairs(incoming) do
+                    if anchored[prior] then
+                        anchored[current], changed = true, true
+                    end
+                end
+            end
+        end
+    end
+    for current in pairs(seen) do
+        if not anchored[current] then
+            return false
+        end
+    end
+
+    return true
+end
+
+local function bindPublication(ctx: any, declaration: any, values: any): nil
+    local call = calls[declaration]
+    local evidence = publicationEvidence(call)
+    if not evidence then
+        return
+    end
+    need(call.publication == nil, "publication binding cannot be reissued")
+    local physical = require("nupp.compiler.vm.nativephysical")
+    local actual = need(ctx.g.nativePhysical.values[values[2]], "publication lost its Heap descriptor")
+    local row
+    for _, block in ipairs(ctx.g.blocks) do
+        for index, op in ipairs(block.op) do
+            local args = block.args[index]
+            if op == "NativePointerView" and args[2].node == evidence.expression then
+                need(row == nil, "publication cast is not unique")
+                row = args
+            end
+        end
+    end
+    need(row ~= nil, "publication lacks its original cast operation")
+    physical.validateCast(row[2])
+    need(
+        row[2].source.checkedType == evidence.checked
+        and row[2].target.checkedType == evidence.result
+        and physical.sameValue(row[2].target, actual)
+        and physical.dependent(actual),
+        "publication cast lost its Heap dependency"
+    )
+    evidence.graph, evidence.row, evidence.view, evidence.actual = ctx.g, row, row[2], actual
+    call.publication = evidence
+end
+
+function service.hasPublication(g: any, declaration: any): boolean
+    return publicationSource(g, declaration) ~= nil
+end
+
+function service.publicationArgument(g: any, declaration: any, index: integer, value: integer): boolean
+    if index ~= 2 then
+        return false
+    end
+    local saved = publicationSource(g, declaration)
+    if not saved then
+        return false
+    end
+    local physical = require("nupp.compiler.vm.nativephysical")
+    physical.validateCast(saved.view)
+    local actual = g.nativePhysical and g.nativePhysical.values[value]
+    need(
+        saved.row[2] == saved.view
+        and saved.view.node == saved.expression
+        and saved.view.source.checkedType == saved.checked
+        and saved.view.target.checkedType == saved.result
+        and actual
+        and physical.sameValue(saved.actual, actual)
+        and physical.dependent(actual),
+        "publication Heap descriptor changed"
+    )
+    need(publicationReaches(g, value, saved.row), "publication Heap SSA lineage changed")
+
+    return true
+end
+
 function service.operands(ctx: any, declaration: any, values: any): any
     local call = calls[declaration]
     if not call then
@@ -916,6 +1122,7 @@ function service.operands(ctx: any, declaration: any, values: any): any
     if call.target.scoped then
         values[#values + 1] = service.scope(ctx)
     end
+    bindPublication(ctx, declaration, values)
 
     return values
 end
@@ -2671,6 +2878,9 @@ function service.callGraph(g: any, declaration: any, args: any): nil
     need(#args == #call.kinds + 1 and #declaration.params == #call.kinds, "service operand count")
     for index, kind in ipairs(call.kinds) do
         need(declaration.params[index] == kind, "service parameter kind changed")
+    end
+    if publicationSource(g, declaration) then
+        need(service.publicationArgument(g, declaration, 2, args[3]), "publication Heap binding changed")
     end
     -- Scope identity must be the entry argument or its exact CFG transport.
     -- Ordinary graph verification checks SSA/edge kinds; service.verifyScope

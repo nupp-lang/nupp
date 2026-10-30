@@ -199,6 +199,7 @@ function M.check(build: any): nil
     assert(lifetimeArguments(g) >= 1)
     cell.validate(proof, g)
     mutations(g)
+    M.entryGraph(build)
 end
 
 -- This accepts only the closed factory result. It verifies that traversal roots
@@ -334,6 +335,32 @@ function M.entryGraph(build: any): nil
                         assert(not ok, "entry adopted an external Heap or scope")
                         verifyEntry()
                         changed += 1
+                    end
+                    if operation.target == roles.publish then
+                        local expression = operation.node.args.exprs[2]
+                        local found: integer = 0
+                        for _, sourceBlock in ipairs(g.blocks) do
+                            for row, sourceOp in ipairs(sourceBlock.op) do
+                                local viewArgs = sourceBlock.args[row]
+                                if sourceOp == "NativePointerView" and viewArgs[2].node == expression then
+                                    local saved = viewArgs[1]
+                                    local oldBinding = g.nativePhysical.values[1]
+                                    g.nativePhysical.values[1] = viewArgs[2].source
+                                    viewArgs[1] = 1
+                                    -- The original publication output remains
+                                    -- pending, but its input is no longer the
+                                    -- unique Heap created by this entry.
+                                    assert(service.publicationArgument(g, args[1], 2, args[3]))
+                                    local ok = pcall(cell.verifyEntry, g, resolved)
+                                    viewArgs[1] = saved
+                                    g.nativePhysical.values[1] = oldBinding
+                                    assert(not ok, "entry accepted a substituted publication cast input")
+                                    verifyEntry()
+                                    found += 1
+                                end
+                            end
+                        end
+                        assert(found == 1, "entry publication cast is not unique")
                     end
                     if operation.target == roles.closeRoots then
                         assert(block.term.kind == "branch")
