@@ -40,6 +40,48 @@ local function changedArgument(g: any, args: any, index: integer, value: integer
     verify(g)
 end
 
+-- A pending Heap call can borrow the exact caller formal without inventing
+-- expression facts. Each validation must still authenticate that formal.
+local function formalHeapArgument(g: any, signature: any, actual: any, node: any): nil
+    local owner = service.owner(g.nativeService)
+    local argument = node.args.exprs[1]
+    local index
+    for at, definition in ipairs(owner.parameterDefinitions) do
+        if argument.token.definition == definition then
+            index = at
+        end
+    end
+    assert(index and argument.kind == "name", "actual constructor Heap is not its formal")
+    local facts = argument.resultCapabilityFacts and argument.resultCapabilityFacts[1] or argument.capabilityFacts
+    assert(not facts or facts.roots == nil, "formal regression no longer exercises absent expression roots")
+    local parameter = owner.body.params[index]
+    local definition = argument.token.definition
+
+    local function changed(record: any, key: any, value: any): nil
+        local saved = record[key]
+        record[key] = value
+        local ok, problem = pcall(physical.callArgumentPermission, signature, 1, actual)
+        record[key] = saved
+        assert(not ok, "changed formal Heap proof accepted: " .. tostring(problem))
+        assert(physical.callArgumentPermission(signature, 1, actual))
+    end
+
+    changed(owner.parameterDefinitions, index, copy(definition))
+    changed(argument.token, "definition", owner.parameterDefinitions[index == 1 and 2 or 1])
+    changed(definition, "type", definition.type.inner)
+    changed(owner.checkedSignature.paramModes, index, "plain")
+    changed(owner.checkedSignature.paramPack.modes, index, "plain")
+    changed(argument, "token", copy(argument.token))
+    if parameter.modeTok then
+        changed(parameter, "modeTok", copy(parameter.modeTok))
+    end
+    changed(argument, "capabilityFacts", {})
+    changed(argument, "capabilityFacts", {origin = definition})
+    changed(argument, "capabilityFacts", {roots = {}})
+    changed(argument, "capabilityFacts", {roots = {{definition = definition}}})
+    changed(argument, "resultCapabilityFacts", {{roots = {{definition = definition}}}})
+end
+
 local function lifetimeArguments(g: any): integer
     local count: integer = 0
     for _, block in ipairs(g.blocks) do
@@ -70,6 +112,7 @@ local function lifetimeArguments(g: any): integer
                     signature.call = original
                     assert(physical.callArgumentPermission(signature, 1, actual))
                     local operation = service.operation(g, args[1])
+                    formalHeapArgument(g, signature, actual, operation.node)
                     local marker = operation.node.unsafeOwnershipOperation
                     operation.node.unsafeOwnershipOperation = nil
                     refuses(function(): nil

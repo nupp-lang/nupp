@@ -442,6 +442,73 @@ local function sameDependency(left: any, right: any): boolean
     return true
 end
 
+-- Pending Heap calls may use an original borrowed formal whose name has no
+-- expression root facts. This is not a fallback for local borrowed values.
+local function heapCallRoots(owner: any, node: any): (any, any)
+    local facts = node.resultCapabilityFacts and node.resultCapabilityFacts[1] or node.capabilityFacts
+    if facts and facts.roots ~= nil then
+        return rootSnapshot(node), nil
+    end
+    for _, absent in pairs({facts = facts, capability = node.capabilityFacts}) do
+        need(
+            type(absent) == "table" and getmetatable(absent) == nil and next(absent) == nil,
+            "Heap formal requires absent expression facts"
+        )
+    end
+    local unit = require("nupp.compiler.vm.nativeunit")
+    local checkedType = unit.checkedOccurrenceType(owner, node)
+    need(node.kind == "name" and node.token and node.token.definition, "Heap root requires an original formal name")
+    local definition = node.token.definition
+    local index
+    for at, candidate in ipairs(owner.parameterDefinitions) do
+        if candidate == definition then
+            need(index == nil, "Heap formal definition is repeated")
+            index = at
+        end
+    end
+    need(index ~= nil, "Heap name without expression roots is not a formal")
+    local parameter = owner.body.params[index]
+    local checked = owner.checkedSignature
+    local annotation = owner.parameterAnnotations[index]
+    need(
+        checked == owner.body.signatureType
+        and parameter.name.definition == definition
+        and parameter.type.resolvedType == annotation
+        and owner.parameterTypes[index] == definition.type
+        and owner.parameterModes[index] == "borrows"
+        and owner.parameterModeTokens[index] == parameter.modeTok
+        and (parameter.modeTok == nil or parameter.modeTok.text == "borrows")
+        and checked.params[index] == annotation
+        and checked.paramPack.head[index] == annotation
+        and checked.paramModes[index] == "borrows"
+        and checked.paramPack.modes[index] == "borrows"
+        and checkedType == definition.type
+        and checkedType.tag == "borrowed"
+        and checkedType.inner == annotation,
+        "Heap formal checked borrow contract differs"
+    )
+
+    return {
+        keys = {definition}
+    }, {
+        owner = owner,
+        node = node,
+        token = node.token,
+        definition = definition,
+        index = index,
+        parameter = parameter,
+        parameterName = parameter.name,
+        parameterType = parameter.type,
+        modeToken = parameter.modeTok,
+        checked = checked,
+        annotation = annotation,
+        checkedType = checkedType,
+        facts = facts,
+        capabilityFacts = node.capabilityFacts,
+        resultCapabilityFacts = node.resultCapabilityFacts
+    }
+end
+
 local function withDependency(descriptor: any, dependency: any): any
     local copied = physical.describe(descriptor.context, descriptor.checkedType)
     origins[copied].dependency = dependency
@@ -818,7 +885,8 @@ function physical.signature(owner: any, context: any, call: any?, caller: any?, 
             if descriptor then
                 local proof = serviceModule().heapCallUse(serviceSignature, caller, call, index)
                 if proof then
-                    heapCalls[index] = {proof = proof, roots = rootSnapshot(call.args.exprs[index])}
+                    local roots, formal = heapCallRoots(caller, call.args.exprs[index])
+                    heapCalls[index] = {proof = proof, roots = roots, formal = formal}
                 end
             end
         end
@@ -1040,8 +1108,21 @@ function physical.validateSignature(contract: any): boolean
         end
     end
     for index, use in pairs(held.heapCalls) do
-        serviceModule().validateHeapCallUse(use.proof, held.serviceSignature, held.caller, held.call, index)
-        validateRoots(use.roots)
+        local argument = serviceModule().validateHeapCallUse(
+            use.proof,
+            held.serviceSignature,
+            held.caller,
+            held.call,
+            index
+        )
+        if use.formal then
+            local roots, formal = heapCallRoots(held.caller, argument)
+            need(formal ~= nil, "Heap formal acquired substituted expression roots")
+            sameRecord(formal, use.formal)
+            need(sameDependency(roots, use.roots), "Heap formal dependency changed")
+        else
+            validateRoots(use.roots)
+        end
     end
     sameRecord(contract.params, held.parameters)
     sameRecord(contract, held.fields)
