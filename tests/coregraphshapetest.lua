@@ -304,7 +304,9 @@ function M.sparseRowsAndRootCapsRefuse()
         "sparse physical section"
     )
     tables, wire = rows(fixture())
-    tables.modules[2] = tables.modules[1]
+    for index = 2, 257 do
+        tables.modules[index] = tables.modules[1]
+    end
     refuses(
         function()
             shape.rows(tables, wire, 0)

@@ -139,11 +139,10 @@ function contracts.normalize(compiled: any): any
     need(type(p) == "table", "authentic checked catalog required")
     dense(graphs, 256)
     fields(compiled.header, "shapes modules entry")
-    need(
-        dense(compiled.header.shapes, 1048576) == 0 and dense(compiled.header.modules, 256) == 1,
-        "one shape-free module required"
-    )
-    need(#p.modules == 1 and #p.owners == #graphs, "complete single-module graph table required")
+    need(dense(compiled.header.shapes, 1048576) == 0, "shape-free graph catalog required")
+    local moduleCount = dense(compiled.header.modules, 256)
+    need(moduleCount > 0 and dense(p.modules, 256) == moduleCount, "complete module table required")
+    need(#p.owners == #graphs, "complete graph table required")
     for _, key in ipairs({"externals", "externalReferences", "intrinsics", "imports", "requires"}) do
         need(type(p[key]) == "table" and next(p[key]) == nil, "unsupported catalog " .. key)
     end
@@ -162,16 +161,21 @@ function contracts.normalize(compiled: any): any
     for _, item in ipairs(definition.operations) do
         admitted[item.name] = item
     end
-    local module = compiled.header.modules[1]
-    fields(module, "name path chunk")
-    need(
-        module.name == p.modules[1].name
-        and module.path == p.modules[1].path
-        and module.chunk == p.modules[1].chunk
-        and module.chunk == output.entry,
-        "module initializer binding differs"
-    )
-    output.modules[1] = {name = text(module.name), path = text(module.path), chunk = integer(module.chunk, 255)}
+    local modulesByOwner = {}
+    for index, module in ipairs(compiled.header.modules) do
+        fields(module, "name path chunk")
+        need(
+            module.name == p.modules[index].name
+            and module.path == p.modules[index].path
+            and module.chunk == p.modules[index].chunk
+            and module.chunk == index - 1
+            and need(p.owners[module.chunk + 1], "module initializer is missing").kind == "module",
+            "module initializer binding differs"
+        )
+        local record = {name = text(module.name), path = text(module.path), chunk = integer(module.chunk, 255)}
+        output.modules[index], modulesByOwner[module.chunk] = record, record
+    end
+    need(modulesByOwner[output.entry] ~= nil, "entry initializer is not cataloged")
     for index = 1, dense(p.owners, 256) do
         local owner = p.owners[index]
         need(dense(owner.captures, 256) == 0, "captures are unsupported")
@@ -182,7 +186,7 @@ function contracts.normalize(compiled: any): any
             record.signature = intern(output.signatures, signatureIndex, checkedSignature(owner))
         else
             need(
-                owner.kind == "module" and owner.id == output.entry and owner.parent == nil,
+                owner.kind == "module" and modulesByOwner[owner.id] ~= nil and owner.parent == nil,
                 "unsupported initializer owner"
             )
         end

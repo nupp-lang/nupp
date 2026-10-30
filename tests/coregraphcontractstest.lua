@@ -6,6 +6,9 @@ local program = require("nupp.compiler.vm.programgraph")
 local tagged = require("nupp.compiler.vm.taggedprofile")
 local graph = require("nupp.compiler.vm.graph")
 local contracts = require("nupp.compiler.vm.coregraphcontracts")
+local semantic = require("nupp.compiler.vm.coregraphverify")
+local codec = require("nupp.compiler.vm.coregraphcodec")
+local executable = require("nupp.compiler.vm.coregraphexecutable")
 local schema = require("nupp.compiler.vm.coregraphschema")
 local M = {}
 
@@ -37,6 +40,35 @@ local function fixture(argument)
             argument or "true"
         ) .. ")"
     )
+end
+
+local function checkedModules()
+    local inputs = {
+        {name = "core.catalog.main", path = "=core_catalog_main.nupp", text = "return true"},
+        {
+            name = "core.catalog.support",
+            path = "=core_catalog_support.nupp",
+            text = "local function identity(value: boolean): boolean return value end\nreturn identity(false)"
+        }
+    }
+    local modules = {}
+    for index, input in ipairs(inputs) do
+        local parsed = parser.parse(input.text, input.path)
+        test.equal(#parsed.errors, 0)
+        local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
+        local diagnostics = checker.check(parsed, input.path, env, {
+            moduleName = input.name,
+            strict = false,
+            lints = {["unused-binding"] = "off"}
+        })
+        for _, diagnostic in ipairs(diagnostics) do
+            assert(diagnostic.severity ~= "error", diagnostic.msg)
+        end
+        modules[index] = {name = input.name, path = input.path, parsed = parsed, diagnostics = diagnostics}
+    end
+    local catalog = program.describe(modules, inputs[1].name)
+
+    return program.compile(catalog, tagged)
 end
 
 local function refuses(action, text)
@@ -153,6 +185,103 @@ function M.realInitializerCreatesCalleeAndRetainsWholeGraph()
     end
     test.equal(closures, 1)
     noObjects(output, {})
+end
+
+function M.checkedModulesRetainDistinctInitializersAndSourceBindings()
+    local input = checkedModules()
+    local output = contracts.normalize(input)
+    test.equal(#output.modules, 2)
+    test.equal(#output.catalog, 3)
+    test.equal(output.entry, 0)
+    for index, module in ipairs(output.modules) do
+        test.equal(module.chunk, index - 1)
+        test.equal(module.name, input.catalog.modules[index].name)
+        test.equal(module.path, input.catalog.modules[index].path)
+        test.equal(output.catalog[index].kind, "module")
+        test.equal(output.graphs[index].module, module.name)
+        test.equal(output.graphs[index].path, module.path)
+    end
+    test.equal(output.catalog[3].parent, output.modules[2].chunk)
+    test.equal(output.graphs[3].module, output.modules[2].name)
+    semantic.semantic(output)
+    local bytes = codec.encode(output)
+    equal(codec.decode(bytes), output)
+    test.equal(codec.encode(codec.decode(bytes)), bytes)
+    refuses(
+        function()
+            executable.fromChecked(input)
+        end,
+        "additional module initializers are not executable"
+    )
+end
+
+function M.checkedModuleCatalogRejectsMissingDuplicateAndChangedBindings()
+    local input = checkedModules()
+    input.header.modules[2] = nil
+    refuses(
+        function()
+            contracts.normalize(input)
+        end,
+        "complete module table required"
+    )
+    input = checkedModules()
+    input.header.modules[2].name = input.header.modules[1].name
+    refuses(
+        function()
+            contracts.normalize(input)
+        end,
+        "module initializer binding differs"
+    )
+    input = checkedModules()
+    input.header.modules[2].name = input.header.modules[1].name
+    input.catalog.modules[2].name = input.catalog.modules[1].name
+    refuses(
+        function()
+            contracts.normalize(input)
+        end,
+        "module identity mismatch"
+    )
+    input = checkedModules()
+    input.header.modules[2].chunk = input.header.modules[1].chunk
+    refuses(
+        function()
+            contracts.normalize(input)
+        end,
+        "module initializer binding differs"
+    )
+    input = checkedModules()
+    input.graphs[3].module = input.header.modules[1].name
+    refuses(
+        function()
+            contracts.normalize(input)
+        end,
+        "graph source binding differs"
+    )
+    local encoded = contracts.normalize(checkedModules())
+    encoded.modules[2].name = encoded.modules[1].name
+    refuses(
+        function()
+            semantic.catalog(encoded)
+        end,
+        "duplicate semantic module"
+    )
+    encoded = contracts.normalize(checkedModules())
+    encoded.modules[2].chunk = 0
+    refuses(
+        function()
+            semantic.catalog(encoded)
+        end,
+        "initializer order differs"
+    )
+    encoded = contracts.normalize(checkedModules())
+    encoded.graphs[3].module = encoded.modules[1].name
+    encoded.graphs[3].source.module = encoded.modules[1].name
+    refuses(
+        function()
+            semantic.catalog(encoded)
+        end,
+        "graph module source differs"
+    )
 end
 
 function M.repeatedCreatorRetainsCallsAndClosureCreationStructurally()
@@ -312,7 +441,7 @@ function M.nonemptyShapeCatalogUsesExplicitProfileRefusal()
         function()
             contracts.normalize(input)
         end,
-        "one shape-free module required"
+        "shape-free graph catalog required"
     )
     test.equal(input.header.shapes[1], shape)
 end
@@ -377,7 +506,7 @@ function M.missingOwnerAndChangedSourceContractsRefuse()
         function()
             contracts.normalize(input)
         end,
-        "complete single-module graph table required"
+        "complete graph table required"
     )
     input = fixture()
     input.header.entry = 1

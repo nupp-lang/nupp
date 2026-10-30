@@ -257,9 +257,11 @@ end
 -- The retained checker objects are immutable borrows within this build process.
 -- This issuer is not a native loader or production frame/effect authority.
 function executable.fromChecked(compiled: any): any
-    -- normalize admits one entry initializer only; imported module execution
-    -- and additional initializers remain refused before executable issuance.
-    local result = deriveCatalog(contracts.normalize(compiled))
+    -- The graph catalog retains every checked initializer, but this executable
+    -- profile cannot yet run another module's initialization.
+    local normalized = contracts.normalize(compiled)
+    need(#normalized.modules == 1, "additional module initializers are not executable")
+    local result = deriveCatalog(normalized)
     issued[result] = {compiled = compiled, snapshot = copy(result)}
 
     return result

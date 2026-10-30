@@ -468,7 +468,7 @@ local function inflate(tables: any, entry: integer, wire: any): any
             params = params
         }
     end
-    claim("modules", 0, #tables.modules, 1)
+    claim("modules", 0, #tables.modules, 256)
     for index, row in ipairs(tables.modules) do
         p.modules[index] = {name = stringAt(row.name), path = stringAt(row.path), chunk = row.chunk}
     end

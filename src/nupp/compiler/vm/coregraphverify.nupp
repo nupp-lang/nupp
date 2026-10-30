@@ -320,14 +320,22 @@ function verify.catalog(p: any): any
     same(p.schema, schema.describe())
     local count = dense(p.catalog, 256)
     need(count > 0 and dense(p.graphs, 256) == count, "complete semantic graph table required")
-    need(dense(p.modules, 1) == 1, "one semantic module required")
+    local moduleCount = dense(p.modules, 256)
+    need(moduleCount > 0 and moduleCount <= count, "complete semantic module table required")
     dense(p.signatures, 256)
     dense(p.contracts, 1048576)
-    local module = p.modules[1]
-    fields(module, "name path chunk")
-    text(module.name)
-    text(module.path)
-    need(module.chunk == p.entry and reference(p.entry, p.catalog).kind == "module", "initializer binding differs")
+    local modulesByOwner, moduleNames = {}, {}
+    for index, module in ipairs(p.modules) do
+        fields(module, "name path chunk")
+        local name, path = text(module.name), text(module.path)
+        need(not moduleNames[name], "duplicate semantic module")
+        moduleNames[name] = true
+        need(module.chunk == index - 1, "initializer order differs")
+        local owner = reference(module.chunk, p.catalog)
+        need(owner.kind == "module" and owner.parent == nil, "initializer binding differs")
+        modulesByOwner[owner.id] = {name = name, path = path}
+    end
+    need(modulesByOwner[p.entry] ~= nil, "entry initializer is not cataloged")
     for index, signature in ipairs(p.signatures) do
         fields(signature, "id kind params result")
         need(signature.id == index - 1, "signature order differs")
@@ -353,7 +361,7 @@ function verify.catalog(p: any): any
         signatures[owner.signature] = true
         if owner.kind == "module" then
             need(
-                owner.id == p.entry
+                modulesByOwner[owner.id] ~= nil
                 and owner.parent == nil
                 and signature.kind == "initializer"
                 and #signature.params == 0,
@@ -367,11 +375,18 @@ function verify.catalog(p: any): any
                 remaining -= 1
                 ancestor = reference(ancestor.parent, p.catalog)
             end
-            need(ancestor.id == p.entry, "foreign lexical root")
+            need(modulesByOwner[ancestor.id] ~= nil, "foreign lexical root")
         end
         local g = p.graphs[index]
         verify.copyGraph(g)
         need(g.programOwner == owner.id and g.nparams == #signature.params, "graph owner/signature differs")
+        local ancestor, remaining = owner, count
+        while ancestor.kind ~= "module" do
+            need(remaining > 0, "cyclic lexical parents")
+            remaining -= 1
+            ancestor = reference(ancestor.parent, p.catalog)
+        end
+        local module = need(modulesByOwner[ancestor.id], "graph module is not cataloged")
         need(g.module == module.name and g.path == module.path, "graph module source differs")
         arities[index], calls[index] = {}, {}
         for bi, block in ipairs(g.blocks) do

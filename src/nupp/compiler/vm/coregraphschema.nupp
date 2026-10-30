@@ -226,7 +226,7 @@ local wireShapes: {
     {"positions", nil, "source:optionalOwned:positionSources"},
     {"sourceBindings", nil, "name:string module:string path:string"},
     {"positionSources", nil, "moduleName:string path:string"},
-    {"modules", 1, "name:string path:string chunk:ref:catalog"},
+    {"modules", 256, "name:string path:string chunk:ref:catalog"},
     {"constants", nil, "kind:enum:constantKinds"},
     {"operations", nil, "opcode:enum:operations argsFirst:span:words:argsCount:1048576"},
     {"edges", nil, "argsFirst:span:words:argsCount:65536"}
