@@ -1297,8 +1297,8 @@ end
 
 -- Compatibility entry only; the shared lowering owns all CST traversal.
 function nativegraph.compile(fn: any, options: any): any
-    local lower = require("nupp.compiler.vm.lower")
-    return lower.functionGraph(fn, options, nativegraph)
+    local functiongraph = require("nupp.compiler.vm.functiongraph")
+    return functiongraph.compile(fn, options, nativegraph)
 end
 
 export = nativegraph
