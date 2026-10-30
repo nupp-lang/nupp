@@ -158,7 +158,16 @@ local function bootstrap(build: any): nil
         if owner.scope.name == "nupp.runtime.core.pagemappings"
             and (owner.name == "acquireEntry" or owner.name == "releaseEntry")
         then
-            local g = lower.functionGraph(owner, service.options(build.catalog, owner), cleanup.profile(nativegraph))
+            local options = service.options(build.catalog, owner)
+            local signature = service.signature(owner, options)
+            assert(not service.needsCleanup(signature), "entry bootstrap unexpectedly requires a scope")
+            refuses(
+                function(): nil
+                    lower.functionGraph(owner, options, cleanup.profile(nativegraph))
+                end,
+                "cleanup profile requires an issued scoped owner"
+            )
+            local g = lower.functionGraph(owner, options, nativegraph)
             local expected = owner.name == "acquireEntry" and 0 or 1
             local found: integer = 0
             for _, block in ipairs(g.blocks) do

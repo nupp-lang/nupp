@@ -280,6 +280,13 @@ function shim.build(source: any, selected: {[string]: any}, stress: boolean, sce
             emit(arm.cmp_imm(64, 0, 1, 0));
             refuse(1)
             cleanScope()
+            offset(15, 19, canaryOffset);
+            emit(arm.movn(64, 17, 0, 0))
+            for at = 0, 8, 8 do
+                emit(arm.ldr(8, 16, 15, at));
+                emit(arm.cmp_reg(64, 16, 17));
+                refuse(1)
+            end
         elseif scenario == "release-refusal" then
             -- A mismatched extent refuses before consuming the live token. This
             -- tests source preflight refusal, not retry after an OS unmap failure.
