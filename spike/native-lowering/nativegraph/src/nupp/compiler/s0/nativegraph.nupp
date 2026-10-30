@@ -955,16 +955,13 @@ function sink.verifyCodeOrigin(code: any, g: any, owner: any): nil
     assert(held.graph == g and held.owner == owner, "S0 graph: Code origin differs")
 end
 
-function sink.verifyCodeEntry(code: any): nil
-    sink.verifyCode(code)
-    local held = issuedCodes[code].held
+local function codeEntry(saved: any): nil
+    local held = saved.held
     finalframe.requireEntry(held.graph, held.owner)
 end
 
-function sink.verifyCodeTarget(code: any, symbol: string, target: any): nil
-    sink.verifyCode(code)
-    sink.verifyCode(target)
-    local source, destination = issuedCodes[code].held, issuedCodes[target].held
+local function codeTarget(saved: any, symbol: string, target: any): nil
+    local source, destination = saved.held, target.held
     local callee = assert(source.callees[symbol], "S0 graph: fixup lacks retained checked callee")
     assert(
         callee.owner == destination.owner and callee.graph == destination.graph,
@@ -973,14 +970,85 @@ function sink.verifyCodeTarget(code: any, symbol: string, target: any): nil
     finalframe.target(source.graph, source.owner, destination.graph, destination.owner)
 end
 
-function sink.verifyCodeImport(code: any, symbol: string): integer
-    sink.verifyCode(code)
-    local held = issuedCodes[code].held
+local function codeImport(saved: any, symbol: string): integer
+    local held = saved.held
     local declaration = assert(held.osImports[symbol], "S0 graph: unissued OS import")
     local slot = nativeos.ownedSlot(declaration, held.owner)
     assert(symbol == "core_os_" .. tostring(slot), "S0 graph: OS import identity differs")
 
     return slot
+end
+
+function sink.verifyCodeEntry(code: any): nil
+    sink.verifyCode(code)
+    codeEntry(issuedCodes[code])
+end
+
+function sink.verifyCodeTarget(code: any, symbol: string, target: any): nil
+    sink.verifyCode(code)
+    sink.verifyCode(target)
+    codeTarget(issuedCodes[code], symbol, issuedCodes[target])
+end
+
+function sink.verifyCodeImport(code: any, symbol: string): integer
+    sink.verifyCode(code)
+    return codeImport(issuedCodes[code], symbol)
+end
+
+-- One synchronous link checks each original Code once. The private set cannot
+-- escape or authorize a later link; only the checked import slot data returns.
+-- Every occurrence still checks its exact entry, callee or OS declaration.
+function sink.verifyLinkInputs(roots: {any}, functions: {[string]: any}): any
+    assert(getmetatable(roots) == nil and getmetatable(functions) == nil, "S0 graph: plain link inputs required")
+    assert(#roots > 0 and #roots <= 256, "core link function count")
+    local count: integer = 0
+    for key in pairs(roots) do
+        assert(
+            type(key) == "number" and key % 1 == 0 and key >= 1 and key <= #roots,
+            "S0 graph: dense link roots required"
+        )
+        count += 1
+    end
+    assert(count == #roots, "S0 graph: dense link roots required")
+    local verified, ordered = {}, {}
+
+    local function include(code: any): nil
+        if not verified[code] then
+            sink.verifyCode(code)
+            verified[code] = issuedCodes[code]
+            ordered[#ordered + 1] = code
+        end
+    end
+
+    for _, code in ipairs(roots) do
+        include(code)
+    end
+    count = 0
+    for name, code in pairs(functions) do
+        assert(type(name) == "string", "S0 graph: link symbol must be a string")
+        count += 1
+        assert(count <= 256, "core link function count")
+        include(code)
+    end
+    for _, code in ipairs(roots) do
+        codeEntry(verified[code])
+    end
+    local imports = {}
+    local selector = require("s0.select")
+    for _, code in ipairs(ordered) do
+        local saved = verified[code]
+        imports[code] = {}
+        for index, symbol in ipairs(code.fixupName) do
+            if code.fixupKind[index] == selector.IMPORT_LOAD then
+                imports[code][symbol] = codeImport(saved, symbol)
+            else
+                local target = assert(functions[symbol], "core link unresolved function")
+                codeTarget(saved, symbol, assert(verified[target], "S0 graph: unchecked link target"))
+            end
+        end
+    end
+
+    return imports
 end
 
 export = sink

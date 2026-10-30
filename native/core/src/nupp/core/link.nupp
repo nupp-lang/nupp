@@ -146,27 +146,7 @@ function link.assembleAuthenticated(
     available: integer
 ): any
     local sink = require("nupp.compiler.s0.nativegraph")
-    local imports = {}
-
-    local function verify(code: any): nil
-        sink.verifyCode(code)
-        imports[code] = {}
-        for index, symbol in ipairs(code.fixupName) do
-            if code.fixupKind[index] == selector.IMPORT_LOAD then
-                imports[code][symbol] = sink.verifyCodeImport(code, symbol)
-            else
-                sink.verifyCodeTarget(code, symbol, assert(functions[symbol], "core link unresolved function"))
-            end
-        end
-    end
-
-    for _, code in ipairs(roots) do
-        sink.verifyCodeEntry(code)
-        verify(code)
-    end
-    for _, code in pairs(functions) do
-        verify(code)
-    end
+    local imports = sink.verifyLinkInputs(roots, functions)
 
     return assemble(prefix, roots, functions, available, imports)
 end

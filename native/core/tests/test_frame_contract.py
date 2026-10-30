@@ -159,6 +159,11 @@ def main():
             metrics = selected["metrics"]
             assert len(selected["dataflowRefusals"]) == 17
             assert len(selected["provenanceRefusals"]) == 20
+            assert len(selected["batchRefusals"]) == 12
+            assert len({item["name"] for item in selected["batchRefusals"]}) == 12
+            batch = selected["batchVerification"]
+            assert batch["fullChecks"] == batch["uniqueCodes"] == len(metrics)
+            assert batch["callFixups"] > 0
             assert len({item["name"] for item in selected["dataflowRefusals"]}) == 17
             high_water = selected["spillOffset"] + selected["callBytes"]
             assert selected["callBytes"] > max(selected["frames"])
@@ -195,7 +200,8 @@ def main():
                 "bundleSha256": sha(bundle), "selectionSha256": sha(selection),
                 "wholeChainHighWater": high_water, "metrics": metrics,
                 "dataflowRefusals": selected["dataflowRefusals"],
-                "provenanceRefusals": selected["provenanceRefusals"]})
+                "provenanceRefusals": selected["provenanceRefusals"],
+                "batchRefusals": selected["batchRefusals"], "batchVerification": batch})
             save()
         report.update(status="passed", nativeOutputs=2, guardedOutputs=2, shortRegionRefusals=10)
     except Exception as error:
