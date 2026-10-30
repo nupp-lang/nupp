@@ -11,6 +11,7 @@ import sys
 import re
 import tempfile
 import time
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGES = ROOT / ".nupp/vm-cli"
@@ -520,17 +521,27 @@ def lowering_image(out, target, cache):
 
 
 def glue(_args):
-    """Build the glue (`nupp-vm` with the code generator, `native` and `aot`
-    subcommands) into the shared target directory and print its path."""
-    print(cargo("aot", ROOT / "build/rust/target"))
+    """Build JIT glue with the source-validated native core and return an
+    immutable copy, isolated from other Cargo feature builds."""
+    with build_lock(ROOT / ".nupp/native-runtime-build.lock"):
+        target = ROOT / "build/rust/native-glue-target"
+        obj = native_object_from_sources(SimpleNamespace(reuse=True, link=False, no_cache=False), target)
+        built = cargo("aot,native-runtime", target, {"NUPP_NATIVE_RUNTIME_OBJECT": str(obj)})
+        stable = NATIVE_OUT / ("glue-" + digest(built) + (".exe" if os.name == "nt" else ""))
+        if stable.exists():
+            if digest(stable) != digest(built):
+                raise ValueError("native glue copy does not match its content key")
+        else:
+            fresh = stable.with_name(stable.name + ".new")
+            shutil.copyfile(built, fresh)
+            fresh.chmod(0o755)
+            os.replace(fresh, stable)
+        print(stable)
 
 
-def runtime(args):
-    """Build the native core object into build/native-runtime, and with
-    `--link` a runtime that has it linked in (build/native-runtime/runtime), for
-    measurement against a runtime without it."""
+def native_object_from_sources(args, target):
+    """Reuse only an object whose artifact digests match these sources and seed."""
     out = NATIVE_OUT
-    target = ROOT / "build/rust/target"
     pair = execution_seed()
     source = runtime_source_state()["fingerprint"]
     key = {"source": source, "seed": digest(pair / "manifest.json")}
@@ -540,8 +551,7 @@ def runtime(args):
             receipt = json.loads(receipt_file.read_text())
             if (receipt["inputs"] == key and set(receipt["artifacts"]) == set(NATIVE_ARTIFACTS)
                     and all(digest(out / name) == receipt["artifacts"][name] for name in NATIVE_ARTIFACTS)):
-                print(out / "runtime.o")
-                return
+                return out / "runtime.o"
         except (OSError, ValueError, KeyError, TypeError):
             pass
     glue = cargo("aot", target)
@@ -552,6 +562,14 @@ def runtime(args):
     receipt_file.write_text(json.dumps({"inputs": key, "artifacts": {
         name: digest(out / name) for name in NATIVE_ARTIFACTS
     }}, indent=2) + "\n")
+    return obj
+
+
+def runtime(args):
+    """Build the native core object and optionally link a measurement runtime."""
+    out = NATIVE_OUT
+    target = ROOT / "build/rust/target"
+    obj = native_object_from_sources(args, target)
     print(obj)
     if args.link:
         built = cargo("aot,native-runtime", target, {"NUPP_NATIVE_RUNTIME_OBJECT": str(obj)})
