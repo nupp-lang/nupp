@@ -58,7 +58,7 @@ local function text(value: any): string
     return value
 end
 
-function verify.copyGraph(g: any): any
+function verify.copyGraph(g: any, numeric: boolean?): any
     fields(g, "nparams blocks types slots counts constants positions certificates name module path programOwner source")
     local copy: any = {
         nparams = integer(g.nparams, 239),
@@ -97,17 +97,30 @@ function verify.copyGraph(g: any): any
         local constant = g.constants[index]
         fields(constant, "kind value")
         need(
-            constant.kind == "true" or constant.kind == "false" or constant.kind == "nil" or constant.kind == "str",
-            "only Boolean/NIL constants and static module names are admitted"
+            constant.kind == "true"
+            or constant.kind == "false"
+            or constant.kind == "nil"
+            or constant.kind == "str"
+            or numeric and constant.kind == "num",
+            "unsupported scalar constant"
         )
         need(
             constant.kind == "str"
             and type(constant.value) == "string"
             and #constant.value > 0
             and #constant.value <= 256
-            or constant.kind ~= "str" and constant.value == "",
-            "invalid static module name or Boolean/NIL payload"
+            or constant.kind == "num" and type(constant.value) == "string" and #constant.value == 8
+            or constant.kind ~= "str" and constant.kind ~= "num" and constant.value == "",
+            "invalid scalar constant payload"
         )
+        if constant.kind == "num" then
+            local low, high = constant.value:byte(7, 8)
+            local top = low + high * 256
+            need(
+                (top & 0x7ff8) ~= 0x7ff8 or constant.value == string.rep(string.char(0), 6) .. string.char(0xf8, 0x7f),
+                "noncanonical numeric NaN"
+            )
+        end
         copy.constants[index] = {kind = constant.kind, value = constant.value}
     end
     for index = 1, dense(g.positions, 1048576) do
@@ -251,7 +264,7 @@ function verify.resultKind(g: any, signature: any, output: any): string
                 case "K" -> do
                     local constant = need(g.constants[args[1] + 1], "constant index differs")
                     need(constant.kind ~= "str", "module name cannot be loaded as a value")
-                    yield constant.kind == "nil" and "nil" or "boolean"
+                    yield constant.kind == "nil" and "nil" or constant.kind == "num" and "number" or "boolean"
                 end
                 case "Require" -> do
                     local constant = need(g.constants[args[1] + 1], "require name index differs")
@@ -267,6 +280,11 @@ function verify.resultKind(g: any, signature: any, output: any): string
                     local result = need(output.signatures[owner.signature + 1], "required module signature is missing")
                     yield result.result
                 end
+                case "Add" -> need(
+                    kinds[args[1]] == "number" and kinds[args[2]] == "number",
+                    "number addition needs numeric operands"
+                )
+                    and "number"
                 case "Nil" -> "nil"
                 case "Move" -> need(kinds[args[1]], "unresolved scalar move")
                 case "Closure" -> do
@@ -286,7 +304,10 @@ function verify.resultKind(g: any, signature: any, output: any): string
             -- The copied term still distinguishes no value from a NIL SSA
             -- value; it is never rewritten to a native zero-result ABI.
             local kind = term.value and need(kinds[term.value], "unresolved return") or "nil"
-            need(kind == "boolean" or kind == "nil", "initializer/function must return Boolean/NIL")
+            need(
+                kind == "boolean" or kind == "nil" or output.schema.version == 3 and kind == "number",
+                "unsupported scalar return"
+            )
             need(returned == nil or returned == kind, "incompatible scalar returns")
             returned = kind
         elseif term.kind == "invoke" then
@@ -339,7 +360,8 @@ end
 -- come from the bounded decoder or the full semantic tree-budget preflight.
 function verify.catalog(p: any): any
     fields(p, "schema entry modules catalog signatures graphs contracts")
-    same(p.schema, schema.describe())
+    need(p.schema.version == 2 or p.schema.version == 3, "unknown source graph profile")
+    same(p.schema, schema.describe(p.schema.version == 3))
     local count = dense(p.catalog, 256)
     need(count > 0 and dense(p.graphs, 256) == count, "complete semantic graph table required")
     local moduleCount = dense(p.modules, 256)
@@ -362,10 +384,18 @@ function verify.catalog(p: any): any
         fields(signature, "id kind params result")
         need(signature.id == index - 1, "signature order differs")
         need(signature.kind == "initializer" or signature.kind == "callable", "unknown signature kind")
-        need(signature.result == "boolean" or signature.result == "nil", "unsupported scalar result")
+        need(
+            signature.result == "boolean"
+            or signature.result == "nil"
+            or p.schema.version == 3 and signature.result == "number",
+            "unsupported scalar result"
+        )
         dense(signature.params, 239)
         for _, kind in ipairs(signature.params) do
-            need(kind == "boolean" or kind == "nil", "unsupported scalar parameter")
+            need(
+                kind == "boolean" or kind == "nil" or p.schema.version == 3 and kind == "number",
+                "unsupported scalar parameter"
+            )
         end
     end
     local signatures, arities, calls, used, sites, admitted, terms = {}, {}, {}, {}, {}, {}, {}
@@ -400,7 +430,7 @@ function verify.catalog(p: any): any
             need(modulesByOwner[ancestor.id] ~= nil, "foreign lexical root")
         end
         local g = p.graphs[index]
-        verify.copyGraph(g)
+        verify.copyGraph(g, p.schema.version == 3)
         need(g.programOwner == owner.id and g.nparams == #signature.params, "graph owner/signature differs")
         local ancestor, remaining = owner, count
         while ancestor.kind ~= "module" do

@@ -201,6 +201,19 @@ function verifier.verify(g: any, calls: any, entry: any?): nil
                     end
                     yield nil
                 end
+                case "NativeFloatFromBits", "NativeFloatBits", "FAdd", "NativeSelect", "IAnd" -> do
+                    if op == "NativeFloatFromBits" or op == "FAdd" then
+                        need(g.exactTypes[dst] == "float64", "numeric operation result is not a float")
+                    else
+                        need(g.exactTypes[dst] == "uint64", "numeric operation result is not a word")
+                    end
+                    for _, source in ipairs(args) do
+                        alive(state, value(state, source))
+                    end
+                    -- Arithmetic and bitcasts cannot mint Frame/PC/window authority.
+                    result = raw(dst)
+                    yield nil
+                end
                 case "NativeICmp" -> do
                     local left, right = value(state, args[1]), value(state, args[2])
                     alive(state, left, true)
@@ -341,7 +354,13 @@ function verifier.verify(g: any, calls: any, entry: any?): nil
                         result = check(state, dst, prior, "one", nil)
                         result.completes = true
                     elseif entry
-                        and (role == "constant" or role == "moduleValue" or role == "closure" or role == "checkpoint")
+                        and (
+                            role == "constant"
+                            or role == "constantPresent"
+                            or role == "moduleValue"
+                            or role == "closure"
+                            or role == "checkpoint"
+                        )
                     then
                         local prior = contextOwner(state, operands[1], operands[2], operands[3])
                         need(state.proven["current:" .. prior.id], "entry helper lacks current code proof")

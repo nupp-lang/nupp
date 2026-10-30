@@ -27,16 +27,27 @@ end
 
 -- describe() supplies the semantic schema. wire() supplies physical records
 -- consumed by the host codec and generated native layout checks.
-function schema.describe(): any
+function schema.describe(numeric: boolean?): any
+    local policies = {}
+    for index, policy in ipairs(operations) do
+        policies[index] = policy
+    end
+    if numeric then
+        policies[#policies + 1] = {name = "Add", signature = "Vvv", effect = 0, provenance = "number"}
+    end
+    local scalarKinds: any = {{id = 0, name = "boolean"}, {id = 1, name = "nil"}}
+    if numeric then
+        scalarKinds[#scalarKinds + 1] = {id = 2, name = "number"}
+    end
     local described: any = {
         magic = "NUPPCGRF",
-        version = 2,
-        profile = "boolean-nil-acyclic-import-v2",
+        version = numeric and 3 or 2,
+        profile = numeric and "number-add-source-v3" or "boolean-nil-acyclic-import-v2",
         byteOrder = "little",
         alignment = 8,
         absent = 4294967295,
         limits = {owners = 256, blocks = 4096, values = 65536, items = 1048576},
-        scalarKinds = {{id = 0, name = "boolean"}, {id = 1, name = "nil"}},
+        scalarKinds = scalarKinds,
         effects = {
             {id = 0, mayCollect = false, mayRaise = false, mayPark = false, pure = true},
             {id = 1, mayCollect = true, mayRaise = true, mayPark = false, pure = false}
@@ -104,7 +115,7 @@ function schema.describe(): any
         },
         runtimeChecks = {calleeOwner = true, scalarArguments = true, scalarResult = true}
     }
-    for index, policy in ipairs(operations) do
+    for index, policy in ipairs(policies) do
         local signature = assert(graph.signatures[policy.name], "missing canonical graph signature")
         assert(graph.signatureText[policy.name] == policy.signature, "canonical graph signature changed")
         assert(not signature.terminator, "operation became a terminator")

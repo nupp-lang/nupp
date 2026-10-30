@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Execute checked Boolean/NIL catalogs through the standalone owned core."""
+"""Execute checked scalar catalogs through the standalone owned core."""
 import argparse
 import hashlib
 import json
@@ -16,10 +16,13 @@ CASES = {"boolean": 0x7FFB000000000000, "nilValue": 0x7FF9000000000000,
          "nested": 0x7FFB000000000000,
          "branchTrue": 0x7FFB000000000000, "branchFalse": 0x7FFA000000000000,
          "branchElseif": 0x7FFB000000000000, "branchLive": 0x7FFB000000000000,
-         "modulePair": 0x7FFA000000000000}
+         "modulePair": 0x7FFA000000000000,
+         "numberAdd": 0x4017000000000000, "numberNegativeZero": 0x8000000000000000,
+         "numberNaN": 0x7FF8000000000000}
 FIXTURES = ("catalog-boolean", "catalog-nil", "catalog-live", "catalog-fresh", "catalog-nested",
             "catalog-branch-true", "catalog-branch-false", "catalog-branch-elseif", "catalog-branch-live",
-            "catalog-module-prefix", "catalog-module-main")
+            "catalog-module-prefix", "catalog-module-main",
+            "catalog-number-add", "catalog-number-negative-zero", "catalog-number-nan")
 
 
 def sha(path):
@@ -28,7 +31,9 @@ def sha(path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--bridge", type=Path, required=True)
+    parser.add_argument("--bridge", type=Path)
+    parser.add_argument("--fresh-guard", action="store_true",
+                        help="Build and calibrate a local source-bound bridge and ABI verifier.")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--guard-proof", type=Path, default=ROOT / "native/core/bridge/guard-validation.json")
     parser.add_argument("--guard-binary", type=Path)
@@ -41,6 +46,55 @@ def main():
     omitted_cases = [name for name in CASES if name not in selected_cases]
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=False)
+    fresh_guard_build = None
+    if args.fresh_guard:
+        assert args.bridge is None, "fresh guard builds its own bridge"
+        manifest = ROOT / "native/core/bridge/Cargo.toml"
+        target = out / "bridge-target"
+        cargo_env = {**os.environ, "RUSTC_WRAPPER": "/usr/bin/env"}
+        build = subprocess.run(["cargo", "+stable", "test", "--manifest-path", str(manifest),
+                                "--offline", "--locked", "--no-run", "--message-format=json",
+                                "--target-dir", str(target)], cwd=ROOT, env=cargo_env,
+                               capture_output=True, text=True, timeout=1800)
+        (out / "fresh-guard-build.out").write_text(build.stdout)
+        (out / "fresh-guard-build.err").write_text(build.stderr)
+        assert build.returncode == 0, "fresh guard test build failed"
+        executables = [Path(item["executable"]) for line in build.stdout.splitlines()
+                       if line.startswith("{") for item in [json.loads(line)]
+                       if item.get("reason") == "compiler-artifact"
+                       and item.get("profile", {}).get("test") and item.get("executable")]
+        assert len(executables) == 1, executables
+        guard_binary = executables[0].resolve()
+        build = subprocess.run(["cargo", "+stable", "build", "--manifest-path", str(manifest),
+                                "--offline", "--locked", "--bin", "nupp-core",
+                                "--target-dir", str(target)], cwd=ROOT, env=cargo_env,
+                               capture_output=True, text=True, timeout=1800)
+        (out / "fresh-bridge-build.out").write_text(build.stdout)
+        (out / "fresh-bridge-build.err").write_text(build.stderr)
+        assert build.returncode == 0, "fresh bridge build failed"
+        args.bridge = (target / "debug/nupp-core").resolve()
+        assert args.bridge.is_file()
+        unit = subprocess.run([guard_binary, "--test-threads=1"], cwd=ROOT, env=cargo_env,
+                              capture_output=True, text=True, timeout=120)
+        (out / "fresh-guard-units.out").write_text(unit.stdout)
+        (out / "fresh-guard-units.err").write_text(unit.stderr)
+        assert unit.returncode == 0 and "8 passed; 0 failed; 3 ignored;" in unit.stdout
+        source_paths = [path for path in sorted((ROOT / "native/core/bridge").rglob("*"))
+                        if path.is_file() and path.suffix in (".rs", ".S", ".toml", ".lock")]
+        args.guard_proof = out / "fresh-guard-proof.json"
+        args.guard_proof.write_text(json.dumps({
+            "status": "passed",
+            "scope": "Fresh local ABI verifier calibrated before checked-source guest bundles",
+            "binary": {"path": str(guard_binary), "sha256": sha(guard_binary)},
+            "bridge": {"path": str(args.bridge), "sha256": sha(args.bridge)},
+            "source": {str(path.relative_to(ROOT)): sha(path) for path in source_paths},
+            "validation": {"status": "passed", "unitPassed": 8,
+                           "generatedTests": "recorded in guest-program receipt"}
+        }, indent=2) + "\n")
+        fresh_guard_build = {"testBuild": "fresh-guard-build.out", "bridgeBuild": "fresh-bridge-build.out",
+                             "unitCalibration": "fresh-guard-units.out"}
+    else:
+        assert args.bridge is not None, "--bridge or --fresh-guard is required"
     bootstrap = args.bootstrap.resolve()
     freeze = json.loads((bootstrap / "freeze.json").read_text())
     tools = {role: Path(freeze["artifacts"][name]["path"])
@@ -74,7 +128,7 @@ def main():
     inputs = {str(path.resolve()): sha(path) for path in [*files, producer, negative, audit_leaf, audit_shim, *fixture_paths,
               Path(__file__), args.bridge, proof, guard_binary, *map(Path, guard_sources),
               bootstrap / "freeze.json", *tools.values()]}
-    report = {"status": "running", "inputs": inputs, "steps": [], "programs": [], "failures": [], "audits": [],
+    report = {"status": "running", "freshGuardBuild": fresh_guard_build, "inputs": inputs, "steps": [], "programs": [], "failures": [], "audits": [],
               "selectedCases": selected_cases, "omittedCases": omitted_cases,
               "preflightFixtures": list(FIXTURES),
               "scope": "Trusted checked-source catalog derives Boolean/NIL programs, including "
@@ -222,7 +276,7 @@ def main():
                 code = b"".join(struct.pack("<I", word) for word in selected["words"])
                 data = bytes.fromhex(selected["dataHex"])
                 assert len(data) == selected["dataBytes"]
-                assert struct.unpack_from("<Q", data)[0] == (2 if case_name == "modulePair" else 1)
+                assert struct.unpack_from("<Q", data)[0] == (3 if case_name.startswith("number") else 2 if case_name == "modulePair" else 1)
                 if case_name == "boolean":
                     assert struct.unpack_from("<14Q", data) == (
                         1, 2672, 2, 0, 112, 304, 2, 352, 1, 432, 1, 2, 624, 256)
@@ -264,6 +318,30 @@ def main():
                         damaged_bundle = out / (case + "-" + name + ".bundle")
                         damaged_bundle.write_bytes(bundle.read_bytes()[:72 + len(code)] + damaged)
                         guarded("refuse-" + case + "-" + name, damaged_bundle, empty, high_water, status=1)
+                if case_name == "numberAdd":
+                    body = selected["programs"][-1]
+                    add_pc = next(index for index, instruction in enumerate(body["instructions"])
+                                  if instruction[0] == "Add")
+                    assert body["instructions"][add_pc][0] == "Add"
+                    damaged = bytearray(data)
+                    damaged[selected["catalogOffsets"]["code"][-1] + add_pc * 16 + 3] = 249
+                    wrong = out / (case + "-wrong-add-slot.bundle")
+                    wrong.write_bytes(bundle.read_bytes()[:72 + len(code)] + damaged)
+                    sentinel = b"invalid numeric slot left output unchanged"
+                    unchanged = out / (case + "-wrong-add-slot-output.bin")
+                    unchanged.write_bytes(sentinel)
+                    run("refuse-" + case + "-wrong-add-slot", [args.bridge, wrong, empty, unchanged], expected=1)
+                    assert unchanged.read_bytes() == sentinel
+                    malformed = bytearray(data)
+                    struct.pack_into("<Q", malformed, selected["catalogOffsets"]["constants"][0],
+                                     CASES["boolean"])
+                    bad_operand = out / (case + "-tagged-operand.bundle")
+                    bad_operand.write_bytes(bundle.read_bytes()[:72 + len(code)] + malformed)
+                    operand_output = out / (case + "-tagged-operand-output.bin")
+                    operand_output.write_bytes(sentinel)
+                    run("refuse-" + case + "-tagged-operand",
+                        [args.bridge, bad_operand, empty, operand_output], expected=1)
+                    assert operand_output.read_bytes() == sentinel
                 short = run("short-" + case, [guard_binary, "--ignored", "--exact",
                     "abi::generated_entry_refuses_short_regions", "--test-threads=1"], extra={
                         "CORE_TEST_BUNDLE": str(bundle), "CORE_TEST_INPUT": str(empty), "CORE_TEST_HIGH_WATER": "0"})

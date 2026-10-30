@@ -1,0 +1,7 @@
+module nupp.core.catalognumbernan
+
+local function add(a: number, b: number): number
+    return a + b
+end
+
+export = add(1e309, -1e309)

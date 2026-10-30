@@ -54,14 +54,17 @@ local function empty(value: any, description: string): nil
     need(value == nil or type(value) == "table" and next(value) == nil, "unsupported " .. description)
 end
 
-local function scalar(value: any): string
+local function scalar(value: any, numeric: boolean): string
     need(value and value.tag ~= "literal" and value.tag ~= "const", "qualified scalar signatures are unsupported")
-    need(value.tag == "boolean" or value.tag == "nil", "only Boolean/NIL scalar signatures are admitted")
+    need(
+        value.tag == "boolean" or value.tag == "nil" or numeric and (value.tag == "number" or value.tag == "float64"),
+        "unsupported scalar signature"
+    )
 
-    return value.tag
+    return value.tag == "float64" and "number" or value.tag
 end
 
-local function checkedSignature(owner: any): any
+local function checkedSignature(owner: any, numeric: boolean): any
     local signature = need(owner.signature, "checked callable signature required")
     need(
         signature.tag == "func" and owner.body.signatureType == signature,
@@ -108,10 +111,10 @@ local function checkedSignature(owner: any): any
     )
     for index, value in ipairs(signature.params) do
         need(value == signature.paramPack.head[index], "checked parameter pack differs")
-        params[index] = scalar(value)
+        params[index] = scalar(value, numeric)
     end
     need(signature.rets[1] == signature.retPack.head[1], "checked result pack differs")
-    result = scalar(signature.rets[1])
+    result = scalar(signature.rets[1], numeric)
     local summary = owner.body.effectSummary
     need(
         summary and summary.yields == false and summary.top == false and summary.external == false,
@@ -134,7 +137,7 @@ local function intern(signatures: any, index: any, signature: any): integer
     return id
 end
 
-function contracts.normalize(compiled: any): any
+function contracts.normalize(compiled: any, numeric: boolean?): any
     fields(compiled, "graphs header catalog")
     local p, graphs = compiled.catalog, compiled.graphs
     need(type(p) == "table", "authentic checked catalog required")
@@ -176,7 +179,7 @@ function contracts.normalize(compiled: any): any
             "checked import target or source identity differs"
         )
     end
-    local definition = schema.describe()
+    local definition = schema.describe(numeric)
     local output: any = {
         schema = definition,
         entry = integer(compiled.header.entry, 255),
@@ -213,7 +216,7 @@ function contracts.normalize(compiled: any): any
         need(record.id == index - 1, "owner order differs")
         if owner.kind == "function" then
             record.parent = integer(owner.parent, 255)
-            record.signature = intern(output.signatures, signatureIndex, checkedSignature(owner))
+            record.signature = intern(output.signatures, signatureIndex, checkedSignature(owner, numeric == true))
         else
             need(
                 owner.kind == "module" and modulesByOwner[owner.id] ~= nil and owner.parent == nil,
@@ -221,7 +224,7 @@ function contracts.normalize(compiled: any): any
             )
         end
         output.catalog[index], callEdges[index] = record, {}
-        output.graphs[index] = semantic.copyGraph(graphs[index])
+        output.graphs[index] = semantic.copyGraph(graphs[index], numeric == true)
     end
     -- This is the authoritative source-side gate. Decoders must never call it
     -- with fabricated checker objects. Call-front adds callsite membership.

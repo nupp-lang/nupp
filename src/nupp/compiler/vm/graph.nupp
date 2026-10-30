@@ -1228,7 +1228,15 @@ local function invokeScalar(t: any): nil
         t = t.tag == "literal" and t.base or t.inner
     end
     assert(
-        t and (t.tag == "int64" or t.tag == "number" or t.tag == "boolean" or t.tag == "string" or t.tag == "nil"),
+        t
+        and (
+            t.tag == "int64"
+            or t.tag == "number"
+            or t.tag == "float64"
+            or t.tag == "boolean"
+            or t.tag == "string"
+            or t.tag == "nil"
+        ),
         "invoke requires a checked scalar type, got " .. tostring(t and t.tag)
     )
 end

@@ -124,7 +124,7 @@ export function start(binding: voidptr, ordinal: uint64): uint64
     end
     local version = native.load64(data, native.fieldOffset<catalog.DescriptorV1>("version"))
     local moduleCount: uint64 = 1ULL
-    if version == 2ULL then
+    if version ~= 1ULL then
         moduleCount = native.load64(data, native.fieldOffset<catalog.Descriptor>("moduleCount"))
     end
     if ordinal >= moduleCount then
@@ -191,7 +191,7 @@ export function start(binding: voidptr, ordinal: uint64): uint64
             return 0ULL
         end
     end
-    if version == 2ULL and native.load64(world, native.fieldOffset<instances.World>("modulePhase")) ~= ordinal then
+    if version ~= 1ULL and native.load64(world, native.fieldOffset<instances.World>("modulePhase")) ~= ordinal then
         return 0ULL
     end
     if instances.initialize(world, registry, entries, capacity, targets, owners * 8ULL, owners) == 0ULL then
@@ -209,7 +209,7 @@ export function start(binding: voidptr, ordinal: uint64): uint64
     native.store64(state, native.fieldOffset<frames.State>("helperBase"), base(binding, 5ULL))
     native.store64(state, native.fieldOffset<frames.State>("helperBytes"), extent(binding, 5ULL))
     local entry = native.load64(data, native.fieldOffset<catalog.DescriptorV1>("entry"))
-    if version == 2ULL then
+    if version ~= 1ULL then
         local moduleOffset = native.load64(data, native.fieldOffset<catalog.Descriptor>("modules"))
         entry = native.load64(data, native.index(moduleOffset + ordinal * 8ULL))
     end

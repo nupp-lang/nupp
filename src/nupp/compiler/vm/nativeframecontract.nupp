@@ -547,7 +547,10 @@ local function buildGuest(caseName: string, audited: boolean): any
         branchFalse = "catalog-branch-false",
         branchElseif = "catalog-branch-elseif",
         branchLive = "catalog-branch-live",
-        modulePair = "catalog-module-main"
+        modulePair = "catalog-module-main",
+        numberAdd = "catalog-number-add",
+        numberNegativeZero = "catalog-number-negative-zero",
+        numberNaN = "catalog-number-nan"
     }
     local fixture = need(fixtures[caseName], "unknown fixed guest program")
     need(current == nil, "nested construction")
@@ -646,6 +649,9 @@ local function buildGuest(caseName: string, audited: boolean): any
     state.guestEntry = {valueCountOffset = need(state.frameLayout.offsets.valueCount, "Frame count offset")}
     local handlers = scopes[guestModule]
     local handlerNames = {"K", "Nil", "Move", "NewClosure", "CallK", "Ret", "Jmp", "JmpIf", "Invalid"}
+    if caseName == "numberAdd" or caseName == "numberNegativeZero" or caseName == "numberNaN" then
+        table.insert(handlerNames, 2, "Add")
+    end
     if caseName == "modulePair" then
         table.insert(handlerNames, 2, "Require")
     end
@@ -686,6 +692,7 @@ local function buildGuest(caseName: string, audited: boolean): any
         current = "current",
         charge = "charge",
         constant = "constant",
+        constantPresent = "constantPresent",
         moduleValue = "moduleValue",
         closure = "closure",
         prepare = "prepare",
@@ -758,7 +765,8 @@ local function buildGuest(caseName: string, audited: boolean): any
     local program: any = require("nupp.compiler.vm." .. programName)
     local tagged: any = require("nupp.compiler.vm." .. taggedName)
     local catalog = program.describe(modules, moduleName)
-    state.executable = guestExecutable().fromChecked(program.compile(catalog, tagged))
+    local numeric = caseName == "numberAdd" or caseName == "numberNegativeZero" or caseName == "numberNaN"
+    state.executable = guestExecutable().fromChecked(program.compile(catalog, tagged), numeric)
     validateSource(state)
     table.sort(all, function(a: any, b: any): boolean
         return a.name < b.name

@@ -90,10 +90,7 @@ function tagged.literal(ctx: any, node: any, expected: string?): integer
     if constant.kind == "int64" or constant.kind == "uint64" then
         value = constant.text
     elseif constant.kind == "num" then
-        value = need(tonumber(constant.text), "invalid checked numeric constant")
-        if value == 0 and constant.text:sub(1, 1) == "-" then
-            value = -0.0
-        end
+        value = constant.bytes
     end
 
     return ctx.emit(node, "K", {pool(ctx, constant.kind, value)}, "tagged")
@@ -112,8 +109,26 @@ function tagged.unary(ctx: any, node: any, expected: string?): integer
     return tagged.literal(ctx, node, expected)
 end
 
+local function typeKind(t: any): string
+    while t and (t.tag == "literal" or t.tag == "const") do
+        t = t.tag == "literal" and t.base or t.inner
+    end
+    return t and t.tag or "missing"
+end
+
+local function numberType(t: any): boolean
+    local kind = typeKind(t)
+    return kind == "number" or kind == "float64"
+end
+
 function tagged.binary(ctx: any, node: any, expected: string?): integer
-    error("tagged graph: arithmetic is outside lexical construction", 0)
+    need(node.op.text == "+" and (expected == nil or expected == "tagged"), "only number addition is admitted")
+    need(numberType(node.inferredType), "number result required")
+    need(numberType(node.lhs.inferredType), "left number required")
+    need(numberType(node.rhs.inferredType), "right number required")
+    local operands = ctx.operands({node.lhs, node.rhs}, {"tagged", "tagged"})
+
+    return ctx.emit(node, "Add", operands, "tagged")
 end
 
 function tagged.checkLogical(ctx: any, node: any): boolean

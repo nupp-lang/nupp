@@ -112,6 +112,19 @@ export function current(ctx: voidptr, frame: voidptr, pc: voidptr): uint64
     return record
 end
 
+export function constantPresent(ctx: voidptr, frame: voidptr, pc: voidptr, index: uint64): uint64
+    local found = current(ctx, frame, pc)
+    if found == 0ULL then
+        return 0ULL
+    end
+
+    if index < native.load64(native.pointer(found), native.fieldOffset<catalog.Function>("constantCount")) then
+        return 1ULL
+    end
+
+    return 0ULL
+end
+
 export function constant(ctx: voidptr, frame: voidptr, pc: voidptr, index: uint64): uint64
     local found = current(ctx, frame, pc)
     if found == 0ULL then

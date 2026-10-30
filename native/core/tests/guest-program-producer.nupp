@@ -254,6 +254,10 @@ local function compile(caseName: string, mode: string, capacityText: string, sce
     contract.validateGuest(source)
     local programs = {}
     for _, body in ipairs(source.executable.functions) do
+        local constants = {}
+        for index, constant in ipairs(body.constants) do
+            constants[index] = {kind = constant.kind, valueHex = hex(constant.value)}
+        end
         programs[
             #programs + 1
         ] = {
@@ -263,7 +267,7 @@ local function compile(caseName: string, mode: string, capacityText: string, sce
             instructionCount = body.instructionCount,
             valueCount = body.valueCount,
             calls = body.calls,
-            constants = body.constants
+            constants = constants
         }
     end
     output.dataHex, output.dataBytes = hex(packed.bytes), #packed.bytes
@@ -278,7 +282,7 @@ local function compile(caseName: string, mode: string, capacityText: string, sce
         constants = packed.constantOffsets,
         dispatch = packed.dispatchOffset
     }
-    output.scope = "Checked Boolean/NIL acyclic guests with up to two ordered initializers, one static scalar import after Nupp-owned publication, fresh entry storage, retained World, zero-capture instances, fixed CallK and one-produced Ret; no named exports, cycles, RetNil, general loader, tagged objects or GC"
+    output.scope = "Checked acyclic scalar guests, with v3 source-bound number addition; no named exports, cycles, general loader, tagged objects or GC"
 
     return json.encode(output)
 end

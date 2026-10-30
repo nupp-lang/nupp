@@ -29,7 +29,7 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
             calls[#calls + 1] = {owner = fn.owner, call = call}
         end
     end
-    local version = #code.initializers == 1 and 1 or 2
+    local version = code.semantic.schema.version == 3 and 3 or (#code.initializers == 1 and 1 or 2)
     local descriptorName = version == 1 and "DescriptorV1" or "Descriptor"
     local cursor = layouts[descriptorName].size
     local recordOffset = cursor
@@ -41,7 +41,7 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
     local targetOffset = cursor
     cursor += #records * 8
     local moduleOffset = cursor
-    if version == 2 then
+    if version ~= 1 then
         cursor += #code.initializers * 8
     end
     local parameterOffsets, constantOffsets, codeOffsets = {}, {}, {}
@@ -81,8 +81,8 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
     end
 
     local function kind(name: string): integer
-        assert(name == "boolean" or name == "nil", "scalar signature kind")
-        return name == "boolean" and 1 or 2
+        assert(name == "boolean" or name == "nil" or version == 3 and name == "number", "scalar signature kind")
+        return name == "boolean" and 1 or name == "nil" and 2 or 3
     end
 
     local descriptor: any = {
@@ -101,7 +101,7 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
         dispatch = dispatchOffset,
         handlerCount = #dispatch
     }
-    if version == 2 then
+    if version ~= 1 then
         descriptor.moduleCount, descriptor.modules = #code.initializers, moduleOffset
     end
     fields(descriptorName, 0, descriptor)
@@ -112,6 +112,17 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
         ["nil"] = literal.integer(assert(values.exportedConstants.NIL))
     }
     local nextCall = 0
+
+    local function floatBits(bytes: string): int64
+        assert(#bytes == 8, "checked float constant width")
+        local hex = {}
+        for index = 8, 1, -1 do
+            hex[#hex + 1] = string.format("%02x", bytes:byte(index))
+        end
+
+        return literal.integer("0x" .. table.concat(hex))
+    end
+
     for index, owner in ipairs(records) do
         local fn = code.functions[index]
         assert(fn.owner == owner.id and owner.id == index - 1)
@@ -136,14 +147,15 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
             -- target owner in Require. It has no runtime value-pool payload.
             word(
                 (constantOffsets[index] + (ci - 1) * 8) as integer,
-                assert(constants[constant.kind] or constant.kind == "str" and constants["nil"])
+                constant.kind == "num" and version == 3 and floatBits(constant.value)
+                or assert(constants[constant.kind] or constant.kind == "str" and constants["nil"])
             )
         end
         for byte = 1, #fn.code do
             bytes[codeOffsets[index] + byte] = fn.code:byte(byte)
         end
     end
-    if version == 2 then
+    if version ~= 1 then
         for index, owner in ipairs(code.initializers) do
             word((moduleOffset + (index - 1) * 8) as integer, owner)
         end
