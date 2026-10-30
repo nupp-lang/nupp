@@ -11,7 +11,8 @@ local function assemble(
     roots: {any},
     functions: {[string]: any},
     available: integer,
-    imports: any?
+    imports: any?,
+    extentError: string?
 ): any
     local names: {string} = {}
     for name in pairs(functions) do
@@ -20,6 +21,7 @@ local function assemble(
     table.sort(names)
     assert(#roots > 0 and #roots <= 256 and #names <= 256, "core link function count")
     assert(available >= 0, "core link available extent")
+    local spillError = extentError or "core link call-chain spill extent"
     local visiting, heights = {}, {}
     local height: function(any): integer
     height = function(code: any): integer
@@ -31,7 +33,7 @@ local function assemble(
         local frame: integer = code.frameBytes
         local extent = frame
         assert(extent >= 0 and extent % 16 == 0, "core link frame alignment")
-        assert(frame <= available, "core link call-chain spill extent")
+        assert(frame <= available, spillError)
         for at, kind in ipairs(code.fixupKind) do
             if kind == selector.IMPORT_LOAD then
                 assert(
@@ -44,7 +46,7 @@ local function assemble(
                 assert(target, "core link unresolved function")
                 local child = height(target)
                 local held = kind == selector.BL26 and frame or 0
-                assert(child <= available - held, "core link call-chain spill extent")
+                assert(child <= available - held, spillError)
                 local needed = child + held
                 if needed > extent then
                     extent = needed
@@ -63,9 +65,12 @@ local function assemble(
         end
     end
     for _, name in ipairs(names) do
-        height(functions[name])
+        local extent = height(functions[name])
+        if extent > maximum then
+            maximum = extent
+        end
     end
-    assert(maximum <= available, "core link call-chain spill extent")
+    assert(maximum <= available, spillError)
     local words: {integer} = {}
     for _, word in ipairs(prefix) do
         words[#words + 1] = word
@@ -133,7 +138,7 @@ function link.assemble(prefix: {integer}, roots: {any}, functions: {[string]: an
         sink.refuseLegacyCode(code)
     end
 
-    return assemble(prefix, roots, functions, available, nil)
+    return assemble(prefix, roots, functions, available, nil, nil)
 end
 
 -- Transport-only prefix words remain trusted builder input. All Nupp bodies
@@ -143,12 +148,13 @@ function link.assembleAuthenticated(
     prefix: {integer},
     roots: {any},
     functions: {[string]: any},
-    available: integer
+    available: integer,
+    extentError: string?
 ): any
     local sink = require("nupp.compiler.s0.nativegraph")
     local imports = sink.verifyLinkInputs(roots, functions)
 
-    return assemble(prefix, roots, functions, available, imports)
+    return assemble(prefix, roots, functions, available, imports, extentError)
 end
 
 export = link

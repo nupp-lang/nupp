@@ -112,12 +112,26 @@ function shim.build(source: any, selected: {[string]: any}, stress: boolean, sce
         found = found + 1
     end
     assert(found == count, "heap selected inventory")
-    local scratchBytes: integer = 131072
     local scratchSpill = align(size("PageScope"))
+    -- A selected chain may need more than the old 128 KiB mapping. Preflight
+    -- under a fixed ceiling before allocating either scratch or retained data.
+    local scratchCeiling: integer = 1048576
     local extent = checkedInteger(
-        linker.assembleAuthenticated({}, roots, functions, scratchBytes - scratchSpill).callBytes
+        linker.assembleAuthenticated(
+            {},
+            roots,
+            functions,
+            scratchCeiling - scratchSpill,
+            "heap call chain exceeds 1 MiB scratch cap"
+        ).callBytes
     )
     assert(extent > 0 and extent % 16 == 0, "heap helper extent")
+    local highWater = scratchSpill + extent
+    local scratchBytes: integer = 131072
+    if highWater > scratchBytes then
+        scratchBytes = ((highWater + 65535) // 65536) * 65536
+    end
+    assert(scratchBytes <= scratchCeiling, "heap scratch capacity")
     local descriptorBytes = size("Descriptor") + 24
     assert(descriptorBytes % 8 == 0, "whole-word root descriptor")
     local bindingOffset = align(size("EntryBacking"))

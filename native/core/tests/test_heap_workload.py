@@ -118,8 +118,11 @@ def execute_case(run, args, scenario_name, mode, selected, report, prefix="", gu
                                           "nupp.runtime.core.pagemappings.releaseEntry"]
     high_water = selected["spillOffset"] + selected["callBytes"]
     assert 0 < high_water <= selected["scratchBytes"]
+    assert selected["scratchBytes"] == max(131072, ((high_water + 65535) // 65536) * 65536)
+    assert selected["scratchBytes"] <= 1048576
     assert selected["retainedHelperOffset"] + selected["callBytes"] == selected["retainedCanaryOffset"]
     assert selected["retainedCanaryOffset"] + 16 == selected["retainedBytes"]
+    assert selected["retainedBytes"] <= 1048576
     if mode == "spill":
         assert sum(item["spillSlots"] for item in selected["metrics"]) > 0
     code = b"".join(struct.pack("<I", word & 0xFFFFFFFF) for word in selected["words"])

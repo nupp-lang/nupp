@@ -382,6 +382,40 @@ function producer.compile(mode: string): string
         end,
         "call-chain spill extent"
     )
+    -- The terminal capture is the only entry here. The larger probe chain is
+    -- still included as an original issued Code, so the advertised extent must
+    -- cover it even though no root reaches it.
+    local unrooted = {}
+    for name, code in pairs(codes) do
+        unrooted[name] = code
+    end
+    unrooted[source.probe] = roots[1]
+    local isolated = linker.assembleAuthenticated({}, {roots[2]}, unrooted, 65536)
+    assert(#isolated.offsets == 1 and isolated.offsets[1] == 0, "isolated root offset")
+    assert(
+        isolated.callBytes == selected.callBytes and isolated.callBytes > roots[2].frameBytes,
+        "unrooted included body must determine whole-chain extent"
+    )
+    local unrootedOk, unrootedProblem = pcall(function(): any
+        return linker.assembleAuthenticated({}, {roots[2]}, unrooted, (isolated.callBytes as integer) - 1)
+    end)
+    assert(
+        not unrootedOk and tostring(unrootedProblem):find("call-chain spill extent", 1, true),
+        "unrooted exact-capacity refusal"
+    )
+    local capOk, capProblem = pcall(function(): any
+        return linker.assembleAuthenticated(
+            {},
+            roots,
+            codes,
+            (selected.callBytes as integer) - 1,
+            "frame fixture exact-capacity refusal"
+        )
+    end)
+    assert(
+        not capOk and tostring(capProblem):find("frame fixture exact-capacity refusal", 1, true),
+        "custom exact-capacity refusal"
+    )
     selected.batchRefusals = batchRefusals
     selected.batchVerification = {uniqueCodes = #names, fullChecks = total, callFixups = calls}
     selected.metrics, selected.mode = metrics, mode
