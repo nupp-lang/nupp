@@ -1341,7 +1341,7 @@ export function rootRanges(state: voidptr, control: voidptr, serial: uint64, out
     if count == 0ULL or count > capacity then
         return 0ULL
     end
-    native.store64(output, 0, native.address(control) + native.fieldOffset<RootControl>("value"))
+    native.store64(output, 0, native.address(control) + native.word(native.fieldOffset<RootControl>("value")))
     native.store64(output, 8, native.load64(control, native.fieldOffset<RootControl>("count")))
     local frame = native.loadPointer(state, native.fieldOffset<State>("active"))
     if native.address(frame) ~= 0ULL then
@@ -1357,7 +1357,7 @@ export function rootRanges(state: voidptr, control: voidptr, serial: uint64, out
         native.store64(
             output,
             native.index(at + 16ULL),
-            native.address(frame) + native.fieldOffset<Frame>("closureRoot")
+            native.address(frame) + native.word(native.fieldOffset<Frame>("closureRoot"))
         )
         native.store64(output, native.index(at + 24ULL), 1ULL)
         at = at + 32ULL
