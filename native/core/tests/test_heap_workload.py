@@ -8,7 +8,7 @@ import struct
 from heap_runner_support import BoundRunner, sha, write_json
 
 SUITE = "heapownedartifacttest"
-SCENARIOS = ("noop", "acquire-refusal", "release-refusal", "cell-normal", "cell-stress")
+SCENARIOS = ("noop", "acquire-refusal", "release-refusal", "cell-normal", "cell-stress", "cell-phase-refusal")
 MODES = ("normal", "spill")
 MATRIX = tuple((scenario, mode) for scenario in SCENARIOS for mode in MODES)
 
@@ -28,7 +28,7 @@ def matrix_artifacts(document, directory):
         names = [item["name"] for item in selected["metrics"]]
         assert len(names) == len(set(names)) == owners
         assert selected["mode"] == mode
-        assert selected["scenario"] == ("cell" if scenario.startswith("cell-") else scenario)
+        assert selected["scenario"] == ("cell" if scenario in ("cell-normal", "cell-stress") else scenario)
         assert selected["collectionMode"] == ("stress" if scenario == "cell-stress" else "normal")
         result[key] = selected
     return result
@@ -86,6 +86,7 @@ function M.produceArtifact()
     if scenario == "matrix" then artifact = producer.matrix(out)
     elseif scenario == "cell-normal" then artifact = producer.compile(mode, "normal")
     elseif scenario == "cell-stress" then artifact = producer.compile(mode, "stress")
+    elseif scenario == "cell-phase-refusal" then artifact = producer.refusePhase(mode)
     else artifact = producer.transport(mode, scenario) end
     for name, module in pairs(original) do
         assert(require(name) == module and package.loaded[name] == module,
@@ -112,10 +113,12 @@ def execute_case(run, args, scenario_name, mode, selected, report, prefix="", gu
     assert selected["mode"] == mode and selected["outputWords"] == selected["expectedOutput"] == 1
     assert selected["collectionMode"] == ("stress" if scenario_name == "cell-stress" else "normal")
     scenario = "cell" if scenario_name.startswith("cell-") else scenario_name
-    assert selected["scenario"] == scenario
+    assert selected["scenario"] == (scenario_name if scenario_name == "cell-phase-refusal" else scenario)
     if scenario != "cell":
         assert selected["rootNames"] == ["nupp.runtime.core.pagemappings.acquireEntry",
                                           "nupp.runtime.core.pagemappings.releaseEntry"]
+    else:
+        assert len(selected["rootNames"]) == 6
     high_water = selected["spillOffset"] + selected["callBytes"]
     assert 0 < high_water <= selected["scratchBytes"]
     assert selected["scratchBytes"] == max(131072, ((high_water + 65535) // 65536) * 65536)
@@ -144,15 +147,28 @@ def execute_case(run, args, scenario_name, mode, selected, report, prefix="", gu
         output.write_bytes(b"unmodified-output")
         report["nativeAttempted"] = True
         save()
-        run.run(prefix + "native-bridge", [bridge, artifact, empty, output])
-        assert output.read_bytes() == expected.read_bytes(), "native scalar checksum differs"
+        refusal = scenario_name == "cell-phase-refusal"
+        run.run(prefix + "native-bridge", [bridge, artifact, empty, output],
+                expected_status=1 if refusal else 0)
         report["nativeExecution"] = True
+        if refusal:
+            assert path("native-bridge.err").read_bytes() == (
+                b"nupp-core: Nupp entry refused with transport status 2\n"
+            ), "wrong refusal boundary"
+            assert output.read_bytes() == b"unmodified-output", "refusal changed output file"
+            abi_test = "abi::generated_entry_returns_requested_status"
+            extra = {"CORE_TEST_BUNDLE": str(artifact), "CORE_TEST_INPUT": str(empty),
+                     "CORE_TEST_STATUS": "2", "CORE_TEST_HIGH_WATER": str(high_water)}
+        else:
+            assert output.read_bytes() == expected.read_bytes(), "native scalar checksum differs"
+            abi_test = "abi::generated_entry_preserves_c_abi_and_output"
+            extra = {"CORE_TEST_BUNDLE": str(artifact), "CORE_TEST_INPUT": str(empty),
+                     "CORE_TEST_EXPECTED": str(expected), "CORE_TEST_HIGH_WATER": str(high_water)}
         result = run.run(prefix + "abi-scratch-guard", [guard, "--ignored", "--exact",
-            "abi::generated_entry_preserves_c_abi_and_output", "--test-threads=1"],
-            {"CORE_TEST_BUNDLE": str(artifact), "CORE_TEST_INPUT": str(empty),
-             "CORE_TEST_EXPECTED": str(expected), "CORE_TEST_HIGH_WATER": str(high_water)})
+            abi_test, "--test-threads=1"], extra)
         assert b"1 passed; 0 failed; 0 ignored;" in result, result
-        report.update(status="native-boundary-passed", abiScratchGuardPassed=True)
+        report.update(status="native-refusal-passed" if refusal else "native-boundary-passed",
+                      abiScratchGuardPassed=True, outputFileUnchanged=refusal)
 
 
 def main():
@@ -163,7 +179,7 @@ def main():
     parser.add_argument("--timeout", type=int, help="per-command seconds (matrix: 5400; single case: 1800)")
     parser.add_argument("--mode", choices=MODES)
     parser.add_argument("--scenario", choices=SCENARIOS)
-    parser.add_argument("--matrix", action="store_true", help="produce the closed ten-case matrix from one original checked unit")
+    parser.add_argument("--matrix", action="store_true", help="produce the closed twelve-case matrix from one original checked unit")
     parser.add_argument("--artifact-only", action="store_true")
     parser.add_argument("--bridge", type=Path)
     parser.add_argument("--abi-test-binary", type=Path)

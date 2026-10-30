@@ -124,7 +124,7 @@ local function artifact(
     output.dataHex, output.dataBytes = hex(bytes), #bytes
     output.mode, output.collectionMode, output.metrics = mode, stressText, metrics
     output.outputWords, output.expectedOutput = 1, 1
-    if scenario == "cell" then
+    if scenario == "cell" or scenario == "cell-phase-refusal" then
         output.scope = "Owned source-created Heap and real root/frame lifecycle; CELL collection, transfer and reclamation. No closure or whole-language coverage."
     else
         output.scope = "Owned original mapping wrappers: "
@@ -169,6 +169,12 @@ function producer.matrix(directory: string): string
             artifacts[key] = filename
             progress(directory, "artifact-produced", key)
         end
+        local key = "cell-phase-refusal-" .. mode
+        progress(directory, "linking-artifact", key)
+        local filename = key .. "-selection.json"
+        write(directory .. "/" .. filename, artifact(source, selected, metrics, mode, "normal", "cell-phase-refusal"))
+        artifacts[key] = filename
+        progress(directory, "artifact-produced", key)
     end
     contract.validateHeapServices(source)
 
@@ -185,6 +191,10 @@ end
 
 function producer.compile(mode: string, stressText: string): string
     return build(mode, stressText, "cell")
+end
+
+function producer.refusePhase(mode: string): string
+    return build(mode, "normal", "cell-phase-refusal")
 end
 
 function producer.transport(mode: string, scenario: string): string

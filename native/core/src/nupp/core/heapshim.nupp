@@ -27,10 +27,15 @@ end
 -- All entry-owned data survives a failed call independently of bridge scratch.
 function shim.build(source: any, selected: {[string]: any}, stress: boolean, scenario: string): any
     assert(
-        scenario == "cell" or scenario == "noop" or scenario == "acquire-refusal" or scenario == "release-refusal",
+        scenario == "cell"
+        or scenario == "cell-phase-refusal"
+        or scenario == "noop"
+        or scenario == "acquire-refusal"
+        or scenario == "release-refusal",
         "closed heap workload"
     )
     contract.validateHeapServices(source)
+    local cell = scenario == "cell" or scenario == "cell-phase-refusal"
     local rootNames = {
         "nupp.runtime.core.pagemappings.initialize",
         "nupp.runtime.core.servicescope.initialize",
@@ -59,7 +64,7 @@ function shim.build(source: any, selected: {[string]: any}, stress: boolean, sce
             assert(params[slot] == kind, "heap boundary argument kind")
         end
         assert(item.graph.native.result == (index == 5 and "voidptr" or "uint64"), "heap boundary result kind")
-        if scenario == "cell" or index >= 5 then
+        if cell or index >= 5 then
             roots[#roots + 1], rootSet[name] = code, true
             rootIndices[index] = #roots
         end
@@ -90,6 +95,8 @@ function shim.build(source: any, selected: {[string]: any}, stress: boolean, sce
     local frames = unit.ownerModule(entryOwner, "nupp.runtime.core.frames")
     local values = unit.ownerModule(entryOwner, "nupp.runtime.vm.values")
     local retired = assert(frames.exportedConstants.ROOT_RETIRED)
+    local active = literal.integer(assert(frames.exportedConstants.ROOT_ACTIVE))
+    assert(active == 1LL, "checked active root phase")
     local nilValue = assert(values.exportedConstants.NIL)
     local trueValue = assert(values.exportedConstants.TRUE)
 
@@ -151,7 +158,8 @@ function shim.build(source: any, selected: {[string]: any}, stress: boolean, sce
     local words: {integer} = {}
     local refusals: {{
         at: integer,
-        condition: integer
+        condition: integer,
+        status: integer
     }} = {}
     local calls: {{
         at: integer,
@@ -180,8 +188,8 @@ function shim.build(source: any, selected: {[string]: any}, stress: boolean, sce
         emit(arm.add_imm(64, dst, base, low, 0))
     end
 
-    local function refuse(condition: integer): nil
-        refusals[#refusals + 1] = {at = #words + 1, condition = condition}
+    local function refuse(condition: integer, status: integer?): nil
+        refusals[#refusals + 1] = {at = #words + 1, condition = condition, status = status or 1}
         emit(arm.b_cond(condition, 0))
     end
 
@@ -202,7 +210,7 @@ function shim.build(source: any, selected: {[string]: any}, stress: boolean, sce
     -- Read the retained entry state independently of the service's return code.
     -- Any refusal keeps the backing mapped and suppresses scalar success.
     local function completedEntry(): nil
-        local function requireWord(layout: any, field: string, expected: string): nil
+        local function requireWord(layout: any, field: string, expected: string, refusalStatus: integer?): nil
             emit(arm.ldr(8, 16, 15, checkedInteger(layout.offsets[field])))
             local value = literal.integer(expected)
             for half = 0, 3 do
@@ -214,7 +222,7 @@ function shim.build(source: any, selected: {[string]: any}, stress: boolean, sce
                 end
             end
             emit(arm.cmp_reg(64, 16, 17));
-            refuse(1)
+            refuse(1, refusalStatus)
         end
 
         offset(15, 19, storageOffset)
@@ -226,7 +234,7 @@ function shim.build(source: any, selected: {[string]: any}, stress: boolean, sce
         requireWord(layouts.FrameState, "depth", "0")
         offset(15, 19, rootOffset + checkedInteger(layouts.RootStorage.offsets.root))
         requireWord(layouts.RootControl, "frame", "0")
-        requireWord(layouts.RootControl, "phase", retired)
+        requireWord(layouts.RootControl, "phase", retired, scenario == "cell-phase-refusal" and 2 or 1)
         requireWord(layouts.RootControl, "count", "1")
         requireWord(layouts.RootControl, "value", trueValue)
         offset(15, 19, storageOffset + checkedInteger(layouts.Storage.offsets.outerResult))
@@ -273,7 +281,7 @@ function shim.build(source: any, selected: {[string]: any}, stress: boolean, sce
         emit(arm.cmp_imm(64, 0, 0, 0));
         refuse(0)
         emit(arm.mov_reg(64, 19, 0))
-        if scenario == "cell" then
+        if cell then
             offset(23, 19, helperOffset)
             -- Copy every byte rootentry may retain. Neither Frame.code/bodyOwner nor
             -- Binding.data references packet storage after this copy.
@@ -350,6 +358,12 @@ function shim.build(source: any, selected: {[string]: any}, stress: boolean, sce
                 emit(arm.cmp_reg(64, 16, 17));
                 refuse(1)
             end
+            if scenario == "cell-phase-refusal" then
+                local rootOffset = storageOffset + checkedInteger(layouts.Storage.offsets.root)
+                offset(15, 19, rootOffset + checkedInteger(layouts.RootStorage.offsets.root))
+                immediate(16, active as integer)
+                emit(arm.str(8, 16, 15, checkedInteger(layouts.RootControl.offsets.phase)))
+            end
             completedEntry()
         elseif scenario == "release-refusal" then
             -- A mismatched extent refuses before consuming the live token. This
@@ -399,10 +413,16 @@ function shim.build(source: any, selected: {[string]: any}, stress: boolean, sce
     emit(arm.b(0))
     local failed = #words + 1;
     immediate(0, 1)
+    local failedEnd = #words + 1;
+    emit(arm.b(0))
+    local phaseFailed = #words + 1;
+    immediate(0, 2)
     local restore = #words + 1
     words[success] = arm.b((restore - success) * 4)
+    words[failedEnd] = arm.b((restore - failedEnd) * 4)
     for _, refusal in ipairs(refusals) do
-        words[refusal.at] = arm.b_cond(refusal.condition, (failed - refusal.at) * 4)
+        local target = refusal.status == 2 and phaseFailed or failed
+        words[refusal.at] = arm.b_cond(refusal.condition, (target - refusal.at) * 4)
     end
     for reg = 8, 14, 2 do
         emit(arm.ldp_fp(64, reg, reg + 1, 31, 96 + (reg - 8) * 8, 0))
@@ -424,8 +444,8 @@ function shim.build(source: any, selected: {[string]: any}, stress: boolean, sce
         offsets = linked.offsets,
         frames = linked.frames,
         scenario = scenario,
-        rootNames = scenario == "cell" and rootNames or {rootNames[5], rootNames[6]},
-        descriptorTarget = scenario == "cell" and linked.offsets[rootIndices[3]] or 0,
+        rootNames = cell and rootNames or {rootNames[5], rootNames[6]},
+        descriptorTarget = cell and linked.offsets[rootIndices[3]] or 0,
         entry = 0,
         scratchBytes = scratchBytes,
         spillOffset = scratchSpill,

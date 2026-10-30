@@ -512,7 +512,7 @@ class BoundRunner:
         self.env["NUPP_HEAP_GRAPH_OUTPUT"] = str(self.out)
         self.stable()
 
-    def run(self, label, command, extra=None):
+    def run(self, label, command, extra=None, expected_status=0):
         self.stable()
         command = list(map(str, command))
         stdout, stderr = self.out / (label + ".out"), self.out / (label + ".err")
@@ -526,7 +526,7 @@ class BoundRunner:
                 child = subprocess.run(command, cwd=self.root, env={**self.env, **(extra or {})},
                                        stdout=output, stderr=errors, timeout=self.timeout)
             step["returnCode"] = child.returncode
-            assert child.returncode == 0, label + " failed; see retained output"
+            assert child.returncode == expected_status, label + " returned unexpected status; see retained output"
             self.stable()
             return stdout.read_bytes()
         finally:

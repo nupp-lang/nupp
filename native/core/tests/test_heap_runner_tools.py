@@ -520,12 +520,19 @@ class HeapMatrixTests(unittest.TestCase):
     """Controller tests use synthetic serialized output, never issued compiler graphs."""
     @staticmethod
     def selection(scenario, mode):
-        return {"mode": mode, "scenario": "cell" if scenario.startswith("cell-") else scenario,
+        return {"mode": mode, "scenario": "cell" if scenario in ("cell-normal", "cell-stress") else scenario,
                 "collectionMode": "stress" if scenario == "cell-stress" else "normal",
                 "metrics": [{"name": "one", "spillSlots": int(mode == "spill")}],
                 "outputWords": 1, "expectedOutput": 1, "entry": 0,
-                "rootNames": ["nupp.runtime.core.pagemappings.acquireEntry", "nupp.runtime.core.pagemappings.releaseEntry"],
-                "spillOffset": 8, "callBytes": 8, "scratchBytes": 16,
+                "rootNames": (["nupp.runtime.core.pagemappings.initialize",
+                               "nupp.runtime.core.servicescope.initialize",
+                               "nupp.runtime.core.heapentry.run",
+                               "nupp.runtime.core.servicescope.close",
+                               "nupp.runtime.core.pagemappings.acquireEntry",
+                               "nupp.runtime.core.pagemappings.releaseEntry"] if scenario.startswith("cell-")
+                              else ["nupp.runtime.core.pagemappings.acquireEntry",
+                                    "nupp.runtime.core.pagemappings.releaseEntry"]),
+                "spillOffset": 8, "callBytes": 8, "scratchBytes": 131072,
                 "retainedHelperOffset": 8, "retainedCanaryOffset": 16, "retainedBytes": 32,
                 "words": [0], "dataHex": "", "dataBytes": 0}
 
@@ -542,7 +549,7 @@ class HeapMatrixTests(unittest.TestCase):
         output = Path(directory.name)
         for s, m in MATRIX:
             (output / (s + "-" + m + "-selection.json")).write_text(json.dumps(self.selection(s, m)))
-        self.assertEqual(len(matrix_artifacts(self.document(), output)), 10)
+        self.assertEqual(len(matrix_artifacts(self.document(), output)), 12)
         for mutation in (lambda d: d["artifacts"].pop("noop-spill"),
                          lambda d: d["artifacts"].update(extra="{}"),
                          lambda d: d.update(sourceBuilds=10),
@@ -554,7 +561,7 @@ class HeapMatrixTests(unittest.TestCase):
             with self.assertRaises(AssertionError):
                 matrix_artifacts(document, output)
 
-    def controller(self, artifact_only=False, fail=None, matrix=True):
+    def controller(self, artifact_only=False, fail=None, matrix=True, single_scenario="cell-stress"):
         import test_heap_workload as workload
         directory = tempfile.TemporaryDirectory(prefix="nupp-matrix-tools-")
         self.addCleanup(directory.cleanup)
@@ -581,7 +588,7 @@ class HeapMatrixTests(unittest.TestCase):
             def guard(self, *args):
                 guard_calls.append(args)
                 return root / "guard"
-            def run(self, label, command, extra=None):
+            def run(self, label, command, extra=None, expected_status=0):
                 calls.append((label, command, extra))
                 if label == "owned-artifact-runner":
                     if matrix:
@@ -589,17 +596,27 @@ class HeapMatrixTests(unittest.TestCase):
                             (self.out / (s + "-" + m + "-selection.json")).write_text(json.dumps(self_test.selection(s, m)))
                         (self.out / "matrix.json").write_text(json.dumps(document))
                     else:
-                        (self.out / "selection.json").write_text(json.dumps(self_test.selection("cell-stress", "spill")))
+                        (self.out / "selection.json").write_text(json.dumps(self_test.selection(single_scenario, "spill")))
                     (self.out / "artifact-produced.json").write_text(json.dumps({"status": "artifact-produced",
                         "scenario": self.report["scenario"], "mode": self.report["mode"],
                         "nativeExecution": False, "guestExecution": False}))
                 elif label.endswith("native-bridge"):
                     if label == fail:
                         raise AssertionError("synthetic bridge failure")
-                    Path(command[-1]).write_bytes(struct.pack("<Q", 1))
+                    if (single_scenario == "cell-phase-refusal" and not matrix) or label.startswith("cell-phase-refusal-"):
+                        self_test.assertEqual(expected_status, 1)
+                        (self.out / (label + ".err")).write_bytes(
+                            b"nupp-core: Nupp entry refused with transport status 2\n")
+                    else:
+                        self_test.assertEqual(expected_status, 0)
+                        Path(command[-1]).write_bytes(struct.pack("<Q", 1))
                 else:
                     self_test.assertTrue(Path(extra["CORE_TEST_BUNDLE"]).is_file())
-                    self_test.assertEqual(Path(extra["CORE_TEST_EXPECTED"]).read_bytes(), struct.pack("<Q", 1))
+                    if (single_scenario == "cell-phase-refusal" and not matrix) or label.startswith("cell-phase-refusal-"):
+                        self_test.assertEqual(extra["CORE_TEST_STATUS"], "2")
+                        self_test.assertIn("abi::generated_entry_returns_requested_status", command)
+                    else:
+                        self_test.assertEqual(Path(extra["CORE_TEST_EXPECTED"]).read_bytes(), struct.pack("<Q", 1))
                     return b"1 passed; 0 failed; 0 ignored;"
                 return b""
 
@@ -607,7 +624,7 @@ class HeapMatrixTests(unittest.TestCase):
         args = ["heap", "--root", str(root), "--output", str(root / "output"),
                 "--runner-binding", str(root / "binding"), "--bridge", str(root / "bridge"),
                 "--guard-proof", str(root / "proof")]
-        args.extend(["--matrix"] if matrix else ["--mode", "spill", "--scenario", "cell-stress"])
+        args.extend(["--matrix"] if matrix else ["--mode", "spill", "--scenario", single_scenario])
         if artifact_only:
             args.append("--artifact-only")
         with patch.object(workload, "BoundRunner", Runner), patch("sys.argv", args):
@@ -618,20 +635,22 @@ class HeapMatrixTests(unittest.TestCase):
                 workload.main()
         return root / "output", calls, guard_calls, reports[0]
 
-    def test_matrix_keeps_ten_outputs_and_twenty_boundary_commands(self):
+    def test_matrix_keeps_twelve_outputs_and_boundary_commands(self):
         from test_heap_workload import MATRIX
         output, calls, guards, report = self.controller()
         self.assertEqual(len(guards), 1)
-        self.assertEqual(len(calls), 21)
+        self.assertEqual(len(calls), 25)
         self.assertEqual(report["status"], "matrix-native-boundary-passed")
         self.assertEqual([name for name, _, _ in calls[1:]],
             [s + "-" + m + "-" + stage for s, m in MATRIX for stage in ("native-bridge", "abi-scratch-guard")])
         for scenario, mode in MATRIX:
             key = scenario + "-" + mode
             case = json.loads((output / (key + "-receipt.json")).read_text())
-            self.assertEqual(case["status"], "native-boundary-passed")
+            self.assertEqual(case["status"],
+                             "native-refusal-passed" if scenario == "cell-phase-refusal" else "native-boundary-passed")
             self.assertEqual(case["bundleSha256"], sha(output / (key + "-owned.bundle")))
-            self.assertEqual((output / (key + "-output.bin")).read_bytes(), struct.pack("<Q", 1))
+            self.assertEqual((output / (key + "-output.bin")).read_bytes(),
+                             b"unmodified-output" if scenario == "cell-phase-refusal" else struct.pack("<Q", 1))
 
     def test_single_case_retains_identical_bundle_and_boundary_checks(self):
         batch, _, _, _ = self.controller(artifact_only=True)
@@ -644,13 +663,23 @@ class HeapMatrixTests(unittest.TestCase):
         self.assertEqual(len(guards), 1)
         self.assertEqual(report["status"], "native-boundary-passed")
 
+    def test_phase_refusal_has_distinct_status_and_preserves_output_file(self):
+        output, calls, guards, report = self.controller(matrix=False, single_scenario="cell-phase-refusal")
+        self.assertEqual(len(guards), 1)
+        self.assertEqual([name for name, _, _ in calls],
+                         ["owned-artifact-runner", "native-bridge", "abi-scratch-guard"])
+        self.assertEqual(report["status"], "native-refusal-passed")
+        self.assertTrue(report["nativeExecution"])
+        self.assertTrue(report["outputFileUnchanged"])
+        self.assertEqual((output / "output.bin").read_bytes(), b"unmodified-output")
+
     def test_artifact_only_does_not_claim_native_acceptance(self):
         output, calls, guards, report = self.controller(artifact_only=True)
         self.assertEqual(len(calls), 1)
         self.assertEqual(guards, [])
         self.assertEqual(report["status"], "matrix-artifacts-produced")
         self.assertFalse(report["nativeExecution"])
-        self.assertEqual(len(list(output.glob("*-owned.bundle"))), 10)
+        self.assertEqual(len(list(output.glob("*-owned.bundle"))), 12)
 
     def test_failure_keeps_completed_case_and_stops_later_native_checks(self):
         output, calls, guards, report = self.controller(fail="noop-spill-native-bridge")
