@@ -104,6 +104,16 @@ local function known(value: any, state: any): boolean?
         equal = false
     elseif left == "error" and right == "#0" or right == "error" and left == "#0" then
         equal = state.errorClear
+        -- A short-circuit join can test the same predicate again. Preserve the
+        -- selected path instead of inventing a contradictory address-check edge.
+    elseif left == "objectAddress" and right == "#0" or right == "objectAddress" and left == "#0" then
+        if state.nonnull ~= nil then
+            equal = not state.nonnull
+        end
+    elseif left == "maskedAddress" and right == "objectAddress"
+        or left == "objectAddress" and right == "maskedAddress"
+    then
+        equal = state.representable
     elseif left == "validInput" and type(right) == "boolean" then
         if state.inputGood ~= nil then
             equal = state.inputGood == right
