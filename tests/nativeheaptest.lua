@@ -398,8 +398,12 @@ local function recordWorkload(project, name)
     )
     assert(status == 0, "emitting " .. name .. ": " .. output)
     local dir = tempDirectory()
+    -- The workload image differs from the linked compiler image. Keep the
+    -- Nupp heap and recorder, but disable that image's AOT entries.
     status, output = capture(
-        ("NUPP_HEAP_TRACE=%s %s run %s wl.%s main"):format(quote(dir), quote(package.runtime), quote(image), name)
+        (
+            "NO_AOT=1 NUPP_HEAP_TRACE=%s %s run %s wl.%s main"
+        ):format(quote(dir), quote(package.runtime), quote(image), name)
     )
     assert(status == 0, "running " .. name .. ": " .. output)
 
