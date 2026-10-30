@@ -3,6 +3,7 @@ module nupp.compiler.vm.nativecleanup
 local graph = require("nupp.compiler.vm.graph")
 local cleanup = require("nupp.compiler.vm.functioncleanup")
 local service = require("nupp.compiler.vm.nativeservice")
+local physical = require("nupp.compiler.vm.nativephysical")
 
 local nativecleanup = {}
 local primitive = {["nil"] = true, boolean = true, int64 = true, uint64 = true, float32 = true, float64 = true}
@@ -61,6 +62,9 @@ function nativecleanup.profile(base: any): any
     local profile = {}
     for key, value in pairs(base) do
         profile[key] = value
+    end
+    profile.kind = function(t: any): string
+        return physical.pointerType(t) and "voidptr" or base.kind(t)
     end
     profile.initialize = function(owner: any, options: any): any
         local g = base.initialize(owner, options)

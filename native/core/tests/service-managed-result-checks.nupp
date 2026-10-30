@@ -230,10 +230,26 @@ local function entryCleanup(build: any): nil
     local roles = service.entryRoles(g)
     assert(roles and roles.owner == entry)
     local other
+    local acquired: integer = 0
     for _, block in ipairs(g.blocks) do
         for index, op in ipairs(block.op) do
             if op == "NativeLeafCall" then
-                local operation = service.operation(g, block.args[index][1])
+                local declaration = block.args[index][1]
+                local operation = service.operation(g, declaration)
+                if operation.target == roles.open then
+                    local value = block.dst[index]
+                    local result = declaration.physical.result
+                    assert(
+                        declaration.result == "voidptr"
+                        and g.exactTypes[value] == "voidptr"
+                        and g.nativePhysical.values[value] == result
+                        and result.checkedType == roles.open.resultType
+                        and result.checkedType.tag == "affine"
+                        and physical.affineValue(entry, result),
+                        "entry Arena acquisition lost its physical kind or checked ownership"
+                    )
+                    acquired = acquired + 1
+                end
                 if operation.node.kind == "call"
                     and operation.target ~= roles.open
                     and not service.arenaCleanup(g, block.args[index][1])
@@ -243,6 +259,7 @@ local function entryCleanup(build: any): nil
             end
         end
     end
+    assert(acquired == 1, "entry must acquire one original Arena")
     assert(other, "entry alternate source call is absent")
     local found = 0
     for _, block in ipairs(g.blocks) do
