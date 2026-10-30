@@ -229,6 +229,10 @@ local function entryCleanup(build: any): nil
     local g = lower.functionGraph(entry, service.options(build.catalog, entry), cleanup.profile(nativegraph))
     local roles = service.entryRoles(g)
     assert(roles and roles.owner == entry)
+    assert(
+        g.nativePhysical.signature == nil and physical.graphOwner(g) == entry,
+        "raw ABI entry must retain its original checked owner without a pointer signature"
+    )
     local other
     local acquired: integer = 0
     for _, block in ipairs(g.blocks) do
@@ -291,6 +295,7 @@ local function entryCleanup(build: any): nil
     verify(g)
     graph.prune(g)
     verify(g)
+    assert(g.nativePhysical.signature == nil and physical.graphOwner(g) == entry)
 end
 
 function M.check(build: any): nil

@@ -119,6 +119,247 @@ function M.existingWordServicesRetainBorrowedBindingAuthority()
     end
 end
 
+-- A raw ABI can still contain an ordinary checked dependent local. The
+-- original owner supplies occurrence authority; no fake parameter signature
+-- is needed to read/write that local's fields.
+function M.rawAbiDependentLocalsRetainExactFieldOwner()
+    local unit = require("nupp.compiler.vm.nativeunit")
+    local lower = require("nupp.compiler.vm.lower")
+    local profile = require("nupp.compiler.vm.nativegraph")
+    local graph = require("nupp.compiler.vm.graph")
+    local fs = require("nupp.compiler.fs")
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+    local path = dir .. "/src/fieldowner.nupp"
+    local file = assert(io.open(path, "wb"))
+    file:write(
+        [[
+module fieldowner
+const native = require("nupp.runtime.vm.intrinsics")
+local struct Box
+    value: uint64
+end
+local function keep(borrows pointer: Box*): Box* borrows (pointer)
+    return pointer
+end
+local function formal(borrows pointer: Box*): uint64
+    return pointer.value
+end
+local function read(address: uint64): uint64
+    @unsafe do
+        local pointer = native.pointer(address) as Box*
+        local borrowed = keep(pointer)
+        return borrowed.value
+    end
+end
+local function write(address: uint64, seed: uint64): uint64
+    @unsafe do
+        local pointer = native.pointer(address) as Box*
+        local borrowed = keep(pointer)
+        borrowed.value = native.asWord(seed == 0ULL or seed == 1ULL)
+        return borrowed.value
+    end
+end
+]]
+    )
+    file:close()
+    local ok, problem = pcall(function()
+        trivia.installDefault(provider)
+        local session = unit.session(dir, {{path = path, moduleName = "fieldowner"}}, TARGET, {
+            "src",
+            fs.absolute(ROOT .. "/src")
+        })
+        local owners = session.module("fieldowner").functions
+
+        local function copy(value)
+            local result = {}
+            for key, item in pairs(value) do
+                result[key] = item
+            end
+
+            return result
+        end
+
+        local function descriptor(owner)
+            for _, node in ipairs(unit.occurrences(owner)) do
+                if node.kind == "call"
+                    and node.obj.kind == "name"
+                    and node.obj.token.definition == owners.keep.definition
+                then
+                    return physical.signature(owners.keep, unit.ownerContext(owner), node, owner).result
+                end
+            end
+            error("missing original dependent call")
+        end
+
+        for _, name in ipairs({"read", "write"}) do
+            local owner = owners[name]
+            -- This raw-pointer fixture checks source descriptors and graph-owner
+            -- issuance only. Its plain argument has no runtime borrow proof;
+            -- actual heapentry.run covers acquired owners in a complete graph.
+            refuses(
+                function()
+                    lower.functionGraph(owner, session.options(owner, "leaf"), profile)
+                end,
+                "dependent call argument root differs"
+            )
+            local g = profile.initialize(owner, session.options(owner, "leaf"))
+            g.source = {path = owner.scope.path, module = owner.scope.name, name = owner.name}
+            assert(g.nativePhysical.signature == nil and physical.graphOwner(g) == owner)
+            local value = descriptor(owner)
+            assert(physical.qualifiedGraphValue(g, value))
+            local forged = graph.newNative(owner.paramKinds, owner.resultKind, "leaf")
+            forged.nativePhysical = {context = physical.new(TARGET), values = {}}
+            refuses(
+                function()
+                    physical.bindGraphOwner(forged, owner)
+                end,
+                "physical graph owner target context differs"
+            )
+            refuses(
+                function()
+                    physical.qualifiedGraphValue(copy(g), value)
+                end,
+                "qualified graph value requires original checked owner"
+            )
+            local sidecar = g.nativePhysical
+            g.nativePhysical = copy(sidecar)
+            refuses(
+                function()
+                    physical.graphOwner(g)
+                end,
+                "physical graph owner sidecar changed"
+            )
+            g.nativePhysical = sidecar
+            local context = sidecar.context
+            sidecar.context = physical.new(TARGET)
+            refuses(
+                function()
+                    physical.graphOwner(g)
+                end,
+                "physical graph owner sidecar changed"
+            )
+            sidecar.context = context
+            sidecar.signature = physical.signature(owners.keep, context)
+            refuses(
+                function()
+                    physical.graphOwner(g)
+                end,
+                "physical graph owner sidecar changed"
+            )
+            sidecar.signature = nil
+            local sourceName = g.source.name
+            g.source.name = owners.keep.name
+            refuses(
+                function()
+                    physical.graphOwner(g)
+                end,
+                "physical graph owner source changed"
+            )
+            g.source.name = sourceName
+            owner.name = owners.keep.name
+            refuses(
+                function()
+                    physical.graphOwner(g)
+                end,
+                "physical graph owner source changed"
+            )
+            owner.name = sourceName
+            local foreign = descriptor(owners[name == "read" and "write" or "read"])
+            refuses(
+                function()
+                    physical.qualifiedGraphValue(g, foreign)
+                end,
+                "occurrence is outside checked owner"
+            )
+            refuses(
+                function()
+                    physical.qualifiedGraphValue(g, physical.describe(context, value.checkedType))
+                end,
+                "qualified graph local lacks checked dependency"
+            )
+            local count = 0
+            for _, node in ipairs(unit.occurrences(owner)) do
+                if node.kind == "dotIndex" and node.obj.kind == "name" and node.obj.token.text == "borrowed" then
+                    local access = physical.field(value, node, node.assignmentTarget == true, nil, owner)
+                    count = count + 1
+                    assert(access.borrowSignature == nil and physical.validateField(access))
+                    refuses(
+                        function()
+                            physical.field(value, node, access.write)
+                        end,
+                        "qualified access requires checked owner"
+                    )
+                    refuses(
+                        function()
+                            physical.field(value, node, access.write, nil, {})
+                        end,
+                        "unknown occurrence owner"
+                    )
+                    refuses(
+                        function()
+                            physical.field(value, node, access.write, nil, owners.keep)
+                        end,
+                        "occurrence is outside checked owner"
+                    )
+                    refuses(
+                        function()
+                            physical.field(value, node, access.write, physical.signature(owners.keep, context), owner)
+                        end,
+                        "qualified access owner/signature differs"
+                    )
+                end
+            end
+            assert(count > 0)
+        end
+        local owner = owners.formal
+        local g = lower.functionGraph(owner, session.options(owner, "leaf"), profile)
+
+        local function refuseTypedClone()
+            assert(g.nativePhysical.signature and physical.graphOwner(g) == owner)
+            local clone = {}
+            for key, value in pairs(g) do
+                clone[key] = value
+            end
+            refuses(
+                function()
+                    graph.verify(clone)
+                end,
+                "qualified unit graph requires original checked owner"
+            )
+        end
+
+        refuseTypedClone()
+        local access
+        for _, block in ipairs(g.blocks) do
+            for index, op in ipairs(block.op) do
+                if op == "NativeFieldLoad" then
+                    access = block.args[index][2]
+                end
+            end
+        end
+        assert(access and access.borrowSignature == g.nativePhysical.signature)
+        local object = access.node.obj
+        local facts = object.capabilityFacts
+        object.capabilityFacts = nil
+        local accepted, message = pcall(physical.field, access.receiver, access.node, false, nil, owner)
+        object.capabilityFacts = facts
+        assert(
+            not accepted and tostring(message):find("borrowed formal access requires checked signature", 1, true),
+            tostring(message)
+        )
+        graph.verify(g)
+        graph.prune(g)
+        graph.verify(g)
+        refuseTypedClone()
+    end)
+    os.execute("rm -rf '" .. dir .. "'")
+    if not ok then
+        error(problem, 0)
+    end
+end
+
 function M.pointerResultsAndOptionalityDoNotCollapseToMachineKind()
     local context = physical.new(TARGET)
     local fn = findFunction(heap(), "objectHeader")

@@ -70,7 +70,8 @@ def source_paths(root, ignored=()):
 SUITES = ("nativepointercalltest", "nativephysicaltest", "nativephysicalgraphtest",
           "nativephysicallocaltest", "nativeospagetest", "functioncleanuptest",
           "nativeunittest", "nativegraphcontracttest", "graphguestbranchtest",
-          "nativepointertransporttest", "nativeownerviewtest", "nativeobjecthashtest")
+          "nativepointertransporttest", "nativeownerviewtest", "nativeobjecthashtest",
+          "toollayeringtest")
 CHECK_HELPERS = ("owner-view-checks", "service-contract-checks", "service-heap-effects-checks",
                  "service-return-tail-checks", "service-arena-return-checks",
                  "service-contextual-pointer-checks", "service-dependent-return-checks",

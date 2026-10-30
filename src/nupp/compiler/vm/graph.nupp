@@ -1411,6 +1411,7 @@ local function verifyGraph(g: any, invokeArity: any): nil
         error("assertion failed", 0)
     end
     local native = g.native ~= nil
+    local physicalOwner = physical.graphOwner(g)
     if g.nativePhysical then
         assert(native and type(g.nativePhysical.values) == "table", "native physical sidecars require native graph")
         -- Handler/managed admission must first model these accesses in frameverify.
@@ -1424,16 +1425,24 @@ local function verifyGraph(g: any, invokeArity: any): nil
             physical.validate(descriptor)
             if #descriptor.ownership ~= 0 then
                 local signature, matched = g.nativePhysical.signature, physical.dependent(descriptor)
-                assert(signature, "qualified graph value requires checked signature")
-                if descriptor.checkedType.tag == "affine" then
-                    matched = physical.affineValue(signature.owner, descriptor)
-                end
-                for index, parameter in ipairs(signature.params) do
-                    if parameter
-                        and physical.borrowingParameter(signature, index)
-                        and physical.same(descriptor, parameter)
-                    then
-                        matched = true
+                if physicalOwner then
+                    matched = physical.qualifiedGraphValue(g, descriptor)
+                else
+                    assert(signature, "qualified graph value requires original checked owner or signature")
+                    assert(
+                        not require("nupp.compiler.vm.nativeunit").contains(signature.owner),
+                        "qualified unit graph requires original checked owner"
+                    )
+                    if descriptor.checkedType.tag == "affine" then
+                        matched = physical.affineValue(signature.owner, descriptor)
+                    end
+                    for index, parameter in ipairs(signature.params) do
+                        if parameter
+                            and physical.borrowingParameter(signature, index)
+                            and physical.same(descriptor, parameter)
+                        then
+                            matched = true
+                        end
                     end
                 end
                 assert(matched, "borrowed graph value differs from checked parameter")

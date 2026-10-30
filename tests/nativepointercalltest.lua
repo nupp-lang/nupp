@@ -794,7 +794,7 @@ function M.changedAndCopiedDependentResultContractsAreRefused()
             mutation(g, signature, "dependent", 2, "pointer signature changed")
             mutation(g, call.args[1], "physical", shallow(signature), "unknown checked pointer signature")
             local declared = physical.signature(functions.identityBorrow, g.nativePhysical.context)
-            mutation(g, g.nativePhysical.values, call.dst, declared.result, "pointer call result descriptor differs")
+            mutation(g, g.nativePhysical.values, call.dst, declared.result, "qualified graph dependency owner differs")
             graph.verify(g)
         end,
         DEPENDENT_MODEL

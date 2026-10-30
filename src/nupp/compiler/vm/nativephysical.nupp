@@ -13,6 +13,7 @@ local localOrigins: any = setmetatable({}, {__mode = "k"})
 local signatures: any = setmetatable({}, {__mode = "k"})
 local views: any = setmetatable({}, {__mode = "k"})
 local stores: any = setmetatable({}, {__mode = "k"})
+local graphOwners: any = setmetatable({}, {__mode = "k"})
 
 local function need(ok: any, message: string): any
     assert(ok, "native physical: " .. message)
@@ -455,6 +456,107 @@ function physical.dependent(descriptor: any): boolean
     end
 
     return dependency ~= nil
+end
+
+-- A scalar/raw ABI has no pointer signature, but its local capabilities still
+-- belong to one original checked function. This private graph binding survives
+-- pruning; a copied graph or public owner label does not acquire it.
+function physical.bindGraphOwner(g: any, owner: any): nil
+    local unit = require("nupp.compiler.vm.nativeunit")
+    unit.occurrence(owner, owner.body)
+    need(graphOwners[g] == nil and g.source == nil and #g.blocks == 0, "physical graph owner already bound")
+    local sidecar = need(g.nativePhysical, "physical graph sidecar required")
+    physical.validateContext(sidecar.context)
+    need(sidecar.context == unit.ownerContext(owner), "physical graph owner target context differs")
+    graphOwners[
+        g
+    ] = {
+        owner = owner,
+        body = owner.body,
+        sidecar = sidecar,
+        context = sidecar.context,
+        signature = sidecar.signature,
+        native = g.native,
+        nativeFields = recordFields(g.native),
+        parameters = recordFields(g.native.params),
+        nparams = g.nparams,
+        path = owner.scope.path,
+        module = owner.scope.name,
+        name = owner.name
+    }
+end
+
+function physical.graphOwner(g: any): any
+    local held = graphOwners[g]
+    if not held then
+        return nil
+    end
+    need(
+        g.nativePhysical == held.sidecar
+        and held.sidecar.context == held.context
+        and held.sidecar.signature == held.signature
+        and g.native == held.native,
+        "physical graph owner sidecar changed"
+    )
+    physical.validateContext(held.context)
+    sameRecord(g.native, held.nativeFields)
+    sameRecord(g.native.params, held.parameters)
+    need(g.nparams == held.nparams, "physical graph owner parameter count changed")
+    require("nupp.compiler.vm.nativeunit").occurrence(held.owner, held.body)
+    need(
+        g.source
+        and g.source.path == held.path
+        and g.source.module == held.module
+        and g.source.name == held.name
+        and held.owner.scope.path == held.path
+        and held.owner.scope.name == held.module
+        and held.owner.name == held.name
+        and held.owner.scope.functions[held.name] == held.owner,
+        "physical graph owner source changed"
+    )
+    if held.signature then
+        physical.validateSignature(held.signature)
+        need(held.signature.owner == held.owner, "physical graph owner signature differs")
+    end
+
+    return held.owner
+end
+
+function physical.qualifiedGraphValue(g: any, descriptor: any): boolean
+    local owner = need(physical.graphOwner(g), "qualified graph value requires original checked owner")
+    physical.validate(descriptor)
+    if descriptor.checkedType.tag == "affine" then
+        return physical.affineValue(owner, descriptor)
+    end
+    local origin = origins[descriptor]
+    local dependency = origin.dependency
+    need(physical.dependent(descriptor), "qualified graph local lacks checked dependency")
+    local unit = require("nupp.compiler.vm.nativeunit")
+    if dependency.node then
+        unit.occurrence(owner, dependency.node)
+        return true
+    end
+    if origin.ownerBorrow then
+        physical.validateCast(origin.ownerBorrow)
+        local view = views[origin.ownerBorrow]
+        need(view.owner == owner, "qualified graph owner projection differs")
+        unit.occurrence(owner, view.node)
+        return true
+    end
+    local signature = need(g.nativePhysical.signature, "qualified graph formal requires checked signature")
+    for index, parameter in ipairs(signature.params) do
+        if parameter
+            and physical.borrowingParameter(signature, index)
+            and #dependency.keys == 1
+            and dependency.keys[1] == owner.parameterDefinitions[index]
+            and sameDependency(dependency, origins[parameter].dependency)
+        then
+            -- Authenticate the backing owner here. The operation's issued view
+            -- separately proves any pointee, optionality or representation change.
+            return true
+        end
+    end
+    error("native physical: qualified graph dependency owner differs", 0)
 end
 
 function physical.sameValue(left: any, right: any): boolean
@@ -2490,20 +2592,24 @@ local function callReceiver(owner: any, receiver: any, call: any): (any, any, an
     return target, actual, exported
 end
 
-local function fieldContract(receiver: any, node: any, write: boolean, signature: any?): any
+local function fieldContract(receiver: any, node: any, write: boolean, signature: any?, sourceOwner: any?): any
     physical.validate(receiver)
     local borrowed = #receiver.ownership ~= 0
     local projected = borrowed and ownerReceiver(receiver, node.obj) or nil
     if projected then
+        need(sourceOwner == nil or sourceOwner == projected, "owner receiver source differs")
         require("nupp.compiler.vm.nativeunit").occurrence(projected, node)
         if signature then
             physical.validateSignature(signature)
             need(signature.owner == projected, "owner receiver signature differs")
         end
     elseif borrowed then
-        need(signature ~= nil, "qualified access requires checked owner")
-        physical.validateSignature(signature)
-        local owner = signature.owner
+        local owner = sourceOwner or signature and signature.owner
+        need(owner ~= nil, "qualified access requires checked owner")
+        if signature then
+            physical.validateSignature(signature)
+            need(signature.owner == owner, "qualified access owner/signature differs")
+        end
         require("nupp.compiler.vm.nativeunit").occurrence(owner, node)
         need(
             node.obj and (node.obj.kind == "name" or node.obj.kind == "call") and physical.dependent(receiver),
@@ -2515,6 +2621,7 @@ local function fieldContract(receiver: any, node: any, write: boolean, signature
         elseif node.obj.capabilityFacts and node.obj.capabilityFacts.roots then
             need(sameDependency(dependency, rootSnapshot(node.obj)), "borrowed receiver roots differ")
         else
+            need(signature ~= nil, "borrowed formal access requires checked signature")
             local parameter = nil
             for index, definition in ipairs(owner.parameterDefinitions) do
                 if node.obj.token.definition == definition then
@@ -2591,8 +2698,8 @@ local function fieldContract(receiver: any, node: any, write: boolean, signature
 end
 
 function physical.field(receiver: any, node: any, write: boolean, signature: any?, owner: any?): any
-    local access = fieldContract(receiver, node, write, signature)
     local sourceOwner = owner or signature and signature.owner
+    local access = fieldContract(receiver, node, write, signature, sourceOwner)
     if access.storage.machineKind == "voidptr" then
         require("nupp.compiler.vm.nativeunit").occurrence(sourceOwner, node)
         origins[access.storage].field = access
@@ -2664,7 +2771,7 @@ function physical.validateField(access: any): boolean
             "dependent field call binding changed"
         )
     end
-    local expected = fieldContract(held.receiver, held.node, held.write, held.signature)
+    local expected = fieldContract(held.receiver, held.node, held.write, held.signature, held.owner)
     need(expected.name == held.name and expected.declaration == held.declaration, "checked member identity changed")
     for _, key in ipairs({
         "receiver",
