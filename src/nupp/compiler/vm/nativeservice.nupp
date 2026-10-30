@@ -1950,10 +1950,12 @@ local function verifyManagedRecipe(g: any, recipe: any, value: integer): nil
             need(arenaReaches(g, row.args[2], formal(1)), "managed allocation changed Heap")
         end
         need(arenaReaches(g, recipe.slot.args[3], recipe.class, true), "managed slot changed size class")
-        need(
-            arenaValueKey(g, recipe.large.args[3]) == arenaValueKey(g, recipe.class.args[3]),
-            "managed allocation changed extent"
-        )
+        -- The same checked size crosses different branch parameters before the
+        -- allocation and Header store. Their phi topology is not an identity.
+        -- Anchor both uses at the original classification operand; the retained
+        -- row witnesses above still reject changed operations or incoming values.
+        local extent = formal(recipe.class.args[3])
+        need(arenaReaches(g, recipe.large.args[3], extent, true), "managed allocation changed extent")
         -- All incoming address definitions must be one of the exact successful
         -- allocation calls, never a literal address or a same-shaped call.
         local active = {}
@@ -2010,10 +2012,7 @@ local function verifyManagedRecipe(g: any, recipe: any, value: integer): nil
             initialization[#initialization + 1] = need(fields[name], "managed Header initialization field is absent")
         end
         need(arenaReaches(g, fields.kind.args[3], formal(2), true), "managed allocation changed object kind")
-        need(
-            arenaValueKey(g, fields.size.args[3]) == arenaValueKey(g, recipe.class.args[3]),
-            "managed Header size differs from allocation extent"
-        )
+        need(arenaReaches(g, fields.size.args[3], extent, true), "managed Header size differs from allocation extent")
     end
     need(arenaReaches(g, value, resultRow), "managed return changed allocated instance")
     -- Scan every path that can reach this staged return, stopping at the

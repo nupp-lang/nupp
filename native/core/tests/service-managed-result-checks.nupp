@@ -116,6 +116,67 @@ local function mutation(g: any): nil
     assert(changed, "actual allocation extent call is absent")
 end
 
+-- The real allocRaw graph carries size through branch parameters. Every
+-- allocation/store use must retain that original extent, including each edge.
+local function extentTransport(g: any): nil
+    if g.source.name ~= "allocRaw" then
+        return
+    end
+    local large, size
+    for _, block in ipairs(g.blocks) do
+        for index, op in ipairs(block.op) do
+            local args = block.args[index]
+            if op == "NativeLeafCall" and service.operation(g, args[1]).target.name == "allocLarge" then
+                assert(not large, "large allocation repeated")
+                large = args
+            elseif op == "NativeStore" and args[4].field and args[4].field.name == "size" then
+                assert(not size, "Header size store repeated")
+                size = args
+            end
+        end
+    end
+    assert(large and size, "actual extent uses are absent")
+    for _, args in ipairs({large, size}) do
+        local saved = args[3]
+        args[3] = 3
+        local ok, problem = pcall(service.verifyScope, g)
+        args[3] = saved
+        assert(not ok and tostring(problem):find("managed operand provenance changed", 1, true), tostring(problem))
+        verify(g)
+    end
+    local changed = false
+    for _, block in ipairs(g.blocks) do
+        for index, parameter in ipairs(block.params) do
+            if parameter == large[3] then
+                for _, prior in ipairs(g.blocks) do
+                    for _, edge in ipairs(prior.term and prior.term.edges or {}) do
+                        if edge.target == block.id and not changed then
+                            local saved = edge.args[index]
+                            edge.args[index] = 3
+                            local ok, problem = pcall(service.verifyScope, g)
+                            edge.args[index] = saved
+                            assert(
+                                not ok and tostring(problem):find("managed operand provenance changed", 1, true),
+                                tostring(problem)
+                            )
+                            verify(g)
+                            changed = true
+                        end
+                    end
+                end
+            end
+        end
+    end
+    assert(changed, "actual allocation extent phi is absent")
+    local width = size[4].width
+    assert(width == 4 and g.exactTypes[size[3]] == "uint64", "Header size narrowing differs")
+    size[4].width = 8
+    local ok, problem = pcall(graph.verify, g)
+    size[4].width = width
+    assert(not ok and tostring(problem):find("physical store layout differs", 1, true), tostring(problem))
+    verify(g)
+end
+
 -- Insert a real collecting operation on each successful allocation edge,
 -- before the address phi and NativePointer conversion. The declaration is
 -- authenticated in the forwarding graph; it grants no permission in this one.
@@ -489,10 +550,12 @@ function M.check(build: any): nil
         verify(g)
         views(g, owner)
         mutation(g)
+        extentTransport(g)
         graph.prune(g)
         verify(g)
         views(g, owner)
         mutation(g)
+        extentTransport(g)
     end
     local collecting
     for _, block in ipairs(compiled.allocate.blocks) do
