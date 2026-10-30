@@ -452,45 +452,4 @@ function M.entryGraph(build: any): nil
     entryMutations()
 end
 
--- Source-to-MIR/selection only. No Nupp service or selected native code executes
--- here. Native bundle acceptance remains a separate entry/lifecycle gate.
-function M.nativeEntries(build: any, mode: string): nil
-    local sink = require("nupp.compiler.s0.nativegraph")
-    local link = require("nupp.core.link")
-    M.entries(build)
-    local count: integer = 0
-    for _, item in pairs(build.resolved) do
-        local signature = item.graph.nativePhysical and item.graph.nativePhysical.signature
-        if signature and signature.managed then
-            local result = sink.compilerGraph(item.graph, item.owner.name, item.owner, build.resolved)
-            local selected = sink.selectAuthenticated(result, mode)
-            sink.verifyCode(selected.code)
-            refuses(
-                function(): nil
-                    sink.verifyCodeEntry(selected.code)
-                end,
-                "internal-only"
-            )
-            refuses(
-                function(): nil
-                    link.assembleAuthenticated({}, {selected.code}, {}, 65536)
-                end,
-                "internal-only"
-            )
-            count += 1
-        end
-    end
-    assert(count == 2)
-    local constructor = assert(build.resolved["nupp.runtime.core.cellservice.construct"])
-    local result = sink.compilerGraph(constructor.graph, constructor.owner.name, constructor.owner, build.resolved)
-    local selected = sink.selectAuthenticated(result, mode)
-    sink.verifyCode(selected.code)
-    refuses(
-        function(): nil
-            link.assembleAuthenticated({}, {selected.code}, {}, 65536)
-        end,
-        "internal-only"
-    )
-end
-
 export = M
