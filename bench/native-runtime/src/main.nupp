@@ -49,7 +49,7 @@ end
 local function median(values: {number}): number
     table.sort(values)
 
-    return values[math.ceil(#values / 2)] as number
+    return values[assert(math.tointeger(math.ceil(#values / 2)))] as number
 end
 
 local function readExactly(exclusive stream: net.Stream, wanted: integer): nil

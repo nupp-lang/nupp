@@ -421,7 +421,12 @@ function M.httpBodyHelpersRejectMalformedRuntimeInputs()
     }
     for _, invalid in ipairs({false, "1", -1, 1.5, math.huge, 0 / 0}) do
         local ok, problem = pcall(http.reader, source, invalid)
-        assert(not ok and tostring(problem):find("nonnegative integer", 1, true), tostring(problem))
+        local message = tostring(problem)
+        assert(
+            not ok
+            and (message:find("nonnegative integer", 1, true) or message:find("expected an exact integer", 1, true)),
+            message
+        )
     end
 end
 
@@ -1021,12 +1026,14 @@ function M.browserGpuValidatesHostHandlesAndReleasesContextResources()
         not duplicateBuffer and tostring(duplicateBufferProblem):find("duplicate buffer handle", 1, true),
         tostring(duplicateBufferProblem)
     )
+
     -- A fractional count is refused: by the library's own check under LuaJIT, and
     -- on the VM already where a dynamic caller hands it to an integer parameter.
     local function fractionalRefused(problem, own)
         problem = tostring(problem)
         return problem:find(own, 1, true) ~= nil or problem:find("expected an exact integer", 1, true) ~= nil
     end
+
     local fractionalBuffer, fractionalBufferProblem = pcall(context.buffer, context, element, 1.5)
     assert(
         not fractionalBuffer and fractionalRefused(fractionalBufferProblem, "portable limit"),
@@ -1179,12 +1186,7 @@ function M.browserGpuProtectsCancelledResourcesAndTransferLeases()
     assert(next(leases) == nil, "a failed upload must release its transfer lease")
 
     failure = "runtime-read-download"
-    local downloaded, downloadProblem = pcall(
-        context.readDownloaded,
-        context,
-        output,
-        destination:write()
-    )
+    local downloaded, downloadProblem = pcall(context.readDownloaded, context, output, destination:write())
     assert(not downloaded and downloadProblem == "fixture runtime-read-download", tostring(downloadProblem))
     assert(next(leases) == nil, "a failed download must release its transfer lease")
 
@@ -1854,9 +1856,11 @@ end
 
 function M.bitsetsReachTheCheckedModule()
     local data = require("nupp.util.internal.bitset")
+
     local function bitset(bits)
         return data.Bitset.__nuppCtor1(bits)
     end
+
     local set = bitset(64)
     assert(set:count() == 0)
     set:set(5)

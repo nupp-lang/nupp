@@ -14,7 +14,7 @@ local function scores(
         local row = nupp.math.u32.div(offset, tokens)
         local column = nupp.math.u32.mod(offset, tokens)
         local inner: uint32 = 0
-        local value: float = 0.0
+        local value: float32 = 0.0
         while inner < width do
             local qi = row * width + inner
             local ki = column * width + inner
@@ -26,7 +26,7 @@ local function scores(
             end
             inner = inner + 1
         end
-        output[i] = nupp.math.f32.mul(value, scale)
+        output[i] = nupp.math.f32.mul(value, nupp.math.f32.narrow(scale))
     end
 end
 
@@ -43,7 +43,7 @@ local function scoresCpu(
         local row = nupp.math.u32.div(offset, tokens)
         local column = nupp.math.u32.mod(offset, tokens)
         local inner: uint32 = 0
-        local value: float = 0.0
+        local value: float32 = 0.0
         while inner < width do
             local qi = row * width + inner
             local ki = column * width + inner
@@ -55,7 +55,7 @@ local function scoresCpu(
             end
             inner = inner + 1
         end
-        output[i] = nupp.math.f32.mul(value, scale)
+        output[i] = nupp.math.f32.mul(value, nupp.math.f32.narrow(scale))
     end
 end
 
@@ -77,7 +77,7 @@ local function softmax(exclusive output: span.WriteSpan<float>, borrows input: s
             end
             column = column + 1
         end
-        local total: float = 0.0
+        local total: float32 = 0.0
         column = 0
         while column < tokens do
             local cursor = base + column
@@ -89,7 +89,7 @@ local function softmax(exclusive output: span.WriteSpan<float>, borrows input: s
             end
             column = column + 1
         end
-        local reciprocal: float = 0.125
+        local reciprocal: float32 = 0.125
         local refinement: uint32 = 0
         while refinement < 8 do
             reciprocal = nupp.math.f32.mul(reciprocal, nupp.math.f32.sub(2.0, nupp.math.f32.mul(total, reciprocal)))
@@ -118,7 +118,7 @@ local function softmaxCpu(exclusive output: span.WriteSpan<float>, borrows input
             end
             column = column + 1
         end
-        local total: float = 0.0
+        local total: float32 = 0.0
         column = 0
         while column < tokens do
             local cursor = base + column
@@ -130,7 +130,7 @@ local function softmaxCpu(exclusive output: span.WriteSpan<float>, borrows input
             end
             column = column + 1
         end
-        local reciprocal: float = 0.125
+        local reciprocal: float32 = 0.125
         local refinement: uint32 = 0
         while refinement < 8 do
             reciprocal = nupp.math.f32.mul(reciprocal, nupp.math.f32.sub(2.0, nupp.math.f32.mul(total, reciprocal)))
@@ -155,7 +155,7 @@ local function mix(
         local row = nupp.math.u32.div(offset, width)
         local column = nupp.math.u32.mod(offset, width)
         local keyIndex: uint32 = 0
-        local total: float = 0.0
+        local total: float32 = 0.0
         while keyIndex < tokens do
             local pi = row * tokens + keyIndex
             local vi = keyIndex * width + column
@@ -183,7 +183,7 @@ local function mixCpu(
         local row = nupp.math.u32.div(offset, width)
         local column = nupp.math.u32.mod(offset, width)
         local keyIndex: uint32 = 0
-        local total: float = 0.0
+        local total: float32 = 0.0
         while keyIndex < tokens do
             local pi = row * tokens + keyIndex
             local vi = keyIndex * width + column

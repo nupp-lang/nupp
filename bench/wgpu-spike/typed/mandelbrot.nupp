@@ -51,10 +51,10 @@ local function generatedMandelbrot(
                         inside = 1
                     end
 
-                    local zx: float = 0.0
-                    local zy: float = 0.0
-                    local zxSquared: float = 0.0
-                    local zySquared: float = 0.0
+                    local zx: float32 = 0.0
+                    local zy: float32 = 0.0
+                    local zxSquared: float32 = 0.0
+                    local zySquared: float32 = 0.0
                     local iteration: int32 = 0
                     local escaped: int32 = 0
                     if inside == 1 then

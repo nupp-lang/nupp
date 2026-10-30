@@ -39,7 +39,7 @@ local function abiProbe(
 ): nil
     for i = 1, #output do
         local offset = nupp.math.u32.wrap(i) - 1
-        local value: float = 0.0
+        local value: float32 = 0.0
         if offset < #a then
             local left = nupp.math.f32.narrow(a[offset + 1])
             if offset < #b then
@@ -63,7 +63,7 @@ local function loopProbe(
 ): nil
     assert(#output == #input)
     for i = 1, #output do
-        local value: float = 0.0
+        local value: float32 = 0.0
         local cursor: uint32 = 0
         while cursor < iterations do
             value = nupp.math.f32.add(value, 1.0)
@@ -105,7 +105,7 @@ end
 local function fixedLoopProbe(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
     assert(#output == #input)
     for i = 1, #output do
-        local value: float = 0.0
+        local value: float32 = 0.0
         local cursor: uint32 = 0
         while cursor < 7 do
             value = nupp.math.f32.add(value, 1.0)
@@ -127,7 +127,7 @@ local function gemmNaive(
         local offset = nupp.math.u32.wrap(i) - 1
         local row = nupp.math.u32.div(offset, columns)
         local col = nupp.math.u32.mod(offset, columns)
-        local acc: float = 0.0
+        local acc: float32 = 0.0
         local j = nupp.math.u32.wrap(0)
         while j < inner do
             local ai = row * inner + j
@@ -156,7 +156,7 @@ local function gemmCpu(
         local offset = nupp.math.u32.wrap(i) - 1
         local row = nupp.math.u32.div(offset, columns)
         local col = nupp.math.u32.mod(offset, columns)
-        local acc: float = 0.0
+        local acc: float32 = 0.0
         local j = nupp.math.u32.wrap(0)
         while j < inner do
             local ai = row * inner + j
@@ -353,7 +353,7 @@ local function gemmBatched(
         local within = nupp.math.u32.mod(offset, plane)
         local row = nupp.math.u32.div(within, columns)
         local column = nupp.math.u32.mod(within, columns)
-        local value: float = 0.0
+        local value: float32 = 0.0
         local cursor: uint32 = 0
         while cursor < inner do
             local ai = batch * aBatchStride + row * aRowStride + cursor * aInnerStride
