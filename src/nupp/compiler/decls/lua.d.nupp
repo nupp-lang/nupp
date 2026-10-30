@@ -976,15 +976,18 @@ local math: {
     --- @return the largest of them
     max: function<N is number>(...: N): N,
 
-    --- Returns a pseudo-random number: a float in [0,1) with no arguments, a bounded
-    --- number with one, or a number between `m` and `n` with two.
+    --- Returns a pseudo-random float in [0, 1) without bounds or an integer
+    --- within the given inclusive integer bounds.
     ---
-    --- @param m the upper bound, or the lower bound when `n` is given too
-    --- @param n the upper bound
-    --- @return the generated number
+    --- One bound selects an integer from 1 through `m`. Two bounds select one
+    --- from `m` through `n`.
+    ---
+    --- @param m the integer upper bound, or lower bound when `n` is given
+    --- @param n the integer upper bound
+    --- @return the generated float or integer
     random: (@nosuspend function(): float)
-    & (@nosuspend function(m: number): integer)
-    & (@nosuspend function(m: number, n: number): integer),
+    & (@nosuspend function(m: integer): integer)
+    & (@nosuspend function(m: integer, n: integer): integer),
 
     --- Seeds the pseudo-random generator, which starts from a fixed state.
     ---

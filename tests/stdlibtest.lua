@@ -1457,26 +1457,27 @@ function M.mathAndBit()
     testAssert.equal((diagsOf("math.floor('x')")), "NUPP2006:1")
 end
 
-function M.mathRandomOverloadsMatchLuaJitArities()
+function M.mathRandomOverloadsRequireIntegerBounds()
     assertClean(
         table.concat(
             {
-                "local unit: number = math.random()",
-                "local upper: number = math.random(10)",
-                "local range: number = math.random(1.5, 4.5)",
+                "local unit: float = math.random()",
+                "local upper: integer = math.random(10)",
+                "local range: integer = math.random(2, 4)",
             },
             "\n"
         )
     )
+    testAssert.equal((diagsOf("math.random(4.5)")), "NUPP2125:1")
+    testAssert.equal((diagsOf("math.random(1.5, 4.5)")), "NUPP2125:1")
     testAssert.equal((diagsOf("math.random(nil, 2)")), "NUPP2125:1")
 
     local unit = math.random()
     local upper = math.random(10)
-    local fractional = math.random(1.5, 4.5)
-    assert(
-        type(unit) == "number" and type(upper) == "number" and type(fractional) == "number",
-        "every documented math.random arity returns a Lua number"
-    )
+    local range = math.random(2, 4)
+    assert(type(unit) == "number" and unit >= 0 and unit < 1, "zero bounds return a unit float")
+    assert(upper >= 1 and upper <= 10 and upper == math.floor(upper), "one bound returns an integer")
+    assert(range >= 2 and range <= 4 and range == math.floor(range), "two bounds return an integer")
     testAssert.equal(pcall(math.random, nil, 2), false, "the rejected nil hole also fails in LuaJIT")
 end
 
