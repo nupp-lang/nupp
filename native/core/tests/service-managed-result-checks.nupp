@@ -414,7 +414,9 @@ end
 
 function M.check(build: any): nil
     bootstrap(build)
+    print("managed result checks: bootstrap passed")
     entryCleanup(build)
+    print("managed result checks: entry cleanup and publication passed")
     local owners = {}
     for _, owner in ipairs(service.owners(build.catalog)) do
         if owner.scope.name == "nupp.runtime.vm.heap" and owner.name == "allocRaw"
@@ -430,6 +432,33 @@ function M.check(build: any): nil
         local signature = service.signature(owner, options)
         local obligation = service.managedResult(signature, owner)
         assert(obligation and service.validateManagedResult(obligation, owner) == owner.resultType)
+        local checked, parameter = owner.checkedSignature, owner.body.params[1]
+        local mode, bound = checked.paramModes[1], parameter.name.definition.type
+        assert(mode == "plain" or mode == "borrows")
+        assert(
+            mode == "plain" and bound == checked.params[1]
+            or mode == "borrows" and bound.tag == "borrowed" and bound.inner == checked.params[1]
+        )
+        print("managed result checks: checked allocator", owner.scope.name, owner.name, mode)
+        local wrongMode = mode == "plain" and "borrows" or "plain"
+        checked.paramPack.modes[1] = wrongMode
+        local disagrees = pcall(service.managedResult, signature, owner)
+        checked.paramPack.modes[1] = mode
+        assert(not disagrees, "allocator accepted conflicting checked mode arrays")
+        checked.paramModes[1], checked.paramPack.modes[1] = wrongMode, wrongMode
+        local ok = pcall(service.managedResult, signature, owner)
+        checked.paramModes[1], checked.paramPack.modes[1] = mode, mode
+        assert(not ok, "allocator mode changed without its original checked binding")
+        parameter.name.definition.type = copy(bound)
+        ok = pcall(service.managedResult, signature, owner)
+        parameter.name.definition.type = bound
+        assert(not ok, "allocator accepted a replaced checked parameter type")
+        local annotation = parameter.type.resolvedType
+        parameter.type.resolvedType = copy(annotation)
+        ok = pcall(service.managedResult, signature, owner)
+        parameter.type.resolvedType = annotation
+        assert(not ok, "allocator accepted a replaced checked annotation")
+        assert(service.managedResult(signature, owner) == obligation)
         refuses(
             function(): nil
                 service.managedResult({}, owner)

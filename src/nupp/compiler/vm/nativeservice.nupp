@@ -475,6 +475,8 @@ function service.managedResult(signature: any, owner: any): any
         return nil
     end
     local checked, result = item.checked, owner.resultType
+    local parameter = owner.body.params[1]
+    local mode, bound = checked.paramModes[1], parameter.name.definition.type
     need(
         item.scoped
         and not item.raw
@@ -489,11 +491,16 @@ function service.managedResult(signature: any, owner: any): any
         and result.elem == heap.checkedExports.types.Header
         and checked.params[1].tag == "ptr"
         and checked.params[1].elem == heap.checkedExports.types.Heap
-        and checked.paramModes[1] == "plain"
-        and checked.paramPack.modes[1] == "plain"
-        and owner.body.params[1].modeTok == nil
-        and owner.body.params[1].type.resolvedType == checked.params[1]
-        and owner.body.params[1].name.definition.type == checked.params[1]
+        and checked.paramPack.modes[1] == mode
+        and parameter.modeTok == nil
+        and parameter.type.resolvedType == checked.params[1]
+        and owner.parameterAnnotations[1] == checked.params[1]
+        and owner.parameterDefinitions[1] == parameter.name.definition
+        and owner.parameterTypes[1] == bound
+        and (
+            mode == "plain" and bound == checked.params[1]
+            or mode == "borrows" and bound.tag == "borrowed" and bound.inner == checked.params[1]
+        )
         and checked.params[2].tag == "uint64"
         and checked.params[3].tag == "uint64"
         and checked.paramModes[2] == "plain"
