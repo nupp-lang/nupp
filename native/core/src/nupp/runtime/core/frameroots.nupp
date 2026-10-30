@@ -221,7 +221,7 @@ export function publish(
     -- No fallible operation or safepoint follows rootRanges' first store.
     native.store64(output, native.index(pairs * 16ULL), ia)
     native.store64(output, native.index(pairs * 16ULL + 8ULL), inputCount)
-    native.store64(output, native.index(pairs * 16ULL + 16ULL), ra + native.fieldOffset<Result>("value"))
+    native.store64(output, native.index(pairs * 16ULL + 16ULL), ra + native.word(native.fieldOffset<Result>("value")))
     native.store64(output, native.index(pairs * 16ULL + 24ULL), 1ULL)
     local after = before + pairs * 2ULL + 4ULL
     token = token + 1ULL
