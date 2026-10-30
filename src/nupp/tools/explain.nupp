@@ -342,11 +342,11 @@ local ENTRIES: {any} = {
     {
         code = "NUPP2011",
         summary = "A fixed-width value was claimed without being established",
-        rule = "`float`, `int32`, and `uint32` are checked refinements of Lua "
+        rule = "`float32`, `int32`, and `uint32` are checked refinements of Lua "
         .. "numbers. A fitting literal, a checked refined source, a reified load, "
         .. "or the explicit conversion establishes the claim; an erased `as` does not.",
-        wrong = "local input: number = 0.1\nlocal value: float = input as float\nreturn value\n",
-        right = "local input: number = 0.1\nlocal value: float = nupp.math.f32.narrow(input)\nreturn value\n",
+        wrong = "local input: number = 0.1\nlocal value: float32 = input as float32\nreturn value\n",
+        right = "local input: number = 0.1\nlocal value: float32 = nupp.math.f32.narrow(input)\nreturn value\n",
         related = {"NUPP2001", "NUPP2002", "NUPP2006", "NUPP2012"},
         docs = "docs/learn/language/types/primitives.md#value-refinements",
     },

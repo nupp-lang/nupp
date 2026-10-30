@@ -18,9 +18,9 @@ end
 
 @derive(events.Event)
 local struct Contact
-    a: number
-    b: number
-    impulse: float
+    a: float64
+    b: float64
+    impulse: float32
 end
 
 local bus: events.MessageBus<integer> = events.newMessageBus()

@@ -988,6 +988,7 @@ erased-projection               suspicious   warning  an associated type was era
 exhaustiveness                  correctness  warning  a dispatch leaves members of a closed set unhandled
 exit-suffix-binding             suspicious   warning  a binding list takes more than one value from an exit suffix
 missing-require                 correctness  error    a project module is used without being required
+one-growable-arena              suspicious   warning  a function opens more than one growable arena
 positional-record-construction  style        warning  a record built by field order rather than by naming its fields
 prefer-comptime                 performance  off      a closed no-input function repeats work that comptime can erase
 private-export-type             suspicious   warning  an export exposes a private nominal type

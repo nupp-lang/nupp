@@ -618,11 +618,11 @@ function M.exportCEmitsTheCanonicalTypedHeader()
         [[
 local game = {}
 struct game.Position
-   x: float
-   y: float
+   x: float32
+   y: float32
 end
-cdef function integrate(exclusive position: game.Position*?, dt: float, enabled: boolean)
-function game.run(): float
+cdef function integrate(exclusive position: game.Position*?, dt: float32, enabled: boolean)
+function game.run(): float32
    local positions = carray(game.Position, 1)
    positions[0].x = 1
    integrate(positions, 2, true)
