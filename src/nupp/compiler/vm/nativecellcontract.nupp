@@ -40,7 +40,10 @@ function contract.hasManaged(g: any, resolved: any): boolean
                         local declaration = block.args[index][1]
                         local operation = service.operation(current, declaration)
                         need(operation and operation.target, "call lacks closed service target")
-                        if service.managedCall(current, declaration) then
+                        if service.managedCall(current, declaration)
+                            or declaration.physical
+                            and require("nupp.compiler.vm.nativephysical").hasHeapCallUse(declaration.physical)
+                        then
                             managed = true
                         end
                         local target = need(resolved[operation.target], "callee graph outside retained service unit")
@@ -597,6 +600,31 @@ local function entryRetainedFailures(g: any, facts: any, calls: any, retain: any
     end
 end
 
+-- The fixed predicate's original body supplies the tag/range policy. This
+-- check binds its one checked Heap query to the same constructor parameter.
+local function verifyInput(g: any, roles: any): nil
+    local service = services()
+    service.verifyScope(g)
+    need(
+        g.nativeService and service.owner(g.nativeService) == roles.validInput and g.nparams == 2,
+        "input predicate is not the original checked service graph"
+    )
+    local facts, count = entryFacts(g), 0
+    for _, block in ipairs(g.blocks) do
+        for index, op in ipairs(block.op) do
+            if op == "NativeLeafCall" then
+                local args = block.args[index]
+                need(
+                    service.operation(g, args[1]).target == roles.isLiveSlot and entryIdentity(facts, args[2], 1),
+                    "input predicate substituted its Heap"
+                )
+                count += 1
+            end
+        end
+    end
+    need(count == 1, "input predicate live-slot query differs")
+end
+
 function contract.verifyEntry(g: any, resolved: any): any
     local service = services()
     service.verifyScope(g)
@@ -612,6 +640,7 @@ function contract.verifyEntry(g: any, resolved: any): any
     local constructor = need(resolved[roles.construct], "entry constructor is outside its retained unit")
     contract.verifyConstruct(constructor)
     local cell = service.cellRoles(constructor)
+    verifyInput(need(resolved[cell.validInput], "input predicate graph missing"), cell)
     local facts, calls, byOwner = entryFacts(g), {}, {}
     for _, block in ipairs(g.blocks) do
         for index, op in ipairs(block.op) do
@@ -643,7 +672,11 @@ function contract.verifyEntry(g: any, resolved: any): any
     local completed, destroyed = one(roles.complete), one(roles.destroy)
     need(entryIdentity(facts, created.args[2], opened.value), "Heap was not created from the original owning Arena")
     for _, row in ipairs(calls) do
-        if row.target == roles.construct or row.target == roles.fullCycle or row.target == roles.destroy then
+        if row.target == roles.construct
+            or row.target == roles.fullCycle
+            or row.target == roles.destroy
+            or row.target == roles.isLiveSlot
+        then
             need(entryIdentity(facts, row.args[2], created.value), "workload substituted its created Heap")
         elseif row.target == roles.publish then
             need(entryIdentity(facts, row.args[3], created.value), "published roots belong to another Heap")

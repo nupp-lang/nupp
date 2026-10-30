@@ -5,6 +5,7 @@ local lower = require("nupp.compiler.vm.lower")
 local profile = require("nupp.compiler.vm.nativegraph")
 local cleanup = require("nupp.compiler.vm.nativecleanup")
 local service = require("nupp.compiler.vm.nativeservice")
+local physical = require("nupp.compiler.vm.nativephysical")
 local cell = require("nupp.compiler.vm.nativecellcontract")
 local M = {}
 
@@ -37,6 +38,60 @@ local function changedArgument(g: any, args: any, index: integer, value: integer
     args[index] = saved
     assert(not ok, "constructor operand substitution accepted: " .. tostring(problem))
     verify(g)
+end
+
+local function lifetimeArguments(g: any): integer
+    local count: integer = 0
+    for _, block in ipairs(g.blocks) do
+        for index, op in ipairs(block.op) do
+            if op == "NativeLeafCall" then
+                local args = block.args[index]
+                local signature = args[1].physical
+                if signature and physical.hasHeapCallUse(signature) then
+                    local actual = g.nativePhysical.values[args[2]]
+                    assert(actual.checkedType.tag == "borrowed" and physical.dependent(actual))
+                    assert(not physical.argument(signature.params[1], actual), "ordinary argument rule was widened")
+                    assert(physical.callArgumentPermission(signature, 1, actual))
+                    refuses(function(): nil
+                        physical.callArgumentPermission(copy(signature), 1, actual)
+                    end)
+                    refuses(function(): nil
+                        physical.callArgumentPermission(signature, 2, actual)
+                    end)
+                    local unrelated = physical.describe(actual.context, actual.checkedType)
+                    refuses(function(): nil
+                        physical.callArgumentPermission(signature, 1, unrelated)
+                    end)
+                    local original = signature.call
+                    -- Public fields cannot replace the private checked call binding.
+                    signature.call = {}
+                    refuses(function(): nil
+                        physical.callArgumentPermission(signature, 1, actual)
+                    end)
+                    signature.call = original
+                    assert(physical.callArgumentPermission(signature, 1, actual))
+                    local operation = service.operation(g, args[1])
+                    local marker = operation.node.unsafeOwnershipOperation
+                    operation.node.unsafeOwnershipOperation = nil
+                    refuses(function(): nil
+                        physical.callArgumentPermission(signature, 1, actual)
+                    end)
+                    operation.node.unsafeOwnershipOperation = marker
+                    local originalOwner = signature.owner
+                    signature.owner = {}
+                    refuses(function(): nil
+                        physical.callArgumentPermission(signature, 1, actual)
+                    end)
+                    signature.owner = originalOwner
+                    assert(physical.callArgumentPermission(signature, 1, actual))
+                    count += 1
+                end
+            end
+        end
+    end
+    graph.verify(g)
+
+    return count
 end
 
 local function mutations(g: any): nil
@@ -131,6 +186,7 @@ function M.check(build: any): nil
     assert(owner, "actual CELL constructor is absent")
     local g = lower.functionGraph(owner, service.options(build.catalog, owner), cleanup.profile(profile))
     local proof = verify(g)
+    assert(lifetimeArguments(g) >= 1, "constructor Heap call obligation missing")
     cell.validate(proof, g)
     refuses(function(): nil
         cell.validate({}, g)
@@ -141,6 +197,7 @@ function M.check(build: any): nil
     mutations(g)
     graph.prune(g)
     verify(g)
+    assert(lifetimeArguments(g) >= 1)
     cell.validate(proof, g)
     mutations(g)
 end
@@ -185,7 +242,7 @@ end
 -- Construction remains provisional; this check proves the exact source-created
 -- entry recipe before its distinct authenticated native publication.
 function M.entryGraph(build: any): nil
-    local entryOwner, constructorOwner
+    local entryOwner, constructorOwner, inputOwner
     for _, owner in ipairs(service.owners(build.catalog)) do
         if owner.scope.name == "nupp.runtime.core.heapentry" and owner.name == "run" then
             entryOwner = owner
@@ -194,14 +251,23 @@ function M.entryGraph(build: any): nil
             constructorOwner = owner
         end
     end
-    assert(entryOwner and constructorOwner)
+    for _, owner in ipairs(service.owners(build.catalog)) do
+        if owner.scope.name == "nupp.runtime.core.cellservice" and owner.name == "validInput" then
+            inputOwner = owner
+        end
+    end
+    assert(entryOwner and constructorOwner and inputOwner)
     local constructor = lower.functionGraph(
         constructorOwner,
         service.options(build.catalog, constructorOwner),
         cleanup.profile(profile)
     )
     local g = lower.functionGraph(entryOwner, service.options(build.catalog, entryOwner), cleanup.profile(profile))
-    local resolved = {[constructorOwner] = constructor}
+    local inputOptions = service.options(build.catalog, inputOwner)
+    local inputProfile = service.needsCleanup(service.signature(inputOwner, inputOptions)) and cleanup.profile(profile)
+        or profile
+    local inputGraph = lower.functionGraph(inputOwner, inputOptions, inputProfile)
+    local resolved = {[constructorOwner] = constructor, [inputOwner] = inputGraph}
 
     local function verifyEntry(): nil
         graph.verify(g)
@@ -220,6 +286,7 @@ function M.entryGraph(build: any): nil
                     if operation.target == roles.construct
                         or operation.target == roles.fullCycle
                         or operation.target == roles.destroy
+                        or operation.target == roles.isLiveSlot
                     then
                         argument = 2
                     elseif operation.target == roles.publish then
@@ -229,9 +296,14 @@ function M.entryGraph(build: any): nil
                     end
                     if argument then
                         local saved = args[argument]
+                        local oldBinding = g.nativePhysical.values[1]
+                        -- Even a forged equal descriptor with the same Arena
+                        -- dependency cannot replace the actual created Heap SSA.
+                        g.nativePhysical.values[1] = g.nativePhysical.values[saved]
                         args[argument] = 1 -- Binding is not the created Heap/original scope.
                         local ok = pcall(cell.verifyEntry, g, resolved)
                         args[argument] = saved
+                        g.nativePhysical.values[1] = oldBinding
                         assert(not ok, "entry adopted an external Heap or scope")
                         verifyEntry()
                         changed += 1
@@ -259,10 +331,25 @@ function M.entryGraph(build: any): nil
     end
 
     verifyEntry()
+    assert(lifetimeArguments(g) >= 1, "entry Heap call obligation missing")
     entryMutations()
+    for _, block in ipairs(inputGraph.blocks) do
+        for index, op in ipairs(block.op) do
+            if op == "NativeLeafCall" then
+                local args = block.args[index]
+                local saved = args[2]
+                args[2] = 2
+                local ok = pcall(cell.verifyEntry, g, resolved)
+                args[2] = saved
+                assert(not ok, "input predicate adopted another Heap")
+            end
+        end
+    end
+    graph.prune(inputGraph)
     graph.prune(g)
     graph.prune(constructor)
     verifyEntry()
+    assert(lifetimeArguments(g) >= 1)
     entryMutations()
 end
 

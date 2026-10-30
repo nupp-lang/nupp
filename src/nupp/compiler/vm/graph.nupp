@@ -756,7 +756,7 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
                     and actual
                     and (
                         arenaCleanup and index == 1 and service.arenaCleanup(g, declaration, actual)
-                        or not arenaCleanup and physical.argument(parameter, actual)
+                        or not arenaCleanup and physical.callArgumentPermission(pointer, index, actual)
                     ),
                     "pointer call argument descriptor differs"
                 )

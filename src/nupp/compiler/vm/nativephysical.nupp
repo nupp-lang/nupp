@@ -710,6 +710,17 @@ function physical.signature(owner: any, context: any, call: any?, caller: any?, 
     if call and caller and require("nupp.compiler.vm.nativeunit").contains(caller) then
         callSignature, exportSignature = require("nupp.compiler.vm.nativeunit").callSignature(caller, call, owner)
     end
+    local heapCalls = {}
+    if serviceSignature and call and caller then
+        for index, descriptor in ipairs(contract.params) do
+            if descriptor then
+                local proof = serviceModule().heapCallUse(serviceSignature, caller, call, index)
+                if proof then
+                    heapCalls[index] = {proof = proof, roots = rootSnapshot(call.args.exprs[index])}
+                end
+            end
+        end
+    end
     signatures[
         contract
     ] = {
@@ -717,6 +728,7 @@ function physical.signature(owner: any, context: any, call: any?, caller: any?, 
         context = context,
         checked = contract.checkedSignature,
         serviceSignature = serviceSignature,
+        heapCalls = heapCalls,
         node = owner.node,
         body = owner.body,
         scope = owner.scope,
@@ -895,7 +907,16 @@ function physical.validateSignature(contract: any): boolean
                     and actual.checkedType.tag == "affine"
                     and descriptor.checkedType.inner == actual.checkedType.inner
                 need(
-                    physical.argument(descriptor, actual) or borrowedOwner,
+                    physical.argument(descriptor, actual)
+                    or borrowedOwner
+                    or held.heapCalls[index]
+                    and serviceModule().validateHeapCallUse(
+                        held.heapCalls[index].proof,
+                        held.serviceSignature,
+                        held.caller,
+                        call,
+                        index
+                    ) == call.args.exprs[index],
                     "pointer call argument checked type differs"
                 )
             elseif checked.tag == "voidptr" then
@@ -915,6 +936,10 @@ function physical.validateSignature(contract: any): boolean
                 "borrowed result formal differs"
             )
         end
+    end
+    for index, use in pairs(held.heapCalls) do
+        serviceModule().validateHeapCallUse(use.proof, held.serviceSignature, held.caller, held.call, index)
+        validateRoots(use.roots)
     end
     sameRecord(contract.params, held.parameters)
     sameRecord(contract, held.fields)
@@ -945,6 +970,62 @@ function physical.argument(parameter: any, actual: any): boolean
     local ownership = #actual.ownership == 0 or #actual.ownership == 1 and actual.ownership[1].tag == "borrowed"
 
     return ownership and pointerShape(parameter, actual)
+end
+
+local function heapArgument(signature: any, index: integer, actual: any): any
+    local saved = signatures[signature]
+    local use = saved.heapCalls[index]
+    if not use then
+        return nil
+    end
+    local argument = serviceModule().validateHeapCallUse(
+        use.proof,
+        saved.serviceSignature,
+        saved.caller,
+        saved.call,
+        index
+    )
+    physical.validate(actual)
+    need(
+        actual.checkedType == argument.inferredType
+        and #actual.ownership == 1
+        and actual.ownership[1].tag == "borrowed"
+        and pointerShape(signature.params[index], actual)
+        and sameDependency(origins[actual].dependency, use.roots),
+        "Heap call argument lost its original dependency"
+    )
+
+    return use
+end
+
+-- Bind only during source lowering. Verification never invents a lifetime
+-- permission and no plain descriptor replaces the borrowed SSA value.
+function physical.bindHeapCall(signature: any, index: integer, actual: any): nil
+    physical.validateSignature(signature)
+    local use = heapArgument(signature, index, actual)
+    if use then
+        need(use.actual == nil or use.actual == actual, "Heap call argument was rebound")
+        use.actual = actual
+    end
+end
+
+function physical.callArgumentPermission(signature: any, index: integer, actual: any): boolean
+    physical.validateSignature(signature)
+    local use = heapArgument(signature, index, actual)
+    if use then
+        need(
+            use.actual ~= nil and physical.sameValue(use.actual, actual),
+            "Heap call lacks its emitted argument binding"
+        )
+        return true
+    end
+
+    return physical.argument(signature.params[index], actual)
+end
+
+function physical.hasHeapCallUse(signature: any): boolean
+    physical.validateSignature(signature)
+    return next(signatures[signature].heapCalls) ~= nil
 end
 
 function physical.borrowingParameter(signature: any, index: integer): boolean

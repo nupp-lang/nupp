@@ -591,6 +591,9 @@ local function bindLocalCalls(ctx: any, declaration: any, operands: any): nil
             ctx.g.nativePhysical.values[value] = descriptor
             operands[index] = value
         end
+        if descriptor then
+            physical.bindHeapCall(declaration.physical, index, descriptor)
+        end
         if descriptor and physical.localOrigin(descriptor) then
             physical.bindLocalCall(declaration.physical, index, descriptor)
         end

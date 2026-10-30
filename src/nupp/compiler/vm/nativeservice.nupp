@@ -4,6 +4,7 @@ local unit = require("nupp.compiler.vm.nativeunit")
 local layout = require("nupp.compiler.targetlayout")
 local service = {}
 local scopedCalls: any = setmetatable({}, {__mode = "k"})
+local heapUses: any = setmetatable({}, {__mode = "k"})
 local ownerCatalogs: any = setmetatable({}, {__mode = "k"})
 local catalogs: any = setmetatable({}, {__mode = "k"})
 local signatures: any = setmetatable({}, {__mode = "k"})
@@ -517,6 +518,106 @@ function service.validateManagedResult(proof: any, owner: any): any
     return owner.resultType
 end
 
+-- This is a pending use of the entry-owned Heap, not a plain-pointer view
+-- or a nonescape claim. Root publication retains the Heap address until close;
+-- only the closed entry's lifetime proof may discharge this obligation.
+local function heapUseEvidence(signature: any, caller: any, node: any, index: integer): any
+    local target = held(signature)
+    if not caller or not node or index ~= 1 then
+        return nil
+    end
+    local state = target.state
+    local call = state.calls[node]
+    if not call or call.owner ~= caller or call.target ~= target.owner or call.os or call.raising then
+        return nil
+    end
+    local argument = node.args.exprs[index]
+    local expected = target.checked.params[index]
+    local actual = argument and argument.inferredType
+    if target.checked.paramModes[index] ~= "plain" or not actual or actual.tag ~= "borrowed" then
+        return nil
+    end
+    if caller.scope.name ~= "nupp.runtime.core.cellservice" and caller.scope.name ~= "nupp.runtime.core.heapentry" then
+        return nil
+    end
+    local cell = unit.ownerModule(caller, "nupp.runtime.core.cellservice")
+    local entry = unit.ownerModule(caller, "nupp.runtime.core.heapentry")
+    local heap = unit.ownerModule(caller, "nupp.runtime.vm.heap")
+    local collector = unit.ownerModule(caller, "nupp.runtime.vm.collector")
+    local permitted = caller == cell.exports.construct
+        and (target.owner == collector.exports.allocate or target.owner == collector.exports.initialized)
+        or caller == cell.functions.validInput and target.owner == heap.exports.isLiveSlot
+        or caller == entry.exports.run
+        and (
+            target.owner == collector.exports.fullCycle
+            or target.owner == heap.exports.isLiveSlot
+            or target.owner == heap.exports.destroy
+        )
+    if not permitted then
+        return nil
+    end
+    need(
+        expected.tag == "ptr"
+        and expected.elem == heap.checkedExports.types.Heap
+        and actual.inner == expected
+        and argument.kind == "name"
+        and argument.token.definition,
+        "Heap call requires the original checked borrowed Heap"
+    )
+    need(
+        node.unsafeOwnershipOperation == "borrowed pointer passed to a plain parameter",
+        "Heap call requires its checked unsafe source relation"
+    )
+    unit.call(caller, node, target.owner)
+    unit.occurrence(caller, argument)
+
+    return {
+        target = target,
+        caller = caller,
+        node = node,
+        argument = argument,
+        definition = argument.token.definition,
+        checked = actual,
+        marker = node.unsafeOwnershipOperation
+    }
+end
+
+function service.heapCallUse(signature: any, caller: any, node: any, index: integer): any
+    local evidence = heapUseEvidence(signature, caller, node, index)
+    if not evidence then
+        return nil
+    end
+    local proof = {}
+    evidence.signature, evidence.index = signature, index
+    heapUses[proof] = evidence
+
+    return proof
+end
+
+function service.validateHeapCallUse(proof: any, signature: any, caller: any, node: any, index: integer): any
+    local saved = need(heapUses[proof], "unissued Heap call-use obligation")
+    need(
+        next(proof) == nil
+        and getmetatable(proof) == nil
+        and saved.signature == signature
+        and saved.caller == caller
+        and saved.node == node
+        and saved.index == index,
+        "Heap call-use identity changed"
+    )
+    local current = need(heapUseEvidence(signature, caller, node, index), "Heap call-use source relation changed")
+    need(
+        current.target == saved.target
+        and current.argument == saved.argument
+        and current.definition == saved.definition
+        and current.checked == saved.checked
+        and current.marker == saved.marker,
+        "Heap call-use checked evidence changed"
+    )
+
+    return saved.argument
+end
+
 -- Detached queries expose checked identities, never an issuance interface.
 function service.operation(g: any, declaration: any): any
     local call = need(calls[declaration], "unissued service operation")
@@ -616,6 +717,7 @@ function service.entryRoles(g: any): any
         create = heap.exports.create,
         destroy = heap.exports.destroy,
         fullCycle = collector.exports.fullCycle,
+        isLiveSlot = heap.exports.isLiveSlot,
         construct = cell.exports.construct,
         publish = roots.exports.publish,
         closeRoots = roots.exports.close,
