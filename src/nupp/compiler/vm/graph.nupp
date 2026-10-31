@@ -512,7 +512,10 @@ function graph.nativeLeafDeclaration(fn: any, context: any?, call: any?, caller:
     assert(fn.scope.functions and fn.scope.functions[fn.name] == fn, "native leaf checked declaration identity")
     local params, body = {}, fn.body
     local pointer = physical.signature(fn, context, call, caller, serviceSignature)
-    assert(#body.params == #fn.paramKinds and #body.params <= 8, "native leaf checked parameter count")
+    assert(
+        #body.params == #fn.paramKinds and (#body.params >= 1 or serviceSignature ~= nil) and #body.params <= 8,
+        "native leaf checked parameter count"
+    )
     for index, parameter in ipairs(body.params) do
         local kind = pointer and pointer.params[index] and parameter.type.resolvedType.tag
             or checkedNativeKind(parameter.type and parameter.type.resolvedType)

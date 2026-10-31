@@ -93,6 +93,24 @@ local UNITS = {
             end
             return cases
         end
+    },
+    {
+        name = "gcunits",
+        modules = {"gcunits", "unitentry"},
+        entries = {
+            {"gcunits", "listSurvives", 2}, {"gcunits", "rings", 2}, {"gcunits", "fanOut", 2},
+            {"gcunits", "barrier", 1}, {"gcunits", "initializedBlack", 1}
+        },
+        cases = function()
+            -- Counts from tests/nativeheaptest.lua, computed there independently.
+            return {
+                {"listSurvives", {1000, 5000}, 1000}, {"listSurvives", {0, 100}, 0},
+                {"rings", {10, 100}, 500}, {"rings", {1, 1000}, 1000},
+                {"fanOut", {100, 16}, 51}, {"fanOut", {5000, 16}, 2501}, {"fanOut", {50, 40000}, 26},
+                {"barrier", {0}, 1}, {"barrier", {1}, 0},
+                {"initializedBlack", {3000}, 1}
+            }
+        end
     }
 }
 

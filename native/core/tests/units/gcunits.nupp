@@ -1,0 +1,253 @@
+module gcunits
+
+-- Collector graph fixtures on the owned backend, after the CLIF-path
+-- fixtures in tests/fixtures/nativeheap/graphs.nupp: cycles, unrooted
+-- garbage, large objects, the insertion barrier and black allocation while
+-- marking. Each answers the live objects after collecting, plus a billion
+-- for every disagreement the collector's own reachability oracle reports.
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const collector = require("nupp.runtime.vm.collector")
+const values = require("nupp.runtime.vm.values")
+
+const ORACLE: uint64 = 1000000000ULL
+
+-- A closure-kind object with `slots` value slots, all nil.
+local function node(h: heap.Heap*, slots: uint64): uint64
+    @unsafe do
+        local o = collector.allocate(h, heap.KIND_CLOSURE, slots * 8ULL)
+        o.auxLen = slots
+        local i: uint64 = 0ULL
+        while i < slots do
+            native.store64(native.pointer(o.auxPtr), native.index(i * 8ULL), values.NIL)
+            i = i + 1ULL
+        end
+        collector.initialized(h, o)
+
+        return heap.objectValue(o)
+    end
+end
+
+-- A store into a node's slot, through the barrier.
+local function link(h: heap.Heap*, parent: uint64, slot: uint64, child: uint64): nil
+    @unsafe do
+        local o = heap.objectHeader(parent)
+        collector.barrier(h, o, child)
+        native.store64(native.pointer(o.auxPtr), native.index(slot * 8ULL), child)
+    end
+end
+
+-- `words` root slots in the arena, all nil, at a raw address.
+local function rootsIn(a: arena.Arena*, words: uint64): uint64
+    @unsafe do
+        local raw = arena.alloc(a, words * 8ULL + 8ULL, 8ULL)
+        if raw == nil then
+            error("gc units: no room for the roots")
+        end
+        local base = native.address(raw)
+        local i: uint64 = 0ULL
+        while i < words do
+            native.store64(native.pointer(base + i * 8ULL), 0, values.NIL)
+            i = i + 1ULL
+        end
+
+        return base
+    end
+end
+
+local function setRoot(base: uint64, i: uint64, value: uint64): nil
+    native.store64(native.pointer(base + i * 8ULL), 0, value)
+end
+
+local function getRoot(base: uint64, i: uint64): uint64
+    return native.load64(native.pointer(base + i * 8ULL), 0)
+end
+
+local function verdict(h: heap.Heap*): uint64
+    @unsafe do
+        local failures = h.oracleFailures + collector.checkOracle(h, true)
+        return h.liveCount + failures * ORACLE
+    end
+end
+
+-- `kept` two-slot nodes in a rooted list, each followed by an unreachable
+-- node, then `dropped - kept` more garbage nodes.
+export function listSurvives(kept: uint64, dropped: uint64): uint64
+    local answer: uint64 = 0ULL
+    with a = arena.open(16777216ULL) do
+        @unsafe do
+            local h = heap.create(a)
+            local roots = rootsIn(a, 1ULL)
+            collector.register(h, roots, 1ULL)
+            local i: uint64 = 0ULL
+            while i < kept do
+                local n = node(h, 2ULL)
+                link(h, n, 0ULL, getRoot(roots, 0ULL))
+                setRoot(roots, 0ULL, n)
+                node(h, 1ULL)
+                i = i + 1ULL
+            end
+            while i < dropped do
+                node(h, 3ULL)
+                i = i + 1ULL
+            end
+            collector.fullCycle(h)
+            answer = verdict(h)
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- `count` rings of `size` nodes; every other ring loses its root.
+export function rings(count: uint64, size: uint64): uint64
+    local answer: uint64 = 0ULL
+    with a = arena.open(16777216ULL) do
+        @unsafe do
+            local h = heap.create(a)
+            local roots = rootsIn(a, count)
+            collector.register(h, roots, count)
+            local r: uint64 = 0ULL
+            while r < count do
+                local first = node(h, 1ULL)
+                setRoot(roots, r, first)
+                local last = first
+                local i: uint64 = 1ULL
+                while i < size do
+                    local n = node(h, 1ULL)
+                    link(h, last, 0ULL, n)
+                    last = n
+                    i = i + 1ULL
+                end
+                link(h, last, 0ULL, first)
+                r = r + 1ULL
+            end
+            r = 1ULL
+            while r < count do
+                setRoot(roots, r, values.NIL)
+                r = r + 2ULL
+            end
+            collector.fullCycle(h)
+            answer = verdict(h)
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- A hub holding `width` byte objects of `bytes` each (large ones get their
+-- own mappings); every other one is dropped.
+export function fanOut(width: uint64, bytes: uint64): uint64
+    local answer: uint64 = 0ULL
+    with a = arena.open(16777216ULL) do
+        @unsafe do
+            local h = heap.create(a)
+            local roots = rootsIn(a, 1ULL)
+            collector.register(h, roots, 1ULL)
+            local hub = node(h, width)
+            setRoot(roots, 0ULL, hub)
+            local i: uint64 = 0ULL
+            while i < width do
+                local child = collector.allocate(h, heap.KIND_STR, bytes)
+                link(h, hub, i, heap.objectValue(child))
+                i = i + 1ULL
+            end
+            i = 1ULL
+            while i < width do
+                link(h, hub, i, values.NIL)
+                i = i + 2ULL
+            end
+            collector.fullCycle(h)
+            answer = verdict(h)
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- The insertion barrier: a reference moved into an already-black parent
+-- during marking keeps its child alive. `skip` 1 stores without the barrier,
+-- which loses the child; 0 goes through it. Answers 1 when the child lives.
+export function barrier(skip: uint64): uint64
+    local answer: uint64 = 0ULL
+    with a = arena.open(16777216ULL) do
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            local roots = rootsIn(a, 2ULL)
+            collector.register(h, roots, 2ULL)
+            local parent = node(h, 1ULL)
+            local other = node(h, 1ULL)
+            local white = node(h, 1ULL)
+            link(h, other, 0ULL, white)
+            -- The parent is grayed last, so it is the first scanned.
+            setRoot(roots, 0ULL, other)
+            setRoot(roots, 1ULL, parent)
+            collector.startCycle(h)
+            collector.step(h, 1ULL)
+            if skip == 1ULL then
+                native.store64(native.pointer(heap.objectHeader(parent).auxPtr), 0, white)
+            else
+                link(h, parent, 0ULL, white)
+            end
+            link(h, other, 0ULL, values.NIL)
+            setRoot(roots, 0ULL, values.NIL)
+            while h.phase ~= heap.PHASE_IDLE do
+                collector.step(h, 100ULL)
+            end
+            if heap.isLiveSlot(h, white & values.PAYLOAD) then
+                answer = 1ULL
+            end
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- An object allocated while marking is black, so a child stored into it
+-- before initialization survives once its old holder lets go. Answers 1
+-- when the child lives and the oracle agrees.
+export function initializedBlack(chain: uint64): uint64
+    local answer: uint64 = 0ULL
+    with a = arena.open(16777216ULL) do
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            local roots = rootsIn(a, 1ULL)
+            collector.register(h, roots, 1ULL)
+            local child = node(h, 1ULL)
+            local holder = node(h, 1ULL)
+            link(h, holder, 0ULL, child)
+            -- A long chain ahead of the holder keeps marking busy.
+            local head = holder
+            local i: uint64 = 0ULL
+            while i < chain do
+                local n = node(h, 1ULL)
+                link(h, n, 0ULL, head)
+                head = n
+                i = i + 1ULL
+            end
+            setRoot(roots, 0ULL, head)
+            collector.startCycle(h)
+            collector.step(h, 10ULL)
+            local made = node(h, 1ULL)
+            native.store64(native.pointer(heap.objectHeader(made).auxPtr), 0, child)
+            collector.initialized(h, heap.objectHeader(made))
+            setRoot(roots, 0ULL, made)
+            link(h, holder, 0ULL, values.NIL)
+            collector.fullCycle(h)
+            if heap.isLiveSlot(h, child & values.PAYLOAD) then
+                answer = 1ULL
+            end
+            answer = answer + collector.checkOracle(h, true) * ORACLE
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
