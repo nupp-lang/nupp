@@ -84,7 +84,11 @@ function M.aBaselineOfTheSameSchemaCompares()
     testAssert.equal(notes[1], "emit: no baseline", "a case the baseline lacks is said to have none")
 
     -- A compiler change is reported and never stops the comparison.
-    local moved = {schema = bench.SCHEMA, compiler = {version = "0.0.1", digest = "bbbbbbbbbbbbbbbbbbbb"}, cases = record.cases}
+    local moved = {
+        schema = bench.SCHEMA,
+        compiler = {version = "0.0.1", digest = "bbbbbbbbbbbbbbbbbbbb"},
+        cases = record.cases
+    }
     local _, movedNotes = bench.compare(moved, baseline)
     testAssert.equal(#movedNotes, 2, table.concat(movedNotes, "\n"))
     testAssert.equal(
@@ -793,7 +797,9 @@ function M.mergeReportsAScatteredBenchmark()
     local runner = require("nupp.tools.benchrunner")
 
     local function fork(samples)
-        return {cases = {{name = "x", kind = "suite", medianMs = 0.00008, samplesMs = samples, concentration = 0.09,},},}
+        return {
+            cases = {{name = "x", kind = "suite", medianMs = 0.00008, samplesMs = samples, concentration = 0.09,},},
+        }
     end
 
     local samples = {}
@@ -876,7 +882,11 @@ function M.mergeCarriesAgreedChecksumsAndFailsDisagreement()
         }
     end
 
-    local merged, notes, problems = runner.mergeForks("x", "a.nupp", {fork("7", 300, false), fork("7", 100, true), fork("7", 200, false)})
+    local merged, notes, problems = runner.mergeForks("x", "a.nupp", {
+        fork("7", 300, false),
+        fork("7", 100, true),
+        fork("7", 200, false)
+    })
     testAssert.equal(#problems, 0, "agreeing forks raise no problem")
     testAssert.equal(#notes, 0, "and need no note")
     testAssert.equal(merged.summary.checksum, "7", "the summary carries the agreed checksum")
@@ -903,7 +913,11 @@ function M.noninferiorityIsOneSided()
     end
 
     testAssert.equal(statistics.noninferior(interval(-0.013, 0.006), 0.02), true, "inside the margin passes")
-    testAssert.equal(statistics.noninferior(interval(-0.30, 0.02), 0.02), true, "a wide gain reaching the margin passes")
+    testAssert.equal(
+        statistics.noninferior(interval(-0.30, 0.02), 0.02),
+        true,
+        "a wide gain reaching the margin passes"
+    )
     testAssert.equal(statistics.noninferior(interval(-0.111, -0.082), 0.02), true, "an improvement passes")
     testAssert.equal(statistics.noninferior(interval(-0.013, 0.021), 0.02), false, "an upper end past the margin fails")
     testAssert.equal(statistics.noninferior(interval(0.162, 0.207), 0.02), false, "a regression fails")
