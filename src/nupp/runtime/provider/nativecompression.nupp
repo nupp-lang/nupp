@@ -8,7 +8,7 @@ Each encoder and decoder owns one native handle. Failed steps copy the native
 error into their reason, and closing surfaces a failed handle release.
 ]]
 
-const contract = require("nupp.compression.spi")
+const contract = require("binary.compress.spi")
 const native = require("nupp.runtime.native")
 const span = require("nupp.mem.span")
 

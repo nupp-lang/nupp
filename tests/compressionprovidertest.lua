@@ -166,7 +166,7 @@ function M.decoderEofCanFillMoreThanOneOutputSpan()
             end)
         ),
     })
-    local reader = load("nupp.compression").format("fixture"):newReader(io2.newStringReader("input"), {
+    local reader = load("binary.compress").format("fixture"):newReader(io2.newStringReader("input"), {
         workspaceBytes = 1,
         unbounded = true
     })
@@ -186,7 +186,7 @@ function M.rejectsInvalidProviderAndSourceProgress()
         end,
     }) do
         local load = state.family("compression", {provider("fixture", decoder(finishInput))})
-        local reader = load("nupp.compression").format("fixture"):newReader(io2.newStringReader("input"), {
+        local reader = load("binary.compress").format("fixture"):newReader(io2.newStringReader("input"), {
             workspaceBytes = 1,
             unbounded = true
         })
@@ -210,7 +210,7 @@ function M.rejectsInvalidProviderAndSourceProgress()
         close = function()
         end,
     }
-    local reader = load("nupp.compression").format("fixture"):newReader(source, {workspaceBytes = 1, unbounded = true})
+    local reader = load("binary.compress").format("fixture"):newReader(source, {workspaceBytes = 1, unbounded = true})
     local bytes, reason = reader:read(1)
     assert(bytes == nil and reason:find("source reader", 1, true), tostring(reason))
     reader:close()
@@ -225,7 +225,7 @@ function M.rejectsMalformedUntypedOptions()
             end)
         )
     })
-    local format = load("nupp.compression").format("fixture")
+    local format = load("binary.compress").format("fixture")
 
     local function rejects(options, expected)
         local source = io2.newStringReader("")
@@ -288,7 +288,7 @@ function M.cleanupContinuesAfterProviderReleaseFailure()
             },
         },
     }
-    local format = state.family("compression", {fixture})("nupp.compression").format("fixture")
+    local format = state.family("compression", {fixture})("binary.compress").format("fixture")
     local destination = {
         flush = function()
             return true
@@ -352,7 +352,7 @@ function M.prioritySelectionIsOrderIndependent()
         },
     }) do
         local compression = state.family("compression", providers)
-        local api = compression("nupp.compression")
+        local api = compression("binary.compress")
         assert(api.format("high"))
         assert(not pcall(api.format, "low"))
         assert(api.format("gzip"), "selected catalogs retain native formats")

@@ -1,4 +1,4 @@
-module nupp.compression
+module binary.compress
 
 --[[
 Compressing and decompressing a stream of bytes.
@@ -7,7 +7,7 @@ Ask for a format, then use its one-shot helpers or wrap a [](nupp.io) reader or
 writer:
 
 ```nupp:fragment
-local compression = require("nupp.compression")
+local compression = require("binary.compress")
 
 const gzip = compression.format("gzip")
 
@@ -49,7 +49,7 @@ local target = require("nupp.runtime.target")
 const io = require("nupp.io")
 const span = require("nupp.mem.span")
 const storage = require("nupp.runtime.storage")
-const provider = require("nupp.compression.spi")
+const provider = require("binary.compress.spi")
 
 local DEFAULT_WORKSPACE: integer = 65536
 local DEFAULT_MAX_OUTPUT: integer = 67108864
@@ -800,11 +800,11 @@ local function validate(selected: provider.Provider): nil
 end
 
 local selected: provider.Provider = do
-    const chosen = spi.select(spi.providers<provider.Provider>("nupp.compression.spi.Provider"))
+    const chosen = spi.select(spi.providers<provider.Provider>("binary.compress.spi.Provider"))
     if chosen ~= nil then
         yield chosen
     end
-    assert(target.host == "native", "nupp.compression: no implementation is available")
+    assert(target.host == "native", "binary.compress: no implementation is available")
     yield _G.require("nupp.runtime.provider.nativecompression") as provider.Provider
 end
 validate(selected)

@@ -988,7 +988,7 @@ end
 local SELECTING_FACADES = {
     {"binary.hash.checksum", "binary.hash.checksum.spi.Provider"},
     {"nupp.codec.json.provider", "serde.json.spi.Provider"},
-    {"nupp.compression", "nupp.compression.spi.Provider"},
+    {"binary.compress", "binary.compress.spi.Provider"},
     {"binary.hash.digest", "binary.hash.digest.spi.Provider"},
     {"nupp.gpu", "nupp.gpu.spi.Provider"},
     {"nupp.host", "nupp.host.spi.Provider"},
