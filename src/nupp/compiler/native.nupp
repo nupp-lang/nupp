@@ -664,8 +664,8 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.compression"
     ] = {
         name = "compression_runtime",
-        module = "nupp.compression",
-        runtimeModule = "nupp.compression",
+        module = "binary.compress",
+        runtimeModule = "binary.compress",
         portableRuntime = true,
         requires = {"runtime.spanview", "stdlib.io"},
     },

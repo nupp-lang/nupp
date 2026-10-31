@@ -1,4 +1,4 @@
-local compression = require("nupp.compression")
+local compression = require("binary.compress")
 local io = require("nupp.io")
 local span = require("nupp.mem.span")
 local test = require("nupp.test")
@@ -12,6 +12,13 @@ local function writerOptions(name: string, workspace: integer?): compression.Wri
     else
         return {workspaceBytes = workspace, deflateRaw = {level = 6}}
     end
+end
+
+function M.rootNamespaceRetainsTheRequiredModule(): nil
+    assert(compression.format == compression.format)
+    assert(compression.format("gzip") == compression.format("gzip"))
+    local binary = {compress = {format = "local"}}
+    assert(binary.compress.format == "local")
 end
 
 function M.builtinFormatsRoundTripBinaryInput(): nil

@@ -412,8 +412,8 @@ local RESOURCES = {
     },
     {source = "src/nupp/runtime/browser/crc.nupp", output = "nupp/compiler/nupp/runtime/browser/crc.nupp"},
     {source = "src/nupp/mac/init.nupp", output = "nupp/compiler/nupp/mac/init.nupp"},
-    {source = "src/nupp/compression/init.nupp", output = "nupp/compiler/nupp/compression/init.nupp"},
-    {source = "src/nupp/compression/spi.nupp", output = "nupp/compiler/nupp/compression/spi.nupp"},
+    {source = "src/binary/compress/init.nupp", output = "nupp/compiler/binary/compress/init.nupp"},
+    {source = "src/binary/compress/spi.nupp", output = "nupp/compiler/binary/compress/spi.nupp"},
     {
         source = "src/nupp/runtime/provider/nativecompression.nupp",
         output = "nupp/compiler/nupp/runtime/provider/nativecompression.nupp"

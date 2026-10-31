@@ -1,4 +1,4 @@
-module nupp.compression.spi
+module binary.compress.spi
 
 --[[Implementation interfaces for compression stream catalogs.
 
