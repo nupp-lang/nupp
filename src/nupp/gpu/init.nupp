@@ -42,14 +42,14 @@ applied with `buffer:view(layout)` without allocating device storage.
 Transfers remain dense; layout-aware kernels consume the explicit metadata.
 ]]
 
-local spi = require("nupp.spi")
+local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
 
 local api = require("nupp.gpu.api")
 local implementation = require("nupp.gpu.types")
 local contract = require("nupp.gpu.spi")
 local provider: contract.Provider = do
-    const chosen = spi.select(spi.load(contract.Provider))
+    const chosen = spi.select(spi.providers<contract.Provider>("nupp.gpu.spi.Provider"))
     if chosen ~= nil then
         yield chosen
     end

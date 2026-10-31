@@ -745,6 +745,16 @@ local function fieldItem(field, childModuleName, includePrivate)
         end
     end
 
+    -- SPI takes a declaration in source. Its string parameter exists only after
+    -- lowering, so the API reference must show the call that users can write.
+    if item.path == "package.providers" and #item.params == 1 and #item.returns == 1 then
+        item.signature = "providers(Interface): function(): Interface?"
+        item.typeargs = {}
+        item.params[1].name = "Interface"
+        item.params[1].type = "interface declaration"
+        item.returns[1].type = "function(): Interface?"
+    end
+
     return item
 end
 
@@ -1301,16 +1311,6 @@ declarationItem = function(stat, moduleName, everyDeclaration, declarationFile, 
         item.params, item.returns = details.params, details.returns
     elseif stat.kind == "recordDecl" or stat.kind == "cdefStruct" then
         item.members = buildMembers(stat.entries, item.path, includePrivate, info.fields)
-    end
-
-    -- SPI takes a declaration in source. Its string parameter exists only after
-    -- lowering, so the API reference must show the call that users can write.
-    if item.path == "nupp.spi.load" and #item.params == 1 and #item.returns == 1 then
-        item.signature = "load(Interface): function(): Interface?"
-        item.typeargs = {}
-        item.params[1].name = "Interface"
-        item.params[1].type = "interface declaration"
-        item.returns[1].type = "function(): Interface?"
     end
 
     return item

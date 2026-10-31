@@ -47,11 +47,17 @@ local function vmModule(name)
     -- instance registered as the module itself would answer the process's own
     -- later `require` of it.
     local instanceName = "providerstate:" .. name
-    local image = require("nupp.compiler.vm.lower").emit(instanceName, {}, function(candidate)
-        return candidate == instanceName and path or nil
-    end, function()
-        return result.root
-    end, true)
+    local image = require("nupp.compiler.vm.lower").emit(
+        instanceName,
+        {},
+        function(candidate)
+            return candidate == instanceName and path or nil
+        end,
+        function()
+            return result.root
+        end,
+        true
+    )
     compiled = assert(loadImage(image))
     images[name] = compiled
 
@@ -124,7 +130,7 @@ function M.load(kind, provider)
         end
     })
 
-    return instance({["nupp.spi"] = true, [facade] = true, ["nupp.io.net.internal"] = true}, {
+    return instance({["nupp.runtime.packages"] = true, [facade] = true, ["nupp.io.net.internal"] = true}, {
         ["nupp.spi.index"] = {[facade .. ".spi.Provider"] = {"fixture.provider"}},
         ["fixture.provider"] = provider,
     })(facade)
@@ -142,7 +148,7 @@ function M.tls(provider)
         end
     })
 
-    return instance({["nupp.spi"] = true, ["nupp.io.tls"] = true}, {
+    return instance({["nupp.runtime.packages"] = true, ["nupp.io.tls"] = true}, {
         ["nupp.spi.index"] = {["nupp.io.tls.spi.Provider"] = {"fixture.provider"}},
         ["fixture.provider"] = provider,
         ["nupp.io.net"] = {
@@ -237,13 +243,13 @@ function M.family(kind, providers)
         end
     end
     local load = instance(
-        {["nupp.spi"] = true, [facade] = true, ["nupp.runtime.provider." .. kind] = true},
+        {["nupp.runtime.packages"] = true, [facade] = true, ["nupp.runtime.provider." .. kind] = true},
         {["nupp.spi.index"] = {[facade .. ".spi.Provider"] = names},},
         preloads
     )
-    local spi, counts = load("nupp.spi"), {resolutions = 0}
-    local original = spi.load
-    spi.load = function(interface)
+    local spi, counts = load("nupp.runtime.packages"), {resolutions = 0}
+    local original = spi.providers
+    spi.providers = function(interface)
         counts.resolutions = counts.resolutions + 1
         return original(interface)
     end

@@ -833,7 +833,7 @@ local function runtimeImports(name: string, code: string, config: Config, target
     if config._reload then
         required[#required + 1] = "nupp.runtime.hotreload"
     end
-    if name == "nupp.spi" then
+    if name == "nupp.runtime.packages" then
         required[#required + 1] = "nupp.spi.index"
     elseif name == "nupp.spi.index" then
         for _, provider in ipairs(config._spiEntries or {}) do
@@ -1300,7 +1300,8 @@ local function buildModules(root: string, outDir: string, config: Config, target
 
     local function linkSelectedDependencies(name: string, names: any, effects: any): nil
         linkFeatureRuntime(effects)
-        local selected = name == "nupp.spi" or (linkedModules[name] == true and not packagedRuntimeModules[name])
+        local selected = name == "nupp.runtime.packages"
+            or (linkedModules[name] == true and not packagedRuntimeModules[name])
         if not selected then
             return
         end
@@ -1602,7 +1603,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     linkFeatureRuntime(configuredEffects)
 
     if #(config._spiEntries or {}) > 0 then
-        linkRuntimeSource("nupp.spi")
+        linkRuntimeSource("nupp.runtime.packages")
         linkRuntimeSource("nupp.spi.index")
         for _, provider in ipairs(config._spiEntries) do
             linkRuntimeSource(provider.implementation)

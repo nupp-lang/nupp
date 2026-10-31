@@ -1,7 +1,7 @@
 module nupp.time.spi
 
 --[[Implementation interfaces consumed during ordinary module initialization.
-Discover with nupp.spi.load; the consumer chooses the unique highest priority.
+Discover with package.providers; the consumer chooses the unique highest priority.
 Omitted priority is zero. Importing these declarations loads no implementation.]]
 
 --- Clocks and cancellable waits, measured in milliseconds.

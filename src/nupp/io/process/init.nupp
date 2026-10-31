@@ -21,7 +21,7 @@ A child and its streams are owners. See
 out under.
 ]]
 
-local spi = require("nupp.spi")
+local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
 
 const io = require("nupp.io")
@@ -36,7 +36,7 @@ local spanStringValue: function(borrows source: const uint8[?], count: integer):
 
 const contract = require("nupp.io.process.spi")
 local provider: contract.Provider = do
-    const chosen = spi.select(spi.load(contract.Provider))
+    const chosen = spi.select(spi.providers<contract.Provider>("nupp.io.process.spi.Provider"))
     if chosen ~= nil then
         yield chosen
     end

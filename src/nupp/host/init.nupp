@@ -117,13 +117,13 @@ such as `tecs.image.decode`. Names under `nupp.` are reserved for the runtime.
 :::
 ]]
 
-local spi = require("nupp.spi")
+local spi = require("nupp.runtime.packages")
 local events = require("nupp.events")
 local target = require("nupp.runtime.target")
 local contracts = require("nupp.host.spi")
 
 local provider: contracts.Provider = do
-    const chosen = spi.select(spi.load(contracts.Provider))
+    const chosen = spi.select(spi.providers<contracts.Provider>("nupp.host.spi.Provider"))
     if chosen ~= nil then
         yield chosen
     end

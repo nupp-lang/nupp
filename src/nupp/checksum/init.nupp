@@ -47,7 +47,7 @@ and the ones it does not name stay available. The catalog is read once, at load,
 so no lookup or update resolves a service.
 ]]
 
-local spi = require("nupp.spi")
+local spi = require("nupp.runtime.packages")
 
 const span = require("nupp.mem.span")
 const provider = require("nupp.checksum.spi")
@@ -160,7 +160,9 @@ local function validate(selected: provider.Provider): nil
     end
 end
 
-local selected: provider.Provider = spi.select(spi.load(provider.Provider)) ?? standard
+local selected: provider.Provider = spi.select(
+    spi.providers<provider.Provider>("nupp.checksum.spi.Provider")
+) ?? standard
 validate(selected)
 local available: {[string]: Algorithm} = {}
 for name, implementation in pairs(standard.algorithms) do

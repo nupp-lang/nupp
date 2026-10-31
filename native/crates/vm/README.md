@@ -277,7 +277,7 @@ What it took to get the checker running, each a runtime decision:
   `Ret` writes one register. Every compiled return now records its count.
 - **`t[#t] = nil` shrinks the array part** (Lua's border rule) on every store
   path; `tonumber` of a non-string is nil; `require` of a missing module
-  raises Lua's message, which `nupp.spi` probes for.
+  raises Lua's message, which package discovery probes for.
 - **Metatables on tables**: `__index` (function or table), `__newindex`,
   `__call`, stored by `setmetatable` and walked by the collector; records
   have none. A method call that finds no shape method calls the field of

@@ -214,8 +214,8 @@ const label: string = assembled.label
 const call: @nosuspend function(): string = assembled.call
 const contract = require("contract")
 const provider = require("provider")
-local spi = require("nupp.spi")
-const selected: contract.Provider = assert(spi.load(contract.Provider)())
+local spi = package
+const selected: contract.Provider = assert(spi.providers(contract.Provider)())
 const token: contract.Token = selected.make()
 const marked: {text: string} = selected.mark({text = token.text})
 return marked.text
@@ -346,11 +346,11 @@ function M.runtimeImplementationInterfacesArePublic()
     local found = errors(
         [[
 module application
-local spi = require("nupp.spi")
+local spi = package
 local {type CstorageProvider} = require("nupp.mem.representation.spi")
 local uuid = require("nupp.util.spi")
-local storage = spi.load(CstorageProvider)
-local uuids = spi.load(uuid.UuidProvider)
+local storage = spi.providers(CstorageProvider)
+local uuids = spi.providers(uuid.UuidProvider)
 export = {storage = storage, uuids = uuids}
 ]],
         nil,

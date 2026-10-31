@@ -3,7 +3,7 @@ module nupp.codec.json.spi
 local {type Buffer as SharedBuffer} = require("nupp.text.internal.buffer")
 
 --[[Implementation interfaces consumed during ordinary module initialization.
-Discover with nupp.spi.load; the consumer chooses the unique highest priority.
+Discover with package.providers; the consumer chooses the unique highest priority.
 Omitted priority is zero. Importing these declarations loads no implementation.]]
 
 --- A complete JSON value whose immutable bytes have already been encoded or

@@ -98,7 +98,7 @@ also closes a reader body transferred into it.
 :::
 ]]
 
-local spi = require("nupp.spi")
+local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
 
 local contracts = require("nupp.io.http.spi")
@@ -107,7 +107,7 @@ const {type Path} = require("nupp.io.files")
 const paths = require("nupp.io.path")
 const appPaths = require("nupp.io.files.path")
 local provider: contracts.Provider = do
-    const chosen = spi.select(spi.load(contracts.Provider))
+    const chosen = spi.select(spi.providers<contracts.Provider>("nupp.io.http.spi.Provider"))
     if chosen ~= nil then
         yield chosen
     end

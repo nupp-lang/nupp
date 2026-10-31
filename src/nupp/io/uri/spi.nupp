@@ -1,7 +1,7 @@
 module nupp.io.uri.spi
 
 --[[Implementation interfaces consumed during ordinary module initialization.
-Discover with nupp.spi.load; the consumer chooses the unique highest priority.
+Discover with package.providers; the consumer chooses the unique highest priority.
 Omitted priority is zero. Importing these declarations loads no implementation.]]
 
 --- Normalized absolute-URI components shared by every parser.

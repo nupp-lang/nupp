@@ -28,8 +28,8 @@ error("navigation must not execute this module")
         ] = [[
 module consumer
 const contract = require("contract")
-local spi = require("nupp.spi")
-const provider = assert(spi.load(contract.Provider)())
+local spi = package
+const provider = assert(spi.providers(contract.Provider)())
 export const result = provider.value()
 ]],
     }
@@ -85,9 +85,9 @@ error("navigation must not execute this module")]],
         [
             "consumer.nupp"
         ] = [[module consumer
-local spi = require("nupp.spi")
+local spi = package
 local {type Provider} = require("contract")
-local provider = assert(spi.load(Provider)())
+local provider = assert(spi.providers(Provider)())
 export const value = provider.value]],
     }
     for name, source in pairs(files) do

@@ -38,7 +38,7 @@ descriptor whose size disagrees with its algorithm is refused. The catalog is
 read once, at load, so no context operation resolves a service.
 ]]
 
-local spi = require("nupp.spi")
+local spi = require("nupp.runtime.packages")
 
 const provider = require("nupp.digest.spi")
 
@@ -88,7 +88,7 @@ local function validate(selected: provider.Provider): nil
     end
 end
 
-local selected: provider.Provider = spi.select(spi.load(provider.Provider)) ?? standard
+local selected: provider.Provider = spi.select(spi.providers<provider.Provider>("nupp.digest.spi.Provider")) ?? standard
 validate(selected)
 local available: {[string]: Algorithm} = {}
 for name, implementation in pairs(standard.algorithms) do

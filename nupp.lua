@@ -34,7 +34,7 @@ local TEMPLATE_FILES = {
 -- want in full. One list because they have never differed and a second copy is
 -- how they would start to.
 local RESOURCES = {
-    {source = "src/nupp/spi/init.nupp", output = "nupp/compiler/nupp/spi/init.nupp"},
+    {source = "src/nupp/runtime/packages.nupp", output = "nupp/compiler/nupp/runtime/packages.nupp"},
     {source = "src/nupp/text/spi.nupp", output = "nupp/compiler/nupp/text/spi.nupp"},
     {source = "src/nupp/random/spi.nupp", output = "nupp/compiler/nupp/random/spi.nupp"},
     {source = "src/nupp/mem/representation/spi.nupp", output = "nupp/compiler/nupp/mem/representation/spi.nupp"},

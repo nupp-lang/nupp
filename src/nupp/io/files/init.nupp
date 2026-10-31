@@ -23,7 +23,7 @@ evictable unless `requestPersistentStorage` succeeds. Capability flags describe
 the operations whose native semantics have no browser equivalent.
 ]]
 
-const spi = require("nupp.spi")
+const spi = require("nupp.runtime.packages")
 const target = require("nupp.runtime.target")
 const io = require("nupp.io")
 const paths = require("nupp.io.path")
@@ -32,7 +32,7 @@ const messages = require("nupp.io.files.messages")
 const appPaths = require("nupp.io.files.path")
 
 local provider: contracts.Provider = do
-    const chosen = spi.select(spi.load(contracts.Provider))
+    const chosen = spi.select(spi.providers<contracts.Provider>("nupp.io.files.spi.Provider"))
     if chosen ~= nil then
         yield chosen
     end

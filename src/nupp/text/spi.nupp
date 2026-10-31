@@ -1,7 +1,7 @@
 module nupp.text.spi
 
 --[[Implementation interfaces consumed during ordinary module initialization.
-Discover with nupp.spi.load; the consumer chooses the unique highest priority.
+Discover with package.providers; the consumer chooses the unique highest priority.
 Omitted priority is zero. Importing these declarations loads no implementation.]]
 
 local {type Buffer as SharedBuffer} = require("nupp.text.internal.buffer")
