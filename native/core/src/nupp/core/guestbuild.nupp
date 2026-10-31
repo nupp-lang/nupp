@@ -1,0 +1,260 @@
+module nupp.core.guestbuild
+
+-- Builds a guest program and the core that runs it. The program goes through
+-- the checked front end, the program graph and the executable; the guest
+-- runtime (handlers, entry, frames and what they call) goes through the
+-- service catalog and the unit code cache. The core's own code is tested, not
+-- proven (runtime plan, "Direction"): nothing here issues final-frame proofs.
+local service = require("nupp.compiler.vm.nativeservice")
+local runner = require("nupp.core.unitrunner")
+local parser = require("nupp.compiler.syntax.parser")
+local checker: any = require("nupp.compiler.check")
+local environment: any = require("nupp.compiler.project.env")
+local cst = require("nupp.compiler.syntax.cst")
+local program = require("nupp.compiler.vm.programgraph")
+local tagged = require("nupp.compiler.vm.taggedprofile")
+local executable = require("nupp.compiler.vm.coregraphexecutable")
+require("nupp.compiler.hostservices")
+local build = {}
+
+-- Each case's fixture and graph profile version.
+local CASES: {[string]: {
+    fixture: string,
+    version: integer
+}} = {
+    boolean = {fixture = "catalog-boolean", version = 2},
+    nilValue = {fixture = "catalog-nil", version = 2},
+    live = {fixture = "catalog-live", version = 2},
+    fresh = {fixture = "catalog-fresh", version = 2},
+    nested = {fixture = "catalog-nested", version = 2},
+    branchTrue = {fixture = "catalog-branch-true", version = 2},
+    branchFalse = {fixture = "catalog-branch-false", version = 2},
+    branchElseif = {fixture = "catalog-branch-elseif", version = 2},
+    branchLive = {fixture = "catalog-branch-live", version = 2},
+    modulePair = {fixture = "catalog-module-main", version = 2},
+    moduleTriple = {fixture = "catalog-module-triple", version = 2},
+    numberAdd = {fixture = "catalog-number-add", version = 3},
+    numberNegativeZero = {fixture = "catalog-number-negative-zero", version = 3},
+    numberNaN = {fixture = "catalog-number-nan", version = 3},
+    numberBranch = {fixture = "catalog-number-branch", version = 4},
+    numberLoop = {fixture = "catalog-number-loop", version = 5},
+    numberLoopZero = {fixture = "catalog-number-loop-zero", version = 5},
+    numericFor = {fixture = "catalog-numeric-for", version = 6},
+    numericFloat = {fixture = "catalog-numeric-float", version = 6},
+    numericModZero = {fixture = "catalog-numeric-modzero", version = 6},
+    numericOverflow = {fixture = "catalog-numeric-overflow", version = 6},
+    numericControl = {fixture = "catalog-numeric-control", version = 6},
+    workloadLoops = {fixture = "catalog-workload-loops", version = 6}
+}
+
+-- The handlers a profile version dispatches, in table order.
+local function handlerNames(caseName: string, version: integer): {string}
+    local names = {"K", "Nil", "Move", "NewClosure", "CallK", "Ret", "Jmp", "JmpIf", "Invalid"}
+    if caseName == "modulePair" then
+        table.insert(names, 2, "Require")
+    end
+    local introduced: {[string]: integer} = {Add = 3, Lt = 4, Sub = 6, Mul = 6, Mod = 6, Le = 6, Eq = 6}
+    for _, name in ipairs({"Add", "Lt", "Sub", "Mul", "Mod", "Le", "Eq"}) do
+        if version >= introduced[name] then
+            table.insert(names, 2, name)
+        end
+    end
+
+    return names
+end
+
+local function read(path: string): string
+    local file = assert(io.open(path, "rb"), "guest build: missing source " .. path)
+    local text = file:read("*a")
+    file:close()
+
+    return text
+end
+
+-- The runtime modules a guest links, beyond the service catalog's own.
+local RUNTIME = {
+    "arena",
+    "frames",
+    "context",
+    "frameaccess",
+    "instances",
+    "guestcatalog",
+    "guestentry",
+    "guestops",
+    "guesthandlers"
+}
+
+-- One runtime build and selection per mode for the process: every case
+-- shares them, and only the program differs. Audited builds add the test-only
+-- lifecycle audit leaves, which primary programs must not link.
+local runtimes: {[string]: any} = {}
+local sessions: {[string]: any} = {}
+
+local function runtime(mode: string, cacheDirectory: string?, audited: boolean): any
+    local kind = audited and "audited" or "primary"
+    local held = runtimes[kind .. ":" .. mode]
+    if held then
+        return held
+    end
+    local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
+    local fixtures = {}
+    for _, name in ipairs(RUNTIME) do
+        fixtures[
+            #fixtures + 1
+        ] = {
+            moduleName = "nupp.runtime.core." .. name,
+            path = root .. "/native/core/src/nupp/runtime/core/" .. name .. ".nupp"
+        }
+    end
+    -- Every handler is built, so one selection serves every profile version.
+    local all = handlerNames("modulePair", 6)
+    local roots, handlers = {}, {}
+    for _, name in ipairs(all) do
+        roots[#roots + 1] = {"nupp.runtime.core.guesthandlers", name}
+        handlers["nupp.runtime.core.guesthandlers." .. name] = true
+    end
+    roots[#roots + 1] = {"nupp.runtime.core.guestentry", "start"}
+    roots[#roots + 1] = {"nupp.runtime.core.guestentry", "complete"}
+    if audited then
+        fixtures[
+            #fixtures + 1
+        ] = {
+            moduleName = "nupp.runtime.core.guestaudit",
+            path = root .. "/build/core-guest-audit/source/nupp/runtime/core/guestaudit.nupp",
+            include = "build/core-guest-audit/source"
+        }
+        for _, name in ipairs({"after", "failedPrefix", "stale", "failedStart"}) do
+            roots[#roots + 1] = {"nupp.runtime.core.guestaudit", name}
+        end
+    end
+    local began = os.time()
+    -- The checked session and catalog serve both modes.
+    sessions[kind] = sessions[kind] or service.buildUnits(fixtures, roots)
+    local units = sessions[kind]
+    io.stderr:write(("guest runtime session %ds\n"):format(os.time() - began))
+    local timings = {}
+    local started = os.clock()
+    local chosen = runner.select(
+        units,
+        mode,
+        cacheDirectory,
+        handlers,
+        function(name: string): nil
+            timings[#timings + 1] = {name = name, seconds = os.clock() - started}
+            io.stderr:write(("guest runtime %s %ds\n"):format(name, os.time() - began))
+        end,
+        units.session.module("nupp.runtime.core.context")
+    )
+    local scopes = {}
+    for _, name in ipairs(RUNTIME) do
+        scopes["nupp.runtime.core." .. name] = units.session.module("nupp.runtime.core." .. name)
+    end
+    scopes["nupp.runtime.vm.values"] = units.session.module("nupp.runtime.vm.values")
+    if audited then
+        scopes["nupp.runtime.core.guestaudit"] = units.session.module("nupp.runtime.core.guestaudit")
+    end
+    local names, metrics = {}, {}
+    for name in pairs(chosen.codes) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+    for _, name in ipairs(names) do
+        local code = chosen.codes[name]
+        metrics[
+            #metrics + 1
+        ] = {
+            name = name,
+            frameBytes = code.frameBytes,
+            spillSlots = code.allocation.spillSlots,
+            integerRegisters = code.allocation.integerRegisters,
+            floatRegisters = code.allocation.floatRegisters,
+            calls = #code.fixupName
+        }
+    end
+    held = {codes = chosen.codes, owners = chosen.owners, scopes = scopes, timings = timings, metrics = metrics}
+    runtimes[kind .. ":" .. mode] = held
+
+    return held
+end
+
+-- The checked program for a case, compiled to the core executable.
+local function compileProgram(caseName: string, fixture: string, version: integer): any
+    local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
+    local names = caseName == "modulePair" and {"catalog-module-prefix", fixture}
+        or caseName == "moduleTriple" and {"catalog-module-prefix", "catalog-module-middle", fixture}
+        or {fixture}
+    local staged = root .. "/build/core-guest-programs/source"
+    local project: any = nil
+    if #names > 1 then
+        local incremental: any = require("nupp.compiler.project.incremental")
+        require("nupp.compiler.project.projectconfig")
+        require("nupp.compiler.hash")
+        project = incremental.new(root, {
+            cache = false,
+            nativeCompilerServices = false,
+            config = {include = {"src", "build/core-guest-programs/source"}}
+        })
+    end
+    local modules = {}
+    local moduleName = ""
+    for _, name in ipairs(names) do
+        local path = root .. "/native/core/tests/" .. name .. ".nupp"
+        local source = read(path)
+        local parsed = parser.parse(source, path)
+        assert(#parsed.errors == 0, "guest source parse failed: " .. name)
+        local declared = assert(cst.declaredModule(parsed.root), "guest module declaration required")
+        local diagnostics
+        if project then
+            path = staged .. "/" .. declared:gsub("%.", "/") .. ".nupp"
+            assert(read(path) == source, "staged guest source differs: " .. name)
+            local checked = project.checkFile(path)
+            parsed, diagnostics = assert(checked.result, "checked guest result required"), checked.diags
+        else
+            local env = environment.new(root, {memoryOnly = true, cache = false, nativeCompilerServices = false})
+            diagnostics = checker.check(parsed, path, env, {
+                moduleName = declared,
+                strict = false,
+                lints = {["unused-binding"] = "off"}
+            })
+        end
+        for _, diagnostic in ipairs(diagnostics) do
+            assert(diagnostic.severity ~= "error", diagnostic.msg)
+        end
+        modules[#modules + 1] = {name = declared, path = path, parsed = parsed, diagnostics = diagnostics}
+        moduleName = declared
+    end
+    local catalog = program.describe(modules, moduleName)
+
+    return executable.fromChecked(
+        program.compile(catalog, version >= 5 and tagged.forVersion(version) or tagged),
+        version
+    )
+end
+
+-- A guest build in the shape guestshim takes: the program executable, the
+-- runtime's selected code by qualified name, and the scopes whose layouts
+-- the shim and artifact writer read.
+function build.guest(caseName: string, mode: string, cacheDirectory: string?, audited: boolean?): any
+    local case = assert(CASES[caseName], "unknown guest case: " .. caseName)
+    local held = runtime(mode, cacheDirectory, audited == true)
+    local program = compileProgram(caseName, case.fixture, case.version)
+    local resolved = {}
+    for name, owner in pairs(held.owners) do
+        resolved[name] = {owner = owner}
+    end
+
+    return {
+        resolved = resolved,
+        selected = held.codes,
+        scopes = held.scopes,
+        executable = program,
+        handlers = handlerNames(caseName, case.version),
+        caseName = caseName,
+        audited = audited == true,
+        refusals = {},
+        timings = held.timings,
+        metrics = held.metrics
+    }
+end
+
+export = build

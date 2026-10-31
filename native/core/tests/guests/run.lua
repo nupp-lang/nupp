@@ -20,6 +20,9 @@ local HERE = debug.getinfo(1, "S").source:match("^@(/.*)/[^/]*$") or cwd()
 local ROOT = assert(os.getenv("NUPP_COMPILER_ROOT"), "set NUPP_COMPILER_ROOT to the checkout root")
 local OUT = ROOT .. "/build/core-guests"
 local TESTS = ROOT .. "/native/core/tests"
+-- The guest runtime is built through the service catalog and the unit code
+-- cache; NUPP_GUEST_BUILD=frozen selects the frozen final-frame build instead.
+local UNITS = os.getenv("NUPP_GUEST_BUILD") ~= "frozen"
 
 local CASES = {
     {"boolean", 0x7FFB000000000000}, {"nilValue", 0x7FF9000000000000}, {"live", 0x7FFB000000000000},
@@ -31,7 +34,7 @@ local CASES = {
     {"numberBranch", 0x7FFB000000000000}, {"numberLoop", 0x4008000000000000},
     {"numberLoopZero", 0x0000000000000000}, {"numericFor", 0x7FFF0059B114AFBA},
     {"numericFloat", 0x4125486B80000000}, {"numericModZero", false}, {"numericOverflow", false},
-    {"numericControl", 0x7FFF00083C5DD2BB}
+    {"numericControl", 0x7FFF00083C5DD2BB}, {"workloadLoops", 0x7FFF0000000F4177}
 }
 -- These refuse at run time and must publish nothing: Lua 5.5 raises for the
 -- first; the second needs a canonical integer object.
@@ -39,7 +42,7 @@ local STATUS = {numericModZero = 6, numericOverflow = 5}
 local NUMERIC = {
     numericFor = "catalog-numeric-for", numericFloat = "catalog-numeric-float",
     numericModZero = "catalog-numeric-modzero", numericOverflow = "catalog-numeric-overflow",
-    numericControl = "catalog-numeric-control"
+    numericControl = "catalog-numeric-control", workloadLoops = "catalog-workload-loops"
 }
 local FIXTURES = {
     "catalog-boolean", "catalog-nil", "catalog-live", "catalog-fresh", "catalog-nested",
@@ -47,7 +50,7 @@ local FIXTURES = {
     "catalog-module-prefix", "catalog-module-main", "catalog-module-middle", "catalog-module-triple",
     "catalog-number-add", "catalog-number-negative-zero", "catalog-number-nan", "catalog-number-branch",
     "catalog-number-loop", "catalog-number-loop-zero", "catalog-numeric-for", "catalog-numeric-float",
-    "catalog-numeric-modzero", "catalog-numeric-overflow", "catalog-numeric-control"
+    "catalog-numeric-modzero", "catalog-numeric-overflow", "catalog-numeric-control", "catalog-workload-loops"
 }
 local AUDITS = {
     {"fresh", "success"}, {"nilValue", "success"}, {"nested", "success"}, {"nested", "budget0"},
@@ -291,7 +294,11 @@ local function main()
     local selections = {}
     for _, item in ipairs(list) do
         local name, mode = item:match("^(%w+):(%w+)$")
-        selections[name .. "-" .. mode] = producer.select(name, mode, "131072")
+        if UNITS then
+            selections[name .. "-" .. mode] = producer.selectUnits(name, mode, "131072", ROOT .. "/build/core-unit-cache")
+        else
+            selections[name .. "-" .. mode] = producer.select(name, mode, "131072")
+        end
     end
     print(("selected %d programs in %ds"):format(#list, os.time() - started))
     local empty = OUT .. "/empty.bin"
@@ -341,7 +348,7 @@ local function main()
             check(highWater <= 131072, label .. " high water")
             local bundleBytes, codeBytes, data = bundleOf(selected, 131072)
             local version = get64(data, 0)
-            check(version == (name:match("^numeric") and 6 or name:match("^numberLoop") and 5
+            check(version == ((name:match("^numeric") or name:match("^workload")) and 6 or name:match("^numberLoop") and 5
                 or name == "numberBranch" and 4 or name:match("^number") and 3
                 or (name == "modulePair" or name == "moduleTriple") and 2 or 1), label .. " descriptor version")
             local bundle = OUT .. "/" .. label .. ".bundle"
@@ -447,7 +454,9 @@ local function main()
             end
             if present then
                 local label = ("audit-%s-%s-%s"):format(name, mode, scenario)
-                local selected = producer.select(name, mode, "131072", scenario)
+                local selected = UNITS
+                    and producer.selectUnits(name, mode, "131072", ROOT .. "/build/core-unit-cache", scenario)
+                    or producer.select(name, mode, "131072", scenario)
                 local primary = selections[name .. "-" .. mode]
                 check(same(selected.programs, primary.programs), label .. " stream unchanged")
                 check(same(selected.dispatch, primary.dispatch), label .. " dispatch unchanged")

@@ -1980,7 +1980,8 @@ local function verifyGraph(g: any, invokeArity: any): nil
         physical.verifyViews(g)
     end
     local final = finalframe.verify(g)
-    if native and g.native.abi ~= "leaf" and not final then
+    -- Test builds are tested, not proven (runtime plan, "Direction").
+    if native and g.native.abi ~= "leaf" and not final and not service.isUnitModule(g.source and g.source.module) then
         frameverify.verify(g)
     end
     local certs = g.certificates

@@ -240,6 +240,8 @@ local function catalog(entry: any, roots: any, review: any): any
                             node
                         ] = {owner = owner, checked = checked, collects = collects, mutates = mutates}
                     elseif moduleName ~= "nupp.runtime.vm.intrinsics"
+                        and moduleName ~= "nupp.runtime.vm.program"
+                        and moduleName ~= "nupp.runtime.vm.slots"
                         and not unit.borrowFrom(owner, node)
                         and not unit.localConstructionChild(owner, node)
                     then
@@ -324,7 +326,7 @@ function service.options(catalog: any, owner: any): any
     local state = need(catalogs[catalog], "unissued service catalogue")
     local item = need(state.owners[owner], "owner outside service closure")
     held(item.signature)
-    local result = unit.ownerOptions(owner, "leaf")
+    local result = unit.ownerOptions(owner, owner.nativeABI or "leaf")
     supplied[result] = item
 
     return result
@@ -802,7 +804,9 @@ function service.verify(g: any): nil
     end
     local item = held(g.nativeService)
     need(
-        graphs[g] == item and g.native.abi == "leaf" and g.nparams == item.sourceCount + (item.scoped and 1 or 0),
+        graphs[g] == item
+        and (g.native.abi == "leaf" or g.native.abi == "handler" and unitModules[item.scope.name])
+        and g.nparams == item.sourceCount + (item.scoped and 1 or 0),
         "service graph identity differs"
     )
     if item.scoped then
@@ -3447,7 +3451,7 @@ function service.buildUnits(fixtures: any, rootNames: any): any
             include[#include + 1] = fixture.include
         end
     end
-    local checked = unit.session(root, requested, "aarch64-apple-darwin", include)
+    local checked = unit.session(root, requested, "aarch64-apple-darwin", include, true)
     local entries = {}
     for _, item in ipairs(rootNames) do
         local scope = checked.module(item[1])
