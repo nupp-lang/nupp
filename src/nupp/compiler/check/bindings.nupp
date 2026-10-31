@@ -104,6 +104,12 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 else
                     fieldType, definition = c.fieldType(sourceType, fieldName)
                 end
+                local effects = c.env and c.env.featureEffects
+                local memberEffects = effects and effects[rawType(sourceType)]
+                local effect = memberEffects and memberEffects[fieldName]
+                if effect and c.recordEffect then
+                    c.recordEffect(effect)
+                end
                 entry.selectedDefinition = definition
                 if not fieldType then
                     c.diag(
@@ -171,6 +177,26 @@ function bindings.install(c: state.Checker): state.StatHandlers
                             }
                             if boundEntry.definition then
                                 boundEntry.definition.requiredModule = source.requiredModule
+                                boundEntry.definition.exactCallExport = boundEntry.exactCallExport
+                            end
+                        end
+                        local sourceDefinition = source.kind == "name" and source.token and source.token.definition
+                        local namespacePath = (source as any).namespacePath
+                            or sourceDefinition and sourceDefinition.namespacePath
+                        if not source.requiredModule
+                            and namespacePath == "package"
+                            and (fieldName == "providers" or fieldName == "select")
+                        then
+                            -- Existing backends already lower a private namespace
+                            -- projection, including a pattern selecting other fields.
+                            (source as any).qualifiedModule = "nupp.runtime.packages"
+                            (source as any).qualifiedMembers = {"namespace"}
+                            boundEntry.exactCallExport = {
+                                module = "package",
+                                member = fieldName,
+                                identity = "package." .. fieldName,
+                            }
+                            if boundEntry.definition then
                                 boundEntry.definition.exactCallExport = boundEntry.exactCallExport
                             end
                         end

@@ -5,8 +5,8 @@ title: SPI
 
 # SPI
 
-`nupp.spi.load(Interface)` iterates the implementations a package advertises.
-A module chooses one while it initializes, usually with `nupp.spi.select`, and
+`package.providers(Interface)` iterates the implementations a package advertises.
+A module chooses one while it initializes, usually with `package.select`, and
 the choosing is ordinary code.
 
 The interface is an exported declaration in a module that does not initialize
@@ -85,23 +85,22 @@ calls:
 
 ```nupp:fragment [src/example/codec/init.nupp]
 module example.codec
-local spi = require("nupp.spi")
 local {type Codec} = require("example.codec.spi")
 
-local impl: Codec = spi.select(spi.load(Codec)) ?? require("example.defaultcodec")
+local impl: Codec = package.select(package.providers(Codec)) ?? require("example.defaultcodec")
 
 export const encode = impl.encode
 ```
 
-`nupp.spi.select` reads each candidate's `priority`, counting a missing one as
+`package.select` reads each candidate's `priority`, counting a missing one as
 0, and returns the one with the highest. A higher priority supersedes a tie
 below it; a tie for the highest raises, naming the interface and the two
 modules, rather than letting discovery order decide. It returns nil when nothing
 is advertised, so the fallback after `??` is loaded only when it is used. Every
 standard library facade selects its provider this way.
 
-`priority` is a convention between an interface and `select`, and `load` knows
-nothing about it. Another consumer can iterate `load` itself to compare
+`priority` is a convention between an interface and `select`, and `providers` knows
+nothing about it. Another consumer can iterate `providers` itself to compare
 capabilities, read configuration, combine implementations, or reject
 duplicates instead. Discovery order assigns no preference: the use site decides
 what wins.
@@ -146,7 +145,7 @@ project's own. Editing a descriptor invalidates the generated index.
 
 ## Standard-library providers
 
-A standard-library consumer chooses with `nupp.spi.select`: the unique highest
+A standard-library consumer chooses with `package.select`: the unique highest
 `priority`, an omitted one counting as zero, and initialization fails on equal
 highest priorities. Without an external implementation it chooses its built-in
 fallback under ordinary target and host conditions.

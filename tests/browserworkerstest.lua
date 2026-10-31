@@ -189,9 +189,9 @@ function M.providersUseTheCanonicalScopeContract()
     local env = require("nupp.compiler.project.env").new(os.tmpname(), {cache = false})
     local parsed = parser.parse(
         [[
-const spi = require("nupp.spi")
+const spi = package
 const contracts = require("nupp.workers.spi")
-const provider: contracts.Provider = assert(spi.load(contracts.Provider)())
+const provider: contracts.Provider = assert(spi.providers(contracts.Provider)())
 local function open(): contracts.Scope
     return provider.openScope()
 end

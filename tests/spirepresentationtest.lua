@@ -6,7 +6,7 @@ local function runtime(storage)
 
     return fixtures.instance(
         {
-            ['nupp.spi'] = true,
+            ['nupp.runtime.packages'] = true,
             ['nupp.mem.representation'] = true,
             ['nupp.runtime.storage'] = true,
             ['nupp.runtime.structvalue'] = true,

@@ -932,30 +932,44 @@ function M.standardTypesApiMarksItsCompilerOnlyValues()
 end
 
 function M.spiReferenceShowsTheInterfaceArgumentRatherThanItsLowering()
-    local path = "src/nupp/spi/init.nupp"
+    local path = "src/nupp/compiler/decls/lua.d.nupp"
     local source = readFile(HERE .. "/../" .. path)
-    local module, errors = doc.extract(source, path, "nupp.spi")
-    assert(module, errors and errors[1] and errors[1].msg)
-    assert(module.text:find("dependency order", 1, true), "the SPI overview must appear in its API reference")
-    local load
-    for _, item in ipairs(module.items) do
-        if item.name == "load" then
-            load = item
+    local _, errors, modules = doc.extract(source, path, "lua", {shapesAsModules = true})
+    assert(not errors or #errors == 0, errors and errors[1] and errors[1].msg)
+    local packageModule
+    for _, module in ipairs(modules or {}) do
+        if module.name == "package" then
+            packageModule = module
         end
     end
-    assert(load, "the SPI reference has no loading operation")
-    assert(load.signature == "load(Interface): function(): Interface?")
-    assert(#load.typeargs == 0, "SPI infers the implementation type from its interface argument")
-    assert(load.params[1].name == "Interface" and load.params[1].type == "interface declaration")
-    assert(load.params[1].text ~= "" and load.returns[1].text ~= "")
-    assert(load.returns[1].type == "function(): Interface?")
+    assert(packageModule, "the prelude must document package discovery")
+    assert(packageModule.text:find("dependency order", 1, true))
+    local providers
+    for _, item in ipairs(packageModule.items) do
+        if item.name == "providers" then
+            providers = item
+        end
+    end
+    assert(providers, "the package reference has no providers operation")
+    assert(providers.signature == "providers(Interface): function(): Interface?")
+    assert(#providers.typeargs == 0, "discovery infers the implementation type from its interface argument")
+    assert(providers.params[1].name == "Interface" and providers.params[1].type == "interface declaration")
+    assert(providers.params[1].text ~= "" and providers.returns[1].text ~= "")
+    assert(providers.returns[1].type == "function(): Interface?")
 
-    local ordinary = assert(doc.extract(source, "src/custom.nupp", "custom"))
-    for _, item in ipairs(ordinary.items) do
-        if item.name == "load" then
-            assert(item.params[1].type == "string", "unrelated functions keep their declared signature")
-        end
-    end
+    local ordinary = assert(
+        doc.extract(
+            [[
+module custom
+export function providers<I>(interface: string): function(): I?
+    return function(): I? return nil end
+end
+]],
+            "src/custom.nupp",
+            "custom"
+        )
+    )
+    assert(ordinary.items[1].params[1].type == "string", "unrelated functions keep their declared signature")
 end
 
 -- The public JSON module documents its own complete surface; the host declaration is

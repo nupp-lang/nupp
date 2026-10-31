@@ -533,9 +533,9 @@ end]],
         [
             "src/counter/init.nupp"
         ] = [[module counter
-local spi = require("nupp.spi")
+local spi = package
 local {type Counter} = require("counter.spi")
-local implementation = assert(spi.load(Counter)())
+local implementation = assert(spi.providers(Counter)())
 export const next = implementation.next]],
         [
             "src/jobs.nupp"

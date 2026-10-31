@@ -3,7 +3,7 @@ module nupp.runtime.timeprovider
 
 const _DYNAMIC_REQUIRES = "@requires-dynamically nupp.runtime.provider.nativetime @requires-dynamically nupp.runtime.browser.time"
 
-local spi = require("nupp.spi")
+local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
 local contracts = require("nupp.time.spi")
 
@@ -25,7 +25,7 @@ local function available(name: string): contracts.Provider?
 end
 
 export const provider: contracts.Provider? = do
-    const chosen = spi.select(spi.load(contracts.Provider))
+    const chosen = spi.select(spi.providers<contracts.Provider>("nupp.time.spi.Provider"))
     if chosen ~= nil then
         yield chosen
     end

@@ -4,7 +4,7 @@ module nupp.host.spi
 The interface a [](nupp.host) implementation provides.
 
 The facade selects one implementation when it loads: a provider discovered
-through [](nupp.spi), otherwise the embedding host natively and the page in a
+through `package.providers`, otherwise the embedding host natively and the page in a
 browser. Every function is receiver-free and takes its arguments as a flat list,
 so an argument list is never wrapped in a table on its way through.
 

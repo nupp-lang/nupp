@@ -20,12 +20,12 @@ the guest instruction set, while its endianness and pointer width remain
 `little` and 32.
 ]]
 
-local spi = require("nupp.spi")
+local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
 
 local contract = require("nupp.system.spi")
 local provider: contract.Provider = do
-    const chosen = spi.select(spi.load(contract.Provider))
+    const chosen = spi.select(spi.providers<contract.Provider>("nupp.system.spi.Provider"))
     if chosen ~= nil then
         yield chosen
     end

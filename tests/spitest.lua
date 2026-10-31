@@ -57,18 +57,21 @@ end
 function M.typedLazyIterationRetainsModuleIdentityAndBindsDirectFunctions()
     local sources = files(
         [[module main
-local spi = require("nupp.spi")
+local spi = package
 local {type Codec} = require("example.api")
-local next = spi.load(Codec)
+local next = spi.providers(Codec)
 local first = assert(next())
 local second = assert(next())
 assert(next() == nil and next() == nil)
 assert(first.encode("x") == "first:x")
 assert(second.encode("x") == "second:x")
-assert(spi.load(Codec)() == first)
-assert(nupp.spi.load(Codec)() == first)
+assert(spi.providers(Codec)() == first)
+assert(package.providers(Codec)() == first)
+assert(package.providers == spi.providers and package.select == spi.select)
+local oldModuleAvailable = pcall(require, "nupp.spi")
+assert(not oldModuleAvailable)
 local api = require("example.api")
-assert(spi.load(api.Codec)() == first)
+assert(spi.providers(api.Codec)() == first)
 local encode = first.encode
 for i = 1, 10 do assert(encode("x") == "first:x") end
 print("ok")]]
@@ -86,7 +89,7 @@ end
 function M.earlyTerminationDoesNotLoadLaterProviders()
     local sources = files(
         [[module main
-local {load as providers} = require("nupp.spi")
+local {providers} = package
 local {type Codec as Interface} = require("example.api")
 for candidate in providers(Interface) do
     assert(candidate.encode("x") == "first:x")
@@ -105,9 +108,9 @@ function M.emptyDiscoveryUsesOrdinaryFallback()
     fixture(
         files(
             [[module main
-local spi = require("nupp.spi")
+local spi = package
 local {type Codec} = require("example.api")
-local provider: Codec = spi.load(Codec)() ?? require("example.first")
+local provider: Codec = spi.providers(Codec)() ?? require("example.first")
 assert(provider.encode("x") == "first:x")
 print("ok")]],
             "{}"
@@ -251,9 +254,9 @@ end
 function M.providerErrorsAreNotTreatedAsAbsence()
     local sources = files(
         [[module main
-local spi = require("nupp.spi")
+local spi = package
 local {type Codec} = require("example.api")
-for candidate in spi.load(Codec) do print(candidate.encode("x")) end]]
+for candidate in spi.providers(Codec) do print(candidate.encode("x")) end]]
     )
     sources["src/example/second.nupp"] = sources["src/example/second.nupp"] .. '\nerror("broken provider")'
     fixture(sources, function(dir)
@@ -266,10 +269,10 @@ end
 function M.providerErrorsKeepTheirOriginalIdentity()
     local sources = files(
         [[module main
-local spi = require("nupp.spi")
+local spi = package
 local {type Codec} = require("example.api")
 local failure = require("failure")
-local next = spi.load(Codec)
+local next = spi.providers(Codec)
 local ok, problem = pcall(next)
 assert(not ok and problem == failure.marker)
 print("ok")]],
@@ -288,7 +291,7 @@ function M.caughtProviderFailuresDoNotAdvanceToFallback()
     local marker = {}
     local attempts, fallbackLoads = 0, 0
     local load = require("providerstate").instance(
-        {["nupp.spi"] = true},
+        {["nupp.runtime.packages"] = true},
         {["nupp.spi.index"] = {["example.Api"] = {"fixture.broken", "fixture.fallback"}},},
         {
             ["fixture.broken"] = function()
@@ -301,7 +304,7 @@ function M.caughtProviderFailuresDoNotAdvanceToFallback()
             end,
         }
     )
-    local next = load("nupp.spi").load("example.Api")
+    local next = load("nupp.runtime.packages").providers("example.Api")
     for _ = 1, 2 do
         local ok, problem = pcall(next)
         assert(not ok and problem == marker, "a provider failure changed identity")
@@ -315,12 +318,12 @@ function M.providerIndexInitializationErrorsCannotMasqueradeAsAbsence()
             return "module 'nupp.spi.index' not found: initialization failed"
         end
     })
-    local load = require("providerstate").instance({["nupp.spi"] = true}, nil, {
+    local load = require("providerstate").instance({["nupp.runtime.packages"] = true}, nil, {
         ["nupp.spi.index"] = function()
             error(marker, 0)
         end
     })
-    local ok, problem = pcall(load, "nupp.spi")
+    local ok, problem = pcall(load, "nupp.runtime.packages")
     assert(not ok, "an index loader failure was treated as an absent index")
     assert(tostring(problem):find("cannot read provider index", 1, true), tostring(problem))
 end
@@ -358,7 +361,7 @@ function M.optionalFallbackInitializationErrorsCannotMasqueradeAsAbsence()
         local load = require(
             "providerstate"
         ).instance(
-            {["nupp.spi"] = true, [case.module] = true},
+            {["nupp.runtime.packages"] = true, [case.module] = true},
             {
                 ["nupp.runtime.target"] = {dialect = "luajit", host = "native"},
                 ["nupp.spi.index"] = {[case.interface] = {}},
@@ -374,8 +377,8 @@ end
 function M.typeReexportsResolveToTheDefiningInterface()
     local sources = files(
         [[module main
-local spi = require("nupp.spi")
-local load = spi.load
+local spi = package
+local load = spi.providers
 local {type PublicCodec} = require("example.alias")
 assert(assert(load(PublicCodec)()).encode("x") == "first:x")
 print("ok")]],
@@ -400,9 +403,9 @@ end
 function M.returnedModuleTablesExportTheirInterfaces()
     local sources = files(
         [[module main
-local spi = require("nupp.spi")
+local spi = package
 local api = require("example.api")
-assert(assert(spi.load(api.Codec)()).encode("x") == "first:x")
+assert(assert(spi.providers(api.Codec)()).encode("x") == "first:x")
 print("ok")]]
     )
     sources[
@@ -422,9 +425,9 @@ end
 function M.invalidProvidersFailBuildWithoutExecutingThem()
     local sources = files(
         [[module main
-local spi = require("nupp.spi")
+local spi = package
 local {type Codec} = require("example.api")
-for candidate in spi.load(Codec) do print(candidate.encode("x")) end]]
+for candidate in spi.providers(Codec) do print(candidate.encode("x")) end]]
     )
     sources[
         "src/example/second.nupp"
@@ -440,9 +443,9 @@ function M.descriptorChangesUpdateTheWarmBuild()
     fixture(
         files(
             [[module main
-local spi = require("nupp.spi")
+local spi = package
 local {type Codec} = require("example.api")
-for candidate in spi.load(Codec) do print(candidate.encode("x")) end]]
+for candidate in spi.providers(Codec) do print(candidate.encode("x")) end]]
         ),
         function(dir)
             local _, first = run(dir)
@@ -458,9 +461,9 @@ end
 function M.selectionUsesOrdinaryModuleInitialization()
     local sources = files(
         [[module main
-local spi = require("nupp.spi")
+local spi = package
 local {type Codec} = require("example.api")
-local selected: Codec = spi.select(spi.load(Codec)) ?? require("example.first")
+local selected: Codec = spi.select(spi.providers(Codec)) ?? require("example.first")
 export const encode = selected.encode
 assert(encode("x") == "second:x")
 print("ok")]]
@@ -494,7 +497,7 @@ local function candidates(priorities)
 end
 
 function M.selectTakesTheUniqueHighestPriorityAndRefusesATieForIt()
-    local spi = require("nupp.spi")
+    local spi = require("nupp.runtime.packages")
     assert(spi.select(candidates({})) == nil, "nothing advertised selects nothing")
     assert(spi.select(candidates({false})).position == 1, "a lone provider without a priority is chosen")
     assert(spi.select(candidates({5, 5, 10})).position == 3, "a higher priority supersedes a tie below it")
@@ -509,17 +512,29 @@ end
 
 function M.selectNamesTheInterfaceAndTheModulesThatTied()
     local saved = {}
-    for _, name in ipairs({"nupp.spi", "nupp.spi.index", "spitest.low", "spitest.left", "spitest.right"}) do
+    for _, name in ipairs({
+        "nupp.runtime.packages",
+        "nupp.spi.index",
+        "spitest.low",
+        "spitest.left",
+        "spitest.right"
+    }) do
         saved[name] = package.loaded[name]
     end
-    package.loaded["nupp.spi"] = nil
+    package.loaded["nupp.runtime.packages"] = nil
     package.loaded["nupp.spi.index"] = {["example.api.Codec"] = {"spitest.low", "spitest.left", "spitest.right"}}
     package.loaded["spitest.low"] = {priority = 1}
     package.loaded["spitest.left"] = {priority = 7}
     package.loaded["spitest.right"] = {priority = 7}
-    local spi = require("nupp.spi")
-    local ok, problem = pcall(spi.select, spi.load("example.api.Codec"))
-    for _, name in ipairs({"nupp.spi", "nupp.spi.index", "spitest.low", "spitest.left", "spitest.right"}) do
+    local spi = require("nupp.runtime.packages")
+    local ok, problem = pcall(spi.select, spi.providers("example.api.Codec"))
+    for _, name in ipairs({
+        "nupp.runtime.packages",
+        "nupp.spi.index",
+        "spitest.low",
+        "spitest.left",
+        "spitest.right"
+    }) do
         package.loaded[name] = saved[name]
     end
     assert(not ok, "the tie was settled")
@@ -537,7 +552,7 @@ function M.onlyExportedConcreteInterfacesCanBeLoaded()
     }) do
         fixture(
             files(
-                "module main\nlocal spi = require('nupp.spi')\n" .. declaration .. "\nlocal iterator = spi.load(Codec)",
+                "module main\nlocal spi = package\n" .. declaration .. "\nlocal iterator = spi.providers(Codec)",
                 "{}"
             ),
             function(dir)
@@ -559,10 +574,10 @@ print("ok")]],
     sources[
         "src/consumer.nupp"
     ] = [[module consumer
-local spi = require("nupp.spi")
+local spi = package
 local {type Codec} = require("example.api")
 export const before = "partial"
-local provider = assert(spi.load(Codec)())
+local provider = assert(spi.providers(Codec)())
 export const encode = provider.encode]]
     sources[
         "src/example/first.nupp"
@@ -740,7 +755,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                 preloads["nupp.workers.native"] = function()
                     error("the fixture must not execute a host bridge")
                 end
-                local owned = {["nupp.spi"] = true, [case.module] = true}
+                local owned = {["nupp.runtime.packages"] = true, [case.module] = true}
                 if case.cache then
                     owned[case.cache] = true
                 end
@@ -861,7 +876,7 @@ end
 
 function M.suspensionProvidersPublishCompleteTurnBudgetsOrNone()
     local load = require("providerstate").instance(
-        {['nupp.spi'] = true, ['nupp.suspension'] = true, ['nupp.suspension.selected'] = true},
+        {['nupp.runtime.packages'] = true, ['nupp.suspension'] = true, ['nupp.suspension.selected'] = true},
         {
             ['nupp.runtime.target'] = {dialect = "luajit", host = "native"},
             ['nupp.spi.index'] = {['nupp.suspension.spi.Provider'] = {'fixture.suspension'},},
@@ -892,7 +907,7 @@ end
 
 function M.suspensionProvidersPublishTheirDriverSeam()
     local load = require("providerstate").instance(
-        {['nupp.spi'] = true, ['nupp.suspension'] = true, ['nupp.suspension.selected'] = true},
+        {['nupp.runtime.packages'] = true, ['nupp.suspension'] = true, ['nupp.suspension.selected'] = true},
         {
             ['nupp.runtime.target'] = {dialect = "luajit", host = "native"},
             ['nupp.spi.index'] = {['nupp.suspension.spi.Provider'] = {'fixture.suspension'},},
@@ -964,7 +979,7 @@ function M.browserMemoryIsTheActiveGuestTransport()
 end
 
 -- Every facade that picks a provider applies the same rule through
--- `nupp.spi.select`: the unique highest priority wins, and a tie for it is
+-- `package.select`: the unique highest priority wins, and a tie for it is
 -- refused rather than settled by discovery order. When each facade carried its
 -- own copy, loosening one copy's comparison let the later provider win a tie
 -- silently and no suite noticed, so every facade is held to the rule here. The
@@ -1024,7 +1039,7 @@ local function loadWithProviders(facade, interface, priorities)
             })
         end
     end
-    package.loaded["nupp.spi"] = nil
+    package.loaded["nupp.runtime.packages"] = nil
     package.loaded[facade] = nil
     package.loaded["nupp.spi.index"] = {[interface] = names}
     local ok, problem = pcall(require, facade)
@@ -1064,6 +1079,62 @@ function M.everySelectingFacadeRefusesATieForTheHighestPriority()
             )
         end
     end
+end
+
+function M.packageSelectionAliasesInstallWithoutDiscoveryCalls()
+    fixture(
+        files(
+            [[module main
+local {select as choose, config, loaded} = package
+assert(config == package.config and loaded == package.loaded)
+local selectAgain = choose
+local position = 0
+local function next(): {priority: integer, value: string}?
+    position = position + 1
+    if position == 1 then return {priority = -2, value = "low"} end
+    if position == 2 then return {priority = -1, value = "high"} end
+    return nil
+end
+assert(assert(selectAgain(next)).value == "high")
+print("ok")]],
+            "{}"
+        ),
+        function(dir)
+            local _, output = run(dir)
+            assert(output == "ok\n", output)
+        end
+    )
+end
+
+function M.aLocalPackageLibraryKeepsItsOwnProviderContract()
+    fixture(
+        files(
+            [[module main
+local package: {
+    providers: function(name: string): function(): string?,
+    select: function(next: function(): string?): string?
+} = {
+    providers = function(name: string): function(): string?
+        return function(): string? return name end
+    end,
+    select = function(next: function(): string?): string? return next() end
+}
+local providers = package.providers
+local {select as choose} = package
+assert(choose(providers("custom")) == "custom")
+print("ok")]],
+            "{}"
+        ),
+        function(dir)
+            local _, output = run(dir)
+            assert(output == "ok\n", output)
+            local code = assert(fs.readFile(dir .. "/out/main.lua"))
+            assert(
+                not code:find('require("nupp.runtime.packages")', 1, true),
+                "a local library must not install package discovery"
+            )
+        end
+    )
 end
 
 return M

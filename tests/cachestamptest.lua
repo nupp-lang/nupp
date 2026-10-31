@@ -105,9 +105,9 @@ function M.spiIndexDependenciesRetainNarrowImplementationStamps()
     source:close()
     local dir = tempProject({
         ["nupp/compiler/project/fingerprint.lua"] = cacheCode,
-        ["nupp/compiler/entry.lua"] = 'return _G.require("nupp.spi")',
+        ["nupp/compiler/entry.lua"] = 'return _G.require("nupp.runtime.packages")',
         [
-            "nupp/spi.lua"
+            "nupp/runtime/packages.lua"
         ] = [[
 --@requires-dynamically nupp.spi.index
 local index = require("nupp.spi.index")

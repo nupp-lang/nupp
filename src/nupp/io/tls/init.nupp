@@ -42,7 +42,7 @@ application data before the handshake: TLS 1.3 early data is deliberately not
 enabled because accepting it requires an application-level replay policy.
 ]]
 
-local spi = require("nupp.spi")
+local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
 
 const io = require("nupp.io")
@@ -59,7 +59,7 @@ local spanStringValue: function(borrows source: const uint8[?], count: integer):
 
 const contract = require("nupp.io.tls.spi")
 local provider: contract.Provider = do
-    const chosen = spi.select(spi.load(contract.Provider))
+    const chosen = spi.select(spi.providers<contract.Provider>("nupp.io.tls.spi.Provider"))
     if chosen ~= nil then
         yield chosen
     end

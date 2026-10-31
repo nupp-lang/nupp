@@ -95,10 +95,7 @@ return {newBuffer = text.newBuffer, now = time.now, storage = representation.sto
         end
         testAssert.equal(parsed.host, "browser", "the editor honors the named default target")
         testAssert.equal(project.check(dir), 0, "the default browser target checks")
-        for _, target in ipairs({
-            {name = "browser", host = "browser"},
-            {name = "native", host = "native"},
-        }) do
+        for _, target in ipairs({{name = "browser", host = "browser"}, {name = "native", host = "native"},}) do
             local options = target.name == "browser" and {} or {target = target.name}
             testAssert.equal(project.build(dir, options), 0, target.name .. " target builds")
             local output = dir .. "/out/" .. target.name
@@ -106,7 +103,10 @@ return {newBuffer = text.newBuffer, now = time.now, storage = representation.sto
             testAssert.equal(facts.host, target.host, "generated host")
             testAssert.equal(facts.dialect, "luajit", "every target runs on LuaJIT")
             for _, name in ipairs({"nativebuffer", "nativestorage"}) do
-                assert(exists(output .. "/nupp/runtime/provider/" .. name .. ".lua"), target.name .. " carries " .. name)
+                assert(
+                    exists(output .. "/nupp/runtime/provider/" .. name .. ".lua"),
+                    target.name .. " carries " .. name
+                )
             end
             testAssert.equal(
                 exists(output .. "/nupp/runtime/provider/nativetime.lua"),
@@ -138,7 +138,7 @@ return re.match("aaa", "'a'+")]],
     testAssert.equal(project.build(dir), 0, "bundle with host LPeg")
     local output = read(dir .. "/out/app.lua")
     assert(not output:find('package.preload["lpeg"]', 1, true))
-    assert(not output:find('package.preload["nupp.spi"]', 1, true))
+    assert(not output:find('package.preload["nupp.runtime.packages"]', 1, true))
     local status, value = process.capture({
         "luajit",
         "-e",
@@ -188,8 +188,8 @@ return {
         ] = [[
 local generated = require("fixture.generated")
 local contract = require("codec")
-local spi = require("nupp.spi")
-local codec = assert(spi.load(contract.Provider)())
+local spi = package
+local codec = assert(spi.providers(contract.Provider)())
 return generated.value .. ":" .. codec.name
 ]],
         ["src/codec.nupp"] = [[
@@ -232,7 +232,13 @@ return codec
 ]],
     })
     local produced = {}
-    testAssert.equal(project.build(dir, {produced = produced}), 0, "a packaged generator and runtime implementation build")
+    testAssert.equal(
+        project.build(dir, {
+            produced = produced
+        }),
+        0,
+        "a packaged generator and runtime implementation build"
+    )
     local found = false
     for _, provider in ipairs(produced.spi or {}) do
         if provider.interface == "codec.Provider" then
@@ -247,7 +253,11 @@ return codec
         "the generator publishes beneath its instance module root"
     )
     local state = json.decode(read(dir .. "/out/.nupp-state.json"))
-    testAssert.equal(state.dependencies["tool:provider"].usage, "tool", "generator discovery installs a host-tool record")
+    testAssert.equal(
+        state.dependencies["tool:provider"].usage,
+        "tool",
+        "generator discovery installs a host-tool record"
+    )
     testAssert.equal(state.dependencies.provider.usage, "target", "runtime discovery keeps a distinct target record")
     assert(
         exists(dir .. "/out/nupp/spi/index/g.lua") or exists(dir .. "/out/nupp/spi/index.lua"),
@@ -303,8 +313,8 @@ io.write("direct")
     local code = read(dir .. "/out/consumer.lua")
     assert(code:find("value << 3", 1, true), code)
     assert(not code:find('require("nupp.runtime.bitops")', 1, true), code)
-    assert(not code:find("spi.load", 1, true), code)
-    assert(not exists(dir .. "/out/nupp/spi.lua"))
+    assert(not code:find("spi.providers", 1, true), code)
+    assert(not exists(dir .. "/out/nupp/runtime/packages.lua"))
     remove(dir)
 end
 
@@ -455,7 +465,7 @@ end
         [
             "src/main.nupp"
         ] = [[local {type Kernel} = require("api")
-local impl = assert(nupp.spi.load(Kernel)())
+local impl = assert(package.providers(Kernel)())
 return impl.apply
 ]],
         ["src/implementation.nupp"] = [[local kernel = require("kernel")

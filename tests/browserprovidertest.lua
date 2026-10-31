@@ -49,8 +49,8 @@ local function application(options)
     local load
     local replacements = {
         ["nupp.runtime.target"] = {host = "browser"},
-        ["nupp.spi"] = {
-            load = function()
+        ["nupp.runtime.packages"] = {
+            providers = function()
                 return function()
                     return nil
                 end
@@ -186,15 +186,20 @@ function M.aDeadlineScopeDoesNotHoldItsChildrensWaits()
     local tasks, time = app.tasks, app.time
     local ok, answer = app.run(function()
         local value
-        scoped(tasks, function(scope)
-            local child = scope:spawn(function()
-                time.sleep(10)
-                time.sleep(10)
+        scoped(
+            tasks,
+            function(scope)
+                local child = scope:spawn(function()
+                    time.sleep(10)
+                    time.sleep(10)
 
-                return "slept twice"
-            end)
-            value = child:await()
-        end, nil, 2000)
+                    return "slept twice"
+                end)
+                value = child:await()
+            end,
+            nil,
+            2000
+        )
 
         return value
     end)
@@ -254,42 +259,48 @@ end
 
 --- An opaque host handler whose park hands the page a turn, as a frame loop does.
 local function frameHandler(app)
-    return setmetatable({
-        park = function(_, waiting)
-            while not waiting:ready() do
-                app.effects.park("next frame", true)
-                app.suspension.poll()
-            end
-        end,
-        canPark = function()
-            return true
-        end,
-        shutdown = function()
-        end,
-    }, app.suspensionHost.Handler)
+    return setmetatable(
+        {
+            park = function(_, waiting)
+                while not waiting:ready() do
+                    app.effects.park("next frame", true)
+                    app.suspension.poll()
+                end
+            end,
+            canPark = function()
+                return true
+            end,
+            shutdown = function()
+            end,
+        },
+        app.suspensionHost.Handler
+    )
 end
 
 function M.aNestedScopeSpendsTheTurnBudgetThroughItsChild()
     local app = application()
     local tasks, suspension = app.tasks, app.suspensionHost
     local completed = 0
-    local ok, answer = app.run(function()
-        local installed = suspension.install(frameHandler(app))
-        scoped(tasks, function(outer)
-            outer:spawn(function()
-                scoped(tasks, function(inner)
-                    for _ = 1, 150 do
-                        inner:spawn(function()
-                            completed = completed + 1
-                        end)
-                    end
+    local ok, answer = app.run(
+        function()
+            local installed = suspension.install(frameHandler(app))
+            scoped(tasks, function(outer)
+                outer:spawn(function()
+                    scoped(tasks, function(inner)
+                        for _ = 1, 150 do
+                            inner:spawn(function()
+                                completed = completed + 1
+                            end)
+                        end
+                    end)
                 end)
             end)
-        end)
-        installed:close()
+            installed:close()
 
-        return "finished"
-    end, 100)
+            return "finished"
+        end,
+        100
+    )
     check.equal(ok, true, tostring(answer))
     check.equal(answer, "finished")
     check.equal(completed, 150, "every grandchild ran")
@@ -316,16 +327,19 @@ function M.parallelismAnswersInsideATask()
     })
     local system = app.load("nupp.runtime.browser.system")
     local tasks = app.tasks
-    local ok, answer = app.run(function()
-        local lanes
-        scoped(tasks, function(scope)
-            lanes = scope:spawn(function()
-                return system.availableParallelism()
-            end):await()
-        end)
+    local ok, answer = app.run(
+        function()
+            local lanes
+            scoped(tasks, function(scope)
+                lanes = scope:spawn(function()
+                    return system.availableParallelism()
+                end):await()
+            end)
 
-        return lanes
-    end, 50)
+            return lanes
+        end,
+        50
+    )
     check.equal(ok, true, tostring(answer))
     check.equal(answer, 4)
 end
@@ -335,20 +349,27 @@ end
 function M.aFullWorkerQueueSaysItIsFull()
     local app = application({owned = {"nupp.runtime.browser.workers"}, workers = true})
     local workers = app.load("nupp.runtime.browser.workers")
-    local echo = workers.describeSendable(function(value)
-        return value
-    end, "fixture.browserjobs", "echo")
-    local ok, answer = app.run(function()
-        local scope = workers.openScope(nil, nil)
-        for index = 1, 1025 do
-            local accepted, problem = pcall(scope.spawn, scope, echo, index)
-            if not accepted then
-                return problem
+    local echo = workers.describeSendable(
+        function(value)
+            return value
+        end,
+        "fixture.browserjobs",
+        "echo"
+    )
+    local ok, answer = app.run(
+        function()
+            local scope = workers.openScope(nil, nil)
+            for index = 1, 1025 do
+                local accepted, problem = pcall(scope.spawn, scope, echo, index)
+                if not accepted then
+                    return problem
+                end
             end
-        end
 
-        return "every submission was accepted"
-    end, 50)
+            return "every submission was accepted"
+        end,
+        50
+    )
     check.equal(ok, true, tostring(answer))
     check.assert(tostring(answer):find("nupp: a worker queue is full", 1, true) ~= nil, tostring(answer))
 end
@@ -381,32 +402,40 @@ function M.aWorkerScopeListsOnlyWhatItStillOwes()
                     end
                     return 0, {ok = true, value = {status = "done", payload = payload}}
                 end
+
                 return 0, {ok = true, value = {}}
             end,
         },
     })
     local workers = app.load("nupp.runtime.browser.workers")
-    local echo = workers.describeSendable(function(value)
-        return value
-    end, "fixture.browserjobs", "echo")
-    local ok, answer = app.run(function()
-        local scope = workers.openScope(nil, nil)
-        local first = scope:spawn(echo, 1)
-        local most = 0
-        for index = 2, 20 do
-            scope:spawn(echo, index):await()
-            most = math.max(most, workers.__registered(scope))
-        end
-        local before = workers.__registered(scope)
-        local a, b = first:await(), first:await()
-        local after = workers.__registered(scope)
-        scope:spawn(echo, "fail")
-        scope:_settleOldest()
-        local owing = workers.__registered(scope)
-        local closed, problem = pcall(scope.close, scope)
+    local echo = workers.describeSendable(
+        function(value)
+            return value
+        end,
+        "fixture.browserjobs",
+        "echo"
+    )
+    local ok, answer = app.run(
+        function()
+            local scope = workers.openScope(nil, nil)
+            local first = scope:spawn(echo, 1)
+            local most = 0
+            for index = 2, 20 do
+                scope:spawn(echo, index):await()
+                most = math.max(most, workers.__registered(scope))
+            end
+            local before = workers.__registered(scope)
+            local a, b = first:await(), first:await()
+            local after = workers.__registered(scope)
+            scope:spawn(echo, "fail")
+            scope:_settleOldest()
+            local owing = workers.__registered(scope)
+            local closed, problem = pcall(scope.close, scope)
 
-        return {most, before, a, b, after, owing, closed, tostring(problem)}
-    end, 200)
+            return {most, before, a, b, after, owing, closed, tostring(problem)}
+        end,
+        200
+    )
     check.equal(ok, true, tostring(answer))
     check.equal(answer[1], 1, "settled tasks stayed listed")
     check.equal(answer[2], 1, "the unsettled task was not listed")
@@ -431,9 +460,12 @@ end
 
 function M.aWaitNothingCanCompleteIsRefused()
     local app = application()
-    local ok, completed, problem = app.run(function()
-        return unanswerable(app.suspension)
-    end, 20)
+    local ok, completed, problem = app.run(
+        function()
+            return unanswerable(app.suspension)
+        end,
+        20
+    )
     check.equal(ok, true, tostring(completed))
     check.equal(completed, false, "the wait returned")
     check.matches(tostring(problem), "cannot complete: no readiness source is registered")
@@ -442,11 +474,14 @@ end
 
 function M.aWaitNothingCanCompleteIsRefusedAfterATimerHasRun()
     local app = application()
-    local ok, completed, problem = app.run(function()
-        app.time.sleep(5)
+    local ok, completed, problem = app.run(
+        function()
+            app.time.sleep(5)
 
-        return unanswerable(app.suspension)
-    end, 20)
+            return unanswerable(app.suspension)
+        end,
+        20
+    )
     check.equal(ok, true, tostring(completed))
     check.equal(completed, false, "the wait returned")
     check.matches(tostring(problem), "no readiness source is registered")
@@ -545,21 +580,24 @@ function M.aTaskCancelledInAFileOperationSettlesCancelled()
     local files = app.load("nupp.runtime.browser.files")
     local tasks = app.tasks
     local seen = {}
-    local ok, status = app.run(function()
-        local path = assert(files.applicationPath("data", "org", "app"))
-        local child
-        scoped(tasks, function(scope)
-            child = scope:spawn(function()
-                seen.value, seen.reason = files.info(path)
-                seen.returned = true
+    local ok, status = app.run(
+        function()
+            local path = assert(files.applicationPath("data", "org", "app"))
+            local child
+            scoped(tasks, function(scope)
+                child = scope:spawn(function()
+                    seen.value, seen.reason = files.info(path)
+                    seen.returned = true
+                end)
+                scope:spawn(function()
+                    child:cancel("stop reading")
+                end)
             end)
-            scope:spawn(function()
-                child:cancel("stop reading")
-            end)
-        end)
 
-        return child:status()
-    end, 20)
+            return child:status()
+        end,
+        20
+    )
     check.equal(ok, true, tostring(status))
     check.equal(seen.returned, nil, "the cancelled read returned " .. tostring(seen.reason))
     check.equal(status, "cancelled", "a cancelled task finished as if nothing happened")

@@ -492,6 +492,11 @@ function index.install(c: state.Checker): state.ExprHandlers
             if canonical then
                 (node as any).namespacePath = canonical
                 node.scalarIntrinsic = scalarIntrinsics.forPath(canonical)
+                if not node.writeContext and (canonical == "package.providers" or canonical == "package.select") then
+                    node.exactCallExport = {module = "package", member = memberName, identity = canonical,}
+                    node.qualifiedModule = "nupp.runtime.packages"
+                    node.qualifiedMembers = {memberName}
+                end
             end
         end
         -- Keep the exact value identity beside the projection. Function types are

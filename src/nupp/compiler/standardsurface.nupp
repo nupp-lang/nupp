@@ -18,7 +18,7 @@ local MODULES: {[string]: {
     ["nupp"] = {kind = "common"},
     ["nupp.test"] = {kind = "common"},
     ["nupp.system"] = facility("host", "runtime.system"),
-    ["nupp.spi"] = {kind = "common"},
+    ["nupp.runtime.packages"] = {kind = "common"},
     ["nupp.codec.hex"] = {kind = "common"},
     ["nupp.digest"] = facility("runtime", "runtime.bitops"),
     ["nupp.mac.spi"] = {kind = "common"},

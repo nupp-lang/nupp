@@ -28,12 +28,12 @@ portable checkpoint format: keep them and the next draw is exactly the one that
 was coming.
 ]]
 
-local spi = require("nupp.spi")
+local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
 
 local contracts = require("nupp.random.spi")
 local provider: contracts.Provider = do
-    const chosen = spi.select(spi.load(contracts.Provider))
+    const chosen = spi.select(spi.providers<contracts.Provider>("nupp.random.spi.Provider"))
     if chosen ~= nil then
         yield chosen
     end

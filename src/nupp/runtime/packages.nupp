@@ -1,22 +1,12 @@
-module nupp.spi
+@!internal
+module nupp.runtime.packages
 
 --[[
-Discover implementations, then choose with ordinary module initialization code.
+Package implementation discovery for the frozen toolchain and runtime facades.
 
-`load(Interface)` returns a lazy iterator in dependency order. Iteration order
-does not choose a winner: the caller may compare priorities, check capabilities,
-or combine implementations. `select` is the common rule, the unique highest
-`priority`, with the caller's fallback where nothing is advertised:
-
-```nupp:fragment
-local spi = require("nupp.spi")
-local {type Codec} = require("example.codec.spi")
-
-local impl: Codec = spi.select(spi.load(Codec)) ?? require("example.defaultcodec")
-```
-
-Keep the selected functions when the module loads. Packages advertise their
-implementation modules in `nupp/spi.json`.
+Public callers use `package.providers` and `package.select`; see
+[spi.md](docs/learn/projects/spi.md). The private string contract also lets the
+pinned compiler build its own libraries before it understands the public call.
 ]]
 
 const _DYNAMIC_REQUIRES = "@requires-dynamically nupp.spi.index"
@@ -35,18 +25,18 @@ local type Origin = {
     modules: {string}
 }
 
---- The interface and modules behind each iterator `load` answered, so `select` can
+--- The interface and modules behind each iterator `providers` returned, so `select` can
 --- name what tied.
 local origins = setmetatable({}, {__mode = "k"}) as {[any]: Origin}
 
 --- Iterates implementations of an exported interface without choosing one.
---- Call as `nupp.spi.load(Interface)`, passing the interface declaration.
+--- Receives the canonical name of an exported interface after public lowering.
 --- Each iteration loads one module; ordinary require caching retains its identity.
 --- @param interface The exported interface whose implementations to discover.
 --- @return A lazy iterator of implementations, returning nil at exhaustion.
 --- @raises any whatever an implementation raised while loading, which is that
 ---     module's business rather than this one's; the next call retries it
-export function load<I>(interface: string): function(): I?
+export function providers<I>(interface: string): function(): I?
     local modules = index[interface] or {}
     local position: integer = 0
     const iterator = function(): I?
@@ -66,11 +56,11 @@ export function load<I>(interface: string): function(): I?
 end
 
 --- Chooses the implementation with the unique highest `priority`.
---- Call as `nupp.spi.select(nupp.spi.load(Interface)) ?? fallback`: nil where
---- nothing is advertised, so the fallback is loaded only when it is used.
+--- Returns nil when nothing is advertised, so the fallback loads only when used.
 --- An implementation that states no priority counts as 0, and a higher priority
 --- supersedes a tie below it. Discovery order never breaks a tie for the highest.
---- @param candidates The implementations to choose among, usually what `load` answered.
+--- @param candidates The implementations to choose among, usually what `providers`
+---     returned.
 --- @return The implementation with the highest priority, or nil where there is none.
 --- @raises string where two implementations share the highest priority
 --- @raises any whatever an implementation raised while loading
@@ -112,3 +102,14 @@ export function select<I>(candidates: function(): I?): I?
 
     return chosen
 end
+
+-- Install the same functions on the ambient library for raw Lua and aliases that
+-- retain the whole package table. The cast keeps this bootstrap operation readable
+-- by the pinned compiler, whose embedded package declaration predates these fields.
+local installation = package as any
+installation.providers = providers
+installation.select = select
+
+-- Destructuring projects the existing ambient table after installation, retaining
+-- package.loaded, package.config and every other original field unchanged.
+export const namespace: table = package

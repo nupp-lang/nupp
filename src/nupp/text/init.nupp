@@ -22,12 +22,12 @@ program that only ever writes and reads bytes does not notice which it has.
 bytes.
 ]]
 
-local spi = require("nupp.spi")
+local spi = require("nupp.runtime.packages")
 
 local {type Buffer as SharedBuffer} = require("nupp.text.internal.buffer")
 local contracts = require("nupp.text.spi")
 local provider: contracts.Provider = do
-    const chosen = spi.select(spi.load(contracts.Provider))
+    const chosen = spi.select(spi.providers<contracts.Provider>("nupp.text.spi.Provider"))
     if chosen ~= nil then
         yield chosen
     end

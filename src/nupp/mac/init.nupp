@@ -38,7 +38,7 @@ A host may supply its own catalog through [](nupp.mac.spi),
 chosen by priority when this module initializes. It is read once, at load.
 ]]
 
-local spi = require("nupp.spi")
+local spi = require("nupp.runtime.packages")
 
 const context = require("nupp.digest.internal.context")
 const provider = require("nupp.mac.spi")
@@ -86,7 +86,7 @@ local function validate(selected: provider.Provider): nil
     end
 end
 
-local selected: provider.Provider = spi.select(spi.load(provider.Provider)) ?? standard
+local selected: provider.Provider = spi.select(spi.providers<provider.Provider>("nupp.mac.spi.Provider")) ?? standard
 validate(selected)
 local available: {[string]: Algorithm} = {}
 for name, implementation in pairs(standard.algorithms) do

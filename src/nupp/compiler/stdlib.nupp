@@ -87,6 +87,9 @@ function stdlib.bootstrap(effects: {[string]: any}?, watch: boolean?, installing
         out[#out + 1] = 'require("nupp.runtime.managed").install(__nupp,_G);'
     end
     effects = effects or {}
+    if effects["stdlib.packages"] then
+        out[#out + 1] = 'require("nupp.runtime.packages");'
+    end
     if effects["stdlib.math"] then
         out[#out + 1] = MATH
     end

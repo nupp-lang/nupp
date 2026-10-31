@@ -76,10 +76,10 @@ layout arithmetic, and other ordinary helpers are normal modules.
 
 Implementation interfaces live beside their consuming library in `.spi` modules.
 Importing a declaration loads no implementation. Packages advertise their modules
-in `nupp/spi.json`; `nupp.spi.load(Interface)` lazily iterates them in dependency
-order. The consumer decides what wins.
+in `nupp/spi.json`; `package.providers(Interface)` lazily iterates them in
+dependency order. The consumer decides what wins.
 
-Standard-library facades choose with `nupp.spi.select`: the unique highest
+Standard-library facades choose with `package.select`: the unique highest
 `priority`, with an omitted priority counting as zero. A highest-priority tie
 fails initialization. Empty
 discovery uses the facade's explicit target-dependent fallback. Each facade binds
