@@ -28,8 +28,8 @@ dependency order. The consumer decides what wins.
 
 Standard-library facades choose with `package.select`: the unique highest
 `priority`, with an omitted priority counting as zero. A highest-priority tie
-fails initialization. Empty
-discovery uses the facade's explicit target-dependent fallback. Each facade binds
+fails initialization. Empty discovery uses the facade's explicit
+target-dependent fallback. Each facade binds
 its actual operations during module initialization, so calls perform no SPI lookup.
 
 ## Runtime interfaces

@@ -71,8 +71,9 @@ interface's qualified name:
 The name is the interface module and the interface it exports, in ordinary
 dots. A key starting with `$`, such as `$schema`, is reserved for metadata and
 ignored, so a descriptor can carry some without breaking an older compiler;
-every other key must be an interface name. Imported aliases and re-exports resolve to the defining interface, which
-must be exported and take no type parameters:
+every other key must be an interface name. Imported aliases and re-exports
+resolve to the defining interface, which must be exported and take no type
+parameters:
 
 ```text
 nupp: SPI declaration must name a concrete exported interface: example.codec.spi.Transform
@@ -95,18 +96,23 @@ export const encode = impl.encode
 `package.select` reads each candidate's `priority`, counting a missing one as
 0, and returns the one with the highest. A higher priority supersedes a tie
 below it; a tie for the highest raises, naming the interface and the two
-modules, rather than letting discovery order decide. It returns nil when nothing
-is advertised, so the fallback after `??` is loaded only when it is used. Every
-standard library facade selects its provider this way.
+modules, rather than letting discovery order decide. It returns nil when
+nothing is advertised, so the fallback after `??` is loaded only when it is
+used. Every standard library facade selects its provider this way.
 
-`priority` is a convention between an interface and `select`, and `providers` knows
-nothing about it. Another consumer can iterate `providers` itself to compare
+`priority` is a convention between an interface and `select`, and `providers`
+knows nothing about it. Another consumer can iterate `providers` itself to
+compare
 capabilities, read configuration, combine implementations, or reject
 duplicates instead. Discovery order assigns no preference: the use site decides
 what wins.
 
 Initialization selects once, so a later call through `encode` performs no SPI
 lookup.
+
+The builtin members take precedence over project modules named
+`package.providers` or `package.select`. Load those modules with `require`.
+Local bindings named `package` shadow the builtin library.
 
 ## Discovery order
 

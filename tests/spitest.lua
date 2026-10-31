@@ -1129,13 +1129,38 @@ print("ok")]],
         function(dir)
             local _, output = run(dir)
             assert(output == "ok\n", output)
-            local code = assert(fs.readFile(dir .. "/out/main.lua"))
+            local code = assert(fs.readFile(dir .. "/out/main.image"))
             assert(
-                not code:find('require("nupp.runtime.packages")', 1, true),
+                not code:find("nupp.runtime.packages", 1, true),
                 "a local library must not install package discovery"
             )
         end
     )
+end
+
+function M.projectModulesDoNotReplaceBuiltinPackageMembers()
+    local sources = files(
+        [[module main
+local {type Codec} = require("example.api")
+local selected = assert(package.select(package.providers(Codec)))
+assert(selected.encode("x") == "first:x")
+print("ok")]],
+        [[{"example.api.Codec":["example.first"]}]]
+    )
+    for _, name in ipairs({"providers", "select"}) do
+        sources[
+            "src/package/" .. name .. ".nupp"
+        ] = "module package."
+            .. name
+            .. "\n"
+            .. [[export const unrelated: string = "project module"
+error("the builtin member must keep precedence")
+]]
+    end
+    fixture(sources, function(dir)
+        local _, output = run(dir)
+        assert(output == "ok\n", output)
+    end)
 end
 
 return M

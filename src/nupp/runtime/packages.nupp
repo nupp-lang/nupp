@@ -32,8 +32,8 @@ local origins = setmetatable({}, {__mode = "k"}) as {[any]: Origin}
 --- Iterates implementations of an exported interface without choosing one.
 --- Receives the canonical name of an exported interface after public lowering.
 --- Each iteration loads one module; ordinary require caching retains its identity.
---- @param interface The exported interface whose implementations to discover.
---- @return A lazy iterator of implementations, returning nil at exhaustion.
+--- @param interface the exported interface whose implementations to discover
+--- @return a lazy iterator of implementations, returning nil at exhaustion
 --- @raises any whatever an implementation raised while loading, which is that
 ---     module's business rather than this one's; the next call retries it
 export function providers<I>(interface: string): function(): I?
@@ -59,9 +59,9 @@ end
 --- Returns nil when nothing is advertised, so the fallback loads only when used.
 --- An implementation that states no priority counts as 0, and a higher priority
 --- supersedes a tie below it. Discovery order never breaks a tie for the highest.
---- @param candidates The implementations to choose among, usually what `providers`
----     returned.
---- @return The implementation with the highest priority, or nil where there is none.
+--- @param candidates the implementations to choose among, usually what `providers`
+---     returned
+--- @return the implementation with the highest priority, or nil when there is none
 --- @raises string where two implementations share the highest priority
 --- @raises any whatever an implementation raised while loading
 export function select<I>(candidates: function(): I?): I?
