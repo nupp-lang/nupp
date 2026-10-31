@@ -628,6 +628,11 @@ local guestVersions: {
     numericControl = 6
 }
 
+-- The closed guest unit (session, roles, every lowered core graph and the
+-- negative refusals) does not depend on the guest program, so one process
+-- builds it once per snapshot directory and binds each case's program to it.
+local guestUnits: any = {}
+
 local function buildGuest(caseName: string, audited: boolean): any
     local fixtures = {
         raw = "catalog-boolean",
@@ -715,21 +720,28 @@ local function buildGuest(caseName: string, audited: boolean): any
     }) do
         need(snapshot.sources[path] == read(root .. "/" .. path), "guest intrinsic declaration changed")
     end
-    local unit = require("nupp.compiler.vm.nativeunit").session(root, requested, snapshot.target, {
-        "src",
-        "native/core/src",
-        "build/" .. directory .. "/source"
-    })
-    local state: any = {
-        root = root,
-        snapshotPath = snapshotPath,
-        snapshotText = snapshotText,
-        snapshot = snapshot,
-        unit = unit,
-        roles = {},
-        resolved = {},
-        finalOwners = {}
-    }
+    local cached = guestUnits[directory]
+    if cached then
+        need(cached.snapshotText == snapshotText, "guest snapshot changed within one producer process")
+    end
+    local unit = cached and cached.unit
+        or require("nupp.compiler.vm.nativeunit").session(root, requested, snapshot.target, {
+            "src",
+            "native/core/src",
+            "build/" .. directory .. "/source"
+        })
+    local state: any = cached and cached.state
+        or {
+            root = root,
+            snapshotPath = snapshotPath,
+            snapshotText = snapshotText,
+            snapshot = snapshot,
+            unit = unit,
+            roles = {},
+            resolved = {},
+            finalOwners = {}
+        }
+    state.executable = nil
     local scopes, all = {}, {}
     for _, item in ipairs(paths) do
         local scope = unit.module(item[1])
@@ -897,7 +909,13 @@ local function buildGuest(caseName: string, audited: boolean): any
         item.owner.nativeABI = state.finalOwners[item.owner] and "handler" or "leaf"
     end
     local resolved, refusals = {}, {}
+    if cached then
+        resolved, refusals = cached.resolved, cached.refusals
+    end
     local ok, problem = pcall(function(): nil
+        if cached then
+            return
+        end
         for _, item in ipairs(all) do
             current = {state = state, owner = item.owner}
             local passed, g = pcall(function(): any
@@ -938,6 +956,11 @@ local function buildGuest(caseName: string, audited: boolean): any
     end)
     current = nil
     need(ok, tostring(problem))
+    if not cached then
+        guestUnits[
+            directory
+        ] = {snapshotText = snapshotText, unit = unit, state = state, resolved = resolved, refusals = refusals}
+    end
     local result = {
         resolved = resolved,
         context = state.context,

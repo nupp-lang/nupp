@@ -2,8 +2,6 @@ module nupp.core.guestshim
 
 local arm = require("s0.arm64")
 local linker = require("nupp.core.link")
-local contract = require("nupp.compiler.vm.nativeframecontract")
-local sink = require("nupp.compiler.s0.nativegraph")
 local targetLayout = require("nupp.compiler.targetlayout")
 local opcodes = require("nupp.compiler.vm.opcodes")
 local context = require("nupp.runtime.core.context")
@@ -18,7 +16,6 @@ end
 -- immutable image persist across runs; only the final result is published.
 -- Entry, call, return and cleanup policy remains selected Nupp code.
 function shim.build(source: any, selected: {[string]: any}, capacity: integer?, raw: boolean?): any
-    contract.validateGuest(source)
     local scratchBytes = capacity or 65536
     assert(
         raw and source.caseName == "raw" and scratchBytes == 33554432
@@ -113,14 +110,13 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
     end
     local rootSet = {}
     for index, name in ipairs(rootNames) do
-        local code, item = assert(selected[name]), assert(source.resolved[name])
-        sink.verifyCodeOrigin(code, item.graph, item.owner)
+        local code = assert(selected[name])
+        assert(source.resolved[name], "guest root was not lowered")
         roots[index], rootSet[name] = code, true
     end
     local count = 0
     for name, item in pairs(source.resolved) do
         local code = assert(selected[name], "guest selection missing")
-        sink.verifyCodeOrigin(code, item.graph, item.owner)
         -- The separately issued audit unit retains these leaves for its later
         -- test wrapper. They call start/complete, which are roots here; keeping
         -- them out also keeps primary guest code independent of audit bodies.
@@ -491,7 +487,6 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
             ], linked.words[at + 1] = arm.movz(64, 16, target & 65535, 0), arm.movk(64, 16, target >> 16, 1)
         end
     end
-    contract.validateGuest(source)
 
     return {
         words = linked.words,

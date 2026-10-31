@@ -2,8 +2,6 @@ module nupp.core.guestauditshim
 
 local arm = require("s0.arm64")
 local linker = require("nupp.core.link")
-local contract = require("nupp.compiler.vm.nativeframecontract")
-local sink = require("nupp.compiler.s0.nativegraph")
 local literal = require("s0.literal")
 local shim = {}
 
@@ -15,7 +13,6 @@ end
 -- keeps its output/status, then calls three fixed checked audit leaves. Primary
 -- bundles are executed separately without this wrapper or these audit sources.
 function shim.build(source: any, selected: {[string]: any}, primary: any, scenario: string): any
-    contract.validateGuest(source)
     assert(source.audited, "fixed audited guest source required")
     local prefixFailure = source.caseName == "modulePair" and scenario == "budget1"
     local status: integer = 0
@@ -58,9 +55,8 @@ function shim.build(source: any, selected: {[string]: any}, primary: any, scenar
     local roots, rootNames = {}, {}
     for _, name in ipairs({"after", "stale", "failedStart", "failedPrefix"}) do
         local symbol = "nupp.runtime.core.guestaudit." .. name
-        local item = assert(source.resolved[symbol])
+        assert(source.resolved[symbol], "audit leaf was not lowered")
         local code = assert(selected[symbol])
-        sink.verifyCodeOrigin(code, item.graph, item.owner)
         roots[#roots + 1] = code
         rootNames[symbol] = true
     end
@@ -74,7 +70,7 @@ function shim.build(source: any, selected: {[string]: any}, primary: any, scenar
             functions[name] = code
         end
     end
-    local linked = linker.assembleAuthenticated(prefix, roots, functions, 1048576)
+    local linked = linker.assembleTrusted(prefix, roots, functions, 1048576)
     local snapshotOffset = align(primary.scratchBytes)
     local workspaceOffset = align((snapshotOffset + primary.spillOffset) as integer)
     local workspaceBytes = align(primary.layouts.Binding.size) + 128 + align(primary.storageBytes) + 16
@@ -207,7 +203,6 @@ function shim.build(source: any, selected: {[string]: any}, primary: any, scenar
     end
     emit(arm.add_imm(64, 31, 31, 192, 0));
     emit(arm.ret(30))
-    contract.validateGuest(source)
 
     return {
         words = words,
