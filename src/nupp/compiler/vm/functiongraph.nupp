@@ -1154,12 +1154,15 @@ function frontend.compile(fn: any, options: any, profile: any): any
                 end
                 loops[#loops] = nil
                 resume(exit)
-            elseif stat.kind == "fornumStmt" then
+            elseif stat.kind == "fornumStmt" or stat.kind == "forinStmt" and profile.genericFor then
                 -- The profile evaluates all three controls before the loop
                 -- variable is bound, since it may shadow a name they use, and
                 -- owns their numeric meaning: mode, direction and the end test.
                 -- This frontend owns only the blocks: header, body, latch, exit.
-                local plan = invoke("numericFor", stat, nil)
+                -- A generic `for` takes the same shape from the profile, which also
+                -- binds its loop names at the top of each iteration.
+                local generic = stat.kind == "forinStmt"
+                local plan = invoke(generic and "genericFor" or "numericFor", stat, nil)
                 if not block then
                     finishTemporaries(statementDepth, stat)
                     return
@@ -1209,8 +1212,21 @@ function frontend.compile(fn: any, options: any, profile: any): any
                 -- the body. Its parameters are the body's loop-carried state.
                 local latch = branch()
                 loops[#loops + 1] = {exit = exit, continueTo = latch, cleanupDepth = #cleanups}
-                local key = stat.var.definition or stat.var
-                ctx.bind(key, initializeBinding(stat, key, controls()[1]))
+                if generic then
+                    context()
+                    local bound = plan.bind(ctx, stat, controls())
+                    block = ctx.block
+                    for index, name in ipairs(stat.names) do
+                        local key = name.definition or name
+                        ctx.bind(
+                            key,
+                            initializeBinding(stat, key, need(bound[index], "generic for name lacks a value"))
+                        )
+                    end
+                else
+                    local key = stat.var.definition or stat.var
+                    ctx.bind(key, initializeBinding(stat, key, controls()[1]))
+                end
                 local depth = #cleanups
                 statements(stat.body.stats)
                 if cleanupEnabled then

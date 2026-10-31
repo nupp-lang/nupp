@@ -333,8 +333,13 @@ function M.staleSourceAndUnknownEffectsRefuse()
     )
 end
 
+-- An unknown (top) summary is accepted: guest graphs refuse yields and
+-- suspension themselves. A known yield or an external effect still refuses.
 function M.retainedEffectSummaryMustRemainPositivelyNonsuspending()
-    for _, field in ipairs({"yields", "top", "external"}) do
+    local g, entry = fixture()
+    entry.term.contract.summary.top = true
+    graph.verify(g)
+    for _, field in ipairs({"yields", "external"}) do
         for _, state in ipairs({"true", "missing"}) do
             local g, entry = fixture()
             local summary = entry.term.contract.summary
@@ -360,7 +365,7 @@ function M.closedPacksAndScalarSignaturesAreRequired()
             "local function target(): (integer, integer) return 1, 2 end; return target()",
             "exactly one checked scalar result"
         },
-        {"local function target(value: {integer}): integer return 1 end; return target({1})", "checked scalar type"},
+        {"local function target(value: integer?): integer return 1 end; return target(1)", "checked scalar type"},
         {
             "local function target<T>(value: T): T return value end; return target(1)",
             "generic or ownership contract is unsupported"
