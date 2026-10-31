@@ -1,0 +1,47 @@
+module nupp.core.unitproducer
+
+-- Builds the heap unit bundles for coreunittest. Run by the frozen toolchain
+-- as a producer image; the bridge then executes the bundles.
+require("nupp.compiler.hostservices")
+require("nupp.compiler.syntax.parser")
+require("nupp.compiler.check")
+require("nupp.compiler.project.env")
+require("nupp.compiler.project.incremental")
+require("nupp.compiler.project.projectconfig")
+require("nupp.compiler.hash")
+require("nupp.compiler.syntax.triviaarena")
+require("nupp.compiler.syntax.triviaarena.table")
+require("nupp.compiler.syntax.lexer")
+require("nupp.compiler.types")
+require("nupp.compiler.types.generics")
+require("nupp.compiler.vm.nativecleanup")
+require("nupp.compiler.vm.nativephysical")
+local runner = require("nupp.core.unitrunner")
+local json = require("nupp.codec.json")
+local producer = {}
+
+function producer.build(directory: string, mode: string): string
+    local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
+    local fixtures = {
+        {
+            moduleName = "heapunits",
+            path = root .. "/native/core/tests/units/heapunits.nupp",
+            include = "native/core/tests/units"
+        },
+        {
+            moduleName = "unitentry",
+            path = root .. "/native/core/tests/units/unitentry.nupp",
+            include = "native/core/tests/units"
+        }
+    }
+    local entries = {{"heapunits", "chain", 2}, {"heapunits", "garbage", 2}, {"heapunits", "alternate", 2}}
+    local result = runner.build(fixtures, entries, mode)
+    local path = directory .. "/heapunits-" .. mode .. ".bundle"
+    local file = assert(io.open(path, "wb"))
+    file:write(result.bundle)
+    file:close()
+
+    return json.encode({path = path, owners = result.owners, words = result.words, callBytes = result.callBytes})
+end
+
+export = producer

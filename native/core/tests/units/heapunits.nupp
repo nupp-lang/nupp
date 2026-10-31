@@ -1,0 +1,127 @@
+module heapunits
+
+-- Collector unit fixtures executed on the owned backend. Each builds a fresh
+-- heap in its own arena and answers a count the driver computes on its own.
+-- Written in heap entry's idiom: errors raise, results return after the
+-- arena's `with` scope closes.
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const collector = require("nupp.runtime.vm.collector")
+const objects = require("nupp.runtime.vm.objectconstruct")
+const values = require("nupp.runtime.vm.values")
+
+-- A cell holding `value`; the header is published only once initialized.
+local function cell(h: heap.Heap*, value: uint64): uint64
+    @unsafe do
+        local o = collector.allocate(h, heap.KIND_CELL, native.sizeOf<heap.CellBody>())
+        if objects.cellInitialize(o as voidptr, value) ~= 0ULL then
+            error("heap units: cell initialization refused")
+        end
+        collector.initialized(h, o)
+
+        return heap.objectValue(o)
+    end
+end
+
+-- `count` cells, each holding the previous one; the last one is rooted in
+-- `slots[0]` when `rooted` is 1. Answers the live objects after a full cycle.
+local function chainSurvivors(h: heap.Heap*, slots: voidptr, count: uint64, rooted: uint64): uint64
+    @unsafe do
+        local previous = values.NIL
+        local i: uint64 = 0ULL
+        while i < count do
+            previous = cell(h, previous)
+            if rooted == 1ULL then
+                native.store64(slots, 0, previous)
+            end
+            i = i + 1ULL
+        end
+        collector.fullCycle(h)
+
+        return h.liveCount
+    end
+end
+
+-- Live objects after collecting a rooted chain of `count` cells, then after
+-- clearing its root: `survivors * 1000000 + remaining`.
+export function chain(count: uint64, stress: uint64): uint64
+    local answer: uint64 = 0ULL
+    with a = arena.open(4194304ULL) do
+        @unsafe do
+            local h = heap.create(a)
+            h.stress = stress == 1ULL
+            local slots = arena.alloc(a, 64ULL, 8ULL)
+            if slots == nil then
+                error("heap units: root slots")
+            end
+            native.store64(slots, 0, values.NIL)
+            collector.register(h, native.address(slots), 1ULL)
+            local survivors = chainSurvivors(h, slots, count, 1ULL)
+            native.store64(slots, 0, values.NIL)
+            collector.fullCycle(h)
+            answer = survivors * 1000000ULL + h.liveCount
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- Live objects after collecting `count` cells that nothing roots.
+export function garbage(count: uint64, stress: uint64): uint64
+    local answer: uint64 = 0ULL
+    with a = arena.open(4194304ULL) do
+        @unsafe do
+            local h = heap.create(a)
+            h.stress = stress == 1ULL
+            local slots = arena.alloc(a, 64ULL, 8ULL)
+            if slots == nil then
+                error("heap units: root slots")
+            end
+            native.store64(slots, 0, values.NIL)
+            collector.register(h, native.address(slots), 1ULL)
+            answer = chainSurvivors(h, slots, count, 0ULL)
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- Every other cell of `count` stays rooted in its own slot; the rest are
+-- garbage. Answers the live objects after a full cycle.
+export function alternate(count: uint64, stress: uint64): uint64
+    local answer: uint64 = 0ULL
+    with a = arena.open(4194304ULL) do
+        @unsafe do
+            local h = heap.create(a)
+            h.stress = stress == 1ULL
+            local slots = arena.alloc(a, count * 8ULL + 8ULL, 8ULL)
+            if slots == nil then
+                error("heap units: root slots")
+            end
+            -- A raw address keeps the loop free of the nullable pointer.
+            local first = native.address(slots)
+            local i: uint64 = 0ULL
+            while i < count do
+                native.store64(native.pointer(first + i * 8ULL), 0, values.NIL)
+                i = i + 1ULL
+            end
+            collector.register(h, first, count)
+            i = 0ULL
+            while i < count do
+                local value = cell(h, values.NIL)
+                if i % 2ULL == 0ULL then
+                    native.store64(native.pointer(first + i * 8ULL), 0, value)
+                end
+                i = i + 1ULL
+            end
+            collector.fullCycle(h)
+            answer = h.liveCount
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end

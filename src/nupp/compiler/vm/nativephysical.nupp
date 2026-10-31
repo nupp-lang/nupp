@@ -1079,6 +1079,7 @@ function physical.validateSignature(contract: any): boolean
                 need(
                     physical.argument(descriptor, actual)
                     or borrowedOwner
+                    or held.caller and serviceModule().isUnitModule(held.caller.scope.name)
                     or held.heapCalls[index]
                     and serviceModule().validateHeapCallUse(
                         held.heapCalls[index].proof,
@@ -1090,7 +1091,11 @@ function physical.validateSignature(contract: any): boolean
                     "pointer call argument checked type differs"
                 )
             elseif checked.tag == "voidptr" then
-                need(call.args.exprs[index].inferredType == checked, "pointer call argument checked type differs")
+                need(
+                    call.args.exprs[index].inferredType == checked
+                    or held.caller and serviceModule().isUnitModule(held.caller.scope.name),
+                    "pointer call argument checked type differs"
+                )
             end
         end
     end
@@ -1684,7 +1689,14 @@ function physical.arenaCleanupOperand(owner: any, source: any, expression: any, 
     local origin = acquiredOrigin(owner, source, expression)
     local home = require("nupp.compiler.vm.nativeunit").ownerModule(owner, "nupp.runtime.vm.arena")
     local constructor = home.functions.openWith
-    if owner.scope.name == "nupp.runtime.core.heapentry" then
+    if service.isUnitModule(owner.scope.name) then
+        local unit = require("nupp.compiler.vm.nativeunit")
+        constructor = unit.callee(owner, expression)
+        need(
+            constructor == home.exports.open or constructor == home.exports.openGrowable,
+            "Arena cleanup source acquisition differs"
+        )
+    elseif owner.scope.name == "nupp.runtime.core.heapentry" then
         local unit = require("nupp.compiler.vm.nativeunit")
         need(
             owner == unit.ownerModule(owner, "nupp.runtime.core.heapentry").exports.run,

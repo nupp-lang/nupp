@@ -1,0 +1,41 @@
+module unitentry
+
+-- The scope a test unit's fixture functions receive as their hidden last
+-- parameter: a page ledger and service scope in caller-provided scratch.
+const native = require("nupp.runtime.vm.intrinsics")
+const pages = require("nupp.runtime.core.pagemappings")
+const servicescope = require("nupp.runtime.core.servicescope")
+
+const LEDGER: uint64 = 256ULL
+const RECORDS: uint64 = 256ULL
+
+-- The region holds the ledger, its mapping records and the service scope, in
+-- that order. Zero refuses.
+export function prepare(base: voidptr, bytes: uint64): uint64
+    local recordBytes = RECORDS * native.sizeOf<pages.Mapping>()
+    local scopeOffset = LEDGER + recordBytes
+    if bytes < scopeOffset + native.sizeOf<servicescope.ServiceScope>() then
+        return 0ULL
+    end
+    local records = native.offset(base, native.index(LEDGER))
+    if pages.initialize(base, LEDGER, records, recordBytes, RECORDS) ~= 1ULL then
+        return 0ULL
+    end
+    local scope = native.offset(base, native.index(scopeOffset))
+    if servicescope.initialize(scope, native.sizeOf<servicescope.ServiceScope>(), base, LEDGER) ~= 1ULL then
+        return 0ULL
+    end
+
+    return native.address(scope)
+end
+
+-- The fixture's raised error code, or 1000 when the scope cannot close
+-- cleanly (a mapping is still live or backing was retained).
+export function finish(scope: voidptr): uint64
+    local failure = native.load64(scope, native.fieldOffset<servicescope.ServiceScope>("error"))
+    if servicescope.close(scope) ~= 1ULL and failure == 0ULL then
+        return 1000ULL
+    end
+
+    return failure
+end

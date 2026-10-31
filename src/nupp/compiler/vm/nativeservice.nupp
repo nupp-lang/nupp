@@ -41,6 +41,8 @@ local allowed = {
     ["nupp.runtime.core.frames"] = true,
     ["nupp.runtime.core.arena"] = true
 }
+-- Test units (buildUnits) add their own fixture modules for one build.
+local unitModules: {[string]: boolean} = {}
 local rawOwners = {["nupp.runtime.core.pagemappings"] = true, ["nupp.runtime.core.servicescope"] = true}
 local osNames = {mapPages = true, unmapPages = true, pageSize = true}
 
@@ -128,7 +130,9 @@ end
 -- module never walks syntax or lowers an expression.
 local function catalog(entry: any, roots: any, review: any): any
     need(
-        unit.contains(entry) and allowed[entry.scope.name] and not rawOwners[entry.scope.name],
+        unit.contains(entry)
+        and (allowed[entry.scope.name] or unitModules[entry.scope.name])
+        and not rawOwners[entry.scope.name],
         "entry is outside the closed allocator service modules"
     )
     local state = {
@@ -145,7 +149,10 @@ local function catalog(entry: any, roots: any, review: any): any
     local pending = {}
 
     local function add(owner: any): any
-        need(unit.sameOwners(entry, owner) and allowed[owner.scope.name], "callee outside closed service unit")
+        need(
+            unit.sameOwners(entry, owner) and (allowed[owner.scope.name] or unitModules[owner.scope.name]),
+            "callee outside closed service unit"
+        )
         local item = state.owners[owner]
         if not item then
             need(#state.order < 1024, "service owner limit")
@@ -2161,20 +2168,21 @@ function service.arenaCleanup(g: any, declaration: any, actual: any?): boolean
         acquired = service.arenaOwnership(call.caller.signature, call.caller.owner)
     else
         local owner = call.caller.owner
+        -- Test-unit fixtures acquire their own arenas, as heap entry does.
+        local fixture = unitModules[owner.scope.name] == true
         need(
-            owner.scope.name == "nupp.runtime.core.heapentry"
+            fixture
+            or owner.scope.name == "nupp.runtime.core.heapentry"
             and owner == unit.ownerModule(owner, "nupp.runtime.core.heapentry").exports.run,
             "implicit Arena cleanup caller is outside reviewed acquisition"
         )
         home = unit.ownerModule(owner, "nupp.runtime.vm.arena")
+        local opener = acquisition.kind == "call" and unit.callee(owner, acquisition) or nil
         need(
-            acquisition.kind == "call" and unit.callee(owner, acquisition) == home.exports.open,
+            opener == home.exports.open or fixture and opener == home.exports.openGrowable,
             "heap entry cleanup requires its exact Arena acquisition"
         )
-        local constructor = need(
-            call.caller.state.owners[home.exports.open],
-            "Arena acquisition is outside service closure"
-        )
+        local constructor = need(call.caller.state.owners[opener], "Arena acquisition is outside service closure")
         acquired = service.arenaOwnership(constructor.signature, constructor.owner)
     end
     need(
@@ -3371,6 +3379,9 @@ local function read(path: string): string
 end
 
 local function reviewUnchanged(review: any): nil
+    if review.unreviewed then
+        return
+    end
     need(read(review.path) == review.text, "service build snapshot changed")
     for path, text in pairs(review.snapshot.sources) do
         need(read(review.root .. "/" .. path) == text, "reviewed service source changed: " .. path)
@@ -3409,6 +3420,54 @@ function service.build(): any
     local result = catalog(entries[1], entries, review)
 
     return {catalog = result, entries = entries}
+end
+
+-- A test build: the runtime service modules plus caller-supplied fixture
+-- modules, with the given fixture functions as roots. It reviews no snapshot
+-- and is never an executable admission; the core's own code is tested, not
+-- proven (runtime plan, "Direction").
+function service.buildUnits(fixtures: any, rootNames: any): any
+    local root = need(os.getenv("NUPP_COMPILER_ROOT"), "build source root required")
+    local requested, seen = {}, {}
+    for _, fixture in ipairs(fixtures) do
+        requested[#requested + 1] = {moduleName = fixture.moduleName, path = fixture.path}
+        seen[fixture.moduleName], unitModules[fixture.moduleName] = true, true
+    end
+    for _, source in ipairs(paths) do
+        if not seen[source[1]] then
+            requested[#requested + 1] = {moduleName = source[1], path = root .. "/" .. source[2]}
+        end
+    end
+    local include = {"src", "native/core/src"}
+    for _, fixture in ipairs(fixtures) do
+        if fixture.include then
+            include[#include + 1] = fixture.include
+        end
+    end
+    local checked = unit.session(root, requested, "aarch64-apple-darwin", include)
+    local entries = {}
+    for _, item in ipairs(rootNames) do
+        local scope = checked.module(item[1])
+        entries[
+            #entries + 1
+        ] = need(scope.exports[item[2]] or scope.functions[item[2]], "unit root is missing: " .. item[2])
+    end
+    -- The infrastructure roots (scope retention, close, the page ledger)
+    -- belong to every service closure.
+    for _, source in ipairs(roots) do
+        if source[1] == "nupp.runtime.core.pagemappings" or source[1] == "nupp.runtime.core.servicescope" then
+            entries[#entries + 1] = need(checked.module(source[1]).exports[source[2]], "service root is missing")
+        end
+    end
+    local result = catalog(entries[1], entries, {unreviewed = true})
+
+    return {catalog = result, entries = entries, session = checked}
+end
+
+-- True for fixture modules of a test build. Ownership-provenance checks that
+-- name the reviewed runtime callers accept these callers instead.
+function service.isUnitModule(name: string?): boolean
+    return name ~= nil and unitModules[name] == true
 end
 
 function service.owners(catalogue: any): any

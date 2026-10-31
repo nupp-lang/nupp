@@ -1,0 +1,191 @@
+module nupp.core.unitrunner
+
+-- Builds a test unit: fixture functions written in Nupp against the runtime
+-- (heap, collector, arena), lowered through the service catalog and the owned
+-- backend, behind a small entry that dispatches on input word 0. The core's
+-- own code is tested, not proven (runtime plan, "Direction"), so nothing here
+-- authenticates graphs, code or links.
+local arm = require("s0.arm64")
+local allocate = require("s0.allocate")
+local selector = require("s0.select")
+local service = require("nupp.compiler.vm.nativeservice")
+local lower = require("nupp.compiler.vm.lower")
+local base = require("nupp.compiler.vm.nativegraph")
+local cleanup = require("nupp.compiler.vm.nativecleanup")
+local sink = require("nupp.compiler.s0.nativegraph")
+local linker = require("nupp.core.link")
+local runner = {}
+
+-- Scratch layout: [0, 64) entry slots, [4096, 65536) the unit scope region,
+-- then spills. Output words: the fixture's result and its error code.
+local SLOTS: integer = 0
+local SCOPE: integer = 4096
+local SCOPE_BYTES: integer = 61440
+local SPILL: integer = 65536
+local SCRATCH: integer = 1048576
+
+local function selectCode(result: any, mode: string): any
+    local target = selector.target()
+    if mode == "spill" then
+        target.integerRegisters, target.floatRegisters = {}, {}
+    end
+    local allocation = allocate.run(result.machine, target)
+
+    return selector.run(result.machine, allocation)
+end
+
+-- `fixtures` is a list of {moduleName, path, include}; `entries` lists the
+-- fixture functions in dispatch order as {moduleName, name, arity}.
+function runner.build(fixtures: any, entries: any, mode: string): any
+    local roots = {{"unitentry", "prepare"}, {"unitentry", "finish"}}
+    for _, entry in ipairs(entries) do
+        roots[#roots + 1] = {entry[1], entry[2]}
+    end
+    local build = service.buildUnits(fixtures, roots)
+    local scoped = cleanup.profile(base)
+    local resolved, owners = {}, service.owners(build.catalog)
+    for _, owner in ipairs(owners) do
+        owner.nativeABI = "leaf"
+        local options = service.options(build.catalog, owner)
+        local signature = service.signature(owner, options)
+        local profile = service.needsCleanup(signature) and scoped or base
+        local ok, g = pcall(lower.functionGraph, owner, options, profile)
+        if not ok then
+            error("unit lowering: " .. owner.scope.name .. "." .. owner.name .. ": " .. tostring(g), 0)
+        end
+        resolved[owner.scope.name .. "." .. owner.name] = {graph = g, owner = owner}
+    end
+    local codes = {}
+    for name, item in pairs(resolved) do
+        local result = sink.compilerGraph(item.graph, item.owner.name, item.owner, resolved, nil)
+        codes[name] = selectCode(result, mode)
+    end
+    local rootCodes, rootNames, functions = {}, {}, {}
+    for index, root in ipairs(roots) do
+        rootNames[index] = root[1] .. "." .. root[2]
+        rootCodes[index] = assert(codes[rootNames[index]], "unit root was not built: " .. rootNames[index])
+    end
+    local isRoot = {}
+    for _, name in ipairs(rootNames) do
+        isRoot[name] = true
+    end
+    for name, code in pairs(codes) do
+        if not isRoot[name] then
+            functions[name] = code
+        end
+    end
+    local words: {integer} = {}
+    local calls: {any} = {}
+
+    local function emit(word: integer): integer
+        words[#words + 1] = word
+        return #words
+    end
+
+    local function offset(dst: integer, from: integer, bytes: integer): nil
+        local high, low = bytes >> 12, bytes & 4095
+        if high ~= 0 then
+            emit(arm.add_imm(64, dst, from, high, 1))
+            from = dst
+        end
+        emit(arm.add_imm(64, dst, from, low, 0))
+    end
+
+    local function call(index: integer): nil
+        calls[#calls + 1] = {at = emit(arm.bl(0)), target = index}
+    end
+
+    -- C boundary: x0 packet, x1 output. Save callee-saved state.
+    emit(arm.sub_imm(64, 31, 31, 176, 0))
+    for reg = 19, 29, 2 do
+        emit(arm.stp(64, reg, reg + 1, 31, (reg - 19) * 8, 0))
+    end
+    for reg = 8, 14, 2 do
+        emit(arm.stp_fp(64, reg, reg + 1, 31, 96 + (reg - 8) * 8, 0))
+    end
+    emit(arm.str(8, 1, 31, 160))
+    emit(arm.ldr(8, 19, 0, 40)) -- scratch base
+    emit(arm.ldr(8, 22, 0, 56)) -- OS import table
+    emit(arm.ldr(8, 20, 0, 72)) -- input words
+    offset(23, 19, SPILL)
+    emit(arm.str(8, 20, 19, SLOTS + 8))
+    offset(0, 19, SCOPE)
+    emit(arm.movz(64, 1, SCOPE_BYTES, 0))
+    call(1)
+    emit(arm.str(8, 0, 19, SLOTS))
+    local refused = emit(arm.cbz(64, 0, 0))
+    local done: {integer} = {}
+    for index, entry in ipairs(entries) do
+        emit(arm.ldr(8, 20, 19, SLOTS + 8))
+        emit(arm.ldr(8, 16, 20, 0))
+        emit(arm.cmp_imm(64, 16, index - 1, 0))
+        local skip = emit(arm.b_cond(1, 0))
+        local arity: integer = entry[3]
+        for at = 1, arity do
+            emit(arm.ldr(8, at - 1, 20, at * 8))
+        end
+        emit(arm.ldr(8, arity, 19, SLOTS))
+        call(index + 2)
+        done[#done + 1] = emit(arm.b(0))
+        words[skip] = arm.b_cond(1, (#words + 1 - skip) * 4)
+    end
+    -- Unknown index: result zero, error 2000.
+    emit(arm.movz(64, 0, 0, 0))
+    emit(arm.movz(64, 17, 2000, 0))
+    local unknown = emit(arm.b(0))
+    local after = #words + 1
+    for _, at in ipairs(done) do
+        words[at] = arm.b((after - at) * 4)
+    end
+    emit(arm.str(8, 0, 19, SLOTS + 16))
+    emit(arm.ldr(8, 0, 19, SLOTS))
+    call(2)
+    emit(arm.mov_reg(64, 17, 0))
+    emit(arm.ldr(8, 0, 19, SLOTS + 16))
+    local store = #words + 1
+    words[unknown] = arm.b((store - unknown) * 4)
+    emit(arm.ldr(8, 16, 31, 160))
+    emit(arm.str(8, 0, 16, 0))
+    emit(arm.str(8, 17, 16, 8))
+    emit(arm.movz(64, 0, 0, 0))
+    local finished = emit(arm.b(0))
+    words[refused] = arm.cbz(64, 0, (#words + 1 - refused) * 4)
+    emit(arm.movz(64, 0, 3, 0))
+    words[finished] = arm.b((#words + 1 - finished) * 4)
+    for reg = 8, 14, 2 do
+        emit(arm.ldp_fp(64, reg, reg + 1, 31, 96 + (reg - 8) * 8, 0))
+    end
+    for reg = 19, 29, 2 do
+        emit(arm.ldp(64, reg, reg + 1, 31, (reg - 19) * 8, 0))
+    end
+    emit(arm.add_imm(64, 31, 31, 176, 0))
+    emit(arm.ret(30))
+    local linked = linker.assembleTrusted(words, rootCodes, functions, SCRATCH - SPILL)
+    for _, site in ipairs(calls) do
+        local at: integer = site.at
+        linked.words[at] = arm.bl((linked.offsets[site.target] as integer) - (at - 1) * 4)
+    end
+    local bytes = {}
+    for index, word in ipairs(linked.words) do
+        bytes[index] = string.char(word & 255, (word >> 8) & 255, (word >> 16) & 255, (word >> 24) & 255)
+    end
+    local code = table.concat(bytes)
+
+    local function u64(value: integer): string
+        local out = {}
+        for at = 0, 7 do
+            out[at + 1] = string.char((value >> (at * 8)) & 255)
+        end
+
+        return table.concat(out)
+    end
+
+    local data = string.rep(string.char(0), 8)
+    local bundle = "NUPPCORE" .. u64(
+        1
+    ) .. u64(1) .. u64(0) .. u64(#code) .. u64(#data) .. u64(SCRATCH) .. u64(2) .. u64(0) .. code .. data
+
+    return {bundle = bundle, owners = #owners, words = #linked.words, callBytes = linked.callBytes}
+end
+
+export = runner

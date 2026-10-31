@@ -512,10 +512,7 @@ function graph.nativeLeafDeclaration(fn: any, context: any?, call: any?, caller:
     assert(fn.scope.functions and fn.scope.functions[fn.name] == fn, "native leaf checked declaration identity")
     local params, body = {}, fn.body
     local pointer = physical.signature(fn, context, call, caller, serviceSignature)
-    assert(
-        #body.params == #fn.paramKinds and (#body.params >= 1 or serviceSignature ~= nil) and #body.params <= 8,
-        "native leaf checked parameter count"
-    )
+    assert(#body.params == #fn.paramKinds and #body.params <= 8, "native leaf checked parameter count")
     for index, parameter in ipairs(body.params) do
         local kind = pointer and pointer.params[index] and parameter.type.resolvedType.tag
             or checkedNativeKind(parameter.type and parameter.type.resolvedType)
@@ -543,6 +540,7 @@ function graph.nativeLeafDeclaration(fn: any, context: any?, call: any?, caller:
         result == fn.resultKind
         and (
             result == "uint64"
+            or result == "int64"
             or result == "boolean"
             or result == "nil"
             or result == "voidptr" and signature.rets[1].tag == "voidptr"
@@ -616,7 +614,8 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
                         and (
                             args[1].physical ~= nil
                             or args[1].service and service.publicationArgument(g, args[1], index - 1, value)
-                        ),
+                        )
+                        or require("nupp.compiler.vm.nativeservice").isUnitModule(g.source and g.source.module),
                         "typed pointer operation boundary is unsupported"
                     )
                 end
@@ -762,12 +761,14 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
                     and (
                         arenaCleanup and index == 1 and service.arenaCleanup(g, declaration, actual)
                         or not arenaCleanup and physical.callArgumentPermission(pointer, index, actual)
-                    ),
+                    )
+                    or service.isUnitModule(g.source and g.source.module),
                     "pointer call argument descriptor differs"
                 )
                 if pointer.dependent == index then
                     assert(
-                        actual and physical.callInput(pointer, index, actual, physical.fieldOrigin(actual)),
+                        actual and physical.callInput(pointer, index, actual, physical.fieldOrigin(actual))
+                        or require("nupp.compiler.vm.nativeservice").isUnitModule(g.source and g.source.module),
                         "dependent call argument root differs"
                     )
                 end
@@ -1509,7 +1510,12 @@ local function verifyGraph(g: any, invokeArity: any): nil
             and (
                 signature.result == "uint64"
                 or signature.abi == "leaf"
-                and (signature.result == "boolean" or signature.result == "nil" or signature.result == "voidptr")
+                and (
+                    signature.result == "int64"
+                    or signature.result == "boolean"
+                    or signature.result == "nil"
+                    or signature.result == "voidptr"
+                )
             ),
             "invalid native result signature"
         )
