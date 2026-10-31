@@ -277,8 +277,8 @@ function nativegraph.localKind(token: any, fn: any): string
     return kind
 end
 
-function nativegraph.entryBindings(ctx: any): nil
-    service.entryBindings(ctx)
+function nativegraph.entryBindings(ctx: any, node: any?): nil
+    service.entryBindings(ctx, node)
 end
 
 function nativegraph.copyValue(g: any, original: integer): integer

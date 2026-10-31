@@ -297,8 +297,15 @@ local function catalog(entry: any, roots: any, review: any): any
     end
     for _, item in ipairs(state.order) do
         local count = #item.owner.body.params
-        need(count <= 8 and count + (item.scoped and 1 or 0) <= 8, "service INTERNAL parameter limit")
-        item.sourceCount, item.scopeParameter = count, item.scoped and count + 1 or nil
+        -- A test build's handler takes its scope from its context, not a
+        -- hidden parameter: the handler ABI is fixed.
+        item.handler = item.owner.nativeABI == "handler" and unitModules[item.scope.name] == true
+        need(
+            count <= 8 and count + (item.scoped and not item.handler and 1 or 0) <= 8,
+            "service INTERNAL parameter limit"
+        )
+        item.sourceCount = count
+        item.scopeParameter = item.scoped and not item.handler and count + 1 or nil
     end
     local scope = unit.ownerModule(entry, "nupp.runtime.core.servicescope")
     local scopeType = need(scope.checkedExports.types.ServiceScope, "checked ServiceScope required")
@@ -784,7 +791,7 @@ function service.parameters(signature: any, source: any): any
     for index, kind in ipairs(source) do
         result[index] = kind
     end
-    if item.scoped then
+    if item.scopeParameter then
         result[#result + 1] = "voidptr"
     end
 
@@ -793,7 +800,7 @@ end
 
 function service.attach(g: any, signature: any): nil
     local item = held(signature)
-    need(g.nparams == item.sourceCount + (item.scoped and 1 or 0), "service graph parameter count")
+    need(g.nparams == item.sourceCount + (item.scopeParameter and 1 or 0), "service graph parameter count")
     g.nativeService, graphs[g] = signature, item
 end
 
@@ -806,10 +813,10 @@ function service.verify(g: any): nil
     need(
         graphs[g] == item
         and (g.native.abi == "leaf" or g.native.abi == "handler" and unitModules[item.scope.name])
-        and g.nparams == item.sourceCount + (item.scoped and 1 or 0),
+        and g.nparams == item.sourceCount + (item.scopeParameter and 1 or 0),
         "service graph identity differs"
     )
-    if item.scoped then
+    if item.scopeParameter then
         need(g.native.params[item.scopeParameter] == "voidptr", "scope ABI differs")
     end
     if g.source then
@@ -822,9 +829,17 @@ function service.verify(g: any): nil
     end
 end
 
-function service.entryBindings(ctx: any): nil
+function service.entryBindings(ctx: any, node: any?): nil
     local item = graphs[ctx.g]
-    if item and item.scoped then
+    if item and item.scoped and item.handler then
+        -- The handler's context (its fifth parameter) holds the entry's scope.
+        local constants = unit.ownerModule(item.owner, "nupp.runtime.core.context").exportedConstants
+        local at = need(tonumber(constants.SERVICE_SCOPE), "context lacks SERVICE_SCOPE")
+        local site = node or item.owner.node
+        local offset = ctx.emit(site, "NativeConstant", {tostring(at)}, "int64")
+        local access = {source = "live", kind = "voidptr", width = 8, signed = false, write = false}
+        ctx.bind(item.key, ctx.emit(site, "NativeLoad", {5, offset, access}, "voidptr"))
+    elseif item and item.scoped then
         ctx.bind(item.key, item.scopeParameter)
     end
 end
@@ -3066,6 +3081,10 @@ function service.verifyScope(g: any): nil
     if not item then
         return
     end
+    -- Test builds are tested, not proven (runtime plan, "Direction").
+    if unitModules[item.owner.scope.name] then
+        return
+    end
     local reachable, queue = {[1] = true}, {1}
     local cursor: integer = 1
     while cursor <= #queue do
@@ -3213,7 +3232,7 @@ function service.inventory(catalog: any): any
             moduleName = item.scope.name,
             name = item.owner.name,
             sourceParameters = item.sourceCount,
-            machineParameters = item.sourceCount + (item.scoped and 1 or 0),
+            machineParameters = item.sourceCount + (item.scopeParameter and 1 or 0),
             hasScope = item.scoped,
             raises = item.raises == true
         }
@@ -3433,7 +3452,7 @@ end
 -- modules, with the given fixture functions as roots. It reviews no snapshot
 -- and is never an executable admission; the core's own code is tested, not
 -- proven (runtime plan, "Direction").
-function service.buildUnits(fixtures: any, rootNames: any): any
+function service.buildUnits(fixtures: any, rootNames: any, handlers: {[string]: boolean}?): any
     local root = need(os.getenv("NUPP_COMPILER_ROOT"), "build source root required")
     local requested, seen = {}, {}
     for _, fixture in ipairs(fixtures) do
@@ -3458,6 +3477,8 @@ function service.buildUnits(fixtures: any, rootNames: any): any
         entries[
             #entries + 1
         ] = need(scope.exports[item[2]] or scope.functions[item[2]], "unit root is missing: " .. item[2])
+        -- Handler roots are lowered with the handler ABI.
+        entries[#entries].nativeABI = handlers and handlers[item[1] .. "." .. item[2]] and "handler" or nil
     end
     -- The infrastructure roots (scope retention, close, the page ledger)
     -- belong to every service closure.

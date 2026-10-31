@@ -1,0 +1,109 @@
+module nupp.runtime.core.guestscope
+
+-- A guest entry's services: a page ledger and the service scope handlers make
+-- scoped calls with, in caller-provided scratch, and the guest heap. The heap
+-- lives for the whole entry rather than a lexical scope, so its arena is built
+-- in place over one scoped mapping and torn down by close, not by an affine
+-- owner.
+const native = require("nupp.runtime.vm.intrinsics")
+const os = require("nupp.runtime.vm.os")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const pages = require("nupp.runtime.core.pagemappings")
+const servicescope = require("nupp.runtime.core.servicescope")
+
+-- The scope comes first, so a Services address is also its scope's address.
+export struct Services
+    scope: servicescope.ServiceScope
+    heap: uint64
+    arena: uint64
+end
+
+const LEDGER: uint64 = 256ULL
+const RECORDS: uint64 = 256ULL
+const HEAP_BYTES: uint64 = 16777216ULL
+
+local function roundUp(value: uint64, alignment: uint64): uint64
+    return (value + (alignment - 1ULL)) & ~(alignment - 1ULL)
+end
+
+-- The scratch region holds the ledger, its mapping records and the Services,
+-- in that order. Answers the Services address; zero refuses.
+export function prepare(base: voidptr, bytes: uint64): uint64
+    local recordBytes = RECORDS * native.sizeOf<pages.Mapping>()
+    local servicesOffset = LEDGER + recordBytes
+    if bytes < servicesOffset + native.sizeOf<Services>() then
+        return 0ULL
+    end
+    local records = native.offset(base, native.index(LEDGER))
+    if pages.initialize(base, LEDGER, records, recordBytes, RECORDS) ~= 1ULL then
+        return 0ULL
+    end
+    local services = native.offset(base, native.index(servicesOffset))
+    if servicescope.initialize(services, native.sizeOf<servicescope.ServiceScope>(), base, LEDGER) ~= 1ULL then
+        return 0ULL
+    end
+    native.store64(services, native.fieldOffset<Services>("heap"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("arena"), 0ULL)
+
+    return native.address(services)
+end
+
+-- Maps the heap's arena and creates the heap in it. Answers 1, or 0 when the
+-- mapping is refused.
+export function open(services: voidptr): uint64
+    local metadata = roundUp(native.sizeOf<arena.Chunk>(), native.alignmentOf<arena.Arena>())
+    local header = roundUp(metadata + native.sizeOf<arena.Arena>(), 16ULL)
+    local mapped = roundUp(HEAP_BYTES + header, os.pageSize())
+    local base = os.mapPages(mapped)
+    if base == nil then
+        return 0ULL
+    end
+    @unsafe do
+        local chunk = base as arena.Chunk*
+        local a = native.offset(base, native.index(metadata)) as arena.Arena*
+        chunk.previous = nil
+        chunk.bytes = mapped
+        a.chunk = chunk
+        a.cursor = native.address(base) + header
+        a.limit = native.address(base) + mapped
+        a.chunkBytes = mapped
+        a.growable = false
+        local h = heap.create(a)
+        native.store64(services, native.fieldOffset<Services>("heap"), native.address(h))
+        native.store64(services, native.fieldOffset<Services>("arena"), native.address(a))
+    end
+
+    return 1ULL
+end
+
+-- Destroys the heap and unmaps its arena; nothing when open never ran.
+export function close(services: voidptr): nil
+    local address = native.load64(services, native.fieldOffset<Services>("heap"))
+    if address == 0ULL then
+        return
+    end
+    @unsafe do
+        heap.destroy(native.pointer(address) as heap.Heap*)
+        local a = native.pointer(native.load64(services, native.fieldOffset<Services>("arena"))) as arena.Arena*
+        local chunk: arena.Chunk*? = a.chunk
+        while chunk ~= nil do
+            local previous = chunk.previous
+            os.unmapPages(chunk as voidptr, chunk.bytes)
+            chunk = previous
+        end
+    end
+    native.store64(services, native.fieldOffset<Services>("heap"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("arena"), 0ULL)
+end
+
+-- The first raised error code, or 1000 when the scope cannot close cleanly
+-- (a mapping is still live or backing was retained).
+export function finish(services: voidptr): uint64
+    local failure = native.load64(services, native.fieldOffset<servicescope.ServiceScope>("error"))
+    if servicescope.close(services) ~= 1ULL and failure == 0ULL then
+        return 1000ULL
+    end
+
+    return failure
+end
