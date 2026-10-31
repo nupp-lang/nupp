@@ -272,6 +272,7 @@ function contract.verify(g: any): boolean
         need(g.nativeFinalFrame == nil and not sources[g.source], "copied final graph is unissued")
         need(
             not g.source
+            or service.isUnitModule(g.source.module)
             or (g.source.module ~= probeModule and g.source.module ~= returnModule and g.source.module ~= guestModule),
             "closed probe graph is unissued"
         )
@@ -381,6 +382,7 @@ function contract.refuse(g: any, route: string): nil
         and not sources[g.source]
         and (
             not g.source
+            or service.isUnitModule(g.source.module)
             or (g.source.module ~= probeModule and g.source.module ~= returnModule and g.source.module ~= guestModule)
         ),
         route .. " does not carry final frame provenance"
@@ -627,7 +629,8 @@ local guestVersions: {
     numericFloat = 6,
     numericModZero = 6,
     numericOverflow = 6,
-    numericControl = 6
+    numericControl = 6,
+    workloadLoops = 6
 }
 
 -- The closed guest unit (session, roles, every lowered core graph and the
@@ -659,7 +662,8 @@ local function buildGuest(caseName: string, audited: boolean): any
         numericFloat = "catalog-numeric-float",
         numericModZero = "catalog-numeric-modzero",
         numericOverflow = "catalog-numeric-overflow",
-        numericControl = "catalog-numeric-control"
+        numericControl = "catalog-numeric-control",
+        workloadLoops = "catalog-workload-loops"
     }
     local fixture = need(fixtures[caseName], "unknown fixed guest program")
     need(current == nil, "nested construction")

@@ -16,42 +16,87 @@ local function cwd()
     pipe:close()
     return path
 end
+
 local HERE = debug.getinfo(1, "S").source:match("^@(/.*)/[^/]*$") or cwd()
 local ROOT = assert(os.getenv("NUPP_COMPILER_ROOT"), "set NUPP_COMPILER_ROOT to the checkout root")
 local OUT = ROOT .. "/build/core-guests"
 local TESTS = ROOT .. "/native/core/tests"
+-- The guest runtime is built through the service catalog and the unit code
+-- cache; NUPP_GUEST_BUILD=frozen selects the frozen final-frame build instead.
+local UNITS = os.getenv("NUPP_GUEST_BUILD") ~= "frozen"
 
 local CASES = {
-    {"boolean", 0x7FFB000000000000}, {"nilValue", 0x7FF9000000000000}, {"live", 0x7FFB000000000000},
-    {"fresh", 0x7FFB000000000000}, {"nested", 0x7FFB000000000000}, {"branchTrue", 0x7FFB000000000000},
-    {"branchFalse", 0x7FFA000000000000}, {"branchElseif", 0x7FFB000000000000},
-    {"branchLive", 0x7FFB000000000000}, {"modulePair", 0x7FFA000000000000},
-    {"moduleTriple", 0x7FFB000000000000}, {"numberAdd", 0x4017000000000000},
-    {"numberNegativeZero", 0x8000000000000000}, {"numberNaN", 0x7FF8000000000000},
-    {"numberBranch", 0x7FFB000000000000}, {"numberLoop", 0x4008000000000000},
-    {"numberLoopZero", 0x0000000000000000}, {"numericFor", 0x7FFF0059B114AFBA},
-    {"numericFloat", 0x4125486B80000000}, {"numericModZero", false}, {"numericOverflow", false},
-    {"numericControl", 0x7FFF00083C5DD2BB}
+    {"boolean", 0x7FFB000000000000},
+    {"nilValue", 0x7FF9000000000000},
+    {"live", 0x7FFB000000000000},
+    {"fresh", 0x7FFB000000000000},
+    {"nested", 0x7FFB000000000000},
+    {"branchTrue", 0x7FFB000000000000},
+    {"branchFalse", 0x7FFA000000000000},
+    {"branchElseif", 0x7FFB000000000000},
+    {"branchLive", 0x7FFB000000000000},
+    {"modulePair", 0x7FFA000000000000},
+    {"moduleTriple", 0x7FFB000000000000},
+    {"numberAdd", 0x4017000000000000},
+    {"numberNegativeZero", 0x8000000000000000},
+    {"numberNaN", 0x7FF8000000000000},
+    {"numberBranch", 0x7FFB000000000000},
+    {"numberLoop", 0x4008000000000000},
+    {"numberLoopZero", 0x0000000000000000},
+    {"numericFor", 0x7FFF0059B114AFBA},
+    {"numericFloat", 0x4125486B80000000},
+    {"numericModZero", false},
+    {"numericOverflow", false},
+    {"numericControl", 0x7FFF00083C5DD2BB},
+    {"workloadLoops", 0x7FFF0000000F4177}
 }
 -- These refuse at run time and must publish nothing: Lua 5.5 raises for the
 -- first; the second needs a canonical integer object.
 local STATUS = {numericModZero = 6, numericOverflow = 5}
 local NUMERIC = {
-    numericFor = "catalog-numeric-for", numericFloat = "catalog-numeric-float",
-    numericModZero = "catalog-numeric-modzero", numericOverflow = "catalog-numeric-overflow",
-    numericControl = "catalog-numeric-control"
+    numericFor = "catalog-numeric-for",
+    numericFloat = "catalog-numeric-float",
+    numericModZero = "catalog-numeric-modzero",
+    numericOverflow = "catalog-numeric-overflow",
+    numericControl = "catalog-numeric-control",
+    workloadLoops = "catalog-workload-loops"
 }
 local FIXTURES = {
-    "catalog-boolean", "catalog-nil", "catalog-live", "catalog-fresh", "catalog-nested",
-    "catalog-branch-true", "catalog-branch-false", "catalog-branch-elseif", "catalog-branch-live",
-    "catalog-module-prefix", "catalog-module-main", "catalog-module-middle", "catalog-module-triple",
-    "catalog-number-add", "catalog-number-negative-zero", "catalog-number-nan", "catalog-number-branch",
-    "catalog-number-loop", "catalog-number-loop-zero", "catalog-numeric-for", "catalog-numeric-float",
-    "catalog-numeric-modzero", "catalog-numeric-overflow", "catalog-numeric-control"
+    "catalog-boolean",
+    "catalog-nil",
+    "catalog-live",
+    "catalog-fresh",
+    "catalog-nested",
+    "catalog-branch-true",
+    "catalog-branch-false",
+    "catalog-branch-elseif",
+    "catalog-branch-live",
+    "catalog-module-prefix",
+    "catalog-module-main",
+    "catalog-module-middle",
+    "catalog-module-triple",
+    "catalog-number-add",
+    "catalog-number-negative-zero",
+    "catalog-number-nan",
+    "catalog-number-branch",
+    "catalog-number-loop",
+    "catalog-number-loop-zero",
+    "catalog-numeric-for",
+    "catalog-numeric-float",
+    "catalog-numeric-modzero",
+    "catalog-numeric-overflow",
+    "catalog-numeric-control",
+    "catalog-workload-loops"
 }
 local AUDITS = {
-    {"fresh", "success"}, {"nilValue", "success"}, {"nested", "success"}, {"nested", "budget0"},
-    {"nested", "budget2"}, {"nested", "budget4"}, {"nested", "cancel"}, {"modulePair", "budget1"}
+    {"fresh", "success"},
+    {"nilValue", "success"},
+    {"nested", "success"},
+    {"nested", "budget0"},
+    {"nested", "budget2"},
+    {"nested", "budget4"},
+    {"nested", "cancel"},
+    {"modulePair", "budget1"}
 }
 
 local function quote(value)
@@ -72,6 +117,7 @@ local function read(path)
     end
     local bytes = file:read("*a")
     file:close()
+
     return bytes
 end
 
@@ -86,6 +132,7 @@ local function u64(value)
     for at = 0, 7 do
         out[at + 1] = string.char((value >> (at * 8)) & 255)
     end
+
     return table.concat(out)
 end
 
@@ -98,6 +145,7 @@ local function get64(bytes, offset)
     for at = 8, 1, -1 do
         value = (value << 8) | bytes:byte(offset + at)
     end
+
     return value
 end
 
@@ -129,6 +177,7 @@ local function same(a, b)
             return false
         end
     end
+
     return true
 end
 
@@ -138,6 +187,7 @@ local function check(ok, label)
         failures[#failures + 1] = label
         print("FAIL " .. label)
     end
+
     return ok
 end
 
@@ -145,11 +195,17 @@ end
 local function tools()
     local target = ROOT .. "/build/core-bridge"
     local manifest = quote(ROOT .. "/native/core/bridge/Cargo.toml")
-    local status, output = shell(("cargo +stable build --manifest-path %s --offline --locked --bin nupp-core --target-dir %s")
-        :format(manifest, quote(target)))
+    local status, output = shell(
+        (
+            "cargo +stable build --manifest-path %s --offline --locked --bin nupp-core --target-dir %s"
+        ):format(manifest, quote(target))
+    )
     assert(status == 0, "bridge build failed: " .. output)
-    status, output = shell(("cargo +stable test --manifest-path %s --offline --locked --no-run --message-format=json --target-dir %s")
-        :format(manifest, quote(target)))
+    status, output = shell(
+        (
+            "cargo +stable test --manifest-path %s --offline --locked --no-run --message-format=json --target-dir %s"
+        ):format(manifest, quote(target))
+    )
     assert(status == 0, "guard build failed: " .. output)
     local guard
     for line in output:gmatch("[^\n]+") do
@@ -157,6 +213,7 @@ local function tools()
             guard = line:match('"executable":"([^"]+)"')
         end
     end
+
     return target .. "/debug/nupp-core", assert(guard, "guard test executable not found")
 end
 
@@ -164,8 +221,17 @@ end
 -- sources, the negative module and the module fixtures.
 local function stage()
     local canonical = {}
-    for _, name in ipairs({"arena", "frames", "context", "frameaccess", "instances", "guestcatalog",
-        "guestentry", "guestops", "guesthandlers"}) do
+    for _, name in ipairs({
+        "arena",
+        "frames",
+        "context",
+        "frameaccess",
+        "instances",
+        "guestcatalog",
+        "guestentry",
+        "guestops",
+        "guesthandlers"
+    }) do
         canonical[#canonical + 1] = "native/core/src/nupp/runtime/core/" .. name .. ".nupp"
     end
     for _, name in ipairs({"intrinsics.d.nupp", "program.d.nupp", "slots.d.nupp", "values.nupp"}) do
@@ -177,7 +243,9 @@ local function stage()
     end
     for _, directory in ipairs({"core-guest-programs", "core-guest-audit"}) do
         local base = ROOT .. "/build/" .. directory
-        os.execute("mkdir -p " .. quote(base .. "/source/nupp/runtime/core") .. " " .. quote(base .. "/source/nupp/core"))
+        os.execute(
+            "mkdir -p " .. quote(base .. "/source/nupp/runtime/core") .. " " .. quote(base .. "/source/nupp/core")
+        )
         local names = {}
         for _, name in ipairs(canonical) do
             names[#names + 1] = name
@@ -187,9 +255,16 @@ local function stage()
             names[#names + 1] = "native/core/tests/guest-lifecycle-audit.nupp"
             write(base .. "/source/nupp/runtime/core/guestaudit.nupp", read(TESTS .. "/guest-lifecycle-audit.nupp"))
         end
-        for _, fixture in ipairs({"catalog-module-prefix", "catalog-module-main", "catalog-module-middle",
-            "catalog-module-triple"}) do
-            write(base .. "/source/nupp/core/" .. fixture:gsub("-", "") .. ".nupp", read(TESTS .. "/" .. fixture .. ".nupp"))
+        for _, fixture in ipairs({
+            "catalog-module-prefix",
+            "catalog-module-main",
+            "catalog-module-middle",
+            "catalog-module-triple"
+        }) do
+            write(
+                base .. "/source/nupp/core/" .. fixture:gsub("-", "") .. ".nupp",
+                read(TESTS .. "/" .. fixture .. ".nupp")
+            )
         end
         local sources = {}
         for _, name in ipairs(names) do
@@ -215,10 +290,15 @@ local function oracle(lua, fixture)
         source = table.concat(lines)
     end
     local program = OUT .. "/" .. fixture .. ".oracle.lua"
-    write(program, "local ok, v = pcall(function()\n" .. source .. "\nend)\n"
+    write(
+        program,
+        "local ok, v = pcall(function()\n"
+        .. source
+        .. "\nend)\n"
         .. "if not ok then io.write('E', tostring(v))\n"
         .. "elseif math.type(v) == 'integer' then io.write('I', string.format('%d', v))\n"
-        .. "else io.write('F', string.format('%016x', string.unpack('<I8', string.pack('<d', v)))) end\n")
+        .. "else io.write('F', string.format('%016x', string.unpack('<I8', string.pack('<d', v)))) end\n"
+    )
     local status, output = shell(quote(lua) .. " " .. quote(program))
     assert(status == 0, output)
     local kind, value = output:sub(1, 1), output:sub(2)
@@ -235,6 +315,7 @@ local function oracle(lua, fixture)
     if bits & 0x7FF0000000000000 == 0x7FF0000000000000 and bits & 0xFFFFFFFFFFFFF ~= 0 then
         return 0x7FF8000000000000
     end
+
     return bits
 end
 
@@ -245,8 +326,14 @@ local function bundleOf(selected, scratch)
     end
     local code, data = table.concat(words), fromHex(selected.dataHex)
     assert(#data == selected.dataBytes, "data extent")
-    return "NUPPCORE" .. u64(1) .. u64(1) .. u64(selected.entry) .. u64(#code) .. u64(#data) .. u64(scratch)
-        .. u64(1) .. u64(0) .. code .. data, #code, data
+
+    return "NUPPCORE" .. u64(
+        1
+    ) .. u64(
+        1
+    ) .. u64(
+        selected.entry
+    ) .. u64(#code) .. u64(#data) .. u64(scratch) .. u64(1) .. u64(0) .. code .. data, #code, data
 end
 
 local function main()
@@ -291,7 +378,13 @@ local function main()
     local selections = {}
     for _, item in ipairs(list) do
         local name, mode = item:match("^(%w+):(%w+)$")
-        selections[name .. "-" .. mode] = producer.select(name, mode, "131072")
+        if UNITS then
+            selections[
+                name .. "-" .. mode
+            ] = producer.selectUnits(name, mode, "131072", ROOT .. "/build/core-unit-cache")
+        else
+            selections[name .. "-" .. mode] = producer.select(name, mode, "131072")
+        end
     end
     print(("selected %d programs in %ds"):format(#list, os.time() - started))
     local empty = OUT .. "/empty.bin"
@@ -303,8 +396,9 @@ local function main()
     end
 
     local function guarded(label, bundle, input, highWater, expectedPath, status)
-        local env = ("CORE_TEST_BUNDLE=%s CORE_TEST_INPUT=%s CORE_TEST_HIGH_WATER=%d "):format(quote(bundle),
-            quote(input), highWater)
+        local env = (
+            "CORE_TEST_BUNDLE=%s CORE_TEST_INPUT=%s CORE_TEST_HIGH_WATER=%d "
+        ):format(quote(bundle), quote(input), highWater)
         local test = "abi::generated_entry_preserves_c_abi_and_output"
         if status then
             env = env .. "CORE_TEST_STATUS=" .. status .. " "
@@ -317,6 +411,7 @@ local function main()
     end
 
     local sentinel = "refused guest operation left output unchanged"
+
     local function refuses(label, bundle, input)
         local output = OUT .. "/" .. label .. ".out"
         write(output, sentinel)
@@ -341,9 +436,17 @@ local function main()
             check(highWater <= 131072, label .. " high water")
             local bundleBytes, codeBytes, data = bundleOf(selected, 131072)
             local version = get64(data, 0)
-            check(version == (name:match("^numeric") and 6 or name:match("^numberLoop") and 5
-                or name == "numberBranch" and 4 or name:match("^number") and 3
-                or (name == "modulePair" or name == "moduleTriple") and 2 or 1), label .. " descriptor version")
+            check(
+                version == (
+                    (name:match("^numeric") or name:match("^workload")) and 6
+                    or name:match("^numberLoop") and 5
+                    or name == "numberBranch" and 4
+                    or name:match("^number") and 3
+                    or (name == "modulePair" or name == "moduleTriple") and 2
+                    or 1
+                ),
+                label .. " descriptor version"
+            )
             local bundle = OUT .. "/" .. label .. ".bundle"
             write(bundle, bundleBytes)
             if STATUS[name] then
@@ -357,8 +460,11 @@ local function main()
                 bridgeRun(label, bundle, empty, output, 0)
                 check(read(output) == u64(expectedWord), ("%s result %016x"):format(label, expectedWord))
                 guarded(label, bundle, empty, highWater, expected)
-                local _, short = shell(("CORE_TEST_BUNDLE=%s CORE_TEST_INPUT=%s CORE_TEST_HIGH_WATER=0 %s --ignored --exact abi::generated_entry_refuses_short_regions --test-threads=1")
-                    :format(quote(bundle), quote(empty), quote(guard)))
+                local _, short = shell(
+                    (
+                        "CORE_TEST_BUNDLE=%s CORE_TEST_INPUT=%s CORE_TEST_HIGH_WATER=0 %s --ignored --exact abi::generated_entry_refuses_short_regions --test-threads=1"
+                    ):format(quote(bundle), quote(empty), quote(guard))
+                )
                 check(short:find("1 passed; 0 failed; 0 ignored;", 1, true) ~= nil, label .. " short regions refused")
                 local body = selected.programs[#selected.programs]
                 if name:match("^numeric") then
@@ -371,7 +477,10 @@ local function main()
                 end
                 if name == "modulePair" then
                     local modules = get64(data, 15 * 8)
-                    check(get64(data, 0) == 2 and get64(data, 3 * 8) == 1 and get64(data, 14 * 8) == 2, label .. " descriptor")
+                    check(
+                        get64(data, 0) == 2 and get64(data, 3 * 8) == 1 and get64(data, 14 * 8) == 2,
+                        label .. " descriptor"
+                    )
                     check(get64(data, modules) == 0 and get64(data, modules + 8) == 1, label .. " module order")
                     local entry = selected.programs[2]
                     local requirePc
@@ -407,7 +516,10 @@ local function main()
                     refuses(label .. "-wrong-slot", slot, empty)
                     local operand = OUT .. "/" .. label .. "-tagged-operand.bundle"
                     local constants = selected.catalogOffsets.constants
-                    write(operand, prefix .. put(data, constants[name == "numberAdd" and 1 or #constants], u64(0x7FFB000000000000)))
+                    write(
+                        operand,
+                        prefix .. put(data, constants[name == "numberAdd" and 1 or #constants], u64(0x7FFB000000000000))
+                    )
                     refuses(label .. "-tagged-operand", operand, empty)
                 end
                 local budgets = {{0, 0, 2}, {0, 1, 3}}
@@ -423,7 +535,14 @@ local function main()
                 for _, item in ipairs(budgets) do
                     local input = ("%s/%s-budget%d-cancel%d.bin"):format(OUT, label, item[1], item[2])
                     write(input, u64(item[1]) .. u64(item[2]))
-                    guarded(("%s budget %d cancel %d"):format(label, item[1], item[2]), bundle, input, highWater, nil, item[3])
+                    guarded(
+                        ("%s budget %d cancel %d"):format(label, item[1], item[2]),
+                        bundle,
+                        input,
+                        highWater,
+                        nil,
+                        item[3]
+                    )
                     refuses(("%s-budget%d-cancel%d"):format(label, item[1], item[2]), bundle, input)
                 end
                 if name == "numberLoop" or name == "numberLoopZero" then
@@ -447,7 +566,9 @@ local function main()
             end
             if present then
                 local label = ("audit-%s-%s-%s"):format(name, mode, scenario)
-                local selected = producer.select(name, mode, "131072", scenario)
+                local selected = UNITS
+                    and producer.selectUnits(name, mode, "131072", ROOT .. "/build/core-unit-cache", scenario)
+                    or producer.select(name, mode, "131072", scenario)
                 local primary = selections[name .. "-" .. mode]
                 check(same(selected.programs, primary.programs), label .. " stream unchanged")
                 check(same(selected.dispatch, primary.dispatch), label .. " dispatch unchanged")
@@ -470,7 +591,13 @@ local function main()
                     check(read(output) == u64(expectedWord), label .. " result")
                     guarded(label, bundle, empty, highWater, expected)
                 else
-                    local budgets = {budget0 = {0, 0}, budget1 = {1, 0}, budget2 = {2, 0}, budget4 = {4, 0}, cancel = {0, 1}}
+                    local budgets = {
+                        budget0 = {0, 0},
+                        budget1 = {1, 0},
+                        budget2 = {2, 0},
+                        budget4 = {4, 0},
+                        cancel = {0, 1}
+                    }
                     local input = OUT .. "/" .. label .. ".bin"
                     write(input, u64(budgets[scenario][1]) .. u64(budgets[scenario][2]))
                     local status = scenario == "cancel" and 3 or 2

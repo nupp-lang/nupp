@@ -234,6 +234,11 @@ end
 
 local function validate(state: any, source: boolean): nil
     need(not state.invalid, "sealed unit was invalidated")
+    -- A test build is tested, not proven (runtime plan, "Direction"): it skips
+    -- re-reading every source and re-walking every owner on each graph.
+    if state.tested then
+        return
+    end
     if source then
         for path, text in pairs(state.sources) do
             if (read(path) or false) ~= text then
@@ -294,7 +299,7 @@ end
 
 -- The incremental project stays private. Its import/update/overlay APIs never
 -- escape this constructor; every file must exist before checking starts.
-function unit.session(projectRoot: string, requested: any, target: string, include: any?): any
+function unit.session(projectRoot: string, requested: any, target: string, include: any?, tested: boolean?): any
     -- Lazy imports avoid native profile -> unit -> checker -> profile loading.
     local incremental = require("nupp.compiler.project.incremental")
     local trivia = require("nupp.compiler.syntax.triviaarena")
@@ -323,7 +328,8 @@ function unit.session(projectRoot: string, requested: any, target: string, inclu
         definitions = {},
         bindings = {},
         cleanupBindings = {},
-        invalid = false
+        invalid = false,
+        tested = tested == true
     }
 
     local function remember(path: string, text: any): nil
@@ -586,6 +592,10 @@ function unit.occurrence(fn: any, node: any): boolean
         "occurrence owner changed"
     )
     need(type(node) == "table", "checked occurrence required")
+    if held.state.tested then
+        need(held.occurrences[node], "occurrence is outside checked owner")
+        return true
+    end
     local current = node
     while current do
         local saved = need(held.occurrences[current], "occurrence is outside checked owner")

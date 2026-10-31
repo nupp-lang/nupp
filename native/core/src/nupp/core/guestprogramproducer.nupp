@@ -13,6 +13,7 @@ local executable = require("nupp.compiler.vm.coregraphexecutable")
 local graph = require("nupp.compiler.vm.graph")
 local sink = require("nupp.compiler.s0.nativegraph")
 local shim = require("nupp.core.guestshim")
+local guestbuild = require("nupp.core.guestbuild")
 local auditshim = require("nupp.core.guestauditshim")
 local writer = require("nupp.core.guestartifact")
 local linker = require("nupp.core.link")
@@ -36,6 +37,73 @@ local function hex(value: string): string
     return (value:gsub(".", function(byte: string): string
         return string.format("%02x", byte:byte())
     end))
+end
+
+-- Wraps a primary selection in the supplemental lifecycle audit entry.
+local function audit(source: any, selected: any, output: any, scenario: string): nil
+    local audited = auditshim.build(source, selected, output, scenario)
+    output.audit = {
+        scenario = scenario,
+        expectedStatus = audited.expectedStatus,
+        expectedUsed = audited.expectedUsed,
+        expectedOwner = audited.expectedOwner,
+        expectedPC = audited.expectedPC,
+        snapshotOffset = audited.snapshotOffset,
+        snapshotBytes = audited.snapshotBytes,
+        workspaceOffset = audited.workspaceOffset,
+        workspaceBytes = audited.workspaceBytes,
+        primaryEntry = output.entry,
+        primaryWords = #output.words,
+        primaryScratchBytes = output.scratchBytes,
+        primarySpillOffset = output.spillOffset,
+        primaryCallBytes = output.callBytes
+    }
+    output.words, output.entry, output.scratchBytes = audited.words, audited.entry, audited.scratchBytes
+    output.spillOffset, output.callBytes = audited.spillOffset, audited.callBytes
+end
+
+local function publish(
+    source: any,
+    output: any,
+    packed: any,
+    mode: string,
+    caseName: string,
+    metrics: any,
+    refusals: any
+): any
+    local programs = {}
+    for _, body in ipairs(source.executable.functions) do
+        local constants = {}
+        for index, constant in ipairs(body.constants) do
+            constants[index] = {kind = constant.kind, valueHex = hex(constant.value)}
+        end
+        programs[
+            #programs + 1
+        ] = {
+            owner = body.owner,
+            instructions = body.instructions,
+            codeHex = hex(body.code),
+            instructionCount = body.instructionCount,
+            valueCount = body.valueCount,
+            calls = body.calls,
+            constants = constants
+        }
+    end
+    output.dataHex, output.dataBytes = hex(packed.bytes), #packed.bytes
+    output.mode, output.caseName, output.metrics = mode, caseName, metrics
+    output.programs, output.dataflowRefusals, output.provenanceRefusals = programs, source.refusals, refusals
+    output.instanceBound = source.executable.instanceCapacity
+    output.instanceCapacity = source.executable.instanceCapacity
+    output.instanceCreations = source.executable.instanceCreations
+    output.frameDepth = source.executable.frameDepth
+    output.catalogOffsets = {
+        code = packed.codeOffsets,
+        constants = packed.constantOffsets,
+        dispatch = packed.dispatchOffset
+    }
+    output.scope = "Checked acyclic scalar guests, with v3 source-bound number addition; no named exports, cycles, general loader, tagged objects or GC"
+
+    return output
 end
 
 -- Selection, authenticated linking and final byte publication stay in one
@@ -248,61 +316,13 @@ local function select(caseName: string, mode: string, capacityText: string, scen
     contract.validateGuest(source)
     local output = shim.build(source, selected, capacity)
     if scenario then
-        local audited = auditshim.build(source, selected, output, scenario)
-        output.audit = {
-            scenario = scenario,
-            expectedStatus = audited.expectedStatus,
-            expectedUsed = audited.expectedUsed,
-            expectedOwner = audited.expectedOwner,
-            expectedPC = audited.expectedPC,
-            snapshotOffset = audited.snapshotOffset,
-            snapshotBytes = audited.snapshotBytes,
-            workspaceOffset = audited.workspaceOffset,
-            workspaceBytes = audited.workspaceBytes,
-            primaryEntry = output.entry,
-            primaryWords = #output.words,
-            primaryScratchBytes = output.scratchBytes,
-            primarySpillOffset = output.spillOffset,
-            primaryCallBytes = output.callBytes
-        }
-        output.words, output.entry, output.scratchBytes = audited.words, audited.entry, audited.scratchBytes
-        output.spillOffset, output.callBytes = audited.spillOffset, audited.callBytes
+        audit(source, selected, output, scenario)
     end
+    contract.validateGuest(source)
     local packed = writer.encode(source.executable, source.scopes, output.dispatch, #output.words * 4)
     contract.validateGuest(source)
-    local programs = {}
-    for _, body in ipairs(source.executable.functions) do
-        local constants = {}
-        for index, constant in ipairs(body.constants) do
-            constants[index] = {kind = constant.kind, valueHex = hex(constant.value)}
-        end
-        programs[
-            #programs + 1
-        ] = {
-            owner = body.owner,
-            instructions = body.instructions,
-            codeHex = hex(body.code),
-            instructionCount = body.instructionCount,
-            valueCount = body.valueCount,
-            calls = body.calls,
-            constants = constants
-        }
-    end
-    output.dataHex, output.dataBytes = hex(packed.bytes), #packed.bytes
-    output.mode, output.caseName, output.metrics = mode, caseName, metrics
-    output.programs, output.dataflowRefusals, output.provenanceRefusals = programs, source.refusals, refusals
-    output.instanceBound = source.executable.instanceCapacity
-    output.instanceCapacity = source.executable.instanceCapacity
-    output.instanceCreations = source.executable.instanceCreations
-    output.frameDepth = source.executable.frameDepth
-    output.catalogOffsets = {
-        code = packed.codeOffsets,
-        constants = packed.constantOffsets,
-        dispatch = packed.dispatchOffset
-    }
-    output.scope = "Checked acyclic scalar guests, with v3 source-bound number addition; no named exports, cycles, general loader, tagged objects or GC"
 
-    return output
+    return publish(source, output, packed, mode, caseName, metrics, refusals)
 end
 
 local function compile(caseName: string, mode: string, capacityText: string, scenario: string?): string
@@ -315,6 +335,30 @@ function producer.select(caseName: string, mode: string, capacityText: string, s
     local output = select(caseName, mode, capacityText, scenario)
     rejected = true
     return output
+end
+
+-- The same selection with the guest runtime built through the service
+-- catalog and the unit code cache instead of the frozen final-frame build.
+-- The runtime is selected once per mode in a process; each case then costs
+-- its program compile and the shim.
+function producer.selectUnits(
+    caseName: string,
+    mode: string,
+    capacityText: string,
+    cacheDirectory: string?,
+    scenario: string?
+): any
+    assert(mode == "normal" or mode == "spill")
+    local capacity = assert(tonumber(capacityText)) as integer
+    assert(capacity == 65536 or capacity == 131072)
+    local source = guestbuild.guest(caseName, mode, cacheDirectory, scenario ~= nil)
+    local output = shim.build(source, source.selected, capacity)
+    if scenario then
+        audit(source, source.selected, output, scenario)
+    end
+    local packed = writer.encode(source.executable, source.scopes, output.dispatch, #output.words * 4)
+
+    return publish(source, output, packed, mode, caseName, source.metrics, {})
 end
 
 function producer.compile(caseName: string, mode: string, capacityText: string): string

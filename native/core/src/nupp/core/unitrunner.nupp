@@ -112,42 +112,58 @@ local function selectCode(result: any, mode: string): any
     end
     local allocation = allocate.run(result.machine, target)
 
-    return selector.run(result.machine, allocation)
+    local code: any = selector.run(result.machine, allocation)
+    -- What the register file held, for checks that spill mode spills everything.
+    code.allocation = {
+        spillSlots = allocation.spillSlots,
+        integerRegisters = #target.integerRegisters,
+        floatRegisters = #target.floatRegisters
+    }
+
+    return code
 end
 
--- `fixtures` is a list of {moduleName, path, include}; `entries` lists the
--- fixture functions in dispatch order as {moduleName, name, arity}.
-function runner.build(fixtures: any, entries: any, mode: string, cacheDirectory: string?): any
+-- Lowers and selects every function of a unit build through the
+-- content-addressed code cache. `handlers` names the owners lowered with the
+-- handler ABI; every other owner is a leaf. Answers each function's code and
+-- owner by qualified name.
+function runner.select(
+    build: any,
+    mode: string,
+    cacheDirectory: string?,
+    handlers: {[string]: boolean}?,
+    phase: function(string): nil,
+    context: any?
+): any
     local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
-    local started = now()
-    local timings = {}
-
-    local function phase(name: string): nil
-        timings[#timings + 1] = {name = name, seconds = now() - started}
-    end
-
-    local roots = {{"unitentry", "prepare"}, {"unitentry", "finish"}}
-    for _, entry in ipairs(entries) do
-        roots[#roots + 1] = {entry[1], entry[2]}
-    end
-    local build = service.buildUnits(fixtures, roots)
-    phase("session")
     local scoped = cleanup.profile(base)
     local resolved, owners = {}, service.owners(build.catalog)
     local byName = {}
     local paths = {}
     for _, owner in ipairs(owners) do
-        byName[owner.scope.name .. "." .. owner.name] = owner
+        local name = owner.scope.name .. "." .. owner.name
+        byName[name] = owner
         paths[owner.scope.name] = owner.scope.path
+        owner.nativeABI = handlers and handlers[name] and "handler" or "leaf"
     end
     local compiler = compilerDigest(root)
+    -- Handlers read the dispatch table through the context layout.
+    if context then
+        compiler = sha(compiler .. "\0" .. (readFile(context.path) or ""))
+    end
     local modules = moduleDigests(paths)
     local codes, keys = {}, {}
     if cacheDirectory then
         os.execute("mkdir -p '" .. cacheDirectory .. "'")
     end
     for name, owner in pairs(byName) do
-        keys[name] = sha(mode .. "\0" .. compiler .. "\0" .. (modules[owner.scope.name] or "") .. "\0" .. name)
+        keys[
+            name
+        ] = sha(
+            "allocation\0" .. mode .. "\0" .. owner.nativeABI .. "\0" .. compiler .. "\0" .. (
+                modules[owner.scope.name] or ""
+            ) .. "\0" .. name
+        )
         local cached = cacheDirectory and readFile(cacheDirectory .. "/" .. keys[name] .. ".json")
         if cached then
             codes[name] = json.decode(cached)
@@ -160,7 +176,6 @@ function runner.build(fixtures: any, entries: any, mode: string, cacheDirectory:
             return resolved[name]
         end
         local owner = assert(byName[name], "unit callee outside the catalog: " .. name)
-        owner.nativeABI = "leaf"
         local options = service.options(build.catalog, owner)
         local signature = service.signature(owner, options)
         local profile = service.needsCleanup(signature) and scoped or base
@@ -196,13 +211,36 @@ function runner.build(fixtures: any, entries: any, mode: string, cacheDirectory:
     phase("lowering")
     for _, name in ipairs(missing) do
         local item = resolved[name]
-        local result = sink.compilerGraph(item.graph, item.owner.name, item.owner, resolved, nil)
+        local bound = item.owner.nativeABI == "handler" and context or nil
+        local result = sink.compilerGraph(item.graph, item.owner.name, item.owner, resolved, bound)
         codes[name] = selectCode(result, mode)
         if cacheDirectory then
             writeFile(cacheDirectory .. "/" .. keys[name] .. ".json", json.encode(codes[name]))
         end
     end
     phase("selection")
+
+    return {codes = codes, owners = byName, ownerCount = #owners, selected = #missing}
+end
+
+-- `fixtures` is a list of {moduleName, path, include}; `entries` lists the
+-- fixture functions in dispatch order as {moduleName, name, arity}.
+function runner.build(fixtures: any, entries: any, mode: string, cacheDirectory: string?): any
+    local started = now()
+    local timings = {}
+
+    local function phase(name: string): nil
+        timings[#timings + 1] = {name = name, seconds = now() - started}
+    end
+
+    local roots = {{"unitentry", "prepare"}, {"unitentry", "finish"}}
+    for _, entry in ipairs(entries) do
+        roots[#roots + 1] = {entry[1], entry[2]}
+    end
+    local build = service.buildUnits(fixtures, roots)
+    phase("session")
+    local chosen = runner.select(build, mode, cacheDirectory, nil, phase)
+    local codes = chosen.codes
     local rootCodes, rootNames, functions = {}, {}, {}
     for index, root in ipairs(roots) do
         rootNames[index] = root[1] .. "." .. root[2]
@@ -332,8 +370,8 @@ function runner.build(fixtures: any, entries: any, mode: string, cacheDirectory:
 
     return {
         bundle = bundle,
-        owners = #owners,
-        selected = #missing,
+        owners = chosen.ownerCount,
+        selected = chosen.selected,
         words = #linked.words,
         callBytes = linked.callBytes,
         timings = timings

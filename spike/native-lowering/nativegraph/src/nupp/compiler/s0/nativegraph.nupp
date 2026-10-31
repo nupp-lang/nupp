@@ -705,7 +705,12 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                             unbound and handler and access.kind == "uint64" and access.width == 8,
                             "S0 graph: guest word slot required"
                         )
-                        if not guestSlotsChecked then
+                        -- Test builds are tested, not proven (runtime plan,
+                        -- "Direction").
+                        local tested = require(
+                            "nupp.compiler.vm.nativeservice"
+                        ).isUnitModule(g.source and g.source.module)
+                        if not guestSlotsChecked and not tested then
                             finalframe.requireGuestSlots(g)
                             guestSlotsChecked = true
                         end
