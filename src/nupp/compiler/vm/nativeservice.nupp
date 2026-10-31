@@ -457,6 +457,13 @@ function service.dependentReturn(signature: any, owner: any): any
             "dependent metadata result declaration differs"
         )
     end
+    -- A test build borrows from whatever its first parameter points at; the
+    -- declaration check below still holds it to one borrowed pointer.
+    if backing == nil and item.state.review and item.state.review.unreviewed then
+        local first = owner.body.params[1]
+        local declared = first and first.type and first.type.resolvedType
+        backing = declared and declared.tag == "ptr" and declared.elem or nil
+    end
     need(backing ~= nil, "dependent return is outside reviewed Arena/Pool storage")
     local checked, parameter = item.checked, owner.body.params[1]
     local annotation = parameter and parameter.type.resolvedType
@@ -3458,6 +3465,16 @@ function service.build(): any
     return {catalog = result, entries = entries}
 end
 
+local function sourceExists(path: string): boolean
+    local file = io.open(path, "rb")
+    if not file then
+        return false
+    end
+    file:close()
+
+    return true
+end
+
 -- A test build: the runtime service modules plus caller-supplied fixture
 -- modules, with the given fixture functions as roots. It reviews no snapshot
 -- and is never an executable admission; the core's own code is tested, not
@@ -3471,6 +3488,7 @@ function service.buildUnits(fixtures: any, rootNames: any, handlers: {[string]: 
     end
     for _, source in ipairs(paths) do
         if not seen[source[1]] then
+            seen[source[1]] = true
             requested[#requested + 1] = {moduleName = source[1], path = root .. "/" .. source[2]}
         end
     end
@@ -3479,6 +3497,31 @@ function service.buildUnits(fixtures: any, rootNames: any, handlers: {[string]: 
         if fixture.include then
             include[#include + 1] = fixture.include
         end
+    end
+    -- Runtime modules the fixtures require, transitively, join the session so
+    -- their functions can be called, under the same test-build checks.
+    local cursor = 1
+    while cursor <= #requested do
+        local text = ""
+        local file = io.open(requested[cursor].path, "rb")
+        if file then
+            text = file:read("*a") or ""
+            file:close()
+        end
+        for name in text:gmatch('require%("(nupp%.runtime%.[%w%.]+)"%)') do
+            if not seen[name] then
+                local relative = name:gsub("%.", "/") .. ".nupp"
+                for _, base in ipairs({"src", "native/core/src"}) do
+                    local candidate = root .. "/" .. base .. "/" .. relative
+                    if not seen[name] and sourceExists(candidate) then
+                        seen[name] = true
+                        unitModules[name] = true
+                        requested[#requested + 1] = {moduleName = name, path = candidate}
+                    end
+                end
+            end
+        end
+        cursor = cursor + 1
     end
     local checked = unit.session(root, requested, "aarch64-apple-darwin", include, true)
     local entries = {}
@@ -3500,6 +3543,17 @@ function service.buildUnits(fixtures: any, rootNames: any, handlers: {[string]: 
     local result = catalog(entries[1], entries, {unreviewed = true})
 
     return {catalog = result, entries = entries, session = checked}
+end
+
+-- True for any graph lowered for a test build's catalog, the runtime under test
+-- included, and for graphs of its fixture modules.
+function service.isTestGraph(g: any): boolean
+    local item = graphs[g]
+    if item and item.state.review and item.state.review.unreviewed then
+        return true
+    end
+
+    return service.isUnitModule(g.source and g.source.module)
 end
 
 -- True for fixture modules of a test build. Ownership-provenance checks that

@@ -1,0 +1,201 @@
+module nupp.runtime.core.coretables
+
+-- Lua tables on the guest heap: a KIND_TABLE object whose body holds an array
+-- part for the keys 1..n and an owned hash part for every other key, in the
+-- layout the collector walks. The header's auxPtr and auxLen mirror the array
+-- part after every change, since that is what marking reads.
+--
+-- Keys are integers, booleans and objects by identity. Float keys are refused
+-- until integral floats are normalized to integers (Lua's t[1.0] is t[1]);
+-- nil and NaN keys are refused as Lua refuses them.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const collector = require("nupp.runtime.vm.collector")
+const values = require("nupp.runtime.vm.values")
+const arrays = require("nupp.runtime.vm.valuearray")
+const hashes = require("nupp.runtime.vm.objecttable")
+
+export const OK: uint64 = 0ULL
+export const BAD_KEY: uint64 = 1ULL
+export const NO_MEMORY: uint64 = 2ULL
+
+local function arrayOf(o: heap.Header*): heap.ValueArray*
+    @unsafe do
+        return native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES) as heap.ValueArray*
+    end
+end
+
+local function hashOf(o: heap.Header*): heap.ValueTable*
+    @unsafe do
+        local body = native.address(o as voidptr) + heap.HEADER_BYTES
+        return native.pointer(body + native.word(native.fieldOffset<heap.TableBody>("hashPtr"))) as heap.ValueTable*
+    end
+end
+
+local function mirror(o: heap.Header*): nil
+    @unsafe do
+        local a = arrayOf(o)
+        o.auxPtr = a.base
+        o.auxLen = a.length
+    end
+end
+
+-- 1 for keys a table can hold, 0 for nil, NaN and floats.
+local function admissible(key: uint64): uint64
+    if key == values.NIL or key == values.QNAN then
+        return 0ULL
+    end
+    if key & values.QNAN ~= values.QNAN then
+        return 0ULL
+    end
+
+    return 1ULL
+end
+
+-- The array index (from 1) of an integer key, or 0.
+local function position(key: uint64): uint64
+    if key & values.TAG_MASK ~= values.TAG_INTEGER then
+        return 0ULL
+    end
+    local payload = key & values.PAYLOAD
+    if payload == 0ULL or payload >= 0x0000800000000000ULL then
+        return 0ULL
+    end
+
+    return payload
+end
+
+-- A fresh empty table on `h`; answers its header address.
+export function create(h: heap.Heap*): uint64
+    @unsafe do
+        local o = collector.allocate(h, heap.KIND_TABLE, native.sizeOf<heap.TableBody>())
+        local body = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES)
+        local i: uint64 = 0ULL
+        while i < native.sizeOf<heap.TableBody>() do
+            native.store64(body, native.index(i), 0ULL)
+            i = i + 8ULL
+        end
+        native.store64(body, native.fieldOffset<heap.TableBody>("meta"), values.NIL)
+        o.auxPtr = 0ULL
+        o.auxLen = 0ULL
+        collector.initialized(h, o)
+
+        return native.address(o as voidptr)
+    end
+end
+
+-- The value at `key`, nil when absent.
+export function get(table: uint64, key: uint64): uint64
+    @unsafe do
+        local o = native.pointer(table) as heap.Header*
+        local index = position(key)
+        local a = arrayOf(o)
+        if index ~= 0ULL and index <= a.length then
+            return native.load64(native.pointer(a.base), native.index((index - 1ULL) * 8ULL))
+        end
+        local t = hashOf(o)
+        if t.ptr == 0ULL then
+            return values.NIL
+        end
+        local slot = hashes.tableOwnedGetSlot(t, key)
+        if slot == 0ULL then
+            return values.NIL
+        end
+
+        return native.load64(native.pointer(slot), 0)
+    end
+end
+
+-- Stores `value` at `key`; nil removes. Answers OK, BAD_KEY or NO_MEMORY.
+export function set(h: heap.Heap*, table: uint64, key: uint64, value: uint64): uint64
+    if admissible(key) == 0ULL then
+        return BAD_KEY
+    end
+    @unsafe do
+        local o = native.pointer(table) as heap.Header*
+        collector.barrier(h, o, key)
+        collector.barrier(h, o, value)
+        local a = arrayOf(o)
+        local t = hashOf(o)
+        local index = position(key)
+        if index ~= 0ULL and index <= a.length then
+            native.store64(native.pointer(a.base), native.index((index - 1ULL) * 8ULL), value)
+            if value == values.NIL and index == a.length then
+                arrays.arrayTrim(a)
+                mirror(o)
+            end
+            return OK
+        end
+        if index ~= 0ULL and index == a.length + 1ULL and value ~= values.NIL then
+            if a.owner == 0ULL and arrays.arrayInitialize(a, h, 4ULL) ~= 0ULL then
+                return NO_MEMORY
+            end
+            if arrays.arrayPush(a, value) ~= 0ULL then
+                return NO_MEMORY
+            end
+            -- The hash part may already hold the keys that now extend the array.
+            if t.ptr ~= 0ULL then
+                if hashes.tableOwnedGetSlot(t, key) ~= 0ULL then
+                    hashes.tableOwnedInsert(t, key, values.NIL)
+                end
+                while true do
+                    local next = values.TAG_INTEGER | (a.length + 1ULL)
+                    local slot = hashes.tableOwnedGetSlot(t, next)
+                    if slot == 0ULL then
+                        break
+                    end
+                    if arrays.arrayPush(a, native.load64(native.pointer(slot), 0)) ~= 0ULL then
+                        mirror(o)
+                        return NO_MEMORY
+                    end
+                    hashes.tableOwnedInsert(t, next, values.NIL)
+                end
+            end
+            mirror(o)
+            return OK
+        end
+        if t.owner == 0ULL then
+            if value == values.NIL then
+                return OK
+            end
+            if hashes.tableOwnedInitialize(t, h, 4ULL) ~= 0ULL then
+                return NO_MEMORY
+            end
+        end
+        if hashes.tableOwnedInsert(t, key, value) ~= 0ULL then
+            return NO_MEMORY
+        end
+
+        return OK
+    end
+end
+
+-- A border: the array part's length, which the hash part never extends.
+export function length(table: uint64): uint64
+    @unsafe do
+        return arrayOf(native.pointer(table) as heap.Header*).length
+    end
+end
+
+-- Releases the owned parts of every table the sweep retired, then reclaims
+-- them. The guest entry calls this after collector work.
+export function drain(h: heap.Heap*): nil
+    @unsafe do
+        while h.released.count > 0ULL do
+            local address = heap.wordsPop(h.released)
+            local o = native.pointer(address) as heap.Header*
+            -- The sweep already retired it: its former kind is in aux.
+            if o.aux as uint64 == heap.KIND_TABLE then
+                local a = arrayOf(o)
+                if a.base ~= 0ULL then
+                    arrays.arrayRelease(a)
+                end
+                local t = hashOf(o)
+                if t.ptr ~= 0ULL then
+                    hashes.tableOwnedRelease(t)
+                end
+            end
+            heap.recycle(h, o)
+        end
+    end
+end

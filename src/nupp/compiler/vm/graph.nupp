@@ -624,7 +624,7 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
                             args[1].physical ~= nil
                             or args[1].service and service.publicationArgument(g, args[1], index - 1, value)
                         )
-                        or require("nupp.compiler.vm.nativeservice").isUnitModule(g.source and g.source.module),
+                        or service.isTestGraph(g),
                         "typed pointer operation boundary is unsupported"
                     )
                 end
@@ -776,13 +776,13 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
                         arenaCleanup and index == 1 and service.arenaCleanup(g, declaration, actual)
                         or not arenaCleanup and physical.callArgumentPermission(pointer, index, actual)
                     )
-                    or service.isUnitModule(g.source and g.source.module),
+                    or service.isTestGraph(g),
                     "pointer call argument descriptor differs"
                 )
                 if pointer.dependent == index then
                     assert(
                         actual and physical.callInput(pointer, index, actual, physical.fieldOrigin(actual))
-                        or require("nupp.compiler.vm.nativeservice").isUnitModule(g.source and g.source.module),
+                        or service.isTestGraph(g),
                         "dependent call argument root differs"
                     )
                 end
