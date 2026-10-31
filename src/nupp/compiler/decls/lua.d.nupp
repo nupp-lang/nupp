@@ -1177,7 +1177,7 @@ local os: {
 --- See [spi.md](docs/learn/projects/spi.md) for advertising and selecting providers.
 local package: {
     --- Iterates implementations of a concrete exported interface lazily.
-    --- Each call loads one module; ordinary require caching retains its identity.
+    --- Each iterator advance loads one module; require caching retains its identity.
     --- @param Interface the exported interface whose implementations to discover
     --- @return a lazy iterator, returning nil at exhaustion
     --- @raises any when an implementation fails to initialize; the next call retries it

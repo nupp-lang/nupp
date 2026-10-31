@@ -44,7 +44,13 @@ local index = {}
 -- the standard recipes; the latter remains available through explicit require.
 local INTRINSIC_NAMESPACE: {
     [string]: boolean
-} = {["nupp.derive"] = true, ["nupp.types"] = true, ["nupp.reflect"] = true,}
+} = {
+    ["nupp.derive"] = true,
+    ["nupp.types"] = true,
+    ["nupp.reflect"] = true,
+    ["package.providers"] = true,
+    ["package.select"] = true,
+}
 
 -- Modules projected through builtin namespaces. The source path deliberately lives
 -- apart from the prelude table's runtime shape: LuaJIT does not put these modules on
