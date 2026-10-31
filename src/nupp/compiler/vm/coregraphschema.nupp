@@ -49,7 +49,7 @@ function schema.describe(version: integer?): any
         arithmetic[#arithmetic + 1] = "Lt"
     end
     if v >= 6 then
-        for _, name in ipairs({"Sub", "Mul", "Mod", "Le"}) do
+        for _, name in ipairs({"Sub", "Mul", "Mod", "Le", "Eq"}) do
             arithmetic[#arithmetic + 1] = name
         end
     end

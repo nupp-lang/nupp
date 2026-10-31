@@ -47,6 +47,100 @@ local function same(value: any, expected: any): boolean
     return true
 end
 
+-- Operations whose operands are not values: constant pool indexes, module
+-- targets and catalog owners.
+local nonValueOperands: {[string]: boolean} = {K = true, Require = true, Closure = true}
+
+-- Closed blocks keep every non-parameter value inside one block, so a slot is
+-- reused across blocks and, within a block, after the value's last use.
+-- Handlers read their operands before writing the result, so a result may
+-- take the slot of an operand that dies at the same instruction.
+local function assignSlots(g: any): (any, integer)
+    local slotOf: {[integer]: integer} = {}
+    local highest: integer = 0
+    for _, block in ipairs(g.blocks) do
+        local last: {[integer]: integer} = {}
+        local count = #block.op
+
+        local function use(value: integer?, at: integer): nil
+            if value ~= nil and value > g.nparams then
+                last[value] = at
+            end
+        end
+
+        for at, op in ipairs(block.op) do
+            if not nonValueOperands[op] then
+                for _, value in ipairs(block.args[at]) do
+                    use(value, at)
+                end
+            end
+        end
+        local term = block.term
+        use(term.value, count + 1)
+        use(term.callee, count + 1)
+        for _, value in ipairs(term.args or {}) do
+            use(value, count + 1)
+        end
+        for _, edge in ipairs(term.edges) do
+            for _, value in ipairs(edge.args) do
+                use(value, count + 1)
+            end
+        end
+        local free: {integer} = {}
+        local nextSlot: integer = 0
+
+        local function take(value: integer): nil
+            local slot: integer
+            if #free > 0 then
+                table.sort(free, function(x: integer, y: integer): boolean
+                    return x > y
+                end)
+                slot = table.remove(free) as integer
+            else
+                slot = nextSlot
+                nextSlot += 1
+            end
+            slotOf[value] = slot
+            highest = math.max(highest, slot + 1) as integer
+        end
+
+        local function release(value: integer, at: integer): nil
+            if (last[value] or 0) <= at then
+                free[#free + 1] = slotOf[value] as integer
+            end
+        end
+
+        for _, value in ipairs(block.params) do
+            if value > g.nparams then
+                take(value)
+            end
+        end
+        for _, value in ipairs(block.params) do
+            if value > g.nparams then
+                release(value, 0)
+            end
+        end
+        for at, op in ipairs(block.op) do
+            if not nonValueOperands[op] then
+                local seen: {[integer]: boolean} = {}
+                for _, value in ipairs(block.args[at]) do
+                    if value > g.nparams and not seen[value] and last[value] == at then
+                        seen[value] = true
+                        free[#free + 1] = slotOf[value] as integer
+                    end
+                end
+            end
+            local dst = block.dst[at]
+            if dst ~= nil and dst ~= 0 then
+                take(dst)
+                release(dst, at)
+            end
+        end
+    end
+
+    return slotOf, highest
+end
+
 local function derive(g: any, catalog: any): any
     local maximumArguments: integer = 0
     for _, block in ipairs(g.blocks) do
@@ -59,7 +153,8 @@ local function derive(g: any, catalog: any): any
     end
     need(g.nparams <= 63, "fixed parameter capacity")
     local valueBase = (g.nparams as integer) + 2
-    local scratch = valueBase + (g.counts.v as integer)
+    local slotOf, slotCount = assignSlots(g)
+    local scratch = valueBase + slotCount
     local callBase = scratch + 1
     local highest = callBase + math.max(maximumArguments, 1)
     need(highest < 250, "physical slots including call/copy scratch exceed capacity")
@@ -68,7 +163,8 @@ local function derive(g: any, catalog: any): any
 
     local function physical(value: integer): integer
         need(g.types[value] == "v", "non-tagged executable value")
-        return value <= g.nparams and value or valueBase + (g.slots[value] as integer)
+        return value <= g.nparams and value
+            or valueBase + (need(slotOf[value], "value has no assigned slot") as integer)
     end
 
     local function emit(instruction: any, position: integer): integer
@@ -124,7 +220,7 @@ local function derive(g: any, catalog: any): any
                     emit({"Require", physical(dst), target}, position)
                     yield nil
                 end
-                case "Add", "Sub", "Mul", "Mod", "Lt", "Le" -> do
+                case "Add", "Sub", "Mul", "Mod", "Lt", "Le", "Eq" -> do
                     emit({op, physical(dst), physical(args[1]), physical(args[2])}, position)
                     yield nil
                 end

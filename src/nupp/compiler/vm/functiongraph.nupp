@@ -1218,6 +1218,34 @@ function frontend.compile(fn: any, options: any, profile: any): any
                 for index = #held, 1, -1 do
                     ctx.release(held[index])
                 end
+            elseif stat.kind == "repeatStmt" then
+                -- The condition is evaluated in the body's scope and closes it;
+                -- a true condition leaves, a false one goes round again.
+                local before = block
+                local header = branch()
+                before.term = {kind = "jump", edges = {header.edge}, pos = position(stat)}
+                resume(header)
+                local exit = branch()
+                loops[#loops + 1] = {exit = exit, cleanupDepth = #cleanups}
+                local depth = #cleanups
+                statements(stat.body.stats)
+                if block then
+                    local condition = expression(stat.cond, profile.booleanKind)
+                    if block then
+                        if cleanupEnabled then
+                            finishScope(depth, stat)
+                        end
+                        block.term = {
+                            kind = "branch",
+                            value = condition,
+                            edges = {currentEdge(exit), currentEdge(header)},
+                            pos = position(stat)
+                        }
+                        block = nil
+                    end
+                end
+                loops[#loops] = nil
+                resume(exit)
             elseif stat.kind == "breakStmt" or stat.kind == "continueStmt" then
                 local loop = need(loops[#loops], "loop transfer outside a checked loop")
                 if cleanupEnabled then
@@ -1225,6 +1253,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
                     local success = profile.cleanupStatus(ctx, stat)
                     ctx.afterCall(stat, nil, success)
                 end
+                need(stat.kind == "breakStmt" or loop.continueTo ~= nil, "continue in repeat is unsupported")
                 jump(stat.kind == "breakStmt" and loop.exit or loop.continueTo, stat)
             elseif stat.kind == "doStmt" then
                 local outer = {}

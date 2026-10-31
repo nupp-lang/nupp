@@ -26,13 +26,14 @@ CASES = {"boolean": 0x7FFB000000000000, "nilValue": 0x7FF9000000000000,
          "numberLoopZero": 0x0000000000000000,
          # Checked by reference Lua 5.5.1 when --lua-reference is given.
          "numericFor": 0x7FFF0059B114AFBA, "numericFloat": 0x4125486B80000000,
-         "numericModZero": None, "numericOverflow": None}
+         "numericModZero": None, "numericOverflow": None, "numericControl": 0x7FFF00083C5DD2BB}
 # These programs refuse at run time; the native core must publish nothing.
 # Lua 5.5 raises for the first; the second needs a canonical integer object.
 STATUS_CASES = {"numericModZero": 6, "numericOverflow": 5}
 LUA_ERRORS = {"numericModZero": "attempt to perform 'n%%0'"}
 NUMERIC_FIXTURES = {"numericFor": "catalog-numeric-for", "numericFloat": "catalog-numeric-float",
-                    "numericModZero": "catalog-numeric-modzero", "numericOverflow": "catalog-numeric-overflow"}
+                    "numericModZero": "catalog-numeric-modzero", "numericOverflow": "catalog-numeric-overflow",
+                    "numericControl": "catalog-numeric-control"}
 NUMERIC_CASES = tuple(NUMERIC_FIXTURES)
 FIXTURES = ("catalog-boolean", "catalog-nil", "catalog-live", "catalog-fresh", "catalog-nested",
             "catalog-branch-true", "catalog-branch-false", "catalog-branch-elseif", "catalog-branch-live",
@@ -41,15 +42,18 @@ FIXTURES = ("catalog-boolean", "catalog-nil", "catalog-live", "catalog-fresh", "
             "catalog-number-add", "catalog-number-negative-zero", "catalog-number-nan",
             "catalog-number-branch", "catalog-number-loop", "catalog-number-loop-zero",
             "catalog-numeric-for", "catalog-numeric-float", "catalog-numeric-modzero",
-            "catalog-numeric-overflow")
+            "catalog-numeric-overflow", "catalog-numeric-control")
 
 
 def lua_expectation(lua, fixture):
-    """Run a fixture under reference Lua 5.5 and return its NaN-boxed word."""
+    """Run a fixture under reference Lua 5.5 and return its NaN-boxed word.
+
+    A sibling .lua file is a hand-written twin for fixtures Lua cannot parse."""
+    twin = fixture.with_suffix(".lua")
     source = fixture.read_text().splitlines()
     assert source[0].startswith("module "), fixture
-    lines = []
-    for line in source[1:]:
+    lines = twin.read_text().splitlines() if twin.exists() else []
+    for line in ([] if twin.exists() else source[1:]):
         if line.startswith("export = "):
             line = "return " + line[len("export = "):]
         lines.append(re.sub(r"^local (\w+): \w+ =", r"local \1 =", line))

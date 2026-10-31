@@ -624,7 +624,8 @@ local guestVersions: {
     numericFor = 6,
     numericFloat = 6,
     numericModZero = 6,
-    numericOverflow = 6
+    numericOverflow = 6,
+    numericControl = 6
 }
 
 local function buildGuest(caseName: string, audited: boolean): any
@@ -650,7 +651,8 @@ local function buildGuest(caseName: string, audited: boolean): any
         numericFor = "catalog-numeric-for",
         numericFloat = "catalog-numeric-float",
         numericModZero = "catalog-numeric-modzero",
-        numericOverflow = "catalog-numeric-overflow"
+        numericOverflow = "catalog-numeric-overflow",
+        numericControl = "catalog-numeric-control"
     }
     local fixture = need(fixtures[caseName], "unknown fixed guest program")
     need(current == nil, "nested construction")
@@ -754,8 +756,8 @@ local function buildGuest(caseName: string, audited: boolean): any
     if caseName == "modulePair" then
         table.insert(handlerNames, 2, "Require")
     end
-    local introduced: {[string]: integer} = {Add = 3, Lt = 4, Sub = 6, Mul = 6, Mod = 6, Le = 6}
-    for _, name in ipairs({"Add", "Lt", "Sub", "Mul", "Mod", "Le"}) do
+    local introduced: {[string]: integer} = {Add = 3, Lt = 4, Sub = 6, Mul = 6, Mod = 6, Le = 6, Eq = 6}
+    for _, name in ipairs({"Add", "Lt", "Sub", "Mul", "Mod", "Le", "Eq"}) do
         if version >= introduced[name] then
             table.insert(handlerNames, 2, name)
         end
@@ -764,14 +766,14 @@ local function buildGuest(caseName: string, audited: boolean): any
         state.finalOwners[need(handlers.exports[name], "fixed guest handler")] = true
     end
     local pureRoots = {}
-    for _, name in ipairs({"arithmetic", "order"}) do
+    for _, name in ipairs({"arithmetic", "order", "equal"}) do
         local owner = need(handlers.functions[name], "numeric scalar leaf")
         state.roles[owner] = "pureScalar"
         pureRoots[#pureRoots + 1] = owner
     end
     -- Every declared handler is checked as a final frame, even when this
     -- program's dispatch table does not select it.
-    for _, name in ipairs({"Require", "Add", "Sub", "Mul", "Mod", "Lt", "Le"}) do
+    for _, name in ipairs({"Require", "Add", "Sub", "Mul", "Mod", "Lt", "Le", "Eq"}) do
         state.finalOwners[need(handlers.exports[name], "fixed guest handler")] = true
     end
     local cases = {

@@ -282,6 +282,10 @@ function verify.resultKind(g: any, signature: any, output: any): string
         if second == nil then
             return
         end
+        if rule.op == "Eq" then
+            assign(rule.dst, "boolean")
+            return
+        end
         need(first == "number" and second == "number", "numeric operation needs numeric operands")
         assign(rule.dst, (rule.op == "Lt" or rule.op == "Le") and "boolean" or "number")
     end
@@ -335,7 +339,7 @@ function verify.resultKind(g: any, signature: any, output: any): string
                     assign(dst, result.result)
                     yield nil
                 end
-                case "Add", "Sub", "Mul", "Mod", "Lt", "Le", "Move" -> do
+                case "Add", "Sub", "Mul", "Mod", "Lt", "Le", "Eq", "Move" -> do
                     propagate(op, args, dst)
                     yield nil
                 end
@@ -410,6 +414,8 @@ function verify.resultKind(g: any, signature: any, output: any): string
             need(kinds[block.dst[at]] ~= nil, "unresolved scalar operation")
             if op == "Move" then
                 need(kinds[args[1]] ~= nil, "unresolved scalar move")
+            elseif op == "Eq" then
+                need(kinds[args[1]] ~= nil and kinds[args[2]] ~= nil, "unresolved equality operand")
             elseif op ~= "K" and op ~= "Nil" and op ~= "Require" and op ~= "Closure" then
                 need(
                     kinds[args[1]] == "number" and kinds[args[2]] == "number",

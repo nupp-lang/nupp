@@ -128,7 +128,12 @@ local function numericType(t: any): boolean
 end
 
 local arithmetic = {["+"] = "Add", ["-"] = "Sub", ["*"] = "Mul", ["%"] = "Mod"}
-local ordering = {["<"] = "Lt", ["<="] = "Le", [">"] = "Lt", [">="] = "Le"}
+local ordering = {["<"] = "Lt", ["<="] = "Le", [">"] = "Lt", [">="] = "Le", ["=="] = "Eq"}
+
+local function scalarType(t: any): boolean
+    local kind = typeKind(t)
+    return kind == "boolean" or kind == "nil"
+end
 
 -- Before v6 only float addition and less-than are admitted. v6 admits the
 -- dynamic numeric operators over checked integer, float or number operands;
@@ -146,6 +151,13 @@ local function binary(ctx: any, node: any, expected: string?, version: integer):
         need(admits(node.inferredType), "number result required")
     else
         need(typeKind(node.inferredType) == "boolean", "boolean result required")
+    end
+    if operation == "==" then
+        -- Equality compares any checked scalars: numbers exactly, Booleans
+        -- and nil by identity.
+        admits = function(t: any): boolean
+            return numericType(t) or scalarType(t)
+        end
     end
     need(admits(node.lhs.inferredType), "left number required")
     need(admits(node.rhs.inferredType), "right number required")
@@ -319,16 +331,14 @@ local function checkStatement(ctx: any, stat: any, version: integer): nil
             stat.cond.kind == "binop" and stat.cond.op.text == "<" and booleanCondition(stat.cond.inferredType),
             "loop condition requires checked numeric less-than"
         )
-    elseif stat.kind == "whileStmt" and version >= 6 then
+    elseif (stat.kind == "whileStmt" or stat.kind == "repeatStmt") and version >= 6 then
         need(booleanCondition(stat.cond.inferredType), "loop condition requires a checked Boolean")
     end
+    local loopControl = stat.kind == "breakStmt" or stat.kind == "continueStmt" or stat.kind == "repeatStmt"
     need(
         (version >= 5 or stat.kind ~= "whileStmt")
-        and (version >= 6 or stat.kind ~= "fornumStmt")
-        and stat.kind ~= "breakStmt"
-        and stat.kind ~= "continueStmt"
-        and stat.kind ~= "forinStmt"
-        and stat.kind ~= "repeatStmt",
+        and (version >= 6 or stat.kind ~= "fornumStmt" and not loopControl)
+        and stat.kind ~= "forinStmt",
         "control flow is outside lexical construction"
     )
     need(not stat.comptimeFunction and not stat.comptimeTok, "compile-time declarations are unsupported")

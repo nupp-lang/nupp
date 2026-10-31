@@ -638,6 +638,8 @@ local function interpret(result)
             regs[ins[2]] = regs[ins[3]] < regs[ins[4]]
         elseif op == "Le" then
             regs[ins[2]] = regs[ins[3]] <= regs[ins[4]]
+        elseif op == "Eq" then
+            regs[ins[2]] = regs[ins[3]] == regs[ins[4]]
         elseif op == "Jmp" then
             pc = pc + ins[2]
         elseif op == "JmpIf" then
@@ -776,13 +778,37 @@ end
 
 function M.nativeNumericFixturesInterpretToTheirLuaResults()
     -- The native proof's expected words come from reference Lua 5.5.1.
-    for name, expected in pairs({["for"] = 385223012282, float = 697397.75}) do
+    for name, expected in pairs({["for"] = 385223012282, float = 697397.75, control = 35372520123}) do
         local path = ROOT .. "/native/core/tests/catalog-numeric-" .. name .. ".nupp"
         local file = assert(io.open(path, "rb"))
         local source = file:read("*a")
         file:close()
         same(interpret(numericProgram(source, path)), expected)
     end
+end
+
+function M.checkedLoopsBreakContinueAndRepeat()
+    local cases = {
+        -- break leaves only the innermost loop
+        {"local t = 0\nfor i = 1, 5 do for j = 1, 5 do if j > i then break end t = t + j end end\nexport = t", 35},
+        -- continue advances a numeric for's counter
+        {"local t = 0\nfor i = 1, 10 do if i % 3 == 0 then continue end t = t + i end\nexport = t", 37},
+        -- continue in while returns to the condition
+        {"local i = 0\nlocal t = 0\nwhile i < 10 do i = i + 1 if i % 2 == 0 then continue end t = t + i end\nexport = t", 25},
+        -- the until condition sees body locals and runs the body at least once
+        {"local i = 0\nlocal t = 0\nrepeat local n = i * 2 t = t + n i = i + 1 until n >= 8\nexport = t", 20},
+        {"local t = 0\nrepeat t = t + 1 until true\nexport = t", 1},
+        -- break out of repeat
+        {"local t = 0\nrepeat t = t + 1 if t == 4 then break end until false\nexport = t", 4},
+        -- break out of while true
+        {"local t = 0\nwhile true do t = t + 2 if t > 7 then break end end\nexport = t", 8},
+    }
+    for _, case in ipairs(cases) do
+        same(interpret(numericProgram(case[1])), case[2])
+    end
+    refuses(function()
+        numericProgram("local t = 0\nrepeat t = t + 1 if t < 3 then continue end until t > 5\nexport = t")
+    end, "continue in repeat is unsupported")
 end
 
 return M

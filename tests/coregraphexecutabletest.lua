@@ -177,11 +177,28 @@ function M.flaggedArgumentCountsAndPhysicalOverflowRefuse()
         end,
         "capacity"
     )
-    local input = identity("boolean", "true")
-    input.graphs[1].counts.v = 249
+    -- Slots are reused after a value's last use, so overflow needs that many
+    -- values live at once: every local is transported through the join.
+    -- Lua allows 200 active locals, so the widest live set is 63 parameters
+    -- plus 190 locals transported through one join.
+    local wide, locals, actual = {}, {}, {}
+    for index = 1, 63 do
+        wide[index], actual[index] = "p" .. index .. ": boolean", "true"
+    end
+    for index = 1, 190 do
+        locals[index] = "local v" .. index .. " = true"
+    end
     refuses(
         function()
-            executable.fromChecked(input)
+            executable.fromChecked(
+                checked(
+                    "local function wide(" .. table.concat(wide, ", ") .. "): boolean\n"
+                    .. table.concat(locals, "\n")
+                    .. "\nif p1 then v1 = false end\nreturn v190\nend\nreturn wide("
+                    .. table.concat(actual, ", ")
+                    .. ")"
+                )
+            )
         end,
         "physical slots"
     )
