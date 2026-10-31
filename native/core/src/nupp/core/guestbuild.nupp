@@ -47,7 +47,8 @@ local CASES: {[string]: {
     workloadLoops = {fixture = "catalog-workload-loops", version = 6},
     workloadFib = {fixture = "catalog-workload-fib", version = 7},
     callsNumeric = {fixture = "catalog-calls-numeric", version = 7},
-    tablesBasic = {fixture = "catalog-tables-basic", version = 8}
+    tablesBasic = {fixture = "catalog-tables-basic", version = 8},
+    workloadClosures = {fixture = "catalog-workload-closures", version = 8}
 }
 
 -- The handlers a profile version dispatches, in table order.

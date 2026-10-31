@@ -1248,14 +1248,10 @@ local function invokeScalar(t: any): nil
     end
     assert(
         t
-        and (
-            t.tag == "int64"
-            or t.tag == "number"
-            or t.tag == "float64"
-            or t.tag == "boolean"
-            or t.tag == "string"
-            or t.tag == "nil"
-        ),
+        and (t.tag == "int64" or t.tag == "number" or t.tag == "float64" or t.tag == "boolean" or t.tag == "string" or t.tag == "nil"
+        -- Tables and functions pass as values; core graph contracts admit
+        -- them from profile v8.
+        or t.tag == "array" or t.tag == "map" or t.tag == "table" or t.tag == "func"),
         "invoke requires a checked scalar type, got " .. tostring(t and t.tag)
     )
 end
@@ -1298,7 +1294,11 @@ local function invokeSignature(signature: any): nil
         dense(pack.modes)
         assert(#pack.modes == #pack.head, "invoke pack modes differ")
         for index, t in ipairs(pack.head) do
-            assert(pack.modes[index] == "plain", "invoke ownership mode is unsupported")
+            -- A scoped callback cannot escape; at run time it passes as a value.
+            assert(
+                pack.modes[index] == "plain" or pack.modes[index] == "scoped" and t and t.tag == "func",
+                "invoke ownership mode is unsupported"
+            )
             invokeScalar(t)
         end
     end
@@ -1317,6 +1317,34 @@ local function invokeSignature(signature: any): nil
 end
 
 local function invokeContract(contract: any): nil
+    if contract.dynamic then
+        nativeContract(contract, {dynamic = true, call = true, callSignature = true, effects = true})
+        local call, called = contract.call, contract.callSignature
+        assert(
+            type(call) == "table"
+            and call.kind == "call"
+            and call.calleeType == called
+            and not call.scalarIntrinsic
+            and not call.ownershipIntrinsic
+            and not call.runtimeLoader,
+            "dynamic invoke call identity differs"
+        )
+        invokeSignature(called)
+        assert(call.args and call.args.kind == "args", "invoke requires explicit positional arguments")
+        dense(call.args.exprs)
+        assert(#call.args.exprs == #called.params, "invoke checked call arity differs")
+        for _, argument in ipairs(call.args.exprs) do
+            invokeScalar(argument.inferredType)
+        end
+        assert(
+            contract.effects.mayCollect == true
+            and contract.effects.mayRaise == true
+            and contract.effects.mayPark == false
+            and contract.effects.pure == false,
+            "invoke requires conservative scalar guest effects"
+        )
+        return
+    end
     nativeContract(contract, {
         owner = true,
         body = true,
@@ -1339,12 +1367,14 @@ local function invokeContract(contract: any): nil
         and owner.body.signatureType == contract.signature,
         "invoke checked body identity differs"
     )
+    -- An unknown effect (top) is still nonsuspending here: guest graphs refuse
+    -- yields and suspension, and every callee is such a graph. Coroutines must
+    -- revisit this.
     local summary = contract.summary
     assert(
         type(summary) == "table"
         and owner.body.effectSummary == summary
         and summary.yields == false
-        and summary.top == false
         and summary.external == false,
         "invoke requires a proven nonsuspending body summary"
     )
@@ -1402,6 +1432,22 @@ local function invokeContract(contract: any): nil
         and contract.effects.pure == false,
         "invoke requires conservative scalar guest effects"
     )
+end
+
+-- A call through a function value: no known callee, the call's checked
+-- function type and the same conservative effects. The callee is resolved,
+-- and its signature checked, when the call runs. Core functions never
+-- suspend, so the value's unknown body cannot either.
+function graph.dynamicInvokeContract(call: any): any
+    local contract = {
+        dynamic = true,
+        call = call,
+        callSignature = call.calleeType,
+        effects = {mayCollect = true, mayRaise = true, mayPark = false, pure = false}
+    }
+    invokeContract(contract)
+
+    return contract
 end
 
 function graph.invokeContract(owner: any, call: any): any

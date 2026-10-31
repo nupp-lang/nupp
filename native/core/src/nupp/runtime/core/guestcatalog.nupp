@@ -347,12 +347,14 @@ local function valid(data: voidptr, bytes: uint64): uint64
             local target = native.load64(site, native.fieldOffset<Callsite>("target"))
             local base = native.load64(site, native.fieldOffset<Callsite>("argumentBase"))
             local nargs = native.load64(site, native.fieldOffset<Callsite>("argumentCount"))
+            -- A v8 dynamic call has no target; its callee is checked when it runs.
+            local dynamic = target == 0xffffffffULL and version >= 8ULL
             if native.load64(site, native.fieldOffset<Callsite>("id")) ~= index
                 or native.load64(site, native.fieldOffset<Callsite>("owner")) ~= i
                 or pc >= size - 1ULL
                 or (call ~= 0ULL and pc <= previousPC)
                 or native.load64(site, native.fieldOffset<Callsite>("resumePC")) ~= pc + 1ULL
-                or target >= count
+                or target >= count and not dynamic
                 or nargs > 63ULL
                 or base >= nv - 1ULL
                 or nargs > nv - base - 1ULL
@@ -361,14 +363,16 @@ local function valid(data: voidptr, bytes: uint64): uint64
             then
                 return 0ULL
             end
-            local callee = native.offset(data, native.index(records + target * native.sizeOf<Function>()))
-            if native.load64(callee, native.fieldOffset<Function>("kind")) ~= FUNCTION then
-                return 0ULL
+            local calleeSignature = native.load64(site, native.fieldOffset<Callsite>("signature"))
+            if not dynamic then
+                local callee = native.offset(data, native.index(records + target * native.sizeOf<Function>()))
+                if native.load64(callee, native.fieldOffset<Function>("kind")) ~= FUNCTION
+                    or native.load64(callee, native.fieldOffset<Function>("signature")) ~= calleeSignature
+                then
+                    return 0ULL
+                end
             end
-            local calleeSignature = native.load64(callee, native.fieldOffset<Function>("signature"))
-            if calleeSignature >= ns
-                or native.load64(site, native.fieldOffset<Callsite>("signature")) ~= calleeSignature
-            then
+            if calleeSignature >= ns then
                 return 0ULL
             end
             local cs = native.offset(data, native.index(signatures + calleeSignature * native.sizeOf<Signature>()))

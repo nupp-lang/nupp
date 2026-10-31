@@ -112,7 +112,8 @@ function bytecode.encode(instruction: any): string
         elseif field[1] == "v" then
             assert(value >= 0 and value < 250, "encoded register capacity")
         elseif field[1] == "fn" then
-            assert(value >= 0 and value < 256, "encoded catalog owner capacity")
+            -- The absent index marks a dynamic call (v8).
+            assert(value >= 0 and value < 256 or value == 4294967295, "encoded catalog owner capacity")
         elseif field[4] == 1 then
             assert(value >= 0 and value <= 255, "encoded byte capacity")
         else

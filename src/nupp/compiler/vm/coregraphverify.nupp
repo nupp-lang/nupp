@@ -657,14 +657,20 @@ function verify.catalog(p: any): any
                 need(not used[term.contract], "reused invoke contract")
                 used[term.contract] = true
                 need(contract.owner == owner.id and contract.block == block.id, "contract owner/block differs")
-                local target = reference(contract.target, p.catalog)
-                need(
-                    target.kind == "function" and contract.signature == target.signature,
-                    "contract target/signature differs"
-                )
+                -- A dynamic call (v8) has no target: its callee is checked against
+                -- the call's signature when it runs.
+                local dynamic = contract.target == p.schema.absent
+                need(not dynamic or p.schema.version >= 8, "dynamic call outside its profile")
+                if not dynamic then
+                    local target = reference(contract.target, p.catalog)
+                    need(
+                        target.kind == "function" and contract.signature == target.signature,
+                        "contract target/signature differs"
+                    )
+                    calls[index][#calls[index] + 1] = target.id + 1
+                end
                 arities[index][bi] = #reference(contract.signature, p.signatures).params
                 need(#term.args == arities[index][bi], "invoke operand count differs")
-                calls[index][#calls[index] + 1] = target.id + 1
             end
         end
     end
