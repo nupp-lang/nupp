@@ -14,7 +14,7 @@ module nupp.tools.benchrunner
 --- directory, starts children, and merges JSON.
 ---
 --- Called by `nupp bench`.
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 
 local buildProcess = require("nupp.compiler.process")
 local cli = require("nupp.cli")
@@ -408,7 +408,7 @@ local function parseListing(text: string): ({Benchmark}, string?)
     local names: {Benchmark} = {}
     local seen: {[string]: boolean} = {}
     for line in text:gmatch("[^\r\n]+") do
-        local decoded, invalid = json.decode(line)
+        local decoded, invalid = json.decodeValue(line)
         if invalid ~= nil then
             return {}, "wrote an invalid case listing"
         end
@@ -501,7 +501,7 @@ local function rememberedListings(key: string?): {[string]: any}
     if not text then
         return {}
     end
-    local decoded = json.decode(text)
+    local decoded = json.decodeValue(text)
     if type(decoded) ~= "table" or decoded.key ~= key or type(decoded.files) ~= "table" then
         return {}
     end
@@ -521,7 +521,7 @@ local function rememberListings(key: string?, listings: {[string]: any}): nil
     end
     pcall(function(): nil
         files.createDirectory("build")
-        writeFile(CASES_CACHE, json.encode({key = key, files = listings}))
+        writeFile(CASES_CACHE, json.encodeValue({key = key, files = listings}))
     end)
 end
 
@@ -728,7 +728,7 @@ local function runCase(
     if not text then
         return nil, path .. " / " .. name .. ": " .. (runProblem or "wrote no record")
     end
-    local decoded, invalid = json.decode(text)
+    local decoded, invalid = json.decodeValue(text)
     if invalid ~= nil then
         return nil, path .. " / " .. name .. ": wrote a record that does not parse"
     end
@@ -1858,7 +1858,7 @@ function runner.run(options: runner.Options): integer
     -- Serialize only after comparisons are complete: stdout, the latest record,
     -- history and accepted baselines must retain the same evidence.
     document.gpuCostsDirectory = gpuCostsDirectory
-    local encoded = json.encode(document)
+    local encoded = json.encodeValue(document)
     if not writeFile(MERGED_OUT, encoded) then
         executionFailures[#executionFailures + 1] = "cannot write " .. MERGED_OUT
     end

@@ -68,7 +68,7 @@ function M.digestFinalizationConsumesButChecksumReadsDoNot()
         local _, diagnostics = diagsOf(
             table.concat(
                 {
-                    "local rolling = nupp.digest.newDigest('sha256')",
+                    "local rolling = binary.hash.digest.newDigest('sha256')",
                     "local result = rolling:" .. finalizer,
                     "rolling:write('too late')",
                 },
@@ -86,7 +86,7 @@ function M.digestFinalizationConsumesButChecksumReadsDoNot()
     assertClean(
         table.concat(
             {
-                "local sum = nupp.checksum.newChecksum('crc32c')",
+                "local sum = binary.hash.checksum.newChecksum('crc32c')",
                 "local before = sum:value()",
                 "sum:write('still open')",
                 "local after = sum:value()",
@@ -299,7 +299,7 @@ function M.aComputedRequireArgumentIsChecked()
         (
             diagsOf(
                 table.concat(
-                    {"local registry = require('nupp.codec.json')", "return require(registry.encode('module.name'))",},
+                    {"local registry = require('serde.json')", "return require(registry.encodeValue('module.name'))",},
                     "\n"
                 )
             )
@@ -311,7 +311,7 @@ function M.aComputedRequireArgumentIsChecked()
         (
             diagsOf(
                 table.concat(
-                    {"local registry = require('nupp.codec.json')", "return require(registry.absent('data.json'))",},
+                    {"local registry = require('serde.json')", "return require(registry.absent('data.json'))",},
                     "\n"
                 )
             )
@@ -340,7 +340,7 @@ function M.digestUsesPortableBitops()
     assertClean(
         table.concat(
             {
-                "local digest = require('nupp.digest')",
+                "local digest = require('binary.hash.digest')",
                 "local rolling = digest.newDigest('sha256')",
                 "rolling:write('message')",
                 "return rolling:hexDigest()",
@@ -353,7 +353,7 @@ end
 function M.oneShotHmacUsesOrdinaryCode()
     local source = table.concat(
         {
-            "local mac = require('nupp.mac')",
+            "local mac = require('binary.hash.mac')",
             "return mac.hexDigest('hmac-sha256', 'key', 'message'), #mac.digest('hmac-sha256', 'key', 'message')",
         },
         "\n"
@@ -742,7 +742,7 @@ function M.browserCryptoRejectsMalformedHostValues()
             return returned[kind]
         end,
     })
-    local base64 = require("nupp.codec.base64")
+    local base64 = require("serde.base64")
 
     returned.random = {bytesBase64 = base64.encode("\0")}
     testAssert.equal(browser.randomBytes(1), "\0")
@@ -1593,8 +1593,8 @@ function M.nativeFeaturesAreResolvedEffects()
         "qualified nominals do not leak into the ambient type namespace"
     )
 
-    local json = effectsOf("local json = require('nupp.codec.json')")
-    assert(json["native.json"], "require('nupp.codec.json') records its JSON effect")
+    local json = effectsOf("local json = require('serde.json')")
+    assert(json["native.json"], "require('serde.json') records its JSON effect")
 
     local test = effectsOf("local test = require('nupp.test')")
     assert(test["runtime.test"], "require('nupp.test') carries the assertion module")
@@ -1610,9 +1610,12 @@ function M.nativeFeaturesAreResolvedEffects()
     assert(native.feature("runtime.int64").runtimeModule == nil, "wide integers have no runtime module")
 
     local shadowed = effectsOf(
-        table.concat({"local nupp = {digest = {hexDigest = function() end}}", "nupp.digest.hexDigest()",}, "\n")
+        table.concat(
+            {"local binary = {hash = {digest = {hexDigest = function() end}}}", "binary.hash.digest.hexDigest()",},
+            "\n"
+        )
     )
-    assert(not shadowed["native.sha256"], "a local nupp is not the global facility")
+    assert(not shadowed["native.sha256"], "a local binary is not the global facility")
 
     local shadowedIO = effectsOf(
         table.concat({"local nupp = {io = {path = {separator = function() end}}}", "nupp.io.path.separator()",}, "\n")
@@ -1620,13 +1623,13 @@ function M.nativeFeaturesAreResolvedEffects()
     assert(not shadowedIO["native.path"], "a local nupp.io is not the global facility")
 
     local shadowedRequire = effectsOf(
-        table.concat({"local require = function(_) return {} end", "require('nupp.codec.json')",}, "\n")
+        table.concat({"local require = function(_) return {} end", "require('serde.json')",}, "\n")
     )
     assert(not shadowedRequire["native.json"], "a local require is not the native module loader")
 
     local expected = {
-        ["nupp.codec.json.encode({answer = 42})"] = "native.json",
-        ["nupp.codec.json.pull('{}', {answer = true})"] = "native.json",
+        ["serde.json.encodeValue({answer = 42})"] = "native.json",
+        ["serde.json.pull('{}', {answer = true})"] = "native.json",
         ["nupp.text.utf8.length('hello')"] = "runtime.data_utf8",
         ["nupp.io.newBuffer('hello')"] = "stdlib.io",
         ["nupp.math.lerp(10, 20, 0.25)"] = "stdlib.math",
@@ -1791,8 +1794,8 @@ function M.digestAndMacSurfacesAreBundledOutsideThisCheckout()
     local isolated = envMod.new(os.tmpname() .. "-nupp-streaming-hash-surface")
     local source = table.concat(
         {
-            "local digest = require('nupp.digest')",
-            "local mac = require('nupp.mac')",
+            "local digest = require('binary.hash.digest')",
+            "local mac = require('binary.hash.mac')",
             "local rolling = digest.newDigest('sha256')",
             "rolling:write('message')",
             "assert(#rolling:digest() == 32)",
@@ -1838,10 +1841,11 @@ function M.compilerProvidedPureLibraries()
       assert(nupp.math.lerp(10, 20, 0.25) == 12.5)
       assert(nupp.math.lerp(10, 20, 1) == 20)
       assert(nupp.math.lerp(10, 20, 1.5) == 25)
-      local checksum = require("nupp.checksum")
-      local digest = require("nupp.digest")
+      local checksum = require("binary.hash.checksum")
+      local digest = require("binary.hash.digest")
       local util = require("nupp.util")
-      assert(util.fnv1a64("hello") == "a430d84680aabd0b")
+      local hash = require("binary.hash")
+      assert(hash.fnv1a64("hello") == "a430d84680aabd0b")
       assert(checksum.value("crc32", "123456789") == 3421780262ULL)
       assert(digest.hexDigest("sha256", "abc") ==
          "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
@@ -2108,18 +2112,20 @@ end
 
 function M.theJsonModuleLoadsItsNuppProviderOnRequire()
     local loadedProvider = package.loaded[JSON_PROVIDER]
-    local loadedModule = package.loaded["nupp.codec.json"]
+    local loadedModule = package.loaded["serde.json"]
+    local loadedValues = package.loaded["nupp.serde.internal.json.values"]
     package.loaded[JSON_PROVIDER] = nil
-    package.loaded["nupp.codec.json"] = nil
+    package.loaded["serde.json"] = nil
+    package.loaded["nupp.serde.internal.json.values"] = nil
     local ok, problem = pcall(function()
-        local json = require("nupp.codec.json")
+        local json = require("serde.json")
         assert(package.loaded[JSON_PROVIDER] ~= nil, "requiring the module loaded the provider contract")
-        assert(json.encode({answer = 42}):find('"answer":42', 1, true))
-        assert(json.encode(json.EMPTY_ARRAY) == "[]")
-        assert(json.encode(json.EMPTY_OBJECT) == "{}")
-        assert(json.encode(json.asArray({})) == "[]")
-        assert(json.decode("[1,null,2]")[2] == 2)
-        assert(json.decode("null", json.NULL) == json.NULL)
+        assert(json.encodeValue({answer = 42}):find('"answer":42', 1, true))
+        assert(json.encodeValue(json.EMPTY_ARRAY) == "[]")
+        assert(json.encodeValue(json.EMPTY_OBJECT) == "{}")
+        assert(json.encodeValue(json.asArray({})) == "[]")
+        assert(json.decodeValue("[1,null,2]")[2] == 2)
+        assert(json.decodeValue("null", json.NULL) == json.NULL)
         local buffer = require("string.buffer").new()
         local name = json.encodedString('quoted"key')
         assert(name == json.encodedString('quoted"key'), "encoded keys are interned")
@@ -2165,7 +2171,8 @@ function M.theJsonModuleLoadsItsNuppProviderOnRequire()
     -- see `theUtf8ModuleNeedsNoNativeModule`. This one matters more, because the
     -- test runner decodes every worker's report through this module.
     package.loaded[JSON_PROVIDER] = loadedProvider
-    package.loaded["nupp.codec.json"] = loadedModule
+    package.loaded["serde.json"] = loadedModule
+    package.loaded["nupp.serde.internal.json.values"] = loadedValues
     assert(ok, problem)
 end
 
@@ -2356,7 +2363,7 @@ function M.nativeFeatureOverridesAreTriState()
     assert(resolved["native.json"], "an absent override remains automatic")
     assert(resolved["runtime.path"], "true adds an undetected feature")
 
-    local external = buildNative.sourceEffects("local json = require('nupp.codec.json')", "rock.lua", sharedEnv)
+    local external = buildNative.sourceEffects("local json = require('serde.json')", "rock.lua", sharedEnv)
     assert(external["native.json"], "bundled Lua contributes its native effects")
 end
 

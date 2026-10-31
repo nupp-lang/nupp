@@ -14,8 +14,8 @@ local base = require("nupp.compiler.vm.nativegraph")
 local cleanup = require("nupp.compiler.vm.nativecleanup")
 local sink = require("nupp.compiler.s0.nativegraph")
 local linker = require("nupp.core.link")
-local digest = require("nupp.digest")
-local json = require("nupp.codec.json")
+local digest = require("binary.hash.digest")
+local json = require("serde.json")
 local runner = {}
 
 local function readFile(path: string): string?
@@ -166,7 +166,7 @@ function runner.select(
         )
         local cached = cacheDirectory and readFile(cacheDirectory .. "/" .. keys[name] .. ".json")
         if cached then
-            codes[name] = json.decode(cached)
+            codes[name] = json.decodeValue(cached)
         end
     end
     phase("cache")
@@ -215,7 +215,7 @@ function runner.select(
         local result = sink.compilerGraph(item.graph, item.owner.name, item.owner, resolved, bound)
         codes[name] = selectCode(result, mode)
         if cacheDirectory then
-            writeFile(cacheDirectory .. "/" .. keys[name] .. ".json", json.encode(codes[name]))
+            writeFile(cacheDirectory .. "/" .. keys[name] .. ".json", json.encodeValue(codes[name]))
         end
     end
     phase("selection")

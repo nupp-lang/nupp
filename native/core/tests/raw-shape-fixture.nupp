@@ -3,7 +3,7 @@ module nupp.core.rawshapefixture
 local source = require("nupp.core.rawheaderfixture")
 local codec = require("nupp.compiler.vm.coregraphcodec")
 local schema = require("nupp.compiler.vm.coregraphschema")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local fixture = {}
 
 function fixture.data(): string
@@ -12,7 +12,7 @@ end
 
 function fixture.validateMany(path: string): string
     local list = assert(io.open(path, "rb"))
-    local inputs = json.decode(list:read("*a"))
+    local inputs = json.decodeValue(list:read("*a"))
     list:close()
     local results = {}
     for _, input in ipairs(inputs) do
@@ -24,11 +24,11 @@ function fixture.validateMany(path: string): string
         results[input.name] = {physical = physical, semantic = semantic, metrics = physical and metrics or nil}
     end
 
-    return json.encode(results)
+    return json.encodeValue(results)
 end
 
 function fixture.wire(): string
-    return json.encode(schema.wire())
+    return json.encodeValue(schema.wire())
 end
 
 export = fixture

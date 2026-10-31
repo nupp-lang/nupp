@@ -448,7 +448,7 @@ function M.serializationMigrationChecksBeforeReplacingTheSource()
     end
 
     local source = [[
-local serde = require("nupp.serde")
+local serde = require("serde")
 @derive(nupp.derive.Serde)
 local record Value
     count: integer

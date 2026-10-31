@@ -1,4 +1,4 @@
-module nupp.digest
+module binary.hash.digest
 
 --[[
 Cryptographic hashes: SHA-256 and the rest.
@@ -6,7 +6,7 @@ Cryptographic hashes: SHA-256 and the rest.
 One call for a whole string, or a context you feed in pieces and then consume.
 
 ```nupp
-const digest = nupp.digest
+const digest = binary.hash.digest
 
 print(digest.hexDigest("sha256", "hello"))
 
@@ -31,7 +31,7 @@ context that was never finalized closes its provider state.
 MD5 and SHA-1 are here for talking to things that already use them, and for
 nothing else.
 
-A host may supply its own catalog through [](nupp.digest.spi),
+A host may supply its own catalog through [](binary.hash.digest.spi),
 chosen by priority when this module initializes. Its entries override the
 built-ins of the same name, the ones it does not name stay available, and a
 descriptor whose size disagrees with its algorithm is refused. The catalog is
@@ -40,7 +40,7 @@ read once, at load, so no context operation resolves a service.
 
 local spi = require("nupp.runtime.packages")
 
-const provider = require("nupp.digest.spi")
+const provider = require("binary.hash.digest.spi")
 
 const contexts = require("nupp.digest.internal.context")
 
@@ -88,7 +88,9 @@ local function validate(selected: provider.Provider): nil
     end
 end
 
-local selected: provider.Provider = spi.select(spi.providers<provider.Provider>("nupp.digest.spi.Provider")) ?? standard
+local selected: provider.Provider = spi.select(
+    spi.providers<provider.Provider>("binary.hash.digest.spi.Provider")
+) ?? standard
 validate(selected)
 local available: {[string]: Algorithm} = {}
 for name, implementation in pairs(standard.algorithms) do

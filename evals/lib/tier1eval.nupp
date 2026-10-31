@@ -5,7 +5,7 @@ module tier1eval
 
 local files = require("nupp.io.files")
 local harness = require("harness")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 
 local tier1 = {}
 
@@ -43,7 +43,7 @@ function tier1.loadTask(nupp: string, code: string): any
     if done.returncode ~= 0 then
         error("nupp explain " .. code .. " failed: " .. (done.stderr:match("^%s*(.-)%s*$") or ""), 2)
     end
-    local ok, entry = pcall(json.decode, done.stdout, json.NULL)
+    local ok, entry = pcall(json.decodeValue, done.stdout, json.NULL)
     if not ok then
         error("nupp explain " .. code .. " wrote invalid JSON: " .. tostring(entry), 2)
     end
@@ -82,7 +82,7 @@ function tier1.check(nupp: string, workspace: string, entry: any): {any}
     local verb = code:match("^NUPP3") and "build" or "check"
     local argv = {nupp, verb, "--json"}
     local done = harness.run(argv, workspace)
-    local ok, answer = pcall(json.decode, done.stdout, json.NULL)
+    local ok, answer = pcall(json.decodeValue, done.stdout, json.NULL)
     if not ok then
         error(("%s --json wrote no JSON: %s / %s"):format(verb, done.stdout:sub(1, 200), done.stderr:sub(1, 200)), 2)
     end
@@ -167,7 +167,9 @@ function tier1.evaluate(
             end
             table.sort(found)
             error(
-                tostring(entry.code) .. " is not reported by its own example; got " .. json.encode(json.asArray(found)),
+                tostring(
+                    entry.code
+                ) .. " is not reported by its own example; got " .. json.encodeValue(json.asArray(found)),
                 0
             )
         end

@@ -1,10 +1,10 @@
 const util = require("nupp.util")
 
-local serde = require("nupp.serde")
-local views = require("nupp.serde.document")
-local json = require("nupp.serde.json")
-local contexts = require("nupp.serde.codec")
-local core = require("nupp.serde")
+local serde = require("serde")
+local views = require("serde.document")
+local json = require("serde.json")
+local contexts = require("serde.codec")
+local core = require("serde")
 local record Child
     name: string
 end

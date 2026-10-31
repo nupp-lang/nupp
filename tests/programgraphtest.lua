@@ -7,7 +7,7 @@ local guest = require("nupp.compiler.vm.guestprofile")
 local graph = require("nupp.compiler.vm.graph")
 local graphimage = require("nupp.compiler.vm.graphimage")
 local tagged = require("nupp.compiler.vm.taggedprofile")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local M = {}
 
 local function checked(source, name, preparedEnvironment)
@@ -428,7 +428,7 @@ return outer, recur
             result[8][#result[8] + 1] = {e.id, e.path, e.definition.name, e.token.line, e.token.col}
         end
 
-        return json.encode(result)
+        return json.encodeValue(result)
     end
 
     local first, second = describe(source), describe(source)

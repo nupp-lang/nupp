@@ -38,8 +38,8 @@ function main.run(): Answer
     nupp.drop(dropped)
     assert(state.closed == 3)
     local moduleName = "contracts.tail"
-    moduleName = "nupp.codec.json.spi" .. moduleName:sub(10)
-    assert(moduleName == "nupp.codec.json.spi.tail")
+    moduleName = "serde.json.spi" .. moduleName:sub(10)
+    assert(moduleName == "serde.json.spi.tail")
     local repeated = "x"
     repeated = "prefix" .. repeated .. repeated
     assert(repeated == "prefixxx")

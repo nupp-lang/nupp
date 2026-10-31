@@ -1,5 +1,5 @@
 local core = require("nupp.serde.internal.value")
-local codec = require("nupp.serde.json")
+local codec = require("serde.json")
 local root, visible, skipped, redacted = {name = "Root"}, {name = "visible"}, {name = "skipped"}, {name = "redacted"}
 local gets, describes, constructs = 0, 0, 0
 
@@ -104,9 +104,17 @@ assert(gets == 1 and describes == 1)
 local decoded = policyJson:decode(binding, '{"visible":"ok","skipped":{"unknown":[null]},"redacted":42}')
 assert(decoded.visible == "ok" and decoded.skipped() == "default" and constructs == 1)
 assert(describes == 2)
-assert(not pcall(function() return policyJson:decode(binding, '{"visible":"ok","skipped":[1,]}') end))
+assert(
+    not pcall(function()
+        return policyJson:decode(binding, '{"visible":"ok","skipped":[1,]}')
+    end)
+)
 assert(constructs == 1)
 local before = gets
-assert(not pcall(function() return codec.codec(profile(true)):encode(binding, value) end))
+assert(
+    not pcall(function()
+        return codec.codec(profile(true)):encode(binding, value)
+    end)
+)
 assert(gets == before, "unsupported selected children must fail before reading values")
 print("selection skips opaque child preparation and access, validates ignored syntax, and constructs defaults")

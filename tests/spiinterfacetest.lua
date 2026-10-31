@@ -102,7 +102,7 @@ function M.bundledAliasesShareStagedNominalTypes()
             main,
             [[
 local {type Buffer} = require("nupp.text")
-local contracts = require("nupp.codec.json.spi")
+local contracts = require("serde.json.spi")
 local function writer(exclusive out: nupp.text.Buffer, nullValue: any?): any
     out:put("value")
     return nil

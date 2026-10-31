@@ -1,10 +1,10 @@
 module example.smithyprotocol
 
-local core = require("nupp.serde")
+local core = require("serde")
 local smithy = require("example.smithy")
 local routing = require("example.routing")
-local plans = require("nupp.serde.json")
-local json = require("nupp.codec.json")
+local plans = require("serde.json")
+local json = require("serde.json")
 
 local function route(member: smithy.Member): routing.Route
     local header = member.traits:get("smithy.api#httpHeader")

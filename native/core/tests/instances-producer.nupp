@@ -11,7 +11,7 @@ local allocationcheck = require("s0.allocationcheck")
 local selector = require("s0.select")
 local shim = require("nupp.core.shim")
 local graphimage = require("nupp.compiler.vm.graphimage")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local producer = {}
 local MODULE = "nupp.runtime.core.instances"
 local PROBE = "nupp.runtime.core.instancesprobe"
@@ -84,7 +84,7 @@ function producer.compile(mode: string): string
     result.fixture = "fresh-instance-registry"
     result.failureGroups = 28
 
-    return json.encode(result)
+    return json.encodeValue(result)
 end
 
 function producer.data(offsetText: string, codeBytesText: string): string

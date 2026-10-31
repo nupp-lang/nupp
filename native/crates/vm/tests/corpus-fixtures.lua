@@ -2,7 +2,7 @@
 -- the suite ends; workers never share partially produced directories.
 local files = require("nupp.io.files")
 local digest = require("nupp.compiler.nativehash").digest
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local fixtures = {}
 
 function fixtures.new()
@@ -38,7 +38,7 @@ function fixtures.new()
             return a.path < b.path
         end)
 
-        return json.encode(entries)
+        return json.encodeValue(entries)
     end
 
     local function resolve(key, produce)
@@ -50,13 +50,13 @@ function fixtures.new()
         local previous = published[key]
         if previous then
             assert(manifest(previous.path) == previous.manifest, "immutable fixture was modified: " .. key)
-            return previous.path, json.decode(previous.value), true
+            return previous.path, json.decodeValue(previous.value), true
         end
         local path = base .. "/" .. digest("nupp-test-fixture\0" .. key)
         assert(files.createDirectory(path))
         local ok, value = pcall(function()
             local value = produce(path)
-            return {path = path, value = json.encode(value), manifest = manifest(path)}
+            return {path = path, value = json.encodeValue(value), manifest = manifest(path)}
         end)
         if not ok then
             files.remove(path, true)
@@ -65,7 +65,7 @@ function fixtures.new()
         end
         published[key] = value
 
-        return path, json.decode(value.value), false
+        return path, json.decodeValue(value.value), false
     end
 
     return {

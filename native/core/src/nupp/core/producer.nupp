@@ -10,7 +10,7 @@ local allocationcheck = require("s0.allocationcheck")
 local selector = require("s0.select")
 local shim = require("nupp.core.shim")
 local program = require("nupp.core.program")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local front = require("nupp.core.source")
 local checked, read = front.checked, front.read
 local producer = {}
@@ -60,7 +60,7 @@ function producer.compile(mode: string): string
     local result = shim.build(codes)
     result.handlers, result.mode = metrics, mode
 
-    return json.encode(result)
+    return json.encodeValue(result)
 end
 
 function producer.data(path: string, slots: string, offsets: string, codeBytes: string): string

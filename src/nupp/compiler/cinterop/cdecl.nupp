@@ -1,7 +1,7 @@
 module nupp.compiler.cinterop.cdecl
 
 local cdecl = require("nupp.compiler.cinterop.model")
-local json = require("nupp.codec.json")
+local json = require("nupp.serde.internal.json.values")
 local native = require("nupp.compiler.nativecdecl")
 
 local function request(operation: string, text: string?, id: integer?): any, string?

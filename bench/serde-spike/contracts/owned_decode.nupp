@@ -1,7 +1,7 @@
-local core = require("nupp.serde")
-local codec = require("nupp.serde.json")
-local plans = require("nupp.serde.json")
-local json = require("nupp.codec.json")
+local core = require("serde")
+local codec = require("serde.json")
+local plans = require("serde.json")
+local json = require("serde.json")
 
 local record Counts
     created: integer = 0

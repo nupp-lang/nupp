@@ -115,8 +115,8 @@ and a field that Debug can render need not have a JSON representation. A caller
 can also render an explicit binding or append to an existing Buffer:
 
 ```nupp
-local serde = require("nupp.serde")
-local debug = require("nupp.serde.debug")
+local serde = require("serde")
+local debug = require("serde.debug")
 local struct Vec2
     x: float
     y: float

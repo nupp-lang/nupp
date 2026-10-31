@@ -1,14 +1,14 @@
-module nupp.codec.json
+module nupp.serde.internal.json.values
 
 --[==[
-`nupp.codec.json` is a strict Nupp JSON codec. Its performance provider is
+`serde.json` is a strict Nupp JSON codec. Its performance provider is
 SIMD-accelerated through `@aot`; compiler and browser targets select a
 pure-Lua provider behind the same API. It parses, pulls selected fields,
 serializes, and streams.
 
 ```nupp
-local encoded = nupp.codec.json.encode({name = "Nupp", ready = true})
-local decoded = assert(nupp.codec.json.decode(encoded))
+local encoded = serde.json.encodeValue({name = "Nupp", ready = true})
+local decoded = assert(serde.json.decodeValue(encoded))
 assert(decoded.name == "Nupp")
 ```
 
@@ -26,16 +26,16 @@ A plain empty Lua table has no shape to read, so it encodes as `{}`. Mark it
 when it must encode as an array, or use the two sentinels:
 
 ```nupp
-const json = nupp.codec.json
+const json = serde.json
 
-assert(json.encode({}) == "{}")
-assert(json.encode(json.asArray({})) == "[]")
-assert(json.encode(json.EMPTY_ARRAY) == "[]")
-assert(json.encode(json.EMPTY_OBJECT) == "{}")
+assert(json.encodeValue({}) == "{}")
+assert(json.encodeValue(json.asArray({})) == "[]")
+assert(json.encodeValue(json.EMPTY_ARRAY) == "[]")
+assert(json.encodeValue(json.EMPTY_OBJECT) == "{}")
 
-local emptyArray = assert(json.decode("[]"))
+local emptyArray = assert(json.decodeValue("[]"))
 assert(json.isArray(emptyArray))
-assert(not json.isArray(assert(json.decode("{}"))))
+assert(not json.isArray(assert(json.decodeValue("{}"))))
 ```
 
 `asObject` is the corresponding mark for a table that must encode as an object.
@@ -49,11 +49,11 @@ replacement value to preserve it. `NULL` is the round-trippable choice, because
 it encodes back as null:
 
 ```nupp:fragment
-const json = nupp.codec.json
+const json = serde.json
 
-local value = assert(json.decode([[{"items":[1,null,2]}]], json.NULL))
+local value = assert(json.decodeValue([[{"items":[1,null,2]}]], json.NULL))
 assert(value.items[2] == json.NULL)
-assert(json.encode(value) == [[{"items":[1,null,2]}]])
+assert(json.encodeValue(value) == [[{"items":[1,null,2]}]])
 ```
 
 ::: deepdive Dropping null by default
@@ -73,7 +73,7 @@ selects a complete value, an object shape selects named fields, and
 unselected fields are omitted:
 
 ```nupp
-const json = nupp.codec.json
+const json = serde.json
 
 local source = '[{"id": 1, "role": "admin", "profile": {"name": "Ada", "age": 36}}]'
 local users, reason = json.pull(source, json.arrayOf({id = true, profile = {name = true}}))
@@ -91,7 +91,7 @@ leaving the document open, and consuming `close()` requires one complete root:
 
 ```nupp
 local out = nupp.text.newBuffer()
-local writer = nupp.codec.json.newWriter(out)
+local writer = serde.json.newWriter(out)
 writer:startObject():key("items"):startArray():write(1):write(2):endArray():endObject()
 writer:close()
 ```
@@ -101,7 +101,7 @@ identity is single-use. Closing publishes its final staged parts and leaves
 that identity closed; untyped stale references therefore cannot affect a later
 document.
 
-A prepared `nupp.serde` JSON traversal can write at the current value
+A prepared `serde` JSON traversal can write at the current value
 position. Its recursive walk drains completed fields and list members at
 the same threshold, so a large root does not need to exist as one staged string.
 
@@ -118,8 +118,8 @@ Select a declaration binding and pass it to the typed JSON codec. A binding
 chooses the model independently of the format.
 
 ```nupp
-local serde = require("nupp.serde")
-local json = require("nupp.serde.json")
+local serde = require("serde")
+local json = require("serde.json")
 local record User
     id: uint32
 end
@@ -135,7 +135,7 @@ const {type Buffer} = require("nupp.text")
 
 const native = require("nupp.codec.json.provider")
 
-const contracts = require("nupp.codec.json.spi")
+const contracts = require("serde.json.spi")
 
 --- A complete JSON value whose immutable bytes have already been encoded or
 --- validated.
@@ -158,10 +158,10 @@ export type EncodedString = contracts.EncodedString
 --- A handwritten record satisfies it with a `writeJSON` member:
 ---
 --- ```nupp
---- local record Money is nupp.codec.json.JSONEncodable
+--- local record Money is serde.json.JSONEncodable
 ---     cents: integer
 ---
----     function writeJSON(self, exclusive out: nupp.codec.json.Writer): nil
+---     function writeJSON(self, exclusive out: serde.json.Writer): nil
 ---         out:startObject():key("cents"):write(self.cents):endObject()
 ---     end
 --- end
@@ -173,7 +173,7 @@ export type JSONEncodable = contracts.JSONEncodable
 ---
 --- ```nupp
 --- local out = nupp.text.newBuffer()
---- local writer = nupp.codec.json.newWriter(out)
+--- local writer = serde.json.newWriter(out)
 --- writer:startObject():key("ok"):write(true):endObject()
 --- writer:close()
 --- assert(out:tostring() == [[{"ok":true}]])
@@ -265,9 +265,9 @@ rawset(WriterImpl, "write", writerWrite)
 --- the document `null` decodes to nil when nulls are dropped.
 ---
 --- ```nupp
---- local value, reason = nupp.codec.json.decode([[{"id":41}]])
+--- local value, reason = serde.json.decodeValue([[{"id":41}]])
 --- assert(reason == nil and value.id == 41)
---- local broken, why = nupp.codec.json.decode([[{"id":]])
+--- local broken, why = serde.json.decodeValue([[{"id":]])
 --- assert(broken == nil and why ~= nil)
 --- ```
 --- @param text the complete JSON document
@@ -291,7 +291,7 @@ end
 --- `decode` does.
 ---
 --- ```nupp
---- local value = assert(nupp.codec.json.pull(
+--- local value = assert(serde.json.pull(
 ---     [[{"id":41,"profile":{"name":"Ada","admin":true}}]],
 ---     {id = true, profile = {name = true}}
 --- ))
@@ -316,7 +316,7 @@ end
 --- Applies a pull shape to every member of an array.
 ---
 --- ```nupp
---- const json = nupp.codec.json
+--- const json = serde.json
 --- local users = assert(json.pull(
 ---     [[{"users":[{"id":1,"name":"Ada"},{"id":2,"name":"Lin"}]}]],
 ---     {users = json.arrayOf({id = true})}
@@ -337,8 +337,8 @@ end
 --- Marks a Lua table as a JSON array, including while it is empty.
 ---
 --- ```nupp
---- local values = nupp.codec.json.asArray({})
---- assert(nupp.codec.json.encode(values) == "[]")
+--- local values = serde.json.asArray({})
+--- assert(serde.json.encodeValue(values) == "[]")
 --- ```
 --- @param value the table to mark
 --- @return the same table
@@ -350,9 +350,9 @@ end
 --- Marks a Lua table as a JSON object.
 ---
 --- ```nupp
---- const json = nupp.codec.json
+--- const json = serde.json
 --- local object = json.asObject(json.asArray({}))
---- assert(json.encode(object) == "{}")
+--- assert(json.encodeValue(object) == "{}")
 --- ```
 --- @param value the table to mark
 --- @return the same table
@@ -367,9 +367,9 @@ end
 --- reads that shape without exposing the private marker used by the codec.
 ---
 --- ```nupp
---- const json = nupp.codec.json
---- assert(json.isArray(assert(json.decode("[]"))))
---- assert(not json.isArray(assert(json.decode("{}"))))
+--- const json = serde.json
+--- assert(json.isArray(assert(json.decodeValue("[]"))))
+--- assert(not json.isArray(assert(json.decodeValue("{}"))))
 --- assert(json.isArray({1, 2}))
 --- ```
 --- @param value the value whose JSON container shape to inspect
@@ -383,7 +383,7 @@ end
 --- Serializes one Lua value as JSON.
 ---
 --- ```nupp
---- local text = nupp.codec.json.encode({answer = 42})
+--- local text = serde.json.encodeValue({answer = 42})
 --- assert(text == [[{"answer":42}]])
 --- ```
 --- @param value the value to serialize
@@ -403,7 +403,7 @@ end
 --- those bytes directly to its destination without walking or validating the value.
 ---
 --- ```nupp
---- local cached = nupp.codec.json.encoded({1, 2, 3})
+--- local cached = serde.json.encoded({1, 2, 3})
 --- ```
 --- @param value the value to encode
 --- @param nullValue an additional value treated as JSON null
@@ -419,8 +419,8 @@ end
 --- Validates and retains one exact JSON number token.
 ---
 --- ```nupp
---- local json = nupp.codec.json
---- assert(json.encode(json.numberToken("12345678901234567890")) == "12345678901234567890")
+--- local json = serde.json
+--- assert(json.encodeValue(json.numberToken("12345678901234567890")) == "12345678901234567890")
 --- ```
 --- @param text the exact numeric lexeme
 --- @return a validated fragment for a JSON writer or encoder
@@ -433,7 +433,7 @@ end
 --- Encodes and interns a string for trusted use as either a key or value.
 ---
 --- ```nupp
---- local key = nupp.codec.json.encodedString("user_id")
+--- local key = serde.json.encodedString("user_id")
 --- ```
 --- @param value the unencoded string
 --- @return its reusable encoded representation
@@ -445,7 +445,7 @@ end
 --- Validates existing JSON bytes once without decoding or re-encoding them.
 ---
 --- ```nupp
---- local cached = nupp.codec.json.verified([[{"id":41}]])
+--- local cached = serde.json.verified([[{"id":41}]])
 --- ```
 --- @param text a complete JSON value
 --- @return a handle retaining the original immutable string
@@ -457,7 +457,7 @@ end
 --- Validates and interns existing bytes containing a complete JSON string.
 ---
 --- ```nupp
---- local key = nupp.codec.json.verifiedString([["user_id"]])
+--- local key = serde.json.verifiedString([["user_id"]])
 --- ```
 --- @param text an encoded JSON string, including its quotes
 --- @return a handle retaining the original immutable string
@@ -470,7 +470,7 @@ end
 ---
 --- ```nupp
 --- local out = nupp.text.newBuffer()
---- local writer = nupp.codec.json.newWriter(out)
+--- local writer = serde.json.newWriter(out)
 --- writer:startObject():key("id"):write(41):endObject()
 --- writer:close()
 --- assert(out:tostring() == [[{"id":41}]])

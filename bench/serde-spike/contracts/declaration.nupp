@@ -1,6 +1,6 @@
-local __serdeJson = require("nupp.serde.json")
-local declarations = require("nupp.serde")
-local codecs = require("nupp.serde.json")
+local __serdeJson = require("serde.json")
+local declarations = require("serde")
+local codecs = require("serde.json")
 
 local record Address
     city: string

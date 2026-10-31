@@ -409,7 +409,7 @@ local function build(returns: boolean): any
     local root = need(os.getenv("NUPP_COMPILER_ROOT"), "build source root required")
     local snapshotPath = root .. "/build/" .. directory .. "/snapshot.json"
     local snapshotText = read(snapshotPath)
-    local snapshot = require("nupp.codec.json").decode(snapshotText)
+    local snapshot = require("nupp.serde.internal.json.values").decode(snapshotText)
     need(snapshot.version == 1 and snapshot.target == "aarch64-apple-darwin", "fixed snapshot version/target")
     local requested = {}
     for index, entry in ipairs(paths) do
@@ -673,7 +673,7 @@ local function buildGuest(caseName: string, audited: boolean): any
         or "core-guest-programs"
     local snapshotPath = root .. "/build/" .. directory .. "/snapshot.json"
     local snapshotText = read(snapshotPath)
-    local snapshot = require("nupp.codec.json").decode(snapshotText)
+    local snapshot = require("nupp.serde.internal.json.values").decode(snapshotText)
     need(snapshot.version == 1 and snapshot.target == "aarch64-apple-darwin", "fixed guest snapshot target")
     local paths = {}
     for index, item in ipairs(sharedPaths) do

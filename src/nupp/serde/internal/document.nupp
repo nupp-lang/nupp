@@ -2,7 +2,7 @@ module nupp.serde.internal.document
 
 local core = require("nupp.serde.internal.value")
 local plans = require("nupp.serde.internal.json.plan")
-local json = require("nupp.codec.json")
+local json = require("nupp.serde.internal.json.values")
 local timestamps = require("nupp.serde.internal.timestamps")
 
 -- The member a document reads and writes at; JSON's default policy owns it.
@@ -203,7 +203,7 @@ export record Document
     --- Returns the context the document carries.
     ---
     --- A decoded document carries the context it was read under, and
-    --- [](nupp.serde.document.withContext) attaches one to any document.
+    --- [](serde.document.withContext) attaches one to any document.
     --- @return the context, or nil when the document has none
     function context(self): core.Context?
         return self.source

@@ -1,11 +1,11 @@
-local __serdeJson = require("nupp.serde.json")
-local core = require("nupp.serde")
+local __serdeJson = require("serde.json")
+local core = require("serde")
 local routes = require("example.routing")
 local api = require("example.openapi")
-local plans = require("nupp.serde.json")
-local codecs = require("nupp.serde.json")
-local json = require("nupp.codec.json")
-local documents = require("nupp.serde.document")
+local plans = require("serde.json")
+local codecs = require("serde.json")
+local json = require("serde.json")
+local documents = require("serde.document")
 
 local record Policy<M is core.Member> is routes.Policy<M>
     @readonly model: api.Model

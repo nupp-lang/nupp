@@ -11,7 +11,7 @@ local selector = require("s0.select")
 local shim = require("nupp.core.shim")
 local graphimage = require("nupp.compiler.vm.graphimage")
 local recipes = require("nupp.compiler.vm.machinerecipes")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local producer = {}
 local MODULE = "nupp.runtime.core.transportprobe"
 
@@ -155,7 +155,7 @@ function producer.compile(mode: string): string
         and #operations[6].tail == 5
     )
 
-    return json.encode(result)
+    return json.encodeValue(result)
 end
 
 function producer.data(offsets: string, codeBytesText: string): string

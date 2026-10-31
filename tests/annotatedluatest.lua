@@ -13,6 +13,7 @@ local M = {}
 -- serde libraries, and a fresh environment checks them again, which on the VM
 -- is minutes per case.
 local shared
+
 local function sharedEnv()
     shared = shared or envMod.new(".", {cache = false})
     return shared
@@ -442,7 +443,7 @@ end
 function M.serializationMigrationUsesResolvedDeclarationsAndPreservesErrors()
     local source = [[
 local derive = require("nupp.derive")
-local syntax = require("nupp.codec.json")
+local syntax = require("serde.json")
 local text = require("nupp.text")
 @derive(derive.Debug, derive.JSON)
 @json(unknown = "ignore")
@@ -483,7 +484,7 @@ end
 
 function M.serializationMigrationLeavesShadowedNamesAndHandwrittenMethodsAlone()
     local source = [[
-local serde = require("nupp.serde")
+local serde = require("serde")
 @derive(nupp.derive.Serde)
 local record Value
     count: integer

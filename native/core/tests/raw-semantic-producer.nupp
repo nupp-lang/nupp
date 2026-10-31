@@ -12,7 +12,7 @@ local selector = require("s0.select")
 local shim = require("nupp.core.rawsemanticshim")
 local generator = require("nupp.core.rawsemanticgen")
 local budgetgen = require("nupp.core.rawbudgetgen")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local producer = {}
 
 function producer.generated(): string
@@ -139,7 +139,7 @@ function producer.compile(mode: string, entry: string): string
     local result = shim.build(codes, symbol, sizes.headerBytes + 18 * sizes.sectionBytes)
     result.metrics, result.mode, result.boundary, result.layout = metrics, mode, symbol, sizes
 
-    return json.encode(result)
+    return json.encodeValue(result)
 end
 
 export = producer

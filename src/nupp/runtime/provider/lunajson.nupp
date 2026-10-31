@@ -13,7 +13,7 @@ validates UTF-8 and supplies Nupp's array/object markers, projection, verified
 fragments, and the writer backed by the shared
 [](nupp.text.internal.buffer) contract.
 
-Import through [](nupp.codec.json). The facade retains this provider's functions
+Import through [](serde.json). The facade retains this provider's functions
 and marker objects for the lifetime of the loaded module. Markers and verified
 fragments belong to this implementation; values from a separately loaded codec
 must not be assumed to carry the same marker identity. `asArray` and `asObject`
@@ -28,7 +28,7 @@ local newDecoder = require(
     "nupp.runtime.vendor.lunajson.decoder"
 ) as function(): function(string, integer?, any?, boolean?): any
 local newEncoder = require("nupp.runtime.vendor.lunajson.encoder") as function(): function(any, any?): string
-local contracts = require("nupp.codec.json.spi")
+local contracts = require("serde.json.spi")
 local core = {decode = newDecoder(), encode = newEncoder(),}
 local json = {}
 
@@ -531,7 +531,7 @@ end
 local checked: contracts.Provider = {
     arrayOf = json.arrayOf,
     -- `asArray` and `asObject` are asserted where every other member is checked.
-    -- The contract owns what it marks, because `nupp.codec.json.asArray` promises
+    -- The contract owns what it marks, because `serde.json.asArray` promises
     -- its caller the same table back. No provider can state that and still read
     -- the table: `pairs` takes neither an owner nor a borrow, so a body that
     -- validates keys cannot also carry the owning signature. Both providers

@@ -346,8 +346,8 @@ local record Outer inner: models.Inner end
 local value = new Outer(inner = new models.Inner())
 print(value:debug())
 local out = require("nupp.text").newBuffer()
-local writer = nupp.codec.json.newWriter(out)
-require("nupp.serde.json").writeValue(nupp.serde.binding(Outer), value, writer)
+local writer = serde.json.newWriter(out)
+require("serde.json").writeValue(serde.binding(Outer), value, writer)
 writer:close()
 print(out:tostring())
 ]],

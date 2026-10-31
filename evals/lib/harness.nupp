@@ -8,7 +8,7 @@ local files = require("nupp.io.files")
 local paths = require("nupp.io.path")
 local process = require("nupp.io.process")
 local time = require("nupp.time")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 
 local harness = {}
 
@@ -225,7 +225,7 @@ local function decodeEvents(output: string): {any}
     for line in output:gmatch("[^\r\n]+") do
         line = line:match("^%s*(.-)%s*$") or ""
         if line ~= "" then
-            local ok, value = pcall(json.decode, line, json.NULL)
+            local ok, value = pcall(json.decodeValue, line, json.NULL)
             if ok then
                 events[#events + 1] = value
             end
@@ -244,7 +244,7 @@ local function pretty(value: any, depth: integer, seen: {[table]: boolean}): str
     local kind = type(value)
     @allow("exhaustiveness")
     if kind ~= "table" then
-        return json.encode(value)
+        return json.encodeValue(value)
     end
     local entries = value as {[any]: any}
     if seen[entries] then
@@ -271,7 +271,7 @@ local function pretty(value: any, depth: integer, seen: {[table]: boolean}): str
         end
         table.sort(keys)
         for index, key in ipairs(keys) do
-            parts[index] = nested .. json.encode(key) .. ": " .. pretty(entries[key], depth + 1, seen)
+            parts[index] = nested .. json.encodeValue(key) .. ": " .. pretty(entries[key], depth + 1, seen)
         end
     end
     seen[entries] = nil
@@ -326,7 +326,7 @@ function harness.runAgent(
     local events = decodeEvents(done.stdout)
     local transcriptLines: {string} = {}
     for index, event in ipairs(events) do
-        transcriptLines[index] = json.encode(event) .. "\n"
+        transcriptLines[index] = json.encodeValue(event) .. "\n"
     end
     harness.write(transcript, table.concat(transcriptLines))
     if #events == 0 then

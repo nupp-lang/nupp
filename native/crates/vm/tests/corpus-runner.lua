@@ -21,7 +21,7 @@ function runner.main(argv)
     end
     table.sort(names)
     local passed, failed, notExecuted = 0, 0, 0
-    local json = require("nupp.codec.json")
+    local json = require("serde.json")
     local test = require("nupp.test")
 
     -- A case that declared a capability this runtime lacks (`test.requireCapability`)
@@ -36,6 +36,7 @@ function runner.main(argv)
                 return true
             end
         end
+
         return false
     end
 
@@ -49,7 +50,7 @@ function runner.main(argv)
             failed = failed + 1
         end
         io.write(
-            json.encode({
+            json.encodeValue({
                 suite = argv[1],
                 name = name,
                 ok = ok,
@@ -100,7 +101,7 @@ function runner.main(argv)
     end
     fixtures.close()
     io.write(
-        json.encode({
+        json.encodeValue({
             suite = argv[1],
             passed = passed,
             failed = failed,

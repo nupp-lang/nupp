@@ -7,7 +7,7 @@ local programgraph = require("nupp.compiler.vm.programgraph")
 local guest = require("nupp.compiler.vm.guestprofile")
 local graph = require("nupp.compiler.vm.graph")
 local program = require("nupp.core.program")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local extract = {}
 
 function extract.compile(source: string, selected: string): any
@@ -44,7 +44,7 @@ function extract.inspect(source: string, selected: string): string
         bytes[i] = assert(result.code:byte(i))
     end
 
-    return json.encode({
+    return json.encodeValue({
         name = result.name,
         slots = result.slots,
         count = result.count,
@@ -96,7 +96,7 @@ end
 
 function extract.cycleInspect(): string
     local result = program.fromBlocks(cycleGraph())
-    return json.encode({
+    return json.encodeValue({
         name = "copy-cycle",
         slots = result.slots,
         count = result.count,

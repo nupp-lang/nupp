@@ -1,10 +1,10 @@
 module example.registry
 
-local __serdeJson = require("nupp.serde.json")
+local __serdeJson = require("serde.json")
 
-local core = require("nupp.serde")
-local documents = require("nupp.serde.document")
-local bridge = require("nupp.serde.document")
+local core = require("serde")
+local documents = require("serde.document")
+local bridge = require("serde.document")
 
 export interface Consumer<R>
     apply: function<T is nupp.Copyable>(self, identity: string, binding: core.Binding<T>, borrows value: T): R

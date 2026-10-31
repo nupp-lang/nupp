@@ -1,7 +1,7 @@
-local __serdeJson = require("nupp.serde.json")
-local json = require("nupp.serde.json")
-local declarations = require("nupp.serde")
-local documents = require("nupp.serde.document")
+local __serdeJson = require("serde.json")
+local json = require("serde.json")
+local declarations = require("serde")
+local documents = require("serde.document")
 local model = require("example.richmodel")
 local text = require("nupp.text")
 local record Config

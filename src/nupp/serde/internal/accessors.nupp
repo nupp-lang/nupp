@@ -263,8 +263,8 @@ end
 
 --- Collects constructor arguments for one value of a declaration.
 ---
---- [](nupp.serde.Access.begin) opens one and
---- [](nupp.serde.Access.finish) takes it.
+--- [](serde.Access.begin) opens one and
+--- [](serde.Access.finish) takes it.
 export record Builder<T is nupp.Copyable> is nupp.Closeable
     @private @readonly owner: table
     @private @readonly info: nupp.reflect.Info

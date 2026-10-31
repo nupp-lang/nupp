@@ -1,18 +1,18 @@
-module nupp.serde.codec
+module serde.codec
 
 --[[
 A new codec uses these helpers to apply the number, timestamp, error-path, and
-context rules the built-in codecs share. It implements [](nupp.serde.Writer)
-and [](nupp.serde.Reader) itself; see
+context rules the built-in codecs share. It implements [](serde.Writer)
+and [](serde.Reader) itself; see
 [serde.md](docs/learn/runtime/data/serde.md#model-owned-bindings) for where a
 codec sits beside a model library.
 
 A codec that follows these rules accepts and rejects the same values as
-[](nupp.serde.json) and [](nupp.serde.native), so a binding behaves the same
+[](serde.json) and [](serde.native), so a binding behaves the same
 whichever one carries it.
 
 ```nupp
-local codec = require("nupp.serde.codec")
+local codec = require("serde.codec")
 assert(codec.integer("255", 8, false).decimal == "255")
 assert(not pcall(codec.integer, "256", 8, false))
 assert(codec.formatDateTime(codec.parseEpoch("86400")) == "1970-01-02T00:00:00Z")
@@ -69,7 +69,7 @@ export const parseEpoch = timestamps.parseEpoch
 --- @return the seconds, with a fraction only when there is one
 export const formatEpoch = timestamps.epoch
 
---- Wraps any failure as a [](nupp.serde.Error) at a path.
+--- Wraps any failure as a [](serde.Error) at a path.
 ---
 --- An existing error is returned unchanged, so wrapping at each level keeps the
 --- innermost path.
@@ -99,7 +99,7 @@ export const prefixError = errors.prefix
 --- @return the failure to raise
 export const discardFailed = publication.failure
 
---- Collects the values of a [](nupp.serde.Context) before it is frozen.
+--- Collects the values of a [](serde.Context) before it is frozen.
 export type ContextBuilder = contexts.Builder
 
 export const ContextBuilder = contexts.Builder
@@ -111,7 +111,7 @@ export const ContextBuilder = contexts.Builder
 --- set under [](nupp.util.Key)s and must be Copyable.
 ---
 --- ```nupp
---- local codec = require("nupp.serde.codec")
+--- local codec = require("serde.codec")
 --- local source: nupp.util.Key<string> = nupp.util.newKey()
 --- local builder = codec.contextBuilder({}, {}, nil)
 --- builder:set(source, "upload.json")

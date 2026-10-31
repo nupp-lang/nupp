@@ -1,7 +1,7 @@
-local __serdeJson = require("nupp.serde.json")
+local __serdeJson = require("serde.json")
 local model = require("example.richmodel")
-local core = require("nupp.serde")
-local json = require("nupp.serde.json")
+local core = require("serde")
+local json = require("serde.json")
 local schema = model.newModel()
 local binding = model.binding(schema)
 local first, second = json.codec(model.policy(true)), json.codec(model.policy(false))
@@ -36,7 +36,7 @@ for _, profile in ipairs({first, second}) do
     assert(actual.created.seconds == "-1" and actual.created.nanos == 123456789)
 end
 
-local documents = require("nupp.serde.document")
+local documents = require("serde.document")
 local withDocument = new model.Packet(
     id = "doc",
     created = value.created,
@@ -58,14 +58,14 @@ assert(items:size() == 3 and items:at(1).kind == "null")
 assert(items:at(2):numberToken() == "123456789012345678901234567890")
 assert(first:encode(binding, documentValue) == documentBytes)
 
-local timestamps = require("nupp.serde.codec")
+local timestamps = require("serde.codec")
 for _, seconds in ipairs({"900719925474099312345", "-900719925474099312345", "-1", "0"}) do
     local stamp = new core.Timestamp(seconds = seconds, nanos = 123456789)
     local actual = timestamps.parseEpoch(timestamps.formatEpoch(stamp))
     assert(actual.seconds == seconds and actual.nanos == stamp.nanos)
 end
 
-local debug = require("nupp.serde.debug")
+local debug = require("serde.debug")
 local child = new model.Packet(id = "child", created = value.created, choice = model.knownChoice("known"))
 local parent = new model.Packet(
     id = "parent",

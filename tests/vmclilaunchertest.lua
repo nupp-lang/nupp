@@ -325,12 +325,12 @@ digest = lambda name: hashlib.sha256((package / name).read_bytes()).hexdigest()
 ]]
     )
     assert(os.execute(("cd '%s' && python3 receipt.py"):format(dir)) == 0)
-    local json = require("nupp.codec.json")
-    local before = assert(json.decode(capture(("cd '%s' && python3 scripts/vm-cli status"):format(dir))))
+    local json = require("serde.json")
+    local before = assert(json.decodeValue(capture(("cd '%s' && python3 scripts/vm-cli status"):format(dir))))
     local selected = readFile(dir .. "/.nupp/vm-cli/current"):match("%x+")
-    local receipt = json.decode(readFile(dir .. "/.nupp/vm-cli/" .. selected .. "/receipt.json"))
+    local receipt = json.decodeValue(readFile(dir .. "/.nupp/vm-cli/" .. selected .. "/receipt.json"))
     receipt.sourceAtInstall = before.sourceNow
-    plant(".nupp/vm-cli/" .. selected .. "/receipt.json", json.encode(receipt))
+    plant(".nupp/vm-cli/" .. selected .. "/receipt.json", json.encodeValue(receipt))
 
     local function current()
         return capture(("cd '%s' && python3 scripts/vm-cli current; printf 'CURRENT:%%d\\n' $?"):format(dir))

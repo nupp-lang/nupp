@@ -13,7 +13,7 @@ local shim = require("nupp.core.shim")
 local oldshim = require("nupp.core.returncontractoldshim")
 local linker = require("nupp.core.link")
 local graphimage = require("nupp.compiler.vm.graphimage")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local producer = {}
 
 local function copy(value: any): any
@@ -255,8 +255,11 @@ function producer.compile(mode: string, guard: string): string
     local legacyRoots, legacyCodes = copy(roots), copy(codes)
     local legacy = shim.build(legacyRoots, legacyCodes)
     local baseline = oldshim.build(legacyRoots, legacyCodes)
-    assert(json.encode(selected) == json.encode(legacy), "authenticated link changes transport words/layout")
-    assert(json.encode(selected) == json.encode(baseline), "shim factor changes accepted transport words/layout")
+    assert(json.encodeValue(selected) == json.encodeValue(legacy), "authenticated link changes transport words/layout")
+    assert(
+        json.encodeValue(selected) == json.encodeValue(baseline),
+        "shim factor changes accepted transport words/layout"
+    )
     reject(
         "whole chain bound",
         function(): any
@@ -268,12 +271,12 @@ function producer.compile(mode: string, guard: string): string
     selected.dataflowRefusals, selected.provenanceRefusals = source.refusals, refusals
     selected.scope = "closed real publish/return/parent-resume diagnostic, no guest Ret, root completion or catalog entry"
 
-    return json.encode(selected)
+    return json.encodeValue(selected)
 end
 
 function producer.data(selection: string, kind: string): string
     assert(kind == "boolean" or kind == "nil")
-    local result = json.decode(front.read(selection))
+    local result = json.decodeValue(front.read(selection))
     assert(#result.offsets == 2 and #result.frames == 2)
     local extent, base, codeBytes = result.callBytes, result.spillOffset, #result.words * 4
     assert(extent > 0 and extent < 65536 and extent % 16 == 0)

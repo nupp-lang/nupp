@@ -5,7 +5,7 @@ The VM images `nupp run` lowered in earlier processes, kept for the next.
 
 A module the VM's own image does not carry is checked and lowered from source
 when something requires it, in every process that does, and a program reaching
-`nupp.serde` spent minutes on that before it ran a line. This keeps what that
+`serde` spent minutes on that before it ran a line. This keeps what that
 work produced.
 
 An entry is one module's image under a key, in a file of its own, sealed and

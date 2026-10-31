@@ -10,7 +10,7 @@ local bytes = codec:encode(binding, save)
 local restored = codec:decode(binding, bytes)
 ```
 
-The implementation is `nupp.serde.native`.
+The implementation is `serde.native`.
 
 ## Frame
 

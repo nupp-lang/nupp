@@ -2,7 +2,7 @@ module demo.derived
 
 local cli = require("nupp.cli")
 local derive = require("nupp.derive")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local constructed = require("demo.qualifiedconstructor")
 
 @cli("probe")
@@ -145,12 +145,12 @@ function derived.run(): integer
     assert((new Constructed(40)).value == 42)
     assert((new Constructed(39)).value == 42)
     assert((new derived.Counter(42)).value == 42)
-    local decoded, problem = json.decode(json.encode({present = 42, absent = nil}))
+    local decoded, problem = json.decodeValue(json.encodeValue({present = 42, absent = nil}))
     assert(decoded and problem == nil and decoded.present == 42 and decoded.absent == nil)
     local controls = string.char(0, 1, 2, 8, 9, 10, 12, 13, 31) .. '\\"'
-    local escaped = json.encode({[controls] = controls})
+    local escaped = json.encodeValue({[controls] = controls})
     assert(not escaped:find("[%z\1-\31]"))
-    local roundTrip = assert(json.decode(escaped)) as any
+    local roundTrip = assert(json.decodeValue(escaped)) as any
     assert(roundTrip[controls] == controls)
     local captured: integer = 40
     local add = |value: integer| -> captured + value

@@ -8,7 +8,7 @@ local tagged = require("nupp.compiler.vm.taggedprofile")
 local contracts = require("nupp.compiler.vm.coregraphcontracts")
 local codec = require("nupp.compiler.vm.coregraphcodec")
 local schema = require("nupp.compiler.vm.coregraphschema")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 require("nupp.compiler.syntax.triviaarena.table")
 require("nupp.compiler.project.projectconfig")
 require("nupp.compiler.hash")
@@ -41,11 +41,11 @@ function fixture.validate(path: string): string
     file:close()
     local ok = pcall(codec.decode, bytes)
 
-    return json.encode({accepted = ok})
+    return json.encodeValue({accepted = ok})
 end
 
 function fixture.wire(): string
-    return json.encode(schema.wire())
+    return json.encodeValue(schema.wire())
 end
 
 export = fixture

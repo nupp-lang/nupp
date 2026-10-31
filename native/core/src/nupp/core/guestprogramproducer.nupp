@@ -17,7 +17,7 @@ local guestbuild = require("nupp.core.guestbuild")
 local auditshim = require("nupp.core.guestauditshim")
 local writer = require("nupp.core.guestartifact")
 local linker = require("nupp.core.link")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local producer = {}
 -- Selections per mode for this process's shared guest unit, and whether the
 -- proof-rejection checks already ran in it.
@@ -326,7 +326,7 @@ local function select(caseName: string, mode: string, capacityText: string, scen
 end
 
 local function compile(caseName: string, mode: string, capacityText: string, scenario: string?): string
-    return json.encode(select(caseName, mode, capacityText, scenario))
+    return json.encodeValue(select(caseName, mode, capacityText, scenario))
 end
 
 -- The selection itself, for in-process drivers; after the first call the
@@ -379,7 +379,7 @@ function producer.batch(list: string, capacityText: string, directory: string): 
         written[#written + 1] = caseName .. "-" .. mode
     end
 
-    return json.encode({written = written})
+    return json.encodeValue({written = written})
 end
 
 function producer.audit(caseName: string, mode: string, capacityText: string, scenario: string): string
@@ -409,7 +409,7 @@ function producer.compileRaw(mode: string): string
     output.metrics, output.mode = metrics, mode
     output.scope = "Issued v2 raw graph service to retained guest entry: one initializer, scalar K/Nil/Move/Ret"
 
-    return json.encode(output)
+    return json.encodeValue(output)
 end
 
 export = producer

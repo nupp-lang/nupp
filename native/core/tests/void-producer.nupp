@@ -12,7 +12,7 @@ local allocationcheck = require("s0.allocationcheck")
 local selector = require("s0.select")
 local shim = require("nupp.core.shim")
 local graphimage = require("nupp.compiler.vm.graphimage")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local producer = {}
 local MODULE = "nupp.runtime.core.voidprobe"
 
@@ -153,7 +153,7 @@ function producer.compile(mode: string): string
     local result = shim.build({handler}, codes)
     result.metrics, result.refusals, result.mode = metrics, failures, mode
 
-    return json.encode(result)
+    return json.encodeValue(result)
 end
 
 function producer.data(offsetText: string, codeBytesText: string): string

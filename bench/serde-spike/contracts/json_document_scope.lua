@@ -1,4 +1,4 @@
-local json = require("nupp.serde.json")
+local json = require("serde.json")
 local documents = require("nupp.serde.internal.document")
 local core = require("nupp.serde.internal.value")
 local contexts = require("nupp.serde.internal.context")

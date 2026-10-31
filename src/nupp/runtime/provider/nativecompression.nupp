@@ -11,7 +11,7 @@ writes the spans it is given in place. Failed steps carry the stream's error in
 their reason.
 ]]
 
-const contract = require("nupp.compression.spi")
+const contract = require("binary.compress.spi")
 const host = require("nupp.vm.compression")
 const span = require("nupp.mem.span")
 

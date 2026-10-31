@@ -9,7 +9,7 @@ do
     local incremental = require("nupp.compiler.project.incremental")
     local optimize = require("nupp.compiler.lua.optimize")
     local gen = require("nupp.compiler.lua.gen")
-    local json = require("nupp.codec.json")
+    local json = require("serde.json")
     local M = {}
 
     function M.measureModuleBoundaryVariants()
@@ -118,7 +118,7 @@ do
                 write(OUTPUT .. "/" .. LABEL .. "-" .. case.name .. "-" .. variant .. ".lua", code)
             end
         end
-        write(OUTPUT .. "/" .. LABEL .. ".json", json.encode(results))
+        write(OUTPUT .. "/" .. LABEL .. ".json", json.encodeValue(results))
         os.execute("rm -rf '" .. dir .. "'")
     end
 
@@ -129,7 +129,7 @@ do
     local incremental = require("nupp.compiler.project.incremental")
     local optimize = require("nupp.compiler.lua.optimize")
     local gen = require("nupp.compiler.lua.gen")
-    local json = require("nupp.codec.json")
+    local json = require("serde.json")
     local M = {}
     function M.measureViewBoundary()
         local dir = os.tmpname()
@@ -204,7 +204,7 @@ return run]]
             result[#result + 1] = {variant = variant, bytes = #code, runtimeMs = times, remarks = remarks}
             write(OUTPUT .. "/" .. LABEL .. "-view-" .. variant .. ".lua", code)
         end
-        write(OUTPUT .. "/" .. LABEL .. "-view.json", json.encode(result))
+        write(OUTPUT .. "/" .. LABEL .. "-view.json", json.encodeValue(result))
         os.execute("rm -rf '" .. dir .. "'")
     end
 

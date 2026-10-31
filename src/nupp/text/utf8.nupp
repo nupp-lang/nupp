@@ -90,7 +90,7 @@ accept a string or a byte view.
 
 ::: seealso
 - [](nupp.io#byte-views) for the byte views these operations accept
-- [](nupp.codec.json) for JSON encoding and decoding
+- [](serde.json) for JSON encoding and decoding
 :::
 ]]
 const {type ByteView} = require("nupp.io")

@@ -8,7 +8,7 @@
 -- numeric expectations are recomputed with it. Bundles and outputs go under
 -- build/core-guests.
 local producer = require("nupp.core.guestprogramproducer")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 
 local function cwd()
     local pipe = assert(io.popen("pwd"))
@@ -279,7 +279,14 @@ local function stage()
         for _, name in ipairs(names) do
             sources[name] = assert(read(ROOT .. "/" .. name), name)
         end
-        write(base .. "/snapshot.json", json.encode({version = 1, target = "aarch64-apple-darwin", sources = sources}))
+        write(
+            base .. "/snapshot.json",
+            json.encodeValue({
+                version = 1,
+                target = "aarch64-apple-darwin",
+                sources = sources
+            })
+        )
     end
 end
 

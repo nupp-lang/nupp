@@ -755,10 +755,10 @@ local function hostHrefs(texts, bases)
     if not version:match("^v%d") then
         return nil
     end
-    local json = require("nupp.codec.json")
+    local json = require("serde.json")
     local path = root .. "/corpus.json"
     local file = assert(io.open(path, "wb"))
-    file:write(json.encode({texts = texts, bases = bases or json.EMPTY_ARRAY}))
+    file:write(json.encodeValue({texts = texts, bases = bases or json.EMPTY_ARRAY}))
     file:close()
     local script = [[
 const {texts, bases} = JSON.parse(require('fs').readFileSync(process.argv[2], 'utf8'));
@@ -773,7 +773,7 @@ process.stdout.write(JSON.stringify(texts.map((text, index) => {
     local node = assert(io.popen("node '" .. scriptPath .. "' '" .. path .. "'"))
     local answer = node:read("*a")
     node:close()
-    local hrefs = json.decode(answer, json.NULL)
+    local hrefs = json.decodeValue(answer, json.NULL)
     for index = 1, #texts do
         if hrefs[index] == json.NULL then
             hrefs[index] = false

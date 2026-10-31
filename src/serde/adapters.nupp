@@ -1,20 +1,20 @@
-module nupp.serde.adapters
+module serde.adapters
 
 --[[
 These builders give a model library that owns its schema adapters over its own
-[](nupp.serde.Member) type. See
+[](serde.Member) type. See
 [serde.md](docs/learn/runtime/data/serde.md#model-owned-bindings) for how model
 bindings fit beside declaration bindings.
 
-A declaration binding from [](nupp.serde.binding) covers ordinary records. A
+A declaration binding from [](serde.binding) covers ordinary records. A
 library that generates types from Smithy, OpenAPI, or a binary schema needs its
 own member identities instead, so its codec policy can read shape identifiers,
 XML namespaces, or field numbers off them.
 
 ```nupp
-local serde = require("nupp.serde")
-local adapters = require("nupp.serde.adapters")
-local json = require("nupp.serde.json")
+local serde = require("serde")
+local adapters = require("serde.adapters")
+local json = require("serde.json")
 local plain = json.codec(json.memberNamePolicy)
 
 -- The model's own member type. A real library would carry its schema here.
@@ -84,7 +84,7 @@ assert(plain:decode(books, '{"title":"Emma"}').title == "Emma")
 
 Every builder takes the member the value sits at, so the same scalar adapter
 type serves a top-level value, a structure field, and a list element. Wrap the
-finished adapter in [](nupp.serde.Bound) to pass it to a codec.
+finished adapter in [](serde.Bound) to pass it to a codec.
 ]]
 
 local core = require("nupp.serde.internal.value")
@@ -105,7 +105,7 @@ export const text = scalars.text
 --- @return the adapter
 export const boolean = scalars.boolean
 
---- An integer of a fixed width and signedness, as a [](nupp.serde.Integer).
+--- An integer of a fixed width and signedness, as a [](serde.Integer).
 ---
 --- The codec checks the range on both sides, so a 64-bit value round-trips
 --- exactly on every target. Use [](convert) to expose it as a plain `integer`.
@@ -119,14 +119,14 @@ export const integer = scalars.integer
 --- A floating-point number written at a fixed width.
 ---
 --- A 32-bit float is rounded on write, so a codec that keeps widths, such as
---- [](nupp.serde.native), restores the value it would have had in a `float32`.
+--- [](serde.native), restores the value it would have had in a `float32`.
 ---
 --- @param member the member the value sits at
 --- @param width 32 or 64 bits
 --- @return the adapter
 export const float = scalars.float
 
---- An exact decimal, as a [](nupp.serde.Decimal).
+--- An exact decimal, as a [](serde.Decimal).
 ---
 --- @param member the member the value sits at
 --- @return the adapter
@@ -144,14 +144,14 @@ export const bigInteger = scalars.bigInteger
 --- @return the adapter
 export const bytes = scalars.bytes
 
---- An instant, as a [](nupp.serde.Timestamp). The codec policy chooses its
+--- An instant, as a [](serde.Timestamp). The codec policy chooses its
 --- text or numeric form.
 ---
 --- @param member the member the value sits at
 --- @return the adapter
 export const timestamp = scalars.timestamp
 
---- A model-defined [](nupp.serde.Atom), passed through uninterpreted.
+--- A model-defined [](serde.Atom), passed through uninterpreted.
 ---
 --- @param member the member the value sits at
 --- @return the adapter
@@ -159,13 +159,13 @@ export const atom = scalars.atom
 
 --- A document-valued member: a value with no schema of its own, read and
 --- written through a document adapter such as
---- [](nupp.serde.document.adapter).
+--- [](serde.document.adapter).
 ---
 --- ```nupp
---- local serde = require("nupp.serde")
---- local adapters = require("nupp.serde.adapters")
---- local document = require("nupp.serde.document")
---- local json = require("nupp.serde.json")
+--- local serde = require("serde")
+--- local adapters = require("serde.adapters")
+--- local document = require("serde.document")
+--- local json = require("serde.json")
 --- local plain = json.codec(json.memberNamePolicy)
 --- local record Member is serde.Member
 ---     @readonly name: string
@@ -185,9 +185,9 @@ export const document = scalars.document
 --- Converts between an application value and one an adapter already handles.
 ---
 --- ```nupp
---- local serde = require("nupp.serde")
---- local adapters = require("nupp.serde.adapters")
---- local json = require("nupp.serde.json")
+--- local serde = require("serde")
+--- local adapters = require("serde.adapters")
+--- local json = require("serde.json")
 --- local plain = json.codec(json.memberNamePolicy)
 --- local record Member is serde.Member
 ---     @readonly name: string
@@ -317,9 +317,9 @@ export const inspect = structures.inspect
 --- trip both.
 ---
 --- ```nupp
---- local serde = require("nupp.serde")
---- local adapters = require("nupp.serde.adapters")
---- local json = require("nupp.serde.json")
+--- local serde = require("serde")
+--- local adapters = require("serde.adapters")
+--- local json = require("serde.json")
 --- local plain = json.codec(json.memberNamePolicy)
 --- local record Member is serde.Member
 ---     @readonly name: string

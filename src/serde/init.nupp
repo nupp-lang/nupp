@@ -1,4 +1,4 @@
-module nupp.serde
+module serde
 
 --[[
 A binding selects how a value is read and constructed, separately from the
@@ -7,8 +7,8 @@ codec that chooses its wire representation. See
 and documents.
 
 ```nupp
-local serde = require("nupp.serde")
-local json = require("nupp.serde.json")
+local serde = require("serde")
+local json = require("serde.json")
 local record User
     id: integer
     name: string
@@ -26,13 +26,13 @@ no derive, and [](Options) renames, filters, or reinterprets its fields.
 
 The package splits by audience:
 
-- [](nupp.serde.json), [](nupp.serde.native), and [](nupp.serde.debug) are the
+- [](serde.json), [](serde.native), and [](serde.debug) are the
   codecs: JSON text, a machine-local persistence frame, and diagnostic text.
-- [](nupp.serde.document) holds schema-free values: a document tree, typed views
+- [](serde.document) holds schema-free values: a document tree, typed views
   of bound values, and saved [](nupp.util.Store) snapshots.
-- [](nupp.serde.adapters) builds bindings for a model library that owns its own
+- [](serde.adapters) builds bindings for a model library that owns its own
   schema, such as one generated from Smithy or OpenAPI.
-- [](nupp.serde.codec) holds what a new codec needs beyond the contracts here.
+- [](serde.codec) holds what a new codec needs beyond the contracts here.
 
 This module holds the contracts all of them share. A model library implements
 [](Adapter) over its own [](Member) type and wraps it in [](Bound); a codec
@@ -66,8 +66,8 @@ export type Binding<T> = core.Binding<T>
 --- discriminator.
 ---
 --- ```nupp
---- local serde = require("nupp.serde")
---- local json = require("nupp.serde.json")
+--- local serde = require("serde")
+--- local json = require("serde.json")
 --- local record Node
 ---     name: string
 ---     children: {Node} = {}
@@ -92,8 +92,8 @@ export const binding = declarations.binding
 --- it is a whitelist, so a field it does not mention is neither written nor read.
 ---
 --- ```nupp
---- local serde = require("nupp.serde")
---- local json = require("nupp.serde.json")
+--- local serde = require("serde")
+--- local json = require("serde.json")
 --- local record Account
 ---     displayName: string
 ---     passwordHash: string?
@@ -127,8 +127,8 @@ export const FieldOptions = declarations.FieldOptions
 --- RFC 3339 timestamp, and reads one back.
 ---
 --- ```nupp
---- local serde = require("nupp.serde")
---- local json = require("nupp.serde.json")
+--- local serde = require("serde")
+--- local json = require("serde.json")
 --- local record Event
 ---     at: integer
 --- end
@@ -161,7 +161,7 @@ export const Access = accessors.Access
 --- Returns the [](Access) for a declaration, cached on the declaration.
 ---
 --- ```nupp
---- local serde = require("nupp.serde")
+--- local serde = require("serde")
 --- local record Point
 ---     x: number
 ---     y: number = 0
@@ -185,18 +185,18 @@ export type Member = core.Member
 ---
 --- `describe` returns the shape a codec plans against, `write` emits a value
 --- through a [](Writer), and `read` constructs one from a [](Reader). The
---- builders in [](nupp.serde.adapters) cover scalars, structures, and lists.
+--- builders in [](serde.adapters) cover scalars, structures, and lists.
 export type Adapter<T, M is core.Member> = core.Adapter<T, M>
 
 --- Erases an [](Adapter)'s member type into a [](Binding) for a Copyable value.
 ---
 --- A codec still has to be told how the model's members are named: see
---- [](nupp.serde.json.memberNamePolicy).
+--- [](serde.json.memberNamePolicy).
 ---
 --- ```nupp
---- local serde = require("nupp.serde")
---- local adapters = require("nupp.serde.adapters")
---- local json = require("nupp.serde.json")
+--- local serde = require("serde")
+--- local adapters = require("serde.adapters")
+--- local json = require("serde.json")
 --- local record Member is serde.Member
 ---     @readonly name: string
 ---     @readonly index: integer?
@@ -283,10 +283,10 @@ export type Context = core.Context
 export type Discard<T> = core.Discard<T>
 
 --- Reads and writes a document type as its logical contents. See
---- [](nupp.serde.document).
+--- [](serde.document).
 export type DocumentAdapter<D> = core.DocumentAdapter<D>
 
---- Reads one document value without a schema. See [](nupp.serde.document).
+--- Reads one document value without a schema. See [](serde.document).
 export type DocumentReader = core.DocumentReader
 
 --- Applies an adapter to state, recovering the member type a [](Binding)
@@ -330,8 +330,8 @@ export type DocumentEntry<S> = core.DocumentEntry<S>
 --- and `suppressed` collects failures raised while cleaning up after it.
 ---
 --- ```nupp
---- local serde = require("nupp.serde")
---- local json = require("nupp.serde.json")
+--- local serde = require("serde")
+--- local json = require("serde.json")
 --- local record User
 ---     id: integer
 --- end

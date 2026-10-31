@@ -5,7 +5,7 @@ local allocate = require("s0.allocate")
 local check = require("s0.allocationcheck")
 local selector = require("s0.select")
 local shim = require("nupp.core.shim")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local producer = {}
 
 -- Typed MIR construction only: no bytecode decoder or guest arithmetic.
@@ -99,7 +99,7 @@ function producer.compile(gapText: string): string
     result.scratchMoves = scratchMoves
     result.integerRegisters, result.floatRegisters = #target.integerRegisters, #target.floatRegisters
 
-    return json.encode(result)
+    return json.encodeValue(result)
 end
 
 export = producer

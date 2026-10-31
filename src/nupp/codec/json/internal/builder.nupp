@@ -4,13 +4,13 @@ module nupp.codec.json.internal.builder
 The value-stream entry points only the JSON decoder uses.
 
 These sit beside the fused decoder rather than in
-[](nupp.codec.valuebuilder), whose byte readers, scratch buffers and stream
+[](serde.valuebuilder), whose byte readers, scratch buffers and stream
 events stay public for any codec: a pull or serde selection shape, the escape
 positions a structural scan retained, and JSON's number grammar mean nothing
 to another format. They lower the same way inside `@aot`, and each works on a
-stream or scratch buffer that `nupp.codec.valuebuilder` made.
+stream or scratch buffer that `serde.valuebuilder` made.
 ]]
-const valuebuilder = require("nupp.codec.valuebuilder")
+const valuebuilder = require("serde.valuebuilder")
 
 local stream = {}
 
@@ -19,7 +19,7 @@ local stream = {}
 --- This is an internal AOT boundary. The native builder still observes every
 --- parsed token so skipped subtrees are validated, but it allocates values only
 --- where `shape` selects them. `arrayShapeMarker` is the private key used by the
---- JSON provider's [](nupp.codec.json.arrayOf) shapes.
+--- JSON provider's [](serde.json.arrayOf) shapes.
 --- @raises string outside an AOT-compiled function
 function stream.newPull(
     nullValue: any,

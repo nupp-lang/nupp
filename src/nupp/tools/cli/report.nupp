@@ -11,7 +11,7 @@ is read once and walked to turn offsets into positions.
 
 See `docs/reference/diagnostics.md` for what the fields mean.
 ]]
-const json = require("nupp.codec.json")
+const json = require("serde.json")
 
 local fs = require("nupp.compiler.fs")
 local explain = require("nupp.tools.explain")
@@ -164,10 +164,10 @@ end
 
 local function stableEncode(value: unknown, visiting: {[unknown]: boolean}?): string
     if type(value) == "string" then
-        return json.encode(validUtf8(value))
+        return json.encodeValue(validUtf8(value))
     end
     if type(value) ~= "table" then
-        return json.encode(value)
+        return json.encodeValue(value)
     end
     visiting = visiting or {}
     if visiting[value] then
@@ -192,7 +192,9 @@ local function stableEncode(value: unknown, visiting: {[unknown]: boolean}?): st
     end
     table.sort(keys)
     for index, key in ipairs(keys) do
-        parts[index] = json.encode(validUtf8(key)) .. ":" .. stableEncode((value as {[string]: unknown})[key], visiting)
+        parts[
+            index
+        ] = json.encodeValue(validUtf8(key)) .. ":" .. stableEncode((value as {[string]: unknown})[key], visiting)
     end
     visiting[value] = nil
 

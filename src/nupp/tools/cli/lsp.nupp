@@ -14,7 +14,7 @@ is therefore unknown to operations that do not take it, rather than known
 everywhere and rejected afterwards.
 ]]
 
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local fs = require("nupp.compiler.fs")
 local cliModule = require("nupp.cli")
 
@@ -545,7 +545,7 @@ end
 
 local function jsonOutput(value)
     value.ok = true
-    io.write(json.encode(value) .. "\n")
+    io.write(json.encodeValue(value) .. "\n")
 end
 
 -- An argument the command cannot use, as opposed to a file or position it could not

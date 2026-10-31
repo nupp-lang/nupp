@@ -38,7 +38,7 @@ local homeMod = require("nupp.tools.doc.home")
 local frontmatterMod = require("nupp.tools.doc.frontmatter")
 local diagnosticsMod = require("nupp.tools.doc.diagnostics")
 local stdlibMod = require("nupp.tools.doc.stdlib")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 
 local trim, htmlEscape = stringsMod.trim, stringsMod.htmlEscape
 local escapeJs = stringsMod.escapeJs
@@ -222,13 +222,13 @@ function doc.markdown(
     return markdownMod.render(modules, title, all, overview)
 end
 
---- JSON with object keys in sorted order, so one model is one document: `json.encode`
---- writes keys in `pairs` order, which LuaJIT's per-process string hash seed changes
---- from one run to the next.
+--- JSON with object keys in sorted order, so one model is one document:
+--- `json.encodeValue` writes keys in `pairs` order, which LuaJIT's per-process string
+--- hash seed changes from one run to the next.
 --- @raises string when an object has a non-string key
 local function sortedJson(value: any): string
     if type(value) ~= "table" or value == json.EMPTY_ARRAY or value == json.EMPTY_OBJECT or value == json.NULL then
-        return json.encode(value)
+        return json.encodeValue(value)
     end
     local entries = value as {[any]: any}
     local parts: {string} = {}
@@ -248,7 +248,7 @@ local function sortedJson(value: any): string
     end
     table.sort(keys)
     for index, key in ipairs(keys) do
-        parts[index] = json.encode(key) .. ":" .. sortedJson(entries[key])
+        parts[index] = json.encodeValue(key) .. ":" .. sortedJson(entries[key])
     end
 
     return "{" .. table.concat(parts, ",") .. "}"
@@ -1590,7 +1590,7 @@ local function reconcileSiteFiles(output: string, written: {string}): boolean?, 
     local previous: {any} = {}
     local encoded = readFile(statePath)
     if encoded then
-        local decoded = json.decode(encoded, json.NULL)
+        local decoded = json.decodeValue(encoded, json.NULL)
         if type(decoded) == "table" then
             previous = decoded
         end
@@ -1616,7 +1616,7 @@ local function reconcileSiteFiles(output: string, written: {string}): boolean?, 
     end
     table.sort(written)
 
-    return filesMod.writeFile(statePath, json.encode(written) .. "\n")
+    return filesMod.writeFile(statePath, json.encodeValue(written) .. "\n")
 end
 
 --- Generates the documentation a target asked for. Returns the exit code, and the

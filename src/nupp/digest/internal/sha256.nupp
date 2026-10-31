@@ -25,14 +25,14 @@ the caller's string, and only the final partial block and its length tally --
 sixty-four or a hundred and twenty-eight bytes -- are assembled here, so a
 digest of a megabyte allocates what a digest of a byte does.
 
-Everything the entry reads or writes goes through [](nupp.codec.valuebuilder):
+Everything the entry reads or writes goes through [](serde.valuebuilder):
 `word` reads the round constants back out of a packed string, the word scratch
 holds the sixty-four schedule words, and the byte scratch is where the
 sixty-four hexadecimal digits are assembled before one copy publishes them as
 an ordinary Lua string.
 ]]
 
-local valuebuilder = require("nupp.codec.valuebuilder")
+local valuebuilder = require("serde.valuebuilder")
 
 local digest = {}
 

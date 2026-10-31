@@ -15,7 +15,7 @@ export record View<T is nupp.Copyable>
 
     --- Returns the context the view carries.
     ---
-    --- A view made by [](nupp.serde.document.view) carries the context it was
+    --- A view made by [](serde.document.view) carries the context it was
     --- given, and a decoded view the context it was read under.
     --- @return the context, or nil when the view has none
     function context(self): core.Context?
@@ -33,7 +33,7 @@ export record View<T is nupp.Copyable>
     --- The copy is reconstructed from the value's document through the
     --- binding, so later changes to the original do not reach it.
     --- @return the detached view, with the same binding and context
-    --- @raises nupp.serde.Error when the binding cannot construct a value from
+    --- @raises serde.Error when the binding cannot construct a value from
     ---     the document it wrote
     function snapshot(self): View<T>
         return new View<T>(

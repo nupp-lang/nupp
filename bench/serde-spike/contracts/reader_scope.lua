@@ -88,7 +88,7 @@ refused(
 print("reader lifetime contract passed")
 
 -- Root value readers expire even when adapters return without consuming input.
-local codec = require("nupp.serde.json")
+local codec = require("serde.json")
 local member = {name = "root"}
 local policy = {
     policy = function()
@@ -129,7 +129,9 @@ for _, mode in ipairs({"consume", "under", "over", "raise"}) do
             discarded = value
         end,
     }
-    local ok, value = pcall(function() return codec.codec(policy):decode(binding, '"value"') end)
+    local ok, value = pcall(function()
+        return codec.codec(policy):decode(binding, '"value"')
+    end)
     assert(ok == (mode == "consume"), tostring(value))
     if ok then
         assert(value == "value")
@@ -145,7 +147,7 @@ end
 
 -- An embedded binding must still produce exactly one logical value.
 local core = require("nupp.serde.internal.value")
-local jsonSyntax = require("nupp.codec.json")
+local jsonSyntax = require("serde.json")
 local buffers = require("nupp.text")
 local profile = {
     policy = function()
@@ -176,7 +178,9 @@ for _, mode in ipairs({"under", "over"}) do
     local destination = buffers.newBuffer()
     local sink = jsonSyntax.newWriter(destination)
     sink:startArray()
-    local ok, problem = pcall(function() return codec.codec(profile):writeValue(selected, "value", sink) end)
+    local ok, problem = pcall(function()
+        return codec.codec(profile):writeValue(selected, "value", sink)
+    end)
     assert(not ok and problem.code == "contract", tostring(problem))
     sink:close()
 end

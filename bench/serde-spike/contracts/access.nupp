@@ -1,4 +1,4 @@
-local access = require("nupp.serde")
+local access = require("serde")
 
 local record Child
     count: integer

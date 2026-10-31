@@ -2,10 +2,10 @@
 module nupp.codec.json.provider
 
 local spi = require("nupp.runtime.packages")
-local contracts = require("nupp.codec.json.spi")
+local contracts = require("serde.json.spi")
 
 local provider: contracts.Provider = spi.select(
-    spi.providers<contracts.Provider>("nupp.codec.json.spi.Provider")
+    spi.providers<contracts.Provider>("serde.json.spi.Provider")
 ) ?? require("nupp.runtime.provider.lunajson")
 
 export = provider

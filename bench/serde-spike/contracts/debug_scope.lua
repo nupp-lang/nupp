@@ -1,5 +1,5 @@
 local core = require("nupp.serde.internal.value")
-local debug = require("nupp.serde.debug")
+local debug = require("serde.debug")
 local identity = require("nupp.serde.internal.identity")
 local renderer = debug.renderer(2)
 local weak = setmetatable({}, {__mode = "k"})

@@ -68,7 +68,7 @@ local function installVmModules()
 end
 
 package.preload.testjson = package.preload.testjson or function()
-    local native = require("nupp.codec.json")
+    local native = require("serde.json")
 
     local json = {
         NULL = native.NULL,
@@ -78,13 +78,13 @@ package.preload.testjson = package.preload.testjson or function()
         asArray = native.asArray,
         asObject = native.asObject,
         isArray = native.isArray,
-        encode = native.encode,
+        encode = native.encodeValue,
         newWriter = native.newWriter,
     }
 
     -- The facade answers a reason now; the runner's callers want a raise.
     function json.decode(text)
-        local value, reason = native.decode(text, native.NULL)
+        local value, reason = native.decodeValue(text, native.NULL)
         if reason ~= nil then
             error(reason, 2)
         end
@@ -717,6 +717,7 @@ local silenceProcessOutput = function()
     return function()
     end
 end
+
 -- The descriptor the marks go to, for handing to a worker.
 --
 -- LuaJIT's FFI, or on the VM the few C calls this runner makes, bound through

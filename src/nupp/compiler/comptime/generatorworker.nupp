@@ -6,7 +6,7 @@ module nupp.compiler.comptime.generatorworker
 -- isolation bounds time and memory; it is not an operating-system sandbox.
 
 local fs = require("nupp.compiler.fs")
-local json = require("nupp.codec.json")
+local json = require("nupp.serde.internal.json.values")
 
 local worker = {}
 

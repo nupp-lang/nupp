@@ -54,7 +54,7 @@ strings and bytes. Every position is kept, so interior and trailing `nil`s
 arrive as written. A number must be finite and a string must be UTF-8 text of at
 most 64 KiB; anything else is bytes. Tables and functions are refused, naming
 the argument's position. Structured data is encoded into bytes by the library
-that owns it, for example with [](nupp.serde).
+that owns it, for example with [](serde).
 
 Bytes are a [](nupp.mem.span) of bytes. A span is a borrow, so it crosses through
 a bound kind whose signature says so; `call` and `post` take `any`, which a

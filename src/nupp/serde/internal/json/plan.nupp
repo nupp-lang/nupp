@@ -1,7 +1,7 @@
 module nupp.serde.internal.json.plan
 
 local core = require("nupp.serde.internal.value")
-local json = require("nupp.codec.json")
+local json = require("nupp.serde.internal.json.values")
 local errors = require("nupp.serde.internal.errors")
 
 --- Whether a JSON policy writes a member, leaves it out, or writes it

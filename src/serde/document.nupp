@@ -1,4 +1,4 @@
-module nupp.serde.document
+module serde.document
 
 --[[
 A document is a value without a schema, which any codec reads and writes. This
@@ -7,8 +7,8 @@ documents, typed views, and saved [](nupp.util.Store) snapshots; see
 [serde.md](docs/learn/runtime/data/serde.md#documents) for the guide.
 
 ```nupp
-local document = require("nupp.serde.document")
-local json = require("nupp.serde.json")
+local document = require("serde.document")
+local json = require("serde.json")
 local value = json.decodeDocument(document.adapter(), '{"id":18446744073709551615,"tags":["a","b"]}')
 assert(value.kind == "structure")
 assert(assert(value:get("id")):numberToken() == "18446744073709551615")
@@ -19,7 +19,7 @@ assert(json.encodeDocument(document.adapter(), value) == '{"id":1844674407370955
 A document keeps what the codec read without rounding it: integers beyond 2^53
 stay exact, decimals keep their digits, floats keep their width, and absent,
 null, and present members stay distinct. It also keeps the
-[](nupp.serde.Context) it was read under, so a protocol can tell where it came
+[](serde.Context) it was read under, so a protocol can tell where it came
 from.
 
 A document-valued member, one a schema declares without describing, is a
@@ -30,8 +30,8 @@ the member separately from the value inside it.
 how a value moves between codecs or is inspected without knowing its type:
 
 ```nupp
-local serde = require("nupp.serde")
-local document = require("nupp.serde.document")
+local serde = require("serde")
+local document = require("serde.document")
 local record Point
     x: integer
     y: integer
@@ -73,7 +73,7 @@ export const MapEntry = documents.MapEntry
 --- Returns the adapter that reads and writes a [](Document) as its contents.
 ---
 --- Pass it to a codec's `encodeDocument` and `decodeDocument`, or to
---- [](nupp.serde.adapters.document) for a document-valued member.
+--- [](serde.adapters.document) for a document-valued member.
 ---
 --- @return the shared adapter
 export const adapter = documents.documentAdapter
@@ -122,8 +122,8 @@ export const tuple = documents.tuple
 --- A structure, from its members in order.
 ---
 --- ```nupp
---- local document = require("nupp.serde.document")
---- local json = require("nupp.serde.json")
+--- local document = require("serde.document")
+--- local json = require("serde.json")
 --- local value = document.object({
 ---     new document.Entry(name = "ok", value = document.boolean(true)),
 ---     new document.Entry(name = "note", value = document.null())
@@ -163,7 +163,7 @@ export const from = writers.fromBinding
 --- @param binding the binding to construct through
 --- @param value the document
 --- @return the value
---- @raises nupp.serde.Error when the document does not fit the binding
+--- @raises serde.Error when the document does not fit the binding
 export const into = reconstruction.into
 
 --- Constructs values of one binding from documents, without looking the
@@ -184,7 +184,7 @@ export const clear = reconstruction.clear
 --- Returns how many bindings the [](decoder) cache holds.
 export const cachedBindings = reconstruction.cachedBindings
 
---- Reads a document through the [](nupp.serde.DocumentReader) contract, as a
+--- Reads a document through the [](serde.DocumentReader) contract, as a
 --- codec's own reader would.
 export const reader = readers.reader
 
@@ -198,9 +198,9 @@ export const snapshot = readers.snapshot
 --- and `document()` materializes the tree when one is wanted.
 ---
 --- ```nupp
---- local serde = require("nupp.serde")
---- local document = require("nupp.serde.document")
---- local json = require("nupp.serde.json")
+--- local serde = require("serde")
+--- local document = require("serde.document")
+--- local json = require("serde.json")
 --- local record Counter
 ---     count: integer
 --- end
@@ -239,9 +239,9 @@ export const viewAdapter = views.adapter
 --- [](StoreSnapshot) any codec can carry through [](storeBinding).
 ---
 --- ```nupp
---- local serde = require("nupp.serde")
---- local document = require("nupp.serde.document")
---- local json = require("nupp.serde.json")
+--- local serde = require("serde")
+--- local document = require("serde.document")
+--- local json = require("serde.json")
 --- local record Settings
 ---     volume: integer
 --- end

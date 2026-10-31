@@ -251,10 +251,7 @@ function M.scopedReadersRejectRetentionAndIncorrectConsumption()
 end
 
 function M.bindingsAreInvariant()
-    local expected = {
-        ["widen.nupp"] = "NUPP2001",
-        ["narrow.nupp"] = "NUPP2002",
-    }
+    local expected = {["widen.nupp"] = "NUPP2001", ["narrow.nupp"] = "NUPP2002",}
     local args = {"check", "--json"}
     for _, name in ipairs({"widen.nupp", "narrow.nupp"}) do
         args[#args + 1] = "negative/" .. name

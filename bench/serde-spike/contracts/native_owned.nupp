@@ -1,7 +1,7 @@
-local __serdeJson = require("nupp.serde.json")
-local core = require("nupp.serde")
-local native = require("nupp.serde.native")
-local documents = require("nupp.serde.document")
+local __serdeJson = require("serde.json")
+local core = require("serde")
+local native = require("serde.native")
+local documents = require("serde.document")
 local record Counts
     created: integer = 0
     closed: integer = 0

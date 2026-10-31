@@ -9,7 +9,7 @@ runner wrote, turns them into one aggregate model, then writes JSON, LCOV, and
 HTML from that model.
 ]]
 
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local fs = require("nupp.compiler.fs")
 local cache = require("nupp.tools.build.cache")
 local highlight = require("nupp.tools.doc.highlight")
@@ -86,7 +86,7 @@ local function readShard(path)
     local decoder = json
     -- A hit count is a whole number of executions, so a shard offering `NaN` for one is
     -- damaged rather than unusual, and the guard below already names a damaged shard.
-    local ok, value = pcall(decoder.decode, source, decoder.NULL)
+    local ok, value = pcall(decoder.decodeValue, source, decoder.NULL)
     if not ok or type(value) ~= "table" or type(value.hits) ~= "table" then
         return nil, "invalid coverage shard " .. path
     end
@@ -591,7 +591,7 @@ function coverage.read(path: string): (string?, any, string?)
     if not text then
         return nil, nil, "cannot read coverage report " .. path .. ": " .. tostring(readErr)
     end
-    local value, decodeErr = json.decode(text as string)
+    local value, decodeErr = json.decodeValue(text as string)
     if type(value) ~= "table" then
         return nil, nil, path .. " is not a coverage report: " .. tostring(decodeErr or "not a JSON object")
     end

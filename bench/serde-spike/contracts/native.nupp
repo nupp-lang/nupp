@@ -1,10 +1,10 @@
-local __serdeJson = require("nupp.serde.json")
-local native = require("nupp.serde.native")
-local declaration = require("nupp.serde")
-local core = require("nupp.serde")
-local documents = require("nupp.serde.document")
-local numbers = require("nupp.serde.codec")
-local persistence = require("nupp.serde.document")
+local __serdeJson = require("serde.json")
+local native = require("serde.native")
+local declaration = require("serde")
+local core = require("serde")
+local documents = require("serde.document")
+local numbers = require("serde.codec")
+local persistence = require("serde.document")
 local util = require("nupp.util")
 
 local record Save
@@ -142,7 +142,7 @@ assert(hot:decode(binding, hot:encode(binding, saved)).score == saved.score)
 assert(hot:cachedBindings() == 1)
 hot:clear()
 assert(hot:cachedBindings() == 0)
-local json = require("nupp.serde.json")
+local json = require("serde.json")
 local model = require("example.richmodel")
 assert(
     not pcall(function(): string
@@ -161,7 +161,7 @@ local record DocumentMember is core.Member
     @readonly name: string = "document"
     @readonly index: integer?
 end
-local scalar = require("nupp.serde.adapters")
+local scalar = require("serde.adapters")
 local documentBinding = new core.Bound<documents.Document, DocumentMember>(
     adapter = scalar.document(new DocumentMember(), adapter)
 )

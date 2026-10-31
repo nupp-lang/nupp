@@ -1,5 +1,5 @@
 local traversal = require("traversal")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local util = require("jit.util")
 local aborts = {}
 jit.attach(
@@ -248,4 +248,4 @@ for _, case in ipairs(cases) do
     report.cases[#report.cases + 1] = case
 end
 assert(blackhole > 0)
-print(json.encode(report))
+print(json.encodeValue(report))

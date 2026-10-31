@@ -10,7 +10,7 @@ local allocate = require("s0.allocate")
 local allocationcheck = require("s0.allocationcheck")
 local selector = require("s0.select")
 local shim = require("nupp.core.rootshim")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local graphimage = require("nupp.compiler.vm.graphimage")
 local producer = {}
 
@@ -145,11 +145,11 @@ function producer.compile(mode: string): string
     result.handlers, result.functions, result.mode = {{name = "CoreRootComplete"}}, metrics, mode
     result.boundaries, result.refusals = boundaries, refusals
 
-    return json.encode(result)
+    return json.encodeValue(result)
 end
 
 function producer.data(selection: string, choice: string): string
-    local result = json.decode(front.read(selection))
+    local result = json.decodeValue(front.read(selection))
     local layout = result.layout
     local selected = assert(tonumber(choice))
     assert(selected >= 0 and selected <= 5 and selected % 1 == 0, "root probe choice")

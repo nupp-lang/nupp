@@ -18,7 +18,7 @@ Marker objects and schema state belong to this provider instance. `asArray` and
 byte-positioned diagnostic; serde entry points return the contract's value/error
 pair and honor their unknown-member policy.
 
-[](nupp.codec.json) resolves the codec at module initialization. Its public values
+[](serde.json) resolves the codec at module initialization. Its public values
 and generic ownership signatures come from the canonical service declaration,
 and hot parser and writer calls do not query SPI.
 ]]
@@ -29,7 +29,7 @@ local pullDecoder = require("nupp.codec.json.internal.decode")
 local serdeDecoder = require("nupp.codec.json.internal.decoder.serde")
 local newBuffer = require("nupp.text").newBuffer
 local bit = require("bit")
-local contracts = require("nupp.codec.json.spi")
+local contracts = require("serde.json.spi")
 
 local json = {}
 local ARRAY_MARKER, OBJECT_MARKER, ARRAY_SHAPE = {}, {}, {}
@@ -921,7 +921,7 @@ end
 local checked: contracts.Provider = {
     arrayOf = json.arrayOf,
     -- `asArray` and `asObject` are asserted where every other member is checked.
-    -- The contract owns what it marks, because `nupp.codec.json.asArray` promises
+    -- The contract owns what it marks, because `serde.json.asArray` promises
     -- its caller the same table back. No provider can state that and still read
     -- the table: `pairs` takes neither an owner nor a borrow, so a body that
     -- validates keys cannot also carry the owning signature. Both providers

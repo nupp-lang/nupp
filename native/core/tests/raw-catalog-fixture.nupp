@@ -8,7 +8,7 @@ local tagged = require("nupp.compiler.vm.taggedprofile")
 local contracts = require("nupp.compiler.vm.coregraphcontracts")
 local codec = require("nupp.compiler.vm.coregraphcodec")
 local schema = require("nupp.compiler.vm.coregraphschema")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 require("nupp.compiler.syntax.triviaarena.table")
 require("nupp.compiler.project.projectconfig")
 require("nupp.compiler.hash")
@@ -101,7 +101,7 @@ end
 
 function fixture.validateMany(path: string): string
     local list = assert(io.open(path, "rb"))
-    local inputs = json.decode(list:read("*a"))
+    local inputs = json.decodeValue(list:read("*a"))
     list:close()
     local results = {}
     for _, input in ipairs(inputs) do
@@ -116,15 +116,15 @@ function fixture.validateMany(path: string): string
         ] = {physical = physical, catalog = catalog, semantic = semantic, metrics = catalog and metrics or nil}
     end
 
-    return json.encode(results)
+    return json.encodeValue(results)
 end
 
 function fixture.wire(): string
-    return json.encode(schema.wire())
+    return json.encodeValue(schema.wire())
 end
 
 function fixture.definition(): string
-    return json.encode(schema.describe())
+    return json.encodeValue(schema.describe())
 end
 
 export = fixture

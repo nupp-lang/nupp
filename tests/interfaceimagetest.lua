@@ -194,8 +194,8 @@ function M.restoringDuplicateSelfIdentitiesKeepsEachOwnerBound()
         end
     end
     assert(binders == 2, "the fixture gives two reciprocal self binders one raw identity")
-    local json = require("nupp.codec.json")
-    local before = json.encode(image)
+    local json = require("serde.json")
+    local before = json.encodeValue(image)
     local firstRecipient = indexed("DuplicateFirst", firstPath)
     local secondRecipient = indexed("DuplicateSecond", secondPath)
     local decoded
@@ -209,7 +209,7 @@ function M.restoringDuplicateSelfIdentitiesKeepsEachOwnerBound()
     )
     assert(firstRecipient.selfType.bound == firstRecipient and secondRecipient.selfType.bound == secondRecipient)
     assert(firstBinder.bound == first and secondBinder.bound == second, "producer bounds remain unchanged")
-    assert(json.encode(image) == before, "decoding does not rewrite the serialized payload")
+    assert(json.encodeValue(image) == before, "decoding does not rewrite the serialized payload")
 end
 
 function M.roundTripsRecursiveNominalMetadata()

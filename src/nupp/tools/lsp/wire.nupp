@@ -8,7 +8,7 @@ containers are lists. Everything the server sends back as a list is marked
 here.
 ]]
 
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 
 local wire = {}
 

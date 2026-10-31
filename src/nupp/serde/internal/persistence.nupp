@@ -112,7 +112,7 @@ export interface Registry
     ---     "reject"
     --- @raises string when an entry's version is not a positive integer, is
     ---     newer than the registered version, or is older with no migration
-    --- @raises nupp.serde.Error when an entry's document does not fit its
+    --- @raises serde.Error when an entry's document does not fit its
     ---     binding
     --- @raises string when an entry's document constructs a nil value
     load: function(self, snapshot: Snapshot, unknown: "reject" | "skip"): util.Store

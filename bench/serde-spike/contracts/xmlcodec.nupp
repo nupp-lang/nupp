@@ -1,15 +1,15 @@
-local __serdeJson = require("nupp.serde.json")
-local core = require("nupp.serde")
+local __serdeJson = require("serde.json")
+local core = require("serde")
 local smithy = require("example.smithy")
 local protocol = require("example.smithyxml")
 local codec = require("example.xmlcodec")
 local syntax = require("example.xmlsyntax")
 local assembly = require("example.xmlassembly")
-local structure = require("nupp.serde.adapters")
-local scalar = require("nupp.serde.adapters")
-local lists = require("nupp.serde.adapters")
-local documents = require("nupp.serde.document")
-local readers = require("nupp.serde.document")
+local structure = require("serde.adapters")
+local scalar = require("serde.adapters")
+local lists = require("serde.adapters")
+local documents = require("serde.document")
+local readers = require("serde.document")
 local model = smithy.parse(
     [[{"smithy":"2.0","shapes":{
  "test#Request":{"type":"structure","traits":{"smithy.api#xmlName":"Request","smithy.api#xmlNamespace":{"uri":"urn:test"}},"members":{

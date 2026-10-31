@@ -482,7 +482,7 @@ local function serdePlan(source: string, path: string, given: table?): (migrate.
     for _, node in ipairs(nodes) do
         local callee = node.kind == "call" and node.obj or nil
         local identity = callee and callee.exactCallExport
-        if identity and identity.module == "nupp.serde" and identity.member == "of" then
+        if identity and identity.module == "serde" and identity.member == "of" then
             replace(callee, serdeName .. ".binding")
             needsSerde = true
         elseif callee and callee.kind == "dotIndex" and callee.name.text == "fromJSON" then
@@ -520,10 +520,10 @@ local function serdePlan(source: string, path: string, given: table?): (migrate.
     end
     local imports: {string} = {}
     if needsSerde then
-        imports[#imports + 1] = "local " .. serdeName .. ' = require("nupp.serde")'
+        imports[#imports + 1] = "local " .. serdeName .. ' = require("serde")'
     end
     if needsJSON then
-        imports[#imports + 1] = "local " .. jsonName .. ' = require("nupp.serde.json")'
+        imports[#imports + 1] = "local " .. jsonName .. ' = require("serde.json")'
     end
     if needsDecode then
         imports[

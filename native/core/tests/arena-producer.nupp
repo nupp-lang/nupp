@@ -10,7 +10,7 @@ local allocationcheck = require("s0.allocationcheck")
 local selector = require("s0.select")
 local linker = require("nupp.core.link")
 local shim = require("nupp.core.shim")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local graphimage = require("nupp.compiler.vm.graphimage")
 local producer = {}
 local MODULE = "nupp.runtime.core.arena"
@@ -194,7 +194,7 @@ function producer.compile(mode: string, fixture: string): string
     )
     result.refusals = negatives
 
-    return json.encode(result)
+    return json.encodeValue(result)
 end
 
 function producer.data(offsetText: string, codeBytesText: string): string

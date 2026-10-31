@@ -1,12 +1,12 @@
-const {type EncodedString} = require("nupp.codec.json")
+const {type EncodedString} = require("serde.json")
 const {type Buffer} = require("nupp.text")
 
 local m = {}
 
-local json = require("nupp.codec.json")
-local serde = require("nupp.serde")
-local typedJSON = require("nupp.serde.json")
-local rendering = require("nupp.serde.debug")
+local json = require("serde.json")
+local serde = require("serde")
+local typedJSON = require("serde.json")
+local rendering = require("serde.debug")
 local native: any = require("serde_spike_native")
 local text = require("nupp.text")
 
@@ -464,7 +464,7 @@ function m.currentEncodeSmall(): string
 end
 
 function m.documentEncodeSmall(): string
-    return json.encode(smallValue)
+    return json.encodeValue(smallValue)
 end
 
 function m.directEncodeSmall(): string
@@ -535,7 +535,7 @@ function m.currentEncodeMedium(): string
 end
 
 function m.documentEncodeMedium(): string
-    return json.encode(mediumValue)
+    return json.encodeValue(mediumValue)
 end
 
 function m.serdeEncodeMedium(): string
@@ -681,7 +681,7 @@ function m.currentDecodeSmall(): Small
 end
 
 function m.documentDecodeSmall(): unknown
-    return (assert(json.decode(smallJson)))
+    return (assert(json.decodeValue(smallJson)))
 end
 
 function m.nativeDecodeSmall(): Small
@@ -705,7 +705,7 @@ function m.currentDecodeMedium(): Medium
 end
 
 function m.documentDecodeMedium(): unknown
-    return (assert(json.decode(mediumJson)))
+    return (assert(json.decodeValue(mediumJson)))
 end
 
 function m.nativeDecodeMedium(): Medium

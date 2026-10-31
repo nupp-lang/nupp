@@ -1,5 +1,5 @@
 -- Match the JSON facade installed by tests/run.lua.
-local native = require("nupp.codec.json")
+local native = require("serde.json")
 
 local json = {
     NULL = native.NULL,
@@ -9,13 +9,13 @@ local json = {
     asArray = native.asArray,
     asObject = native.asObject,
     isArray = native.isArray,
-    encode = native.encode,
+    encode = native.encodeValue,
     newWriter = native.newWriter,
 }
 
 -- The facade answers a reason now; the runner's callers want a raise.
 function json.decode(text)
-    local value, reason = native.decode(text, native.NULL)
+    local value, reason = native.decodeValue(text, native.NULL)
     if reason ~= nil then
         error(reason, 2)
     end

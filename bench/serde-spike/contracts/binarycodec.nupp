@@ -1,13 +1,13 @@
-local __serdeJson = require("nupp.serde.json")
-local core = require("nupp.serde")
+local __serdeJson = require("serde.json")
+local core = require("serde")
 local codec = require("example.binarycodec")
 local syntax = require("example.binary")
-local declarations = require("nupp.serde")
-local structure = require("nupp.serde.adapters")
-local indexed = require("nupp.serde.adapters")
-local bridge = require("nupp.serde.document")
-local documents = require("nupp.serde.document")
-local scalar = require("nupp.serde.adapters")
+local declarations = require("serde")
+local structure = require("serde.adapters")
+local indexed = require("serde.adapters")
+local bridge = require("serde.document")
+local documents = require("serde.document")
+local scalar = require("serde.adapters")
 
 local record Numbers is codec.Policy
     function number<M is core.Member>(self, member: M): integer

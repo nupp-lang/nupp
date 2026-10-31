@@ -2104,7 +2104,7 @@ order, and exact 64-bit integers use the int64/uint64 tags LuaJIT gives
 cdata. Error messages are LuaJIT's. Refused: the FFI pointer methods (`ref`,
 `reserve`, `commit`, `putcdata`), serialization dictionaries, and
 lightuserdata tags on decode. The VM's `text.buffer` provider is this buffer
-now, and `nupp.serde.native` asks for `string.buffer` rather than for LuaJIT.
+now, and `serde.native` asks for `string.buffer` rather than for LuaJIT.
 Concatenation dispatches `__concat`.
 
 **Suspending inside `pcall`.** The PCall opcode already left a protected

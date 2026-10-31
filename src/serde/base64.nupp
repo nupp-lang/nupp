@@ -1,10 +1,10 @@
-module nupp.codec.base64
+module serde.base64
 
 --[[
 Standard base64.
 
 ```nupp
-const base64 = require("nupp.codec.base64")
+const base64 = require("serde.base64")
 
 const text = base64.encode("Nupp")
 
@@ -21,9 +21,7 @@ groups, and four output bytes are one word. The alphabet and its inverse are
 vectorized C it could have been.
 ]]
 
-local valuebuilder = require("nupp.codec.valuebuilder")
-
-local base64 = {}
+local valuebuilder = require("serde.valuebuilder")
 
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
@@ -286,30 +284,30 @@ end
 --- Encodes bytes as standard base64, padded.
 ---
 --- ```nupp
---- assert(nupp.codec.base64.encode("Nupp") == "TnVwcA==")
+--- assert(serde.base64.encode("Nupp") == "TnVwcA==")
 --- ```
 --- @param value the bytes to encode
 --- @return the encoded text
 --- @export
-function base64.encode(value: string): string
+export function encode(value: string): string
     return encodeAot(value, false) as string
 end
 
 --- Decodes canonical standard base64 with required padding.
 ---
 --- Text that is not canonical padded base64 is an ordinary answer, as it is for
---- `nupp.codec.hex.decode`: nil and the reason.
+--- `serde.hex.decode`: nil and the reason.
 ---
 --- ```nupp
---- assert(nupp.codec.base64.decode("TnVwcA==") == "Nupp")
---- local bytes, reason = nupp.codec.base64.decode("TnVwcA")
+--- assert(serde.base64.decode("TnVwcA==") == "Nupp")
+--- local bytes, reason = serde.base64.decode("TnVwcA")
 --- assert(bytes == nil and reason ~= nil)
 --- ```
 --- @param text the text to decode
 --- @return the decoded bytes, or nil when the text is not base64
 --- @return why the text is not base64, when it is not
 --- @export
-function base64.decode(text: string): (string?, string?)
+export function decode(text: string): (string?, string?)
     if #text % 4 ~= 0 then
         return nil, "base64 input length is not a multiple of four"
     end
@@ -320,5 +318,3 @@ function base64.decode(text: string): (string?, string?)
 
     return decoded as string, nil
 end
-
-export = base64

@@ -23,7 +23,7 @@
 local bench = require("nupp.bench")
 
 local files = require("nupp.io.files")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local process = require("nupp.io.process")
 local time = require("nupp.time")
 
@@ -86,7 +86,7 @@ local function check(executable: string, project: string, cacheDir: string, stat
     if not result:succeeded() then
         fail(state .. " check exited " .. tostring(result.exit.exitCode) .. ": " .. result.errorOutput:sub(-2000))
     end
-    local document, invalid = json.decode(result.output)
+    local document, invalid = json.decodeValue(result.output)
     if invalid ~= nil or type(document) ~= "table" then
         fail(state .. " check wrote no JSON document")
     end

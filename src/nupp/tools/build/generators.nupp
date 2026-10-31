@@ -9,7 +9,7 @@ local deps = require("nupp.tools.build.deps")
 local fs = require("nupp.compiler.fs")
 local hash = require("nupp.compiler.hash")
 local process = require("nupp.compiler.process")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 
 local generators = {}
 
@@ -94,7 +94,7 @@ function generators.run(root, outDir, config, records, previous): ({[string]: an
             local resultPath = staged .. ".result.json"
             local wrote, writeErr = fs.writeFile(
                 requestPath,
-                json.encode({
+                json.encodeValue({
                     name = name,
                     inputRoot = fs.absolute(root),
                     outputRoot = fs.absolute(staged),
@@ -122,7 +122,7 @@ function generators.run(root, outDir, config, records, previous): ({[string]: an
             local responseText = fs.readFile(resultPath)
             local response: any = nil
             if responseText then
-                response = json.decode(responseText, json.NULL)
+                response = json.decodeValue(responseText, json.NULL)
             end
             if type(response) ~= "table" then
                 response = nil

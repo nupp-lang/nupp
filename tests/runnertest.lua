@@ -34,8 +34,8 @@ local RUNNER = ROOT .. "/build/nupp-test"
 -- The suite's records as data. Decoded here rather than through the runner's
 -- own codec, which only a running runner preloads.
 local function decode(text)
-    local json = require("nupp.codec.json")
-    local value, reason = json.decode(text, json.NULL)
+    local json = require("serde.json")
+    local value, reason = json.decodeValue(text, json.NULL)
     if reason ~= nil then
         error(reason, 2)
     end
@@ -48,14 +48,9 @@ end
 -- error out of the document because progress marks belong there.
 local function runRedirected(dir, args, stderr)
     local outputPath = os.tmpname()
-    local command = ("cd %q && NUPP_TEST_BUILD=%q %q %s >%q %s"):format(
-        dir,
-        dir .. "/build",
-        RUNNER,
-        args or "",
-        outputPath,
-        stderr
-    )
+    local command = (
+        "cd %q && NUPP_TEST_BUILD=%q %q %s >%q %s"
+    ):format(dir, dir .. "/build", RUNNER, args or "", outputPath, stderr)
     os.execute(command)
     local output = read(outputPath)
     os.remove(outputPath)
@@ -544,9 +539,7 @@ return {
     write(fixtureSlot("malformed") .. "/.nupp-fixture.json", "{not-json\n")
 
     local output, invocation = capturedRun(
-        (
-            "cd %q && NUPP_TEST_BUILD=%q %q stalefixtest --jobs=1 --json 2>/dev/null"
-        ):format(dir, dir .. "/build", RUNNER)
+        ("cd %q && NUPP_TEST_BUILD=%q %q stalefixtest --jobs=1 --json 2>/dev/null"):format(dir, dir .. "/build", RUNNER)
     )
     test.equal(invocation.status, 0, "stale fixture lease was not recovered" .. evidence(invocation))
     local report = decode(output)
@@ -675,9 +668,7 @@ end}
 ]]
     )
     local _, invocation = capturedRun(
-        (
-            "cd %q && NUPP_TEST_BUILD=%q %q tempdirtest --jobs=1 --json 2>/dev/null"
-        ):format(dir, dir .. "/build", RUNNER)
+        ("cd %q && NUPP_TEST_BUILD=%q %q tempdirtest --jobs=1 --json 2>/dev/null"):format(dir, dir .. "/build", RUNNER)
     )
     test.equal(invocation.status, 0, "the case failed" .. evidence(invocation))
     local made = read(dir .. "/made")
@@ -738,9 +729,7 @@ return {
 
     write(dir .. "/tests/invalidnametest.lua", 'return {[""] = function() end}\n')
     local invalidOutput, invalid = capturedRun(
-        (
-            "cd %q && NUPP_TEST_BUILD=%q %q invalidnametest --list-cases 2>&1"
-        ):format(dir, dir .. "/build", RUNNER)
+        ("cd %q && NUPP_TEST_BUILD=%q %q invalidnametest --list-cases 2>&1"):format(dir, dir .. "/build", RUNNER)
     )
     test.equal(invalid.status, 1, "an invalid handwritten case name was accepted" .. evidence(invalid))
     test.matches(invalidOutput, "case whose name is not a non%-empty string")
@@ -812,9 +801,7 @@ end}
 ]]
     )
     local output, invocation = capturedRun(
-        (
-            "cd %q && NUPP_TEST_BUILD=%q %q metadatatest --jobs=1 --json 2>/dev/null"
-        ):format(dir, dir .. "/build", RUNNER)
+        ("cd %q && NUPP_TEST_BUILD=%q %q metadatatest --jobs=1 --json 2>/dev/null"):format(dir, dir .. "/build", RUNNER)
     )
     test.equal(invocation.status, 1, "invalid metadata did not fail its case" .. evidence(invocation))
     local report = decode(output)
@@ -1336,11 +1323,14 @@ function M.processQueueRestoresModuleGlobalsBetweenPieces()
     -- Modules that publish themselves as globals and read each other through
     -- them at call time, as Lua 5.1's `module` makes them: a piece that kept the
     -- loaded modules but lost the globals would call into a nil.
-    write(dir .. "/tests/templater/fill.lua", [[
+    write(
+        dir .. "/tests/templater/fill.lua",
+        [[
 templater_fill = {}
 function templater_fill.render() return "ready" end
 return templater_fill
-]])
+]]
+    )
     write(
         dir .. "/tests/templater.lua",
         [[
@@ -1658,9 +1648,7 @@ return {staysBusy = function()
 end}
 ]]
         )
-        local runner = (
-            "NUPP_TEST_BUILD=%q %q lonetest --jobs=1 --json; :"
-        ):format(dir .. "/build", RUNNER)
+        local runner = ("NUPP_TEST_BUILD=%q %q lonetest --jobs=1 --json; :"):format(dir .. "/build", RUNNER)
         -- The command: a shell that waits on the runner, or one that names itself
         -- and waits on another shell that waits on the runner.
         local command = shape == "parent" and runner or ("NUPP_TEST_WATCH_PID=$$ sh -c %s; :"):format(shellWord(runner))

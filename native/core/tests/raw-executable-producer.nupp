@@ -16,7 +16,7 @@ local executablegen = require("nupp.core.rawexecutablegen")
 local wiregen = require("nupp.core.rawwiregen")
 local shapegen = require("nupp.core.rawshapegen")
 local cataloggen = require("nupp.core.rawcataloggen")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local producer = {}
 
 function producer.generated(): string
@@ -182,7 +182,7 @@ function producer.compile(mode: string): string
     local result = shim.build(codes, symbol)
     result.metrics, result.mode, result.boundary, result.layout = metrics, mode, symbol, sizes
 
-    return json.encode(result)
+    return json.encodeValue(result)
 end
 
 export = producer

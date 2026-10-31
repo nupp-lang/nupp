@@ -186,8 +186,8 @@ function M.numericConsumersKeepIntegerIndicesAndCounts()
         [[
 local random = require("nupp.random")
 local util = require("nupp.util")
-local json = require("nupp.codec.json")
-local codec = require("nupp.serde.codec")
+local json = require("serde.json")
+local codec = require("serde.codec")
 local generator = new random.Xoshiro128(12345)
 for _ = 1, 32 do
     local index: integer = generator:integer(1, 10)
@@ -205,7 +205,7 @@ set:set(64)
 assert(set:get(64) and set:count() == 1)
 local array: any = {}
 array[1.0], array[2.0] = 1, 2
-assert(json.encode(json.asArray(array)) == "[1,2]")
+assert(json.encodeValue(json.asArray(array)) == "[1,2]")
 for _, text in ipairs({"1800-01-01T00:00:00Z", "1969-12-31T23:59:59Z", "2000-02-29T12:34:56.125Z", "9999-12-31T23:59:59Z"}) do
     local timestamp = codec.parseDateTime(text)
     assert(codec.formatDateTime(timestamp) == text)

@@ -15,7 +15,7 @@ export interface Resolver<M is core.Member>
     resolve: function<T>(self, adapter: core.Adapter<T, M>, plan: plans.Plan<M>, path: string): Recipe<T>?
 end
 
-local json = require("nupp.codec.json")
+local json = require("nupp.serde.internal.json.values")
 local errors = require("nupp.serde.internal.errors")
 export record Budget
     values: integer = 0

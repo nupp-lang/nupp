@@ -1,8 +1,8 @@
-local __serdeCodec = require("nupp.serde.codec")
-local core = require("nupp.serde")
-local json = require("nupp.serde.json")
+local __serdeCodec = require("serde.codec")
+local core = require("serde")
+local json = require("serde.json")
 local model = require("example.richmodel")
-local errors = require("nupp.serde")
+local errors = require("serde")
 
 local record Counts
     writes: integer = 0

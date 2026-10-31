@@ -3431,7 +3431,7 @@ function service.build(): any
     local root = need(os.getenv("NUPP_COMPILER_ROOT"), "build source root required")
     local path = root .. "/build/core-heap-services/snapshot.json"
     local text = read(path)
-    local snapshot = require("nupp.codec.json").decode(text)
+    local snapshot = require("nupp.serde.internal.json.values").decode(text)
     need(snapshot.version == 1 and snapshot.target == "aarch64-apple-darwin", "service snapshot version/target")
     local requested = {}
     for index, source in ipairs(paths) do

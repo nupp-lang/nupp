@@ -43,7 +43,7 @@ through the Nupp graph.
 
 local ssa = require("nupp.compiler.clif.ssa")
 local opcodes = require("nupp.compiler.vm.opcodes")
-local json = require("nupp.codec.json")
+local json = require("nupp.serde.internal.json.values")
 local fs = require("nupp.compiler.fs")
 
 local guest = {}

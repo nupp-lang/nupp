@@ -1,5 +1,5 @@
 local core = require("nupp.serde.internal.value")
-local json = require("nupp.serde.json")
+local json = require("serde.json")
 
 local function bind(adapter)
     return setmetatable({adapter = adapter}, core.Bound)
@@ -38,7 +38,11 @@ for _, case in ipairs({
     assert(factoryJson:encode(binding, value) == case[2])
 end
 for _, bytes in ipairs({"1e-2147483649", "1e2147483648", "0.1e-2147483648"}) do
-    assert(not pcall(function() return factoryJson:decode(binding, bytes) end))
+    assert(
+        not pcall(function()
+            return factoryJson:decode(binding, bytes)
+        end)
+    )
 end
 
 -- A decoder owns the root reader token. Even an untyped adapter that keeps it
@@ -57,7 +61,9 @@ for _, mode in ipairs({"success", "model-error", "trailing"}) do
             return adapter:read(reader)
         end,
     })
-    local ok, problem = pcall(function() return factoryJson:decode(capturing, mode == "trailing" and "1 2" or "1") end)
+    local ok, problem = pcall(function()
+        return factoryJson:decode(capturing, mode == "trailing" and "1 2" or "1")
+    end)
     assert(ok == (mode == "success"), tostring(problem))
     local live, expired = pcall(retained.context, retained)
     assert(not live and tostring(expired):find("expired", 1, true), tostring(expired))

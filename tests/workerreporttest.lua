@@ -26,8 +26,8 @@ local function write(path, text)
 end
 
 local function decode(text)
-    local json = require("nupp.codec.json")
-    local value, reason = json.decode(text, json.NULL)
+    local json = require("serde.json")
+    local value, reason = json.decodeValue(text, json.NULL)
     if reason ~= nil then
         error(reason, 2)
     end

@@ -91,7 +91,7 @@ function M.emitTypedWalkArtifactsWhenRequested()
     end
     local project = require("nupp.tools.vm.project")
     local fs = require("nupp.compiler.fs")
-    local json = require("nupp.codec.json")
+    local json = require("serde.json")
     local report = {}
     for _, module in ipairs({"analysis", "callfacts"}) do
         local relative = "src/nupp/compiler/" .. module .. ".nupp"
@@ -122,7 +122,7 @@ function M.emitTypedWalkArtifactsWhenRequested()
         testAssert.equal((after.ICmpSLe or 0) - (before.ICmpSLe or 0), 8, "each bound uses integer comparison")
     end
     local file = assert(io.open(directory .. "/mechanism.json", "wb"))
-    file:write(json.encode(report))
+    file:write(json.encodeValue(report))
     file:close()
 end
 

@@ -1,34 +1,34 @@
 -- The public JSON policy is fixed by Nupp rather than inherited from a provider's
 -- build options. These checks exercise the shipped Nupp provider directly.
 
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local test = require("assert")
 
 local M = {}
 
 function M.emptyContainersAreExplicit()
-    assert(json.encode({}) == "{}", "a plain empty table is an object")
-    assert(json.encode(json.asArray({})) == "[]", "asArray marks an empty array")
-    assert(json.encode(json.asObject({})) == "{}", "asObject marks an empty object")
-    assert(json.encode(json.EMPTY_ARRAY) == "[]", "EMPTY_ARRAY is serializable")
-    assert(json.encode(json.EMPTY_OBJECT) == "{}", "EMPTY_OBJECT is serializable")
+    assert(json.encodeValue({}) == "{}", "a plain empty table is an object")
+    assert(json.encodeValue(json.asArray({})) == "[]", "asArray marks an empty array")
+    assert(json.encodeValue(json.asObject({})) == "{}", "asObject marks an empty object")
+    assert(json.encodeValue(json.EMPTY_ARRAY) == "[]", "EMPTY_ARRAY is serializable")
+    assert(json.encodeValue(json.EMPTY_OBJECT) == "{}", "EMPTY_OBJECT is serializable")
 end
 
 function M.decodedContainerShapeIsPublic()
-    assert(json.isArray(json.decode("[]")), "a decoded empty array retains its shape")
-    assert(not json.isArray(json.decode("{}")), "a decoded empty object retains its shape")
-    assert(json.isArray(json.decode("[1]")), "a decoded non-empty array has array shape")
-    assert(not json.isArray(json.decode([[{"value":1}]])), "a decoded non-empty object has object shape")
+    assert(json.isArray(json.decodeValue("[]")), "a decoded empty array retains its shape")
+    assert(not json.isArray(json.decodeValue("{}")), "a decoded empty object retains its shape")
+    assert(json.isArray(json.decodeValue("[1]")), "a decoded non-empty array has array shape")
+    assert(not json.isArray(json.decodeValue([[{"value":1}]])), "a decoded non-empty object has object shape")
 end
 
 function M.nullDropsOrUsesTheSuppliedValue()
-    local dropped = json.decode([[{"items":[1,null,2],"missing":null}]])
+    local dropped = json.decodeValue([[{"items":[1,null,2],"missing":null}]])
     assert(dropped.missing == nil and #dropped.items == 2 and dropped.items[2] == 2)
-    local kept = json.decode([[{"items":[1,null,2],"missing":null}]], json.NULL)
+    local kept = json.decodeValue([[{"items":[1,null,2],"missing":null}]], json.NULL)
     assert(kept.missing == json.NULL and kept.items[2] == json.NULL)
     assert(
-        json.encode(kept) == [[{"items":[1,null,2],"missing":null}]]
-        or json.encode(kept) == [[{"missing":null,"items":[1,null,2]}]]
+        json.encodeValue(kept) == [[{"items":[1,null,2],"missing":null}]]
+        or json.encodeValue(kept) == [[{"missing":null,"items":[1,null,2]}]]
     )
 end
 
@@ -61,14 +61,14 @@ end
 -- uri.newURI give. The reason is what tells failure apart, because the
 -- document `null` is nil too when nulls are dropped.
 function M.decodeAndPullAnswerAReason()
-    assert(refused(json.decode("[1,")), "a truncated array")
-    assert(refused(json.decode("")), "an empty document")
-    assert(refused(json.decode("{} {}")), "two documents")
-    local value, reason = json.decode("null")
+    assert(refused(json.decodeValue("[1,")), "a truncated array")
+    assert(refused(json.decodeValue("")), "an empty document")
+    assert(refused(json.decodeValue("{} {}")), "two documents")
+    local value, reason = json.decodeValue("null")
     assert(value == nil and reason == nil, "a dropped null document is not a failure")
-    value, reason = json.decode("null", json.NULL)
+    value, reason = json.decodeValue("null", json.NULL)
     assert(value == json.NULL and reason == nil, "a kept null document")
-    value, reason = json.decode("[1,")
+    value, reason = json.decodeValue("[1,")
     assert(tostring(reason):find("^invalid JSON at byte %d+: "), tostring(reason))
     assert(refused(json.pull("[1,", true)), "a truncated pull")
     value, reason = json.pull([[{"a":1,"b":2}]], {a = true})
@@ -76,16 +76,17 @@ function M.decodeAndPullAnswerAReason()
 end
 
 function M.invalidNumbersAreAlwaysRejected()
-    assert(refused(json.decode("[NaN]")), "the decoder accepted NaN")
-    assert(refused(json.decode("[Infinity]")), "the decoder accepted Infinity")
-    assert(not pcall(json.encode, 0 / 0), "the encoder accepted NaN")
+    assert(refused(json.decodeValue("[NaN]")), "the decoder accepted NaN")
+    assert(refused(json.decodeValue("[Infinity]")), "the decoder accepted Infinity")
+    assert(not pcall(json.encodeValue, 0 / 0), "the encoder accepted NaN")
 end
 
 function M.exactNumberFragmentsPreserveTokensAcrossProviders()
     for _, provider in ipairs({json, require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot")}) do
         for _, token in ipairs({"0", "-0", "1.00", "123456789012345678901234567890", "1e4000", "-2.1E-9000"}) do
             local fragment = provider.numberToken(token)
-            assert(provider.encode(fragment) == token)
+            local encode = provider == json and provider.encodeValue or provider.encode
+            assert(encode(fragment) == token)
             local output = require("nupp.text").newBuffer()
             local writer = provider.newWriter(output)
             writer:startArray():write(fragment):endArray()
@@ -182,8 +183,8 @@ end
 
 function M.portableEncodingRejectsInvalidUtf8Everywhere()
     for _, value in ipairs({"\255", "\192\128", "\237\160\128"}) do
-        assert(not pcall(json.encode, value), "the encoder accepted an invalid UTF-8 value")
-        assert(not pcall(json.encode, {[value] = 1}), "the encoder accepted an invalid UTF-8 key")
+        assert(not pcall(json.encodeValue, value), "the encoder accepted an invalid UTF-8 value")
+        assert(not pcall(json.encodeValue, {[value] = 1}), "the encoder accepted an invalid UTF-8 key")
         assert(not pcall(json.encodedString, value), "encodedString accepted invalid UTF-8")
     end
     local output = require("nupp.text").newBuffer()
@@ -220,7 +221,7 @@ function M.portableEncodingBoundsNesting()
     for _ = 1, 1025 do
         value = {value}
     end
-    local ok, problem = pcall(json.encode, value)
+    local ok, problem = pcall(json.encodeValue, value)
     assert(not ok and tostring(problem):find("nesting exceeds 1024", 1, true), tostring(problem))
 end
 

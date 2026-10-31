@@ -76,7 +76,7 @@ end
 --- @param target the declaration witness
 --- @param value the borrowed value to render
 function derive.debug(target: unknown, borrows value: unknown): string
-    local rendering = require("nupp.serde.debug")
+    local rendering = require("serde.debug")
     return rendering.derived(target as Type<unknown>, value)
 end
 

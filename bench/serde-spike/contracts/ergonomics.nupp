@@ -1,6 +1,6 @@
 local files = require("nupp.io.files")
-local serde = require("nupp.serde")
-local json = require("nupp.serde.json")
+local serde = require("serde")
+local json = require("serde.json")
 
 -- Config file
 local record Config
@@ -32,7 +32,7 @@ local response = json.decode(responseBinding, '{"user":{"id":17,"name":"Ada"},"r
 assert(response.user.name == "Ada" and response.roles[1] == "editor")
 
 -- Game save
-local native = require("nupp.serde.native")
+local native = require("serde.native")
 local record Save
     level: integer
     inventory: {string}
