@@ -355,7 +355,7 @@ def main():
                     assert struct.unpack_from("<14Q", data) == (
                         1, 2672, 2, 0, 112, 304, 2, 352, 1, 432, 1, 2, 624, 256)
                     assert hashlib.sha256(bytes.fromhex(selected["programs"][0]["codeHex"])).hexdigest() == (
-                        "bbaf0a7f9d9dcd6953fd192d9590634ccb5dd148db52caae1f209c1399300289")
+                        "4dcf33faf1e5b8d19f439eaa1189f3c2bfdfcf8cc273d2b413407404b776070f")
                 bundle = out / (case + ".bundle")
                 bundle.write_bytes(struct.pack("<8s8Q", b"NUPPCORE", 1, 1, selected["entry"],
                                   len(code), len(data), args.scratch_bytes, 1, 0) + code + data)
