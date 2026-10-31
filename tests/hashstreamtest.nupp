@@ -1,24 +1,34 @@
-local digest = require("nupp.digest")
-local mac = require("nupp.mac")
-local checksum = require("nupp.checksum")
+local digest = require("binary.hash.digest")
+local mac = require("binary.hash.mac")
+local checksum = require("binary.hash.checksum")
 local io = require("nupp.io")
-local util = require("nupp.util")
+local hash = require("binary.hash")
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
-local hex = require("nupp.codec.hex")
+local hex = require("serde.hex")
 local test = require("nupp.test")
 local M = {}
 
+function M.hashFamiliesKeepSeparateAlgorithmCatalogs(): nil
+    assert(checksum.lookup("sha256") == nil)
+    assert(digest.lookup("crc32") == nil)
+    assert(mac.lookup("sha256") == nil)
+    assert(checksum == require("binary.hash.checksum"))
+    assert(digest == require("binary.hash.digest"))
+    assert(mac == require("binary.hash.mac"))
+    assert(hash == require("binary.hash"))
+end
+
 function M.publishedFnv1a64VectorsAndByteViews(): nil
-    assert(util.fnv1a64("") == "cbf29ce484222325")
-    assert(util.fnv1a64("a") == "af63dc4c8601ec8c")
-    assert(util.fnv1a64("foobar") == "85944171f73967e8")
-    assert(util.fnv1a64("a\0b\255c") == "3e5746fc83766ddc")
+    assert(hash.fnv1a64("") == "cbf29ce484222325")
+    assert(hash.fnv1a64("a") == "af63dc4c8601ec8c")
+    assert(hash.fnv1a64("foobar") == "85944171f73967e8")
+    assert(hash.fnv1a64("a\0b\255c") == "3e5746fc83766ddc")
 
     local bytes = io.newBuffer("\0\1\127\128\255")
     local view = bytes:view()
-    assert(util.fnv1a64(view) == "a5bcd1d1065f84b6")
-    assert(util.fnv1a64(view) == "a5bcd1d1065f84b6")
+    assert(hash.fnv1a64(view) == "a5bcd1d1065f84b6")
+    assert(hash.fnv1a64(view) == "a5bcd1d1065f84b6")
 end
 
 function M.publishedDigestVectors(): nil

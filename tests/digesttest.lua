@@ -13,7 +13,7 @@
 
 local check = require("assert")
 local digest = require("nupp.digest.internal.sha256")
-local data = require("nupp.digest")
+local data = require("binary.hash.digest")
 
 local M = {}
 

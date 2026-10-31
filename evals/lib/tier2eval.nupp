@@ -1,6 +1,6 @@
 module tier2eval
 
-const digest2 = require("nupp.digest")
+const digest2 = require("binary.hash.digest")
 
 -- Tier 2: export a commit's parent without Git history, carry its tests forward,
 -- and grade whether an agent can rediscover the implementation without editing

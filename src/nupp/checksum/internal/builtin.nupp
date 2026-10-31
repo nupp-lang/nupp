@@ -7,7 +7,7 @@ Each descriptor creates independent state. CRC updates borrow byte spans through
 crc-fast without retaining them; value reads the saved non-consuming snapshot.
 ]]
 
-const provider = require("nupp.checksum.spi")
+const provider = require("binary.hash.checksum.spi")
 const span = require("nupp.mem.span")
 const target = require("nupp.runtime.target")
 const ffi = require("ffi")

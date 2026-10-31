@@ -1,6 +1,6 @@
-module nupp.checksum.spi
+module binary.hash.checksum.spi
 
---[[Implementation interfaces for `nupp.checksum` algorithm catalogs.
+--[[Implementation interfaces for `binary.hash.checksum` algorithm catalogs.
 
 The facade chooses the unique highest priority during module initialization.
 Importing this declaration does not load storage or algorithms.

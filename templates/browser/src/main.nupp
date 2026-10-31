@@ -1,5 +1,5 @@
 const random = require("nupp.random")
-const digests = require("nupp.digest")
+const digests = require("binary.hash.digest")
 const util = require("nupp.util")
 const time = require("nupp.time")
 const json = require("nupp.codec.json")

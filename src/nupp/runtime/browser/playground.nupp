@@ -26,10 +26,13 @@ local platformLibraries = {
         return require("nupp.random")
     end,
     function()
-        return require("nupp.mac")
+        return require("binary.hash.mac")
     end,
     function()
-        return require("nupp.digest")
+        return require("binary.hash.digest")
+    end,
+    function()
+        return require("binary.hash")
     end,
     function()
         return require("nupp.io.storage")
@@ -95,7 +98,7 @@ _G.__nuppPlaygroundRun = function(source: string): string
     then
         error("nupp: derive runtime did not load", 0)
     end
-    assert(#platformLibraries == 10, "nupp: browser library loaders are missing")
+    assert(#platformLibraries == 11, "nupp: browser library loaders are missing")
     lines = {}
     outputBytes = 0
     local chunk, problem = loadstring(source, "@playground.nupp")

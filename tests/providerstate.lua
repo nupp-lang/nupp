@@ -166,7 +166,8 @@ end
 
 -- Each fixture owns an ordinary immutable discovery index and module cache.
 function M.family(kind, providers)
-    local facade = "nupp." .. kind
+    local hash = kind == "checksum" or kind == "digest" or kind == "mac"
+    local facade = (hash and "binary.hash." or "nupp.") .. kind
     local names, preloads = {}, {}
     for index, provider in ipairs(providers or {}) do
         local name = "fixture.provider" .. index
