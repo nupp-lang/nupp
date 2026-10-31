@@ -86,12 +86,8 @@ function tagged.literal(ctx: any, node: any, expected: string?): integer
     if constant.kind == "nil" then
         return ctx.emit(node, "Nil", {}, "tagged")
     end
+    -- Integers and floats keep their exact eight little-endian bytes.
     local value = constant.bytes
-    if constant.kind == "int64" or constant.kind == "uint64" then
-        value = constant.text
-    elseif constant.kind == "num" then
-        value = constant.bytes
-    end
 
     return ctx.emit(node, "K", {pool(ctx, constant.kind, value)}, "tagged")
 end
@@ -121,22 +117,49 @@ local function numberType(t: any): boolean
     return kind == "number" or kind == "float64"
 end
 
-function tagged.binary(ctx: any, node: any, expected: string?): integer
+local function integerType(t: any): boolean
+    return typeKind(t) == "int64"
+end
+
+local function numericType(t: any): boolean
+    return numberType(t) or integerType(t)
+end
+
+local arithmetic = {["+"] = "Add", ["-"] = "Sub", ["*"] = "Mul", ["%"] = "Mod"}
+local ordering = {["<"] = "Lt", ["<="] = "Le", [">"] = "Lt", [">="] = "Le"}
+
+-- Before v6 only float addition and less-than are admitted. v6 admits the
+-- dynamic numeric operators over checked integer, float or number operands;
+-- `a > b` evaluates both operands in order and then compares as `b < a`.
+local function binary(ctx: any, node: any, expected: string?, version: integer): integer
     local operation = node.op.text
+    need(expected == nil or expected == "tagged", "tagged result required")
+    local admits = version >= 6 and numericType or numberType
+    local op = arithmetic[operation] or ordering[operation]
     need(
-        (operation == "+" or operation == "<") and (expected == nil or expected == "tagged"),
-        "only number addition is admitted"
+        version >= 6 and op ~= nil or operation == "+" or operation == "<",
+        version >= 6 and "unsupported numeric operator" or "only number addition is admitted"
     )
-    if operation == "+" then
-        need(numberType(node.inferredType), "number result required")
+    if arithmetic[operation] then
+        need(admits(node.inferredType), "number result required")
     else
         need(typeKind(node.inferredType) == "boolean", "boolean result required")
     end
-    need(numberType(node.lhs.inferredType), "left number required")
-    need(numberType(node.rhs.inferredType), "right number required")
+    need(admits(node.lhs.inferredType), "left number required")
+    need(admits(node.rhs.inferredType), "right number required")
     local operands = ctx.operands({node.lhs, node.rhs}, {"tagged", "tagged"})
+    if operands == nil then
+        return nil as any
+    end
+    if operation == ">" or operation == ">=" then
+        operands = {operands[2], operands[1]}
+    end
 
-    return ctx.emit(node, operation == "+" and "Add" or "Lt", operands, "tagged")
+    return ctx.emit(node, op, operands, "tagged")
+end
+
+function tagged.binary(ctx: any, node: any, expected: string?): integer
+    return binary(ctx, node, expected, 2)
 end
 
 function tagged.checkLogical(ctx: any, node: any): boolean
@@ -283,23 +306,25 @@ local function booleanCondition(t: any): boolean
     return t ~= nil and t.tag == "boolean"
 end
 
-local function checkStatement(ctx: any, stat: any, loops: boolean): nil
+local function checkStatement(ctx: any, stat: any, version: integer): nil
     if stat.kind == "ifStmt" then
         for _, clause in ipairs(stat.clauses) do
             need(not clause.binding, "binding conditions are unsupported")
             need(booleanCondition(clause.cond.inferredType), "if condition requires a checked Boolean")
         end
-    elseif stat.kind == "whileStmt" and loops then
+    elseif stat.kind == "whileStmt" and version == 5 then
         need(
             stat.cond.kind == "binop" and stat.cond.op.text == "<" and booleanCondition(stat.cond.inferredType),
             "loop condition requires checked numeric less-than"
         )
+    elseif stat.kind == "whileStmt" and version >= 6 then
+        need(booleanCondition(stat.cond.inferredType), "loop condition requires a checked Boolean")
     end
     need(
-        (loops or stat.kind ~= "whileStmt")
+        (version >= 5 or stat.kind ~= "whileStmt")
+        and (version >= 6 or stat.kind ~= "fornumStmt")
         and stat.kind ~= "breakStmt"
         and stat.kind ~= "continueStmt"
-        and stat.kind ~= "fornumStmt"
         and stat.kind ~= "forinStmt"
         and stat.kind ~= "repeatStmt",
         "control flow is outside lexical construction"
@@ -308,16 +333,111 @@ local function checkStatement(ctx: any, stat: any, loops: boolean): nil
 end
 
 function tagged.checkStatement(ctx: any, stat: any): nil
-    checkStatement(ctx, stat, false)
+    checkStatement(ctx, stat, 2)
 end
 
-function tagged.withCheckedLoops(): any
+local function stepSign(ctx: any, stat: any): integer
+    if stat.step == nil then
+        return 1
+    end
+    local constant = catalog(ctx).byNode[stat.step]
+    -- A dynamic step needs the runtime zero-step error and a runtime
+    -- direction; both wait for guest errors.
+    need(
+        constant and (constant.kind == "int64" or constant.kind == "num"),
+        "numeric for step must be a numeric literal"
+    )
+    local value = need(tonumber(constant.text), "numeric for step literal")
+    need(value == value and value ~= 0, "'for' step is zero")
+
+    return value > 0 and 1 or -1
+end
+
+-- Lua's integer mode depends on the initial value and the step, never the
+-- limit; any other combination runs in floating point. Controls whose
+-- subtype is only known at run time are refused until math.type exists.
+local function numericFor(ctx: any, stat: any): any
+    local sign = stepSign(ctx, stat)
+    local startType = stat.start.inferredType
+    local integerMode = integerType(startType) and (stat.step == nil or integerType(stat.step.inferredType))
+    need(
+        integerMode or numberType(startType) and typeKind(startType) == "float64",
+        "numeric for needs a statically integer or float initial value"
+    )
+    need(numericType(stat.stop.inferredType), "numeric for limit must be a number")
+    local nodes = {stat.start, stat.stop}
+    if stat.step then
+        nodes[3] = stat.step
+    end
+    local kinds = {}
+    for index in ipairs(nodes) do
+        kinds[index] = "tagged"
+    end
+    local values = ctx.operands(nodes, kinds)
+    if values == nil then
+        return nil
+    end
+    if stat.step == nil then
+        values[3] = ctx.emit(stat, "K", {pool(ctx, "int64", string.char(1, 0, 0, 0, 0, 0, 0, 0))}, "tagged")
+    end
+    if values[1] <= ctx.g.nparams then
+        values[1] = ctx.emit(stat, "Move", {values[1]}, "tagged")
+    end
+
+    -- Integer mode compares the counter with the limit exactly. A descending
+    -- loop continues while not counter < limit, which also runs on toward the
+    -- minimum integer for a NaN limit, as Lua's limit clipping does. A float
+    -- loop's guard is "not past the limit", so NaN controls run it once.
+    local function compare(c: any, node: any, counter: integer, limit: integer): (integer, boolean)
+        if sign > 0 then
+            return c.emit(node, "Le", {counter, limit}, "tagged"), false
+        elseif integerMode then
+            return c.emit(node, "Lt", {counter, limit}, "tagged"), true
+        end
+
+        return c.emit(node, "Le", {limit, counter}, "tagged"), false
+    end
+
+    return {
+        values = values,
+        first = function(c: any, node: any, v: any): (integer, boolean)
+            if integerMode then
+                return compare(c, node, v[1], v[2])
+            end
+            return c.emit(node, "Lt", sign > 0 and {v[2], v[1]} or {v[1], v[2]}, "tagged"), true
+        end,
+        test = function(c: any, node: any, v: any): (integer, boolean)
+            return compare(c, node, v[1], v[2])
+        end,
+        advance = function(c: any, node: any, v: any): (integer, integer?)
+            local advanced = c.emit(node, "Add", {v[1], v[3]}, "tagged")
+            if not integerMode then
+                return advanced, nil
+            end
+            -- Integer counters wrap at 64 bits; a wrapped sum ends the loop.
+            local wrapped = c.emit(node, "Lt", sign > 0 and {advanced, v[1]} or {v[1], advanced}, "tagged")
+
+            return advanced, wrapped
+        end
+    }
+end
+
+-- A profile for one checked-source graph version (see coregraphschema).
+function tagged.forVersion(version: integer): any
     local profile = {}
     for name, member in pairs(tagged) do
         profile[name] = member
     end
     profile.checkStatement = function(ctx: any, stat: any): nil
-        checkStatement(ctx, stat, true)
+        checkStatement(ctx, stat, version)
+    end
+    profile.binary = function(ctx: any, node: any, expected: string?): integer
+        return binary(ctx, node, expected, version)
+    end
+    if version >= 6 then
+        profile.numericFor = function(ctx: any, stat: any, expected: any): any
+            return numericFor(ctx, stat)
+        end
     end
 
     return profile

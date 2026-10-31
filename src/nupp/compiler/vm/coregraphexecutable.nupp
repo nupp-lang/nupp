@@ -124,12 +124,8 @@ local function derive(g: any, catalog: any): any
                     emit({"Require", physical(dst), target}, position)
                     yield nil
                 end
-                case "Add" -> do
-                    emit({"Add", physical(dst), physical(args[1]), physical(args[2])}, position)
-                    yield nil
-                end
-                case "Lt" -> do
-                    emit({"Lt", physical(dst), physical(args[1]), physical(args[2])}, position)
+                case "Add", "Sub", "Mul", "Mod", "Lt", "Le" -> do
+                    emit({op, physical(dst), physical(args[1]), physical(args[2])}, position)
                     yield nil
                 end
                 case "Nil" -> do
@@ -287,20 +283,12 @@ end
 
 -- The retained checker objects are immutable borrows within this build process.
 -- This issuer is not a native loader or production frame/effect authority.
-function executable.fromChecked(compiled: any, numeric: boolean?, ordered: boolean?, loops: boolean?): any
-    local normalized = contracts.normalize(compiled, numeric, ordered, loops)
+function executable.fromChecked(compiled: any, version: integer?): any
+    local normalized = contracts.normalize(compiled, version)
     need(#normalized.modules <= 3, "at most three module initializers are executable")
     need(normalized.modules[#normalized.modules].chunk == normalized.entry, "entry module must initialize last")
     local result = deriveCatalog(normalized)
-    issued[
-        result
-    ] = {
-        compiled = compiled,
-        numeric = numeric == true,
-        ordered = ordered == true,
-        loops = loops == true,
-        snapshot = copy(result)
-    }
+    issued[result] = {compiled = compiled, version = version, snapshot = copy(result)}
 
     return result
 end
@@ -308,10 +296,7 @@ end
 function executable.validate(result: any): nil
     local state = need(type(result) == "table" and rawget(issued, result), "unissued executable catalog")
     need(same(result, state.snapshot), "issued executable metadata changed")
-    need(
-        same(contracts.normalize(state.compiled, state.numeric, state.ordered, state.loops), state.snapshot.semantic),
-        "checked catalog changed"
-    )
+    need(same(contracts.normalize(state.compiled, state.version), state.snapshot.semantic), "checked catalog changed")
 end
 
 function executable.checkedOwner(result: any, id: integer): any

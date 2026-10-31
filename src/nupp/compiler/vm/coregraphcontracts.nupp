@@ -57,11 +57,13 @@ end
 local function scalar(value: any, numeric: boolean): string
     need(value and value.tag ~= "literal" and value.tag ~= "const", "qualified scalar signatures are unsupported")
     need(
-        value.tag == "boolean" or value.tag == "nil" or numeric and (value.tag == "number" or value.tag == "float64"),
+        value.tag == "boolean"
+        or value.tag == "nil"
+        or numeric and (value.tag == "number" or value.tag == "float64" or value.tag == "int64"),
         "unsupported scalar signature"
     )
 
-    return value.tag == "float64" and "number" or value.tag
+    return (value.tag == "float64" or value.tag == "int64") and "number" or value.tag
 end
 
 local function checkedSignature(owner: any, numeric: boolean): any
@@ -137,7 +139,9 @@ local function intern(signatures: any, index: any, signature: any): integer
     return id
 end
 
-function contracts.normalize(compiled: any, numeric: boolean?, ordered: boolean?, loops: boolean?): any
+function contracts.normalize(compiled: any, version: integer?): any
+    local v: integer = version or 2
+    local numeric, loops = v >= 3, v >= 5
     fields(compiled, "graphs header catalog")
     local p, graphs = compiled.catalog, compiled.graphs
     need(type(p) == "table", "authentic checked catalog required")
@@ -180,7 +184,7 @@ function contracts.normalize(compiled: any, numeric: boolean?, ordered: boolean?
             "checked import target or source identity differs"
         )
     end
-    local definition = schema.describe(numeric, ordered, loops)
+    local definition = schema.describe(v)
     local output: any = {
         schema = definition,
         entry = integer(compiled.header.entry, 255),
@@ -217,7 +221,7 @@ function contracts.normalize(compiled: any, numeric: boolean?, ordered: boolean?
         need(record.id == index - 1, "owner order differs")
         if owner.kind == "function" then
             record.parent = integer(owner.parent, 255)
-            record.signature = intern(output.signatures, signatureIndex, checkedSignature(owner, numeric == true))
+            record.signature = intern(output.signatures, signatureIndex, checkedSignature(owner, numeric))
         else
             need(
                 owner.kind == "module" and modulesByOwner[owner.id] ~= nil and owner.parent == nil,
@@ -225,7 +229,7 @@ function contracts.normalize(compiled: any, numeric: boolean?, ordered: boolean?
             )
         end
         output.catalog[index], callEdges[index] = record, {}
-        output.graphs[index] = semantic.copyGraph(graphs[index], numeric == true)
+        output.graphs[index] = semantic.copyGraph(graphs[index], v)
     end
     -- This is the authoritative source-side gate. Decoders must never call it
     -- with fabricated checker objects. Call-front adds callsite membership.

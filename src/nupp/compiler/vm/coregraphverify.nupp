@@ -58,7 +58,8 @@ local function text(value: any): string
     return value
 end
 
-function verify.copyGraph(g: any, numeric: boolean?): any
+function verify.copyGraph(g: any, version: integer?): any
+    local numeric, integers = (version or 2) >= 3, (version or 2) >= 6
     fields(g, "nparams blocks types slots counts constants positions certificates name module path programOwner source")
     local copy: any = {
         nparams = integer(g.nparams, 239),
@@ -101,7 +102,8 @@ function verify.copyGraph(g: any, numeric: boolean?): any
             or constant.kind == "false"
             or constant.kind == "nil"
             or constant.kind == "str"
-            or numeric and constant.kind == "num",
+            or numeric and constant.kind == "num"
+            or integers and constant.kind == "int64",
             "unsupported scalar constant"
         )
         need(
@@ -109,8 +111,10 @@ function verify.copyGraph(g: any, numeric: boolean?): any
             and type(constant.value) == "string"
             and #constant.value > 0
             and #constant.value <= 256
-            or constant.kind == "num" and type(constant.value) == "string" and #constant.value == 8
-            or constant.kind ~= "str" and constant.kind ~= "num" and constant.value == "",
+            or (constant.kind == "num" or constant.kind == "int64")
+            and type(constant.value) == "string"
+            and #constant.value == 8
+            or constant.kind ~= "str" and constant.kind ~= "num" and constant.kind ~= "int64" and constant.value == "",
             "invalid scalar constant payload"
         )
         if constant.kind == "num" then
@@ -119,6 +123,14 @@ function verify.copyGraph(g: any, numeric: boolean?): any
             need(
                 (top & 0x7ff8) ~= 0x7ff8 or constant.value == string.rep(string.char(0), 6) .. string.char(0xf8, 0x7f),
                 "noncanonical numeric NaN"
+            )
+        elseif constant.kind == "int64" then
+            -- Only the signed 48-bit immediate payload is executable until
+            -- the core has canonical integer objects.
+            local sign, low, high = constant.value:byte(6, 8)
+            need(
+                low == 0 and high == 0 and sign < 0x80 or low == 0xff and high == 0xff and sign >= 0x80,
+                "integer constant exceeds the immediate range"
             )
         end
         copy.constants[index] = {kind = constant.kind, value = constant.value}
@@ -263,7 +275,7 @@ function verify.resultKind(g: any, signature: any, output: any): string
             return
         end
         need(first == "number" and second == "number", "numeric operation needs numeric operands")
-        assign(rule.dst, rule.op == "Lt" and "boolean" or "number")
+        assign(rule.dst, (rule.op == "Lt" or rule.op == "Le") and "boolean" or "number")
     end
 
     local function propagate(op: string, args: any, dst: integer): nil
@@ -292,7 +304,12 @@ function verify.resultKind(g: any, signature: any, output: any): string
                 case "K" -> do
                     local constant = need(g.constants[args[1] + 1], "constant index differs")
                     need(constant.kind ~= "str", "module name cannot be loaded as a value")
-                    assign(dst, constant.kind == "nil" and "nil" or constant.kind == "num" and "number" or "boolean")
+                    assign(
+                        dst,
+                        constant.kind == "nil" and "nil"
+                        or (constant.kind == "num" or constant.kind == "int64") and "number"
+                        or "boolean"
+                    )
                     yield nil
                 end
                 case "Require" -> do
@@ -310,7 +327,7 @@ function verify.resultKind(g: any, signature: any, output: any): string
                     assign(dst, result.result)
                     yield nil
                 end
-                case "Add", "Lt", "Move" -> do
+                case "Add", "Sub", "Mul", "Mod", "Lt", "Le", "Move" -> do
                     propagate(op, args, dst)
                     yield nil
                 end
@@ -385,7 +402,7 @@ function verify.resultKind(g: any, signature: any, output: any): string
             need(kinds[block.dst[at]] ~= nil, "unresolved scalar operation")
             if op == "Move" then
                 need(kinds[args[1]] ~= nil, "unresolved scalar move")
-            elseif op == "Add" or op == "Lt" then
+            elseif op ~= "K" and op ~= "Nil" and op ~= "Require" and op ~= "Closure" then
                 need(
                     kinds[args[1]] == "number" and kinds[args[2]] == "number",
                     "numeric operation needs numeric operands"
@@ -451,15 +468,15 @@ end
 function verify.catalog(p: any): any
     fields(p, "schema entry modules catalog signatures graphs contracts")
     need(
-        p.schema.version == 2 or p.schema.version == 3 or p.schema.version == 4 or p.schema.version == 5,
+        type(p.schema.version) == "number" and p.schema.version >= 2 and p.schema.version <= 6,
         "unknown source graph profile"
     )
-    same(p.schema, schema.describe(p.schema.version >= 3, p.schema.version >= 4, p.schema.version == 5))
+    same(p.schema, schema.describe(p.schema.version))
     local count = dense(p.catalog, 256)
     need(count > 0 and dense(p.graphs, 256) == count, "complete semantic graph table required")
     local moduleCount = dense(p.modules, 256)
     need(moduleCount > 0 and moduleCount <= count, "complete semantic module table required")
-    need(p.schema.version ~= 5 or moduleCount == 1, "loop profile requires one scalar initializer")
+    need(p.schema.version < 5 or moduleCount == 1, "loop profile requires one scalar initializer")
     dense(p.signatures, 256)
     dense(p.contracts, 1048576)
     local modulesByOwner, moduleNames = {}, {}
@@ -524,7 +541,7 @@ function verify.catalog(p: any): any
             need(modulesByOwner[ancestor.id] ~= nil, "foreign lexical root")
         end
         local g = p.graphs[index]
-        verify.copyGraph(g, p.schema.version >= 3)
+        verify.copyGraph(g, p.schema.version)
         need(g.programOwner == owner.id and g.nparams == #signature.params, "graph owner/signature differs")
         local ancestor, remaining = owner, count
         while ancestor.kind ~= "module" do

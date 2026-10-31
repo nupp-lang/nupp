@@ -1136,6 +1136,88 @@ function frontend.compile(fn: any, options: any, profile: any): any
                 end
                 loops[#loops] = nil
                 resume(exit)
+            elseif stat.kind == "fornumStmt" then
+                -- The profile evaluates all three controls before the loop
+                -- variable is bound, since it may shadow a name they use, and
+                -- owns their numeric meaning: mode, direction and the end test.
+                -- This frontend owns only the blocks: header, body, latch, exit.
+                local plan = invoke("numericFor", stat, nil)
+                if not block then
+                    finishTemporaries(statementDepth, stat)
+                    return
+                end
+                need(#plan.values >= 1 and plan.values[1] > g.nparams, "numeric for counter must be a fresh value")
+                local held = {}
+                for index, value in ipairs(plan.values) do
+                    held[index] = ctx.hold(value)
+                end
+
+                local function controls(): any
+                    local result = {}
+                    for index, handle in ipairs(held) do
+                        result[index] = ctx.readHeld(handle)
+                    end
+
+                    return result
+                end
+
+                -- Lua's shape: a guard before the first iteration and a test
+                -- after every advance. They differ for floating NaN controls,
+                -- so the profile supplies both; either may be negated.
+                local function test(hook: any): (integer, boolean)
+                    context()
+                    local value, negate = hook(ctx, stat, controls())
+                    need(ctx.block == block, "numeric for test must stay in its block")
+                    return value, negate == true
+                end
+
+                local function decide(value: integer, negate: boolean, enter: any, leave: any): nil
+                    block.term = {
+                        kind = "branch",
+                        value = value,
+                        edges = negate and {leave, enter} or {enter, leave},
+                        pos = position(stat)
+                    }
+                    block = nil
+                end
+
+                local guard, negateGuard = test(plan.first)
+                local before = block
+                local body, exit = branch(), branch()
+                block = before
+                decide(guard, negateGuard, body.edge, exit.edge)
+                resume(body)
+                -- `continue` advances the counter, so the latch exists before
+                -- the body. Its parameters are the body's loop-carried state.
+                local latch = branch()
+                loops[#loops + 1] = {exit = exit, continueTo = latch, cleanupDepth = #cleanups}
+                local key = stat.var.definition or stat.var
+                ctx.bind(key, initializeBinding(stat, key, controls()[1]))
+                local depth = #cleanups
+                statements(stat.body.stats)
+                if cleanupEnabled then
+                    finishScope(depth, stat)
+                end
+                if block then
+                    jump(latch, stat)
+                end
+                loops[#loops] = nil
+                resume(latch)
+                context()
+                local advanced, wrapped = plan.advance(ctx, stat, controls())
+                need(ctx.block == block, "numeric for advance must stay in its block")
+                bindings[held[1]] = advanced
+                if wrapped then
+                    local stay = branch()
+                    decide(wrapped, false, currentEdge(exit), stay.edge)
+                    resume(stay)
+                end
+                local continuing, negate = test(plan.test)
+                decide(continuing, negate, currentEdge(body), currentEdge(exit))
+                resume(exit)
+                for index = #held, 1, -1 do
+                    ctx.release(held[index])
+                end
             elseif stat.kind == "breakStmt" or stat.kind == "continueStmt" then
                 local loop = need(loops[#loops], "loop transfer outside a checked loop")
                 if cleanupEnabled then

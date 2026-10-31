@@ -432,9 +432,9 @@ function M.checkedNumericLessThanFeedsBothBranchEdges()
         end
     end
     test.equal(comparisons, 2)
-    local normalized = contracts.normalize(complete, true, true)
+    local normalized = contracts.normalize(complete, 4)
     semantic.semantic(normalized)
-    local result = executable.fromChecked(complete, true, true)
+    local result = executable.fromChecked(complete, 4)
     executable.validate(result)
     test.equal(result.version, 4)
     local lessThan, branches = 0, 0
@@ -451,7 +451,7 @@ function M.checkedNumericLessThanFeedsBothBranchEdges()
     test.equal(branches, 2)
     refuses(
         function()
-            contracts.normalize(complete, true)
+            contracts.normalize(complete, 3)
         end,
         "unsupported operation Lt"
     )
@@ -468,7 +468,7 @@ local function checkedLoop(name)
     local file = assert(io.open(path, "rb"))
     local source = file:read("*a")
     file:close()
-    local complete = compile(source, path, tagged.withCheckedLoops())
+    local complete = compile(source, path, tagged.forVersion(5))
     for _, g in ipairs(complete.graphs) do
         graph.verify(g)
         graph.prune(g)
@@ -493,10 +493,10 @@ function M.checkedNumericWhileCarriesBothScalarsThroughBackedge()
         assert(header and backedge)
         test.equal(#header.params, 2)
         test.equal(#backedge.args, 2)
-        local normalized = contracts.normalize(complete, true, true, true)
+        local normalized = contracts.normalize(complete, 5)
         semantic.semantic(normalized)
         test.equal(normalized.schema.version, 5)
-        local result = executable.fromChecked(complete, true, true, true)
+        local result = executable.fromChecked(complete, 5)
         executable.validate(result)
         test.equal(result.version, 5)
         assert(result.functions[1].instructionCount > 0)
@@ -509,7 +509,7 @@ function M.checkedNumericWhileCarriesBothScalarsThroughBackedge()
         assert(backwards, "loop has no executable backward jump")
         refuses(
             function()
-                contracts.normalize(complete, true, true)
+                contracts.normalize(complete, 4)
             end,
             "cyclic or unreachable graph is unsupported"
         )
@@ -518,7 +518,7 @@ end
 
 function M.checkedNumericLoopRejectsMalformedScalarPhi()
     local complete = checkedLoop("sum")
-    local normalized = contracts.normalize(complete, true, true, true)
+    local normalized = contracts.normalize(complete, 5)
     local g = normalized.graphs[normalized.entry + 1]
     local source, backedge
     for _, block in ipairs(g.blocks) do
@@ -558,14 +558,220 @@ end
 return i
 ]],
         nil,
-        tagged.withCheckedLoops()
+        tagged.forVersion(5)
     )
     refuses(
         function()
-            contracts.normalize(complete, true, true, true)
+            contracts.normalize(complete, 5)
         end,
         "unsupported operation Closure"
     )
+end
+
+-- A reference interpreter for the derived instructions, with Lua 5.5 numeric
+-- semantics from the host. It checks the frontend's control flow and the
+-- executable derivation, not the native handlers, which the native proof runs.
+local function interpret(result)
+    local fn = result.functions[#result.functions]
+    local constants, regs, pc, steps = fn.constants, {}, 1, 0
+    local function constant(index)
+        local c = constants[index + 1]
+        local b = {c.value:byte(1, 8)}
+        if c.kind == "int64" then
+            local value = 0
+            for at = 6, 1, -1 do
+                value = value * 256 + b[at]
+            end
+            return b[8] == 255 and value - 281474976710656 or value
+        elseif c.kind == "num" then
+            local exponent = (b[8] % 128) * 16 + b[7] // 16
+            local mantissa = b[7] % 16
+            for at = 6, 1, -1 do
+                mantissa = mantissa * 256 + b[at]
+            end
+            local value
+            if exponent == 2047 then
+                value = mantissa == 0 and 1 / 0 or 0 / 0
+            elseif exponent == 0 then
+                value = mantissa * 2.0 ^ -1074
+            else
+                value = (mantissa + 4503599627370496) * 2.0 ^ (exponent - 1075)
+            end
+            return b[8] >= 128 and -value or value
+        elseif c.kind == "nil" then
+            return nil
+        end
+        return c.kind == "true"
+    end
+    while true do
+        steps = steps + 1
+        assert(steps < 100000, "interpreted program does not finish")
+        local ins = fn.instructions[pc]
+        local op = ins[1]
+        pc = pc + 1
+        if op == "K" then
+            regs[ins[2]] = constant(ins[3])
+        elseif op == "Nil" then
+            regs[ins[2]] = nil
+        elseif op == "Move" then
+            regs[ins[2]] = regs[ins[3]]
+        elseif op == "Add" then
+            regs[ins[2]] = regs[ins[3]] + regs[ins[4]]
+        elseif op == "Sub" then
+            regs[ins[2]] = regs[ins[3]] - regs[ins[4]]
+        elseif op == "Mul" then
+            regs[ins[2]] = regs[ins[3]] * regs[ins[4]]
+        elseif op == "Mod" then
+            local x, y = regs[ins[3]], regs[ins[4]]
+            if math.type(x) == "integer" and math.type(y) == "integer" then
+                regs[ins[2]] = x % y
+            else
+                -- Lua 5.5's float modulo: an exact fmod moved to the sign of
+                -- the divisor. The frozen host's `%` rounds through a quotient.
+                local m = math.fmod(x, y)
+                if m > 0 and y < 0 or m < 0 and y > 0 then
+                    m = m + y
+                end
+                regs[ins[2]] = m
+            end
+        elseif op == "Lt" then
+            regs[ins[2]] = regs[ins[3]] < regs[ins[4]]
+        elseif op == "Le" then
+            regs[ins[2]] = regs[ins[3]] <= regs[ins[4]]
+        elseif op == "Jmp" then
+            pc = pc + ins[2]
+        elseif op == "JmpIf" then
+            if regs[ins[2]] then
+                pc = pc + ins[3]
+            end
+        elseif op == "Ret" then
+            return regs[ins[2]]
+        else
+            error("reference interpreter: unexpected " .. op)
+        end
+    end
+end
+
+local function numericProgram(source)
+    local complete = compile("module guestnumericfixture\n" .. source, nil, tagged.forVersion(6))
+    for _, g in ipairs(complete.graphs) do
+        graph.verify(g)
+        graph.prune(g)
+        graph.verify(g)
+    end
+    local normalized = contracts.normalize(complete, 6)
+    semantic.semantic(normalized)
+    test.equal(normalized.schema.version, 6)
+    local result = executable.fromChecked(complete, 6)
+    executable.validate(result)
+
+    return result, complete
+end
+
+local function same(actual, expected)
+    test.equal(math.type(actual), math.type(expected))
+    test.equal(actual, expected)
+end
+
+function M.checkedNumericForRunsLuaIntegerAndFloatLoops()
+    local cases = {
+        {"local t = 0\nfor i = 1, 10 do t = t + i * i end\nexport = t", 385},
+        {"local t = 0\nfor i = 10, 1, -3 do t = t + i end\nexport = t", 22},
+        {"local t = 0\nfor i = 5, 1 do t = t + 1 end\nexport = t", 0},
+        {"local t = 0\nfor i = 3, 3 do t = t + i end\nexport = t", 3},
+        {"local t = 0.0\nfor x = 0.5, 2.0, 0.5 do t = t + x end\nexport = t", 5.0},
+        {"local t = 0\nfor x = 0.25, 1 do t = t + x end\nexport = t", 0.25},
+        {"local t = 0\nfor i = 1, 2.5 do t = t + i end\nexport = t", 3},
+        {"local t = 0\nfor i = 1, 20 do t = (t + i * i * 7) % 1003 end\nexport = t", 30},
+        {"local t = 0\nfor i = 1, 4 do for j = i, 4 do t = t + j - i end end\nexport = t", 10},
+        {"local nan = 0.0 * (1e308 * 10.0)\nlocal t = 0\nfor x = 1.0, nan do t = t + 1 end\nexport = t", 1},
+        {"local nan = 0.0 * (1e308 * 10.0)\nlocal t = 0\nfor x = nan, 1.0 do t = t + 1 end\nexport = t", 1},
+        {"local nan = 0.0 * (1e308 * 10.0)\nlocal t = 0\nfor i = 1, nan do t = t + 1 end\nexport = t", 0},
+        {"local t = 0\nfor i = 3, 1.5, -1 do t = t + i end\nexport = t", 5},
+    }
+    for index, case in ipairs(cases) do
+        if case[2] ~= nil then
+            same(interpret(numericProgram(case[1])), case[2])
+        end
+    end
+end
+
+function M.checkedNumericForEvaluatesControlsBeforeBindingTheVariable()
+    -- The inner `i` shadows the outer one only inside the body, and every
+    -- control reads the outer binding.
+    local result = numericProgram("local i: integer = 3\nlocal t = 0\nfor i = i, i + 2 do t = t + i end\nexport = t * 10 + i")
+    same(interpret(result), 123)
+end
+
+function M.checkedNumericForBuildsHeaderBodyLatchAndWrapExit()
+    local result, complete = numericProgram("local t = 0\nfor i = 1, 3 do t = t + i end\nexport = t")
+    local g = complete.graphs[complete.header.entry + 1]
+    local branches, ops = 0, {}
+    for _, block in ipairs(g.blocks) do
+        if block.term.kind == "branch" then
+            branches = branches + 1
+        end
+        for _, op in ipairs(block.op) do
+            ops[op] = (ops[op] or 0) + 1
+        end
+    end
+    -- The entry guard, the integer wrap exit and the continue test.
+    test.equal(branches, 3)
+    test.equal(ops.Le, 2)
+    test.equal(ops.Lt, 1)
+    local backwards = false
+    for _, instruction in ipairs(result.functions[1].instructions) do
+        if instruction[1] == "Jmp" and instruction[2] < 0 then
+            backwards = true
+        end
+    end
+    assert(backwards, "loop has no executable backward jump")
+    -- A float loop has no wrap test; its guard is "not past the limit".
+    local _, floating = numericProgram("local t = 0.0\nfor x = 1.0, 3.0 do t = t + x end\nexport = t")
+    local floatOps = {}
+    for _, block in ipairs(floating.graphs[floating.header.entry + 1].blocks) do
+        for _, op in ipairs(block.op) do
+            floatOps[op] = (floatOps[op] or 0) + 1
+        end
+    end
+    test.equal(floatOps.Lt, 1)
+    test.equal(floatOps.Le, 1)
+end
+
+function M.checkedNumericOperatorsFollowLuaFloorModulo()
+    local cases = {
+        {"local a = -7\nlocal b = 3\nexport = a % b", 2},
+        {"local a = 7\nlocal b = -3\nexport = a % b", -2},
+        {"local a = 5.5\nlocal b = -2.0\nexport = a % b", -0.5},
+        {"local a = -5.5\nlocal b = 2.0\nexport = a % b", 0.5},
+        {"local a = 7\nlocal b = 2.5\nexport = a % b", 2.0},
+        {"local a = 1e308\nlocal b = 3.0\nexport = a % b", 2.0},
+        {"local a = 6\nlocal b = 7\nexport = a * b - 2", 40},
+        {"local a = 2\nlocal b = 2.5\nexport = a * b", 5.0},
+        {"local a = 3\nlocal b = 3.0\nlocal t = 0\nif a <= b then t = t + 1 end\nif b >= a then t = t + 2 end\nif a > 1 then t = t + 4 end\nexport = t", 7},
+    }
+    for _, case in ipairs(cases) do
+        same(interpret(numericProgram(case[1])), case[2])
+    end
+end
+
+function M.checkedNumericForRefusesWhatTheCoreCannotRunYet()
+    local refusals = {
+        {"local t = 0\nfor i = 1, 3, 0 do t = t + i end\nexport = t", "'for' step is zero"},
+        {"local s = 2\nlocal t = 0\nfor i = 1, 3, s do t = t + i end\nexport = t", "numeric for step must be a numeric literal"},
+        {"local n: number = 1\nlocal t = 0\nfor i = n, 3 do t = t + i end\nexport = t", "statically integer or float initial value"},
+        {"local t = 0\nfor i = 1, 3, 0.5 do t = t + i end\nexport = t", "statically integer or float initial value"},
+        {"local t = 0\nfor i = 1, 3 do t = t + i end\nexport = 140737488355328", "integer constant exceeds the immediate range"},
+    }
+    for _, case in ipairs(refusals) do
+        refuses(function()
+            numericProgram(case[1])
+        end, case[2])
+    end
+    -- Earlier profiles still refuse the statement.
+    refuses(function()
+        compile("module guestnumericfixture\nlocal t = 0\nfor i = 1, 3 do t = t + i end\nexport = t", nil, tagged.forVersion(5))
+    end, "control flow is outside lexical construction")
 end
 
 return M

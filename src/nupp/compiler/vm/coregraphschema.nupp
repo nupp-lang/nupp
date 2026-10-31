@@ -27,23 +27,37 @@ end
 
 -- describe() supplies the semantic schema. wire() supplies physical records
 -- consumed by the host codec and generated native layout checks.
-function schema.describe(numeric: boolean?, ordered: boolean?, loops: boolean?): any
-    assert(not ordered or numeric, "ordered source profile requires numbers")
-    assert(not loops or ordered, "loop source profile requires ordered numbers")
+-- Checked-source profiles grow monotonically: each version admits everything
+-- the previous one did, except that v5 and later exclude calls, Require and
+-- Closure because the loop profiles do not yet bound repeated allocation.
+-- Only v2 has a raw wire form; v3 and later are trusted checked-source input.
+function schema.describe(version: integer?): any
+    local v: integer = version or 2
+    assert(v >= 2 and v <= 6, "unknown source graph profile")
+    local loops = v >= 5
     local policies = {}
     for _, policy in ipairs(operations) do
         if not loops or policy.name ~= "Require" and policy.name ~= "Closure" then
             policies[#policies + 1] = policy
         end
     end
-    if numeric then
-        policies[#policies + 1] = {name = "Add", signature = "Vvv", effect = 0, provenance = "number"}
+    local arithmetic = {}
+    if v >= 3 then
+        arithmetic[#arithmetic + 1] = "Add"
     end
-    if ordered then
-        policies[#policies + 1] = {name = "Lt", signature = "Vvv", effect = 0, provenance = "number"}
+    if v >= 4 then
+        arithmetic[#arithmetic + 1] = "Lt"
+    end
+    if v >= 6 then
+        for _, name in ipairs({"Sub", "Mul", "Mod", "Le"}) do
+            arithmetic[#arithmetic + 1] = name
+        end
+    end
+    for _, name in ipairs(arithmetic) do
+        policies[#policies + 1] = {name = name, signature = "Vvv", effect = v >= 6 and 1 or 0, provenance = "number"}
     end
     local scalarKinds: any = {{id = 0, name = "boolean"}, {id = 1, name = "nil"}}
-    if numeric then
+    if v >= 3 then
         scalarKinds[#scalarKinds + 1] = {id = 2, name = "number"}
     end
     local terms: any = {
@@ -54,13 +68,17 @@ function schema.describe(numeric: boolean?, ordered: boolean?, loops: boolean?):
     if not loops then
         terms[#terms + 1] = {id = 3, name = "invoke", edges = 1, effect = 1}
     end
+    local profiles = {
+        "boolean-nil-acyclic-import-v2",
+        "number-add-source-v3",
+        "number-branch-source-v4",
+        "number-loop-source-v5",
+        "numeric-loop-source-v6"
+    }
     local described: any = {
         magic = "NUPPCGRF",
-        version = loops and 5 or ordered and 4 or numeric and 3 or 2,
-        profile = loops and "number-loop-source-v5"
-        or ordered and "number-branch-source-v4"
-        or numeric and "number-add-source-v3"
-        or "boolean-nil-acyclic-import-v2",
+        version = v,
+        profile = profiles[v - 1],
         byteOrder = "little",
         alignment = 8,
         absent = 4294967295,

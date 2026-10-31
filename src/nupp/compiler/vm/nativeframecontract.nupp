@@ -535,6 +535,11 @@ end
 -- Actual guest entry is a separate closed build, independent of both diagnostic
 -- probe snapshots. The enum selects reviewed source fixtures, never a caller
 -- path, owner/effect map, checked callback or arbitrary raw graph.
+-- The checked-source graph profile each fixed guest case is built under.
+local guestVersions: {
+    [string]: integer
+} = {numberAdd = 3, numberNegativeZero = 3, numberNaN = 3, numberBranch = 4, numberLoop = 5, numberLoopZero = 5}
+
 local function buildGuest(caseName: string, audited: boolean): any
     local fixtures = {
         raw = "catalog-boolean",
@@ -781,14 +786,10 @@ local function buildGuest(caseName: string, audited: boolean): any
     local program: any = require("nupp.compiler.vm." .. programName)
     local tagged: any = require("nupp.compiler.vm." .. taggedName)
     local catalog = program.describe(modules, moduleName)
-    local loops = caseName == "numberLoop" or caseName == "numberLoopZero"
-    local ordered = loops or caseName == "numberBranch"
-    local numeric = ordered or caseName == "numberAdd" or caseName == "numberNegativeZero" or caseName == "numberNaN"
+    local version = guestVersions[caseName] or 2
     state.executable = guestExecutable().fromChecked(
-        program.compile(catalog, loops and tagged.withCheckedLoops() or tagged),
-        numeric,
-        ordered,
-        loops
+        program.compile(catalog, version >= 5 and tagged.forVersion(version) or tagged),
+        version
     )
     validateSource(state)
     table.sort(all, function(a: any, b: any): boolean
