@@ -157,4 +157,40 @@ function link.assembleAuthenticated(
     return assemble(prefix, roots, functions, available, imports, extentError)
 end
 
+-- Trusted build-time linking for the core's own code (runtime plan,
+-- "Direction": tests, not proofs). OS import slots come from the selector's
+-- `core_os_<slot>` fixup names; nothing is re-verified here.
+function link.assembleTrusted(
+    prefix: {integer},
+    roots: {any},
+    functions: {[string]: any},
+    available: integer,
+    extentError: string?
+): any
+    local imports: any = {}
+
+    local function bind(code: any): nil
+        if imports[code] then
+            return
+        end
+        local slots = {}
+        for at, kind in ipairs(code.fixupKind) do
+            if kind == selector.IMPORT_LOAD then
+                local name = code.fixupName[at]
+                slots[name] = tonumber(assert(name:match("^core_os_(%d+)$"), "core link import name"))
+            end
+        end
+        imports[code] = slots
+    end
+
+    for _, code in ipairs(roots) do
+        bind(code)
+    end
+    for _, code in pairs(functions) do
+        bind(code)
+    end
+
+    return assemble(prefix, roots, functions, available, imports, extentError)
+end
+
 export = link

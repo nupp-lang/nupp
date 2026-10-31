@@ -136,7 +136,7 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
         found += 1
     end
     assert(found == count, "guest selected inventory")
-    local extent = linker.assembleAuthenticated({}, roots, functions, scratchBytes - spillOffset).callBytes
+    local extent = linker.assembleTrusted({}, roots, functions, scratchBytes - spillOffset).callBytes
     assert(extent > 0 and extent % 16 == 0)
     local words: {integer} = {}
     local refusals: {{
@@ -450,7 +450,7 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
     end
     emit(arm.add_imm(64, 31, 31, 192, 0));
     emit(arm.ret(30))
-    local linked = linker.assembleAuthenticated(words, roots, functions, scratchBytes - spillOffset)
+    local linked = linker.assembleTrusted(words, roots, functions, scratchBytes - spillOffset)
     assert(linked.callBytes == extent)
     if raw then
         linked.words[assert(rawCall)] = arm.bl((linked.offsets[rawIndex] as integer) - (assert(rawCall) - 1) * 4)
