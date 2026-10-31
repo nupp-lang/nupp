@@ -97,6 +97,10 @@ owns the module. The owner is its first canonical segment: `paint` owns
 namespace, such as `app`, cannot statically require their internal modules or
 name their values or types through qualified paths (`NUPP2144`).
 
+The standard library is one package with several public roots. Its `nupp`,
+`serde`, and `binary` modules share private implementations; application
+modules cannot import those implementations.
+
 An `internal` segment and an underscored module basename also mark a module
 internal. On `init.nupp`, `@!internal` applies to the namespace and every
 module below it. Public modules can use and wrap their own internal modules;
