@@ -9,6 +9,23 @@ const access = require("nupp.runtime.core.frameaccess")
 
 -- These are fixed reviewed negative bodies, compiled only far enough to hit
 -- dataflow refusal. They are never selected, linked or executed as guest code.
+
+-- The producer's pure scalar proof must refuse each of these leaves: a store
+-- through a forged address, the same store one call away, and an address
+-- parameter. None is ever given the pureScalar role.
+local function ForgePureStore(address: uint64): uint64
+    native.store64(native.pointer(address), 0, 0ULL)
+    return 0ULL
+end
+
+local function ForgePureCaller(address: uint64): uint64
+    return ForgePureStore(address) + 1ULL
+end
+
+local function ForgePureAddress(address: voidptr): uint64
+    return native.address(address)
+end
+
 export function NoScalar(
     pc: voidptr,
     regs: voidptr,

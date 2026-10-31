@@ -919,6 +919,19 @@ local function buildGuest(caseName: string, audited: boolean): any
             current = nil
         end
         provePure(state, pureRoots)
+        for name, expected in pairs({
+            ForgePureStore = "pure scalar leaf uses NativePointer",
+            ForgePureCaller = "pure scalar leaf uses NativePointer",
+            ForgePureAddress = "pure scalar leaf takes an address"
+        }) do
+            local owner = need(negatives.functions[name], "fixed pure scalar negative")
+            local passed, problem = pcall(provePure, state, {owner})
+            need(
+                not passed and tostring(problem):find(expected, 1, true),
+                "pure scalar negative missed refusal: " .. name .. ": " .. tostring(problem)
+            )
+            refusals[#refusals + 1] = {name = name, diagnostic = tostring(problem)}
+        end
         validateSource(state)
     end)
     current = nil
