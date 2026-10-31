@@ -30,6 +30,7 @@ local M = {}
 
 function M.publicNamespacesKeepOneJsonIdentityAndRespectLocalShadowing()
     local result = run(
+        "serdetest.publicNamespacesKeepOneJsonIdentityAndRespectLocalShadowing",
         [=[
 local direct = require("serde.json")
 assert(serde.json == direct)
