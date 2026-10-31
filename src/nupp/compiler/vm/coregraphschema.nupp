@@ -34,7 +34,7 @@ end
 -- Only v2 has a raw wire form; v3 and later are trusted checked-source input.
 function schema.describe(version: integer?): any
     local v: integer = version or 2
-    assert(v >= 2 and v <= 7, "unknown source graph profile")
+    assert(v >= 2 and v <= 8, "unknown source graph profile")
     local loops = v >= 5
     local policies = {}
     for _, policy in ipairs(operations) do
@@ -64,6 +64,12 @@ function schema.describe(version: integer?): any
         policies[#policies + 1] = {name = "SetCell", signature = "vv", effect = 1, provenance = "cell"}
         policies[#policies + 1] = {name = "GetUpval", signature = "V#", effect = 0, provenance = "capture"}
     end
+    if v >= 8 then
+        policies[#policies + 1] = {name = "NewTable", signature = "V", effect = 1, provenance = "table"}
+        policies[#policies + 1] = {name = "GetIdx", signature = "Vvv", effect = 1, provenance = "table"}
+        policies[#policies + 1] = {name = "SetIdx", signature = "vvv", effect = 1, provenance = "table"}
+        policies[#policies + 1] = {name = "Len", signature = "Vv", effect = 1, provenance = "table"}
+    end
     local scalarKinds: any = {{id = 0, name = "boolean"}, {id = 1, name = "nil"}}
     if v >= 3 then
         scalarKinds[#scalarKinds + 1] = {id = 2, name = "number"}
@@ -82,7 +88,8 @@ function schema.describe(version: integer?): any
         "number-branch-source-v4",
         "number-loop-source-v5",
         "numeric-loop-source-v6",
-        "numeric-call-source-v7"
+        "numeric-call-source-v7",
+        "table-source-v8"
     }
     local described: any = {
         magic = "NUPPCGRF",

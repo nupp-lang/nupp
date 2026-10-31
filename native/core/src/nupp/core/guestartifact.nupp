@@ -82,8 +82,12 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
     end
 
     local function kind(name: string): integer
-        assert(name == "boolean" or name == "nil" or version >= 3 and name == "number", "scalar signature kind")
-        return name == "boolean" and 1 or name == "nil" and 2 or 3
+        assert(
+            name == "boolean" or name == "nil" or version >= 3 and name == "number" or version >= 8 and name == "value",
+            "scalar signature kind"
+        )
+
+        return name == "boolean" and 1 or name == "nil" and 2 or name == "number" and 3 or 4
     end
 
     local descriptor: any = {

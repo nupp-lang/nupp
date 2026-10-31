@@ -800,13 +800,17 @@ function program.verifyGraphs(p: any, graphs: {any}): nil
                 local contract = block.term.contract
                 local site = need(p.callByNode[contract.call], "invoke lacks checked callsite")
                 need(site.owner == owner.id, "invoke callsite belongs to another owner")
-                local target = contract.owner
-                need(
-                    p.owners[target.id + 1] == target
-                    and p.functionsByDefinition[site.definition] == target
-                    and target.definition == contract.definition,
-                    "invoke callee belongs to another catalog"
-                )
+                if contract.dynamic then
+                    need(p.functionsByDefinition[site.definition] == nil, "dynamic invoke names a declaration")
+                else
+                    local target = contract.owner
+                    need(
+                        p.owners[target.id + 1] == target
+                        and p.functionsByDefinition[site.definition] == target
+                        and target.definition == contract.definition,
+                        "invoke callee belongs to another catalog"
+                    )
+                end
             end
             if block.term.kind == "returns" then
                 explicitOperands("RetN")

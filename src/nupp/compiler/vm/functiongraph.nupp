@@ -236,6 +236,10 @@ function frontend.compile(fn: any, options: any, profile: any): any
             return invoke("cast", node, expected)
         elseif node.kind == "dotIndex" then
             return invoke(profile.fieldRead and "fieldRead" or "constant", node, expected)
+        elseif node.kind == "tableExpr" then
+            return invoke("tableConstructor", node, expected)
+        elseif node.kind == "bracketIndex" then
+            return invoke("indexRead", node, expected)
         elseif node.kind == "unop" then
             return invoke("unary", node, expected)
         elseif node.kind == "call" then
@@ -969,6 +973,10 @@ function frontend.compile(fn: any, options: any, profile: any): any
                             return
                         end
                         prepared.heldReceiver = ctx.hold(prepared.receiver)
+                        -- A keyed target evaluates its key before the values too.
+                        if prepared.index then
+                            prepared.heldIndex = ctx.hold(prepared.index)
+                        end
                         targets[index] = prepared
                     end
                 end
@@ -1015,6 +1023,9 @@ function frontend.compile(fn: any, options: any, profile: any): any
                 for index = #targets, 1, -1 do
                     if targets[index].heldReceiver then
                         ctx.release(targets[index].heldReceiver)
+                    end
+                    if targets[index].heldIndex then
+                        ctx.release(targets[index].heldIndex)
                     end
                 end
             elseif stat.kind == "callStmt" then

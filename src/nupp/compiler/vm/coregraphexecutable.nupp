@@ -287,6 +287,22 @@ local function derive(g: any, catalog: any): any
                     emit({"GetUpval", physical(dst), args[1]}, position)
                     yield nil
                 end
+                case "NewTable" -> do
+                    emit({"NewTable", physical(dst)}, position)
+                    yield nil
+                end
+                case "GetIdx" -> do
+                    emit({"GetIdx", physical(dst), physical(args[1]), physical(args[2])}, position)
+                    yield nil
+                end
+                case "SetIdx" -> do
+                    emit({"SetIdx", physical(args[1]), physical(args[2]), physical(args[3])}, position)
+                    yield nil
+                end
+                case "Len" -> do
+                    emit({"Len", physical(dst), physical(args[1])}, position)
+                    yield nil
+                end
                 else -> error("core executable: unsupported graph operation " .. op, 0)
             end
         end
@@ -399,11 +415,16 @@ local function deriveCatalog(normalized: any): any
         local fn = functions[index]
         local instances, depth = fn.closureCount, 1
         for _, call in ipairs(fn.calls) do
-            local child = bound((call.target as integer) + 1)
-            need(not call.inLoop or child.instances == 0, "call in a loop creates unbounded instances")
-            instances += child.instances
-            depth = math.max(depth, child.depth + 1)
-            need(instances <= 1048576, "entry instance budget exceeded")
+            -- A dynamic call's callee is unknown: bound its depth like recursion.
+            if call.target == normalized.schema.absent then
+                recursive = true
+            else
+                local child = bound((call.target as integer) + 1)
+                need(not call.inLoop or child.instances == 0, "call in a loop creates unbounded instances")
+                instances += child.instances
+                depth = math.max(depth, child.depth + 1)
+                need(instances <= 1048576, "entry instance budget exceeded")
+            end
         end
         bounds[index] = {instances = instances, depth = depth}
         visiting[index] = nil

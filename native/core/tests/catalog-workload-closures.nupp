@@ -1,0 +1,32 @@
+module nupp.core.catalogworkloadclosures
+
+-- The `closures` workload of bench/vm/workloads.bench.nupp at scale 1, whose
+-- checksum is 499892; the scale stays an operand rather than folding away.
+local scale = 1
+
+local function closures(): number
+    local function map(xs: {number}, f: function(number): number): {number}
+        local out: {number} = {}
+        for i = 1, #xs do
+            out[i] = f(xs[i])
+        end
+
+        return out
+    end
+
+    local xs: {number} = {}
+    for i = 1, 100000 do
+        xs[i] = i * scale
+    end
+    local total = 0
+    for round = 1, 30 do
+        local ys = map(xs, function(v: number): number
+            return v * round + 1
+        end)
+        total = (total + ys[#ys]) % 1000003
+    end
+
+    return total
+end
+
+export = closures()

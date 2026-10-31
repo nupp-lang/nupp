@@ -247,16 +247,24 @@ local function requireSite(ctx: any, node: any): any
     return item
 end
 
-local function invoke(ctx: any, node: any, keepResult: boolean): integer?
+local function invoke(ctx: any, node: any, keepResult: boolean, dynamic: boolean?): integer?
     local p = catalog(ctx)
     local site = need(p.callByNode[node], "ordinary call lacks checked callsite")
     need(site.owner == ctx.fn.id, "callsite belongs to another owner")
-    local target = need(ctx.callee(node), "call requires a stable checked declaration")
-    need(
-        p.owners[target.id + 1] == target and p.functionsByDefinition[site.definition] == target,
-        "call target belongs to another catalog"
-    )
-    local contract = graph.invokeContract(target, node)
+    local target = ctx.callee(node)
+    local contract
+    if target == nil and dynamic then
+        -- From v8 a call through a function value is resolved when it runs.
+        need(p.functionsByDefinition[site.definition] == nil, "dynamic call names a declaration")
+        contract = graph.dynamicInvokeContract(node)
+    else
+        need(target, "call requires a stable checked declaration")
+        need(
+            p.owners[target.id + 1] == target and p.functionsByDefinition[site.definition] == target,
+            "call target belongs to another catalog"
+        )
+        contract = graph.invokeContract(target, node)
+    end
     -- The declaration supplies an expected contract, never the runtime callee.
     -- Evaluate that callee before any argument, and retain its snapshot across
     -- every nested call. Runtime FunctionInfo authentication remains pending.
@@ -449,6 +457,62 @@ function tagged.forVersion(version: integer): any
     if version >= 6 then
         profile.numericFor = function(ctx: any, stat: any, expected: any): any
             return numericFor(ctx, stat)
+        end
+    end
+    -- v8 tables: empty constructors, keyed reads and writes, and length.
+    if version >= 8 then
+        profile.tableConstructor = function(ctx: any, node: any, expected: string?): integer
+            need(expected == nil or expected == "tagged", "table requires tagged destination")
+            need(#node.fields == 0, "only empty table constructors are admitted")
+            return ctx.emit(node, "NewTable", {}, "tagged") as integer
+        end
+        profile.indexRead = function(ctx: any, node: any, expected: string?): integer
+            need(expected == nil or expected == "tagged", "index requires tagged destination")
+            local operands = ctx.operands({node.obj, node.expr}, {"tagged", "tagged"})
+            if operands == nil then
+                return nil as any
+            end
+
+            return ctx.emit(node, "GetIdx", operands, "tagged") as integer
+        end
+        profile.assignmentTarget = function(ctx: any, node: any, rhs: any): any
+            need(node.kind == "bracketIndex", "only keyed assignment targets are admitted")
+            local operands = ctx.operands({node.obj, node.expr}, {"tagged", "tagged"})
+            if operands == nil then
+                return {receiver = 0, kind = "tagged"}
+            end
+
+            return {receiver = operands[1], index = operands[2], kind = "tagged"}
+        end
+        profile.assignTarget = function(ctx: any, node: any, target: any, receiver: integer, value: integer): nil
+            ctx.emit(node, "SetIdx", {receiver, ctx.readHeld(target.heldIndex), value}, nil)
+        end
+        profile.call = function(ctx: any, node: any, expected: string?): integer
+            if node.runtimeLoader == "require" then
+                return tagged.call(ctx, node, expected)
+            end
+            need(expected == nil or expected == "tagged", "call requires tagged destination")
+
+            return invoke(ctx, node, true, true) as integer
+        end
+        profile.statementCall = function(ctx: any, node: any): nil
+            if node.runtimeLoader == "require" then
+                tagged.statementCall(ctx, node)
+            else
+                invoke(ctx, node, false, true)
+            end
+        end
+        profile.unary = function(ctx: any, node: any, expected: string?): integer
+            if node.op and node.op.text == "#" then
+                need(expected == nil or expected == "tagged", "length requires tagged destination")
+                local operand = ctx.expression(node.operand, "tagged")
+                if operand == nil then
+                    return nil as any
+                end
+                return ctx.emit(node, "Len", {operand}, "tagged") as integer
+            end
+
+            return tagged.unary(ctx, node, expected)
         end
     end
 

@@ -19,7 +19,7 @@ local function assemble(
         names[#names + 1] = name
     end
     table.sort(names)
-    assert(#roots > 0 and #roots <= 256 and #names <= 256, "core link function count")
+    assert(#roots > 0 and #roots <= 256 and #names <= 4096, "core link function count")
     assert(available >= 0, "core link available extent")
     local spillError = extentError or "core link call-chain spill extent"
     local visiting, heights = {}, {}

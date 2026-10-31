@@ -1,0 +1,239 @@
+module tableunits
+
+-- Core tables (nupp.runtime.core.coretables) on the owned backend: the array
+-- part, the hash part and the migration between them, borders after removal,
+-- object keys, and survival and release across collections.
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const collector = require("nupp.runtime.vm.collector")
+const values = require("nupp.runtime.vm.values")
+const tables = require("nupp.runtime.core.coretables")
+
+const BILLION: uint64 = 1000000000ULL
+
+local function int(i: uint64): uint64
+    return values.TAG_INTEGER | i
+end
+
+local function payload(value: uint64): uint64
+    return value & values.PAYLOAD
+end
+
+-- One root word in the arena, nil, registered with the heap.
+local function root(a: arena.Arena*, h: heap.Heap*): uint64
+    @unsafe do
+        local raw = arena.alloc(a, 16ULL, 8ULL)
+        if raw == nil then
+            error("table units: no room for the root")
+        end
+        local base = native.address(raw)
+        native.store64(native.pointer(base), 0, values.NIL)
+        collector.register(h, base, 1ULL)
+
+        return base
+    end
+end
+
+local function fresh(a: arena.Arena*, h: heap.Heap*): uint64
+    @unsafe do
+        local t = tables.create(h)
+        native.store64(native.pointer(root(a, h)), 0, values.TAG_OBJ | t)
+
+        return t
+    end
+end
+
+local function put(h: heap.Heap*, t: uint64, key: uint64, value: uint64): uint64
+    if tables.set(h, t, key, value) ~= tables.OK then
+        return 1ULL
+    end
+
+    return 0ULL
+end
+
+-- Appends 1..count with value 2i, then reads them back. Answers the sum of
+-- the values plus a billion times the length; each refusal adds one.
+export function sequence(count: uint64): uint64
+    local answer: uint64 = 0ULL
+    with a = arena.open(16777216ULL) do
+        @unsafe do
+            local h = heap.create(a)
+            local t = fresh(a, h)
+            local wrong: uint64 = 0ULL
+            local i: uint64 = 1ULL
+            while i <= count do
+                wrong = wrong + put(h, t, int(i), int(2ULL * i))
+                i = i + 1ULL
+            end
+            local sum: uint64 = 0ULL
+            i = 1ULL
+            while i <= count do
+                sum = sum + payload(tables.get(t, int(i)))
+                i = i + 1ULL
+            end
+            answer = sum + tables.length(t) * BILLION + wrong
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- Stores the even keys 2..2count first (into the hash part), then the odd
+-- ones, which grow the array and pull the evens across. Answers the length
+-- times a billion plus the sum of the values, which are the keys.
+export function migrate(count: uint64): uint64
+    local answer: uint64 = 0ULL
+    with a = arena.open(16777216ULL) do
+        @unsafe do
+            local h = heap.create(a)
+            local t = fresh(a, h)
+            local wrong: uint64 = 0ULL
+            local i: uint64 = 1ULL
+            while i <= count do
+                wrong = wrong + put(h, t, int(2ULL * i), int(2ULL * i))
+                i = i + 1ULL
+            end
+            if tables.length(t) ~= 0ULL then
+                wrong = wrong + 1ULL
+            end
+            i = 1ULL
+            while i <= count do
+                wrong = wrong + put(h, t, int(2ULL * i - 1ULL), int(2ULL * i - 1ULL))
+                i = i + 1ULL
+            end
+            local sum: uint64 = 0ULL
+            i = 1ULL
+            while i <= 2ULL * count do
+                sum = sum + payload(tables.get(t, int(i)))
+                i = i + 1ULL
+            end
+            answer = tables.length(t) * BILLION + sum + wrong * 7ULL
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- Removal: clearing the last two keys moves the border down, clearing an
+-- inner key leaves it, and reads of removed keys are nil. Answers the final
+-- length times a thousand plus the count of nil reads that should be nil.
+export function removal(count: uint64): uint64
+    local answer: uint64 = 0ULL
+    with a = arena.open(16777216ULL) do
+        @unsafe do
+            local h = heap.create(a)
+            local t = fresh(a, h)
+            local i: uint64 = 1ULL
+            while i <= count do
+                put(h, t, int(i), int(i))
+                i = i + 1ULL
+            end
+            put(h, t, int(count), values.NIL)
+            put(h, t, int(count - 1ULL), values.NIL)
+            put(h, t, int(3ULL), values.NIL)
+            put(h, t, int(count + 50ULL), values.NIL)
+            local nils: uint64 = 0ULL
+            if tables.get(t, int(3ULL)) == values.NIL then
+                nils = nils + 1ULL
+            end
+            if tables.get(t, int(count)) == values.NIL then
+                nils = nils + 1ULL
+            end
+            if tables.get(t, int(count - 1ULL)) == values.NIL then
+                nils = nils + 1ULL
+            end
+            if tables.get(t, int(count + 50ULL)) == values.NIL then
+                nils = nils + 1ULL
+            end
+            answer = tables.length(t) * 1000ULL + nils
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- Object keys by identity, with refused keys counted: nil and a float key.
+-- Answers the sum of the values read back through `count` node keys, plus a
+-- billion per refusal seen.
+export function objectKeys(count: uint64): uint64
+    local answer: uint64 = 0ULL
+    with a = arena.open(16777216ULL) do
+        @unsafe do
+            local h = heap.create(a)
+            local t = fresh(a, h)
+            h.automatic = false
+            local raw = arena.alloc(a, count * 8ULL + 8ULL, 8ULL)
+            if raw == nil then
+                error("table units: no room for the keys")
+            end
+            local keys = native.pointer(native.address(raw))
+            collector.register(h, native.address(keys), count)
+            local i: uint64 = 0ULL
+            while i < count do
+                local k = tables.create(h)
+                native.store64(keys, native.index(i * 8ULL), values.TAG_OBJ | k)
+                put(h, t, values.TAG_OBJ | k, int(i + 1ULL))
+                i = i + 1ULL
+            end
+            local sum: uint64 = 0ULL
+            i = 0ULL
+            while i < count do
+                sum = sum + payload(tables.get(t, native.load64(keys, native.index(i * 8ULL))))
+                i = i + 1ULL
+            end
+            local refused: uint64 = 0ULL
+            if tables.set(h, t, values.NIL, int(1ULL)) == tables.BAD_KEY then
+                refused = refused + 1ULL
+            end
+            if tables.set(h, t, 0x3ff8000000000000ULL, int(1ULL)) == tables.BAD_KEY then
+                refused = refused + 1ULL
+            end
+            answer = sum + refused * BILLION
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- Tables survive collection through a rooted table and are released when
+-- unrooted: `count` child tables hang off a rooted table, a full cycle runs,
+-- then the root is cleared and another runs and the released ones are drained.
+-- Answers live objects after the first cycle, a thousand times those after
+-- the drain, plus a billion per oracle disagreement.
+export function survives(count: uint64): uint64
+    local answer: uint64 = 0ULL
+    with a = arena.open(16777216ULL) do
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            local rootWord = root(a, h)
+            local t = tables.create(h)
+            native.store64(native.pointer(rootWord), 0, values.TAG_OBJ | t)
+            local i: uint64 = 1ULL
+            while i <= count do
+                local child = tables.create(h)
+                put(h, t, int(i), values.TAG_OBJ | child)
+                put(h, child, int(1ULL), int(i))
+                i = i + 1ULL
+            end
+            collector.fullCycle(h)
+            tables.drain(h)
+            local first = h.liveCount
+            local failures = h.oracleFailures + collector.checkOracle(h, true)
+            native.store64(native.pointer(rootWord), 0, values.NIL)
+            collector.fullCycle(h)
+            tables.drain(h)
+            local after = h.liveCount
+            failures = failures + collector.checkOracle(h, true)
+            answer = first + after * 1000ULL + failures * BILLION
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end

@@ -275,7 +275,9 @@ export function prepare(
     local c = native.loadPointer(ctx, context.CATALOG)
     local count = native.load64(c, native.fieldOffset<catalog.Catalog>("count"))
     local nv = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
-    if hint >= count or base >= nv - 1ULL or nargs > nv - base - 1ULL then
+    -- A dynamic call (v8) carries the absent hint and resolves its callee here.
+    local dynamic = hint == 0xffffffffULL and heapClosures(ctx) == 1ULL
+    if hint >= count and not dynamic or base >= nv - 1ULL or nargs > nv - base - 1ULL then
         return 0ULL
     end
     local index = (native.address(pc) - native.load64(frame, native.fieldOffset<frames.Frame>("code"))) // 16ULL
@@ -311,12 +313,13 @@ export function prepare(
     else
         resolved = instances.resolve(native.loadPointer(ctx, context.REGISTRY), targets, callee)
     end
-    if resolved == 0ULL or resolved - 1ULL ~= hint then
+    if resolved == 0ULL or not dynamic and resolved - 1ULL ~= hint or resolved > count then
         return 0ULL
     end
+    local actual = resolved - 1ULL
     local target = native.offset(
         native.loadPointer(c, native.fieldOffset<catalog.Catalog>("records")),
-        native.index(hint * native.sizeOf<catalog.Function>())
+        native.index(actual * native.sizeOf<catalog.Function>())
     )
     local signatureId = native.load64(call, native.fieldOffset<catalog.Callsite>("signature"))
     if native.load64(target, native.fieldOffset<catalog.Function>("kind")) ~= catalog.FUNCTION
@@ -344,11 +347,11 @@ export function prepare(
     end
     local info = native.offset(
         native.loadPointer(c, native.fieldOffset<catalog.Catalog>("infos")),
-        native.index(hint * native.sizeOf<frames.FunctionInfo>())
+        native.index(actual * native.sizeOf<frames.FunctionInfo>())
     )
     local plan = native.offset(
         native.loadPointer(c, native.fieldOffset<catalog.Catalog>("plans")),
-        native.index(hint * native.sizeOf<frames.WindowPlan>())
+        native.index(actual * native.sizeOf<frames.WindowPlan>())
     )
 
     return frames.prepareFixed(

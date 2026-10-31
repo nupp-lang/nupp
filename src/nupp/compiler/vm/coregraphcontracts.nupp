@@ -54,8 +54,12 @@ local function empty(value: any, description: string): nil
     need(value == nil or type(value) == "table" and next(value) == nil, "unsupported " .. description)
 end
 
-local function scalar(value: any, numeric: boolean): string
+local function scalar(value: any, numeric: boolean, dynamic: boolean?): string
     need(value and value.tag ~= "literal" and value.tag ~= "const", "qualified scalar signatures are unsupported")
+    -- v8 passes tables and functions as dynamic values, checked where used.
+    if dynamic and (value.tag == "array" or value.tag == "map" or value.tag == "table" or value.tag == "func") then
+        return "value"
+    end
     need(
         value.tag == "boolean"
         or value.tag == "nil"
@@ -66,12 +70,12 @@ local function scalar(value: any, numeric: boolean): string
     return (value.tag == "float64" or value.tag == "int64") and "number" or value.tag
 end
 
-local function checkedSignature(owner: any, numeric: boolean): any
-    local signature = need(owner.signature, "checked callable signature required")
-    need(
-        signature.tag == "func" and owner.body.signatureType == signature,
-        "checked callable signature identity differs"
-    )
+-- The wire's absent index, for a dynamic call's missing target.
+local ABSENT = 4294967295
+
+-- A callable signature record from a checked function type.
+local function typeSignature(signature: any, numeric: boolean, dynamic: boolean): any
+    need(signature and signature.tag == "func", "checked function type required")
     need(
         not signature.vararg
         and not signature.foreign
@@ -101,8 +105,11 @@ local function checkedSignature(owner: any, numeric: boolean): any
         need(pack and not pack.tail and not pack.alternatives, "closed signature pack required")
         dense(pack.head, 240)
         need(dense(pack.modes, 240) == #pack.head, "signature modes differ")
-        for _, mode in ipairs(pack.modes) do
-            need(mode == "plain", "qualified scalar signature")
+        for at, mode in ipairs(pack.modes) do
+            need(
+                mode == "plain" or dynamic and mode == "scoped" and pack.head[at].tag == "func",
+                "qualified scalar signature"
+            )
         end
     end
     need(
@@ -113,17 +120,29 @@ local function checkedSignature(owner: any, numeric: boolean): any
     )
     for index, value in ipairs(signature.params) do
         need(value == signature.paramPack.head[index], "checked parameter pack differs")
-        params[index] = scalar(value, numeric)
+        params[index] = scalar(value, numeric, dynamic)
     end
     need(signature.rets[1] == signature.retPack.head[1], "checked result pack differs")
-    result = scalar(signature.rets[1], numeric)
+    result = scalar(signature.rets[1], numeric, dynamic)
+
+    return {kind = "callable", params = params, result = result}
+end
+
+local function checkedSignature(owner: any, numeric: boolean, dynamic: boolean): any
+    local signature = need(owner.signature, "checked callable signature required")
+    need(
+        signature.tag == "func" and owner.body.signatureType == signature,
+        "checked callable signature identity differs"
+    )
+    -- From v8 a call through a value makes a summary unknown; guest graphs
+    -- cannot suspend, so only a known yield or external effect is refused.
     local summary = owner.body.effectSummary
     need(
-        summary and summary.yields == false and summary.top == false and summary.external == false,
+        summary and summary.yields == false and (summary.top == false or dynamic) and summary.external == false,
         "unknown callable effects"
     )
 
-    return {kind = "callable", params = params, result = result}
+    return typeSignature(signature, numeric, dynamic)
 end
 
 local function intern(signatures: any, index: any, signature: any): integer
@@ -221,7 +240,7 @@ function contracts.normalize(compiled: any, version: integer?): any
         need(record.id == index - 1, "owner order differs")
         if owner.kind == "function" then
             record.parent = integer(owner.parent, 255)
-            record.signature = intern(output.signatures, signatureIndex, checkedSignature(owner, numeric))
+            record.signature = intern(output.signatures, signatureIndex, checkedSignature(owner, numeric, v >= 8))
         else
             need(
                 owner.kind == "module" and modulesByOwner[owner.id] ~= nil and owner.parent == nil,
@@ -268,16 +287,28 @@ function contracts.normalize(compiled: any, version: integer?): any
                     and p.calls[site.id + 1] == site
                     and site.owner == record.id
                     and site.node == source.call
-                    and site.definition == source.definition,
+                    and (source.dynamic or site.definition == source.definition),
                     "foreign checked callsite"
                 )
-                need(
-                    p.functionsByDefinition[source.definition] == source.owner
-                    and p.owners[source.owner.id + 1] == source.owner,
-                    "foreign checked call target"
-                )
-                local target = output.catalog[source.owner.id + 1]
-                need(target.kind == "function", "initializer is not callable")
+                -- A dynamic call has no target; its signature comes from the
+                -- call's checked function type and is checked when it runs.
+                local target = {id = ABSENT, signature = 0}
+                if source.dynamic then
+                    need(v >= 8, "dynamic calls are outside this profile")
+                    target.signature = intern(
+                        output.signatures,
+                        signatureIndex,
+                        typeSignature(source.callSignature, numeric, true)
+                    )
+                else
+                    need(
+                        p.functionsByDefinition[source.definition] == source.owner
+                        and p.owners[source.owner.id + 1] == source.owner,
+                        "foreign checked call target"
+                    )
+                    target = output.catalog[source.owner.id + 1]
+                    need(target.kind == "function", "initializer is not callable")
+                end
                 local id = #output.contracts
                 output.contracts[
                     id + 1
@@ -292,7 +323,9 @@ function contracts.normalize(compiled: any, version: integer?): any
                 }
                 block.term.contract = id
                 record.effect = 1
-                callEdges[index][#callEdges[index] + 1] = target.id + 1
+                if not source.dynamic then
+                    callEdges[index][#callEdges[index] + 1] = target.id + 1
+                end
             end
         end
     end
@@ -314,7 +347,10 @@ function contracts.normalize(compiled: any, version: integer?): any
                 result = result
             })
         else
-            need(result == signature.result, "graph result differs from checked signature")
+            need(
+                result == signature.result or v >= 8 and (result == "value" or signature.result == "value"),
+                "graph result differs from checked signature"
+            )
         end
     end
 

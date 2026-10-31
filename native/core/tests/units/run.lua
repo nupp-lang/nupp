@@ -277,9 +277,10 @@ local SHARED = {
         {"released", {}, 1111},
         {"interleavedWeak", {3000}, 1000},
         {"interleavedWeak", {301}, 101}
-    }
+    },
+    valuetable = {{"ownedHashChurn", {8}, 0}, {"ownedHashChurn", {10000}, 0}, {"ownedHashRefusalAndPoolReuse", {}, 0}}
 }
-for _, name in ipairs({"allocator", "graphs", "weak"}) do
+for _, name in ipairs({"allocator", "graphs", "weak", "valuetable"}) do
     local entries, seen = {}, {}
     for _, case in ipairs(SHARED[name]) do
         if not seen[case[1]] then
@@ -298,6 +299,36 @@ for _, name in ipairs({"allocator", "graphs", "weak"}) do
         end
     }
 end
+
+UNITS[#UNITS + 1] = {
+    name = "tableunits",
+    modules = {"tableunits", "unitentry", "nupp.runtime.core.coretables"},
+    paths = {["nupp.runtime.core.coretables"] = ROOT .. "/native/core/src/nupp/runtime/core/coretables.nupp"},
+    include = "native/core/src",
+    entries = {
+        {"tableunits", "sequence", 1},
+        {"tableunits", "migrate", 1},
+        {"tableunits", "removal", 1},
+        {"tableunits", "objectKeys", 1},
+        {"tableunits", "survives", 1}
+    },
+    cases = function()
+        local cases = {}
+        for _, n in ipairs({1, 4, 5, 1000, 20000}) do
+            cases[#cases + 1] = {"sequence", {n}, n * (n + 1) + n * 1000000000}
+            cases[#cases + 1] = {"migrate", {n}, 2 * n * 1000000000 + n * (2 * n + 1)}
+            cases[#cases + 1] = {"objectKeys", {n}, n * (n + 1) // 2 + 2 * 1000000000}
+            cases[#cases + 1] = {"survives", {n}, n + 1}
+        end
+        for _, n in ipairs({5, 6, 100}) do
+            -- With five keys, clearing 5 and 4 leaves 3 last, so clearing it
+            -- trims once more.
+            cases[#cases + 1] = {"removal", {n}, (n == 5 and 2 or n - 2) * 1000 + 4}
+        end
+
+        return cases
+    end
+}
 
 local only = {}
 for index = 2, #arg do
