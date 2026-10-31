@@ -986,10 +986,10 @@ end
 -- table is the consumer inventory; a new facade that selects a provider
 -- belongs in it.
 local SELECTING_FACADES = {
-    {"nupp.checksum", "nupp.checksum.spi.Provider"},
+    {"binary.hash.checksum", "binary.hash.checksum.spi.Provider"},
     {"nupp.codec.json.provider", "serde.json.spi.Provider"},
     {"nupp.compression", "nupp.compression.spi.Provider"},
-    {"nupp.digest", "nupp.digest.spi.Provider"},
+    {"binary.hash.digest", "binary.hash.digest.spi.Provider"},
     {"nupp.gpu", "nupp.gpu.spi.Provider"},
     {"nupp.host", "nupp.host.spi.Provider"},
     {"nupp.io.files", "nupp.io.files.spi.Provider"},
@@ -999,7 +999,7 @@ local SELECTING_FACADES = {
     {"nupp.io.process", "nupp.io.process.spi.Provider"},
     {"nupp.io.tls", "nupp.io.tls.spi.Provider"},
     {"nupp.io.uri.provider", "nupp.io.uri.spi.Provider"},
-    {"nupp.mac", "nupp.mac.spi.Provider"},
+    {"binary.hash.mac", "binary.hash.mac.spi.Provider"},
     {"nupp.random", "nupp.random.spi.Provider"},
     {"nupp.mem.representation", "nupp.mem.representation.spi.CstorageProvider"},
     {"nupp.runtime.timeprovider", "nupp.time.spi.Provider"},

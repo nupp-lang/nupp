@@ -1,12 +1,12 @@
-module nupp.mac
+module binary.hash.mac
 
 --[[
 Keyed hashes, for bytes somebody could have tampered with.
 
-Same shape as [](nupp.digest), plus a key.
+Same shape as [](binary.hash.digest), plus a key.
 
 ```nupp:fragment
-const mac = nupp.mac
+const mac = binary.hash.mac
 
 print(mac.hexDigest("hmac-sha256", key, "hello"))
 
@@ -34,14 +34,14 @@ trait does not define MAC algorithms. AWS KMS uses
 for this construction, while `AWS4-HMAC-SHA256` identifies the complete SigV4
 signing scheme.
 
-A host may supply its own catalog through [](nupp.mac.spi),
+A host may supply its own catalog through [](binary.hash.mac.spi),
 chosen by priority when this module initializes. It is read once, at load.
 ]]
 
 local spi = require("nupp.runtime.packages")
 
 const context = require("nupp.digest.internal.context")
-const provider = require("nupp.mac.spi")
+const provider = require("binary.hash.mac.spi")
 
 --- An owned keyed context with consuming digest finalization.
 export type Mac = context.Digest
@@ -86,7 +86,9 @@ local function validate(selected: provider.Provider): nil
     end
 end
 
-local selected: provider.Provider = spi.select(spi.providers<provider.Provider>("nupp.mac.spi.Provider")) ?? standard
+local selected: provider.Provider = spi.select(
+    spi.providers<provider.Provider>("binary.hash.mac.spi.Provider")
+) ?? standard
 validate(selected)
 local available: {[string]: Algorithm} = {}
 for name, implementation in pairs(standard.algorithms) do

@@ -4540,8 +4540,8 @@ return {unsafe = unsafe}
     assert(out:find("a persistent Lua root follows a string accumulator", 1, true), out)
 end
 
-local function valueStreamsFuseRootedByteReadsAndLuaConstruction(moduleName)
-    local sources = {
+function M.valueStreamsFuseRootedByteReadsAndLuaConstruction()
+    local dir = project{
         [
             "serde/valuebuilder.nupp"
         ] = [[
@@ -4619,13 +4619,6 @@ end
 return {decode = decode} as unknown
 ]],
     }
-    local path = moduleName:gsub("%.", "/") .. ".nupp"
-    sources[path] = sources["nupp/codec/valuebuilder.nupp"]
-    if moduleName ~= "nupp.codec.valuebuilder" then
-        sources["nupp/codec/valuebuilder.nupp"] = nil
-    end
-    sources["stream.nupp"] = sources["stream.nupp"]:gsub("nupp%.codec%.valuebuilder", moduleName)
-    local dir = project(sources)
     local out, code = run(dir, "--json stream.nupp")
     test.equal(code, 0, out)
     local decoded = require("testjson").decode(out)
@@ -4681,14 +4674,6 @@ return {decode = decode} as unknown
         "the key goes to the string event as a key:\n" .. entry
     )
     assert(decoded.binding:find("nupp.math.u32.wrap", 1, true), decoded.binding)
-end
-
-function M.valueStreamsFuseRootedByteReadsAndLuaConstruction()
-    valueStreamsFuseRootedByteReadsAndLuaConstruction("nupp.codec.valuebuilder")
-end
-
-function M.finalValueBuilderNamesKeepRootedReadsAndLuaConstruction()
-    valueStreamsFuseRootedByteReadsAndLuaConstruction("serde.valuebuilder")
 end
 
 function M.valueStreamBuilderModesAreAotConstants()
@@ -4763,8 +4748,8 @@ return {
     assert(decoded.functions[3].builderMode == "serde")
 end
 
-local function uncheckedRootedByteReadsAreRejected(moduleName)
-    local sources = {
+function M.uncheckedRootedByteReadsAreRejected()
+    local dir = project{
         [
             "serde/valuebuilder.nupp"
         ] = [[
@@ -4783,24 +4768,9 @@ end
 return {read = read}
 ]],
     }
-    local path = moduleName:gsub("%.", "/") .. ".nupp"
-    sources[path] = sources["nupp/codec/valuebuilder.nupp"]
-    if moduleName ~= "nupp.codec.valuebuilder" then
-        sources["nupp/codec/valuebuilder.nupp"] = nil
-    end
-    sources["read.nupp"] = sources["read.nupp"]:gsub("nupp%.codec%.valuebuilder", moduleName)
-    local dir = project(sources)
     local out, code = run(dir, "read.nupp")
     test.equal(code, 1, out)
     assert(out:find("needs offset < length(bytes) to dominate the read", 1, true), out)
-end
-
-function M.uncheckedRootedByteReadsAreRejected()
-    uncheckedRootedByteReadsAreRejected("nupp.codec.valuebuilder")
-end
-
-function M.finalValueBuilderNamesKeepRootedReadGuards()
-    uncheckedRootedByteReadsAreRejected("serde.valuebuilder")
 end
 
 --- A `const` string placed in static data is the bytes the program reads, not the

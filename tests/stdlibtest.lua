@@ -41,7 +41,7 @@ function M.digestFinalizationConsumesButChecksumReadsDoNot()
         local _, diagnostics = diagsOf(
             table.concat(
                 {
-                    "local rolling = nupp.digest.newDigest('sha256')",
+                    "local rolling = binary.hash.digest.newDigest('sha256')",
                     "local result = rolling:" .. finalizer,
                     "rolling:write('too late')",
                 },
@@ -59,7 +59,7 @@ function M.digestFinalizationConsumesButChecksumReadsDoNot()
     assertClean(
         table.concat(
             {
-                "local sum = nupp.checksum.newChecksum('crc32c')",
+                "local sum = binary.hash.checksum.newChecksum('crc32c')",
                 "local before = sum:value()",
                 "sum:write('still open')",
                 "local after = sum:value()",
@@ -409,7 +409,7 @@ function M.digestUsesPortableBitops()
     assertClean(
         table.concat(
             {
-                "local digest = require('nupp.digest')",
+                "local digest = require('binary.hash.digest')",
                 "local rolling = digest.newDigest('sha256')",
                 "rolling:write('message')",
                 "return rolling:hexDigest()",
@@ -422,7 +422,7 @@ end
 function M.oneShotHmacUsesOrdinaryCode()
     local source = table.concat(
         {
-            "local mac = require('nupp.mac')",
+            "local mac = require('binary.hash.mac')",
             "return mac.hexDigest('hmac-sha256', 'key', 'message'), #mac.digest('hmac-sha256', 'key', 'message')",
         },
         "\n"
@@ -1897,9 +1897,12 @@ function M.nativeFeaturesAreResolvedEffects()
     assert(native.feature("runtime.int64").runtimeModule == nil, "wide integers have no runtime module")
 
     local shadowed = effectsOf(
-        table.concat({"local nupp = {digest = {hexDigest = function() end}}", "nupp.digest.hexDigest()",}, "\n")
+        table.concat(
+            {"local binary = {hash = {digest = {hexDigest = function() end}}}", "binary.hash.digest.hexDigest()",},
+            "\n"
+        )
     )
-    assert(not shadowed["native.sha256"], "a local nupp is not the global facility")
+    assert(not shadowed["native.sha256"], "a local binary is not the global facility")
 
     local shadowedIO = effectsOf(
         table.concat({"local nupp = {io = {path = {separator = function() end}}}", "nupp.io.path.separator()",}, "\n")
@@ -2078,8 +2081,8 @@ function M.digestAndMacSurfacesAreBundledOutsideThisCheckout()
     local isolated = envMod.new(os.tmpname() .. "-nupp-streaming-hash-surface")
     local source = table.concat(
         {
-            "local digest = require('nupp.digest')",
-            "local mac = require('nupp.mac')",
+            "local digest = require('binary.hash.digest')",
+            "local mac = require('binary.hash.mac')",
             "local rolling = digest.newDigest('sha256')",
             "rolling:write('message')",
             "assert(#rolling:digest() == 32)",
@@ -2175,10 +2178,11 @@ function M.compilerProvidedPureLibraries()
       assert(nupp.math.lerp(10, 20, 0.25) == 12.5)
       assert(nupp.math.lerp(10, 20, 1) == 20)
       assert(nupp.math.lerp(10, 20, 1.5) == 25)
-      local checksum = require("nupp.checksum")
-      local digest = require("nupp.digest")
+      local checksum = require("binary.hash.checksum")
+      local digest = require("binary.hash.digest")
       local util = require("nupp.util")
-      assert(util.fnv1a64("hello") == "a430d84680aabd0b")
+      local hash = require("binary.hash")
+      assert(hash.fnv1a64("hello") == "a430d84680aabd0b")
       assert(checksum.value("crc32", "123456789") == 3421780262ULL)
       assert(digest.hexDigest("sha256", "abc") ==
          "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")

@@ -1933,12 +1933,6 @@ local function calledIdentity(node: cst.Call, kernel: lower.Kernel): string?
         end
     end
 
-    -- The accepting seed retains its operation table while admitting the final
-    -- public module identity before the library moves.
-    if identity ~= nil then
-        identity = ((identity as string):gsub("^serde%.valuebuilder%.", "nupp.codec.valuebuilder."))
-    end
-
     return identity
 end
 

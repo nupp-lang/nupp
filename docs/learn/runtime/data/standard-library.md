@@ -9,7 +9,7 @@ file. Reach for it when a program needs bytes, text, digests, logging, math, or
 a parser and does not want a dependency for them.
 
 ```nupp:playground
-local digest = nupp.digest.hexDigest("sha256", "payload")
+local digest = binary.hash.digest.hexDigest("sha256", "payload")
 print(#digest, nupp.math.lerp(10, 20, 0.25))
 ```
 
@@ -57,11 +57,11 @@ table: the members a file names are the members that get emitted.
 The standard surface is deliberately small. These pages cover both the
 intrinsic namespaces and the declared modules:
 
-- [](nupp.digest) provides incremental MD5, SHA-1, SHA-256 and SHA-512 with
+- [](binary.hash.digest) provides incremental MD5, SHA-1, SHA-256 and SHA-512 with
   provider lookup, output-size metadata and consuming finalization.
-- [](nupp.checksum) provides Adler-32 and explicitly named CRC variants as
+- [](binary.hash.checksum) provides Adler-32 and explicitly named CRC variants as
   numeric values; protocols choose their serialization byte order.
-- [](nupp.mac) provides keyed authentication, including HMAC-SHA256.
+- [](binary.hash.mac) provides keyed authentication, including HMAC-SHA256.
 - [](serde.json), [](serde.base64) and [](serde.hex) encode and
   decode representations. [](serde.valuebuilder) supports codec authors.
 - [](nupp.text.utf8) validates and walks UTF-8 text.
@@ -70,7 +70,7 @@ intrinsic namespaces and the declared modules:
   growable set of bit positions, and [](nupp.util.Store) is a bag of values
   indexed by the typed keys [](nupp.util.newKey) hands out.
   [](nupp.util.Pool) leases cleared record instances of one declared type from a
-  free list. [](nupp.util.fnv1a64) hashes bytes with FNV-1a. [](nupp.util.uuid4) and
+  free list. [](binary.hash.fnv1a64) hashes bytes with FNV-1a. [](nupp.util.uuid4) and
   [](nupp.util.uuid7) generate identifiers, and are the only members here that reach
   a host provider.
 - [](nupp.system) reports execution platform, architecture, endianness, pointer

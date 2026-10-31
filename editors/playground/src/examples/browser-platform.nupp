@@ -3,8 +3,8 @@
 
 local random = require("nupp.random")
 local time = require("nupp.time")
-local mac = require("nupp.mac")
-local digests = require("nupp.digest")
+local mac = require("binary.hash.mac")
+local digests = require("binary.hash.digest")
 local uuid = require("nupp.util")
 
 time.sleep(10)

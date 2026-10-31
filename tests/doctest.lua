@@ -1068,7 +1068,7 @@ end
 -- The data module owns hashes, UUIDs, and Bitset directly; only substantial sibling
 -- facilities remain separate modules.
 function M.standardDataApiHasCompleteDocumentation()
-    local modules = {"src/nupp/text/utf8.nupp", "src/nupp/digest/init.nupp",}
+    local modules = {"src/nupp/text/utf8.nupp", "src/binary/hash/digest/init.nupp",}
     for _, relative in ipairs(modules) do
         local source = assert(readFile(HERE .. "/../" .. relative), "no module at " .. relative)
         local name = relative:match("src/nupp/(.+)%.nupp"):gsub("/", "."):gsub("%.init$", "")
