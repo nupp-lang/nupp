@@ -16,6 +16,7 @@ require("nupp.compiler.types")
 require("nupp.compiler.types.generics")
 require("nupp.compiler.vm.nativecleanup")
 require("nupp.compiler.vm.nativephysical")
+require("nupp.digest")
 local runner = require("nupp.core.unitrunner")
 local json = require("nupp.codec.json")
 local producer = {}
@@ -35,13 +36,20 @@ function producer.build(directory: string, mode: string): string
         }
     }
     local entries = {{"heapunits", "chain", 2}, {"heapunits", "garbage", 2}, {"heapunits", "alternate", 2}}
-    local result = runner.build(fixtures, entries, mode)
+    local result = runner.build(fixtures, entries, mode, root .. "/build/core-unit-cache")
     local path = directory .. "/heapunits-" .. mode .. ".bundle"
     local file = assert(io.open(path, "wb"))
     file:write(result.bundle)
     file:close()
 
-    return json.encode({path = path, owners = result.owners, words = result.words, callBytes = result.callBytes})
+    return json.encode({
+        path = path,
+        owners = result.owners,
+        selected = result.selected,
+        words = result.words,
+        callBytes = result.callBytes,
+        timings = result.timings
+    })
 end
 
 export = producer

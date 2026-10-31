@@ -14,7 +14,88 @@ local base = require("nupp.compiler.vm.nativegraph")
 local cleanup = require("nupp.compiler.vm.nativecleanup")
 local sink = require("nupp.compiler.s0.nativegraph")
 local linker = require("nupp.core.link")
+local digest = require("nupp.digest")
+local json = require("nupp.codec.json")
 local runner = {}
+
+local function readFile(path: string): string?
+    local file = io.open(path, "rb")
+    if not file then
+        return nil
+    end
+    local text = file:read("*a")
+    file:close()
+
+    return text
+end
+
+local function writeFile(path: string, text: string): nil
+    local file = assert(io.open(path, "wb"))
+    file:write(text)
+    file:close()
+end
+
+local function sha(text: string): string
+    return digest.hexDigest("sha256", text)
+end
+
+-- Everything that shapes selected code besides a function's own modules: the
+-- lowering, backend and declaration sources. Any edit there invalidates all.
+local function compilerDigest(root: string): string
+    local command = "cd '"
+        .. root
+        .. "' && ls src/nupp/compiler/vm/*.nupp src/nupp/runtime/vm/*.d.nupp "
+        .. "spike/native-lowering/src/s0/*.nupp spike/native-lowering/nativegraph/src/nupp/compiler/s0/*.nupp | sort"
+    local parts = {}
+    with listing = assert(io.popen(command)) do
+        for path in listing:lines() do
+            parts[#parts + 1] = path .. "\0" .. (readFile(root .. "/" .. path) or "")
+        end
+    end
+
+    return sha(table.concat(parts, "\0"))
+end
+
+-- A module's source and, transitively, the sources of the modules it requires
+-- within the build. Unrelated edits (another fixture) leave the key unchanged.
+local function moduleDigests(paths: {[string]: string}): {[string]: string}
+    local sources, requires = {}, {}
+    for name, path in pairs(paths) do
+        sources[name] = readFile(path) or ""
+        local list = {}
+        for required in sources[name]:gmatch('require%("([%w%.]+)"%)') do
+            if paths[required] then
+                list[#list + 1] = required
+            end
+        end
+        requires[name] = list
+    end
+    local result = {}
+    for name in pairs(paths) do
+        local seen, order, pending = {[name] = true}, {name}, {name}
+        while #pending > 0 do
+            local current = table.remove(pending)
+            for _, required in ipairs(requires[current]) do
+                if not seen[required] then
+                    seen[required] = true
+                    order[#order + 1], pending[#pending + 1] = required, required
+                end
+            end
+        end
+        table.sort(order)
+        local parts = {}
+        for _, member in ipairs(order) do
+            parts[#parts + 1] = member .. "\0" .. sources[member]
+        end
+        result[name] = sha(table.concat(parts, "\0"))
+    end
+
+    return result
+end
+
+local function now(): number
+    return os.time()
+end
 
 -- Scratch layout: [0, 64) entry slots, [4096, 65536) the unit scope region,
 -- then spills. Output words: the fixture's result and its error code.
@@ -36,30 +117,92 @@ end
 
 -- `fixtures` is a list of {moduleName, path, include}; `entries` lists the
 -- fixture functions in dispatch order as {moduleName, name, arity}.
-function runner.build(fixtures: any, entries: any, mode: string): any
+function runner.build(fixtures: any, entries: any, mode: string, cacheDirectory: string?): any
+    local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
+    local started = now()
+    local timings = {}
+
+    local function phase(name: string): nil
+        timings[#timings + 1] = {name = name, seconds = now() - started}
+    end
+
     local roots = {{"unitentry", "prepare"}, {"unitentry", "finish"}}
     for _, entry in ipairs(entries) do
         roots[#roots + 1] = {entry[1], entry[2]}
     end
     local build = service.buildUnits(fixtures, roots)
+    phase("session")
     local scoped = cleanup.profile(base)
     local resolved, owners = {}, service.owners(build.catalog)
+    local byName = {}
+    local paths = {}
     for _, owner in ipairs(owners) do
+        byName[owner.scope.name .. "." .. owner.name] = owner
+        paths[owner.scope.name] = owner.scope.path
+    end
+    local compiler = compilerDigest(root)
+    local modules = moduleDigests(paths)
+    local codes, keys = {}, {}
+    if cacheDirectory then
+        os.execute("mkdir -p '" .. cacheDirectory .. "'")
+    end
+    for name, owner in pairs(byName) do
+        keys[name] = sha(mode .. "\0" .. compiler .. "\0" .. (modules[owner.scope.name] or "") .. "\0" .. name)
+        local cached = cacheDirectory and readFile(cacheDirectory .. "/" .. keys[name] .. ".json")
+        if cached then
+            codes[name] = json.decode(cached)
+        end
+    end
+    phase("cache")
+
+    local function lowered(name: string): any
+        if resolved[name] then
+            return resolved[name]
+        end
+        local owner = assert(byName[name], "unit callee outside the catalog: " .. name)
         owner.nativeABI = "leaf"
         local options = service.options(build.catalog, owner)
         local signature = service.signature(owner, options)
         local profile = service.needsCleanup(signature) and scoped or base
         local ok, g = pcall(lower.functionGraph, owner, options, profile)
         if not ok then
-            error("unit lowering: " .. owner.scope.name .. "." .. owner.name .. ": " .. tostring(g), 0)
+            error("unit lowering: " .. name .. ": " .. tostring(g), 0)
         end
-        resolved[owner.scope.name .. "." .. owner.name] = {graph = g, owner = owner}
+        resolved[name] = {graph = g, owner = owner}
+
+        return resolved[name]
     end
-    local codes = {}
-    for name, item in pairs(resolved) do
+
+    -- A miss lowers the function and its direct callees, whose graphs the
+    -- backend checks call signatures against; only the miss is selected.
+    local missing = {}
+    for name in pairs(byName) do
+        if not codes[name] then
+            missing[#missing + 1] = name
+        end
+    end
+    table.sort(missing)
+    for _, name in ipairs(missing) do
+        local item = lowered(name)
+        for _, block in ipairs(item.graph.blocks) do
+            for index, op in ipairs(block.op) do
+                if op == "NativeLeafCall" then
+                    local declaration = block.args[index][1]
+                    lowered(declaration.moduleName .. "." .. declaration.name)
+                end
+            end
+        end
+    end
+    phase("lowering")
+    for _, name in ipairs(missing) do
+        local item = resolved[name]
         local result = sink.compilerGraph(item.graph, item.owner.name, item.owner, resolved, nil)
         codes[name] = selectCode(result, mode)
+        if cacheDirectory then
+            writeFile(cacheDirectory .. "/" .. keys[name] .. ".json", json.encode(codes[name]))
+        end
     end
+    phase("selection")
     local rootCodes, rootNames, functions = {}, {}, {}
     for index, root in ipairs(roots) do
         rootNames[index] = root[1] .. "." .. root[2]
@@ -185,7 +328,16 @@ function runner.build(fixtures: any, entries: any, mode: string): any
         1
     ) .. u64(1) .. u64(0) .. u64(#code) .. u64(#data) .. u64(SCRATCH) .. u64(2) .. u64(0) .. code .. data
 
-    return {bundle = bundle, owners = #owners, words = #linked.words, callBytes = linked.callBytes}
+    phase("link")
+
+    return {
+        bundle = bundle,
+        owners = #owners,
+        selected = #missing,
+        words = #linked.words,
+        callBytes = linked.callBytes,
+        timings = timings
+    }
 end
 
 export = runner
