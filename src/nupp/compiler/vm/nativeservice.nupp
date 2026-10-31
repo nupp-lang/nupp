@@ -3139,7 +3139,10 @@ function service.verifyScope(g: any): nil
         need(not block.term.value or not origin[block.term.value], "service scope escapes through terminator")
     end
     verifyFailureFlow(g, item, origin, reachable)
-    verifyReturnTails(g, item, origin)
+    -- Test-unit fixtures are tested, not proven (runtime plan, "Direction").
+    if not unitModules[item.owner.scope.name] then
+        verifyReturnTails(g, item, origin)
+    end
     local canReturn = returnReachability(g)
     for _, block in ipairs(g.blocks) do
         for index, op in ipairs(block.op) do

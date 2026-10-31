@@ -426,7 +426,7 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                     emit("iconst", result, nil, nil, nil, "i64", 0, args[1])
                     yield nil
                 end
-                case "IAdd", "ISub", "NativeIMul", "NativeUDiv", "NativeURem", "IAnd", "IOr", "IXor", "INot", "IShl", "IShrU" -> do
+                case "IAdd", "ISub", "NativeIMul", "NativeUDiv", "NativeURem", "NativeSDiv", "NativeSRem", "IAnd", "IOr", "IXor", "INot", "IShl", "IShrU" -> do
                     emit(
                         assert(integerOps[op]),
                         result,

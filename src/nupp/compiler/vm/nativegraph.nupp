@@ -853,6 +853,32 @@ function nativegraph.binary(ctx: any, n: any, expected: string?): integer?
     local kind = exactKind(n.inferredType)
     need(kind == "int64" or kind == "uint64" or floatKinds[kind], "exact scalar arithmetic required")
     need(expected == nil or expected == kind, "arithmetic changes exact kind")
+    if kind == "int64" and (operator == "//" or operator == "%") then
+        local operands = ctx.operands({n.lhs, n.rhs}, {kind, kind})
+        if not operands then
+            return nil
+        end
+        local lhs, rhs = operands[1], operands[2]
+        -- Lua floors: truncate, then step toward negative infinity when the
+        -- remainder is nonzero and its sign differs from the divisor's. A
+        -- zero divisor is the caller's to exclude; the machine yields zero.
+        local quotient = emit(n, "NativeSDiv", {lhs, rhs}, kind) as integer
+        local remainder = emit(n, "NativeSRem", {lhs, rhs}, kind) as integer
+        local zero = emit(n, "NativeConstant", {"0"}, kind) as integer
+        local nonzero = emit(n, "NativeICmp", {remainder, zero, "~="}, "boolean") as integer
+        local signs = emit(n, "IXor", {remainder, rhs}, kind) as integer
+        local differ = emit(n, "NativeICmp", {signs, zero, "<"}, "boolean") as integer
+        local exact, stepped
+        if operator == "//" then
+            local one = emit(n, "NativeConstant", {"1"}, kind) as integer
+            exact, stepped = quotient, emit(n, "ISub", {quotient, one}, kind) as integer
+        else
+            exact, stepped = remainder, emit(n, "IAdd", {remainder, rhs}, kind) as integer
+        end
+        local adjusted = emit(n, "NativeSelect", {differ, stepped, exact}, kind) as integer
+
+        return emit(n, "NativeSelect", {nonzero, adjusted, exact}, kind) as integer
+    end
     local op = need(
         kind == "uint64" and operator == "//" and "NativeUDiv"
         or kind == "uint64" and operator == "%" and "NativeURem"

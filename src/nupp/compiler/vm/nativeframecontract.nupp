@@ -550,6 +550,8 @@ for _, name in ipairs({
     "NativeIMul",
     "NativeUDiv",
     "NativeURem",
+    "NativeSDiv",
+    "NativeSRem",
     "NativeIntToFloat",
     "NativeFloatToInt",
     "NativeFloatBits",
