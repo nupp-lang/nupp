@@ -3179,10 +3179,28 @@ function M.pkgConfigFlagsUseShellWordQuotingWithoutRunningAShell()
     testAssert.equal(malformed, nil)
 end
 
+function M.shellWordsRejectIncompleteQuotingAndEscapes()
+    testAssert.equal(buildSyntax.shellWords("plain\\"), nil, "a trailing escape needs a byte")
+    testAssert.equal(buildSyntax.shellWords("'unclosed"), nil, "a single quote needs its closing quote")
+    testAssert.equal(buildSyntax.shellWords('"unclosed'), nil, "a double quote needs its closing quote")
+    testAssert.equal(buildSyntax.shellWords('"unclosed\\'), nil, "an escape cannot close a double quote")
+    local words = assert(buildSyntax.shellWords([["" '' a""b c''d]]))
+    testAssert.equal(#words, 4, "empty quoted words are retained")
+    testAssert.equal(table.concat(words, "\0"), table.concat({"", "", "ab", "cd"}, "\0"))
+end
+
 function M.makeDepfilesPreserveEscapedPathsAndContinuations()
     local paths = assert(buildSyntax.depfile("nupp_header: one.h two\\ three.h \\\n four\\#five.h one.h # ignored\n"))
     testAssert.equal(table.concat(paths, "\0"), table.concat({"one.h", "two three.h", "four#five.h", "one.h"}, "\0"))
     testAssert.equal(buildSyntax.depfile("not a depfile"), nil)
+end
+
+function M.makeDepfilesHandleEscapedTargetsCommentsAndCrLf()
+    local paths = assert(buildSyntax.depfile("generated\\:header: one\\:name.h two\\#name.h # ignored.h\r\n"))
+    testAssert.equal(table.concat(paths, "\0"), "one:name.h\0two#name.h", "only unescaped hash starts a comment")
+    local continued = assert(buildSyntax.depfile("header: one.h\\\r\n two.h\r\n"))
+    testAssert.equal(table.concat(continued, "\0"), "one.h\0two.h", "CRLF continuation is whitespace")
+    testAssert.equal(buildSyntax.depfile("header: path\\"), nil, "a trailing dependency escape needs a byte")
 end
 
 function M.buildGlobsTreatDoubleStarAsZeroOrMoreDirectories()

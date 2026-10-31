@@ -2,137 +2,144 @@ module nupp.compiler.shellsyntax
 
 -- The three tiny languages emitted or consumed by native builds.
 
-local function space(character: string): boolean
-    return character ~= "" and (" \t\r\n\v\f"):find(character, 1, true) ~= nil
+local function whitespace(ch: string): boolean
+    local byte = ch:byte()
+    return byte ~= nil and (byte == 32 or byte >= 9 and byte <= 13)
 end
 
-local function globTokens(source: string): {string}
+local function globTokens(text: string): {string}
     local tokens: {string} = {}
-    local index = 1
-    while index <= #source do
-        local token = source:sub(index, index)
-        if source:sub(index, index + 2) == "**/" then
-            token = "**/"
-        elseif source:sub(index, index + 1) == "**" then
+    local at: integer = 1
+    while at <= #text do
+        local token = text:sub(at, at + 2)
+        if token == "**/" then
+            at = at + 3
+        elseif text:sub(at, at + 1) == "**" then
             token = "**"
-        elseif token ~= "*" and token ~= "?" then
-            local finish = index
-            while finish < #source and not source:sub(finish + 1, finish + 1):find("[*?]") do
-                finish = finish + 1
-            end
-            token = source:sub(index, finish)
+            at = at + 2
+        elseif text:sub(at, at) == "*" or text:sub(at, at) == "?" then
+            token = text:sub(at, at)
+            at = at + 1
+        else
+            local first = at
+            repeat
+                at = at + 1
+            until at > #text or text:sub(at, at) == "*" or text:sub(at, at) == "?"
+            token = text:sub(first, at - 1)
         end
         tokens[#tokens + 1] = token
-        index = index + #token
     end
 
     return tokens
 end
 
-local function shellWords(source: string): {string}?
+local function shellWords(text: string): {string}?
     local words: {string} = {}
-    local index = 1
-    while index <= #source do
-        while space(source:sub(index, index)) do
-            index = index + 1
-        end
-        if index > #source then
-            break
-        end
-        local parts: {string} = {}
-        while index <= #source and not space(source:sub(index, index)) do
-            local character = source:sub(index, index)
-            if character == "'" or character == '"' then
-                local quote = character
-                index = index + 1
-                while index <= #source and source:sub(index, index) ~= quote do
-                    character = source:sub(index, index)
-                    if quote == '"' and character == "\\" then
-                        index = index + 1
-                        if index > #source then
-                            return nil
-                        end
-                        character = source:sub(index, index)
-                    end
-                    parts[#parts + 1] = character
-                    index = index + 1
-                end
-                if index > #source then
-                    return nil
-                end
+    local pieces: {string} = {}
+    local quote: string? = nil
+    local started = false
+    local at: integer = 1
+    while at <= #text do
+        local ch = text:sub(at, at)
+        if quote == "'" then
+            if ch == quote then
+                quote = nil
             else
-                if character == "\\" then
-                    index = index + 1
-                    if index > #source then
-                        return nil
-                    end
-                    character = source:sub(index, index)
-                end
-                parts[#parts + 1] = character
+                pieces[#pieces + 1] = ch
             end
-            index = index + 1
+        elseif ch == "\\" then
+            at = at + 1
+            if at > #text then
+                return nil
+            end
+            pieces[#pieces + 1] = text:sub(at, at)
+            started = true
+        elseif quote ~= nil then
+            if ch == quote then
+                quote = nil
+            else
+                pieces[#pieces + 1] = ch
+            end
+        elseif ch == "'" or ch == '"' then
+            quote = ch
+            started = true
+        elseif whitespace(ch) then
+            if started then
+                words[#words + 1] = table.concat(pieces)
+                pieces = {}
+                started = false
+            end
+        else
+            pieces[#pieces + 1] = ch
+            started = true
         end
-        words[#words + 1] = table.concat(parts)
+        at = at + 1
+    end
+    if quote ~= nil then
+        return nil
+    end
+    if started then
+        words[#words + 1] = table.concat(pieces)
     end
 
     return words
 end
 
-local function depfile(source: string): {string}?
-    local index = 1
-    while index <= #source and source:sub(index, index) ~= ":" do
-        if source:sub(index, index) == "\\" then
-            index = index + 1
-        end
-        index = index + 1
+local function continuation(text: string, at: integer): integer
+    if text:sub(at, at + 1) == "\\\n" then
+        return 2
     end
-    if index > #source then
+    if text:sub(at, at + 2) == "\\\r\n" then
+        return 3
+    end
+
+    return 0
+end
+
+local function depfile(text: string): {string}?
+    local at: integer = 1
+    while at <= #text and text:sub(at, at) ~= ":" do
+        if text:sub(at, at) == "\\" then
+            at = at + 1
+        end
+        at = at + 1
+    end
+    if at > #text then
         return nil
     end
-    index = index + 1
+    at = at + 1
     local paths: {string} = {}
-    while index <= #source do
-        while index <= #source do
-            if space(source:sub(index, index)) then
-                index = index + 1
-            elseif source:sub(index, index + 1) == "\\\n" then
-                index = index + 2
-            elseif source:sub(index, index + 2) == "\\\r\n" then
-                index = index + 3
-            else
-                break
-            end
-        end
-        if index > #source then
-            break
-        end
-        if source:sub(index, index) == "#" then
-            local newline = source:find("\n", index, true)
-            if newline and newline ~= #source then
+    while at <= #text do
+        local continued = continuation(text, at)
+        if whitespace(text:sub(at, at)) then
+            at = at + 1
+        elseif continued > 0 then
+            at = at + continued
+        elseif text:sub(at, at) == "#" then
+            local newline = text:find("\n", at, true)
+            if newline ~= nil and newline ~= #text then
                 return nil
             end
             return paths
-        end
-        local parts: {string} = {}
-        while index <= #source do
-            local character = source:sub(index, index)
-            if space(character) or character == "#" then
-                break
-            end
-            if character == "\\" then
-                if source:sub(index + 1, index + 1) == "\n" then
+        else
+            local pieces: {string} = {}
+            while at <= #text do
+                local ch = text:sub(at, at)
+                if whitespace(ch) or ch == "#" or continuation(text, at) > 0 then
                     break
                 end
-                index = index + 1
-                if index > #source then
-                    return nil
+                if ch == "\\" then
+                    at = at + 1
+                    if at > #text then
+                        return nil
+                    end
+                    ch = text:sub(at, at)
                 end
-                character = source:sub(index, index)
+                pieces[#pieces + 1] = ch
+                at = at + 1
             end
-            parts[#parts + 1] = character
-            index = index + 1
+            paths[#paths + 1] = table.concat(pieces)
         end
-        paths[#paths + 1] = table.concat(parts)
     end
 
     return paths

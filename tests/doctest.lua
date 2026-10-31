@@ -1638,10 +1638,10 @@ function M.hidesNamespacesNamedInternal()
         {
             "--- @namespace lib",
             "local lib: {",
-            "   --- Parsing.",
-            "   peg: {",
-            "      --- Matches a subject.",
-            "      match: function(): boolean",
+            "   --- Rendering.",
+            "   graphics: {",
+            "      --- Draws a frame.",
+            "      draw: function(): boolean",
             "   },",
             "   --- Implementation detail.",
             "   internal: {",
@@ -1658,7 +1658,7 @@ function M.hidesNamespacesNamedInternal()
     for _, mod in ipairs(extra or {}) do
         byName[mod.name] = mod
     end
-    assert(byName["lib.peg"], "a public namespace was dropped")
+    assert(byName["lib.graphics"], "a public namespace was dropped")
     assert(not byName["lib.internal"], "a namespace named internal leaked into public docs")
 
     local private, privateErrors, privateExtra = doc.extract(source, "src/lib.d.nupp", "lib", {includePrivate = true,})
@@ -2173,23 +2173,23 @@ function M.namespaceBackedDeclarationsBelongOnlyToTheirSubmodule()
                 "--- @namespace nupp",
                 "--- @export",
                 "local nupp: {",
-                "   --- Parsing-expression grammars.",
+                "   --- Widget construction.",
                 "   --- @namespace",
-                "   peg: nupp.peg",
+                "   widgets: nupp.widgets",
                 "}",
                 "",
-                "--- Compile parsing-expression grammars.",
-                "record nupp.peg",
-                "   --- Selects the matcher implementation.",
-                "   type Backend = 'auto' | 'lpeg'",
+                "--- Constructs widgets.",
+                "record nupp.widgets",
+                "   --- Selects the widget size.",
+                "   type Mode = 'small' | 'large'",
                 "",
-                "   --- Compiles a grammar.",
-                "   compile: function(source: string): nupp.peg.Peg<any>",
+                "   --- Constructs a widget.",
+                "   create: function(source: string): nupp.widgets.Widget<any>",
                 "",
-                "   --- A compiled grammar.",
-                "   record Peg<T>",
-                "      --- Matches text.",
-                "      match: function(self, subject: string): T?",
+                "   --- A configured widget.",
+                "   record Widget<T>",
+                "      --- Reads a value.",
+                "      read: function(self, subject: string): T?",
                 "   end",
                 "end",
             },
@@ -2198,17 +2198,17 @@ function M.namespaceBackedDeclarationsBelongOnlyToTheirSubmodule()
     })
     assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "markdown", output = "api.md"}) == 0)
     local api = readFile(dir .. "/api.md")
-    local nestedAt = assert(api:find('<a id="nupp.peg"></a>', 1, true), api)
+    local nestedAt = assert(api:find('<a id="nupp.widgets"></a>', 1, true), api)
     local parent = api:sub(1, nestedAt - 1)
     local nested = api:sub(nestedAt)
     assert(parent:find("## Submodules", 1, true), parent)
-    assert(parent:find("[`nupp.peg`](#nupp.peg)", 1, true), parent)
-    assert(not parent:find("### `peg` _record_", 1, true), parent)
-    assert(not parent:find("record nupp.peg", 1, true), parent)
-    assert(nested:find("Compile parsing%-expression grammars%."), nested)
-    assert(nested:find("### `Backend` _type_", 1, true), nested)
-    assert(nested:find("### `Peg` _record_", 1, true), nested)
-    assert(nested:find("### `compile` _function_", 1, true), nested)
+    assert(parent:find("[`nupp.widgets`](#nupp.widgets)", 1, true), parent)
+    assert(not parent:find("### `widgets` _record_", 1, true), parent)
+    assert(not parent:find("record nupp.widgets", 1, true), parent)
+    assert(nested:find("Constructs widgets%."), nested)
+    assert(nested:find("### `Mode` _type_", 1, true), nested)
+    assert(nested:find("### `Widget` _record_", 1, true), nested)
+    assert(nested:find("### `create` _function_", 1, true), nested)
     os.execute("rm -rf '" .. dir .. "'")
 end
 

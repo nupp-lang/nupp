@@ -713,7 +713,7 @@ function native.decorateGlobals(globals: {[string]: any}): {[any]: {[string]: st
         for index = 2, #parts do
             if index == #parts and t then
                 decorate(t, parts[index], effect)
-                -- A qualified nominal such as `record nupp.reflect` also binds its
+                -- A qualified namespace nominal also binds its
                 -- declaration table under the dotted prefix. Source reaches that
                 -- metatable value even when the intrinsic `nupp` shape describes the
                 -- same path as a nominal instance, so both identities carry the

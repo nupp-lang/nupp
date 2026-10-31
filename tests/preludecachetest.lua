@@ -222,9 +222,8 @@ end
 -- made exactly that arena: after each suite they unload the modules it loaded,
 -- which takes `nupp.compiler.project.env` and keeps `nupp.compiler.types`, so the
 -- next suite's first environment read the stored prelude over the last suite's
--- checked one. A prelude function then answered a nominal that was not the one
--- its caller was annotated with (it was `nupp.peg.compile`'s `Peg<...any>`), and
--- `examplestest` failed on whichever machine put the two suites in one lane.
+-- checked one. A generic prelude nominal could then differ from the same nominal
+-- in its annotation, depending on which suites the runner put in one lane.
 function M.aStoredPreludeIsNotRestoredOverAnotherIdentity()
     local saved = {}
     for name, value in pairs(package.loaded) do

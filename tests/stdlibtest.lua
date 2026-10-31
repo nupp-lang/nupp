@@ -2336,6 +2336,19 @@ function M.utf8ValidationCoversEveryShape()
     end
 end
 
+function M.removedPegNamespaceDoesNotResolve()
+    local got = diagsOf("return nupp.peg")
+    assert(got:find("NUPP2004", 1, true), got)
+    testAssert.equal(
+        #native.features({
+            ["stdlib.peg"] = true,
+            ["stdlib.peg.compile"] = true
+        }),
+        0,
+        "the removed PEG runtime and compiler are not selectable"
+    )
+end
+
 function M.nativeFeatureOverridesAreTriState()
     local automatic = {["native.tls"] = true, ["native.json"] = true}
     local resolved = native.resolve(automatic, {tls = false, path = true})

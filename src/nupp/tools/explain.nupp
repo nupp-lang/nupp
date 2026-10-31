@@ -2186,16 +2186,6 @@ ENTRIES[
 ENTRIES[
     #ENTRIES + 1
 ] = {
-    code = "NUPP2417",
-    summary = "A retired PEG grammar was malformed",
-    rule = "This diagnostic belonged to nupp.peg, which was removed along with LPeg. Match text with Lua patterns, or with nupp.text.regex where a pattern is not enough; a malformed regular expression is an ordinary runtime answer from regex.compile.",
-    related = {"NUPP2415", "NUPP2416"},
-    docs = "docs/reference/diagnostics.md#nupp2417",
-}
-
-ENTRIES[
-    #ENTRIES + 1
-] = {
     code = "NUPP2418",
     summary = "nupp.reflect was applied to something other than a resolvable type",
     rule = "nupp.reflect(T) resolves T in type position; it does not accept an expression that merely holds a runtime value, or one that fails to name a type at all. nupp.reflect.fieldCodec further requires that descriptor to describe a record, since only a record has present declared fields for the codec to copy.",

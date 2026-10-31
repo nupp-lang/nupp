@@ -3001,7 +3001,7 @@ checker's process-local type identities. Annotation names, arguments, values,
 and referenced types take part in it, so changing serialization metadata
 invalidates a cached comptime result even when the field types are unchanged.
 
-`nupp.reflect.fieldCodec(nupp.reflect(R))` is a materializer.
+`nupp.reflect.fieldCodec(nupp.reflect(R))` materializes a field codec.
 For a record `R` it produces a `nupp.reflect.FieldCodec<R>` whose `encode`
 method copies exactly the record's present declared fields with `rawget`.
 Encoding and decoding are shallow; decoding selects the same fields from a
