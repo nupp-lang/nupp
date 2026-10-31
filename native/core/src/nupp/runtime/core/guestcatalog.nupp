@@ -148,7 +148,7 @@ local function valid(data: voidptr, bytes: uint64): uint64
     end
     local version = native.load64(data, native.fieldOffset<DescriptorV1>("version"))
     local headerBytes = native.sizeOf<DescriptorV1>()
-    if version == 2ULL or version == 3ULL or version == 4ULL then
+    if version == 2ULL or version == 3ULL or version == 4ULL or version == 5ULL then
         headerBytes = native.sizeOf<Descriptor>()
     elseif version ~= 1ULL then
         return 0ULL

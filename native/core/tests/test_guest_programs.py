@@ -20,13 +20,15 @@ CASES = {"boolean": 0x7FFB000000000000, "nilValue": 0x7FF9000000000000,
          "moduleTriple": 0x7FFB000000000000,
          "numberAdd": 0x4017000000000000, "numberNegativeZero": 0x8000000000000000,
          "numberNaN": 0x7FF8000000000000,
-         "numberBranch": 0x7FFB000000000000}
+         "numberBranch": 0x7FFB000000000000,
+         "numberLoop": 0x4008000000000000,
+         "numberLoopZero": 0x0000000000000000}
 FIXTURES = ("catalog-boolean", "catalog-nil", "catalog-live", "catalog-fresh", "catalog-nested",
             "catalog-branch-true", "catalog-branch-false", "catalog-branch-elseif", "catalog-branch-live",
             "catalog-module-prefix", "catalog-module-main",
             "catalog-module-middle", "catalog-module-triple",
             "catalog-number-add", "catalog-number-negative-zero", "catalog-number-nan",
-            "catalog-number-branch")
+            "catalog-number-branch", "catalog-number-loop", "catalog-number-loop-zero")
 
 
 def sha(path):
@@ -135,8 +137,10 @@ def main():
     report = {"status": "running", "freshGuardBuild": fresh_guard_build, "inputs": inputs, "steps": [], "programs": [], "failures": [], "audits": [],
               "selectedCases": selected_cases, "omittedCases": omitted_cases,
               "preflightFixtures": list(FIXTURES),
-              "scope": "Trusted checked-source catalog derives Boolean/NIL programs, including "
+              "scope": "Trusted checked-source catalog derives scalar programs, including "
                        "up to three ordered module initializers with fresh entry storage and retained World. "
+                       "The v5 checked-graph profile admits one alloc-free numeric loop; it does not change "
+                       "the frozen toolchain image or raw graph wire schema. "
                        "Closure0, fixed CallK and one-result Ret run through Nupp services; "
                        "one checked static scalar import executes after successful publication; "
                        "named exports, cycles, arbitrary modules, raw loading and GC remain outside.",
@@ -281,7 +285,8 @@ def main():
                 code = b"".join(struct.pack("<I", word) for word in selected["words"])
                 data = bytes.fromhex(selected["dataHex"])
                 assert len(data) == selected["dataBytes"]
-                assert struct.unpack_from("<Q", data)[0] == (4 if case_name == "numberBranch" else
+                assert struct.unpack_from("<Q", data)[0] == (5 if case_name in ("numberLoop", "numberLoopZero") else
+                    4 if case_name == "numberBranch" else
                     3 if case_name.startswith("number") else
                     2 if case_name in ("modulePair", "moduleTriple") else 1)
                 if case_name == "boolean":
@@ -386,6 +391,11 @@ def main():
                     run("refuse-" + case + "-tagged-lt-operand",
                         [args.bridge, bad_operand, empty, operand_output], expected=1)
                     assert operand_output.read_bytes() == sentinel
+                if case_name in ("numberLoop", "numberLoopZero"):
+                    body = selected["programs"][-1]
+                    assert any(instruction[0] == "Jmp" and instruction[1] < 0
+                               for instruction in body["instructions"])
+                    assert any(instruction[0] == "Lt" for instruction in body["instructions"])
                 short = run("short-" + case, [guard_binary, "--ignored", "--exact",
                     "abi::generated_entry_refuses_short_regions", "--test-threads=1"], extra={
                         "CORE_TEST_BUNDLE": str(bundle), "CORE_TEST_INPUT": str(empty), "CORE_TEST_HIGH_WATER": "0"})
@@ -402,8 +412,10 @@ def main():
                     report["spillExtentRefusal"] = {"availableBytes": 65536, "diagnostic": diagnostic.strip()}
                 # Budget failures run the same authenticated bytes. Success is
                 # never inferred from transport alone; the primary run above
-                # checked the exact Boolean/NIL output independently.
+                # checked the exact scalar output independently.
                 budgets = ((0, 0, 2), (0, 1, 3))
+                if case_name == "numberLoop": budgets += ((1, 0, 2), (2, 0, 2))
+                if case_name == "numberLoopZero": budgets = ()
                 if case_name == "nested": budgets += ((2, 0, 2), (4, 0, 2))
                 if case_name == "modulePair": budgets += ((1, 0, 2), (2, 0, 2))
                 if case_name == "moduleTriple": budgets += ((1, 0, 2),)
@@ -413,7 +425,8 @@ def main():
                     input_path.write_bytes(struct.pack("<QQ", budget, cancel))
                     guarded("refuse-" + label, bundle, input_path, high_water, status=status)
                     if (case_name == "modulePair" and budget in (1, 2)
-                            or case_name == "moduleTriple" and budget == 1) and cancel == 0:
+                            or case_name == "moduleTriple" and budget == 1
+                            or case_name == "numberLoop"):
                         output_path = out / (label + "-unchanged.bin")
                         sentinel = b"initializer refusal left output unchanged"
                         output_path.write_bytes(sentinel)
@@ -421,6 +434,14 @@ def main():
                         assert output_path.read_bytes() == sentinel, "failed initializer published output"
                     report["failures"].append({"case": case, "budget": budget, "cancel": cancel,
                                                "status": status, "bundleSha256": sha(bundle)})
+                if case_name == "numberLoop":
+                    input_path = out / (case + "-budget3.bin")
+                    input_path.write_bytes(struct.pack("<QQ", 3, 0))
+                    guarded("guarded-" + case + "-budget3", bundle, input_path, high_water, expected_path)
+                elif case_name == "numberLoopZero":
+                    input_path = out / (case + "-budget0.bin")
+                    input_path.write_bytes(struct.pack("<QQ", 0, 0))
+                    guarded("guarded-" + case + "-budget0", bundle, input_path, high_water, expected_path)
                 save()
         # These are additional fixed audits, after all primary bundles have
         # independently returned their exact guest outputs. They do not replace

@@ -552,7 +552,9 @@ local function buildGuest(caseName: string, audited: boolean): any
         numberAdd = "catalog-number-add",
         numberNegativeZero = "catalog-number-negative-zero",
         numberNaN = "catalog-number-nan",
-        numberBranch = "catalog-number-branch"
+        numberBranch = "catalog-number-branch",
+        numberLoop = "catalog-number-loop",
+        numberLoopZero = "catalog-number-loop-zero"
     }
     local fixture = need(fixtures[caseName], "unknown fixed guest program")
     need(current == nil, "nested construction")
@@ -655,10 +657,12 @@ local function buildGuest(caseName: string, audited: boolean): any
         or caseName == "numberNegativeZero"
         or caseName == "numberNaN"
         or caseName == "numberBranch"
+        or caseName == "numberLoop"
+        or caseName == "numberLoopZero"
     then
         table.insert(handlerNames, 2, "Add")
     end
-    if caseName == "numberBranch" then
+    if caseName == "numberBranch" or caseName == "numberLoop" or caseName == "numberLoopZero" then
         table.insert(handlerNames, 2, "Lt")
     elseif caseName == "modulePair" then
         table.insert(handlerNames, 2, "Require")
@@ -777,9 +781,15 @@ local function buildGuest(caseName: string, audited: boolean): any
     local program: any = require("nupp.compiler.vm." .. programName)
     local tagged: any = require("nupp.compiler.vm." .. taggedName)
     local catalog = program.describe(modules, moduleName)
-    local ordered = caseName == "numberBranch"
+    local loops = caseName == "numberLoop" or caseName == "numberLoopZero"
+    local ordered = loops or caseName == "numberBranch"
     local numeric = ordered or caseName == "numberAdd" or caseName == "numberNegativeZero" or caseName == "numberNaN"
-    state.executable = guestExecutable().fromChecked(program.compile(catalog, tagged), numeric, ordered)
+    state.executable = guestExecutable().fromChecked(
+        program.compile(catalog, loops and tagged.withCheckedLoops() or tagged),
+        numeric,
+        ordered,
+        loops
+    )
     validateSource(state)
     table.sort(all, function(a: any, b: any): boolean
         return a.name < b.name

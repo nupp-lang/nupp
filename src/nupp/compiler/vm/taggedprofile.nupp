@@ -283,15 +283,20 @@ local function booleanCondition(t: any): boolean
     return t ~= nil and t.tag == "boolean"
 end
 
-function tagged.checkStatement(ctx: any, stat: any): nil
+local function checkStatement(ctx: any, stat: any, loops: boolean): nil
     if stat.kind == "ifStmt" then
         for _, clause in ipairs(stat.clauses) do
             need(not clause.binding, "binding conditions are unsupported")
             need(booleanCondition(clause.cond.inferredType), "if condition requires a checked Boolean")
         end
+    elseif stat.kind == "whileStmt" and loops then
+        need(
+            stat.cond.kind == "binop" and stat.cond.op.text == "<" and booleanCondition(stat.cond.inferredType),
+            "loop condition requires checked numeric less-than"
+        )
     end
     need(
-        stat.kind ~= "whileStmt"
+        (loops or stat.kind ~= "whileStmt")
         and stat.kind ~= "breakStmt"
         and stat.kind ~= "continueStmt"
         and stat.kind ~= "fornumStmt"
@@ -300,6 +305,22 @@ function tagged.checkStatement(ctx: any, stat: any): nil
         "control flow is outside lexical construction"
     )
     need(not stat.comptimeFunction and not stat.comptimeTok, "compile-time declarations are unsupported")
+end
+
+function tagged.checkStatement(ctx: any, stat: any): nil
+    checkStatement(ctx, stat, false)
+end
+
+function tagged.withCheckedLoops(): any
+    local profile = {}
+    for name, member in pairs(tagged) do
+        profile[name] = member
+    end
+    profile.checkStatement = function(ctx: any, stat: any): nil
+        checkStatement(ctx, stat, true)
+    end
+
+    return profile
 end
 
 function tagged.exportStatement(ctx: any, stat: any): nil

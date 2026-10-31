@@ -230,41 +230,70 @@ function verify.topological(nodes: any, edges: any, entry: integer?): any
     return result
 end
 
--- This transient classification only derives initializer results and checks the
--- admitted scalar subset. It is not a runtime handle/tag authentication proof.
--- A function:<owner> classification identifies only the possible code target.
--- It never identifies a closure instance or permits interning, CSE, or equality
--- by target. Every Closure operation and every invocation remains in the graph.
+-- This transient classification derives scalar kinds by a monotone SSA
+-- worklist. A block parameter receives its kind from every incoming edge,
+-- including loop back edges. It is not runtime handle/tag authentication.
+-- function:<owner> identifies a possible code target, never a closure instance.
 function verify.resultKind(g: any, signature: any, output: any): string
-    local kinds, edges = {}, {}
-    for index, kind in ipairs(signature.params) do
-        kinds[index] = kind
-    end
+    local kinds, edges, users, pending = {}, {}, {}, {}
 
     local function assign(id: integer, kind: string): nil
         need(kinds[id] == nil or kinds[id] == kind, "incompatible scalar join")
-        kinds[id] = kind
+        if kinds[id] == nil then
+            kinds[id] = kind
+            pending[#pending + 1] = id
+        end
     end
 
+    local function apply(rule: any): nil
+        local first = kinds[rule.args[1]]
+        if first == nil then
+            return
+        end
+        if rule.op == "Move" then
+            assign(rule.dst, first)
+            return
+        end
+        if rule.op == "edge" then
+            assign(rule.dst, first)
+            return
+        end
+        local second = kinds[rule.args[2]]
+        if second == nil then
+            return
+        end
+        need(first == "number" and second == "number", "numeric operation needs numeric operands")
+        assign(rule.dst, rule.op == "Lt" and "boolean" or "number")
+    end
+
+    local function propagate(op: string, args: any, dst: integer): nil
+        local rule = {op = op, args = args, dst = dst}
+        for _, id in ipairs(args) do
+            if users[id] == nil then
+                users[id] = {}
+            end
+            users[id][#users[id] + 1] = rule
+        end
+        apply(rule)
+    end
+
+    for index, kind in ipairs(signature.params) do
+        assign(index, kind)
+    end
     for index, block in ipairs(g.blocks) do
         edges[index] = {}
         for at, edge in ipairs(block.term.edges) do
             edges[index][at] = edge.target
         end
-    end
-    local returned
-    for _, index in ipairs(verify.topological(g.blocks, edges, 1)) do
-        local block = g.blocks[index]
-        for _, id in ipairs(block.params) do
-            need(kinds[id] ~= nil, "unresolved scalar block parameter")
-        end
         for at, op in ipairs(block.op) do
             local args = block.args[at]
-            local kind = switch op do
+            local dst = block.dst[at]
+            local _ = switch op do
                 case "K" -> do
                     local constant = need(g.constants[args[1] + 1], "constant index differs")
                     need(constant.kind ~= "str", "module name cannot be loaded as a value")
-                    yield constant.kind == "nil" and "nil" or constant.kind == "num" and "number" or "boolean"
+                    assign(dst, constant.kind == "nil" and "nil" or constant.kind == "num" and "number" or "boolean")
+                    yield nil
                 end
                 case "Require" -> do
                     local constant = need(g.constants[args[1] + 1], "require name index differs")
@@ -278,36 +307,94 @@ function verify.resultKind(g: any, signature: any, output: any): string
                     need(target ~= nil and target < g.programOwner, "forward or cyclic require is unsupported")
                     local owner = need(output.catalog[target + 1], "required module owner is missing")
                     local result = need(output.signatures[owner.signature + 1], "required module signature is missing")
-                    yield result.result
+                    assign(dst, result.result)
+                    yield nil
                 end
-                case "Add" -> need(
-                    kinds[args[1]] == "number" and kinds[args[2]] == "number",
-                    "number addition needs numeric operands"
-                )
-                    and "number"
-                case "Lt" -> need(
-                    kinds[args[1]] == "number" and kinds[args[2]] == "number",
-                    "number less-than needs numeric operands"
-                )
-                    and "boolean"
-                case "Nil" -> "nil"
-                case "Move" -> need(kinds[args[1]], "unresolved scalar move")
+                case "Add", "Lt", "Move" -> do
+                    propagate(op, args, dst)
+                    yield nil
+                end
+                case "Nil" -> do
+                    assign(dst, "nil")
+                    yield nil
+                end
                 case "Closure" -> do
                     need(#args == 1, "only zero-capture closures are admitted")
                     local target = need(output.catalog[args[1] + 1], "closure owner is missing")
                     need(target.kind == "function" and target.parent == g.programOwner, "closure owner differs")
-                    local provenance = "function:" .. args[1]
-                    yield provenance
+                    assign(dst, "function:" .. args[1])
+                    yield nil
                 end
                 else -> error("core graph contracts: unsupported operation", 0)
             end
-            assign(block.dst[at], kind)
+        end
+        local term = block.term
+        if term.kind == "invoke" then
+            local contract = need(output.contracts[term.contract + 1], "invoke contract differs")
+            local target = need(output.signatures[contract.signature + 1], "invoke signature differs")
+            if term.result ~= nil then
+                assign(term.result, target.result)
+            end
+        end
+        for _, edge in ipairs(term.edges) do
+            local params = g.blocks[edge.target].params
+            local offset = term.kind == "invoke" and term.result ~= nil and 1 or 0
+            for at, id in ipairs(edge.args) do
+                propagate("edge", {id}, params[at + offset])
+            end
+        end
+    end
+
+    -- Each SSA value enters pending at most once. Every operation/edge rule
+    -- runs only when one of its input kinds becomes known.
+    local at = 1
+    while at <= #pending do
+        local id = pending[at]
+        at += 1
+        for _, rule in ipairs(users[id] or {}) do
+            apply(rule)
+        end
+    end
+
+    if output.schema.version < 5 then
+        verify.topological(g.blocks, edges, 1)
+    else
+        local reached = {[1] = true}
+        local ready: {integer} = {1}
+        local nextBlock: integer = 1
+        while nextBlock <= #ready do
+            for _, target in ipairs(edges[ready[nextBlock]]) do
+                need(g.blocks[target] ~= nil, "invalid graph dependency")
+                if not reached[target] then
+                    reached[target] = true
+                    ready[#ready + 1] = target
+                end
+            end
+            nextBlock += 1
+        end
+        need(#ready == #g.blocks, "unreachable graph is unsupported")
+    end
+
+    local returned
+    for _, block in ipairs(g.blocks) do
+        for _, id in ipairs(block.params) do
+            need(kinds[id] ~= nil, "unresolved scalar block parameter")
+        end
+        for at, op in ipairs(block.op) do
+            local args = block.args[at]
+            need(kinds[block.dst[at]] ~= nil, "unresolved scalar operation")
+            if op == "Move" then
+                need(kinds[args[1]] ~= nil, "unresolved scalar move")
+            elseif op == "Add" or op == "Lt" then
+                need(
+                    kinds[args[1]] == "number" and kinds[args[2]] == "number",
+                    "numeric operation needs numeric operands"
+                )
+            end
         end
         local term = block.term
         if term.kind == "return" then
-            -- Scalar result kind describes the caller-observed padded value.
-            -- The copied term still distinguishes no value from a NIL SSA
-            -- value; it is never rewritten to a native zero-result ABI.
+            -- The copied term still distinguishes absent return from NIL SSA.
             local kind = term.value and need(kinds[term.value], "unresolved return") or "nil"
             need(
                 kind == "boolean" or kind == "nil" or output.schema.version >= 3 and kind == "number",
@@ -323,9 +410,6 @@ function verify.resultKind(g: any, signature: any, output: any): string
             for at, id in ipairs(term.args) do
                 need(kinds[id] == target.params[at], "call scalar argument differs")
             end
-            if term.result ~= nil then
-                assign(term.result, target.result)
-            end
         elseif term.kind == "branch" then
             need(kinds[term.value] == "boolean" or kinds[term.value] == "nil", "unsupported branch value")
         end
@@ -333,7 +417,8 @@ function verify.resultKind(g: any, signature: any, output: any): string
             local params = g.blocks[edge.target].params
             local offset = term.kind == "invoke" and term.result ~= nil and 1 or 0
             for at, id in ipairs(edge.args) do
-                assign(params[at + offset], need(kinds[id], "unresolved edge value"))
+                need(kinds[id] ~= nil, "unresolved edge value")
+                need(kinds[params[at + offset]] == kinds[id], "incompatible scalar join")
             end
         end
     end
@@ -365,12 +450,16 @@ end
 -- come from the bounded decoder or the full semantic tree-budget preflight.
 function verify.catalog(p: any): any
     fields(p, "schema entry modules catalog signatures graphs contracts")
-    need(p.schema.version == 2 or p.schema.version == 3 or p.schema.version == 4, "unknown source graph profile")
-    same(p.schema, schema.describe(p.schema.version >= 3, p.schema.version == 4))
+    need(
+        p.schema.version == 2 or p.schema.version == 3 or p.schema.version == 4 or p.schema.version == 5,
+        "unknown source graph profile"
+    )
+    same(p.schema, schema.describe(p.schema.version >= 3, p.schema.version >= 4, p.schema.version == 5))
     local count = dense(p.catalog, 256)
     need(count > 0 and dense(p.graphs, 256) == count, "complete semantic graph table required")
     local moduleCount = dense(p.modules, 256)
     need(moduleCount > 0 and moduleCount <= count, "complete semantic module table required")
+    need(p.schema.version ~= 5 or moduleCount == 1, "loop profile requires one scalar initializer")
     dense(p.signatures, 256)
     dense(p.contracts, 1048576)
     local modulesByOwner, moduleNames = {}, {}
@@ -468,7 +557,8 @@ function verify.catalog(p: any): any
                 need(#block.args[at] == #operation.args, "operation operand count differs")
             end
             local term = block.term
-            need(#term.edges == terms[term.kind].edges, "terminator edge count differs")
+            local policy = need(terms[term.kind], "unsupported semantic terminator")
+            need(#term.edges == policy.edges, "terminator edge count differs")
             if term.kind == "invoke" then
                 local contract = reference(term.contract, p.contracts)
                 need(not used[term.contract], "reused invoke contract")

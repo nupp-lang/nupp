@@ -13,7 +13,7 @@ local contracts = require("nupp.compiler.vm.coregraphcontracts")
 local semantic = require("nupp.compiler.vm.coregraphverify")
 local M = {}
 
-local function compile(text, sourcePath)
+local function compile(text, sourcePath, profile)
     local path = sourcePath or "=guest_branch_fixture.nupp"
     local parsed = parser.parse(text, path)
     local name = cst.declaredModule(parsed.root) or "guest_branch_fixture"
@@ -29,7 +29,7 @@ local function compile(text, sourcePath)
     end
     local catalog = program.describe({{name = name, path = path, parsed = parsed, diagnostics = diagnostics}}, name)
 
-    return program.compile(catalog, tagged)
+    return program.compile(catalog, profile or tagged)
 end
 
 local function accept(text, path)
@@ -460,6 +460,111 @@ function M.checkedNumericLessThanFeedsBothBranchEdges()
             contracts.normalize(complete)
         end,
         "unsupported scalar constant"
+    )
+end
+
+local function checkedLoop(name)
+    local path = ROOT .. "/native/core/tests/catalog-number-loop" .. (name == "zero" and "-zero" or "") .. ".nupp"
+    local file = assert(io.open(path, "rb"))
+    local source = file:read("*a")
+    file:close()
+    local complete = compile(source, path, tagged.withCheckedLoops())
+    for _, g in ipairs(complete.graphs) do
+        graph.verify(g)
+        graph.prune(g)
+        graph.verify(g)
+    end
+
+    return complete
+end
+
+function M.checkedNumericWhileCarriesBothScalarsThroughBackedge()
+    for _, name in ipairs({"sum", "zero"}) do
+        local complete = checkedLoop(name)
+        local g = complete.graphs[complete.header.entry + 1]
+        local header, backedge
+        for _, block in ipairs(g.blocks) do
+            for _, edge in ipairs(block.term.edges) do
+                if edge.target < block.id then
+                    header, backedge = g.blocks[edge.target], edge
+                end
+            end
+        end
+        assert(header and backedge)
+        test.equal(#header.params, 2)
+        test.equal(#backedge.args, 2)
+        local normalized = contracts.normalize(complete, true, true, true)
+        semantic.semantic(normalized)
+        test.equal(normalized.schema.version, 5)
+        local result = executable.fromChecked(complete, true, true, true)
+        executable.validate(result)
+        test.equal(result.version, 5)
+        assert(result.functions[1].instructionCount > 0)
+        local backwards = false
+        for _, instruction in ipairs(result.functions[1].instructions) do
+            if instruction[1] == "Jmp" and instruction[2] < 0 then
+                backwards = true
+            end
+        end
+        assert(backwards, "loop has no executable backward jump")
+        refuses(
+            function()
+                contracts.normalize(complete, true, true)
+            end,
+            "cyclic or unreachable graph is unsupported"
+        )
+    end
+end
+
+function M.checkedNumericLoopRejectsMalformedScalarPhi()
+    local complete = checkedLoop("sum")
+    local normalized = contracts.normalize(complete, true, true, true)
+    local g = normalized.graphs[normalized.entry + 1]
+    local source, backedge
+    for _, block in ipairs(g.blocks) do
+        for _, edge in ipairs(block.term.edges) do
+            if edge.target < block.id then
+                source, backedge = block, edge
+            end
+        end
+    end
+    assert(source and backedge)
+    local header = g.blocks[backedge.target]
+    test.equal(#header.params, 2)
+    g.constants[#g.constants + 1] = {kind = "true", value = ""}
+    local wrong = graph.emit(g, source, "K", {#g.constants - 1}, source.term.pos)
+    backedge.args[1] = wrong
+    local arities = {}
+    for index in ipairs(g.blocks) do
+        arities[index] = 4294967295
+    end
+    graph.verifyGuestStructure(g, arities)
+    refuses(
+        function()
+            semantic.semantic(normalized)
+        end,
+        "incompatible scalar join"
+    )
+end
+
+function M.checkedNumericLoopRefusesRepeatedClosureAllocation()
+    local complete = compile(
+        [[
+local i = 0.0
+while i < 2.0 do
+    local function value(): number return 1.0 end
+    i = i + 1.0
+end
+return i
+]],
+        nil,
+        tagged.withCheckedLoops()
+    )
+    refuses(
+        function()
+            contracts.normalize(complete, true, true, true)
+        end,
+        "unsupported operation Closure"
     )
 end
 
