@@ -135,6 +135,8 @@ signatures.NativeBoolean = "I#"
 signatures.NativeIMul = "Iii"
 signatures.NativeUDiv = "Iii"
 signatures.NativeURem = "Iii"
+signatures.NativeSDiv = "Iii"
+signatures.NativeSRem = "Iii"
 signatures.NativeICmp = "Iii#"
 signatures.NativeFCmp = "Iff#"
 signatures.NativeAsWord = "Ii"
@@ -177,6 +179,8 @@ local nativeOnly = {
     NativeIMul = true,
     NativeUDiv = true,
     NativeURem = true,
+    NativeSDiv = true,
+    NativeSRem = true,
     NativeICmp = true,
     NativeFCmp = true,
     NativeAsWord = true,
@@ -200,6 +204,8 @@ local nativeArithmetic = {
     NativeIMul = true,
     NativeUDiv = true,
     NativeURem = true,
+    NativeSDiv = true,
+    NativeSRem = true,
     IAnd = true,
     IOr = true,
     IXor = true,
@@ -720,7 +726,12 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
         end
         assert(
             declaration.result == "nil" and dst == 0 and kind == nil
-            or (declaration.result == "uint64" or declaration.result == "boolean" or declaration.result == "voidptr")
+            or (
+                declaration.result == "uint64"
+                or declaration.result == "int64"
+                or declaration.result == "boolean"
+                or declaration.result == "voidptr"
+            )
             and kind == declaration.result,
             "native leaf result kind"
         )
@@ -1197,6 +1208,10 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
         assert(kind == "uint64" and #args == 2, "native division requires two unsigned words")
         hasKind(args[1], "uint64")
         hasKind(args[2], "uint64")
+    elseif op == "NativeSDiv" or op == "NativeSRem" then
+        assert(kind == "int64" and #args == 2, "native signed division requires two signed words")
+        hasKind(args[1], "int64")
+        hasKind(args[2], "int64")
     elseif nativeArithmetic[op] then
         assert(
             op:sub(1, 1) == "F" and nativeFloatKinds[kind]
