@@ -470,8 +470,8 @@ local function loadModules(root, config, settings, requested)
     -- the declaration lives in a different file. The prelude is the important case:
     -- `interface nupp.Debug` is written in the compiler's hidden declaration tree, but
     -- readers should find it on `nupp`, not lose it with that implementation module.
-    -- An `@namespace` field is different: `record nupp.peg` describes the `nupp.peg`
-    -- module, so it belongs on that nested page rather than as a second declaration on
+    -- An `@namespace` field describes a nested module, so its nominal belongs on
+    -- that nested page rather than as a second declaration on
     -- `nupp`. Move these after every source has been read so either destination can
     -- supply its prose and source path.
     local byName = {}

@@ -2739,16 +2739,31 @@ function M.theBootstrapCarriesNoNativeAbi()
     end
 end
 
+function M.removedPegNamespaceDoesNotResolve()
+    local got = diagsOf("return nupp.peg")
+    assert(got:find("NUPP2004", 1, true), got)
+    testAssert.equal(
+        #native.features({
+            ["stdlib.peg"] = true,
+            ["stdlib.peg.compile"] = true
+        }),
+        0,
+        "the removed PEG runtime and compiler are not selectable"
+    )
+end
+
 function M.pureAndNativeRuntimeFeaturesComposeAsLua()
-    local bootstrap = stdlib.bootstrap({["stdlib.peg"] = true, ["native.path"] = true,})
+    local bootstrap = stdlib.bootstrap({["stdlib.fieldcodec"] = true, ["native.path"] = true,})
     assert(not bootstrap:find(";;", 1, true), "adjacent runtime installers do not emit an empty Lua statement")
     local previous = rawget(_G, "nupp")
     _G.nupp = nil
-    local chunk = assert(loadstring(bootstrap .. " return type(nupp.peg), next(nupp.peg), rawget(nupp, 'io')"))
-    local pegType, pegField, io = chunk()
+    local chunk = assert(
+        loadstring(bootstrap .. " return type(nupp.fieldcodec), type(nupp.fieldcodec.keyed), rawget(nupp, 'io')")
+    )
+    local codecType, keyedType, io = chunk()
     _G.nupp = previous
-    testAssert.equal(pegType, "table", "the pure PEG runtime is installed")
-    testAssert.equal(pegField, nil, "internal PEG helpers are not public fields")
+    testAssert.equal(codecType, "table", "the pure field-codec runtime is installed")
+    testAssert.equal(keyedType, "function", "the keyed codec helper is installed")
     testAssert.equal(io, nil, "selecting a native facility installs no ambient io namespace")
 end
 

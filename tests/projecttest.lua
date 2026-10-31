@@ -367,20 +367,23 @@ return {include = {"src"}, build = {outDir = "out", entries = {"main"}}}
         [
             "src/main.nupp"
         ] = [[
-const Matcher: nupp.peg.Peg<integer> = comptime do
-    return nupp.peg.compile("'ok'")
+local record Message
+    text: string
+end
+const Codec: nupp.reflect.FieldCodec<Message> = comptime do
+    return nupp.reflect.fieldCodec(nupp.reflect(Message))
 end
 
-return Matcher("ok")
+return Codec:encode(new Message(text = "ok")).text as string
 ]],
     })
     local cold, coldStats = {}, {}
     testAssert.equal(project.build(dir, {produced = cold, stats = coldStats}), 0)
     testAssert.equal(#cold.materializations, 1, "the cold build reports its materialization")
     local observation = cold.materializations[1]
-    testAssert.equal(observation.provider, "peg", "provider observation")
-    testAssert.equal(observation.schema, 5, "provider schema")
-    testAssert.equal(observation.backend, "auto", "selected backend")
+    testAssert.equal(observation.provider, "fieldcodec", "provider observation")
+    testAssert.equal(observation.schema, 2, "provider schema")
+    testAssert.equal(observation.backend, "keyed", "selected backend")
     assert(observation.blueprintSize > 0 and observation.generatedSize > 0, "bounded sizes are reported")
     testAssert.equal(observation.abis.runtimeExpression, 2, "runtime-expression ABI")
     testAssert.equal(observation.blueprint, nil, "the public record omits the canonical payload")
@@ -4602,12 +4605,30 @@ function M.pkgConfigFlagsUseShellWordQuotingWithoutRunningAShell()
     testAssert.equal(malformed, nil)
 end
 
+function M.shellWordsRejectIncompleteQuotingAndEscapes()
+    testAssert.equal(buildSyntax.shellWords:match("plain\\"), nil, "a trailing escape needs a byte")
+    testAssert.equal(buildSyntax.shellWords:match("'unclosed"), nil, "a single quote needs its closing quote")
+    testAssert.equal(buildSyntax.shellWords:match('"unclosed'), nil, "a double quote needs its closing quote")
+    testAssert.equal(buildSyntax.shellWords:match('"unclosed\\'), nil, "an escape cannot close a double quote")
+    local words = assert(buildSyntax.shellWords:match([["" '' a""b c''d]]))
+    testAssert.equal(#words, 4, "empty quoted words are retained")
+    testAssert.equal(table.concat(words, "\0"), table.concat({"", "", "ab", "cd"}, "\0"))
+end
+
 function M.makeDepfilesPreserveEscapedPathsAndContinuations()
     local paths = assert(
         buildSyntax.depfile:match("nupp_header: one.h two\\ three.h \\\n four\\#five.h one.h # ignored\n")
     )
     testAssert.equal(table.concat(paths, "\0"), table.concat({"one.h", "two three.h", "four#five.h", "one.h"}, "\0"))
     testAssert.equal(buildSyntax.depfile:match("not a depfile"), nil)
+end
+
+function M.makeDepfilesHandleEscapedTargetsCommentsAndCrLf()
+    local paths = assert(buildSyntax.depfile:match("generated\\:header: one\\:name.h two\\#name.h # ignored.h\r\n"))
+    testAssert.equal(table.concat(paths, "\0"), "one:name.h\0two#name.h", "only unescaped hash starts a comment")
+    local continued = assert(buildSyntax.depfile:match("header: one.h\\\r\n two.h\r\n"))
+    testAssert.equal(table.concat(continued, "\0"), "one.h\0two.h", "CRLF continuation is whitespace")
+    testAssert.equal(buildSyntax.depfile:match("header: path\\"), nil, "a trailing dependency escape needs a byte")
 end
 
 function M.buildGlobsTreatDoubleStarAsZeroOrMoreDirectories()

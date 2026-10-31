@@ -260,11 +260,9 @@ constant-dead branch or loop is removed with that code.
 
 The registry also recognizes compiler-provided modules. `require("lpeg")`
 selects native LPeg 1.1, while `require("re")` selects the bundled official Lua
-frontend and implies LPeg. Every `nupp.peg` matcher also selects LPeg: Nupp may
-emit a faster kernel for a recognized static graph, but the typed matcher shell
-and general lowering share the same native feature. A local table named `nupp`,
-or a computed `require`, does not claim a compiler feature: only the resolved
-global path and literal module name do.
+frontend and implies LPeg. A local table named `nupp`, or a computed `require`,
+does not claim a compiler feature: only the resolved global path and literal
+module name do.
 
 ### Feature overrides
 

@@ -2301,18 +2301,6 @@ ENTRIES[
 ENTRIES[
     #ENTRIES + 1
 ] = {
-    code = "NUPP2417",
-    summary = "A PEG intrinsic call or finalized grammar is malformed",
-    rule = "Every nupp.peg intrinsic is checked against the pattern arguments it needs, and a finalized grammar is checked against PEG's own rules once assembled. Repetition is possessive and must consume at least one byte whenever it succeeds, so a nullable repetition such as ('')* is refused, and direct or indirect left recursion is refused because a top-down parser cannot re-enter a rule at the position it started.",
-    wrong = "const Bad: nupp.peg.Peg<integer> = comptime do\n    return nupp.peg.compile(\"('')*\")\nend\nreturn Bad\n",
-    right = "const Good: nupp.peg.Peg<integer> = comptime do\n    return nupp.peg.compile(\"('x')*\")\nend\nreturn Good\n",
-    related = {"NUPP2415", "NUPP2416"},
-    docs = "docs/reference/diagnostics.md#nupp2417",
-}
-
-ENTRIES[
-    #ENTRIES + 1
-] = {
     code = "NUPP2418",
     summary = "nupp.reflect was applied to something other than a resolvable type",
     rule = "nupp.reflect(T) resolves T in type position; it does not accept an expression that merely holds a runtime value, or one that fails to name a type at all. nupp.reflect.fieldCodec further requires that descriptor to describe a record, since only a record has present declared fields for the codec to copy.",

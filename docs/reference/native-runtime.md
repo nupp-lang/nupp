@@ -47,7 +47,7 @@ GPU-free program does not acquire WGPU.
 | child processes and pipes | `process` | `native-process` |
 | native GPU compute | `gpu` | provider archive |
 | workers and shared immutable bytes | host-owned | `workers` |
-| `nupp.peg`, raw `lpeg`, and `re` | retained LPeg | `lpeg` |
+| `lpeg` and `re` | retained LPeg | `lpeg` |
 
 `tls` includes the Rust network implementation, and the compiler's HTTP effect
 closure also selects URI handling. A standalone link may combine the Rust
@@ -145,8 +145,8 @@ Rust is the default language for repository-owned native mechanisms, not a
 claim that every executable byte is Rust. Native builds still retain:
 
 - pinned LuaJIT, its allocator, garbage collector, JIT, stack, and C API;
-- LPeg 1.1 for `nupp.peg`, raw `lpeg` and `re` compatibility, and compiler
-  documentation parsing;
+- LPeg 1.1 for `lpeg` and `re` compatibility and compiler documentation
+  parsing;
 - `native/crates/host/c/lua_shim.c` and `worker_shim.c`, which contain the
   protected LuaJIT stack, userdata, callback, and longjmp boundary while Rust
   owns every persistent host and worker resource;

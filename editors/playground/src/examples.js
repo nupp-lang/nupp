@@ -23,7 +23,6 @@ import U32_XOR from "./examples/u32-xor.nupp";
 import COMPTIME from "./examples/comptime.nupp";
 import CUSTOM_DERIVE from "./examples/custom-derive.nupp";
 import TYPE_LEVEL_DSL from "./examples/type-level-dsl.nupp";
-import PEG from "./examples/peg.nupp";
 import BROWSER_PLATFORM from "./examples/browser-platform.nupp";
 
 // Roughly in order of how much of the language each one asks you to already
@@ -46,6 +45,5 @@ export const EXAMPLES = [
     label: "Binary type DSL",
     source: TYPE_LEVEL_DSL,
   },
-  { id: "peg", label: "PEG expressions", source: PEG },
   { id: "browser-platform", label: "Browser APIs", source: BROWSER_PLATFORM },
 ];

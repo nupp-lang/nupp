@@ -117,6 +117,7 @@ function M.theProjectWalkNeverListsTheOutputDirectory()
         )
     end
     assert(#listed > 0, "the walk was observed")
+
     local function has(list, suffix)
         for _, path in ipairs(list) do
             if path:sub(-#suffix) == suffix then
@@ -126,6 +127,7 @@ function M.theProjectWalkNeverListsTheOutputDirectory()
 
         return false
     end
+
     assert(has(result.project, "/src/main.nupp") and has(result.project, "/top.nupp"), "the sources are listed")
     assert(has(result.sources, "/src/main.nupp"), "the include root is listed")
     assert(not has(result.project, "stray.nupp") and not has(result.sources, "stray.nupp"), "build output is not")
@@ -143,12 +145,7 @@ end
 local BYTECODE = {
     ["aos"] = {total = 266, loop = 80},
     ["frames"] = {total = 116, loop = 23},
-    ["json-lpeg"] = {total = 795, loop = 124},
-    ["nupp-lpeg-shapes"] = {total = 398, loop = 13},
     ["optparser"] = {total = 548, loop = 125},
-    ["peg-kernels"] = {total = 318, loop = 30},
-    ["peg-lpeg"] = {total = 540, loop = 14},
-    ["peg-result-packs"] = {total = 202, loop = 26},
     ["presize"] = {total = 126, loop = 10},
     ["soa"] = {total = 785, loop = 182},
     ["trivia-record"] = {total = 232, loop = 49},
@@ -174,28 +171,22 @@ function M.theBenchmarkProgramsStayWithinTheirBytecodeBudgets()
                 if instruction.inLoop then
                     loop = loop + 1
                     if instruction.unrecordable then
-                        unrecordable[#unrecordable + 1] = ("%s:%d %s"):format(
-                            file,
-                            instruction.line or 0,
-                            instruction.unrecordable
-                        )
+                        unrecordable[
+                            #unrecordable + 1
+                        ] = ("%s:%d %s"):format(file, instruction.line or 0, instruction.unrecordable)
                     end
                 end
             end
         end
         if total > budget.total then
-            failures[#failures + 1] = ("%s compiles to %d instructions, over its budget of %d"):format(
-                file,
-                total,
-                budget.total
-            )
+            failures[
+                #failures + 1
+            ] = ("%s compiles to %d instructions, over its budget of %d"):format(file, total, budget.total)
         end
         if loop > budget.loop then
-            failures[#failures + 1] = ("%s has %d instructions in loops, over its budget of %d"):format(
-                file,
-                loop,
-                budget.loop
-            )
+            failures[
+                #failures + 1
+            ] = ("%s has %d instructions in loops, over its budget of %d"):format(file, loop, budget.loop)
         end
         for _, site in ipairs(unrecordable) do
             failures[#failures + 1] = "a loop LuaJIT cannot record: " .. site
@@ -230,11 +221,9 @@ function M.generatedLuaStaysWithinItsSizeBudget()
     local ratio = generated / source
     assert(
         ratio <= GENERATED_PER_SOURCE_BYTE,
-        ("%d modules generate %.3f bytes of Lua per source byte, over the budget of %.2f"):format(
-            modules,
-            ratio,
-            GENERATED_PER_SOURCE_BYTE
-        )
+        (
+            "%d modules generate %.3f bytes of Lua per source byte, over the budget of %.2f"
+        ):format(modules, ratio, GENERATED_PER_SOURCE_BYTE)
     )
 end
 
@@ -251,11 +240,9 @@ local function moduleGraph(dir, count)
         end
         lines[#lines + 1] = ""
         lines[#lines + 1] = ("export record R%d\n    a: number\n    b: string\nend\n"):format(i)
-        lines[#lines + 1] = ("export function make(a: number): R%d\n    return new R%d(a = a, b = \"m%d\")\nend\n"):format(
-            i,
-            i,
-            i
-        )
+        lines[
+            #lines + 1
+        ] = ("export function make(a: number): R%d\n    return new R%d(a = a, b = \"m%d\")\nend\n"):format(i, i, i)
         lines[#lines + 1] = "export function score(x: number): number"
         lines[#lines + 1] = "    local total = x"
         for j in pairs(seen) do
@@ -310,15 +297,16 @@ function M.theCheckerAllocatesPerModuleNotPerProject()
     local large = checkerAllocation(40) / 40
     assert(
         large <= ALLOCATION_PER_MODULE,
-        ("checking allocates %.0f KB a module, over the budget of %.0f KB"):format(
-            large / 1024,
-            ALLOCATION_PER_MODULE / 1024
-        )
+        (
+            "checking allocates %.0f KB a module, over the budget of %.0f KB"
+        ):format(large / 1024, ALLOCATION_PER_MODULE / 1024)
     )
     assert(
         large / small <= ALLOCATION_GROWTH,
-        ("a module costs %.0f KB to check in a project of ten and %.0f KB in a project of forty: "
-            .. "the checker's work is growing with the project"):format(small / 1024, large / 1024)
+        (
+            "a module costs %.0f KB to check in a project of ten and %.0f KB in a project of forty: "
+            .. "the checker's work is growing with the project"
+        ):format(small / 1024, large / 1024)
     )
 end
 
@@ -369,7 +357,7 @@ function M.aStampedHelloWorldStaysSmall()
     writeFile(
         dir .. "/nupp.lua",
         'return {include = {"src"}, build = {default = "app", targets = {app = {\n'
-            .. '   kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",\n}}}}\n'
+        .. '   kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",\n}}}}\n'
     )
     writeFile(dir .. "/src/main.nupp", 'print("hello")\n')
     local out = run(dir, "build")

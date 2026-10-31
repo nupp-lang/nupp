@@ -73,7 +73,7 @@ end
 function M.rejectsMalformedCollectionsAndInvalidLuaForms()
     local ok, rendered, failure = pcall(ir.render, {
         tag = "call",
-        callee = {tag = "helper", name = "nupp.peg.codegen"},
+        callee = {tag = "helper", name = "nupp.fieldcodec.keyed"},
         args = "not a list",
     })
     assert(ok, "malformed worker IR must return a failure")
@@ -92,7 +92,7 @@ function M.rejectsMalformedCollectionsAndInvalidLuaForms()
         tag = "function",
         body = {
             {tag = "return", value = {tag = "literal", value = 1}},
-            {tag = "callstat", value = {tag = "call", callee = {tag = "helper", name = "nupp.peg.codegen"}}},
+            {tag = "callstat", value = {tag = "call", callee = {tag = "helper", name = "nupp.fieldcodec.keyed"}}},
         },
     })
     assert(afterReturn and afterReturn.message:find("after return", 1, true), afterReturn and afterReturn.message)

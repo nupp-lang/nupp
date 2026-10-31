@@ -3,18 +3,10 @@ module re
 --[[
 LPeg 1.1's official `re` frontend, bundled so `require("re")` returns it.
 
-This is upstream's Lua source, carried rather than reimplemented: it compiles
-`re` pattern text into LPeg patterns at runtime, and its `compile`, `match`,
-`find`, `gsub` and `updatelocale` behave exactly as
-[LPeg's own documentation](http://www.inf.puc-rio.br/~roberto/lpeg/re.html)
-describes. It is here for Lua that already requires it, and because
-`nupp.peg.compile` reaches it for a grammar only known at run time.
-
-Write [](nupp.peg) instead. It accepts the same syntax at either phase: a
-`comptime` grammar is parsed and validated by the compiler and carries typed
-captures, and a genuinely dynamic one compiles through `nupp.peg.compile` and
-returns `Peg<...any>`. Both spellings select the same native LPeg feature, so
-requiring this module directly buys no portability -- only untyped results.
+This is upstream's Lua source. It lowers `re` pattern text to LPeg patterns at
+runtime, and its `compile`, `match`, `find`, `gsub` and `updatelocale` retain the
+upstream behavior. See [LPeg's documentation](http://www.inf.puc-rio.br/~roberto/lpeg/re.html)
+for the grammar and operation contracts.
 ]]
 
 local tonumber, type, error = tonumber, type, error

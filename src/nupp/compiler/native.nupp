@@ -354,23 +354,6 @@ local FEATURES: {[string]: native.Feature} = {
     -- exists to attribute the module rather than to select anything.
     ["runtime.data_utf8"] = {name = "data_utf8", modules = {"nupp.text.utf8"},},
     [
-        "stdlib.peg"
-    ] = {
-        portableRuntime = true,
-        name = "peg",
-        runtimeModule = "nupp.compiler.runtime.peg",
-        requires = {"native.lpeg"},
-    },
-    [
-        "stdlib.peg.compile"
-    ] = {
-        name = "peg_compile",
-        portableRuntime = true,
-        globals = {"nupp.peg.compile"},
-        runtimeModule = "nupp.compiler.runtime.peg",
-        requires = {"native.lpeg"},
-    },
-    [
         "stdlib.fieldcodec"
     ] = {
         name = "fieldcodec",
@@ -769,7 +752,7 @@ function native.decorateGlobals(globals: {[string]: any}): {[any]: {[string]: st
         for index = 2, #parts do
             if index == #parts and t then
                 decorate(t, parts[index], effect)
-                -- A qualified nominal such as `record nupp.peg` also binds its
+                -- A qualified namespace nominal also binds its
                 -- declaration table under the dotted prefix. Source reaches that
                 -- metatable value even when the intrinsic `nupp` shape describes the
                 -- same path as a nominal instance, so both identities carry the

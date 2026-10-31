@@ -1174,53 +1174,6 @@ function M.standardIOApiHasCompleteDocumentation()
     )
 end
 
-function M.standardPegApiDocumentsItsTypesExpressionsAndExamples()
-    local source = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp")
-    local module, errors = doc.extract(source, "src/nupp/compiler/decls/prelude.d.nupp", "nupp.compiler.decls.prelude")
-    assert(module, errors and errors[1] and errors[1].msg)
-
-    local peg
-    for _, item in ipairs(module.items) do
-        if item.name == "peg" then
-            peg = item
-        end
-    end
-    assert(peg, "the prelude did not document nupp.peg")
-    assert(peg.doc.text:find("## Expression syntax", 1, true), "nupp.peg has no expression guide")
-    assert(peg.doc.text:find("const Identifier = comptime do", 1, true), "nupp.peg has no static matcher example")
-    assert(
-        peg.doc.text:find("function(Definitions): nupp.peg.Peg<integer>", 1, true),
-        "nupp.peg has no definition factory example"
-    )
-
-    local expected = {Backend = true, Definitions = true, CompileOptions = true, Peg = true, compile = true,}
-    for _, member in ipairs(peg.members) do
-        if expected[member.name] then
-            assert(member.text ~= "", "nupp.peg." .. member.name .. " has no documentation")
-            expected[member.name] = nil
-        end
-        if member.name == "Peg" then
-            local match = nil
-            for _, nested in ipairs(member.members or {}) do
-                if nested.name == "match" then
-                    match = nested
-                end
-            end
-            assert(match and match.type:find("function", 1, true), "nupp.peg.Peg does not expose match")
-        elseif member.name == "compile" then
-            assert(#member.params == 2, "nupp.peg.compile lost its parameters")
-            assert(
-                member.params[1].text ~= "" and member.params[2].text ~= "",
-                "nupp.peg.compile parameters need documentation"
-            )
-            assert(#member.returns == 1 and member.returns[1].text ~= "", "nupp.peg.compile return needs documentation")
-        end
-    end
-    for name in pairs(expected) do
-        error("the prelude did not document nupp.peg." .. name)
-    end
-end
-
 function M.standardReflectApiKeepsItsGraphAndMaterializerTogether()
     local source = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp")
     local module, errors = doc.extract(source, "src/nupp/compiler/decls/prelude.d.nupp", "nupp.compiler.decls.prelude")
@@ -1304,7 +1257,7 @@ function M.standardLibraryBackingRecordsStayInternal()
     )
     assert(module, errors and errors[1] and errors[1].msg)
 
-    local expected = {["nupp.math.vec2"] = "add", ["nupp.math.quat"] = "multiply", ["nupp.peg"] = "compile",}
+    local expected = {["nupp.math.vec2"] = "add", ["nupp.math.quat"] = "multiply",}
     for _, child in ipairs(extra or {}) do
         local member = expected[child.name]
         if member then
@@ -1685,10 +1638,10 @@ function M.hidesNamespacesNamedInternal()
         {
             "--- @namespace lib",
             "local lib: {",
-            "   --- Parsing.",
-            "   peg: {",
-            "      --- Matches a subject.",
-            "      match: function(): boolean",
+            "   --- Rendering.",
+            "   graphics: {",
+            "      --- Draws a frame.",
+            "      draw: function(): boolean",
             "   },",
             "   --- Implementation detail.",
             "   internal: {",
@@ -1705,7 +1658,7 @@ function M.hidesNamespacesNamedInternal()
     for _, mod in ipairs(extra or {}) do
         byName[mod.name] = mod
     end
-    assert(byName["lib.peg"], "a public namespace was dropped")
+    assert(byName["lib.graphics"], "a public namespace was dropped")
     assert(not byName["lib.internal"], "a namespace named internal leaked into public docs")
 
     local private, privateErrors, privateExtra = doc.extract(source, "src/lib.d.nupp", "lib", {includePrivate = true,})
@@ -1935,32 +1888,6 @@ function M.scintilluaLexerUnderstandsCurrentNuppSyntax()
     -- `comptime`/`@nosuspend` get the directive colour, not the ordinary keyword one.
     assert(html:find('class="token directive nuppdoc-token-meta">comptime<', 1, true), html)
     assert(html:find('class="token directive nuppdoc-token-meta">@nosuspend<', 1, true), html)
-end
-
-function M.scintilluaLexerHighlightsNuppPegGrammar()
-    local root = HERE .. "/.."
-    highlight.configureScintillua(root, {lexers = "docs/lexers"})
-    local html = assert(
-        highlight.scintilluaSource(
-            table.concat(
-                {
-                    "-- A complete list.",
-                    "start <- item (',' item)* !.",
-                    "item <- { [%a_][%w_]* } -> name / <fallback>",
-                    "fallback <- \"unknown\" ^+4",
-                },
-                "\n"
-            ),
-            "npeg"
-        )
-    )
-    assert(html:find("nuppdoc-token-comment", 1, true), html)
-    assert(html:find("nuppdoc-token-function", 1, true), html)
-    assert(html:find("nuppdoc-token-variable", 1, true), html)
-    assert(html:find("nuppdoc-token-string", 1, true), html)
-    assert(html:find("nuppdoc-token-type", 1, true), html)
-    assert(html:find("nuppdoc-token-number", 1, true), html)
-    assert(html:find("nuppdoc-token-operator", 1, true), html)
 end
 
 -- Without a manifest the command falls back to documenting ".", which drags
@@ -2267,23 +2194,23 @@ function M.namespaceBackedDeclarationsBelongOnlyToTheirSubmodule()
                 "--- @namespace nupp",
                 "--- @export",
                 "local nupp: {",
-                "   --- Parsing-expression grammars.",
+                "   --- Widget construction.",
                 "   --- @namespace",
-                "   peg: nupp.peg",
+                "   widgets: nupp.widgets",
                 "}",
                 "",
-                "--- Compile parsing-expression grammars.",
-                "record nupp.peg",
-                "   --- Selects the matcher implementation.",
-                "   type Backend = 'auto' | 'lpeg'",
+                "--- Constructs widgets.",
+                "record nupp.widgets",
+                "   --- Selects the widget size.",
+                "   type Mode = 'small' | 'large'",
                 "",
-                "   --- Compiles a grammar.",
-                "   compile: function(source: string): nupp.peg.Peg<any>",
+                "   --- Constructs a widget.",
+                "   create: function(source: string): nupp.widgets.Widget<any>",
                 "",
-                "   --- A compiled grammar.",
-                "   record Peg<T>",
-                "      --- Matches text.",
-                "      match: function(self, subject: string): T?",
+                "   --- A configured widget.",
+                "   record Widget<T>",
+                "      --- Reads a value.",
+                "      read: function(self, subject: string): T?",
                 "   end",
                 "end",
             },
@@ -2292,17 +2219,17 @@ function M.namespaceBackedDeclarationsBelongOnlyToTheirSubmodule()
     })
     assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "markdown", output = "api.md"}) == 0)
     local api = readFile(dir .. "/api.md")
-    local nestedAt = assert(api:find('<a id="nupp.peg"></a>', 1, true), api)
+    local nestedAt = assert(api:find('<a id="nupp.widgets"></a>', 1, true), api)
     local parent = api:sub(1, nestedAt - 1)
     local nested = api:sub(nestedAt)
     assert(parent:find("## Submodules", 1, true), parent)
-    assert(parent:find("[`nupp.peg`](#nupp.peg)", 1, true), parent)
-    assert(not parent:find("### `peg` _record_", 1, true), parent)
-    assert(not parent:find("record nupp.peg", 1, true), parent)
-    assert(nested:find("Compile parsing%-expression grammars%."), nested)
-    assert(nested:find("### `Backend` _type_", 1, true), nested)
-    assert(nested:find("### `Peg` _record_", 1, true), nested)
-    assert(nested:find("### `compile` _function_", 1, true), nested)
+    assert(parent:find("[`nupp.widgets`](#nupp.widgets)", 1, true), parent)
+    assert(not parent:find("### `widgets` _record_", 1, true), parent)
+    assert(not parent:find("record nupp.widgets", 1, true), parent)
+    assert(nested:find("Constructs widgets%."), nested)
+    assert(nested:find("### `Mode` _type_", 1, true), nested)
+    assert(nested:find("### `Widget` _record_", 1, true), nested)
+    assert(nested:find("### `create` _function_", 1, true), nested)
     os.execute("rm -rf '" .. dir .. "'")
 end
 

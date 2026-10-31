@@ -2,36 +2,153 @@ module nupp.compiler.shellsyntax
 
 -- The three tiny languages emitted or consumed by native builds.
 
-local GlobTokens = nupp.peg.compile([[
-    {| { '**/' / '**' / '*' / '?' / (!'*' !'?' .)+ }* |} !.
-]])
+local function whitespace(ch: string): boolean
+    local byte = ch:byte()
+    return byte ~= nil and (byte == 32 or byte >= 9 and byte <= 13)
+end
 
-local ShellWords = nupp.peg.compile(
-    [[
-    start <- {| %s* (word (%s+ word)*)? %s* |} !.
-    word <- {~ piece+ ~}
-    piece <- "'" -> '' (!"'" .)* "'" -> ''
-           / '"' -> '' (%backslash -> '' { . } / !'"' !%backslash .)* '"' -> ''
-           / %backslash -> '' { . }
-           / !%s !%backslash !"'" !'"' .
-]],
-    {definitions = {backslash = "\\"}}
-)
+local function globTokens(text: string): {string}
+    local tokens: {string} = {}
+    local at: integer = 1
+    while at <= #text do
+        local token = text:sub(at, at + 2)
+        if token == "**/" then
+            at = at + 3
+        elseif text:sub(at, at + 1) == "**" then
+            token = "**"
+            at = at + 2
+        elseif text:sub(at, at) == "*" or text:sub(at, at) == "?" then
+            token = text:sub(at, at)
+            at = at + 1
+        else
+            local first = at
+            repeat
+                at = at + 1
+            until at > #text or text:sub(at, at) == "*" or text:sub(at, at) == "?"
+            token = text:sub(first, at - 1)
+        end
+        tokens[#tokens + 1] = token
+    end
 
-local Depfile = nupp.peg.compile(
-    [[
-    start <- target ':' space* {| (word space*)* |} ('#' (!%nl .)* %nl?)? !.
-    target <- (%backslash . / !':' .)*
-    space <- %s+ / %backslash %cr? %nl
-    word <- {~ (%backslash -> '' { !%nl . } / !%s !%backslash !'#' .)+ ~}
-]],
-    {definitions = {backslash = "\\", cr = "\r"}}
-)
+    return tokens
+end
+
+local function shellWords(_: any, text: string): {string}?
+    local words: {string} = {}
+    local pieces: {string} = {}
+    local quote: string? = nil
+    local started = false
+    local at: integer = 1
+    while at <= #text do
+        local ch = text:sub(at, at)
+        if quote == "'" then
+            if ch == quote then
+                quote = nil
+            else
+                pieces[#pieces + 1] = ch
+            end
+        elseif ch == "\\" then
+            at = at + 1
+            if at > #text then
+                return nil
+            end
+            pieces[#pieces + 1] = text:sub(at, at)
+            started = true
+        elseif quote ~= nil then
+            if ch == quote then
+                quote = nil
+            else
+                pieces[#pieces + 1] = ch
+            end
+        elseif ch == "'" or ch == '"' then
+            quote = ch
+            started = true
+        elseif whitespace(ch) then
+            if started then
+                words[#words + 1] = table.concat(pieces)
+                pieces = {}
+                started = false
+            end
+        else
+            pieces[#pieces + 1] = ch
+            started = true
+        end
+        at = at + 1
+    end
+    if quote ~= nil then
+        return nil
+    end
+    if started then
+        words[#words + 1] = table.concat(pieces)
+    end
+
+    return words
+end
+
+local function continuation(text: string, at: integer): integer
+    if text:sub(at, at + 1) == "\\\n" then
+        return 2
+    end
+    if text:sub(at, at + 2) == "\\\r\n" then
+        return 3
+    end
+
+    return 0
+end
+
+local function depfile(_: any, text: string): {string}?
+    local at: integer = 1
+    while at <= #text and text:sub(at, at) ~= ":" do
+        if text:sub(at, at) == "\\" then
+            at = at + 1
+        end
+        at = at + 1
+    end
+    if at > #text then
+        return nil
+    end
+    at = at + 1
+    local paths: {string} = {}
+    while at <= #text do
+        local continued = continuation(text, at)
+        if whitespace(text:sub(at, at)) then
+            at = at + 1
+        elseif continued > 0 then
+            at = at + continued
+        elseif text:sub(at, at) == "#" then
+            local newline = text:find("\n", at, true)
+            if newline ~= nil and newline ~= #text then
+                return nil
+            end
+            return paths
+        else
+            local pieces: {string} = {}
+            while at <= #text do
+                local ch = text:sub(at, at)
+                if whitespace(ch) or ch == "#" or continuation(text, at) > 0 then
+                    break
+                end
+                if ch == "\\" then
+                    at = at + 1
+                    if at > #text then
+                        return nil
+                    end
+                    ch = text:sub(at, at)
+                end
+                pieces[#pieces + 1] = ch
+                at = at + 1
+            end
+            paths[#paths + 1] = table.concat(pieces)
+        end
+    end
+
+    return paths
+end
 
 --- Parse a path glob once and return its matcher. `*` and `?` stay within one
 --- segment; `**/` consumes zero or more complete directories.
 local function compileGlob(glob: string): function(string): boolean
-    local tokens = assert(GlobTokens(glob))
+    local tokens = globTokens(glob)
     return function(path: string): boolean
         local match: function(integer, integer): boolean
         match = function(tokenIndex: integer, pathIndex: integer): boolean
@@ -57,4 +174,4 @@ local function compileGlob(glob: string): function(string): boolean
     end
 end
 
-export = {glob = compileGlob, shellWords = ShellWords, depfile = Depfile}
+export = {glob = compileGlob, shellWords = {match = shellWords}, depfile = {match = depfile}}

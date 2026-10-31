@@ -13,11 +13,7 @@ names are allocated here and therefore cannot collide with a source binding.
 local MAX_NODES = 20000
 local MAX_SOURCE_BYTES = 512 * 1024
 
-local HELPERS = {
-    ["nupp.peg.codegen"] = "__nuppPegCodegen",
-    ["nupp.peg.lpeg"] = "__nuppPegLpeg",
-    ["nupp.fieldcodec.keyed"] = "_G.nupp.fieldcodec.keyed",
-}
+local HELPERS = {["nupp.fieldcodec.keyed"] = "_G.nupp.fieldcodec.keyed",}
 
 local RESERVED: {
     [string]: boolean

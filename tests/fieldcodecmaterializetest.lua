@@ -1,5 +1,5 @@
 local testAssert = require("nupp.test")
--- Semantic type reflection and the non-PEG materialization provider.
+-- Semantic type reflection and the keyed field-codec materialization provider.
 local parser = require("nupp.compiler.syntax.parser")
 local gen = require("nupp.compiler.lua.gen")
 local check = require("fragment")

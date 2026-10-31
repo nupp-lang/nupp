@@ -147,9 +147,8 @@ end
 
 The chunk is plain Lua and runs under a compatible `luajit` when that runtime
 also supplies every native feature the target resolved. A target with no native
-effects needs no stub; [](nupp.peg), for example, resolves native LPeg and
-therefore needs a feature-matched host or an LPeg module on LuaJIT's module
-path.
+effects needs no stub. A chunk that uses `require("lpeg")` needs a
+feature-matched host or an LPeg module on LuaJIT's module path.
 
 "Plain" has a floor. Generated Nupp is written in the LuaJIT 3.0 syntax that 2.1
 backported, meaning `?.`, `??`, `?:`, the bit operators and compound assignment,
@@ -457,9 +456,9 @@ A distributed binary is deliberately none of these things.
   without one.
 
   Nupp's compiler payload detects one native module, and its compiler-owned
-  host links exactly that feature: LPeg, which backs direct LPeg patterns and every
-  general `nupp.peg` matcher. Nupp supplies Lunamark's entity encoder and
-  reference-label normalizer from its own payload.
+  host links exactly that feature: LPeg, which backs documentation parsing.
+  Nupp supplies Lunamark's entity encoder and reference-label normalizer from
+  its own payload.
   Filesystem and network operations, TLS, clocks, payload trailer verification
   and child processes come from the feature-selected Rust native archive linked
   into the host.

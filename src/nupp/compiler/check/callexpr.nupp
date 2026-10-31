@@ -29,9 +29,6 @@ local targetLayout = require("nupp.compiler.targetlayout")
 local fixedWidth = require("nupp.compiler.types.fixedwidth")
 local indexedViews = require("nupp.compiler.types.indexedviews")
 local state = require("nupp.compiler.check.state")
-local pegTyping = require(
-    "nupp.compiler.comptime.materialize.peg"
-) as {inferSourceResult: function(string, T.Type?): (T.Pack?, any)}
 local runtimeSurface = require("nupp.compiler.runtimesurface")
 
 local isA = relations.isA
@@ -551,62 +548,6 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         end
 
         return nil
-    end
-
-    local function pegCompilePath(callee: Node?): boolean
-        if not callee or callee.kind ~= "dotIndex" or not callee.name or callee.name.text ~= "compile" then
-            return false
-        end
-        local pegPath = callee.obj
-        if not pegPath or pegPath.kind ~= "dotIndex" or not pegPath.name or pegPath.name.text ~= "peg" then
-            return false
-        end
-        local root = pegPath.obj
-        local token = root and root.kind == "name" and root.token or nil
-        local global = c.env and c.env.globals and c.env.globals.nupp
-        local resolved = token and c.lookupEntry(token.text) or nil
-
-        return token ~= nil
-            and token.text == "nupp"
-            and global ~= nil
-            and resolved ~= nil
-            and resolved.definition == global.definition
-    end
-
-    local function pegMatcher(result: T.Pack): Type?
-        local pegTypes = c.env and c.env.globalTypes and c.env.globalTypes["nupp.peg"]
-        local matcher = pegTypes and pegTypes.nestedTypes and pegTypes.nestedTypes.Peg
-        local binder = matcher and matcher.packParams and matcher.packParams[1]
-
-        return matcher and binder and generics.instantiate(matcher, {[binder] = result}) or nil
-    end
-
-    --- Selects the replacement entry point only when both the concrete built-in PEG
-    --- receiver and the replacement's runtime representation are statically known.
-    --- An interface implementation or a string/function union must retain the public
-    --- dispatching method because either can choose another implementation at run time.
-    local function pegReplacementMember(receiver: Type, name: string, replacement: Type?): string?
-        if (name ~= "replace" and name ~= "replaceAll") or not replacement then
-            return nil
-        end
-        local pegTypes = c.env and c.env.globalTypes and c.env.globalTypes["nupp.peg"]
-        local matcher = pegTypes and pegTypes.nestedTypes and pegTypes.nestedTypes.Peg
-        local owner = rawType(receiver)
-        if not matcher or owner.tag ~= "nominal" or (owner.origin or owner) ~= matcher then
-            return nil
-        end
-
-        local suffix
-        local replacementType = rawType(replacement)
-        if replacement ~= T.any and replacement ~= T.unknown and isA(replacement, T.string) then
-            suffix = "Literal"
-        elseif replacementType.tag == "func" then
-            suffix = "Callback"
-        else
-            return nil
-        end
-
-        return "__nuppPegReplace" .. (name == "replaceAll" and "All" or "") .. suffix
     end
 
     ---------------------------------------------------------------------
@@ -2113,26 +2054,6 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
             end
         end
-        -- A literal grammar has already told the compiler its capture shape. Ask the
-        -- canonical PEG frontend for that shape after the ordinary call checker has
-        -- typed the options table, then replace only the result of `compile`. Invalid
-        -- literals deliberately remain runtime errors, preserving `pcall` workflows.
-        if node.kind == "call" and pegCompilePath(callee) then
-            local source = literalString(argExprs[1]) or literalToken(argStr)
-            local sourceType = node.argumentPack and T.packAt(node.argumentPack, 1) or nil
-            if not source and sourceType and sourceType.tag == "literal" and type(sourceType.constant) == "string" then
-                source = sourceType.constant
-            end
-            if source then
-                local options = node.argumentPack and T.packAt(node.argumentPack, 2) or nil
-                local definitions = readableField(options, "definitions")
-                local result = pegTyping.inferSourceResult(source, definitions)
-                local matcher = result and pegMatcher(result)
-                if matcher then
-                    first, rets, pack = matcher, {matcher}, T.pack({matcher})
-                end
-            end
-        end
         -- A supplied task deadline needs the target's clock provider.
         if node.kind == "call" and callee and opensTaskScope(c, callee) and c.recordEffect then
             local deadline = node.argumentPack and T.packAt(node.argumentPack, 2) or nil
@@ -2440,11 +2361,6 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
             c.nosuspend.call(node)
             local owner = rawType(ot)
-            node.overloadMember = pegReplacementMember(
-                ot,
-                member.text,
-                node.argumentPack and T.packAt(node.argumentPack, 2) or nil
-            )
             local aliasDeclaration = c.lookupType("nupp.Alias")
             local aliasOrigin = aliasDeclaration
                 and aliasDeclaration.tag == "nominal"

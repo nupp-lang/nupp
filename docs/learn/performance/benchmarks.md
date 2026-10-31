@@ -342,11 +342,11 @@ ratios with an exact signed-rank interval.
 
 ```text
 Durations: candidate vs build/baseline/bin/nupp  (interleaved, paired)
-Benchmark                      Change          Interval  Verdict
-json-decode.large.nupp-peg     +18.4%  [+16.2%, +20.7%]  regressed
-soa.particle-update.generated   -9.7%   [-11.1%, -8.2%]  improved
-sum.floats.index:size=100       -0.4%    [-1.3%, +0.6%]  unchanged
-peg-kernels.single-span.lpeg    +6.2%   [-1.3%, +14.0%]  inconclusive
+Benchmark                            Change          Interval  Verdict
+aos.particle-update.carray            +18.4%  [+16.2%, +20.7%]  regressed
+soa.particle-update.generated-soa       -9.7%   [-11.1%, -8.2%]  improved
+sum.floats.index:size=100               -0.4%    [-1.3%, +0.6%]  unchanged
+soa.particle-update.handwritten-soa     +6.2%   [-1.3%, +14.0%]  inconclusive
 
 nupp: 49 compared, equivalence margin +-2.0%, Benjamini-Hochberg adjusted
       1 regressed, 1 improved, 1 unchanged, 46 inconclusive
@@ -493,7 +493,7 @@ timing-dependent, so forks legitimately disagree; only a site present in
 **every** fork can gate:
 
 ```text
-nupp: flaky abort site: peg-kernels.capture-list.lpeg: NYI:return-to-lower-frame
+nupp: flaky abort site: aos.particle-update.carray: NYI:return-to-lower-frame
       in 3/12 forks; reported, not gated
 ```
 
