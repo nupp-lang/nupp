@@ -7,6 +7,7 @@ const values = require("nupp.runtime.vm.values")
 const frames = require("nupp.runtime.core.frames")
 const access = require("nupp.runtime.core.frameaccess")
 const ops = require("nupp.runtime.core.guestops")
+const context = require("nupp.runtime.core.context")
 
 -- The closed checked producer binds these program/slot reads to corebytecode's
 -- canonical opcode recipes and its retained complete graph-derived byte stream.
@@ -85,9 +86,213 @@ export function Require(
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
 
--- Only source-admitted floating values reach this alloc-free numeric cut.
--- The checked graph proves both operands are numbers; runtime checks prevent
--- corrupt windows from turning an arithmetic result into a forged tag.
+-- Dynamic numbers: binary64 floats and signed 48-bit integer immediates.
+-- Integer results that need a canonical integer object refuse with RESOURCE
+-- until the core has one; they never round or wrap into a wrong value.
+-- Because every integer here is an immediate, converting one to binary64 is
+-- exact, so mixed arithmetic and comparison through floats is Lua's exact
+-- result. Boxed integers will need the exact mixed algorithms.
+const ADD: uint64 = 0ULL
+const SUB: uint64 = 1ULL
+const MUL: uint64 = 2ULL
+const MOD: uint64 = 3ULL
+const HIGH16: uint64 = 0xffff000000000000ULL
+const SIGN48: uint64 = 0x0000800000000000ULL
+const HIGH17: uint64 = 0xffff800000000000ULL
+const SIGN64: uint64 = 0x8000000000000000ULL
+
+-- Non-number words report why arithmetic produced no value: TRUE for an
+-- operand that is not a number, NIL for an unrepresentable integer, and
+-- FALSE for integer modulo by zero.
+local function integerWord(value: uint64): boolean
+    return value & HIGH16 == values.TAG_INTEGER
+end
+
+local function floatWord(value: uint64): boolean
+    return value & values.QNAN ~= values.QNAN or value == values.QNAN
+end
+
+local function integerBits(value: uint64): uint64
+    local payload = value & values.PAYLOAD
+    return native.chooseWord(payload & SIGN48 ~= 0ULL, payload | HIGH16, payload)
+end
+
+local function integerValue(bits: uint64): uint64
+    local high = bits & HIGH17
+    if high == 0ULL or high == HIGH17 then
+        return values.TAG_INTEGER | (bits & values.PAYLOAD)
+    end
+
+    return values.NIL
+end
+
+-- Leaves pass floats as IEEE bits; float values stay inside one function.
+local function doubleBits(value: uint64): uint64
+    if integerWord(value) then
+        return native.bits(native.toFloat(native.index(integerBits(value))))
+    end
+    return value
+end
+
+local function floatValue(bits: uint64): uint64
+    return native.chooseWord(bits & values.QNAN == values.QNAN, values.QNAN, bits)
+end
+
+-- C fmod: the exact remainder with the dividend's sign, by shift-and-subtract
+-- on the significands (the musl algorithm). Exponents are signed because a
+-- subnormal's normalized exponent falls below zero.
+local function fmod(ux: uint64, uy: uint64): uint64
+    local x = native.fromBits(ux)
+    local y = native.fromBits(uy)
+    local ex = native.index((ux >> 52) & 0x7ffULL)
+    local ey = native.index((uy >> 52) & 0x7ffULL)
+    local sx = ux & SIGN64
+    if uy << 1 == 0ULL or y ~= y or ex == 0x7ffLL then
+        return native.bits((x * y) / (x * y))
+    end
+    if ux << 1 <= uy << 1 then
+        if ux << 1 == uy << 1 then
+            return ux & SIGN64
+        end
+        return ux
+    end
+    local mx = ux
+    if ex == 0LL then
+        local probe = mx << 12
+        while probe >> 63 == 0ULL do
+            ex = ex - 1LL
+            probe = probe << 1
+        end
+        mx = mx << native.word(1LL - ex)
+    else
+        mx = (mx & 0x000fffffffffffffULL) | 0x0010000000000000ULL
+    end
+    local my = uy
+    if ey == 0LL then
+        local probe = my << 12
+        while probe >> 63 == 0ULL do
+            ey = ey - 1LL
+            probe = probe << 1
+        end
+        my = my << native.word(1LL - ey)
+    else
+        my = (my & 0x000fffffffffffffULL) | 0x0010000000000000ULL
+    end
+    while ex > ey do
+        local difference = mx - my
+        if difference >> 63 == 0ULL then
+            if difference == 0ULL then
+                return ux & SIGN64
+            end
+            mx = difference
+        end
+        mx = mx << 1
+        ex = ex - 1LL
+    end
+    local difference = mx - my
+    if difference >> 63 == 0ULL then
+        if difference == 0ULL then
+            return ux & SIGN64
+        end
+        mx = difference
+    end
+    while mx >> 52 == 0ULL do
+        mx = mx << 1
+        ex = ex - 1LL
+    end
+    if ex > 0LL then
+        mx = (mx - 0x0010000000000000ULL) | (native.word(ex) << 52)
+    else
+        mx = mx >> native.word(1LL - ex)
+    end
+
+    return mx | sx
+end
+
+-- Lua's floor modulo for immediates: truncated remainder by magnitudes, then
+-- moved to the divisor's sign. A zero divisor is an error, not a value.
+local function integerModulo(a: uint64, b: uint64): uint64
+    if b == 0ULL then
+        return values.FALSE
+    end
+    local negativeA = a & SIGN64 ~= 0ULL
+    local negativeB = b & SIGN64 ~= 0ULL
+    local magnitudeA = native.chooseWord(negativeA, 0ULL - a, a)
+    local magnitudeB = native.chooseWord(negativeB, 0ULL - b, b)
+    local remainder = magnitudeA - (magnitudeA // magnitudeB) * magnitudeB
+    local m = native.chooseWord(negativeA, 0ULL - remainder, remainder)
+    if m ~= 0ULL and negativeA ~= negativeB then
+        m = m + b
+    end
+
+    return integerValue(m)
+end
+
+local function arithmetic(operation: uint64, left: uint64, right: uint64): uint64
+    local leftInteger = integerWord(left)
+    local rightInteger = integerWord(right)
+    if not (leftInteger or floatWord(left)) or not (rightInteger or floatWord(right)) then
+        return values.TRUE
+    end
+    if leftInteger and rightInteger then
+        local a = integerBits(left)
+        local b = integerBits(right)
+        if operation == ADD then
+            return integerValue(a + b)
+        elseif operation == SUB then
+            return integerValue(a - b)
+        elseif operation == MUL then
+            return integerValue(a * b)
+        end
+        return integerModulo(a, b)
+    end
+    local x = native.fromBits(doubleBits(left))
+    local y = native.fromBits(doubleBits(right))
+    if operation == ADD then
+        return floatValue(native.bits(x + y))
+    elseif operation == SUB then
+        return floatValue(native.bits(x - y))
+    elseif operation == MUL then
+        return floatValue(native.bits(x * y))
+    end
+    -- Lua's float modulo: fmod moved to the divisor's sign. The native
+    -- profile has no float literals, so zero is spelled by its bits.
+    local zero = native.fromBits(0ULL)
+    local m = native.fromBits(fmod(native.bits(x), native.bits(y)))
+    if m > zero then
+        if y < zero then
+            m = m + y
+        end
+    elseif m < zero and y ~= m then
+        if y > zero then
+            m = m + y
+        end
+    end
+
+    return floatValue(native.bits(m))
+end
+
+-- 1 for true, 0 for false, 2 for an operand that is not a number.
+local function order(orEqual: boolean, left: uint64, right: uint64): uint64
+    local leftInteger = integerWord(left)
+    local rightInteger = integerWord(right)
+    if not (leftInteger or floatWord(left)) or not (rightInteger or floatWord(right)) then
+        return 2ULL
+    end
+    if leftInteger and rightInteger then
+        local a = native.index(integerBits(left))
+        local b = native.index(integerBits(right))
+        return native.asWord(a < b or orEqual and a == b)
+    end
+    local x = native.fromBits(doubleBits(left))
+    local y = native.fromBits(doubleBits(right))
+    if orEqual then
+        return native.asWord(x <= y)
+    end
+
+    return native.asWord(x < y)
+end
+
 export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
     if ops.current(ctx, frame, pc) == 0ULL then
         ops.fail(ctx, frame, pc, ops.INVALID)
@@ -108,20 +313,149 @@ export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
-    if left & values.QNAN == values.QNAN then
-        if left ~= values.QNAN then
-            ops.fail(ctx, frame, pc, ops.INVALID)
-            return native.fail()
-        end
+    local result = arithmetic(ADD, left, right)
+    if result == values.TRUE then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
     end
-    if right & values.QNAN == values.QNAN then
-        if right ~= values.QNAN then
-            ops.fail(ctx, frame, pc, ops.INVALID)
-            return native.fail()
-        end
+    if result == values.NIL then
+        ops.fail(ctx, frame, pc, ops.RESOURCE)
+        return native.fail()
     end
-    local bits = native.bits(native.fromBits(left) + native.fromBits(right))
-    slots.writeValue(frame, regs, dst, native.chooseWord(bits & values.QNAN == values.QNAN, values.QNAN, bits))
+    if result == values.FALSE then
+        ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+        return native.fail()
+    end
+    slots.writeValue(frame, regs, dst, result)
+    local nextPC = ops.branch(ctx, frame, pc, 0)
+    if nextPC == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+
+    return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
+end
+
+export function Sub(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local dst, lhs, rhs = program.readByte(pc, 1), program.readByte(pc, 2), program.readByte(pc, 3)
+    local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    if native.word(dst) >= count then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if native.word(lhs) >= count then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if native.word(rhs) >= count then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
+    local result = arithmetic(SUB, left, right)
+    if result == values.TRUE then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if result == values.NIL then
+        ops.fail(ctx, frame, pc, ops.RESOURCE)
+        return native.fail()
+    end
+    if result == values.FALSE then
+        ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+        return native.fail()
+    end
+    slots.writeValue(frame, regs, dst, result)
+    local nextPC = ops.branch(ctx, frame, pc, 0)
+    if nextPC == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+
+    return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
+end
+
+export function Mul(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local dst, lhs, rhs = program.readByte(pc, 1), program.readByte(pc, 2), program.readByte(pc, 3)
+    local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    if native.word(dst) >= count then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if native.word(lhs) >= count then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if native.word(rhs) >= count then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
+    local result = arithmetic(MUL, left, right)
+    if result == values.TRUE then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if result == values.NIL then
+        ops.fail(ctx, frame, pc, ops.RESOURCE)
+        return native.fail()
+    end
+    if result == values.FALSE then
+        ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+        return native.fail()
+    end
+    slots.writeValue(frame, regs, dst, result)
+    local nextPC = ops.branch(ctx, frame, pc, 0)
+    if nextPC == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+
+    return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
+end
+
+export function Mod(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local dst, lhs, rhs = program.readByte(pc, 1), program.readByte(pc, 2), program.readByte(pc, 3)
+    local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    if native.word(dst) >= count then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if native.word(lhs) >= count then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if native.word(rhs) >= count then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
+    local result = arithmetic(MOD, left, right)
+    if result == values.TRUE then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if result == values.NIL then
+        ops.fail(ctx, frame, pc, ops.RESOURCE)
+        return native.fail()
+    end
+    if result == values.FALSE then
+        ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+        return native.fail()
+    end
+    slots.writeValue(frame, regs, dst, result)
     local nextPC = ops.branch(ctx, frame, pc, 0)
     if nextPC == 0ULL then
         ops.fail(ctx, frame, pc, ops.INVALID)
@@ -151,24 +485,47 @@ export function Lt(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
         return native.fail()
     end
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
-    if left & values.QNAN == values.QNAN then
-        if left ~= values.QNAN then
-            ops.fail(ctx, frame, pc, ops.INVALID)
-            return native.fail()
-        end
+    local result = order(false, left, right)
+    if result > 1ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
     end
-    if right & values.QNAN == values.QNAN then
-        if right ~= values.QNAN then
-            ops.fail(ctx, frame, pc, ops.INVALID)
-            return native.fail()
-        end
+    slots.writeValue(frame, regs, dst, native.chooseWord(result == 1ULL, values.TRUE, values.FALSE))
+    local nextPC = ops.branch(ctx, frame, pc, 0)
+    if nextPC == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
     end
-    slots.writeValue(
-        frame,
-        regs,
-        dst,
-        native.chooseWord(native.fromBits(left) < native.fromBits(right), values.TRUE, values.FALSE)
-    )
+
+    return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
+end
+
+export function Le(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local dst, lhs, rhs = program.readByte(pc, 1), program.readByte(pc, 2), program.readByte(pc, 3)
+    local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    if native.word(dst) >= count then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if native.word(lhs) >= count then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if native.word(rhs) >= count then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
+    local result = order(true, left, right)
+    if result > 1ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    slots.writeValue(frame, regs, dst, native.chooseWord(result == 1ULL, values.TRUE, values.FALSE))
     local nextPC = ops.branch(ctx, frame, pc, 0)
     if nextPC == 0ULL then
         ops.fail(ctx, frame, pc, ops.INVALID)

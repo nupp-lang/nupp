@@ -535,10 +535,97 @@ end
 -- Actual guest entry is a separate closed build, independent of both diagnostic
 -- probe snapshots. The enum selects reviewed source fixtures, never a caller
 -- path, owner/effect map, checked callback or arbitrary raw graph.
+-- Operations a pure scalar leaf may contain: word and float arithmetic,
+-- comparisons, conversions and selects. No load, store, pointer, slot,
+-- program, helper, dispatch or allocation operation is admitted.
+local pureOperations: {[string]: boolean} = {}
+for _, name in ipairs({
+    "NativeConstant",
+    "NativeBoolean",
+    "NativeSelect",
+    "NativeAsWord",
+    "NativeWordCast",
+    "NativeICmp",
+    "NativeFCmp",
+    "NativeIMul",
+    "NativeUDiv",
+    "NativeURem",
+    "NativeIntToFloat",
+    "NativeFloatToInt",
+    "NativeFloatBits",
+    "NativeFloatFromBits",
+    "NativeFloor",
+    "NativeCeil",
+    "NativeSqrt",
+    "IAdd",
+    "ISub",
+    "IAnd",
+    "IOr",
+    "IXor",
+    "INot",
+    "IShl",
+    "IShrU",
+    "FAdd",
+    "FSub",
+    "FMul",
+    "FDiv",
+    "FNeg",
+    "Move",
+    "NativeLeafCall"
+}) do
+    pureOperations[name] = true
+end
+
+-- A pureScalar role is issued before lowering and proven after it, inside the
+-- same closed build: the build fails unless every reachable callee graph is
+-- scalar-only. The final-frame verifier relies on this proof.
+local function provePure(state: any, roots: any): nil
+    local pending, seen = {}, {}
+    for _, owner in ipairs(roots) do
+        pending[#pending + 1] = owner
+    end
+    while #pending > 0 do
+        local owner = table.remove(pending)
+        if not seen[owner] then
+            seen[owner] = true
+            local g = need(state.resolved[owner], "pure scalar leaf was not lowered")
+            local held = need(graphs[g], "pure scalar leaf graph is unissued")
+            need(held.abi == "leaf" and not held.final, "pure scalar owner is not a leaf")
+            for _, kind in ipairs(owner.paramKinds) do
+                need(kind ~= "voidptr", "pure scalar leaf takes an address")
+            end
+            for _, block in ipairs(g.blocks) do
+                for index, op in ipairs(block.op) do
+                    need(pureOperations[op], "pure scalar leaf uses " .. tostring(op))
+                    if op == "NativeLeafCall" then
+                        local call = need(held.calls[block] and held.calls[block][index], "pure call lacks origin")
+                        pending[#pending + 1] = call.target
+                    end
+                end
+                need(
+                    block.term.kind == "return" or block.term.kind == "jump" or block.term.kind == "branch",
+                    "pure scalar leaf transfers control"
+                )
+            end
+        end
+    end
+end
+
 -- The checked-source graph profile each fixed guest case is built under.
 local guestVersions: {
     [string]: integer
-} = {numberAdd = 3, numberNegativeZero = 3, numberNaN = 3, numberBranch = 4, numberLoop = 5, numberLoopZero = 5}
+} = {
+    numberAdd = 3,
+    numberNegativeZero = 3,
+    numberNaN = 3,
+    numberBranch = 4,
+    numberLoop = 5,
+    numberLoopZero = 5,
+    numericFor = 6,
+    numericFloat = 6,
+    numericModZero = 6,
+    numericOverflow = 6
+}
 
 local function buildGuest(caseName: string, audited: boolean): any
     local fixtures = {
@@ -559,7 +646,11 @@ local function buildGuest(caseName: string, audited: boolean): any
         numberNaN = "catalog-number-nan",
         numberBranch = "catalog-number-branch",
         numberLoop = "catalog-number-loop",
-        numberLoopZero = "catalog-number-loop-zero"
+        numberLoopZero = "catalog-number-loop-zero",
+        numericFor = "catalog-numeric-for",
+        numericFloat = "catalog-numeric-float",
+        numericModZero = "catalog-numeric-modzero",
+        numericOverflow = "catalog-numeric-overflow"
     }
     local fixture = need(fixtures[caseName], "unknown fixed guest program")
     need(current == nil, "nested construction")
@@ -658,26 +749,29 @@ local function buildGuest(caseName: string, audited: boolean): any
     state.guestEntry = {valueCountOffset = need(state.frameLayout.offsets.valueCount, "Frame count offset")}
     local handlers = scopes[guestModule]
     local handlerNames = {"K", "Nil", "Move", "NewClosure", "CallK", "Ret", "Jmp", "JmpIf", "Invalid"}
-    if caseName == "numberAdd"
-        or caseName == "numberNegativeZero"
-        or caseName == "numberNaN"
-        or caseName == "numberBranch"
-        or caseName == "numberLoop"
-        or caseName == "numberLoopZero"
-    then
-        table.insert(handlerNames, 2, "Add")
-    end
-    if caseName == "numberBranch" or caseName == "numberLoop" or caseName == "numberLoopZero" then
-        table.insert(handlerNames, 2, "Lt")
-    elseif caseName == "modulePair" then
+    -- Each profile dispatches the numeric handlers it admits (coregraphschema).
+    local version = guestVersions[caseName] or 2
+    if caseName == "modulePair" then
         table.insert(handlerNames, 2, "Require")
+    end
+    local introduced: {[string]: integer} = {Add = 3, Lt = 4, Sub = 6, Mul = 6, Mod = 6, Le = 6}
+    for _, name in ipairs({"Add", "Lt", "Sub", "Mul", "Mod", "Le"}) do
+        if version >= introduced[name] then
+            table.insert(handlerNames, 2, name)
+        end
     end
     for _, name in ipairs(handlerNames) do
         state.finalOwners[need(handlers.exports[name], "fixed guest handler")] = true
     end
+    local pureRoots = {}
+    for _, name in ipairs({"arithmetic", "order"}) do
+        local owner = need(handlers.functions[name], "numeric scalar leaf")
+        state.roles[owner] = "pureScalar"
+        pureRoots[#pureRoots + 1] = owner
+    end
     -- Every declared handler is checked as a final frame, even when this
     -- program's dispatch table does not select it.
-    for _, name in ipairs({"Require", "Add", "Lt"}) do
+    for _, name in ipairs({"Require", "Add", "Sub", "Mul", "Mod", "Lt", "Le"}) do
         state.finalOwners[need(handlers.exports[name], "fixed guest handler")] = true
     end
     local cases = {
@@ -786,7 +880,6 @@ local function buildGuest(caseName: string, audited: boolean): any
     local program: any = require("nupp.compiler.vm." .. programName)
     local tagged: any = require("nupp.compiler.vm." .. taggedName)
     local catalog = program.describe(modules, moduleName)
-    local version = guestVersions[caseName] or 2
     state.executable = guestExecutable().fromChecked(
         program.compile(catalog, version >= 5 and tagged.forVersion(version) or tagged),
         version
@@ -817,7 +910,7 @@ local function buildGuest(caseName: string, audited: boolean): any
                 refusals[#refusals + 1] = {name = item.owner.name, diagnostic = tostring(g)}
             else
                 need(passed, item.name .. ": " .. tostring(g))
-                if item.owner.scope == handlers and item.owner.name ~= "Invalid" then
+                if item.owner.scope == handlers and state.finalOwners[item.owner] and item.owner.name ~= "Invalid" then
                     require("nupp.compiler.vm.corebytecode").checkHandler(item.owner.name, g)
                 end
                 state.resolved[item.owner] = g
@@ -825,6 +918,7 @@ local function buildGuest(caseName: string, audited: boolean): any
             end
             current = nil
         end
+        provePure(state, pureRoots)
         validateSource(state)
     end)
     current = nil

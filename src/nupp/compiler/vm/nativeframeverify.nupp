@@ -450,6 +450,13 @@ function verifier.verify(g: any, calls: any, entry: any?): nil
                         or role == "pc"
                     then
                         result = access(state, role, frameOwner(state, operands[1], operands[2]))
+                    elseif entry and role == "pureScalar" then
+                        -- The closed producer issues this role only after proving
+                        -- the callee's graph has no memory, pointer, slot, program
+                        -- or dispatch operations and calls only other such leaves.
+                        -- Its word result therefore carries no authority.
+                        need(g.exactTypes[dst] == "uint64", "pure scalar result is not a word")
+                        result = raw(dst)
                     else
                         -- No silent purity inference from a name, signature or
                         -- scalar result. Unmodeled calls invalidate all facts.

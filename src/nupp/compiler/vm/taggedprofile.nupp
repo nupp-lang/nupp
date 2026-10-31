@@ -86,8 +86,10 @@ function tagged.literal(ctx: any, node: any, expected: string?): integer
     if constant.kind == "nil" then
         return ctx.emit(node, "Nil", {}, "tagged")
     end
-    -- Integers and floats keep their exact eight little-endian bytes.
     local value = constant.bytes
+    if constant.kind == "int64" or constant.kind == "uint64" then
+        value = constant.text
+    end
 
     return ctx.emit(node, "K", {pool(ctx, constant.kind, value)}, "tagged")
 end
@@ -378,7 +380,7 @@ local function numericFor(ctx: any, stat: any): any
         return nil
     end
     if stat.step == nil then
-        values[3] = ctx.emit(stat, "K", {pool(ctx, "int64", string.char(1, 0, 0, 0, 0, 0, 0, 0))}, "tagged")
+        values[3] = ctx.emit(stat, "K", {pool(ctx, "int64", "1")}, "tagged")
     end
     if values[1] <= ctx.g.nparams then
         values[1] = ctx.emit(stat, "Move", {values[1]}, "tagged")

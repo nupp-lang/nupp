@@ -1,0 +1,7 @@
+module nupp.core.catalognumericoverflow
+
+local value = 140737488355320
+for i = 1, 10 do
+    value = value + 1
+end
+export = value

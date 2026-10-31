@@ -1,6 +1,7 @@
 module nupp.compiler.vm.coregraphverify
 
 local graph = require("nupp.compiler.vm.graph")
+local graphimage = require("nupp.compiler.vm.graphimage")
 local schema = require("nupp.compiler.vm.coregraphschema")
 local budget = require("nupp.compiler.vm.coregraphbudget")
 local verify = {}
@@ -58,7 +59,9 @@ local function text(value: any): string
     return value
 end
 
-function verify.copyGraph(g: any, version: integer?): any
+-- A checked graph spells integer constants as source text; the semantic copy
+-- holds their eight two's-complement bytes. `fromSource` selects the input form.
+function verify.copyGraph(g: any, version: integer?, fromSource: boolean?): any
     local numeric, integers = (version or 2) >= 3, (version or 2) >= 6
     fields(g, "nparams blocks types slots counts constants positions certificates name module path programOwner source")
     local copy: any = {
@@ -97,6 +100,16 @@ function verify.copyGraph(g: any, version: integer?): any
     for index = 1, dense(g.constants, 65536) do
         local constant = g.constants[index]
         fields(constant, "kind value")
+        local value = constant.value
+        if constant.kind == "int64" and integers and fromSource then
+            need(
+                type(value) == "string" and (value:match("^%-?%d+$") or value:match("^%-?0[xX]%x+$")),
+                "invalid integer constant text"
+            )
+            local ok, bytes = pcall(graphimage.wideTextBytes, value)
+            need(ok, "integer constant exceeds the immediate range")
+            value = bytes
+        end
         need(
             constant.kind == "true"
             or constant.kind == "false"
@@ -107,33 +120,28 @@ function verify.copyGraph(g: any, version: integer?): any
             "unsupported scalar constant"
         )
         need(
-            constant.kind == "str"
-            and type(constant.value) == "string"
-            and #constant.value > 0
-            and #constant.value <= 256
-            or (constant.kind == "num" or constant.kind == "int64")
-            and type(constant.value) == "string"
-            and #constant.value == 8
-            or constant.kind ~= "str" and constant.kind ~= "num" and constant.kind ~= "int64" and constant.value == "",
+            constant.kind == "str" and type(value) == "string" and #value > 0 and #value <= 256
+            or (constant.kind == "num" or constant.kind == "int64") and type(value) == "string" and #value == 8
+            or constant.kind ~= "str" and constant.kind ~= "num" and constant.kind ~= "int64" and value == "",
             "invalid scalar constant payload"
         )
         if constant.kind == "num" then
-            local low, high = constant.value:byte(7, 8)
+            local low, high = value:byte(7, 8)
             local top = low + high * 256
             need(
-                (top & 0x7ff8) ~= 0x7ff8 or constant.value == string.rep(string.char(0), 6) .. string.char(0xf8, 0x7f),
+                (top & 0x7ff8) ~= 0x7ff8 or value == string.rep(string.char(0), 6) .. string.char(0xf8, 0x7f),
                 "noncanonical numeric NaN"
             )
         elseif constant.kind == "int64" then
             -- Only the signed 48-bit immediate payload is executable until
             -- the core has canonical integer objects.
-            local sign, low, high = constant.value:byte(6, 8)
+            local sign, low, high = value:byte(6, 8)
             need(
                 low == 0 and high == 0 and sign < 0x80 or low == 0xff and high == 0xff and sign >= 0x80,
                 "integer constant exceeds the immediate range"
             )
         end
-        copy.constants[index] = {kind = constant.kind, value = constant.value}
+        copy.constants[index] = {kind = constant.kind, value = value}
     end
     for index = 1, dense(g.positions, 1048576) do
         local position = g.positions[index]

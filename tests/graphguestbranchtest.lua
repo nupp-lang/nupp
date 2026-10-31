@@ -652,8 +652,8 @@ local function interpret(result)
     end
 end
 
-local function numericProgram(source)
-    local complete = compile("module guestnumericfixture\n" .. source, nil, tagged.forVersion(6))
+local function numericProgram(source, path)
+    local complete = compile(path and source or "module guestnumericfixture\n" .. source, path, tagged.forVersion(6))
     for _, g in ipairs(complete.graphs) do
         graph.verify(g)
         graph.prune(g)
@@ -772,6 +772,17 @@ function M.checkedNumericForRefusesWhatTheCoreCannotRunYet()
     refuses(function()
         compile("module guestnumericfixture\nlocal t = 0\nfor i = 1, 3 do t = t + i end\nexport = t", nil, tagged.forVersion(5))
     end, "control flow is outside lexical construction")
+end
+
+function M.nativeNumericFixturesInterpretToTheirLuaResults()
+    -- The native proof's expected words come from reference Lua 5.5.1.
+    for name, expected in pairs({["for"] = 385223012282, float = 697397.75}) do
+        local path = ROOT .. "/native/core/tests/catalog-numeric-" .. name .. ".nupp"
+        local file = assert(io.open(path, "rb"))
+        local source = file:read("*a")
+        file:close()
+        same(interpret(numericProgram(source, path)), expected)
+    end
 end
 
 return M

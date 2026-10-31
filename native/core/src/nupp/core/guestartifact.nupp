@@ -124,6 +124,23 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
         return literal.integer("0x" .. table.concat(hex))
     end
 
+    -- An integer constant is an immediate: TAG_INTEGER over the low 48 bits
+    -- of its two's-complement bytes. The graph verifier refused any other.
+    local function integerBits(bytes: string): int64
+        assert(#bytes == 8, "checked integer constant width")
+        local sign, low, high = bytes:byte(6, 8)
+        assert(
+            low == 0 and high == 0 and sign < 0x80 or low == 0xff and high == 0xff and sign >= 0x80,
+            "integer constant exceeds the immediate range"
+        )
+        local hex = {"7fff"}
+        for index = 6, 1, -1 do
+            hex[#hex + 1] = string.format("%02x", bytes:byte(index))
+        end
+
+        return literal.integer("0x" .. table.concat(hex))
+    end
+
     for index, owner in ipairs(records) do
         local fn = code.functions[index]
         assert(fn.owner == owner.id and owner.id == index - 1)
@@ -149,6 +166,7 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
             word(
                 (constantOffsets[index] + (ci - 1) * 8) as integer,
                 constant.kind == "num" and version >= 3 and floatBits(constant.value)
+                or constant.kind == "int64" and version >= 6 and integerBits(constant.value)
                 or assert(constants[constant.kind] or constant.kind == "str" and constants["nil"])
             )
         end

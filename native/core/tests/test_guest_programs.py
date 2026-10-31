@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import struct
 import subprocess
+import re
 import time
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -22,13 +23,53 @@ CASES = {"boolean": 0x7FFB000000000000, "nilValue": 0x7FF9000000000000,
          "numberNaN": 0x7FF8000000000000,
          "numberBranch": 0x7FFB000000000000,
          "numberLoop": 0x4008000000000000,
-         "numberLoopZero": 0x0000000000000000}
+         "numberLoopZero": 0x0000000000000000,
+         # Checked by reference Lua 5.5.1 when --lua-reference is given.
+         "numericFor": 0x7FFF0059B114AFBA, "numericFloat": 0x4125486B80000000,
+         "numericModZero": None, "numericOverflow": None}
+# These programs refuse at run time; the native core must publish nothing.
+# Lua 5.5 raises for the first; the second needs a canonical integer object.
+STATUS_CASES = {"numericModZero": 6, "numericOverflow": 5}
+LUA_ERRORS = {"numericModZero": "attempt to perform 'n%%0'"}
+NUMERIC_FIXTURES = {"numericFor": "catalog-numeric-for", "numericFloat": "catalog-numeric-float",
+                    "numericModZero": "catalog-numeric-modzero", "numericOverflow": "catalog-numeric-overflow"}
+NUMERIC_CASES = tuple(NUMERIC_FIXTURES)
 FIXTURES = ("catalog-boolean", "catalog-nil", "catalog-live", "catalog-fresh", "catalog-nested",
             "catalog-branch-true", "catalog-branch-false", "catalog-branch-elseif", "catalog-branch-live",
             "catalog-module-prefix", "catalog-module-main",
             "catalog-module-middle", "catalog-module-triple",
             "catalog-number-add", "catalog-number-negative-zero", "catalog-number-nan",
-            "catalog-number-branch", "catalog-number-loop", "catalog-number-loop-zero")
+            "catalog-number-branch", "catalog-number-loop", "catalog-number-loop-zero",
+            "catalog-numeric-for", "catalog-numeric-float", "catalog-numeric-modzero",
+            "catalog-numeric-overflow")
+
+
+def lua_expectation(lua, fixture):
+    """Run a fixture under reference Lua 5.5 and return its NaN-boxed word."""
+    source = fixture.read_text().splitlines()
+    assert source[0].startswith("module "), fixture
+    lines = []
+    for line in source[1:]:
+        if line.startswith("export = "):
+            line = "return " + line[len("export = "):]
+        lines.append(re.sub(r"^local (\w+): \w+ =", r"local \1 =", line))
+    driver = ("local ok, v = pcall(load(io.read('a'), '=fixture'))\n"
+              "if not ok then io.write('E', tostring(v))\n"
+              "elseif math.type(v) == 'integer' then io.write('I', string.format('%d', v))\n"
+              "else io.write('F', string.format('%016x', string.unpack('<I8', string.pack('<d', v)))) end\n")
+    result = subprocess.run([str(lua), "-e", driver], input="\n".join(lines) + "\n",
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    kind, value = result.stdout[0], result.stdout[1:]
+    if kind == "E":
+        return ("error", value)
+    if kind == "I":
+        number = int(value)
+        if not -(1 << 47) <= number < (1 << 47):
+            return ("integer", number)
+        return 0x7FFF000000000000 | (number & 0xFFFFFFFFFFFF)
+    bits = int(value, 16)
+    return 0x7FF8000000000000 if bits & 0x7FF0000000000000 == 0x7FF0000000000000 and bits & 0xFFFFFFFFFFFFF else bits
 
 
 def sha(path):
@@ -45,6 +86,8 @@ def main():
     parser.add_argument("--guard-binary", type=Path)
     parser.add_argument("--bootstrap", type=Path, default=ROOT.parent / "native-core-bootstrap")
     parser.add_argument("--scratch-bytes", type=int, choices=(65536, 131072), default=131072)
+    parser.add_argument("--lua-reference", type=Path,
+                        help="Reference Lua 5.5 interpreter that recomputes the numeric expectations.")
     parser.add_argument("--cases", nargs="+", choices=tuple(CASES),
                         help="Run these fixed cases and their supplemental audits (default: all).")
     args = parser.parse_args()
@@ -52,6 +95,18 @@ def main():
     omitted_cases = [name for name in CASES if name not in selected_cases]
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=False)
+    oracle = {}
+    if args.lua_reference is not None:
+        for name in NUMERIC_CASES:
+            fixture = ROOT / "native/core/tests" / (NUMERIC_FIXTURES[name] + ".nupp")
+            observed = lua_expectation(args.lua_reference, fixture)
+            if name == "numericOverflow":
+                assert observed == ("integer", 140737488355330), observed
+            elif name in LUA_ERRORS:
+                assert observed[0] == "error" and LUA_ERRORS[name].replace("%%", "%") in observed[1], observed
+            else:
+                assert observed == CASES[name], (name, hex(observed) if isinstance(observed, int) else observed)
+            oracle[name] = observed if not isinstance(observed, int) else f"{observed:016x}"
     fresh_guard_build = None
     if args.fresh_guard:
         assert args.bridge is None, "fresh guard builds its own bridge"
@@ -144,6 +199,8 @@ def main():
                        "Closure0, fixed CallK and one-result Ret run through Nupp services; "
                        "one checked static scalar import executes after successful publication; "
                        "named exports, cycles, arbitrary modules, raw loading and GC remain outside.",
+              "luaOracle": {"path": str(args.lua_reference), "sha256": sha(args.lua_reference), "results": oracle}
+              if args.lua_reference else None,
               "guardVerifier": {"path": str(guard_binary), "sha256": sha(guard_binary),
                                 "proof": str(proof), "proofSha256": sha(proof), "sources": guard_sources}}
     env = {key: value for key, value in os.environ.items()
@@ -285,7 +342,8 @@ def main():
                 code = b"".join(struct.pack("<I", word) for word in selected["words"])
                 data = bytes.fromhex(selected["dataHex"])
                 assert len(data) == selected["dataBytes"]
-                assert struct.unpack_from("<Q", data)[0] == (5 if case_name in ("numberLoop", "numberLoopZero") else
+                assert struct.unpack_from("<Q", data)[0] == (6 if case_name.startswith("numeric") else
+                    5 if case_name in ("numberLoop", "numberLoopZero") else
                     4 if case_name == "numberBranch" else
                     3 if case_name.startswith("number") else
                     2 if case_name in ("modulePair", "moduleTriple") else 1)
@@ -298,6 +356,17 @@ def main():
                 bundle.write_bytes(struct.pack("<8s8Q", b"NUPPCORE", 1, 1, selected["entry"],
                                   len(code), len(data), args.scratch_bytes, 1, 0) + code + data)
                 expected_path = out / (case + "-expected.bin")
+                if case_name in STATUS_CASES:
+                    sentinel = b"refused guest operation left output unchanged"
+                    output = out / (case + "-output.bin")
+                    output.write_bytes(sentinel)
+                    run("native-" + case, [args.bridge, bundle, empty, output], expected=1)
+                    assert output.read_bytes() == sentinel, "refused operation published output"
+                    guarded("guarded-" + case, bundle, empty, high_water, status=STATUS_CASES[case_name])
+                    report["programs"].append({"case": case, "expectedStatus": STATUS_CASES[case_name],
+                        "bundleSha256": sha(bundle), "selectionSha256": sha(selection), "highWater": high_water})
+                    save()
+                    continue
                 expected_path.write_bytes(struct.pack("<Q", expected_word))
                 output = out / (case + "-output.bin")
                 run("native-" + case, [args.bridge, bundle, empty, output])
@@ -391,6 +460,12 @@ def main():
                     run("refuse-" + case + "-tagged-lt-operand",
                         [args.bridge, bad_operand, empty, operand_output], expected=1)
                     assert operand_output.read_bytes() == sentinel
+                if case_name.startswith("numeric"):
+                    body = selected["programs"][-1]
+                    names = {instruction[0] for instruction in body["instructions"]}
+                    assert {"Le", "Add", "Jmp", "JmpIf"} <= names, names
+                    assert any(instruction[0] == "Jmp" and instruction[1] < 0
+                               for instruction in body["instructions"])
                 if case_name in ("numberLoop", "numberLoopZero"):
                     body = selected["programs"][-1]
                     assert any(instruction[0] == "Jmp" and instruction[1] < 0
@@ -414,7 +489,7 @@ def main():
                 # never inferred from transport alone; the primary run above
                 # checked the exact scalar output independently.
                 budgets = ((0, 0, 2), (0, 1, 3))
-                if case_name == "numberLoop": budgets += ((1, 0, 2), (2, 0, 2))
+                if case_name in ("numberLoop", "numericFor"): budgets += ((1, 0, 2), (2, 0, 2))
                 if case_name == "numberLoopZero": budgets = ()
                 if case_name == "nested": budgets += ((2, 0, 2), (4, 0, 2))
                 if case_name == "modulePair": budgets += ((1, 0, 2), (2, 0, 2))
@@ -426,7 +501,7 @@ def main():
                     guarded("refuse-" + label, bundle, input_path, high_water, status=status)
                     if (case_name == "modulePair" and budget in (1, 2)
                             or case_name == "moduleTriple" and budget == 1
-                            or case_name == "numberLoop"):
+                            or case_name in ("numberLoop", "numericFor")):
                         output_path = out / (label + "-unchanged.bin")
                         sentinel = b"initializer refusal left output unchanged"
                         output_path.write_bytes(sentinel)

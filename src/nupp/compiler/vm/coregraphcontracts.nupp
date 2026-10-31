@@ -229,7 +229,7 @@ function contracts.normalize(compiled: any, version: integer?): any
             )
         end
         output.catalog[index], callEdges[index] = record, {}
-        output.graphs[index] = semantic.copyGraph(graphs[index], v)
+        output.graphs[index] = semantic.copyGraph(graphs[index], v, true)
     end
     -- This is the authoritative source-side gate. Decoders must never call it
     -- with fabricated checker objects. Call-front adds callsite membership.

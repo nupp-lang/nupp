@@ -126,6 +126,9 @@ export function scalar(kind: uint64, value: uint64): uint64
         return 1ULL
     elseif kind == NUMBER and (value & values.QNAN ~= values.QNAN or value == values.QNAN) then
         return 1ULL
+    elseif kind == NUMBER and (value & 0xffff000000000000ULL) == values.TAG_INTEGER then
+        -- A signed 48-bit immediate. Only v6 catalogs carry integer words.
+        return 1ULL
     end
 
     return 0ULL
@@ -148,7 +151,7 @@ local function valid(data: voidptr, bytes: uint64): uint64
     end
     local version = native.load64(data, native.fieldOffset<DescriptorV1>("version"))
     local headerBytes = native.sizeOf<DescriptorV1>()
-    if version == 2ULL or version == 3ULL or version == 4ULL or version == 5ULL then
+    if version >= 2ULL and version <= 6ULL then
         headerBytes = native.sizeOf<Descriptor>()
     elseif version ~= 1ULL then
         return 0ULL
@@ -305,7 +308,11 @@ local function valid(data: voidptr, bytes: uint64): uint64
             if value ~= values.TRUE
                 and value ~= values.FALSE
                 and value ~= values.NIL
-                and (version < 3ULL or scalar(NUMBER, value) == 0ULL)
+                and (
+                    version < 3ULL
+                    or scalar(NUMBER, value) == 0ULL
+                    or version < 6ULL and (value & 0xffff000000000000ULL) == values.TAG_INTEGER
+                )
             then
                 return 0ULL
             end
