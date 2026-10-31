@@ -9,8 +9,11 @@ const native = require("nupp.runtime.vm.intrinsics")
 const os = require("nupp.runtime.vm.os")
 const arena = require("nupp.runtime.vm.arena")
 const heap = require("nupp.runtime.vm.heap")
+const collector = require("nupp.runtime.vm.collector")
 const pages = require("nupp.runtime.core.pagemappings")
 const servicescope = require("nupp.runtime.core.servicescope")
+const context = require("nupp.runtime.core.context")
+const values = require("nupp.runtime.vm.values")
 
 -- The scope comes first, so a Services address is also its scope's address.
 export struct Services
@@ -49,9 +52,10 @@ export function prepare(base: voidptr, bytes: uint64): uint64
     return native.address(services)
 end
 
--- Maps the heap's arena and creates the heap in it. Answers 1, or 0 when the
--- mapping is refused.
-export function open(services: voidptr): uint64
+-- Maps the heap's arena, creates the heap in it and registers the guest frame
+-- pool and module world as root ranges: their words may be stale, which root
+-- marking tolerates. Answers 1, or 0 when the mapping is refused.
+export function open(services: voidptr, pool: uint64, poolWords: uint64, world: uint64, worldWords: uint64): uint64
     local metadata = roundUp(native.sizeOf<arena.Chunk>(), native.alignmentOf<arena.Arena>())
     local header = roundUp(metadata + native.sizeOf<arena.Arena>(), 16ULL)
     local mapped = roundUp(HEAP_BYTES + header, os.pageSize())
@@ -70,6 +74,8 @@ export function open(services: voidptr): uint64
         a.chunkBytes = mapped
         a.growable = false
         local h = heap.create(a)
+        collector.register(h, pool, poolWords)
+        collector.register(h, world, worldWords)
         native.store64(services, native.fieldOffset<Services>("heap"), native.address(h))
         native.store64(services, native.fieldOffset<Services>("arena"), native.address(a))
     end
@@ -106,4 +112,44 @@ export function finish(services: voidptr): uint64
     end
 
     return failure
+end
+
+-- Handlers reach the heap through these leaves, which hold the typed views a
+-- handler cannot. `ctx` is the handler's context.
+local function guestHeap(ctx: voidptr): uint64
+    local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+    return native.load64(services, native.fieldOffset<Services>("heap"))
+end
+
+-- A fresh `kind` object of `length` value slots, all nil; answers its header
+-- address. Its slots may be written directly until `initialized`.
+export function allocate(ctx: voidptr, kind: uint64, length: uint64): uint64
+    @unsafe do
+        local h = native.pointer(guestHeap(ctx)) as heap.Heap*
+        local o = collector.allocate(h, kind, length * 8ULL)
+        o.auxLen = length
+        local i: uint64 = 0ULL
+        while i < length do
+            native.store64(native.pointer(o.auxPtr), native.index(i * 8ULL), values.NIL)
+            i = i + 1ULL
+        end
+
+        return native.address(o as voidptr)
+    end
+end
+
+-- Ends an object's construction (see collector.initialized).
+export function initialized(ctx: voidptr, header: uint64): nil
+    @unsafe do
+        collector.initialized(native.pointer(guestHeap(ctx)) as heap.Heap*, native.pointer(header) as heap.Header*)
+    end
+end
+
+-- Stores `value` in slot `index` of a constructed object, through the barrier.
+export function store(ctx: voidptr, header: uint64, index: uint64, value: uint64): nil
+    @unsafe do
+        local o = native.pointer(header) as heap.Header*
+        collector.barrier(native.pointer(guestHeap(ctx)) as heap.Heap*, o, value)
+        native.store64(native.pointer(o.auxPtr), native.index(index * 8ULL), value)
+    end
 end

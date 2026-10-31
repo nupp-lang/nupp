@@ -70,14 +70,14 @@ function shim.build(source: any, selected: {[string]: any}, primary: any, scenar
             functions[name] = code
         end
     end
-    local linked = linker.assembleTrusted(prefix, roots, functions, 1048576)
+    local linked = linker.assembleTrusted(prefix, roots, functions, 4194304)
     local snapshotOffset = align(primary.scratchBytes)
     local workspaceOffset = align((snapshotOffset + primary.spillOffset) as integer)
     local workspaceBytes = align(primary.layouts.Binding.size) + 128 + align(primary.storageBytes) + 16
     local helperOffset = align(workspaceOffset + workspaceBytes)
     local highWater = helperOffset + linked.callBytes
     local scratchBytes = align(highWater as integer)
-    assert(scratchBytes <= 1048576 and linked.callBytes > 0, "explicit supplemental audit scratch bound")
+    assert(scratchBytes <= 4194304 and linked.callBytes > 0, "explicit supplemental audit scratch bound")
     local words: {integer} = linked.words
     local refusals: {{
         at: integer,

@@ -18,6 +18,10 @@ local recipes: any = {
     Le = {{"v", "def", 1, 1}, {"v", "use", 2, 1}, {"v", "use", 3, 1}},
     Eq = {{"v", "def", 1, 1}, {"v", "use", 2, 1}, {"v", "use", 3, 1}},
     NewClosure = {{"v", "def", 1, 1}, {"fn", "use", 8, 8}, {"v", "check", 2, 1}, {"n", "use", 3, 1}},
+    NewCell = {{"v", "def", 1, 1}, {"v", "use", 2, 1}},
+    GetCell = {{"v", "def", 1, 1}, {"v", "use", 2, 1}},
+    SetCell = {{"v", "use", 1, 1}, {"v", "use", 2, 1}},
+    GetUpval = {{"v", "def", 1, 1}, {"n", "use", 4, 4}},
     CallK = {{"fn", "use", 8, 8}, {"v", "use", 1, 1}, {"v", "def", 2, 1}, {"n", "use", 3, 1}, {"n", "use", 4, 1}},
     Ret = {{"v", "use", 1, 1}},
     Jmp = {{"j", "use", 4, 4}},
@@ -36,6 +40,10 @@ local policies: any = {
     Le = {"next", ""},
     Eq = {"next", ""},
     NewClosure = {"next", "v:uses@3+1:4:n"},
+    NewCell = {"next", ""},
+    GetCell = {"next", ""},
+    SetCell = {"next", ""},
+    GetUpval = {"next", ""},
     CallK = {"next", "v:check@3+1:4:fixedmax1 v:check@3+1:5:minus1 v:uses@3+1:4:callargs"},
     Ret = {"stop", ""},
     Jmp = {"jump", ""},
@@ -115,7 +123,7 @@ function bytecode.encode(instruction: any): string
             yield nil
         end
         case "NewClosure" -> do
-            assert(instruction[5] == 0, "zero-capture closure required")
+            assert(instruction[5] <= 63 and instruction[4] + instruction[5] < 250, "encoded closure capture window")
             yield nil
         end
         else -> nil

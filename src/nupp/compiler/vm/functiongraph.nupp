@@ -701,6 +701,13 @@ function frontend.compile(fn: any, options: any, profile: any): any
     end
 
     local function cleanupReturn(node: any, falling: boolean): nil
+        -- A handler returns only by transfer (dispatch, failure or a support
+        -- tail), never a staged value, and its scope belongs to the entry.
+        if g.native and g.native.abi == "handler" then
+            need(not falling, "a handler ends in a transfer")
+            invoke("returnStatement", node, nil)
+            return
+        end
         -- The profile stages zero/one result and roots it before any terminal
         -- can allocate. SSA retention alone is deliberately not a GC proof.
         context()

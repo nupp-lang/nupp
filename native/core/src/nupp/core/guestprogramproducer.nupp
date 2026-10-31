@@ -350,7 +350,7 @@ function producer.selectUnits(
 ): any
     assert(mode == "normal" or mode == "spill")
     local capacity = assert(tonumber(capacityText)) as integer
-    assert(capacity == 65536 or capacity == 131072)
+    assert(capacity == 65536 or capacity == 131072 or capacity == 1048576)
     local source = guestbuild.guest(caseName, mode, cacheDirectory, scenario ~= nil)
     local output = shim.build(source, source.selected, capacity)
     if scenario then

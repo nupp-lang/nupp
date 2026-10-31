@@ -8,6 +8,8 @@ const frames = require("nupp.runtime.core.frames")
 const access = require("nupp.runtime.core.frameaccess")
 const ops = require("nupp.runtime.core.guestops")
 const context = require("nupp.runtime.core.context")
+const guestscope = require("nupp.runtime.core.guestscope")
+const heap = require("nupp.runtime.vm.heap")
 
 -- The closed checked producer binds these program/slot reads to corebytecode's
 -- canonical opcode recipes and its retained complete graph-derived byte stream.
@@ -657,6 +659,34 @@ export function NewClosure(
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
+    if ops.heapClosures(ctx) == 1ULL then
+        if ops.closureTarget(ctx, frame, pc, target) == 0ULL or native.word(base) + native.word(captures) >= count then
+            ops.fail(ctx, frame, pc, ops.INVALID)
+            return native.fail()
+        end
+        -- Slot 0 holds the target as an integer immediate; captures follow.
+        local header = guestscope.allocate(ctx, heap.KIND_CLOSURE, native.word(captures) + 1ULL)
+        local body = native.pointer(native.load64(native.pointer(header), native.fieldOffset<heap.Header>("auxPtr")))
+        native.store64(body, 0, values.TAG_INTEGER | target)
+        local i: int64 = 0
+        while i < captures do
+            native.store64(
+                body,
+                native.index((native.word(i) + 1ULL) * 8ULL),
+                slots.readValue(frame, regs, base + 1 + i)
+            )
+            i = i + 1
+        end
+        guestscope.initialized(ctx, header)
+        slots.writeValue(frame, regs, dst, values.TAG_OBJ | header)
+        local next = ops.branch(ctx, frame, pc, 0)
+        if next == 0ULL then
+            ops.fail(ctx, frame, pc, ops.INVALID)
+            return native.fail()
+        end
+
+        return native.dispatch(native.pointer(next), regs, ints, floats, ctx, frame)
+    end
     if captures ~= 0 then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
@@ -667,6 +697,176 @@ export function NewClosure(
         return native.fail()
     end
     slots.writeValue(frame, regs, dst, handle)
+    local nextPC = ops.branch(ctx, frame, pc, 0)
+    if nextPC == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+
+    return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
+end
+
+-- The entry's guest heap lives in the services the context points at.
+-- Allocation runs collector steps, so every value an allocating handler still
+-- needs stays in a frame slot (the pool is a root range) until it is stored.
+export function NewCell(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    if ops.charge(ctx, frame, pc) ~= 1ULL then
+        return native.fail()
+    end
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local dst = program.readByte(pc, 1)
+    local src = program.readByte(pc, 2)
+    local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    if native.word(dst) >= count or native.word(src) >= count then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local header = guestscope.allocate(ctx, heap.KIND_CELL, 1ULL)
+    local body = native.load64(native.pointer(header), native.fieldOffset<heap.Header>("auxPtr"))
+    native.store64(native.pointer(body), 0, slots.readValue(frame, regs, src))
+    guestscope.initialized(ctx, header)
+    slots.writeValue(frame, regs, dst, values.TAG_OBJ | header)
+    local nextPC = ops.branch(ctx, frame, pc, 0)
+    if nextPC == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+
+    return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
+end
+
+-- The header of a cell value, or zero.
+local function cellHeader(value: uint64): uint64
+    if value & values.TAG_MASK ~= values.TAG_OBJ then
+        return 0ULL
+    end
+    local header = native.pointer(value & values.PAYLOAD)
+    if native.word(native.load8(header, native.fieldOffset<heap.Header>("kind"))) ~= heap.KIND_CELL then
+        return 0ULL
+    end
+
+    return value & values.PAYLOAD
+end
+
+export function GetCell(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local dst = program.readByte(pc, 1)
+    local src = program.readByte(pc, 2)
+    local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    if native.word(dst) >= count or native.word(src) >= count then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local header = cellHeader(slots.readValue(frame, regs, src))
+    if header == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local body = native.load64(native.pointer(header), native.fieldOffset<heap.Header>("auxPtr"))
+    slots.writeValue(frame, regs, dst, native.load64(native.pointer(body), 0))
+    local nextPC = ops.branch(ctx, frame, pc, 0)
+    if nextPC == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+
+    return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
+end
+
+export function SetCell(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local cell = program.readByte(pc, 1)
+    local src = program.readByte(pc, 2)
+    local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    if native.word(cell) >= count or native.word(src) >= count then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local header = cellHeader(slots.readValue(frame, regs, cell))
+    if header == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    guestscope.store(ctx, header, 0ULL, slots.readValue(frame, regs, src))
+    local nextPC = ops.branch(ctx, frame, pc, 0)
+    if nextPC == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+
+    return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
+end
+
+-- A capture of the running closure: slot 0 of the closure is its target, so
+-- capture i is slot i + 1.
+export function GetUpval(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local dst = program.readByte(pc, 1)
+    local index = program.readSigned32(pc, 4)
+    if native.word(dst) >= native.load64(frame, native.fieldOffset<frames.Frame>("valueCount")) or index < 0 then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local closure = native.load64(frame, native.fieldOffset<frames.Frame>("closureRoot"))
+    if closure & values.TAG_MASK ~= values.TAG_OBJ then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local header = native.pointer(closure & values.PAYLOAD)
+    local length = native.load64(header, native.fieldOffset<heap.Header>("auxLen"))
+    if native.word(native.load8(header, native.fieldOffset<heap.Header>("kind"))) ~= heap.KIND_CLOSURE
+        or native.word(index) + 1ULL >= length
+    then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local body = native.load64(header, native.fieldOffset<heap.Header>("auxPtr"))
+    slots.writeValue(
+        frame,
+        regs,
+        dst,
+        native.load64(native.pointer(body), native.index((native.word(index) + 1ULL) * 8ULL))
+    )
     local nextPC = ops.branch(ctx, frame, pc, 0)
     if nextPC == 0ULL then
         ops.fail(ctx, frame, pc, ops.INVALID)

@@ -286,7 +286,10 @@ function verify.resultKind(g: any, signature: any, output: any): string
             assign(rule.dst, "boolean")
             return
         end
-        need(first == "number" and second == "number", "numeric operation needs numeric operands")
+        need(
+            first == "number" and second == "number",
+            "numeric operation needs numeric operands: " .. rule.op .. " " .. first .. " " .. second
+        )
         assign(rule.dst, (rule.op == "Lt" or rule.op == "Le") and "boolean" or "number")
     end
 
@@ -348,12 +351,22 @@ function verify.resultKind(g: any, signature: any, output: any): string
                     yield nil
                 end
                 case "Closure" -> do
-                    need(#args == 1, "only zero-capture closures are admitted")
+                    need(#args == 1 or output.schema.version >= 7, "only zero-capture closures are admitted")
                     local target = need(output.catalog[args[1] + 1], "closure owner is missing")
                     need(target.kind == "function" and target.parent == g.programOwner, "closure owner differs")
                     assign(dst, "function:" .. args[1])
                     yield nil
                 end
+                -- Cells and captures hold any value; their uses check it at run time.
+                case "NewCell" -> do
+                    assign(dst, "cell")
+                    yield nil
+                end
+                case "GetCell", "GetUpval" -> do
+                    assign(dst, "value")
+                    yield nil
+                end
+                case "SetCell" -> nil
                 else -> error("core graph contracts: unsupported operation", 0)
             end
         end
@@ -411,8 +424,10 @@ function verify.resultKind(g: any, signature: any, output: any): string
         end
         for at, op in ipairs(block.op) do
             local args = block.args[at]
-            need(kinds[block.dst[at]] ~= nil, "unresolved scalar operation")
-            if op == "Move" then
+            need(op == "SetCell" or kinds[block.dst[at]] ~= nil, "unresolved scalar operation")
+            if op == "NewCell" or op == "GetCell" or op == "SetCell" or op == "GetUpval" then
+                need(op == "GetUpval" or kinds[args[1]] ~= nil, "unresolved cell operand")
+            elseif op == "Move" then
                 need(kinds[args[1]] ~= nil, "unresolved scalar move")
             elseif op == "Eq" then
                 need(kinds[args[1]] ~= nil and kinds[args[2]] ~= nil, "unresolved equality operand")
@@ -436,7 +451,11 @@ function verify.resultKind(g: any, signature: any, output: any): string
         elseif term.kind == "invoke" then
             local contract = output.contracts[term.contract + 1]
             local target = output.signatures[contract.signature + 1]
-            need(kinds[term.callee] == "function:" .. contract.target, "actual callee provenance differs")
+            need(
+                kinds[term.callee] == "function:" .. contract.target
+                or output.schema.version >= 7 and kinds[term.callee] == "value",
+                "actual callee provenance differs"
+            )
             need(#term.args == #target.params, "call arity differs")
             for at, id in ipairs(term.args) do
                 need(kinds[id] == target.params[at], "call scalar argument differs")
@@ -482,7 +501,7 @@ end
 function verify.catalog(p: any): any
     fields(p, "schema entry modules catalog signatures graphs contracts")
     need(
-        type(p.schema.version) == "number" and p.schema.version >= 2 and p.schema.version <= 6,
+        type(p.schema.version) == "number" and p.schema.version >= 2 and p.schema.version <= 7,
         "unknown source graph profile"
     )
     same(p.schema, schema.describe(p.schema.version))
@@ -571,7 +590,7 @@ function verify.catalog(p: any): any
             for at, op in ipairs(block.op) do
                 local operation = need(admitted[op], "unsupported semantic operation " .. op)
                 if op == "Closure" then
-                    need(#block.args[at] == 1, "captures are unsupported")
+                    need(p.schema.version >= 7 or #block.args[at] == 1, "captures are unsupported")
                     local target = reference(block.args[at][1], p.catalog)
                     need(target.kind == "function" and target.parent == owner.id, "closure lexical target differs")
                 elseif op == "Require" then
@@ -585,7 +604,10 @@ function verify.catalog(p: any): any
                     end
                     need(target ~= nil and target < owner.id, "forward or cyclic require is unsupported")
                 end
-                need(#block.args[at] == #operation.args, "operation operand count differs")
+                need(
+                    #block.args[at] == #operation.args or operation.variadic and #block.args[at] > #operation.args,
+                    "operation operand count differs"
+                )
             end
             local term = block.term
             local policy = need(terms[term.kind], "unsupported semantic terminator")
@@ -617,7 +639,9 @@ function verify.catalog(p: any): any
         sites[contract.callsite] = true
         need(contract.effect == 1, "invoke effect must remain conservative")
     end
-    verify.topological(p.catalog, calls, nil)
+    if p.schema.version < 7 then
+        verify.topological(p.catalog, calls, nil)
+    end
     for index, g in ipairs(p.graphs) do
         local effect = 0
         for _, block in ipairs(g.blocks) do

@@ -125,7 +125,13 @@ function nativecleanup.profile(base: any): any
             {
                 service.scope(ctx),
                 offset,
-                {source = "borrowed", kind = "uint64", width = 8, signed = false, write = false}
+                {
+                    source = ctx.g.native.abi == "leaf" and "borrowed" or "live",
+                    kind = "uint64",
+                    width = 8,
+                    signed = false,
+                    write = false
+                }
             },
             "uint64"
         )
@@ -155,7 +161,13 @@ function nativecleanup.profile(base: any): any
             {
                 service.scope(ctx),
                 offset,
-                {source = "borrowed", kind = "uint64", width = 8, signed = false, write = false}
+                {
+                    source = ctx.g.native.abi == "leaf" and "borrowed" or "live",
+                    kind = "uint64",
+                    width = 8,
+                    signed = false,
+                    write = false
+                }
             },
             "uint64"
         )

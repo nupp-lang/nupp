@@ -45,7 +45,8 @@ local CASES: {[string]: {
     numericOverflow = {fixture = "catalog-numeric-overflow", version = 6},
     numericControl = {fixture = "catalog-numeric-control", version = 6},
     workloadLoops = {fixture = "catalog-workload-loops", version = 6},
-    workloadFib = {fixture = "catalog-workload-fib", version = 6}
+    workloadFib = {fixture = "catalog-workload-fib", version = 7},
+    callsNumeric = {fixture = "catalog-calls-numeric", version = 7}
 }
 
 -- The handlers a profile version dispatches, in table order.
@@ -54,8 +55,34 @@ local function handlerNames(caseName: string, version: integer): {string}
     if caseName == "modulePair" then
         table.insert(names, 2, "Require")
     end
-    local introduced: {[string]: integer} = {Add = 3, Lt = 4, Sub = 6, Mul = 6, Mod = 6, Le = 6, Eq = 6}
-    for _, name in ipairs({"Add", "Lt", "Sub", "Mul", "Mod", "Le", "Eq"}) do
+    local introduced: {
+        [string]: integer
+    } = {
+        Add = 3,
+        Lt = 4,
+        Sub = 6,
+        Mul = 6,
+        Mod = 6,
+        Le = 6,
+        Eq = 6,
+        NewCell = 7,
+        GetCell = 7,
+        SetCell = 7,
+        GetUpval = 7
+    }
+    for _, name in ipairs({
+        "Add",
+        "Lt",
+        "Sub",
+        "Mul",
+        "Mod",
+        "Le",
+        "Eq",
+        "NewCell",
+        "GetCell",
+        "SetCell",
+        "GetUpval"
+    }) do
         if version >= introduced[name] then
             table.insert(names, 2, name)
         end
@@ -109,7 +136,7 @@ local function runtime(mode: string, cacheDirectory: string?, audited: boolean):
         }
     end
     -- Every handler is built, so one selection serves every profile version.
-    local all = handlerNames("modulePair", 6)
+    local all = handlerNames("modulePair", 7)
     local roots, handlers = {}, {}
     for _, name in ipairs(all) do
         roots[#roots + 1] = {"nupp.runtime.core.guesthandlers", name}

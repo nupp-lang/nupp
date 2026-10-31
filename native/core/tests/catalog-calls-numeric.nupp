@@ -1,0 +1,16 @@
+module nupp.core.catalogcallsnumeric
+
+local function square(x: number): number
+    return x * x
+end
+
+local function sumTo(n: number): number
+    local total = 0
+    for i = 1, n do
+        total = total + square(i)
+    end
+
+    return total
+end
+
+export = sumTo(10) * 1000 + square(-3)

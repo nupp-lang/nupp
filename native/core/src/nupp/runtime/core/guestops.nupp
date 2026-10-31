@@ -6,6 +6,7 @@ const instances = require("nupp.runtime.core.instances")
 const catalog = require("nupp.runtime.core.guestcatalog")
 const context = require("nupp.runtime.core.context")
 const values = require("nupp.runtime.vm.values")
+const heap = require("nupp.runtime.vm.heap")
 
 export const INVALID: uint64 = 4ULL
 export const RESOURCE: uint64 = 5ULL
@@ -199,6 +200,60 @@ export function closure(ctx: voidptr, frame: voidptr, pc: voidptr, target: uint6
     )
 end
 
+-- v7 and later keep every closure on the collected heap: a KIND_CLOSURE whose
+-- first slot holds its target as an integer immediate and whose remaining slots
+-- hold its captures.
+export function heapClosures(ctx: voidptr): uint64
+    local c = native.loadPointer(ctx, context.CATALOG)
+    local data = native.loadPointer(c, native.fieldOffset<catalog.Catalog>("data"))
+    if native.load64(data, native.fieldOffset<catalog.Descriptor>("version")) >= 7ULL then
+        return 1ULL
+    end
+
+    return 0ULL
+end
+
+-- 1 when `target` is a function nested directly in the current frame's.
+export function closureTarget(ctx: voidptr, frame: voidptr, pc: voidptr, target: uint64): uint64
+    if current(ctx, frame, pc) == 0ULL then
+        return 0ULL
+    end
+    local c = native.loadPointer(ctx, context.CATALOG)
+    if target >= native.load64(c, native.fieldOffset<catalog.Catalog>("count")) then
+        return 0ULL
+    end
+    local fn = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("records")),
+        native.index(target * native.sizeOf<catalog.Function>())
+    )
+    if native.load64(fn, native.fieldOffset<catalog.Function>("kind")) ~= catalog.FUNCTION
+        or native.load64(
+            fn,
+            native.fieldOffset<catalog.Function>("parentPlusOne")
+        ) ~= native.load64(frame, native.fieldOffset<frames.Frame>("functionId")) + 1ULL
+    then
+        return 0ULL
+    end
+
+    return 1ULL
+end
+
+-- The target of a heap closure value plus one, or zero for anything else.
+local function heapTarget(callee: uint64): uint64
+    if callee & values.TAG_MASK ~= values.TAG_OBJ then
+        return 0ULL
+    end
+    local header = native.pointer(callee & values.PAYLOAD)
+    if native.word(native.load8(header, native.fieldOffset<heap.Header>("kind"))) ~= heap.KIND_CLOSURE
+        or native.load64(header, native.fieldOffset<heap.Header>("auxLen")) == 0ULL
+    then
+        return 0ULL
+    end
+    local first = native.load64(native.pointer(native.load64(header, native.fieldOffset<heap.Header>("auxPtr"))), 0)
+
+    return (first & values.PAYLOAD) + 1ULL
+end
+
 -- The callee is the actual registry handle loaded from a live slot. Hint alone
 -- cannot select a body. Canonical byte fields must also match this PC's retained
 -- checked callsite, its target signature and each canonical scalar argument.
@@ -250,7 +305,12 @@ export function prepare(
         return 0ULL
     end
     local targets = native.loadPointer(c, native.fieldOffset<catalog.Catalog>("targets"))
-    local resolved = instances.resolve(native.loadPointer(ctx, context.REGISTRY), targets, callee)
+    local resolved: uint64 = 0ULL
+    if heapClosures(ctx) == 1ULL then
+        resolved = heapTarget(callee)
+    else
+        resolved = instances.resolve(native.loadPointer(ctx, context.REGISTRY), targets, callee)
+    end
     if resolved == 0ULL or resolved - 1ULL ~= hint then
         return 0ULL
     end

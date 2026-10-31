@@ -144,6 +144,13 @@ end
 local function derive(g: any, catalog: any): any
     local maximumArguments: integer = 0
     for _, block in ipairs(g.blocks) do
+        -- A capturing closure stages its captures in the call window too.
+        for at, op in ipairs(block.op) do
+            if op == "Closure" then
+                need(#block.args[at] - 1 <= 63, "closure capture capacity")
+                maximumArguments = math.max(maximumArguments, #block.args[at] - 1) as integer
+            end
+        end
         if block.term.kind == "invoke" then
             need(#block.term.args <= 63, "fixed CallK argument capacity")
             maximumArguments = math.max(maximumArguments, #block.term.args) as integer
@@ -160,6 +167,26 @@ local function derive(g: any, catalog: any): any
     need(highest < 250, "physical slots including call/copy scratch exceed capacity")
     local instructions, positions, starts, patches, calls = {}, {}, {}, {}, {}
     local closureCount: integer = 0
+    -- A block that can reach itself runs repeatedly. Instance creation there is
+    -- unbounded until closures live on the collected heap.
+    local inLoop = {}
+    for _, block in ipairs(g.blocks) do
+        local seen, pending = {}, {}
+        for _, edge in ipairs(block.term.edges or {}) do
+            pending[#pending + 1] = edge.target
+        end
+        while #pending > 0 and not inLoop[block.id] do
+            local target = table.remove(pending)
+            if target == block.id then
+                inLoop[block.id] = true
+            elseif not seen[target] then
+                seen[target] = true
+                for _, edge in ipairs(g.blocks[target].term.edges or {}) do
+                    pending[#pending + 1] = edge.target
+                end
+            end
+        end
+    end
 
     local function physical(value: integer): integer
         need(g.types[value] == "v", "non-tagged executable value")
@@ -233,9 +260,31 @@ local function derive(g: any, catalog: any): any
                     yield nil
                 end
                 case "Closure" -> do
-                    need(#args == 1, "zero-capture executable closure required")
-                    emit({"NewClosure", physical(dst), args[1], scratch, 0}, position)
-                    closureCount += 1
+                    if catalog.schema.version < 7 then
+                        need(#args == 1, "zero-capture executable closure required")
+                        need(not inLoop[block.id], "closure created in a loop is unbounded")
+                        emit({"NewClosure", physical(dst), args[1], scratch, 0}, position)
+                        closureCount += 1
+                    else
+                        -- v7 closures live on the collected heap; their captures are
+                        -- staged after callBase.
+                        for index = 2, #args do
+                            emit({"Move", callBase + index - 1, physical(args[index])}, position)
+                        end
+                        emit({"NewClosure", physical(dst), args[1], callBase, #args - 1}, position)
+                    end
+                    yield nil
+                end
+                case "NewCell", "GetCell" -> do
+                    emit({op, physical(dst), physical(args[1])}, position)
+                    yield nil
+                end
+                case "SetCell" -> do
+                    emit({"SetCell", physical(args[1]), physical(args[2])}, position)
+                    yield nil
+                end
+                case "GetUpval" -> do
+                    emit({"GetUpval", physical(dst), args[1]}, position)
                     yield nil
                 end
                 else -> error("core executable: unsupported graph operation " .. op, 0)
@@ -280,7 +329,8 @@ local function derive(g: any, catalog: any): any
                     argumentCount = #term.args,
                     resultSlot = callBase + 1,
                     wanted = 1,
-                    discarded = term.result == nil
+                    discarded = term.result == nil,
+                    inLoop = inLoop[block.id] == true
                 }
                 edgeCopies(term.edges[1], position, term.result ~= nil)
                 yield nil
@@ -319,6 +369,10 @@ local function derive(g: any, catalog: any): any
     }
 end
 
+-- Frames a recursive v7 program may nest; deeper recursion is refused at run
+-- time when the frame pool is exhausted.
+local RECURSION_DEPTH: integer = 128
+
 local function deriveCatalog(normalized: any): any
     semantic.semantic(normalized)
     local functions, total = {}, 0
@@ -328,17 +382,25 @@ local function deriveCatalog(normalized: any): any
         need(total <= 1048576, "complete executable instruction budget exceeded")
     end
     local bounds, visiting = {}, {}
+    local recursive = false
 
+    -- v7 creates no instances (its closures are heap objects), so a cycle only
+    -- deepens frames, which the entry bounds with RECURSION_DEPTH.
     local function bound(index: integer): any
         if bounds[index] then
             return bounds[index]
         end
-        need(not visiting[index], "recursive executable call graph")
+        if visiting[index] then
+            need(normalized.schema.version >= 7, "recursive executable call graph")
+            recursive = true
+            return {instances = 0, depth = 1}
+        end
         visiting[index] = true
         local fn = functions[index]
         local instances, depth = fn.closureCount, 1
         for _, call in ipairs(fn.calls) do
             local child = bound((call.target as integer) + 1)
+            need(not call.inLoop or child.instances == 0, "call in a loop creates unbounded instances")
             instances += child.instances
             depth = math.max(depth, child.depth + 1)
             need(instances <= 1048576, "entry instance budget exceeded")
@@ -361,6 +423,9 @@ local function deriveCatalog(normalized: any): any
         creations += extent.instances
         depth = math.max(depth, extent.depth)
         need(creations <= 1048576, "module instance budget exceeded")
+    end
+    if recursive then
+        depth = math.max(depth, RECURSION_DEPTH)
     end
 
     return {

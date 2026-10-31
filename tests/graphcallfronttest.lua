@@ -198,16 +198,13 @@ return middle
     end
 end
 
-function M.recursiveInvokeRequiresPositiveBodySummary()
+-- A recursive call reads its own summary as it grows to the least fixpoint,
+-- so the summary stays known and the invoke compiles.
+function M.recursiveInvokeKeepsAKnownBodySummary()
     local p = checked("local function self(value: integer): integer return self(value) end; return self")
     local owner = program.select(p, "callfront_fixture", "self")
-    assert(owner.body.effectSummary.top == true)
-    refuses(
-        function()
-            program.compile(p, tagged)
-        end,
-        "nonsuspending body summary"
-    )
+    assert(owner.body.effectSummary.top == false and owner.body.effectSummary.yields == false)
+    program.compile(p, tagged)
 end
 
 function M.discardedCallKeepsBindingsButDoesNotTransportOriginalParameters()

@@ -2880,7 +2880,17 @@ function service.afterCall(ctx: any, node: any, declaration: any, result: intege
     local status = ctx.emit(
         node,
         "NativeLoad",
-        {scope, offset, {source = "borrowed", kind = "uint64", width = 8, signed = false, write = false}},
+        {
+            scope,
+            offset,
+            {
+                source = ctx.g.native.abi == "leaf" and "borrowed" or "live",
+                kind = "uint64",
+                width = 8,
+                signed = false,
+                write = false
+            }
+        },
         "uint64"
     )
     local zero = ctx.emit(node, "NativeConstant", {"0"}, "uint64")

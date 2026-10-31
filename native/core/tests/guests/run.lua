@@ -24,6 +24,9 @@ local TESTS = ROOT .. "/native/core/tests"
 -- The guest runtime is built through the service catalog and the unit code
 -- cache; NUPP_GUEST_BUILD=frozen selects the frozen final-frame build instead.
 local UNITS = os.getenv("NUPP_GUEST_BUILD") ~= "frozen"
+-- Guest scratch: unit-built guests call into the collector, whose call chain
+-- needs more spill room than the frozen build's 128 KiB.
+local SCRATCH = UNITS and 1048576 or 131072
 
 local CASES = {
     {"boolean", 0x7FFB000000000000},
@@ -48,7 +51,9 @@ local CASES = {
     {"numericModZero", false},
     {"numericOverflow", false},
     {"numericControl", 0x7FFF00083C5DD2BB},
-    {"workloadLoops", 0x7FFF0000000F4177}
+    {"workloadLoops", 0x7FFF0000000F4177},
+    {"callsNumeric", 0x7FFF00000005DFF1},
+    {"workloadFib", 0x7FFF0000000CB228}
 }
 -- These refuse at run time and must publish nothing: Lua 5.5 raises for the
 -- first; the second needs a canonical integer object.
@@ -59,7 +64,9 @@ local NUMERIC = {
     numericModZero = "catalog-numeric-modzero",
     numericOverflow = "catalog-numeric-overflow",
     numericControl = "catalog-numeric-control",
-    workloadLoops = "catalog-workload-loops"
+    workloadLoops = "catalog-workload-loops",
+    callsNumeric = "catalog-calls-numeric",
+    workloadFib = "catalog-workload-fib"
 }
 local FIXTURES = {
     "catalog-boolean",
@@ -87,7 +94,8 @@ local FIXTURES = {
     "catalog-numeric-overflow",
     "catalog-numeric-control",
     "catalog-workload-loops",
-    "catalog-workload-fib"
+    "catalog-workload-fib",
+    "catalog-calls-numeric"
 }
 local AUDITS = {
     {"fresh", "success"},
@@ -382,7 +390,7 @@ local function main()
         if UNITS then
             selections[
                 name .. "-" .. mode
-            ] = producer.selectUnits(name, mode, "131072", ROOT .. "/build/core-unit-cache")
+            ] = producer.selectUnits(name, mode, tostring(SCRATCH), ROOT .. "/build/core-unit-cache")
         else
             selections[name .. "-" .. mode] = producer.select(name, mode, "131072")
         end
@@ -434,12 +442,13 @@ local function main()
                 end
             end
             local highWater = selected.spillOffset + selected.callBytes
-            check(highWater <= 131072, label .. " high water")
-            local bundleBytes, codeBytes, data = bundleOf(selected, 131072)
+            check(highWater <= SCRATCH, label .. " high water")
+            local bundleBytes, codeBytes, data = bundleOf(selected, SCRATCH)
             local version = get64(data, 0)
             check(
                 version == (
-                    (name:match("^numeric") or name:match("^workload")) and 6
+                    (name:match("^calls") or name == "workloadFib") and 7
+                    or (name:match("^numeric") or name:match("^workload")) and 6
                     or name:match("^numberLoop") and 5
                     or name == "numberBranch" and 4
                     or name:match("^number") and 3
@@ -568,7 +577,7 @@ local function main()
             if present then
                 local label = ("audit-%s-%s-%s"):format(name, mode, scenario)
                 local selected = UNITS
-                    and producer.selectUnits(name, mode, "131072", ROOT .. "/build/core-unit-cache", scenario)
+                    and producer.selectUnits(name, mode, tostring(SCRATCH), ROOT .. "/build/core-unit-cache", scenario)
                     or producer.select(name, mode, "131072", scenario)
                 local primary = selections[name .. "-" .. mode]
                 check(same(selected.programs, primary.programs), label .. " stream unchanged")

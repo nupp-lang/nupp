@@ -28,16 +28,17 @@ end
 -- describe() supplies the semantic schema. wire() supplies physical records
 -- consumed by the host codec and generated native layout checks.
 -- Checked-source profiles grow monotonically: each version admits everything
--- the previous one did, except that v5 and later exclude calls, Require and
--- Closure because the loop profiles do not yet bound repeated allocation.
+-- the previous one did, except that v5 and v6 exclude calls, Require and
+-- Closure because those loop profiles do not bound repeated allocation; v7
+-- admits them again, and the executable refuses a closure created in a loop.
 -- Only v2 has a raw wire form; v3 and later are trusted checked-source input.
 function schema.describe(version: integer?): any
     local v: integer = version or 2
-    assert(v >= 2 and v <= 6, "unknown source graph profile")
+    assert(v >= 2 and v <= 7, "unknown source graph profile")
     local loops = v >= 5
     local policies = {}
     for _, policy in ipairs(operations) do
-        if not loops or policy.name ~= "Require" and policy.name ~= "Closure" then
+        if not loops or v >= 7 or policy.name ~= "Require" and policy.name ~= "Closure" then
             policies[#policies + 1] = policy
         end
     end
@@ -56,6 +57,13 @@ function schema.describe(version: integer?): any
     for _, name in ipairs(arithmetic) do
         policies[#policies + 1] = {name = name, signature = "Vvv", effect = v >= 6 and 1 or 0, provenance = "number"}
     end
+    -- v7 closures capture by value or through cells on the collected heap.
+    if v >= 7 then
+        policies[#policies + 1] = {name = "NewCell", signature = "Vv", effect = 1, provenance = "cell"}
+        policies[#policies + 1] = {name = "GetCell", signature = "Vv", effect = 0, provenance = "cell"}
+        policies[#policies + 1] = {name = "SetCell", signature = "vv", effect = 1, provenance = "cell"}
+        policies[#policies + 1] = {name = "GetUpval", signature = "V#", effect = 0, provenance = "capture"}
+    end
     local scalarKinds: any = {{id = 0, name = "boolean"}, {id = 1, name = "nil"}}
     if v >= 3 then
         scalarKinds[#scalarKinds + 1] = {id = 2, name = "number"}
@@ -65,7 +73,7 @@ function schema.describe(version: integer?): any
         {id = 1, name = "jump", edges = 1, effect = 0},
         {id = 2, name = "branch", edges = 2, effect = 0}
     }
-    if not loops then
+    if not loops or v >= 7 then
         terms[#terms + 1] = {id = 3, name = "invoke", edges = 1, effect = 1}
     end
     local profiles = {
@@ -73,7 +81,8 @@ function schema.describe(version: integer?): any
         "number-add-source-v3",
         "number-branch-source-v4",
         "number-loop-source-v5",
-        "numeric-loop-source-v6"
+        "numeric-loop-source-v6",
+        "numeric-call-source-v7"
     }
     local described: any = {
         magic = "NUPPCGRF",
@@ -132,7 +141,7 @@ function schema.describe(version: integer?): any
         capabilities = {
             native = false,
             physical = false,
-            captures = false,
+            captures = v >= 7,
             varargs = false,
             suspension = false,
             external = false,
@@ -169,7 +178,7 @@ function schema.describe(version: integer?): any
             variadic = signature.variadic == true,
             variadicClass = signature.variadicClass,
             effect = policy.effect,
-            admittedCaptureCount = policy.name == "Closure" and 0 or nil
+            admittedCaptureCount = policy.name == "Closure" and v < 7 and 0 or nil
         }
     end
 

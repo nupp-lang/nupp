@@ -216,7 +216,7 @@ function contracts.normalize(compiled: any, version: integer?): any
     need(modulesByOwner[output.entry] ~= nil, "entry initializer is not cataloged")
     for index = 1, dense(p.owners, 256) do
         local owner = p.owners[index]
-        need(dense(owner.captures, 256) == 0, "captures are unsupported")
+        need(v >= 7 or dense(owner.captures, 256) == 0, "captures are unsupported")
         local record: any = {id = integer(owner.id, 255), kind = owner.kind, graph = index - 1, effect = 0}
         need(record.id == index - 1, "owner order differs")
         if owner.kind == "function" then
@@ -242,7 +242,7 @@ function contracts.normalize(compiled: any, version: integer?): any
             for at, op in ipairs(block.op) do
                 local policy = need(admitted[op], "unsupported operation " .. op)
                 if op == "Closure" then
-                    need(#block.args[at] == 1, "captures are unsupported")
+                    need(v >= 7 or #block.args[at] == 1, "captures are unsupported")
                 elseif op == "Require" then
                     foundRequires += 1
                     need(requireSite and record.id == requireSite.owner, "foreign checked require")
@@ -260,7 +260,7 @@ function contracts.normalize(compiled: any, version: integer?): any
                 record.effect = math.max(record.effect, policy.effect)
             end
             if block.term.kind == "invoke" then
-                need(not loops, "calls are outside scalar loop profile")
+                need(not loops or v >= 7, "calls are outside scalar loop profile")
                 local source = graphs[index].blocks[bi].term.contract
                 local site = need(p.callByNode and p.callByNode[source.call], "checked call-front membership required")
                 need(
@@ -297,7 +297,10 @@ function contracts.normalize(compiled: any, version: integer?): any
         end
     end
     need(foundRequires == (requireSite and 1 or 0), "checked require graph is incomplete")
-    semantic.topological(output.catalog, callEdges, nil)
+    -- v7 admits recursion; its depth is bounded by the entry's frame pool.
+    if v < 7 then
+        semantic.topological(output.catalog, callEdges, nil)
+    end
     for index, g in ipairs(output.graphs) do
         local owner = output.catalog[index]
         local signature = owner.kind == "module" and {kind = "initializer", params = {}}
