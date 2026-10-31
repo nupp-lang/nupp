@@ -86,7 +86,8 @@ local FIXTURES = {
     "catalog-numeric-modzero",
     "catalog-numeric-overflow",
     "catalog-numeric-control",
-    "catalog-workload-loops"
+    "catalog-workload-loops",
+    "catalog-workload-fib"
 }
 local AUDITS = {
     {"fresh", "success"},

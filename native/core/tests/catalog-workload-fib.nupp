@@ -1,0 +1,13 @@
+module nupp.core.catalogworkloadfib
+
+-- The `fib` workload of bench/vm/workloads.bench.nupp, whose checksum at
+-- scale 1 is fib(30) = 832040.
+local function fib(n: number): number
+    if n < 2 then
+        return n
+    end
+
+    return fib(n - 1) + fib(n - 2)
+end
+
+export = fib(30)

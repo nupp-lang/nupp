@@ -6,12 +6,14 @@
 --
 -- NUPP_CORE_BRIDGE selects a prebuilt bridge; otherwise cargo builds one.
 local runner = require("nupp.core.unitrunner")
+
 local function cwd()
     local pipe = assert(io.popen("pwd"))
     local path = pipe:read("*l")
     pipe:close()
     return path
 end
+
 local HERE = debug.getinfo(1, "S").source:match("^@(/.*)/[^/]*$") or cwd()
 local ROOT = assert(os.getenv("NUPP_COMPILER_ROOT"), "set NUPP_COMPILER_ROOT to the checkout root")
 local BUILD = ROOT .. "/build/core-units"
@@ -40,6 +42,7 @@ local function read(path)
     end
     local bytes = file:read("*a")
     file:close()
+
     return bytes
 end
 
@@ -52,6 +55,7 @@ local function words(values)
         end
         out[index] = table.concat(bytes)
     end
+
     return table.concat(out)
 end
 
@@ -60,6 +64,7 @@ local function decode(bytes, index)
     for at = 8, 1, -1 do
         value = value * 256 + bytes:byte((index - 1) * 8 + at)
     end
+
     return value
 end
 
@@ -69,9 +74,13 @@ local function bridge()
         return given
     end
     local target = ROOT .. "/build/core-bridge"
-    local status, output = shell(("cargo +stable build --manifest-path %s --offline --locked --bin nupp-core --target-dir %s")
-        :format(quote(ROOT .. "/native/core/bridge/Cargo.toml"), quote(target)))
+    local status, output = shell(
+        (
+            "cargo +stable build --manifest-path %s --offline --locked --bin nupp-core --target-dir %s"
+        ):format(quote(ROOT .. "/native/core/bridge/Cargo.toml"), quote(target))
+    )
     assert(status == 0, "bridge build failed: " .. output)
+
     return target .. "/debug/nupp-core"
 end
 
@@ -91,6 +100,7 @@ local UNITS = {
                     cases[#cases + 1] = {"alternate", {n, stress}, (n + 1) // 2}
                 end
             end
+
             return cases
         end
     },
@@ -98,16 +108,24 @@ local UNITS = {
         name = "gcunits",
         modules = {"gcunits", "unitentry"},
         entries = {
-            {"gcunits", "listSurvives", 2}, {"gcunits", "rings", 2}, {"gcunits", "fanOut", 2},
-            {"gcunits", "barrier", 1}, {"gcunits", "initializedBlack", 1}
+            {"gcunits", "listSurvives", 2},
+            {"gcunits", "rings", 2},
+            {"gcunits", "fanOut", 2},
+            {"gcunits", "barrier", 1},
+            {"gcunits", "initializedBlack", 1}
         },
         cases = function()
             -- Counts from tests/nativeheaptest.lua, computed there independently.
             return {
-                {"listSurvives", {1000, 5000}, 1000}, {"listSurvives", {0, 100}, 0},
-                {"rings", {10, 100}, 500}, {"rings", {1, 1000}, 1000},
-                {"fanOut", {100, 16}, 51}, {"fanOut", {5000, 16}, 2501}, {"fanOut", {50, 40000}, 26},
-                {"barrier", {0}, 1}, {"barrier", {1}, 0},
+                {"listSurvives", {1000, 5000}, 1000},
+                {"listSurvives", {0, 100}, 0},
+                {"rings", {10, 100}, 500},
+                {"rings", {1, 1000}, 1000},
+                {"fanOut", {100, 16}, 51},
+                {"fanOut", {5000, 16}, 2501},
+                {"fanOut", {50, 40000}, 26},
+                {"barrier", {0}, 1},
+                {"barrier", {1}, 0},
                 {"initializedBlack", {3000}, 1}
             }
         end
@@ -126,14 +144,45 @@ UNITS[#UNITS + 1] = {
                 cases[#cases + 1] = {"floorMod", {a, b}, a % b}
             end
         end
+
         return cases
     end
 }
 
 -- The CLIF-path fixtures of tests/nativeheaptest.lua, unchanged, with that
 -- suite's independently computed expectations.
-local CLASSES = {32, 48, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448, 512, 640, 768, 1024,
-    1280, 1536, 2048, 2560, 3072, 4096, 6144, 8192, 12288, 16384, 24576, 32768}
+local CLASSES = {
+    32,
+    48,
+    64,
+    80,
+    96,
+    112,
+    128,
+    160,
+    192,
+    224,
+    256,
+    320,
+    384,
+    448,
+    512,
+    640,
+    768,
+    1024,
+    1280,
+    1536,
+    2048,
+    2560,
+    3072,
+    4096,
+    6144,
+    8192,
+    12288,
+    16384,
+    24576,
+    32768
+}
 local CHUNK, CHUNK_HEADER, HEADER = 262144, 64, 32
 
 local function classOf(size)
@@ -142,6 +191,7 @@ local function classOf(size)
             return index - 1
         end
     end
+
     return 255
 end
 
@@ -150,6 +200,7 @@ local function classSum()
     for size = 1, 32768 do
         total = total + classOf(size) * (size % 7 + 1)
     end
+
     return total + classOf(32769)
 end
 
@@ -169,34 +220,63 @@ local function ternaryAfterCut(count)
             end
         end
     end
+
     return count - cut
 end
 
 local FIXTURES = ROOT .. "/tests/fixtures/nativeheap"
 local SHARED = {
     allocator = {
-        {"headerLayout", {}, 0}, {"minimumObjects", {}, 0}, {"arenaMetadataSurvivesAllocation", {}, 0},
-        {"classSum", {}, classSum()}, {"chunksFor", {10000, 16}, chunksFor(10000, 16)},
-        {"chunksFor", {5460, 16}, 1}, {"chunksFor", {5461, 16}, 2},
-        {"chunksFor", {300, 4000}, chunksFor(300, 4000)}, {"liveSlots", {10000, 16}, 10000},
-        {"liveSlots", {500, 1000}, 500}, {"liveSlots", {20, 40000}, 20}, {"notSlots", {}, 0},
-        {"reuse", {1000}, 500}, {"reuse", {20000}, 10000 + (chunksFor(20000, 16) - 1) * 1000000},
-        {"quarantined", {1000}, 1000}, {"largeObjects", {10, 100000}, 10000}, {"accounting", {}, 1000073},
-        {"wordSet", {10000}, 0}, {"wordSet", {3}, 0}
+        {"headerLayout", {}, 0},
+        {"minimumObjects", {}, 0},
+        {"arenaMetadataSurvivesAllocation", {}, 0},
+        {"classSum", {}, classSum()},
+        {"chunksFor", {10000, 16}, chunksFor(10000, 16)},
+        {"chunksFor", {5460, 16}, 1},
+        {"chunksFor", {5461, 16}, 2},
+        {"chunksFor", {300, 4000}, chunksFor(300, 4000)},
+        {"liveSlots", {10000, 16}, 10000},
+        {"liveSlots", {500, 1000}, 500},
+        {"liveSlots", {20, 40000}, 20},
+        {"notSlots", {}, 0},
+        {"reuse", {1000}, 500},
+        {"reuse", {20000}, 10000 + (chunksFor(20000, 16) - 1) * 1000000},
+        {"quarantined", {1000}, 1000},
+        {"largeObjects", {10, 100000}, 10000},
+        {"accounting", {}, 1000073},
+        {"wordSet", {10000}, 0},
+        {"wordSet", {3}, 0}
     },
     graphs = {
-        {"listSurvives", {1000, 5000}, 1000}, {"listSurvives", {0, 100}, 0}, {"rings", {10, 100}, 500},
-        {"rings", {1, 1000}, 1000}, {"fanOut", {100, 16}, 51}, {"fanOut", {5000, 16}, 2501},
-        {"fanOut", {50, 40000}, 26}, {"interleaved", {3000}, 1 + 3000 + 429},
-        {"interleaved", {500}, 1 + 500 + 72}, {"stressed", {200}, ternaryAfterCut(200)}, {"stressed", {1}, 1},
-        {"initializedBlack", {}, 1}, {"barrierKeeps", {0}, 1}, {"barrierKeeps", {1}, 0},
-        {"frames", {}, 600}, {"handlesAndScopes", {}, 40021}, {"scopedRegistration", {}, 20},
+        {"listSurvives", {1000, 5000}, 1000},
+        {"listSurvives", {0, 100}, 0},
+        {"rings", {10, 100}, 500},
+        {"rings", {1, 1000}, 1000},
+        {"fanOut", {100, 16}, 51},
+        {"fanOut", {5000, 16}, 2501},
+        {"fanOut", {50, 40000}, 26},
+        {"interleaved", {3000}, 1 + 3000 + 429},
+        {"interleaved", {500}, 1 + 500 + 72},
+        {"stressed", {200}, ternaryAfterCut(200)},
+        {"stressed", {1}, 1},
+        {"initializedBlack", {}, 1},
+        {"barrierKeeps", {0}, 1},
+        {"barrierKeeps", {1}, 0},
+        {"frames", {}, 600},
+        {"handlesAndScopes", {}, 40021},
+        {"scopedRegistration", {}, 20},
         {"nonnullRootCandidates", {}, 621}
     },
     weak = {
-        {"weakValues", {}, 22111}, {"unchangedWeakExtent", {}, 22}, {"cycleModeSnapshot", {}, 1111},
-        {"ephemerons", {}, 1111}, {"weakBoth", {}, 111}, {"lookupBarrier", {}, 111}, {"released", {}, 1111},
-        {"interleavedWeak", {3000}, 1000}, {"interleavedWeak", {301}, 101}
+        {"weakValues", {}, 22111},
+        {"unchangedWeakExtent", {}, 22},
+        {"cycleModeSnapshot", {}, 1111},
+        {"ephemerons", {}, 1111},
+        {"weakBoth", {}, 111},
+        {"lookupBarrier", {}, 111},
+        {"released", {}, 1111},
+        {"interleavedWeak", {3000}, 1000},
+        {"interleavedWeak", {301}, 101}
     }
 }
 for _, name in ipairs({"allocator", "graphs", "weak"}) do
@@ -279,8 +359,11 @@ for _, unit in ipairs(UNITS) do
         end
         local bundle = BUILD .. "/" .. unit.name .. "-" .. mode .. ".bundle"
         write(bundle, result.bundle)
-        print(("%s %s: built in %ds, %d owners, %d selected"):format(unit.name, mode, os.time() - started,
-            result.owners, result.selected))
+        print(
+            (
+                "%s %s: built in %ds, %d owners, %d selected"
+            ):format(unit.name, mode, os.time() - started, result.owners, result.selected)
+        )
         for _, case in ipairs(unit.cases()) do
             if refused[case[1]] or index[case[1]] == nil then
                 goto nextcase

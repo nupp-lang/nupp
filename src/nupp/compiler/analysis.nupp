@@ -336,7 +336,7 @@ local function collectFunctions(root)
                     params = {},
                     paramNames = {},
                     contract = body.effectContract,
-                    summary = unknownSummary(),
+                    summary = summary(),
                 }
                 for _, param in ipairs(body.params or {}) do
                     if param.name and not param.namedVararg then
@@ -368,7 +368,7 @@ local function collectFunctions(root)
                 params = {},
                 paramNames = {},
                 contract = target.effectContract or body and body.effectContract,
-                summary = unknownSummary(),
+                summary = body and summary() or unknownSummary(),
             }
             if target.name and target.name.method then
                 info.paramNames[1] = "self"
@@ -1389,7 +1389,11 @@ function analysis.run(result: analysis.Target, checker: analysis.Reporter?): ana
     end
     for phase = 1, 2 do
         callfacts.run(result.root, functions, byDefinition)
-        for _ = 1, #functions + 1 do
+        -- Summaries start empty and grow to the least fixpoint, which is what
+        -- lets a recursive function see its own effects rather than unknown.
+        -- A pass that has not settled within the bound falls back to unknown.
+        local settled = false
+        for _ = 1, #functions * 4 + 8 do
             local changed = false
             for _, info in ipairs(functions) do
                 if info.body then
@@ -1404,7 +1408,17 @@ function analysis.run(result: analysis.Target, checker: analysis.Reporter?): ana
                 end
             end
             if not changed then
+                settled = true
                 break
+            end
+        end
+        if not settled then
+            for _, info in ipairs(functions) do
+                if info.body and not info.contract then
+                    info.summary = unknownSummary()
+                    info.body.effectSummary = info.summary
+                    info.body.callableEffects = {summary = info.summary, paramNames = info.paramNames}
+                end
             end
         end
     end
