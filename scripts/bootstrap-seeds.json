@@ -2,22 +2,22 @@
   "format": "nupp-bootstrap-seed-1",
   "hosts": {
     "aarch64-apple-darwin": {
-      "url": "https://github.com/nupp-lang/nupp/releases/download/v0.0.15-native-seed.3/nupp-seed-aarch64-apple-darwin.tar.gz",
-      "sha256": "ddb4cf0288f731e8cf212f952f0526d6373d724e146cf5d45a3640419775c3a7",
+      "url": "https://github.com/nupp-lang/nupp/releases/download/v0.0.15-native-api-seed.1/nupp-seed-aarch64-apple-darwin-1b1a212c8e475706d4450c3b99ec38e98249eadf.tar.gz",
+      "sha256": "8c746254dda0011e509fe89839f40d8c0a3ac8b3b384187b41038eb449b1cff8",
       "runtimeSha256": "023c81cffa4c108a3ac846c869e1084db4eebaf8b7a16b9a34f7a0ae88cc6fec",
-      "imageSha256": "1df60fd46003a754a54aafea4a479e68cfde84f94a5902aa1dea6e0338ca5bdd"
+      "imageSha256": "d4690f85d4c278a4641420e55f99ae9111b05316cf53b3199b531e428679c018"
     },
     "x86_64-unknown-linux-gnu": {
-      "url": "https://github.com/nupp-lang/nupp/releases/download/v0.0.15-native-seed.3/nupp-seed-x86_64-unknown-linux-gnu.tar.gz",
-      "sha256": "2a54af98de2d3a878aa5bb65b4d2616d5d27a91c272196fac5935f7a6feb0e42",
+      "url": "https://github.com/nupp-lang/nupp/releases/download/v0.0.15-native-api-seed.1/nupp-seed-x86_64-unknown-linux-gnu-1b1a212c8e475706d4450c3b99ec38e98249eadf.tar.gz",
+      "sha256": "16ae6e8028cc442c4f6b7563cfad1ad747752d5d3cb6ce1864170d16366e50f4",
       "runtimeSha256": "287be283a060dceda9e39a205d8353ac94dd960ec26108d0ca3399c7008d5ad3",
-      "imageSha256": "1df60fd46003a754a54aafea4a479e68cfde84f94a5902aa1dea6e0338ca5bdd"
+      "imageSha256": "d4690f85d4c278a4641420e55f99ae9111b05316cf53b3199b531e428679c018"
     },
     "x86_64-pc-windows-gnu": {
-      "url": "https://github.com/nupp-lang/nupp/releases/download/v0.0.15-native-seed.3/nupp-seed-x86_64-pc-windows-gnu.tar.gz",
-      "sha256": "a167b0315538ef53610658743ea1b33b9771e46cef4ea8ef7353ee4908b94926",
+      "url": "https://github.com/nupp-lang/nupp/releases/download/v0.0.15-native-api-seed.1/nupp-seed-x86_64-pc-windows-gnu-1b1a212c8e475706d4450c3b99ec38e98249eadf.tar.gz",
+      "sha256": "869edf526fcd85d8e2240777d6a6ade4530b8032a125a9397ddafff6acb26938",
       "runtimeSha256": "ae7ed494ed599fa07ba025692be236cda7b8e0c0b64fcc0761fa5a5d5db9d94b",
-      "imageSha256": "1df60fd46003a754a54aafea4a479e68cfde84f94a5902aa1dea6e0338ca5bdd"
+      "imageSha256": "d4690f85d4c278a4641420e55f99ae9111b05316cf53b3199b531e428679c018"
     }
   }
 }
