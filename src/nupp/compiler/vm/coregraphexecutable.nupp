@@ -287,6 +287,22 @@ local function derive(g: any, catalog: any): any
                     emit({"GetUpval", physical(dst), args[1]}, position)
                     yield nil
                 end
+                case "NewTable" -> do
+                    emit({"NewTable", physical(dst)}, position)
+                    yield nil
+                end
+                case "GetIdx" -> do
+                    emit({"GetIdx", physical(dst), physical(args[1]), physical(args[2])}, position)
+                    yield nil
+                end
+                case "SetIdx" -> do
+                    emit({"SetIdx", physical(args[1]), physical(args[2]), physical(args[3])}, position)
+                    yield nil
+                end
+                case "Len" -> do
+                    emit({"Len", physical(dst), physical(args[1])}, position)
+                    yield nil
+                end
                 else -> error("core executable: unsupported graph operation " .. op, 0)
             end
         end

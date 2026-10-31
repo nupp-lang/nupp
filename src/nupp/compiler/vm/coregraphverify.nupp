@@ -256,8 +256,22 @@ end
 -- function:<owner> identifies a possible code target, never a closure instance.
 function verify.resultKind(g: any, signature: any, output: any): string
     local kinds, edges, users, pending = {}, {}, {}, {}
+    -- v8 values may be dynamic: a join of different kinds widens to "value",
+    -- and every scalar use of a value is checked by its handler at run time.
+    local dynamic = output.schema.version >= 8
+
+    local function fits(actual: string?, wanted: string?): boolean
+        return actual == wanted or dynamic and (actual == "value" or wanted == "value")
+    end
 
     local function assign(id: integer, kind: string): nil
+        if kinds[id] ~= nil and kinds[id] ~= kind and dynamic then
+            if kinds[id] ~= "value" then
+                kinds[id] = "value"
+                pending[#pending + 1] = id
+            end
+            return
+        end
         need(kinds[id] == nil or kinds[id] == kind, "incompatible scalar join")
         if kinds[id] == nil then
             kinds[id] = kind
@@ -286,10 +300,7 @@ function verify.resultKind(g: any, signature: any, output: any): string
             assign(rule.dst, "boolean")
             return
         end
-        need(
-            first == "number" and second == "number",
-            "numeric operation needs numeric operands: " .. rule.op .. " " .. first .. " " .. second
-        )
+        need(fits(first, "number") and fits(second, "number"), "numeric operation needs numeric operands")
         assign(rule.dst, (rule.op == "Lt" or rule.op == "Le") and "boolean" or "number")
     end
 
@@ -367,6 +378,15 @@ function verify.resultKind(g: any, signature: any, output: any): string
                     yield nil
                 end
                 case "SetCell" -> nil
+                case "NewTable", "GetIdx" -> do
+                    assign(dst, "value")
+                    yield nil
+                end
+                case "Len" -> do
+                    assign(dst, "number")
+                    yield nil
+                end
+                case "SetIdx" -> nil
                 else -> error("core graph contracts: unsupported operation", 0)
             end
         end
@@ -424,16 +444,24 @@ function verify.resultKind(g: any, signature: any, output: any): string
         end
         for at, op in ipairs(block.op) do
             local args = block.args[at]
-            need(op == "SetCell" or kinds[block.dst[at]] ~= nil, "unresolved scalar operation")
-            if op == "NewCell" or op == "GetCell" or op == "SetCell" or op == "GetUpval" then
-                need(op == "GetUpval" or kinds[args[1]] ~= nil, "unresolved cell operand")
+            need(op == "SetCell" or op == "SetIdx" or kinds[block.dst[at]] ~= nil, "unresolved scalar operation")
+            if op == "NewCell"
+                or op == "GetCell"
+                or op == "SetCell"
+                or op == "GetUpval"
+                or op == "NewTable"
+                or op == "GetIdx"
+                or op == "SetIdx"
+                or op == "Len"
+            then
+                need(op == "GetUpval" or op == "NewTable" or kinds[args[1]] ~= nil, "unresolved cell operand")
             elseif op == "Move" then
                 need(kinds[args[1]] ~= nil, "unresolved scalar move")
             elseif op == "Eq" then
                 need(kinds[args[1]] ~= nil and kinds[args[2]] ~= nil, "unresolved equality operand")
             elseif op ~= "K" and op ~= "Nil" and op ~= "Require" and op ~= "Closure" then
                 need(
-                    kinds[args[1]] == "number" and kinds[args[2]] == "number",
+                    fits(kinds[args[1]], "number") and fits(kinds[args[2]], "number"),
                     "numeric operation needs numeric operands"
                 )
             end
@@ -443,11 +471,14 @@ function verify.resultKind(g: any, signature: any, output: any): string
             -- The copied term still distinguishes absent return from NIL SSA.
             local kind = term.value and need(kinds[term.value], "unresolved return") or "nil"
             need(
-                kind == "boolean" or kind == "nil" or output.schema.version >= 3 and kind == "number",
+                kind == "boolean"
+                or kind == "nil"
+                or output.schema.version >= 3 and kind == "number"
+                or dynamic and kind == "value",
                 "unsupported scalar return"
             )
-            need(returned == nil or returned == kind, "incompatible scalar returns")
-            returned = kind
+            need(returned == nil or returned == kind or dynamic, "incompatible scalar returns")
+            returned = (returned == nil or returned == kind) and kind or "value"
         elseif term.kind == "invoke" then
             local contract = output.contracts[term.contract + 1]
             local target = output.signatures[contract.signature + 1]
@@ -458,17 +489,22 @@ function verify.resultKind(g: any, signature: any, output: any): string
             )
             need(#term.args == #target.params, "call arity differs")
             for at, id in ipairs(term.args) do
-                need(kinds[id] == target.params[at], "call scalar argument differs")
+                need(fits(kinds[id], target.params[at]), "call scalar argument differs")
             end
         elseif term.kind == "branch" then
-            need(kinds[term.value] == "boolean" or kinds[term.value] == "nil", "unsupported branch value")
+            need(
+                kinds[term.value] == "boolean"
+                or kinds[term.value] == "nil"
+                or dynamic and kinds[term.value] == "value",
+                "unsupported branch value"
+            )
         end
         for _, edge in ipairs(term.edges) do
             local params = g.blocks[edge.target].params
             local offset = term.kind == "invoke" and term.result ~= nil and 1 or 0
             for at, id in ipairs(edge.args) do
                 need(kinds[id] ~= nil, "unresolved edge value")
-                need(kinds[params[at + offset]] == kinds[id], "incompatible scalar join")
+                need(fits(kinds[id], kinds[params[at + offset]]), "incompatible scalar join")
             end
         end
     end
@@ -501,7 +537,7 @@ end
 function verify.catalog(p: any): any
     fields(p, "schema entry modules catalog signatures graphs contracts")
     need(
-        type(p.schema.version) == "number" and p.schema.version >= 2 and p.schema.version <= 7,
+        type(p.schema.version) == "number" and p.schema.version >= 2 and p.schema.version <= 8,
         "unknown source graph profile"
     )
     same(p.schema, schema.describe(p.schema.version))
@@ -531,13 +567,17 @@ function verify.catalog(p: any): any
         need(
             signature.result == "boolean"
             or signature.result == "nil"
-            or p.schema.version >= 3 and signature.result == "number",
+            or p.schema.version >= 3 and signature.result == "number"
+            or p.schema.version >= 8 and signature.result == "value",
             "unsupported scalar result"
         )
         dense(signature.params, 239)
         for _, kind in ipairs(signature.params) do
             need(
-                kind == "boolean" or kind == "nil" or p.schema.version >= 3 and kind == "number",
+                kind == "boolean"
+                or kind == "nil"
+                or p.schema.version >= 3 and kind == "number"
+                or p.schema.version >= 8 and kind == "value",
                 "unsupported scalar parameter"
             )
         end

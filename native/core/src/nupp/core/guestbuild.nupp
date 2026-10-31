@@ -46,7 +46,8 @@ local CASES: {[string]: {
     numericControl = {fixture = "catalog-numeric-control", version = 6},
     workloadLoops = {fixture = "catalog-workload-loops", version = 6},
     workloadFib = {fixture = "catalog-workload-fib", version = 7},
-    callsNumeric = {fixture = "catalog-calls-numeric", version = 7}
+    callsNumeric = {fixture = "catalog-calls-numeric", version = 7},
+    tablesBasic = {fixture = "catalog-tables-basic", version = 8}
 }
 
 -- The handlers a profile version dispatches, in table order.
@@ -68,7 +69,11 @@ local function handlerNames(caseName: string, version: integer): {string}
         NewCell = 7,
         GetCell = 7,
         SetCell = 7,
-        GetUpval = 7
+        GetUpval = 7,
+        NewTable = 8,
+        GetIdx = 8,
+        SetIdx = 8,
+        Len = 8
     }
     for _, name in ipairs({
         "Add",
@@ -81,7 +86,11 @@ local function handlerNames(caseName: string, version: integer): {string}
         "NewCell",
         "GetCell",
         "SetCell",
-        "GetUpval"
+        "GetUpval",
+        "NewTable",
+        "GetIdx",
+        "SetIdx",
+        "Len"
     }) do
         if version >= introduced[name] then
             table.insert(names, 2, name)
@@ -110,7 +119,8 @@ local RUNTIME = {
     "guestentry",
     "guestops",
     "guesthandlers",
-    "guestscope"
+    "guestscope",
+    "coretables"
 }
 
 -- One runtime build and selection per mode for the process: every case
@@ -136,7 +146,7 @@ local function runtime(mode: string, cacheDirectory: string?, audited: boolean):
         }
     end
     -- Every handler is built, so one selection serves every profile version.
-    local all = handlerNames("modulePair", 7)
+    local all = handlerNames("modulePair", 8)
     local roots, handlers = {}, {}
     for _, name in ipairs(all) do
         roots[#roots + 1] = {"nupp.runtime.core.guesthandlers", name}

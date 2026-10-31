@@ -100,6 +100,8 @@ end
 export const BOOLEAN: uint64 = 1ULL
 export const NIL: uint64 = 2ULL
 export const NUMBER: uint64 = 3ULL
+-- v8: any value, checked where it is used.
+export const VALUE: uint64 = 4ULL
 export const INITIALIZER: uint64 = 0ULL
 export const FUNCTION: uint64 = 1ULL
 
@@ -129,6 +131,8 @@ export function scalar(kind: uint64, value: uint64): uint64
     elseif kind == NUMBER and (value & 0xffff000000000000ULL) == values.TAG_INTEGER then
         -- A signed 48-bit immediate. Only v6 catalogs carry integer words.
         return 1ULL
+    elseif kind == VALUE then
+        return 1ULL
     end
 
     return 0ULL
@@ -151,7 +155,7 @@ local function valid(data: voidptr, bytes: uint64): uint64
     end
     local version = native.load64(data, native.fieldOffset<DescriptorV1>("version"))
     local headerBytes = native.sizeOf<DescriptorV1>()
-    if version >= 2ULL and version <= 7ULL then
+    if version >= 2ULL and version <= 8ULL then
         headerBytes = native.sizeOf<Descriptor>()
     elseif version ~= 1ULL then
         return 0ULL
@@ -231,7 +235,12 @@ local function valid(data: voidptr, bytes: uint64): uint64
         local parameters = native.load64(signature, native.fieldOffset<Signature>("parameterCount"))
         local result = native.load64(signature, native.fieldOffset<Signature>("resultKind"))
         if parameters > 63ULL
-            or (result ~= BOOLEAN and result ~= NIL and (version < 3ULL or result ~= NUMBER))
+            or (
+                result ~= BOOLEAN
+                and result ~= NIL
+                and (version < 3ULL or result ~= NUMBER)
+                and (version < 8ULL or result ~= VALUE)
+            )
             or native.load64(signature, native.fieldOffset<Signature>("parameters")) ~= cursor
             or contains(bytes, cursor, parameters, 8ULL) == 0ULL
         then
@@ -240,7 +249,11 @@ local function valid(data: voidptr, bytes: uint64): uint64
         local p: uint64 = 0ULL
         while p < parameters do
             local kind = native.load64(data, native.index(cursor + p * 8ULL))
-            if kind ~= BOOLEAN and kind ~= NIL and (version < 3ULL or kind ~= NUMBER) then
+            if kind ~= BOOLEAN
+                and kind ~= NIL
+                and (version < 3ULL or kind ~= NUMBER)
+                and (version < 8ULL or kind ~= VALUE)
+            then
                 return 0ULL
             end
             p = p + 1ULL

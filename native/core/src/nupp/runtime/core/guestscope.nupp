@@ -14,6 +14,7 @@ const pages = require("nupp.runtime.core.pagemappings")
 const servicescope = require("nupp.runtime.core.servicescope")
 const context = require("nupp.runtime.core.context")
 const values = require("nupp.runtime.vm.values")
+const tables = require("nupp.runtime.core.coretables")
 
 -- The scope comes first, so a Services address is also its scope's address.
 export struct Services
@@ -90,6 +91,12 @@ export function close(services: voidptr): nil
         return
     end
     @unsafe do
+        -- Unrooted, a last cycle retires every table so its owned parts are
+        -- released before the heap goes.
+        local h = native.pointer(address) as heap.Heap*
+        h.ranges.count = 0ULL
+        collector.fullCycle(h)
+        tables.drain(h)
         heap.destroy(native.pointer(address) as heap.Heap*)
         local a = native.pointer(native.load64(services, native.fieldOffset<Services>("arena"))) as arena.Arena*
         local chunk: arena.Chunk*? = a.chunk
@@ -151,5 +158,27 @@ export function store(ctx: voidptr, header: uint64, index: uint64, value: uint64
         local o = native.pointer(header) as heap.Header*
         collector.barrier(native.pointer(guestHeap(ctx)) as heap.Heap*, o, value)
         native.store64(native.pointer(o.auxPtr), native.index(index * 8ULL), value)
+    end
+end
+
+-- A fresh table on the entry's heap; answers its header address.
+export function newTable(ctx: voidptr): uint64
+    @unsafe do
+        local h = native.pointer(guestHeap(ctx)) as heap.Heap*
+        local t = tables.create(h)
+        tables.drain(h)
+
+        return t
+    end
+end
+
+-- Stores through coretables.set on the entry's heap; answers its status.
+export function tableSet(ctx: voidptr, table: uint64, key: uint64, value: uint64): uint64
+    @unsafe do
+        local h = native.pointer(guestHeap(ctx)) as heap.Heap*
+        local status = tables.set(h, table, key, value)
+        tables.drain(h)
+
+        return status
     end
 end

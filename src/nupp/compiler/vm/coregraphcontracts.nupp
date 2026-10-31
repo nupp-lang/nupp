@@ -54,8 +54,12 @@ local function empty(value: any, description: string): nil
     need(value == nil or type(value) == "table" and next(value) == nil, "unsupported " .. description)
 end
 
-local function scalar(value: any, numeric: boolean): string
+local function scalar(value: any, numeric: boolean, dynamic: boolean?): string
     need(value and value.tag ~= "literal" and value.tag ~= "const", "qualified scalar signatures are unsupported")
+    -- v8 passes tables and functions as dynamic values, checked where used.
+    if dynamic and (value.tag == "array" or value.tag == "map" or value.tag == "table" or value.tag == "func") then
+        return "value"
+    end
     need(
         value.tag == "boolean"
         or value.tag == "nil"
@@ -66,7 +70,7 @@ local function scalar(value: any, numeric: boolean): string
     return (value.tag == "float64" or value.tag == "int64") and "number" or value.tag
 end
 
-local function checkedSignature(owner: any, numeric: boolean): any
+local function checkedSignature(owner: any, numeric: boolean, dynamic: boolean): any
     local signature = need(owner.signature, "checked callable signature required")
     need(
         signature.tag == "func" and owner.body.signatureType == signature,
@@ -113,10 +117,10 @@ local function checkedSignature(owner: any, numeric: boolean): any
     )
     for index, value in ipairs(signature.params) do
         need(value == signature.paramPack.head[index], "checked parameter pack differs")
-        params[index] = scalar(value, numeric)
+        params[index] = scalar(value, numeric, dynamic)
     end
     need(signature.rets[1] == signature.retPack.head[1], "checked result pack differs")
-    result = scalar(signature.rets[1], numeric)
+    result = scalar(signature.rets[1], numeric, dynamic)
     local summary = owner.body.effectSummary
     need(
         summary and summary.yields == false and summary.top == false and summary.external == false,
@@ -221,7 +225,7 @@ function contracts.normalize(compiled: any, version: integer?): any
         need(record.id == index - 1, "owner order differs")
         if owner.kind == "function" then
             record.parent = integer(owner.parent, 255)
-            record.signature = intern(output.signatures, signatureIndex, checkedSignature(owner, numeric))
+            record.signature = intern(output.signatures, signatureIndex, checkedSignature(owner, numeric, v >= 8))
         else
             need(
                 owner.kind == "module" and modulesByOwner[owner.id] ~= nil and owner.parent == nil,
@@ -314,7 +318,10 @@ function contracts.normalize(compiled: any, version: integer?): any
                 result = result
             })
         else
-            need(result == signature.result, "graph result differs from checked signature")
+            need(
+                result == signature.result or v >= 8 and (result == "value" or signature.result == "value"),
+                "graph result differs from checked signature"
+            )
         end
     end
 

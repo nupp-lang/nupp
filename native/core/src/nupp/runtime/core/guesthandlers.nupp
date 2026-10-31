@@ -9,6 +9,7 @@ const access = require("nupp.runtime.core.frameaccess")
 const ops = require("nupp.runtime.core.guestops")
 const context = require("nupp.runtime.core.context")
 const guestscope = require("nupp.runtime.core.guestscope")
+const tables = require("nupp.runtime.core.coretables")
 const heap = require("nupp.runtime.vm.heap")
 
 -- The closed checked producer binds these program/slot reads to corebytecode's
@@ -867,6 +868,152 @@ export function GetUpval(
         dst,
         native.load64(native.pointer(body), native.index((native.word(index) + 1ULL) * 8ULL))
     )
+    local nextPC = ops.branch(ctx, frame, pc, 0)
+    if nextPC == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+
+    return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
+end
+
+-- The header of a table value, or zero.
+local function tableHeader(value: uint64): uint64
+    if value & values.TAG_MASK ~= values.TAG_OBJ then
+        return 0ULL
+    end
+    local header = native.pointer(value & values.PAYLOAD)
+    if native.word(native.load8(header, native.fieldOffset<heap.Header>("kind"))) ~= heap.KIND_TABLE then
+        return 0ULL
+    end
+
+    return value & values.PAYLOAD
+end
+
+export function NewTable(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    if ops.charge(ctx, frame, pc) ~= 1ULL then
+        return native.fail()
+    end
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local dst = program.readByte(pc, 1)
+    if native.word(dst) >= native.load64(frame, native.fieldOffset<frames.Frame>("valueCount")) then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    slots.writeValue(frame, regs, dst, values.TAG_OBJ | guestscope.newTable(ctx))
+    local nextPC = ops.branch(ctx, frame, pc, 0)
+    if nextPC == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+
+    return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
+end
+
+-- Indexing anything but a table raises, as Lua does without a metatable.
+export function GetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
+    if ops.charge(ctx, frame, pc) ~= 1ULL then
+        return native.fail()
+    end
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local dst = program.readByte(pc, 1)
+    local object = program.readByte(pc, 2)
+    local key = program.readByte(pc, 3)
+    local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    if native.word(dst) >= count or native.word(object) >= count or native.word(key) >= count then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local header = tableHeader(slots.readValue(frame, regs, object))
+    if header == 0ULL then
+        ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+        return native.fail()
+    end
+    slots.writeValue(frame, regs, dst, tables.get(header, slots.readValue(frame, regs, key)))
+    local nextPC = ops.branch(ctx, frame, pc, 0)
+    if nextPC == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+
+    return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
+end
+
+export function SetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
+    if ops.charge(ctx, frame, pc) ~= 1ULL then
+        return native.fail()
+    end
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local object = program.readByte(pc, 1)
+    local key = program.readByte(pc, 2)
+    local src = program.readByte(pc, 3)
+    local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    if native.word(object) >= count or native.word(key) >= count or native.word(src) >= count then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local header = tableHeader(slots.readValue(frame, regs, object))
+    if header == 0ULL then
+        ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+        return native.fail()
+    end
+    local status = guestscope.tableSet(
+        ctx,
+        header,
+        slots.readValue(frame, regs, key),
+        slots.readValue(frame, regs, src)
+    )
+    if status == tables.BAD_KEY then
+        ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+        return native.fail()
+    end
+    if status ~= tables.OK then
+        ops.fail(ctx, frame, pc, ops.RESOURCE)
+        return native.fail()
+    end
+    local nextPC = ops.branch(ctx, frame, pc, 0)
+    if nextPC == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+
+    return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
+end
+
+export function Len(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local dst = program.readByte(pc, 1)
+    local src = program.readByte(pc, 2)
+    local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    if native.word(dst) >= count or native.word(src) >= count then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local header = tableHeader(slots.readValue(frame, regs, src))
+    if header == 0ULL then
+        ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+        return native.fail()
+    end
+    slots.writeValue(frame, regs, dst, values.TAG_INTEGER | tables.length(header))
     local nextPC = ops.branch(ctx, frame, pc, 0)
     if nextPC == 0ULL then
         ops.fail(ctx, frame, pc, ops.INVALID)
