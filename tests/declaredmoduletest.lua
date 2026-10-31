@@ -563,6 +563,38 @@ function M.internalModulesEnforcePackageBoundaries()
     )
 end
 
+function M.standardLibraryRootsSharePrivateImplementationOnlyWithEachOther()
+    withProject({["src/app/main.nupp"] = "module app.main\n"}, function(dir)
+        local env = projectEnv(dir)
+        for _, consumer in ipairs({"nupp.tools.consumer", "serde.json", "binary.hash.digest"}) do
+            for _, implementation in ipairs({
+                "nupp.runtime.packages",
+                "nupp.serde.internal.value",
+                "serde.internal.codec",
+                "binary.internal.hash"
+            }) do
+                testAssert.equal(
+                    env.moduleAccess(env, consumer, implementation),
+                    nil,
+                    consumer .. " imports " .. implementation
+                )
+            end
+        end
+        for _, implementation in ipairs({
+            "nupp.runtime.packages",
+            "nupp.serde.internal.value",
+            "serde.internal.codec",
+            "binary.internal.hash"
+        }) do
+            assert(env.moduleAccess(env, "app.main", implementation), "application must not import " .. implementation)
+        end
+        assert(
+            env.moduleAccess(env, "serde.json", "library.internal.hidden"),
+            "stdlib must not import another package's internals"
+        )
+    end)
+end
+
 function M.targetOutputSourcesStayOutsideTheProjectIndex()
     withProject(
         {

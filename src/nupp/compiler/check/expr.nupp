@@ -1224,7 +1224,12 @@ function expr.install(c: state.Checker): nil
             end
             if not entry and c.env and c.env.ensureProjectIndex and c.env.resolveModule then
                 local registry = c.env.ensureProjectIndex(c.env)
-                if registry.declaredModules and registry.declaredModules[nameText] then
+                local declared = registry.declaredModules and registry.declaredModules[nameText] or false
+                if not declared and c.env.bundled then
+                    local shipped = c.env.bundled[nameText]
+                    declared = shipped ~= nil and shipped ~= false and shipped.declared == true
+                end
+                if declared then
                     local moduleType = c.env.resolveModule(c.env, nameText)
                     if moduleType then
                         node.qualifiedModule = nameText
