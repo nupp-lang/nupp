@@ -34,7 +34,7 @@ jobs:
             artifact: nupp-linux-x86_64
             platform: x86_64-unknown-linux-gnu
           - name: macOS arm64
-            os: macos-14
+            os: macos-15
             artifact: nupp-macos-arm64
             platform: aarch64-apple-darwin
           - name: Windows x86-64

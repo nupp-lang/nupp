@@ -1065,18 +1065,17 @@ function M.standardTaskApiHasModuleExamples()
     assert(examples >= 2, "nupp.tasks needs structured-work and deadline examples")
 end
 
--- The data module owns hashes, UUIDs, and Bitset directly; only substantial sibling
--- facilities remain separate modules.
+-- Public UTF-8 and digest modules document their complete declared surface.
 function M.standardDataApiHasCompleteDocumentation()
     local modules = {"src/nupp/text/utf8.nupp", "src/binary/hash/digest/init.nupp",}
     for _, relative in ipairs(modules) do
         local source = assert(readFile(HERE .. "/../" .. relative), "no module at " .. relative)
-        local name = relative:match("src/nupp/(.+)%.nupp"):gsub("/", "."):gsub("%.init$", "")
-        local module, errors = doc.extract(source, relative, "nupp." .. name)
+        local name = relative:match("^src/(.+)%.nupp$"):gsub("/", "."):gsub("%.init$", "")
+        local module, errors = doc.extract(source, relative, name)
         assert(module, errors and errors[1] and errors[1].msg)
-        assert(module.text ~= "", "nupp." .. name .. " has no module documentation")
+        assert(module.text ~= "", name .. " has no module documentation")
         for _, item in ipairs(module.items) do
-            local prefix = "nupp." .. name .. "." .. item.name
+            local prefix = name .. "." .. item.name
             assert(item.doc.text ~= "", prefix .. " has no documentation")
             for _, param in ipairs(item.params) do
                 assert(param.text ~= "", prefix .. " parameter " .. param.name .. " has no documentation")
