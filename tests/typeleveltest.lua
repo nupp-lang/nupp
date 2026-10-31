@@ -151,24 +151,13 @@ function M.closedComptimeTypeFunctionsReportApplicationFailures()
         "NUPP2421"
     )
     testAssert.equal(
-        codes(
-            table.concat(
-                {
-                    "local function Runtime(T: any): any return T end",
-                    "local bad: Runtime(string)",
-                },
-                "\n"
-            )
-        ),
+        codes(table.concat({"local function Runtime(T: any): any return T end", "local bad: Runtime(string)",}, "\n")),
         "NUPP2421"
     )
 end
 
 function M.compilerOnlyTypeHandlesCannotEnterRuntimeSignatures()
-    testAssert.equal(
-        codes("local function identity(T: type): type return T end"),
-        "NUPP2421 NUPP2421"
-    )
+    testAssert.equal(codes("local function identity(T: type): type return T end"), "NUPP2421 NUPP2421")
     testAssert.equal(codes("local value: type = nil as any"), "NUPP2421")
 end
 
@@ -274,10 +263,7 @@ function M.comptimeTypeAliasesNameReusableDescriptorShapes()
     )
     oneDiagnostic(
         table.concat(
-            {
-                "@comptime local type Field = {name: string, read: type?}",
-                "local value: Field = nil as any",
-            },
+            {"@comptime local type Field = {name: string, read: type?}", "local value: Field = nil as any",},
             "\n"
         ),
         "NUPP2421",
@@ -830,7 +816,7 @@ function M.formatArgumentsIsReusableByUserFormattingWrappers()
     )
 end
 
-function M.luaDebugFormatLoweringUsesThePegRuntime()
+function M.luaDebugFormatLoweringUsesTheDirectiveScanner()
     local luaFormat = require("nupp.compiler.lua.luaformat")
     local parsed, why = luaFormat.analyze("%-+#09.2f %q %% %d %?")
     testAssert.equal(why, nil)
@@ -1946,10 +1932,10 @@ function M.comptimeCountsThePackItWasPassed()
     )
 end
 
--- A type argument that is itself a type parameter satisfies a bound only when its
--- own bound implies it. An unbounded one stands for anything, and the old
--- permissive typevar relation used to let it through, so `wrap(3)` built a `Reg<integer>`
--- whose method then read a field no integer has.
+-- A type argument that is itself a type parameter satisfies a bound only when its own
+-- bound implies it. An unbounded one stands for anything, and the old permissive
+-- typevar relation used to let it through, so `wrap(3)` built a `Reg<integer>` whose
+-- method then read a field no integer has.
 function M.aTypeParameterArgumentNeedsABoundThatImpliesTheBound()
     local body = table.concat(
         {

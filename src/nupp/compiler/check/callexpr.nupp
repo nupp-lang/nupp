@@ -2361,6 +2361,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
             c.nosuspend.call(node)
             local owner = rawType(ot)
+            -- Rechecking a call discards its previous overload selection.
+            node.overloadMember = nil
             local aliasDeclaration = c.lookupType("nupp.Alias")
             local aliasOrigin = aliasDeclaration
                 and aliasDeclaration.tag == "nominal"
