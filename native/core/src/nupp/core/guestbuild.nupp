@@ -44,7 +44,8 @@ local CASES: {[string]: {
     numericModZero = {fixture = "catalog-numeric-modzero", version = 6},
     numericOverflow = {fixture = "catalog-numeric-overflow", version = 6},
     numericControl = {fixture = "catalog-numeric-control", version = 6},
-    workloadLoops = {fixture = "catalog-workload-loops", version = 6}
+    workloadLoops = {fixture = "catalog-workload-loops", version = 6},
+    workloadFib = {fixture = "catalog-workload-fib", version = 6}
 }
 
 -- The handlers a profile version dispatches, in table order.
