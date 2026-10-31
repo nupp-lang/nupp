@@ -148,7 +148,7 @@ local function binary(ctx: any, node: any, expected: string?, version: integer):
         version >= 6 and "unsupported numeric operator" or "only number addition is admitted"
     )
     if arithmetic[operation] then
-        need(admits(node.inferredType), "number result required")
+        need(version >= 8 or admits(node.inferredType), "number result required")
     else
         need(typeKind(node.inferredType) == "boolean", "boolean result required")
     end
@@ -159,8 +159,11 @@ local function binary(ctx: any, node: any, expected: string?, version: integer):
             return numericType(t) or scalarType(t)
         end
     end
-    need(admits(node.lhs.inferredType), "left number required")
-    need(admits(node.rhs.inferredType), "right number required")
+    -- From v8 operands may be dynamic values; the handlers check them.
+    if version < 8 then
+        need(admits(node.lhs.inferredType), "left number required")
+        need(admits(node.rhs.inferredType), "right number required")
+    end
     local operands = ctx.operands({node.lhs, node.rhs}, {"tagged", "tagged"})
     if operands == nil then
         return nil as any
@@ -332,7 +335,7 @@ local function checkStatement(ctx: any, stat: any, version: integer): nil
     if stat.kind == "ifStmt" then
         for _, clause in ipairs(stat.clauses) do
             need(not clause.binding, "binding conditions are unsupported")
-            need(booleanCondition(clause.cond.inferredType), "if condition requires a checked Boolean")
+            need(version >= 8 or booleanCondition(clause.cond.inferredType), "if condition requires a checked Boolean")
         end
     elseif stat.kind == "whileStmt" and version == 5 then
         need(
@@ -340,13 +343,13 @@ local function checkStatement(ctx: any, stat: any, version: integer): nil
             "loop condition requires checked numeric less-than"
         )
     elseif (stat.kind == "whileStmt" or stat.kind == "repeatStmt") and version >= 6 then
-        need(booleanCondition(stat.cond.inferredType), "loop condition requires a checked Boolean")
+        need(version >= 8 or booleanCondition(stat.cond.inferredType), "loop condition requires a checked Boolean")
     end
     local loopControl = stat.kind == "breakStmt" or stat.kind == "continueStmt" or stat.kind == "repeatStmt"
     need(
         (version >= 5 or stat.kind ~= "whileStmt")
         and (version >= 6 or stat.kind ~= "fornumStmt" and not loopControl)
-        and stat.kind ~= "forinStmt",
+        and (version >= 8 or stat.kind ~= "forinStmt"),
         "control flow is outside lexical construction"
     )
     need(not stat.comptimeFunction and not stat.comptimeTok, "compile-time declarations are unsupported")
@@ -486,6 +489,55 @@ function tagged.forVersion(version: integer): any
         end
         profile.assignTarget = function(ctx: any, node: any, target: any, receiver: integer, value: integer): nil
             ctx.emit(node, "SetIdx", {receiver, ctx.readHeld(target.heldIndex), value}, nil)
+        end
+        -- `for i, v in ipairs(t)`: i counts from 1 while t[i] is not nil. The
+        -- element is read for the test and again for the body, which only a
+        -- metatable could tell apart; the core has none yet.
+        profile.genericFor = function(ctx: any, stat: any): any
+            local source = stat.exprs[1]
+            need(
+                #stat.exprs == 1
+                and source.kind == "call"
+                and source.resolvedGlobal == "ipairs"
+                and #(source.args.exprs or {}) == 1
+                and #stat.names >= 1
+                and #stat.names <= 2,
+                "only `for i, v in ipairs(t)` is admitted"
+            )
+            local t = ctx.expression(source.args.exprs[1], "tagged")
+            if t == nil then
+                return nil
+            end
+            local held = ctx.hold(t)
+            local first = ctx.emit(stat, "K", {pool(ctx, "int64", "1")}, "tagged")
+            t = ctx.readHeld(held)
+            ctx.release(held)
+
+            local function present(c: any, node: any, v: any): (integer, boolean)
+                local element = c.emit(node, "GetIdx", {v[2], v[1]}, "tagged")
+                local none = c.emit(node, "Nil", {}, "tagged")
+                return c.emit(node, "Eq", {element, none}, "tagged"), true
+            end
+
+            return {
+                values = {first, t},
+                first = present,
+                test = present,
+                advance = function(c: any, node: any, v: any): (integer, integer?)
+                    local one = c.emit(node, "K", {pool(c, "int64", "1")}, "tagged")
+                    return c.emit(node, "Add", {v[1], one}, "tagged"), nil
+                end,
+                bind = function(c: any, node: any, v: any): any
+                    return {v[1], c.emit(node, "GetIdx", {v[2], v[1]}, "tagged")}
+                end
+            }
+        end
+        -- `a or b` and `a and b` branch on Lua truthiness.
+        profile.checkLogical = function(ctx: any, node: any): boolean
+            return true
+        end
+        profile.kind = function(t: any): string
+            return "tagged"
         end
         profile.call = function(ctx: any, node: any, expected: string?): integer
             if node.runtimeLoader == "require" then

@@ -1152,16 +1152,10 @@ export function JmpIf(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
+    -- Lua truthiness: everything but false and nil is true. Before v8 only
+    -- Booleans and nil reach a branch.
     local value = slots.readValue(frame, regs, src)
-    if value ~= values.TRUE then
-        if value ~= values.FALSE then
-            if value ~= values.NIL then
-                ops.fail(ctx, frame, pc, ops.INVALID)
-                return native.fail()
-            end
-        end
-    end
-    if value ~= values.TRUE then
+    if value == values.FALSE or value == values.NIL then
         local target = ops.branch(ctx, frame, pc, 0)
         if target == 0ULL then
             ops.fail(ctx, frame, pc, ops.INVALID)
