@@ -19,7 +19,7 @@
 -- a failure says which rebuild was wrong.
 
 local test = require("assert")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local process = require("nupp.compiler.process")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -117,7 +117,7 @@ local function build(dir, env)
     )
     local out = pipe:read("*a")
     pipe:close()
-    local report, invalid = json.decode(out)
+    local report, invalid = json.decodeValue(out)
     local ok = invalid == nil
     assert(ok and type(report) == "table", "no JSON report from the build:\n" .. out)
     assert(report.ok, "the build failed:\n" .. out)
@@ -214,7 +214,7 @@ function M.rebuildsOnlyWhatChanged()
     test.equal(coldFacts.linked, true, "a cold build links")
     -- LLVM compiles and lld links in process.
     test.equal(coldFacts.externalCommands, 0, "a cold build runs no external command")
-    local remarks = json.decode(assert(read(dir .. "/build/remarks.json")))
+    local remarks = json.decodeValue(assert(read(dir .. "/build/remarks.json")))
     local aotNotes = 0
     for _, note in ipairs(remarks.remarks or {}) do
         if note.code == "AOT-LOOP" then
@@ -438,7 +438,10 @@ function M.replayRequiresTheCurrentCodeGenerator()
     local byC = {command = "clang", signature = "", version = "clang 18"}
     for _, name in ipairs({"require", "require-wasm", "emit-wasm"}) do
         assert(aot.replayCommandMatches(name, remembered, "<llvm>"), name .. ": the remembered code generator matches")
-        assert(not aot.replayCommandMatches(name, byC, "<llvm>"), name .. ": a build a C compiler produced is not replayed")
+        assert(
+            not aot.replayCommandMatches(name, byC, "<llvm>"),
+            name .. ": a build a C compiler produced is not replayed"
+        )
         assert(
             not aot.replayCommandMatches(name, nil, "<llvm>"),
             name .. ": a build with nothing remembered is not replayed"
@@ -461,7 +464,10 @@ function M.preEmissionInputsIncludeTheCodeGeneratorSelection()
         end
         changed[field] = tostring(changed[field]) .. "-changed"
         assert(
-            aot.inputFingerprint({}, {sources = "same", toolchainPolicy = changed}) ~= base,
+            aot.inputFingerprint({}, {
+                sources = "same",
+                toolchainPolicy = changed
+            }) ~= base,
             field .. " invalidates pre-emission replay"
         )
     end

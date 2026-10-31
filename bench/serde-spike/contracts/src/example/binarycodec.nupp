@@ -1,16 +1,16 @@
 module example.binarycodec
 
-local __serdeJson = require("nupp.serde.json")
+local __serdeJson = require("serde.json")
 
-local core = require("nupp.serde")
-local publication = require("nupp.serde.codec")
+local core = require("serde")
+local publication = require("serde.codec")
 local syntax = require("example.binary")
 local integers = require("example.binarynumbers")
 local positional = require("example.binarypositional")
-local documents = require("nupp.serde.document")
-local documentReaders = require("nupp.serde.document")
-local bridge = require("nupp.serde.document")
-local contexts = require("nupp.serde.codec")
+local documents = require("serde.document")
+local documentReaders = require("serde.document")
+local bridge = require("serde.document")
+local contexts = require("serde.codec")
 local utf8 = require("nupp.text.utf8")
 
 export interface Policy
@@ -228,7 +228,7 @@ local record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
         if type(self.value) == "string" then
             return integers.decode(self.value as string, width, signed)
         else
-            local numbers = require("nupp.serde.codec")
+            local numbers = require("serde.codec")
             return numbers.integer((self.value as core.Integer).decimal, width, signed)
         end
     end
@@ -410,7 +410,7 @@ local record Output<M is core.Member> is core.Writer<M>
 
     function writeInteger(exclusive self, member: M, borrows value: core.Integer): nil
         local selected = self:selected(member)
-        local numbers = require("nupp.serde.codec")
+        local numbers = require("serde.codec")
         self:put(
             member,
             "integer",

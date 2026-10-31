@@ -1,5 +1,5 @@
-local serde = require("nupp.serde")
-local json = require("nupp.codec.json")
+local serde = require("serde")
+local json = require("serde.json")
 local text = require("nupp.text")
 
 local record Small
@@ -37,7 +37,7 @@ local record Exact
     signed: int64
     unsigned: uint64
 end
-local typed = require("nupp.serde.json")
+local typed = require("serde.json")
 
 local function operationFor(target)
     local binding = serde.binding<any>(target)
@@ -94,5 +94,9 @@ end
 add("collections", Collections, '{"rows":[' .. table.concat(rows, ',') .. '],"labels":{"a":"one","b":"two"}}')
 add("recursive", Tree, '{"name":"a","next":{"name":"b","next":{"name":"c","next":null}}}')
 add("exact", Exact, '{"signed":-9223372036854775808,"unsigned":18446744073709551615}')
-add("large-string", Small, '{"id":7,"active":true,"name":' .. json.encode(string.rep('large \" payload ', 4096)) .. '}')
+add(
+    "large-string",
+    Small,
+    '{"id":7,"active":true,"name":' .. json.encodeValue(string.rep('large \" payload ', 4096)) .. '}'
+)
 return cases

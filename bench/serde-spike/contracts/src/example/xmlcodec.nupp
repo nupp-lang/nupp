@@ -1,16 +1,16 @@
 module example.xmlcodec
 
-local __serdeJson = require("nupp.serde.json")
+local __serdeJson = require("serde.json")
 
-local core = require("nupp.serde")
-local publication = require("nupp.serde.codec")
+local core = require("serde")
+local publication = require("serde.codec")
 local syntax = require("example.xmlsyntax")
 local assembly = require("example.xmlassembly")
-local numbers = require("nupp.serde.codec")
-local documents = require("nupp.serde.document")
-local documentReaders = require("nupp.serde.document")
-local bridge = require("nupp.serde.document")
-local contexts = require("nupp.serde.codec")
+local numbers = require("serde.codec")
+local documents = require("serde.document")
+local documentReaders = require("serde.document")
+local bridge = require("serde.document")
+local contexts = require("serde.codec")
 local utf8 = require("nupp.text.utf8")
 
 export interface Policy

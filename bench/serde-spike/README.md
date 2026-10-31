@@ -7,7 +7,7 @@ callback traversal, schema walking, indexed storage, and a native control.
 ./run.sh --json 15
 ```
 
-The production variants now call `nupp.serde.json` with selected bindings.
+The production variants now call `serde.json` with selected bindings.
 Names containing `prepared` are retained benchmark identifiers for warm schema
 extensions; they do not imply a public preparation API. The `current` encode
 variants measure the caller-owned syntax-writer path. For comparisons against

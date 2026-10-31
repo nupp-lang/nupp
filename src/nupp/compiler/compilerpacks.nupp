@@ -10,7 +10,7 @@ runs one. `NUPP_COMPILER_PACK_DIR` points at the directory containing
 compiler and set that variable in its launcher.
 ]]
 const {type Profile} = require("nupp.compiler.targetprofile")
-const json = require("nupp.codec.json")
+const json = require("nupp.serde.internal.json.values")
 
 local fs = require("nupp.compiler.fs")
 local hash = require("nupp.compiler.hash")

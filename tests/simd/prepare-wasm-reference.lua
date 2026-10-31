@@ -18,6 +18,7 @@ local function absolute(path)
     local pipe = assert(io.popen("pwd"))
     local here = pipe:read("*l")
     pipe:close()
+
     return here .. "/" .. path
 end
 
@@ -36,7 +37,7 @@ local function run(command)
     end
 end
 
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 
 local function read(path)
     local file = assert(io.open(path, "rb"))
@@ -46,14 +47,17 @@ local function read(path)
 end
 
 local function sha256(path)
-    local pipe = assert(io.popen("(shasum -a 256 " .. quote(path) .. " || sha256sum " .. quote(path) .. ") 2>/dev/null"))
+    local pipe = assert(
+        io.popen("(shasum -a 256 " .. quote(path) .. " || sha256sum " .. quote(path) .. ") 2>/dev/null")
+    )
     local digest = pipe:read("*a"):match("^(%x+)")
     pipe:close()
+
     return assert(digest, "no digest for " .. path)
 end
 
 local reference = read(project .. "/result.json")
-local simd = json.decode(reference, json.NULL)
+local simd = json.decodeValue(reference, json.NULL)
 assert(simd.ok and simd.nativeCalls and simd.symbols, "run the SIMD corpus before preparing its reference")
 run("mkdir -p " .. quote(output))
 run("cp -R " .. quote(project .. "/src") .. " " .. quote(project .. "/nupp.lua") .. " " .. quote(output))
@@ -63,13 +67,16 @@ if corpus then
     run("cp " .. quote(project .. "/corpus.json") .. " " .. quote(output))
 end
 run(
-    "cd " .. quote(output) .. " && NUPP_AOT_WASM_ORACLE=1 " .. quote(root .. "/bin/nupp")
-        .. " build --target app > " .. quote(output .. "/reference-build.log") .. " 2>&1"
+    "cd " .. quote(
+        output
+    ) .. " && NUPP_AOT_WASM_ORACLE=1 " .. quote(
+        root .. "/bin/nupp"
+    ) .. " build --target app > " .. quote(output .. "/reference-build.log") .. " 2>&1"
 )
 
 -- The rebuilt units are the SIMD ones by source; their names carry the switch.
-local original = json.decode(read(project .. "/dist/aot/units.json"), json.NULL)
-local rebuilt = json.decode(read(output .. "/dist/aot/units.json"), json.NULL)
+local original = json.decodeValue(read(project .. "/dist/aot/units.json"), json.NULL)
+local rebuilt = json.decodeValue(read(output .. "/dist/aot/units.json"), json.NULL)
 local bySource = {}
 for _, unit in ipairs(original.units) do
     bySource[unit.source] = unit
@@ -78,7 +85,9 @@ local units = {}
 for _, unit in ipairs(rebuilt.units) do
     if unit.wasm then
         local before = assert(bySource[unit.source], "the reference build has a unit the SIMD build does not")
-        units[#units + 1] = {
+        units[
+            #units + 1
+        ] = {
             unit = unit.unit,
             wasm = unit.wasm,
             originalWasmSha256 = sha256(project .. "/dist/aot/" .. before.wasm),
@@ -96,6 +105,6 @@ local selection = {
     units = units,
 }
 local file = assert(io.open(output .. "/scalar-selection.json", "wb"))
-file:write(json.encode(selection), "\n")
+file:write(json.encodeValue(selection), "\n")
 file:close()
 print(("Prepared %d reference Wasm units in %s"):format(#units, output))

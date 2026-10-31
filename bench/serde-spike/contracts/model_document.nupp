@@ -1,5 +1,5 @@
 local model = require("example.richmodel")
-local json = require("nupp.serde.json")
+local json = require("serde.json")
 
 local schema = model.newModel()
 local binding = model.documentBinding(schema)

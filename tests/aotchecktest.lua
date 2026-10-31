@@ -29,7 +29,9 @@ local TRIPLE = "aarch64-apple-darwin"
 -- lowering stops at the first, in a build as here.
 local REFUSED = {
     -- A native-only aggregate has no memory layout, so no span holds one.
-    ["aggregatespan.nupp"] = [[
+    [
+        "aggregatespan.nupp"
+    ] = [[
 local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
 
@@ -47,7 +49,9 @@ return {first = first, Pair = Pair}
 ]],
     -- A stored vector field is one row's lanes, not one lane of several rows,
     -- so the species' field access does not reach it.
-    ["vectorfieldload.nupp"] = [[
+    [
+        "vectorfieldload.nupp"
+    ] = [[
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
@@ -67,7 +71,9 @@ return {first = first, Particle = Particle}
 ]],
     -- A column of vectors is not admitted: a stored vector field belongs to a
     -- span of its struct.
-    ["vectorsoa.nupp"] = [[
+    [
+        "vectorsoa.nupp"
+    ] = [[
 local soa = require("nupp.mem.soa")
 local simd = require("nupp.simd")
 
@@ -88,7 +94,9 @@ end
 return {masses = masses, Particle = Particle}
 ]],
     -- A species is a compile-time fact, so an entry cannot answer one.
-    ["speciesresult.nupp"] = [[
+    [
+        "speciesresult.nupp"
+    ] = [[
 local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 
@@ -99,7 +107,9 @@ end
 
 return {chosen = chosen}
 ]],
-    ["truthy.nupp"] = [[
+    [
+        "truthy.nupp"
+    ] = [[
 @aot
 local function sign(value: number): number
     if value then
@@ -110,7 +120,9 @@ end
 
 return {sign = sign}
 ]],
-    ["negation.nupp"] = [[
+    [
+        "negation.nupp"
+    ] = [[
 @aot
 local function absent(value: number): boolean
     return not value
@@ -118,14 +130,18 @@ end
 
 return {absent = absent}
 ]],
-    ["method.nupp"] = [[
+    [
+        "method.nupp"
+    ] = [[
 @aot
 local function rest(source: string, from: integer): string
     return source:sub(from)
 end
 return {rest = rest}
 ]],
-    ["shift.nupp"] = [[
+    [
+        "shift.nupp"
+    ] = [[
 local u32 = nupp.math.u32
 
 @aot
@@ -135,7 +151,9 @@ end
 
 return {shifted = shifted}
 ]],
-    ["lane.nupp"] = [[
+    [
+        "lane.nupp"
+    ] = [[
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
@@ -152,7 +170,9 @@ end
 
 return {lane = lane}
 ]],
-    ["kernel.nupp"] = [[
+    [
+        "kernel.nupp"
+    ] = [[
 local span = require("nupp.mem.span")
 
 @aot(target = "gpu")
@@ -165,7 +185,9 @@ end
 
 return {scale = scale}
 ]],
-    ["family.nupp"] = [[
+    [
+        "family.nupp"
+    ] = [[
 @aot
 local function repeated<const N: integer>(value: number, count: N): number
     local answer = value
@@ -179,7 +201,9 @@ return repeated(1.0, 1) + repeated(1.0, 2) + repeated(1.0, 3) + repeated(1.0, 4)
     + repeated(1.0, 6) + repeated(1.0, 7) + repeated(1.0, 8) + repeated(1.0, 9)
 ]],
     -- A read one past what `at + 2 < #source` proves.
-    ["cursorpast.nupp"] = [[
+    [
+        "cursorpast.nupp"
+    ] = [[
 local span = require("nupp.mem.span")
 
 @aot
@@ -197,7 +221,9 @@ return {past = past}
 ]],
     -- A read one past the three elements `#rgb == 3 * #grey` carries from
     -- `at < #grey` into `rgb`.
-    ["factorpast.nupp"] = [[
+    [
+        "factorpast.nupp"
+    ] = [[
 local span = require("nupp.mem.span")
 
 @aot
@@ -213,7 +239,9 @@ end
 return {past = past}
 ]],
     -- A write one past what `out + 3 <= #output` proves.
-    ["cursorstorepast.nupp"] = [[
+    [
+        "cursorstorepast.nupp"
+    ] = [[
 local span = require("nupp.mem.span")
 
 @aot
@@ -234,7 +262,9 @@ return {storePast = storePast}
 local ADMITTED = {
     -- A `Fixed<N>` vector field has a storage layout, so its struct is a span
     -- element, and the field is read and written whole through its row.
-    ["vectorfield.nupp"] = [[
+    [
+        "vectorfield.nupp"
+    ] = [[
 local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
 
@@ -257,7 +287,9 @@ return {damp = damp, Particle = Particle}
 ]],
     -- A vector signature makes an entry native-only, reached from the entry
     -- beside it; it is admitted, not refused.
-    ["vectorentry.nupp"] = [[
+    [
+        "vectorentry.nupp"
+    ] = [[
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
@@ -279,7 +311,9 @@ end
 return {twice = twice, apply = apply}
 ]],
     -- A `float` read passed where `f32` is wanted: the load is already one.
-    ["floatread.nupp"] = [[
+    [
+        "floatread.nupp"
+    ] = [[
 local span = require("nupp.mem.span")
 
 @aot
@@ -294,7 +328,9 @@ return {scale = scale}
 ]],
     -- The same read bound to an unannotated local first: the local keeps the
     -- `float` the checker gave it rather than the widened binary64.
-    ["floatlocal.nupp"] = [[
+    [
+        "floatlocal.nupp"
+    ] = [[
 local span = require("nupp.mem.span")
 
 @aot
@@ -310,7 +346,9 @@ return {halve = halve}
 ]],
     -- A struct holding vectors is a native-only aggregate: built, read, passed
     -- and answered inside native code.
-    ["aggregate.nupp"] = [[
+    [
+        "aggregate.nupp"
+    ] = [[
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
@@ -339,8 +377,10 @@ end
 return {square = square, squares = squares, Pair = Pair}
 ]],
     -- A number literal passed to a `uint32` parameter, which the literal fits.
-    ["literalwidth.nupp"] = [[
-local valuebuilder = require("nupp.codec.valuebuilder")
+    [
+        "literalwidth.nupp"
+    ] = [[
+local valuebuilder = require("serde.valuebuilder")
 
 @aot
 local function pair(nullValue: any): any
@@ -356,7 +396,9 @@ end
 local _ = pair
 ]],
     -- A species witness named through the global `nupp.mem.array` path.
-    ["globalwitness.nupp"] = [[
+    [
+        "globalwitness.nupp"
+    ] = [[
 local array = nupp.mem.array
 local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
@@ -385,7 +427,9 @@ end
 
 return {countQuotes = countQuotes}
 ]],
-    ["clamp.nupp"] = [[
+    [
+        "clamp.nupp"
+    ] = [[
 @aot
 local function clamp(value: number, low: number, high: number): number
     if value < low then return low end
@@ -397,7 +441,9 @@ return {clamp = clamp}
 ]],
     -- Byte reads accumulated into either thirty-two bit width with the
     -- operators, which wrap at that width as the `nupp.math` calls do.
-    ["bytecarry.nupp"] = [[
+    [
+        "bytecarry.nupp"
+    ] = [[
 local span = require("nupp.mem.span")
 
 @aot
@@ -424,7 +470,9 @@ return {signed = signed, unsigned = unsigned}
     -- Guards relating counts through a factor and an offset, in each
     -- spelling, feeding a counted loop over the shorter span and the room a
     -- cursor bounded by it has in the longer one.
-    ["factorguards.nupp"] = [[
+    [
+        "factorguards.nupp"
+    ] = [[
 local span = require("nupp.mem.span")
 
 @aot
@@ -466,7 +514,9 @@ return {box3 = box3, first = first, padded = padded}
 ]],
     -- Reads and writes displaced past one cursor, each within what its
     -- literal guard proves, in every spelling of the guard.
-    ["cursorsteps.nupp"] = [[
+    [
+        "cursorsteps.nupp"
+    ] = [[
 local span = require("nupp.mem.span")
 
 @aot
@@ -499,7 +549,9 @@ end
 
 return {triples = triples}
 ]],
-    ["plain.nupp"] = [[
+    [
+        "plain.nupp"
+    ] = [[
 local function sign(value: number): number
     if value then
         return 1.0
@@ -564,7 +616,9 @@ local function corpus()
     for name, source in pairs(ADMITTED) do
         files[name] = source
     end
-    shared = project(([[
+    shared = project(
+        (
+            [[
 return {
    include = {"."},
    build = {
@@ -575,7 +629,10 @@ return {
       },
    },
 }
-]]):format(TRIPLE), files)
+]]
+        ):format(TRIPLE),
+        files
+    )
 
     return shared
 end
@@ -650,9 +707,14 @@ end
 -- An unchanged project is answered from the last check's records, refusals
 -- included: the second check lowers nothing and says the same thing.
 function M.aWarmCheckReplaysTheRefusalsWithoutLowering()
-    local dir = project(([[
+    local dir = project(
+        (
+            [[
 return {include = {"."}, build = {targets = {native = {kind = "modules", aot = "require", aotTarget = %q}}}}
-]]):format(TRIPLE), {["method.nupp"] = REFUSED["method.nupp"], ["clamp.nupp"] = ADMITTED["clamp.nupp"]})
+]]
+        ):format(TRIPLE),
+        {["method.nupp"] = REFUSED["method.nupp"], ["clamp.nupp"] = ADMITTED["clamp.nupp"]}
+    )
     local cold, _, coldRaw = checkJson(dir, "")
     assert(cold.timing.compiledModules > 0, coldRaw)
     local warm, code, warmRaw = checkJson(dir, "")
@@ -661,8 +723,10 @@ return {include = {"."}, build = {targets = {native = {kind = "modules", aot = "
     test.equal(#warm.diagnostics, 1, warmRaw)
     test.equal(warm.diagnostics[1].code, "NUPP2905", warmRaw)
     -- A fix is an edit to that module alone, and the refusal goes with it.
-    write(dir .. "/method.nupp", "@aot\nlocal function rest(from: integer): integer\n    return from\nend\n"
-        .. "return {rest = rest}\n")
+    write(
+        dir .. "/method.nupp",
+        "@aot\nlocal function rest(from: integer): integer\n    return from\nend\n" .. "return {rest = rest}\n"
+    )
     local fixed, fixedCode, fixedRaw = checkJson(dir, "")
     test.equal(fixedCode, 0, fixedRaw)
     test.equal(fixed.timing.compiledModules, 1, fixedRaw)
@@ -671,24 +735,31 @@ end
 -- A build lowers what its deliverable reaches. A module no entry requires is
 -- not in the library, is not refused by the build, and is not refused here.
 function M.onlyWhatTheTargetReachesIsRefused()
-    local dir = project(([[
+    local dir = project(
+        (
+            [[
 return {
    include = {"src"},
    build = {targets = {native = {kind = "modules", entries = {"main"}, aot = "require", aotTarget = %q}}},
 }
-]]):format(TRIPLE), {
-        ["src/main.nupp"] = 'local used = require("used")\nreturn used\n',
-        ["src/used.nupp"] = ADMITTED["clamp.nupp"],
-        ["src/stray.nupp"] = REFUSED["truthy.nupp"],
-    })
+]]
+        ):format(TRIPLE),
+        {
+            ["src/main.nupp"] = 'local used = require("used")\nreturn used\n',
+            ["src/used.nupp"] = ADMITTED["clamp.nupp"],
+            ["src/stray.nupp"] = REFUSED["truthy.nupp"],
+        }
+    )
     local decoded, code, raw = checkJson(dir, "")
     test.equal(code, 0, "the unreached module is not the target's to refuse: " .. raw)
     test.equal(#decoded.diagnostics, 0, raw)
     local out, buildCode = run(dir, "build")
     test.equal(buildCode, 0, "and the build agrees: " .. out)
     -- Reached, it is refused, although the module itself did not change.
-    write(dir .. "/src/main.nupp", 'local used = require("used")\nlocal stray = require("stray")\n'
-        .. "return {used = used, stray = stray}\n")
+    write(
+        dir .. "/src/main.nupp",
+        'local used = require("used")\nlocal stray = require("stray")\n' .. "return {used = used, stray = stray}\n"
+    )
     local reached, reachedCode, reachedRaw = checkJson(dir, "")
     test.equal(reachedCode, 1, reachedRaw)
     test.equal(reached.diagnostics[1].code, "NUPP2905", reachedRaw)
@@ -706,17 +777,24 @@ function M.aFamilyOnlyAnotherModuleClosesIsRefusedByCheck()
     for count = 1, 9 do
         calls[#calls + 1] = ("repeated(1.0, %d)"):format(count)
     end
+
     local function caller(n)
-        return 'local family = require("family")\nlocal repeated = family.repeated\nreturn '
-            .. table.concat(calls, " + ", 1, n) .. "\n"
+        return 'local family = require("family")\nlocal repeated = family.repeated\nreturn ' .. table.concat(
+            calls,
+            " + ",
+            1,
+            n
+        ) .. "\n"
     end
-    local dir = project(([[
+
+    local dir = project(
+        (
+            [[
 return {include = {"src"}, build = {targets = {native = {kind = "modules", entries = {"main"}, aot = "require", aotTarget = %q}}}}
-]]):format(TRIPLE), {
-        ["src/family.nupp"] = family,
-        ["src/main.nupp"] = caller(9),
-        ["src/other.nupp"] = "return {answer = 42}\n",
-    })
+]]
+        ):format(TRIPLE),
+        {["src/family.nupp"] = family, ["src/main.nupp"] = caller(9), ["src/other.nupp"] = "return {answer = 42}\n",}
+    )
     local out, buildCode = run(dir, "build")
     test.equal(buildCode, 1, "the build refuses the family: " .. out)
     assert(out:find("NUPP2908", 1, true), out)
@@ -743,7 +821,9 @@ end
 -- check of a target that compiles names each use, and a target that does not
 -- compile leaves the ordinary Lua call alone.
 function M.aLuaUseOfANativeOnlyEntryIsRefusedWhereATargetCompiles()
-    local dir = project(([[
+    local dir = project(
+        (
+            [[
 return {
    include = {"."},
    build = {
@@ -754,8 +834,12 @@ return {
       },
    },
 }
-]]):format(TRIPLE), {
-        ["vec.nupp"] = [[
+]]
+        ):format(TRIPLE),
+        {
+            [
+                "vec.nupp"
+            ] = [[
 local simd = require("nupp.simd")
 
 @aot
@@ -765,7 +849,9 @@ end
 
 return {twice = twice}
 ]],
-        ["uses.nupp"] = [[
+            [
+                "uses.nupp"
+            ] = [[
 local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 local vec = require("vec")
@@ -781,7 +867,8 @@ end
 
 return {alias = alias, member = member}
 ]],
-    })
+        }
+    )
     local decoded, code, raw = checkJson(dir, "")
     test.equal(code, 1, raw)
     local found = refusalsByFile(decoded)
@@ -801,7 +888,9 @@ end
 -- under every policy, and a Lua construction of one is refused where a target
 -- compiles, as a Lua call of a native-only entry is.
 function M.aNativeOnlyAggregateIsAValueAndStaysOutOfLua()
-    local dir = project(([[
+    local dir = project(
+        (
+            [[
 return {
    include = {"."},
    build = {
@@ -812,8 +901,12 @@ return {
       },
    },
 }
-]]):format(TRIPLE), {
-        ["pair.nupp"] = [[
+]]
+        ):format(TRIPLE),
+        {
+            [
+                "pair.nupp"
+            ] = [[
 local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 
@@ -835,7 +928,8 @@ end
 
 return {conjugate = conjugate, fromLua = fromLua, Pair = Pair}
 ]],
-    })
+        }
+    )
     local decoded, code, raw = checkJson(dir, "")
     test.equal(code, 1, raw)
     local found = refusalsByFile(decoded)["pair.nupp"] or {}

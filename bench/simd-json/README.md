@@ -88,7 +88,7 @@ The production route has three stages inside one native entry:
    or otherwise ambiguous mantissas retain the correctly rounded `strtod`
    fallback.
 
-The production `nupp.codec.json.pull` route drives the same entry with a selection
+The production `serde.json.pull` route drives the same entry with a selection
 shape. It retains grammar state for every container but creates Lua tables and
 values only for selected branches. Skipped escaped strings validate their escape
 and surrogate structure without allocating transformed storage or an interned Lua
@@ -165,14 +165,14 @@ drained two, which is the whole of the difference. The reference runs at
 
 ## The rest of the experiment
 
-The full `simd-json` target builds on the public `nupp.codec.json`,
-`nupp.serde` and `nupp.text` surfaces. Its fused control calls the shipped
+The full `simd-json` target builds on the public `serde.json`,
+`serde` and `nupp.text` surfaces. Its fused control calls the shipped
 public decoder; the production decoder and structural indexer both use the
 general SIMD algebra. Prepared-schema tests cover defaults, nullable fields,
 literals and tuples through the public binding API.
 
 `nupp/spi.json` advertises `nupp.codec.json.aot` for
-`nupp.codec.json.spi.Provider`; codec consumers select it at first load. The default codec remains Lunajson elsewhere.
+`serde.json.spi.Provider`; codec consumers select it at first load. The default codec remains Lunajson elsewhere.
 The test and benchmark entry points refuse to run unless the public eager,
 pull and serde decoders reach registered native C builders, and classification,
 indexing and arena parsing have registered AOT replacements. Merely loading some other

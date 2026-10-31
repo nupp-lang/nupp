@@ -1,6 +1,6 @@
 local bridge = require("nupp.serde.internal.documentcodec")
 local model = require("example.richmodel")
-local json = require("nupp.serde.json")
+local json = require("serde.json")
 bridge.clear()
 local binding = model.binding(model.newModel())
 local value = json.codec(model.policy(true)):decode(binding, '{"identifier":"cached","created":0}')

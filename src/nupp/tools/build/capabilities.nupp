@@ -5,7 +5,7 @@ module nupp.tools.build.capabilities
 -- only after the build has selected and validated one descriptor entry.
 
 local fs = require("nupp.compiler.fs")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 
 local capabilities = {}
 
@@ -31,7 +31,7 @@ local function readDescriptor(record, dependencyName): {capabilities.Entry}?, st
     if not text then
         return nil, "dependency " .. dependencyName .. " has no nupp/capabilities.json"
     end
-    local document = json.decode(text, json.NULL)
+    local document = json.decodeValue(text, json.NULL)
     if type(document) ~= "table" then
         return nil, path .. " is not valid JSON"
     end

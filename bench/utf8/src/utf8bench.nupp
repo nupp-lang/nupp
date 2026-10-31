@@ -18,7 +18,7 @@ check. Every `@aot` entry in the tree today returns `any` or a Lua value, so
 nothing else has met this.
 ]]
 
-local valuebuilder = require("nupp.codec.valuebuilder")
+local valuebuilder = require("serde.valuebuilder")
 
 local function u32(value: integer): uint32
     return nupp.math.u32.wrap(value)

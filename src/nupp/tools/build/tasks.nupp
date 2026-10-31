@@ -9,7 +9,7 @@ which is the default, and what does each one produce. Nothing here builds
 anything -- it answers about the manifest.
 ]]
 
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local cache = require("nupp.tools.build.cache")
 local manifest = require("nupp.tools.build.manifest")
 local projectconfig = require("nupp.compiler.project.projectconfig")
@@ -263,7 +263,7 @@ function tasks.describe(
 end
 
 function tasks.encode(value: unknown): string
-    return json.encode(value)
+    return json.encodeValue(value)
 end
 
 tasks.targetConfig = targetConfig

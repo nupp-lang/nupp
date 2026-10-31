@@ -267,10 +267,7 @@ function M.scopedReadersRejectRetentionAndIncorrectConsumption()
 end
 
 function M.bindingsAreInvariant()
-    local expected = {
-        ["widen.nupp"] = "NUPP2001",
-        ["narrow.nupp"] = "NUPP2002",
-    }
+    local expected = {["widen.nupp"] = "NUPP2001", ["narrow.nupp"] = "NUPP2002",}
     local args = {"check", "--json"}
     for _, name in ipairs({"widen.nupp", "narrow.nupp"}) do
         args[#args + 1] = "negative/" .. name
@@ -306,7 +303,7 @@ function M.portableSourceProfileRejectsUnsupportedRuntimeDependencies()
     for _, diagnostic in ipairs(checked.diagnostics) do
         rejected = rejected
             or diagnostic.code == "NUPP3015"
-            and diagnostic.message:find('module "nupp.serde" violates compatibility', 1, true)
+            and diagnostic.message:find('module "serde" violates compatibility', 1, true)
     end
     assert(rejected, output)
 end

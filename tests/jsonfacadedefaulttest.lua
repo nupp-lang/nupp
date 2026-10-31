@@ -1,4 +1,4 @@
--- Using JSON must not depend on AOT. `nupp.codec.json` resolves its provider
+-- Using JSON must not depend on AOT. `serde.json` resolves its provider
 -- during module initialization, with Lunajson as the explicit fallback.
 --
 -- What that claims is about a process that has done nothing else, so it is
@@ -42,10 +42,10 @@ function M.anOrdinaryJsonRequireLoadsLunajsonAndNoAotDecoder()
     local output = runScript(
         string.format(
             [[
-        local json = require("nupp.codec.json")
-        local value = json.decode('{"a":[1,2,3],"b":"x"}')
+        local json = require("serde.json")
+        local value = json.decodeValue('{"a":[1,2,3],"b":"x"}')
         assert(value.b == "x" and #value.a == 3, "the default provider decodes")
-        assert(json.encode(json.asArray({1, 2})) == "[1,2]", "the default provider encodes")
+        assert(json.encodeValue(json.asArray({1, 2})) == "[1,2]", "the default provider encodes")
         if package.loaded["nupp.runtime.provider.lunajson"] == nil then
             print("MISSING lunajson")
         end
@@ -70,7 +70,7 @@ function M.valueBuildingWithoutByteViewsDoesNotLoadStorage()
         package.preload["nupp.mem.span"] = function()
             error("valuebuilder loaded spans before a byte view was requested")
         end
-        local builder = require("nupp.codec.valuebuilder")
+        local builder = require("serde.valuebuilder")
         assert(builder.length("hello") == 5)
         print("done")
     ]]

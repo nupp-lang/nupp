@@ -1,4 +1,4 @@
-local native = require("nupp.serde.native")
+local native = require("serde.native")
 local buffer = require("string.buffer")
 local documents = require("nupp.serde.internal.document")
 local adapter = documents.documentAdapter()

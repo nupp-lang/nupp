@@ -242,7 +242,7 @@ return m
 ]]
 
 local BUILDER = [[
-local valueBuilder = require("nupp.codec.valuebuilder")
+local valueBuilder = require("serde.valuebuilder")
 local simd = require("nupp.simd")
 
 @aot
@@ -681,7 +681,7 @@ end
 -- build checks the file, so the first of these has no reader left in the text
 -- that gets checked and the second never had one.
 local UNUSED_SOURCE = [[
-local valueBuilder = require("nupp.codec.valuebuilder")
+local valueBuilder = require("serde.valuebuilder")
 
 const READ_ONLY_IN_THE_BODY = "\001\002\003\004"
 
@@ -1813,7 +1813,7 @@ function M.constGenericSelectsValueStreamModePerVariant()
         table.concat(
             {
                 "module nupp.constmodes",
-                'local _valueBuilder = require("nupp.codec.valuebuilder")',
+                'local _valueBuilder = require("serde.valuebuilder")',
                 'local _jsonBuilder = require("nupp.codec.json.internal.builder")',
                 "@aot",
                 "local function build<const Variant: integer>(",
@@ -2933,7 +2933,7 @@ function M.wasmConstFamiliesBindEveryKernelSpecializationAndRefuseBuilders()
     local withBuilder = lowered(
         [=[
 module wasmconst
-local valueBuilder = require("nupp.codec.valuebuilder")
+local valueBuilder = require("serde.valuebuilder")
 local {type Buffer} = require("nupp.text")
 @aot
 local function measured<const Bump: integer>(borrows source: string | Buffer, bump: Bump): uint32
@@ -4674,7 +4674,7 @@ return {
 module bytes
 
 local text = require("nupp.text")
-local valueBuilder = require("nupp.codec.valuebuilder")
+local valueBuilder = require("serde.valuebuilder")
 local {type Buffer} = require("nupp.text")
 
 --- Counts the bytes of a string or a buffer, plus a const bump.
@@ -7474,7 +7474,15 @@ function M.laneArithmeticAgreesAcrossLuaScalarAndLaneExecution()
                         }
                         for slot, want in ipairs(expected) do
                             local got = actual[(slot - 1) * 4 + lane]
-                            local label = symbol .. " divisor " .. divisor .. " count " .. count .. " slot " .. slot .. " lane " .. lane
+                            local label = symbol
+                                .. " divisor "
+                                .. divisor
+                                .. " count "
+                                .. count
+                                .. " slot "
+                                .. slot
+                                .. " lane "
+                                .. lane
                             if lane < count then
                                 test.equal(got, want, label)
                                 if want == 0 then
@@ -7519,7 +7527,15 @@ function M.laneArithmeticAgreesAcrossLuaScalarAndLaneExecution()
                     }
                     for slot, want in ipairs(expected) do
                         local got = actual[(slot - 1) * 4 + lane]
-                        local label = symbol .. " divisor " .. divisor .. " count " .. count .. " slot " .. slot .. " lane " .. lane
+                        local label = symbol
+                            .. " divisor "
+                            .. divisor
+                            .. " count "
+                            .. count
+                            .. " slot "
+                            .. slot
+                            .. " lane "
+                            .. lane
                         test.equal(got, lane < count and want or -99, label)
                     end
                 end
@@ -7580,15 +7596,7 @@ function M.laneArithmeticAgreesAcrossLuaScalarAndLaneExecution()
         },
         {
             input = {-7LL, 7LL},
-            expected = {
-                {-1LL, 0LL},
-                {0LL, 0LL},
-                {-4LL, 10LL},
-                {-10LL, 4LL},
-                {62LL, 3LL},
-                {-1LL, -2LL},
-                {2LL, -3LL},
-            },
+            expected = {{-1LL, 0LL}, {0LL, 0LL}, {-4LL, 10LL}, {-10LL, 4LL}, {62LL, 3LL}, {-1LL, -2LL}, {2LL, -3LL},},
         },
     }
     for _, case in ipairs(wideCases) do

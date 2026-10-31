@@ -1,6 +1,6 @@
 module nupp.serde.internal.json.syntax
 
-local json = require("nupp.codec.json")
+local json = require("nupp.serde.internal.json.values")
 local errors = require("nupp.serde.internal.errors")
 
 export type Token = "null" | "boolean" | "number" | "string" | "object" | "array"

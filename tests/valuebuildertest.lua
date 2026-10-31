@@ -1,4 +1,4 @@
-local valuebuilder = require("nupp.codec.valuebuilder")
+local valuebuilder = require("serde.valuebuilder")
 local jsonbuilder = require("nupp.codec.json.internal.builder")
 local test = require("nupp.test")
 local u32 = nupp.math.u32.wrap

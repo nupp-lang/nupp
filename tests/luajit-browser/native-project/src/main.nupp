@@ -1,4 +1,4 @@
-local valueBuilder = require("nupp.codec.valuebuilder")
+local valueBuilder = require("serde.valuebuilder")
 
 @aot
 local function rows(count: integer): {number}

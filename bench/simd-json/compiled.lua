@@ -50,11 +50,11 @@ local function prove(entry, providerMember, decoderName)
 end
 
 return function()
-    local codec = require("nupp.codec.json")
+    local codec = require("serde.json")
     local proof = {
-        eager = prove(codec.decode, "decode", "eagerDecoder"),
+        eager = prove(codec.decodeValue, "decode", "eagerDecoder"),
         pull = prove(codec.pull, "pull", "pullDecoder"),
-        serde = prove(codec.decode, "decodeSerde", "serdeDecoder"),
+        serde = prove(codec.decodeValue, "decodeSerde", "serdeDecoder"),
     }
     for _, kernel in ipairs({{"scanner", "classify"}, {"indexer", "index"}, {"parser", "parse"}}) do
         local entry = require("simd_json." .. kernel[1])[kernel[2]]

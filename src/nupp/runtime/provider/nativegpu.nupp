@@ -325,12 +325,12 @@ local function costMetadata(context: any, handle: any, kernel: boolean, metadata
     if C.nuppNativeGpuCostsEnabled() == 0 then
         return
     end
-    local json = require("nupp.codec.json")
+    local json = require("serde.json")
     if kernel then
         metadata.readonlyNames = json.asArray(metadata.readonlyNames or {})
         metadata.writableNames = json.asArray(metadata.writableNames or {})
     end
-    local encoded = json.encode(metadata)
+    local encoded = json.encodeValue(metadata)
     native.succeeded(C.nuppNativeGpuCostMetadata(context, handle, kernel and 1 or 0, encoded, #encoded), 2)
 end
 

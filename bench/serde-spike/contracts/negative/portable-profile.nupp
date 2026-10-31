@@ -1,4 +1,4 @@
-local serde = require("nupp.serde")
+local serde = require("serde")
 local record Value
     name: string
 end

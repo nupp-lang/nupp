@@ -6,7 +6,7 @@ local harness = require("harness")
 local tier1 = require("tier1eval")
 local tasks = require("nupp.tasks")
 local time = require("nupp.time")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 
 local batch = {}
 
@@ -60,7 +60,7 @@ function batch.runnable(nupp: string, jobs: integer): {string}
     if listed.returncode ~= 0 then
         error("nupp explain --list failed: " .. listed.stderr, 2)
     end
-    local decoded = json.decode(listed.stdout, json.NULL)
+    local decoded = json.decodeValue(listed.stdout, json.NULL)
     local codes: {string} = type(decoded.codes) == "table" and decoded.codes or {}
     local found = parallel(
         codes,
@@ -70,7 +70,7 @@ function batch.runnable(nupp: string, jobs: integer): {string}
             if done.returncode ~= 0 then
                 return json.NULL
             end
-            local ok, entry = pcall(json.decode, done.stdout, json.NULL)
+            local ok, entry = pcall(json.decodeValue, done.stdout, json.NULL)
             if not ok
             or entry.family ~= nil and entry.family ~= false and entry.family ~= json.NULL
             or type(entry.wrong) ~= "string"
@@ -261,7 +261,7 @@ function batch.report(summary: any, model: string?, elapsedSeconds: number): nil
         print(("\n %d failed:"):format(#summary.failed))
         for _, item in ipairs(summary.failed) do
             local fix = item.hadFix and "fix" or "no fix"
-            print("   " .. tostring(item.code) .. " (" .. fix .. ") left " .. json.encode(item.after))
+            print("   " .. tostring(item.code) .. " (" .. fix .. ") left " .. json.encodeValue(item.after))
         end
     end
 end

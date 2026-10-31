@@ -1,16 +1,16 @@
 module example.richmodel
 
-local __serdeJson = require("nupp.serde.json")
+local __serdeJson = require("serde.json")
 
 const util = require("nupp.util")
 
-local core = require("nupp.serde")
-local plans = require("nupp.serde.json")
-local json = require("nupp.codec.json")
-local timestamps = require("nupp.serde.codec")
-local documents = require("nupp.serde.document")
+local core = require("serde")
+local plans = require("serde.json")
+local json = require("serde.json")
+local timestamps = require("serde.codec")
+local documents = require("serde.document")
 local maps = require("example.maps")
-local contexts = require("nupp.serde.codec")
+local contexts = require("serde.codec")
 
 local record Member is core.Member
     @readonly name: string

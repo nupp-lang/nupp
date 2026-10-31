@@ -19,7 +19,7 @@ satisfy the interfaces in [](nupp.random.spi) and [](nupp.util.spi); no
 JavaScript function or provider instance is copied into a child Lua state.
 ]]
 
-local base64 = require("nupp.codec.base64")
+local base64 = require("serde.base64")
 local contracts = require("nupp.util.spi")
 local response = require("nupp.runtime.browser.response")
 local crypto = {}

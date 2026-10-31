@@ -25,6 +25,7 @@ on:
       - 'native/crates/abi/**'
       - 'native/crates/checksum/**'
       - 'src/nupp/checksum/**'
+      - 'src/binary/hash/checksum/**'
       - 'host/notices/**'
       - 'src/nupp/compiler/**'
       - 'src/nupp/tools/**'

@@ -1,6 +1,6 @@
 module example.smithyxml
 
-local core = require("nupp.serde")
+local core = require("serde")
 local smithy = require("example.smithy")
 local xml = require("example.xmlcodec")
 local syntax = require("example.xmlsyntax")

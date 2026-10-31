@@ -11,8 +11,8 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
 local function run(source)
-    source = [[local serde = require("nupp.serde")
-local typedJSON = require("nupp.serde.json")
+    source = [[local serde = require("serde")
+local typedJSON = require("serde.json")
 local function decode<T>(binding: serde.Binding<T>, bytes: string): (T?, string?)
     local ok, value = pcall(typedJSON.decode, binding, bytes)
     if not ok then return nil, tostring(value) end
@@ -99,7 +99,7 @@ local bytes = {}
 local accepted = true
 local out = require("nupp.text").newBuffer()
 for index, value in ipairs(corpora) do
-    local writer = nupp.codec.json.newWriter(out)
+    local writer = typedJSON.newWriter(out)
     typedJSON.writeValue(serde.binding(ModuleCache), value, writer)
     writer:close()
     bytes[index] = out:get()
@@ -163,7 +163,7 @@ local bytes, debugged = {}, {}
 local accepted = true
 local out = require("nupp.text").newBuffer()
 for index, request in ipairs(corpus) do
-    local writer = nupp.codec.json.newWriter(out)
+    local writer = typedJSON.newWriter(out)
     typedJSON.writeValue(serde.binding(TecsMCPRequest), request, writer)
     writer:close()
     bytes[index] = out:get()

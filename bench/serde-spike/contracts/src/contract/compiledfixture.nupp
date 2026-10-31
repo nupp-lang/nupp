@@ -1,14 +1,14 @@
 module contract.compiledfixture
 
-local __serdeJson = require("nupp.serde.json")
+local __serdeJson = require("serde.json")
 
-const {type EncodedValue} = require("nupp.codec.json")
+const {type EncodedValue} = require("serde.json")
 
-local core = require("nupp.serde")
-local declarations = require("nupp.serde")
-local plans = require("nupp.serde.json")
-local scalar = require("nupp.serde.adapters")
-local indexed = require("nupp.serde.adapters")
+local core = require("serde")
+local declarations = require("serde")
+local plans = require("serde.json")
+local scalar = require("serde.adapters")
+local indexed = require("serde.adapters")
 
 export record Child
     value: string

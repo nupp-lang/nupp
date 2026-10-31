@@ -1,6 +1,6 @@
-local json = require("nupp.codec.json")
-local serde = require("nupp.serde")
-local typedJSON = require("nupp.serde.json")
+local json = require("serde.json")
+local serde = require("serde")
+local typedJSON = require("serde.json")
 
 local function decoded<T>(binding: serde.Binding<T>, bytes: string): (T?, string?)
     local ok, value = pcall(typedJSON.decode, binding, bytes)
@@ -124,20 +124,20 @@ function test.run(): nil
     )
     assert(renamedProblem == nil and renamedValue ~= nil and renamedValue.id == 42)
 
-    local value = json.decode([[{"items":[],"object":{},"escaped":"a\"b\\c\n","unicode":"\u03ba"}]])
-    assert(json.encode(value.items) == "[]")
-    assert(json.encode(value.object) == "{}")
+    local value = json.decodeValue([[{"items":[],"object":{},"escaped":"a\"b\\c\n","unicode":"\u03ba"}]])
+    assert(json.encodeValue(value.items) == "[]")
+    assert(json.encodeValue(value.object) == "{}")
     assert(value.escaped == "a\"b\\c\n")
     assert(value.unicode == "κ")
-    local numbers = json.decode(
+    local numbers = json.decodeValue(
         "[2.2250738585072013e-308,7.2057594037927933e+16,3.1415926535897932384626433832795028841971693993751]"
     )
     assert(numbers[1] == 2.2250738585072013e-308)
     assert(numbers[2] == 7.2057594037927933e+16)
     assert(numbers[3] == 3.1415926535897932384626433832795028841971693993751)
     assert(
-        json.encode(value) == [[{"items":[],"object":{},"escaped":"a\"b\\c\n","unicode":"κ"}]]
-        or json.decode(json.encode(value)).escaped == value.escaped
+        json.encodeValue(value) == [[{"items":[],"object":{},"escaped":"a\"b\\c\n","unicode":"κ"}]]
+        or json.decodeValue(json.encodeValue(value)).escaped == value.escaped
     )
 
     local projected = json.pull([[{"id":41,"profile":{"name":"Ada","admin":true}}]], {
@@ -162,7 +162,7 @@ function test.run(): nil
     assert(#selected == 2 and selected[1].id == 1 and selected[2].id == 2)
     assert(selected[1].ignored == nil)
     assert(json.pull([[{"nullable":null}]], {nullable = true}, nullValue).nullable == nullValue)
-    assert(json.encode(json.pull("[1,2,3]", json.arrayOf(false))) == "[]")
+    assert(json.encodeValue(json.pull("[1,2,3]", json.arrayOf(false))) == "[]")
     assert(refused(json.pull([[{"id":1,"ignored":1e}]], {id = true})))
     assert(refused(json.pull([[{"id":1,"ignored":"\uD800"}]], {id = true})))
     assert(refused(json.pull([[{"ignored":{"\uD800":1}}]], {id = true})))
@@ -195,13 +195,13 @@ function test.run(): nil
     writer:close()
     assert(out:tostring() == [[{"a\"b":42}]])
 
-    assert(json.decode("null", json.NULL) == json.NULL)
-    assert(json.decode("null") == nil)
-    local dropped = json.decode([[{"items":[1,null,2],"gone":null,"kept":3}]])
+    assert(json.decodeValue("null", json.NULL) == json.NULL)
+    assert(json.decodeValue("null") == nil)
+    local dropped = json.decodeValue([[{"items":[1,null,2],"gone":null,"kept":3}]])
     assert(#dropped.items == 2 and dropped.items[1] == 1 and dropped.items[2] == 2)
     assert(dropped.gone == nil and dropped.kept == 3)
-    assert(refused(json.decode([["\uD800"]])))
-    assert(not pcall(json.encode, 0 / 0))
+    assert(refused(json.decodeValue([["\uD800"]])))
+    assert(not pcall(json.encodeValue, 0 / 0))
 end
 
 function test.preparedDecode(): FastEnvelope
@@ -209,7 +209,7 @@ function test.preparedDecode(): FastEnvelope
 end
 
 function test.preparedBufferDecode(): FastEnvelope
-    return require("nupp.serde.json").decodeBuffer(fastPrepared, fastBuffer)
+    return require("serde.json").decodeBuffer(fastPrepared, fastBuffer)
 end
 
 function test.preparedBufferCopyDecode(): FastEnvelope
@@ -252,7 +252,7 @@ function test.controlPlan(): {[string]: any}
 end
 
 function test.untypedDecode(): {[string]: any}
-    return json.decode(fastSource) as {[string]: any}
+    return json.decodeValue(fastSource) as {[string]: any}
 end
 
 return test

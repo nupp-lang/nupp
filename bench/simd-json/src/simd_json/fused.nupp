@@ -1,8 +1,8 @@
 -- Exercise the shipped decoder through its public codec entry. Only the entry
 -- the benchmark reaches crosses this module's boundary, under a type that says
 -- what it hands back.
-const json = require("nupp.codec.json")
+const json = require("serde.json")
 
-local fused: {decode: function(source: string, nullValue: unknown): unknown} = {decode = json.decode}
+local fused: {decode: function(source: string, nullValue: unknown): unknown} = {decode = json.decodeValue}
 
 return fused

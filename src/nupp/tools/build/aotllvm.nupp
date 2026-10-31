@@ -597,8 +597,8 @@ function aotllvm.linkStandalone(kit: string, output: string, archives: {string},
     if text == nil then
         return "the link kit at " .. kit .. " has no kit.json"
     end
-    local json = require("nupp.codec.json")
-    local manifest = json.decode(text as string, json.NULL)
+    local json = require("serde.json")
+    local manifest = json.decodeValue(text as string, json.NULL)
     if type(manifest) ~= "table" or manifest.schemaVersion ~= 1 then
         return "the link kit at " .. kit .. " has an unreadable kit.json"
     end

@@ -1,4 +1,4 @@
--- Behavioral tests for nupp.codec.base64.
+-- Behavioral tests for serde.base64.
 --
 -- Encoding is an `@aot` entry, so it has two lowerings: compiled ahead of time
 -- where a target asks for that, and the same source on LuaJIT where it does
@@ -11,7 +11,7 @@
 -- twelve-byte block the compiled entry reads as three words.
 
 local check = require("assert")
-local base64 = require("nupp.codec.base64")
+local base64 = require("serde.base64")
 
 local M = {}
 

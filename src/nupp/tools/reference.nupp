@@ -2035,7 +2035,7 @@ the elements past the last whole group are not visited, so pad the span to a
 multiple of `size` to cover them.
 
 A parser builds an ordinary Lua value through the iterative
-`nupp.codec.valuebuilder` stream. See
+`serde.valuebuilder` stream. See
 [lua-values.md](docs/learn/performance/ahead-of-time/lua-values.md)
 for its operations and limits.
 ]=],

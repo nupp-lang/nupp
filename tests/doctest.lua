@@ -975,9 +975,9 @@ end
 -- The public JSON module documents its own complete surface; the host declaration is
 -- only an implementation boundary.
 function M.standardJsonApiHasCompleteDocumentation()
-    local path = "src/nupp/codec/json/init.nupp"
+    local path = "src/serde/json/init.nupp"
     local source = readFile(HERE .. "/../" .. path)
-    local module, errors = doc.extract(source, path, "nupp.codec.json")
+    local module, errors = doc.extract(source, path, "serde.json")
     assert(module, errors and errors[1] and errors[1].msg)
 
     local expected = {
@@ -985,13 +985,13 @@ function M.standardJsonApiHasCompleteDocumentation()
         EncodedString = true,
         JSONEncodable = true,
         Writer = true,
-        decode = true,
+        decodeValue = true,
         pull = true,
         arrayOf = true,
         asArray = true,
         asObject = true,
         isArray = true,
-        encode = true,
+        encodeValue = true,
         encoded = true,
         encodedString = true,
         numberToken = true,
@@ -1003,13 +1003,13 @@ function M.standardJsonApiHasCompleteDocumentation()
         EMPTY_OBJECT = true,
     }
     local callable = {
-        decode = true,
+        decodeValue = true,
         pull = true,
         arrayOf = true,
         asArray = true,
         asObject = true,
         isArray = true,
-        encode = true,
+        encodeValue = true,
         encoded = true,
         encodedString = true,
         numberToken = true,
@@ -1019,11 +1019,13 @@ function M.standardJsonApiHasCompleteDocumentation()
     }
     local writer
     for _, item in ipairs(module.items) do
-        local prefix = "nupp.codec.json." .. item.name
-        assert(expected[item.name], prefix .. " is not part of the expected surface")
+        local prefix = "serde.json." .. item.name
+        local valueMember = expected[item.name]
         expected[item.name] = nil
-        assert(item.doc.text ~= "", prefix .. " has no documentation")
-        if callable[item.name] then
+        if valueMember then
+            assert(item.doc.text ~= "", prefix .. " has no documentation")
+        end
+        if valueMember and callable[item.name] then
             assert(item.doc.text:find("```nupp", 1, true), prefix .. " has no source example")
         end
         for _, param in ipairs(item.params or {}) do
@@ -1034,9 +1036,17 @@ function M.standardJsonApiHasCompleteDocumentation()
         end
     end
     assert(next(expected) == nil, "the JSON module is missing a documented API item")
-    assert(writer, "the JSON module did not document nupp.codec.json.Writer")
+    assert(writer, "the JSON module did not document serde.json.Writer")
+    local valuesPath = "src/serde/json/spi.nupp"
+    local values = assert(doc.extract(readFile(HERE .. "/../" .. valuesPath), valuesPath, "serde.json.spi"))
+    for _, item in ipairs(values.items) do
+        if item.name == "Writer" then
+            writer = item
+        end
+    end
+    assert(writer.members and #writer.members > 0, "the Writer contract has no documented members")
     for _, member in ipairs(writer.members or {}) do
-        local prefix = "nupp.codec.json.Writer." .. member.name
+        local prefix = "serde.json.Writer." .. member.name
         assert(member.text ~= "", prefix .. " has no documentation")
         assert(member.text:find("```nupp", 1, true), prefix .. " has no source example")
         for _, param in ipairs(member.params or {}) do

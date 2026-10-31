@@ -16,7 +16,7 @@ the only base64 Nupp ships, it is browser-only, and its cost is the Lua layer
 rather than the codec.
 ]]
 
-local valuebuilder = require("nupp.codec.valuebuilder")
+local valuebuilder = require("serde.valuebuilder")
 
 local base64bench = {}
 

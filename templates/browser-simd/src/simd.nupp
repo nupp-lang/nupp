@@ -1,7 +1,7 @@
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 
 local struct Sample
     value: number
@@ -41,4 +41,4 @@ local output = array.newArray(new Sample(), 4096)
 scale(output:write(), input:read(), 2)
 local rows = output:read()
 
-return json.encode({project = "${name}", tier = "simd128", first = rows[1].value, last = rows[#rows].weight,})
+return json.encodeValue({project = "${name}", tier = "simd128", first = rows[1].value, last = rows[#rows].weight,})

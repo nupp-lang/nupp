@@ -14,7 +14,7 @@ context operations perform no provider resolution.
 
 const span = require("nupp.mem.span")
 const storage = require("nupp.runtime.storage")
-const hex = require("nupp.codec.hex")
+const hex = require("serde.hex")
 const provider = require("nupp.digest.spi")
 const {type Writer} = require("nupp.io")
 

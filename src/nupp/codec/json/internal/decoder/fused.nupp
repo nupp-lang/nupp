@@ -61,7 +61,7 @@ instead of carried; before the first vector that load is out of range and
 returns zeros, which is what a scan that has seen nothing needs.
 ]]
 
-local _valueBuilder = require("nupp.codec.valuebuilder")
+local _valueBuilder = require("serde.valuebuilder")
 local _jsonBuilder = require("nupp.codec.json.internal.builder")
 local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
@@ -116,7 +116,7 @@ end
 -- observed, values allocated only where the pull shape selects them.
 -- Variant 1 selects [](nupp.codec.json.internal.builder.newSerde), the
 -- schema-specialized stream, whose entry also reads buffers. Variant 2
--- selects [](nupp.codec.valuebuilder.newSized), the eager builder that
+-- selects [](serde.valuebuilder.newSized), the eager builder that
 -- materializes the whole document. Written as literals because switch case
 -- patterns and the AOT prune both want the number itself.
 

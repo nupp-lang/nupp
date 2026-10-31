@@ -595,6 +595,21 @@ function M.standardLibraryRootsSharePrivateImplementationOnlyWithEachOther()
     end)
 end
 
+function M.bareBundledModuleRootsEmitOneCanonicalRequire()
+    withProject({["src/app.nupp"] = "module app\nexport const api = serde\n"}, function(dir)
+        local env = projectEnv(dir)
+        assert(not env.ensureProjectIndex(env).declaredModules.serde, "fixture must use the bundled serde root")
+        local source = readFile(dir .. "/src/app.nupp")
+        local parsed = parser.parse(source, dir .. "/src/app.nupp")
+        local problems = check.check(parsed, dir .. "/src/app.nupp", env)
+        testAssert.equal(#problems, 0, problems[1] and problems[1].msg)
+        local code, diagnostics = gen.generate(parsed, dir .. "/src/app.nupp")
+        testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+        local _, count = code:gsub('require%("serde"%)', "")
+        testAssert.equal(count, 1, "one bundled module instance")
+    end)
+end
+
 function M.targetOutputSourcesStayOutsideTheProjectIndex()
     withProject(
         {
@@ -685,6 +700,7 @@ function M.shippedImplementationModulesAreNotApplicationImports()
             "nupp.runtime.browser.effects",
             "nupp.codec.json.provider",
             "nupp.codec.json.aot",
+            "nupp.serde.internal.json.values",
             "nupp.io.net.internal",
             "nupp.gpu.internal",
             "nupp.gpu.types",

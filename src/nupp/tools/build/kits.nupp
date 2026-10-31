@@ -46,8 +46,8 @@ local function manifest(directory: string): any?
     if text == nil then
         return nil
     end
-    local json = require("nupp.codec.json")
-    local value = json.decode(text as string, json.NULL)
+    local json = require("serde.json")
+    local value = json.decodeValue(text as string, json.NULL)
     if type(value) ~= "table" then
         return nil
     end

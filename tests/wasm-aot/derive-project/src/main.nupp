@@ -1,9 +1,9 @@
 -- Declaration bindings, document contexts, and Debug through browser providers.
 const util = require("nupp.util")
 
-local json = require("nupp.codec.json")
-local serde = require("nupp.serde")
-local typedJSON = require("nupp.serde.json")
+local json = require("serde.json")
+local serde = require("serde")
+local typedJSON = require("serde.json")
 
 @derive(nupp.derive.Debug)
 local record Reading
@@ -41,9 +41,9 @@ local decoded = typedJSON.decode(binding, encoded)
 local defaulted = typedJSON.decode(binding, [[{"sensor_id":9}]])
 local accepted = pcall(typedJSON.decode, binding, [[{"label":"nameless"}]])
 
-local documents = require("nupp.serde.document")
-local codecs = require("nupp.serde.codec")
-local native = require("nupp.serde.native")
+local documents = require("serde.document")
+local codecs = require("serde.codec")
+local native = require("serde.native")
 local key = util.newKey<string>()
 local context = codecs.contextBuilder({}, {})
 context:set(key, "browser schema")
@@ -67,7 +67,7 @@ local viewAdapter = documents.viewAdapter(binding)
 assert(typedJSON.encodeDocument(viewAdapter, view):find('"samples":[3]', 1, true))
 assert(typedJSON.encodeDocument(viewAdapter, snapshot):find('"samples":[2]', 1, true))
 
-return json.encode({
+return json.encodeValue({
     documents = true,
     nativeRefused = true,
     encoded = encoded,

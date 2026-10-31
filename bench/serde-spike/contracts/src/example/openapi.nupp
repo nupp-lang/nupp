@@ -1,13 +1,13 @@
 module example.openapi
 
-local __serdeJson = require("nupp.serde.json")
+local __serdeJson = require("serde.json")
 
-local core = require("nupp.serde")
-local structures = require("nupp.serde.adapters")
-local plans = require("nupp.serde.json")
-local json = require("nupp.codec.json")
-local documents = require("nupp.serde.document")
-local jsonDocument = require("nupp.serde.json")
+local core = require("serde")
+local structures = require("serde.adapters")
+local plans = require("serde.json")
+local json = require("serde.json")
+local documents = require("serde.document")
+local jsonDocument = require("serde.json")
 
 export type View = "request" | "response"
 export record Property is core.Member

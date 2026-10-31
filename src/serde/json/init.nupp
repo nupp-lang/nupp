@@ -1,12 +1,13 @@
-module nupp.serde.json
+module serde.json
 
---[[
-This codec writes and reads JSON text through any [](nupp.serde.Binding). See
-[serde.md](docs/learn/runtime/data/serde.md#json-mappings) for field mappings.
+--[==[
+JSON encoding supports typed [](serde.Binding) values and ordinary tables.
+Use [](encode) and [](decode) for bindings, or [](encodeValue) and
+[](decodeValue) for schema-free values.
 
 ```nupp
-local serde = require("nupp.serde")
-local json = require("nupp.serde.json")
+local serde = require("serde")
+local json = require("serde.json")
 local record Order
     id: integer
     items: {string}
@@ -29,10 +30,102 @@ reads declaration bindings and documents. A model library passes a
 member names are already the wire names.
 
 Decoding is strict: a declaration binding rejects unknown members unless its
-[](nupp.serde.Options) say `unknownMembers = "ignore"`, integers must fit their
+[](serde.Options) say `unknownMembers = "ignore"`, integers must fit their
 declared width, and nesting and token counts are bounded. Every failure is a
-[](nupp.serde.Error) naming the path and byte offset where it happened.
-]]
+[](serde.Error) naming the path and byte offset where it happened.
+
+## Empty containers
+
+A plain empty Lua table has no shape to read, so it encodes as `{}`. Mark it
+when it must encode as an array, or use the two sentinels:
+
+```nupp
+const json = serde.json
+
+assert(json.encodeValue({}) == "{}")
+assert(json.encodeValue(json.asArray({})) == "[]")
+assert(json.encodeValue(json.EMPTY_ARRAY) == "[]")
+assert(json.encodeValue(json.EMPTY_OBJECT) == "{}")
+
+local emptyArray = assert(json.decodeValue("[]"))
+assert(json.isArray(emptyArray))
+assert(not json.isArray(assert(json.decodeValue("{}"))))
+```
+
+`asObject` is the corresponding mark for a table that must encode as an object.
+`isArray` reads the shape retained by decoded containers, including when they
+are empty.
+
+## JSON null
+
+Decoding drops JSON null by default, including from inside an array. Pass a
+replacement value to preserve it. `NULL` is the round-trippable choice, because
+it encodes back as null:
+
+```nupp:fragment
+const json = serde.json
+
+local value = assert(json.decodeValue([[{"items":[1,null,2]}]], json.NULL))
+assert(value.items[2] == json.NULL)
+assert(json.encodeValue(value) == [[{"items":[1,null,2]}]])
+```
+
+::: deepdive Dropping null by default
+A Lua table cannot hold nil as a value, so a decoded null has to become either
+an absence or a sentinel. An absence is what most callers mean, and it keeps a
+decoded document indexable without every read testing against a sentinel first.
+A sentinel is what a caller round-tripping somebody else's document means, and
+that caller says so once, at the `decodeValue` call, rather than everywhere the
+value is read.
+:::
+
+## Pulling selected values
+
+`pull` validates the complete document while applying its selection. `true`
+selects a complete value, an object shape selects named fields, and
+`arrayOf(shape)` applies a shape to every member of an array. Missing and
+unselected fields are omitted:
+
+```nupp
+const json = serde.json
+
+local source = '[{"id": 1, "role": "admin", "profile": {"name": "Ada", "age": 36}}]'
+local users, reason = json.pull(source, json.arrayOf({id = true, profile = {name = true}}))
+```
+
+This is the lower-level path for pull deserializers: it validates the complete
+input but constructs only the Lua values the shape asks for.
+
+## Streaming output
+
+The `nupp.Closeable` writer emits checked JSON into caller-owned storage without first
+building a Lua table or a complete result string. `endArray()` and
+`endObject()` end containers, `flush()` publishes a bounded staged batch while
+leaving the document open, and consuming `close()` requires one complete root:
+
+```nupp
+local out = nupp.text.newBuffer()
+local writer = serde.json.newWriter(out)
+writer:startObject():key("items"):startArray():write(1):write(2):endArray():endObject()
+writer:close()
+```
+
+Lexical destruction closes a live writer automatically. The public writer
+identity is single-use. Closing publishes its final staged parts and leaves
+that identity closed; untyped stale references therefore cannot affect a later
+document.
+
+A prepared `serde` JSON traversal can write at the current value
+position. Its recursive walk drains completed fields and list members at
+the same threshold, so a large root does not need to exist as one staged string.
+
+`encoded(value)` performs ordinary encoding once. `verified(text)` instead
+validates an existing immutable JSON string without decoding or re-encoding it.
+Both return a value that `write` appends without another walk or validation.
+`encodedString(value)` and `verifiedString(text)` provide the corresponding
+string-only form accepted by both `key` and `write`; these handles are interned,
+so repeated schema keys share their encoded representation.
+]==]
 
 local core = require("nupp.serde.internal.value")
 local publication = require("nupp.serde.internal.publication")
@@ -41,7 +134,7 @@ local readers = require("nupp.serde.internal.json.reader")
 local writers = require("nupp.serde.internal.json.writer")
 local documents = require("nupp.serde.internal.json.document")
 local syntax = require("nupp.serde.internal.json.syntax")
-local json = require("nupp.codec.json")
+local json = require("nupp.serde.internal.json.values")
 local text = require("nupp.text")
 local contexts = require("nupp.serde.internal.context")
 local errors = require("nupp.serde.internal.errors")
@@ -51,7 +144,7 @@ local lowering = require("nupp.serde.internal.json.lower")
 local defaults = require("nupp.serde.internal.json.defaults")
 local documentValues = require("nupp.serde.internal.document")
 
---- Identifies JSON as the codec in a [](nupp.serde.Context) it attaches, so a
+--- Identifies JSON as the codec in a [](serde.Context) it attaches, so a
 --- protocol can tell a document it read from one another codec read.
 export const identity: table = {}
 
@@ -350,9 +443,9 @@ export const defaultPolicy: plans.PolicyFactory = defaults.factory
 --- Use it for a model whose names are already the wire names.
 ---
 --- ```nupp
---- local serde = require("nupp.serde")
---- local adapters = require("nupp.serde.adapters")
---- local json = require("nupp.serde.json")
+--- local serde = require("serde")
+--- local adapters = require("serde.adapters")
+--- local json = require("serde.json")
 --- local record Member is serde.Member
 ---     @readonly name: string
 ---     @readonly index: integer?
@@ -394,8 +487,8 @@ export const fieldName = documents.name
 --- Makes a [](Codec).
 ---
 --- ```nupp
---- local serde = require("nupp.serde")
---- local json = require("nupp.serde.json")
+--- local serde = require("serde")
+--- local json = require("serde.json")
 --- local record Item
 ---     id: integer
 --- end
@@ -419,8 +512,8 @@ local shared = codec()
 --- Encodes a value as JSON text.
 ---
 --- ```nupp
---- local serde = require("nupp.serde")
---- local json = require("nupp.serde.json")
+--- local serde = require("serde")
+--- local json = require("serde.json")
 --- local record Pair
 ---     left: string
 ---     right: string?
@@ -431,7 +524,7 @@ local shared = codec()
 --- @param binding the value's binding
 --- @param value the value
 --- @return the JSON text
---- @raises nupp.serde.Error when a value cannot be represented, at its path
+--- @raises serde.Error when a value cannot be represented, at its path
 export function encode<T>(binding: core.Binding<T>, borrows value: T): string
     return shared:encode(binding, value)
 end
@@ -443,7 +536,7 @@ end
 --- @param binding the value's binding
 --- @param value the value
 --- @param buffer the buffer to append to
---- @raises nupp.serde.Error when a value cannot be represented, at its path
+--- @raises serde.Error when a value cannot be represented, at its path
 export function encodeInto<T>(binding: core.Binding<T>, borrows value: T, exclusive buffer: text.Buffer): nil
     shared:encodeInto(binding, value, buffer)
 end
@@ -454,8 +547,8 @@ end
 --- value the codec then has to reject is dropped through the binding.
 ---
 --- ```nupp
---- local serde = require("nupp.serde")
---- local json = require("nupp.serde.json")
+--- local serde = require("serde")
+--- local json = require("serde.json")
 --- local record Range
 ---     low: integer
 ---     high: integer = 100
@@ -468,7 +561,7 @@ end
 --- @param bytes the JSON text
 --- @param context a parent for the context the decoder attaches, or nil
 --- @return the value
---- @raises nupp.serde.Error with the path and byte offset of the failure
+--- @raises serde.Error with the path and byte offset of the failure
 export function decode<T>(binding: core.Binding<T>, bytes: string, context: core.Context?): T
     return shared:decode(binding, bytes, context)
 end
@@ -479,22 +572,22 @@ end
 --- @param input the buffer holding the JSON text
 --- @param context a parent for the context the decoder attaches, or nil
 --- @return the value
---- @raises nupp.serde.Error with the path and byte offset of the failure
+--- @raises serde.Error with the path and byte offset of the failure
 export function decodeBuffer<T>(binding: core.Binding<T>, exclusive input: text.Buffer, context: core.Context?): T
     return shared:decodeBuffer(binding, input, context)
 end
 
---- Writes one value at the current position of a [](nupp.codec.json.Writer),
+--- Writes one value at the current position of a [](serde.json.Writer),
 --- for embedding bound values in JSON assembled by hand.
 ---
 --- ```nupp
---- local serde = require("nupp.serde")
---- local json = require("nupp.serde.json")
+--- local serde = require("serde")
+--- local json = require("serde.json")
 --- local record Tag
 ---     name: string
 --- end
 --- local buffer = nupp.text.newBuffer()
---- local writer = nupp.codec.json.newWriter(buffer)
+--- local writer = serde.json.newWriter(buffer)
 --- writer:startArray()
 --- json.writeValue(serde.binding(Tag), new Tag(name = "x"), writer)
 --- writer:endArray()
@@ -505,17 +598,17 @@ end
 --- @param binding the value's binding
 --- @param value the value
 --- @param sink the writer, positioned where a value may go
---- @raises nupp.serde.Error when a value cannot be represented, at its path
+--- @raises serde.Error when a value cannot be represented, at its path
 export function writeValue<T>(binding: core.Binding<T>, borrows value: T, exclusive sink: json.Writer): nil
     shared:writeValue(binding, value, sink)
 end
 
 --- Encodes a document's contents as JSON text.
 ---
---- @param adapter the document adapter, such as [](nupp.serde.document.adapter)
+--- @param adapter the document adapter, such as [](serde.document.adapter)
 --- @param value the document
 --- @return the JSON text
---- @raises nupp.serde.Error when a value has no JSON representation
+--- @raises serde.Error when a value has no JSON representation
 export function encodeDocument<D>(adapter: core.DocumentAdapter<D>, borrows value: D): string
     return shared:encodeDocument(adapter, value)
 end
@@ -523,11 +616,249 @@ end
 --- Decodes JSON text as document contents, attaching the context it was read
 --- under.
 ---
---- @param adapter the document adapter, such as [](nupp.serde.document.adapter)
+--- @param adapter the document adapter, such as [](serde.document.adapter)
 --- @param bytes the JSON text
 --- @param context a parent for the attached context, or nil
 --- @return the document
---- @raises nupp.serde.Error with the path and byte offset of the failure
+--- @raises serde.Error with the path and byte offset of the failure
 export function decodeDocument<D>(adapter: core.DocumentAdapter<D>, bytes: string, context: core.Context?): D
     return shared:decodeDocument(adapter, bytes, context)
 end
+
+--- A complete JSON value whose immutable bytes have already been encoded or
+--- validated.
+---
+--- Values come from `encoded` or `verified`; the private token prevents checked
+--- callers from manufacturing an unverified fast-path value.
+--- @export
+export type EncodedValue = json.EncodedValue
+
+--- A JSON string whose immutable encoded bytes have already been produced or
+--- validated.
+---
+--- `Writer:key` accepts this type without validating UTF-8 or escaping it again.
+--- Values produced by `encodedString` and `verifiedString` are interned.
+--- @export
+export type EncodedString = json.EncodedString
+
+--- Values that can write a complete JSON value through a checked writer.
+---
+--- A handwritten record satisfies it with a `writeJSON` member:
+---
+--- ```nupp
+--- local record Money is serde.json.JSONEncodable
+---     cents: integer
+---
+---     function writeJSON(self, exclusive out: serde.json.Writer): nil
+---         out:startObject():key("cents"):write(self.cents):endObject()
+---     end
+--- end
+--- ```
+--- @export
+export type JSONEncodable = json.JSONEncodable
+
+--- A checked incremental JSON writer, which `newWriter` returns.
+---
+--- ```nupp
+--- local out = nupp.text.newBuffer()
+--- local writer = serde.json.newWriter(out)
+--- writer:startObject():key("ok"):write(true):endObject()
+--- writer:close()
+--- assert(out:tostring() == [[{"ok":true}]])
+--- ```
+--- @export
+export type Writer = json.Writer
+
+--- Decodes a complete JSON document.
+---
+--- Null members are dropped unless a replacement value is supplied. Text that is
+--- not one JSON document is an ordinary answer: the result is nil and the second
+--- one says why. The reason, not the value, is what tells failure apart, since
+--- the document `null` decodes to nil when nulls are dropped.
+---
+--- ```nupp
+--- local value, reason = serde.json.decodeValue([[{"id":41}]])
+--- assert(reason == nil and value.id == 41)
+--- local broken, why = serde.json.decodeValue([[{"id":]])
+--- assert(broken == nil and why ~= nil)
+--- ```
+--- @param text the complete JSON document
+--- @param nullValue the value used for JSON null, or nil to drop nulls
+--- @return the decoded Lua value, or nil when the text is not one document
+--- @return why the text is not one JSON document, when it is not
+--- @export
+export const decodeValue = json.decode
+
+--- Materializes only the fields selected by an On-Demand pull shape.
+---
+--- The whole document is still validated. Text that is not one JSON document,
+--- or a value the shape cannot select from, returns nil and a reason, as
+--- `decodeValue` does.
+---
+--- ```nupp
+--- local value = assert(serde.json.pull(
+---     [[{"id":41,"profile":{"name":"Ada","admin":true}}]],
+---     {id = true, profile = {name = true}}
+--- ))
+--- assert(value.id == 41 and value.profile.name == "Ada")
+--- assert(value.profile.admin == nil)
+--- ```
+--- @param text the complete JSON document
+--- @param shape the fields and array members to materialize
+--- @param nullValue the value used for JSON null, or nil to drop nulls
+--- @return the selected Lua value, or nil when the text cannot be pulled
+--- @return why the text cannot be pulled, when it cannot
+--- @export
+export const pull = json.pull
+
+--- Applies a pull shape to every member of an array.
+---
+--- ```nupp
+--- const json = serde.json
+--- local users = assert(json.pull(
+---     [[{"users":[{"id":1,"name":"Ada"},{"id":2,"name":"Lin"}]}]],
+---     {users = json.arrayOf({id = true})}
+--- ))
+--- assert(users.users[1].id == 1 and users.users[1].name == nil)
+--- assert(users.users[2].id == 2)
+--- ```
+--- @param shape the selection applied to each member, or every value when omitted
+--- @return an array pull shape
+--- @export
+export const arrayOf = json.arrayOf
+
+--- Marks a Lua table as a JSON array, including while it is empty.
+---
+--- ```nupp
+--- local values = serde.json.asArray({})
+--- assert(serde.json.encodeValue(values) == "[]")
+--- ```
+--- @param value the table to mark
+--- @return the same table
+--- @export
+export const asArray = json.asArray
+
+--- Marks a Lua table as a JSON object.
+---
+--- ```nupp
+--- const json = serde.json
+--- local object = json.asObject(json.asArray({}))
+--- assert(json.encodeValue(object) == "{}")
+--- ```
+--- @param value the table to mark
+--- @return the same table
+--- @export
+export const asObject = json.asObject
+
+--- Returns whether a value has JSON array shape.
+---
+--- Decoding retains container shape even when an array is empty. This predicate
+--- reads that shape without exposing the private marker used by the codec.
+---
+--- ```nupp
+--- const json = serde.json
+--- assert(json.isArray(assert(json.decodeValue("[]"))))
+--- assert(not json.isArray(assert(json.decodeValue("{}"))))
+--- assert(json.isArray({1, 2}))
+--- ```
+--- @param value the value whose JSON container shape to inspect
+--- @return true for a JSON array and false for an object or scalar
+--- @raises string if a table mixes object and array keys or contains array holes
+--- @export
+export const isArray = json.isArray
+
+--- Serializes one Lua value as JSON.
+---
+--- ```nupp
+--- local text = serde.json.encodeValue({answer = 42})
+--- assert(text == [[{"answer":42}]])
+--- ```
+--- @param value the value to serialize
+--- @param nullValue an additional value treated as JSON null
+--- @return the JSON document
+--- @export
+export const encodeValue = json.encode
+
+--- Encodes a Lua value once for trusted raw insertion by a `Writer`.
+---
+--- The returned handle retains immutable encoded bytes. Each later write copies
+--- those bytes directly to its destination without walking or validating the value.
+---
+--- ```nupp
+--- local cached = serde.json.encoded({1, 2, 3})
+--- ```
+--- @param value the value to encode
+--- @param nullValue an additional value treated as JSON null
+--- @return the reusable encoded value
+--- @export
+export const encoded = json.encoded
+
+--- Validates and retains one exact JSON number token.
+---
+--- ```nupp
+--- local json = serde.json
+--- assert(json.encodeValue(json.numberToken("12345678901234567890")) == "12345678901234567890")
+--- ```
+--- @param text the exact numeric lexeme
+--- @return a validated fragment for a JSON writer or encoder
+--- @raises string when text is not one JSON number token
+--- @export
+export const numberToken = json.numberToken
+
+--- Encodes and interns a string for trusted use as either a key or value.
+---
+--- ```nupp
+--- local key = serde.json.encodedString("user_id")
+--- ```
+--- @param value the unencoded string
+--- @return its reusable encoded representation
+--- @export
+export const encodedString = json.encodedString
+
+--- Validates existing JSON bytes once without decoding or re-encoding them.
+---
+--- ```nupp
+--- local cached = serde.json.verified([[{"id":41}]])
+--- ```
+--- @param text a complete JSON value
+--- @return a handle retaining the original immutable string
+--- @export
+export const verified = json.verified
+
+--- Validates and interns existing bytes containing a complete JSON string.
+---
+--- ```nupp
+--- local key = serde.json.verifiedString([["user_id"]])
+--- ```
+--- @param text an encoded JSON string, including its quotes
+--- @return a handle retaining the original immutable string
+--- @export
+export const verifiedString = json.verifiedString
+
+--- Creates an incremental JSON writer over caller-owned storage.
+---
+--- ```nupp
+--- local out = nupp.text.newBuffer()
+--- local writer = serde.json.newWriter(out)
+--- writer:startObject():key("id"):write(41):endObject()
+--- writer:close()
+--- assert(out:tostring() == [[{"id":41}]])
+--- ```
+--- @param out the destination receiving bytes as operations complete
+--- @param nullValue an additional value treated as JSON null
+--- @return a new writer
+--- @export
+export const newWriter = json.newWriter
+
+--- Creates a schema-driven JSON codec with an immutable wire profile.
+--- Sentinel that decodes from and encodes as JSON null.
+--- @export
+export const NULL = json.NULL
+
+--- An explicit empty JSON array.
+--- @export
+export const EMPTY_ARRAY = json.EMPTY_ARRAY
+
+--- An explicit empty JSON object.
+--- @export
+export const EMPTY_OBJECT = json.EMPTY_OBJECT

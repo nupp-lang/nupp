@@ -164,11 +164,11 @@ function M.aComponentInstallsBeforeItsEntryRuns()
             "src/app/main.nupp"
         ] = [[
 local log = require("nupp.log")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 assert(_G.component_started == nil)
 log.info("starting component")
-_G.component_json = json.encode({answer = 42})
-_G.component_exact = json.encode({value = json.numberToken("18446744073709551615")})
+_G.component_json = json.encodeValue({answer = 42})
+_G.component_exact = json.encodeValue({value = json.numberToken("18446744073709551615")})
 _G.component_started = true
 return true
 ]],

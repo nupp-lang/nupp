@@ -16,7 +16,7 @@ the digest.
 ]]
 
 local hash = require("nupp.compiler.hash")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local fs = require("nupp.compiler.fs")
 local fingerprint = require("nupp.compiler.project.fingerprint")
 
@@ -378,7 +378,7 @@ local function loadState(path: string): cache.State
     if not text then
         return emptyState()
     end
-    local state, invalid = json.decode(text, json.NULL)
+    local state, invalid = json.decodeValue(text, json.NULL)
     if invalid ~= nil then
         return emptyState()
     end
@@ -387,7 +387,7 @@ local function loadState(path: string): cache.State
 end
 
 local function saveState(path: string, state: cache.State): boolean?, string?
-    return writeFile(path, json.encode(state) .. "\n")
+    return writeFile(path, json.encodeValue(state) .. "\n")
 end
 
 cache.jsonArray = jsonArray

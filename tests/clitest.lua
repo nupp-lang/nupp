@@ -477,7 +477,7 @@ function M.serializationMigrationChecksBeforeReplacingTheSource()
     end
 
     local source = [[
-local serde = require("nupp.serde")
+local serde = require("serde")
 @derive(nupp.derive.Serde)
 local record Value
     count: integer
@@ -1142,9 +1142,7 @@ function M.ownershipAuditEnumeratesForeignContractsAndUnsafeSites()
     )
     assert(report.regions == nil, "automatic regions remain opt-in")
 
-    local regions = json.decode(
-        captureJson(("ownership-audit --json --regions '%s/surface.nupp'"):format(dir))
-    ).regions
+    local regions = json.decode(captureJson(("ownership-audit --json --regions '%s/surface.nupp'"):format(dir))).regions
     assert(#regions == 1 and regions[1].owners[1].name == "value", "automatic cleanup sites are enumerable")
     assert(
         regions[1].id:find("function:", 1, true)

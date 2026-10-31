@@ -9,8 +9,8 @@ A binding defines how a value is read and constructed, and a codec chooses its
 wire representation. Select the binding at the call site:
 
 ```nupp:playground
-local serde = require("nupp.serde")
-local json = require("nupp.serde.json")
+local serde = require("serde")
+local json = require("serde.json")
 local record User
     id: uint32
     name: string?
@@ -44,8 +44,8 @@ same Nupp record.
 Mapping options belong to a binding. A field mapping is a whitelist:
 
 ```nupp
-local serde = require("nupp.serde")
-local json = require("nupp.serde.json")
+local serde = require("serde")
+local json = require("serde.json")
 local record User
     name: string
     token: string?
@@ -67,6 +67,21 @@ other conversions use an explicit adapter.
 restores its previous contents if serialization fails. `json.codec(policy)`
 makes a codec with a model-owned policy and its own bounded cache.
 
+## Schema-free JSON
+
+`serde.json.encode` and `serde.json.decode` use a binding. Use
+`serde.json.encodeValue` and `serde.json.decodeValue` for tables and scalar
+values without a schema:
+
+```nupp
+local bytes = serde.json.encodeValue({name = "Ada"})
+local value, reason = serde.json.decodeValue(bytes)
+assert(reason == nil and value.name == "Ada")
+```
+
+`decodeValue` returns `nil` and a reason for malformed input. Pass
+`serde.json.NULL` as its second argument to retain JSON nulls.
+
 ## Model-owned bindings
 
 A model library owns its member identities, schemas, traits, and registry.
@@ -80,13 +95,13 @@ turning its schema into a standard-library schema first. `serde.access(T)`
 exposes a declaration's fields and constructor to a model that maps an existing
 record.
 
-[](nupp.serde.adapters) builds scalar, list, and structure adapters over the
+[](serde.adapters) builds scalar, list, and structure adapters over the
 model's own member type:
 
 ```nupp
-local serde = require("nupp.serde")
-local adapters = require("nupp.serde.adapters")
-local json = require("nupp.serde.json")
+local serde = require("serde")
+local adapters = require("serde.adapters")
+local json = require("serde.json")
 local record Member is serde.Member
     @readonly name: string
     @readonly index: integer?
@@ -100,7 +115,7 @@ assert(json.codec(json.memberNamePolicy):encode(binding, "Dune") == '"Dune"')
 ```
 
 A new codec implements `serde.Writer` and `serde.Reader`;
-[](nupp.serde.codec) supplies the number, timestamp, error-path, and context
+[](serde.codec) supplies the number, timestamp, error-path, and context
 rules the built-in codecs follow.
 
 The model's JSON policy interprets those handles. Callers pass that policy to
@@ -119,8 +134,8 @@ profile. They distinguish a document boundary from its contents, so a protocol
 can interpret a document-valued member separately from the value inside it.
 
 ```nupp
-local document = require("nupp.serde.document")
-local json = require("nupp.serde.json")
+local document = require("serde.document")
+local json = require("serde.json")
 local adapter = document.adapter()
 local value = document.object({
     new document.Entry(name = "count", value = document.numberToken("18446744073709551615")),
@@ -148,9 +163,9 @@ A typed view retains its value and explicit binding without building a document
 tree. Serialization reads the current value through that binding:
 
 ```nupp
-local serde = require("nupp.serde")
-local document = require("nupp.serde.document")
-local json = require("nupp.serde.json")
+local serde = require("serde")
+local document = require("serde.document")
+local json = require("serde.json")
 local record Counter
     count: integer
 end
@@ -202,13 +217,13 @@ is kept in the error's `suppressed` list, beside the original cause.
 
 ## Native persistence
 
-`nupp.serde.native` reads and writes a versioned LuaJIT-local frame through the
+`serde.native` reads and writes a versioned LuaJIT-local frame through the
 same bindings. It preserves rich scalar values and document boundaries, and
 refuses unsupported hosts before selecting a binding.
 
 ```nupp
-local serde = require("nupp.serde")
-local native = require("nupp.serde.native")
+local serde = require("serde")
+local native = require("serde.native")
 local record Save
     level: integer
     inventory: {string}

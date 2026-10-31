@@ -194,8 +194,8 @@ function M.recursiveDerivedGraphRechecksAcrossThreeModules()
             {
                 "module bridge",
                 "local model = require('model')",
-                "export function binding(): nupp.serde.Binding<model.Node>",
-                "   return nupp.serde.binding(model.Node)",
+                "export function binding(): serde.Binding<model.Node>",
+                "   return serde.binding(model.Node)",
                 "end",
             },
             "\n"
@@ -207,7 +207,7 @@ function M.recursiveDerivedGraphRechecksAcrossThreeModules()
             {
                 "local model = require('model')",
                 "local bridge = require('bridge')",
-                "local binding: nupp.serde.Binding<model.Node> = bridge.binding()",
+                "local binding: serde.Binding<model.Node> = bridge.binding()",
                 "local root = new model.Node(name = 'root', children = {",
                 "   new model.Node(name = 'leaf', children = {}),",
                 "})",
@@ -796,13 +796,18 @@ function M.projectIndexTracksOverlaysAndDependents()
     modelFile:write("local record Shared\n   value: number\nend\n")
     modelFile:close()
     local mainFile = assert(io.open(mainPath, "wb"))
-    mainFile:write(table.concat({
-        "local function read(item: Shared): number",
-        "   local value: number = item.value",
-        "   return value",
-        "end",
-        "return read",
-    }, "\n"))
+    mainFile:write(
+        table.concat(
+            {
+                "local function read(item: Shared): number",
+                "   local value: number = item.value",
+                "   return value",
+                "end",
+                "return read",
+            },
+            "\n"
+        )
+    )
     mainFile:close()
 
     local inc = incremental.new(dir)
@@ -1272,7 +1277,11 @@ function M.aRecordClaimNamesWhatItsLocalsRequire()
         "    end",
         "end",
     })
-    write("pkg/alias.nupp", {"module pkg.alias", "local b = require('pkg.b')", "export const options: b.Options? = nil"})
+    write("pkg/alias.nupp", {
+        "module pkg.alias",
+        "local b = require('pkg.b')",
+        "export const options: b.Options? = nil"
+    })
     write("main.nupp", {"local b = require('pkg.b')", "local o: b.Options = new b.Options()", "print(o.n)"})
 
     local inc = incremental.new(dir, {cache = false})

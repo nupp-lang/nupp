@@ -60,7 +60,8 @@ local rules = {
     -- The browser and native UUID providers both implement this interface.
     {"^src/nupp/util/spi%.nupp$", {"library", "browser", "native"}},
     {"^src/nupp/text/utf8%.nupp$", {"library", "simd"}},
-    {"^src/nupp/codec/valuebuilder%.nupp$", {"library", "simd"}},
+    {"^src/serde/valuebuilder%.nupp$", {"library", "simd"}},
+    {"^src/nupp/serde/internal/valuebuilder%.nupp$", {"library", "simd"}},
     {"^src/nupp/codec/json/aot%.nupp$", {"library", "simd"}},
     {"^src/nupp/codec/json/internal/decoder/fused%.nupp$", {"library", "simd"}},
     {"^src/nupp/codec/json/internal/builder%.nupp$", {"library", "simd"}},

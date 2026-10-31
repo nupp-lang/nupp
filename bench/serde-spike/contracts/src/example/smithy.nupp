@@ -1,12 +1,12 @@
 module example.smithy
 
-local __serdeJson = require("nupp.serde.json")
+local __serdeJson = require("serde.json")
 
 const util = require("nupp.util")
 
-local core = require("nupp.serde")
-local documents = require("nupp.serde.document")
-local jsonDocument = require("nupp.serde.json")
+local core = require("serde")
+local documents = require("serde.document")
+local jsonDocument = require("serde.json")
 
 export record Shape
     @readonly id: string
@@ -156,9 +156,9 @@ export function parse(source: string): Model
     return load(jsonDocument.decodeDocument(documents.adapter(), source))
 end
 
-local plans = require("nupp.serde.json")
-local json = require("nupp.codec.json")
-local timestamps = require("nupp.serde.codec")
+local plans = require("serde.json")
+local json = require("serde.json")
+local timestamps = require("serde.codec")
 
 export const schemaContext = util.newKey<Shape>()
 export const memberContext = util.newKey<Member>()
@@ -170,7 +170,7 @@ end
 export const unknownFieldsContext = util.newKey<{UnknownField}>()
 
 local function defaultValue(shape: Shape, value: documents.Document): documents.Document
-    local numbers = require("nupp.serde.codec")
+    local numbers = require("serde.codec")
     if shape.kind == "string" or shape.kind == "enum" then
         return documents.string(value:string())
     elseif shape.kind == "boolean" then
@@ -285,7 +285,7 @@ local record Unknown is core.UnknownConsumer<State>
             return
         end
         local context = assert(value:context(), "unknown JSON content requires its source context")
-        local contexts = require("nupp.serde.codec")
+        local contexts = require("serde.codec")
         local metadata = contexts.contextBuilder(context.codec, context.profile, context)
         metadata:set(wireFieldContext, field)
         state.fields[
@@ -366,7 +366,7 @@ local record Adapter is core.Adapter<documents.Document, Member>
         elseif kind == "boolean" then
             writer:writeBoolean(member, value:boolean())
         elseif kind == "integer" then
-            local numbers = require("nupp.serde.codec")
+            local numbers = require("serde.codec")
             writer:writeInteger(
                 member,
                 numbers.integer(value:integer().decimal, self.description.width as(8 | 16 | 32 | 64), true)
@@ -487,7 +487,7 @@ local record Adapter is core.Adapter<documents.Document, Member>
                 error("unsupported Smithy shape: " .. member.target.kind, 2)
             end
         end
-        local contexts = require("nupp.serde.codec")
+        local contexts = require("serde.codec")
         local source = contexts.contextBuilder(
             context ~= nil and context.codec or {},
             context ~= nil and context.profile or {},

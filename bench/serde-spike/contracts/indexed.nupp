@@ -1,12 +1,12 @@
-local __serdeJson = require("nupp.serde.json")
-local core = require("nupp.serde")
-local indexed = require("nupp.serde.adapters")
-local scalar = require("nupp.serde.adapters")
-local structure = require("nupp.serde.adapters")
+local __serdeJson = require("serde.json")
+local core = require("serde")
+local indexed = require("serde.adapters")
+local scalar = require("serde.adapters")
+local structure = require("serde.adapters")
 local smithy = require("example.smithy")
-local json = require("nupp.serde.json")
-local documents = require("nupp.serde.document")
-local numbers = require("nupp.serde.codec")
+local json = require("serde.json")
+local documents = require("serde.document")
+local numbers = require("serde.codec")
 
 local model = smithy.parse(
     [[{"smithy":"2.0","shapes":{"example#Row":{"type":"structure","members":{

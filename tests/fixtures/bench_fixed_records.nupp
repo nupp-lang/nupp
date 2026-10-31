@@ -1,5 +1,5 @@
 -- A benchmark-protocol fixture with authored measurements: no workload is timed.
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 
 local function option(name)
     for index = 1, #arg do
@@ -12,11 +12,11 @@ end
 local listing = option("--cases-out")
 local file = assert(io.open(listing or option("--out"), "wb"))
 if listing then
-    file:write(json.encode({name = "fixed"}), "\n", json.encode({name = "trend"}), "\n")
+    file:write(json.encodeValue({name = "fixed"}), "\n", json.encodeValue({name = "trend"}), "\n")
 else
     local name = option("--case")
     file:write(
-        json.encode({
+        json.encodeValue({
             executionProfile = {optLevel = 1, disabled = ""},
             cases = {
                 {

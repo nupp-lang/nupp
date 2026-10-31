@@ -2,7 +2,7 @@
 
 This separate project tests the standard serialization contracts through
 independently owned model libraries and codecs. The fixtures import
-`nupp.serde` through the same public interfaces used by application packages.
+`serde` through the same public interfaces used by application packages.
 
 ```sh
 cd bench/serde-spike/contracts

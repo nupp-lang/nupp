@@ -16,10 +16,10 @@ if native then
     package.preload["nupp.codec.json.internal.decoder.fused"] = function()
         return dofile(native .. "/nupp/codec/json/internal/decoder/fused.lua")
     end
-    package.loaded["nupp.spi.index"] = {["nupp.codec.json.spi.Provider"] = {"nupp.codec.json.aot"}}
+    package.loaded["nupp.spi.index"] = {["serde.json.spi.Provider"] = {"nupp.codec.json.aot"}}
     package.loaded["nupp.codec.json.provider"] = require("nupp.codec.json.aot")
 end
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local start = os.clock()
 local cases = dofile(assert(arg[1], "compiled matrix module is required"))
 local setup = os.clock() - start
@@ -96,4 +96,4 @@ if ok then
     report.traces, report.machineCodeBytes = traces, machine
 end
 assert(#escaped > 0)
-print(json.encode(report))
+print(json.encodeValue(report))

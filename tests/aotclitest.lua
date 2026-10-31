@@ -3662,7 +3662,7 @@ function M.aSingleFixedWidthResultIsEstablishedByItsWrapper()
         ] = table.concat(
             {
                 "module counter",
-                "local valuebuilder = require(\"nupp.codec.valuebuilder\")",
+                "local valuebuilder = require(\"serde.valuebuilder\")",
                 "@aot",
                 "local function count(bytes: string): uint32",
                 "    local limit: uint32 = valuebuilder.length(bytes)",
@@ -3828,7 +3828,7 @@ end
 local ONE_PUBLISH = [[
 module publishing
 
-local valuebuilder = require("nupp.codec.valuebuilder")
+local valuebuilder = require("serde.valuebuilder")
 
 local publishing = {}
 
@@ -4044,7 +4044,7 @@ function M.rootedByteViewsRequireAnEntryParameter()
             "local-view.nupp"
         ] = [[
 local array = require("nupp.mem.array")
-local builder = require("nupp.codec.valuebuilder")
+local builder = require("serde.valuebuilder")
 local simd = require("nupp.simd")
 
 @aot
@@ -4076,7 +4076,7 @@ function M.rootedByteViewsAreNotValues()
         [
             "escaped-view.nupp"
         ] = [[
-local builder = require("nupp.codec.valuebuilder")
+local builder = require("serde.valuebuilder")
 
 @aot
 local function quotes(source: string, nullValue: any): (any, uint32, uint32)
@@ -4106,7 +4106,7 @@ function M.rootedByteViewsCarryTheSameCursorProof()
             "rooted.nupp"
         ] = [[
 local array = require("nupp.mem.array")
-local builder = require("nupp.codec.valuebuilder")
+local builder = require("serde.valuebuilder")
 local simd = require("nupp.simd")
 local {type Buffer} = require("nupp.text")
 
@@ -4543,7 +4543,7 @@ end
 local function valueStreamsFuseRootedByteReadsAndLuaConstruction(moduleName)
     local sources = {
         [
-            "nupp/codec/valuebuilder.nupp"
+            "serde/valuebuilder.nupp"
         ] = [[
 local builder = {}
 function builder.new(nullValue: any): any return {} end
@@ -4583,7 +4583,7 @@ return builder
         [
             "stream.nupp"
         ] = [[
-local builder = require("nupp.codec.valuebuilder")
+local builder = require("serde.valuebuilder")
 @aot
 local function decode(source: string, tape: string, nullValue: any): (any, uint32, uint32)
     local count = builder.length(source)
@@ -4694,7 +4694,7 @@ end
 function M.valueStreamBuilderModesAreAotConstants()
     local dir = project{
         [
-            "nupp/codec/valuebuilder.nupp"
+            "serde/valuebuilder.nupp"
         ] = [[
 local builder = {}
 function builder.newSized(nullValue: any, depth: uint32, bytes: uint32): any return {} end
@@ -4713,7 +4713,7 @@ return stream
         [
             "nupp/modes.nupp"
         ] = [[
-local builder = require("nupp.codec.valuebuilder")
+local builder = require("serde.valuebuilder")
 local stream = require("nupp.codec.json.internal.builder")
 
 @aot
@@ -4766,7 +4766,7 @@ end
 local function uncheckedRootedByteReadsAreRejected(moduleName)
     local sources = {
         [
-            "nupp/codec/valuebuilder.nupp"
+            "serde/valuebuilder.nupp"
         ] = [[
 local builder = {}
 function builder.byteAt(bytes: string, offset: uint32): uint32 return offset end
@@ -4775,7 +4775,7 @@ return builder
         [
             "read.nupp"
         ] = [[
-local builder = require("nupp.codec.valuebuilder")
+local builder = require("serde.valuebuilder")
 @aot
 local function read(source: string, offset: uint32): uint32
     return builder.byteAt(source, offset)
@@ -4816,7 +4816,7 @@ function M.aConstantStringIsPlacedAsTheBytesItDenotes()
         [
             "classes.nupp"
         ] = [[
-local valueBuilder = require("nupp.codec.valuebuilder")
+local valueBuilder = require("serde.valuebuilder")
 
 const CLASSES = "\1\2\34\92"
 const QUOTED = 'a"b'
@@ -5018,7 +5018,7 @@ function M.aLengthAliasDoesNotOutliveItsScope()
         [
             "stale.nupp"
         ] = [[
-local builder = require("nupp.codec.valuebuilder")
+local builder = require("serde.valuebuilder")
 @aot
 local function decode(source: string): uint32
     do

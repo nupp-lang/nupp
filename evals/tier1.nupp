@@ -1,6 +1,6 @@
 local harness = require("harness")
 local tier1 = require("tier1eval")
-local json = nupp.codec.json
+local json = require("serde.json")
 
 local arguments = {...} as {string}
 
@@ -93,8 +93,8 @@ local function main(): integer
             harness.spent(record.agent)
         )
     )
-    print("  before=" .. json.encode(record.grade.diagnosticsBefore))
-    print("  after=" .. json.encode(record.grade.diagnosticsAfter))
+    print("  before=" .. json.encodeValue(record.grade.diagnosticsBefore))
+    print("  after=" .. json.encodeValue(record.grade.diagnosticsAfter))
     if record.grade.suspiciousShrink then
         print("  note: the file shrank by more than half; check the repair")
     end

@@ -1,5 +1,5 @@
 local core = require("nupp.serde.internal.value")
-local json = require("nupp.serde.json")
+local json = require("serde.json")
 local model = require("example.richmodel")
 
 local codec = json.codec(model.policy(true), 2)

@@ -71,7 +71,7 @@ says what that boundary is worth on its own.
 What still holds `nupp.text.utf8` to ordinary Nupp is the fallback: a target
 without an AOT policy would get the scalar entry as LuaJIT runs it, which is
 seven to twenty times worse than what ships. The shape a compiled validator
-would take is `nupp.codec.json`'s: a seam with the compiled validator behind it
+would take is `serde.json`'s: a seam with the compiled validator behind it
 and the portable one underneath, not a replacement.
 
 ## Why the SIMD validator is its own project, beside this one

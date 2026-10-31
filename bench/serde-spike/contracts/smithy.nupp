@@ -1,5 +1,5 @@
 local smithy = require("example.smithy")
-local json = require("nupp.serde.json")
+local json = require("serde.json")
 
 local ast = [[{
   "smithy":"2.0",

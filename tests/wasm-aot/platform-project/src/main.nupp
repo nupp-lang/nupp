@@ -4,14 +4,14 @@ local digest = require("nupp.digest")
 local mac = require("nupp.mac")
 local checksum = require("nupp.checksum")
 local uuid = require("nupp.util")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local system = require("nupp.system")
 
 local started = browserTime.now()
 browserTime.sleep(1)
 local elapsed = browserTime.now() - started
 
-return json.encode({
+return json.encodeValue({
     platform = system.platform,
     architecture = system.architecture,
     pointerBits = system.pointerBits,

@@ -1,11 +1,11 @@
-local __serdeJson = require("nupp.serde.json")
+local __serdeJson = require("serde.json")
 const util = require("nupp.util")
 
-local core = require("nupp.serde")
-local documents = require("nupp.serde.document")
-local readers = require("nupp.serde.document")
-local contexts = require("nupp.serde.codec")
-local json = require("nupp.serde.json")
+local core = require("serde")
+local documents = require("serde.document")
+local readers = require("serde.document")
+local contexts = require("serde.codec")
+local json = require("serde.json")
 local model = require("example.richmodel")
 local richJson = json.codec(model.policy(true))
 

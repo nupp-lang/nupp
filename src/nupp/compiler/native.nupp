@@ -279,8 +279,8 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {
         name = "json",
         module = "nupp.codec.json.provider",
-        modules = {"nupp.codec.json"},
-        exports = {"nupp.codec.json"},
+        modules = {"serde.json", "nupp.serde.internal.json.values"},
+        exports = {"serde.json"},
     },
     [
         "runtime.gpu_layout"

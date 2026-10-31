@@ -368,7 +368,7 @@ function M.aComputedRequireArgumentIsChecked()
         (
             diagsOf(
                 table.concat(
-                    {"local registry = require('nupp.codec.json')", "return require(registry.encode('module.name'))",},
+                    {"local registry = require('serde.json')", "return require(registry.encodeValue('module.name'))",},
                     "\n"
                 )
             )
@@ -380,7 +380,7 @@ function M.aComputedRequireArgumentIsChecked()
         (
             diagsOf(
                 table.concat(
-                    {"local registry = require('nupp.codec.json')", "return require(registry.absent('data.json'))",},
+                    {"local registry = require('serde.json')", "return require(registry.absent('data.json'))",},
                     "\n"
                 )
             )
@@ -1026,7 +1026,7 @@ function M.browserCryptoRejectsMalformedHostValues()
             return returned[kind]
         end,
     })
-    local base64 = require("nupp.codec.base64")
+    local base64 = require("serde.base64")
 
     returned.random = {bytesBase64 = base64.encode("\0")}
     testAssert.equal(browser.randomBytes(1), "\0")
@@ -1880,8 +1880,8 @@ function M.nativeFeaturesAreResolvedEffects()
     assert(re["stdlib.lpeg.re"], "require('re') records its reference-module effect")
     assert(native.expand(re)["native.lpeg"], "the re module brings native LPeg")
 
-    local json = effectsOf("local json = require('nupp.codec.json')")
-    assert(json["native.json"], "require('nupp.codec.json') records its JSON effect")
+    local json = effectsOf("local json = require('serde.json')")
+    assert(json["native.json"], "require('serde.json') records its JSON effect")
 
     local test = effectsOf("local test = require('nupp.test')")
     assert(test["runtime.test"], "require('nupp.test') carries the assertion module")
@@ -1912,8 +1912,8 @@ function M.nativeFeaturesAreResolvedEffects()
     assert(not shadowedRequire["native.lpeg"], "a local require is not the native module loader")
 
     local expected = {
-        ["nupp.codec.json.encode({answer = 42})"] = "native.json",
-        ["nupp.codec.json.pull('{}', {answer = true})"] = "native.json",
+        ["serde.json.encodeValue({answer = 42})"] = "native.json",
+        ["serde.json.pull('{}', {answer = true})"] = "native.json",
         ["nupp.text.utf8.length('hello')"] = "runtime.data_utf8",
         ["nupp.io.newBuffer('hello')"] = "stdlib.io",
         ["nupp.math.lerp(10, 20, 0.25)"] = "stdlib.math",
@@ -2467,18 +2467,20 @@ end
 
 function M.theJsonModuleLoadsItsNuppProviderOnRequire()
     local loadedProvider = package.loaded[JSON_PROVIDER]
-    local loadedModule = package.loaded["nupp.codec.json"]
+    local loadedModule = package.loaded["serde.json"]
+    local loadedValues = package.loaded["nupp.serde.internal.json.values"]
     package.loaded[JSON_PROVIDER] = nil
-    package.loaded["nupp.codec.json"] = nil
+    package.loaded["serde.json"] = nil
+    package.loaded["nupp.serde.internal.json.values"] = nil
     local ok, problem = pcall(function()
-        local json = require("nupp.codec.json")
+        local json = require("serde.json")
         assert(package.loaded[JSON_PROVIDER] ~= nil, "requiring the module loaded the provider contract")
-        assert(json.encode({answer = 42}):find('"answer":42', 1, true))
-        assert(json.encode(json.EMPTY_ARRAY) == "[]")
-        assert(json.encode(json.EMPTY_OBJECT) == "{}")
-        assert(json.encode(json.asArray({})) == "[]")
-        assert(json.decode("[1,null,2]")[2] == 2)
-        assert(json.decode("null", json.NULL) == json.NULL)
+        assert(json.encodeValue({answer = 42}):find('"answer":42', 1, true))
+        assert(json.encodeValue(json.EMPTY_ARRAY) == "[]")
+        assert(json.encodeValue(json.EMPTY_OBJECT) == "{}")
+        assert(json.encodeValue(json.asArray({})) == "[]")
+        assert(json.decodeValue("[1,null,2]")[2] == 2)
+        assert(json.decodeValue("null", json.NULL) == json.NULL)
         local buffer = require("string.buffer").new()
         local name = json.encodedString('quoted"key')
         assert(name == json.encodedString('quoted"key'), "encoded keys are interned")
@@ -2524,7 +2526,8 @@ function M.theJsonModuleLoadsItsNuppProviderOnRequire()
     -- see `theUtf8ModuleNeedsNoNativeModule`. This one matters more, because the
     -- test runner decodes every worker's report through this module.
     package.loaded[JSON_PROVIDER] = loadedProvider
-    package.loaded["nupp.codec.json"] = loadedModule
+    package.loaded["serde.json"] = loadedModule
+    package.loaded["nupp.serde.internal.json.values"] = loadedValues
     assert(ok, problem)
 end
 

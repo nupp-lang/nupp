@@ -1,20 +1,20 @@
 module contract.breadth
 
-local __serdeJson = require("nupp.serde.json")
+local __serdeJson = require("serde.json")
 
 local model = require("example.richmodel")
 local smithy = require("example.smithy")
 local api = require("example.openapi")
 local registry = require("example.registry")
-local core = require("nupp.serde")
-local serde = require("nupp.serde")
-local json = require("nupp.serde.json")
-local syntax = require("nupp.codec.json")
+local core = require("serde")
+local serde = require("serde")
+local json = require("serde.json")
+local syntax = require("serde.json")
 local text = require("nupp.text")
-local docs = require("nupp.serde.document")
-local bridge = require("nupp.serde.document")
-local readers = require("nupp.serde.document")
-local views = require("nupp.serde.document")
+local docs = require("serde.document")
+local bridge = require("serde.document")
+local readers = require("serde.document")
+local views = require("serde.document")
 local cases = {}
 
 local function task(name, work)
@@ -121,8 +121,8 @@ local record Strings
     active: boolean
     name: string
 end
-local structure = require("nupp.serde.adapters")
-local scalar = require("nupp.serde.adapters")
+local structure = require("serde.adapters")
+local scalar = require("serde.adapters")
 local record StringBuilder is nupp.Closeable
     id: string?
     active: boolean?
@@ -226,7 +226,7 @@ end)
 bindingCases(
     "large-string",
     serde.binding(Strings),
-    '{"id":"7","active":true,"name":' .. syntax.encode(string.rep('large " payload ', 4096)) .. '}'
+    '{"id":"7","active":true,"name":' .. syntax.encodeValue(string.rep('large " payload ', 4096)) .. '}'
 )
 local richContents = documentAdapter:contents()
 local richBuffer = text.newBuffer()

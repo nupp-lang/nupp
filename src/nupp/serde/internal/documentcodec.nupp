@@ -308,7 +308,7 @@ export interface Decoder<T>
     --- required fields and defaults are checked the same way.
     --- @param value the document
     --- @return the value
-    --- @raises nupp.serde.Error when the document does not fit the binding
+    --- @raises serde.Error when the document does not fit the binding
     --- @raises string when the binding does not consume the document
     read: function(self, value: documents.Document): T
 end

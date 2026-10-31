@@ -31,6 +31,31 @@ end
 
 local M = {}
 
+function M.publicNamespacesKeepOneJsonIdentityAndRespectLocalShadowing()
+    local result = run(
+        [=[
+local direct = require("serde.json")
+assert(serde.json == direct)
+assert(serde.json.NULL == direct.NULL)
+assert(serde.json.encodeValue == direct.encodeValue)
+local record Entry
+    id: uint32
+end
+local binding = serde.binding(Entry)
+local bytes = direct.encode(binding, new Entry(id = 7))
+assert(direct.decode(binding, bytes).id == 7)
+assert(direct.decodeValue(bytes).id == 7)
+assert(direct.encodeValue({id = 7}) == bytes)
+do
+    local serde = {json = {encodeValue = function(value: string): string return value end}}
+    assert(serde.json.encodeValue("local") == "local")
+end
+return true
+]=]
+    )
+    assert(result)
+end
+
 function M.schemaDebugPreservesWideIntegerSupport()
     local result = run(
         [=[
@@ -120,8 +145,8 @@ end
 -- Schema/model-specific contracts are exercised by serdecontracttest, including
 -- indexed values, documents, extension identity, ownership, and persistence.
 local imports = [[
-local serde = require("nupp.serde")
-local json = require("nupp.serde.json")
+local serde = require("serde")
+local json = require("serde.json")
 ]]
 
 function M.declarationBindingsAreLazyAndCached()
@@ -277,7 +302,7 @@ local buffer = require("nupp.text").newBuffer()
 buffer:put("prefix:")
 json.encodeInto(binding, new User(id = 7), buffer)
 local first = buffer:get()
-local writer = nupp.codec.json.newWriter(buffer)
+local writer = json.newWriter(buffer)
 writer:startArray()
 json.writeValue(binding, new User(id = 8), writer)
 json.writeValue(binding, new User(id = 9), writer)

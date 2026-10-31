@@ -9,7 +9,7 @@ requiring what they use here is what puts it in the component.
 ]]
 
 local pump = require("nupp.host.pump")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local _host = require("nupp.host")
 local _span = require("nupp.mem.span")
 local _tasks = require("nupp.tasks")
@@ -42,7 +42,7 @@ end
 
 --- Runs scenario `name` with no suspension handler installed, as a plain call.
 export function direct(name: string): string
-    return json.encode(attempt(name))
+    return json.encodeValue(attempt(name))
 end
 
 --- Polls the runtime once on the parked scenario's behalf.
@@ -52,5 +52,5 @@ end
 
 --- The finished scenario's outcome, as JSON.
 export function result(): string
-    return json.encode(outcome)
+    return json.encodeValue(outcome)
 end

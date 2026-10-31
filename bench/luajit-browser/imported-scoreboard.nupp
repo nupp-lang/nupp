@@ -1,5 +1,5 @@
-local json = require("nupp.codec.json")
-local hex = require("nupp.codec.hex")
+local json = require("serde.json")
+local hex = require("serde.hex")
 local text = require("nupp.text")
 local utf8 = require("nupp.text.utf8")
 local path = require("nupp.io.path")
@@ -27,7 +27,7 @@ local function scorePlayers(players: {Player}, round: integer): Snapshot
         end
     end
     table.sort(names)
-    local payload = json.encode({round = round, players = names, total = total})
+    local payload = json.encodeValue({round = round, players = names, total = total})
 
     return {round = round, names = names, total = total, payload = payload}
 end

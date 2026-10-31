@@ -239,9 +239,9 @@ or retain the library at all. The global [`nupp`
 standard-library namespace](../runtime/data/standard-library.md) itself is always
 created by generated code.
 
-Nested members use the same exact resolution. `nupp.codec.json.encode(value)`
-selects JSON support, while an alias such as `local json = nupp.codec.json`
-followed by `json.encode(value)` selects the same feature without also selecting
+Nested members use the same exact resolution. `serde.json.encodeValue(value)`
+selects JSON support, while an alias such as `local json = serde.json`
+followed by `json.encodeValue(value)` selects the same feature without also selecting
 UUID or UTF-8.
 Files and filesystem-backed path operations use the Rust-native
 provider; whole-file transfers and processes share its Tokio executor and use
@@ -281,7 +281,7 @@ nativeFeatures = {
 
 The forceable binary feature names are `json`, `lpeg`, `path`,
 `uri`, `uuid`, `files`, `process`, `workers`, and `http`. The registered module
-effects include `nupp.codec.json`, native `lpeg`, and the Lua `re`
+effects include `serde.json`, native `lpeg`, and the Lua `re`
 module that requires it. Bundled LuaRock modules are checked too, so Lunamark
 contributes LPeg even when application source does not require it directly.
 Forced removal is an expert escape hatch:

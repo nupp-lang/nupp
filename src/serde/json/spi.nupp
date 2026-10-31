@@ -1,4 +1,4 @@
-module nupp.codec.json.spi
+module serde.json.spi
 
 local {type Buffer as SharedBuffer} = require("nupp.text.internal.buffer")
 
@@ -26,15 +26,15 @@ end
 
 --- Values that can write a complete JSON value through a checked writer.
 ---
---- `nupp.codec.json` names it for callers; it is declared here so the modules
---- the facade reads, nupp.serde and nupp.derive among them, can name it without
+--- `serde.json` names it for callers; it is declared here so the modules
+--- the facade reads, serde and nupp.derive among them, can name it without
 --- reading the facade. `Writer` below names the encoder `newWriter()` returns.
 ---
 --- ```nupp
---- local record Money is nupp.codec.json.JSONEncodable
+--- local record Money is serde.json.JSONEncodable
 ---     cents: integer
 ---
----     function writeJSON(self, exclusive out: nupp.codec.json.Writer): nil
+---     function writeJSON(self, exclusive out: serde.json.Writer): nil
 ---         out:startObject():key("cents"):write(self.cents):endObject()
 ---     end
 --- end
@@ -50,7 +50,7 @@ end
 ---
 --- ```nupp
 --- local out = nupp.text.newBuffer()
---- local writer = nupp.codec.json.newWriter(out)
+--- local writer = serde.json.newWriter(out)
 --- writer:startObject():key("ok"):write(true):endObject()
 --- writer:close()
 --- assert(out:tostring() == [[{"ok":true}]])
@@ -61,7 +61,7 @@ export interface Writer is nupp.Closeable
     ---
     --- ```nupp
     --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.newWriter(out)
+    --- local writer = serde.json.newWriter(out)
     --- writer:startArray():write("first"):endArray()
     --- writer:close()
     --- assert(out:tostring() == "[\"first\"]")
@@ -74,7 +74,7 @@ export interface Writer is nupp.Closeable
     ---
     --- ```nupp
     --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.newWriter(out)
+    --- local writer = serde.json.newWriter(out)
     --- writer:startObject():endObject()
     --- writer:close()
     --- assert(out:tostring() == "{}")
@@ -87,7 +87,7 @@ export interface Writer is nupp.Closeable
     ---
     --- ```nupp
     --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.newWriter(out)
+    --- local writer = serde.json.newWriter(out)
     --- writer:startObject():key("answer"):write(42):endObject()
     --- writer:close()
     --- assert(out:tostring() == [[{"answer":42}]])
@@ -102,7 +102,7 @@ export interface Writer is nupp.Closeable
     ---
     --- ```nupp
     --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.newWriter(out)
+    --- local writer = serde.json.newWriter(out)
     --- writer:startArray():write({id = 41}):endArray()
     --- writer:close()
     --- assert(out:tostring() == "[{\"id\":41}]")
@@ -123,7 +123,7 @@ export interface Writer is nupp.Closeable
     ---
     --- ```nupp
     --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.newWriter(out)
+    --- local writer = serde.json.newWriter(out)
     --- writer:startArray():null():endArray()
     --- writer:close()
     --- assert(out:tostring() == "[null]")
@@ -136,7 +136,7 @@ export interface Writer is nupp.Closeable
     ---
     --- ```nupp
     --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.newWriter(out)
+    --- local writer = serde.json.newWriter(out)
     --- writer:startArray():startObject():endObject():endArray()
     --- writer:close()
     --- assert(out:tostring() == "[{}]")
@@ -149,7 +149,7 @@ export interface Writer is nupp.Closeable
     ---
     --- ```nupp
     --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.newWriter(out)
+    --- local writer = serde.json.newWriter(out)
     --- writer:startObject():key("items"):startArray():endArray():endObject()
     --- writer:close()
     --- assert(out:tostring() == [[{"items":[]}]])
@@ -162,7 +162,7 @@ export interface Writer is nupp.Closeable
     ---
     --- ```nupp
     --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.newWriter(out)
+    --- local writer = serde.json.newWriter(out)
     --- writer:startArray():write(1)
     --- writer:flush()
     --- assert(out:tostring() == "[1")
@@ -177,6 +177,15 @@ export interface Writer is nupp.Closeable
     ---
     --- Bytes already flushed to the destination remain there. Repeated aborts
     --- and closing an aborted writer are harmless.
+    ---
+    --- ```nupp
+    --- local out = nupp.text.newBuffer()
+    --- local writer = serde.json.newWriter(out)
+    --- writer:startArray():write(1)
+    --- writer:abort()
+    --- writer:close()
+    --- assert(out:tostring() == "")
+    --- ```
     --- @param self the writer
     abort: @nosuspend function(exclusive self: Writer): nil
 
@@ -184,7 +193,7 @@ export interface Writer is nupp.Closeable
     ---
     --- ```nupp
     --- local out = nupp.text.newBuffer()
-    --- local writer = nupp.codec.json.newWriter(out)
+    --- local writer = serde.json.newWriter(out)
     --- writer:write({ok = true})
     --- writer:close()
     --- assert(out:tostring() == [[{"ok":true}]])

@@ -1,6 +1,6 @@
 -- Throughput of the fused JSON decoder against Lunajson.
 --
--- What is measured is `decodeEager`, the entry `nupp.codec.json.decode`
+-- What is measured is `decodeEager`, the entry `serde.json.decodeValue`
 -- reaches through its provider: the vector scan, the structural tape, and the
 -- eager materialization into ordinary Lua values. The public codec is not in
 -- the loop, so the numbers are the decoder's rather than the dispatch's.

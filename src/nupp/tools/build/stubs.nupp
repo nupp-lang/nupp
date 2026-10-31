@@ -66,8 +66,8 @@ local function validateExecutable(platform: string, text: string, path: string):
 end
 
 local function decodeCatalogText(text: string, where: string): any?, string?
-    local json = require("nupp.codec.json")
-    local value, invalid = json.decode(text, json.NULL)
+    local json = require("serde.json")
+    local value, invalid = json.decodeValue(text, json.NULL)
     if invalid ~= nil then
         return nil, "cannot decode stub catalog " .. where .. ": " .. invalid
     end

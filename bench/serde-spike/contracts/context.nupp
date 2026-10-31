@@ -1,8 +1,8 @@
 const util = require("nupp.util")
 
-local contexts = require("nupp.serde.codec")
+local contexts = require("serde.codec")
 local model = require("example.richmodel")
-local json = require("nupp.serde.json")
+local json = require("serde.json")
 local key = util.newKey<model.Model>()
 local member = util.newKey<string>()
 local inherited = util.newKey<string?>()

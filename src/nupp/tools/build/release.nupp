@@ -14,7 +14,7 @@ local platform = require("nupp.tools.build.platform")
 local stubs = require("nupp.tools.build.stubs")
 
 local release = {}
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 
 local HOST_FEATURES: {
     string
@@ -68,7 +68,7 @@ local function decode(path: string): any?, string?
     if not text then
         return nil, "cannot read " .. path .. ": " .. tostring(readErr)
     end
-    local value, invalid = json.decode(text, json.NULL)
+    local value, invalid = json.decodeValue(text, json.NULL)
     if invalid ~= nil then
         return nil, "cannot decode " .. path .. ": " .. invalid
     end
@@ -85,7 +85,7 @@ local function pretty(value: any, depth: integer, seen: {[table]: boolean}): str
     local kind = type(value)
     @allow("exhaustiveness")
     if kind ~= "table" then
-        return json.encode(value)
+        return json.encodeValue(value)
     end
     local entries = value as {[any]: any}
     if seen[entries] then
@@ -112,7 +112,7 @@ local function pretty(value: any, depth: integer, seen: {[table]: boolean}): str
         end
         table.sort(keys)
         for index, key in ipairs(keys) do
-            parts[index] = nested .. json.encode(key) .. ": " .. pretty(entries[key], depth + 1, seen)
+            parts[index] = nested .. json.encodeValue(key) .. ": " .. pretty(entries[key], depth + 1, seen)
         end
     end
     seen[entries] = nil

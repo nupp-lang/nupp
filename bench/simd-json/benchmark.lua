@@ -7,7 +7,7 @@ local indexer = require("simd_json.indexer")
 local parser = require("simd_json.parser")
 local scanner = require("simd_json.scanner")
 local simdjsonBench = require("simdjson_bench")
-local nuppJson = require("nupp.codec.json")
+local nuppJson = require("serde.json")
 local span = require("nupp.mem.span")
 
 io.stdout:setvbuf("no")
@@ -155,26 +155,24 @@ local report = {
     payloads = {},
 }
 
-local names = indexOnly and {
-    "classify",
-    "index"
-} or {
-    "classify",
-    "index",
-    "simdjsonStage1",
-    "simdjsonDom",
-    "simdjsonLua",
-    "simdjsonPull",
-    "simdjsonPullSelected",
-    "nuppPull",
-    "simdjsonEncode",
-    "parse",
-    "materialize",
-    "legacy",
-    "arena",
-    "fused",
-    "nupp",
-}
+local names = indexOnly and {"classify", "index"}
+    or {
+        "classify",
+        "index",
+        "simdjsonStage1",
+        "simdjsonDom",
+        "simdjsonLua",
+        "simdjsonPull",
+        "simdjsonPullSelected",
+        "nuppPull",
+        "simdjsonEncode",
+        "parse",
+        "materialize",
+        "legacy",
+        "arena",
+        "fused",
+        "nupp",
+    }
 if hasCjson and not indexOnly then
     names[#names + 1] = "cjson"
     report.environment.cjson = cjson._VERSION or "available"

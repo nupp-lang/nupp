@@ -50,7 +50,7 @@ end
 
 An append-only local such as `answer = answer .. piece` is recognized from the
 ordinary source and lowered to the Lua C API's buffered-string operations. It
-does not require `nupp.codec.valuebuilder` calls or a second AOT-only body.
+does not require `serde.valuebuilder` calls or a second AOT-only body.
 
 It rejects reads from arguments or published tables, mutation of either,
 metatables, dynamic calls, callbacks, userdata, cycles, and arbitrary Lua
@@ -87,7 +87,7 @@ typed result and raises instead.
 
 ## Streaming construction
 
-The resolved `nupp.codec.valuebuilder` stream API starts with `new(nullValue)`, opens arrays
+The resolved `serde.valuebuilder` stream API starts with `new(nullValue)`, opens arrays
 or objects with an estimated capacity, adds keys and primitive values, closes
 each container, and publishes exactly one root with `finish`.
 
@@ -105,7 +105,7 @@ Those entry points mean nothing to another format, so they live in an internal
 module beside the decoder rather than here.
 
 ```nupp
-local valuebuilder = nupp.codec.valuebuilder
+local valuebuilder = serde.valuebuilder
 
 --- Reads `source` as fixed-width integer fields and returns them as an array.
 @aot
@@ -162,7 +162,7 @@ publish a checked initialized range directly. A string assembled byte by byte
 and published once looks like this:
 
 ```nupp
-local valuebuilder = nupp.codec.valuebuilder
+local valuebuilder = serde.valuebuilder
 
 --- Uppercases each ASCII letter of `source` and publishes it as one string.
 @aot

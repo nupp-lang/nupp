@@ -7,7 +7,7 @@ local parser = require("simd_json.parser")
 local scanner = require("simd_json.scanner")
 local simdjsonBench = require("simdjson_bench")
 local span = require("nupp.mem.span")
-local valueBuilder = require("nupp.codec.valuebuilder")
+local valueBuilder = require("serde.valuebuilder")
 
 require("production_json_test").run()
 
@@ -105,9 +105,9 @@ local function referenceTape(source)
             if byte == 34 and slashRun % 2 == 0 then
                 inString = not inString
                 positions[#positions + 1] = offset
-            elseif not inString and (
-                byte == 123 or byte == 125 or byte == 91 or byte == 93 or byte == 58 or byte == 44
-            ) then
+            elseif not inString
+                and (byte == 123 or byte == 125 or byte == 91 or byte == 93 or byte == 58 or byte == 44)
+            then
                 positions[#positions + 1] = offset
             end
             slashRun = 0
@@ -389,10 +389,8 @@ do
     local decoded = simdjsonBench.decode(encoded, nullValue)
     check(decoded.array[2] == nullValue and decoded.array[3] == 2, "serialized null sentinel did not round trip")
     check(
-        markedEmpty(
-            decoded.emptyArray,
-            simdjsonBench.EMPTY_ARRAY
-        ) and markedEmpty(decoded.emptyObject, simdjsonBench.EMPTY_OBJECT),
+        markedEmpty(decoded.emptyArray, simdjsonBench.EMPTY_ARRAY)
+        and markedEmpty(decoded.emptyObject, simdjsonBench.EMPTY_OBJECT),
         "serialized empty-container sentinels did not round trip"
     )
 

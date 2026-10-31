@@ -1,7 +1,7 @@
 const {type Key} = require("nupp.util")
 const util = require("nupp.util")
 
-local codec = require("nupp.serde.codec")
+local codec = require("serde.codec")
 local record Resource is nupp.Closeable
     function close(takes self): nil
     end

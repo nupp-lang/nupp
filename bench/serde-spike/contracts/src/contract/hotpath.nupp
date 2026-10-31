@@ -1,7 +1,7 @@
 module contract.hotpath
 
-local declarations = require("nupp.serde")
-local json = require("nupp.serde.json")
+local declarations = require("serde")
+local json = require("serde.json")
 
 local record Payload
     id: uint32

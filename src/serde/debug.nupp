@@ -1,4 +1,4 @@
-module nupp.serde.debug
+module serde.debug
 
 --[[
 Debug rendering turns any bound value into readable text for logs, assertions,
@@ -6,8 +6,8 @@ and error messages. See [derives.md](docs/reference/derives.md#debug) for the
 `Debug` derive and its field annotations.
 
 ```nupp
-local serde = require("nupp.serde")
-local debug = require("nupp.serde.debug")
+local serde = require("serde")
+local debug = require("serde.debug")
 local record Login
     user: string
     @debug(redact = true)
@@ -119,7 +119,7 @@ local bindingKey: table = {}
 
 --- Builds the binding Debug renders a declaration through.
 ---
---- Like [](nupp.serde.binding), with Debug's own selection: skipped and
+--- Like [](serde.binding), with Debug's own selection: skipped and
 --- redacted fields are never read, so a field that has no other
 --- representation can still be rendered around.
 ---
@@ -531,8 +531,8 @@ end
 --- Appends a value's text to a Buffer.
 ---
 --- ```nupp
---- local serde = require("nupp.serde")
---- local debug = require("nupp.serde.debug")
+--- local serde = require("serde")
+--- local debug = require("serde.debug")
 --- local struct Vec2
 ---     x: float
 ---     y: float

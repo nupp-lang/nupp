@@ -9,13 +9,13 @@ local json = require("nupp.runtime.provider.lunajson")
 local utf8 = require("nupp.text.utf8")
 -- Carry the public serialization entry points in the application VM.
 local derive = require("nupp.derive")
-local serde = require("nupp.serde")
-local dataJson = require("nupp.serde.json")
-local document = require("nupp.serde.document")
-local nativeValues = require("nupp.serde.native")
-local adapters = require("nupp.serde.adapters")
-local codecs = require("nupp.serde.codec")
-local rendering = require("nupp.serde.debug")
+local serde = require("serde")
+local dataJson = require("serde.json")
+local document = require("serde.document")
+local nativeValues = require("serde.native")
+local adapters = require("serde.adapters")
+local codecs = require("serde.codec")
+local rendering = require("serde.debug")
 -- The in-memory compiler resolves these public browser facades. Carry their
 -- checked implementations so imports in user programs reach the same services.
 local platformLibraries = {

@@ -4,10 +4,10 @@ if native then
     package.preload["nupp.codec.json.internal.decoder.fused"] = function()
         return dofile(native .. "/nupp/codec/json/internal/decoder/fused.lua")
     end
-    package.loaded["nupp.spi.index"] = {["nupp.codec.json.spi.Provider"] = {"nupp.codec.json.aot"}}
+    package.loaded["nupp.spi.index"] = {["serde.json.spi.Provider"] = {"nupp.codec.json.aot"}}
     package.loaded["nupp.codec.json.provider"] = require("nupp.codec.json.aot")
 end
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local setupStart = os.clock()
 local cases = dofile(assert(arg[1]))
 local report = {provider = native and "aot" or "portable", setupSeconds = os.clock() - setupStart, cases = {}}
@@ -58,4 +58,4 @@ for index = 1, 65536 do
         report.machineCodeBytes = report.machineCodeBytes + #(util.tracemc(index) or "")
     end
 end
-print(json.encode(report))
+print(json.encodeValue(report))

@@ -30,7 +30,7 @@ first, so a case that trips the gate is still a case whose record the runner can
 merge.
 ]]
 
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local profile = require("nupp.profile")
 local statistics = require("nupp.bench.internal.statistics")
 local time = require("nupp.time")
@@ -507,7 +507,7 @@ end
 --- @return why it was refused, naming its schema and the ones this version reads
 function bench.decodeBaseline(text: string, path: string, oldest: integer?): (any, string?)
     local low = oldest or bench.OLDEST_BASELINE_SCHEMA
-    local decoded, document = pcall(json.decode, text)
+    local decoded, document = pcall(json.decodeValue, text)
     if not decoded or type(document) ~= "table" or json.isArray(document) then
         return nil, ("nupp: baseline %s is not a bench record"):format(path)
     end
@@ -668,7 +668,7 @@ local function announce(listing: any): nil
         if not handle then
             error("nupp: cannot write " .. options.casesOut, 0)
         end
-        handle:write(json.encode(listing), "\n")
+        handle:write(json.encodeValue(listing), "\n")
         handle:close()
 
         return
@@ -1373,7 +1373,7 @@ local function readRemarks(): any
     if not content then
         return nil
     end
-    local decoded = json.decode(content)
+    local decoded = json.decodeValue(content)
 
     return decoded
 end
@@ -2037,7 +2037,7 @@ function bench.report(): nil
         job.run()
     end
     local record = buildRecord()
-    local encoded = json.encode(record)
+    local encoded = json.encodeValue(record)
     writeFile(options.out, encoded)
     if options.json then
         io.stdout:write(encoded, "\n")

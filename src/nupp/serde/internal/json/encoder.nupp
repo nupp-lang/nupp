@@ -8,7 +8,7 @@ local declarations = require("nupp.serde.internal.declaration")
 local structures = require("nupp.serde.internal.structure")
 local scalars = require("nupp.serde.internal.scalar")
 local numbers = require("nupp.serde.internal.numbers")
-local json = require("nupp.codec.json")
+local json = require("nupp.serde.internal.json.values")
 local errors = require("nupp.serde.internal.errors")
 
 local interface Entry<T>

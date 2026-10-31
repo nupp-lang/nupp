@@ -8,7 +8,7 @@ local wire = require("nupp.tools.lsp.wire")
 local tree = require("nupp.tools.lsp.tree")
 local fs = require("nupp.compiler.fs")
 local bundled = require("nupp.compiler.bundled")
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local spi = {}
 
 local function declaration(inc: any, name: string): (any, string?)
@@ -48,7 +48,7 @@ local function entries(inc: any): {any}
 
     local source = text.readFile(fs.join(inc.env.rootDir, "nupp/spi.json"))
     if source then
-        local document = json.decode(source)
+        local document = json.decodeValue(source)
         if type(document) == "table" then
             for interface, modules in pairs(document) do
                 if type(interface) == "string" and interface:sub(1, 1) ~= "$" and type(modules) == "table" then

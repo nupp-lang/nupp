@@ -88,7 +88,7 @@ return {identity = identity}
 end
 
 local CURSOR_READ = [[
-local builder = require("nupp.codec.valuebuilder")
+local builder = require("serde.valuebuilder")
 @aot
 local function decode(source: string): uint32
     local n = builder.length(source)

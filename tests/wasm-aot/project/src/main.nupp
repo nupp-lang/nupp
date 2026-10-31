@@ -2,8 +2,8 @@ const io2 = require("nupp.io")
 
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
-local base64 = require("nupp.codec.base64")
-local valuebuilder = require("nupp.codec.valuebuilder")
+local base64 = require("serde.base64")
+local valuebuilder = require("serde.valuebuilder")
 
 local function u32(value: integer): uint32
     return nupp.math.u32.wrap(value)

@@ -62,10 +62,10 @@ intrinsic namespaces and the declared modules:
 - [](nupp.checksum) provides Adler-32 and explicitly named CRC variants as
   numeric values; protocols choose their serialization byte order.
 - [](nupp.mac) provides keyed authentication, including HMAC-SHA256.
-- [](nupp.codec.json), [](nupp.codec.base64) and [](nupp.codec.hex) encode and
-  decode representations. [](nupp.codec.valuebuilder) supports codec authors.
+- [](serde.json), [](serde.base64) and [](serde.hex) encode and
+  decode representations. [](serde.valuebuilder) supports codec authors.
 - [](nupp.text.utf8) validates and walks UTF-8 text.
-- [](nupp.serde) binds application types to reusable serialization schemas.
+- [](serde) binds application types to reusable serialization schemas.
 - [](nupp.util) owns the small general-purpose types: [](nupp.util.Bitset) is a
   growable set of bit positions, and [](nupp.util.Store) is a bag of values
   indexed by the typed keys [](nupp.util.newKey) hands out.

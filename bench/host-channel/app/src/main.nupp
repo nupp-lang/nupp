@@ -5,7 +5,7 @@ the global the page's initialization chunk sets. Both are plain Lua carried as
 text and loaded at run time; requiring what they use here is what bundles it.
 ]]
 
-local json = require("nupp.codec.json")
+local json = require("serde.json")
 local sources = require("sources")
 local _host = require("nupp.host")
 local _span = require("nupp.mem.span")
@@ -19,10 +19,10 @@ local _hostevents = require("hostevents")
 local selection: any = rawget(_G, "__hostChannelProgram")
 if selection == nil then
     local file, name, options = _host.call("bench.program")
-    selection = {file = file, name = name, options = json.decode(options)}
+    selection = {file = file, name = name, options = json.decodeValue(options)}
 end
 local load: any = rawget(_G, "loadstring")
 local programs: any = (load(sources[selection.file], "@" .. selection.file))()
 local ok, value = pcall(programs[selection.name], selection.options)
 
-return json.encode(ok and {ok = true, value = value} or {ok = false, error = tostring(value)})
+return json.encodeValue(ok and {ok = true, value = value} or {ok = false, error = tostring(value)})

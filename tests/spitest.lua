@@ -987,7 +987,7 @@ end
 -- belongs in it.
 local SELECTING_FACADES = {
     {"nupp.checksum", "nupp.checksum.spi.Provider"},
-    {"nupp.codec.json.provider", "nupp.codec.json.spi.Provider"},
+    {"nupp.codec.json.provider", "serde.json.spi.Provider"},
     {"nupp.compression", "nupp.compression.spi.Provider"},
     {"nupp.digest", "nupp.digest.spi.Provider"},
     {"nupp.gpu", "nupp.gpu.spi.Provider"},

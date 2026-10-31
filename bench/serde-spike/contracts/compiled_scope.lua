@@ -1,7 +1,7 @@
 local fixture = require("contract.compiledfixture")
 local compiled = require("nupp.serde.internal.json.compiled")
 local fused = require("nupp.codec.json.aot")
-local json = require("nupp.serde.json")
+local json = require("serde.json")
 local plans = require("nupp.serde.internal.json.plan")
 local cursors = require("nupp.serde.internal.json.syntax")
 local inputs = require("nupp.serde.internal.json.reader")
@@ -9,33 +9,41 @@ local failures = require("nupp.serde.internal.errors")
 
 -- What a codec plans for a binding, without the cache in front of it.
 local function inspect(binding, factory)
-    return binding:accept({
-        apply = function(_, adapter)
-            local description = adapter:describe("read")
-            local policy = (factory or json.defaultPolicy):policy(description.member)
-            return {adapter = adapter, plan = plans.resolve(description, policy, "read")}
-        end,
-    }, nil)
+    return binding:accept(
+        {
+            apply = function(_, adapter)
+                local description = adapter:describe("read")
+                local policy = (factory or json.defaultPolicy):policy(description.member)
+                return {adapter = adapter, plan = plans.resolve(description, policy, "read")}
+            end,
+        },
+        nil
+    )
 end
 
 -- The visitor path a compiled decoder must agree with.
 local function visitor(bytes)
-    return fixture.recordBinding:accept({
-        apply = function(_, adapter, source)
-            local description = adapter:describe("read")
-            local policy = json.defaultPolicy:policy(description.member)
-            local cursor = cursors.reader(source:sub(1))
-            local reader = inputs.input(cursor, policy, plans.resolve(description, policy, "read"), nil)
-            local ok, result = pcall(adapter.read, adapter, reader)
-            reader:expire()
-            if not ok then
-                error(failures.wrap(result, cursor:path(), cursor:offset()), 0)
-            end
-            cursor:finish()
-            return result
-        end,
-    }, bytes)
+    return fixture.recordBinding:accept(
+        {
+            apply = function(_, adapter, source)
+                local description = adapter:describe("read")
+                local policy = json.defaultPolicy:policy(description.member)
+                local cursor = cursors.reader(source:sub(1))
+                local reader = inputs.input(cursor, policy, plans.resolve(description, policy, "read"), nil)
+                local ok, result = pcall(adapter.read, adapter, reader)
+                reader:expire()
+                if not ok then
+                    error(failures.wrap(result, cursor:path(), cursor:offset()), 0)
+                end
+                cursor:finish()
+
+                return result
+            end,
+        },
+        bytes
+    )
 end
+
 local operations = inspect(fixture.recordBinding)
 assert(compiled.supports(operations.adapter, operations.plan))
 local nullable = inspect(fixture.nullableBinding)
