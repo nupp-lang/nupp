@@ -135,7 +135,7 @@ local writers = require("nupp.serde.internal.json.writer")
 local documents = require("nupp.serde.internal.json.document")
 local syntax = require("nupp.serde.internal.json.syntax")
 local json = require("nupp.serde.internal.json.values")
-local text = require("nupp.text")
+const {type Buffer} = require("nupp.text")
 local contexts = require("nupp.serde.internal.context")
 local errors = require("nupp.serde.internal.errors")
 local extensions = require("nupp.serde.internal.json.extensions")
@@ -150,7 +150,7 @@ export const identity: table = {}
 
 local interface WriteOperation<T>
     encode: function(self, borrows value: T): string
-    append: function(self, borrows value: T, exclusive buffer: text.Buffer): nil
+    append: function(self, borrows value: T, exclusive buffer: Buffer): nil
     writeValue: function(self, borrows value: T, exclusive sink: json.Writer): nil
 end
 local record Write<T, M is core.Member> is WriteOperation<T>
@@ -180,14 +180,14 @@ local record Write<T, M is core.Member> is WriteOperation<T>
         writer:close()
     end
 
-    function append(self, borrows value: T, exclusive buffer: text.Buffer): nil
+    function append(self, borrows value: T, exclusive buffer: Buffer): nil
         local sink = json.newWriter(buffer)
         self:writeValue(value, sink)
         sink:close()
     end
 
     function encode(self, borrows value: T): string
-        local buffer = text.newBuffer()
+        local buffer = require("nupp.text").newBuffer()
         self:append(value, buffer)
         return buffer:tostring()
     end
@@ -208,7 +208,7 @@ end
 
 local interface ReadOperation<T>
     read: function(self, bytes: string, context: core.Context?): T
-    readBuffer: function(self, exclusive input: text.Buffer, context: core.Context?): T
+    readBuffer: function(self, exclusive input: Buffer, context: core.Context?): T
 end
 local record Read<T, M is core.Member> is ReadOperation<T>
     @readonly binding: core.Binding<T>
@@ -216,7 +216,7 @@ local record Read<T, M is core.Member> is ReadOperation<T>
     @readonly adapter: core.Adapter<T, M>
     @readonly factory: plans.PolicyFactory
     @readonly operation: extensions.Operation<T, M>
-    function readBuffer(self, exclusive input: text.Buffer, context: core.Context?): T
+    function readBuffer(self, exclusive input: Buffer, context: core.Context?): T
         local native = self.native
         if native ~= nil and native:acceptsBuffer(input) then
             return native:decodeBuffer(input)
@@ -306,13 +306,13 @@ export interface Codec
     encode: function<T>(self, binding: core.Binding<T>, borrows value: T): string
 
     --- Appends a value to a buffer. See [](encodeInto).
-    encodeInto: function<T>(self, binding: core.Binding<T>, borrows value: T, exclusive buffer: text.Buffer): nil
+    encodeInto: function<T>(self, binding: core.Binding<T>, borrows value: T, exclusive buffer: Buffer): nil
 
     --- Decodes a value. See [](decode).
     decode: function<T>(self, binding: core.Binding<T>, bytes: string, context: core.Context?): T
 
     --- Decodes a value from a buffer. See [](decodeBuffer).
-    decodeBuffer: function<T>(self, binding: core.Binding<T>, exclusive input: text.Buffer, context: core.Context?): T
+    decodeBuffer: function<T>(self, binding: core.Binding<T>, exclusive input: Buffer, context: core.Context?): T
 
     --- Forgets every binding's selections.
     clear: function(self): nil
@@ -361,7 +361,7 @@ local record Cached is Codec
         return self:writing(binding):encode(value)
     end
 
-    function encodeInto<T>(self, binding: core.Binding<T>, borrows value: T, exclusive buffer: text.Buffer): nil
+    function encodeInto<T>(self, binding: core.Binding<T>, borrows value: T, exclusive buffer: Buffer): nil
         local selected = self:writing(binding)
         local mark = #buffer
         local ok, problem = pcall(selected.append, selected, value, buffer)
@@ -390,7 +390,7 @@ local record Cached is Codec
         return selected:read(bytes, context)
     end
 
-    function decodeBuffer<T>(self, binding: core.Binding<T>, exclusive input: text.Buffer, context: core.Context?): T
+    function decodeBuffer<T>(self, binding: core.Binding<T>, exclusive input: Buffer, context: core.Context?): T
         self:observeBinding(binding)
         local selected: ReadOperation<T>
         if self.lastRead ~= nil then
@@ -537,7 +537,7 @@ end
 --- @param value the value
 --- @param buffer the buffer to append to
 --- @raises serde.Error when a value cannot be represented, at its path
-export function encodeInto<T>(binding: core.Binding<T>, borrows value: T, exclusive buffer: text.Buffer): nil
+export function encodeInto<T>(binding: core.Binding<T>, borrows value: T, exclusive buffer: Buffer): nil
     shared:encodeInto(binding, value, buffer)
 end
 
@@ -573,7 +573,7 @@ end
 --- @param context a parent for the context the decoder attaches, or nil
 --- @return the value
 --- @raises serde.Error with the path and byte offset of the failure
-export function decodeBuffer<T>(binding: core.Binding<T>, exclusive input: text.Buffer, context: core.Context?): T
+export function decodeBuffer<T>(binding: core.Binding<T>, exclusive input: Buffer, context: core.Context?): T
     return shared:decodeBuffer(binding, input, context)
 end
 

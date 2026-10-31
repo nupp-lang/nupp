@@ -112,7 +112,7 @@ jobs:
             os: ubuntu-24.04
             platform: x86_64-unknown-linux-gnu
           - name: macOS arm64
-            os: macos-14
+            os: macos-15
             platform: aarch64-apple-darwin
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
@@ -160,7 +160,7 @@ jobs:
             upload_artifact: base-nupp-linux-x86_64
             platform: x86_64-unknown-linux-gnu
           - name: macOS arm64
-            os: macos-14
+            os: macos-15
             artifact: nupp-macos-arm64
             upload_artifact: nupp-macos-arm64
             platform: aarch64-apple-darwin
@@ -741,7 +741,7 @@ jobs:
             os: ubuntu-latest
             archive: cross-linux.tar
           - name: macOS arm64
-            os: macos-14
+            os: macos-15
             archive: cross-macos.tar
     runs-on: ${{ matrix.os }}
     steps:

@@ -13,7 +13,7 @@ local provider = spi.select(spi.providers<contracts.Provider>("serde.json.spi.Pr
 local errors = require("nupp.serde.internal.errors")
 local diagnostic = require("nupp.serde.internal.json.diagnostic")
 local json = require("nupp.serde.internal.json.values")
-local text = require("nupp.text")
+const {type Buffer} = require("nupp.text")
 
 local interface Assign<S is nupp.Closeable>
     apply: function(self, exclusive state: S, value: unknown): nil
@@ -159,20 +159,20 @@ end
 
 export interface Decoder<T>
     accepts: function(self, borrows bytes: string): boolean
-    acceptsBuffer: function(self, exclusive input: text.Buffer): boolean
+    acceptsBuffer: function(self, exclusive input: Buffer): boolean
     decode: function(self, bytes: string): T
-    decodeBuffer: function(self, exclusive input: text.Buffer): T
+    decodeBuffer: function(self, exclusive input: Buffer): T
 end
 local record Native<T> is Decoder<T>
     @readonly schema: any
     @readonly syntax: any
     @readonly invoke: function(schema: any, bytes: string): (any?, string?)
-    @readonly invokeBuffer: (function(schema: any, exclusive input: text.Buffer): (any?, string?))?
-    function acceptsBuffer(self, exclusive input: text.Buffer): boolean
+    @readonly invokeBuffer: (function(schema: any, exclusive input: Buffer): (any?, string?))?
+    function acceptsBuffer(self, exclusive input: Buffer): boolean
         return self.invokeBuffer ~= nil and #input <= 1000000
     end
 
-    function decodeBuffer(self, exclusive input: text.Buffer): T
+    function decodeBuffer(self, exclusive input: Buffer): T
         assert(self:acceptsBuffer(input), "compiled buffer input exceeds its execution capability")
         local invoke = assert(self.invokeBuffer)
         local ok, value, problem = pcall(invoke, self.schema, input)
