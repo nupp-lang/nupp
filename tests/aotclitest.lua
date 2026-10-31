@@ -695,7 +695,11 @@ return increment
     assert(shader:find("@builtin(num_workgroups) nupp_tmp_workgroups: vec3<u32>", 1, true), shader)
     assert(shader:find("let nupp_tmp_row_width = nupp_tmp_workgroups.x * 256u;", 1, true), shader)
     assert(
-        shader:find("nupp_tmp_dispatch_index = nupp_tmp_global_id.y * nupp_tmp_row_width + nupp_tmp_global_id.x;", 1, true),
+        shader:find(
+            "nupp_tmp_dispatch_index = nupp_tmp_global_id.y * nupp_tmp_row_width + nupp_tmp_global_id.x;",
+            1,
+            true
+        ),
         shader
     )
 end
@@ -779,7 +783,9 @@ end
 -- was refused as a method on a function (NUPP2004).
 function M.gpuInspectionBindsDeclarationsTheProjectBinds()
     local dir = project({
-        ["nupp.lua"] = [[
+        [
+            "nupp.lua"
+        ] = [[
 return {
     include = {"."},
     build = {
@@ -796,7 +802,9 @@ return {
     },
 }
 ]],
-        ["run.nupp"] = [[
+        [
+            "run.nupp"
+        ] = [[
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
 local gpu = require("nupp.gpu")
@@ -3408,11 +3416,17 @@ return {ones = ones, twice = twice}
     assert(llvm:find("\ndefine <4 x float> @ks_ones__neon%(%)"), llvm)
     local binding = run(dir, "--triple aarch64-apple-darwin --features neon --emit binding vectors.nupp")
     assert(not binding:find("cdef function ks_twice", 1, true), "no foreign declaration: " .. binding)
-    assert(binding:find("local function twice(value: Vector<float, Preferred>): Vector<float, Preferred>", 1, true), binding)
+    assert(
+        binding:find("local function twice(value: Vector<float, Preferred>): Vector<float, Preferred>", 1, true),
+        binding
+    )
     assert(binding:find("twice is a native-only AOT entry", 1, true), binding)
     assert(not binding:find("entries[twice] = true", 1, true), "not a compiled Lua entry: " .. binding)
 
-    local species = project{["species.nupp"] = [[
+    local species = project{
+        [
+            "species.nupp"
+        ] = [[
 local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 
@@ -3422,7 +3436,8 @@ local function chosen(): simd.Species<float, simd.Preferred>
 end
 
 return {chosen = chosen}
-]]}
+]]
+    }
     local refused, refusedCode = run(species, "species.nupp")
     test.equal(refusedCode, 1, refused)
     assert(refused:find("a species or a reducer cannot cross an AOT entry result ABI", 1, true), refused)
@@ -4525,8 +4540,8 @@ return {unsafe = unsafe}
     assert(out:find("a persistent Lua root follows a string accumulator", 1, true), out)
 end
 
-function M.valueStreamsFuseRootedByteReadsAndLuaConstruction()
-    local dir = project{
+local function valueStreamsFuseRootedByteReadsAndLuaConstruction(moduleName)
+    local sources = {
         [
             "nupp/codec/valuebuilder.nupp"
         ] = [[
@@ -4604,6 +4619,13 @@ end
 return {decode = decode} as unknown
 ]],
     }
+    local path = moduleName:gsub("%.", "/") .. ".nupp"
+    sources[path] = sources["nupp/codec/valuebuilder.nupp"]
+    if moduleName ~= "nupp.codec.valuebuilder" then
+        sources["nupp/codec/valuebuilder.nupp"] = nil
+    end
+    sources["stream.nupp"] = sources["stream.nupp"]:gsub("nupp%.codec%.valuebuilder", moduleName)
+    local dir = project(sources)
     local out, code = run(dir, "--json stream.nupp")
     test.equal(code, 0, out)
     local decoded = require("testjson").decode(out)
@@ -4659,6 +4681,14 @@ return {decode = decode} as unknown
         "the key goes to the string event as a key:\n" .. entry
     )
     assert(decoded.binding:find("nupp.math.u32.wrap", 1, true), decoded.binding)
+end
+
+function M.valueStreamsFuseRootedByteReadsAndLuaConstruction()
+    valueStreamsFuseRootedByteReadsAndLuaConstruction("nupp.codec.valuebuilder")
+end
+
+function M.finalValueBuilderNamesKeepRootedReadsAndLuaConstruction()
+    valueStreamsFuseRootedByteReadsAndLuaConstruction("serde.valuebuilder")
 end
 
 function M.valueStreamBuilderModesAreAotConstants()
@@ -4733,8 +4763,8 @@ return {
     assert(decoded.functions[3].builderMode == "serde")
 end
 
-function M.uncheckedRootedByteReadsAreRejected()
-    local dir = project{
+local function uncheckedRootedByteReadsAreRejected(moduleName)
+    local sources = {
         [
             "nupp/codec/valuebuilder.nupp"
         ] = [[
@@ -4753,9 +4783,24 @@ end
 return {read = read}
 ]],
     }
+    local path = moduleName:gsub("%.", "/") .. ".nupp"
+    sources[path] = sources["nupp/codec/valuebuilder.nupp"]
+    if moduleName ~= "nupp.codec.valuebuilder" then
+        sources["nupp/codec/valuebuilder.nupp"] = nil
+    end
+    sources["read.nupp"] = sources["read.nupp"]:gsub("nupp%.codec%.valuebuilder", moduleName)
+    local dir = project(sources)
     local out, code = run(dir, "read.nupp")
     test.equal(code, 1, out)
     assert(out:find("needs offset < length(bytes) to dominate the read", 1, true), out)
+end
+
+function M.uncheckedRootedByteReadsAreRejected()
+    uncheckedRootedByteReadsAreRejected("nupp.codec.valuebuilder")
+end
+
+function M.finalValueBuilderNamesKeepRootedReadGuards()
+    uncheckedRootedByteReadsAreRejected("serde.valuebuilder")
 end
 
 --- A `const` string placed in static data is the bytes the program reads, not the
@@ -4882,7 +4927,10 @@ return {entry = entry}
         {"aarch64-apple-darwin", "neon", "luajit-dual"},
         {"wasm32-unknown-emscripten", "simd128", "luajit-single"},
     }) do
-        local out, code = run(dir, "--triple " .. selection[1] .. " --features " .. selection[2] .. " --emit llvm entry.nupp")
+        local out, code = run(
+            dir,
+            "--triple " .. selection[1] .. " --features " .. selection[2] .. " --emit llvm entry.nupp"
+        )
         test.equal(code, 0, out)
         -- LuaJIT's dual-number VM starts a loop whose bound is an integer at
         -- an integer zero, so `-0.0` becomes `0.0` exactly there.
@@ -5098,7 +5146,11 @@ return {first = first}
     local out, code = run(dir, "--emit ir shadow.nupp")
     test.equal(code, 1, "the rebound name is not an intrinsic\n" .. out)
     assert(
-        out:find("shadow.nupp:4:12: aot: NUPP2905: call target string.byte is not an admitted intrinsic or helper", 1, true),
+        out:find(
+            "shadow.nupp:4:12: aot: NUPP2905: call target string.byte is not an admitted intrinsic or helper",
+            1,
+            true
+        ),
         "and is refused as the call it is: " .. out
     )
 end
