@@ -724,6 +724,31 @@ function M.reusesSealedProgramsUntilTheirHelperDependenciesChange()
     assert(ok, failure)
 end
 
+function M.qualifiedLocalRecordsOwnTheirNamespacePastAmbientRoots()
+    local _, errors = compile(
+        [[
+local types = {}
+record types.Point value: integer end
+local point = new types.Point(value = 7)
+return point.value
+]]
+    )
+    test.equal(errors, "", errors)
+    local code, shadowErrors = compile(
+        [[
+local types = {}
+record types.Point value: integer end
+local function read(): integer
+    local types = {Point = function(value: integer): integer return value + 1 end}
+    return types.Point(7)
+end
+return read()
+]]
+    )
+    test.equal(shadowErrors, "", shadowErrors)
+    test.equal(assert(loadstring(code, "@qualified-shadow"))(), 8)
+end
+
 function M.referencedRecipeRefusalsKeepTheirDiagnostic()
     withProject(
         [[
