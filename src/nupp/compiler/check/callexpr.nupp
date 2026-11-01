@@ -1229,8 +1229,15 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         local requireGlobal = c.env and c.env.globals and c.env.globals.require
         local requireEntry = calleeName == "require" and c.lookupEntry("require") or nil
         local stableRequire = requireGlobal and requireEntry and requireGlobal.definition == requireEntry.definition
+        local requireToken = nil
         if calleeName == "require" and stableRequire then
             (node as any).runtimeLoader = "require"
+            local first = argExprs[1]
+            requireToken = first and first.kind == "string" and first.token or argStr
+            if requireToken then
+                local text = requireToken.text
+                node.requiredModule = text:match('^"(.*)"$') or text:match("^'(.*)'$")
+            end
         end
         if calleeName == "require" and stableRequire and c.env and c.env.resolveModule then
             -- Ahead of reading the name, because a second argument is wrong
@@ -1238,16 +1245,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             if #argExprs > 1 then
                 c.diag("NUPP2007", node, ("require takes 1 arguments, got %d"):format(#argExprs))
             end
-            local tok = nil
-            if argsNode then
-                local e1 = argExprs[1]
-                if e1 and e1.kind == "string" then
-                    tok = e1.token
-                end
-                if argStr then
-                    tok = argStr
-                end
-            end
+            local tok = requireToken
             if tok then
                 local text = tok.text
                 local modname = text:match('^"(.*)"$') or text:match("^'(.*)'$")
