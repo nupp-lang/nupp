@@ -130,7 +130,8 @@ function M.carriedImplementationsFollowProjectPreloadAndCompiledModules()
             withCarriedModule(
                 dir,
                 function(path, env, name, source)
-                    assert(source == nil and name == nil, "a resolved module must not use carried source")
+                    assert(source == nil, "a resolved module must not use carried source")
+                    testAssert.equal(name, "runtimecarried", "the project callback keeps its requested module name")
                     return compile(path, env)
                 end,
                 function()

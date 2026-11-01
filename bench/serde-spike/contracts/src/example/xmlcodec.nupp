@@ -590,7 +590,7 @@ local record Encode<T> is core.Consumer<T, T, string>
         local selected = self.scope:resolve(adapter, "write")
         local writer = output(selected, self.scope.policy)
         adapter:write(value, writer)
-        local result = assembly.encode(assert2(writer.result, "XML binding did not write its root"))
+        local result = assembly.encode((assert2(writer.result, "XML binding did not write its root")))
         assert2(#result <= 16777216, "XML output exceeds byte limit")
 
         return result

@@ -11,9 +11,9 @@ local envMod = require("nupp.compiler.project.env")
 local runtime = {}
 
 -- Installs project and carried-source loaders. `compile` receives (path, env,
--- moduleName?, source?) and returns generated Lua or nil plus an error. The last
--- two arguments are present only for carried sources. The returned function
--- removes both loaders, even if the program added other loaders.
+-- moduleName, source?) and returns generated Lua or nil plus an error. Every
+-- call names the requested module; only carried implementations supply source.
+-- The returned function removes both loaders, even if the program added others.
 function runtime.install(
     env: envMod.Env,
     compile: function(path: string, env: envMod.Env, moduleName: string?, source: string?): (string?, string?),
@@ -62,7 +62,7 @@ function runtime.install(
         local chunk, loadErr
         if source ~= nil or path:match("%.nupp$") then
             compiling = true
-            local ok, code, compileErr = pcall(compile, path, env, carried and name or nil, source)
+            local ok, code, compileErr = pcall(compile, path, env, name, source)
             compiling = false
             if not ok then
                 error(code, 0)
