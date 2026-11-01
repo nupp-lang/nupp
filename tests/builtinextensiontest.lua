@@ -21,13 +21,14 @@ local function compile(source, filename, env)
     return code, parsed
 end
 
-local function withExtension(callback, assertionSource)
+local function withExtension(callback, assertionSource, ioSource, coroutineOverride)
     local root = os.tmpname()
     os.remove(root)
     local directory = root .. "/src/nupp/runtime"
     assert(os.execute("mkdir -p '" .. directory .. "'") == 0)
     local path = directory .. "/standardio.nupp"
-    local source = [[
+    local source = ioSource
+        or [[
 @!internal
 module nupp.runtime.standardio
 export type Buffer = {label: string}
@@ -78,7 +79,8 @@ export const value: table = rawget(_G, "os") as table
 ]]
     )
     osFile:close()
-    local coroutineSource = [[
+    local coroutineSource = coroutineOverride
+        or [[
 @!internal
 module nupp.runtime.standardcoroutine
 export function checkpoint(): integer return 29 end
@@ -97,9 +99,11 @@ end
     local name = "nupp.runtime.standardio"
     local loaded, preload, columns = package.loaded[name], package.preload[name], rawget(io, "columns")
     local newbuffer = rawget(io, "newbuffer")
+    local ioError = rawget(io, "Error")
     local coroutineName = "nupp.runtime.standardcoroutine"
     local coroutineLoaded, coroutinePreload = package.loaded[coroutineName], package.preload[coroutineName]
     local checkpoint = rawget(coroutine, "checkpoint")
+    local scopeType, cancellationType = rawget(coroutine, "Scope"), rawget(coroutine, "Cancellation")
     local ok, reason = pcall(function()
         local code = compile(source, path, env)
         package.loaded[name] = nil
@@ -112,8 +116,11 @@ end
     package.loaded[name], package.preload[name] = loaded, preload
     rawset(io, "columns", columns)
     rawset(io, "newbuffer", newbuffer)
+    rawset(io, "Error", ioError)
     package.loaded[coroutineName], package.preload[coroutineName] = coroutineLoaded, coroutinePreload
     rawset(coroutine, "checkpoint", checkpoint)
+    rawset(coroutine, "Scope", scopeType)
+    rawset(coroutine, "Cancellation", cancellationType)
     os.execute("rm -rf '" .. root .. "'")
     assert(ok, reason)
 end
@@ -434,6 +441,81 @@ coroutine.scope(nil, 1)
         )
         test.equal(ordinary.effects["runtime.time"], nil)
     end)
+end
+
+function M.byteErrorFacadeKeepsItsConstructorAndNominalIdentity()
+    local source = [[
+@!internal
+module nupp.runtime.standardio
+local existing = require("nupp.io")
+export type Error = existing.Error
+export const Error = existing.Error
+export const value: table = do
+    local original = rawget(_G, "io") as any
+    original.Error = Error
+    yield original
+end
+]]
+    withExtension(
+        function(env)
+            local code, parsed = compile(
+                [[
+local constructor = io.Error
+local problem: io.Error = new io.Error(kind = "other", message = "kept")
+return constructor, problem, tostring(problem)
+]],
+                "byte-error-consumer.nupp",
+                env
+            )
+            local constructor, problem, rendered = assert(loadstring(code))()
+            local original = require("nupp.io").Error
+            test.equal(constructor, original)
+            test.equal(getmetatable(problem), original)
+            test.equal(rendered, "kept")
+            assert(code:find('require("nupp.runtime.standardio")', 1, true))
+        end,
+        nil,
+        source
+    )
+end
+
+function M.coroutineRecordValuesKeepTheirOriginalNominalOwners()
+    local source = [[
+@!internal
+module nupp.runtime.standardcoroutine
+local existing = require("nupp.tasks")
+export type Cancellation = existing.Cancellation
+export type Scope = existing.Scope
+export const Cancellation = existing.Cancellation
+export const Scope = existing.Scope
+export const value: table = do
+    local original = rawget(_G, "coroutine") as any
+    original.Cancellation = Cancellation
+    original.Scope = Scope
+    yield original
+end
+]]
+    withExtension(
+        function(env)
+            local code = compile(
+                [[
+local scopeType = coroutine.Scope
+local cancellation = new coroutine.Cancellation(operation = "kept")
+return scopeType, cancellation
+]],
+                "coroutine-record-consumer.nupp",
+                env
+            )
+            local scopeType, cancellation = assert(loadstring(code))()
+            local original = require("nupp.tasks")
+            test.equal(scopeType, original.Scope)
+            test.equal(getmetatable(cancellation), original.Cancellation)
+            test.equal(cancellation.operation, "kept")
+        end,
+        nil,
+        nil,
+        source
+    )
 end
 
 return M
