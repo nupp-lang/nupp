@@ -41,18 +41,8 @@ local index = {}
 -- Compiler-only namespaces
 ----------------------------------------------------------------------------
 
--- Compiler intrinsics keep precedence over disk modules with the same dotted spelling.
--- `nupp.derive` is both the compile-time recipe API and the historical module holding
--- the standard recipes; the latter remains available through explicit require.
-local INTRINSIC_NAMESPACE: {
-    [string]: boolean
-} = {
-    ["nupp.derive"] = true,
-    ["nupp.types"] = true,
-    ["nupp.reflect"] = true,
-    ["package.providers"] = true,
-    ["package.select"] = true,
-}
+-- Compiler-owned package intrinsics take precedence over disk module lookup.
+local INTRINSIC_NAMESPACE: {[string]: boolean} = {["package.providers"] = true, ["package.select"] = true,}
 
 -- Modules projected through builtin namespaces. The source path deliberately lives
 -- apart from the prelude table's runtime shape: LuaJIT does not put these modules on
@@ -428,10 +418,9 @@ function index.install(c: state.Checker): state.ExprHandlers
             local intrinsicNamespace = apiidentity.lookup(c.env.globalTypes, namespace)
             if namespace == "types" then
                 local builtin = c.env.globals.types
-                local old = c.env.globals.nupp
-                intrinsicNamespace = builtin and builtin.t or old and old.t.byname and old.t.byname.types
+                intrinsicNamespace = builtin and builtin.t
             elseif namespace == "own" then
-                local builtin = c.env.globals.own or c.env.globals.nupp
+                local builtin = c.env.globals.own
                 intrinsicNamespace = builtin and builtin.t
             end
             local intrinsicType, definition = nil, nil

@@ -30,17 +30,17 @@ local ROWS = {
     {"local move", true, [[
 local value = flow_open()
 local forwarded = value
-nupp.drop(forwarded)
+own.drop(forwarded)
 ]]},
     {"local duplication", false, [[
 local value = flow_open()
 local forwarded = value
 print(value)
-nupp.drop(forwarded)
+own.drop(forwarded)
 ]]},
     {"optional narrowing", true, [[
 local value = assert(flow_open() as flow_resource*?)
-nupp.drop(value)
+own.drop(value)
 ]]},
     {
         "scalar generic",
@@ -48,7 +48,7 @@ nupp.drop(value)
         [[
 local function id<T>(takes value: T): T preserves value return value end
 local value = id(flow_open())
-nupp.drop(value)
+own.drop(value)
 ]]
     },
     {
@@ -57,12 +57,12 @@ nupp.drop(value)
         [[
 local function id<T>(value: T): T return value end
 local value = id(flow_open())
-nupp.drop(value)
+own.drop(value)
 ]]
     },
     {"parenthesized projection", true, [[
 local value = (flow_open())
-nupp.drop(value)
+own.drop(value)
 ]]},
     {"anonymous table storage", false, [[
 local value = flow_open()
@@ -80,7 +80,7 @@ stored.value = value
 local value = flow_open()
 local function scoped() print(value.value) end
 scoped()
-nupp.drop(value)
+own.drop(value)
 ]]
     },
     {
@@ -101,7 +101,7 @@ sink(value)
     {"raw coroutine", false, [[
 local value = flow_open()
 coroutine.yield()
-nupp.drop(value)
+own.drop(value)
 ]]},
     {"unsafe does not erase", false, [[
 local value = flow_open()
@@ -113,7 +113,7 @@ local value = flow_open()
         [[
 local record Box item: affine(flow_resource*, flow_close) end
 local box = new Box(item = flow_open())
-nupp.drop(box)
+own.drop(box)
 ]]
     },
     {
@@ -123,8 +123,8 @@ nupp.drop(box)
 local record Box item: affine(flow_resource*, flow_close) end
 local box = new Box(item = flow_open())
 local item = box.item
-nupp.drop(item)
-nupp.drop(box)
+own.drop(item)
+own.drop(box)
 ]]
     },
 }

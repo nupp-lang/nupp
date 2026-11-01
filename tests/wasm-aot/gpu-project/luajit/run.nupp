@@ -1,9 +1,11 @@
+const assert2 = require("assert")
+
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
 
 @aot(target = "gpu")
 local function addMask(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>, mask: uint32): nil
-    assert(#output == #input, "length mismatch")
+    assert2(#output == #input, "length mismatch")
     for index = 1, #output do
         output[index] = math.u32.add(input[index], mask)
     end
@@ -14,7 +16,7 @@ do
     local rows = input:write()
     rows[1] = math.u32.wrap(4)
     rows[2] = math.u32.wrap(9)
-    nupp.drop(rows)
+    own.drop(rows)
 end
 local output = array.scalar(array.uint32, 2)
 local gpu = require("gpu")
@@ -28,9 +30,9 @@ with context = gpu.open() do
         end
         local rows = output:write()
         context:download(gpuOutput, rows)
-        nupp.drop(rows)
+        own.drop(rows)
     end
 end
 local rows = output:read()
-assert(rows[1] == 7 and rows[2] == 12)
+assert2(rows[1] == 7 and rows[2] == 12)
 return {ok = true}

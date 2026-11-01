@@ -622,7 +622,7 @@ end
 function M.anOpenUnionKeepsAskingForItsElseArm()
     local source = table.concat(
         {
-            "local type Status = 'on' | 'off' | nupp.types.nonExhaustive()",
+            "local type Status = 'on' | 'off' | types.nonExhaustive()",
             "local status: Status = 'on'",
             "local value = switch status do case 'on' -> 1 case 'off' -> 2 end",
         },
@@ -636,7 +636,7 @@ function M.anOpenUnionKeepsAskingForItsElseArm()
     local covered = diagnosticCodes(
         table.concat(
             {
-                "local type Status = 'on' | 'off' | nupp.types.nonExhaustive()",
+                "local type Status = 'on' | 'off' | types.nonExhaustive()",
                 "local status: Status = 'on'",
                 "local value = switch status do case 'on' -> 1 case 'off' -> 2 else -> 3 end",
             },
@@ -663,7 +663,7 @@ function M.anOpenUnionDoesNotFitTheMembersItLists()
     local narrowing = diagnosticCodes(
         table.concat(
             {
-                "local type Status = 'on' | 'off' | nupp.types.nonExhaustive()",
+                "local type Status = 'on' | 'off' | types.nonExhaustive()",
                 "local status: Status = 'on'",
                 "local closed: 'on' | 'off' = status",
             },
@@ -674,14 +674,11 @@ function M.anOpenUnionDoesNotFitTheMembersItLists()
 
     -- a member still assigns into it, so writing one costs nothing at a call site
     local widening = diagnosticCodes(
-        table.concat(
-            {"local type Status = 'on' | 'off' | nupp.types.nonExhaustive()", "local status: Status = 'on'",},
-            "\n"
-        )
+        table.concat({"local type Status = 'on' | 'off' | types.nonExhaustive()", "local status: Status = 'on'",}, "\n")
     )
     testAssert.equal(widening, "", "a member of an open union fits it")
 
-    local arguments = diagnosticCodes("local type Status = 'on' | nupp.types.nonExhaustive(1)")
+    local arguments = diagnosticCodes("local type Status = 'on' | types.nonExhaustive(1)")
     testAssert.equal(arguments, "NUPP2421", "the open member takes no arguments")
 end
 

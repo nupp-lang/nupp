@@ -14,7 +14,7 @@ do
     local values = heap.allocate(ffi.typeof<int32>(), 4)
     local writable = values:write()
     writable[1] = 42 as int32
-    nupp.drop(writable)
+    own.drop(writable)
     local readable = values:read()
     print(readable[1], #readable)
 end -- free runs here
@@ -45,8 +45,8 @@ local free_nosuspend = free as @nosuspend function(takes pointer: voidptr): nil
 
 local function finish_array(takes self: any): nil
     @nosuspend do
-        local raw = @unsafe nupp.release(self)
-        local pointer = @unsafe nupp.adopt<affine(voidptr, free_nosuspend)>(raw.pointer)
+        local raw = @unsafe own.release(self)
+        local pointer = @unsafe own.adopt<affine(voidptr, free_nosuspend)>(raw.pointer)
         -- The husk outlives the free wherever a dynamic reference still sees
         -- it, and a nil pointer is what marks the allocation gone.
         raw.pointer = nil
@@ -63,7 +63,7 @@ end
 --- Frees an allocation, which is what every heap array's contract names.
 ---
 --- Nothing calls this by hand. It is the terminal consumer `affine` carries, so a
---- scope boundary or an explicit `nupp.drop` reaches it.
+--- scope boundary or an explicit `own.drop` reaches it.
 ---
 --- @param self the array, spent by this call
 --- @export
@@ -80,7 +80,7 @@ record heap.Array<T> is heap.ArrayToken
     --- How many elements the allocation holds.
     @readonly count: integer
 
-    --- Frees the allocation. `nupp.drop` and scope exit both reach this.
+    --- Frees the allocation. `own.drop` and scope exit both reach this.
     close: @nosuspend function(takes self: Array<T>): nil
 
     --- Borrows the whole allocation as a shared checked span.
@@ -182,9 +182,9 @@ local getmetatable_nosuspend = getmetatable as @nosuspend function(any): any
 local movedProbe = heap.allocate(ffi.typeof<int32>(), 0)
 local arrayMetatable: any = nil
 @nosuspend do
-    local raw = @unsafe nupp.release(movedProbe)
+    local raw = @unsafe own.release(movedProbe)
     arrayMetatable = getmetatable_nosuspend(raw)
-    local pointer = @unsafe nupp.adopt<affine(voidptr, free_nosuspend)>(raw.pointer)
+    local pointer = @unsafe own.adopt<affine(voidptr, free_nosuspend)>(raw.pointer)
     free_nosuspend(pointer)
 end
 
@@ -234,7 +234,7 @@ rawset(heap as table, "__heapArrayFree", function(pointer: any): nil
         raw = (ffi.cast("void * const *", pointer) as any)[0]
     end
     @nosuspend do
-        local owned = @unsafe nupp.adopt<affine(voidptr, free_nosuspend)>((ffi.cast("void *", raw)))
+        local owned = @unsafe own.adopt<affine(voidptr, free_nosuspend)>((ffi.cast("void *", raw)))
         free_nosuspend(owned)
     end
 end)

@@ -5,12 +5,12 @@ order: 275
 # Constrained types
 
 A constrained type is a scalar narrowed to some of the values its base admits.
-`nupp.types.range` narrows a number by value and `nupp.types.length` narrows a
+`types.range` narrows a number by value and `types.length` narrows a
 string by byte length. Both bounds are inclusive.
 
 ```nupp:playground
-local type Percent = nupp.types.range(integer, 0, 100)
-local type Identifier = nupp.types.length(string, 1, 64)
+local type Percent = types.range(integer, 0, 100)
+local type Identifier = types.length(string, 1, 64)
 
 local ratio: Percent = 50
 local name: Identifier = "width"
@@ -34,8 +34,8 @@ wider one is wanted. Containment decides that, so nothing has to declare a
 relationship between two constraints.
 
 ```nupp:playground
-local type Percent = nupp.types.range(integer, 0, 100)
-local type Digit = nupp.types.range(Percent, 0, 9)
+local type Percent = types.range(integer, 0, 100)
+local type Digit = types.range(Percent, 0, 9)
 
 local function widen(value: Digit): Percent
     return value
@@ -62,7 +62,7 @@ A value the compiler can prove needs nothing. A value it cannot prove is
 refused, and `nupp.admit` is how the program says it meant it.
 
 ```nupp:playground
-local type ShiftCount = nupp.types.range(integer, 0, 31)
+local type ShiftCount = types.range(integer, 0, 31)
 
 local function shift(bits: integer, by: integer): integer
     local count: ShiftCount = nupp.admit(by)
@@ -88,7 +88,7 @@ type without either a proof or a written admission.
 from a value that may not qualify.
 
 ```nupp:playground
-local type Identifier = nupp.types.length(string, 1, 64)
+local type Identifier = types.length(string, 1, 64)
 
 local function named(text: string): Identifier?
     if text is Identifier then
@@ -133,7 +133,7 @@ mind it.
 
 ## Computed constraints
 
-`nupp.types.range` and `nupp.types.length` are ordinary comptime type functions,
+`types.range` and `types.length` are ordinary comptime type functions,
 so a constraint can be built rather than written.
 
 ```nupp
@@ -141,7 +141,7 @@ local m = {}
 
 @comptime
 local function Between(T: type, low: integer, high: integer): type
-    return nupp.types.range(T, low, high)
+    return types.range(T, low, high)
 end
 
 local type Range<T, const Low: integer, const High: integer> = Between(T, Low, High)
@@ -158,7 +158,7 @@ return m
 
 An alias is not a brand. One constraint over one base is one type however many
 names reach it and however the bounds were computed, so `Range<integer, 0, 31>`
-and `nupp.types.range(integer, 0, 31)` written directly are the same type and
+and `types.range(integer, 0, 31)` written directly are the same type and
 each goes where the other does. The alias name is what hover and diagnostics
 show, because an interval is longer than a name and says less.
 
@@ -171,7 +171,7 @@ proved, written, or refused.
 ```nupp
 local m = {}
 
-local type Small = nupp.types.range(integer, 0, 10)
+local type Small = types.range(integer, 0, 10)
 
 record m.Box
     n: Small

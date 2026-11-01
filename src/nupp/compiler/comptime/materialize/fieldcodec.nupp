@@ -1,6 +1,6 @@
 module nupp.compiler.comptime.materialize.fieldcodec
 
--- Materializes keyed record-field projection from `nupp.reflect.Info`.
+-- Materializes keyed record-field projection from `types.reflect.Info`.
 
 local apiidentity = require("nupp.compiler.apiidentity")
 local hash = require("nupp.compiler.hash")
@@ -29,19 +29,19 @@ function fieldcodec.installEvaluator(state: any, env: any, newOpaque: any, prove
     state.intrinsics[token] = function(at, args)
         local reflected = state.opaque[args[1]]
         if args.n ~= 1 or not reflected or reflected.provider ~= "reflection" or reflected.family ~= "TypeInfo" then
-            return nil, failure("NUPP2418", "nupp.reflect.fieldCodec needs one reflected type")
+            return nil, failure("NUPP2418", "types.reflect.fieldCodec needs one reflected type")
         end
 
         return newOpaque(
             "fieldcodec",
             "Blueprint",
             {descriptor = reflected.payload},
-            provenance(at, "nupp.reflect.fieldCodec")
+            provenance(at, "types.reflect.fieldCodec")
         )
     end
     library.fieldCodec = token
     env.nupp = env.nupp or {}
-    env.nupp.reflect = library
+    env.types.reflect = library
     state.reflectionIntrinsic = library
 end
 
@@ -107,7 +107,7 @@ function fieldcodec.lower(envelope: any, expected: any, env: any): any, fieldcod
         return nil, failure(
             "NUPP2414",
             "a field-codec blueprint needs a directly declared runtime type",
-            "write nupp.reflect.FieldCodec<Record> on the declaration initialized by this comptime block"
+            "write types.reflect.FieldCodec<Record> on the declaration initialized by this comptime block"
         )
     end
     if envelope.schema ~= 2
@@ -157,7 +157,7 @@ function fieldcodec.lower(envelope: any, expected: any, env: any): any, fieldcod
             target.runtimePath or target.name
         ).fingerprint ~= envelope.payload.typeFingerprint
     then
-        return nil, failure("NUPP2415", "field-codec blueprint needs nupp.reflect.FieldCodec<Record>")
+        return nil, failure("NUPP2415", "field-codec blueprint needs types.reflect.FieldCodec<Record>")
     end
     local order = target.fieldOrder or {}
     if #order ~= #fields then

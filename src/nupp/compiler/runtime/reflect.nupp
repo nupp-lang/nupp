@@ -14,7 +14,7 @@ The compiler does the describing. A type that is reflected on carries a blueprin
 checker built from its declaration, and generated code hands that blueprint over with
 `_G.nupp.__reflect.register`. What is left for run time is holding the blueprints,
 answering `reflect()` from one, and running the extensions a program layers on top.
-Separately, it holds the keyed codec a materialized `nupp.reflect.fieldCodec`
+Separately, it holds the keyed codec a materialized `types.reflect.fieldCodec`
 calls.
 
 A descriptor is separate from the declaration table. A record's declaration owns
@@ -94,9 +94,9 @@ end
 
 --- Installs the reflection registry and the descriptor protocol.
 --- @export
-function reflectruntime.install(namespace: any): nil
+function reflectruntime.install(namespace: any): any
     require("nupp.compiler.runtime.typewitness").install(namespace)
-    local api = claim(namespace, "reflect", {})
+    local api = claim(namespace, "__reflectionApi", {})
     api.extensionKey = extensions.key
     local reflect = claim(namespace, "__reflect", {})
     local blueprints = reflect.blueprints or setmetatable({}, {__mode = "k"})
@@ -121,7 +121,7 @@ function reflectruntime.install(namespace: any): nil
     ---
     --- @raises string when the descriptor is not one of ours, when the extension is
     ---     already being built, or when its `build` did not succeed
-    function Info:extension<T>(extension: nupp.reflect.ExtensionKey<T>): T
+    function Info:extension<T>(extension: types.reflect.ExtensionKey<T>): T
         local state = states[self]
         if not state then
             error("nupp: foreign reflection descriptor", 2)
@@ -179,7 +179,7 @@ function reflectruntime.install(namespace: any): nil
 
     api.runtime = reflect.get
 
-    function api.runtimeType(info: nupp.reflect.Info, index: integer): Type<unknown>?
+    function api.runtimeType(info: types.reflect.Info, index: integer): Type<unknown>?
         local state = states[info]
         if state == nil then
             error("nupp: foreign reflection descriptor", 2)
@@ -228,6 +228,7 @@ function reflectruntime.install(namespace: any): nil
         return search(state.type)
     end
 
+    return api
 end
 
 export = reflectruntime

@@ -417,7 +417,7 @@ end
 function M.registryRejectsReservedAndChildExportCollisions()
     withProject(
         {
-            ["src/nupp/pin.nupp"] = "module nupp.pin\nexport const value: integer = 1\n",
+            ["src/nupp/pin.nupp"] = "module own.pin\nexport const value: integer = 1\n",
             ["src/pkg.nupp"] = "module pkg\nexport const child: integer = 1\n",
             ["src/pkg/child.nupp"] = "module pkg.child\nexport const value: integer = 2\n",
         },

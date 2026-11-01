@@ -27,7 +27,7 @@ Because `%s` accepts anything, nothing needs `tostring` and a nil argument
 prints as `nil` rather than raising. Lines go to standard error until a host
 says otherwise.
 
-`%?` is Nupp's debug directive. It requires `nupp.Debug`, calls the value's
+`%?` is Nupp's debug directive. It requires `types.Debug`, calls the value's
 `debug()` method, and formats the returned string as `%s`:
 
 ```nupp:fragment
@@ -282,16 +282,16 @@ record log.Logger
     @readonly name: string
 
     --- Logs at debug. Accepts `string.format` directives.
-    debug: function<F is string>(self: log.Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
+    debug: function<F is string>(self: log.Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil
 
     --- Logs at info. Accepts `string.format` directives.
-    info: function<F is string>(self: log.Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
+    info: function<F is string>(self: log.Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil
 
     --- Logs at warn. Accepts `string.format` directives.
-    warn: function<F is string>(self: log.Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
+    warn: function<F is string>(self: log.Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil
 
     --- Logs at error. Accepts `string.format` directives.
-    error: function<F is string>(self: log.Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
+    error: function<F is string>(self: log.Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil
 
     --- Whether this logger would emit at `level`.
     enabled: function(self: log.Logger, level: log.Level): boolean
@@ -501,7 +501,7 @@ end
 
 --- Logs at error. Accepts `string.format` directives.
 --- @export
-function log.error<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
+function log.error<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil
     if not on[1] then
         return
     end
@@ -510,7 +510,7 @@ end
 
 --- Logs at warn. Accepts `string.format` directives.
 --- @export
-function log.warn<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
+function log.warn<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil
     if not on[2] then
         return
     end
@@ -519,7 +519,7 @@ end
 
 --- Logs at info. Accepts `string.format` directives.
 --- @export
-function log.info<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
+function log.info<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil
     if not on[3] then
         return
     end
@@ -528,7 +528,7 @@ end
 
 --- Logs at debug. Accepts `string.format` directives.
 --- @export
-function log.debug<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
+function log.debug<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil
     if not on[4] then
         return
     end
@@ -686,7 +686,7 @@ end
 function log.setSink(takes next: log.Target): log.Target
     -- The log holds the target for the rest of the process and never closes it, so
     -- taking it ends the caller's obligation here.
-    local taken: any = @unsafe nupp.release(next)
+    local taken: any = @unsafe own.release(next)
     local previous = target
     if type(taken) == "function" then
         target = taken

@@ -230,7 +230,7 @@ type-graph edge, and C type name, without choosing a target row count.
 
 ```nupp:fragment
 local firstIdentity = comptime do
-    local info = nupp.reflect(Particle)
+    local info = types.reflect(Particle)
     assert(info.soa.eligible)
     return info.soa.fields[1].identity
 end

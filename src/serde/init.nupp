@@ -29,7 +29,7 @@ The package splits by audience:
 - [](serde.json), [](serde.native), and [](serde.debug) are the
   codecs: JSON text, a LuaJIT-local persistence frame, and diagnostic text.
 - [](serde.document) holds schema-free values: a document tree, typed views
-  of bound values, and saved [](nupp.util.Store) snapshots.
+  of bound values, and saved [](types.Store) snapshots.
 - [](serde.adapters) builds bindings for a model library that owns its own
   schema, such as one generated from Smithy or OpenAPI.
 - [](serde.codec) holds what a new codec needs beyond the contracts here.
@@ -154,7 +154,7 @@ export type FieldView = declarations.View
 --- [](access) returns one for a model library that maps a Nupp record onto its
 --- own schema, so it reads fields and constructs values exactly as
 --- [](binding) does without depending on that binding.
-export type Access<T is nupp.Copyable> = accessors.Access<T>
+export type Access<T is own.Copyable> = accessors.Access<T>
 
 export const Access = accessors.Access
 
@@ -206,7 +206,7 @@ export type Adapter<T, M is core.Member> = core.Adapter<T, M>
 --- )
 --- assert(json.codec(json.memberNamePolicy):encode(title, "Dune") == '"Dune"')
 --- ```
-export type Bound<T is nupp.Copyable, M is core.Member> = core.Bound<T, M>
+export type Bound<T is own.Copyable, M is core.Member> = core.Bound<T, M>
 
 export const Bound = core.Bound
 
@@ -275,7 +275,7 @@ export type Atom = core.Atom
 export type WireField = core.WireField
 
 --- Typed values a codec attaches to what it reads, such as the schema a
---- document came from. Keys are [](nupp.util.Key)s; a context returns its own
+--- document came from. Keys are [](types.Key)s; a context returns its own
 --- value for a key, then its parent's.
 export type Context = core.Context
 

@@ -503,7 +503,7 @@ function M.keepsTransportStateOutOfThePublicDescriptor()
     end
 
     local source = [[
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record Model
     value: integer
 end

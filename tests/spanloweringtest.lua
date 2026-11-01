@@ -254,7 +254,7 @@ local function work(exclusive storage: Cell[?], count: integer): nil
     for index = 1, #values do
         values[index].value = 7
     end
-    nupp.drop(values)
+    own.drop(values)
 end
 return work
 ]]
@@ -397,7 +397,7 @@ local function work(exclusive storage: heap.Array<Cell>): nil
     for index = 1, #values do
         values[index].value = 9
     end
-    nupp.drop(values)
+    own.drop(values)
 end
 return work
 ]]
@@ -420,7 +420,7 @@ local function work(exclusive particles: soa.Array<Particle>): nil
     for index = 1, #xs do
         xs[index] = 3.5
     end
-    nupp.drop(rows)
+    own.drop(rows)
 end
 return work
 ]]
@@ -451,7 +451,7 @@ return work
 local function work(exclusive storage: Cell[?], count: integer, index: integer): nil
     const values = span.writeCarray(storage, count)
     values[index].value += 1
-    nupp.drop(values)
+    own.drop(values)
 end
 return work
 ]]
@@ -512,8 +512,8 @@ local function work(exclusive storage: Cell[?], count: integer): int32
     for index = 1, #input do
         total += input[index].value
     end
-    nupp.drop(window)
-    nupp.drop(root)
+    own.drop(window)
+    own.drop(root)
     return total
 end
 return work
@@ -579,7 +579,7 @@ local function work(exclusive particles: soa.Array<Particle>): number
         prior += value.x
         rows[index] = new Particle(value.x + 1, value.y + 2)
     end
-    nupp.drop(rows)
+    own.drop(rows)
     return prior
 end
 return work
@@ -667,7 +667,7 @@ end
 local function work(exclusive storage: Cell[?], count: integer): nil
     const values = span.writeCarray(storage, count)
     fill(values)
-    nupp.drop(values)
+    own.drop(values)
 end
 return work
 ]]
@@ -799,8 +799,8 @@ function R3.mutate(
         xvalues[index] += 1
         yvalues[index] += 2
     end
-    nupp.drop(yvalues)
-    nupp.drop(xvalues)
+    own.drop(yvalues)
+    own.drop(xvalues)
     return dirtyX * 10 + dirtyY
 end
 
@@ -888,21 +888,21 @@ function Probe.writeTail(exclusive storage: int32[?], index: integer): nil
     const values = span.writeCarray(storage, 4)
     const tail = values:slice(3, 4)
     tail[index] = 99
-    nupp.drop(tail)
-    nupp.drop(values)
+    own.drop(tail)
+    own.drop(values)
 end
 function Probe.writeSlice(exclusive storage: int32[?], index: integer): nil
     const values = span.writeCarray(storage, 4)
     const part = values:slice(index, 4)
     part[1] = 99
-    nupp.drop(part)
-    nupp.drop(values)
+    own.drop(part)
+    own.drop(values)
 end
 function Probe.split(exclusive storage: int32[?], index: integer): nil
     const values = span.writeCarray(storage, 4)
     const parts = values:splitAt(index)
     parts.right[1] = 99
-    nupp.drop(values)
+    own.drop(values)
 end
 function Probe.readTail(borrows storage: int32[?], index: integer): int32
     const values = span.fromCarray(storage, 4)
@@ -928,7 +928,7 @@ end
 function Probe.fixedWrite(exclusive storage: int32[4], index: integer): nil
     const values = span.writeFixedCarray(storage, 4)
     values[index] = 99
-    nupp.drop(values)
+    own.drop(values)
 end
 function Probe.fixedSlice(borrows storage: int32[4], index: integer): int32
     const values = span.fromFixedCarray(storage, 4)

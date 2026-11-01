@@ -30,7 +30,7 @@ local record Request
     created: core.Timestamp
     payload: documents.Document
 end
-local record Builder is nupp.Closeable
+local record Builder is own.Closeable
     name: string?
     token: string?
     created: core.Timestamp?

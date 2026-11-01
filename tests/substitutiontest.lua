@@ -41,7 +41,7 @@ local M = {}
 
 function M.nominalArgumentsRetainTheirCleanupIdentityDuringInference()
     local source = [[
-local record Resource is nupp.Closeable
+local record Resource is own.Closeable
     function close(takes self): nil end
 end
 local record Key<V>

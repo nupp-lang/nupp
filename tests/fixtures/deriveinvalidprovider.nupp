@@ -1,3 +1,5 @@
+const derive2 = require("types.derive")
+
 local M = {}
 
 interface M.Contract
@@ -5,8 +7,8 @@ interface M.Contract
 end
 
 @comptime
-function M.bad(info: string): nupp.derive.Result<M.Contract>
-    return nupp.derive.implement{methods = {}}
+function M.bad(info: string): types.derive.Result<M.Contract>
+    return derive2.implement{methods = {}}
 end
 
 function M.runtime(): string

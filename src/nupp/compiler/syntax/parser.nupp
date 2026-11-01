@@ -1754,12 +1754,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     and baseTok
                     and (
                         FFI_INTRINSIC[member.text] and baseTok.text == "ffi"
-                        or member.text == "adopt" and (baseTok.text == "nupp" or baseTok.text == "own")
+                        or member.text == "adopt" and baseTok.text == "own"
                     )
                 then
                     add(n, advance()).generic = true
                     local argument = add(n, parseType())
-                    if member.text == "adopt" and (baseTok.text == "nupp" or baseTok.text == "own") then
+                    if member.text == "adopt" and baseTok.text == "own" then
                         n.ownershipTypeArg = argument
                     else
                         n.ffiTypeArg = argument
@@ -2218,9 +2218,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         if operation == "adopt" and operand.kind == "castExpr" and operand.expr and operand.type then
             replacement = (
                 prefix and "@unsafe " or ""
-            ) .. "nupp.adopt<" .. sourceText(operand.type) .. ">(" .. sourceText(operand.expr) .. ")"
+            ) .. "own.adopt<" .. sourceText(operand.type) .. ">(" .. sourceText(operand.expr) .. ")"
         elseif operation == "release" then
-            replacement = (prefix and "@unsafe " or "") .. "nupp.release(" .. sourceText(operand) .. ")"
+            replacement = (prefix and "@unsafe " or "") .. "own.release(" .. sourceText(operand) .. ")"
         end
         local start = prefix or operationToken
         local last = cst.lastToken(operand)
@@ -2243,7 +2243,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             operationToken,
             "ownership " .. operation .. " uses a nupp call",
             "NUPP1005",
-            operation == "adopt" and "write @unsafe nupp.adopt<Owner>(raw)" or "write @unsafe nupp.release(owner)",
+            operation == "adopt" and "write @unsafe own.adopt<Owner>(raw)" or "write @unsafe own.release(owner)",
             fixes
         )
 
@@ -3649,18 +3649,18 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             if last then
                 fixes = {
                     {
-                        title = "use nupp.drop",
+                        title = "use own.drop",
                         edits = {
                             {
                                 offset = dropTok.offset,
                                 length = last.offset + #last.text - dropTok.offset,
-                                newText = "nupp.drop(" .. sourceText(value) .. ")",
+                                newText = "own.drop(" .. sourceText(value) .. ")",
                             }
                         },
                     }
                 }
             end
-            errAt(dropTok, "drop uses nupp.drop(value)", "NUPP1005", "write nupp.drop(value)", fixes)
+            errAt(dropTok, "drop uses own.drop(value)", "NUPP1005", "write own.drop(value)", fixes)
             return n
         end
 

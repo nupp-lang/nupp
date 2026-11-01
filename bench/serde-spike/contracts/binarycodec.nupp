@@ -50,10 +50,10 @@ assert(not pcall(binary.decode, binary, binding, syntax.encode({entries[1], entr
 
 -- Reuse the declaration's public field operations with dense indexed storage.
 -- The binary codec never learns the declaration's member type or constructor.
-local record IndexField<T, S is nupp.Closeable, M is core.Member> is structure.FieldConsumer<T, S, M, nil>
+local record IndexField<T, S is own.Closeable, M is core.Member> is structure.FieldConsumer<T, S, M, nil>
     @readonly layout: indexed.Layout<M>
     @readonly required: boolean
-    function apply<V is nupp.Copyable>(
+    function apply<V is own.Copyable>(
         self,
         member: M,
         has: structure.Has<T>,
@@ -73,7 +73,7 @@ local record IndexStructure<
     T,
     M is core.Member
 > is structure.StructureConsumer<T, M, core.Binding<indexed.IndexedValue>>
-    function apply<S is nupp.Closeable>(
+    function apply<S is own.Closeable>(
         self,
         member: M,
         fields: const{structure.Field<T, S, M>},
@@ -117,7 +117,7 @@ local record Envelope
     blob: string
     unknown: {Captured} = {}
 end
-local record Builder is nupp.Closeable
+local record Builder is own.Closeable
     name: string?
     blob: string?
     unknown: {Captured} = {}

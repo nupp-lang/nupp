@@ -48,7 +48,7 @@ record gpu.Buffer<T> is api.Buffer<T>
     --- view, without suspending. A buffer whose context already closed has
     --- nothing left to release.
     function close(takes self): nil
-        local buffer = @unsafe nupp.release(self)
+        local buffer = @unsafe own.release(self)
         if not buffer._root or buffer._state.released then
             return
         end

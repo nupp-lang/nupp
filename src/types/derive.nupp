@@ -1,0 +1,26 @@
+module types.derive
+
+--[[
+Closed recipes for checked derive providers.
+Providers inspect a declaration and return forwarding recipes for its members.
+
+```nupp
+@comptime local function refuse(info: types.derive.Info): types.derive.Result<any>
+    return types.derive.error("this declaration is unsupported", info.reference)
+end
+```
+
+See [derives.md](docs/reference/derives.md) for provider contracts.
+]]
+
+export type Provider = types.derive.Provider
+export type EventOptions = types.derive.EventOptions
+export type DebugOptions = types.derive.DebugOptions
+export type Reference = types.derive.Reference
+export type Field = types.derive.Field
+export type Info = types.derive.Info
+export type Argument = types.derive.Argument
+export type RuntimeHelper = types.derive.RuntimeHelper
+export type Forward = types.derive.Forward
+export type Member = types.derive.Member
+export type Result<I> = types.derive.Result<I>

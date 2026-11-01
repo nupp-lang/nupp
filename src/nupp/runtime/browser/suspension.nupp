@@ -584,7 +584,7 @@ local function installHandler(value: suspension.Handler, transparent: boolean): 
     -- The coroutine's slot keeps the record as well as the caller, who holds the one
     -- obligation to close it. The extent's own state is written here rather than
     -- declared on the record, because nothing outside this file reads it.
-    local installed: any = @unsafe nupp.release(owned)
+    local installed: any = @unsafe own.release(owned)
     installed._co = coroutine
     installed._previous = previous
     installed.transparent = transparent

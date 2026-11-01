@@ -401,17 +401,17 @@ parameters, associated-type projections, and `unpackof` remain direct finite
 operators.
 
 Algorithms use ordinary Nupp in a `@comptime function`. Parameters and results
-may be compiler-only `type` or `typepack` handles. `nupp.types` inspects
+may be compiler-only `type` or `typepack` handles. `types` inspects
 immutable semantics and constructs structural types, never declarations. Calls
 use parentheses in type position and erase completely from generated Lua.
 
-`nupp.types.elements` takes a pack apart as readily as a composite type, giving
-its fixed head, and `nupp.types.arguments` gives the arguments a generic
+`types.elements` takes a pack apart as readily as a composite type, giving
+its fixed head, and `types.arguments` gives the arguments a generic
 declaration was applied to, or nothing for a type that is not an application.
-`nupp.types.sameNominal(A, B)` says whether two types come from the same nominal
+`types.sameNominal(A, B)` says whether two types come from the same nominal
 declaration without exposing that declaration's identity.
 
-`nupp.types.construction(T)` is a record or struct's construction contract as a
+`types.construction(T)` is a record or struct's construction contract as a
 pack: the one declared constructor's parameters, or the stored fields in
 declaration order when there is none, each slot carrying its name, and a slot
 with a default or a nilable type optional. Written as a computed tail,
@@ -419,7 +419,7 @@ with a default or a nilable type optional. Written as a computed tail,
 position or by name the way `new E(...)` would; a declaration with several
 constructors has no single contract and is refused.
 
-`nupp.types.fields(T)` accepts structural and nominal types; a nominal keeps its
+`types.fields(T)` accepts structural and nominal types; a nominal keeps its
 declaration identity while exposing its public fields in declaration order, and
 `describe(T).fields` reports the same descriptors. The descriptor parameters are
 read-only, so an annotated descriptor may omit an unused optional `read` or `write`
@@ -439,8 +439,8 @@ local type Events<T> = {@readonly [K in keyof T as `${K}Changed`]: function(valu
 
 @comptime
 local function DeepElement(T: type): type
-    while nupp.types.kind(T) == "array" do
-        T = nupp.types.elements(T)[1]
+    while types.kind(T) == "array" do
+        T = types.elements(T)[1]
     end
     return T
 end
@@ -475,18 +475,18 @@ unresolved result is rejected.
 
 Inside a computed tuple, `{Head, unpackof Tail}` appends the tuple `Tail`
 produces, and an array of `never` contributes no slots. A comptime function
-returning `typepack` constructs a complete pack through `nupp.types.pack`, and
-`nupp.types.error(message)` rejects a computed contract.
+returning `typepack` constructs a complete pack through `types.pack`, and
+`types.error(message)` rejects a computed contract.
 
 A pack binder is an argument wherever a type is: `F(C...)` passes the sequence
-itself, which a comptime function reads with `nupp.types.elements` and returns
+itself, which a comptime function reads with `types.elements` and returns
 another pack. A computed tail is a parameter list as soon as its type
 reduces, so `...: unpackof F(C...)` on a callback names the parameters an
 argument written without types takes, and a callback written with the wrong
 ones, or with more of them, is refused where it is passed.
 
 A generic iterator's computed result tail likewise types its loop bindings.
-`borrowed` and `exclusive` modes returned by `nupp.types.pack` keep a yielded
+`borrowed` and `exclusive` modes returned by `types.pack` keep a yielded
 view inside one execution of the loop body and erase with the rest of the pack.
 
 Whole-pack unions preserve the relationships between results, which is why
@@ -504,17 +504,17 @@ end
 --- The cells a caller names, mapped to what each one holds.
 @comptime
 local function Held(C: typepack): typepack
-    const cells = nupp.types.elements(C)
+    const cells = types.elements(C)
     const out = {}
     for index = 1, #cells do
-        const supplied = nupp.types.arguments(cells[index])
+        const supplied = types.arguments(cells[index])
         if #supplied ~= 1 then
-            return nupp.types.error("each argument must be a cell")
+            return types.error("each argument must be a cell")
         end
         out[index] = supplied[1]
     end
 
-    return nupp.types.pack(out)
+    return types.pack(out)
 end
 
 record m.Store
@@ -1255,13 +1255,13 @@ remaining union. An open type such as `string`, `integer`, or `any` needs
 `else`. A non-exhaustive switch is `NUPP2140` and cannot be suppressed as a
 lint.
 
-A union that lists `nupp.types.nonExhaustive()` among its alternatives always
+A union that lists `types.nonExhaustive()` among its alternatives always
 needs `else`, and never reports one as unnecessary. That call returns a member
 no value inhabits and no name resolves to, so no case covers it, and the union
 does not fit the closed union of the alternatives written beside it.
 
 ```nupp
-local type Status = "ok" | "error" | nupp.types.nonExhaustive()
+local type Status = "ok" | "error" | types.nonExhaustive()
 
 local label = switch status do
     case "ok" -> "fine"
@@ -1543,22 +1543,22 @@ allocated. The binding named must stay that function: one assigned anywhere
 else in the file is refused, since the identity would otherwise name a function
 the discharge no longer calls. Cleanup has type `function(takes T): nil` and may
 suspend. `affine(T)` selects the inherent cleanup of a type with a declared
-`nupp.Affine` claim; for other types it is transfer-only.
+`own.Affine` claim; for other types it is transfer-only.
 
-`nupp.Affine<cleanup>` is the compiler-recognized ownership claim. A record or
-interface must explicitly declare `is nupp.Affine<cleanup>`, possibly through
+`own.Affine<cleanup>` is the compiler-recognized ownership claim. A record or
+interface must explicitly declare `is own.Affine<cleanup>`, possibly through
 another interface. A compatible method alone does not make a type affine.
 Inherited claims cannot specify conflicting cleanup functions.
 
-`nupp.Closeable` inherits `nupp.Affine<self.close>`. A record explicitly
+`own.Closeable` inherits `own.Affine<self.close>`. A record explicitly
 implementing it is inherently affine, so construction and bare annotations
 carry its `close` obligation. `close(takes self)` may suspend; an implementation
 can promise `@nosuspend` where appropriate.
 
-An affine local is dropped at scope exit. `nupp.drop(owner)` invokes its
+An affine local is dropped at scope exit. `own.drop(owner)` invokes its
 cleanup now, `takes` parameters and affine returns transfer it, and
-`@unsafe nupp.adopt<SomeAffine>(raw)` asserts a fresh obligation while
-`@unsafe nupp.release(owner)` consumes one without cleanup.
+`@unsafe own.adopt<SomeAffine>(raw)` asserts a fresh obligation while
+`@unsafe own.release(owner)` consumes one without cleanup.
 
 Parameter modes describe what a call does with an owner: `takes` consumes it,
 `borrows` is call-scoped, `exclusive` also requires sole access, and
@@ -1573,7 +1573,7 @@ field to a root; written on a result it may be any of them, one per callable, so
 a function handing a generic for a state it borrows states the second slot.
 Affine nominal fields have path-sensitive state, so a field is
 tracked apart from the record holding it, and suspension cannot strand an
-obligation. A record whose own cleanup closes it (`is nupp.Closeable`) still runs
+obligation. A record whose own cleanup closes it (`is own.Closeable`) still runs
 that cleanup on what it holds, so moving an optional field out of one is a take:
 nil is written where it was, and the field reads as moved until it is assigned
 again. A field that cannot hold nil cannot move out of such a record
@@ -1583,15 +1583,15 @@ Direct pointer or variable-length C-array indexing requires `@unsafe`; use a spa
 for checked bounds. Fixed arrays reject bad literals and guard dynamic indexes.
 A capability cannot disappear into `any`.
 
-The ownership helpers are `nupp.attemptAll`, `nupp.borrow`, `nupp.borrowFrom`,
-and `nupp.pin`. `attemptAll` tries every cleanup in order and raises the first
+The ownership helpers are `own.attemptAll`, `own.borrow`, `own.borrowFrom`,
+and `own.pin`. `attemptAll` tries every cleanup in order and raises the first
 failure with the rest suppressed. A local name shadows a helper.
 
-`nupp.manage(owner)` moves a self-contained exact obligation into an independent
+`own.manage(owner)` moves a self-contained exact obligation into an independent
 managed cell. The unique `managed(T)` value owns the cell; copyable `alias(T)`
 values provide checked callback borrows, exclusive callback borrows, one-time
 ownership recovery, and closure. Closed and taken cells remain tombstones, so
-an old alias can never select a later resource. `nupp.ManagedGroup` implements
+an old alias can never select a later resource. `own.ManagedGroup` implements
 runtime-sized heterogeneous custody as ordinary library code over aliases.
 `nupp.mem.heap.Array<T>` remains the typed homogeneous owning container.
 
@@ -1620,7 +1620,7 @@ end
 
 function m.closeNow(): nil
     local file = m.open()
-    nupp.drop(file)
+    own.drop(file)
 end
 
 return m
@@ -1799,8 +1799,8 @@ return m
         title = "Constrained scalar types",
         codes = {"NUPP2001", "NUPP2013", "NUPP2422"},
         body = [=[
-`nupp.types.range(base, min, max)` narrows `integer`, `int32` or `uint32` to the
-values from `min` through `max`, and `nupp.types.length(base, min, max)` narrows
+`types.range(base, min, max)` narrows `integer`, `int32` or `uint32` to the
+values from `min` through `max`, and `types.length(base, min, max)` narrows
 `string` by byte length. Both bounds are inclusive. Narrowing an already
 constrained alias intersects, so `Digit` below admits what `Percent` admits and
 less; a pair of bounds admitting nothing is `NUPP2422` at the declaration.
@@ -1842,13 +1842,13 @@ graphemes, and an embedded NUL counts like any other byte.
         example = [=[
 local m = {}
 
-local type Percent = nupp.types.range(integer, 0, 100)
-local type Digit = nupp.types.range(Percent, 0, 9)
-local type Short = nupp.types.length(string, 1, 4)
+local type Percent = types.range(integer, 0, 100)
+local type Digit = types.range(Percent, 0, 9)
+local type Short = types.length(string, 1, 4)
 
 @comptime
 local function Between(T: type, low: integer, high: integer): type
-    return nupp.types.range(T, low, high)
+    return types.range(T, low, high)
 end
 
 local type Range<T, const Low: integer, const High: integer> = Between(T, Low, High)
@@ -2096,10 +2096,10 @@ return m
 `@derive` generates a closed set of checked members on a record. It is a
 declaration-augmentation phase rather than a text macro, so it cannot add
 imports, top-level declarations, modules, or independently nameable types. The
-bundled Debug provider is `nupp.derive.Debug`;
+bundled Debug provider is `types.Debug`;
 `events.Event` marks a record or struct as an event
 the same way; and a package exports its own as a `@comptime function` returning
-`nupp.derive.Result<T>`. A provider may also ask for the declaration's
+`types.derive.Result<T>`. A provider may also ask for the declaration's
 initializer, its constructor body or field list as a function run against
 storage the caller already holds, which is how pooled construction reuses the
 same checked body `new` runs.
@@ -2626,7 +2626,7 @@ only that block.
 
 `@comptime function` declares a reusable compile-only callable, where
 `comptime do ... end` evaluates one expression. Helpers share the caller's
-budgets, may inspect `nupp.reflect.Info`, and erase from runtime output. They
+budgets, may inspect `types.reflect.Info`, and erase from runtime output. They
 are not yet generic or variadic.
 
 A sealed compiler provider may instead return an opaque description that has no
@@ -2677,7 +2677,7 @@ return m
         title = "Reflection and field codecs",
         codes = {"NUPP2414", "NUPP2415", "NUPP2416", "NUPP2418"},
         body = [=[
-`nupp.reflect(T)` resolves `T` in a type position and creates an immutable,
+`types.reflect(T)` resolves `T` in a type position and creates an immutable,
 target-independent semantic descriptor for comptime. Schema 4 represents the
 possibly recursive type as an acyclic indexed graph: `root` selects a node in
 `types`, and edges between nodes are integer indices. The graph covers nominal
@@ -2699,8 +2699,8 @@ checker's process-local type identities. Annotation names, arguments, values,
 and referenced types take part in it, so changing serialization metadata
 invalidates a cached comptime result even when the field types are unchanged.
 
-`nupp.reflect.fieldCodec(nupp.reflect(R))` materializes a field codec.
-For a record `R` it produces a `nupp.reflect.FieldCodec<R>` whose `encode`
+`types.reflect.fieldCodec(types.reflect(R))` materializes a field codec.
+For a record `R` it produces a `types.reflect.FieldCodec<R>` whose `encode`
 method copies exactly the record's present declared fields with `rawget`.
 Encoding and decoding are shallow; decoding selects the same fields from a
 keyed table and restores the record's runtime identity. Its stable compatibility
@@ -2722,8 +2722,8 @@ local record Position
     y: number
 end
 
-const PositionCodec: nupp.reflect.FieldCodec<Position> = comptime do
-    return nupp.reflect.fieldCodec(nupp.reflect(Position))
+const PositionCodec: types.reflect.FieldCodec<Position> = comptime do
+    return types.reflect.fieldCodec(types.reflect(Position))
 end
 
 function m.encode(position: Position): {[string]: any}

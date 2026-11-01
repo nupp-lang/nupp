@@ -842,7 +842,7 @@ function resolve.install(c: state.Checker): nil
                 end
                 local payload = c.resolveType(node.arguments[1])
                 local declared = c.lookupType(name == "managed" and "own.Managed" or "own.Alias")
-                    or c.lookupType(name == "managed" and "nupp.Managed" or "nupp.Alias")
+                    or c.lookupType(name == "managed" and "own.Managed" or "own.Alias")
                 if not declared
                     or declared.tag ~= "nominal"
                     or not declared.typeParams
@@ -1961,7 +1961,7 @@ function resolve.install(c: state.Checker): nil
                         end
                         local parameter = p.type and c.resolveType(p.type) or T.any
                         c.suppressInherentOwner = priorSuppression
-                        -- `borrows nupp.Closeable` and `exclusive nupp.Closeable`
+                        -- `borrows own.Closeable` and `exclusive own.Closeable`
                         -- describe a view of somebody else's obligation. Only `takes`
                         -- carries the inherent close policy into the callee.
                         params[#params + 1] = parameter

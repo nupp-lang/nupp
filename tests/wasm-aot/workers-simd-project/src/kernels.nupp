@@ -36,12 +36,12 @@ export function scaled(count: integer, factor: number): {number}
     for index = 1, count do
         rows[index] = new Sample(index, index * 10, index * 100)
     end
-    nupp.drop(rows)
+    own.drop(rows)
 
     local output = array.newArray(new Sample(), count)
     local writable = output:write()
     scale(writable, input:read(), factor)
-    nupp.drop(writable)
+    own.drop(writable)
 
     local produced = output:read()
     local values: {number} = {}

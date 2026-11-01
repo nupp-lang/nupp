@@ -1,5 +1,8 @@
 module tests.fixtures.ecsderiveprovider
 
+const derive = require("types.derive")
+const types2 = require("types")
+
 export sealed interface Value
 end
 
@@ -9,16 +12,16 @@ export record ecsname
 end
 
 @comptime
-export function Component(info: nupp.derive.Info): nupp.derive.Result<Value>
-    return nupp.derive.implement{data = {ecs = {name = info.qualifiedName}}, initializer = true}
+export function Component(info: types.derive.Info): types.derive.Result<Value>
+    return derive.implement{data = {ecs = {name = info.qualifiedName}}, initializer = true}
 end
 
 @comptime
 export function StorageColumn(T: type): type
-    if nupp.types.describe(T).declarationKind == "struct" then
-        return nupp.types.carray(T)
+    if types2.describe(T).declarationKind == "struct" then
+        return types2.carray(T)
     end
-    return nupp.types.array(T)
+    return types2.array(T)
 end
 
 @comptime

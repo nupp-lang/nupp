@@ -199,7 +199,7 @@ function parallelcheck.run(input: any): (any?, string?)
             end
             error(problem or "parallel check worker has no protocol streams", 0)
         end
-        state.channels[index] = workerchannel.open(@unsafe nupp.release(child), {maxFrame = protocol.MAX_FRAME})
+        state.channels[index] = workerchannel.open(@unsafe own.release(child), {maxFrame = protocol.MAX_FRAME})
         state.resident[index] = {}
         state.initialized[index] = nil
         -- A restarted lane gets a namespace no earlier process used.

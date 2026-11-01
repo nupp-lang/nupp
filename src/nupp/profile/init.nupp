@@ -32,7 +32,7 @@ runs at a time.
 
 Neither is free. A sample session pays a timer interrupt, a stack walk and a
 table write at every interval; a trace session pays a callback at every abort,
-inside the compiler. A session is a `nupp.Closeable`, so a `with` ends it where
+inside the compiler. A session is a `own.Closeable`, so a `with` ends it where
 its block does: `stop` returns the report, and a session nothing stopped is
 closed without one.
 
@@ -95,7 +95,7 @@ type profile.TraceOptions = {
 ---
 --- Sampling and trace-abort sessions share this lifecycle. Generic helpers can use
 --- `S.Report` to preserve the concrete report chosen by a session declaration, and
---- take the session `borrows`. Each session is also a `nupp.Closeable`: `close`, which
+--- take the session `borrows`. Each session is also a `own.Closeable`: `close`, which
 --- leaving a `with` calls, ends one that nothing stopped without building a report,
 --- and does nothing after `stop`. The two are separate so a helper bounded by this
 --- one can still name `S.Report`.
@@ -187,7 +187,7 @@ end
 ---
 --- Live until `stop` or `close`, and there is at most one at a time. Held by a `with`,
 --- it is closed where the block ends, so the timer never outlives the question.
-record profile.SampleSession is profile.Session, nupp.Closeable
+record profile.SampleSession is profile.Session, own.Closeable
     associated type Report = profile.SampleReport
 
     --- The interval it was started at.
@@ -322,7 +322,7 @@ end
 ---
 --- Live until `stop` or `close`, and there is at most one at a time. Held by a `with`,
 --- it is closed where the block ends, so the event hook never outlives the question.
-record profile.TraceSession is profile.Session, nupp.Closeable
+record profile.TraceSession is profile.Session, own.Closeable
     associated type Report = profile.TraceReport
 
     --- Whether the benign trace-formation events are being counted.
@@ -605,7 +605,7 @@ function profile.sample(options: profile.SampleOptions?): profile.SampleSession
     )
     -- The sampler's callback reads the session for as long as it runs, while the
     -- caller holds the one obligation to close it.
-    local session: any = @unsafe nupp.release(owned)
+    local session: any = @unsafe own.release(owned)
 
     -- Negative, so the walk runs outermost frame first: that is the order a collapsed
     -- stack is written in, and reversing it here would mean building a list per sample
@@ -971,7 +971,7 @@ function profile.trace(options: profile.TraceOptions?): profile.TraceSession
     )
     -- The hook reads the session for as long as it is attached, while the caller holds
     -- the one obligation to close it.
-    local session: any = @unsafe nupp.release(owned)
+    local session: any = @unsafe own.release(owned)
 
     -- Variadic because `jit.attach` hands each event its own arguments; a "trace"
     -- event's are what this unpacks. Trace numbers connect side traces to their

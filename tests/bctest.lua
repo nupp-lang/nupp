@@ -329,7 +329,7 @@ end
 for i = 1, 3000 do
     local first = ownedMalloc(i)
     local second = ownedMalloc(i + 1)
-    nupp.drop(second)
+    own.drop(second)
 end
 ]]
     }
@@ -502,14 +502,12 @@ return total
 end
 
 function M.bytecodeUsesTheSelectedTierAndNamesConstructorTailCalls()
-    local dir = project{
-        ["constructor.nupp"] = [[
+    local dir = project{["constructor.nupp"] = [[
 local function make()
     return setmetatable({}, {})
 end
 return make()
-]]
-    }
+]]}
     local out, code = run(dir, "--json --check -O1 constructor.nupp")
     test.equal(code, 0, out)
     local report = require("testjson").decode(out)

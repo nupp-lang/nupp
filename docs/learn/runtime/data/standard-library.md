@@ -67,8 +67,8 @@ intrinsic namespaces and the declared modules:
 - [](utf8) validates and walks UTF-8 text.
 - [](serde) binds application types to reusable serialization schemas.
 - [](nupp.util) owns the small general-purpose types: [](nupp.util.Bitset) is a
-  growable set of bit positions, and [](nupp.util.Store) is a bag of values
-  indexed by the typed keys [](nupp.util.newKey) hands out.
+  growable set of bit positions, and [](types.Store) is a bag of values
+  indexed by the typed keys [](types.newKey) hands out.
   [](nupp.util.Pool) leases cleared record instances of one declared type from a
   free list. [](binary.hash.fnv1a64) hashes bytes with FNV-1a.
 - `os.info()` reports execution platform, architecture, endianness, pointer width
@@ -173,7 +173,7 @@ files, process, network, TLS and HTTP modules give that reason as a
 platform, so a program branches on `err.kind == "notFound"` rather than on the
 message. An invalid argument or a malformed programmer-owned value raises at the
 call site. Every owner the library hands out, from a buffer to an open file, is
-a `nupp.Closeable`: `close` consumes it and returns nothing, `nupp.drop` closes
+a `own.Closeable`: `close` consumes it and returns nothing, `own.drop` closes
 it early, and the end of its scope closes it otherwise. A destination that
 buffers writes reports a failure through `flush`, so a caller that has to know
 flushes before it closes. Buffers and views report use after release, and a

@@ -567,7 +567,7 @@ function derive.install(c: state.Checker): derive.Ops
             local fieldDocumentation, fieldDocumented = docblock.of(fieldDocumentationNodes[fieldName])
             -- What a field's type claims is fingerprint input rather than a member of
             -- the projection, and `record Field` is right not to declare it. A provider
-            -- asks `nupp.derive.claims` one interface at a time, which keeps the world
+            -- asks `types.derive.claims` one interface at a time, which keeps the world
             -- closed; handing it the supertype list would let a recipe enumerate
             -- contracts nobody named to it. It still has to reach the fingerprint,
             -- because a memoized answer stays right only while the interfaces behind it

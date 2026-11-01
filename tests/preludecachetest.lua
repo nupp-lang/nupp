@@ -60,7 +60,7 @@ local SAMPLES = {
     -- Reaches the string library, which is a prelude root of its own.
     "local n = ('abc'):len()\nreturn n\n",
     -- Reaches a prelude interface by name.
-    "local c: nupp.Closeable? = nil\nreturn c\n",
+    "local c: own.Closeable? = nil\nreturn c\n",
     -- And one the checker has to reject, so agreement is not agreement on silence.
     "local n: integer = 'not a number'\nreturn n\n",
 }
@@ -283,8 +283,8 @@ function M.aStoredPreludeIsNotRestoredOverAnotherIdentity()
             "no two interned types share an id:\n  " .. table.concat(shared, "\n  ", 1, math.min(#shared, 10))
         )
 
-        local source = "local function createKey(): nupp.reflect.ExtensionKey<string>\n"
-            .. "    return nupp.reflect.extensionKey(function(host: any): string return \"value\" end)\n"
+        local source = "local function createKey(): types.reflect.ExtensionKey<string>\n"
+            .. "    return types.reflect.extensionKey(function(host: any): string return \"value\" end)\n"
             .. "end\n"
             .. "return createKey\n"
         local parsed = require("nupp.compiler.syntax.parser").parse(source, "prelude-identity.nupp")

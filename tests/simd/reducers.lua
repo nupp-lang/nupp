@@ -276,8 +276,8 @@ local function run(): number
                 right[i] = samples[(i * 3 + scenario) %% #samples + 1]
 %s
             end
-            nupp.drop(left)
-            nupp.drop(right)
+            own.drop(left)
+            own.drop(right)
         end
         for _, probe in ipairs(probes) do
             local output = result:write()
@@ -312,8 +312,8 @@ local function run(): number
 %s
 %s
             end
-            nupp.drop(output)
-            nupp.drop(positions)
+            own.drop(output)
+            own.drop(positions)
         end
     end
     return checked

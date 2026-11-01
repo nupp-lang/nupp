@@ -188,12 +188,12 @@ for the reachability rules that go with them.
 
 ### Unions that may grow
 
-A union that lists `nupp.types.nonExhaustive()` among its alternatives carries
+A union that lists `types.nonExhaustive()` among its alternatives carries
 one member no value inhabits, no name resolves to, and no case can cover:
 
 ::: code-group
 ```nupp [Nupp]
-local type Status = "ok" | "error" | nupp.types.nonExhaustive()
+local type Status = "ok" | "error" | types.nonExhaustive()
 
 local function describe(status: Status): string
     return switch status do

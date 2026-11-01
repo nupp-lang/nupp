@@ -685,7 +685,7 @@ function M.protectedCallOwnersAutoDestroyOnlyInTheSuccessArm()
     )
     clean(
         declaration .. "\n" .. table.concat(
-            {"local ok, resource = pcall(acquire)", "if ok then", "   nupp.drop(resource)", "end",},
+            {"local ok, resource = pcall(acquire)", "if ok then", "   own.drop(resource)", "end",},
             "\n"
         )
     )

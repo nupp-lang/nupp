@@ -130,6 +130,10 @@ local TEMPLATE_FILES = {
 -- how they would start to.
 local RESOURCES = {
     {source = "src/warn.nupp", output = "nupp/compiler/warn.nupp"},
+    {source = "src/types/init.nupp", output = "nupp/compiler/types/init.nupp"},
+    {source = "src/types/derive.nupp", output = "nupp/compiler/types/derive.nupp"},
+    {source = "src/types/reflect.nupp", output = "nupp/compiler/types/reflect.nupp"},
+    {source = "src/own/init.nupp", output = "nupp/compiler/own/init.nupp"},
     {source = "src/nupp/runtime/packages.nupp", output = "nupp/compiler/nupp/runtime/packages.nupp"},
     {source = "src/nupp/text/spi.nupp", output = "nupp/compiler/nupp/text/spi.nupp"},
     {source = "src/nupp/random/spi.nupp", output = "nupp/compiler/nupp/random/spi.nupp"},
@@ -676,6 +680,7 @@ return {
                     "src/simd.nupp",
                     "src/events.nupp"
                 },
+                sources = {"src/nupp", "src/serde", "src/binary", "src/types", "src/own"},
                 format = "both",
                 outDir = "build/docs",
                 title = "Nupp API",
@@ -713,10 +718,10 @@ return {
                     -- What deriving adds to a declaration reads as one page
                     -- whether a reader arrives from the reference or from the
                     -- module route, so the reference page is also the overview
-                    -- above `nupp.derive`'s generated field list. Every other
+                    -- above `types.derive`'s generated field list. Every other
                     -- standard module says what it has to say in its own blurb.
-                    {path = "modules/nupp/derive", title = "nupp.derive", source = "docs/reference/derives.md",},
-                    {path = "modules/nupp/io/path", title = "io.path",},
+                    {path = "modules/types/derive", title = "types.derive", source = "docs/reference/derives.md",},
+                    {path = "modules/io/path", title = "io.path",},
                 },
             },
         },

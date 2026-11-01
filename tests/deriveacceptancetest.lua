@@ -41,7 +41,7 @@ local M = {}
 function M.replacesCompilerConfigurationBoilerplate()
     local result = run(
         [[
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record PlannerLimits
     fields: integer = 2048
     semanticNodes: integer = 16384
@@ -142,7 +142,7 @@ function M.runsTheExternalTecsMCPRequestCorpus()
         [[
 -- Proving case adapted from tecs.io.mcp.transport.Request. Its private loader.CPtr
 -- handle is intentionally outside JSON; the constrained result model refuses it.
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record TecsMCPRequest
     name: string
     arguments: string

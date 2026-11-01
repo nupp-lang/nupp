@@ -28,7 +28,7 @@ local {type Scalar} = require("nupp.mem.array")
 local gpu = {}
 
 --- Typed resident device storage or a view borrowing its owning context.
-interface gpu.Buffer<T> is nupp.Closeable
+interface gpu.Buffer<T> is own.Closeable
     --- Releases a root buffer's allocation, or ends a view, without suspending.
     close: @nosuspend function(takes self: gpu.Buffer<T>): nil
 
@@ -134,7 +134,7 @@ interface gpu.Binding
 end
 
 --- Device operations shared by application and provider contexts.
-interface gpu.Context is nupp.Closeable
+interface gpu.Context is own.Closeable
     --- Consumes the context and releases all device resources without suspending.
     close: @nosuspend function(takes self: gpu.Context): nil
 

@@ -548,7 +548,7 @@ local function startService(executable: string, host: any?): any, worker.Failure
         end
         return nil, {code = "NUPP2412", message = "cannot start comptime worker service: " .. tostring(problem)}
     end
-    service = workerchannel.open(@unsafe nupp.release(child), {
+    service = workerchannel.open(@unsafe own.release(child), {
         maxFrame = MAX_PROTOCOL_BYTES,
         maxSaid = MAX_SAID_BYTES,
         waitMs = 5,

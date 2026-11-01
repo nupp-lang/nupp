@@ -85,13 +85,13 @@ accepts:
 ```nupp
 @comptime
 local function Arguments(Kind: type): typepack
-    local info = nupp.types.describe(Kind)
+    local info = types.describe(Kind)
     if info.kind == "literal" and info.value == "pair" then
-        return nupp.types.pack({nupp.types.string, nupp.types.number})
+        return types.pack({types.string, types.number})
     elseif info.kind == "literal" and info.value == "flag" then
-        return nupp.types.pack({nupp.types.boolean})
+        return types.pack({types.boolean})
     end
-    return nupp.types.pack({}, nupp.types.any)
+    return types.pack({}, types.any)
 end
 
 local function apply<Kind is string>(kind: Kind, ...: unpackof Arguments(Kind)): string
@@ -123,15 +123,15 @@ packs](packs.md#unpack-and-unpackof) for the runtime operator this mirrors.
 ### Rejecting a computed contract
 
 A comptime type function can construct and inspect complete packs, and
-`nupp.types.error(message)` rejects one with an authored diagnostic:
+`types.error(message)` rejects one with an authored diagnostic:
 
 ```nupp
 @comptime
 local function Checked(T: type): typepack
-    if T == nupp.types.string then
-        return nupp.types.pack({T})
+    if T == types.string then
+        return types.pack({T})
     end
-    return nupp.types.error("expected string")
+    return types.error("expected string")
 end
 ```
 
@@ -167,10 +167,10 @@ usable in a bounded position. An interface named as a bound may carry a
 [refinement](refinements.md), which is the test `is` against that interface
 runs.
 
-`nupp.Copyable` bounds a result that may be retained and returned repeatedly:
+`own.Copyable` bounds a result that may be retained and returned repeatedly:
 
 ```nupp
-local function initialize<T is nupp.Copyable>(build: function(): T): T
+local function initialize<T is own.Copyable>(build: function(): T): T
     return build()
 end
 

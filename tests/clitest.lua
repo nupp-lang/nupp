@@ -478,7 +478,7 @@ function M.serializationMigrationChecksBeforeReplacingTheSource()
 
     local source = [[
 local serde = require("serde")
-@derive(nupp.derive.Serde)
+@derive(types.derive.Serde)
 local record Value
     count: integer
 end
@@ -1174,8 +1174,8 @@ function M.ownershipAuditFindsInlineAssertionsAndAffineCResults()
                 "cdef function free(takes value: voidptr)",
                 "cdef function acquire(size: uint64): affine(voidptr, free)",
                 "local raw: voidptr",
-                "local owner = @unsafe nupp.adopt<affine(voidptr, free)>(raw)",
-                "local released = @unsafe nupp.release(owner)",
+                "local owner = @unsafe own.adopt<affine(voidptr, free)>(raw)",
+                "local released = @unsafe own.release(owner)",
                 "local read = @unsafe (nil as int32*)[0]",
                 "return released",
                 "",

@@ -538,7 +538,7 @@ return run
         .. [[
 local context = gpu.open()
 local buffer = context:buffer(array.float, 16)
-nupp.drop(buffer)
+own.drop(buffer)
 print(buffer.count)
 return true
 ]],
@@ -552,7 +552,7 @@ local context = gpu.open()
 local input = context:buffer(array.float, 16)
 local output = context:buffer(array.float, 16)
 local kernel = double:compile(context)
-nupp.drop(kernel)
+own.drop(kernel)
 local binding = kernel:bind(output, input)
 binding:dispatch()
 return true
@@ -566,7 +566,7 @@ return true
 local function run(): nil
     local context = gpu.open()
     local buffer = context:buffer(array.float, 16)
-    nupp.drop(context)
+    own.drop(context)
     print(buffer.count)
 end
 return run

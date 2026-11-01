@@ -443,8 +443,8 @@ return {include = {"src"}, build = {outDir = "out", entries = {"main"}}}
 local record Message
     text: string
 end
-const Codec: nupp.reflect.FieldCodec<Message> = comptime do
-    return nupp.reflect.fieldCodec(nupp.reflect(Message))
+const Codec: types.reflect.FieldCodec<Message> = comptime do
+    return types.reflect.fieldCodec(types.reflect(Message))
 end
 
 return Codec:encode(new Message(text = "ok")).text as string
@@ -512,8 +512,8 @@ return models
         dir .. "/src/main.nupp",
         [[
 local models = require("witnessmodels")
-local info = nupp.reflect.runtime(models.Parent)
-local child = nupp.reflect.runtimeType(info, info.fields[1].type as integer)
+local info = types.reflect.runtime(models.Parent)
+local child = types.reflect.runtimeType(info, info.fields[1].type as integer)
 local value = models.make()
 return child == getmetatable(value.child) and value.child.value == 7
 ]]
@@ -553,8 +553,8 @@ local children = require("childmodels")
 collectgarbage("collect")
 collectgarbage("collect")
 local parents = require("parentmodels")
-local info = nupp.reflect.runtime(parents.Parent)
-return nupp.reflect.runtimeType(info, info.fields[1].type as integer) == children.Child
+local info = types.reflect.runtime(parents.Parent)
+return types.reflect.runtimeType(info, info.fields[1].type as integer) == children.Child
 ]],
     })
     testAssert.equal(project.build(dir, {}), 0)
@@ -571,8 +571,8 @@ return {include = {"src"}, build = {outDir = "out", entries = {"main"}}}
             "src/main.nupp"
         ] = [[
 local models = require("models")
-const UserCodec: nupp.reflect.FieldCodec<models.User> = comptime do
-    return nupp.reflect.fieldCodec(nupp.reflect(models.User))
+const UserCodec: types.reflect.FieldCodec<models.User> = comptime do
+    return types.reflect.fieldCodec(types.reflect(models.User))
 end
 return UserCodec.fingerprint
 ]],
@@ -1856,7 +1856,7 @@ return {
         ] = table.concat(
             {
                 "const SUMMARY = comptime do",
-                "   local info = nupp.reflect(ReflectedModel)",
+                "   local info = types.reflect(ReflectedModel)",
                 "   return info.fields[1].name",
                 "end",
                 "return SUMMARY",
@@ -2411,7 +2411,7 @@ function M.exportedComptimeTypeFunctionsInvalidateAndPersistSafely()
         {
             "local M = {}",
             "@comptime local function AddNil(T: type): type",
-            "   return nupp.types.optional(T)",
+            "   return types.optional(T)",
             "end",
             "@comptime function M.Maybe(T: type): type",
             "   return AddNil(T)",
@@ -2475,7 +2475,7 @@ return {include = {"src"}, build = {outDir = "out", entries = {"main"}}}
 
     -- The sealed helper closure is part of the exported interface. Changing its
     -- behavior rechecks the unchanged consumer and changes the generated answer.
-    write(dir .. "/src/gen.nupp", optional:gsub("return nupp.types.optional%(T%)", "return T"))
+    write(dir .. "/src/gen.nupp", optional:gsub("return types.optional%(T%)", "return T"))
     local diagnostics = {}
     assert(
         project.check(dir, {
@@ -3194,7 +3194,7 @@ do
    for index = 1, 4 do
       writable[index] = index
    end
-   nupp.drop(writable)
+   own.drop(writable)
 end
 print(curve(3), total(values:read()))
 ]],

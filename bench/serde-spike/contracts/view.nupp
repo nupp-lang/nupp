@@ -1,4 +1,4 @@
-const util = require("nupp.util")
+const util = require("types")
 
 local serde = require("serde")
 local views = require("serde.document")

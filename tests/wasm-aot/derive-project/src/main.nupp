@@ -1,11 +1,11 @@
 -- Declaration bindings, document contexts, and Debug through browser providers.
-const util = require("nupp.util")
+const util = require("types")
 
 local json = require("serde.json")
 local serde = require("serde")
 local typedJSON = require("serde.json")
 
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record Reading
     id: integer
 

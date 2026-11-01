@@ -295,7 +295,7 @@ end
 
 Profiling hooks apply to the whole process. One sampling session and one trace
 session can run at a time; starting a second session of either kind is an error.
-A session is a `nupp.Closeable`, so a `with` ends it where the block ends: a
+A session is a `own.Closeable`, so a `with` ends it where the block ends: a
 session nothing stopped is closed without a report, and closing one that `stop`
 already ended does nothing.
 

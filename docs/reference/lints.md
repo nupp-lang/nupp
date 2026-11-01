@@ -152,7 +152,7 @@ compilation through that call path. Use `jit.off(callback)` when intentional.
     local callback = function()
     end
     local pointer = ffi.cast<voidptr>(callback)
-    local handle = nupp.pin(pointer, callback)
+    local handle = own.pin(pointer, callback)
 end
 ```
 

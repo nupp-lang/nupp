@@ -96,7 +96,7 @@ return function(value: integer): (number, number, number, number, number, number
     const bytes = array.bytes(1)
     const w = bytes:write()
     w[1] = value
-    nupp.drop(w)
+    own.drop(w)
     return probe(bytes:read())
 end
 ]]
@@ -144,13 +144,13 @@ return function(n: integer, where: integer): (uint32, uint32, number)
     if where >= 1 then
         w[where] = 0x7A
     end
-    nupp.drop(w)
+    own.drop(w)
     const values = array.scalar(array.number, n)
     const wv = values:write()
     for i = 1, n do
         wv[i] = i
     end
-    nupp.drop(wv)
+    own.drop(wv)
     return findByte(bytes:read(), 0x7A), findByte(bytes:read(), 0), total(values:read())
 end
 ]]
@@ -192,7 +192,7 @@ return function(): (uint32, boolean)
     for i = 1, 9 do
         w[i] = i % 2 == 0 and 7 or 1
     end
-    nupp.drop(w)
+    own.drop(w)
     return count(bytes:read(), 7), simd.vectors(array.uint8) == nil
 end
 ]]
@@ -227,11 +227,11 @@ return function(value: integer, real: number): (number, number, number, number, 
     const bytes = array.bytes(1)
     const w = bytes:write()
     w[1] = value
-    nupp.drop(w)
+    own.drop(w)
     const reals = array.scalar(array.float, 1)
     const wr = reals:write()
     wr[1] = real
-    nupp.drop(wr)
+    own.drop(wr)
     return probe(bytes:read(), reals:read())
 end
 ]]
@@ -269,11 +269,11 @@ return function(): (number, number, number, number)
     w[1] = 10
     w[2] = 250
     w[3] = 7
-    nupp.drop(w)
+    own.drop(w)
     const target = array.bytes(3)
     const wt = target:write()
     local inverted, hit, outside, written = probe(wt, bytes:read())
-    nupp.drop(wt)
+    own.drop(wt)
     return inverted, hit, outside, written
 end
 ]]

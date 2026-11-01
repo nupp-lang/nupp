@@ -75,7 +75,7 @@ assert(
     ) == "Wide { signed = -7LL, unsigned = 9ULL }"
 )
 
-local record Custom is nupp.Debug
+local record Custom is types.Debug
     value: integer
     function debug(self): string
         return "CUSTOM(" .. self.value .. ")"
@@ -93,7 +93,7 @@ assert(
     ) == "Nested { custom = CUSTOM(7), list = {CUSTOM(7)} }"
 )
 local record Printable
-    value: nupp.Debug
+    value: types.Debug
 end
 assert(debug.render(debug.binding(Printable), new Printable(value = customized)) == "Printable { value = CUSTOM(7) }")
 assert(
@@ -103,7 +103,7 @@ assert(
     end)
 )
 
-local record Box<T is nupp.Debug>
+local record Box<T is types.Debug>
     value: T
 end
 assert(debug.derived(Box as Type<unknown>, new Box<Custom>(value = customized)) == "Box { value = CUSTOM(7) }")

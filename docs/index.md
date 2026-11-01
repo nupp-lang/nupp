@@ -115,7 +115,7 @@ checked serializers, layouts, and generated declarations.
 ```nupp
 @comptime
 local function Optional(T: type): type
-    return nupp.types.optional(T)
+    return types.optional(T)
 end
 
 local value: Optional(string) = "ready"

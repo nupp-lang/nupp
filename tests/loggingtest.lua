@@ -61,14 +61,14 @@ function M.formatDirectivesAreCheckedAtTheCallSite()
     testAssert.equal(
         codesOf(
             table.concat(
-                {"@derive(nupp.derive.Debug)", "local record Value end", "log.debug('value=%?', new Value())",},
+                {"@derive(types.Debug)", "local record Value end", "log.debug('value=%?', new Value())",},
                 "\n"
             )
         ),
         "",
-        "a debug directive accepts nupp.Debug"
+        "a debug directive accepts types.Debug"
     )
-    testAssert.equal(codesOf("log.debug('value=%?', 'wrong')"), "NUPP2006", "a debug directive requires nupp.Debug")
+    testAssert.equal(codesOf("log.debug('value=%?', 'wrong')"), "NUPP2006", "a debug directive requires types.Debug")
     testAssert.equal(
         codesOf(table.concat({"local logger = log.named('named')", "logger:debug('value=%?', 'wrong')",}, "\n")),
         "NUPP2006",
@@ -122,10 +122,7 @@ end
 
 function M.aDebugDirectiveLowersInsideTheLevelGuard()
     local code = compile(
-        table.concat(
-            {"@derive(nupp.derive.Debug)", "local record Value end", "log.debug('value=%?', new Value())",},
-            "\n"
-        ),
+        table.concat({"@derive(types.Debug)", "local record Value end", "log.debug('value=%?', new Value())",}, "\n"),
         "amb"
     )
     local guard = assert(code:find("if __nupp", 1, true), "the enabled guard is present")
@@ -141,7 +138,7 @@ function M.debugDirectivesRunThroughDirectAndMethodFormattingCalls()
     local code = compile(
         table.concat(
             {
-                "@derive(nupp.derive.Debug)",
+                "@derive(types.Debug)",
                 "local record Value",
                 "   name: string",
                 "end",
@@ -198,11 +195,7 @@ function M.whatIsNotLoweredStaysAnOrdinaryCall()
 
     local valueCall = compile(
         table.concat(
-            {
-                "@derive(nupp.derive.Debug)",
-                "local record Value end",
-                "local ignored = log.debug('value=%?', new Value())",
-            },
+            {"@derive(types.Debug)", "local record Value end", "local ignored = log.debug('value=%?', new Value())",},
             "\n"
         ),
         "amb"

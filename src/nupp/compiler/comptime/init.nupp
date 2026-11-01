@@ -1546,7 +1546,7 @@ evalMulti = function(state, node)
         local key = #args == 1 and typePath(argument) or nil
         local descriptor = key and state.reflections[key] or nil
         if not descriptor then
-            fail("NUPP2418", node, "nupp.reflect type information is unavailable in this comptime worker")
+            fail("NUPP2418", node, "types.reflect type information is unavailable in this comptime worker")
         end
         values = {n = 1, materializeProviders.reflect(state, descriptor, node)}
     elseif kind == "call" and intrinsicQualified and comptimeIntrinsic then
@@ -2227,7 +2227,7 @@ end
 
 --- Executes a checked derive provider and returns its closed recipe envelope.
 --- The immutable Info projection is transported as plain semantic data; every type
---- edge is imported as an opaque `nupp.types` handle before provider code sees it.
+--- edge is imported as an opaque `types` handle before provider code sees it.
 function comptime.evaluateDeriveProviderDirect(
     helper: any,
     input: any,
@@ -2331,7 +2331,7 @@ function comptime.evaluateDeriveProviderDirect(
         {n = 1, infoHandle},
         "NUPP2810",
         "derive",
-        "a derive provider must return nupp.derive.implement or nupp.derive.error",
+        "a derive provider must return types.derive.implement or types.derive.error",
         "derive provider returned a foreign blueprint",
         "derive provider returned a foreign blueprint"
     )

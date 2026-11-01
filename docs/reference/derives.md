@@ -3,11 +3,11 @@ order: 680
 title: Declaration derives
 ---
 
-`nupp.derive.Debug` adds a checked `debug` method to a record or struct.
+`types.Debug` adds a checked `debug` method to a record or struct.
 Packages publish additional providers through the same recipe API.
 
 ```nupp:playground
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record User
     id: integer
     name: string = "anonymous"
@@ -19,8 +19,8 @@ print(user:debug())
 
 Applying a provider is a declaration-augmentation phase, not a text macro: it
 cannot add imports, top-level declarations, modules, records, interfaces, or
-independently nameable types. `nupp.derive.Debug` adds `debug(self): string`
-and `nupp.Debug` conformance. Serialization uses explicit
+independently nameable types. `types.Debug` adds `debug(self): string`
+and `types.Debug` conformance. Serialization uses explicit
 [bindings](../learn/runtime/data/serde.md) and needs no derive.
 
 [`events.Event`](#event) is applied the same way and marks a record or a
@@ -41,7 +41,7 @@ declaration order. The method forwards the declaration witness to the value
 visitor, which caches its Debug policy on first use.
 
 ```nupp
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record Point
     x: integer
     y: integer
@@ -60,12 +60,12 @@ records render through their own `debug`, and a runtime table that reaches
 itself renders as `<cycle>`.
 
 ```nupp
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record Tag
     name: string
 end
 
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record Post
     title: string
     views: integer
@@ -93,7 +93,7 @@ name and replaces the value, which is what a secret wants; `skip` removes the
 field from the output entirely.
 
 ```nupp
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record Credentials
     user: string
     @debug(redact = true)
@@ -170,7 +170,7 @@ signature names the one existing interface it implements:
 
 ```nupp:fragment
 @comptime
-function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
+function M.derive(info: types.derive.Info): types.derive.Result<M.Inspect>
     -- inspect info and return a closed recipe
 end
 ```
@@ -199,7 +199,7 @@ closed comptime-built signature. Generic, variadic, overloaded, and effectful
 provider declarations are not part of the first recipe version.
 
 ::: deepdive
-`Debug` is an exported `@comptime function` in `src/nupp/derive.nupp`.
+`Debug` is an exported `@comptime function` in `src/types/init.nupp`.
 It uses the same comptime worker, immutable `Info`, result envelope, cache, and
 recipe lowering as package providers. Its `@debug` configuration is part of
 the semantic annotations visible through `Info`.
@@ -217,7 +217,7 @@ Every provider on an owner receives the same immutable pre-merge `Info` view. It
 contains the owner and interface type handles, ordered stored fields with
 read/write handles, semantic identities, and opaque diagnostic references. It
 contains no tokens, locations, comments, AST, CST, mutable compiler objects, or
-previous provider output. `nupp.derive.claims(T, I)` asks whether a nominal type
+previous provider output. `types.derive.claims(T, I)` asks whether a nominal type
 writes or requests contract `I`, which lets mutually recursive derives plan
 without depending on provider execution order.
 
@@ -233,7 +233,7 @@ arguments.
 Providers run through the bounded comptime worker. Their sealed source and
 reachable comptime helper closure travel in the module interface; they do not
 remain runtime functions. A provider failure may return
-`nupp.derive.error(message, reference, code)` to point at the owner or
+`types.derive.error(message, reference, code)` to point at the owner or
 contributing field without observing a filename or source position. The code is
 optional and defaults to the generic provider diagnostic
 [`NUPP2810`](diagnostics.md).
@@ -245,7 +245,7 @@ A provider may ask for the owner's initializer with `initializer = true` beside
 constructor body, or its field list when it declares none, as a hidden member
 taking the instance first: `initializer(storage, ...)` fills storage the caller
 already holds and returns it, and `new` allocates and calls the same body. The
-runtime reaches it through `nupp.derive.initializer(Type)`. A field-list
+runtime reaches it through `types.derive.initializer(Type)`. A field-list
 initializer applies a field default where its argument is nil, which is the one
 place that can, since a positional call never passes through the checker's
 default filling.
@@ -258,17 +258,17 @@ reported as `NUPP2810` on the application.
 ### Filesystem inputs
 
 A provider that generates a recipe from a schema or other immutable project file
-reads it with `nupp.derive.file`:
+reads it with `types.derive.file`:
 
 ```nupp:fragment
 @comptime
-function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
-    local schema = nupp.derive.file("schemas/inspect.txt")
-    return nupp.derive.implement {
+function M.derive(info: types.derive.Info): types.derive.Result<M.Inspect>
+    local schema = types.derive.file("schemas/inspect.txt")
+    return types.derive.implement {
         methods = {
-            inspect = nupp.derive.forward {
-                helper = nupp.derive.helper(M, "renderSchema"),
-                arguments = {nupp.derive.constant(schema)},
+            inspect = types.derive.forward {
+                helper = types.derive.helper(M, "renderSchema"),
+                arguments = {types.derive.constant(schema)},
             },
         },
     }
@@ -288,21 +288,21 @@ cache or a [hot-reload](../learn/projects/hot-reload.md) guarantee.
 
 ## Closed forwarding recipes
 
-`nupp.derive.implement` returns instance methods and static functions. A bare
+`types.derive.implement` returns instance methods and static functions. A bare
 `Forward` fills an interface requirement and inherits its signature. A
-`nupp.derive.member` supplies a function type built with `nupp.types` and its
+`types.derive.member` supplies a function type built with `types` and its
 parameter names, allowing a provider to add a member that is not declared by the
 result interface. Parameter names are non-empty and unique, and every recipe
 array is dense.
 
 ```nupp:fragment
-return nupp.derive.implement {
+return types.derive.implement {
     methods = {
-        inspect = nupp.derive.forward {
-            helper = nupp.derive.helper(M, "renderRecord"),
+        inspect = types.derive.forward {
+            helper = types.derive.helper(M, "renderRecord"),
             arguments = {
-                nupp.derive.constant(names),
-                nupp.derive.array(values),
+                types.derive.constant(names),
+                types.derive.array(values),
             },
         },
     },

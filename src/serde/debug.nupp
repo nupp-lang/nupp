@@ -22,6 +22,7 @@ format may change. [](binding) honours the `Debug` derive's field annotations
 and a declaration's own `Debug` method; any other binding renders through its
 adapter as written, so a model library's values render without a derive.
 ]]
+const reflect = require("types.reflect")
 
 local core = require("nupp.serde.internal.value")
 local declarations = require("nupp.serde.internal.declaration")
@@ -54,7 +55,7 @@ local record Custom<M is core.Member> is core.Adapter<unknown, M>
     end
 
     function write(self, borrows value: unknown, exclusive writer: core.Writer<M>): nil
-        local printable = value as nupp.Debug
+        local printable = value as types.Debug
         writer:writeAtom(self.description.member, new CustomText(family = customFamily, text = printable:debug()))
     end
 
@@ -63,7 +64,7 @@ local record Custom<M is core.Member> is core.Adapter<unknown, M>
     end
 end
 
-local function customDebug(info: nupp.reflect.Info, index: integer, seen: {[integer]: boolean}): boolean
+local function customDebug(info: types.reflect.Info, index: integer, seen: {[integer]: boolean}): boolean
     if seen[index] then
         return false
     end
@@ -105,7 +106,7 @@ end
 local record View is declarations.View
     function resolve<M is core.Member>(
         self,
-        info: nupp.reflect.Info,
+        info: types.reflect.Info,
         index: integer,
         member: M
     ): core.Adapter<unknown, M>?
@@ -125,8 +126,8 @@ local bindingKey: table = {}
 ---
 --- @param target the record or struct declaration
 --- @return the binding, cached on the declaration
-export function binding<T is nupp.Copyable>(target: Type<T>): core.Binding<T>
-    local info = nupp.reflect.runtime(target)
+export function binding<T is own.Copyable>(target: Type<T>): core.Binding<T>
+    local info = reflect.runtime(target)
     local prior = rawget(info, bindingKey)
     if prior ~= nil then
         return prior as core.Binding<T>
@@ -140,7 +141,7 @@ end
 local type Action = "traverse" | "skip" | "redact"
 
 local function action<M is core.Member>(member: M): Action
-    local annotations: const{nupp.reflect.Annotation} = declarations.annotations(member) or {}
+    local annotations: const{types.reflect.Annotation} = declarations.annotations(member) or {}
     local skip, redact = false, false
     for _, annotation in ipairs(annotations) do
         if annotation.name == "debug" then

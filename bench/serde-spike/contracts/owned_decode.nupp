@@ -7,7 +7,7 @@ local record Counts
     created: integer = 0
     closed: integer = 0
 end
-local record Resource is nupp.Closeable
+local record Resource is own.Closeable
     @readonly counts: Counts
     text: string
     function close(takes self): nil

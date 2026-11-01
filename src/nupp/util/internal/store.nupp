@@ -30,7 +30,7 @@ local function nextRegistered(_: any, after: integer): (integer?, string?)
     return nil, nil
 end
 
---- A typed identity for a value in a [](nupp.util.Store).
+--- A typed identity for a value in a [](types.Store).
 ---
 --- `id` and `name` are all a key holds at runtime. `_valueType` is never
 --- present: it mentions `T` in both positions so that keys are invariant, which
@@ -38,7 +38,7 @@ end
 --- silent widening.
 --- @export
 export record Key<T>
-    --- The step of [](nupp.util.Key.registered).
+    --- The step of [](types.Key.registered).
     ---
     --- Terminating on nil is the generic for's business, so the surface type
     --- promises what the loop delivers rather than what the last call returns.
@@ -103,7 +103,7 @@ end
 --- An independent typed bag indexed by keys.
 --- @export
 export interface Store
-    --- The step of [](nupp.util.Store.entries).
+    --- The step of [](types.Store.entries).
     ---
     --- Terminating on nil is the generic for's business, so the surface type
     --- promises what the loop delivers rather than what the last call returns.
@@ -113,7 +113,7 @@ export interface Store
     get: function<T>(self: Store, key: Key<T>): T?
 
     --- Stores a non-nil value under a key.
-    --- @raises string when value is nil; use [](nupp.util.Store.remove) to delete an
+    --- @raises string when value is nil; use [](types.Store.remove) to delete an
     ---     entry
     set: function<T>(self: Store, key: Key<T>, value: T): nil
 

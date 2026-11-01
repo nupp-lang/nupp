@@ -29,7 +29,7 @@ local record Book
 end
 
 -- Reading builds a Book through an exclusive draft that is closed either way.
-local record Draft is nupp.Closeable
+local record Draft is own.Closeable
     title: string?
     tags: {string}?
     function close(takes self): nil
@@ -217,7 +217,7 @@ export const document = scalars.document
 export const convert = scalars.convert
 
 --- The projection [](convert) applies: `project` on write, `restore` on read.
-export type Conversion<T, V is nupp.Copyable> = scalars.Conversion<T, V>
+export type Conversion<T, V is own.Copyable> = scalars.Conversion<T, V>
 
 --- A list of values that share one element adapter.
 ---
@@ -266,28 +266,28 @@ export const structure = structures.adapter
 export const field = structures.field
 
 --- A field built by [](field), with the operations a codec needs to plan it.
-export type Field<T, S is nupp.Closeable, M is core.Member> = structures.Field<T, S, M>
+export type Field<T, S is own.Closeable, M is core.Member> = structures.Field<T, S, M>
 
 --- How a [](structure) opens and finishes the draft its fields are read into.
 ---
 --- The draft is exclusive and Closeable, so a failed read drops it rather than
 --- leaking a half-built value.
-export type Construction<T, S is nupp.Closeable> = structures.Construction<T, S>
+export type Construction<T, S is own.Closeable> = structures.Construction<T, S>
 
 --- Decides whether a field is written for a value.
 export type Has<T> = structures.Has<T>
 
 --- Stores a decoded field value into a structure's draft.
-export type Set<S, V is nupp.Copyable> = structures.Set<S, V>
+export type Set<S, V is own.Copyable> = structures.Set<S, V>
 
 --- Reads a field by borrowing it from the value.
-export type BorrowGet<T, V is nupp.Copyable> = structures.BorrowGet<T, V>
+export type BorrowGet<T, V is own.Copyable> = structures.BorrowGet<T, V>
 
 --- Reads a field by copying it out of the value.
-export type CopyGet<T, V is nupp.Copyable> = structures.CopyGet<T, V>
+export type CopyGet<T, V is own.Copyable> = structures.CopyGet<T, V>
 
 --- A field reader, borrowed or copied.
-export type Get<T, V is nupp.Copyable> = structures.Get<T, V>
+export type Get<T, V is own.Copyable> = structures.Get<T, V>
 
 --- Wraps a borrowing field reader.
 export const borrowedGet = structures.borrowedGet
@@ -296,7 +296,7 @@ export const borrowedGet = structures.borrowedGet
 export const copiedGet = structures.copiedGet
 
 --- Visits one field of a structure with its value type recovered.
-export type FieldConsumer<T, S is nupp.Closeable, M is core.Member, R> = structures.FieldConsumer<T, S, M, R>
+export type FieldConsumer<T, S is own.Closeable, M is core.Member, R> = structures.FieldConsumer<T, S, M, R>
 
 --- Visits a structure adapter's fields and construction. See [](inspect).
 export type StructureConsumer<T, M is core.Member, R> = structures.Consumer<T, M, R>
@@ -346,7 +346,7 @@ export type Layout<M is core.Member> = indexed.Layout<M>
 export const layout = indexed.layout
 
 --- A typed field of a [](Layout).
-export type Slot<V is nupp.Copyable> = indexed.Slot<V>
+export type Slot<V is own.Copyable> = indexed.Slot<V>
 
 export const Slot = indexed.Slot
 

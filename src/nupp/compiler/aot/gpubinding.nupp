@@ -177,7 +177,7 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
     -- kernel whose bind returns it, then the spec whose compile returns the
     -- kernel. affine(T) takes T's cleanup from its Closeable claim, and a T
     -- declared later has not made that claim yet when the annotation resolves.
-    append(lines, recordDeclaration .. bindingType .. " is nupp.Closeable")
+    append(lines, recordDeclaration .. bindingType .. " is own.Closeable")
     append(lines, "    @private _binding: " .. implementation .. ".Binding")
     append(lines, "    function close(takes self): nil")
     append(lines, "        self._binding:close()")
@@ -194,7 +194,7 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
     append(lines, "end")
     append(lines, "")
 
-    append(lines, recordDeclaration .. kernelType .. " is nupp.Closeable")
+    append(lines, recordDeclaration .. kernelType .. " is own.Closeable")
     append(lines, "    @private _kernel: " .. implementation .. ".Kernel")
     append(lines, "    function close(takes self): nil")
     append(lines, "        self._kernel:close()")

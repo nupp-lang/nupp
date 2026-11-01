@@ -641,7 +641,7 @@ const heap = require("nupp.mem.heap")
 export function stamp(takes frame: heap.Array<uint8>, value: integer): affine(heap.Array<uint8>, heap.destroyArray)
     local writable = frame:write()
     writable[1] = value % 256
-    nupp.drop(writable)
+    own.drop(writable)
 
     return frame
 end
@@ -798,7 +798,7 @@ do
     local readable = frame:read()
     print(frame.count, readable[1])
 end
-nupp.drop(frame)
+own.drop(frame)
 
 local counts = heap.allocate(ffi.typeof<int32>(), 5)
 do
@@ -806,7 +806,7 @@ do
     for index = 1, 5 do
         writable[index] = index * 3
     end
-    nupp.drop(writable)
+    own.drop(writable)
 end
 with scope = tasks.open() do
     print(scope:fork(counts, jobs.total):await())
@@ -1356,7 +1356,7 @@ end
 export function stamp(takes frame: heap.Array<uint8>, value: integer): affine(heap.Array<uint8>, heap.destroyArray)
     local writable = frame:write()
     writable[1] = value % 256
-    nupp.drop(writable)
+    own.drop(writable)
 
     return frame
 end
@@ -1696,13 +1696,13 @@ local wrong: integer = io.open("x", "r")
 
 return wrong
 ]],
-        -- `nupp.types`' checked functions travel with it.
+        -- `types`' checked functions travel with it.
         [
             "format.nupp"
         ] = [[
 local function format<F is string>(
     value: F,
-    ...: unpackof nupp.types.formatArguments(F)
+    ...: unpackof types.formatArguments(F)
 ): string
     return string.format(value, ...)
 end
@@ -1744,7 +1744,7 @@ return true
     assert(diagnosed(report, "typed.nupp", "NUPP2001"), "the std surface is typed, not any" .. where .. ": " .. report)
     assert(
         not report:find("format.nupp", 1, true),
-        "nupp.types checked functions are carried with the compiler" .. where .. ": " .. report
+        "types checked functions are carried with the compiler" .. where .. ": " .. report
     )
     assert(
         diagnosed(report, "workerstyped.nupp", "NUPP2001"),

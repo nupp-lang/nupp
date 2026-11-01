@@ -228,7 +228,7 @@ function M.bufferWriteLeasesCommitAtomically(): nil
             output[1] = 65
             output[2] = 66
             output[3] = 67
-            nupp.drop(output)
+            own.drop(output)
         end
         lease:commit(2)
     end
@@ -285,7 +285,7 @@ function M.rejectsInvalidRangesAndMalformedByteQueues(): nil
     assert(
         not pcall(function(): nil
             local lease = buffer:reserveWrite(9007199254740991, 1)
-            nupp.drop(lease)
+            own.drop(lease)
         end)
     )
     assert(

@@ -1,3 +1,6 @@
+const derive = require("types.derive")
+const types2 = require("types")
+
 local M = {}
 
 interface M.Inspect
@@ -40,19 +43,19 @@ function M.renderRecord(names: {string}, values: {string}): string
 end
 
 @comptime
-function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
+function M.derive(info: types.derive.Info): types.derive.Result<M.Inspect>
     if info.schema ~= 2 then
-        return nupp.derive.error("Inspect needs derive input schema 2", info.reference)
+        return derive.error("Inspect needs derive input schema 2", info.reference)
     end
     if info.kind ~= "record" then
-        return nupp.derive.error("Inspect can be derived only for records", info.reference)
+        return derive.error("Inspect can be derived only for records", info.reference)
     end
     local names = {}
     local values = {}
     local documentation = {}
     for _, field in ipairs(info.fields) do
         if field.readType == nil then
-            return nupp.derive.error("Inspect requires readable fields", field.reference)
+            return derive.error("Inspect requires readable fields", field.reference)
         end
         local redact = false
         for _, applied in ipairs(field.annotations) do
@@ -64,47 +67,44 @@ function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
                 end
             end
         end
-        local kind = nupp.types.kind(field.readType)
+        local kind = types2.kind(field.readType)
         local value
         if redact then
-            value = nupp.derive.constant("<redacted>")
+            value = derive.constant("<redacted>")
         elseif kind == "primitive" then
-            value = nupp.derive.field(field)
+            value = derive.field(field)
         else
-            if not nupp.derive.claims(field.readType, info.interfaceType) then
-                return nupp.derive.error(
+            if not derive.claims(field.readType, info.interfaceType) then
+                return derive.error(
                     "Inspect requires primitive or recursively Inspect fields, got " .. tostring(kind),
                     field.reference
                 )
             end
-            value = nupp.derive.constant("<nested>")
+            value = derive.constant("<nested>")
         end
         names[#names + 1] = field.name
         values[#values + 1] = value
         documentation[#documentation + 1] = field.documentation or "<none>"
     end
 
-    return nupp.derive.implement{
+    return derive.implement{
         methods = {
-            inspect = nupp.derive.forward{
-                helper = nupp.derive.helper(M, "renderRecord"),
-                arguments = {nupp.derive.constant(names), nupp.derive.array(values),},
+            inspect = derive.forward{
+                helper = derive.helper(M, "renderRecord"),
+                arguments = {derive.constant(names), derive.array(values),},
             },
-            prefixed = nupp.derive.forward{
-                helper = nupp.derive.helper(M, "prefixRecord"),
-                arguments = {nupp.derive.argument("prefix"), nupp.derive.constant(names), nupp.derive.array(values),},
+            prefixed = derive.forward{
+                helper = derive.helper(M, "prefixRecord"),
+                arguments = {derive.argument("prefix"), derive.constant(names), derive.array(values),},
             },
-            decorated = nupp.derive.forward{
-                helper = nupp.derive.helper(M, "decorate"),
-                arguments = {nupp.derive.receiver()},
+            decorated = derive.forward{helper = derive.helper(M, "decorate"), arguments = {derive.receiver()},},
+            firstField = derive.forward{
+                helper = derive.helper(M, "consumeNames"),
+                arguments = {derive.constant(names)},
             },
-            firstField = nupp.derive.forward{
-                helper = nupp.derive.helper(M, "consumeNames"),
-                arguments = {nupp.derive.constant(names)},
-            },
-            documentation = nupp.derive.forward{
-                helper = nupp.derive.helper(M, "returnDocumentation"),
-                arguments = {nupp.derive.constant(info.documentation), nupp.derive.constant(documentation),},
+            documentation = derive.forward{
+                helper = derive.helper(M, "returnDocumentation"),
+                arguments = {derive.constant(info.documentation), derive.constant(documentation),},
             },
         },
     }

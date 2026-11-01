@@ -458,7 +458,8 @@ assert(user:debug():find("Ada", 1, true))
     assert(plan.destination == plan.source and plan.dialect == "serde")
     assert(not plan.text:find("@json", 1, true), plan.text)
     assert(not plan.text:find("derive.JSON", 1, true), plan.text)
-    assert(plan.text:find("@derive(derive.Debug)", 1, true), plan.text)
+    assert(plan.text:find("@derive(types.Debug)", 1, true), plan.text)
+    assert(not plan.text:find('require("nupp.derive")', 1, true), plan.text)
     assert(plan.text:find("local function UserJSON()", 1, true), plan.text)
     assert(plan.text:find('name = "user_name"', 1, true), plan.text)
     assert(plan.text:find("omitEmpty = true", 1, true), plan.text)
@@ -477,7 +478,7 @@ end
 function M.serializationMigrationLeavesShadowedNamesAndHandwrittenMethodsAlone()
     local source = [[
 local serde = require("serde")
-@derive(nupp.derive.Serde)
+@derive(types.derive.Serde)
 local record Value
     count: integer
 end
@@ -504,12 +505,12 @@ end
 
 function M.serializationMigrationRefusesNestedPoliciesAndConflictingMethods()
     local source = [[
-@derive(nupp.derive.JSON)
+@derive(types.derive.JSON)
 local record Child
     @json(name = "wire")
     value: string
 end
-@derive(nupp.derive.JSON)
+@derive(types.derive.JSON)
 local record Parent child: Child end
 return Parent.fromJSON('{"child":{"wire":"value"}}')
 ]]
@@ -517,7 +518,7 @@ return Parent.fromJSON('{"child":{"wire":"value"}}')
     assert(plan == nil and problem:find("nested JSON policies", 1, true), tostring(problem))
     plan, problem = migrate.plan(
         [[
-@derive(nupp.derive.JSON)
+@derive(types.derive.JSON)
 local record Conflict
     function writeJSON(self): nil end
 end
@@ -529,10 +530,10 @@ end
 
 function M.serializationMigrationDefersForwardMappingsUntilUse()
     local source = [[
-@derive(nupp.derive.JSON)
+@derive(types.derive.JSON)
 @json(unknown = "ignore")
 local record Parent child: Child end
-@derive(nupp.derive.JSON)
+@derive(types.derive.JSON)
 local record Child value: string end
 local restored, problem = Parent.fromJSON('{"child":{"value":"forward"}}')
 assert(restored ~= nil and problem == nil and restored.child.value == "forward")
@@ -551,17 +552,17 @@ end
 
 function M.serializationMigrationRefusesImplicitRecordUnionPolicies()
     local source = [[
-@derive(nupp.derive.JSON)
+@derive(types.derive.JSON)
 local record First
     kind: "first"
     value: string
 end
-@derive(nupp.derive.JSON)
+@derive(types.derive.JSON)
 local record Second
     kind: "second"
     count: integer
 end
-@derive(nupp.derive.JSON)
+@derive(types.derive.JSON)
 local record Envelope
     value: First | Second
 end

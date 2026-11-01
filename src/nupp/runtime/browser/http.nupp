@@ -421,7 +421,7 @@ record http.Client is contracts.Client
                     error("nupp: browser HTTP host returned an invalid copied byte count", 0)
                 end
             end
-            nupp.drop(output)
+            own.drop(output)
         end
         lease:commit(bodyBytes)
         local responseBody = ownedReader.newOwnedReader(storage)

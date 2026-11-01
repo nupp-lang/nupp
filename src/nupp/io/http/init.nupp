@@ -64,7 +64,7 @@ local function storeStatus(client: alias(http.Client), codes: {integer}, index: 
     codes[index] = assert(status)
 end
 
-local client = nupp.manage(http.newClient())
+local client = own.manage(http.newClient())
 local codes: {integer} = {}
 with scope = tasks.open() do
     scope:spawn(client:alias(), codes, 1, "https://example.com/", storeStatus)

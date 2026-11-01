@@ -151,7 +151,7 @@ Absent members, explicit null, and present values remain distinct.
 `json.decodeDocument(adapter, bytes)` reads contents and attaches source
 context.
 
-Context values are keyed by [](nupp.util.Key)s. Child documents retain
+Context values are keyed by [](types.Key)s. Child documents retain
 inherited model and member context after the input reader is dropped; borrowed
 reader handles expire when the callback returns. Unknown content can be retained as an owned value with
 its original identity and profile, and an incompatible target protocol can
@@ -235,7 +235,7 @@ assert(native.decode(saves, bytes).inventory[1] == "key")
 
 Native persistence stores finite value trees. It does not preserve shared
 object identity, execute code from the input, or save process handles.
-`document.storeRegistry()` saves a [](nupp.util.Store) through an explicit
+`document.storeRegistry()` saves a [](types.Store) through an explicit
 registry of entry names, bindings, versions, and migrations, and any codec
 carries the snapshot through `document.storeBinding()`.
 

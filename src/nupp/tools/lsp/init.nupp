@@ -2102,7 +2102,7 @@ function lsp.run(rootDir: string?): integer
         io.stderr:write("nupp-lsp: cannot start the input relay: " .. tostring(spawnProblem) .. "\n")
         return 1
     end
-    local relayOwner = nupp.manage(spawned)
+    local relayOwner = own.manage(spawned)
     local relay = relayOwner:alias()
     -- Frames, cancellations, and the newest version of each document the client has
     -- told this process about, recorded as each message is read rather than as it is
@@ -2121,7 +2121,7 @@ function lsp.run(rootDir: string?): integer
     --- @raises string when the cell is gone after all, which is a fault in this file
     local function read(waiting: boolean): string?
         local chunk, problem = relay:with(function(borrows child: process.Process): string?
-            local reader = nupp.borrow(child.stdout)
+            local reader = own.borrow(child.stdout)
             if reader == nil then
                 return nil
             end
@@ -2206,7 +2206,7 @@ function lsp.run(rootDir: string?): integer
             relayFailed = not child:wait():succeeded()
         end)
     end
-    nupp.drop(relayOwner)
+    own.drop(relayOwner)
     if broken then
         io.stderr:write("nupp-lsp: " .. broken .. "\n")
         return 1

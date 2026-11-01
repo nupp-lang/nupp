@@ -12,7 +12,7 @@ function or data.
 ```nupp:playground
 @comptime
 local function Optional(T: type): type
-    return nupp.types.optional(T)
+    return types.optional(T)
 end
 
 -- Optional(string) runs while this line is checked and returns string?,
@@ -37,7 +37,7 @@ method, module member, name, or runtime identity.
 
 ## Inspection and construction
 
-Type handles are opaque and immutable. `nupp.types.describe(T)`, `kind`,
+Type handles are opaque and immutable. `types.describe(T)`, `kind`,
 `elements`, `sameNominal`, `fields`, `readKeys`, `writeKeys`, `readAt`, and
 `writeAt` expose checked semantic information without exposing mutable checker
 state. Builders
@@ -69,12 +69,12 @@ local type ReadField = {
 @comptime
 local function ReadView(T: type): type
     local selected: {ReadField} = {}
-    for _, field in ipairs(nupp.types.fields(T)) do
+    for _, field in ipairs(types.fields(T)) do
         if field.read then
             selected[#selected + 1] = {name = field.name, read = field.read}
         end
     end
-    return nupp.types.shape(selected)
+    return types.shape(selected)
 end
 ```
 
@@ -82,7 +82,7 @@ The builder reads its descriptor array without changing it. Descriptor members i
 the API are therefore read-only, and an annotated descriptor shape may omit an
 optional member such as `write` instead of writing `write: type?` at every use.
 
-`nupp.types.nonExhaustive()` takes no arguments and returns the one type no name
+`types.nonExhaustive()` takes no arguments and returns the one type no name
 resolves to: the member that keeps a union open. It is written in a type
 directly as well as inside a generator, since a union is where it means
 anything. See [Unions that may grow](unions.md#unions-that-may-grow) for what it
@@ -91,8 +91,8 @@ does to a switch over that union.
 ```nupp
 @comptime
 local function DeepElement(T: type): type
-    while nupp.types.kind(T) == "array" do
-        T = nupp.types.elements(T)[1]
+    while types.kind(T) == "array" do
+        T = types.elements(T)[1]
     end
     return T
 end
@@ -103,11 +103,11 @@ local leaf: DeepElement({{{integer}}}) = 42
 print(leaf + 1)
 ```
 
-`nupp.types.error(message)` rejects the type application deliberately. It is
+`types.error(message)` rejects the type application deliberately. It is
 distinct from an evaluator crash or timeout, and it reports the authored
 message at the application with a bounded comptime call trace.
 
-`nupp.types.sameNominal(A, B)` asks whether two types are applications of the
+`types.sameNominal(A, B)` asks whether two types are applications of the
 same nominal declaration without exposing that declaration's identity. Generic
 arguments do not have to match, aliases and ownership wrappers are transparent,
 and two structural types or different declarations return false:
@@ -123,7 +123,7 @@ end
 
 @comptime
 local function SameFamily(A: type, B: type): type
-    return nupp.types.literal(nupp.types.sameNominal(A, B))
+    return types.literal(types.sameNominal(A, B))
 end
 
 local same: SameFamily(Cell<string>, Cell<number>) = true
@@ -140,11 +140,11 @@ as inference makes every argument concrete.
 ```nupp
 @comptime
 local function Arguments(Kind: type): typepack
-    local info = nupp.types.describe(Kind)
+    local info = types.describe(Kind)
     if info.kind == "literal" and info.value == "pair" then
-        return nupp.types.pack({nupp.types.string, nupp.types.number})
+        return types.pack({types.string, types.number})
     end
-    return nupp.types.pack({}, nupp.types.any)
+    return types.pack({}, types.any)
 end
 
 local function apply<Kind is string>(
@@ -261,11 +261,11 @@ not a format-specific checker branch.
 
 ### `%?` formats a `Debug` value
 
-`%?` requires `nupp.Debug`, calls `debug()`, and passes the result to Lua's
+`%?` requires `types.Debug`, calls `debug()`, and passes the result to Lua's
 `%s`:
 
 ```nupp
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record User
     name: string
 end
@@ -274,7 +274,7 @@ local inspected = string.format("user=%?", new User(name = "Ada"))
 ```
 
 See [derives.md](../../../reference/derives.md#debug) for what
-`@derive(nupp.derive.Debug)` generates.
+`@derive(types.Debug)` generates.
 
 ### Formats the checker cannot read
 
@@ -312,14 +312,14 @@ local invalid = string.format("%q %y", 1, 2)
 
 ### Typed wrappers
 
-`nupp.types.formatArguments(Format)` exposes the same directive
+`types.formatArguments(Format)` exposes the same directive
 computation, so a wrapper around `string.format` checks its callers the way
 `string.format` checks its own:
 
 ```nupp
 local function format<Format is string>(
     fmt: Format,
-    ...: unpackof nupp.types.formatArguments(Format)
+    ...: unpackof types.formatArguments(Format)
 ): string
     return string.format(fmt, ...)
 end

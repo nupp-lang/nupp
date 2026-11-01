@@ -267,7 +267,7 @@ function M.judgesTheTerminalsARegionDischarges()
     testAssert.equal(#refusals, 1, "a with acquisition is judged")
     refusals = diagnose(
         resource .. table.concat(
-            {"@nosuspend do", "    local value = openSettling()", "    nupp.drop(value)", "end",},
+            {"@nosuspend do", "    local value = openSettling()", "    own.drop(value)", "end",},
             "\n"
         )
     )

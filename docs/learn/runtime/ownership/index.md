@@ -60,8 +60,8 @@ function the discharge no longer calls.
 It may raise, and it may suspend: a terminal that waits for what the resource
 owns to finish is a *settling* terminal, and discharging it parks the coroutine
 the way any wait does, so it is refused inside a `@nosuspend` region. General
-affine policies name the exact function; `nupp.Closeable` selects `close` through
-an explicit `nupp.Affine` claim.
+affine policies name the exact function; `own.Closeable` selects `close` through
+an explicit `own.Affine` claim.
 
 The parentheses are compile-time call syntax: `affine(Session, closeSession)`
 invokes a built-in type generator while checking and produces a transparent
@@ -75,13 +75,13 @@ the obligation on the type would close `stdout`. A function returning
 returning a plain `File` states that nothing is owed.
 :::
 
-## `nupp.Closeable` resources
+## `own.Closeable` resources
 
-Use `nupp.Closeable` when closing is intrinsic to the type rather than one policy a
+Use `own.Closeable` when closing is intrinsic to the type rather than one policy a
 producer may choose:
 
 ```nupp
-local record Client is nupp.Closeable
+local record Client is own.Closeable
     function close(takes self): nil
     end
 end
@@ -104,13 +104,13 @@ transfer-only.
 ## Discharging an owner
 
 An owner is destroyed automatically at its lexical boundary. You can consume it
-earlier with `nupp.drop`:
+earlier with `own.drop`:
 
 ```nupp:fragment
 local file = openFile()
-nupp.drop(file)
+own.drop(file)
 local another = openFile()
-nupp.drop(another)
+own.drop(another)
 ```
 
 Passing it to a `takes` parameter or returning it through an affine result moves
@@ -131,7 +131,7 @@ The visible `session` is a non-escaping borrow. Its hidden owner always drops at
 the end of the body and cannot be moved or ended early.
 
 `affine(T)` selects `T`'s inherent cleanup when `T` has a declared
-`nupp.Affine` claim. Otherwise it is deliberately terminal-less: it may be
+`own.Affine` claim. Otherwise it is deliberately terminal-less: it may be
 forwarded to another owner or consuming parameter, returned, or released in
 `@unsafe`, but it cannot be dropped locally because there is no function to call.
 
@@ -147,7 +147,7 @@ end
 
 local session = openSession(1)
 inspect(session)
-nupp.drop(session)
+own.drop(session)
 ```
 
 `borrows` is a lifetime and aliasing contract, not a const qualifier. Use
@@ -170,10 +170,10 @@ local bundle = new Bundle(
     first = openSession(1),
     second = openSession(2)
 )
-nupp.drop(bundle)
+own.drop(bundle)
 ```
 
-`nupp.Closeable` fields behave the same way without an explicit wrapper: a field
+`own.Closeable` fields behave the same way without an explicit wrapper: a field
 written `client: Client` owns that client and makes the containing record
 affine.
 
@@ -183,7 +183,7 @@ Static borrows should remain the default. When references must escape a lexical
 borrow, move the owner into an independent managed cell:
 
 ```nupp:fragment
-local owner = nupp.manage(new Client())
+local owner = own.manage(new Client())
 local client = owner:alias()
 
 local result, problem = client:with(function(borrows value)
@@ -195,12 +195,12 @@ end)
 not keep custody alive. `with` and `withExclusive` acquire checked callback
 borrows, `take` restores the exact original owner once, and `close` closes
 through an alias. After close or take, every alias observes the same permanent
-tombstone. `nupp.recoverAlias(value)` validates the brand of an alias that
+tombstone. `own.recoverAlias(value)` validates the brand of an alias that
 crossed `any`, and `alias:downcast<T>()` then validates its erased payload and
 cleanup policy.
 
-For runtime-sized heterogeneous shutdown, `nupp.ManagedGroup` adopts managed
-cells and closes them in reverse order. Create one with `nupp.managedGroup()`.
+For runtime-sized heterogeneous shutdown, `own.ManagedGroup` adopts managed
+cells and closes them in reverse order. Create one with `own.managedGroup()`.
 It is ordinary library code over
 aliases, not a compiler-recognized container.
 
@@ -220,9 +220,9 @@ boundary, use the ownership calls:
 
 ```nupp:fragment
 @unsafe do
-    local raw = @unsafe nupp.release(owner)
-    local restored = @unsafe nupp.adopt<affine(voidptr, free)>(raw)
-    nupp.drop(restored)
+    local raw = @unsafe own.release(owner)
+    local restored = @unsafe own.adopt<affine(voidptr, free)>(raw)
+    own.drop(restored)
 end
 ```
 

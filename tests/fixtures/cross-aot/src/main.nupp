@@ -27,6 +27,6 @@ do
     for index = 1, 8 do
         writable[index] = 0.5
     end
-    nupp.drop(writable)
+    own.drop(writable)
 end
 print(triangular(5), total(values:read()))

@@ -43,10 +43,10 @@ local function run(count: integer, steps: integer, scalar: boolean, dt: float): 
             end
         end
 
-        nupp.drop(writeVys)
-        nupp.drop(writeVxs)
-        nupp.drop(ys)
-        nupp.drop(xs)
+        own.drop(writeVys)
+        own.drop(writeVxs)
+        own.drop(ys)
+        own.drop(xs)
     end
 
     return elapsed, checksum

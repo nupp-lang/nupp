@@ -672,7 +672,7 @@ export record File is io.Reader, io.Writer
             for index = 1, taking do
                 output[index] = input[index]
             end
-            nupp.drop(output)
+            own.drop(output)
         end
         lease:commit(taking)
 
@@ -841,7 +841,7 @@ export record File is io.Reader, io.Writer
 end
 
 function File.close(takes self: File): nil
-    local state = @unsafe nupp.release(self)
+    local state = @unsafe own.release(self)
     if state._closed then
         return
     end
@@ -863,7 +863,7 @@ end
 --- the obligation, which is the whole reason to make one: write to a name nobody else
 --- can take, then put it where it belongs.
 --- @export
-export record TemporaryPath is nupp.Closeable
+export record TemporaryPath is own.Closeable
     @private _text: string
     @private _directory: boolean
     @private _closed: boolean
@@ -924,7 +924,7 @@ end
 ----------------------------------------------------------------------------
 
 function TemporaryPath.close(takes self: TemporaryPath): nil
-    local state = @unsafe nupp.release(self)
+    local state = @unsafe own.release(self)
     if state._closed then
         return
     end

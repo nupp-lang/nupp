@@ -15,7 +15,7 @@ local interface Entry<T>
     @readonly dynamic: boolean
     write: function(self, borrows value: T, exclusive sink: json.Writer, budget: lowering.Budget?): nil
 end
-local record Project<T, V is nupp.Copyable> is Entry<T>
+local record Project<T, V is own.Copyable> is Entry<T>
     @readonly dynamic: boolean
     @readonly key: json.EncodedString
     @readonly path: string
@@ -41,12 +41,12 @@ local record Project<T, V is nupp.Copyable> is Entry<T>
         end
     end
 end
-local record Field<T, S is nupp.Closeable, M is core.Member> is structures.FieldConsumer<T, S, M, boolean>
+local record Field<T, S is own.Closeable, M is core.Member> is structures.FieldConsumer<T, S, M, boolean>
     @readonly resolver: lowering.EncodeResolver<M>
     @readonly plan: plans.Plan<M>
     @readonly path: string
     @readonly fields: {Entry<T>}
-    function apply<V is nupp.Copyable>(
+    function apply<V is own.Copyable>(
         self,
         member: M,
         has: structures.Has<T>,
@@ -100,7 +100,7 @@ local record SelectStructure<T, M is core.Member> is structures.Consumer<T, M, l
     @readonly resolver: lowering.EncodeResolver<M>
     @readonly plan: plans.Plan<M>
     @readonly path: string
-    function apply<S is nupp.Closeable>(
+    function apply<S is own.Closeable>(
         self,
         member: M,
         fields: const{structures.Field<T, S, M>},

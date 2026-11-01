@@ -454,7 +454,7 @@ local record Diagonal
 end
 
 @comptime local function Construction(E: type): typepack
-    return nupp.types.construction(E)
+    return types.construction(E)
 end
 
 local function count<E>(event: Type<E>, ...: unpackof Construction(E)): integer
@@ -505,7 +505,7 @@ local record Overloaded
 end
 
 @comptime local function Construction(E: type): typepack
-    return nupp.types.construction(E)
+    return types.construction(E)
 end
 
 local function count<E>(event: Type<E>, ...: unpackof Construction(E)): integer

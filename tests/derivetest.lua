@@ -101,18 +101,18 @@ end
 function M.supportsNestedAndBoundedGenericDebugRecords()
     local result = run(
         [[
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record Item
     label: string
 end
 
-@derive(nupp.derive.Debug)
-local record Box<T is nupp.Debug>
+@derive(types.Debug)
+local record Box<T is types.Debug>
     value: T
 end
 
 local record Namespace
-    @derive(nupp.derive.Debug)
+    @derive(types.Debug)
     record Inner
         count: integer = 0
     end
@@ -132,13 +132,13 @@ function M.debugsDerivedStructsAndRecordsHoldingThem()
     -- method made the renderer call itself until the stack ran out.
     local result = run(
         [[
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local struct Point
     x: number
     y: float
 end
 
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record Shape
     origin: Point
 end
@@ -155,17 +155,17 @@ end
 function M.reportsProviderAndSchemaFailuresAtTheDeclaration()
     local cases = {
         {"NUPP2801", [[
-@derive(nupp.derive.Debug, nupp.derive.Debug)
+@derive(types.Debug, types.Debug)
 local record Bad value: integer end
 ]]},
         {"NUPP2802", [[
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record Bad
     debug: function(self): string
 end
 ]]},
         {"NUPP2803", [[
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record Bad
     value: function(): nil
 end
@@ -200,13 +200,13 @@ end
 function M.offersWholeFixesForDuplicateAndConflictingProviders()
     local _, duplicateDiagnostics = compile(
         [[
-@derive(nupp.derive.Debug, nupp.derive.Debug)
+@derive(types.Debug, types.Debug)
 local record Duplicate value: integer end
 ]]
     )
     local _, conflictDiagnostics = compile(
         [[
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record Conflict
     debug: function(self): string
 end
@@ -226,11 +226,11 @@ end
     end
 
     assert(
-        hasFix(duplicateDiagnostics, "remove duplicate @derive(nupp.derive.Debug)"),
+        hasFix(duplicateDiagnostics, "remove duplicate @derive(types.Debug)"),
         "duplicate provider has no whole removal fix"
     )
     assert(
-        hasFix(conflictDiagnostics, "remove @derive(nupp.derive.Debug)"),
+        hasFix(conflictDiagnostics, "remove @derive(types.Debug)"),
         "generated-member collision has no whole derive removal fix"
     )
 end
@@ -238,7 +238,7 @@ end
 function M.recheckingADerivedDeclarationIsIdempotent()
     local source = [[
 local editor = require("tests.fixtures.deriveeditor")
-@derive(nupp.derive.Debug, editor.derive)
+@derive(types.Debug, editor.derive)
 local record Stable
     value: integer = 0
 end
@@ -258,7 +258,7 @@ end
 
 function M.fingerprintsDebugAnnotationChanges()
     local function fingerprint(redacted)
-        local source = "@derive(nupp.derive.Debug)\nlocal record Fingerprinted\n" .. (
+        local source = "@derive(types.Debug)\nlocal record Fingerprinted\n" .. (
             redacted and "@debug(redact = true)\n" or ""
         ) .. "value: string\nend"
         local _, diagnostics, parsed = compile(source)
@@ -300,14 +300,14 @@ end
 function M.fingerprintsNestedDebugMapKeysAndIgnoresPathSpelling()
     local stringCode, stringDiagnostics, stringParsed = compileAt(
         [[
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record Mapped entries: {[string]: string} end
 ]],
         "spelling/../mapped.nupp"
     )
     local integerCode, integerDiagnostics, integerParsed = compileAt(
         [[
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record Mapped entries: {[integer]: string} end
 ]],
         "mapped.nupp"
@@ -320,7 +320,7 @@ local record Mapped entries: {[integer]: string} end
 
     local alternateCode, alternateDiagnostics = compileAt(
         [[
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record Mapped entries: {[string]: string} end
 ]],
         "/tmp/another-spelling/mapped.nupp"
@@ -339,7 +339,7 @@ function M.boundsFieldsAndSemanticRecipeNodesAtTheirExactLimits()
     local limits = {fields = 8, nodes = 64}
 
     local function fixture(fields, deepLast)
-        local lines = {"@derive(nupp.derive.Debug)", "local record Bounded"}
+        local lines = {"@derive(types.Debug)", "local record Bounded"}
         for index = 1, fields do
             local depth = index == fields and deepLast or 7
             lines[#lines + 1] = ("    f%d: %sstring%s"):format(index, string.rep("{", depth), string.rep("}", depth))
@@ -360,7 +360,7 @@ function M.boundsFieldsAndSemanticRecipeNodesAtTheirExactLimits()
     end
     assert(nodeLimited, "the semantic-node boundary has no direct NUPP2808 fixture")
 
-    local fields = {"@derive(nupp.derive.Debug)", "local record TooMany"}
+    local fields = {"@derive(types.Debug)", "local record TooMany"}
     for index = 1, 9 do
         fields[#fields + 1] = "    f" .. index .. ": integer"
     end
@@ -376,7 +376,7 @@ end
 function M.cancelsWithoutPublishingAPartialRecipeAndRecovers()
     local source = [[
 local editor = require("tests.fixtures.deriveeditor")
-@derive(nupp.derive.Debug, editor.derive)
+@derive(types.Debug, editor.derive)
 local record Recoverable
     names: {{{string}}}
     values: {[string]: {integer}}
@@ -421,7 +421,7 @@ end
 function M.boundsRenderedRecipesAndReportsColdAndWarmObservations()
     local source = [[
 local editor = require("tests.fixtures.deriveeditor")
-@derive(nupp.derive.Debug, editor.derive)
+@derive(types.Debug, editor.derive)
 local record ObservedClosure
     value: integer
 end
@@ -432,7 +432,7 @@ end
     testAssert.equal(#warmDiagnostics, 0, "warm observation diagnostics")
     testAssert.equal(#cold.deriveObservations, 2, "one observation per provider")
     testAssert.equal(#warm.deriveObservations, 2, "warm observation count")
-    local expected = {["nupp.derive.Debug"] = 1, ["editor.derive"] = 3,}
+    local expected = {["types.Debug"] = 1, ["editor.derive"] = 3,}
     for index, observation in ipairs(cold.deriveObservations) do
         local warmed = warm.deriveObservations[index]
         testAssert.equal(
@@ -449,7 +449,7 @@ end
     end
 
     local hugeName = string.rep("x", 300)
-    local hugeSource = "@derive(nupp.derive.Debug)\nlocal record " .. hugeName .. "\nvalue: string\nend\n"
+    local hugeSource = "@derive(types.Debug)\nlocal record " .. hugeName .. "\nvalue: string\nend\n"
     local code, diagnostics, parsed = compileAt(hugeSource, "huge.nupp", {deriveLimits = {canonicalBytes = 256},})
     local limited = false
     for _, diagnostic in ipairs(diagnostics) do
@@ -467,7 +467,7 @@ end
 
 function M.recordsTheExactRuntimeFeatureManifest()
     local _, debugDiagnostics, debug = compile([[
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record Pure value: integer end
 ]])
     testAssert.equal(#debugDiagnostics, 0, "pure derive feature diagnostics")
@@ -479,7 +479,7 @@ end
 function M.delimitsTheRuntimeFromAnEmittedFirstLine()
     local result = run(
         [[local marker = "first"
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record First value: integer end
 return marker .. ":" .. (new First(value = 1)):debug()
 ]]

@@ -194,8 +194,8 @@ path:
 
 ```nupp:fragment
 @comptime
-function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Contract>
-    local schema = nupp.derive.file("schemas/widget.txt")
+function M.derive(info: types.derive.Info): types.derive.Result<M.Contract>
+    local schema = types.derive.file("schemas/widget.txt")
     -- Build a closed recipe from schema.
 end
 ```

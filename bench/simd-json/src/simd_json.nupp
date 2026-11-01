@@ -20,7 +20,7 @@ local function decode(source: string): unknown
     do
         local writable = span.writeCarray(flagStorage, length)
         scanner.classify(writable, span.fromString(source))
-        nupp.drop(writable)
+        own.drop(writable)
     end
     local position: integer = 1
 

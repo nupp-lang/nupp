@@ -213,7 +213,7 @@ function M.aFencedExampleKeepsAnAnnotationRatherThanReadingItAsATag()
             "--- Renders a value.",
             "---",
             "--- ```nupp",
-            "--- @derive(nupp.derive.Debug)",
+            "--- @derive(types.Debug)",
             "--- local record Point",
             "---     x: integer",
             "--- end",
@@ -230,7 +230,7 @@ function M.aFencedExampleKeepsAnAnnotationRatherThanReadingItAsATag()
     local render = module.items[1]
     assert(render and render.name == "render", "declaration missing")
     assert(
-        render.doc.text:find("@derive(nupp.derive.Debug)", 1, true),
+        render.doc.text:find("@derive(types.Debug)", 1, true),
         "the annotation stays in the example: " .. render.doc.text
     )
     assert(render.doc.tags.derive == nil, "and never became a tag")
@@ -1031,11 +1031,11 @@ function M.standardTypesApiMarksItsCompilerOnlyValues()
 
     local types
     for _, candidate in ipairs(extra or {}) do
-        if candidate.name == "nupp.types" then
+        if candidate.name == "types" then
             types = candidate
         end
     end
-    assert(types, "the prelude did not synthesize nupp.types")
+    assert(types, "the prelude did not synthesize types")
 
     local foundType, foundFunction = false, false
     for _, item in ipairs(types.items) do
@@ -1045,8 +1045,8 @@ function M.standardTypesApiMarksItsCompilerOnlyValues()
             foundFunction = item.comptimeKind == "function"
         end
     end
-    assert(foundType, "nupp.types.string lost its @comptime type kind")
-    assert(foundFunction, "nupp.types.optional lost its @comptime function kind")
+    assert(foundType, "types.string lost its @comptime type kind")
+    assert(foundFunction, "types.optional lost its @comptime function kind")
 end
 
 function M.spiReferenceShowsTheInterfaceArgumentRatherThanItsLowering()
@@ -1312,7 +1312,7 @@ function M.standardReflectApiKeepsItsGraphAndMaterializerTogether()
             reflect = item
         end
     end
-    assert(reflect, "the prelude did not document nupp.reflect")
+    assert(reflect, "the prelude did not document types.reflect")
 
     local expected = {
         AnnotationArgument = true,
@@ -1337,25 +1337,25 @@ function M.standardReflectApiKeepsItsGraphAndMaterializerTogether()
         fieldCodec = true,
     }
     local _, moduleExamples = reflect.doc.text:gsub("```nupp", "")
-    assert(moduleExamples >= 2, "nupp.reflect needs root and graph examples")
+    assert(moduleExamples >= 2, "types.reflect needs root and graph examples")
     for _, member in ipairs(reflect.members) do
         if expected[member.name] then
-            assert(member.text ~= "", "nupp.reflect." .. member.name .. " has no documentation")
+            assert(member.text ~= "", "types.reflect." .. member.name .. " has no documentation")
             expected[member.name] = nil
         end
         if examples[member.name] then
-            assert(member.text:find("```nupp", 1, true), "nupp.reflect." .. member.name .. " has no source example")
+            assert(member.text:find("```nupp", 1, true), "types.reflect." .. member.name .. " has no source example")
             examples[member.name] = nil
         end
         if member.name == "fieldCodec" then
-            assert(member.comptimeKind == "function", "nupp.reflect.fieldCodec must document its comptime-only phase")
+            assert(member.comptimeKind == "function", "types.reflect.fieldCodec must document its comptime-only phase")
         end
     end
     for name in pairs(expected) do
-        error("the prelude did not document nupp.reflect." .. name)
+        error("the prelude did not document types.reflect." .. name)
     end
     for name in pairs(examples) do
-        error("the prelude did not keep the nupp.reflect." .. name .. " example")
+        error("the prelude did not keep the types.reflect." .. name .. " example")
     end
 end
 
@@ -1415,7 +1415,7 @@ function M.standardLibraryBackingRecordsStayInternal()
     assert(closeable, "the prelude did not document Closeable")
     assert(closeable.module == "nupp", "Closeable is not owned by the nupp module")
     assert(
-        closeable.signature:find("interface nupp.Closeable is nupp.Affine<self.close>", 1, true),
+        closeable.signature:find("interface own.Closeable is own.Affine<self.close>", 1, true),
         "Closeable lost its qualified declaration"
     )
 
@@ -1572,7 +1572,7 @@ end
 
 function M.standardManagedGroupApiHasCompleteDocumentation()
     local source = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp")
-    assert(source:find("interface nupp.ManagedGroup", 1, true), "the root ownership surface lost ManagedGroup")
+    assert(source:find("interface own.ManagedGroup", 1, true), "the root ownership surface lost ManagedGroup")
     assert(source:find("managedGroup: function", 1, true), "the root ownership surface lost its ManagedGroup factory")
 end
 
@@ -2388,18 +2388,18 @@ end
 function M.aNamespaceAndTheModuleImplementingItShareOnePage()
     local dir = tempProject({
         [
-            "src/nupp.nupp"
+            "src/types.nupp"
         ] = table.concat(
             {
-                "--- @namespace nupp",
+                "--- @namespace types",
                 "--- @export",
-                "local nupp: {",
+                "local types: {",
                 "   --- Generates checked members on a declaration.",
                 "   --- @namespace",
-                "   derive: nupp.derive",
+                "   derive: types.derive",
                 "}",
                 "",
-                "record nupp.derive",
+                "record types.derive",
                 "   --- Declares what a provider generates.",
                 "   implement: function(): boolean",
                 "",
@@ -2410,7 +2410,7 @@ function M.aNamespaceAndTheModuleImplementingItShareOnePage()
             "\n"
         ) .. "\n",
         [
-            "src/nupp/derive.nupp"
+            "src/types/derive.nupp"
         ] = table.concat(
             {
                 "local derive = {}",
@@ -2426,15 +2426,15 @@ function M.aNamespaceAndTheModuleImplementingItShareOnePage()
     })
     local config, settings = {include = {"src"}}, {sources = {"src"}}
     assert(doc.build(dir, config, settings, {format = "site", output = "site"}) == 0)
-    local page = readFile(dir .. "/site/modules/nupp/derive/index.html")
+    local page = readFile(dir .. "/site/modules/types/derive/index.html")
     assert(page:find("Generates checked members on a declaration%."), page)
-    assert(page:find('id="nupp.derive.implement"', 1, true), page)
-    local _, anchors = page:gsub('id="nupp%.derive%.Debug"', "")
+    assert(page:find('id="types.derive.implement"', 1, true), page)
+    local _, anchors = page:gsub('id="types%.derive%.Debug"', "")
     assert(anchors == 1, page)
     assert(page:find("Renders the declaration fields%."), page)
     assert(doc.build(dir, config, settings, {format = "markdown", output = "api.md"}) == 0)
     local api = readFile(dir .. "/api.md")
-    local _, sections = api:gsub('<a id="nupp%.derive"></a>', "")
+    local _, sections = api:gsub('<a id="types%.derive"></a>', "")
     assert(sections == 1, api)
     os.execute("rm -rf '" .. dir .. "'")
 end
@@ -3083,7 +3083,7 @@ function M.siteMatchesTheNuppdocPageModel()
                 "",
                 "```lua [Generated Lua]",
                 "local resource = openResource()",
-                "nupp.drop(resource)",
+                "own.drop(resource)",
                 "```",
                 ":::",
                 "",
@@ -3949,7 +3949,7 @@ end
 
 -- Layout is reached by asking about a reified type rather than by calling a library,
 -- so its graph sits apart from the types the signatures above merely name. Semantic
--- reflection owns its graph under `nupp.reflect` instead of leaking ambient types.
+-- reflection owns its graph under `types.reflect` instead of leaking ambient types.
 function M.stdlibIndexSectionsReflectionApartFromTypes()
     local stdlib = require("nupp.tools.doc.stdlib")
     local page = assert(stdlib.page({path = "luajit"}))
@@ -3993,7 +3993,7 @@ function M.stdlibIndexIsWrittenWhereTheManifestAsked()
     local linkedSource = SOURCE .. table.concat(
         {
             "--- An owned handle.",
-            "record Handle is nupp.Closeable",
+            "record Handle is own.Closeable",
             "   --- Its backing Lua stream.",
             "   file: LuaFile",
             "   --- Closes it.",
@@ -4012,9 +4012,9 @@ function M.stdlibIndexIsWrittenWhereTheManifestAsked()
             {
                 "@!internal",
                 "--- A deterministic resource.",
-                "interface nupp.Affine<const cleanup: function> end",
-                "interface nupp.Closeable is nupp.Affine<self.close>",
-                "   close: @nosuspend function(takes self: nupp.Closeable): nil",
+                "interface own.Affine<const cleanup: function> end",
+                "interface own.Closeable is own.Affine<self.close>",
+                "   close: @nosuspend function(takes self: own.Closeable): nil",
                 "end",
             },
             "\n"
@@ -4040,8 +4040,8 @@ function M.stdlibIndexIsWrittenWhereTheManifestAsked()
         "a module signature did not link the ambient LuaFile type"
     )
     assert(
-        modulePage:find('href="../../modules/nupp/index.html#nupp.Closeable"', 1, true),
-        "a module signature did not link nupp.Closeable"
+        modulePage:find('href="../../modules/nupp/index.html#own.Closeable"', 1, true),
+        "a module signature did not link own.Closeable"
     )
 
     local dir2 = tempProject({["src/math.nupp"] = SOURCE})

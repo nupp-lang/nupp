@@ -25,7 +25,7 @@ local {type URI} = require("io.uri")
 local {type Reader as ResponseBody, type Error} = require("nupp.io")
 export type Body = ResponseBody
 
-export interface Response is nupp.Closeable
+export interface Response is own.Closeable
     --- HTTP response status code.
     @readonly status: integer
 
@@ -53,7 +53,7 @@ export interface Response is nupp.Closeable
     @readonly headers: function(self: Response): {[string]: string}
 end
 
-export interface Client is nupp.Closeable
+export interface Client is own.Closeable
     --- Services outstanding client work, waiting up to the given milliseconds
     --- for some of it to move, while holding exclusive client access.
     @readonly pump: function(exclusive self: Client, timeoutMs: integer?): nil

@@ -139,7 +139,7 @@ local record Opaque is core.Atom
     end
 end
 
-local record Unknown is core.UnknownReader, nupp.Closeable
+local record Unknown is core.UnknownReader, own.Closeable
     @readonly entry: syntax.Entry
     @readonly source: core.Context
     used: boolean = false
@@ -175,7 +175,7 @@ local record Unknown is core.UnknownReader, nupp.Closeable
     end
 end
 
-local record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
+local record Input<M is core.Member> is core.Reader<M>, own.Closeable
     @readonly selected: Plan<M>
     @readonly value: positional.Value
     @readonly source: core.Context

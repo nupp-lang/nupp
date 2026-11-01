@@ -102,10 +102,10 @@ function M.extensionsAreTypedAndLazy()
     local User = run(
         [[
 local record User id: integer end
-return {target = User, info = User.reflect() as nupp.reflect.Info}
+return {target = User, info = User.reflect() as types.reflect.Info}
 ]]
     )
-    local reflection = _G.nupp.reflect
+    local reflection = require("types.reflect")
     local calls = 0
     local key = reflection.extensionKey(function(info)
         calls = calls + 1
@@ -124,13 +124,13 @@ end
 function M.genericConsumersReceiveUnannotatedTypeMetadata()
     local result = run(
         [[
-local function describe<T>(target: Type<T>): nupp.reflect.Info
-    return nupp.reflect.runtime(target)
+local function describe<T>(target: Type<T>): types.reflect.Info
+    return types.reflect.runtime(target)
 end
 local record User
     name: string
 end
-local function make(): nupp.reflect.Info
+local function make(): types.reflect.Info
     local record Local
         count: integer = 3
     end
@@ -152,8 +152,8 @@ end
 function M.genericReflectionSupportsStructWitnesses()
     local result = run(
         [[
-local function describe<T>(target: Type<T>): nupp.reflect.Info
-    return nupp.reflect.runtime(target)
+local function describe<T>(target: Type<T>): types.reflect.Info
+    return types.reflect.runtime(target)
 end
 
 local struct Point
@@ -171,11 +171,11 @@ end
 function M.localWitnessDescriptorsFollowTheirOwnersLifetime()
     local make = run(
         [[
-return function(): (unknown, nupp.reflect.Info)
+return function(): (unknown, types.reflect.Info)
     local record Item
         value: integer
     end
-    return Item, nupp.reflect.runtime(Item)
+    return Item, types.reflect.runtime(Item)
 end
 ]]
     )
@@ -183,7 +183,7 @@ end
     local weak = setmetatable({witness, info}, {__mode = "v"})
     info = nil
     collectgarbage("collect")
-    testAssert.equal(weak[2], _G.nupp.reflect.runtime(witness), "a live type retains its descriptor")
+    testAssert.equal(weak[2], require("types.reflect").runtime(witness), "a live type retains its descriptor")
     info = weak[2]
     witness = nil
     collectgarbage("collect")
@@ -204,8 +204,8 @@ local record User
         return "mine"
     end
 end
-local function describe<T>(target: Type<T>): nupp.reflect.Info
-    return nupp.reflect.runtime(target)
+local function describe<T>(target: Type<T>): types.reflect.Info
+    return types.reflect.runtime(target)
 end
 local info = describe(User)
 return {name = info.name, custom = User.reflect()}
@@ -220,7 +220,7 @@ function M.aModuleReturnCanUseATypeWitness()
 local record Message
     text: string
 end
-return nupp.reflect.runtime(Message)
+return types.reflect.runtime(Message)
 ]])
     testAssert.equal(info.name, "Message")
     testAssert.equal(info.fields[1].name, "text")
@@ -236,12 +236,12 @@ local record Root
     leaf: Leaf
 end
 local expected = Leaf
-local info = nupp.reflect.runtime(Root)
+local info = types.reflect.runtime(Root)
 do
     local record Leaf
         value: integer
     end
-    local actual = nupp.reflect.runtimeType(info, info.fields[1].type as integer)
+    local actual = types.reflect.runtimeType(info, info.fields[1].type as integer)
     return {original = actual == expected, different = actual ~= Leaf}
 end
 ]]
@@ -256,16 +256,16 @@ function M.forwardWitnessesResolveAfterTheirDeclarationExecutes()
 local record First
     next: Second?
 end
-local info = nupp.reflect.runtime(First)
+local info = types.reflect.runtime(First)
 local index: integer = 0
 for i, node in ipairs(info.types) do
     if node.kind == "record" and node.name == "Second" then index = i end
 end
-local before = nupp.reflect.runtimeType(info, index)
+local before = types.reflect.runtimeType(info, index)
 local record Second
     next: First?
 end
-local after = nupp.reflect.runtimeType(info, index)
+local after = types.reflect.runtimeType(info, index)
 return {absent = before == nil, correct = after == Second}
 ]]
     )
@@ -276,19 +276,19 @@ end
 function M.freshLocalGraphsDoNotShareRuntimeWitnesses()
     local result = run(
         [[
-local function make(): (nupp.reflect.Info, Type<unknown>?)
+local function make(): (types.reflect.Info, Type<unknown>?)
     local record Child
         value: integer
     end
     local record Parent
         child: Child
     end
-    local info = nupp.reflect.runtime(Parent)
-    return info, nupp.reflect.runtimeType(info, info.fields[1].type as integer)
+    local info = types.reflect.runtime(Parent)
+    return info, types.reflect.runtimeType(info, info.fields[1].type as integer)
 end
 local first, left = make()
 local second, right = make()
-return {distinct = left ~= right, stable = left == nupp.reflect.runtimeType(first, first.fields[1].type as integer),
+return {distinct = left ~= right, stable = left == types.reflect.runtimeType(first, first.fields[1].type as integer),
     same = first.fingerprint == second.fingerprint}
 ]]
     )
@@ -306,8 +306,8 @@ end
 local Alias = User
 local erased = Alias as Type<unknown>
 local stored: {Type<unknown>} = {Alias as Type<unknown>}
-local first = nupp.reflect.runtime(erased)
-local second = nupp.reflect.runtime(stored[1])
+local first = types.reflect.runtime(erased)
+local second = types.reflect.runtime(stored[1])
 return {same = first == second, field = first.fields[1].name}
 ]]
     )

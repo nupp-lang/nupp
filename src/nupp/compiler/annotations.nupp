@@ -396,7 +396,7 @@ local BUILTINS = {
         targets = {"record", "struct"},
         builtin = true,
         qualifiedNames = true,
-        doc = "Runs a closed comptime recipe, e.g. `nupp.derive.Debug`, that adds checked members or data without exposing source or AST macros.",
+        doc = "Runs a closed comptime recipe, e.g. `types.Debug`, that adds checked members or data without exposing source or AST macros.",
         docsPath = "docs/reference/annotations.md#derive",
     },
     {

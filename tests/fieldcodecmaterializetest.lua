@@ -58,8 +58,8 @@ local record Position
     y: number
 end
 
-const PositionCodec: nupp.reflect.FieldCodec<Position> = comptime do
-    return nupp.reflect.fieldCodec(nupp.reflect(Position))
+const PositionCodec: types.reflect.FieldCodec<Position> = comptime do
+    return types.reflect.fieldCodec(types.reflect(Position))
 end
 
 local encoded = PositionCodec:encode(new Position(x = 10, y = 20))
@@ -99,11 +99,11 @@ local record Point
     x: number
     y: number
 end
-@comptime local function keyed(info: nupp.reflect.Info): nupp.reflect.FieldCodecBlueprint
-    return nupp.reflect.fieldCodec(info)
+@comptime local function keyed(info: types.reflect.Info): types.reflect.FieldCodecBlueprint
+    return types.reflect.fieldCodec(info)
 end
-const Codec: nupp.reflect.FieldCodec<Point> = comptime do
-    return keyed(nupp.reflect(Point))
+const Codec: types.reflect.FieldCodec<Point> = comptime do
+    return keyed(types.reflect(Point))
 end
 local encoded = Codec:encode(new Point(x = 3, y = 4))
 return {x = encoded.x as number, y = encoded.y as number}
@@ -123,25 +123,25 @@ local record User
     @wire(name = "user_id")
     id: integer
 end
-@comptime local function argumentName(value: const nupp.reflect.AnnotationArgument): string
+@comptime local function argumentName(value: const types.reflect.AnnotationArgument): string
     return value.name
 end
-@comptime local function annotationName(value: const nupp.reflect.Annotation): string
+@comptime local function annotationName(value: const types.reflect.Annotation): string
     return value.name .. ":" .. argumentName(value.arguments[1])
 end
-@comptime local function entryName(value: const nupp.reflect.Entry): string
+@comptime local function entryName(value: const types.reflect.Entry): string
     return value.name as string
 end
-@comptime local function nodeName(value: const nupp.reflect.Node): string
-    return entryName((value.fields as const{nupp.reflect.Entry})[1])
+@comptime local function nodeName(value: const types.reflect.Node): string
+    return entryName((value.fields as const{types.reflect.Entry})[1])
 end
-@comptime local function fieldName(value: const nupp.reflect.Field): string
+@comptime local function fieldName(value: const types.reflect.Field): string
     return value.name .. ":" .. annotationName(value.annotations[1])
 end
-@comptime local function summarize(value: nupp.reflect.Info): string
+@comptime local function summarize(value: types.reflect.Info): string
     return nodeName(value.types[value.root]) .. ":" .. fieldName(value.fields[1])
 end
-return comptime do return summarize(nupp.reflect(User)) end
+return comptime do return summarize(types.reflect(User)) end
 ]]
     testAssert.equal(run(src), "id:id:wire:name", "reflection graph types share one namespace")
 end
@@ -159,7 +159,7 @@ return "unused"
         [[
 local record User id: integer end
 const Codec: nupp.fieldcodec.KeyedCodec<User> = comptime do
-    return nupp.fieldcodec.compile(nupp.reflect(User))
+    return nupp.fieldcodec.compile(types.reflect(User))
 end
 return Codec
 ]]
@@ -173,7 +173,7 @@ local record Pair
     left: string
     right: integer
 end
-@comptime local function summarize(info: nupp.reflect.Info): string
+@comptime local function summarize(info: types.reflect.Info): string
     local names = {}
     for index, field in ipairs(info.fields) do
         names[index] = field.name .. ":" .. field.kind
@@ -184,7 +184,7 @@ end
     return info.schema .. ":" .. info.types[info.root].kind
         .. ":" .. #info.fields .. ":" .. table.concat(names, ",")
 end
-return comptime do return summarize(nupp.reflect(Pair)) end
+return comptime do return summarize(types.reflect(Pair)) end
 ]]
     testAssert.equal(
         run(src),
@@ -209,14 +209,14 @@ local record User
     nickname: string?
 end
 
-@comptime local function summarize(info: nupp.reflect.Info): string
+@comptime local function summarize(info: types.reflect.Info): string
     local recordName = info.annotations[1].arguments[1].value
     local idName = info.fields[1].annotations[1].arguments[1].value
     local omitted = info.fields[2].annotations[1].arguments[1].value
     return recordName .. ":" .. idName .. ":" .. tostring(omitted)
 end
 
-return comptime do return summarize(nupp.reflect(User)) end
+return comptime do return summarize(types.reflect(User)) end
 ]]
     testAssert.equal(
         run(src),
@@ -242,7 +242,7 @@ local record User
 end
 
 return comptime do
-    local info = nupp.reflect(User)
+    local info = types.reflect(User)
     local edge = info.fields[1].annotations[1].arguments[1].type as integer
     return info.types[edge].name
 end
@@ -261,7 +261,7 @@ local record Pair
     left: string
 end
 return comptime do
-    local info = nupp.reflect(Pair)
+    local info = types.reflect(Pair)
     info.name = "Changed"
     return info.name
 end
@@ -275,8 +275,8 @@ function M.rejectsAReflectedTypeAndRuntimeTargetMismatch()
         [[
 local record Position x: number end
 local record Velocity x: number end
-const Bad: nupp.reflect.FieldCodec<Velocity> = comptime do
-    return nupp.reflect.fieldCodec(nupp.reflect(Position))
+const Bad: types.reflect.FieldCodec<Velocity> = comptime do
+    return types.reflect.fieldCodec(types.reflect(Position))
 end
 ]]
     )
@@ -290,8 +290,8 @@ local left = {}
 record left.Item value: string end
 local right = {}
 record right.Item value: string end
-const Bad: nupp.reflect.FieldCodec<right.Item> = comptime do
-    return nupp.reflect.fieldCodec(nupp.reflect(left.Item))
+const Bad: types.reflect.FieldCodec<right.Item> = comptime do
+    return types.reflect.fieldCodec(types.reflect(left.Item))
 end
 return Bad
 ]]
@@ -303,8 +303,8 @@ function M.requiresATypePositionForReflection()
     local codes = errorsOf(
         [[
 local value = 1
-const Bad: nupp.reflect.FieldCodec<any> = comptime do
-    return nupp.reflect.fieldCodec(nupp.reflect(value))
+const Bad: types.reflect.FieldCodec<any> = comptime do
+    return types.reflect.fieldCodec(types.reflect(value))
 end
 ]]
     )

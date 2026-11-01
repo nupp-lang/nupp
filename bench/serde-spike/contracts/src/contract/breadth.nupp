@@ -123,7 +123,7 @@ local record Strings
 end
 local structure = require("serde.adapters")
 local scalar = require("serde.adapters")
-local record StringBuilder is nupp.Closeable
+local record StringBuilder is own.Closeable
     id: string?
     active: boolean?
     name: string?

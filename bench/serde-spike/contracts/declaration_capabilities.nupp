@@ -26,7 +26,7 @@ end)
 _G.require = original
 assert(ok, tostring(result))
 
-local record Owned is nupp.Closeable
+local record Owned is own.Closeable
     value: string
     function close(takes self): nil
     end

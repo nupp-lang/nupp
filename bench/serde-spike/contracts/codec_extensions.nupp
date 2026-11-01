@@ -35,7 +35,7 @@ local record Counted<T, M is core.Member> is core.Adapter<T, M>
     end
 end
 
-local record Wrap<T is nupp.Copyable> is core.Consumer<T, nil, nil>
+local record Wrap<T is own.Copyable> is core.Consumer<T, nil, nil>
     @readonly counts: Counts
     result: core.Binding<T>?
     function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows state: nil): nil
@@ -43,7 +43,7 @@ local record Wrap<T is nupp.Copyable> is core.Consumer<T, nil, nil>
     end
 end
 
-local function counted<T is nupp.Copyable>(binding: core.Binding<T>, counts: Counts): core.Binding<T>
+local function counted<T is own.Copyable>(binding: core.Binding<T>, counts: Counts): core.Binding<T>
     local wrapper = new Wrap<T>(counts = counts)
     binding:accept(wrapper, nil)
     return assert(wrapper.result)

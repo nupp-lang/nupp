@@ -2405,8 +2405,8 @@ local function run(): number
             wx[i] = i
             wy[i] = n - i
         end
-        nupp.drop(wx)
-        nupp.drop(wy)
+        own.drop(wx)
+        own.drop(wy)
         local bad = 0
         for i = 1, n do
             if xs:read()[i] + ys:read()[i] ~= n then

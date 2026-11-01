@@ -1239,7 +1239,7 @@ types.never = prim("never")
 -- The member that says a union may grow. Nothing inhabits it and it fits nowhere but
 -- itself, so a union carrying it can never be shown to be covered: a switch over one
 -- keeps needing its `else`, and the union does not fit the closed union of the members
--- actually written. `nupp.types.nonExhaustive()` is the only way to obtain it, since no
+-- actually written. `types.nonExhaustive()` is the only way to obtain it, since no
 -- name resolves to it.
 types.open = prim("open")
 types.nil_ = prim("nil")
@@ -3300,7 +3300,7 @@ end
 
 --- Adds trusted sibling-region metadata to a callable result without changing any
 --- other part of its contract. Sealed interface methods use this to publish the same
---- partition fact an implementation body derives from `nupp.partition`.
+--- partition fact an implementation body derives from `own.partition`.
 function types.withPartitionResults(ft: types.Type, partitionResults: {[integer]: {[string]: string}}): types.Type
     if ft.tag ~= "func" then
         return ft

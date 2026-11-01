@@ -242,8 +242,8 @@ are unsupported targets. Annotate operations inside functions; write
 `return @unsafe expression` or `yield @unsafe expression` for terminal values.
 `@aot` continues to reject unsafe constructs, and comptime gains no operations.
 
-Ownership transfers remain explicit: `@unsafe nupp.release(owner)` consumes an
-affine obligation without cleanup, and `@unsafe nupp.adopt<Owner>(raw)` creates
+Ownership transfers remain explicit: `@unsafe own.release(owner)` consumes an
+affine obligation without cleanup, and `@unsafe own.adopt<Owner>(raw)` creates
 one with the target's cleanup policy. These compiler-recognized calls require
 `@unsafe` even inside an annotated block.
 
@@ -278,13 +278,13 @@ publishes.
 ## Compile-time reflection
 
 Checked user-defined annotations on records, interfaces, structs, and their
-fields are available through `nupp.reflect(T)` inside
+fields are available through `types.reflect(T)` inside
 [comptime](../learn/language/comptime.md). Applications retain source order, and
 arguments follow the annotation definition's member order:
 
 ```nupp:fragment
 return comptime do
-    local info = nupp.reflect(User)
+    local info = types.reflect(User)
     local recordMetadata = info.annotations
     local fieldMetadata = info.fields[1].annotations
     return {recordMetadata = #recordMetadata, fieldMetadata = #fieldMetadata}
@@ -406,7 +406,7 @@ local sealed interface Splitter
 end
 ```
 
-That preserves a private implementation's `nupp.partition` proof through the
+That preserves a private implementation's `own.partition` proof through the
 public interface signature. It may not be attached to an unsealed or externally
 implementable contract, and `nupp ownership-audit` lists every use. See
 [ownership.md](../learn/runtime/ownership/borrowing.md#public-capability-contracts) for the
@@ -414,12 +414,12 @@ contracts a public signature is allowed to carry.
 
 ### `@derive`
 
-`@derive` accepts `nupp.derive.Debug` or an exported comptime provider and adds
+`@derive` accepts `types.Debug` or an exported comptime provider and adds
 checked members
 or format-neutral materialization data without exposing source or AST macros:
 
 ```nupp
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record Point
     x: integer
     y: integer

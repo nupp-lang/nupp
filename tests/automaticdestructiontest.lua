@@ -210,7 +210,7 @@ function M.withBindingCannotEscapeOrBeDroppedEarly()
     )
 
     testAssert.equal(
-        codes(PRELUDE .. table.concat({"", "with value = open_resource('x') do nupp.drop(value) end",}, "\n")),
+        codes(PRELUDE .. table.concat({"", "with value = open_resource('x') do own.drop(value) end",}, "\n")),
         "NUPP2602"
     )
 end
@@ -283,7 +283,7 @@ print(result[1])
         ""
     )
 
-    for _, operation in ipairs({"local other = values:write()", "local other = values:read()", "nupp.drop(values)",}) do
+    for _, operation in ipairs({"local other = values:write()", "local other = values:read()", "own.drop(values)",}) do
         local actual = codes(WITH_SPAN .. "\nwith writable = values:write() do\n" .. operation .. "\nend")
         assert(actual:find("NUPP260[27]"), operation .. ": " .. actual)
     end
@@ -441,7 +441,7 @@ end
 
 function M.explicitDropSuppressesAutomaticCleanup()
     local chunk = compile(
-        PRELUDE .. table.concat({"", "local value = open_resource('d')", "nupp.drop(value)", "return calls",}, "\n")
+        PRELUDE .. table.concat({"", "local value = open_resource('d')", "own.drop(value)", "return calls",}, "\n")
     )
     testAssert.equal(chunk(), "d")
 end
@@ -453,7 +453,7 @@ function M.aMovedBindingCanBeReinitializedForAutomaticCleanup()
                 "",
                 "local function run()",
                 "   local value = open_resource('a')",
-                "   nupp.drop(value)",
+                "   own.drop(value)",
                 "   value = open_resource('b')",
                 "end",
                 "run()",
@@ -472,7 +472,7 @@ function M.aTakesCallReceivesResponsibilityExactlyOnce()
                 "",
                 "local function consume(takes value: Resource)",
                 "   @unsafe do",
-                "      local raw = @unsafe nupp.release(value)",
+                "      local raw = @unsafe own.release(value)",
                 "      calls = calls .. raw.name",
                 "   end",
                 "end",
@@ -508,7 +508,7 @@ function M.anOwningReturnTransfersResponsibility()
                 "   return value",
                 "end",
                 "local value = make()",
-                "nupp.drop(value)",
+                "own.drop(value)",
                 "return calls",
             },
             "\n"
@@ -527,7 +527,7 @@ function M.capabilityPreservingGenericsTransferAutomaticResponsibility()
                 "end",
                 "local value = open_resource('f')",
                 "local moved = forward(value)",
-                "nupp.drop(moved)",
+                "own.drop(moved)",
                 "return calls",
             },
             "\n"
@@ -645,7 +645,7 @@ function M.partialFieldMovesAndReinitializationKeepExactObligations()
                 "      second = open_resource('b')",
                 "   )",
                 "   local first = bundle.first",
-                "   nupp.drop(first)",
+                "   own.drop(first)",
                 "   bundle.first = open_resource('c')",
                 "end",
                 "run()",
@@ -663,9 +663,9 @@ function M.managedGroupAdoptionTransfersAutomaticResponsibility()
             {
                 "",
                 "do",
-                "   local group = nupp.managedGroup()",
+                "   local group = own.managedGroup()",
                 "   local value = open_resource('q')",
-                "   local handle = group:adopt(nupp.manage(value))",
+                "   local handle = group:adopt(own.manage(value))",
                 "   local name = handle:with(function(borrows item) return item.name end)",
                 "   print(name)",
                 "end",
@@ -919,7 +919,7 @@ function M.closeableFieldsCloseInReverseOrder()
         table.concat(
             {
                 "local calls = ''",
-                "local record Resource is nupp.Closeable",
+                "local record Resource is own.Closeable",
                 "   name: string",
                 "   function flush(exclusive self): nil end",
                 "   function close(takes self): nil calls = calls .. self.name end",
@@ -947,7 +947,7 @@ function M.manualCloseDischargesAnInherentObligationOnce()
         table.concat(
             {
                 "local calls = 0",
-                "local record Resource is nupp.Closeable",
+                "local record Resource is own.Closeable",
                 "   function flush(exclusive self): nil end",
                 "   function close(takes self): nil calls = calls + 1 end",
                 "end",
@@ -971,7 +971,7 @@ function M.aTakingMethodCalledWithAStringArgumentReceivesIt()
         table.concat(
             {
                 "local calls = ''",
-                "local record Resource is nupp.Closeable",
+                "local record Resource is own.Closeable",
                 "   name: string",
                 "   function flush(exclusive self): nil end",
                 "   function close(takes self): nil calls = calls .. self.name end",
@@ -1010,7 +1010,7 @@ function M.aParenthesisedOwnerMovesIntoItsNewBindingOnce()
                 "do",
                 "   local a = open_resource('b')",
                 "   local b = (a) as Resource",
-                "   local raw = @unsafe nupp.release(b)",
+                "   local raw = @unsafe own.release(b)",
                 "   calls = calls .. raw.name",
                 "end",
                 "return calls",
@@ -1034,7 +1034,7 @@ function M.aFieldMovedOnOnePathIsStillDroppedWithTheRecordOnTheOther()
                 "end",
                 "local function consume(takes value: affine(Resource, close_resource)): nil",
                 "   calls = calls .. '<' .. value.name .. '>'",
-                "   nupp.drop(value)",
+                "   own.drop(value)",
                 "end",
                 "local function run(flag: boolean)",
                 "   local bundle = new Bundle(",
@@ -1042,7 +1042,7 @@ function M.aFieldMovedOnOnePathIsStillDroppedWithTheRecordOnTheOther()
                 "      second = open_resource('b')",
                 "   )",
                 "   if flag then consume(bundle.first) end",
-                "   nupp.drop(bundle)",
+                "   own.drop(bundle)",
                 "   calls = calls .. '|'",
                 "end",
                 "run(true)",

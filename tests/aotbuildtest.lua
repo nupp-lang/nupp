@@ -5571,7 +5571,7 @@ function m.answer(): (boolean, unknown)
             writable[index] = 100
         end
         writable[37] = 3
-        nupp.drop(writable)
+        own.drop(writable)
     end
     return pcall(kernel.scan, values:read())
 end

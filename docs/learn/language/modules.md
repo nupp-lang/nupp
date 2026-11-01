@@ -219,8 +219,8 @@ local tecs = makeTestDouble()
 tecs.world.query -- ordinary field access on the test double
 ```
 
-Language intrinsics such as `nupp.pin`, `nupp.borrow`, `nupp.sizeof`, and
-`nupp.types` keep their compiler meaning and are reserved against module or
+Language intrinsics such as `own.pin`, `own.borrow`, `nupp.sizeof`, and
+`types` keep their compiler meaning and are reserved against module or
 export collisions.
 
 Qualified access is lazy at the module boundary, not at every field access. Each

@@ -73,7 +73,7 @@ The context, its buffers, compiled kernels and bindings are all closeable, and
 each child borrows what it was made from: a binding its kernel, a kernel and a
 buffer the context. The checker therefore refuses a close while something still
 borrows the closed value, and any use after a close. `with` gives each one exact
-extent; `nupp.drop(buffer)` releases a buffer early. Closing a root buffer
+extent; `own.drop(buffer)` releases a buffer early. Closing a root buffer
 releases its allocation, and closing a view ends only the view. No close
 suspends. `gpu.open()` raises when no device can be opened, so a program with
 another way to run asks `gpu.available()` first.

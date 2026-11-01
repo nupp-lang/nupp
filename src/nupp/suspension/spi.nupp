@@ -100,7 +100,7 @@ end
 
 --- Handler restoration state owned by an installation.
 --- Closing it restores the outer context and releases registration state.
-export record Installed is nupp.Closeable
+export record Installed is own.Closeable
     --- Restores the outer handler and settles every park this installation accepted,
     --- without suspending. The provider supplies it with the installation; a drain
     --- that fails leaves the installation to be closed again.

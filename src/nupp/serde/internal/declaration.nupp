@@ -1,5 +1,7 @@
 module nupp.serde.internal.declaration
 
+const reflect = require("types.reflect")
+
 local core = require("nupp.serde.internal.value")
 local access = require("nupp.serde.internal.accessors")
 local structure = require("nupp.serde.internal.structure")
@@ -25,7 +27,7 @@ export interface View
     --- @return the adapter, or nil for the default
     resolve: function<M is core.Member>(
         self,
-        info: nupp.reflect.Info,
+        info: types.reflect.Info,
         index: integer,
         member: M
     ): core.Adapter<unknown, M>?
@@ -92,7 +94,7 @@ local function wide(): any
 end
 
 local record Member is core.Member
-    @readonly annotations: const{nupp.reflect.Annotation} = {}
+    @readonly annotations: const{types.reflect.Annotation} = {}
     @readonly label: string?
     @readonly wireName: string?
     @readonly representation: "iso8601Seconds"?
@@ -494,7 +496,7 @@ end
 
 local resolve: function(graph: Graph, index: integer, member: Member): core.Adapter<unknown, Member>
 
-local function typeLabel(info: nupp.reflect.Info, index: integer, seen: {[integer]: boolean}): string?
+local function typeLabel(info: types.reflect.Info, index: integer, seen: {[integer]: boolean}): string?
     if seen[index] then
         return nil
     end
@@ -644,7 +646,7 @@ local function recordAdapter(graph: Graph, index: integer, member: Member): core
     )
 end
 
-local record ShapeState is nupp.Closeable
+local record ShapeState is own.Closeable
     values: {[string]: unknown} = {}
     present: {[string]: boolean} = {}
     closed: boolean = false
@@ -672,7 +674,7 @@ local record ShapeConstruction is structure.Construction<unknown, ShapeState>
     end
 end
 
-local function nullable(info: nupp.reflect.Info, index: integer): boolean
+local function nullable(info: types.reflect.Info, index: integer): boolean
     local node: any = info.types[index]
     if node.kind == "nil" then
         return true
@@ -913,7 +915,7 @@ resolve = function(graph: Graph, index: integer, member: Member): core.Adapter<u
     return link
 end
 
-local record Root<T is nupp.Copyable> is core.Adapter<T, Member>
+local record Root<T is own.Copyable> is core.Adapter<T, Member>
     @readonly target: core.Adapter<unknown, Member>
     function describe(self, direction: core.Direction): core.Description<Member>
         return self.target:describe(direction)
@@ -928,7 +930,7 @@ local record Root<T is nupp.Copyable> is core.Adapter<T, Member>
     end
 end
 
-export function binding<T is nupp.Copyable>(target: Type<T>, options: Options?): core.Binding<T>
+export function binding<T is own.Copyable>(target: Type<T>, options: Options?): core.Binding<T>
     local selected = access.of(target)
     local cached = rawget(selected.info, cacheKey)
     if options == nil and cached ~= nil then
@@ -1005,7 +1007,7 @@ export function policy(): plans.PolicyFactory
     return new Factory()
 end
 
-export function annotations<M is core.Member>(member: M): const{nupp.reflect.Annotation}?
+export function annotations<M is core.Member>(member: M): const{types.reflect.Annotation}?
     if getmetatable(member) ~= Member then
         return nil
     end
@@ -1022,7 +1024,7 @@ end
 -- A parser carrier may replace a builder only when its checked operations
 -- produce the declaration's exact stored values. Custom views can change the
 -- carrier even when the value description looks identical.
-local function nativeCarrier(info: nupp.reflect.Info, index: integer, syntax: any): boolean
+local function nativeCarrier(info: types.reflect.Info, index: integer, syntax: any): boolean
     local node: any = info.types[index]
     local kind = node.kind
     if kind == "const" then
@@ -1044,7 +1046,7 @@ local function nativeCarrier(info: nupp.reflect.Info, index: integer, syntax: an
         end
         return true
     elseif kind == "record" then
-        return syntax.access == "record" and syntax.typeObject == nupp.reflect.runtimeType(info, index)
+        return syntax.access == "record" and syntax.typeObject == reflect.runtimeType(info, index)
     elseif kind == "string" or kind == "boolean" then
         return syntax.kind == kind
     elseif kind == "number" then
@@ -1115,7 +1117,7 @@ local function directRecord<T>(selected: access.Access<unknown>, recipe: lowerin
         field.defaultValue = stored.defaultValue
     end
     recipe.syntax.access = "record"
-    recipe.syntax.typeObject = assert(nupp.reflect.runtimeType(selected.info, selected.typeIndex))
+    recipe.syntax.typeObject = assert(reflect.runtimeType(selected.info, selected.typeIndex))
     recipe.syntax.factory = nil
 end
 

@@ -967,7 +967,7 @@ end
 function M.aTerminalTakesItsReceiverTheWayTheContractSays()
     local iface = table.concat(
         {
-            "local interface Closer is nupp.Affine<self.close>",
+            "local interface Closer is own.Affine<self.close>",
             "   close: @nosuspend function(takes self: Closer): nil",
             "end",
         },
@@ -997,7 +997,7 @@ function M.aTerminalTakesItsReceiverTheWayTheContractSays()
                 "local record Taking is Closer",
                 "   open: boolean",
                 "   function close(takes self): nil",
-                "      local state = @unsafe nupp.release(self)",
+                "      local state = @unsafe own.release(self)",
                 "      state.open = false",
                 "   end",
                 "end",

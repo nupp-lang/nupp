@@ -391,7 +391,7 @@ record tls.Session is Reader, Writer
                 for index = 1, landed do
                     output[index] = input[index]
                 end
-                nupp.drop(output)
+                own.drop(output)
             end
             lease:commit(landed)
         end

@@ -1,6 +1,7 @@
 -- A comptime type function can parse a literal and build a function signature.
 -- This tiny DSL expands a binary string into exact integer digit types:
 -- Binary("1101") becomes the pack (1, 1, 0, 1) while the file is checked.
+const types = require("types")
 
 @comptime
 local function Binary(Source: string): typepack
@@ -8,15 +9,15 @@ local function Binary(Source: string): typepack
     for index = 1, #Source do
         local digit = Source:sub(index, index)
         if digit == "0" then
-            digits[#digits + 1] = nupp.types.literal(0)
+            digits[#digits + 1] = types.literal(0)
         elseif digit == "1" then
-            digits[#digits + 1] = nupp.types.literal(1)
+            digits[#digits + 1] = types.literal(1)
         else
-            return nupp.types.error("expected binary digits, got " .. Source)
+            return types.error("expected binary digits, got " .. Source)
         end
     end
 
-    return nupp.types.pack(digits)
+    return types.pack(digits)
 end
 
 -- The first argument is a compile-time-known string. `unpackof` turns the

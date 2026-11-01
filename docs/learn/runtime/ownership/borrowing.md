@@ -46,7 +46,7 @@ assert(not mutex.locked)
 ```
 
 Affinity is a public language facility. General cleanup policy remains ordinary
-Nupp source. The core additionally defines the explicit `nupp.Closeable` lifecycle
+Nupp source. The core additionally defines the explicit `own.Closeable` lifecycle
 and managed cells for dynamic aliases. See
 [ownership.md](index.md) for the annotations a caller writes.
 
@@ -100,17 +100,17 @@ end
 
 ## Inherent owners
 
-`nupp.Affine<cleanup>` is the compiler-recognized ownership claim. A declared
+`own.Affine<cleanup>` is the compiler-recognized ownership claim. A declared
 `is` edge selects the cleanup function for a record, and another interface may
-inherit that claim. `nupp.Closeable` supplies the common policy:
+inherit that claim. `own.Closeable` supplies the common policy:
 
 ```nupp
-interface nupp.Closeable is nupp.Affine<self.close>
-    close: function(takes self: nupp.Closeable): nil
+interface own.Closeable is own.Affine<self.close>
+    close: function(takes self: own.Closeable): nil
 end
 ```
 
-A record must explicitly state `is nupp.Closeable`; matching method names do not
+A record must explicitly state `is own.Closeable`; matching method names do not
 infer conformance. Construction then introduces `affine(T, T.close)` behavior,
 and a bare owned `T` annotation carries it. Borrow-qualified parameter and
 result positions refer to the representation instead of minting an owner.
@@ -119,7 +119,7 @@ add non-consuming operations such as `flush()`.
 
 The cleanup function consumes `self`, returns `nil`, and may raise or suspend.
 Interface composition rejects competing cleanup identities. A record containing
-`nupp.Closeable` fields inherits their
+`own.Closeable` fields inherits their
 aggregate obligations and destroys live fields in reverse declaration order.
 
 ## Terminal contract
@@ -143,7 +143,7 @@ handler supplies its own blocking behavior.
 
 Generic terminals use ordinary inference and bounds. A terminal is a const
 function identity, not a runtime callback value or a string, which is what makes
-`drop` a statically selected call. `nupp.attemptAll(value, operations...)` is
+`drop` a statically selected call. `own.attemptAll(value, operations...)` is
 the ordinary way to author a single terminal that performs several independent
 operations; the affine type still records only that one terminal identity.
 
@@ -179,7 +179,7 @@ adoption, which is reserved for a boundary no typed producer can describe.
 
 ## Consumption and lexical destruction
 
-`nupp.drop(owner)` consumes an affine value and invokes its statically
+`own.drop(owner)` consumes an affine value and invokes its statically
 selected terminal. Passing to `takes`, returning through a matching affine
 result, or moving into another affine location transfers the obligation instead:
 
@@ -187,7 +187,7 @@ result, or moving into another affine location transfers the obligation instead:
 local function peek(path: string): string
     local file = new File(nativeOpen(path))
     local head = file:read(16)
-    nupp.drop(file)
+    own.drop(file)
     return head
 end
 ```
@@ -282,7 +282,7 @@ A closure with `takes (capture)` is an affine, single-shot callable:
 local file = new File(nativeOpen("notes.txt"))
 local finish = function(): nil takes (file)
     print(file:read(16))
-    nupp.drop(file)
+    own.drop(file)
 end
 
 finish() -- moves `file` into the invocation frame
@@ -312,7 +312,7 @@ end
 
 local file = new File(nativeOpen("notes.txt"))
 print(checksum(file)) -- `file` is still live and still owed a close
-nupp.drop(file)
+own.drop(file)
 ```
 
 A function literal or short function written where a callable is expected,
@@ -376,12 +376,12 @@ pointer under declared `retains` and `releases` contracts:
     local callback = function()
     end
     local pointer = ffi.cast<voidptr>(callback)
-    local handle = nupp.pin(pointer, callback)
+    local handle = own.pin(pointer, callback)
 end
 ```
 
 `pinned(T)` is a built-in compile-time type-generator call, and
-`nupp.pin(pointer, root)` is the runtime operation that proves and installs the
+`own.pin(pointer, root)` is the runtime operation that proves and installs the
 anchor. Raw pointer indexing and provenance reconstruction remain unsafe unless
 a checked span supplies bounds and a root.
 
@@ -421,7 +421,7 @@ return m
 automatic cleanup into the callee. A consuming parameter whose type names a
 terminal is an owner inside the body like any other: every path out of the
 body — each `return`, and the fall-through end — must have dropped it, moved it
-on, returned it, or released it with `@unsafe nupp.release`, and a branch that
+on, returned it, or released it with `@unsafe own.release`, and a branch that
 discharges it on only some of its arms is reported (NUPP2603). A consuming
 parameter whose type names no terminal is the endpoint of the obligation: the
 body of a cleanup function written over the plain payload, a record's own
@@ -492,13 +492,13 @@ interval to a child view:
 
 ```nupp:fragment
 @unsafe do
-    local left = nupp.region(storage, leftView, 1, 8)
-    local right = nupp.region(storage, rightView, 9, 16)
+    local left = own.region(storage, leftView, 1, 8)
+    local right = own.region(storage, rightView, 9, 16)
     writeBoth(left, right)
 end
 ```
 
-`nupp.region(parent, child, first, last)` erases to `child`. It grants no bounds
+`own.region(parent, child, first, last)` erases to `child`. It grants no bounds
 check of its own and therefore requires `@unsafe`, and dynamic bounds produce
 an unknown overlapping interval. `nupp.mem.span` splitting uses the same algebra
 rather than receiving ownership privilege from method names.
@@ -514,7 +514,7 @@ reported:
 local function run(again: boolean): nil
     local value = new File(nativeOpen("notes.txt"))
     while again do
-        nupp.drop(value) -- NUPP2609: the second iteration has nothing to drop
+        own.drop(value) -- NUPP2609: the second iteration has nothing to drop
     end
 end
 ```
@@ -534,7 +534,7 @@ with scope = nupp.tasks.open() do
         frame = scope:fork(frame, generation, jobs.fill):await()
     end
 end
-nupp.drop(frame)
+own.drop(frame)
 ```
 
 A borrow taken before the loop and held across it keeps the identity
@@ -590,11 +590,11 @@ import side of the same contracts.
 ## Dynamic boundaries and managed cells
 
 A nontrivial capability cannot disappear into `any` or an untyped call. Prefer
-a typed wrapper or static borrow. When references must escape, `nupp.manage`
+a typed wrapper or static borrow. When references must escape, `own.manage`
 moves one self-contained exact obligation into an independently owned cell:
 
 ```nupp:fragment
-local owner = nupp.manage(new Client())
+local owner = own.manage(new Client())
 local client = owner:alias()
 
 local answer, problem = client:with(function(borrows value)
@@ -610,15 +610,15 @@ even when callbacks raise, and close or take clears the payload and cleanup.
 
 `with` provides a shared callback borrow, `withExclusive` provides an exclusive
 one, `take` restores the original affine payload, and `close` exercises close
-authority without making the alias an owner. `nupp.recoverAlias(anyValue)`
+authority without making the alias an owner. `own.recoverAlias(anyValue)`
 checks the unforgeable brand and yields `alias(unknown)`; `downcast<T>` then
 checks its erased representation and exact cleanup policy. Failures return
 `AliasError`, preserving success/error correlation.
 
 Transfer-only owners, external loans, pins, and unmatched foreign retentions
 cannot be managed because a cell could not discharge them independently.
-`nupp.ManagedGroup` supplies runtime-sized heterogeneous cleanup by storing
-aliases and closing them in reverse adoption order; `nupp.managedGroup()` creates
+`own.ManagedGroup` supplies runtime-sized heterogeneous cleanup by storing
+aliases and closing them in reverse adoption order; `own.managedGroup()` creates
 one. It contains one audited
 release where static custody becomes the group's runtime invariant; the
 compiler has no special case for the group.
@@ -638,7 +638,7 @@ the policy:
 
 ```nupp:fragment
 @unsafe do
-    local owner = @unsafe nupp.adopt<affine(voidptr, free)>(raw)
+    local owner = @unsafe own.adopt<affine(voidptr, free)>(raw)
 end
 ```
 
@@ -646,13 +646,13 @@ The reverse operation is also explicit:
 
 ```nupp:fragment
 @unsafe do
-    local raw = @unsafe nupp.release(owner)
+    local raw = @unsafe own.release(owner)
 end
 ```
 
 `@unsafe` grants only the representation assertion. The resulting affine value
 still participates in normal move, borrow, and lexical-destruction checks, and
-`@unsafe nupp.release` consumes an obligation without running its terminal, which
+`@unsafe own.release` consumes an obligation without running its terminal, which
 makes the caller responsible for the resource from that line on.
 
 ## FAQ

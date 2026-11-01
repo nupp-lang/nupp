@@ -31,7 +31,7 @@ local function plan<M is core.Member>(description: core.Description<M>, seen: {[
     return result
 end
 
-local record Unknown is core.UnknownReader, nupp.Closeable
+local record Unknown is core.UnknownReader, own.Closeable
     @readonly value: documents.Document
     used: boolean = false
     expired: boolean = false
@@ -62,7 +62,7 @@ local record Unknown is core.UnknownReader, nupp.Closeable
     end
 end
 
-local record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
+local record Input<M is core.Member> is core.Reader<M>, own.Closeable
     @readonly value: documents.Document
     @readonly plan: Plan<M>
     used: boolean = false

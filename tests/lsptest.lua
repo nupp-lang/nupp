@@ -4604,7 +4604,7 @@ function M.generatedMembersHaveEditorIdentityAndProvenance()
     providerFile:close()
     writeFile(projectDir .. "/deriveeditor.nupp", providerSource)
     local source = [[local provider = require("deriveeditor")
-@derive(nupp.derive.Debug, provider.derive)
+@derive(types.Debug, provider.derive)
 local record Model
     value: integer = 0
 end

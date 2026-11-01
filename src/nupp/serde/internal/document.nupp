@@ -403,7 +403,7 @@ end
 
 local record Adapter is core.DocumentAdapter<Document>
     function discard(self, takes value: Document): nil
-        local _copy = @unsafe nupp.release(value)
+        local _copy = @unsafe own.release(value)
     end
 
     @readonly binding: core.Binding<Document>

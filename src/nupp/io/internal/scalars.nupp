@@ -14,7 +14,7 @@ local physical = require("nupp.runtime.storage")
 
 --- Reads fixed-width numbers from a source of bytes.
 --- @export
-export interface ScalarReader is nupp.Closeable
+export interface ScalarReader is own.Closeable
 
     --- How many bytes are left, when that is knowable.
     --- @param self this reader
@@ -236,7 +236,7 @@ end
 
 --- Writes fixed-width numbers into a destination.
 --- @export
-export interface ScalarWriter is nupp.Closeable
+export interface ScalarWriter is own.Closeable
 
     --- Writes bytes as they are.
     --- @param self this writer
@@ -425,7 +425,7 @@ local record ScalarSink is ScalarWriter
 end
 
 function Scalars.close(takes self: Scalars): nil
-    local state = @unsafe nupp.release(self)
+    local state = @unsafe own.release(self)
     local reader = state._reader
     state._closed = true
     state._pending = ""
@@ -437,7 +437,7 @@ function Scalars.close(takes self: Scalars): nil
 end
 
 function ScalarSink.close(takes self: ScalarSink): nil
-    local state = @unsafe nupp.release(self)
+    local state = @unsafe own.release(self)
     local writer = state._writer
     local buffer = state._buffer
     local ownsBuffer = state._ownsBuffer
@@ -592,7 +592,7 @@ local function openScalarWriter(destination: any): ScalarWriter
     if destination == nil then
         -- The scalar writer owns this buffer. `buffer()` only borrows it, and scalar
         -- teardown discharges the buffer obligation with the writer's own.
-        buffer = @unsafe nupp.release(newBuffer(nil))
+        buffer = @unsafe own.release(newBuffer(nil))
         ownsBuffer = true
     elseif type(destination) == "table" and destination.write ~= nil then
         writer = destination

@@ -105,7 +105,7 @@ local record Alternatives is core.Adapter<Choice, Property>
         return choose(self.schema, value)
     end
 end
-local record Builder is nupp.Closeable
+local record Builder is own.Closeable
     name: string?
     secret: string = ""
     identifier: string = ""
@@ -219,7 +219,7 @@ export function binding(schema: Model): core.Binding<Value>
     )
 end
 
-local record DocumentBuilder is nupp.Closeable
+local record DocumentBuilder is own.Closeable
     @readonly fields: {documents.Entry} = {}
     function close(takes self): nil
     end

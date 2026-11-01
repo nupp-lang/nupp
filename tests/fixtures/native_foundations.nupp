@@ -36,7 +36,7 @@ function system.run(): (float, uint32)
             end
         end
     end
-    nupp.drop(writable)
+    own.drop(writable)
 
     const readable = span.fromCarray(storage, 8)
 

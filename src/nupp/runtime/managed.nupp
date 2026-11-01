@@ -273,7 +273,7 @@ export function install(__nupp: any, runtime: any): nil
             end
         end
 
-        function __nupp.managedGroup()
+        function __nupp.__managedGroup()
             return setmetatable({_entries = {}, _closed = false}, __nuppManagedGroup)
         end
 

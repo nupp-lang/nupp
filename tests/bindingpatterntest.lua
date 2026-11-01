@@ -133,7 +133,7 @@ function M.patternsDoNotPartiallyMoveOwnedContainers()
                     "const owned = open()",
                     "local {x} = owned",
                     "print(x)",
-                    "nupp.drop(owned)",
+                    "own.drop(owned)",
                 },
                 "\n"
             )

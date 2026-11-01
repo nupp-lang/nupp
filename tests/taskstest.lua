@@ -588,7 +588,7 @@ end
 function M.aSettledScopeRefusesNewChildren()
     local scope = tasks.open()
     scope:close()
-    -- Idempotent: a scope closed early, as `nupp.drop` does, settles once when its
+    -- Idempotent: a scope closed early, as `own.drop` does, settles once when its
     -- block ends.
     scope:close()
     local problem = raises(function()

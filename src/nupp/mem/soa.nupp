@@ -201,7 +201,7 @@ end
 --- Frees a slab, which is what every SoA array's contract names.
 ---
 --- Nothing calls this by hand. It is the terminal consumer `affine` carries, so a
---- scope boundary or an explicit `nupp.drop` reaches it.
+--- scope boundary or an explicit `own.drop` reaches it.
 ---
 --- @param self the array, spent by this call
 --- @export
@@ -212,13 +212,13 @@ end
 --- Ends a row writer, which is what every writable row view's contract names.
 ---
 --- Nothing calls this by hand. It is the terminal consumer `affine` carries, so a
---- scope boundary or an explicit `nupp.drop` reaches it.
+--- scope boundary or an explicit `own.drop` reaches it.
 ---
 --- @param self the writer, spent by this call
 --- @export
 function soa.destroyWriteSpan<T is soa.WriteToken>(takes self: T): nil
     @nosuspend do
-        local _raw = @unsafe nupp.release(self)
+        local _raw = @unsafe own.release(self)
     end
 end
 
@@ -447,7 +447,7 @@ end
 
 function WriteSpanImpl.drop<T>(takes self: WriteSpanImpl<T>): nil
     @nosuspend do
-        local _raw = @unsafe nupp.release(self)
+        local _raw = @unsafe own.release(self)
     end
 end
 
@@ -474,12 +474,12 @@ record soa.Array<T> is soa.ArrayToken
     --- Borrows the rows as an exclusive checked view.
     ---
     --- Exclusive for as long as the writer is live, and affine, so a scope
-    --- boundary or an explicit `nupp.drop` is what ends it.
+    --- boundary or an explicit `own.drop` is what ends it.
     write: function(
         exclusive self: Array<T>
     ): affine(soa.WriteToken & soa.WriteSpan<T>, soa.destroyWriteSpan) borrows (self)
 
-    --- Frees the slab. `nupp.drop` and scope exit both reach this.
+    --- Frees the slab. `own.drop` and scope exit both reach this.
     close: @nosuspend function(takes self: Array<T>): nil
 end
 
@@ -509,8 +509,8 @@ end
 
 local function finishArray(takes self: any): nil
     @nosuspend do
-        local raw = @unsafe nupp.release(self)
-        local pointer = @unsafe nupp.adopt<affine(voidptr, free_nosuspend)>(raw.raw)
+        local raw = @unsafe own.release(self)
+        local pointer = @unsafe own.adopt<affine(voidptr, free_nosuspend)>(raw.raw)
         free_nosuspend(pointer)
     end
 end

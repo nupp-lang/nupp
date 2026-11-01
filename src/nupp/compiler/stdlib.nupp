@@ -46,7 +46,7 @@ __nuppMathRuntime.install(_G.math)
 ]=]
 )
 
--- The keyed codec a materialized `nupp.reflect.fieldCodec` calls, and the
+-- The keyed codec a materialized `types.reflect.fieldCodec` calls, and the
 -- registry behind `reflect()`, are both an ordinary checked module. What stays
 -- here is which of the two a program's feature set asked for.
 local FIELDCODEC = compact([=[
@@ -57,10 +57,10 @@ local REFLECTION = compact([=[
 require("nupp.compiler.runtime.reflect").install(__nupp)
 ]=])
 
--- What a derived member does when it runs is `nupp.derive` itself, the same
+-- What a derived member does when it runs is `types.derive` itself, the same
 -- module whose comptime half decided what to write. This installs its runtime
 -- under the namespace generated code addresses, and nothing shadows the module:
--- a program that requires `nupp.derive` gets the one that is really there.
+-- a program that requires `types.derive` gets the one that is really there.
 local DERIVES = compact([=[
 require("nupp.derive").install(__nupp)
 ]=])

@@ -1,5 +1,5 @@
 local __serdeJson = require("serde.json")
-const util = require("nupp.util")
+const util = require("types")
 
 local core = require("serde")
 local documents = require("serde.document")

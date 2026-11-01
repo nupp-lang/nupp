@@ -85,7 +85,7 @@ end
 local storage = carray(Point, 4)
 const points = span.writeCarray(storage, 4)
 clear(points)
-nupp.drop(points)
+own.drop(points)
 ```
 
 Whole-element and direct field assignments write through the checked indexed
@@ -203,7 +203,7 @@ end
 --- @export
 function span.destroyWriteSpan<T is span.WriteToken>(takes writable: T): nil
     @nosuspend do
-        local _raw = @unsafe nupp.release(writable)
+        local _raw = @unsafe own.release(writable)
     end
 end
 
@@ -496,7 +496,7 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
             error("nupp: write span split point out of bounds", 2)
         end
         @unsafe do
-            local left, right = nupp.partition(
+            local left, right = own.partition(
                 self,
                 new WriteSpanImpl(
                     anchor = self,
@@ -599,7 +599,7 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
             error("nupp: write span split point out of bounds", 2)
         end
         @unsafe do
-            local left, right = nupp.partition(
+            local left, right = own.partition(
                 self,
                 new WriteSpanImpl(
                     anchor = self,
@@ -621,13 +621,13 @@ end
 
 function WriteSpanImpl.drop<T>(takes self: WriteSpanImpl<T>): nil
     @nosuspend do
-        local _raw = @unsafe nupp.release(self)
+        local _raw = @unsafe own.release(self)
     end
 end
 
 function FixedWriteSpanImpl.drop<T, const N: integer>(takes self: FixedWriteSpanImpl<T, N>): nil
     @nosuspend do
-        local _raw = @unsafe nupp.release(self)
+        local _raw = @unsafe own.release(self)
     end
 end
 
@@ -745,7 +745,7 @@ end
 --- do
 ---     local writable = span.writeCarray(storage, 4)
 ---     writable[1] = new Value(42)
----     nupp.drop(writable)
+---     own.drop(writable)
 --- end
 ---
 --- const values = span.fromCarray(storage, 4)

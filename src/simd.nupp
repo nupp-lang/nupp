@@ -44,6 +44,7 @@ See
 [simd-programming.md](docs/learn/performance/ahead-of-time/simd-programming.md)
 for the complete SIMD contract.
 ]]
+const types = require("types")
 
 const {type Span, type WriteSpan} = require("nupp.mem.span")
 const {
@@ -3494,20 +3495,20 @@ end) as(
 
 @comptime
 local function Transposed(Rows: typepack, Vector: type, Fixed: type): typepack
-    const rows = nupp.types.elements(Rows)
+    const rows = types.elements(Rows)
     if #rows < 2 or #rows > 64 then
-        return nupp.types.error("transpose needs between 2 and 64 fixed-width rows")
+        return types.error("transpose needs between 2 and 64 fixed-width rows")
     end
     for i = 1, #rows do
-        if not nupp.types.sameNominal(rows[i], Vector) then
-            return nupp.types.error("transpose needs SIMD vector rows")
+        if not types.sameNominal(rows[i], Vector) then
+            return types.error("transpose needs SIMD vector rows")
         end
-        const args = nupp.types.arguments(rows[i])
-        if not nupp.types.sameNominal(args[2], Fixed) then
-            return nupp.types.error("transpose needs fixed-width rows")
+        const args = types.arguments(rows[i])
+        if not types.sameNominal(args[2], Fixed) then
+            return types.error("transpose needs fixed-width rows")
         end
         if rows[i] ~= rows[1] then
-            return nupp.types.error("transpose rows must have the same vector type")
+            return types.error("transpose rows must have the same vector type")
         end
     end
 

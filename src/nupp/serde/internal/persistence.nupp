@@ -38,7 +38,7 @@ local interface Registered
     save: function(self, borrows store: util.Store): Entry?
     restore: function(self, store: util.Store, entry: Entry): nil
 end
-local record Selected<T is nupp.Copyable> is Registered
+local record Selected<T is own.Copyable> is Registered
     @readonly name: string
     @readonly version: integer
     @readonly key: util.Key<T>
@@ -80,7 +80,7 @@ export interface Registry
     --- @raises string when the name is empty or already registered
     --- @raises string when the key is already registered
     --- @raises string when the version is not a positive integer
-    register: function<T is nupp.Copyable>(
+    register: function<T is own.Copyable>(
         self,
         name: string,
         key: util.Key<T>,
@@ -121,7 +121,7 @@ local record Owned is Registry
     @readonly names: {[string]: Registered} = {}
     @readonly keys: {[integer]: boolean} = {}
     @readonly ordered: {Registered} = {}
-    function register<T is nupp.Copyable>(
+    function register<T is own.Copyable>(
         self,
         name: string,
         key: util.Key<T>,

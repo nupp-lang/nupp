@@ -196,7 +196,7 @@ local type Prepend<Value, Values> = {Value, unpackof Values}
 ```
 
 Algorithms that inspect or transform a complete pack use a `@comptime function`
-with `typepack` parameters and the `nupp.types` pack API. See
+with `typepack` parameters and the `types` pack API. See
 [type-level-computation.md](comptime-types.md#closed-and-generic-calls)
 for how such a call closes once inference supplies its arguments.
 
@@ -213,12 +213,12 @@ end
 
 @comptime
 local function Values(Cells: typepack): typepack
-    const cells = nupp.types.elements(Cells)
+    const cells = types.elements(Cells)
     const values = {}
     for index = 1, #cells do
-        values[index] = nupp.types.arguments(cells[index])[1]
+        values[index] = types.arguments(cells[index])[1]
     end
-    return nupp.types.pack(values)
+    return types.pack(values)
 end
 
 local record Iterator<Cells...>
@@ -344,5 +344,5 @@ that trigger it.
 - [narrowing.md](narrowing.md#narrowing-tests) for the tests that pick a
   correlated arm
 - [type-level-computation.md](comptime-types.md) for `typepack`
-  parameters and the `nupp.types` pack API
+  parameters and the `types` pack API
 :::

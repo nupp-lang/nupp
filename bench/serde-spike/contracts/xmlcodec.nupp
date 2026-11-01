@@ -35,7 +35,7 @@ local record Request
     empty: string
     unknown: {smithy.UnknownField} = {}
 end
-local record Builder is nupp.Closeable
+local record Builder is own.Closeable
     attributeId: string?
     elementId: string?
     items: {string} = {}

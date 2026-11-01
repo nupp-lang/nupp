@@ -331,7 +331,7 @@ function M.cliRunLoadsCrossModuleDeriveDependencies()
                 "main.nupp"
             ] = [[
 local models = require("runtime_derive_models")
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record Outer inner: models.Inner end
 local value = new Outer(inner = new models.Inner())
 print(value:debug())
@@ -345,7 +345,7 @@ print(out:tostring())
                 "src/runtime_derive_models.nupp"
             ] = [[
 local models = {}
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 record models.Inner value: integer = 0 end
 return models
 ]],

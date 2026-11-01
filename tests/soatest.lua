@@ -185,7 +185,7 @@ do
     for index = range.first, range.last do
         output[index].x = source[index].x * 2
     end
-    nupp.drop(output)
+    own.drop(output)
 end
 return particles:read()[3].x
 ]]
@@ -209,7 +209,7 @@ with rows = particles:write() do
     end
 end
 local value = particles:read()[2].x
-nupp.drop(particles)
+own.drop(particles)
 return value
 ]]
     )
@@ -246,7 +246,7 @@ do
     local rows = particles:write()
     rows[1].x = 3
     rows[nextIndex()].x += 4
-    nupp.drop(rows)
+    own.drop(rows)
 end
 return calls * 10 + particles:read()[1].x
 ]]
@@ -290,12 +290,12 @@ local columns = soa.allocate(ffi.typeof<Particle>(), 1)
 do
     local rows = aos:write()
     rows[1] = new Particle(1, 2, 3, 4)
-    nupp.drop(rows)
+    own.drop(rows)
 end
 do
     local rows = columns:write()
     rows[1] = new Particle(5, 6, 7, 8)
-    nupp.drop(rows)
+    own.drop(rows)
 end
 local ordinary = layoutof(Particle)
 local split = soa.layoutof(ffi.typeof<Particle>())
@@ -345,7 +345,7 @@ function M.comptimeReflectionPublishesSoAFieldHandles()
         PRELUDE
         .. [[
 local reflected = comptime do
-    local info = nupp.reflect(Particle)
+    local info = types.reflect(Particle)
     return info.soa.eligible
         and info.soa.schema == 1
         and #info.soa.fields == 4
@@ -372,9 +372,9 @@ do
     local ys: span.Writable<float> = rows["y"]
     xs[1] = 3.5
     ys[1] = 4.5
-    nupp.drop(xs)
-    nupp.drop(ys)
-    nupp.drop(rows)
+    own.drop(xs)
+    own.drop(ys)
+    own.drop(rows)
 end
 local rows = particles:read()
 local xs: span.Span<float> = rows.x
@@ -420,10 +420,10 @@ do
     local rows = values:write()
     local column = rows["slice"]
     column[1] = 6.5
-    nupp.drop(column)
+    own.drop(column)
     local one = rows:slice(1, 1)
-    nupp.drop(one)
-    nupp.drop(rows)
+    own.drop(one)
+    own.drop(rows)
 end
 return values:read()["slice"][1]
 ]]
@@ -476,10 +476,10 @@ do
     local rows = particles:write()
     local middle = rows:slice(2, 2)
     middle[1].x = 12.5
-    nupp.drop(middle)
+    own.drop(middle)
     rows[1].x = 1.5
     rows[3].x = 30.5
-    nupp.drop(rows)
+    own.drop(rows)
 end
 local rows = particles:read()
 local tail = rows:slice(2, 3)
@@ -500,8 +500,8 @@ do
     for index = 1, #middle do
         middle[index].x = index * 5
     end
-    nupp.drop(middle)
-    nupp.drop(rows)
+    own.drop(middle)
+    own.drop(rows)
 end
 return particles:read()[3].x
 ]]
@@ -522,8 +522,8 @@ do
     for index = 1, #xs do
         xs[index] = index * 4
     end
-    nupp.drop(xs)
-    nupp.drop(rows)
+    own.drop(xs)
+    own.drop(rows)
 end
 const readable = particles:read()
 const xs = readable.x
@@ -552,12 +552,12 @@ do
     rows[1] = new Particle(1, 2, 3, 4)
     rows[2] = new Particle(5, 6, 7, 8)
     rows[3] = new Particle(9, 10, 11, 12)
-    nupp.drop(rows)
+    own.drop(rows)
 end
 do
     local rows = target:write()
     rows:copyFrom(2, source:read(), 1, 3)
-    nupp.drop(rows)
+    own.drop(rows)
 end
 local rows = target:read()
 return rows[2].x + rows[3].y + rows[4].dy
@@ -647,7 +647,7 @@ local one = soa.allocate(ffi.typeof<Particle>(), 1)
 local okDirect = pcall(function()
     local rows = one:write()
     rows[2].x = 1
-    nupp.drop(rows)
+    own.drop(rows)
 end)
 local okNegative = pcall(function()
     local invalid = soa.allocate(ffi.typeof<Particle>(), -1)
@@ -696,7 +696,7 @@ do
     rows[2].x = 2
     rows[3].x = 3
     rows[4].x = 4
-    nupp.drop(rows)
+    own.drop(rows)
 end
 local accepted = {}
 for _, bad in ipairs({0 / 0, 1.5}) do
@@ -706,23 +706,23 @@ for _, bad in ipairs({0 / 0, 1.5}) do
             local rows = particles:write()
             local tail = rows:slice(3, 4)
             tail[index].x = 99
-            nupp.drop(tail)
-            nupp.drop(rows)
+            own.drop(tail)
+            own.drop(rows)
         end),
         pcall(function()
             local rows = particles:write()
-            nupp.drop(rows:slice(index, 4))
-            nupp.drop(rows)
+            own.drop(rows:slice(index, 4))
+            own.drop(rows)
         end),
         pcall(function()
             local rows = particles:write()
             rows:copyFrom(index, source:read(), 1, 1)
-            nupp.drop(rows)
+            own.drop(rows)
         end),
         pcall(function()
             local rows = particles:write()
             rows:copyFrom(1, source:read(), 1, index)
-            nupp.drop(rows)
+            own.drop(rows)
         end),
         pcall(function() return particles:read():slice(3, 4)[index].x end),
         pcall(function() return #particles:read():slice(index, 4) end),

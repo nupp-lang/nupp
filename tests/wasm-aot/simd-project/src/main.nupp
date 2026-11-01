@@ -32,13 +32,13 @@ local inputRows = input:write()
 inputRows[1] = new Sample(2, 10, 1)
 inputRows[2] = new Sample(3, 20, 4)
 inputRows[3] = new Sample(5, 30, 7)
-nupp.drop(inputRows)
+own.drop(inputRows)
 
 local output = array.newArray(new Sample(), 3)
 do
     local writable = output:write()
     scale(writable, input:read(), 2, true)
-    nupp.drop(writable)
+    own.drop(writable)
 end
 
 local rows = output:read()
@@ -68,13 +68,13 @@ do
     writable[1] = 0x80000000
     writable[2] = 0x7fc12345
     writable[3] = 0x7f812345
-    nupp.drop(writable)
+    own.drop(writable)
 end
 local transposed = array.scalar(array.uint32, 9)
 do
     local writable = transposed:write()
     rearrange(writable, tile:read())
-    nupp.drop(writable)
+    own.drop(writable)
 end
 local original = tile:read()
 local columns = transposed:read()
@@ -176,8 +176,8 @@ for offset = 0, #reducerSamples - 1 do
                 writableWords[i] = math.i32.wrap(digit)
                 wrapping:add(math.i32.wrap(digit))
             end
-            nupp.drop(writableWords)
-            nupp.drop(writableValues)
+            own.drop(writableWords)
+            own.drop(writableValues)
         end
         local where = " at offset " .. tostring(offset) .. " count " .. tostring(count)
         assert(same(orderedSum(values:read(), seed), ordered:value()), "orderedSum" .. where)

@@ -100,7 +100,7 @@ end
 --- Typed values a codec attaches to what it reads, such as the schema a
 --- document came from.
 ---
---- Keys are `nupp.util.Key`s; a context returns its own value for a key, then
+--- Keys are `types.Key`s; a context returns its own value for a key, then
 --- its parent's.
 export interface Context
     --- The identity of the codec that read the value.
@@ -114,7 +114,7 @@ export interface Context
     @readonly parent: Context?
 
     --- Returns the value held under a key, falling back to the parent's.
-    get: function<V is nupp.Copyable>(self, key: store.Key<V>): V?
+    get: function<V is own.Copyable>(self, key: store.Key<V>): V?
 end
 
 --- Disposes a value a codec has to give up.
@@ -268,7 +268,7 @@ end
 ---
 --- Each `write` method writes one value at `member`, the position the value
 --- sits at. A writer is usable only until it is closed.
-export interface Writer<M is Member> is nupp.Closeable
+export interface Writer<M is Member> is own.Closeable
     --- Returns whether the codec's policy writes a member at all.
     ---
     --- An adapter skips the member on false. The codec may already have
@@ -569,7 +569,7 @@ export interface Binding<T> is Discard<T>
 end
 
 --- Erases an `Adapter`'s member type into a `Binding` for a Copyable value.
-export record Bound<T is nupp.Copyable, M is Member> is Binding<T>
+export record Bound<T is own.Copyable, M is Member> is Binding<T>
     --- A phantom invariance witness, never present at runtime.
     @readonly _valueType: (function(value: T?): T?)?
 
@@ -580,7 +580,7 @@ export record Bound<T is nupp.Copyable, M is Member> is Binding<T>
     --- only its transfer ends here.
     function discard(self, takes value: T): nil
         -- Copyable excludes a cleanup obligation; discharge only the transfer.
-        local _copy = @unsafe nupp.release(value)
+        local _copy = @unsafe own.release(value)
     end
 
     --- Passes `adapter` and `state` to `consumer`.

@@ -286,7 +286,7 @@ local record File is io.Reader, io.Writer
         do
             local output = lease:span()
             got, reason = self:readSpan(output)
-            nupp.drop(output)
+            own.drop(output)
         end
         lease:commit(got or 0)
         if got == nil then
@@ -335,7 +335,7 @@ local record File is io.Reader, io.Writer
         do
             local output = lease:span()
             got, reason = self:readSpan(output)
-            nupp.drop(output)
+            own.drop(output)
         end
         if got == nil then
             lease:commit(0)
@@ -475,7 +475,7 @@ local record File is io.Reader, io.Writer
 end
 
 function File.close(takes self: File): nil
-    local state = @unsafe nupp.release(self)
+    local state = @unsafe own.release(self)
     if state._closed then
         return
     end

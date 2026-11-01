@@ -59,7 +59,7 @@ flattened elements before assigning each logical member once, rejects duplicate
 scalars, and keeps expanded identities on captured unknown elements and attributes.
 
 `resources.nupp` checks an extension scope that owns managed resources, returns
-aliases, and expires those aliases when closed. Ordinary data extensions constrain results to `nupp.Copyable`. The checker
+aliases, and expires those aliases when closed. Ordinary data extensions constrain results to `own.Copyable`. The checker
 refuses owned initializer results before they enter erased cache storage, and
 callable result inference preserves cleanup obligations. Managed aliases remain
 copyable and retain their runtime expiration checks.

@@ -2,7 +2,7 @@ module example.richmodel
 
 local __serdeJson = require("serde.json")
 
-const util = require("nupp.util")
+const util = require("types")
 
 local core = require("serde")
 local plans = require("serde.json")
@@ -591,7 +591,7 @@ export function newModel(collision: boolean?): Model
     )
 end
 
-local function bind<T is nupp.Copyable>(model: Model, storage: Storage<T>): core.Binding<T>
+local function bind<T is own.Copyable>(model: Model, storage: Storage<T>): core.Binding<T>
     return new core.Bound<T, Member>(
         adapter = new Adapter<T>(
             model = model,

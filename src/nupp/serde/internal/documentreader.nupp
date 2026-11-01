@@ -4,7 +4,7 @@ local core = require("nupp.serde.internal.value")
 local publication = require("nupp.serde.internal.publication")
 local documents = require("nupp.serde.internal.document")
 
-export record Reader is core.DocumentReader, nupp.Closeable
+export record Reader is core.DocumentReader, own.Closeable
     @private @readonly value: documents.Document
     @private @readonly source: core.Context?
     @private used: boolean

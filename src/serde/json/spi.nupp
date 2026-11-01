@@ -27,7 +27,7 @@ end
 --- Values that can write a complete JSON value through a checked writer.
 ---
 --- `serde.json` names it for callers; it is declared here so the modules
---- the facade reads, serde and nupp.derive among them, can name it without
+--- the facade reads, serde and types.derive among them, can name it without
 --- reading the facade. `Writer` below names the encoder `newWriter()` returns.
 ---
 --- ```nupp
@@ -56,7 +56,7 @@ end
 --- assert(out:tostring() == [[{"ok":true}]])
 --- ```
 --- @export
-export interface Writer is nupp.Closeable
+export interface Writer is own.Closeable
     --- Starts an array value.
     ---
     --- ```nupp

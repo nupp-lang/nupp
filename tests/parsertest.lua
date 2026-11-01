@@ -980,12 +980,12 @@ end
 
 function M.legacyOwnershipAndHandlerFormsHaveMachineApplicableFixes()
     for _, case in ipairs({
-        {source = "local raw = @unsafe release owner", fixed = "local raw = @unsafe nupp.release(owner)",},
+        {source = "local raw = @unsafe release owner", fixed = "local raw = @unsafe own.release(owner)",},
         {
             source = "local owner = @unsafe adopt raw as affine(integer, close)",
-            fixed = "local owner = @unsafe nupp.adopt<affine(integer, close)>(raw)",
+            fixed = "local owner = @unsafe own.adopt<affine(integer, close)>(raw)",
         },
-        {source = "drop owner", fixed = "nupp.drop(owner)"},
+        {source = "drop owner", fixed = "own.drop(owner)"},
         {
             source = "handle suspension with frame.handler do print('inside') end",
             fixed = "with installation = nupp.suspension.host.install(frame.handler) do print('inside') end",

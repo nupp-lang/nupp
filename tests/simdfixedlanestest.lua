@@ -127,7 +127,7 @@ return function(): {number}
     w[2] = 250
     w[3] = 3
     w[4] = 200
-    nupp.drop(w)
+    own.drop(w)
     return probe(bytes:read())
 end
 ]]

@@ -27,7 +27,7 @@ local M = {}
 
 function M.policyAnnotationsComposeAcrossTypesDeclarationsMembersAndRegions()
     local source = [[
-local sealed interface Resource is nupp.Affine<self.close>
+local sealed interface Resource is own.Affine<self.close>
     close: @nosuspend function(takes self: Resource): nil
 end
 

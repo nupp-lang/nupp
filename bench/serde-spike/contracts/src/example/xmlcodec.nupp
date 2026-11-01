@@ -134,7 +134,7 @@ local record Opaque is core.Atom
         return new Opaque(family = family, node = assembly.copy(self.node))
     end
 end
-local record Unknown is core.UnknownReader, nupp.Closeable
+local record Unknown is core.UnknownReader, own.Closeable
     @readonly node: assembly.Node
     @readonly source: core.Context
     used: boolean = false
@@ -186,7 +186,7 @@ local record Collect<M is core.Member> is assembly.Consumer<M, {Group<M>}>
         state[#state + 1] = new Group<M>(values = {value})
     end
 end
-local record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
+local record Input<M is core.Member> is core.Reader<M>, own.Closeable
     @readonly selected: Plan<M>
     @readonly value: assembly.Node
     @readonly source: core.Context

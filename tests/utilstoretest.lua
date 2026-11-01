@@ -8,7 +8,7 @@
 -- declaration every caller writes.
 
 local check = require("assert")
-local data = require("nupp.util")
+local data = require("types")
 local parser = require("nupp.compiler.syntax.parser")
 local fragment = require("fragment")
 local envMod = require("nupp.compiler.project.env")
@@ -199,9 +199,9 @@ local PRELUDE = [=[
 local record State
     frames: integer
 end
-local frames: nupp.util.Key<integer> = nupp.util.newKey("fixture.frames")
-local state: nupp.util.Key<State> = nupp.util.newKey("fixture.state")
-local store = nupp.util.newStore()
+local frames: types.Key<integer> = types.newKey("fixture.frames")
+local state: types.Key<State> = types.newKey("fixture.state")
+local store = types.newStore()
 ]=]
 
 function M.annotatedDeclarationsTypeTheKey()
@@ -235,14 +235,14 @@ end
 
 function M.keysNeitherWidenNorNarrow()
     check.equal(codes(PRELUDE .. [=[
-local wide: nupp.util.Key<number> = frames
+local wide: types.Key<number> = frames
 print(wide)
 ]=])[1], "NUPP2001")
     check.equal(
         codes(
             PRELUDE
             .. [=[
-local narrow: nupp.util.Key<integer> = nupp.util.newKey<number>("fixture.number") as nupp.util.Key<number>
+local narrow: types.Key<integer> = types.newKey<number>("fixture.number") as types.Key<number>
 print(narrow)
 ]=]
         )[1],
@@ -261,19 +261,17 @@ end
 
 function M.lookupRequiresACast()
     check.equal(
-        codes(
-            PRELUDE .. [=[
-local direct: nupp.util.Key<integer>? = nupp.util.Key.find("fixture.frames")
+        codes(PRELUDE .. [=[
+local direct: types.Key<integer>? = types.Key.find("fixture.frames")
 print(direct)
-]=]
-        )[1],
+]=])[1],
         "NUPP2001"
     )
     check.equal(
         #errors(
             PRELUDE
             .. [=[
-local found = nupp.util.Key.find("fixture.frames") as nupp.util.Key<integer>
+local found = types.Key.find("fixture.frames") as types.Key<integer>
 store:set(found, 2)
 print(store:get(found))
 ]=]
@@ -289,7 +287,7 @@ function M.anUnannotatedKeyNeedsATypeArgument()
         codes(
             PRELUDE
             .. [=[
-local loose = nupp.util.newKey("fixture.loose")
+local loose = types.newKey("fixture.loose")
 store:set(loose, 7)
 local text: string? = store:get(loose)
 print(text)

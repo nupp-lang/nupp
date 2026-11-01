@@ -1,12 +1,12 @@
 module tests.fixtures.derivewitness
 
+const derive2 = require("types.derive")
+
 const derivewitness = require("tests.fixtures.derivewitness")
 
 @annotation(targets = {"field", "record"})
 export record inspectWitness
-    @annotationValue
-    @ref
-    subject: any
+    @annotationValue @ref subject: any
 end
 
 export interface HasWitness
@@ -21,7 +21,7 @@ export function returnWitness(witness: any): any
 end
 
 @comptime
-export function derive(info: nupp.derive.Info): nupp.derive.Result<HasWitness>
+export function derive(info: types.derive.Info): types.derive.Result<HasWitness>
     local annotations = info.annotations
     for _, field in ipairs(info.fields) do
         if #field.annotations > 0 then
@@ -31,16 +31,16 @@ export function derive(info: nupp.derive.Info): nupp.derive.Result<HasWitness>
     end
     for _, applied in ipairs(annotations) do
         if applied.name == "inspectWitness" then
-            return nupp.derive.implement{
+            return derive2.implement{
                 methods = {
-                    witness = nupp.derive.forward{
-                        helper = nupp.derive.helper(derivewitness, "returnWitness"),
-                        arguments = {nupp.derive.witness(nupp.derive.annotationType(applied.arguments[1]))},
+                    witness = derive2.forward{
+                        helper = derive2.helper(derivewitness, "returnWitness"),
+                        arguments = {derive2.witness(derive2.annotationType(applied.arguments[1]))},
                     },
                 },
             }
         end
     end
 
-    return nupp.derive.error("derive needs @inspectWitness", info.reference)
+    return derive2.error("derive needs @inspectWitness", info.reference)
 end

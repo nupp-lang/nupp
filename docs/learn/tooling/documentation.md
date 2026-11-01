@@ -649,7 +649,7 @@ same reason the diagnostic index's blocks are.
 What `nupp` itself provides is not on the page. Those are modules with pages of
 their own, and the prelude declares them only so that checked code can see
 them; the semantic descriptor graph a `comptime` block walks is documented with
-the callable [`nupp.reflect`](../language/reflection.md) namespace instead of
+the callable [`types.reflect`](../language/reflection.md) namespace instead of
 leaking ambient types here. The page needs no `sources` entry, and a project's
 own manifest cannot point it at other files: the declarations belong to the
 compiler rendering the site, which is what makes the page true of the toolchain

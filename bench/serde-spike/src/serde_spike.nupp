@@ -36,7 +36,7 @@ end
 
 local record JsonSerializer is Serializer
     out: Buffer
-    -- This benchmark keeps its pre-nupp.Closeable callback harness intentionally
+    -- This benchmark keeps its pre-own.Closeable callback harness intentionally
     -- untyped; the production prepared path below uses the affine API normally.
     writer: any
 
@@ -85,7 +85,7 @@ end
 
 local function serializer(): JsonSerializer
     local out = text.newBuffer()
-    return new JsonSerializer(out = out, writer = @unsafe nupp.release(json.newWriter(out)))
+    return new JsonSerializer(out = out, writer = @unsafe own.release(json.newWriter(out)))
 end
 
 local function genericEncode(value: any, description: Schema, slots: boolean): string
@@ -192,7 +192,7 @@ end
 local smallMembers = {member(1, "id", "integer"), member(2, "active", "boolean"), member(3, "name", "string"),}
 local smallSchema = schema(smallMembers)
 
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record Small
     id: integer
     active: boolean
@@ -223,7 +223,7 @@ local mediumMembers = {
 }
 local mediumSchema = schema(mediumMembers)
 
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record Medium
     id: integer
     active: boolean
@@ -353,13 +353,13 @@ local preparedPayload = serde.binding(Payload, new serde.Options(unknownMembers 
 local payload4KiB = new Payload(data = string.rep("x", 4 * 1024))
 local payload64KiB = new Payload(data = string.rep("x", 64 * 1024))
 
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record NestedChild
     label: string
     scores: {integer}
 end
 
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record NestedEnvelope
     id: integer
     child: NestedChild

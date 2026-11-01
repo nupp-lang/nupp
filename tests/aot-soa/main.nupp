@@ -142,9 +142,9 @@ for _, n in ipairs({0, 1, 3, 4, 5, 7, 8, 9, 17, 65}) do
             advance(middle, 0.5)
             advanceSimd(middle, 0.5)
             advanceExplicit(middle, 0.5)
-            nupp.drop(middle)
+            own.drop(middle)
         end
-        nupp.drop(rows)
+        own.drop(rows)
     end
     do
         local all = particles:read()
@@ -166,7 +166,7 @@ for _, n in ipairs({0, 1, 3, 4, 5, 7, 8, 9, 17, 65}) do
         end
         local output = other:write()
         copy(output, middle, 0.5)
-        nupp.drop(output)
+        own.drop(output)
         -- Two shared views may overlap, including passing the same view twice.
         checksum = checksum + sum(middle, middle) + sum(middle, all:slice(1, 0))
     end
@@ -184,10 +184,10 @@ for _, n in ipairs({0, 1, 3, 4, 5, 7, 8, 9, 17, 65}) do
         for i = 1, #rows do
             assert(rows[i].x == (i + 2) * 0.5 + 7)
         end
-        nupp.drop(rows)
+        own.drop(rows)
     end
-    nupp.drop(other)
-    nupp.drop(particles)
+    own.drop(other)
+    own.drop(particles)
 end
 
 local numbers = soa.allocate(ffi.typeof<Numeric>(), 5)
@@ -203,7 +203,7 @@ do
         assert(rows[i].flags == 0)
         assert(rows[i].single == 16777216 and rows[i].wide == 50331648)
     end
-    nupp.drop(rows)
+    own.drop(rows)
 end
-nupp.drop(numbers)
+own.drop(numbers)
 print("SoA native results", checksum)

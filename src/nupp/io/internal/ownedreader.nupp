@@ -74,7 +74,7 @@ local record MemoryReader is Reader
         do
             local output = lease:span()
             local _read, _reason = self:readSpan(output)
-            nupp.drop(output)
+            own.drop(output)
         end
         lease:commit(taking)
 
@@ -104,7 +104,7 @@ local record MemoryReader is Reader
     end
 
     function close(takes self): nil
-        local state = @unsafe nupp.release(self)
+        local state = @unsafe own.release(self)
         state._closed = true
         state._length = 0
         (state as any)._data = nil
@@ -112,7 +112,7 @@ local record MemoryReader is Reader
 end
 
 export function newOwnedReader(takes buffer: bytes.OwnedBuffer): Reader
-    local state = @unsafe nupp.release(buffer)
+    local state = @unsafe own.release(buffer)
     assert(not (state as any)._closed, "nupp: io.Buffer is closed")
     return new MemoryReader(_data = (state as any)._data, _length = (state as any)._length, _at = 0, _closed = false)
 end

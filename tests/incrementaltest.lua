@@ -259,7 +259,7 @@ function M.changingADeriveProviderReplansItsClaim()
     end
 
     local model = table.concat(
-        {"module model", "@derive(nupp.derive.Debug)", "export record Config", "   value: string", "end",},
+        {"module model", "@derive(types.Debug)", "export record Config", "   value: string", "end",},
         "\n"
     )
     write(modelPath, model)
@@ -278,7 +278,7 @@ function M.changingADeriveProviderReplansItsClaim()
     local inc = incremental.new(dir, {cache = false})
     testAssert.equal(#inc.checkFile(mainPath).diags, 0, "the first provider claim checks")
 
-    inc.changeDocument(modelPath, model:gsub("@derive%(nupp.derive.Debug%)", ""))
+    inc.changeDocument(modelPath, model:gsub("@derive%(types.Debug%)", ""))
     local changed = inc.checkFile(mainPath)
     testAssert.equal(
         changed.diags[1] and changed.diags[1].code,
@@ -326,7 +326,7 @@ function M.countedPointerLogicalSignaturesCrossModuleSummaries()
                 "local writer = spans.writeCarray(output, 4)",
                 "local reader = spans.fromCarray(input, 4)",
                 "native.copy(writer, reader)",
-                "nupp.drop(writer)",
+                "own.drop(writer)",
             },
             "\n"
         )
@@ -372,7 +372,7 @@ function M.deriveRecipesMemoizeAndPublishBehaviorChanges()
     local dep = table.concat(
         {
             "local dep = {}",
-            "@derive(nupp.derive.Debug)",
+            "@derive(types.Debug)",
             "record dep.Config",
             "   entries: {[string]: string} = {}",
             "end",
@@ -444,10 +444,10 @@ function M.deriveDocumentationChangesInvalidateGeneratedBehavior()
                 "   documentation: function(self): string",
                 "end",
                 "function M.returnText(text: string): string return text end",
-                "@comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Documented>",
-                "   return nupp.derive.implement{methods = {documentation = nupp.derive.forward{",
-                "      helper = nupp.derive.helper(M, 'returnText'),",
-                "      arguments = {nupp.derive.constant(info.documentation or '')},",
+                "@comptime function M.derive(info: types.derive.Info): types.derive.Result<M.Documented>",
+                "   return types.derive.implement{methods = {documentation = types.derive.forward{",
+                "      helper = types.derive.helper(M, 'returnText'),",
+                "      arguments = {types.derive.constant(info.documentation or '')},",
                 "   }}}",
                 "end",
                 "return M",
@@ -869,7 +869,7 @@ function M.reflectionDependsOnlyOnTheExportedTypeItReads()
         table.concat(
             {
                 "const SUMMARY = comptime do",
-                "   local info = nupp.reflect(Reflected)",
+                "   local info = types.reflect(Reflected)",
                 "   return info.fields[1].name",
                 "end",
                 "return SUMMARY",

@@ -1,7 +1,8 @@
 module nupp.util
 
 --[[
-Small types that belong to no larger facility.
+`nupp.util` provides bitsets, reusable pools, and protected calls. Use a pool to
+reuse cleared record instances.
 
 ```nupp
 local record Damage
@@ -14,29 +15,18 @@ set:set(7)
 const damage = nupp.util.newPool(Damage, 64)
 damage:release(damage:acquire())
 
-const store = nupp.util.newStore()
-const theme: nupp.util.Key<string> = nupp.util.newKey("app.theme")
-store:set(theme, "dark")
-
-print(os.uuid4())
 ```
 
-Each member is one type and the few functions that hand it out, reached by the
-type's name rather than by a module of its own. [](Bitset) is a set of bit
-positions, [](Store) is a bag of values indexed by typed [](Key)s, and [](Pool)
-leases cleared record instances from a free list. `os.uuid4` and `os.uuid7`
-generate identifiers. [](try) and [](tryWith) run
-a function protected and return `(result, reason), which is the layout the `or
-return` suffix reads and `pcall`'s own is not.
+`Bitset` stores bit positions counting from zero. `Pool` reuses cleared
+instances of one declared record.
 
-Unlike [](nupp.mem), which keeps every member a module of its own, these are
-re-exported here. Checked source still selects members independently, so using a
-bitset does not retain UUID support.
+`try` and `tryWith` run a function protected and return `(result, reason)`.
+The `or return` suffix reads that layout directly.
+
 ]]
 
 local bitset = require("nupp.util.internal.bitset")
 local pool = require("nupp.util.internal.pool")
-local store = require("nupp.util.internal.store")
 local protected = require("nupp.util.internal.protected")
 
 --- A growable set of bit positions counting from 0.
@@ -54,20 +44,6 @@ export const Pool = pool.Pool
 
 --- Creates a pool of instances of a record type.
 export const newPool = pool.new
-
---- A typed identity for a value in a [](Store).
-export type Key<T> = store.Key<T>
-
-export const Key = store.Key
-
---- An independent typed bag indexed by keys.
-export type Store = store.Store
-
---- Registers a new key, optionally under a name.
-export const newKey = store.newKey
-
---- Creates an empty store.
-export const newStore = store.newStore
 
 --- Runs a function under `pcall`, answering `(result, raised)` rather than
 --- `(ok, ...)`, which is the layout `or return` reads.

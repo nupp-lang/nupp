@@ -333,7 +333,7 @@ interface cst.Hints
     --- Versioned provider/backend facts and the cacheable canonical products.
     materializationObservation: any
 
-    --- The immutable semantic descriptor attached to a checked `nupp.reflect(T)` call.
+    --- The immutable semantic descriptor attached to a checked `types.reflect(T)` call.
     reflectedType: any
 
     reflectedTypeKey: string?
@@ -674,7 +674,7 @@ interface cst.Hints
     --- Exact capability transported through a managed alias operation.
     resourceCapability: any
 
-    --- Cleanup program and stable policy carried by `nupp.manage`.
+    --- Cleanup program and stable policy carried by `own.manage`.
     managedCleanups: any
 
     managedPolicy: string?
@@ -1885,7 +1885,7 @@ record cst.DotIndex is cst.Hints
     --- The type argument of an ffi intrinsic written `ffi.new<T>`.
     ffiTypeArg: cst.Node?
 
-    --- The owner type of `nupp.adopt<T>`.
+    --- The owner type of `own.adopt<T>`.
     ownershipTypeArg: cst.Node?
 end
 
@@ -2866,7 +2866,7 @@ cst.isToken = isToken
 --- validates the selected operation.
 ---
 --- Most helpers retain their historical top-level names. Pinning is intentionally
---- introduced only as `nupp.pin`: a bare `pin` is an ordinary value name.
+--- introduced only as `own.pin`: a bare `pin` is an ordinary value name.
 local OWNERSHIP_INTRINSICS: {
     [string]: boolean
 } = {
@@ -2919,10 +2919,10 @@ function cst.ownershipIntrinsicSpelling(callee: cst.Node?): string?, boolean?
     end
     local baseToken = base.token
 
-    return baseToken and (baseToken.text == "nupp" or baseToken.text == "own") and member or nil, true
+    return baseToken and baseToken.text == "own" and member or nil, true
 end
 
-local COMPTIME_TYPE_INTRINSICS: {[string]: boolean} = {reflect = true, sizeof = true, alignof = true, offsetof = true,}
+local COMPTIME_TYPE_INTRINSICS: {[string]: boolean} = {sizeof = true, alignof = true, offsetof = true,}
 
 --- The compiler-provided type intrinsic a call names before name resolution.
 ---

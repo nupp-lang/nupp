@@ -70,7 +70,7 @@ function M.digestFinalizationConsumesButChecksumReadsDoNot()
 end
 
 -- Every owner the standard library hands out has one cleanup shape: it is a
--- `nupp.Closeable` whose `close` answers nothing, so `nupp.drop` is the one early
+-- `own.Closeable` whose `close` answers nothing, so `own.drop` is the one early
 -- terminal and no second public `drop` stands beside it.
 local FORMER_DROP_OWNERS = {
     "local owner = nupp.io.newBuffer('bytes')",
@@ -296,7 +296,7 @@ end
 local values = array.newArray(new Sample(), 2)
 local writable = values:write()
 writable[1] = new Sample(3)
-nupp.drop(writable)
+own.drop(writable)
 local readable = values:read()
 return #readable, readable[1].value
 ]]
@@ -1958,7 +1958,7 @@ function M.nativeFeaturesAreResolvedEffects()
     assert(aliased["runtime.system"], "requiring a facility records its feature")
     assert(not aliased["runtime.uuid"], "separate facilities do not share effects")
 
-    local namespaceOnly = effectsOf("local store = nupp.util.newStore")
+    local namespaceOnly = effectsOf("local store = types.newStore")
     assert(next(namespaceOnly) == nil, "reaching a namespace alone has no effect")
 
     -- A require read only for its types is erased, so it selects no feature. It used
@@ -3040,7 +3040,7 @@ function M.stringBufferPointersBecomeCheckedSpans()
                 "   do",
                 "      local writable = spans.writeCarray(ptr, reserved as integer)",
                 "      writable[1] = 65",
-                "      nupp.drop(writable)",
+                "      own.drop(writable)",
                 "   end",
                 "end",
                 "b:commit(1)",

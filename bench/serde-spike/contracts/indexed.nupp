@@ -61,11 +61,11 @@ assert(not pcall(codec.decode, codec, binding, '{"count":9223372036854775808}'))
 local empty = layout:value()
 
 local record InspectField<
-    S is nupp.Closeable,
+    S is own.Closeable,
     M is core.Member
 > is structure.FieldConsumer<indexed.IndexedValue, S, M, integer>
     @readonly source: indexed.IndexedValue
-    function apply<V is nupp.Copyable>(
+    function apply<V is own.Copyable>(
         self,
         member: M,
         has: structure.Has<indexed.IndexedValue>,
@@ -91,7 +91,7 @@ local record InspectField<
 end
 local record InspectStructure<M is core.Member> is structure.StructureConsumer<indexed.IndexedValue, M, integer>
     @readonly source: indexed.IndexedValue
-    function apply<S is nupp.Closeable>(
+    function apply<S is own.Closeable>(
         self,
         member: M,
         fields: const{structure.Field<indexed.IndexedValue, S, M>},

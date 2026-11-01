@@ -50,7 +50,7 @@ export function timestamp<M is core.Member>(member: M): core.Adapter<core.Timest
     return new Time<M>(description = new Description<M>(member = member, kind = "timestamp"))
 end
 
-export interface Conversion<T, V is nupp.Copyable>
+export interface Conversion<T, V is own.Copyable>
     --- Returns the value the base adapter writes in place of an application
     --- value.
     ---
@@ -65,7 +65,7 @@ export interface Conversion<T, V is nupp.Copyable>
     restore: function(self, value: V): T
 end
 
-local record Converted<T, V is nupp.Copyable, M is core.Member> is core.Adapter<T, M>
+local record Converted<T, V is own.Copyable, M is core.Member> is core.Adapter<T, M>
     @readonly base: core.Adapter<V, M>
     @readonly conversion: Conversion<T, V>
     function describe(self, direction: core.Direction): core.Description<M>
@@ -82,7 +82,7 @@ local record Converted<T, V is nupp.Copyable, M is core.Member> is core.Adapter<
     end
 end
 
-export function convert<T, V is nupp.Copyable, M is core.Member>(
+export function convert<T, V is own.Copyable, M is core.Member>(
     base: core.Adapter<V, M>,
     conversion: Conversion<T, V>
 ): core.Adapter<T, M>

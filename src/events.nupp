@@ -36,6 +36,8 @@ the same functions. Record events draw from a [](nupp.util.Pool) and struct
 events from a [](nupp.mem.arena), each created the first time an event type is
 emitted through a source; `setAllocator` installs one the caller owns instead.
 ]]
+const derive2 = require("types.derive")
+const types2 = require("types")
 
 local derive = require("nupp.derive")
 local pool = require("nupp.util.internal.pool")
@@ -100,16 +102,16 @@ end
 --- @param info the declaration being derived
 --- @return the recipe claiming `events.Emittable`
 @comptime
-function events.Event(info: nupp.derive.Info): nupp.derive.Result<events.Emittable>
+function events.Event(info: types.derive.Info): types.derive.Result<events.Emittable>
     if info.kind ~= "record" and info.kind ~= "struct" then
-        return nupp.derive.error("events.Event admits a record or a fixed-layout struct", info.reference)
+        return derive2.error("events.Event admits a record or a fixed-layout struct", info.reference)
     end
     local name = option(info.annotations, "event", "name")
     if name ~= nil and type(name) ~= "string" then
-        return nupp.derive.error("@event(name = ...) takes a string", info.reference)
+        return derive2.error("@event(name = ...) takes a string", info.reference)
     end
 
-    return nupp.derive.implement{
+    return derive2.implement{
         data = {events = {name = name or info.name, representation = info.kind}},
         initializer = true,
     }
@@ -118,7 +120,7 @@ end
 --- The parameters an event is constructed with, named, so `emit` binds them.
 @comptime
 local function Construction(E: type): typepack
-    return nupp.types.construction(E)
+    return types2.construction(E)
 end
 
 ----------------------------------------------------------------------------

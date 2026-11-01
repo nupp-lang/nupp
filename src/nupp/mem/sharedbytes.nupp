@@ -204,7 +204,7 @@ end
 
 --- An affine accumulator of engine storage. Appending grows one private
 --- allocation, and freezing transfers it into a region without copying.
-interface sharedbytes.BuilderToken is nupp.Affine<self.drop>
+interface sharedbytes.BuilderToken is own.Affine<self.drop>
     drop: @nosuspend function(takes self: sharedbytes.BuilderToken): nil
 end
 
@@ -283,7 +283,7 @@ end
 function sharedbytes.Builder.freeze(takes self: sharedbytes.Builder): sharedbytes.Region
     -- Sealing spends the builder: the engine hands its bytes to the region, and
     -- the builder's own terminal has nothing left to release.
-    local builder = @unsafe nupp.release(self)
+    local builder = @unsafe own.release(self)
     local handle, length = native.builderFreeze(builder._handle)
     if handle == nil then
         if length == "open" then
@@ -300,7 +300,7 @@ end
 local releaseBuilder = rawget(native as table, "builderRelease") as(@nosuspend function(any): nil)?
 
 function sharedbytes.Builder.drop(takes self: sharedbytes.Builder): nil
-    local builder = @unsafe nupp.release(self)
+    local builder = @unsafe own.release(self)
     if releaseBuilder ~= nil then
         releaseBuilder(builder._handle)
     end

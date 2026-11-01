@@ -21,24 +21,24 @@ This file is parsed and checked by `nupp` itself, as is its Lua counterpart.
 
 --- A value that carries neither an ownership obligation nor a scoped borrow.
 --- Use this bound when a generic cache must return the same value repeatedly.
-interface nupp.Copyable
+interface own.Copyable
 end
 
 --- Declares a consuming cleanup for an affine owner.
-interface nupp.Affine<const cleanup: function>
+interface own.Affine<const cleanup: function>
 end
 
 --- A resource with a deterministic, consuming close operation.
 ---
---- Declaring `is nupp.Closeable` makes construction and bare type annotations carry the
+--- Declaring `is own.Closeable` makes construction and bare type annotations carry the
 --- close obligation automatically. A resource that publishes pending work declares
 --- `flush` on its own contract; closing is the lifecycle common to all resources.
-interface nupp.Closeable is nupp.Affine<self.close>
-    close: function(takes self: nupp.Closeable): nil
+interface own.Closeable is own.Affine<self.close>
+    close: function(takes self: own.Closeable): nil
 end
 
 --- A failed operation on a managed alias.
-record nupp.AliasError
+record own.AliasError
     code: string
     message: string
 end
@@ -48,39 +48,39 @@ end
 --- `managedGroup` adopts independently managed cells and closes every remaining
 --- resource in reverse adoption order. It is ordinary library code over aliases;
 --- the compiler does not give the group special ownership privileges.
-interface nupp.ManagedGroup is nupp.Closeable
+interface own.ManagedGroup is own.Closeable
     --- Cells publish no pending data of their own. Their payloads decide what close
     --- publishes.
-    flush: function(exclusive self: nupp.ManagedGroup): nil
+    flush: function(exclusive self: own.ManagedGroup): nil
 
     --- Moves a managed cell into the group and returns its checked non-owning alias.
-    adopt: function<T>(exclusive self: nupp.ManagedGroup, takes cell: managed(T)): alias(T)
+    adopt: function<T>(exclusive self: own.ManagedGroup, takes cell: managed(T)): alias(T)
 
     --- Removes an adopted alias and restores its exact original owner.
-    remove: function<T>(exclusive self: nupp.ManagedGroup, handle: alias(T)): T
+    remove: function<T>(exclusive self: own.ManagedGroup, handle: alias(T)): T
 end
 
 --- The unique owner of an independently allocated managed cell.
 --- @internal
-record nupp.Managed<T>
-    alias: function(borrows self: nupp.Managed<T>): alias(T)
-    close: @nosuspend function(takes self: nupp.Managed<T>): nil
+record own.Managed<T>
+    alias: function(borrows self: own.Managed<T>): alias(T)
+    close: @nosuspend function(takes self: own.Managed<T>): nil
 end
 
 --- A copyable, checked, non-owning reference to one managed cell.
 --- @internal
-record nupp.Alias<T>
+record own.Alias<T>
     with: function<R>(
-        self: nupp.Alias<T>,
+        self: own.Alias<T>,
         scoped callback: function(borrows value: T): R
-    ): ((R, nil) | (nil, nupp.AliasError))
+    ): ((R, nil) | (nil, own.AliasError))
     withExclusive: function<R>(
-        self: nupp.Alias<T>,
+        self: own.Alias<T>,
         scoped callback: function(exclusive value: T): R
-    ): ((R, nil) | (nil, nupp.AliasError))
-    take: @nosuspend function(self: nupp.Alias<T>): ((T, nil) | (nil, nupp.AliasError))
-    close: @nosuspend function(self: nupp.Alias<T>): nupp.AliasError?
-    downcast: function<U>(self: nupp.Alias<T>): ((alias(U), nil) | (nil, nupp.AliasError))
+    ): ((R, nil) | (nil, own.AliasError))
+    take: @nosuspend function(self: own.Alias<T>): ((T, nil) | (nil, own.AliasError))
+    close: @nosuspend function(self: own.Alias<T>): own.AliasError?
+    downcast: function<U>(self: own.Alias<T>): ((alias(U), nil) | (nil, own.AliasError))
 end
 
 ----------------------------------------------------------------------------
@@ -93,454 +93,8 @@ end
 --- @namespace nupp
 local nupp: {
 
-    --- Moves an exact affine obligation into an independently allocated cell.
-    manage: function<T>(takes owner: T): managed(T),
-
-    --- Recovers an erased alias from an untyped boundary after checking its brand.
-    recoverAlias: function(value: any): ((alias(unknown), nil) | (nil, nupp.AliasError)),
-
-    --- Creates a runtime-sized group of independently managed resources.
-    managedGroup: function(): nupp.ManagedGroup,
-
     --- Cooperative development hot reload, installed by `nupp run --watch`.
     hotreload: nupp.HotReload,
-
-    --- Compiler-only type inspection and construction inside `@comptime function`
-    --- declarations. Every member is an ordinary checked compile-time value; none has
-    --- a runtime representation.
-    types: {
-        --- The dynamic type; compatible with everything, checked at neither end.
-        @readonly any: @comptime type,
-
-        --- The top type; everything fits it, it fits nothing else.
-        @readonly unknown: @comptime type,
-
-        --- The bottom type; fits everything, nothing fits it.
-        @readonly never: @comptime type,
-
-        --- The nil singleton, spelled `nil_` because `nil` is a keyword.
-        @readonly nil_: @comptime type,
-
-        --- `true` or `false`.
-        @readonly boolean: @comptime type,
-
-        --- A Lua string.
-        @readonly string: @comptime type,
-
-        --- A LuaJIT double.
-        @readonly number: @comptime type,
-
-        --- A number known to be integral.
-        @readonly integer: @comptime type,
-
-        --- Any table shape, compatible with every table type in both directions,
-        --- spelled `table_` because `table` names the standard library namespace.
-        @readonly table_: @comptime type,
-
-        --- A coroutine.
-        @readonly thread: @comptime type,
-
-        --- Userdata.
-        @readonly userdata: @comptime type,
-
-        --- An established binary32 Lua number; widens to `number`.
-        @readonly float: @comptime type,
-
-        --- Any cdata value.
-        @readonly cdata: @comptime type,
-
-        --- `const char *`.
-        @readonly cstring: @comptime type,
-
-        --- `void *`.
-        @readonly voidptr: @comptime type,
-
-        --- Signed physical storage; loads as `int32`.
-        @readonly int8: @comptime type,
-
-        --- Signed physical storage; loads as `int32`.
-        @readonly int16: @comptime type,
-
-        --- An established signed 32-bit Lua integer.
-        @readonly int32: @comptime type,
-
-        --- A boxed 64-bit signed cdata integer, as LuaJIT's `1LL`.
-        @readonly int64: @comptime type,
-
-        --- Unsigned physical storage; loads as `uint32`.
-        @readonly uint8: @comptime type,
-
-        --- Unsigned physical storage; loads as `uint32`.
-        @readonly uint16: @comptime type,
-
-        --- An established unsigned 32-bit Lua integer.
-        @readonly uint32: @comptime type,
-
-        --- A boxed 64-bit unsigned cdata integer, as LuaJIT's `1ULL`.
-        @readonly uint64: @comptime type,
-
-        --- The singleton type inhabited by a value.
-        ---
-        --- A number must be an exact integer, since a literal type names a value the
-        --- checker compares for equality.
-        --- @param value the inhabitant to lift into type position
-        --- @return the type whose only value is `value`
-        --- @raises string when the value is not a string, boolean, or exact integer
-        @readonly literal: @comptime function(value: string | boolean | integer): type,
-
-        --- The member that keeps a union open, so a switch over it stays inexhaustive.
-        ---
-        --- No name resolves to this type, so calling for it is the only way to place
-        --- it in a union. That is what makes a non-exhaustive union a written decision
-        --- rather than an inferred one. It may be written directly in a type as well
-        --- as inside a generator.
-        --- @return the open member
-        --- @raises string when given any argument
-        @readonly nonExhaustive: @comptime function(): type,
-
-        --- `base` narrowed to the values from `min` through `max`, both included.
-        ---
-        --- A constrained type is a subtype of its base: it goes wherever the base goes.
-        --- Entering one is admission rather than subtyping, so a value the checker
-        --- cannot prove is refused and `nupp.admit` is how the program says it meant
-        --- it. A literal is decided here and needs nothing written.
-        ---
-        --- The base is `integer`, `int32`, `uint32`, or a constrained alias of one,
-        --- which narrows further by intersecting. Representation is unchanged: this
-        --- converts nothing.
-        --- @param base the type being narrowed
-        --- @param min the lowest admitted value
-        --- @param max the highest admitted value
-        --- @return the constrained type
-        --- @raises string when the base is unsupported or the bounds are empty or out
-        ---     of range
-        @readonly range: @comptime function(base: type, min: integer, max: integer): type,
-
-        --- `base` narrowed to the byte lengths from `min` through `max`, both included.
-        ---
-        --- Bytes, matching Nupp's own string length: not code points, not graphemes. An
-        --- embedded NUL counts like any other byte. The base is `string` or a
-        --- constrained alias of it.
-        --- @param base the type being narrowed
-        --- @param min the shortest admitted length in bytes
-        --- @param max the longest admitted length in bytes
-        --- @return the constrained type
-        --- @raises string when the base is not a string or the bounds are empty
-        @readonly length: @comptime function(base: type, min: integer, max: integer): type,
-
-        --- The Lua array `{element}`, with integer keys and no fixed length.
-        --- @param element the element type
-        --- @return the array type
-        @readonly array: @comptime function(element: type): type,
-
-        --- A fixed-length positional type, one slot per element in the order given.
-        --- @param elements the slot types, in position order
-        --- @return the tuple type
-        @readonly tuple: @comptime function(elements: {type}): type,
-
-        --- The union of its members, as a set.
-        ---
-        --- Nested unions are flattened, duplicates dropped, and the rest ordered
-        --- canonically, so `union{A, union{A, B}}` and `union{A, B}` are one handle.
-        --- @param members the member types, in any order
-        --- @return the union type
-        @readonly union: @comptime function(members: {type}): type,
-
-        --- The intersection of its members, as a set, flattened and deduplicated the
-        --- way `union` is. An intersection of function types is an overload set.
-        --- @param members the member types, in any order
-        --- @return the intersection type
-        @readonly intersection: @comptime function(members: {type}): type,
-
-        --- `inner | nil`.
-        ---
-        --- Built as a union, so it is idempotent: `optional(optional(T))` and
-        --- `optional(T)` are one handle.
-        --- @param inner the type to admit nil alongside
-        --- @return the nilable type
-        @readonly optional: @comptime function(inner: type): type,
-
-        --- A pointer to `inner`.
-        --- @param inner the pointee type
-        --- @return the pointer type
-        @readonly pointer: @comptime function(inner: type): type,
-
-        --- `inner` behind a const capability, which permits reads and refuses writes.
-        --- @param inner the type to make const
-        --- @return the const type
-        @readonly constof: @comptime function(inner: type): type,
-
-        --- A borrow of `inner`, valid for the region that borrows it and not stored.
-        --- @param inner the owned type being borrowed
-        --- @return the borrowed type
-        @readonly borrowed: @comptime function(inner: type): type,
-
-        --- `inner` pinned to its address, so the collector may not move it.
-        --- @param inner the type to pin
-        --- @return the pinned type
-        @readonly pinned: @comptime function(inner: type): type,
-
-        --- An affine resource over `representation`: used at most once, and never
-        --- copied.
-        ---
-        --- With a terminal, that const function is the operation consuming the
-        --- resource, the way `close` consumes a file. Without one the resource is
-        --- transfer-only, so ownership may move but nothing ends it.
-        --- @param representation the underlying representation type
-        --- @param terminal the const-function parameter that consumes it
-        --- @return the affine type
-        --- @raises string when the terminal is not a const-function parameter
-        @readonly affine: @comptime function(representation: type): type
-        & @comptime function(representation: type, const terminal: function): type,
-
-        --- A C array of `element`, sized when `count` is given and unsized when it is
-        --- not.
-        --- @param element the element type
-        --- @param count the fixed length, or nil for an unsized array
-        --- @return the C array type
-        --- @raises string when the count is not a non-negative exact integer
-        @readonly carray: @comptime function(element: type, count: integer?): type,
-
-        --- A type indexed by computed keys rather than by named fields.
-        ---
-        --- Each capability is a key/value pair: supply both halves or neither. At
-        --- least one capability is required, and a read-only or write-only indexer is
-        --- the point of taking them separately. `map` is the shorthand for the common
-        --- case where both sides agree.
-        --- @param readKey the key type reads accept
-        --- @param readValue the value type reads answer
-        --- @param writeKey the key type writes accept
-        --- @param writeValue the value type writes accept
-        --- @return the indexer type
-        --- @raises string when a capability is missing half of its pair, or when
-        ---     neither
-        ---     capability is supplied
-        @readonly indexer: @comptime function(
-            readKey: type?,
-            readValue: type?,
-            writeKey: type?,
-            writeValue: type?
-        ): type,
-
-        --- An indexer whose write side mirrors its read side unless stated otherwise.
-        ---
-        --- Equivalent to `indexer(readKey, readValue, writeKey or readKey,
-        --- writeValue or readValue)`, and it returns a handle of kind
-        --- `"indexer"`.
-        --- @param readKey the key type reads accept
-        --- @param readValue the value type reads answer
-        --- @param writeKey the key type writes accept, defaulting to `readKey`
-        --- @param writeValue the value type writes accept, defaulting to `readValue`
-        --- @return the indexer type
-        @readonly map: @comptime function(readKey: type, readValue: type, writeKey: type?, writeValue: type?): type,
-
-        --- A structural type with named fields, and optionally an indexer for the keys
-        --- the names do not cover.
-        ---
-        --- Each descriptor needs a non-empty name unique within the shape, and at
-        --- least one of `read` and `write`: a field with only `read` is readonly, one
-        --- with only `write` is writeonly. Field order does not affect identity, so
-        --- two shapes with the same fields are one handle however they were listed.
-        --- @param fields the field descriptors
-        --- @param indexer an indexer handle from `nupp.types.indexer` or
-        ---     `nupp.types.map`
-        --- @return the shape type
-        --- @raises string when a name is empty or repeated, when a field declares
-        ---     neither
-        ---     capability, when the indexer did not come from an indexer builder, or
-        ---     when there are more than 1000 fields
-        @readonly shape: @comptime function(fields: const{{
-            @readonly name: string,
-            @readonly read: type?,
-            @readonly write: type?
-        }}, indexer: type?): type,
-
-        --- A type pack: a fixed head of slots, then an optional tail standing for
-        --- however many values remain.
-        ---
-        --- `modes` align with the head one for one and default to `"plain"`; the
-        --- others are `"affine"`, `"borrowed"`, `"exclusive"`, and `"pinned"`.
-        --- @param head the fixed slot types, in position order
-        --- @param tail the type of the remaining values, or nil for a closed pack
-        --- @param modes the ownership mode of each fixed slot
-        --- @return the pack
-        --- @raises string when there are more modes than slots, or a mode is not one of
-        ---     the
-        ---     five
-        @readonly pack: @comptime function(head: {type}, tail: type?, modes: {string}?): typepack,
-
-        --- Computes the arguments consumed by a literal Lua format string.
-        ---
-        --- A broad string produces an open `any` pack. `%?` is reserved for
-        --- compiler-lowered formatting APIs.
-        --- @param format the format-string type to inspect
-        --- @return the argument pack consumed by its directives
-        @readonly formatArguments: @comptime function(format: type): typepack,
-
-        --- A function type from its parameter and result packs. Spelled with a
-        --- trailing underscore because `function` is a keyword.
-        --- @param parameters the parameter pack
-        --- @param results the result pack
-        --- @return the function type
-        @readonly function_: @comptime function(parameters: typepack, results: typepack): type,
-
-        --- The parameter pack of a function type.
-        --- @param callable the function type to inspect
-        --- @return its parameters
-        --- @raises string when the handle is not a function type
-        @readonly parameters: @comptime function(callable: type): typepack,
-
-        --- The result pack of a function type.
-        --- @param callable the function type to inspect
-        --- @return its results
-        --- @raises string when the handle is not a function type
-        @readonly results: @comptime function(callable: type): typepack,
-
-        --- What a handle is, as a string, which is the usual way to branch on one.
-        ---
-        --- The answer is the handle's own kind, not the builder that made it:
-        --- `map` returns `"indexer"`, `optional` returns `"union"`, `pointer`
-        --- returns `"ptr"`, and `constof` returns `"const"`. A nominal
-        --- declaration returns `"reference"`, and `describe(T).declarationKind`
-        --- says which category it declares.
-        --- @param value the type or type pack to inspect
-        --- @return the kind, such as `"literal"`, `"array"`, `"shape"`, or `"pack"`
-        @readonly kind: @comptime function(value: type | typepack): string,
-
-        --- Every fact about one handle at once, as a record whose members are
-        --- populated according to its kind.
-        ---
-        --- Reach for it when a generator needs several facts about the same handle, or
-        --- a fact no single accessor exposes, such as a pack's `tail` or a C array's
-        --- `count`. A member that does not apply to the handle's kind is nil.
-        --- @param value the type or type pack to inspect
-        --- @return its descriptor
-        @readonly describe: @comptime function(value: type | typepack): {
-            @readonly kind: string,
-            @readonly sourceKind: string?,
-
-            --- Reports the nominal declaration category without expanding a reference.
-            @readonly declarationKind: string?,
-            @readonly name: string?,
-            @readonly value: (string | boolean | integer)?,
-            @readonly element: type?,
-            @readonly members: {type}?,
-            @readonly fields: {{
-                @readonly name: string,
-                @readonly read: type?,
-                @readonly write: type?
-            }}?,
-            @readonly indexer: type?,
-            @readonly readKey: type?,
-            @readonly readValue: type?,
-            @readonly writeKey: type?,
-            @readonly writeValue: type?,
-            @readonly nominal: boolean?,
-            @readonly head: {type}?,
-            @readonly tail: type?,
-            @readonly modes: {string}?,
-            @readonly count: integer?,
-            @readonly parameters: typepack?,
-            @readonly results: typepack?
-        },
-
-        --- The fixed elements of a composite type, or a pack's fixed head.
-        --- @param value the type or type pack to take apart
-        --- @return one handle per element, in declaration order
-        @readonly elements: @comptime function(value: type | typepack): {type},
-
-        --- The type arguments a generic declaration was applied to.
-        ---
-        --- Empty for a type that is not a generic application, so a caller may ask
-        --- without knowing which it has.
-        --- @param value the applied type to inspect
-        --- @return one handle per argument, in declaration order
-        @readonly arguments: @comptime function(value: type): {type},
-
-        --- Whether two types name the same nominal declaration, ignoring its arguments.
-        ---
-        --- Aliases and ownership wrappers are transparent. Structural types and two
-        --- different nominal declarations answer false even when their shapes match.
-        @readonly sameNominal: @comptime function(left: type, right: type): boolean,
-
-        --- The parameters a record or struct is constructed with, as a pack whose
-        --- slots carry their names.
-        ---
-        --- The one declared constructor's parameters, or the stored fields in
-        --- declaration order when the declaration has no constructor; a field with a
-        --- default, or one that admits nil, is an optional slot. Written as
-        --- `...: unpackof nupp.types.construction(E)`, the pack is a parameter list a
-        --- call binds by position or by name, the way it would for `new E(...)`.
-        --- @param value the record or struct to inspect
-        --- @return its construction contract
-        --- @raises string when the declaration has several constructors, which is no
-        ---     single
-        ---     contract
-        @readonly construction: @comptime function(value: type): typepack,
-
-        --- The public fields of a shape or of a nominal record, interface, or struct.
-        ---
-        --- A nominal keeps its declaration identity: reading its fields does not
-        --- expand it into a structural type. Each descriptor carries a `name` and
-        --- whichever of `read` and `write` the field has. `describe(T).fields`
-        --- reports the same descriptors.
-        --- @param value the shape or nominal type to inspect
-        --- @return one descriptor per field, in declaration order
-        --- @raises string when the handle is neither a shape nor a nominal declaration
-        @readonly fields: @comptime function(value: type): {{
-            @readonly name: string,
-            @readonly read: type?,
-            @readonly write: type?
-        }},
-
-        --- Every key a type can be read at: one string literal per readable field,
-        --- plus the indexer's read key when it has one.
-        --- @param value the shape or indexer to inspect
-        --- @return one handle per readable key
-        --- @raises string when the handle is neither a shape nor an indexer
-        @readonly readKeys: @comptime function(value: type): {type},
-
-        --- Every key a type can be written at: one string literal per writable field,
-        --- plus the indexer's write key when it has one.
-        --- @param value the shape or indexer to inspect
-        --- @return one handle per writable key
-        --- @raises string when the handle is neither a shape nor an indexer
-        @readonly writeKeys: @comptime function(value: type): {type},
-
-        --- The type read at a key: the named field when the key is a string literal
-        --- naming a readable one, and otherwise the indexer's read value.
-        --- @param value the type to project
-        --- @param key the key to read at
-        --- @return the value type at that key
-        --- @raises string when the type has no read capability there, reported as
-        ---     NUPP2420
-        @readonly readAt: @comptime function(value: type, key: type): type,
-
-        --- The type written at a key: the named field when the key is a string
-        --- literal naming a writable one, and otherwise the indexer's write value.
-        --- @param value the type to project
-        --- @param key the key to write at
-        --- @return the value type at that key
-        --- @raises string when the type has no write capability there, reported as
-        ---     NUPP2420
-        @readonly writeAt: @comptime function(value: type, key: type): type,
-
-        --- Rejects this type application deliberately, with an authored message.
-        ---
-        --- Distinct from an evaluator crash or a timeout: the message is
-        --- reported at the application, with a bounded comptime call trace. It
-        --- returns `never`, so a generator may call it in a branch that has no
-        --- type to return.
-        --- @param message what to report at the application
-        --- @return nothing; the call does not come back
-        @readonly error: @comptime function(message: string): never
-    },
-
-    --- Compiler-only derive inspection and closed forwarding recipes.
-    derive: nupp.derive,
-
-    --- Semantic type reflection and reflection-driven field codecs.
-    reflect: nupp.reflect,
 
     --- Admits a value into the constrained type the destination declares.
     ---
@@ -571,20 +125,464 @@ local nupp: {
     __materializationTest: nupp.__MaterializationTestAPI
 }
 
+--- Compiler-only type inspection and construction, with shared runtime types.
+--- @namespace types
+local types: {
+    --- The dynamic type; compatible with everything, checked at neither end.
+    @readonly any: @comptime type,
+
+    --- The top type; everything fits it, it fits nothing else.
+    @readonly unknown: @comptime type,
+
+    --- The bottom type; fits everything, nothing fits it.
+    @readonly never: @comptime type,
+
+    --- The nil singleton, spelled `nil_` because `nil` is a keyword.
+    @readonly nil_: @comptime type,
+
+    --- `true` or `false`.
+    @readonly boolean: @comptime type,
+
+    --- A Lua string.
+    @readonly string: @comptime type,
+
+    --- A LuaJIT double.
+    @readonly number: @comptime type,
+
+    --- A number known to be integral.
+    @readonly integer: @comptime type,
+
+    --- Any table shape, compatible with every table type in both directions,
+    --- spelled `table_` because `table` names the standard library namespace.
+    @readonly table_: @comptime type,
+
+    --- A coroutine.
+    @readonly thread: @comptime type,
+
+    --- Userdata.
+    @readonly userdata: @comptime type,
+
+    --- An established binary32 Lua number; widens to `number`.
+    @readonly float: @comptime type,
+
+    --- Any cdata value.
+    @readonly cdata: @comptime type,
+
+    --- `const char *`.
+    @readonly cstring: @comptime type,
+
+    --- `void *`.
+    @readonly voidptr: @comptime type,
+
+    --- Signed physical storage; loads as `int32`.
+    @readonly int8: @comptime type,
+
+    --- Signed physical storage; loads as `int32`.
+    @readonly int16: @comptime type,
+
+    --- An established signed 32-bit Lua integer.
+    @readonly int32: @comptime type,
+
+    --- A boxed 64-bit signed cdata integer, as LuaJIT's `1LL`.
+    @readonly int64: @comptime type,
+
+    --- Unsigned physical storage; loads as `uint32`.
+    @readonly uint8: @comptime type,
+
+    --- Unsigned physical storage; loads as `uint32`.
+    @readonly uint16: @comptime type,
+
+    --- An established unsigned 32-bit Lua integer.
+    @readonly uint32: @comptime type,
+
+    --- A boxed 64-bit unsigned cdata integer, as LuaJIT's `1ULL`.
+    @readonly uint64: @comptime type,
+
+    --- The singleton type inhabited by a value.
+    ---
+    --- A number must be an exact integer, since a literal type names a value the
+    --- checker compares for equality.
+    --- @param value the inhabitant to lift into type position
+    --- @return the type whose only value is `value`
+    --- @raises string when the value is not a string, boolean, or exact integer
+    @readonly literal: @comptime function(value: string | boolean | integer): type,
+
+    --- The member that keeps a union open, so a switch over it stays inexhaustive.
+    ---
+    --- No name resolves to this type, so calling for it is the only way to place
+    --- it in a union. That is what makes a non-exhaustive union a written decision
+    --- rather than an inferred one. It may be written directly in a type as well
+    --- as inside a generator.
+    --- @return the open member
+    --- @raises string when given any argument
+    @readonly nonExhaustive: @comptime function(): type,
+
+    --- `base` narrowed to the values from `min` through `max`, both included.
+    ---
+    --- A constrained type is a subtype of its base: it goes wherever the base goes.
+    --- Entering one is admission rather than subtyping, so a value the checker
+    --- cannot prove is refused and `nupp.admit` is how the program says it meant
+    --- it. A literal is decided here and needs nothing written.
+    ---
+    --- The base is `integer`, `int32`, `uint32`, or a constrained alias of one,
+    --- which narrows further by intersecting. Representation is unchanged: this
+    --- converts nothing.
+    --- @param base the type being narrowed
+    --- @param min the lowest admitted value
+    --- @param max the highest admitted value
+    --- @return the constrained type
+    --- @raises string when the base is unsupported or the bounds are empty or out
+    ---     of range
+    @readonly range: @comptime function(base: type, min: integer, max: integer): type,
+
+    --- `base` narrowed to the byte lengths from `min` through `max`, both included.
+    ---
+    --- Bytes, matching Nupp's own string length: not code points, not graphemes. An
+    --- embedded NUL counts like any other byte. The base is `string` or a
+    --- constrained alias of it.
+    --- @param base the type being narrowed
+    --- @param min the shortest admitted length in bytes
+    --- @param max the longest admitted length in bytes
+    --- @return the constrained type
+    --- @raises string when the base is not a string or the bounds are empty
+    @readonly length: @comptime function(base: type, min: integer, max: integer): type,
+
+    --- The Lua array `{element}`, with integer keys and no fixed length.
+    --- @param element the element type
+    --- @return the array type
+    @readonly array: @comptime function(element: type): type,
+
+    --- A fixed-length positional type, one slot per element in the order given.
+    --- @param elements the slot types, in position order
+    --- @return the tuple type
+    @readonly tuple: @comptime function(elements: {type}): type,
+
+    --- The union of its members, as a set.
+    ---
+    --- Nested unions are flattened, duplicates dropped, and the rest ordered
+    --- canonically, so `union{A, union{A, B}}` and `union{A, B}` are one handle.
+    --- @param members the member types, in any order
+    --- @return the union type
+    @readonly union: @comptime function(members: {type}): type,
+
+    --- The intersection of its members, as a set, flattened and deduplicated the
+    --- way `union` is. An intersection of function types is an overload set.
+    --- @param members the member types, in any order
+    --- @return the intersection type
+    @readonly intersection: @comptime function(members: {type}): type,
+
+    --- `inner | nil`.
+    ---
+    --- Built as a union, so it is idempotent: `optional(optional(T))` and
+    --- `optional(T)` are one handle.
+    --- @param inner the type to admit nil alongside
+    --- @return the nilable type
+    @readonly optional: @comptime function(inner: type): type,
+
+    --- A pointer to `inner`.
+    --- @param inner the pointee type
+    --- @return the pointer type
+    @readonly pointer: @comptime function(inner: type): type,
+
+    --- `inner` behind a const capability, which permits reads and refuses writes.
+    --- @param inner the type to make const
+    --- @return the const type
+    @readonly constof: @comptime function(inner: type): type,
+
+    --- A borrow of `inner`, valid for the region that borrows it and not stored.
+    --- @param inner the owned type being borrowed
+    --- @return the borrowed type
+    @readonly borrowed: @comptime function(inner: type): type,
+
+    --- `inner` pinned to its address, so the collector may not move it.
+    --- @param inner the type to pin
+    --- @return the pinned type
+    @readonly pinned: @comptime function(inner: type): type,
+
+    --- An affine resource over `representation`: used at most once, and never
+    --- copied.
+    ---
+    --- With a terminal, that const function is the operation consuming the
+    --- resource, the way `close` consumes a file. Without one the resource is
+    --- transfer-only, so ownership may move but nothing ends it.
+    --- @param representation the underlying representation type
+    --- @param terminal the const-function parameter that consumes it
+    --- @return the affine type
+    --- @raises string when the terminal is not a const-function parameter
+    @readonly affine: @comptime function(representation: type): type
+    & @comptime function(representation: type, const terminal: function): type,
+
+    --- A C array of `element`, sized when `count` is given and unsized when it is
+    --- not.
+    --- @param element the element type
+    --- @param count the fixed length, or nil for an unsized array
+    --- @return the C array type
+    --- @raises string when the count is not a non-negative exact integer
+    @readonly carray: @comptime function(element: type, count: integer?): type,
+
+    --- A type indexed by computed keys rather than by named fields.
+    ---
+    --- Each capability is a key/value pair: supply both halves or neither. At
+    --- least one capability is required, and a read-only or write-only indexer is
+    --- the point of taking them separately. `map` is the shorthand for the common
+    --- case where both sides agree.
+    --- @param readKey the key type reads accept
+    --- @param readValue the value type reads answer
+    --- @param writeKey the key type writes accept
+    --- @param writeValue the value type writes accept
+    --- @return the indexer type
+    --- @raises string when a capability is missing half of its pair, or when
+    ---     neither
+    ---     capability is supplied
+    @readonly indexer: @comptime function(readKey: type?, readValue: type?, writeKey: type?, writeValue: type?): type,
+
+    --- An indexer whose write side mirrors its read side unless stated otherwise.
+    ---
+    --- Equivalent to `indexer(readKey, readValue, writeKey or readKey,
+    --- writeValue or readValue)`, and it returns a handle of kind
+    --- `"indexer"`.
+    --- @param readKey the key type reads accept
+    --- @param readValue the value type reads answer
+    --- @param writeKey the key type writes accept, defaulting to `readKey`
+    --- @param writeValue the value type writes accept, defaulting to `readValue`
+    --- @return the indexer type
+    @readonly map: @comptime function(readKey: type, readValue: type, writeKey: type?, writeValue: type?): type,
+
+    --- A structural type with named fields, and optionally an indexer for the keys
+    --- the names do not cover.
+    ---
+    --- Each descriptor needs a non-empty name unique within the shape, and at
+    --- least one of `read` and `write`: a field with only `read` is readonly, one
+    --- with only `write` is writeonly. Field order does not affect identity, so
+    --- two shapes with the same fields are one handle however they were listed.
+    --- @param fields the field descriptors
+    --- @param indexer an indexer handle from `types.indexer` or
+    ---     `types.map`
+    --- @return the shape type
+    --- @raises string when a name is empty or repeated, when a field declares
+    ---     neither
+    ---     capability, when the indexer did not come from an indexer builder, or
+    ---     when there are more than 1000 fields
+    @readonly shape: @comptime function(fields: const{{
+        @readonly name: string,
+        @readonly read: type?,
+        @readonly write: type?
+    }}, indexer: type?): type,
+
+    --- A type pack: a fixed head of slots, then an optional tail standing for
+    --- however many values remain.
+    ---
+    --- `modes` align with the head one for one and default to `"plain"`; the
+    --- others are `"affine"`, `"borrowed"`, `"exclusive"`, and `"pinned"`.
+    --- @param head the fixed slot types, in position order
+    --- @param tail the type of the remaining values, or nil for a closed pack
+    --- @param modes the ownership mode of each fixed slot
+    --- @return the pack
+    --- @raises string when there are more modes than slots, or a mode is not one of
+    ---     the
+    ---     five
+    @readonly pack: @comptime function(head: {type}, tail: type?, modes: {string}?): typepack,
+
+    --- Computes the arguments consumed by a literal Lua format string.
+    ---
+    --- A broad string produces an open `any` pack. `%?` is reserved for
+    --- compiler-lowered formatting APIs.
+    --- @param format the format-string type to inspect
+    --- @return the argument pack consumed by its directives
+    @readonly formatArguments: @comptime function(format: type): typepack,
+
+    --- A function type from its parameter and result packs. Spelled with a
+    --- trailing underscore because `function` is a keyword.
+    --- @param parameters the parameter pack
+    --- @param results the result pack
+    --- @return the function type
+    @readonly function_: @comptime function(parameters: typepack, results: typepack): type,
+
+    --- The parameter pack of a function type.
+    --- @param callable the function type to inspect
+    --- @return its parameters
+    --- @raises string when the handle is not a function type
+    @readonly parameters: @comptime function(callable: type): typepack,
+
+    --- The result pack of a function type.
+    --- @param callable the function type to inspect
+    --- @return its results
+    --- @raises string when the handle is not a function type
+    @readonly results: @comptime function(callable: type): typepack,
+
+    --- What a handle is, as a string, which is the usual way to branch on one.
+    ---
+    --- The answer is the handle's own kind, not the builder that made it:
+    --- `map` returns `"indexer"`, `optional` returns `"union"`, `pointer`
+    --- returns `"ptr"`, and `constof` returns `"const"`. A nominal
+    --- declaration returns `"reference"`, and `describe(T).declarationKind`
+    --- says which category it declares.
+    --- @param value the type or type pack to inspect
+    --- @return the kind, such as `"literal"`, `"array"`, `"shape"`, or `"pack"`
+    @readonly kind: @comptime function(value: type | typepack): string,
+
+    --- Every fact about one handle at once, as a record whose members are
+    --- populated according to its kind.
+    ---
+    --- Reach for it when a generator needs several facts about the same handle, or
+    --- a fact no single accessor exposes, such as a pack's `tail` or a C array's
+    --- `count`. A member that does not apply to the handle's kind is nil.
+    --- @param value the type or type pack to inspect
+    --- @return its descriptor
+    @readonly describe: @comptime function(value: type | typepack): {
+        @readonly kind: string,
+        @readonly sourceKind: string?,
+
+        --- Reports the nominal declaration category without expanding a reference.
+        @readonly declarationKind: string?,
+        @readonly name: string?,
+        @readonly value: (string | boolean | integer)?,
+        @readonly element: type?,
+        @readonly members: {type}?,
+        @readonly fields: {{
+            @readonly name: string,
+            @readonly read: type?,
+            @readonly write: type?
+        }}?,
+        @readonly indexer: type?,
+        @readonly readKey: type?,
+        @readonly readValue: type?,
+        @readonly writeKey: type?,
+        @readonly writeValue: type?,
+        @readonly nominal: boolean?,
+        @readonly head: {type}?,
+        @readonly tail: type?,
+        @readonly modes: {string}?,
+        @readonly count: integer?,
+        @readonly parameters: typepack?,
+        @readonly results: typepack?
+    },
+
+    --- The fixed elements of a composite type, or a pack's fixed head.
+    --- @param value the type or type pack to take apart
+    --- @return one handle per element, in declaration order
+    @readonly elements: @comptime function(value: type | typepack): {type},
+
+    --- The type arguments a generic declaration was applied to.
+    ---
+    --- Empty for a type that is not a generic application, so a caller may ask
+    --- without knowing which it has.
+    --- @param value the applied type to inspect
+    --- @return one handle per argument, in declaration order
+    @readonly arguments: @comptime function(value: type): {type},
+
+    --- Whether two types name the same nominal declaration, ignoring its arguments.
+    ---
+    --- Aliases and ownership wrappers are transparent. Structural types and two
+    --- different nominal declarations answer false even when their shapes match.
+    @readonly sameNominal: @comptime function(left: type, right: type): boolean,
+
+    --- The parameters a record or struct is constructed with, as a pack whose
+    --- slots carry their names.
+    ---
+    --- The one declared constructor's parameters, or the stored fields in
+    --- declaration order when the declaration has no constructor; a field with a
+    --- default, or one that admits nil, is an optional slot. Written as
+    --- `...: unpackof types.construction(E)`, the pack is a parameter list a
+    --- call binds by position or by name, the way it would for `new E(...)`.
+    --- @param value the record or struct to inspect
+    --- @return its construction contract
+    --- @raises string when the declaration has several constructors, which is no
+    ---     single
+    ---     contract
+    @readonly construction: @comptime function(value: type): typepack,
+
+    --- The public fields of a shape or of a nominal record, interface, or struct.
+    ---
+    --- A nominal keeps its declaration identity: reading its fields does not
+    --- expand it into a structural type. Each descriptor carries a `name` and
+    --- whichever of `read` and `write` the field has. `describe(T).fields`
+    --- reports the same descriptors.
+    --- @param value the shape or nominal type to inspect
+    --- @return one descriptor per field, in declaration order
+    --- @raises string when the handle is neither a shape nor a nominal declaration
+    @readonly fields: @comptime function(value: type): {{
+        @readonly name: string,
+        @readonly read: type?,
+        @readonly write: type?
+    }},
+
+    --- Every key a type can be read at: one string literal per readable field,
+    --- plus the indexer's read key when it has one.
+    --- @param value the shape or indexer to inspect
+    --- @return one handle per readable key
+    --- @raises string when the handle is neither a shape nor an indexer
+    @readonly readKeys: @comptime function(value: type): {type},
+
+    --- Every key a type can be written at: one string literal per writable field,
+    --- plus the indexer's write key when it has one.
+    --- @param value the shape or indexer to inspect
+    --- @return one handle per writable key
+    --- @raises string when the handle is neither a shape nor an indexer
+    @readonly writeKeys: @comptime function(value: type): {type},
+
+    --- The type read at a key: the named field when the key is a string literal
+    --- naming a readable one, and otherwise the indexer's read value.
+    --- @param value the type to project
+    --- @param key the key to read at
+    --- @return the value type at that key
+    --- @raises string when the type has no read capability there, reported as
+    ---     NUPP2420
+    @readonly readAt: @comptime function(value: type, key: type): type,
+
+    --- The type written at a key: the named field when the key is a string
+    --- literal naming a writable one, and otherwise the indexer's write value.
+    --- @param value the type to project
+    --- @param key the key to write at
+    --- @return the value type at that key
+    --- @raises string when the type has no write capability there, reported as
+    ---     NUPP2420
+    @readonly writeAt: @comptime function(value: type, key: type): type,
+
+    --- Rejects this type application deliberately, with an authored message.
+    ---
+    --- Distinct from an evaluator crash or a timeout: the message is
+    --- reported at the application, with a bounded comptime call trace. It
+    --- returns `never`, so a generator may call it in a branch that has no
+    --- type to return.
+    --- @param message what to report at the application
+    --- @return nothing; the call does not come back
+    @readonly error: @comptime function(message: string): never,
+
+    --- Compiler-only derive inspection and closed forwarding recipes.
+    derive: types.derive,
+
+    --- Semantic reflection and reflection-driven field codecs.
+    reflect: types.reflect
+}
+
+--- Checked ownership operations and managed resource groups.
+--- @namespace own
+local own: {
+    --- Moves an exact affine obligation into an independently allocated cell.
+    manage: function<T>(takes owner: T): managed(T),
+
+    --- Recovers an erased alias from an untyped boundary after checking its brand.
+    recoverAlias: function(value: any): ((alias(unknown), nil) | (nil, own.AliasError)),
+
+    --- Creates a runtime-sized group of independently managed resources.
+    managedGroup: function(): own.ManagedGroup
+}
+
 ----------------------------------------------------------------------------
 -- Type-level computations
 ----------------------------------------------------------------------------
 
--- Public checked computations under the compiler-owned nupp.types namespace use this
+-- Public checked computations under the compiler-owned types namespace use this
 -- implementation naming convention. Type-position resolution maps the public member
 -- to the checked prelude body, while the declaration above remains the API callers
 -- inspect and document.
 @comptime
 local function __NuppTypesFormatArguments(Format: type): typepack
-    local info = nupp.types.describe(Format)
+    local info = types.describe(Format)
     local value = info.value
     if info.kind ~= "literal" or type(value) ~= "string" then
-        return nupp.types.pack({}, nupp.types.any)
+        return types.pack({}, types.any)
     end
     local source = value as string
     local arguments = {}
@@ -605,9 +603,7 @@ local function __NuppTypesFormatArguments(Format: type): typepack
                     current = source:sub(index, index)
                 end
                 if current == "%" then
-                    nupp.types.error(
-                        'invalid string.format directive starting at "%' .. seen .. source:sub(index) .. '"'
-                    )
+                    types.error('invalid string.format directive starting at "%' .. seen .. source:sub(index) .. '"')
                 end
 
                 local width = 0
@@ -617,7 +613,7 @@ local function __NuppTypesFormatArguments(Format: type): typepack
                     index = index + 1
                     current = source:sub(index, index)
                     if width > 2 then
-                        nupp.types.error('invalid string.format directive starting at "%' .. seen .. '"')
+                        types.error('invalid string.format directive starting at "%' .. seen .. '"')
                     end
                 end
 
@@ -632,28 +628,26 @@ local function __NuppTypesFormatArguments(Format: type): typepack
                         index = index + 1
                         current = source:sub(index, index)
                         if precision > 2 then
-                            nupp.types.error('invalid string.format directive starting at "%' .. seen .. '"')
+                            types.error('invalid string.format directive starting at "%' .. seen .. '"')
                         end
                     end
                 end
 
                 if string.find("aAcdiouxXeEfgG", current, 1, true) then
-                    arguments[#arguments + 1] = nupp.types.number
+                    arguments[#arguments + 1] = types.number
                 elseif current == "?" then
-                    nupp.types.error("%? is available only to compiler-lowered formatting APIs")
+                    types.error("%? is available only to compiler-lowered formatting APIs")
                 elseif string.find("pqs", current, 1, true) then
-                    arguments[#arguments + 1] = nupp.types.any
+                    arguments[#arguments + 1] = types.any
                 else
-                    nupp.types.error(
-                        'invalid string.format directive starting at "%' .. seen .. source:sub(index) .. '"'
-                    )
+                    types.error('invalid string.format directive starting at "%' .. seen .. source:sub(index) .. '"')
                 end
                 index = index + 1
             end
         end
     end
 
-    return nupp.types.pack(arguments)
+    return types.pack(arguments)
 end
 
 ----------------------------------------------------------------------------
@@ -764,7 +758,7 @@ end
 --- #### Derive the shipped providers
 ---
 --- ```nupp
---- @derive(nupp.derive.Debug)
+--- @derive(types.Debug)
 --- local record Settings
 ---     host: string = "localhost"
 ---     port: integer = 8080
@@ -792,17 +786,17 @@ end
 ---     return "name=" .. value
 --- end
 ---
---- @comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Named>
+--- @comptime function M.derive(info: types.derive.Info): types.derive.Result<M.Named>
 ---     local field = info.fields[1]
 ---     if not field or field.name ~= "name" then
----         return nupp.derive.error("Named needs a first field named name", info.reference)
+---         return types.derive.error("Named needs a first field named name", info.reference)
 ---     end
 ---
----     return nupp.derive.implement{
+---     return types.derive.implement{
 ---         methods = {
----             named = nupp.derive.forward{
----                 helper = nupp.derive.helper(M, "nameValue"),
----                 arguments = {nupp.derive.field(field)},
+---             named = types.derive.forward{
+---                 helper = types.derive.helper(M, "nameValue"),
+---                 arguments = {types.derive.field(field)},
 ---             },
 ---         },
 ---     }
@@ -837,34 +831,13 @@ end
 --- per generic instantiation, and a recipe is memoized on the `Info` fingerprint.
 --- `claims` asks whether a type already writes or requests an interface, which lets
 --- mutually recursive derives plan without depending on evaluation order.
-record nupp.derive
+record types.derive
     --- A comptime-only provider symbol accepted by `@derive`.
     ---
-    --- A shipped provider is one of the three values below; a package provider is the
-    --- `@comptime function` a module exports. Neither survives into the program.
+    --- A provider is the
+    --- `@comptime function` a module exports. It does not survive into the program.
     record Provider
     end
-
-    --- Generates `debug(self): string` and `nupp.Debug` conformance for a record or
-    --- struct. The method lazily prepares a schema-driven declaration-order
-    --- formatter and shares its schema recipe with `Serde` when both are derived.
-    ---
-    --- `@debug(redact = true)` keeps a field's name and hides its value, which is what
-    --- a
-    --- secret wants; `@debug(skip = true)` removes the field from the output entirely.
-    ---
-    --- ```nupp
-    --- @derive(nupp.derive.Debug)
-    --- local record Credentials
-    ---     user: string
-    ---     @debug(redact = true)
-    ---     password: string
-    --- end
-    ---
-    --- local credentials = new Credentials(user = "ada", password = "hunter2")
-    --- assert(credentials:debug() == 'Credentials { user = "ada", password = <redacted> }')
-    --- ```
-    Debug: Provider
 
     --- The checked shape of `@event`, written on a declaration deriving
     --- `events.Event`.
@@ -923,7 +896,7 @@ record nupp.derive
 
         --- The field's typed annotations in source order, `@debug` among
         --- them.
-        @readonly annotations: {nupp.reflect.Annotation}
+        @readonly annotations: {types.reflect.Annotation}
 
         --- Points this provider's `error` at this field.
         @readonly reference: Reference
@@ -971,7 +944,7 @@ record nupp.derive
         @readonly fields: {Field}
 
         --- The owner's own typed annotations, in source order.
-        @readonly annotations: {nupp.reflect.Annotation}
+        @readonly annotations: {types.reflect.Annotation}
 
         --- Whether the declaration writes a constructor.
         @readonly hasConstructor: boolean
@@ -1123,11 +1096,11 @@ record nupp.derive
     --- Resolves a `@ref` annotation argument to its transported type handle.
     ---
     --- The argument must come from `Info.annotations` or one of its fields. The
-    --- returned handle can be inspected with `nupp.types` and passed to `witness`.
+    --- returned handle can be inspected with `types` and passed to `witness`.
     ---
     --- @param argument a reflected annotation argument whose kind is `type`
     --- @return the referenced type handle
-    annotationType: function(argument: nupp.reflect.AnnotationArgument): any
+    annotationType: function(argument: types.reflect.AnnotationArgument): any
 
     --- Passes a named record's first-class `Type<T>` witness to the runtime helper.
     ---
@@ -1172,7 +1145,7 @@ end
 --- end
 ---
 --- const UserSummary: string = comptime do
----     local info = nupp.reflect(User)
+---     local info = types.reflect(User)
 ---     assert(info.kind == "record")
 ---     assert(info.fields[2].hasDefault)
 ---     return info.fields[1].name .. ":" .. info.fields[1].kind
@@ -1192,18 +1165,18 @@ end
 --- end
 ---
 --- const NextKind: string = comptime do
----     local info = nupp.reflect(Node)
+---     local info = types.reflect(Node)
 ---     local edge = info.fields[2].type as integer
 ---     return info.types[edge].kind
 --- end
 ---
 --- assert(NextKind == "union")
 --- ```
-record nupp.reflect
+record types.reflect
     --- A typed identity for data derived lazily from a reflection descriptor,
     --- schema, or binding.
     ---
-    --- It has the shape of `nupp.util.Key<T>`, declared here because the prelude
+    --- It has the shape of `types.Key<T>`, declared here because the prelude
     --- is read before any module is. `_valueType` is never present; it mentions
     --- `T` in both positions so that keys are invariant.
     interface ExtensionKey<T>
@@ -1235,7 +1208,7 @@ record nupp.reflect
     --- end
     ---
     --- const Serialization: string = comptime do
-    ---     local info = nupp.reflect(User)
+    ---     local info = types.reflect(User)
     ---     local arguments = info.fields[1].annotations[1].arguments
     ---     assert(arguments[1].kind == "value")
     ---     assert(arguments[2].kind == "type")
@@ -1271,7 +1244,7 @@ record nupp.reflect
     --- end
     ---
     --- const DefaultFormat: string = comptime do
-    ---     local field = nupp.reflect(Options).fields[1]
+    ---     local field = types.reflect(Options).fields[1]
     ---     assert(field.name == "format" and field.hasDefault)
     ---     assert(field.readable and field.writable)
     ---     return field.defaultValue as string
@@ -1321,10 +1294,10 @@ record nupp.reflect
     --- local type Handler = function(message: string, attempts: integer): boolean
     ---
     --- const HandlerShape: string = comptime do
-    ---     local info = nupp.reflect(Handler)
+    ---     local info = types.reflect(Handler)
     ---     local handler = info.types[info.root]
     ---     assert(handler.kind == "func")
-    ---     local first = (handler.parameters as {nupp.reflect.Entry})[1]
+    ---     local first = (handler.parameters as {types.reflect.Entry})[1]
     ---     local input = info.types[first.type as integer]
     ---     local output = info.types[(handler.returns as {integer})[1]]
     ---     return (first.name as string) .. ":" .. input.kind .. "->" .. output.kind
@@ -1389,7 +1362,7 @@ record nupp.reflect
     --- end
     ---
     --- const ParticleColumns: string = comptime do
-    ---     local soa = nupp.reflect(Particle).soa
+    ---     local soa = types.reflect(Particle).soa
     ---     assert(soa.eligible and #soa.fields == 2)
     ---     assert(soa.fields[1].ordinal == 1)
     ---     return soa.fields[1].name .. "," .. soa.fields[2].name
@@ -1416,12 +1389,12 @@ record nupp.reflect
     ---     right: integer
     --- end
     ---
-    --- @comptime local function describe(info: nupp.reflect.Info): string
+    --- @comptime local function describe(info: types.reflect.Info): string
     ---     return info.fingerprint .. ":" .. tostring(#info.fields)
     --- end
     ---
     --- const PairDescription: string = comptime do
-    ---     return describe(nupp.reflect(Pair))
+    ---     return describe(types.reflect(Pair))
     --- end
     ---
     --- assert(PairDescription:match(":2$") ~= nil)
@@ -1456,8 +1429,8 @@ record nupp.reflect
     ---     y: number
     --- end
     ---
-    --- const PositionCodec: nupp.reflect.FieldCodec<Position> = comptime do
-    ---     return nupp.reflect.fieldCodec(nupp.reflect(Position))
+    --- const PositionCodec: types.reflect.FieldCodec<Position> = comptime do
+    ---     return types.reflect.fieldCodec(types.reflect(Position))
     --- end
     ---
     --- local encoded = PositionCodec:encode(new Position(x = 3, y = 4))
@@ -1493,12 +1466,12 @@ record nupp.reflect
     ---     y: number
     --- end
     ---
-    --- @comptime local function fieldCount(info: nupp.reflect.Info): integer
+    --- @comptime local function fieldCount(info: types.reflect.Info): integer
     ---     return #info.fields
     --- end
     ---
     --- const PointFieldCount: integer = comptime do
-    ---     return fieldCount(nupp.reflect(Point))
+    ---     return fieldCount(types.reflect(Point))
     --- end
     --- assert(PointFieldCount == 2)
     --- ```
@@ -1517,13 +1490,13 @@ record nupp.reflect
     --- end
     ---
     --- @comptime local function keyed(
-    ---     info: nupp.reflect.Info
-    --- ): nupp.reflect.FieldCodecBlueprint
-    ---     return nupp.reflect.fieldCodec(info)
+    ---     info: types.reflect.Info
+    --- ): types.reflect.FieldCodecBlueprint
+    ---     return types.reflect.fieldCodec(info)
     --- end
     ---
-    --- const MessageCodec: nupp.reflect.FieldCodec<Message> = comptime do
-    ---     return keyed(nupp.reflect(Message))
+    --- const MessageCodec: types.reflect.FieldCodec<Message> = comptime do
+    ---     return keyed(types.reflect(Message))
     --- end
     ---
     --- local encoded = MessageCodec:encode(new Message(id = 1, text = "hello"))

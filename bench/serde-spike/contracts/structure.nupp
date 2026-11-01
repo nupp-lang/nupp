@@ -23,7 +23,7 @@ local record Value
         end
     end
 end
-local record Builder is nupp.Closeable
+local record Builder is own.Closeable
     text: string?
     function close(takes self): nil
         counts.closed += 1
@@ -151,7 +151,7 @@ for _, input in ipairs({'{}', '{"text":"invalid"}', '{"text":"ok","callback":[}'
     assert(counts.finished == 1)
 end
 local record Inspect is structure.StructureConsumer<Value, Member, integer>
-    function apply<S is nupp.Closeable>(
+    function apply<S is own.Closeable>(
         self,
         member: Member,
         described: const{structure.Field<Value, S, Member>},

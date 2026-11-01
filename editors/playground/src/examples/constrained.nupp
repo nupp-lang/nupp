@@ -4,9 +4,9 @@
 -- can prove needs nothing written, and one it cannot prove is refused until
 -- `nupp.admit` says the program meant it.
 
-local type Percent = nupp.types.range(integer, 0, 100)
-local type Digit = nupp.types.range(Percent, 0, 9)
-local type Identifier = nupp.types.length(string, 1, 16)
+local type Percent = types.range(integer, 0, 100)
+local type Digit = types.range(Percent, 0, 9)
+local type Identifier = types.length(string, 1, 16)
 
 local half: Percent = 50 -- decided here; nothing reaches the program
 local name: Identifier = "width"
@@ -34,5 +34,5 @@ print(half, name, widen(7), count(half))
 print(shift(30), named("height"), named(""))
 
 -- try breaking it: write `local no: Percent = 101`, drop the `nupp.admit` from
--- `shift` and return `by` directly, or narrow `Digit` to `nupp.types.range(Percent,
+-- `shift` and return `by` directly, or narrow `Digit` to `types.range(Percent,
 -- 200, 300)` and watch the empty intersection get refused at the declaration
