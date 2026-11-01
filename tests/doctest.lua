@@ -1035,7 +1035,7 @@ function M.standardTypesApiMarksItsCompilerOnlyValues()
             types = candidate
         end
     end
-    assert(types, "the prelude did not synthesize types")
+    assert(types, "the prelude did not document the types namespace")
 
     local foundType, foundFunction = false, false
     for _, item in ipairs(types.items) do
@@ -1047,6 +1047,28 @@ function M.standardTypesApiMarksItsCompilerOnlyValues()
     end
     assert(foundType, "types.string lost its @comptime type kind")
     assert(foundFunction, "types.optional lost its @comptime function kind")
+end
+
+function M.standardTypesPageCombinesBuildersAndRuntimeExports()
+    local dir = tempProject({
+        ["src/prelude.d.nupp"] = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp"),
+        ["src/types/init.nupp"] = readFile(HERE .. "/../src/types/init.nupp"),
+        ["src/types/derive.nupp"] = readFile(HERE .. "/../src/types/derive.nupp"),
+        ["src/types/reflect.nupp"] = readFile(HERE .. "/../src/types/reflect.nupp"),
+    })
+    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "markdown", output = "api.md"}) == 0)
+    local api = readFile(dir .. "/api.md")
+    for _, name in ipairs({
+        "types.string",
+        "types.optional",
+        "types.newStore",
+        "types.derive.implement",
+        "types.reflect.runtime"
+    }) do
+        assert(api:find('<a id="' .. name .. '"></a>', 1, true), name .. " is absent from the generated reference")
+    end
+    assert(not api:find('id="types.__', 1, true), "private compiler members leaked into the reference")
+    os.execute("rm -rf '" .. dir .. "'")
 end
 
 function M.spiReferenceShowsTheInterfaceArgumentRatherThanItsLowering()
@@ -1413,7 +1435,7 @@ function M.standardLibraryBackingRecordsStayInternal()
         end
     end
     assert(closeable, "the prelude did not document Closeable")
-    assert(closeable.module == "nupp", "Closeable is not owned by the nupp module")
+    assert(closeable.module == "own", "Closeable is not owned by the own module")
     assert(
         closeable.signature:find("interface own.Closeable is own.Affine<self.close>", 1, true),
         "Closeable lost its qualified declaration"

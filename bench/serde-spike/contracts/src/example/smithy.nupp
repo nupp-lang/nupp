@@ -30,7 +30,7 @@ export record Shape
     end
 
     function at(self, index: integer): Member
-        return assert(self.members[index], "shape member index out of range")
+        return (assert(self.members[index], "shape member index out of range"))
     end
 end
 
@@ -51,7 +51,7 @@ export record Model
     @private @readonly shapes: {[string]: Shape}
 
     function shape(self, id: string): Shape
-        return assert(self.shapes[id], "unknown Smithy shape: " .. id)
+        return (assert(self.shapes[id], "unknown Smithy shape: " .. id))
     end
 end
 

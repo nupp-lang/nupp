@@ -84,9 +84,9 @@ local FORMER_DROP_OWNERS = {
     "local struct Row\n    x: int32\nend\nlocal owner = nupp.mem.soa.allocate(ffi.typeof<Row>(), 4)",
 }
 
-function M.everyStandardOwnerClosesThroughNuppDropAlone()
+function M.everyStandardOwnerClosesThroughOwnDropAlone()
     for _, acquire in ipairs(FORMER_DROP_OWNERS) do
-        assertClean(acquire .. "\nnupp.drop(owner)")
+        assertClean(acquire .. "\nown.drop(owner)")
         -- Read as a field rather than called: a method call on an owner is not
         -- checked for the member's existence, and a field read is.
         local got = diagsOf(acquire .. "\nprint(owner.drop)")
@@ -869,7 +869,7 @@ function M.filesystemNamesAreFilesPathsEverywhere()
                 "end",
                 "send('/tmp/x')",
                 "send(paths.newPath('/tmp/x'))",
-                "send(assert(files.dataPath()))",
+                "send((assert(files.dataPath())))",
             },
             "\n"
         )

@@ -3,6 +3,7 @@ module nupp.compiler.check.derive
 --[[
 Declaration derives use one closed provider and recipe pipeline.
 ]]
+const assert2 = require("assert")
 
 local apiidentity = require("nupp.compiler.apiidentity")
 local T = require("nupp.compiler.types")
@@ -663,7 +664,7 @@ function derive.install(c: state.Checker): derive.Ops
                 fingerprintInput.fields[index].claims[claimIndex] = claim.descriptor.fingerprint
             end
         end
-        input.fingerprint = hash.sha256((assert(recipeCodec.canonical(fingerprintInput))))
+        input.fingerprint = hash.sha256((assert2(recipeCodec.canonical(fingerprintInput))))
         local helperKeys: {string} = {}
         local helperFingerprints = {}
         for key in pairs(provider.sealedProgram.runtimeHelpers or {}) do
@@ -1695,7 +1696,7 @@ function derive.install(c: state.Checker): derive.Ops
         c.result.deriveInterface = interface
         local interfaceBytes = recipeCodec.canonical(interface)
         c.moduleExports.deriveInterfaceFingerprint = #interface > 0
-            and hash.sha256("nupp.derive.interface\0v1\0" .. assert(interfaceBytes))
+            and hash.sha256("nupp.derive.interface\0v1\0" .. assert2(interfaceBytes))
             or nil
 
         local observations = {}

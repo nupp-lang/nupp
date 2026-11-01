@@ -1,5 +1,7 @@
 module example.openapi
 
+const assert2 = require("assert")
+
 local __serdeJson = require("serde.json")
 
 local core = require("serde")
@@ -74,12 +76,12 @@ local function choose(schema: Model, value: documents.Document): Choice
     if value.kind == "string" then
         return new Choice(alternative = "text", value = value)
     else
-        assert(value.kind == "numberToken", "oneOf accepts text or an integer")
+        assert2(value.kind == "numberToken", "oneOf accepts text or an integer")
         local token = value:numberToken()
-        assert(token:match("^%-?%d+$") ~= nil, "oneOf integer branch refused a fraction")
-        local parsed = assert(tonumber(token), "invalid integer")
-        assert(parsed >= -2147483648 and parsed <= 2147483647, "oneOf integer overflow")
-        assert(not schema.positiveAlternative or parsed <= 0, "ambiguous oneOf: two integer alternatives match")
+        assert2(token:match("^%-?%d+$") ~= nil, "oneOf integer branch refused a fraction")
+        local parsed = assert2(tonumber(token), "invalid integer")
+        assert2(parsed >= -2147483648 and parsed <= 2147483647, "oneOf integer overflow")
+        assert2(not schema.positiveAlternative or parsed <= 0, "ambiguous oneOf: two integer alternatives match")
         return new Choice(alternative = "integer", value = value)
     end
 end
@@ -92,7 +94,7 @@ local record Alternatives is core.Adapter<Choice, Property>
 
     function write(self, borrows value: Choice, exclusive writer: core.Writer<Property>): nil
         local selected = choose(self.schema, value.value)
-        assert(selected.alternative == value.alternative, "wrong oneOf selection")
+        assert2(selected.alternative == value.alternative, "wrong oneOf selection")
         if selected.alternative == "text" then
             writer:writeString(self.schema.payload, selected.value:string())
         else
@@ -122,10 +124,10 @@ local record Construction is structures.Construction<Value, Builder>
     function finish(self, takes state: Builder): Value
         local owned: Builder = state
         local result = new Value(
-            name = assert(owned.name, "required name"),
+            name = assert2(owned.name, "required name"),
             secret = owned.secret,
             identifier = owned.identifier,
-            payload = assert(owned.payload, "required payload"),
+            payload = assert2(owned.payload, "required payload"),
             additional = owned.additional
         )
         owned:close()
@@ -156,7 +158,7 @@ local record Additional is core.Members<Property, Value>
         for _, name in ipairs(names) do
             writer:writeUnknown(
                 new jsonDocument.FieldName(name = name),
-                assert(value.additional[name]),
+                assert2(value.additional[name]),
                 documents.adapter()
             )
         end
@@ -232,7 +234,7 @@ local record DocumentConstruction is structures.Construction<documents.Document,
     function finish(self, takes state: DocumentBuilder): documents.Document
         local owned: DocumentBuilder = state
         local value = documents.object(owned.fields)
-        assert(value:get("name") ~= nil and value:get("payload") ~= nil, "missing required OpenAPI property")
+        assert2(value:get("name") ~= nil and value:get("payload") ~= nil, "missing required OpenAPI property")
         for _, name in ipairs({"secret", "id"}) do
             if value:get(name) == nil then
                 owned.fields[#owned.fields + 1] = new documents.Entry(name = name, value = documents.string(""))
@@ -255,7 +257,7 @@ local record DocumentField is structures.Field<documents.Document, DocumentBuild
 
     function write(self, borrows source: documents.Document, exclusive writer: core.Writer<Property>): nil
         local value = source:get(self.member.name)
-        assert(value ~= nil or not self.required, "missing required OpenAPI property")
+        assert2(value ~= nil or not self.required, "missing required OpenAPI property")
         if value ~= nil then
             self.adapter:write(value, writer)
         end
@@ -277,7 +279,7 @@ local record DocumentField is structures.Field<documents.Document, DocumentBuild
             structures.copiedGet<documents.Document, documents.Document>(function(
                 borrows source: documents.Document
             ): documents.Document
-                return assert(source:get(name), "absent property")
+                return (assert2(source:get(name), "absent property"))
             end),
             function(exclusive state: DocumentBuilder, value: documents.Document): nil
                 state.fields[#state.fields + 1] = new documents.Entry(name = name, value = value)
@@ -345,7 +347,7 @@ local record DocumentAdditional is core.Members<Property, documents.Document>
         end
         table.sort(names)
         for _, name in ipairs(names) do
-            writer:writeUnknown(new jsonDocument.FieldName(name = name), assert(value:get(name)), documents.adapter())
+            writer:writeUnknown(new jsonDocument.FieldName(name = name), assert2(value:get(name)), documents.adapter())
         end
     end
 end
@@ -383,7 +385,7 @@ local record Policy<M is core.Member> is plans.Policy<M>
     end
 
     function select(self, member: M, direction: core.Direction): plans.Selection
-        assert(getmetatable(member) == Property, "OpenAPI policy needs its own property handles")
+        assert2(getmetatable(member) == Property, "OpenAPI policy needs its own property handles")
         local property = member as Property
         if self.view == "request" and property.readOnly or self.view == "response" and property.writeOnly then
             return "omit"
@@ -407,7 +409,7 @@ local record Factory is plans.PolicyFactory
         if documentPolicy ~= nil then
             return documentPolicy
         end
-        assert(getmetatable(member) == Property, "OpenAPI policy needs its own model")
+        assert2(getmetatable(member) == Property, "OpenAPI policy needs its own model")
 
         return new Policy<M>(view = self.view)
     end

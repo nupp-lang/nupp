@@ -28,7 +28,7 @@ return {
         targets = {
             app = target("scalar", "dist/app.lua", "build/app"),
             scalar = target("scalar", "dist/scalar.lua", "build/scalar", {minimum = "scalar", maximum = "scalar"}),
-            simd = target("simd", "dist/simd.lua", "build/simd", {minimum = "simd128"}),
+            simd = target("vector_kernel", "dist/simd.lua", "build/simd", {minimum = "simd128"}),
         },
     },
 

@@ -29,7 +29,7 @@ return {
             ] = {
                 kind = "modules",
                 description = "Build the digest with its `@aot` entry compiled",
-                entries = {"debug.bench.sha256"},
+                entries = {"nupp.bench.sha256"},
                 optimize = 1,
                 aot = "require",
                 dependencies = {"sha256_control"},
@@ -39,7 +39,7 @@ return {
             ] = {
                 kind = "modules",
                 description = "Build the same source with `@aot` left to LuaJIT",
-                entries = {"debug.bench.sha256"},
+                entries = {"nupp.bench.sha256"},
                 optimize = 1,
                 aot = "off",
             },

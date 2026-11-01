@@ -44,6 +44,10 @@ local materializingDefault: {[Type]: boolean} = {}
 
 local MATERIALIZE = "materialize"
 
+-- Explicit instantiation refreshes each reachable application once per walk.
+local refreshingInstantiations: {[string]: boolean}?
+local pendingInstantiations: {[T.Nominal]: boolean} = {}
+
 --- Normalization state, carried through the walk when one is running. Absent means
 --- the walk is an ordinary substitution and a projection is rebuilt, not reduced.
 ---
@@ -333,8 +337,10 @@ substWith = function(t: Type, map: Bindings, unmapped: string): Type
     elseif tag == "nominal" and t.origin then
         local origin = t.origin as T.Nominal
         local applied = {}
+        local changed = false
         for j, parameter in ipairs(origin.typeParams or {}) do
-            local argument = t.typeArgs and t.typeArgs[j] or T.any
+            local original = t.typeArgs and t.typeArgs[j] or T.any
+            local argument = original
             -- A module summary can materialize the enclosing function binder and
             -- the binder stored in this nested nominal argument as separate tables.
             -- Match that one argument by its serialized id before substituting it.
@@ -347,14 +353,23 @@ substWith = function(t: Type, map: Bindings, unmapped: string): Type
                 end
             end
             applied[parameter] = substWith(argument, map, unmapped)
+            changed = changed or applied[parameter] ~= original
         end
         for j, parameter in ipairs(origin.packParams or {}) do
             local argument = t.packArgs and t.packArgs[j] or T.pack({}, {kind = "unknown", type = T.any})
             applied[parameter] = substPackWith(argument, map, unmapped)
+            changed = changed or applied[parameter] ~= argument
         end
         for j, parameter in ipairs(origin.constParams or {}) do
             local argument = t.constArgs and t.constArgs[j] or parameter
             applied[parameter] = substConst(argument, map)
+            changed = changed or applied[parameter] ~= argument
+        end
+        -- An unrelated binder does not change this application. Refreshing its
+        -- members here would traverse every recursive nominal graph encountered by
+        -- each separately bound method, even though no substitution reached it.
+        if not changed and refreshingInstantiations == nil and not pendingInstantiations[t] then
+            return t
         end
         return generics.instantiate(origin, applied)
     elseif tag == "func" then
@@ -1637,12 +1652,6 @@ end
 -- fields are substituted. Identical arguments give the identical type, so the
 -- instantiations are kept rather than rebuilt.
 local instantiations: {[string]: T.Nominal} = {}
--- One refresh walks a graph, not every path through it. Keep completed visits until
--- the outer application returns, then forget them so later declarations are visible.
-local refreshingInstantiations: {[string]: boolean}?
--- Instantiations reserved before their declaration could be read, which the next
--- `generics.instantiate` of the same application completes in place.
-local pendingInstantiations: {[T.Nominal]: boolean} = {}
 
 --- Substitution can intern new types and packs, so visit member names in a stable
 --- order. Recollect them on every refresh: declarations can still gain members.

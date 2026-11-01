@@ -9,6 +9,8 @@ that is not already current, and copies the resources the target declared. What
 own text, the interfaces it imported, the compiler that would compile it -- so a
 change anywhere in that set rebuilds it and a change anywhere else does not.
 ]]
+const assert2 = require("assert")
+
 const files = require("nupp.io.files")
 const {type Target as Target2} = require("nupp.tools.build.manifest")
 const {type Inc} = require("nupp.compiler.project.incremental")
@@ -780,7 +782,7 @@ local function openSession(
         if not stagedReady then
             if not isolated then
                 files.remove(stagedRoot, true)
-                assert(fs.mkdir(stagedRoot), "cannot create runtime source staging tree")
+                assert2(fs.mkdir(stagedRoot), "cannot create runtime source staging tree")
             end
             inc.env.roots[#inc.env.roots + 1] = stagedRoot
             stagedReady = true
@@ -792,7 +794,7 @@ local function openSession(
         local path = join(stagedRoot, name:gsub("%.", "/") .. suffix)
         if not isolated then
             local wrote, problem = writeFile(path, source)
-            assert(wrote, problem)
+            assert2(wrote, problem)
         end
         inc.stageCarriedDocument(name, path, source)
         staged[#staged + 1] = {name = name, replaceTypeOnly = replaceTypeOnly}

@@ -1,4 +1,4 @@
-module debug.bench.sha256
+module nupp.bench.sha256
 
 --[[
 What the benchmark measures, behind one name.

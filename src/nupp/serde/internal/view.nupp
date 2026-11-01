@@ -1,5 +1,7 @@
 module nupp.serde.internal.view
 
+const assert2 = require("assert")
+
 local core = require("nupp.serde.internal.value")
 local documents = require("nupp.serde.internal.document")
 local bridge = require("nupp.serde.internal.documentcodec")
@@ -52,7 +54,7 @@ local record Contents<T is own.Copyable, M is core.Member> is core.Adapter<View<
     end
 
     function write(self, borrows value: View<T>, exclusive writer: core.Writer<M>): nil
-        assert(value.binding == self.binding, "typed document belongs to another binding")
+        assert2(value.binding == self.binding, "typed document belongs to another binding")
         self.original:write(value.value, writer)
     end
 
@@ -73,7 +75,7 @@ local record Adapter<T is own.Copyable> is core.DocumentAdapter<View<T>>
     @readonly binding: core.Binding<T>
     @readonly selected: core.Binding<View<T>>
     function context(self, borrows document: View<T>): core.Context?
-        assert(document.binding == self.binding, "typed document belongs to another binding")
+        assert2(document.binding == self.binding, "typed document belongs to another binding")
         return document:context()
     end
 
@@ -98,5 +100,5 @@ end
 export function adapter<T is own.Copyable>(binding: core.Binding<T>): core.DocumentAdapter<View<T>>
     local select = new Select<T>(binding = binding)
     binding:accept(select, nil)
-    return new Adapter<T>(binding = binding, selected = assert(select.result))
+    return new Adapter<T>(binding = binding, selected = assert2(select.result))
 end

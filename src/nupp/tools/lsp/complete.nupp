@@ -28,6 +28,7 @@ local COMPTIME_GLOBALS = {
     table = true,
     bit = true,
     nupp = true,
+    types = true,
 }
 
 --- What the cursor is completing: the dotted receiver in front of it, whether it was

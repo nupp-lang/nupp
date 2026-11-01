@@ -167,7 +167,8 @@ Passing anything file-like instead keeps the built-in rendering and only moves
 where it goes:
 
 ```nupp
-log.setSink(assert(io.open("game.log", "a")))
+local sink = assert(io.open("game.log", "a"))
+log.setSink(sink)
 ```
 
 `io.open` returns `LuaFile?`, and `setSink` takes a target rather than a maybe,

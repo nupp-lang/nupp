@@ -820,15 +820,15 @@ export function info(format: string, value: integer?): nil end
 ]], function(env)
         local missingModules = {}
         for _, source in ipairs({
-            'nupp.log.info("value=%d", 1)',
-            'local logger = require("nupp.log")\nlogger.info("value=%d", 1)',
+            'local logger = log\nlogger.info("value=%d", 1)',
+            'local logger = require("log")\nlocal alias = logger\nalias.info("value=%d", 1)',
             'log.info("value=%d", 1)',
             'local logger = require("log")\nlogger.info("value=%d", 1)',
         }) do
             local code, errors, parsed = compile(source, env)
             test.equal(errors, "", errors)
             local stats = parsed.root.blocks[1].stats
-            local expectedModule = source:find("nupp.log", 1, true) and "nupp.log" or "log"
+            local expectedModule = "log"
             test.equal(stats[#stats].expr.logIntrinsic, 3, source)
             test.equal(stats[#stats].expr.logModule, expectedModule, source)
             if not code:find('require("' .. expectedModule .. '").forModule', 1, true) then

@@ -29,6 +29,8 @@ query graph the module build then uses: a parse says how a parameter, a call
 target or an annotation was spelled, and only a check says what each resolved
 to.
 ]]
+const assert2 = require("assert")
+
 const {type Session} = require("nupp.tools.build.modules")
 const {type ParseResult} = require("nupp.compiler.syntax.parser")
 const {type Archive} = require("nupp.compiler.aot.binding")
@@ -388,7 +390,7 @@ function aot.dispatch(
             local replacement: string
             if program.executionTarget == "gpu" then
                 local artifact = gpuArtifacts[program.symbol]
-                assert(artifact ~= nil, "GPU program has no emitted shader")
+                assert2(artifact ~= nil, "GPU program has no emitted shader")
                 replacement = gpuBinding.replacement(program, artifact, browser)
             else
                 replacement = bindingRules.replacement(

@@ -1,5 +1,7 @@
 module nupp.serde.internal.documentreader
 
+const assert2 = require("assert")
+
 local core = require("nupp.serde.internal.value")
 local publication = require("nupp.serde.internal.publication")
 local documents = require("nupp.serde.internal.document")
@@ -18,15 +20,15 @@ export record Reader is core.DocumentReader, own.Closeable
     --- Checks that the reader's value was consumed.
     --- @raises string when the reader is closed or its value was not consumed
     function finish(borrows self): nil
-        assert(not self.expired and self.used, "document adapter did not consume its value")
+        assert2(not self.expired and self.used, "document adapter did not consume its value")
     end
 
     --- Checks that the reader can still be read.
     --- @raises string when the reader is closed
     --- @raises string when its value is already consumed
     function live(self): nil
-        assert(not self.expired, "document reader scope has expired")
-        assert(not self.used, "document value has already been consumed")
+        assert2(not self.expired, "document reader scope has expired")
+        assert2(not self.used, "document value has already been consumed")
     end
 
     --- Returns the context of the value being read.
@@ -50,7 +52,7 @@ export record Reader is core.DocumentReader, own.Closeable
     --- @raises string when the value is not of `kind`
     function consume(exclusive self, kind: core.Kind): nil
         self:live()
-        assert(self.value.kind == kind, "document kind mismatch")
+        assert2(self.value.kind == kind, "document kind mismatch")
         self.used = true
     end
 
@@ -179,7 +181,7 @@ export record Reader is core.DocumentReader, own.Closeable
                 expired = false
             )
             consumer:apply(state, index, child)
-            assert(child.used, "document callback did not consume its value")
+            assert2(child.used, "document callback did not consume its value")
         end
     end
 
@@ -224,7 +226,7 @@ export record Reader is core.DocumentReader, own.Closeable
                 expired = false
             )
             consumer:apply(state, field.name, child)
-            assert(child.used, "document callback did not consume its value")
+            assert2(child.used, "document callback did not consume its value")
         end
     end
 
@@ -273,7 +275,7 @@ export record Reader is core.DocumentReader, own.Closeable
                 expired = false
             )
             consumer:apply(state, key, value)
-            assert(key.used and value.used, "document callback must consume both key and value")
+            assert2(key.used and value.used, "document callback must consume both key and value")
         end
     end
 end
