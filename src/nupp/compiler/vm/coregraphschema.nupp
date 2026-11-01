@@ -70,6 +70,7 @@ function schema.describe(version: integer?): any
         policies[#policies + 1] = {name = "SetIdx", signature = "vvv", effect = 1, provenance = "table"}
         policies[#policies + 1] = {name = "Len", signature = "Vv", effect = 1, provenance = "table"}
         policies[#policies + 1] = {name = "MathFloor", signature = "Vv", effect = 1, provenance = "number"}
+        policies[#policies + 1] = {name = "LibCall", signature = "V#", effect = 1, provenance = "library"}
     end
     local scalarKinds: any = {{id = 0, name = "boolean"}, {id = 1, name = "nil"}}
     if v >= 3 then

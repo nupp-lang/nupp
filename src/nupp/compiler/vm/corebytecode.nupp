@@ -24,6 +24,7 @@ local recipes: any = {
     GetUpval = {{"v", "def", 1, 1}, {"n", "use", 4, 4}},
     NewTable = {{"v", "def", 1, 1}},
     MathFloor = {{"v", "def", 1, 1}, {"v", "use", 2, 1}},
+    LibCall = {{"v", "def", 1, 1}, {"n", "use", 2, 1}, {"v", "check", 3, 1}, {"n", "use", 4, 1}},
     GetIdx = {{"v", "def", 1, 1}, {"v", "use", 2, 1}, {"v", "use", 3, 1}},
     SetIdx = {{"v", "use", 1, 1}, {"v", "use", 2, 1}, {"v", "use", 3, 1}},
     Len = {{"v", "def", 1, 1}, {"v", "use", 2, 1}},
@@ -51,6 +52,7 @@ local policies: any = {
     GetUpval = {"next", ""},
     NewTable = {"next", ""},
     MathFloor = {"next", ""},
+    LibCall = {"next", ""},
     GetIdx = {"next", ""},
     SetIdx = {"next", ""},
     Len = {"next", ""},
@@ -65,7 +67,7 @@ for index, name in ipairs(opcodes.names()) do
 end
 -- Core-only opcodes take ids above the frozen VM's table. Each is final-core
 -- behavior with no frozen VM counterpart.
-local coreOnly: any = {MathFloor = 250}
+local coreOnly: any = {MathFloor = 250, LibCall = 251}
 for name, id in pairs(coreOnly) do
     assert(id > #opcodes.names() and id < 256, "core-only opcode id")
     ids[name] = id

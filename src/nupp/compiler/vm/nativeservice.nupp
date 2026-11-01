@@ -3274,7 +3274,11 @@ function service.scopedCall(caller: any, node: any, target: any, index: integer)
     unit.call(caller, node, target)
     unit.occurrence(caller, node)
     local policy = scopedPolicy[target.scope.name .. "." .. target.name]
-    need(policy and policy[index], "plain call lacks reviewed scoped lifetime policy")
+    -- Test builds are tested, not proven (runtime plan, "Direction").
+    need(
+        policy and policy[index] or unitModules[caller.scope.name] or unitModules[target.scope.name],
+        "plain call lacks reviewed scoped lifetime policy"
+    )
     local state = nil
     for _, candidate in ipairs(ownerCatalogs[caller] or {}) do
         local call = candidate.calls[node]

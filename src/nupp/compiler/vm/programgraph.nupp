@@ -440,7 +440,9 @@ function program.describe(modules: {any}, entryModule: string): any
             local item = {id = #p.calls, owner = owner.id, node = node, definition = node.obj.token.definition}
             p.calls[#p.calls + 1], p.callByNode[node] = item, item
         end
-        local constant = literal(node)
+        -- A parenthesized literal is registered at the literal itself, which is
+        -- what lowering reads once it has looked through the parentheses.
+        local constant = node.kind ~= "paren" and literal(node)
         if constant then
             constant.id, constant.owner, constant.node = #p.constants, owner.id, node
             p.constants[#p.constants + 1], p.byNode[node] = constant, constant

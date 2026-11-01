@@ -15,6 +15,8 @@ const servicescope = require("nupp.runtime.core.servicescope")
 const context = require("nupp.runtime.core.context")
 const values = require("nupp.runtime.vm.values")
 const tables = require("nupp.runtime.core.coretables")
+const strings = require("nupp.runtime.core.corestrings")
+const catalog = require("nupp.runtime.core.guestcatalog")
 
 -- The scope comes first, so a Services address is also its scope's address.
 export struct Services
@@ -180,5 +182,27 @@ export function tableSet(ctx: voidptr, table: uint64, key: uint64, value: uint64
         tables.drain(h)
 
         return status
+    end
+end
+
+-- The interned string a v8 string constant word names in the catalog data;
+-- answers its header address.
+export function stringConstant(ctx: voidptr, word: uint64): uint64
+    @unsafe do
+        local c = native.loadPointer(ctx, context.CATALOG)
+        local data = native.load64(c, native.fieldOffset<catalog.Catalog>("data"))
+        local at = data + (word & values.PAYLOAD)
+        return strings.make(
+            native.pointer(guestHeap(ctx)) as heap.Heap*,
+            at + 8ULL,
+            native.load64(native.pointer(at), 0)
+        )
+    end
+end
+
+-- The interned string of `count` bytes at `bytes`, on the entry's heap.
+export function makeString(ctx: voidptr, bytes: uint64, count: uint64): uint64
+    @unsafe do
+        return strings.make(native.pointer(guestHeap(ctx)) as heap.Heap*, bytes, count)
     end
 end

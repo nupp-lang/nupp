@@ -74,6 +74,22 @@ function tagged.emit(ctx: any, node: any, op: string, args: any, kind: string?):
     return graph.emit(ctx.g, ctx.block, op, args, ctx.position(node))
 end
 
+-- A core library call (guestlib): its arguments staged as values.
+local function libraryCall(ctx: any, node: any, id: integer, arguments: any): integer
+    need(#arguments >= 1 and #arguments <= 4, "core library calls take one to four arguments")
+    local kinds = {}
+    for index = 1, #arguments do
+        kinds[index] = "tagged"
+    end
+    local operands = ctx.operands(arguments, kinds)
+    if operands == nil then
+        return nil as any
+    end
+    table.insert(operands, 1, id)
+
+    return ctx.emit(node, "LibCall", operands, "tagged") as integer
+end
+
 -- The nominal record type behind a checked type, or nil.
 local function recordOrigin(t: any): any
     while t and (t.tag == "const" or t.tag == "literal") do
@@ -109,7 +125,12 @@ end
 
 function tagged.literal(ctx: any, node: any, expected: string?): integer
     need(expected == nil or expected == "tagged", "literal requires tagged destination")
-    local constant = need(catalog(ctx).byNode[node], "literal lacks checked constant identity")
+    local constant = need(
+        catalog(ctx).byNode[node],
+        "literal lacks checked constant identity: " .. tostring(
+            node.kind
+        ) .. " at line " .. tostring(node.token and node.token.line or node.op and node.op.line)
+    )
     if constant.kind == "nil" then
         return ctx.emit(node, "Nil", {}, "tagged")
     end
@@ -588,6 +609,47 @@ function tagged.forVersion(version: integer): any
         -- metatable could tell apart; the core has none yet.
         profile.genericFor = function(ctx: any, stat: any): any
             local source = stat.exprs[1]
+            -- `for a, b in s:gmatch(p)`: a state table {s, p, src, last}
+            -- advanced by the gmatch step, which leaves the match from key 5.
+            if #stat.exprs == 1 and graph.coreLibraryCall(source) == "string.gmatch" then
+                need(#(source.args.exprs or {}) == 1 and #stat.names <= 4, "gmatch takes one pattern")
+                local operands = ctx.operands({source.obj, source.args.exprs[1]}, {"tagged", "tagged"})
+                if operands == nil then
+                    return nil
+                end
+                local held = {ctx.hold(operands[1]), ctx.hold(operands[2])}
+                local state = ctx.emit(stat, "NewTable", {}, "tagged")
+                for index, handle in ipairs(held) do
+                    local key = ctx.emit(stat, "K", {pool(ctx, "int64", tostring(index))}, "tagged")
+                    ctx.emit(stat, "SetIdx", {state, key, ctx.readHeld(handle)}, nil)
+                    ctx.release(handle)
+                end
+                local srcKey = ctx.emit(stat, "K", {pool(ctx, "int64", "3")}, "tagged")
+                local zero = ctx.emit(stat, "K", {pool(ctx, "int64", "0")}, "tagged")
+                ctx.emit(stat, "SetIdx", {state, srcKey, zero}, nil)
+
+                local function step(c: any, node: any, v: any): (integer, boolean)
+                    return c.emit(node, "LibCall", {4, v[1]}, "tagged"), false
+                end
+
+                return {
+                    values = {state},
+                    first = step,
+                    test = step,
+                    advance = function(c: any, node: any, v: any): (integer, integer?)
+                        return v[1], nil
+                    end,
+                    bind = function(c: any, node: any, v: any): any
+                        local bound = {}
+                        for index = 1, #stat.names do
+                            local key = c.emit(node, "K", {pool(c, "int64", tostring(4 + index))}, "tagged")
+                            bound[index] = c.emit(node, "GetIdx", {v[1], key}, "tagged")
+                        end
+
+                        return bound
+                    end
+                }
+            end
             need(
                 #stat.exprs == 1
                 and source.kind == "call"
@@ -636,6 +698,10 @@ function tagged.forVersion(version: integer): any
             if node.runtimeLoader == "require" then
                 return tagged.call(ctx, node, expected)
             end
+            local library = graph.coreLibraryCall(node)
+            if library == "tostring" or library == "table.concat" then
+                return libraryCall(ctx, node, library == "tostring" and 1 or 3, node.args.exprs or {})
+            end
             if graph.coreLibraryCall(node) == "math.floor" then
                 need(#(node.args.exprs or {}) == 1, "math.floor takes one number")
                 local operand = ctx.expression(node.args.exprs[1], "tagged")
@@ -647,6 +713,17 @@ function tagged.forVersion(version: integer): any
             need(expected == nil or expected == "tagged", "call requires tagged destination")
 
             return invoke(ctx, node, true, true) as integer
+        end
+        -- s:format(...) on a checked string.
+        profile.methodCall = function(ctx: any, node: any, expected: string?): integer
+            need(expected == nil or expected == "tagged", "method call requires tagged destination")
+            need(graph.coreLibraryCall(node) == "string.format", "only string format method calls are admitted")
+            local arguments = {node.obj}
+            for _, argument in ipairs(node.args.exprs or {}) do
+                arguments[#arguments + 1] = argument
+            end
+
+            return libraryCall(ctx, node, 2, arguments)
         end
         profile.statementCall = function(ctx: any, node: any): nil
             if node.runtimeLoader == "require" then

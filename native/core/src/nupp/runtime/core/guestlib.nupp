@@ -1,0 +1,243 @@
+module nupp.runtime.core.guestlib
+
+-- Lua library functions the final core implements, reached through the
+-- core-only LibCall opcode: the handler passes up to four argument values and
+-- this leaf answers the result value. Unsupported forms raise rather than
+-- answer something Lua would not: float text (tostring, %d of a float) and
+-- format directives other than %d, %s and %%.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+const context = require("nupp.runtime.core.context")
+const strings = require("nupp.runtime.core.corestrings")
+const tables = require("nupp.runtime.core.coretables")
+const patterns = require("nupp.runtime.core.corepattern")
+const guestscope = require("nupp.runtime.core.guestscope")
+
+export const TOSTRING: uint64 = 1ULL
+export const FORMAT: uint64 = 2ULL
+export const CONCAT: uint64 = 3ULL
+export const GMATCH_NEXT: uint64 = 4ULL
+
+local function integerValue(value: uint64): int64
+    local payload = value & values.PAYLOAD
+    if payload & 0x0000800000000000ULL ~= 0ULL then
+        payload = payload | 0xffff000000000000ULL
+    end
+
+    return native.index(payload)
+end
+
+local function isInteger(value: uint64): boolean
+    return value & 0xffff000000000000ULL == values.TAG_INTEGER
+end
+
+local function guestHeap(ctx: voidptr): heap.Heap*
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        return native.pointer(native.load64(services, native.fieldOffset<guestscope.Services>("heap"))) as heap.Heap*
+    end
+end
+
+-- Appends Lua's tostring of `value`: strings as they are, integers in
+-- decimal, booleans and nil by name.
+local function appendText(h: heap.Heap*, b: strings.Builder*, value: uint64): uint64
+    local s = strings.header(value)
+    if s ~= 0ULL then
+        return strings.appendString(h, b, s)
+    end
+    if isInteger(value) then
+        return strings.appendInteger(h, b, integerValue(value))
+    end
+    -- "true", "false" and "nil" as little-endian byte words.
+    if value == values.TRUE then
+        return strings.appendWord(h, b, 0x65757274ULL, 4ULL)
+    elseif value == values.FALSE then
+        return strings.appendWord(h, b, 0x65736c6166ULL, 5ULL)
+    elseif value == values.NIL then
+        return strings.appendWord(h, b, 0x6c696eULL, 3ULL)
+    end
+    error("tostring of this value is not yet supported by the core")
+
+    return 1ULL
+end
+
+local function tostring(ctx: voidptr, value: uint64): uint64
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = guestHeap(ctx)
+        if strings.header(value) ~= 0ULL then
+            return value
+        end
+        local builder = state as strings.Builder*
+        if appendText(h, builder, value) ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
+        return values.TAG_OBJ | strings.finish(h, builder)
+    end
+end
+
+-- string.format with %d, %s and %%; up to three arguments after the format.
+local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: uint64, c: uint64): uint64
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = guestHeap(ctx)
+        local f = strings.header(fmt)
+        if f == 0ULL then
+            error("bad argument #1 to 'format' (string expected)")
+        end
+        local builder = state as strings.Builder*
+        local p = strings.bytes(f)
+        local finish = p + strings.length(f)
+        local next: uint64 = 1ULL
+        while p < finish do
+            local ch = native.word(native.load8(native.pointer(p), 0))
+            if ch ~= 37ULL then
+                strings.append(h, builder, p, 1ULL)
+                p = p + 1ULL
+            else
+                if p + 1ULL >= finish then
+                    error("invalid conversion '%' to 'format'")
+                end
+                local directive = native.word(native.load8(native.pointer(p + 1ULL), 0))
+                if directive == 37ULL then
+                    strings.append(h, builder, p, 1ULL)
+                else
+                    if next >= count then
+                        error("bad argument to 'format' (no value)")
+                    end
+                    local argument = a
+                    if next == 2ULL then
+                        argument = b
+                    elseif next == 3ULL then
+                        argument = c
+                    end
+                    next = next + 1ULL
+                    if directive == 100ULL then
+                        if not isInteger(argument) then
+                            error("bad argument to 'format' (number has no integer representation)")
+                        end
+                        strings.appendInteger(h, builder, integerValue(argument))
+                    elseif directive == 115ULL then
+                        appendText(h, builder, argument)
+                    else
+                        error("format directive not yet supported by the core")
+                    end
+                end
+                p = p + 2ULL
+            end
+        end
+        return values.TAG_OBJ | strings.finish(h, builder)
+    end
+end
+
+-- table.concat(t, sep) over t[1..#t], whose elements are strings or numbers.
+local function concat(ctx: voidptr, count: uint64, list: uint64, separator: uint64): uint64
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = guestHeap(ctx)
+        if list & values.TAG_MASK ~= values.TAG_OBJ then
+            error("bad argument #1 to 'concat' (table expected)")
+        end
+        local t = list & values.PAYLOAD
+        local sep: uint64 = 0ULL
+        if count >= 2ULL and separator ~= values.NIL then
+            sep = strings.header(separator)
+            if sep == 0ULL then
+                error("bad argument #2 to 'concat' (string expected)")
+            end
+        end
+        local builder = state as strings.Builder*
+        local n = tables.length(t)
+        local i: uint64 = 1ULL
+        while i <= n do
+            local item = tables.get(t, values.TAG_INTEGER | i)
+            if strings.header(item) == 0ULL and not isInteger(item) then
+                strings.release(builder)
+                error("invalid value (at index) in table for 'concat'")
+            end
+            appendText(h, builder, item)
+            if i < n and sep ~= 0ULL then
+                strings.appendString(h, builder, sep)
+            end
+            i = i + 1ULL
+        end
+        return values.TAG_OBJ | strings.finish(h, builder)
+    end
+end
+
+-- One step of `for ... in s:gmatch(p)`, over a state table {s, p, src, last}
+-- with byte offsets: finds the next match as lstrlib's gmatch_aux does and
+-- stores its captures (or the whole match) from key 5. Answers true or false.
+local function gmatchNext(ctx: voidptr, stateValue: uint64): uint64
+    local ms0 = new patterns.MatchState(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = guestHeap(ctx)
+        local state = stateValue & values.PAYLOAD
+        local s = strings.header(tables.get(state, values.TAG_INTEGER | 1ULL))
+        local p = strings.header(tables.get(state, values.TAG_INTEGER | 2ULL))
+        if s == 0ULL or p == 0ULL then
+            error("bad argument to 'gmatch' (string expected)")
+        end
+        local src = native.word(integerValue(tables.get(state, values.TAG_INTEGER | 3ULL)))
+        local last = tables.get(state, values.TAG_INTEGER | 4ULL)
+        local ms = ms0 as patterns.MatchState*
+        local subject = strings.bytes(s)
+        local pattern = strings.bytes(p)
+        if patterns.prepare(h, ms, subject, strings.length(s), pattern + strings.length(p)) ~= 0ULL then
+            patterns.release(ms)
+            error("not enough memory")
+        end
+        local at = subject + src
+        local finish = subject + strings.length(s)
+        local answer = values.FALSE
+        while at <= finish do
+            local e = patterns.match(h, ms, at, pattern)
+            if e ~= 0ULL and (last == values.NIL or e ~= subject + native.word(integerValue(last))) then
+                tables.set(h, state, values.TAG_INTEGER | 3ULL, values.TAG_INTEGER | (e - subject))
+                tables.set(h, state, values.TAG_INTEGER | 4ULL, values.TAG_INTEGER | (e - subject))
+                local captures = patterns.level(ms)
+                if captures == 0ULL then
+                    tables.set(h, state, values.TAG_INTEGER | 5ULL, values.TAG_OBJ | strings.make(h, at, e - at))
+                end
+                local i: uint64 = 0ULL
+                while i < captures do
+                    local start = patterns.captureStart(ms, i)
+                    local size = patterns.captureSize(ms, i)
+                    local value = values.TAG_INTEGER | (start - subject + 1ULL)
+                    if size ~= patterns.POSITION then
+                        value = values.TAG_OBJ | strings.make(h, start, size)
+                    end
+                    tables.set(h, state, values.TAG_INTEGER | (5ULL + i), value)
+                    i = i + 1ULL
+                end
+                answer = values.TRUE
+                break
+            end
+            at = at + 1ULL
+        end
+        patterns.release(ms)
+        if answer == values.FALSE then
+            tables.set(h, state, values.TAG_INTEGER | 3ULL, values.TAG_INTEGER | (strings.length(s) + 1ULL))
+        end
+
+        return answer
+    end
+end
+
+-- Library call `id` with `count` arguments; answers the result value.
+export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint64, c: uint64, d: uint64): uint64
+    if id == TOSTRING then
+        return tostring(ctx, a)
+    elseif id == FORMAT then
+        return format(ctx, count, a, b, c, d)
+    elseif id == CONCAT then
+        return concat(ctx, count, a, b)
+    elseif id == GMATCH_NEXT then
+        return gmatchNext(ctx, a)
+    end
+    error("unknown core library call")
+
+    return values.NIL
+end

@@ -116,6 +116,22 @@ export function append(h: heap.Heap*, b: Builder*, source: uint64, count: uint64
     end
 end
 
+-- Appends the low `count` bytes of `word`, least significant first.
+export function appendWord(h: heap.Heap*, b: Builder*, word: uint64, count: uint64): uint64
+    @unsafe do
+        if reserve(h, b, count) ~= 0ULL then
+            return 1ULL
+        end
+        local i: uint64 = 0ULL
+        while i < count do
+            native.store8(native.pointer(b.base), native.index(b.length + i), (word >> (i * 8ULL)) & 255ULL)
+            i = i + 1ULL
+        end
+        b.length = b.length + count
+        return 0ULL
+    end
+end
+
 -- Appends a string object's bytes.
 export function appendString(h: heap.Heap*, b: Builder*, s: uint64): uint64
     return append(h, b, bytes(s), length(s))

@@ -57,7 +57,9 @@ local CASES = {
     {"tablesBasic", 0x7FFF5B0A5989C37B},
     {"workloadClosures", 0x7FFF00000007A0B4},
     {"workloadTables", 0x7FFF00001D148D33},
-    {"workloadRecords", 0x7FFF0000000C3500}
+    {"workloadRecords", 0x7FFF0000000C3500},
+    {"workloadStrings", 0x7FFF000000509842},
+    {"stringsBasic", 0x7FFF0000000004B1}
 }
 -- These refuse at run time and must publish nothing: Lua 5.5 raises for the
 -- first; the second needs a canonical integer object.
@@ -74,7 +76,9 @@ local NUMERIC = {
     tablesBasic = "catalog-tables-basic",
     workloadClosures = "catalog-workload-closures",
     workloadTables = "catalog-workload-tables",
-    workloadRecords = "catalog-workload-records"
+    workloadRecords = "catalog-workload-records",
+    workloadStrings = "catalog-workload-strings",
+    stringsBasic = "catalog-strings-basic"
 }
 local FIXTURES = {
     "catalog-boolean",
@@ -107,7 +111,9 @@ local FIXTURES = {
     "catalog-tables-basic",
     "catalog-workload-closures",
     "catalog-workload-tables",
-    "catalog-workload-records"
+    "catalog-workload-records",
+    "catalog-workload-strings",
+    "catalog-strings-basic"
 }
 local AUDITS = {
     {"fresh", "success"},
@@ -471,6 +477,8 @@ local function main()
                         or name == "workloadClosures"
                         or name == "workloadTables"
                         or name == "workloadRecords"
+                        or name == "workloadStrings"
+                        or name:match("^strings")
                     )
                     and 8
                     or (name:match("^calls") or name == "workloadFib") and 7

@@ -104,6 +104,7 @@ signatures.Closure = "Vn"
 -- Core-only library intrinsics: the final core implements them as opcodes
 -- outside the frozen VM's table (corebytecode.coreOnly).
 signatures.MathFloor = "Vv"
+signatures.LibCall = "V#"
 signatures.U32Load = "Ivi"
 signatures.U32Store = "vii"
 signatures.U32Add = "Iii"
@@ -250,6 +251,7 @@ local terminators = {
 local macros = {
     Closure = true,
     MathFloor = true,
+    LibCall = true,
     U32Load = true,
     U32Store = true,
     U32Add = true,
@@ -295,6 +297,9 @@ parsed.Closure.variadic = true
 parsed.Closure.variadicClass = "v"
 parsed.Closure.coreOnly = true
 parsed.MathFloor.coreOnly = true
+parsed.LibCall.coreOnly = true
+parsed.LibCall.variadic = true
+parsed.LibCall.variadicClass = "v"
 
 local function operationArity(sig: any, args: any): boolean
     return #args == sig.n or sig.variadic == true and #args >= sig.n
@@ -1445,20 +1450,45 @@ end
 -- suspend, so the value's unknown body cannot either.
 -- The library function a call names, when the final core implements it as
 -- an operation: `math.floor` on the prelude's `math`. Otherwise nil.
-local coreLibrary: {[string]: boolean} = {["math.floor"] = true}
+local coreLibrary: {
+    [string]: boolean
+} = {
+    ["math.floor"] = true,
+    tostring = true,
+    ["table.concat"] = true,
+    ["string.format"] = true,
+    ["string.gmatch"] = true
+}
+
+local function preludeName(node: any): boolean
+    local definition = node and node.kind == "name" and node.token and node.token.definition
+    return type(definition) == "table" and definition.filename == "nupp:lua.d.nupp"
+end
+
+local function stringType(t: any): boolean
+    while t and (t.tag == "const" or t.tag == "literal") do
+        t = t.tag == "const" and t.inner or t.base
+    end
+    return t ~= nil and t.tag == "string"
+end
 
 function graph.coreLibraryCall(call: any): string?
-    local callee = call and call.kind == "call" and call.obj
-    if not callee or callee.kind ~= "dotIndex" or not callee.name or not callee.obj or callee.obj.kind ~= "name" then
-        return nil
+    local name
+    if call and call.kind == "methodCall" and call.name and stringType(call.obj and call.obj.inferredType) then
+        name = "string." .. call.name.text
+    elseif call and call.kind == "call" and preludeName(call.obj) then
+        name = call.obj.token.text
+    elseif call
+        and call.kind == "call"
+        and call.obj
+        and call.obj.kind == "dotIndex"
+        and call.obj.name
+        and preludeName(call.obj.obj)
+    then
+        name = call.obj.obj.token.text .. "." .. call.obj.name.text
     end
-    local definition = callee.obj.token and callee.obj.token.definition
-    if not definition or definition.filename ~= "nupp:lua.d.nupp" then
-        return nil
-    end
-    local name = callee.obj.token.text .. "." .. callee.name.text
 
-    return coreLibrary[name] and name or nil
+    return name and coreLibrary[name] and name or nil
 end
 
 function graph.dynamicInvokeContract(call: any): any

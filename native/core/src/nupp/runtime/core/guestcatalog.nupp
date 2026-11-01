@@ -102,6 +102,8 @@ export const NIL: uint64 = 2ULL
 export const NUMBER: uint64 = 3ULL
 -- v8: any value, checked where it is used.
 export const VALUE: uint64 = 4ULL
+-- The constant-word tag of a v8 string constant (see guestartifact).
+export const STRING_CONSTANT: uint64 = 0x7ffe000000000000ULL
 export const INITIALIZER: uint64 = 0ULL
 export const FUNCTION: uint64 = 1ULL
 
@@ -318,7 +320,19 @@ local function valid(data: voidptr, bytes: uint64): uint64
         local k: uint64 = 0ULL
         while k < constants do
             local value = native.load64(data, native.index(cursor + k * 8ULL))
-            if value ~= values.TRUE
+            -- A v8 string constant names a length word and its bytes in data.
+            local text = value & 0xffff000000000000ULL == STRING_CONSTANT and version >= 8ULL
+            if text then
+                local at = value & values.PAYLOAD
+                if at % 8ULL ~= 0ULL
+                    or at + 8ULL > bytes
+                    or native.load64(data, native.index(at)) > bytes - at - 8ULL
+                then
+                    return 0ULL
+                end
+            end
+            if not text
+                and value ~= values.TRUE
                 and value ~= values.FALSE
                 and value ~= values.NIL
                 and (
@@ -393,7 +407,7 @@ local function valid(data: voidptr, bytes: uint64): uint64
         or handlers > 256ULL
         or native.load64(data, native.fieldOffset<Descriptor>("dispatch")) ~= cursor
         or contains(bytes, cursor, handlers, 8ULL) == 0ULL
-        or cursor + handlers * 8ULL ~= bytes
+        or cursor + handlers * 8ULL ~= bytes and (version < 8ULL or cursor + handlers * 8ULL > bytes)
     then
         return 0ULL
     end

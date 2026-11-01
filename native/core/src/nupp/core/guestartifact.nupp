@@ -4,6 +4,8 @@ local executable = require("nupp.compiler.vm.coregraphexecutable")
 local targetLayout = require("nupp.compiler.targetlayout")
 local literal = require("s0.literal")
 local artifact = {}
+-- The constant-word tag of a v8 string constant; the payload is its offset.
+local STRING_CONSTANT = 0x7ffe000000000000
 
 -- This writes a trusted checked-source artifact, not a native loader token.
 -- The closed producer retains executable issuance and the exact checked layout
@@ -58,6 +60,22 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
     end
     local dispatchOffset = cursor
     cursor += #dispatch * 8
+    -- From v8 string constants are payloads after the dispatch table: a length
+    -- word, the bytes and a NUL. Their constant word is STRING_CONSTANT over
+    -- the payload's offset.
+    local stringOffsets: {[string]: integer} = {}
+    local stringOrder: {string} = {}
+    if version >= 8 then
+        for _, fn in ipairs(code.functions) do
+            for _, constant in ipairs(fn.constants) do
+                if constant.kind == "str" and stringOffsets[constant.value] == nil then
+                    stringOffsets[constant.value] = cursor
+                    stringOrder[#stringOrder + 1] = constant.value
+                    cursor += 8 + ((#constant.value + 8) // 8) * 8
+                end
+            end
+        end
+    end
     assert(cursor <= 67108864 and cursor % 8 == 0, "guest artifact byte budget")
     local bytes = {}
     for index = 1, cursor do
@@ -171,6 +189,7 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
                 (constantOffsets[index] + (ci - 1) * 8) as integer,
                 constant.kind == "num" and version >= 3 and floatBits(constant.value)
                 or constant.kind == "int64" and version >= 6 and integerBits(constant.value)
+                or constant.kind == "str" and version >= 8 and STRING_CONSTANT | assert(stringOffsets[constant.value])
                 or assert(constants[constant.kind] or constant.kind == "str" and constants["nil"])
             )
         end
@@ -214,6 +233,13 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
             "selected handler offset"
         )
         word((dispatchOffset + (index - 1) * 8) as integer, offset)
+    end
+    for _, text in ipairs(stringOrder) do
+        local at = assert(stringOffsets[text])
+        word(at, #text)
+        for byte = 1, #text do
+            bytes[at + 8 + byte] = text:byte(byte)
+        end
     end
     local chunks = {}
     for at = 1, cursor, 64 do

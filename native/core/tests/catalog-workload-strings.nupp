@@ -1,0 +1,21 @@
+module nupp.core.catalogworkloadstrings
+
+-- The `strings` workload of bench/vm/workloads.bench.nupp at scale 1, whose
+-- checksum is 5281858; the scale stays an operand rather than folding away.
+local scale = 1
+
+local function strings(): number
+    local parts: {string} = {}
+    for i = 1, 300000 do
+        parts[#parts + 1] = ("item%d:%s"):format(i, tostring(i * 3 * scale))
+    end
+    local joined = table.concat(parts, ",")
+    local found = 0
+    for _ in joined:gmatch("item%d+5:") do
+        found = found + 1
+    end
+
+    return #joined + found
+end
+
+export = strings()

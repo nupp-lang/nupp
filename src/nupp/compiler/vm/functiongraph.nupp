@@ -244,6 +244,8 @@ function frontend.compile(fn: any, options: any, profile: any): any
             return invoke("unary", node, expected)
         elseif node.kind == "call" then
             return invoke("call", node, expected)
+        elseif node.kind == "methodCall" and profile.methodCall then
+            return invoke("methodCall", node, expected)
         elseif node.kind == "switchExpr" then
             need(profile.switchCase and not cleanupEnabled, "numeric switch profile required")
             need(node.elseCase and #node.cases > 0, "numeric switch requires an else arm")

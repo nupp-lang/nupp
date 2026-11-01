@@ -9,6 +9,9 @@ const access = require("nupp.runtime.core.frameaccess")
 const ops = require("nupp.runtime.core.guestops")
 const context = require("nupp.runtime.core.context")
 const guestscope = require("nupp.runtime.core.guestscope")
+const catalog = require("nupp.runtime.core.guestcatalog")
+const guestlib = require("nupp.runtime.core.guestlib")
+const strings = require("nupp.runtime.core.corestrings")
 const tables = require("nupp.runtime.core.coretables")
 const heap = require("nupp.runtime.vm.heap")
 
@@ -33,6 +36,9 @@ export function K(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ct
         return native.fail()
     end
     local value = ops.constant(ctx, frame, pc, native.word(index))
+    if value & 0xffff000000000000ULL == catalog.STRING_CONSTANT then
+        value = values.TAG_OBJ | guestscope.stringConstant(ctx, value)
+    end
     if value == 0ULL then
         if ops.constantPresent(ctx, frame, pc, native.word(index)) == 0ULL then
             ops.fail(ctx, frame, pc, ops.INVALID)
@@ -1008,12 +1014,20 @@ export function Len(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
-    local header = tableHeader(slots.readValue(frame, regs, src))
-    if header == 0ULL then
-        ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
-        return native.fail()
+    local value = slots.readValue(frame, regs, src)
+    local header = tableHeader(value)
+    local size: uint64 = 0ULL
+    if header ~= 0ULL then
+        size = tables.length(header)
+    else
+        local text = strings.header(value)
+        if text == 0ULL then
+            ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+            return native.fail()
+        end
+        size = strings.length(text)
     end
-    slots.writeValue(frame, regs, dst, values.TAG_INTEGER | tables.length(header))
+    slots.writeValue(frame, regs, dst, values.TAG_INTEGER | size)
     local nextPC = ops.branch(ctx, frame, pc, 0)
     if nextPC == 0ULL then
         ops.fail(ctx, frame, pc, ops.INVALID)
@@ -1064,6 +1078,54 @@ export function MathFloor(
         result = floorBits(value)
     end
     slots.writeValue(frame, regs, dst, result)
+    local nextPC = ops.branch(ctx, frame, pc, 0)
+    if nextPC == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+
+    return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
+end
+
+-- A core library call (guestlib): its arguments are staged after `base`.
+export function LibCall(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    if ops.charge(ctx, frame, pc) ~= 1ULL then
+        return native.fail()
+    end
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local dst = program.readByte(pc, 1)
+    local id = program.readByte(pc, 2)
+    local base = program.readByte(pc, 3)
+    local count = program.readByte(pc, 4)
+    local valueCount = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    if native.word(dst) >= valueCount or count < 1 or count > 4 or native.word(base + count) >= valueCount then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local a = slots.readValue(frame, regs, base + 1)
+    local b = values.NIL
+    local c = values.NIL
+    local d = values.NIL
+    if count >= 2 then
+        b = slots.readValue(frame, regs, base + 2)
+    end
+    if count >= 3 then
+        c = slots.readValue(frame, regs, base + 3)
+    end
+    if count >= 4 then
+        d = slots.readValue(frame, regs, base + 4)
+    end
+    slots.writeValue(frame, regs, dst, guestlib.call(ctx, native.word(id), native.word(count), a, b, c, d))
     local nextPC = ops.branch(ctx, frame, pc, 0)
     if nextPC == 0ULL then
         ops.fail(ctx, frame, pc, ops.INVALID)
