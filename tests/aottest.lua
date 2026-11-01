@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- The `@aot` annotation's source contract.
 --
 -- `@aot` says a whole function compiles ahead of time rather than being left to
@@ -63,6 +63,7 @@ local function diagnosticCodes(source)
             out[#out + 1] = diagnostic.code
         end
     end
+
     return table.concat(out, " ")
 end
 
@@ -239,12 +240,10 @@ return total
         "masked contributions still belong to one region"
     )
     reports(
-        prefix
-        .. [[
+        prefix .. [[
     fold:add(1.0)
     local copied = fold
-]]
-        .. suffix,
+]] .. suffix,
         "NUPP2904",
         "a reducer with a scalar contribution still cannot be copied"
     )
@@ -511,7 +510,8 @@ local function double(exclusive output: span.WriteSpan<float>, borrows input: sp
 end
 ]]
     reportsGpu(
-        header .. [[
+        header
+        .. [[
 local function run(): integer
     if not gpu.available() then
         return 0
@@ -534,7 +534,8 @@ return run
         "a context, its buffers, its kernel and its binding each have one exact extent"
     )
     reportsGpu(
-        header .. [[
+        header
+        .. [[
 local context = gpu.open()
 local buffer = context:buffer(array.float, 16)
 nupp.drop(buffer)
@@ -545,7 +546,8 @@ return true
         "a buffer used after it was closed is refused"
     )
     reportsGpu(
-        header .. [[
+        header
+        .. [[
 local context = gpu.open()
 local input = context:buffer(array.float, 16)
 local output = context:buffer(array.float, 16)
@@ -558,7 +560,9 @@ return true
         "NUPP2601",
         "a kernel used after it was closed is refused"
     )
-    local closedContext = diagnosticCodes(header .. [[
+    local closedContext = diagnosticCodes(
+        header
+        .. [[
 local function run(): nil
     local context = gpu.open()
     local buffer = context:buffer(array.float, 16)
@@ -566,7 +570,8 @@ local function run(): nil
     print(buffer.count)
 end
 return run
-]])
+]]
+    )
     assert(closedContext ~= "", "closing a context while a buffer borrows it is refused")
 end
 

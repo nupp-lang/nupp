@@ -47,7 +47,7 @@ local function sdk()
     end
     local status, output = run(("cd %s && ./scripts/toolchain host-library %s"):format(quote(ROOT), FEATURES))
     if status ~= 0 then
-        test.skip("the Rust embedding SDK could not be built: " .. output)
+        test.suite.skip("the Rust embedding SDK could not be built: " .. output)
     end
     cachedSdk = assert(output:match("([^\r\n]+)%s*$"), "toolchain named no SDK")
 
@@ -326,7 +326,7 @@ function M.hotReloadCommitsAnEditThroughTheCApi()
     local compilerModules = ROOT .. "/build"
     local present = io.open(compilerModules .. "/nupp/tools/hostreload.lua", "rb")
     if not present then
-        test.skip("hot reload needs the compiler's Lua modules under build/")
+        test.suite.skip("hot reload needs the compiler's Lua modules under build/")
     end
     present:close()
     local directory, library = temporary(), sdk()
@@ -441,7 +441,7 @@ function M.anAttachedShutdownClosesTheSessionItLeftOpen()
     local compilerModules = ROOT .. "/build"
     local present = io.open(compilerModules .. "/nupp/tools/hostreload.lua", "rb")
     if not present then
-        test.skip("hot reload needs the compiler's Lua modules under build/")
+        test.suite.skip("hot reload needs the compiler's Lua modules under build/")
     end
     present:close()
     local directory, library = temporary(), sdk()
@@ -677,7 +677,7 @@ function M.hotReloadAttachesToALoadedComponent()
     local compilerModules = ROOT .. "/build"
     local present = io.open(compilerModules .. "/nupp/tools/hostreload.lua", "rb")
     if not present then
-        test.skip("hot reload needs the compiler's Lua modules under build/")
+        test.suite.skip("hot reload needs the compiler's Lua modules under build/")
     end
     present:close()
     local directory, library = temporary(), sdk()
@@ -861,7 +861,7 @@ function M.aNativePanicUnderACallAnswersAStatus()
     )
     assert(status == 0, output)
     if output:find("kernel = unavailable", 1, true) then
-        test.skip("no GPU adapter to hand the malformed module to")
+        test.suite.skip("no GPU adapter to hand the malformed module to")
     end
     assert(output:find("kernel status = 3", 1, true), output)
     assert(output:find("status 5: native provider panicked", 1, true), output)
@@ -905,7 +905,7 @@ function M.theDynamicSdkExportsTheCommittedList()
     elseif jit.os == "Linux" then
         exports = "nm -D --defined-only " .. quote(sdk() .. "/libnupp.so")
     else
-        test.skip("reads the export table with nm")
+        test.suite.skip("reads the export table with nm")
     end
     local status, output = run(exports)
     assert(status == 0, output)
@@ -1014,7 +1014,7 @@ int main(int argc, char **argv) {
 -- nuppAotRuntime answered null and the component failed at load.
 function M.anAotComponentLoadsThroughTheDynamicSdk()
     if jit.os == "Windows" then
-        test.skip("links against the dynamic SDK the Unix way")
+        test.suite.skip("links against the dynamic SDK the Unix way")
     end
     local directory, library = temporary(), sdk()
     local project = directory .. "/project"

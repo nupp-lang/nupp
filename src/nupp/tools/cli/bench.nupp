@@ -10,7 +10,7 @@ deadlines, comparing baselines, and retaining machine-readable history.
 ]]
 
 local usageError = require("nupp.tools.cli.error").forCommand("bench")
-local cliModule = require("nupp.cli")
+local cliModule = require("arg")
 local report = require("nupp.tools.cli.report")
 
 local RUN_SCHEMA = {

@@ -86,7 +86,7 @@ end
 
 local function ready()
     if unavailable then
-        test.skip("the process provider did not build: " .. unavailable)
+        test.suite.skip("the process provider did not build: " .. unavailable)
     end
 
     return process

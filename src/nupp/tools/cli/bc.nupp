@@ -23,7 +23,7 @@ a gate -- no quiet machine, no threshold, and the same answer every time.
 local usageError = require("nupp.tools.cli.error").forCommand("bc")
 local report = require("nupp.tools.cli.report")
 local listing = require("nupp.tools.bytecodelisting")
-local cliModule = require("nupp.cli")
+local cliModule = require("arg")
 
 local REPORT_SCHEMA = {
     type = "object",
@@ -92,7 +92,7 @@ local function width(options: any): integer?
         return math.floor(options.width)
     end
 
-    return cliModule.colorEnabled(io.stdout) and cliModule.columns(io.stdout) or nil
+    return io.colorEnabled(io.stdout) and io.columns(io.stdout) or nil
 end
 
 --- The listing's colors, wired from the terminal highlighter.
@@ -107,7 +107,7 @@ end
 --- print a list of commands.
 local function palette(source: string): listing.Palette
     local paint = require("nupp.tools.terminalhighlight")
-    local colors = paint.palette(cliModule.colorEnabled(io.stdout))
+    local colors = paint.palette(io.colorEnabled(io.stdout))
     local rows = paint.rows(source)
 
     return {

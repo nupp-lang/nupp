@@ -105,7 +105,7 @@ function M.host(test, capabilities)
         jit.os,
         jit.arch
     })
-    local directory, evidence = test.fixture(key, function(private)
+    local directory, evidence = test.suite.fixture(key, function(private)
         local target = private .. "/target"
         local output = runner.command(
             "NUPP_WASMTIME_TARGET_DIR=" .. runner.quote(
@@ -227,8 +227,11 @@ function M.produce(pack, generated, capabilities, hostLibrary, directory)
     local simd = M.execute(capabilities, hostLibrary, simdDirectory, "simd", directory .. "/simd-execution.log")
     local scalarDirectory = directory .. "/scalar-c"
     runner.command(
-        runner.quote(capabilities.lua.command) .. " " .. runner.quote(root .. "/tests/simd/prepare-wasm-reference.lua")
-            .. " " .. runner.quote(simdDirectory) .. " " .. runner.quote(scalarDirectory),
+        runner.quote(
+            capabilities.lua.command
+        ) .. " " .. runner.quote(
+            root .. "/tests/simd/prepare-wasm-reference.lua"
+        ) .. " " .. runner.quote(simdDirectory) .. " " .. runner.quote(scalarDirectory),
         directory .. "/scalar-build.log"
     )
     local scalar = M.execute(

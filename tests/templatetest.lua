@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- The scaffolder: what a TEMPLATE argument means, what substitution does, what
 -- the sandbox refuses, and what never reaches the disk.
 --
@@ -491,15 +491,18 @@ function M.thePathCheckDoesNotAskTheSharedStringLibrary()
         {["template.lua"] = [[return {variables = {up = {default = ".."}}}]], ["a/${up}/${up}/escaped.txt"] = "x"},
         function()
             local real = {gmatch = string.gmatch, find = string.find, match = string.match, sub = string.sub}
+
             local function hides(s)
                 return type(s) == "string" and real.find(s, "/..", 1, true) ~= nil
             end
+
             string.gmatch = function(s, p)
                 if hides(s) then
                     return function()
                         return nil
                     end
                 end
+
                 return real.gmatch(s, p)
             end
             string.find = function(s, ...)
@@ -858,8 +861,16 @@ function M.theBrowserSimdTemplateChecksBuildsAndTests()
         withDevelopmentRocks(into)
         local config = assert(loadfile(into .. "/nupp.lua"))()
         testAssert.equal(config.build.targets.scalar.aotFeatures.maximum, "scalar", "the fallback is scalar Wasm AOT")
-        testAssert.equal(config.build.targets.simd.aotFeatures.minimum, "simd128", "the fast package requires Wasm SIMD128")
-        testAssert.equal(config.build.targets.simd.aotFeatures.maximum, nil, "and names no ceiling above the tier it requires")
+        testAssert.equal(
+            config.build.targets.simd.aotFeatures.minimum,
+            "simd128",
+            "the fast package requires Wasm SIMD128"
+        )
+        testAssert.equal(
+            config.build.targets.simd.aotFeatures.maximum,
+            nil,
+            "and names no ceiling above the tier it requires"
+        )
 
         local prefix = "NUPP_CACHE_DIR='"
             .. SCAFFOLD_STORE

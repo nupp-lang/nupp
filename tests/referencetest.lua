@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- The compiler reference, held to what the compiler actually does.
 --
 -- A reference is read as authoritative, so an example that stopped compiling is

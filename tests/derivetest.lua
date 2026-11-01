@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- Compiler-owned declaration derives: semantic members, factory projection, and
 -- closed runtime recipes independently of serialization bindings.
 local parser = require("nupp.compiler.syntax.parser")

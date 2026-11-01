@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- OPT-5, concat lowering. The property that matters is not that a buffer appears but
 -- that the program still builds the same string, so every rewrite here is run and
 -- compared against the same source compiled with the pass off.
@@ -296,11 +296,7 @@ end
 return out
 ]], "test")
     check.check(result, "test.nupp", env)
-    local remarks = optimize.run(result, {
-        level = 1,
-        filename = "test.nupp",
-        disabled = {["OPT-5"] = true},
-    })
+    local remarks = optimize.run(result, {level = 1, filename = "test.nupp", disabled = {["OPT-5"] = true},})
     for _, entry in ipairs(remarks) do
         testAssert.equal(entry.code ~= "OPT-5", true, "-Zno-opt=OPT-5 turns it off")
     end

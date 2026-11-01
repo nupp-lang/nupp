@@ -54,10 +54,7 @@ end
 function M.answersSixtyFourLowercaseHexadecimalDigitsAtEveryLength()
     for length = 0, 200 do
         local answer = digest.sha256(("abcdefghij"):rep(21):sub(1, length))
-        check.assert(
-            answer:match("^[0-9a-f]+$") ~= nil and #answer == 64,
-            ("length %d answered %q"):format(length, answer)
-        )
+        check(answer:match("^[0-9a-f]+$") ~= nil and #answer == 64, ("length %d answered %q"):format(length, answer))
     end
 end
 

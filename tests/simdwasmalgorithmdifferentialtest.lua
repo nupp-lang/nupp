@@ -1,4 +1,4 @@
-local test = require("nupp.test")
+local test = require("assert")
 local runner = require("tests.simd.runner")
 local wasmtime = require("tests.simd.wasmtime")
 local hash = require("nupp.compiler.hash")
@@ -125,20 +125,20 @@ local function absolute(path)
     return ROOT .. "/" .. path
 end
 
-local cases = test.cases(
+local cases = test.suite.cases(
     ALGORITHMS,
     function(name)
         return "wasm" .. name:gsub("[^%w]", "_")
     end,
     function(name)
         local capabilities = wasmtime.capabilities()
-        test.requireCapability("compiler.wasm", capabilities.wasm.available, capabilities.wasm)
-        test.requireCapability("runtime.node", capabilities.node.available, capabilities.node)
-        test.requireCapability("runtime.luajit-child", capabilities.lua.available, capabilities.lua)
-        test.requireCapability("runtime.wasmtime-host", capabilities.host.available, capabilities.host)
+        test.suite.requireCapability("compiler.wasm", capabilities.wasm.available, capabilities.wasm)
+        test.suite.requireCapability("runtime.node", capabilities.node.available, capabilities.node)
+        test.suite.requireCapability("runtime.luajit-child", capabilities.lua.available, capabilities.lua)
+        test.suite.requireCapability("runtime.wasmtime-host", capabilities.host.available, capabilities.host)
         local hostLibrary, host = wasmtime.host(test, capabilities)
         local key = fixtureKey(name, capabilities, host)
-        local _, report, reused = test.fixture(key, function(directory)
+        local _, report, reused = test.suite.fixture(key, function(directory)
             directory = absolute(directory)
             runner.command(
                 runner.quote(
@@ -178,7 +178,7 @@ local cases = test.cases(
         test.equal(report.algorithm, name)
         test.equal(report.runtime, "Wasmtime 48 embedded host")
         test.equal(report.tier, "simd128")
-        test.assert(
+        test(
             report.cases > 0
             and report.probes > 0
             and report.nativeCalls > 0
@@ -188,7 +188,7 @@ local cases = test.cases(
         )
         test.equal(report.probes, 1)
         checkWork(name, report)
-        test.fact("simd.wasm.algorithm", {
+        test.suite.fact("simd.wasm.algorithm", {
             algorithm = name,
             runtime = report.runtime,
             cases = report.cases,
@@ -197,16 +197,16 @@ local cases = test.cases(
             artifacts = report.artifacts,
             randomFingerprint = report.randomFingerprint,
         })
-        test.fact("coverage.witness", {
+        test.suite.fact("coverage.witness", {
             id = key .. "/coverage",
             obligation = "simd.wasm.algorithm",
             dimensions = {backend = "wasm", algorithm = name},
         })
-        test.work("fixture.reused", reused and 1 or 0)
-        test.work("generated.units", reused and 0 or report.generatedUnits)
-        test.work("build.commands", reused and 0 or 1)
-        test.work("semantic.cases", reused and 0 or report.cases)
-        test.work("wasm.calls", reused and 0 or report.nativeCalls)
+        test.suite.work("fixture.reused", reused and 1 or 0)
+        test.suite.work("generated.units", reused and 0 or report.generatedUnits)
+        test.suite.work("build.commands", reused and 0 or 1)
+        test.suite.work("semantic.cases", reused and 0 or report.cases)
+        test.suite.work("wasm.calls", reused and 0 or report.nativeCalls)
     end
 )
 

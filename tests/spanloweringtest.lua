@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- Trusted indexed-view range proof and contiguous-span lowering.
 local parser = require("nupp.compiler.syntax.parser")
 local gen = require("nupp.compiler.lua.gen")

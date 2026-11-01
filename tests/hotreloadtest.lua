@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("nupp.compiler.check")
 local envMod = require("nupp.compiler.project.env")
@@ -541,10 +541,7 @@ function M.slotArrayMatchesTheNormalLocalBoundary()
     for _, count in ipairs({boundary, boundary + 1}) do
         local parsed = parser.parse(source(count), "locals.nupp")
         local normal, normalDiagnostics = gen.generate(parsed, "locals.nupp")
-        local watch, watchDiagnostics = gen.generate(parsed, "locals.nupp", nil, {
-            mode = "initial",
-            module = "locals",
-        })
+        local watch, watchDiagnostics = gen.generate(parsed, "locals.nupp", nil, {mode = "initial", module = "locals",})
         local normalLoads = #normalDiagnostics == 0 and loadstring(normal, "@normal-locals") ~= nil
         local watchLoads = #watchDiagnostics == 0 and loadstring(watch, "@watch-locals") ~= nil
         testAssert.equal(watchLoads, normalLoads, "watch and normal local ceiling at " .. count)

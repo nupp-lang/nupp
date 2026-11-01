@@ -1,4 +1,4 @@
-local test = require("nupp.test")
+local test = require("assert")
 local M = {}
 
 local decode = assert(loadfile("src/nupp/runtime/vendor/lunajson/decoder.lua"))()()
@@ -17,16 +17,16 @@ local EXPECTED = {
 }
 
 local boundaries = json("tests/simd/runtime-boundaries.json")
-local cases = test.cases(
+local cases = test.suite.cases(
     boundaries,
     function(boundary)
         return boundary.target:gsub("[^%w]", "_")
     end,
     function(boundary)
         test.equal(EXPECTED[boundary.target], boundary.status)
-        test.assert(type(boundary.reason) == "string" and boundary.reason ~= "")
-        test.assert(type(boundary.evidence) == "table" and #boundary.evidence > 0)
-        test.fact("coverage.witness", {
+        test(type(boundary.reason) == "string" and boundary.reason ~= "")
+        test(type(boundary.evidence) == "table" and #boundary.evidence > 0)
+        test.suite.fact("coverage.witness", {
             id = "runtime-boundary/" .. boundary.target .. "/" .. boundary.status,
             obligation = "simd.runtime-boundary",
             dimensions = {target = boundary.target, status = boundary.status},
@@ -45,7 +45,7 @@ function M.inventoryIsExact()
         for _, boundary in ipairs(boundaries) do
             found = found or boundary.target == target
         end
-        test.assert(found, "missing runtime boundary " .. target)
+        test(found, "missing runtime boundary " .. target)
     end
 end
 

@@ -1,6 +1,6 @@
 -- The complete species/operation corpus is also consumed by CI's exact-tier
 -- native/Wasm matrix. This focused suite exercises representative boundaries.
-local test = require("nupp.test")
+local test = require("assert")
 local M = {}
 local packs = require("tests.simd.native-packs")
 local runner = require("tests.simd.runner")
@@ -150,18 +150,18 @@ local function checkWork(pack, report)
     end
 end
 
-local generatedCases = test.cases(
+local generatedCases = test.suite.cases(
     {{name = "nativeSpeciesInventory", pack = "species"}, {name = "nativeSemanticConformance", pack = "semantics"}},
     function(row)
         return row.name
     end,
     function(row)
         local capability = runner.nativeCapability()
-        test.requireCapability("compiler.llvm", capability.compilerVersion ~= nil, capability)
-        test.requireCapability("cpu." .. capability.tier, capability.available, capability)
+        test.suite.requireCapability("compiler.llvm", capability.compilerVersion ~= nil, capability)
+        test.suite.requireCapability("cpu." .. capability.tier, capability.available, capability)
         local generated = row.pack == "species" and packs.species() or packs.semantics()
         local key = fixtureKey(row.pack, generated, capability)
-        local _, report, reused = test.fixture(key, function(directory)
+        local _, report, reused = test.suite.fixture(key, function(directory)
             local complete = runner.native(generated, {
                 directory = directory,
                 tier = capability.tier,
@@ -194,7 +194,7 @@ local generatedCases = test.cases(
         assert(report.cases == report.scalarCases and report.probes == report.scalarProbes)
         assert(report.nativeCalls > 0 and report.scalarCalls > 0 and #report.artifacts > 0)
         checkWork(row.pack, report)
-        test.fact("simd.native.pack", {
+        test.suite.fact("simd.native.pack", {
             pack = row.pack,
             tier = report.tier,
             routes = {"simd", "scalar-c"},
@@ -205,19 +205,19 @@ local generatedCases = test.cases(
         })
         local identity = {host = hostClass(report.host), compiler = capability.compilerDialect, tier = report.tier,}
         for _, witness in ipairs(packs.witnesses(row.pack, identity, generated)) do
-            test.fact("coverage.witness", witness)
+            test.suite.fact("coverage.witness", witness)
         end
-        test.metric("generated.source", report.work.generatedSourceBytes, "bytes")
-        test.work("generated.files", report.work.generatedSourceFiles)
-        test.work("fixture.reused", reused and 1 or 0)
-        test.work("generated.units", reused and 0 or report.work.generatedUnits)
-        test.work("build.commands", reused and 0 or report.work.buildCommands)
+        test.suite.metric("generated.source", report.work.generatedSourceBytes, "bytes")
+        test.suite.work("generated.files", report.work.generatedSourceFiles)
+        test.suite.work("fixture.reused", reused and 1 or 0)
+        test.suite.work("generated.units", reused and 0 or report.work.generatedUnits)
+        test.suite.work("build.commands", reused and 0 or report.work.buildCommands)
         if report.work.externalCommands ~= nil then
-            test.work("compiler.external-commands", reused and 0 or report.work.externalCommands)
+            test.suite.work("compiler.external-commands", reused and 0 or report.work.externalCommands)
         end
-        test.work("semantic.cases", reused and 0 or report.cases)
-        test.work("native.calls", reused and 0 or report.nativeCalls)
-        test.work("scalar-c.calls", reused and 0 or report.scalarCalls)
+        test.suite.work("semantic.cases", reused and 0 or report.cases)
+        test.suite.work("native.calls", reused and 0 or report.nativeCalls)
+        test.suite.work("scalar-c.calls", reused and 0 or report.scalarCalls)
     end
 )
 for name, case in pairs(generatedCases) do

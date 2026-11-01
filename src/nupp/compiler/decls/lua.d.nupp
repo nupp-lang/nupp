@@ -152,12 +152,33 @@ local setmetatable: function<T>(takes t: T, mt: metatable<T>?): T preserves t
 --- @return the metatable, its `__metatable` stand-in, or nil
 local getmetatable: function<T>(v: T): metatable<T>?
 
+--- Callable assertions and test-suite operations.
+local interface Assertion
+    equal: function(any, any, string?): any
+    notEqual: function(any, any, string?): any
+    deepEqual: function(any, any, string?): any
+    matches: function(any, string, string?): string
+    raises: function(function(...: any): any, string?): any
+    suite: {
+        skip: function(string): never,
+        isSkip: function(any): boolean,
+        skipReason: function(any): string?,
+        cases: function({any}, function(any, integer): string, function(any, integer): any): any,
+        notExecuted: function(string): never,
+        isNotExecuted: function(any): boolean,
+        notExecutedReason: function(any): string?,
+        requireCapability: function(string, boolean, any?): nil,
+        fact: function(string, any): nil,
+        metric: function(string, number, string?): nil,
+        work: function(string, integer): nil,
+        fixture: function(string, function(string): any): (string, any, boolean)
+    }
+    metamethod __call: function<A...>(self, A...): A...
+end
+
 --- Returns every argument when the first is truthy; otherwise raises the second.
----
 --- The error is "assertion failed!" when the second argument is omitted.
----
---- @return the complete input pack, whose first value is truthy
-local assert: function<A...>(A...): A...
+local assert: Assertion
 
 --- Raises `msg` as an error, unwinding to the nearest `pcall`. A string message is
 --- prefixed with a source position chosen by `level`: 1, the default, blames the caller

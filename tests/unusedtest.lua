@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- unused-binding: a `local` this file introduces that nothing reads. The
 -- interesting half is what it declines to say -- a parameter, a loop variable,
 -- an `_`, an owned value with a rule of its own -- since a lint that reported
@@ -225,7 +225,13 @@ return 1
 end
 
 function M.aProjectMovesItsLevel()
-    testAssert.equal(#lint("local prefix = 1\nreturn 2\n", {lints = {["unused-binding"] = "off"}}), 0, "off is not reported")
+    testAssert.equal(
+        #lint("local prefix = 1\nreturn 2\n", {
+            lints = {["unused-binding"] = "off"}
+        }),
+        0,
+        "off is not reported"
+    )
     local raised = lint("local prefix = 1\nreturn 2\n", {lints = {["unused-binding"] = "error"}})
     testAssert.equal(raised[1] and raised[1].severity, "error", "raised by name")
     testAssert.equal(#lint("local prefix = 1\nreturn 2\n", {lints = {suspicious = "off"}}), 0, "and by category")

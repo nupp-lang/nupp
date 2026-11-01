@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local project = require("nupp.tools.build.project")
 local deps = require("nupp.tools.build.deps")
 local hash = require("nupp.compiler.hash")

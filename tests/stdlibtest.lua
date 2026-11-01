@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local assertions = require("helpers.assertions")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
@@ -1883,8 +1883,8 @@ function M.nativeFeaturesAreResolvedEffects()
     local json = effectsOf("local json = require('serde.json')")
     assert(json["native.json"], "require('serde.json') records its JSON effect")
 
-    local test = effectsOf("local test = require('nupp.test')")
-    assert(test["runtime.test"], "require('nupp.test') carries the assertion module")
+    local test = effectsOf("local test = require('assert')")
+    assert(test["runtime.test"], "require('assert') carries the assertion module")
 
     local process = effectsOf("local process = require('nupp.io.process')")
     assert(process["runtime.process"], "the process module records its facade dependency")

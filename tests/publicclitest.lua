@@ -62,7 +62,7 @@ function M.primitiveLoadingDoesNotPullInHigherLayers()
     local probe = (
         [[
 package.path = %q .. package.path
-local cli = require("nupp.cli")
+local cli = require("arg")
 assert(package.loaded["nupp.cli.internal.optparser"])
 assert(not package.loaded["nupp.cli.internal.decode"])
 assert(not package.loaded["nupp.cli.internal.application"])

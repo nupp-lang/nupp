@@ -27,7 +27,7 @@ local function requireNode()
         probe:close()
     end
     if not version:match("^v%d+") then
-        check.skip("node is not installed")
+        check.suite.skip("node is not installed")
     end
 end
 
@@ -47,10 +47,10 @@ local function passesNodeSuite(label, files)
     local output, exited = runNode("node --test --test-reporter=tap " .. table.concat(quoted, " "))
     local passed = tonumber(output:match("\n# pass (%d+)"))
     local failed = tonumber(output:match("\n# fail (%d+)"))
-    check.assert(passed ~= nil and failed ~= nil, "node printed no test summary:\n" .. output)
+    check(passed ~= nil and failed ~= nil, "node printed no test summary:\n" .. output)
     check.equal(failed, 0, label .. " failed:\n" .. output)
-    check.assert(passed > 0, label .. " ran no test")
-    check.assert(exited, "node exited unsuccessfully:\n" .. output)
+    check(passed > 0, label .. " ran no test")
+    check(exited, "node exited unsuccessfully:\n" .. output)
 end
 
 function M.thePageHostPassesItsNodeSuite()
@@ -72,8 +72,17 @@ function M.theWasmEntryNameAgreesWithTheCompiler()
     requireNode()
     local scalar = require("nupp.compiler.aot.scalar")
     local names = {
-        "sum", "wrappingSum", "x9y", "fields_2", "indexed_17", "masked_i32_Min",
-        "masked_i32_wrappingSum", "parseJSONValue", "HTTPServer", "a-b", "\195\169",
+        "sum",
+        "wrappingSum",
+        "x9y",
+        "fields_2",
+        "indexed_17",
+        "masked_i32_Min",
+        "masked_i32_wrappingSum",
+        "parseJSONValue",
+        "HTTPServer",
+        "a-b",
+        "\195\169",
     }
     local script = "const {pathToFileURL} = await import('node:url');"
         .. " const {loweredEntryName} = await import(pathToFileURL(process.argv[1]).href);"
@@ -82,8 +91,10 @@ function M.theWasmEntryNameAgreesWithTheCompiler()
     for _, name in ipairs(names) do
         quoted[#quoted + 1] = shellQuote(name)
     end
-    local output, exited = runNode("node --input-type=module -e " .. shellQuote(script) .. " " .. table.concat(quoted, " "))
-    check.assert(exited, "node exited unsuccessfully:\n" .. output)
+    local output, exited = runNode(
+        "node --input-type=module -e " .. shellQuote(script) .. " " .. table.concat(quoted, " ")
+    )
+    check(exited, "node exited unsuccessfully:\n" .. output)
     local index = 0
     for line in output:gmatch("[^\n]+") do
         index = index + 1

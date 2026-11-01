@@ -1,5 +1,5 @@
 -- The derived command registry and shared terminal policy.
-local ansi = require("nupp.cli")
+local ansi = require("arg")
 local cli = require("nupp.tools.cli")
 local json = require("testjson")
 
@@ -97,49 +97,49 @@ function M.bashCompletesAProgramPathFromTheFilesystem()
 end
 
 function M.colourIsDecidedOncePerStreamAndOverriddenByMode()
-    ansi.setColorMode("never")
-    local plain = ansi.style(io.stdout)
+    io.setColorMode("never")
+    local plain = io.style(io.stdout)
     assert(plain.strong("x") == "x", "never means the text is returned unchanged")
     -- The no-colour path returns the very string it was given, so a plain report
     -- allocates nothing to say it is plain.
     assert(plain.strong == plain.faint, "and every style is the same identity function")
 
-    ansi.setColorMode("always")
-    local painted = ansi.style(io.stdout)
+    io.setColorMode("always")
+    local painted = io.style(io.stdout)
     assert(painted.strong("x") == "\27[1mx\27[0m", "always wraps in an escape")
-    assert(ansi.severity(painted, "error")("e") == "\27[1;31me\27[0m", "an error is red")
-    assert(ansi.severity(painted, "warning")("w") == "\27[1;33mw\27[0m", "a warning is yellow")
+    assert(io.severity(painted, "error")("e") == "\27[1;31me\27[0m", "an error is red")
+    assert(io.severity(painted, "warning")("w") == "\27[1;33mw\27[0m", "a warning is yellow")
     -- A severity that is not one of the known names is treated the way the
     -- renderer already treats it: as an error.
     assert(
-        ansi.severity(painted, "wat")("x") == ansi.severity(painted, "error")("x"),
+        io.severity(painted, "wat")("x") == io.severity(painted, "error")("x"),
         "an unknown severity paints as an error"
     )
 
-    ansi.withColorMode("never", function()
-        assert(not ansi.colorEnabled(io.stdout), "a scoped mode applies in its body")
+    io.withColorMode("never", function()
+        assert(not io.colorEnabled(io.stdout), "a scoped mode applies in its body")
     end)
-    assert(ansi.colorEnabled(io.stdout), "a scoped mode restores the caller's mode")
+    assert(io.colorEnabled(io.stdout), "a scoped mode restores the caller's mode")
 
     local ok = pcall(function()
-        ansi.withColorMode("never", function()
+        io.withColorMode("never", function()
             error("expected test error")
         end)
     end)
     assert(not ok, "a scoped mode preserves errors")
-    assert(ansi.colorEnabled(io.stdout), "an error also restores the caller's mode")
+    assert(io.colorEnabled(io.stdout), "an error also restores the caller's mode")
 
-    ansi.setColorMode("auto")
+    io.setColorMode("auto")
 end
 
 function M.aTableAlignsOnMeasuredTextAndPaintsAfterPadding()
-    ansi.setColorMode("never")
-    local plain = ansi.style(io.stdout)
-    local rendered = ansi.table({
+    io.setColorMode("never")
+    local plain = io.style(io.stdout)
+    local rendered = io.table({
         columns = {{heading = "lint"}, {heading = "level"}, {heading = "summary"}},
         rows = {
-            {ansi.cell("a"), ansi.cell("error"), ansi.cell("first")},
-            {ansi.cell("longer-name"), ansi.cell("off"), ansi.cell("second")},
+            {io.cell("a"), io.cell("error"), io.cell("first")},
+            {io.cell("longer-name"), io.cell("off"), io.cell("second")},
         },
         style = plain,
     })
@@ -156,11 +156,11 @@ function M.aTableAlignsOnMeasuredTextAndPaintsAfterPadding()
     -- The point of the shared renderer: an escape is bytes with no width, so
     -- padding has to happen before painting or the escapes line up and the text
     -- does not. Both rows below carry a painted cell of a different length.
-    ansi.setColorMode("always")
-    local painted = ansi.style(io.stdout)
-    local coloured = ansi.table({
+    io.setColorMode("always")
+    local painted = io.style(io.stdout)
+    local coloured = io.table({
         columns = {{heading = "name", paint = painted.strong}, {heading = "note"}},
-        rows = {{ansi.cell("a"), ansi.cell("x")}, {ansi.cell("longer"), ansi.cell("y")}},
+        rows = {{io.cell("a"), io.cell("x")}, {io.cell("longer"), io.cell("y")}},
         style = painted,
     })
     local lines = {}
@@ -176,11 +176,11 @@ function M.aTableAlignsOnMeasuredTextAndPaintsAfterPadding()
     -- A cell may paint itself whatever its column says, and may carry an aside that
     -- is painted apart from its text and measured along with it -- so a column
     -- carrying one still lines up with the column beside it.
-    local mixed = ansi.table({
+    local mixed = io.table({
         columns = {{heading = "name", paint = painted.strong}, {heading = "note"}},
         rows = {
-            {ansi.annotatedCell("a", " (extra)", painted.faint), ansi.cell("x")},
-            {ansi.cell("longer-still"), ansi.cell("y")},
+            {io.annotatedCell("a", " (extra)", painted.faint), io.cell("x")},
+            {io.cell("longer-still"), io.cell("y")},
         },
         style = painted,
     })
@@ -203,22 +203,22 @@ function M.aTableAlignsOnMeasuredTextAndPaintsAfterPadding()
         "an annotated cell is measured with its note, so the next column does not move"
     )
 
-    ansi.setColorMode("never")
+    io.setColorMode("never")
     assert(
-        ansi.table({
+        io.table({
             columns = {{heading = "only"}},
             rows = {}
         }) == "",
         "no rows prints nothing at all rather than a heading over nothing"
     )
     assert(
-        ansi.table({
+        io.table({
             columns = {{heading = "n", align = "right"}, {heading = "what"}},
-            rows = {{ansi.cell("7"), ansi.cell("a")}, {ansi.cell("1234"), ansi.cell("b")}},
+            rows = {{io.cell("7"), io.cell("a")}, {io.cell("1234"), io.cell("b")}},
         }) == "   n  what\n   7  a\n1234  b\n",
         "a right aligned column pads on the left"
     )
-    ansi.setColorMode("auto")
+    io.setColorMode("auto")
 end
 
 function M.aTableCutsTheLastColumnToFitRatherThanLettingItWrap()
@@ -230,19 +230,19 @@ function M.aTableCutsTheLastColumnToFitRatherThanLettingItWrap()
     local function build(width)
         return {
             columns = {{heading = "name"}, {heading = "summary"}},
-            rows = {{ansi.cell("alpha"), ansi.cell(long)}, {ansi.cell("beta"), ansi.cell("short")}},
-            style = ansi.style(io.stdout),
+            rows = {{io.cell("alpha"), io.cell(long)}, {io.cell("beta"), io.cell("short")}},
+            style = io.style(io.stdout),
             width = width,
         }
     end
 
-    ansi.setColorMode("never")
+    io.setColorMode("never")
     -- No width is no edge, so nothing is cut. This is the pipe, and a pipe gets every
     -- byte: something reads it later that wanted all of them.
-    local whole = ansi.table(build(nil))
+    local whole = io.table(build(nil))
     assert(whole:find(long, 1, true), "with no width the cell is printed whole")
 
-    local fitted = ansi.table(build(40))
+    local fitted = io.table(build(40))
     for line in fitted:gmatch("[^\n]+") do
         assert(#line <= 40, "every line fits the width: " .. #line .. " " .. line)
     end
@@ -258,8 +258,8 @@ function M.aTableCutsTheLastColumnToFitRatherThanLettingItWrap()
     -- the description continues.
     assert(fitted:find("...", 1, true), "an unpainted cut says it was cut")
 
-    ansi.setColorMode("always")
-    local painted = ansi.table(build(40))
+    io.setColorMode("always")
+    local painted = io.table(build(40))
     local cut
     for line in painted:gmatch("[^\n]+") do
         if line:find("alpha", 1, true) then
@@ -274,11 +274,11 @@ function M.aTableCutsTheLastColumnToFitRatherThanLettingItWrap()
 
     -- A cell's aside survives the cut. It is the shorter and more particular half, so
     -- losing it silently would lose the whole of what it said.
-    ansi.setColorMode("never")
-    local noted = ansi.table({
+    io.setColorMode("never")
+    local noted = io.table({
         columns = {{heading = "name"}, {heading = "summary"}},
-        rows = {{ansi.cell("alpha"), ansi.annotatedCell(long, " (note)")}},
-        style = ansi.style(io.stdout),
+        rows = {{io.cell("alpha"), io.annotatedCell(long, " (note)")}},
+        style = io.style(io.stdout),
         width = 40,
     })
     assert(noted:find(" (note)", 1, true), "the aside is kept and the text cut around it")
@@ -288,10 +288,10 @@ function M.aTableCutsTheLastColumnToFitRatherThanLettingItWrap()
 
     -- Too narrow to cut usefully: what would survive is a few letters and a fade,
     -- which says less than the wrapped line it replaced.
-    local cramped = ansi.table(build(22))
+    local cramped = io.table(build(22))
     assert(cramped:find(long, 1, true), "below the floor the cell is left alone to wrap")
 
-    ansi.setColorMode("auto")
+    io.setColorMode("auto")
 end
 
 local function capture(argv)
@@ -864,11 +864,14 @@ function M.runGivesTheProgramItsOwnArgTable()
     assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
     local files = {
         ["nupp.lua"] = 'return {include = {"."}}\n',
-        ["s.lua"] = 'print(arg[0], arg[1], arg[2], #arg, select("#", ...))\n',
+        ["s.lua"] = 'assert(require("arg") == arg)\n' .. 'print(arg[0], arg[1], arg[2], #arg, select("#", ...))\n',
         [
             "v.nupp"
         ] = 'local args = rawget(_G, "arg") as {[integer]: string}\n'
+        .. 'local library = require("arg")\n'
+        .. 'assert(library == arg and library == args)\n'
         .. 'local later = require("later")\n'
+        .. 'assert(require("arg") == arg and require("arg") == args)\n'
         .. 'print(args[0], args[1], args[2], #args, later)\n',
         ["later.nupp"] = "local answer = comptime do\n    return 6 * 7\nend\n\nreturn answer\n",
     }
@@ -1337,7 +1340,7 @@ function M.theNativeHostRaisesTheSameLimits()
 end
 
 -- The cli module's header example, checked from a directory outside the repository.
--- There nupp.cli comes from the declarations the compiler carries rather than from
+-- There arg comes from the declarations the compiler carries rather than from
 -- src/, and one module it imports was not carried, so loading it failed, every export
 -- was dropped, and `@derive(cli.Arguments)` named no provider (ER-010).
 function M.theCliHeaderExampleChecksOutsideTheRepository()

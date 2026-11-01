@@ -1,6 +1,6 @@
 module tests.fixtures.cliremainderinvalid
 
-local cli = require("nupp.cli")
+local cli = require("arg")
 
 @derive(cli.Arguments)
 local record Misordered

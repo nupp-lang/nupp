@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local assertions = require("helpers.assertions")
 -- Narrowing through paths, discriminated unions, literal types, and the
 -- typed module boundary.
@@ -24,7 +24,9 @@ local function diagsOf(src, opts)
     return table.concat(out, " ")
 end
 
-local assertClean = assertions.check(diagsOf, function(src) return "expected clean:\n" .. src end)
+local assertClean = assertions.check(diagsOf, function(src)
+    return "expected clean:\n" .. src
+end)
 
 local CFG = table.concat({"local record Cfg", "    port: number?", "    name: string", "end",}, "\n")
 
@@ -36,6 +38,7 @@ function M.aWholeSingleTypeSurvivesSubtraction()
     local function shown(t)
         return T.tostring(t)
     end
+
     testAssert.equal(shown(narrowing.subtract(T.boolean, T.boolean)), "boolean")
     testAssert.equal(shown(narrowing.subtract(T.string, T.string)), "string")
     testAssert.equal(shown(narrowing.subtract(T.nil_, T.nil_)), "nil")
@@ -1494,28 +1497,36 @@ end
 -- the narrowing the alias could not name: the call records the entries its callee
 -- writes, and those are what invalidate the fact (the `callMutatedEntries` path).
 function M.aCallThroughAnAliasEndsTheCalleesCapturedFact()
-    local prelude = table.concat({
-        "local function get(): string? return 'abc' end",
-        "local x: string? = get()",
-        "local function f(): nil x = nil end",
-    }, "\n")
+    local prelude = table.concat(
+        {
+            "local function get(): string? return 'abc' end",
+            "local x: string? = get()",
+            "local function f(): nil x = nil end",
+        },
+        "\n"
+    )
     testAssert.equal(
         diagsOf(table.concat({prelude, "local g = f", "if x ~= nil then", "    g()", "    print(#x)", "end",}, "\n")),
         "NUPP2003:7"
     )
     testAssert.equal(
-        diagsOf(table.concat({
-            prelude,
-            "if x ~= nil then",
-            "    do",
-            "        local x = 2",
-            "        local h = f",
-            "        h()",
-            "        print(x)",
-            "    end",
-            "    print(#x)",
-            "end",
-        }, "\n")),
+        diagsOf(
+            table.concat(
+                {
+                    prelude,
+                    "if x ~= nil then",
+                    "    do",
+                    "        local x = 2",
+                    "        local h = f",
+                    "        h()",
+                    "        print(x)",
+                    "    end",
+                    "    print(#x)",
+                    "end",
+                },
+                "\n"
+            )
+        ),
         "NUPP2003:11"
     )
     assertClean(table.concat({prelude, "local g = f", "if x ~= nil then", "    print(#x)", "    g()", "end",}, "\n"))

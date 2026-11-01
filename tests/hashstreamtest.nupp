@@ -6,7 +6,7 @@ local hash = require("binary.hash")
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
 local hex = require("serde.hex")
-local test = require("nupp.test")
+local test = require("assert")
 local M = {}
 
 function M.hashFamiliesKeepSeparateAlgorithmCatalogs(): nil

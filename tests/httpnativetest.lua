@@ -116,7 +116,7 @@ end
 
 local function ready()
     if unavailable then
-        test.skip("the HTTP provider is unavailable: " .. unavailable)
+        test.suite.skip("the HTTP provider is unavailable: " .. unavailable)
     end
     return newHttpClient({timeoutMs = 10000, maxConnections = 8, maxConnectionsPerHost = 8,})
 end
@@ -194,7 +194,7 @@ end
 
 function M.selectivelyInsecureClientsRerouteEveryRedirect()
     if unavailable then
-        test.skip("the HTTP provider is unavailable: " .. unavailable)
+        test.suite.skip("the HTTP provider is unavailable: " .. unavailable)
     end
     local client = newHttpClient({insecureHosts = {"127.0.0.1"}, headers = {Authorization = "secret"},})
     local response, reason = client:send({url = endpoint("/redirect")})
@@ -222,7 +222,7 @@ end
 -- header already is in the test above.
 function M.selectivelyInsecureClientsStripCookiesAcrossOrigins()
     if unavailable then
-        test.skip("the HTTP provider is unavailable: " .. unavailable)
+        test.suite.skip("the HTTP provider is unavailable: " .. unavailable)
     end
     local client = newHttpClient({insecureHosts = {"127.0.0.1"}, headers = {Cookie = "session=secret"},})
     local response, reason = client:send({url = endpoint("/redirect-cookie")})
@@ -254,7 +254,7 @@ end
 -- failure by its kind rather than by the transport's words.
 function M.aRequestPastItsDeadlineIsATimeout()
     if unavailable then
-        test.skip("the HTTP provider is unavailable: " .. unavailable)
+        test.suite.skip("the HTTP provider is unavailable: " .. unavailable)
     end
     local client = newHttpClient({timeoutMs = 200})
     local response, reason = client:send({url = endpoint("/slow")})
@@ -269,7 +269,7 @@ end
 -- reason, which it can only do when each hop is its own request.
 function M.selectivelyInsecureClientsEnforceMaxRedirectsThemselves()
     if unavailable then
-        test.skip("the HTTP provider is unavailable: " .. unavailable)
+        test.suite.skip("the HTTP provider is unavailable: " .. unavailable)
     end
     local client = newHttpClient({insecureHosts = {"127.0.0.1"}, maxRedirects = 2,})
     local response, reason = client:send({url = endpoint("/loop")})
@@ -470,6 +470,7 @@ function M.aReaderBodyLongerThanItsDeclarationFails()
             elseif calls == 2 then
                 return "EXTRA"
             end
+
             return ""
         end,
         close = function()
@@ -633,7 +634,7 @@ end
 
 function M.admissionParksUntilAnUnreadBodyReleasesItsSlot()
     if unavailable then
-        test.skip("the HTTP provider is unavailable: " .. unavailable)
+        test.suite.skip("the HTTP provider is unavailable: " .. unavailable)
     end
     local client = newHttpClient({maxPendingRequests = 1, timeoutMs = 10000})
     local first = assert(client:send({url = endpoint("/large")}))

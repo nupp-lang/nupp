@@ -4,7 +4,7 @@
 -- and method the checker typed as a lane operation through `simd.lane`. The
 -- kernels here are compiled to Lua and run, and their answers are held to
 -- what the same source means in lanes.
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local gen = require("nupp.compiler.lua.gen")
 local check = require("fragment")

@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- Typed LPeg captures and the bundled third-party re module.
 local parser = require("nupp.compiler.syntax.parser")
 local gen = require("nupp.compiler.lua.gen")

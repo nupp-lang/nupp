@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local protocol = require("nupp.tools.build.parallelcheckprotocol")
 local workerchannel = require("nupp.compiler.workerchannel")
 local time = require("nupp.time")

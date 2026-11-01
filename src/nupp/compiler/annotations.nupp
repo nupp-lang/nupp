@@ -404,7 +404,7 @@ local BUILTINS = {
         arguments = "typed",
         targets = {"record", "field"},
         builtin = true,
-        doc = "Configures command and field metadata consumed by `nupp.cli` derives.",
+        doc = "Configures command and field metadata consumed by `arg` derives.",
         docsPath = "docs/learn/projects/command-line-applications.md#derive-typed-arguments",
     },
     {

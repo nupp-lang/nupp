@@ -1,3 +1,4 @@
+@!internal
 module nupp.cli.internal.application
 
 const {type Entry} = require("nupp.derive")
@@ -226,7 +227,7 @@ export record Application
     --- shell's own path completion.
     function completion(self, shell: "bash" | "zsh" | "fish"): string
         local program = self:programName()
-        local generated = "# Completion for " .. program .. "; generated from nupp.cli.\n"
+        local generated = "# Completion for " .. program .. "; generated from arg.\n"
         if shell == "bash" then
             return generated .. "_" .. program .. "() {\n" .. "  local cur=\"${COMP_WORDS[COMP_CWORD]}\"\n"
                 -- Sliced before IFS changes: Bash 3.2 joins a quoted slice on IFS.

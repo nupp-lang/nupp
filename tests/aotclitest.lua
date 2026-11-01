@@ -2473,7 +2473,7 @@ function M.genericExplicitSimdEmitsRealTargetVectorArithmetic()
     local dir = project{["vectors.nupp"] = GENERIC_EXPLICIT_SIMD}
     local out = neonAsm(dir, "vectors.nupp")
     if out == nil then
-        test.skip("reading NEON instructions needs Clang or an aarch64 host")
+        test.suite.skip("reading NEON instructions needs Clang or an aarch64 host")
     end
     assert(out:find("fmul.4s", 1, true), "binary32 multiplication remains a vector operation: " .. out)
     assert(out:find("fadd.4s", 1, true), "binary32 addition remains a vector operation: " .. out)

@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- What a build says about itself while it runs and when it finishes.
 --
 -- Two halves, tested the two ways they are reachable: the reporter directly,
@@ -8,7 +8,6 @@ local testAssert = require("nupp.test")
 -- as long as there have been scripts reading its output, and the only reason
 -- that is still true is that nothing is written unless somebody is watching.
 local progress = require("nupp.tools.build.progress")
-local ansi = require("nupp.cli")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -241,7 +240,11 @@ function M.aFileBuildCountsTheBodiesItEmitted()
         emitted = emitted + 1
     end
     testAssert.equal(emitted, 2, "two closed tuples emit two private bodies")
-    testAssert.equal(decoded.timing.specializedBodies, emitted, "and the reported count is the number of bodies emitted")
+    testAssert.equal(
+        decoded.timing.specializedBodies,
+        emitted,
+        "and the reported count is the number of bodies emitted"
+    )
 end
 
 function M.aFileBuildAtLevelZeroCountsNothing()
@@ -277,7 +280,11 @@ function M.levelZeroDoesNotPlanOrCountProjectConstBodies()
     testAssert.equal(err, "", "the unoptimized build succeeds quietly")
     local decoded = require("testjson").decode(out)
     testAssert.equal(decoded.ok, true, "the unoptimized build worked: " .. out)
-    testAssert.equal(decoded.timing.specializedBodies, 0, "timing counts emitted bodies rather than eligible source calls")
+    testAssert.equal(
+        decoded.timing.specializedBodies,
+        0,
+        "timing counts emitted bodies rather than eligible source calls"
+    )
     local declaration = readAll(dir .. "/out/lib.lua")
     assert(not declaration:find("__nuppConst_accumulate_", 1, true), "-O0 never emits the optional private body")
 end
@@ -343,7 +350,7 @@ end
 function M.aColoredSummaryPaintsSuccessAndBuildCounts()
     local path = os.tmpname()
     local stream = assert(io.open(path, "wb"))
-    ansi.withColorMode("always", function()
+    io.withColorMode("always", function()
         local report = progress.new("always", stream)
         report:counted(2, 3)
         report:finish("built", "app")

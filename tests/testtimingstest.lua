@@ -50,7 +50,7 @@ local function project()
             ("%s/tests/%stest.lua"):format(dir, name),
             (
                 [=[
-local test = require("nupp.test")
+local test = require("assert")
 local M = {}
 function M.passes() test.equal(%q, %q) end
 return M
@@ -92,15 +92,15 @@ function M.aNarrowRunKeepsTheTimingsItDidNotMeasure()
     test.equal(status, 0, "the whole project should run: " .. everything)
     local before = suitesIn(dir)
     for _, name in ipairs({"alphatest", "betatest", "gammatest"}) do
-        test.assert(before[name], name .. " should have been timed by the whole run")
+        test(before[name], name .. " should have been timed by the whole run")
     end
 
     local narrow, narrowStatus = runner(dir, "alphatest --timings=0")
     test.equal(narrowStatus, 0, "the narrow run should succeed: " .. narrow)
     local after, recorded = suitesIn(dir)
-    test.assert(after.alphatest, "the suite that ran should be timed")
-    test.assert(after.betatest, "a suite the narrow run did not touch should keep its timing: " .. recorded)
-    test.assert(after.gammatest, "every untouched suite should keep its timing: " .. recorded)
+    test(after.alphatest, "the suite that ran should be timed")
+    test(after.betatest, "a suite the narrow run did not touch should keep its timing: " .. recorded)
+    test(after.gammatest, "every untouched suite should keep its timing: " .. recorded)
 end
 
 -- The planner adds recorded durations up, and an entry that decoded as something
@@ -112,18 +112,16 @@ function M.aRecordThatIsNotADurationIsIgnored()
     write(
         dir .. "/build/.nupp-test-times.json",
         '{"suites":{"alphatest":"slow","betatest":[1],"gammatest":5},'
-            .. '"cases":{"alphatest":"slow","betatest":{"passes":{}}}}\n'
+        .. '"cases":{"alphatest":"slow","betatest":{"passes":{}}}}\n'
     )
     local output, status = shell(
-        ("cd %q && NUPP_TEST_BUILD=%q %q test --internal-runner --jobs=2 --timings=0"):format(
-            dir,
-            dir .. "/build",
-            NUPP
-        )
+        (
+            "cd %q && NUPP_TEST_BUILD=%q %q test --internal-runner --jobs=2 --timings=0"
+        ):format(dir, dir .. "/build", NUPP)
     )
     test.equal(status, 0, "a damaged record should not stop the run: " .. output)
     local _, recorded = suitesIn(dir)
-    test.assert(not recorded:find("slow", 1, true), "the damaged record should be replaced: " .. recorded)
+    test(not recorded:find("slow", 1, true), "the damaged record should be replaced: " .. recorded)
     discard(dir)
 end
 
@@ -133,12 +131,12 @@ end
 function M.aRemovedSuiteLeavesTheRecord()
     local dir = project()
     runner(dir, "--timings=0")
-    test.assert(suitesIn(dir).gammatest, "gammatest should be timed first")
+    test(suitesIn(dir).gammatest, "gammatest should be timed first")
     os.remove(dir .. "/tests/gammatest.lua")
     runner(dir, "--timings=0")
     local after, recorded = suitesIn(dir)
-    test.assert(not after.gammatest, "a deleted suite should leave the record: " .. recorded)
-    test.assert(after.alphatest, "the suites that remain should keep their timings")
+    test(not after.gammatest, "a deleted suite should leave the record: " .. recorded)
+    test(after.alphatest, "the suites that remain should keep their timings")
     discard(dir)
 end
 

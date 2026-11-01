@@ -1,4 +1,4 @@
-local test = require("nupp.test")
+local test = require("assert")
 local equivalence = require("tests.simd.equivalence")
 local fixtures = require("tests.simd.equivalence-fixtures")
 local obligations = require("tests.simd.obligations")
@@ -153,7 +153,7 @@ function M.driverUsesOnlyThePublicExactCaseSelector()
     test.matches(command, "%-%-json")
     test.matches(command, "%-%-jobs=1")
     test.matches(command, "NUPP_SIMD_EQUIVALENCE_MUTATION")
-    test.assert(not command:find("--exact", 1, true))
+    test(not command:find("--exact", 1, true))
 end
 
 return M

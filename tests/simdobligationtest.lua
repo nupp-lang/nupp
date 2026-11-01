@@ -1,4 +1,4 @@
-local test = require("nupp.test")
+local test = require("assert")
 local obligations = require("tests.simd.obligations")
 local M = {}
 
@@ -62,7 +62,7 @@ function M.manifestIsOrthogonalAndLedgerIsFixed()
     test.equal(manifest.schemaVersion, 1)
     test.equal(#ledger.defects, 13)
     local empty = obligations.validate({})
-    test.assert(empty.required < 3000, "the manifest expanded back into the old Cartesian matrix")
+    test(empty.required < 3000, "the manifest expanded back into the old Cartesian matrix")
 
     local operationRequirements = 0
     local speciesRequirements = 0
@@ -79,7 +79,7 @@ function M.manifestIsOrthogonalAndLedgerIsFixed()
     local ids, witnesses = {}, {}
     local preserved, generated = 0, 0
     for _, defect in ipairs(ledger.defects) do
-        test.assert(not ids[defect.id], "duplicate defect ID")
+        test(not ids[defect.id], "duplicate defect ID")
         ids[defect.id] = true
         if defect.mechanism.kind == "preserved-test" then
             preserved = preserved + 1
@@ -89,14 +89,14 @@ function M.manifestIsOrthogonalAndLedgerIsFixed()
             generated = generated + 1
         end
         test.equal(defect.mechanism.implemented, true)
-        test.assert(type(defect.mechanism.operation) == "string" and defect.mechanism.operation ~= "")
-        test.assert(
+        test(type(defect.mechanism.operation) == "string" and defect.mechanism.operation ~= "")
+        test(
             defect.mechanism.killMarker:find("SIMD_EQUIVALENCE_KILL:" .. defect.id .. ":", 1, true) == 1,
             "defect kill marker does not begin with its ID"
         )
         test.equal(defect.mechanism.productionFlag, nil)
         for _, witness in ipairs(defect.expectedWitnesses) do
-            test.assert(not witnesses[witness], "duplicate defect witness")
+            test(not witnesses[witness], "duplicate defect witness")
             witnesses[witness] = true
             test.equal(witness, defect.mechanism.testId)
         end
@@ -135,7 +135,7 @@ function M.equivalenceGateRequiresExactLedgerWitnesses()
     end
     local wrong = obligations.validate({harness(facts)}, {gate = "equivalence"})
     test.equal(wrong.ok, false)
-    test.assert(#wrong.invalid > 0)
+    test(#wrong.invalid > 0)
 end
 
 function M.nativeMatrixEvidenceMigratesIntoCompactObligations()
@@ -209,7 +209,7 @@ function M.nativeMatrixEvidenceMigratesIntoCompactObligations()
 
     report.rows[1].execution.nativeCalls = 0
     local invalid = obligations.validate({report})
-    test.assert(#invalid.invalid > 0, "an incomplete legacy execution was accepted")
+    test(#invalid.invalid > 0, "an incomplete legacy execution was accepted")
 end
 
 function M.partialMatrixEvidenceDoesNotClaimUnexecutedCoverage()

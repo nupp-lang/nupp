@@ -1,6 +1,6 @@
 module tests.fixtures.cliparser
 
-local cliModule = require("nupp.cli")
+local cliModule = require("arg")
 
 local function assertRaises(body: function(): nil): nil
     local ok = pcall(body)
@@ -126,7 +126,7 @@ assert(checked ~= nil, checkProblem and checkProblem.message)
 assert(checked.verbose and checked.format == "json" and checked.jobs == 3 and checked.enabled)
 assert(#checked.files == 2 and checked.files[2] == "b.nupp")
 
-local same, sameProblem = cliModule.decodeAs(CheckArgs, {"--format=text", "main.nupp"})
+local same, sameProblem = cliModule.parse(CheckArgs, {"--format=text", "main.nupp"})
 assert(same ~= nil, sameProblem and sameProblem.message)
 assert(not same.verbose and same.format == "text" and same.jobs == nil)
 assert(#same.files == 1 and same.files[1] == "main.nupp")
@@ -309,14 +309,14 @@ assert(choicesSkipped.mode == nil and choicesSkipped.format == nil and choicesSk
 local secondChoice = assert(OptionalChoices.fromCLI({"json", "main.nupp"}))
 assert(secondChoice.mode == nil and secondChoice.format == "json" and secondChoice.file == "main.nupp")
 
-cliModule.withColorMode("always", function()
-    local style = cliModule.style(io.stdout)
-    assert(cliModule.colorEnabled(io.stdout))
+io.withColorMode("always", function()
+    local style = io.style(io.stdout)
+    assert(io.colorEnabled(io.stdout))
     assert(style.red("problem") == "\27[1;31mproblem\27[0m")
 end)
-cliModule.withColorMode("never", function()
-    local style = cliModule.style(io.stdout)
-    assert(not cliModule.colorEnabled(io.stdout))
+io.withColorMode("never", function()
+    local style = io.style(io.stdout)
+    assert(not io.colorEnabled(io.stdout))
     assert(style.red("problem") == "problem" and style.strong("heading") == "heading")
 end)
 

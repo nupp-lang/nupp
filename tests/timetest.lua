@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- The one clock, and the one timer source behind every wait.
 --
 -- Durations here are deliberately coarse. A test that asserts a sleep took between
@@ -182,10 +182,7 @@ function M.independentCoroutinesDoNotInheritEachOthersTaskDeadlines()
     local secondOpened, secondDeadline = coroutine.resume(second)
     assert(firstOpened, "the first coroutine did not open its scope")
     assert(secondOpened, "the second coroutine did not open its scope")
-    assert(
-        secondDeadline > firstDeadline + 50000,
-        "an independent coroutine inherited another coroutine's deadline"
-    )
+    assert(secondDeadline > firstDeadline + 50000, "an independent coroutine inherited another coroutine's deadline")
     assert(coroutine.resume(second), "the second coroutine did not settle its scope")
     assert(coroutine.resume(first), "the first coroutine did not settle its scope")
     testAssert.equal(tasks.deadline(), nil, "an independent scope leaked onto the main thread")

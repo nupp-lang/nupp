@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- First-class record type witnesses and lazy runtime descriptors.
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
@@ -99,10 +99,12 @@ return quiet.value
 end
 
 function M.extensionsAreTypedAndLazy()
-    local User = run([[
+    local User = run(
+        [[
 local record User id: integer end
 return {target = User, info = User.reflect() as nupp.reflect.Info}
-]])
+]]
+    )
     local reflection = _G.nupp.reflect
     local calls = 0
     local key = reflection.extensionKey(function(info)

@@ -1,0 +1,33 @@
+local cli = require("arg")
+const {type TokenKind, type DecodeError} = require("arg")
+
+@derive(cli.Arguments)
+local record Options
+    @cli(value = "NAME")
+    name: string
+end
+
+local options: Options?, problem: DecodeError? = cli.parse(Options, {"--name", "Ada"})
+assert(problem == nil, problem and problem.message)
+assert(options ~= nil)
+assert(options.name == "Ada")
+assert(cli == arg)
+
+local alias = arg
+local parser = alias.optParser({"--flag"})
+local kind: TokenKind? = parser:next()
+assert(kind == alias.longOption)
+assert(parser:key() == "flag")
+
+local localArg = {
+    parse = function(): integer
+        return 42
+    end
+}
+
+local function ordinary(arg: {parse: function(): integer}): integer
+    return arg.parse()
+end
+
+assert(ordinary(localArg) == 42)
+print("arg facade ok")

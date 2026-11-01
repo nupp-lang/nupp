@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local rock = require("nupp.tools.rock")
 local template = require("nupp.tools.template")
 

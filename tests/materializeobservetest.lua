@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local observe = require("nupp.compiler.comptime.materialize.observe")
 
 local M = {}

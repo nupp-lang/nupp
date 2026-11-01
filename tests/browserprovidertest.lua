@@ -205,7 +205,7 @@ function M.aDeadlineScopeDoesNotHoldItsChildrensWaits()
     end)
     check.equal(ok, true, tostring(answer))
     check.equal(answer, "slept twice", "a child finishing well inside the deadline completes")
-    check.assert(app.now() < 100, "the child's sleeps waited on the scope's deadline timer: " .. app.now())
+    check(app.now() < 100, "the child's sleeps waited on the scope's deadline timer: " .. app.now())
 end
 
 function M.everyParkSaysHowLongTheHostMayHoldIt()
@@ -217,7 +217,7 @@ function M.everyParkSaysHowLongTheHostMayHoldIt()
     end)
     check.equal(ok, true, tostring(answer))
     for _, frame in ipairs(app.frames) do
-        check.assert(frame.wake == "any" or frame.wake == "turn", "a frame without a wake mode is held for its batch")
+        check(frame.wake == "any" or frame.wake == "turn", "a frame without a wake mode is held for its batch")
     end
 end
 
@@ -311,7 +311,7 @@ function M.aNestedScopeSpendsTheTurnBudgetThroughItsChild()
         end
     end
     -- 150 activations under a 64-activation budget owe the page at least two turns.
-    check.assert(turns >= 2, "the turn budget was not spent: " .. turns .. " turn frames")
+    check(turns >= 2, "the turn budget was not spent: " .. turns .. " turn frames")
 end
 
 -- The parallelism query is `nupp.system`'s, and the page answers it; a task asks it
@@ -371,7 +371,7 @@ function M.aFullWorkerQueueSaysItIsFull()
         50
     )
     check.equal(ok, true, tostring(answer))
-    check.assert(tostring(answer):find("nupp: a worker queue is full", 1, true) ~= nil, tostring(answer))
+    check(tostring(answer):find("nupp: a worker queue is full", 1, true) ~= nil, tostring(answer))
 end
 
 -- A worker scope lists only what it may still owe something to: unsettled tasks, and
@@ -444,7 +444,7 @@ function M.aWorkerScopeListsOnlyWhatItStillOwes()
     check.equal(answer[5], 0, "an awaited task stayed listed")
     check.equal(answer[6], 1, "an unobserved failure left the scope before close raised it")
     check.equal(answer[7], false, "close did not raise the unobserved failure")
-    check.assert(answer[8]:find("the lane failed", 1, true) ~= nil, answer[8])
+    check(answer[8]:find("the lane failed", 1, true) ~= nil, answer[8])
 end
 
 ----------------------------------------------------------------------------

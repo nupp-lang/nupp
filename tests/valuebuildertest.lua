@@ -1,6 +1,6 @@
 local valuebuilder = require("serde.valuebuilder")
 local jsonbuilder = require("nupp.codec.json.internal.builder")
-local test = require("nupp.test")
+local test = require("assert")
 local u32 = nupp.math.u32.wrap
 local M = {}
 

@@ -1,6 +1,6 @@
 -- Three counted-loop probes retain the real browser boundary. The semantic
 -- corpus itself runs through the embedded Wasmtime host.
-local test = require("nupp.test")
+local test = require("assert")
 local runner = require("tests.simd.runner")
 local hash = require("nupp.compiler.hash")
 local fingerprint = require("nupp.compiler.project.fingerprint")
@@ -55,17 +55,19 @@ end
 
 function M.countedRuntimeRoutesReachChromium()
     local requested = os.getenv("NUPP_FLEET_BROWSER_SMOKE") == "1"
-    test.requireCapability("fleet.browser-smoke", requested, {requested = requested})
+    test.suite.requireCapability("fleet.browser-smoke", requested, {requested = requested})
     local node = command("node")
-    test.requireCapability("runtime.node", node ~= nil, {command = node})
+    test.suite.requireCapability("runtime.node", node ~= nil, {command = node})
     local codegen, problem = runner.codegen()
-    test.requireCapability("compiler.wasm", codegen ~= nil, {command = "nupp", output = problem})
+    test.suite.requireCapability("compiler.wasm", codegen ~= nil, {command = "nupp", output = problem})
     local playwright = ROOT .. "/editors/playground/node_modules/playwright/index.mjs"
-    test.requireCapability("runtime.playwright", exists(playwright), {path = playwright})
+    test.suite.requireCapability("runtime.playwright", exists(playwright), {path = playwright})
     local guest = browserGuest()
-    test.requireCapability("runtime.luajit-browser-guest", exists(guest .. "/guest-manifest.json"), {path = guest})
+    test.suite.requireCapability("runtime.luajit-browser-guest", exists(guest .. "/guest-manifest.json"), {
+        path = guest
+    })
     local key = fixtureKey(guest, codegen)
-    local _, report, reused = test.fixture(key, function(directory)
+    local _, report, reused = test.suite.fixture(key, function(directory)
         local evidence = directory .. "/evidence"
         local log = directory .. "/run.log"
         runner.command(
@@ -83,11 +85,11 @@ function M.countedRuntimeRoutesReachChromium()
     test.equal(report.passed, 1)
     local result = assert(report.tests[1], "browser smoke produced no case")
     for _, fact in ipairs(result.facts or {}) do
-        test.fact(fact.name, fact.value)
+        test.suite.fact(fact.name, fact.value)
     end
-    test.fact("simd.wasm.browser-smoke", result.evidence)
-    test.work("fixture.reused", reused and 1 or 0)
-    test.work("browser.startups", reused and 0 or 2)
+    test.suite.fact("simd.wasm.browser-smoke", result.evidence)
+    test.suite.work("fixture.reused", reused and 1 or 0)
+    test.suite.work("browser.startups", reused and 0 or 2)
 end
 
 return M

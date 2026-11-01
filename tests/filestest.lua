@@ -83,7 +83,7 @@ end
 
 local function ready()
     if unavailable then
-        test.skip("the files provider did not build: " .. unavailable)
+        test.suite.skip("the files provider did not build: " .. unavailable)
     end
     return provider
 end
@@ -398,7 +398,8 @@ function M.aCancelledTransferGivesItsLaneSlotBack()
     -- the race abandons the read while it is still in flight.
     local value = tasks.race({
         function()
-            -- A race branch answers one value; `assert` would pass on the nil reason too.
+            -- A race branch answers one value; `assert` would pass on the nil reason
+            -- too.
             return (assert(files.read(inRoot("cancel/large.bin"))))
         end,
         function()
@@ -577,6 +578,7 @@ function M.aReadThatFailsMidFileSurfacesFromTheLineReader()
                     if reads == 1 then
                         return ("one\ntw"):sub(1, count)
                     end
+
                     return nil, "the disk went away"
                 end,
                 close = function()

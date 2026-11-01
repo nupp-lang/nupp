@@ -143,7 +143,9 @@ local RESOURCES = {
     {source = "src/re.nupp", output = "nupp/compiler/re.nupp"},
     {source = "src/nupp/text/internal/buffer.d.nupp", output = "nupp/compiler/nupp/text/internal/buffer.d.nupp"},
     {source = "src/nupp/text/init.nupp", output = "nupp/compiler/nupp/text/init.nupp"},
-    {source = "src/nupp/cli/init.nupp", output = "nupp/compiler/nupp/cli/init.nupp"},
+    {source = "src/arg/init.nupp", output = "nupp/compiler/arg/init.nupp"},
+    {source = "src/assert/init.nupp", output = "nupp/compiler/assert/init.nupp"},
+    {source = "src/nupp/runtime/standardio.nupp", output = "nupp/compiler/nupp/runtime/standardio.nupp"},
     {source = "src/nupp/cli/internal/optparser.nupp", output = "nupp/compiler/nupp/cli/internal/optparser.nupp"},
     {source = "src/nupp/cli/internal/decode.nupp", output = "nupp/compiler/nupp/cli/internal/decode.nupp"},
     {source = "src/nupp/cli/internal/terminal.nupp", output = "nupp/compiler/nupp/cli/internal/terminal.nupp"},
@@ -230,7 +232,6 @@ local RESOURCES = {
     {source = "src/nupp/gpu/operations.nupp", output = "nupp/compiler/nupp/gpu/operations.nupp"},
     "src/nupp/compiler/decls/*.d.nupp",
     "src/nupp/compiler/decls/jit/*.d.nupp",
-    {source = "src/nupp/test.nupp", output = "nupp/compiler/nupp/test.nupp"},
     {source = "tests/run.lua", output = "nupp/compiler/nupp/test/runner.lua"},
     -- The tools' own files, carried beside the compiler's so that
     -- `nupp.compiler.bundled` is the one place anything carried is read from.

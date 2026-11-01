@@ -1,7 +1,7 @@
 -- nupp.mem.arena: zero-filled struct rows leased from pages that never move.
 local ffi = require("ffi")
 local arena = require("nupp.mem.arena")
-local test = require("nupp.test")
+local test = require("assert")
 
 local M = {}
 

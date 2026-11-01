@@ -8,8 +8,7 @@ what would be enforced in this tree. A lint whose level a project moved says so
 beside its summary, since the difference is the thing worth noticing.
 ]]
 
-local ansi = require("nupp.cli")
-local cliModule = require("nupp.cli")
+local cliModule = require("arg")
 local report = require("nupp.tools.cli.report")
 
 local REPORT_SCHEMA = {
@@ -55,10 +54,10 @@ local LEVEL_SEVERITY = {error = "error", warning = "warning", note = "note",}
 
 --- A level that is not a severity is one that reports nothing, and is painted faint
 --- rather than in a color that would claim it does.
-local function levelPaint(style: cliModule.Style, level: string): function(string): string
+local function levelPaint(style: io.Style, level: string): function(string): string
     local severity = LEVEL_SEVERITY[level]
 
-    return severity ~= nil and ansi.severity(style, severity) or style.faint
+    return severity ~= nil and io.severity(style, severity) or style.faint
 end
 
 local function run(options: any): integer
@@ -83,7 +82,7 @@ local function run(options: any): integer
         config = loaded
     end
     local lintConfig = config and config.lints or nil
-    local style = ansi.style(io.stdout)
+    local style = io.style(io.stdout)
     local rows: {any} = {}
     for _, lint in ipairs(lints.all) do
         local level = lints.level(lint, lintConfig)
@@ -106,7 +105,7 @@ local function run(options: any): integer
         report.write({ok = true, lints = rows})
         return 0
     end
-    local cells: {{cliModule.Cell}} = {}
+    local cells: {{io.Cell}} = {}
     for _, row in ipairs(rows) do
         -- The default a project moved a lint off is an aside on the summary rather
         -- than a column, because it is absent from nearly every row.
@@ -117,13 +116,13 @@ local function run(options: any): integer
         cells[
             #cells + 1
         ] = {
-            cliModule.paintedCell(row.name, style.strong),
-            cliModule.paintedCell(row.category, style.faint),
-            cliModule.paintedCell(row.level, levelPaint(style, row.level)),
-            new cliModule.Cell(text = row.summary, note = note),
+            io.paintedCell(row.name, style.strong),
+            io.paintedCell(row.category, style.faint),
+            io.paintedCell(row.level, levelPaint(style, row.level)),
+            new io.Cell(text = row.summary, note = note),
         }
     end
-    cliModule.writeTable(
+    io.writeTable(
         io.stdout,
         {
             columns = {
@@ -134,7 +133,7 @@ local function run(options: any): integer
             },
             rows = cells,
             style = style,
-        } as cliModule.TableOptions
+        } as io.TableOptions
     )
 
     return 0

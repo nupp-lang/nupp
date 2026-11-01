@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- Substitution has two jobs. Rebinding `self` over a member must preserve every
 -- other binder; specializing a call must materialize the ones inference never
 -- reached, as `any`. One operation did both, and the preserving callers silently

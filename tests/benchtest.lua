@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- The nupp.bench surface, in three parts that fail independently.
 --
 -- The intrinsic: `keep` in statement position on a receiver statically known to be the

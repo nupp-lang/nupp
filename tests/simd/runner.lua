@@ -188,8 +188,11 @@ aotFeatures={minimum="baseline",maximum="avx512f"},
 ]]
     )
     local built = execute(
-        "cd " .. M.quote(dir) .. " && " .. M.quote(options.nupp or root .. "/bin/nupp")
-            .. " build --target native >" .. M.quote(dir .. "/build.log") .. " 2>&1"
+        "cd " .. M.quote(
+            dir
+        ) .. " && " .. M.quote(
+            options.nupp or root .. "/bin/nupp"
+        ) .. " build --target native >" .. M.quote(dir .. "/build.log") .. " 2>&1"
     )
     if built ~= 0 then
         return nil, "the tier probe did not build: " .. M.read(dir .. "/build.log")
@@ -238,7 +241,7 @@ function M.codegen()
 end
 
 --- Proves that the code generator and CPU tier can execute native SIMD.
---- Unlike `native`, this returns evidence for `test.requireCapability` rather
+--- Unlike `native`, this returns evidence for `test.suite.requireCapability` rather
 --- than turning unavailable hardware into a failed semantic case.
 function M.nativeCapability(options)
     options = options or {}
@@ -290,7 +293,9 @@ aotFeatures={minimum=%q,maximum=%q},
         capability.available and ("\n" .. capabilities):find("\n" .. tier .. "\n", 1, true),
         "requested tier " .. tier .. " cannot execute on this host: " .. tostring(capability.reason)
     )
-    local build = "cd " .. M.quote(dir) .. " && " .. M.quote(options.nupp or root .. "/bin/nupp") .. " build --target native"
+    local build = "cd " .. M.quote(
+        dir
+    ) .. " && " .. M.quote(options.nupp or root .. "/bin/nupp") .. " build --target native"
     local buildOutput = M.command(build .. (options.buildJson and " --quiet --format json" or ""), dir .. "/build.log")
     local buildReport = options.buildJson and decode(buildOutput) or nil
     local units = M.json(dir .. "/build/native/aot/units.json")

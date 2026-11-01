@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- nupp.profile, both channels, plus the `nupp run` flags that drive them.
 --
 -- A sampler is timing-dependent by construction, so nothing here asserts a

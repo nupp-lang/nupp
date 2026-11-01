@@ -1,4 +1,4 @@
-local test = require("nupp.test")
+local test = require("assert")
 local fixtures = require("tests.simd.equivalence-fixtures")
 local packs = require("tests.simd.native-packs")
 local runner = require("tests.simd.runner")
@@ -19,14 +19,14 @@ end
 
 local function canonicalPack()
     local capabilities = wasmtime.capabilities()
-    test.requireCapability("compiler.wasm", capabilities.wasm.available, capabilities.wasm)
-    test.requireCapability("runtime.node", capabilities.node.available, capabilities.node)
-    test.requireCapability("runtime.luajit-child", capabilities.lua.available, capabilities.lua)
-    test.requireCapability("runtime.wasmtime-host", capabilities.host.available, capabilities.host)
+    test.suite.requireCapability("compiler.wasm", capabilities.wasm.available, capabilities.wasm)
+    test.suite.requireCapability("runtime.node", capabilities.node.available, capabilities.node)
+    test.suite.requireCapability("runtime.luajit-child", capabilities.lua.available, capabilities.lua)
+    test.suite.requireCapability("runtime.wasmtime-host", capabilities.host.available, capabilities.host)
     local hostLibrary, host = wasmtime.host(test, capabilities)
     local generated = packs.semantics({target = "wasm"})
     local key = wasmtime.fixtureKey("semantics", generated, capabilities, host)
-    local directory = test.fixture(key, function(private)
+    local directory = test.suite.fixture(key, function(private)
         return wasmtime.produce("semantics", generated, capabilities, hostLibrary, private)
     end)
 
@@ -47,7 +47,7 @@ end
 
 local function verifyMutation(id, failureMode)
     if os.getenv("NUPP_SIMD_EQUIVALENCE_MUTATION") ~= id then
-        test.notExecuted("equivalence mutation is run only by tests/simd/run-equivalence.lua")
+        test.suite.notExecuted("equivalence mutation is run only by tests/simd/run-equivalence.lua")
     end
     local canonicalProject, hostLibrary, lua = canonicalPack()
     local project = os.tmpname()

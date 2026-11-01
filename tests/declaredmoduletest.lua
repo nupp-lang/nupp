@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local gen = require("nupp.compiler.lua.gen")
@@ -885,10 +885,10 @@ end
 
 local type BuiltinAssert = function<A...>(A...): A...
 local original = rawget(_G, "assert") as BuiltinAssert
-local helper = require("nupp.test")
+local helper = require("assert")
 local value = {
     equal = helper.equal,
-    suite = {skip = helper.skip, isSkip = helper.isSkip, skipReason = helper.skipReason},
+    suite = {skip = helper.suite.skip, isSkip = helper.suite.isSkip, skipReason = helper.suite.skipReason},
 } as Callable
 
 export = setmetatable(value, {__call = function<A...>(_self: Callable, ...: A...): A...

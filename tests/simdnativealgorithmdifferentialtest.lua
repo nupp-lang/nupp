@@ -1,4 +1,4 @@
-local test = require("nupp.test")
+local test = require("assert")
 local runner = require("tests.simd.runner")
 local hash = require("nupp.compiler.hash")
 local fingerprint = require("nupp.compiler.project.fingerprint")
@@ -116,17 +116,17 @@ local function absolute(path)
     return ROOT .. "/" .. path
 end
 
-local cases = test.cases(
+local cases = test.suite.cases(
     ALGORITHMS,
     function(name)
         return "native" .. name:gsub("[^%w]", "_")
     end,
     function(name)
         local capability = runner.nativeCapability()
-        test.requireCapability("compiler.llvm", capability.compilerVersion ~= nil, capability)
-        test.requireCapability("cpu." .. capability.tier, capability.available, capability)
+        test.suite.requireCapability("compiler.llvm", capability.compilerVersion ~= nil, capability)
+        test.suite.requireCapability("cpu." .. capability.tier, capability.available, capability)
         local key = fixtureKey(name, capability)
-        local _, report, reused = test.fixture(key, function(directory)
+        local _, report, reused = test.suite.fixture(key, function(directory)
             directory = absolute(directory)
             runner.command(
                 "NUPP_SIMD_TIER=" .. runner.quote(
@@ -153,9 +153,9 @@ local cases = test.cases(
         end)
         test.equal(report.algorithm, name)
         test.equal(report.tier, capability.tier)
-        test.assert(report.cases > 0 and report.nativeCalls > 0 and report.generatedUnits > 0 and #report.artifacts > 0)
+        test(report.cases > 0 and report.nativeCalls > 0 and report.generatedUnits > 0 and #report.artifacts > 0)
         checkWork(name, report)
-        test.fact("simd.native.algorithm", {
+        test.suite.fact("simd.native.algorithm", {
             algorithm = name,
             tier = report.tier,
             compiler = capability.compilerDialect,
@@ -164,16 +164,16 @@ local cases = test.cases(
             artifacts = report.artifacts,
             randomFingerprint = report.randomFingerprint,
         })
-        test.fact("coverage.witness", {
+        test.suite.fact("coverage.witness", {
             id = key .. "/coverage",
             obligation = "simd.native.algorithm",
             dimensions = {backend = "native", algorithm = name, tier = report.tier},
         })
-        test.work("fixture.reused", reused and 1 or 0)
-        test.work("generated.units", reused and 0 or report.generatedUnits)
-        test.work("build.commands", reused and 0 or 1)
-        test.work("semantic.cases", reused and 0 or report.cases)
-        test.work("native.calls", reused and 0 or report.nativeCalls)
+        test.suite.work("fixture.reused", reused and 1 or 0)
+        test.suite.work("generated.units", reused and 0 or report.generatedUnits)
+        test.suite.work("build.commands", reused and 0 or 1)
+        test.suite.work("semantic.cases", reused and 0 or report.cases)
+        test.suite.work("native.calls", reused and 0 or report.nativeCalls)
     end
 )
 
@@ -188,8 +188,8 @@ function M.fusedJsonKeyCoversTheNativeBuilder()
     for _, path in ipairs(projectFiles("fused-json")) do
         covered[path:sub(#ROOT + 2)] = true
     end
-    test.assert(covered["native/crates/native/c/ks_lua.h"], "the fused-json key omits ks_lua.h")
-    test.assert(covered["native/crates/native/c/ks_rt.c"], "the fused-json key omits ks_rt.c")
+    test(covered["native/crates/native/c/ks_lua.h"], "the fused-json key omits ks_lua.h")
+    test(covered["native/crates/native/c/ks_rt.c"], "the fused-json key omits ks_rt.c")
 end
 
 return M

@@ -1,7 +1,7 @@
 local compression = require("binary.compress")
 local io = require("nupp.io")
 local span = require("nupp.mem.span")
-local test = require("nupp.test")
+local test = require("assert")
 local M = {}
 
 local function writerOptions(name: string, workspace: integer?): compression.WriterOptions

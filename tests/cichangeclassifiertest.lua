@@ -22,14 +22,14 @@ end
 local function selects(path, expected)
     local jobs = jobsFor(path)
     for _, name in ipairs(expected) do
-        test.assert(jobs[name], ("%s should select %s"):format(path, name))
+        test(jobs[name], ("%s should select %s"):format(path, name))
     end
 end
 
 local function doesNotSelect(path, unexpected)
     local jobs = jobsFor(path)
     for _, name in ipairs(unexpected) do
-        test.assert(not jobs[name], ("%s should not select %s"):format(path, name))
+        test(not jobs[name], ("%s should not select %s"):format(path, name))
     end
 end
 
@@ -63,7 +63,7 @@ function M.toolChangeSelectsWhatACompilerChangeDoes()
     }) do
         local jobs = jobsFor(path)
         for name in pairs(compiler) do
-            test.assert(jobs[name], ("%s should select %s"):format(path, name))
+            test(jobs[name], ("%s should select %s"):format(path, name))
         end
     end
 end
@@ -118,13 +118,13 @@ function M.localFleetInputsRemainAnExplicitSimdSurface()
         "bench/fused-json/tests/differential.lua",
         "bench/fused-json/nupp.lua"
     }) do
-        test.assert(classifier().surfacesOf(path).simd, path .. " should be on the SIMD surface")
+        test(classifier().surfacesOf(path).simd, path .. " should be on the SIMD surface")
     end
 end
 
 function M.simdSurfaceHasNoChangeTriggeredGitHubJob()
     for _, name in ipairs(everyJob()) do
-        test.assert(name ~= "simd-conformance", "the SIMD fleet must stay out of change-triggered CI")
+        test(name ~= "simd-conformance", "the SIMD fleet must stay out of change-triggered CI")
     end
 end
 
@@ -141,7 +141,7 @@ function M.unrelatedSourcesStayOutsideTheSimdSurface()
         "bench/simd-json/benchmark.lua",
         "bench/fused-json/README.md"
     }) do
-        test.assert(not classifier().surfacesOf(path).simd, path .. " should not be on the SIMD surface")
+        test(not classifier().surfacesOf(path).simd, path .. " should not be on the SIMD surface")
     end
 end
 
@@ -228,7 +228,7 @@ end
 -- path nobody has classified is a path whose blast radius nobody knows.
 function M.anUnclassifiedPathSelectsEverything()
     local selection = classifier().classify({"some/place/nobody/described.txt"})
-    test.assert(selection.surfaces.unclassified, "an unknown path should be reported as unclassified")
+    test(selection.surfaces.unclassified, "an unknown path should be reported as unclassified")
     selects("some/place/nobody/described.txt", everyJob())
 end
 
@@ -236,7 +236,7 @@ end
 function M.anEmptyChangeSelectsEverything()
     local jobs = classifier().classify({}).jobs
     for _, name in ipairs(everyJob()) do
-        test.assert(jobs[name], ("an empty change should select %s"):format(name))
+        test(jobs[name], ("an empty change should select %s"):format(name))
     end
 end
 
@@ -261,14 +261,14 @@ end
 -- selection conservative rather than the last rule to match.
 function M.aMixedChangeTakesTheUnionOfItsPaths()
     local jobs = jobsFor("docs/reference/language.md", "src/nupp/gpu/kernel.nupp")
-    test.assert(jobs["docs-site"], "the documentation obligation should survive")
-    test.assert(jobs["gpu-linux"], "the GPU obligation should survive")
+    test(jobs["docs-site"], "the documentation obligation should survive")
+    test(jobs["gpu-linux"], "the GPU obligation should survive")
 end
 
 function M.everyJobTheClassifierKnowsIsSelectableByEverything()
     local selection = classifier().classify({})
     for _, name in ipairs(everyJob()) do
-        test.assert(selection.reasons[name], ("%s should record why it was selected"):format(name))
+        test(selection.reasons[name], ("%s should record why it was selected"):format(name))
     end
 end
 
@@ -280,7 +280,7 @@ function M.theCoverageMapAgreesWithTheWorkflow()
     local validator = dofile(".github/scripts/validate-ci-coverage.lua")
     local problems, jobs = validator.problems()
     test.equal(table.concat(problems, "; "), "")
-    test.assert(jobs > 0, "the workflow should define at least one job")
+    test(jobs > 0, "the workflow should define at least one job")
 end
 
 -- A group naming a suite that has been renamed fails at the point the group is
@@ -294,13 +294,13 @@ function M.everyNamedGroupMemberNamesASuiteThatExists()
         names[#names + 1] = name
     end
     table.sort(names)
-    test.assert(#names > 0, "tests/groups.lua defines no groups")
+    test(#names > 0, "tests/groups.lua defines no groups")
     for _, name in ipairs(names) do
         for _, member in ipairs(groups[name]) do
             if not member:find("*", 1, true) then
                 local lua = io.open("tests/" .. member .. ".lua", "r")
                 local nupp = lua or io.open("tests/" .. member .. ".nupp", "r")
-                test.assert(nupp ~= nil, ("group %s names %s, which is not a suite"):format(name, member))
+                test(nupp ~= nil, ("group %s names %s, which is not a suite"):format(name, member))
                 if nupp then
                     nupp:close()
                 end
@@ -315,7 +315,7 @@ function M.everyGroupTheWorkflowNamesIsDefined()
     local validator = dofile(".github/scripts/validate-ci-coverage.lua")
     local problems = validator.problems()
     for _, problem in ipairs(problems) do
-        test.assert(not problem:find("group", 1, true), problem)
+        test(not problem:find("group", 1, true), problem)
     end
 end
 
@@ -334,7 +334,7 @@ function M.everyBenchmarkRunnerInputReachesTheMeasurementSurface()
         "src/nupp/tools/cli/bench.nupp",
         "tests/benchrunnertest.lua",
     }) do
-        test.assert(
+        test(
             surfacesOf(path).measurement,
             ("%s can change what the benchmark runner answers, so it must select measurement"):format(path)
         )
@@ -345,12 +345,12 @@ end
 -- benchmark edit is a change those suites can observe, not only a measurement one.
 function M.benchmarkSourcesWithBudgetsReachTheSuitesHoldingThem()
     local surfacesOf = classifier().surfacesOf
-    test.assert(surfacesOf("bench/soa.bench.nupp").tests, "perfbudgettest holds the benchmark programs' bytecode")
-    test.assert(
+    test(surfacesOf("bench/soa.bench.nupp").tests, "perfbudgettest holds the benchmark programs' bytecode")
+    test(
         surfacesOf("bench/simd-mandelbrot/mandelbrot.nupp").aot,
         "aotbudgettest holds the Mandelbrot kernels' native code"
     )
-    test.assert(surfacesOf("bench/soa.bench.nupp").measurement, "a benchmark source is still a measurement input")
+    test(surfacesOf("bench/soa.bench.nupp").measurement, "a benchmark source is still a measurement input")
 end
 
 -- The other half. A compiler change that does not touch bench code leaves the
@@ -360,20 +360,20 @@ end
 -- ungrouped and therefore always runs.
 function M.gatingTheRunnerSuiteDoesNotGateTheRestOfTheBenchSurface()
     local surfacesOf = classifier().surfacesOf
-    test.assert(
+    test(
         not surfacesOf("src/nupp/compiler/lua/gen.nupp").measurement,
         "an ordinary compiler change should not pay for the runner suite"
     )
 
     local groups = dofile("tests/groups.lua")
     local gated = groups["measurement"]
-    test.assert(gated ~= nil, "the measurement group should exist")
-    test.assert(#gated == 1 and gated[1] == "benchrunnertest", "only the runner suite is gated behind measurement")
+    test(gated ~= nil, "the measurement group should exist")
+    test(#gated == 1 and gated[1] == "benchrunnertest", "only the runner suite is gated behind measurement")
 
     for name, members in pairs(groups) do
         if name ~= "measurement" then
             for _, member in ipairs(members) do
-                test.assert(member ~= "benchtest", ("benchtest must stay ungrouped, found in %s"):format(name))
+                test(member ~= "benchtest", ("benchtest must stay ungrouped, found in %s"):format(name))
             end
         end
     end
@@ -381,7 +381,7 @@ function M.gatingTheRunnerSuiteDoesNotGateTheRestOfTheBenchSurface()
     local groupsSource = io.open("tests/groups.lua", "r")
     local groupsText = groupsSource:read("*a")
     groupsSource:close()
-    test.assert(
+    test(
         not groupsText:find('"benchtest"', 1, true),
         "benchtest is named by no group, so every broad suite run includes it"
     )

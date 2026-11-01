@@ -1,6 +1,6 @@
 module nupp.tools.cli.root
 
-local cliModule = require("nupp.cli")
+local cliModule = require("arg")
 
 --- Nupp compiler and project tool.
 ---

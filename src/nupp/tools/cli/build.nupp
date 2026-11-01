@@ -11,7 +11,7 @@ rather than resolved.
 const files = require("nupp.io.files")
 
 local usageError = require("nupp.tools.cli.error").forCommand("build")
-local cliModule = require("nupp.cli")
+local cliModule = require("arg")
 
 local REPORT_SCHEMA = {
     type = "object",

@@ -114,7 +114,7 @@ end
 -- and an unknown method is the cheapest one that touches no state.
 local function runLiveSession(steps, rootDir)
     if jit.os == "Windows" then
-        test.skip("the live LSP harness requires POSIX named pipes")
+        test.suite.skip("the live LSP harness requires POSIX named pipes")
     end
     local dir = os.tmpname()
     os.remove(dir)
@@ -389,10 +389,7 @@ end
 function M.syntaxTreeSpansAreHalfOpen()
     local parser = require("nupp.compiler.syntax.parser")
     local tree = require("nupp.tools.lsp.tree")
-    local parsed = parser.parse(
-        "local function inside(): integer\n   return 1\nend\nlocal outside = 2\n",
-        "tree.nupp"
-    )
+    local parsed = parser.parse("local function inside(): integer\n   return 1\nend\nlocal outside = 2\n", "tree.nupp")
     assert(#parsed.errors == 0, "tree fixture parses")
     local stat = parsed.root.blocks[1].stats[1]
     local from, to = tree.nodeBounds(stat)
@@ -1142,13 +1139,16 @@ function M.republishesDependentDiagnostics()
     assert(os.execute("mkdir -p '" .. projectDir .. "'") == 0)
     local modelUri = fileUri(projectDir .. "/model.nupp")
     local consumerUri = fileUri(projectDir .. "/consumer.nupp")
-    local consumer = table.concat({
-        "local function read(item: Shared): number",
-        "   local value: number = item.value",
-        "   return value",
-        "end",
-        "return read",
-    }, "\n")
+    local consumer = table.concat(
+        {
+            "local function read(item: Shared): number",
+            "   local value: number = item.value",
+            "   return value",
+            "end",
+            "return read",
+        },
+        "\n"
+    )
     local out = runSession(
         {
             {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},

@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- Semantic type reflection and the keyed field-codec materialization provider.
 local parser = require("nupp.compiler.syntax.parser")
 local gen = require("nupp.compiler.lua.gen")

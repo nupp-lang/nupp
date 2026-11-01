@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- discarded-result: a call statement whose callee does nothing but return the
 -- value the statement drops. The cases that matter are the ones it declines,
 -- since the whole claim is that the callee was *proved* inert rather than

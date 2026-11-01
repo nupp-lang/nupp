@@ -1,3 +1,4 @@
+@!internal
 module nupp.cli.internal.decode
 
 const {type Entry} = require("nupp.derive")

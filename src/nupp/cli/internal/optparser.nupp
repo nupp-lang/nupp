@@ -1,7 +1,8 @@
+@!internal
 module nupp.cli.internal.optparser
 
 --[[
-The syntax-only half of `nupp.cli`.
+The syntax-only half of `arg`.
 
 This parser knows how an argv word is shaped and, when the caller supplies an
 arity, whether the following word belongs to an option. It deliberately knows

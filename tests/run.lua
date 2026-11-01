@@ -423,12 +423,7 @@ end
 
 local caseDefinitions = setmetatable({}, {__mode = "k"})
 rawset(_G, "__NUPP_TEST_CASE_DEFINITIONS", caseDefinitions)
-local test = require("nupp.test")
-
--- Existing suites use Lua's familiar assert spelling.  Give those assertions
--- useful falsy diagnostics, while `require("nupp.test")` exposes equal, matches,
--- raises and skip for new assertions that can say exactly what differed.
-assert = test.assert
+local test = require("assert")
 
 local asJson = false
 local verbose = false
@@ -1038,7 +1033,7 @@ end
 
 -- Wall clock, because most of what these tests spend time on is a subprocess,
 -- which no measure of this process's own CPU time would ever see. The FFI is
--- guarded the same way nupp.cli guards it: a build without it still runs the
+-- guarded the same way io guards it: a build without it still runs the
 -- tests, it just reports coarser times.
 local now
 do
@@ -1911,17 +1906,17 @@ local function recordResult(suite, name, defined, ok, err, stdout, stderr, elaps
         if not queueDir then
             mark(".")
         end
-    elseif test.isSkip(err) then
+    elseif test.suite.isSkip(err) then
         skipped = skipped + 1
         record.status = "skipped"
-        record.skip = {reason = tostring(test.skipReason(err) or "skipped")}
+        record.skip = {reason = tostring(test.suite.skipReason(err) or "skipped")}
         if not queueDir then
             mark("S")
         end
-    elseif test.isNotExecuted(err) then
+    elseif test.suite.isNotExecuted(err) then
         notExecutedCount = notExecutedCount + 1
         record.status = "not-executed"
-        record.notExecuted = {reason = tostring(test.notExecutedReason(err) or "not executed")}
+        record.notExecuted = {reason = tostring(test.suite.notExecutedReason(err) or "not executed")}
         if not queueDir then
             mark("N")
         end

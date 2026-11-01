@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local gen = require("nupp.compiler.lua.gen")

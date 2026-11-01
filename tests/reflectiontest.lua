@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local T = require("nupp.compiler.types")
 local generics = require("nupp.compiler.types.generics")
 local reflection = require("nupp.compiler.reflection")

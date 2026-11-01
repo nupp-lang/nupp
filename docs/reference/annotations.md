@@ -331,7 +331,7 @@ any of their names.
 | `@effects` | named effect members | function, c-function, local-binding |
 | `@relax` | guarantee names | function |
 | `@derive` | qualified comptime providers | record, struct |
-| `@cli` | command and field options for the `nupp.cli` derives | record, field |
+| `@cli` | command and field options for the `arg` derives | record, field |
 | `@debug` | `skip` or `redact` | field in a derived record |
 | `@event` | the registered event name | record, struct deriving `nupp.events.Event` |
 | `@deprecated` | optional reason and replacement | declaration, field, c-declaration |

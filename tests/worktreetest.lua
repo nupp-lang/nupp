@@ -130,7 +130,7 @@ end
 -- this machine has, and every worktree of a checkout shares one answer.
 function M.launcherBuildsTheProviderThroughTheToolchainDriver()
     if jit.os == "Windows" then
-        test.skip("the fake Darwin toolchain fixture requires a POSIX host")
+        test.suite.skip("the fake Darwin toolchain fixture requires a POSIX host")
     end
     local root = temporary()
     local fake = root .. "/fake-bin"
@@ -198,7 +198,7 @@ end
 -- whether its tests can run.
 function M.theRockTreeIsLinkedByWhicheverCommandRunsFirst()
     if jit.os == "Windows" then
-        test.skip("linking the rock tree needs a symlink the host may refuse")
+        test.suite.skip("linking the rock tree needs a symlink the host may refuse")
     end
     local parent = temporary()
     local origin, task = parent .. "/origin", parent .. "/task"

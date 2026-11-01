@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local lexer = require("nupp.compiler.syntax.lexer")
 
 local function kindsOf(src)
@@ -101,7 +101,11 @@ function M.basicKinds()
     testAssert.equal(kindsOf("local x = 1 + 2"), "local name = number + number")
     testAssert.equal(kindsOf('return "s" .. [[l]]'), "return string .. string")
     testAssert.equal(kindsOf("const x = 1"), "name name = number", "const must remain a soft keyword")
-    testAssert.equal(kindsOf("local sealed interface Token end"), "local name name name end", "sealed is a soft keyword")
+    testAssert.equal(
+        kindsOf("local sealed interface Token end"),
+        "local name name name end",
+        "sealed is a soft keyword"
+    )
 end
 
 function M.luajit3Operators()
@@ -184,7 +188,10 @@ function M.interpolatedStrings()
 end
 
 function M.numberLiterals()
-    testAssert.equal(kindsOf("10LL 0xffULL 3i 0x1p4 12.5e-3 .5 1e3i"), "number number number number number number number")
+    testAssert.equal(
+        kindsOf("10LL 0xffULL 3i 0x1p4 12.5e-3 .5 1e3i"),
+        "number number number number number number number"
+    )
     local tokens = lexer.lex("0xffULL")
     testAssert.equal(tokens[1].text, "0xffULL", "suffix text")
     -- '1..2' must lex as number .. number (concat), not a malformed number
@@ -302,6 +309,7 @@ local function errorsOf(src)
     for _, e in ipairs(errors) do
         out[#out + 1] = ("%d:%d %s"):format(e.line, e.col, e.msg)
     end
+
     return table.concat(out, "; ")
 end
 
@@ -316,7 +324,11 @@ function M.stringContinuationsFollowLuaJIT()
         'local s = "a\\\n\rb"\nprint(s)',
         'local s = "a\\\rb"',
     }) do
-        testAssert.equal(kindsOf(src):match("^local name = (%a+)"), "string", "one string token for " .. ("%q"):format(src))
+        testAssert.equal(
+            kindsOf(src):match("^local name = (%a+)"),
+            "string",
+            "one string token for " .. ("%q"):format(src)
+        )
         testAssert.equal(errorsOf(src), "", "no error for " .. ("%q"):format(src))
         assertRoundtrip(src)
     end
@@ -391,26 +403,52 @@ function M.longBracketsNumeralsAndWhitespaceEdges()
     testAssert.equal(errorsOf("a\vb\fc"), "")
 end
 
-
 -- `stringValue` decodes escapes itself; it must agree with Lua, whose syntax
 -- they are, on every literal Lua accepts, and answer nil on every one it refuses.
 function M.stringValueAgreesWithLua()
     local literals = {
-        [["plain"]], [['single']], [["a\nb\tc\\d\"e"]], [['it\'s']], [["\65\066\0677"]], [["\x41\x7A\xff"]],
-        [["\u{41}\u{E9}\u{20AC}\u{1F600}\u{10FFFF}"]], [["tab\z
-            continued"]], "\"line\\\ncontinued\"", "\"crlf\\\r\ncontinued\"", [["\1\12\123"]], [["\a\b\f\r\v"]],
-        [["\256"]], [["\xZZ"]], [["\u{110000}"]], [["\u{}"]], [["\q"]], [["unterminated]], [["\"]], [["raw
-newline"]], "", "\"", [["mismatch']], [[`a\`b\$c`]], [[`tick "quoted"`]],
+        [["plain"]],
+        [['single']],
+        [["a\nb\tc\\d\"e"]],
+        [['it\'s']],
+        [["\65\066\0677"]],
+        [["\x41\x7A\xff"]],
+        [["\u{41}\u{E9}\u{20AC}\u{1F600}\u{10FFFF}"]],
+        [["tab\z
+            continued"]],
+        "\"line\\\ncontinued\"",
+        "\"crlf\\\r\ncontinued\"",
+        [["\1\12\123"]],
+        [["\a\b\f\r\v"]],
+        [["\256"]],
+        [["\xZZ"]],
+        [["\u{110000}"]],
+        [["\u{}"]],
+        [["\q"]],
+        [["unterminated]],
+        [["\"]],
+        [["raw
+newline"]],
+        "",
+        "\"",
+        [["mismatch']],
+        [[`a\`b\$c`]],
+        [[`tick "quoted"`]],
     }
     for _, literal in ipairs(literals) do
-        -- A backtick literal is judged through the Lua literal the generator emits for it.
+        -- A backtick literal is judged through the Lua literal the generator emits for
+        -- it.
         local lua = literal
-        if literal:sub(1, 1) == "`" and #literal >= 2 and literal:sub(-1) == "`" then lua = lexer.quoteBacktickBody(literal:sub(2, -2)) end
+        if literal:sub(1, 1) == "`" and #literal >= 2 and literal:sub(-1) == "`" then
+            lua = lexer.quoteBacktickBody(literal:sub(2, -2))
+        end
         local chunk = loadstring("return " .. lua)
         local want = nil
         if chunk then
             local ok, value = pcall(chunk)
-            if ok and type(value) == "string" then want = value end
+            if ok and type(value) == "string" then
+                want = value
+            end
         end
         testAssert.equal(lexer.stringValue(literal), want, "value of " .. literal)
     end

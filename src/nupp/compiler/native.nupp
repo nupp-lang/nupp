@@ -269,7 +269,7 @@ local FEATURES: {[string]: native.Feature} = {
         requires = {"runtime.native", "native.time"}
     },
 
-    ["runtime.test"] = {name = "test", module = "nupp.test", runtimeModule = "nupp.test", portableRuntime = true,},
+    ["runtime.test"] = {name = "test", module = "assert", runtimeModule = "assert", portableRuntime = true,},
     ["native.lpeg"] = {name = "lpeg", module = "lpeg", host = "lpeg", binary = true, externalModule = true,},
     [
         "stdlib.lpeg.re"

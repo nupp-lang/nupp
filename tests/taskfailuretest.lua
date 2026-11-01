@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local tasks = require("nupp.tasks")
 local time = require("nupp.time")
 local M = {}

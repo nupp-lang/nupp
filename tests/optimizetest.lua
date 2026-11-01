@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local optimize = require("nupp.compiler.lua.optimize")
 local constspecialize = require("nupp.compiler.lua.constspecialize")

@@ -54,7 +54,7 @@ function M.numbersRoundTripExactly()
     check.equal(roundTrip(math.huge).values[1], math.huge, "positive infinity crosses")
     check.equal(roundTrip(-math.huge).values[1], -math.huge, "negative infinity crosses")
     local nan = roundTrip(0 / 0).values[1]
-    check.assert(nan ~= nan, "not-a-number crosses as not-a-number")
+    check(nan ~= nan, "not-a-number crosses as not-a-number")
 end
 
 function M.arbitraryStringBytesSurvive()
@@ -70,7 +70,7 @@ end
 function M.tablesCrossAsIndependentCopies()
     local original = {1, 2, three = {deep = "value"}, [true] = "flag"}
     local answer = roundTrip(original).values[1]
-    check.assert(answer ~= original, "the receiver gets its own table")
+    check(answer ~= original, "the receiver gets its own table")
     check.equal(answer[1], 1, "an array position crosses")
     check.equal(answer[2], 2, "the next array position crosses")
     check.equal(answer.three.deep, "value", "a nested table crosses")
@@ -178,9 +178,9 @@ function M.malformedRecordAddressesAreRejectedBeforeLoadingAModule()
     local ok, problem = pcall(codec.decode, bytes)
     package.preload["invalid-worker-record"] = nil
     package.loaded["invalid-worker-record"] = nil
-    check.assert(not ok, "an invalid record address is refused")
+    check(not ok, "an invalid record address is refused")
     check.matches(tostring(problem), "worker value names an invalid record")
-    check.assert(not loaded, "an invalid address is rejected before require")
+    check(not loaded, "an invalid address is rejected before require")
 end
 
 function M.providersUseTheCanonicalScopeContract()
@@ -201,7 +201,7 @@ return open
     )
     check.equal(#parsed.errors, 0)
     for _, diagnostic in ipairs(fragment.check(parsed, "worker-contract.nupp", env)) do
-        check.assert(diagnostic.severity ~= "error", diagnostic.msg)
+        check(diagnostic.severity ~= "error", diagnostic.msg)
     end
 end
 

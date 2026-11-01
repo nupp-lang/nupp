@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local project = require("nupp.tools.build.project")
 local process = require("nupp.compiler.process")
 local fs = require("nupp.compiler.fs")

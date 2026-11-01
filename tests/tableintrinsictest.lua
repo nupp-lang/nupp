@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local optimize = require("nupp.compiler.lua.optimize")
@@ -84,7 +84,11 @@ function M.tableIntrinsicsRemainIntrinsicAtOptimizationLevelOne()
     )
     local code = compile(src, 1)
     testAssert.equal(occurrences(code, 'require("table.new")'), 1, "optimized source keeps the table.new binding")
-    testAssert.equal(occurrences(code, 'require("table.clear")'), 1, "OPT-4 does not capture table.clear before it is loaded")
+    testAssert.equal(
+        occurrences(code, 'require("table.clear")'),
+        1,
+        "OPT-4 does not capture table.clear before it is loaded"
+    )
     testAssert.equal(code:find("__nupp_call_", 1, true), nil, "table intrinsics bypass static-callable binding")
     testAssert.equal(next(run(src, 1)), nil, "optimized intrinsic calls run")
 end
@@ -200,7 +204,11 @@ function M.cloneBindingAvoidsSourceNames()
         "\n"
     )
     local code = compile(src)
-    testAssert.equal(code:find("local function __nuppClone(", 1, true), nil, "table.clone binding avoids the source name")
+    testAssert.equal(
+        code:find("local function __nuppClone(", 1, true),
+        nil,
+        "table.clone binding avoids the source name"
+    )
     local name, value = run(src)
     testAssert.equal(name, "clone", "source clone name survives")
     testAssert.equal(value, 1, "generated clone binding works")

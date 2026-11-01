@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local assertions = require("helpers.assertions")
 -- Literal types, unions of them, and interface conformance.
 local parser = require("nupp.compiler.syntax.parser")
@@ -19,7 +19,9 @@ local function diagsOf(src)
     return table.concat(out, " ")
 end
 
-local assertClean = assertions.check(diagsOf, function(src) return "expected clean:\n" .. src end)
+local assertClean = assertions.check(diagsOf, function(src)
+    return "expected clean:\n" .. src
+end)
 
 local COLOR = "local type Color = 'red' | 'green' | 'blue'"
 
@@ -115,7 +117,11 @@ function M.unknownNamesAreReported()
     -- plain Lua is not held to it: an unknown name there is a global read
     local lua = parser.parse(src, "test.lua")
     local luaDiags = check.check(lua, "test.lua", env)
-    testAssert.equal(#luaDiags, 0, "plain Lua reads unknown names silently: " .. (luaDiags[1] and luaDiags[1].msg or ""))
+    testAssert.equal(
+        #luaDiags,
+        0,
+        "plain Lua reads unknown names silently: " .. (luaDiags[1] and luaDiags[1].msg or "")
+    )
 end
 
 function M.declaredAndStdlibNamesAreKnown()
@@ -143,7 +149,10 @@ end
 
 function M.typeArgumentsSubstituteIntoFields()
     assertClean(BOX .. "\nlocal b: Box<number> = new Box(value = 0)\nlocal n: number = b.value")
-    testAssert.equal(diagsOf(BOX .. "\nlocal b: Box<number> = new Box(value = 0)\nlocal s: string = b.value"), "NUPP2001:5")
+    testAssert.equal(
+        diagsOf(BOX .. "\nlocal b: Box<number> = new Box(value = 0)\nlocal s: string = b.value"),
+        "NUPP2001:5"
+    )
     assertClean(BOX .. "\nlocal b: Box<string> = new Box(value = 'x')\nlocal s: string = b.value")
 end
 

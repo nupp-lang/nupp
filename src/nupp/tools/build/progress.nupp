@@ -25,9 +25,7 @@ terminal, because a build's output has been quiet on success for as long as
 there have been build scripts reading it, and `--quiet` and `NUPP_PROGRESS` are
 there to overrule the guess in either direction.
 ]]
-const {type Style} = require("nupp.cli")
-
-local ansi = require("nupp.cli")
+const {type Style} = require("io")
 
 local progress = {}
 
@@ -123,7 +121,7 @@ const progress.SLOWEST = 5
 -- the disk, and none of that is this process's CPU time however long the user spends
 -- watching it. LuaJIT has no wall clock of its own beyond `os.time`, whose one-second
 -- resolution would report most builds as zero, so this goes through the FFI and is
--- guarded at every step the way `nupp.cli` guards `isatty`: a build must not
+-- guarded at every step the way `arg` guards `isatty`: a build must not
 -- fail to start because a timer could not be declared. The fallback is CPU time, which
 -- is wrong in the direction of being too small and is still better than nothing.
 local function makeClock(): function(): number
@@ -200,7 +198,7 @@ local function resolve(mode: string?, stream: LuaFile): boolean
         return true
     end
 
-    return ansi.isTerminal(stream)
+    return io.isTerminal(stream)
 end
 
 -- Terminals wrap, and a wrapped line cannot be erased with a carriage return: what
@@ -455,8 +453,8 @@ record progress.Reporter
                 counts = counts .. ", serial fallback"
             end
         end
-        local success = ansi.severity(style, "help")
-        local detail = ansi.severity(style, "note")
+        local success = io.severity(style, "help")
+        local detail = io.severity(style, "note")
         self.stream:write(
             (
                 "%s in %s: %s\n"
@@ -481,13 +479,13 @@ record progress.Reporter
             return
         end
         self.stream:write(style.faint("  slowest") .. "\n")
-        local rows: {{ansi.Cell}} = {}
+        local rows: {{io.Cell}} = {}
         for index, span in ipairs(measured.slowest) do
-            rows[index] = {ansi.cell(span.module), ansi.cell(progress.duration(span.durationMs))}
+            rows[index] = {io.cell(span.module), io.cell(progress.duration(span.durationMs))}
         end
         -- A breakdown under a heading that already named it, so the columns go
         -- unheaded; what is shared is the measuring and the padding.
-        ansi.writeTable(
+        io.writeTable(
             self.stream,
             {
                 columns = {
@@ -497,7 +495,7 @@ record progress.Reporter
                 rows = rows,
                 showHeading = false,
                 indent = "    ",
-            } as ansi.TableOptions
+            } as io.TableOptions
         )
     end
 end
@@ -515,8 +513,8 @@ function progress.new(mode: string?, stream: LuaFile?): progress.Reporter
         showing = showing,
         -- Rewriting a line needs the escapes that color needs, so one answer settles
         -- both. A terminal that has said it cannot take them gets a line per step.
-        rewriting = showing and ansi.colorEnabled(target),
-        style = ansi.style(target),
+        rewriting = showing and io.colorEnabled(target),
+        style = io.style(target),
         startedAt = started,
         activity = "other",
         since = started,

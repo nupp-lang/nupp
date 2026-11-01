@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- Statement annotations are an extensible, checked language surface. The
 -- parser accepts their general shape; the registry decides what exists.
 local parser = require("nupp.compiler.syntax.parser")
@@ -249,7 +249,10 @@ function M.effectContractsCannotHideBodyEffects()
     )
     testAssert.equal(
         checked(
-            table.concat({"@effects()", "local function opaque(value: table, callback: any)", "    callback(value)", "end",}, "\n")
+            table.concat(
+                {"@effects()", "local function opaque(value: table, callback: any)", "    callback(value)", "end",},
+                "\n"
+            )
         ),
         "NUPP2112"
     )

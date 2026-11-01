@@ -31,13 +31,13 @@ end
 local function requireNode()
     local version = capture("node --version")
     if not version:match("^v%d+") then
-        check.skip("node is not installed")
+        check.suite.skip("node is not installed")
     end
 end
 
 local function luajit()
     local found = capture("command -v luajit"):match("([^\n]+)%s*$")
-    check.assert(found ~= nil and found ~= "", "no luajit on PATH for the guest")
+    check(found ~= nil and found ~= "", "no luajit on PATH for the guest")
     return found
 end
 
@@ -47,34 +47,39 @@ local function compiledEvents()
     os.remove(directory)
     assert(os.execute("mkdir -p " .. shellQuote(directory)) == 0)
     local output, ok = capture(
-        shellQuote(ROOT .. "/bin/nupp") .. " lsp artifact --kind lua "
-            .. shellQuote(HERE .. "/hostchannel/component/src/hostevents.nupp")
+        shellQuote(
+            ROOT .. "/bin/nupp"
+        ) .. " lsp artifact --kind lua " .. shellQuote(HERE .. "/hostchannel/component/src/hostevents.nupp")
     )
-    check.assert(ok, "the stream scenario's events did not compile:\n" .. output)
+    check(ok, "the stream scenario's events did not compile:\n" .. output)
     local file = assert(io.open(directory .. "/hostevents.lua", "wb"))
     file:write(output)
     file:close()
+
     return directory
 end
 
 local function passesNodeSuite(label, file)
     requireNode()
     local events = compiledEvents()
-    local environment = table.concat({
-        "NUPP_ROOT=" .. shellQuote(ROOT),
-        "NUPP_LUAJIT=" .. shellQuote(luajit()),
-        "LUA_PATH=" .. shellQuote(events .. "/?.lua;" .. package.path),
-        "LUA_CPATH=" .. shellQuote(package.cpath),
-    }, " ")
+    local environment = table.concat(
+        {
+            "NUPP_ROOT=" .. shellQuote(ROOT),
+            "NUPP_LUAJIT=" .. shellQuote(luajit()),
+            "LUA_PATH=" .. shellQuote(events .. "/?.lua;" .. package.path),
+            "LUA_CPATH=" .. shellQuote(package.cpath),
+        },
+        " "
+    )
     local output, exited = capture(
         environment .. " node --test --test-reporter=tap " .. shellQuote(HERE .. "/" .. file)
     )
     local passed = tonumber(output:match("\n# pass (%d+)"))
     local failed = tonumber(output:match("\n# fail (%d+)"))
-    check.assert(passed ~= nil and failed ~= nil, "node printed no test summary:\n" .. output)
+    check(passed ~= nil and failed ~= nil, "node printed no test summary:\n" .. output)
     check.equal(failed, 0, label .. " failed:\n" .. output)
-    check.assert(passed > 0, label .. " ran no test")
-    check.assert(exited, "node exited unsuccessfully:\n" .. output)
+    check(passed > 0, label .. " ran no test")
+    check(exited, "node exited unsuccessfully:\n" .. output)
 end
 
 function M.theBrowserChannelKeepsItsContract()
@@ -94,6 +99,7 @@ local function run(command)
     local output = pipe:read("*a")
     pipe:close()
     local status = tonumber(output:match("__status__:(%d+)%s*$"))
+
     return status, output:gsub("\n__status__:%d+%s*$", "")
 end
 
@@ -114,11 +120,11 @@ local function nativeDriver()
         return native
     end
     if jit.os == "Windows" then
-        check.skip("the contract driver uses POSIX clocks")
+        check.suite.skip("the contract driver uses POSIX clocks")
     end
     local status, output = run(("cd %s && ./scripts/toolchain host-library %s"):format(shellQuote(ROOT), SDK_FEATURES))
     if status ~= 0 then
-        check.skip("the Rust embedding SDK could not be built: " .. output)
+        check.suite.skip("the Rust embedding SDK could not be built: " .. output)
     end
     local library = assert(output:match("([^\r\n]+)%s*$"), "toolchain named no SDK")
     local directory = os.tmpname()
@@ -139,7 +145,9 @@ local function nativeDriver()
     end
     local executable = directory .. "/driver"
     status, output = run(
-        ("%s -std=c11 -D_POSIX_C_SOURCE=200809L -I%s %s %s %s -lm -o %s"):format(
+        (
+            "%s -std=c11 -D_POSIX_C_SOURCE=200809L -I%s %s %s %s -lm -o %s"
+        ):format(
             shellQuote(os.getenv("NUPP_CC") or "cc"),
             shellQuote(library),
             shellQuote(HERE .. "/hostchannel/driver.c"),
@@ -150,6 +158,7 @@ local function nativeDriver()
     )
     check.equal(status, 0, "the contract driver did not compile:\n" .. output)
     native = {executable = executable, component = project .. "/build/component.nuppc"}
+
     return native
 end
 
@@ -158,7 +167,9 @@ end
 local function embedded(name, direct)
     local driver = nativeDriver()
     local status, output = run(
-        ("%s %s %s %s%s"):format(
+        (
+            "%s %s %s %s%s"
+        ):format(
             shellQuote(driver.executable),
             shellQuote(driver.component),
             shellQuote(HERE .. "/hostchannel/scenarios.lua"),
@@ -169,8 +180,9 @@ local function embedded(name, direct)
     check.equal(status, 0, name .. " did not run:\n" .. output)
     local line = assert(output:match("(%b{})%s*\ncancels="), name .. " printed no outcome:\n" .. output)
     local outcome = require("testjson").decode(line)
-    check.assert(outcome.ok, name .. " failed:\n" .. tostring(outcome.error) .. "\n" .. output)
+    check(outcome.ok, name .. " failed:\n" .. tostring(outcome.error) .. "\n" .. output)
     local cancels, live = output:match("cancels=(%d+) live=(%d+)")
+
     return outcome.value, {cancels = tonumber(cancels), live = tonumber(live)}, output
 end
 
@@ -190,16 +202,16 @@ end
 
 function M.embeddedRequestsRefuseWhatCannotCross()
     local value = embedded("refusals")
-    check.assert(value.nan:find("argument 1 is not a finite number", 1, true), value.nan)
-    check.assert(value.infinity:find("argument 2 is not a finite number", 1, true), value.infinity)
-    check.assert(value.text:find("argument 1 is a string that is not UTF-8", 1, true), value.text)
-    check.assert(value.long:find("argument 1 is a string longer than 64 KiB", 1, true), value.long)
-    check.assert(value.table:find("argument 1 is a table, which cannot cross", 1, true), value.table)
-    check.assert(value.handler:find("argument 1 is a function, which cannot cross", 1, true), value.handler)
-    check.assert(value.reserved:find("reserved for the runtime", 1, true), value.reserved)
-    check.assert(value.kind:find("must be dot-separated names", 1, true), value.kind)
-    check.assert(value.unknown:find("no host answers test.nobody", 1, true), value.unknown)
-    check.assert(value.failed:find("host test.fail failed: failed because why", 1, true), value.failed)
+    check(value.nan:find("argument 1 is not a finite number", 1, true), value.nan)
+    check(value.infinity:find("argument 2 is not a finite number", 1, true), value.infinity)
+    check(value.text:find("argument 1 is a string that is not UTF-8", 1, true), value.text)
+    check(value.long:find("argument 1 is a string longer than 64 KiB", 1, true), value.long)
+    check(value.table:find("argument 1 is a table, which cannot cross", 1, true), value.table)
+    check(value.handler:find("argument 1 is a function, which cannot cross", 1, true), value.handler)
+    check(value.reserved:find("reserved for the runtime", 1, true), value.reserved)
+    check(value.kind:find("must be dot-separated names", 1, true), value.kind)
+    check(value.unknown:find("no host answers test.nobody", 1, true), value.unknown)
+    check(value.failed:find("host test.fail failed: failed because why", 1, true), value.failed)
 end
 
 function M.embeddedBytesCrossBothWays()
@@ -212,15 +224,15 @@ end
 function M.anEmbedderAnswersLaterFromItsLoop()
     local value = embedded("slowCallBesideADeadline")
     check.equal(value.slow, 4096)
-    check.assert(value.firedAfter >= 50 and value.firedAfter < 400, "the deadline fired after " .. value.firedAfter)
+    check(value.firedAfter >= 50 and value.firedAfter < 400, "the deadline fired after " .. value.firedAfter)
 end
 
 function M.embeddedLateReleasesWhatItOpened()
     local value, host = embedded("lateReleases")
-    check.assert(value.cancelled:find("deadline", 1, true), value.cancelled)
+    check(value.cancelled:find("deadline", 1, true), value.cancelled)
     check.equal(value.live, 0)
     check.equal(host.live, 0)
-    check.assert(host.cancels >= 1, "the host heard no cancellation")
+    check(host.cancels >= 1, "the host heard no cancellation")
 end
 
 function M.embeddedLateReleasesAnAnswerItsCallerNeverTook()
@@ -233,7 +245,7 @@ function M.embeddedLateCannotWait()
     local value, host, output = embedded("lateCannotWait")
     check.equal(value.echoed, "still answering")
     check.equal(value.live, 1)
-    check.assert(output:find("late handler failed: .*cannot suspend"), output)
+    check(output:find("late handler failed: .*cannot suspend"), output)
     check.equal(host.live, 1)
 end
 
@@ -258,19 +270,19 @@ end
 function M.anEmbeddedObserverFailureCostsOnlyItsMessage()
     local value, _, output = embedded("streamObserverFails")
     check.equal(value.order, "a+ b- 1,10 2,20 3,30 4,40 5,50")
-    check.assert(output:find("host test.move: delivery failed: .*observer refused 3"), output)
+    check(output:find("host test.move: delivery failed: .*observer refused 3"), output)
 end
 
 function M.anUnansweredCallWithoutAHandlerIsRefused()
     local value, host = embedded("unansweredWithoutAHandler", true)
-    check.assert(value.problem:find("was not answered during the call", 1, true), value.problem)
+    check(value.problem:find("was not answered during the call", 1, true), value.problem)
     check.equal(value.echoed, "answered at once")
     check.equal(host.cancels, 1)
 end
 
 function M.anEmbedderAnswerIsCheckedBeforeItIsKept()
     local _, _, output = embedded("posts")
-    check.assert(
+    check(
         output:find("unknown=1 handle=1 nan=1 text=1 reserved=1 malformed=1", 1, true),
         "nupp_host_answer and nupp_host_register accepted what they refuse:\n" .. output
     )
@@ -283,17 +295,21 @@ function M.aProgramRunOnItsOwnHasNoHost()
     os.remove(directory)
     assert(os.execute("mkdir -p " .. shellQuote(directory)) == 0)
     local file = assert(io.open(directory .. "/main.nupp", "wb"))
-    file:write([[
+    file:write(
+        [[
 local host = nupp.host
 print("attached", host.attached())
 local ok, problem = pcall(host.call, "app.anything", 1)
 print("refused", not ok, problem)
-]])
+]]
+    )
     file:close()
-    local status, output = run(("cd %s && %s run main.nupp"):format(shellQuote(directory), shellQuote(ROOT .. "/bin/nupp")))
+    local status, output = run(
+        ("cd %s && %s run main.nupp"):format(shellQuote(directory), shellQuote(ROOT .. "/bin/nupp"))
+    )
     check.equal(status, 0, output)
-    check.assert(output:find("attached\tfalse", 1, true), output)
-    check.assert(output:find("no host answers app.anything; no embedding application is attached", 1, true), output)
+    check(output:find("attached\tfalse", 1, true), output)
+    check(output:find("no host answers app.anything; no embedding application is attached", 1, true), output)
 end
 
 return M

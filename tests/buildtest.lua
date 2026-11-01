@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- `nupp build` and `nupp run` over multi-file projects, driven through the
 -- real binary so the CLI, the runtime loader, and the generator are all in
 -- the loop.
@@ -132,7 +132,7 @@ return {
 }
 ]],
         ["src/main.nupp"] = [[
-local test = require("nupp.test")
+local test = require("assert")
 test.equal(42, 42)
 return true
 ]],

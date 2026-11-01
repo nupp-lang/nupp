@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- TLS over real loopback connections.
 --
 -- Real connections check whether a handshake completes, a certificate is
@@ -299,7 +299,11 @@ function M.aRejectedTicketFallsBackToAFullHandshake()
     local fallbackClient = assert(tls.client(fallbackSock, {verify = false, protocols = {"h2", "http/1.1"},}))
     assert((shake(fallbackClient, fallbackServer)), "the fallback handshake completes")
     testAssert.equal(fallbackClient:isResumed(), false, "offering a rejected ticket is not reported as resumption")
-    testAssert.equal(fallbackClient:protocol(), "http/1.1", "the replacement handshake negotiates the new server preference")
+    testAssert.equal(
+        fallbackClient:protocol(),
+        "http/1.1",
+        "the replacement handshake negotiates the new server preference"
+    )
 
     fallbackClient:close()
     fallbackServer:close()

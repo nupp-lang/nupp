@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- Allocation- and raising-free checked regions and their observed module sidecars.
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")

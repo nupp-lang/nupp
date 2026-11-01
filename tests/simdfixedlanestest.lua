@@ -6,7 +6,7 @@
 -- lanes. The kernels here are compiled to Lua and run, and their answers are
 -- held to what the same source means in lanes; the last test builds one
 -- natively as well and holds the two forms to the same output.
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local gen = require("nupp.compiler.lua.gen")
 local check = require("fragment")
@@ -488,8 +488,18 @@ end
         0,
     })
     testAssert.deepEqual(written, {
-        2, 1, 4, 3, 6, 5, 8, 7, -- storePairs with the halves swapped
-        4, 4, -1, -1, -- storeQuads from nine writes lane one of each vector and stops at the span; scatter then writes twelve and eleven
+        2,
+        1,
+        4,
+        3,
+        6,
+        5,
+        8,
+        7, -- storePairs with the halves swapped
+        4,
+        4,
+        -1,
+        -1, -- storeQuads from nine writes lane one of each vector and stops at the span; scatter then writes twelve and eleven
     })
 end
 
@@ -541,10 +551,17 @@ end
         12, -- two stored fields read into vectors and added
     })
     testAssert.deepEqual(measured, {
-        48, 16, -- the struct
-        0, 4, 4, -- mass
-        16, 16, 16, -- pos
-        32, 12, 16, -- tail: twelve payload bytes, sixteen aligned
+        48,
+        16, -- the struct
+        0,
+        4,
+        4, -- mass
+        16,
+        16,
+        16, -- pos
+        32,
+        12,
+        16, -- tail: twelve payload bytes, sixteen aligned
     })
 end
 
@@ -571,6 +588,7 @@ local function project(files)
     for name, text in pairs(files) do
         write(dir .. "/" .. name, text)
     end
+
     return dir
 end
 
@@ -589,6 +607,7 @@ local function buildAndRun(dir, entries, policy)
     local pipe = assert(io.popen(("cd %q && luajit check.lua %s 2>&1"):format(dir, policy)))
     local result = pipe:read("*a")
     pipe:close()
+
     return (result:gsub("%s+$", "")), read(logPath)
 end
 

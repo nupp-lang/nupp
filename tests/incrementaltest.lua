@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local query = require("nupp.compiler.project.query")
 local incremental = require("nupp.compiler.project.incremental")
 

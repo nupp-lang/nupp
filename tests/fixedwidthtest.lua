@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
@@ -391,11 +391,11 @@ end
 
 local function withFloatOracle(fn)
     if ffi.os == "Windows" then
-        test.skip("the C oracle fixture is POSIX-only")
+        test.suite.skip("the C oracle fixture is POSIX-only")
     end
     local probe = os.execute("cc --version >/dev/null 2>&1")
     if probe ~= 0 and probe ~= true then
-        test.skip("cc is unavailable")
+        test.suite.skip("cc is unavailable")
     end
     local base = os.tmpname()
     os.remove(base)
@@ -431,7 +431,7 @@ uint32_t oracle_fma(uint32_t a, uint32_t b, uint32_t c) {
     local compiled = os.execute(command)
     if compiled ~= 0 and compiled ~= true then
         os.remove(source);
-        test.skip("the C binary32 oracle did not compile")
+        test.suite.skip("the C binary32 oracle did not compile")
     end
     ffi.cdef[[
 uint32_t oracle_round(double);
@@ -1031,6 +1031,7 @@ function M.aNarrowUnsignedLoadAccumulatesIntoASignedWidthInsideAot()
     testAssert.equal(#result.errors, 0, "the body parses")
     testAssert.equal(#check.check(result, "byte-carry.nupp", sharedEnv), 0, "and checks")
     local adds = 0
+
     local function walk(node, seen)
         if type(node) ~= "table" or seen[node] then
             return
@@ -1043,6 +1044,7 @@ function M.aNarrowUnsignedLoadAccumulatesIntoASignedWidthInsideAot()
             walk(child, seen)
         end
     end
+
     walk(result, {})
     testAssert.equal(adds, 1, "the operator is annotated as the signed wrapping add")
 end
