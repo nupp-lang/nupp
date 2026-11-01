@@ -18,10 +18,10 @@ local function compile(source, filename, env)
     local code, diagnostics = gen.generate(parsed, filename)
     test.equal(#diagnostics, 0)
 
-    return code
+    return code, parsed
 end
 
-local function withExtension(callback)
+local function withExtension(callback, assertionSource)
     local root = os.tmpname()
     os.remove(root)
     local directory = root .. "/src/nupp/runtime"
@@ -30,6 +30,7 @@ local function withExtension(callback)
     local source = [[
 @!internal
 module nupp.runtime.standardio
+export type Style = {label: string}
 export function columns(): integer return 73 end
 export const value: table = do
     local original = rawget(_G, "io") as any
@@ -51,6 +52,24 @@ export = setmetatable(argv, {__index = methods})
     local argvFile = assert(io.open(argvPath, "wb"));
     argvFile:write(argvSource);
     argvFile:close()
+    local assertionPath = root .. "/src/assert.lua"
+    if assertionSource then
+        assertionPath = root .. "/src/assert.nupp"
+    end
+    local assertionFile = assert(io.open(assertionPath, "wb"))
+    assertionFile:write(assertionSource or 'return require("nupp.test")')
+    assertionFile:close()
+    local osFile = assert(io.open(directory .. "/standardos.nupp", "wb"))
+    osFile:write(
+        [[
+@!internal
+module nupp.runtime.standardos
+export type Info = {platform: string}
+export function info(): Info return {platform = "fixture"} end
+export const value: table = rawget(_G, "os") as table
+]]
+    )
+    osFile:close()
     local env = envMod.new(root, {config = {include = {"src"}}})
     local name = "nupp.runtime.standardio"
     local loaded, preload, columns = package.loaded[name], package.preload[name], rawget(io, "columns")
@@ -124,7 +143,8 @@ function M.directArgRootKeepsOneRawArrayInstance()
         local ok, reason = pcall(function()
             rawset(_G, "arg", argv)
             package.loaded.arg = nil
-            package.preload.arg = assert(loadstring(compile(source, path, env)))
+            local implementation = compile(source, path, env)
+            package.preload.arg = assert(loadstring(implementation))
             local code = compile(
                 [[
 local current = arg
@@ -150,6 +170,117 @@ return current == imported, current.parse("kept"), #current
         rawset(_G, "arg", previous)
         package.loaded.arg, package.preload.arg = loaded, preload
         assert(ok, reason)
+    end)
+end
+
+function M.anImplicitAssertionHelperDoesNotReplaceTheBuiltin()
+    withExtension(function(env)
+        local code = compile(
+            [[
+local helpers = require("assert")
+local first: string, gap: nil, last: integer = assert("kept", nil, 42)
+return first, gap, last, helpers.equal ~= nil
+]],
+            "assertion-shim-consumer.nupp",
+            env
+        )
+        local first, gap, last, helper = assert(loadstring(code))()
+        test.equal(first, "kept")
+        test.equal(gap, nil)
+        test.equal(last, 42)
+        test.equal(helper, true)
+        test.equal(env.builtinExtensions.assert, false)
+        test.equal(env.globals.assert.t.tag, "func")
+    end)
+end
+
+function M.aDeclaredCallableAssertionStillSuppliesTheGlobal()
+    local source = [[
+module assert
+local interface Callable
+    metamethod __call: function<A...>(self, A...): A...
+end
+local original = rawget(_G, "assert") as function<A...>(A...): A...
+local value = {} as Callable
+export = setmetatable(value, {__call = function<A...>(_self: Callable, ...: A...): A...
+    return original(...)
+end})
+]]
+    withExtension(
+        function(env)
+            local loaded, preload = package.loaded.assert, package.preload.assert
+            local ok, reason = pcall(function()
+                package.loaded.assert = nil
+                local implementation = compile(source, "assertion-fixture.nupp", env)
+                package.preload.assert = assert(loadstring(implementation))
+                local code = compile(
+                    [[
+local first: string, gap: nil, last: integer = assert("kept", nil, 42)
+return type(assert), first, gap, last
+]],
+                    "declared-assertion-consumer.nupp",
+                    env
+                )
+                local kind, first, gap, last = assert(loadstring(code))()
+                test.equal(kind, "table")
+                test.equal(first, "kept")
+                test.equal(gap, nil)
+                test.equal(last, 42)
+            end)
+            package.loaded.assert, package.preload.assert = loaded, preload
+            assert(ok, reason)
+        end,
+        source
+    )
+end
+
+function M.extensionTypesResolveBeforeAnyValueRead()
+    withExtension(function(env)
+        local code, parsed = compile(
+            [[
+local style: io.Style = {label = "ready"}
+local facts: os.Info = {platform = "fixture"}
+return style.label, facts.platform
+]],
+            "type-only-extension-consumer.nupp",
+            env
+        )
+        test.equal(code:find('require("nupp.runtime.standardio")', 1, true), nil)
+        test.equal(code:find('require("nupp.runtime.standardos")', 1, true), nil)
+        test.equal(next(parsed.effects), nil, "type lookup records no runtime effect")
+        local label, platform = assert(loadstring(code))()
+        test.equal(label, "ready")
+        test.equal(platform, "fixture")
+        local withValue = compile(
+            'local facts: os.Info = os.info()\nreturn facts.platform',
+            "typed-value-consumer.nupp",
+            env
+        )
+        assert(withValue:find('require("nupp.runtime.standardos")', 1, true))
+    end)
+end
+
+function M.lexicalTypeNamespacesWinOverExtensionTypes()
+    withExtension(function(env)
+        local code = compile(
+            [[
+local io = {}
+type io.Style = string
+local os = {}
+type os.Info = integer
+local style: io.Style = "local"
+local facts: os.Info = 17
+return style, facts
+]],
+            "local-type-extension-consumer.nupp",
+            env
+        )
+        test.equal(env.builtinExtensions, nil)
+        test.equal(code:find('require("nupp.runtime.standardio")', 1, true), nil)
+        test.equal(code:find('require("nupp.runtime.standardos")', 1, true), nil)
+        local style, facts = assert(loadstring(code))()
+        test.equal(style, "local")
+        test.equal(facts, 17)
     end)
 end
 

@@ -59,6 +59,20 @@ function extensions.type(c: any, root: string): any
         return pending[root] or nil
     end
     pending[root] = false
+    -- An implicit Lua helper can share a builtin's name without implementing it.
+    -- Only a declared implementation may supply the global root's type.
+    local index = env.ensureProjectIndex and env.ensureProjectIndex(env)
+    local declared = index and index.declaredModules[specification.module]
+    if not declared then
+        local path = env.findModulePath and env.findModulePath(env, specification.module)
+        if path and not (env.isStagedBundledSource and env.isStagedBundledSource(env, specification.module, path)) then
+            return nil
+        end
+        local bundled = env.bundled and env.bundled[specification.module]
+        if not bundled or bundled.declared ~= true then
+            return nil
+        end
+    end
     local extension = env.resolveModule and env.resolveModule(env, specification.module)
     local original = env.globals and env.globals[root]
     if not extension or not original or not specification.direct and original.t.tag ~= "shape" then
