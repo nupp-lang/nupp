@@ -151,9 +151,9 @@ nupp.drop(borrowed)
 ]]
     )
     test.equal(#owner(p, "close").captures, 0)
-    local constructor = owner(p, "open")
-    test.equal(#constructor.captures, 1)
-    test.equal(constructor.captures[1].definition.name, "Resource")
+    -- Constructing a plain record builds its value in place: the record's
+    -- name is a type use there, not a captured read of its runtime value.
+    test.equal(#owner(p, "open").captures, 0)
     local found = {}
     for _, f in ipairs(p.owners) do
         for _, capture in ipairs(f.captures) do
