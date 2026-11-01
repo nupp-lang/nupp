@@ -105,8 +105,9 @@ local callexpr: {install: function(state.Checker): state.ExprHandlers} = {}
 local COMPILER_SURFACES = require("nupp.compiler.check.surfaces").COMPILER_SURFACES
 local RECEIVER_INTRINSICS = require("nupp.compiler.check.receiverintrinsics")
 
---- Whether a callee names `nupp.tasks.open`, reached by its qualified path or through
---- a local bound to the required module.
+--- Whether a callee names a trusted task-scope constructor.
+--- Qualified paths and function aliases retain the identity of `nupp.tasks.open`
+--- or the accepting `coroutine.scope` surface.
 local function opensTaskScope(c: state.Checker, callee: any): boolean
     local identity = apiidentity.expression(c, callee)
 

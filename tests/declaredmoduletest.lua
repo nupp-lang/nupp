@@ -1149,6 +1149,7 @@ export type Span<T> = spans.Span<T>
 export type WriteSpan<T> = spans.WriteSpan<T>
 export type Range = indexed.Range
 export const range = indexed.range
+export const writecarray = spans.writeCarray
 ]],
             [
                 "src/main.nupp"
@@ -1162,6 +1163,13 @@ export function work(exclusive output: span.WriteSpan<Cell>): nil
     for index = rows.first, rows.last do
         values[index].value += 1
     end
+end
+export function fill(exclusive storage: Cell[?], count: integer): nil
+    const values = span.writecarray(storage, count)
+    for index = 1, #values do
+        values[index].value = 7
+    end
+    own.drop(values)
 end
 ]],
         },
@@ -1178,6 +1186,10 @@ end
                 code:gsub("%s+", ""):find(".pointer[", 1, true),
                 "the merged facade retains the range's indexed-view proof: " .. code
             )
+            local compact = code:gsub("%s+", "")
+            assert(not compact:find(".writecarray(", 1, true), "the final factory retains root virtualization")
+            assert(compact:find("._rootCount(count,", 1, true), "the virtual root retains constructor validation")
+            assert(compact:find("[0+index-1].value=7", 1, true), "the final factory retains direct stores")
             local invalid = parser.parse(
                 [[
 local span = require("binary.span")
