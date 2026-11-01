@@ -1,4 +1,4 @@
-local test = require("nupp.test")
+local test = require("assert")
 local compile = require("nupp.compiler.aot.compile")
 local lower = require("nupp.compiler.aot.lower")
 local generator = require("nupp.compiler.lua.gen")
