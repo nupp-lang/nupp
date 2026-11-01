@@ -4112,7 +4112,7 @@ function M.stdlibIndexIsWrittenWhereTheManifestAsked()
     ) .. "\n"
     local dir = tempProject({
         ["src/math.nupp"] = linkedSource,
-        ["src/nupp/init.nupp"] = "--[[\nCore facilities.\n]]\n",
+        ["src/own/init.nupp"] = "--[[\nOwnership contracts.\n]]\n",
         [
             "src/nupp/compiler/prelude.d.nupp"
         ] = table.concat(
@@ -4147,7 +4147,7 @@ function M.stdlibIndexIsWrittenWhereTheManifestAsked()
         "a module signature did not link the ambient LuaFile type"
     )
     assert(
-        modulePage:find('href="../../modules/nupp/index.html#own.Closeable"', 1, true),
+        modulePage:find('href="../../modules/own/index.html#own.Closeable"', 1, true),
         "a module signature did not link own.Closeable"
     )
 

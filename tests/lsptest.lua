@@ -795,11 +795,13 @@ function M.comptimeHoverAndCompletionExposeOnlyEvaluatorState()
     assert(members.concat, "allowlisted library members remain available")
 end
 
-function M.comptimeTypeIntrinsicsCompleteOnlyOnTheNuppNamespace()
+function M.comptimeTypeIntrinsicsCompleteOnTheirCanonicalNamespaces()
     local projectDir = makeDir()
     local path = projectDir .. "/main.nupp"
     local uri = fileUri(path)
     local source = "return comptime do\n   return nupp.\nend\n"
+    local reflectionUri = fileUri(projectDir .. "/reflection.nupp")
+    local reflectionSource = "return comptime do\n   return types.\nend\n"
     local out = runSession(
         {
             {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -820,6 +822,19 @@ function M.comptimeTypeIntrinsicsCompleteOnlyOnTheNuppNamespace()
                 method = "textDocument/completion",
                 params = {textDocument = {uri = uri}, position = {line = 1, character = 3}}
             },
+            {
+                jsonrpc = "2.0",
+                method = "textDocument/didOpen",
+                params = {
+                    textDocument = {uri = reflectionUri, languageId = "nupp", version = 1, text = reflectionSource}
+                }
+            },
+            {
+                jsonrpc = "2.0",
+                id = 12,
+                method = "textDocument/completion",
+                params = {textDocument = {uri = reflectionUri}, position = {line = 1, character = 16}}
+            },
             {jsonrpc = "2.0", id = 2, method = "shutdown"},
             {jsonrpc = "2.0", method = "exit"},
         },
@@ -832,9 +847,15 @@ function M.comptimeTypeIntrinsicsCompleteOnlyOnTheNuppNamespace()
         members[item.label] = true
     end
     assert(
-        members.reflect and members.sizeof and members.alignof and members.offsetof,
-        "the compiler type intrinsics are members of nupp"
+        not members.reflect and members.sizeof and members.alignof and members.offsetof,
+        "C ABI layout queries remain under nupp and reflection has moved"
     )
+
+    local reflectionMembers = {}
+    for _, item in ipairs(responseWithId(out, 12).result) do
+        reflectionMembers[item.label] = true
+    end
+    assert(reflectionMembers.reflect, "reflection is completed under types")
 
     local globals = {}
     for _, item in ipairs(responseWithId(out, 11).result) do
