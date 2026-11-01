@@ -518,9 +518,11 @@ function index.install(c: state.Checker): state.ExprHandlers
             if key and declared then
                 local rootName = key:match("^[^.]+")
                 local globalRoot = rootName and c.env and c.env.globals and c.env.globals[rootName]
-                local localRoot = globalRoot and rootName and c.lookupEntry(rootName)
+                local localRoot = rootName and c.lookupEntry(rootName)
+                local declaredRoot = declared.definition and declared.definition.qualifiedRootDefinition
+                local ownsRoot = declaredRoot and localRoot and declaredRoot == localRoot.definition
                 local shadowed = globalRoot and localRoot and localRoot.definition ~= globalRoot.definition
-                if not shadowed then
+                if ownsRoot or not declaredRoot and not shadowed then
                     c.infer(target)
                     if apiidentity.path(c, key) then
                         (node as any).namespacePath = key
