@@ -487,37 +487,33 @@ def native_runtime_object(runner, image, out, target, glue=None):
 
 def lowering_image(out, target, cache):
     """A small image holding the lowering, emitted from these sources by the
-    installed compiler, or by the pinned stage zero on a plain runtime when
-    nothing is installed. Answers the image's path."""
+    generation the CLI is lowered by (whose emit cache an edit to the lowering
+    leaves warm), else the installed compiler, or by the pinned stage zero on a
+    plain runtime when nothing is installed. Answers the image's path."""
     out.mkdir(parents=True, exist_ok=True)
     image = out / "lower.image"
     image.unlink(missing_ok=True)
     env = compiler_environment(cache)
     installed = (PACKAGES / "current").exists()
+    candidates = []
     if installed:
-        package = selected()
-        runner = package / "runtime"
-        compiler = package / "compiler.image"
-    else:
-        package = execution_seed()
-        runner = package / "runtime"
-        compiler = package / "compiler.image"
-        env = execution_environment(cache)
-    def emit():
+        candidates = [p for p in dict.fromkeys((pinned(), selected())) if p is not None]
+    def emit(package, env):
+        runner, compiler = package / "runtime", package / "compiler.image"
         run_step([str(runner), "run", str(compiler), "nupp.tools.vm.project", "emit", str(ROOT),
                   "nupp.compiler.clif.lower", LOWERING_EXTRAS, "src", "--output", str(image)],
                  emission_environment(compiler, env), "emit of the lowering image")
-    try:
-        emit()
-    except ValueError:
-        if not installed:
-            raise
-        print("vm-cli: installed compiler cannot emit this lowering; using the verified execution seed", file=sys.stderr)
-        image.unlink(missing_ok=True)
-        pair = execution_seed()
-        runner, compiler = pair / "runtime", pair / "compiler.image"
-        env = execution_environment(cache)
-        emit()
+    for package in candidates:
+        try:
+            emit(package, env)
+            break
+        except ValueError:
+            image.unlink(missing_ok=True)
+    else:
+        if installed:
+            print("vm-cli: installed compiler cannot emit this lowering; using the verified execution seed",
+                  file=sys.stderr)
+        emit(execution_seed(), execution_environment(cache))
     if not image.is_file():
         raise ValueError("the lowering image was not written")
     return image
