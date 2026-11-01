@@ -30,6 +30,8 @@ local function withExtension(callback, assertionSource)
     local source = [[
 @!internal
 module nupp.runtime.standardio
+export type Buffer = {label: string}
+export function newbuffer(value: string): Buffer return {label = value} end
 export type Style = {label: string}
 export type ColorMode = "auto" | "always" | "never"
 export type Alignment = "left" | "right"
@@ -40,6 +42,7 @@ export function columns(): integer return 73 end
 export const value: table = do
     local original = rawget(_G, "io") as any
     original.columns = columns
+    original.newbuffer = newbuffer
     yield original
 end
 ]]
@@ -75,17 +78,41 @@ export const value: table = rawget(_G, "os") as table
 ]]
     )
     osFile:close()
+    local coroutineSource = [[
+@!internal
+module nupp.runtime.standardcoroutine
+export function checkpoint(): integer return 29 end
+export const value: table = do
+    local original = rawget(_G, "coroutine") as any
+    original.checkpoint = checkpoint
+    yield original
+end
+]]
+    local coroutinePath = directory .. "/standardcoroutine.nupp"
+    local coroutineFile = assert(io.open(coroutinePath, "wb"))
+    coroutineFile:write(coroutineSource)
+    coroutineFile:close()
     local env = envMod.new(root, {config = {include = {"src"}}})
     local name = "nupp.runtime.standardio"
     local loaded, preload, columns = package.loaded[name], package.preload[name], rawget(io, "columns")
+    local newbuffer = rawget(io, "newbuffer")
+    local coroutineName = "nupp.runtime.standardcoroutine"
+    local coroutineLoaded, coroutinePreload = package.loaded[coroutineName], package.preload[coroutineName]
+    local checkpoint = rawget(coroutine, "checkpoint")
     local ok, reason = pcall(function()
         local code = compile(source, path, env)
         package.loaded[name] = nil
         package.preload[name] = assert(loadstring(code, "@standardio-fixture"))
+        local coroutineCode = compile(coroutineSource, coroutinePath, env)
+        package.loaded[coroutineName] = nil
+        package.preload[coroutineName] = assert(loadstring(coroutineCode, "@standardcoroutine-fixture"))
         callback(env, argvSource, argvPath)
     end)
     package.loaded[name], package.preload[name] = loaded, preload
     rawset(io, "columns", columns)
+    rawset(io, "newbuffer", newbuffer)
+    package.loaded[coroutineName], package.preload[coroutineName] = coroutineLoaded, coroutinePreload
+    rawset(coroutine, "checkpoint", checkpoint)
     os.execute("rm -rf '" .. root .. "'")
     assert(ok, reason)
 end
@@ -326,6 +353,63 @@ return style, facts
         local style, facts = assert(loadstring(code))()
         test.equal(style, "local")
         test.equal(facts, 17)
+    end)
+end
+
+function M.lowercaseByteFactoriesPreserveBuiltinIdentityAndTypeExports()
+    withExtension(function(env)
+        local code, parsed = compile(
+            [[
+module byteconsumer
+const {type Buffer} = require("io")
+export type SelectedBuffer = Buffer
+export function run(): (boolean, string)
+    local original = io
+    local imported = require("io")
+    local buffer: io.Buffer = imported.newbuffer("kept")
+    return original == imported, buffer.label
+end
+]],
+            "byte-consumer.nupp",
+            env
+        )
+        test.equal(parsed.moduleExports.types.SelectedBuffer, env.globalTypes["io.Buffer"])
+        local same, label = assert(loadstring(code))().run()
+        test.equal(same, true)
+        test.equal(label, "kept")
+        test.equal(require("nupp.runtime.standardio").value, io)
+    end)
+end
+
+function M.coroutineExtensionsPreserveAliasesRequireAndLocalShadows()
+    withExtension(function(env)
+        local code = compile(
+            [[
+local original = coroutine
+local imported = require("coroutine")
+local checkpoint = imported.checkpoint
+local same = original == imported
+local value = checkpoint()
+local coroutine = {checkpoint = function(): integer return 17 end}
+return same, value, coroutine.checkpoint()
+]],
+            "coroutine-consumer.nupp",
+            env
+        )
+        local same, value, shadow = assert(loadstring(code))()
+        test.equal(same, true)
+        test.equal(value, 29)
+        test.equal(shadow, 17)
+        test.equal(require("nupp.runtime.standardcoroutine").value, coroutine)
+    end)
+end
+
+function M.ordinaryCoroutineMembersDoNotLoadExtensions()
+    withExtension(function(env)
+        local code = compile("return coroutine.running", "ordinary-coroutine-consumer.nupp", env)
+        test.equal(code:find('require("nupp.runtime.standardcoroutine")', 1, true), nil)
+        test.equal(assert(loadstring(code))(), coroutine.running)
+        test.equal(package.loaded["nupp.runtime.standardcoroutine"], nil)
     end)
 end
 
