@@ -1435,7 +1435,7 @@ function M.standardLibraryBackingRecordsStayInternal()
         end
     end
     assert(closeable, "the prelude did not document Closeable")
-    assert(closeable.module == "nupp", "Closeable is not owned by the nupp module")
+    assert(closeable.module == "own", "Closeable is not owned by the own module")
     assert(
         closeable.signature:find("interface own.Closeable is own.Affine<self.close>", 1, true),
         "Closeable lost its qualified declaration"
