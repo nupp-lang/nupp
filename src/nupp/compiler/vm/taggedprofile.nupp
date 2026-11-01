@@ -837,6 +837,20 @@ function tagged.forVersion(version: integer): any
                 end
                 return ctx.emit(node, "Len", {operand}, "tagged") as integer
             end
+            -- `-x` as `x * -1`, which is Lua's negation for both kinds: it
+            -- flips a float's sign (so -0.0 survives) and wraps an integer.
+            if node.op and node.op.text == "-" and catalog(ctx).byNode[node] == nil then
+                need(expected == nil or expected == "tagged", "negation requires tagged destination")
+                local operand = ctx.expression(node.operand, "tagged")
+                if operand == nil then
+                    return nil as any
+                end
+                local held = ctx.hold(operand)
+                local minusOne = ctx.emit(node, "K", {pool(ctx, "int64", "-1")}, "tagged")
+                operand = ctx.readHeld(held)
+                ctx.release(held)
+                return ctx.emit(node, "Mul", {operand, minusOne}, "tagged") as integer
+            end
 
             return tagged.unary(ctx, node, expected)
         end

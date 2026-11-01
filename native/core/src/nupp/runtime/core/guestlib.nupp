@@ -57,6 +57,36 @@ local function appendText(h: heap.Heap*, b: strings.Builder*, value: uint64): ui
     if ints.isInteger(value) then
         return strings.appendInteger(h, b, native.index(ints.bitsOf(value)))
     end
+    -- A float as Lua 5.5 writes one (C's "%.15g", or "%.17g" when that
+    -- reads back as another number), with ".0" added when it reads as an
+    -- integer.
+    if value & values.QNAN ~= values.QNAN or value == values.QNAN then
+        @unsafe do
+            if strings.reserve(h, b, 66ULL) ~= 0ULL then
+                return 1ULL
+            end
+            local at = b.base + b.length
+            local length = os.formatNumber(value, native.pointer(at), 64ULL)
+            if length < 0 or length > 64 then
+                return 1ULL
+            end
+            local count = native.word(length)
+            local integral = true
+            local i: uint64 = 0ULL
+            while i < count do
+                local c = native.word(native.load8(native.pointer(at), native.index(i)))
+                if c ~= 45ULL and (c < 48ULL or c > 57ULL) then
+                    integral = false
+                end
+                i = i + 1ULL
+            end
+            b.length = b.length + count
+            if integral then
+                return strings.appendWord(h, b, 0x302eULL, 2ULL)
+            end
+            return 0ULL
+        end
+    end
     -- "true", "false" and "nil" as little-endian byte words.
     if value == values.TRUE then
         return strings.appendWord(h, b, 0x65757274ULL, 4ULL)
@@ -350,9 +380,10 @@ end
 
 -- Lua's tonumber: numbers as they are; strings by l_str2int (optional sign,
 -- decimal or wrapping hexadecimal, surrounding space); nil for any other
--- value or text that is not a numeral. Text that may be a float numeral, or
--- a decimal past int64, refuses: the core converts no float text yet.
+-- value or text that is not a numeral. Other text, a decimal past int64
+-- included, is read as a float by C's strtod through the host.
 local function tonumber(ctx: voidptr, value: uint64): uint64
+    local cell = new strings.Builder(0ULL, 0ULL, 0ULL)
     if ints.isInteger(value) or floatOf(value) ~= values.NIL then
         return value
     end
@@ -417,17 +448,28 @@ local function tonumber(ctx: voidptr, value: uint64): uint64
             end
             return ints.make(guestHeap(ctx), bits)
         end
-        -- What remains may still be a float numeral ("1.5", "1e3", "inf" is not).
+        -- Otherwise a float numeral by C's strtod, as Lua's l_str2d reads one;
+        -- like it, text holding an n or N (inf, nan) is refused first.
         local q = strings.bytes(s)
         while q < finish do
-            local c = native.word(native.load8(native.pointer(q), 0))
-            if c == 46ULL or (c | 32ULL) == 101ULL or (c | 32ULL) == 112ULL or overflow then
-                error("tonumber of float text is not yet supported by the core")
+            if native.word(native.load8(native.pointer(q), 0)) | 32ULL == 110ULL then
+                return values.NIL
             end
             q = q + 1ULL
         end
+        -- The bits land in a builder's word backing.
+        local slot = cell as strings.Builder*
+        if strings.reserve(guestHeap(ctx), slot, 8ULL) ~= 0ULL then
+            error("not enough memory")
+        end
+        local parsed = os.parseNumber(native.pointer(strings.bytes(s)), strings.length(s), native.pointer(slot.base))
+        local bits = native.load64(native.pointer(slot.base), 0)
+        strings.release(slot)
+        if parsed ~= 1 then
+            return values.NIL
+        end
 
-        return values.NIL
+        return floatValue(bits)
     end
 end
 

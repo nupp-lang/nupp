@@ -197,6 +197,69 @@ fn environment_value(key: &[u8]) -> Option<Vec<u8>> {
     std::env::var(std::str::from_utf8(key).ok()?).ok().map(String::into_bytes)
 }
 
+unsafe extern "C" {
+    fn snprintf(
+        out: *mut std::ffi::c_char,
+        room: usize,
+        format: *const std::ffi::c_char,
+        ...
+    ) -> i32;
+    fn strtod(text: *const std::ffi::c_char, end: *mut *mut std::ffi::c_char) -> f64;
+}
+
+/// Writes the binary64 `bits` as Lua 5.5 writes a float, C's "%.15g" or,
+/// when that reads back as another number, "%.17g", into `out`, at most
+/// `room` bytes: the text's whole length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_os_format_number(bits: u64, out: *mut u8, room: u64) -> i64 {
+    let value = f64::from_bits(bits);
+    let mut text = [0u8; 64];
+    let mut written = unsafe { snprintf(text.as_mut_ptr().cast(), text.len(), c"%.15g".as_ptr(), value) };
+    // Lua 5.5 writes 15 digits unless they read back as another number.
+    if written >= 0 && unsafe { strtod(text.as_ptr().cast(), std::ptr::null_mut()) }.to_bits() != bits {
+        written = unsafe { snprintf(text.as_mut_ptr().cast(), text.len(), c"%.17g".as_ptr(), value) };
+    }
+    if written < 0 {
+        return -1;
+    }
+    let length = (written as usize).min(text.len() - 1);
+    if !out.is_null() {
+        unsafe { std::ptr::copy_nonoverlapping(text.as_ptr(), out, length.min(room as usize)) };
+    }
+    length as i64
+}
+
+/// Reads the `bytes` at `text` as C's strtod does, the whole text but for
+/// surrounding space: 1 with the binary64 bits stored at `out`, or 0 when it
+/// is not one numeral.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_os_parse_number(text: *const u8, bytes: u64, out: *mut u64) -> i64 {
+    if text.is_null() || out.is_null() {
+        return 0;
+    }
+    let source = unsafe { std::slice::from_raw_parts(text, bytes as usize) };
+    if source.contains(&0) {
+        return 0;
+    }
+    let mut owned = source.to_vec();
+    owned.push(0);
+    let start = owned.as_ptr().cast::<std::ffi::c_char>();
+    let mut end = std::ptr::null_mut();
+    let value = unsafe { strtod(start, &mut end) };
+    let mut at = end as usize - start as usize;
+    if at == 0 {
+        return 0;
+    }
+    while at < source.len() && matches!(source[at], b' ' | b'\t' | b'\n' | 0x0b | 0x0c | b'\r') {
+        at += 1;
+    }
+    if at != source.len() {
+        return 0;
+    }
+    unsafe { out.write(value.to_bits()) };
+    1
+}
+
 /// The address of an operating-system edge by its symbol, for a runner that
 /// links native code into this process rather than against the runtime.
 pub fn symbol(name: &str) -> Option<*const u8> {
@@ -209,6 +272,8 @@ pub fn symbol(name: &str) -> Option<*const u8> {
         "nupp_os_read_input" => nupp_os_read_input as *const u8,
         "nupp_os_write_output" => nupp_os_write_output as *const u8,
         "nupp_os_environment" => nupp_os_environment as *const u8,
+        "nupp_os_format_number" => nupp_os_format_number as *const u8,
+        "nupp_os_parse_number" => nupp_os_parse_number as *const u8,
         _ => return None,
     })
 }
