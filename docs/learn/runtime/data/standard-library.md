@@ -4,9 +4,9 @@ order: 180
 
 # Standard library
 
-`nupp` is the compiler-provided intrinsic namespace, present in every checked
-file. Reach for it when a program needs bytes, text, digests, logging, math, or
-a parser and does not want a dependency for them.
+Nupp's standard library provides types, text, data formats, I/O, and application
+tools. Its APIs live in builtin tables such as `math` and in declared modules
+such as `binary.hash.digest`.
 
 ```nupp:playground
 local digest = binary.hash.digest.hexDigest("sha256", "payload")
@@ -15,10 +15,8 @@ print(#digest, math.lerp(10, 20, 0.25))
 
 ## Intrinsics and declared modules
 
-The namespace is a language surface, not an ambient source module and not a
-package tree assembled from declaration files. The compiler selects each
-implementation from the members checked source actually reaches, so nothing is
-loaded on a program's behalf.
+`nupp` names compiler intrinsics. The compiler selects their implementations
+from the members checked source reaches.
 
 Nupp-authored libraries outside that surface are ordinary declared modules on
 disk. A qualified module path loads one only when the source uses it:
@@ -104,7 +102,8 @@ intrinsic namespaces and the declared modules:
   application task scopes, and isolated worker lanes.
   [](nupp.suspension.host) is the other side of waiting: what a host installs to
   decide which coroutine runs while something is parked.
-- [](nupp.time) owns monotonic time, wall time, sleeps, and deadlines.
+- [](os) provides monotonic and wall clocks. [](nupp.time) owns sleeps and
+  deadlines.
 
 See [gpu.md](../../performance/ahead-of-time/gpu.md) for generated GPU kernels and the
 browser provider, and [workers.md](../concurrency/workers.md) for the worker
@@ -112,9 +111,9 @@ scheduler and sendable values.
 
 ## Availability and initialization
 
-`nupp` and `math` are intrinsic namespaces. The other standard modules
-have their own declared module identities and are loaded through qualified
-references or ordinary require calls. Providers resolve while their facades load.
+Compiler namespaces and builtin-table extensions use canonical declarations.
+Declared library modules load through qualified references or ordinary
+`require` calls. Providers resolve while their facades load.
 
 ### Selection follows use
 
