@@ -492,7 +492,7 @@ return {
             },
             docs = {
                 kind = "docs",
-                sources = {"src"},
+                sources = {"src/nupp", "src/serde", "src/binary"},
                 format = "both",
                 outDir = "build/docs",
                 title = "Nupp API",
