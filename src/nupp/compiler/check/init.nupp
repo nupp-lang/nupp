@@ -1894,7 +1894,14 @@ function checkMod.check(
     --- struct's ctype constructor, under the same key as its type, so `M.Point{...}`
     --- is recognized as a construction.
     c.bindDeclaredVar = function(stat, t)
-        c.bindVar(c.declKey(stat), t, false, stat.name)
+        local key = c.declKey(stat)
+        local qualifier = c.qualifierOf(stat)
+        local root = qualifier and c.lookupEntry(qualifier)
+        c.bindVar(key, t, false, stat.name)
+        local entry = c.scope.vars[key]
+        if root and entry and entry.definition then
+            entry.definition.qualifiedRootDefinition = root.definition
+        end
     end
 
     ---------------------------------------------------------------------
