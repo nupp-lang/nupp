@@ -267,6 +267,25 @@ local function programPayload(
             return kept, nil, unreachable, facilities
         end
     end
+    -- A changed target still lowers only what changed: each module's lowering
+    -- is kept and replayed when nothing it read has changed
+    -- (`nupp.tools.vm.emitcache`). A replayed module is not lowered, so the
+    -- facilities it needs come from the record the last complete emit wrote. The
+    -- record is removed before an emit and written after one, so an emit that
+    -- did not finish leaves none, and the next lowers everything.
+    local emitDir = cached .. "-emit"
+    local record = cached .. ".emit-facilities"
+    local seeded: {string}? = nil
+    if coverage == nil then
+        local kept = fs.readFile(record)
+        if kept ~= nil then
+            seeded = {}
+            for facility in kept:gmatch("[^\n]+") do
+                seeded[#seeded + 1] = facility
+            end
+        end
+        os.remove(record)
+    end
     local ok, image, facilities = pcall(
         require("nupp.tools.vm.project").program,
         root,
@@ -274,10 +293,15 @@ local function programPayload(
         mainName,
         embedded,
         coverage,
-        modules
+        modules,
+        seeded and emitDir or nil,
+        seeded
     )
     if not ok then
         return nil, tostring(image)
+    end
+    if coverage == nil then
+        fs.writeFile(record, table.concat(facilities as {string}, "\n") .. "\n")
     end
     if coverage ~= nil then
         for name, manifest in pairs(coverage.manifests as {[string]: any}) do
