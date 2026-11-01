@@ -1,8 +1,9 @@
 module nupp.core.catalogworkloadstrings
 
--- The `strings` workload of bench/vm/workloads.bench.nupp at scale 1, whose
--- checksum is 5281858; the scale stays an operand rather than folding away.
-local scale = 1
+-- The `strings` workload of bench/vm/workloads.bench.nupp, whose checksum
+-- at scale 1 is 5281858. The scale is read from BENCH_SCALE at run time, as the
+-- original reads it, so no compiler can fold it away.
+local scale: number = tonumber(os.getenv("BENCH_SCALE") or "1") or 1
 
 local function strings(): number
     local parts: {string} = {}

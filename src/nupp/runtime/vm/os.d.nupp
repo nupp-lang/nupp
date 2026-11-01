@@ -39,5 +39,11 @@ local record Os
     --- when the write failed.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     writeOutput: function(base: voidptr, bytes: uint64): int64
+
+    --- Copies the environment variable named by the `nameBytes` bytes at `name`
+    --- into `out`, at most `room` bytes: the value's whole length, or -1 when
+    --- it is unset.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    environment: function(name: voidptr, nameBytes: uint64, out: voidptr, room: uint64): int64
 end
 return Os

@@ -34,6 +34,18 @@ local QUICK = os.getenv("NUPP_GUEST_QUICK") == "1"
 -- Workloads that run for seconds: their result is checked in both modes,
 -- but the ABI guard, which runs the program again, is left to the others.
 local HEAVY = {workloadLoops = true}
+-- Results at BENCH_SCALE=2, run in normal mode only. Loops stays out: its 30
+-- million iterations take ten seconds at either scale.
+local SCALED = {
+    workloadFib = 0x7FFF000000148ADD,
+    workloadTables = 0x7FFF00001D161453,
+    workloadStrings = 0x7FFF00000052E970,
+    workloadRecords = 0x7FFF000000030D3D,
+    workloadClosures = 0x7FFF0000000F414A
+}
+-- The environment every bridge and guard run sees, which environmentRead
+-- reads back; the long value needs a second copy past the first 256 bytes.
+local GUEST_ENV = "NUPP_GUEST_PROBE=core-environment NUPP_GUEST_SCALE=3 NUPP_GUEST_LONG=" .. string.rep("x", 300) .. " "
 
 local CASES = {
     {"boolean", 0x7FFB000000000000},
@@ -68,7 +80,8 @@ local CASES = {
     {"workloadStrings", 0x7FFF000000509842},
     {"stringsBasic", 0x7FFF0000000004B1},
     {"integersWide", 0x7FFF00064B7743CB},
-    {"numbersText", 0x7FFF000004A6983A}
+    {"numbersText", 0x7FFF000004A6983A},
+    {"environmentRead", 0x7FFF000011E63D2B}
 }
 -- Heap-using cases that also run with a whole collection at every
 -- allocation. records and strings allocate per iteration, which makes their
@@ -101,7 +114,8 @@ local NUMERIC = {
     workloadStrings = "catalog-workload-strings",
     stringsBasic = "catalog-strings-basic",
     integersWide = "catalog-integers-wide",
-    numbersText = "catalog-numbers-text"
+    numbersText = "catalog-numbers-text",
+    environmentRead = "catalog-environment"
 }
 local FIXTURES = {
     "catalog-boolean",
@@ -357,7 +371,7 @@ local function oracle(lua, fixture)
         .. "elseif math.type(v) == 'integer' then io.write('I', string.format('%d', v))\n"
         .. "else io.write('F', string.format('%016x', string.unpack('<I8', string.pack('<d', v)))) end\n"
     )
-    local status, output = shell(quote(lua) .. " " .. quote(program))
+    local status, output = shell(GUEST_ENV .. quote(lua) .. " " .. quote(program))
     assert(status == 0, output)
     local kind, value = output:sub(1, 1), output:sub(2)
     if kind == "E" then
@@ -448,8 +462,13 @@ local function main()
     local empty = OUT .. "/empty.bin"
     write(empty, "")
 
-    local function bridgeRun(label, bundle, input, output, expectedStatus)
-        local status = shell(("%s %s %s %s"):format(quote(bridge), quote(bundle), quote(input), quote(output)))
+    local function bridgeRun(label, bundle, input, output, expectedStatus, environment)
+        local status = shell(
+            (
+                environment or GUEST_ENV
+            ) .. ("%s %s %s %s"):format(quote(bridge), quote(bundle), quote(input), quote(output))
+        )
+
         return check((status == 0) == (expectedStatus == 0), label .. " bridge status")
     end
 
@@ -457,7 +476,7 @@ local function main()
         if QUICK or HEAVY[label:match("^(%w+)")] then
             return
         end
-        local env = (
+        local env = GUEST_ENV .. (
             "CORE_TEST_BUNDLE=%s CORE_TEST_INPUT=%s CORE_TEST_HIGH_WATER=%d "
         ):format(quote(bundle), quote(input), highWater)
         local test = "abi::generated_entry_preserves_c_abi_and_output"
@@ -525,6 +544,14 @@ local function main()
                     os.remove(stressed)
                     bridgeRun(label .. " stress", bundle, input, stressed, 0)
                     check(read(stressed) == u64(expectedWord), label .. " result under collect-at-every-allocation")
+                end
+                -- The workloads read BENCH_SCALE at run time; scale 2 has its own
+                -- checksums (bench/vm/workloads.bench.nupp).
+                if SCALED[name] and label:match("%-normal$") then
+                    local scaled = OUT .. "/" .. label .. "-scale2.out"
+                    os.remove(scaled)
+                    bridgeRun(label .. " scale 2", bundle, empty, scaled, 0, GUEST_ENV .. "BENCH_SCALE=2 ")
+                    check(read(scaled) == u64(SCALED[name]), label .. " result at BENCH_SCALE=2")
                 end
                 local _, short = shell(
                     (

@@ -14,6 +14,7 @@ const tables = require("nupp.runtime.core.coretables")
 const patterns = require("nupp.runtime.core.corepattern")
 const guestscope = require("nupp.runtime.core.guestscope")
 const ints = require("nupp.runtime.core.coreintegers")
+const os = require("nupp.runtime.vm.os")
 
 export const TOSTRING: uint64 = 1ULL
 export const FORMAT: uint64 = 2ULL
@@ -24,6 +25,7 @@ export const DIVIDE: uint64 = 6ULL
 export const FLOOR_DIVIDE: uint64 = 7ULL
 export const NEXT_STEP: uint64 = 8ULL
 export const TONUMBER: uint64 = 9ULL
+export const GETENV: uint64 = 10ULL
 
 local function integerValue(value: uint64): int64
     local payload = value & values.PAYLOAD
@@ -429,6 +431,52 @@ local function tonumber(ctx: voidptr, value: uint64): uint64
     end
 end
 
+-- os.getenv: the variable's value as a string, nil when it is unset. The
+-- value is copied into a builder sized by a first call, then once more if it
+-- did not fit.
+local function getenv(ctx: voidptr, name: uint64): uint64
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local s = strings.header(name)
+    if s == 0ULL then
+        error("bad argument #1 to 'getenv' (string expected)")
+    end
+    @unsafe do
+        local h = guestHeap(ctx)
+        local builder = state as strings.Builder*
+        if strings.reserve(h, builder, 256ULL) ~= 0ULL then
+            error("not enough memory")
+        end
+        local length = os.environment(
+            native.pointer(strings.bytes(s)),
+            strings.length(s),
+            native.pointer(builder.base),
+            builder.capacity
+        )
+        if length < 0 then
+            strings.release(builder)
+            return values.NIL
+        end
+        if native.word(length) > builder.capacity then
+            if strings.reserve(h, builder, native.word(length)) ~= 0ULL then
+                strings.release(builder)
+                error("not enough memory")
+            end
+            length = os.environment(
+                native.pointer(strings.bytes(s)),
+                strings.length(s),
+                native.pointer(builder.base),
+                builder.capacity
+            )
+            if length < 0 or native.word(length) > builder.capacity then
+                strings.release(builder)
+                error("os.getenv: the environment changed while it was read")
+            end
+        end
+        builder.length = native.word(length)
+        return values.TAG_OBJ | strings.finish(h, builder)
+    end
+end
+
 -- Library call `id` with `count` arguments; answers the result value.
 export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint64, c: uint64, d: uint64): uint64
     if id == TOSTRING then
@@ -449,6 +497,8 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         return nextStep(ctx, a)
     elseif id == TONUMBER then
         return tonumber(ctx, a)
+    elseif id == GETENV then
+        return getenv(ctx, a)
     end
     error("unknown core library call")
 

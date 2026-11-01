@@ -109,6 +109,7 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, String> {
         platform::map_pages as *const () as u64,
         platform::unmap_pages as *const () as u64,
         platform::page_size as *const () as u64,
+        platform::environment as *const () as u64,
     ];
     let packet = [
         1,

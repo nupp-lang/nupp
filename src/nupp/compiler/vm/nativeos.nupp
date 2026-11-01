@@ -9,7 +9,8 @@ local issued: any = setmetatable({}, {__mode = "k"})
 local definitions = {
     mapPages = {slot = 0, params = {"uint64"}, result = "voidptr", cResult = "uint64"},
     unmapPages = {slot = 1, params = {"voidptr", "uint64"}, result = "nil", cResult = "uint64"},
-    pageSize = {slot = 2, params = {}, result = "uint64", cResult = "uint64"}
+    pageSize = {slot = 2, params = {}, result = "uint64", cResult = "uint64"},
+    environment = {slot = 3, params = {"voidptr", "uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"}
 }
 
 local function need(value: any, message: string): any
