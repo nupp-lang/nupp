@@ -57,7 +57,9 @@ local CASES: {[string]: {
     numbersText = {fixture = "catalog-numbers-text", version = 8},
     environmentRead = {fixture = "catalog-environment", version = 8},
     numbersFloat = {fixture = "catalog-numbers-float", version = 8},
-    callsResults = {fixture = "catalog-calls-results", version = 8}
+    callsResults = {fixture = "catalog-calls-results", version = 8},
+    tablesFloatKeys = {fixture = "catalog-tables-floatkeys", version = 8},
+    stringsLibrary = {fixture = "catalog-strings-library", version = 8}
 }
 
 -- The handlers a profile version dispatches, in table order.

@@ -74,6 +74,30 @@ function tagged.emit(ctx: any, node: any, op: string, args: any, kind: string?):
     return graph.emit(ctx.g, ctx.block, op, args, ctx.position(node))
 end
 
+-- The string library calls guestlib implements: id and the argument counts
+-- admitted, the string itself included.
+local stringLibrary: {
+    [string]: {integer}
+} = {
+    ["string.sub"] = {11, 2, 3},
+    ["string.byte"] = {12, 1, 2},
+    ["string.char"] = {13, 1, 1},
+    ["string.rep"] = {14, 2, 2},
+    ["string.upper"] = {15, 1, 1},
+    ["string.lower"] = {16, 1, 1},
+    ["string.len"] = {17, 1, 1},
+    ["string.find"] = {18, 2, 4},
+    ["string.match"] = {19, 2, 3}
+}
+
+local function stringSpec(library: string?): {integer}?
+    if library == nil then
+        return nil
+    end
+
+    return stringLibrary[library]
+end
+
 -- A core library call (guestlib): its arguments staged as values.
 local function libraryCall(ctx: any, node: any, id: integer, arguments: any): integer
     need(#arguments >= 1 and #arguments <= 4, "core library calls take one to four arguments")
@@ -846,6 +870,11 @@ function tagged.forVersion(version: integer): any
             elseif library == "os.getenv" then
                 need(#(node.args.exprs or {}) == 1, "os.getenv takes one name")
                 return libraryCall(ctx, node, 10, node.args.exprs)
+            elseif stringSpec(library) then
+                local spec: {integer} = need(stringSpec(library), "string library call")
+                local count = #(node.args.exprs or {})
+                need(count >= spec[2] and count <= spec[3], tostring(library) .. " argument count is not admitted")
+                return libraryCall(ctx, node, spec[1], node.args.exprs)
             elseif library == "math.floor" then
                 need(#(node.args.exprs or {}) == 1, "math.floor takes one number")
                 local operand = ctx.expression(node.args.exprs[1], "tagged")
@@ -861,13 +890,25 @@ function tagged.forVersion(version: integer): any
         -- s:format(...) on a checked string.
         profile.methodCall = function(ctx: any, node: any, expected: string?): integer
             need(expected == nil or expected == "tagged", "method call requires tagged destination")
-            need(graph.coreLibraryCall(node) == "string.format", "only string format method calls are admitted")
+            local library = graph.coreLibraryCall(node)
+            need(
+                library == "string.format" or stringSpec(library) ~= nil,
+                "only string library method calls are admitted"
+            )
             local arguments = {node.obj}
             for _, argument in ipairs(node.args.exprs or {}) do
                 arguments[#arguments + 1] = argument
             end
+            if library == "string.format" then
+                return libraryCall(ctx, node, 2, arguments)
+            end
+            local spec: {integer} = need(stringSpec(library), "string library call")
+            need(
+                #arguments >= spec[2] and #arguments <= spec[3],
+                tostring(library) .. " argument count is not admitted"
+            )
 
-            return libraryCall(ctx, node, 2, arguments)
+            return libraryCall(ctx, node, spec[1], arguments)
         end
         profile.statementCall = function(ctx: any, node: any): nil
             if node.runtimeLoader == "require" then

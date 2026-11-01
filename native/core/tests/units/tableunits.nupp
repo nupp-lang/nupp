@@ -156,7 +156,7 @@ export function removal(count: uint64): uint64
     return answer
 end
 
--- Object keys by identity, with refused keys counted: nil and a float key.
+-- Object keys by identity, with refused keys counted: nil and a NaN key.
 -- Answers the sum of the values read back through `count` node keys, plus a
 -- billion per refusal seen.
 export function objectKeys(count: uint64): uint64
@@ -189,7 +189,7 @@ export function objectKeys(count: uint64): uint64
             if tables.set(h, t, values.NIL, int(1ULL)) == tables.BAD_KEY then
                 refused = refused + 1ULL
             end
-            if tables.set(h, t, 0x3ff8000000000000ULL, int(1ULL)) == tables.BAD_KEY then
+            if tables.set(h, t, values.QNAN, int(1ULL)) == tables.BAD_KEY then
                 refused = refused + 1ULL
             end
             answer = sum + refused * BILLION

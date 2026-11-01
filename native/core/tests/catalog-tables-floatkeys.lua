@@ -1,0 +1,24 @@
+-- Reference Lua 5.5 twin of catalog-tables-floatkeys.nupp, without its types.
+-- Float keys as Lua normalizes them: an integral float is the integer it
+-- equals (1.0 lands in the array part, -0.0 is key 0, 2^53 is the boxed
+-- integer key the wide literal names), other floats key by value, and a NaN
+-- key reads nil.
+local t = {}
+t[1.0] = 10
+t[2] = 20
+t[2.5] = 25
+t[-0.0] = 5
+t[9007199254740992.0] = 7
+local wide = 9007199254740992
+local r = (t[1] or 0) + (t[2.0] or 0) * 2 + (t[2.5] or 0) * 3 + (t[0] or 0) * 4 + (t[wide] or 0) * 5 + #t * 1000
+local count = 0
+for _, v in pairs(t) do
+    count = count + v
+end
+local zero = 0.0
+local nan = zero / zero
+local missing = 0
+if t[nan] == nil then
+    missing = 1
+end
+return r + count * 100000 + missing * 100000000

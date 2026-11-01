@@ -1027,7 +1027,7 @@ export function GetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
-    slots.writeValue(frame, regs, dst, tables.get(header, slots.readValue(frame, regs, key)))
+    slots.writeValue(frame, regs, dst, guestscope.tableGet(ctx, header, slots.readValue(frame, regs, key)))
     local nextPC = ops.branch(ctx, frame, pc, 0)
     if nextPC == 0ULL then
         ops.fail(ctx, frame, pc, ops.INVALID)

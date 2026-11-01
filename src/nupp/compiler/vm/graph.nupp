@@ -1483,7 +1483,16 @@ local coreLibrary: {
     ["os.getenv"] = true,
     ["table.concat"] = true,
     ["string.format"] = true,
-    ["string.gmatch"] = true
+    ["string.gmatch"] = true,
+    ["string.sub"] = true,
+    ["string.byte"] = true,
+    ["string.char"] = true,
+    ["string.rep"] = true,
+    ["string.upper"] = true,
+    ["string.lower"] = true,
+    ["string.len"] = true,
+    ["string.find"] = true,
+    ["string.match"] = true
 }
 
 local function preludeName(node: any): boolean
