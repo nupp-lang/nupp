@@ -203,7 +203,7 @@ local function plantedTree(stage0Body)
         os.execute(
             (
                 "{ cksum < '%s/scripts/patches/luajit.patch'; cksum < '%s/luajit/bin/luajit'; }"
-                    .. " > '%s/luajit/.nupp-runtime-patch'"
+                .. " > '%s/luajit/.nupp-runtime-patch'"
             ):format(dir, prefix, prefix)
         ) == 0
     )
@@ -233,6 +233,97 @@ output:close()
     local bootstrap = assert(output:find("BOOTSTRAP", 1, true), output)
     local selfHosted = assert(output:find("SELF_HOSTED", 1, true), output)
     assert(bootstrap < selfHosted, output)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.aColdExplicitBuildBootstrapsOnlyTheCompilerTarget()
+    local dir, _, env = plantedTree(
+        [=[
+assert(arg[1] == "build" and arg[2] == "--target" and arg[3] == "compiler",
+    "the seed was asked to build the requested source tree")
+print("SEED_COMPILER")
+local output = assert(io.open("build/nupp/tools/main.lua", "wb"))
+output:write([[assert(arg[1] == "build")
+if arg[2] == "--target" then
+    assert(arg[3] == "compiler")
+    print("CURRENT_COMPILER")
+else
+    assert(arg[2] == "--json" and arg[3] == ".")
+    print("REQUESTED_BUILD")
+end
+]])
+output:close()
+]=]
+    )
+    assert(os.remove(dir .. "/build/nupp/tools/main.lua"))
+    local output = ran(dir, env, "build --json .")
+    local seed = assert(output:find("SEED_COMPILER", 1, true), output)
+    local current = assert(output:find("CURRENT_COMPILER", 1, true), output)
+    local requested = assert(output:find("REQUESTED_BUILD", 1, true), output)
+    assert(seed < current and current < requested, output)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.anExplicitFileBuildKeepsItsArgumentsWithACurrentCompiler()
+    local dir, plant, env = plantedTree()
+    plant(
+        "build/nupp/tools/main.lua",
+        [[
+assert(arg[1] == "build" and arg[2] == "example.nupp" and arg[3] == "--json")
+print("REQUESTED_FILE_BUILD")
+]]
+    )
+    plant("build/.nupp-complete", "complete\n")
+    local output = ran(dir, env, "build example.nupp --json")
+    assert(output:find("REQUESTED_FILE_BUILD", 1, true), output)
+    assert(not output:find("BOOTSTRAP", 1, true), output)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.anExplicitBuildRefreshesACompilerBehindItsSources()
+    local dir, plant, env = plantedTree()
+    plant(
+        "build/nupp/tools/main.lua",
+        [[
+assert(arg[1] == "build")
+if arg[2] == "--target" then
+    assert(arg[3] == "compiler")
+    print("CURRENT_COMPILER")
+else
+    assert(arg[2] == nil)
+    print("REQUESTED_BUILD")
+end
+]]
+    )
+    plant("build/.nupp-complete", "complete\n")
+    assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+    plant("src/changed.nupp", "return true\n")
+    assert(os.execute("touch -t 200001010000 '" .. dir .. "/build/.nupp-complete'") == 0)
+    local output = ran(dir, env, "build")
+    local compiler = assert(output:find("CURRENT_COMPILER", 1, true), output)
+    local requested = assert(output:find("REQUESTED_BUILD", 1, true), output)
+    assert(compiler < requested, output)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.anAutomaticRebuildSelectsOnlyTheCompilerTarget()
+    local dir, plant, env = plantedTree()
+    plant(
+        "build/nupp/tools/main.lua",
+        [[
+if arg[1] == "build" then
+    assert(arg[2] == "--target" and arg[3] == "compiler")
+    print("CURRENT_COMPILER")
+else
+    assert(arg[1] == "check" and arg[2] == "example.nupp")
+    print("REQUESTED_CHECK")
+end
+]]
+    )
+    local output = ran(dir, env, "check example.nupp")
+    local compiler = assert(output:find("CURRENT_COMPILER", 1, true), output)
+    local requested = assert(output:find("REQUESTED_CHECK", 1, true), output)
+    assert(compiler < requested, output)
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -274,7 +365,8 @@ end
 -- every other command in the tree read that as a tree nobody had built and
 -- started its own build over the same output directory.
 function M.aBuildWaitsForTheBuildAlreadyRunning()
-    local dir, _, env = plantedTree()
+    local dir, plant, env = plantedTree()
+    plant("build/.nupp-complete", "complete\n")
 
     -- Held by something that is alive, since a lock whose holder is gone is one
     -- a killed build left behind and is taken rather than waited for.

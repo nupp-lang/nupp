@@ -426,9 +426,9 @@ await_build() {
 complete_bootstrap() {
     [ -f "$BUILT" ] || return 0
     if [ -n "$BUILD_COLOR_ARG" ]; then
-        (cd "$ROOT" && NUPP_COMPILER_ROOT="$LUA_ROOT" luajit -e "$LUAPATH" "$LUA_BUILT" build "$BUILD_COLOR_ARG")
+        (cd "$ROOT" && NUPP_COMPILER_ROOT="$LUA_ROOT" luajit -e "$LUAPATH" "$LUA_BUILT" build --target compiler "$BUILD_COLOR_ARG")
     else
-        (cd "$ROOT" && NUPP_COMPILER_ROOT="$LUA_ROOT" luajit -e "$LUAPATH" "$LUA_BUILT" build)
+        (cd "$ROOT" && NUPP_COMPILER_ROOT="$LUA_ROOT" luajit -e "$LUAPATH" "$LUA_BUILT" build --target compiler)
     fi
 }
 
@@ -447,9 +447,9 @@ build_now() {
     build_status=1
     if [ -f "$BUILT" ]; then
         if [ -n "$BUILD_COLOR_ARG" ]; then
-            (cd "$ROOT" && luajit -e "$LUAPATH" "$LUA_BUILT" build "$BUILD_COLOR_ARG")
+            (cd "$ROOT" && luajit -e "$LUAPATH" "$LUA_BUILT" build --target compiler "$BUILD_COLOR_ARG")
         else
-            (cd "$ROOT" && luajit -e "$LUAPATH" "$LUA_BUILT" build)
+            (cd "$ROOT" && luajit -e "$LUAPATH" "$LUA_BUILT" build --target compiler)
         fi
         if [ "$?" -eq 0 ]; then
             release_build_lock
@@ -464,9 +464,9 @@ build_now() {
     fi
     if stage0_path >/dev/null; then
         if [ -n "$BUILD_COLOR_ARG" ]; then
-            (cd "$ROOT" && NUPP_COMPILER_ROOT="$(dirname "$STAGE0")" luajit "$STAGE0" build "$BUILD_COLOR_ARG")
+            (cd "$ROOT" && NUPP_COMPILER_ROOT="$(dirname "$STAGE0")" luajit "$STAGE0" build --target compiler "$BUILD_COLOR_ARG")
         else
-            (cd "$ROOT" && NUPP_COMPILER_ROOT="$(dirname "$STAGE0")" luajit "$STAGE0" build)
+            (cd "$ROOT" && NUPP_COMPILER_ROOT="$(dirname "$STAGE0")" luajit "$STAGE0" build --target compiler)
         fi
         build_status=$?
         if [ "$build_status" -eq 0 ]; then
@@ -488,13 +488,11 @@ build_now() {
 # whether the tree needs building meant every worker a build spawned started a
 # second build of the same tree, while its parent was still writing the files.
 #
-# Neither asks for a rebuild, but which tree they are the build of decides what
-# else they owe. `build` here is one writer of this tree and takes the lock that
-# says so. `build` or `clean` anywhere else is a build of somebody else's
-# project that happens to load its compiler out of this tree, so it waits for a
-# build of this tree rather than reading one that is half rewritten -- the test
-# suite is thousands of those, run through this launcher beside the
-# repository's own build.
+# A build first refreshes this compiler, then runs the requested build. A build
+# of this tree is one writer and takes its lock; a build or clean of another
+# project waits for this tree's writer rather than reading a compiler that is
+# half rewritten. The test suite is thousands of those commands, run through
+# this launcher beside the repository's own build.
 in_this_tree() {
     [ "$(pwd -P 2>/dev/null)" = "$(cd "$ROOT" 2>/dev/null && pwd -P)" ]
 }
@@ -511,7 +509,9 @@ case "${1:-}" in
     # worker came to be queued behind the build lock its own parent was holding,
     # and to be reported as a worker that timed out.
     __comptime-worker|__comptime-worker-service|__generator-worker|__parallel-check-service|__lsp-reader) rebuild=no ;;
-    build)  rebuild=no
+    build)  rebuild=yes
+            # Build the current compiler before it handles the requested target
+            # or source files. The seed owns only the compiler bootstrap.
             if in_this_tree; then hold_build_lock=yes; else wait_for_build=yes; fi ;;
     clean)  rebuild=no
             if ! in_this_tree; then wait_for_build=yes; fi ;;

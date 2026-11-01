@@ -588,6 +588,9 @@ return {
                 description = "Build the self-hosted compiler",
                 optimize = 2,
                 entries = {"nupp.tools.main"},
+                -- Compiler services and tool commands include computed imports.
+                -- Their runtime dependencies join this source set normally.
+                sources = {"src/nupp/compiler/**.nupp", "src/nupp/tools/**.nupp"},
 
                 nativeFeatures = {gpu = true, workers = false},
                 resources = RESOURCES,
