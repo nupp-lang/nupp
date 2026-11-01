@@ -101,7 +101,7 @@ function shim.build(source: any, selected: {[string]: any}, stress: boolean, sce
     local trueValue = assert(values.exportedConstants.TRUE)
 
     local function size(name: string): integer
-        return assert(sizes[name], "missing checked layout size")
+        return (assert(sizes[name], "missing checked layout size"))
     end
 
     local count: integer = 0

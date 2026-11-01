@@ -177,7 +177,7 @@ function link.assembleTrusted(
         for at, kind in ipairs(code.fixupKind) do
             if kind == selector.IMPORT_LOAD then
                 local name = code.fixupName[at]
-                slots[name] = tonumber(assert(name:match("^core_os_(%d+)$"), "core link import name"))
+                slots[name] = tonumber((assert(name:match("^core_os_(%d+)$"), "core link import name")))
             end
         end
         imports[code] = slots
