@@ -1208,8 +1208,9 @@ mod tests {
     fn a_child_that_exits_on_its_own_after_a_kill_request_was_not_killed() {
         let _guard = child_test_guard();
         // The child answers the polite kill by exiting with status zero, the
-        // same outcome as a child whose own exit races the kill.
-        let spawned = shell("trap 'exit 0' TERM; echo ready; while :; do sleep 1 & wait $!; done");
+        // same outcome as a child whose own exit races the kill. Block on its
+        // open stdin instead of making signal handling race shell job control.
+        let spawned = shell("trap 'exit 0' TERM; echo ready; read line");
         let output = spawned.streams[1].as_ref().unwrap();
         let deadline = Instant::now() + Duration::from_secs(2);
         let mut bytes = Vec::new();
