@@ -81,6 +81,10 @@ function generate.program(seed, size)
             return "(t[" .. "(" .. a .. ") % 16" .. "] or " .. b .. ")"
         end
 
+        if pick(4) == 1 then
+            return "(- " .. a .. ")"
+        end
+
         return "(" .. a .. " * 3 + 1)"
     end
 
@@ -179,9 +183,12 @@ function generate.program(seed, size)
             local forms = {
                 expression(1),
                 "(" .. expression(1) .. " // " .. d .. ")",
-                "math.floor((" .. expression(1) .. " % 100000) / " .. d .. ")"
+                "math.floor((" .. expression(1) .. " % 100000) / " .. d .. ")",
+                -- Float text: Lua 5.5's 15- or 17-digit form.
+                "(" .. expression(1) .. " / " .. d .. ")",
+                "(-(" .. expression(1) .. ") / 7)"
             }
-            emit("s = s .. tostring(" .. forms[pick(3)] .. ") .. \",\"")
+            emit("s = s .. tostring(" .. forms[pick(5)] .. ") .. \",\"")
         elseif roll == 14 and depth == 0 then
             arrays = arrays + 1
             local name = "u" .. arrays

@@ -45,5 +45,17 @@ local record Os
     --- it is unset.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     environment: function(name: voidptr, nameBytes: uint64, out: voidptr, room: uint64): int64
+
+    --- Writes the binary64 `bits` as Lua 5.5 writes a float, C's "%.15g" or,
+    --- when that reads back as another number, "%.17g", into `out`, at most
+    --- `room` bytes: the text's whole length.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    formatNumber: function(bits: uint64, out: voidptr, room: uint64): int64
+
+    --- Reads the `bytes` at `text` as C's strtod does, the whole text but for
+    --- surrounding space: 1 with the binary64 bits stored at `out`, or 0 when it
+    --- is not one numeral.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    parseNumber: function(text: voidptr, bytes: uint64, out: voidptr): int64
 end
 return Os

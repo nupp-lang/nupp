@@ -81,7 +81,8 @@ local CASES = {
     {"stringsBasic", 0x7FFF0000000004B1},
     {"integersWide", 0x7FFF00064B7743CB},
     {"numbersText", 0x7FFF000004A6983A},
-    {"environmentRead", 0x7FFF000011E63D2B}
+    {"environmentRead", 0x7FFF000011E63D2B},
+    {"numbersFloat", 0x7FFF0001D94A7C23}
 }
 -- Heap-using cases that also run with a whole collection at every
 -- allocation. records and strings allocate per iteration, which makes their
@@ -115,7 +116,8 @@ local NUMERIC = {
     stringsBasic = "catalog-strings-basic",
     integersWide = "catalog-integers-wide",
     numbersText = "catalog-numbers-text",
-    environmentRead = "catalog-environment"
+    environmentRead = "catalog-environment",
+    numbersFloat = "catalog-numbers-float"
 }
 local FIXTURES = {
     "catalog-boolean",

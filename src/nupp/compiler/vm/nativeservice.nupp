@@ -44,7 +44,14 @@ local allowed = {
 -- Test units (buildUnits) add their own fixture modules for one build.
 local unitModules: {[string]: boolean} = {}
 local rawOwners = {["nupp.runtime.core.pagemappings"] = true, ["nupp.runtime.core.servicescope"] = true}
-local osNames = {mapPages = true, unmapPages = true, pageSize = true, environment = true}
+local osNames = {
+    mapPages = true,
+    unmapPages = true,
+    pageSize = true,
+    environment = true,
+    formatNumber = true,
+    parseNumber = true
+}
 
 local function need(ok: any, message: string): any
     assert(ok, "native service: " .. message)
