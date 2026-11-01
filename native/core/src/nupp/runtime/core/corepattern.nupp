@@ -1,0 +1,489 @@
+module nupp.runtime.core.corepattern
+
+-- Lua 5.5 pattern matching (lstrlib's match), over byte addresses. Lua's
+-- matcher recurses; native leaves have static call-chain extents, so this one
+-- keeps lstrlib's order of attempts with an explicit backtracking stack:
+-- choice points for ?, *, + and -, and undo records that restore capture
+-- state as backtracking passes them. Subjects and patterns are the bytes of
+-- NUL-terminated strings, as lstrlib relies on for %f at the end.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const backing = require("nupp.runtime.vm.backing")
+
+export const MAX_CAPTURES: uint64 = 32ULL
+export const UNFINISHED: uint64 = 0xffffffffffffffffULL
+export const POSITION: uint64 = 0xfffffffffffffffeULL
+
+-- The stack holds four-word frames: kind, then three operands.
+const UNDO_START: uint64 = 1ULL
+const UNDO_END: uint64 = 2ULL
+const CHOICE_MAX: uint64 = 3ULL
+const CHOICE_MIN: uint64 = 4ULL
+const CHOICE_OPT: uint64 = 5ULL
+const MAX_FRAMES: uint64 = 200000ULL
+
+export struct MatchState
+    srcInit: uint64
+    srcEnd: uint64
+    pEnd: uint64
+    level: uint64
+    -- Two words per capture: start address and length (or UNFINISHED, POSITION).
+    captures: uint64
+    stack: uint64
+    frames: uint64
+    capacity: uint64
+end
+
+local function byte(address: uint64): uint64
+    return native.word(native.load8(native.pointer(address), 0))
+end
+
+local function captureInit(ms: MatchState*, l: uint64): uint64
+    @unsafe do
+        return native.load64(native.pointer(ms.captures), native.index(l * 16ULL))
+    end
+end
+
+local function captureLength(ms: MatchState*, l: uint64): uint64
+    @unsafe do
+        return native.load64(native.pointer(ms.captures), native.index(l * 16ULL + 8ULL))
+    end
+end
+
+local function setCapture(ms: MatchState*, l: uint64, init: uint64, length: uint64): nil
+    @unsafe do
+        native.store64(native.pointer(ms.captures), native.index(l * 16ULL), init)
+        native.store64(native.pointer(ms.captures), native.index(l * 16ULL + 8ULL), length)
+    end
+end
+
+-- Prepares a state for `subject` of `count` bytes and a pattern ending at
+-- pEnd. Answers 0, or 1 when backing is refused.
+export function prepare(h: heap.Heap*, ms: MatchState*, subject: uint64, count: uint64, pEnd: uint64): uint64
+    @unsafe do
+        ms.srcInit = subject
+        ms.srcEnd = subject + count
+        ms.pEnd = pEnd
+        ms.level = 0ULL
+        ms.frames = 0ULL
+        ms.capacity = 64ULL
+        ms.captures = backing.wordBackingTake(h, MAX_CAPTURES * 2ULL)
+        ms.stack = backing.wordBackingTake(h, ms.capacity * 4ULL)
+        if ms.captures == 0ULL or ms.stack == 0ULL then
+            return 1ULL
+        end
+        return 0ULL
+    end
+end
+
+export function release(ms: MatchState*): nil
+    @unsafe do
+        if ms.captures ~= 0ULL then
+            backing.wordBackingRelease(ms.captures)
+        end
+        if ms.stack ~= 0ULL then
+            backing.wordBackingRelease(ms.stack)
+        end
+        ms.captures = 0ULL
+        ms.stack = 0ULL
+    end
+end
+
+local function push(h: heap.Heap*, ms: MatchState*, kind: uint64, a: uint64, b: uint64, c: uint64): nil
+    @unsafe do
+        if ms.frames == ms.capacity then
+            if ms.capacity >= MAX_FRAMES then
+                error("pattern too complex")
+            end
+            local fresh = backing.wordBackingTake(h, ms.capacity * 8ULL)
+            if fresh == 0ULL then
+                error("not enough memory")
+            end
+            local i: uint64 = 0ULL
+            while i < ms.frames * 4ULL do
+                native.store64(
+                    native.pointer(fresh),
+                    native.index(i * 8ULL),
+                    native.load64(native.pointer(ms.stack), native.index(i * 8ULL))
+                )
+                i = i + 1ULL
+            end
+            backing.wordBackingRelease(ms.stack)
+            ms.stack = fresh
+            ms.capacity = ms.capacity * 2ULL
+        end
+        local at = ms.frames * 32ULL
+        native.store64(native.pointer(ms.stack), native.index(at), kind)
+        native.store64(native.pointer(ms.stack), native.index(at + 8ULL), a)
+        native.store64(native.pointer(ms.stack), native.index(at + 16ULL), b)
+        native.store64(native.pointer(ms.stack), native.index(at + 24ULL), c)
+        ms.frames = ms.frames + 1ULL
+    end
+end
+
+local function frameWord(ms: MatchState*, frame: uint64, word: uint64): uint64
+    @unsafe do
+        return native.load64(native.pointer(ms.stack), native.index(frame * 32ULL + word * 8ULL))
+    end
+end
+
+local function isDigit(c: uint64): boolean
+    return c >= 48ULL and c <= 57ULL
+end
+
+local function isLower(c: uint64): boolean
+    return c >= 97ULL and c <= 122ULL
+end
+
+local function isUpper(c: uint64): boolean
+    return c >= 65ULL and c <= 90ULL
+end
+
+local function isAlpha(c: uint64): boolean
+    return isLower(c) or isUpper(c)
+end
+
+local function isSpace(c: uint64): boolean
+    return c == 32ULL or c >= 9ULL and c <= 13ULL
+end
+
+local function isControl(c: uint64): boolean
+    return c < 32ULL or c == 127ULL
+end
+
+local function isGraph(c: uint64): boolean
+    return c > 32ULL and c < 127ULL
+end
+
+local function isHex(c: uint64): boolean
+    return isDigit(c) or c >= 97ULL and c <= 102ULL or c >= 65ULL and c <= 70ULL
+end
+
+local function matchClass(c: uint64, cl: uint64): boolean
+    local lower = cl
+    if isUpper(cl) then
+        lower = cl + 32ULL
+    end
+    local result = false
+    if lower == 97ULL then
+        result = isAlpha(c)
+    elseif lower == 99ULL then
+        result = isControl(c)
+    elseif lower == 100ULL then
+        result = isDigit(c)
+    elseif lower == 103ULL then
+        result = isGraph(c)
+    elseif lower == 108ULL then
+        result = isLower(c)
+    elseif lower == 112ULL then
+        result = isGraph(c) and not isAlpha(c) and not isDigit(c)
+    elseif lower == 115ULL then
+        result = isSpace(c)
+    elseif lower == 117ULL then
+        result = isUpper(c)
+    elseif lower == 119ULL then
+        result = isAlpha(c) or isDigit(c)
+    elseif lower == 120ULL then
+        result = isHex(c)
+    else
+        return cl == c
+    end
+    if isUpper(cl) then
+        return not result
+    end
+
+    return result
+end
+
+-- Bracket class [p .. ec], ec at its closing ']'.
+local function matchBracket(c: uint64, start: uint64, ec: uint64): boolean
+    local p = start
+    local sig = true
+    if byte(p + 1ULL) == 94ULL then
+        sig = false
+        p = p + 1ULL
+    end
+    while true do
+        p = p + 1ULL
+        if p >= ec then
+            break
+        end
+        if byte(p) == 37ULL then
+            p = p + 1ULL
+            if matchClass(c, byte(p)) then
+                return sig
+            end
+        elseif byte(p + 1ULL) == 45ULL and p + 2ULL < ec then
+            p = p + 2ULL
+            if byte(p - 2ULL) <= c and c <= byte(p) then
+                return sig
+            end
+        elseif byte(p) == c then
+            return sig
+        end
+    end
+
+    return not sig
+end
+
+local function classEnd(ms: MatchState*, start: uint64): uint64
+    @unsafe do
+        local p = start
+        local c = byte(p)
+        p = p + 1ULL
+        if c == 37ULL then
+            if p == ms.pEnd then
+                error("malformed pattern (ends with '%')")
+            end
+            return p + 1ULL
+        elseif c == 91ULL then
+            if byte(p) == 94ULL then
+                p = p + 1ULL
+            end
+            while true do
+                if p == ms.pEnd then
+                    error("malformed pattern (missing ']')")
+                end
+                local d = byte(p)
+                p = p + 1ULL
+                if d == 37ULL and p < ms.pEnd then
+                    p = p + 1ULL
+                end
+                if byte(p) == 93ULL then
+                    break
+                end
+            end
+            return p + 1ULL
+        end
+
+        return p
+    end
+end
+
+local function singleMatch(ms: MatchState*, s: uint64, p: uint64, ep: uint64): boolean
+    @unsafe do
+        if s >= ms.srcEnd then
+            return false
+        end
+        local c = byte(s)
+        local pc = byte(p)
+        if pc == 46ULL then
+            return true
+        elseif pc == 37ULL then
+            return matchClass(c, byte(p + 1ULL))
+        elseif pc == 91ULL then
+            return matchBracket(c, p, ep - 1ULL)
+        end
+
+        return pc == c
+    end
+end
+
+local function captureToClose(ms: MatchState*): uint64
+    @unsafe do
+        local level = ms.level
+        while level > 0ULL do
+            level = level - 1ULL
+            if captureLength(ms, level) == UNFINISHED then
+                return level
+            end
+        end
+        error("invalid pattern capture")
+        return 0ULL
+    end
+end
+
+-- The end of a match of the pattern from `p` at subject address `start`,
+-- or 0. Captures hold the match's captures when it succeeds.
+export function match(h: heap.Heap*, ms: MatchState*, start: uint64, pattern: uint64): uint64
+    @unsafe do
+        ms.level = 0ULL
+        ms.frames = 0ULL
+        local s = start
+        local p = pattern
+        while true do
+            local failed = false
+            if p == ms.pEnd then
+                return s
+            end
+            local pc = byte(p)
+            if pc == 40ULL then
+                if ms.level >= MAX_CAPTURES then
+                    error("too many captures")
+                end
+                if byte(p + 1ULL) == 41ULL then
+                    setCapture(ms, ms.level, s, POSITION)
+                    p = p + 2ULL
+                else
+                    setCapture(ms, ms.level, s, UNFINISHED)
+                    p = p + 1ULL
+                end
+                ms.level = ms.level + 1ULL
+                push(h, ms, UNDO_START, 0ULL, 0ULL, 0ULL)
+            elseif pc == 41ULL then
+                local l = captureToClose(ms)
+                setCapture(ms, l, captureInit(ms, l), s - captureInit(ms, l))
+                push(h, ms, UNDO_END, l, 0ULL, 0ULL)
+                p = p + 1ULL
+            elseif pc == 36ULL and p + 1ULL == ms.pEnd then
+                if s == ms.srcEnd then
+                    p = p + 1ULL
+                else
+                    failed = true
+                end
+            elseif pc == 37ULL and byte(p + 1ULL) == 98ULL then
+                if p + 2ULL >= ms.pEnd - 1ULL then
+                    error("malformed pattern (missing arguments to '%b')")
+                end
+                if s >= ms.srcEnd or byte(s) ~= byte(p + 2ULL) then
+                    failed = true
+                else
+                    local b = byte(p + 2ULL)
+                    local e = byte(p + 3ULL)
+                    local depth: uint64 = 1ULL
+                    local scan = s
+                    local found: uint64 = 0ULL
+                    while true do
+                        scan = scan + 1ULL
+                        if scan >= ms.srcEnd then
+                            break
+                        end
+                        if byte(scan) == e then
+                            depth = depth - 1ULL
+                            if depth == 0ULL then
+                                found = scan + 1ULL
+                                break
+                            end
+                        elseif byte(scan) == b then
+                            depth = depth + 1ULL
+                        end
+                    end
+                    if found == 0ULL then
+                        failed = true
+                    else
+                        s = found
+                        p = p + 4ULL
+                    end
+                end
+            elseif pc == 37ULL and byte(p + 1ULL) == 102ULL then
+                p = p + 2ULL
+                if byte(p) ~= 91ULL then
+                    error("missing '[' after '%f' in pattern")
+                end
+                local ep = classEnd(ms, p)
+                local previous: uint64 = 0ULL
+                if s ~= ms.srcInit then
+                    previous = byte(s - 1ULL)
+                end
+                if not matchBracket(previous, p, ep - 1ULL) and matchBracket(byte(s), p, ep - 1ULL) then
+                    p = ep
+                else
+                    failed = true
+                end
+            elseif pc == 37ULL and isDigit(byte(p + 1ULL)) then
+                local l = byte(p + 1ULL) - 49ULL
+                if byte(p + 1ULL) < 49ULL or l >= ms.level or captureLength(ms, l) == UNFINISHED then
+                    error("invalid capture index")
+                end
+                local length = captureLength(ms, l)
+                local init = captureInit(ms, l)
+                local same = ms.srcEnd - s >= length
+                local i: uint64 = 0ULL
+                while same and i < length do
+                    same = byte(init + i) == byte(s + i)
+                    i = i + 1ULL
+                end
+                if same then
+                    s = s + length
+                    p = p + 2ULL
+                else
+                    failed = true
+                end
+            else
+                local ep = classEnd(ms, p)
+                local q = byte(ep)
+                if not singleMatch(ms, s, p, ep) then
+                    if q == 42ULL or q == 63ULL or q == 45ULL then
+                        p = ep + 1ULL
+                    else
+                        failed = true
+                    end
+                elseif q == 63ULL then
+                    push(h, ms, CHOICE_OPT, s, ep, 0ULL)
+                    s = s + 1ULL
+                    p = ep + 1ULL
+                elseif q == 43ULL or q == 42ULL then
+                    local base = s
+                    if q == 43ULL then
+                        base = s + 1ULL
+                    end
+                    local i: uint64 = 0ULL
+                    while singleMatch(ms, base + i, p, ep) do
+                        i = i + 1ULL
+                    end
+                    push(h, ms, CHOICE_MAX, base, i, p)
+                    s = base + i
+                    p = ep + 1ULL
+                elseif q == 45ULL then
+                    push(h, ms, CHOICE_MIN, s, p, ep)
+                    p = ep + 1ULL
+                else
+                    s = s + 1ULL
+                    p = ep
+                end
+            end
+            -- Backtrack to the latest choice point, undoing captures on the way.
+            while failed do
+                if ms.frames == 0ULL then
+                    return 0ULL
+                end
+                ms.frames = ms.frames - 1ULL
+                local frame = ms.frames
+                local kind = frameWord(ms, frame, 0ULL)
+                local a = frameWord(ms, frame, 1ULL)
+                local b = frameWord(ms, frame, 2ULL)
+                local c = frameWord(ms, frame, 3ULL)
+                if kind == UNDO_START then
+                    ms.level = ms.level - 1ULL
+                elseif kind == UNDO_END then
+                    setCapture(ms, a, captureInit(ms, a), UNFINISHED)
+                elseif kind == CHOICE_OPT then
+                    s = a
+                    p = b + 1ULL
+                    failed = false
+                elseif kind == CHOICE_MAX then
+                    if b > 0ULL then
+                        push(h, ms, CHOICE_MAX, a, b - 1ULL, c)
+                        s = a + b - 1ULL
+                        p = classEnd(ms, c) + 1ULL
+                        failed = false
+                    end
+                elseif kind == CHOICE_MIN then
+                    if singleMatch(ms, a, b, c) then
+                        push(h, ms, CHOICE_MIN, a + 1ULL, b, c)
+                        s = a + 1ULL
+                        p = c + 1ULL
+                        failed = false
+                    end
+                end
+            end
+        end
+        return 0ULL
+    end
+end
+
+-- Capture i of a successful match: its start address, and its length or
+-- POSITION.
+export function captureStart(ms: MatchState*, i: uint64): uint64
+    return captureInit(ms, i)
+end
+
+export function captureSize(ms: MatchState*, i: uint64): uint64
+    return captureLength(ms, i)
+end
+
+export function level(ms: MatchState*): uint64
+    @unsafe do
+        return ms.level
+    end
+end

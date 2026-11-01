@@ -1,0 +1,190 @@
+module nupp.runtime.core.corestrings
+
+-- Lua strings on the guest heap: KIND_STR objects whose bytes follow a
+-- StringBody inline, NUL-terminated. Every string is interned, so equal
+-- strings are one object: they compare, and key tables, by identity.
+--
+-- Callers keep the sources of a new string reachable: building one may run
+-- collector steps.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const collector = require("nupp.runtime.vm.collector")
+const values = require("nupp.runtime.vm.values")
+const weakindex = require("nupp.runtime.vm.weakindex")
+const backing = require("nupp.runtime.vm.backing")
+
+-- A growable byte buffer in word backing, outside the collected heap.
+export struct Builder
+    base: uint64
+    length: uint64
+    capacity: uint64
+end
+
+local function prefix(): uint64
+    return native.sizeOf<heap.Header>() + native.sizeOf<heap.StringBody>()
+end
+
+local function copy(target: uint64, source: uint64, count: uint64): nil
+    local i: uint64 = 0ULL
+    while i < count do
+        native.store8(
+            native.pointer(target),
+            native.index(i),
+            native.word(native.load8(native.pointer(source), native.index(i)))
+        )
+        i = i + 1ULL
+    end
+end
+
+-- The interned string of `count` bytes at `bytes`; answers its header address.
+export function make(h: heap.Heap*, bytes: uint64, count: uint64): uint64
+    @unsafe do
+        local found = weakindex.weakStringLookup(h, native.pointer(bytes), count, h.phase, h.stats.cycles)
+        if found ~= 0ULL then
+            return found
+        end
+        local o = collector.allocate(h, heap.KIND_STR, native.sizeOf<heap.StringBody>() + count + 1ULL)
+        local base = native.address(o as voidptr) + prefix()
+        copy(base, bytes, count)
+        native.store8(native.pointer(base), native.index(count), 0ULL)
+        o.auxPtr = base
+        o.auxLen = count
+        if weakindex.weakInsert(h, o) ~= 0ULL then
+            error("core strings: the intern table refused a string")
+        end
+
+        return native.address(o as voidptr)
+    end
+end
+
+-- The header of a string value, or zero.
+export function header(value: uint64): uint64
+    if value & values.TAG_MASK ~= values.TAG_OBJ then
+        return 0ULL
+    end
+    local address = value & values.PAYLOAD
+    if native.word(native.load8(native.pointer(address), native.fieldOffset<heap.Header>("kind"))) ~= heap.KIND_STR then
+        return 0ULL
+    end
+
+    return address
+end
+
+export function length(s: uint64): uint64
+    return native.load64(native.pointer(s), native.fieldOffset<heap.Header>("auxLen"))
+end
+
+export function bytes(s: uint64): uint64
+    return native.load64(native.pointer(s), native.fieldOffset<heap.Header>("auxPtr"))
+end
+
+-- Room for `more` bytes; answers 0, or 1 when backing is refused.
+export function reserve(h: heap.Heap*, b: Builder*, more: uint64): uint64
+    @unsafe do
+        if b.length + more <= b.capacity then
+            return 0ULL
+        end
+        local wanted = b.capacity * 2ULL
+        if wanted < b.length + more then
+            wanted = b.length + more
+        end
+        if wanted < 64ULL then
+            wanted = 64ULL
+        end
+        local fresh = backing.wordBackingTake(h, (wanted + 7ULL) // 8ULL)
+        if fresh == 0ULL then
+            return 1ULL
+        end
+        copy(fresh, b.base, b.length)
+        if b.base ~= 0ULL then
+            backing.wordBackingRelease(b.base)
+        end
+        b.base = fresh
+        b.capacity = ((wanted + 7ULL) // 8ULL) * 8ULL
+        return 0ULL
+    end
+end
+
+export function append(h: heap.Heap*, b: Builder*, source: uint64, count: uint64): uint64
+    @unsafe do
+        if reserve(h, b, count) ~= 0ULL then
+            return 1ULL
+        end
+        copy(b.base + b.length, source, count)
+        b.length = b.length + count
+        return 0ULL
+    end
+end
+
+-- Appends a string object's bytes.
+export function appendString(h: heap.Heap*, b: Builder*, s: uint64): uint64
+    return append(h, b, bytes(s), length(s))
+end
+
+-- Appends a signed integer in decimal, as Lua's %d writes it.
+export function appendInteger(h: heap.Heap*, b: Builder*, value: int64): uint64
+    @unsafe do
+        if reserve(h, b, 24ULL) ~= 0ULL then
+            return 1ULL
+        end
+        local magnitude = native.word(value)
+        if value < 0 then
+            native.store8(native.pointer(b.base), native.index(b.length), 45ULL)
+            b.length = b.length + 1ULL
+            magnitude = 0ULL - magnitude
+        end
+        local digits: uint64 = 0ULL
+        local scan = magnitude
+        while true do
+            digits = digits + 1ULL
+            scan = scan // 10ULL
+            if scan == 0ULL then
+                break
+            end
+        end
+        local at = b.length + digits
+        while true do
+            at = at - 1ULL
+            native.store8(native.pointer(b.base), native.index(at), 48ULL + magnitude % 10ULL)
+            magnitude = magnitude // 10ULL
+            if magnitude == 0ULL then
+                break
+            end
+        end
+        b.length = b.length + digits
+        return 0ULL
+    end
+end
+
+export function release(b: Builder*): nil
+    @unsafe do
+        if b.base ~= 0ULL then
+            backing.wordBackingRelease(b.base)
+        end
+        b.base = 0ULL
+        b.length = 0ULL
+        b.capacity = 0ULL
+    end
+end
+
+-- The builder's bytes as an interned string; the builder is released.
+export function finish(h: heap.Heap*, b: Builder*): uint64
+    @unsafe do
+        local s = make(h, b.base, b.length)
+        release(b)
+        return s
+    end
+end
+
+-- a .. b as an interned string.
+export function concat(h: heap.Heap*, a: uint64, b: uint64): uint64
+    @unsafe do
+        local state = new Builder(0ULL, 0ULL, 0ULL)
+        local builder = state as Builder*
+        if appendString(h, builder, a) ~= 0ULL or appendString(h, builder, b) ~= 0ULL then
+            release(builder)
+            return 0ULL
+        end
+        return finish(h, builder)
+    end
+end

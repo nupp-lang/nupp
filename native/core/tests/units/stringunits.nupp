@@ -1,0 +1,114 @@
+module stringunits
+
+-- Core strings (nupp.runtime.core.corestrings) and Lua patterns
+-- (nupp.runtime.core.corepattern) on the owned backend. Strings come in as
+-- packed little-endian input words.
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const strings = require("nupp.runtime.core.corestrings")
+const patterns = require("nupp.runtime.core.corepattern")
+
+-- `count` bytes from up to three packed words, interned.
+local function unpack3(h: heap.Heap*, a: arena.Arena*, w1: uint64, w2: uint64, w3: uint64, count: uint64): uint64
+    @unsafe do
+        local raw = arena.alloc(a, 32ULL, 8ULL)
+        if raw == nil then
+            error("string units: no room")
+        end
+        local base = native.address(raw)
+        native.store64(native.pointer(base), 0, w1)
+        native.store64(native.pointer(base), 8, w2)
+        native.store64(native.pointer(base), 16, w3)
+        native.store64(native.pointer(base), 24, 0ULL)
+
+        return strings.make(h, base, count)
+    end
+end
+
+-- Interning, concatenation and decimal integers. Answers a bit per check:
+-- 1 the same bytes intern to one string, 2 "ab" .. "c" is "abc", 4 the
+-- decimal text of -1234567 and 0 builds "-12345670", 8 lengths agree.
+export function basics(abc: uint64, ab: uint64, c: uint64): uint64
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local answer: uint64 = 0ULL
+    with a = arena.open(16777216ULL) do
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            local first = unpack3(h, a, abc, 0ULL, 0ULL, 3ULL)
+            local second = unpack3(h, a, abc, 0ULL, 0ULL, 3ULL)
+            if first == second then
+                answer = answer | 1ULL
+            end
+            local joined = strings.concat(h, unpack3(h, a, ab, 0ULL, 0ULL, 2ULL), unpack3(h, a, c, 0ULL, 0ULL, 1ULL))
+            if joined == first then
+                answer = answer | 2ULL
+            end
+            local builder = state as strings.Builder*
+            strings.appendInteger(h, builder, -1234567)
+            strings.appendInteger(h, builder, 0)
+            local digits = strings.finish(h, builder)
+            local expected = unpack3(h, a, 0x373635343332312DULL, 0x30ULL, 0ULL, 9ULL)
+            if digits == expected then
+                answer = answer | 4ULL
+            end
+            if strings.length(first) == 3ULL and strings.length(digits) == 9ULL then
+                answer = answer | 8ULL
+            end
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- gmatch over a subject of up to 24 bytes with a pattern of up to 16: the
+-- same scan as lstrlib's gmatch_aux. Answers matches times a million, plus
+-- the matched bytes times a hundred, plus the captures seen.
+export function gmatch(s1: uint64, s2: uint64, s3: uint64, p1: uint64, p2: uint64, lengths: uint64): uint64
+    local state = new patterns.MatchState(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local answer: uint64 = 0ULL
+    with a = arena.open(16777216ULL) do
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            local subject = unpack3(h, a, s1, s2, s3, lengths & 255ULL)
+            local pattern = unpack3(h, a, p1, p2, 0ULL, lengths >> 8ULL)
+            local ms = state as patterns.MatchState*
+            local p = strings.bytes(pattern)
+            if patterns.prepare(
+                h,
+                ms,
+                strings.bytes(subject),
+                strings.length(subject),
+                p + strings.length(pattern)
+            ) ~= 0ULL then
+                error("string units: no backing")
+            end
+            local src = strings.bytes(subject)
+            local finish = src + strings.length(subject)
+            local last: uint64 = 0ULL
+            local count: uint64 = 0ULL
+            local matched: uint64 = 0ULL
+            local captured: uint64 = 0ULL
+            while src <= finish do
+                local e = patterns.match(h, ms, src, p)
+                if e ~= 0ULL and e ~= last then
+                    count = count + 1ULL
+                    matched = matched + (e - src)
+                    captured = captured + patterns.level(ms)
+                    src = e
+                    last = e
+                else
+                    src = src + 1ULL
+                end
+            end
+            patterns.release(ms)
+            answer = count * 1000000ULL + matched * 100ULL + captured
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end

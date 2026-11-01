@@ -330,6 +330,79 @@ UNITS[#UNITS + 1] = {
     end
 }
 
+-- Strings as little-endian words, for unit inputs.
+local function pack(text, words)
+    local result = {}
+    for index = 1, words do
+        local word = 0
+        for at = 1, 8 do
+            local byte = text:byte((index - 1) * 8 + at) or 0
+            word = word | (byte << ((at - 1) * 8))
+        end
+        result[index] = word
+    end
+
+    return result
+end
+
+-- What lstrlib's gmatch_aux yields, measured as the unit does: matches
+-- times a million, matched bytes times a hundred, plus captures seen.
+local function gmatchExpected(subject, pattern)
+    local src, last, count, matched, captured = 1, nil, 0, 0, 0
+    while src <= #subject + 1 do
+        local found = {subject:find("^" .. pattern, src)}
+        if found[1] and found[2] + 1 ~= last then
+            count = count + 1
+            matched = matched + (found[2] + 1 - src)
+            captured = captured + (#found - 2)
+            src, last = found[2] + 1, found[2] + 1
+        else
+            src = src + 1
+        end
+    end
+
+    return count * 1000000 + matched * 100 + captured
+end
+
+local GMATCH = {
+    {"item15:item25:item35:", "item%d+5:"},
+    {"hello world from lua", "%a+"},
+    {"aaa", "a-"},
+    {"key=val, k2=v2", "(%w+)=(%w+)"},
+    {"  x  ", "%s*"},
+    {"f(a(b)c)d", "%b()"},
+    {"THE (quick) fox", "%f[%a]%a+"},
+    {"abcabc", "()b"},
+    {"aXbXc", "[^X]+"},
+    {"a.b.c", "%."},
+    {"hello", "l?"},
+    {"ababab", "(ab)%1"},
+    {"x1y22z333", "%d+"},
+    {"mississippi", "s+i"}
+}
+
+UNITS[#UNITS + 1] = {
+    name = "stringunits",
+    modules = {"stringunits", "unitentry", "nupp.runtime.core.corestrings", "nupp.runtime.core.corepattern"},
+    paths = {
+        ["nupp.runtime.core.corestrings"] = ROOT .. "/native/core/src/nupp/runtime/core/corestrings.nupp",
+        ["nupp.runtime.core.corepattern"] = ROOT .. "/native/core/src/nupp/runtime/core/corepattern.nupp"
+    },
+    include = "native/core/src",
+    entries = {{"stringunits", "basics", 3}, {"stringunits", "gmatch", 6}},
+    cases = function()
+        local cases = {{"basics", {pack("abc", 1)[1], pack("ab", 1)[1], pack("c", 1)[1]}, 15}}
+        for _, case in ipairs(GMATCH) do
+            local s, p = pack(case[1], 3), pack(case[2], 2)
+            cases[
+                #cases + 1
+            ] = {"gmatch", {s[1], s[2], s[3], p[1], p[2], #case[1] | (#case[2] << 8)}, gmatchExpected(case[1], case[2])}
+        end
+
+        return cases
+    end
+}
+
 local only = {}
 for index = 2, #arg do
     only[arg[index]] = true
