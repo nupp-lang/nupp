@@ -708,8 +708,10 @@ local function finalizeBoundary(c: state.Checker)
             end
         end
         if #fields > 0 then
-            -- The table the compiler builds from the exports holds nothing else.
-            c.moduleType = T.shape(fields, nil, nil, true)
+            local members = T.shape(fields, nil, nil, true)
+            -- An array export keeps its numeric contract and obtains named members
+            -- through the one method table its explicit metatable names.
+            c.moduleType = cst.arrayExportLocal(c.result.root) and T.intersection({c.moduleType, members}) or members
         end
         return
     end
@@ -2764,7 +2766,9 @@ function checkMod.check(
             local exportedType = c.infer(wrapper.value)
             c.moduleType = exportedType
             c.moduleReturnValue = wrapper.value
-            if exportedLocal
+            if cst.arrayExportLocal(result.root) and exportedType.tag == "array" then
+                c.moduleTypeFromFields = true
+            elseif exportedLocal
                 and exportedType == T.table_
                 and not c.moduleLocalAnnotated
                 and exportedLocal == c.moduleLocal

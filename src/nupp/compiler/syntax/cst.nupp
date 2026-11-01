@@ -3160,13 +3160,75 @@ function cst.exportAssignment(root: cst.Chunk): cst.ExportStmt?
     return nil
 end
 
+--- Names the method table of an explicit array-backed module export.
+---
+--- Only an annotated array local and a local literal method table connected by
+--- `export = setmetatable(argv, {__index = M})` publish M's namespace. Computed
+--- metatables and extra metamethods keep the ordinary export boundary.
+function cst.arrayExportLocal(root: cst.Chunk): string?
+    local assignment = cst.exportAssignment(root)
+    local value = assignment and assignment.value or nil
+    if not value or value.kind ~= "call" then
+        return nil
+    end
+    local callee = value.obj
+    if not callee or callee.kind ~= "name" or not callee.token or callee.token.text ~= "setmetatable" then
+        return nil
+    end
+    local argsNode = value.args
+    local args = argsNode and argsNode.kind == "args" and argsNode.exprs or {}
+    if #args ~= 2 then
+        return nil
+    end
+    local array, mt = args[1], args[2]
+    if array.kind ~= "name" or not array.token or mt.kind ~= "tableExpr" or #mt.fields ~= 1 then
+        return nil
+    end
+    local field = mt.fields[1]
+    if field.kind ~= "fieldNamed" or not field.name or field.name.text ~= "__index" then
+        return nil
+    end
+    local methods = field.value
+    if not methods or methods.kind ~= "name" or not methods.token or methods.token.text == array.token.text then
+        return nil
+    end
+    local arrayType: cst.Node? = nil
+    local localMethods = false
+    for _, block in ipairs(root.blocks) do
+        if block.kind == "block" then
+            for _, wrapped in ipairs(block.stats) do
+                local stat: cst.Node? = wrapped
+                while stat and stat.kind == "pragmaStmt" do
+                    stat = stat.stat
+                end
+                if stat and stat.kind == "localStmt" then
+                    for index, name in ipairs(stat.names) do
+                        if name.text == "setmetatable" then
+                            return nil
+                        elseif name.text == array.token.text then
+                            arrayType = stat.types[index]
+                        elseif name.text == methods.token.text then
+                            local initializer = stat.exprs and stat.exprs[index] or nil
+                            localMethods = initializer ~= nil and initializer.kind == "tableExpr"
+                        end
+                    end
+                elseif stat and stat.kind == "localFuncStmt" and stat.name and stat.name.text == "setmetatable" then
+                    return nil
+                end
+            end
+        end
+    end
+
+    return arrayType and arrayType.kind == "tarray" and localMethods and methods.token.text or nil
+end
+
 --- The local named by a declared module's `export = value`, including the conventional
 --- `export = setmetatable(M, mt)` form. Like `returnedLocal`, this is intentionally
 --- syntax-only so headers can identify qualified public declarations before checking.
 function cst.exportedLocal(root: cst.Chunk): string?
     local assignment = cst.exportAssignment(root)
 
-    return namedModuleLocal(assignment and assignment.value or nil)
+    return cst.arrayExportLocal(root) or namedModuleLocal(assignment and assignment.value or nil)
 end
 
 --- The effective visibility of a declaration, given the local its file returns. A

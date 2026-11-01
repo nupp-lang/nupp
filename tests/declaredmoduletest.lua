@@ -1025,4 +1025,115 @@ export const result = true
     )
 end
 
+local ARRAY_PROVIDER = [[
+module arrayprovider
+
+local methods = {}
+interface methods.Named
+    name: function(self): string
+end
+function methods.derivedName(): string return "derived" end
+@comptime function methods.NamedRecord(_info: nupp.derive.Info): nupp.derive.Result<methods.Named>
+    return nupp.derive.implement{methods = {name = nupp.derive.forward{
+        helper = nupp.derive.helper(methods, "derivedName"), arguments = {},
+    }}}
+end
+local argv: {string} = {"one", "two"}
+export = setmetatable(argv, {__index = methods})
+]]
+
+function M.anArrayExportPublishesItsMethodTableProviders()
+    withProject(
+        {
+            ["src/arrayprovider.nupp"] = ARRAY_PROVIDER,
+            [
+                "src/arrayconsumer.nupp"
+            ] = [[
+module arrayconsumer
+local api = require("arrayprovider")
+const {type Named} = require("arrayprovider")
+@derive(api.NamedRecord)
+local record Value
+    text: string
+end
+local value: Named = new Value(text = "value")
+assert(value:name() == "derived")
+local word: string = api[1]
+local count: integer = #api
+assert(word == "one" and count == 2)
+export const result = true
+]],
+        },
+        function(dir)
+            local parsed = parser.parse(ARRAY_PROVIDER, dir .. "/src/arrayprovider.nupp")
+            testAssert.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
+            local found = header.of(dir .. "/src/arrayprovider.nupp", "arrayprovider", parsed)
+            testAssert.equal(found.moduleLocal, "methods")
+            testAssert.equal(found.declarations[1].name, "Named")
+            testAssert.equal(found.declarations[1].visibility, "module")
+            local env = projectEnv(dir)
+            local removeLoader = runtime.install(env, compile)
+            local ok, problem = pcall(function()
+                local api = require("arrayprovider")
+                testAssert.equal(require("arrayprovider"), api)
+                testAssert.equal(require("arrayconsumer").result, true)
+                testAssert.equal(rawget(api, "NamedRecord"), nil, "the derive provider stays erased")
+                testAssert.equal(rawget(api, "derivedName"), nil)
+                testAssert.equal(api.derivedName, getmetatable(api).__index.derivedName)
+                testAssert.equal(api.derivedName(), "derived")
+                testAssert.equal(#api, 2)
+                local raw = {}
+                for key, value in pairs(api) do
+                    raw[key] = value
+                end
+                testAssert.deepEqual(raw, {"one", "two"})
+                local json = require("testjson")
+                testAssert.equal(json.encode(api), json.encode({"one", "two"}))
+            end)
+            removeLoader()
+            package.loaded.arrayprovider, package.loaded.arrayconsumer = nil, nil
+            if not ok then
+                error(problem, 0)
+            end
+        end
+    )
+end
+
+function M.arbitraryMetatablesDoNotPublishAnotherLocalNamespace()
+    for _, change in ipairs({
+        {"local argv: {string}", "local argv"},
+        {"local argv: {string}", "local argv: table"},
+        {
+            "export = setmetatable(argv, {__index = methods})",
+            "local mt = {__index = methods}\nexport = setmetatable(argv, mt)"
+        },
+        {"{__index = methods})", "{__index = methods, __len = function(): integer return 2 end})"},
+        {
+            "local methods = {}",
+            "local setmetatable = function(value: {string}, _mt: table): {string} return value end\nlocal methods = {}"
+        },
+    }) do
+        local first, last = assert(ARRAY_PROVIDER:find(change[1], 1, true))
+        local source = ARRAY_PROVIDER:sub(1, first - 1) .. change[2] .. ARRAY_PROVIDER:sub(last + 1)
+        local parsed = parser.parse(source, "arrayprovider.nupp")
+        testAssert.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
+        local found = header.of("arrayprovider.nupp", "arrayprovider", parsed)
+        testAssert.equal(found.moduleLocal, "argv", change[2])
+        for _, declaration in ipairs(found.declarations) do
+            testAssert.equal(declaration.name == "Named", false, "the private method namespace stays private")
+        end
+        withProject({["src/arrayprovider.nupp"] = source}, function(dir)
+            local parsedConsumer = parser.parse(
+                [[local api = require("arrayprovider")
+@derive(api.NamedRecord)
+local record Value end
+]],
+                dir .. "/src/consumer.nupp"
+            )
+            local diags = check.check(parsedConsumer, dir .. "/src/consumer.nupp", projectEnv(dir))
+            assert(diagnosticContaining(diags, "not an exported comptime derive provider"), diags[1] and diags[1].msg)
+        end)
+    end
+end
+
 return M
