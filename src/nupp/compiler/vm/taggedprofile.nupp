@@ -74,6 +74,33 @@ function tagged.emit(ctx: any, node: any, op: string, args: any, kind: string?):
     return graph.emit(ctx.g, ctx.block, op, args, ctx.position(node))
 end
 
+-- The nominal record type behind a checked type, or nil.
+local function recordOrigin(t: any): any
+    while t and (t.tag == "const" or t.tag == "literal") do
+        t = t.tag == "const" and t.inner or t.base
+    end
+    local origin = t and (t.origin or t)
+    if origin and origin.tag == "nominal" and origin.declKind == "record" and origin.fieldOrder then
+        return origin
+    end
+
+    return nil
+end
+
+-- A record field's key: its position in the declaration order.
+local function recordSlot(origin: any, name: string?): integer?
+    if origin == nil or name == nil then
+        return nil
+    end
+    for index, field in ipairs(origin.fieldOrder) do
+        if field == name then
+            return index
+        end
+    end
+
+    return nil
+end
+
 local function pool(ctx: any, kind: string, value: any): integer
     local index = #ctx.g.constants
     ctx.g.constants[index + 1] = {kind = kind, value = value}
@@ -312,6 +339,15 @@ function tagged.erasedPattern(ctx: any, stat: any): nil
 end
 
 function tagged.erasedStatement(ctx: any, stat: any): nil
+    if stat.kind == "recordDecl" then
+        -- A record of fields declares a type only; its values are built where
+        -- they are constructed.
+        need(stat.declKind == "record" and not stat.generics, "only plain record declarations are admitted")
+        for _, entry in ipairs(stat.entries or {}) do
+            need(entry.kind == "fieldDecl", "record methods are unsupported")
+        end
+        return
+    end
     need(stat.kind == "moduleStmt" or stat.kind == "typeAlias", "unsupported erased statement")
 end
 
@@ -478,7 +514,64 @@ function tagged.forVersion(version: integer): any
 
             return ctx.emit(node, "GetIdx", operands, "tagged") as integer
         end
+        -- Records lower onto core tables for now: field i of the declaration
+        -- order is key i. Records are identity objects, so this is exact; a
+        -- dedicated record layout is a later optimization.
+        profile.construction = function(ctx: any, node: any, expected: string?): integer
+            need(expected == nil or expected == "tagged", "record requires tagged destination")
+            local origin = recordOrigin(node.inferredType)
+            local call = node.call
+            need(
+                origin and call and not call.constructorEntry and type(call.recordFields) == "table",
+                "only plain record construction is admitted"
+            )
+            local nodes, kinds, slots = {}, {}, {}
+            for index, binding in ipairs(call.recordFields) do
+                nodes[index] = need(binding.node or binding.defaultValue, "record initializer is missing")
+                kinds[index] = "tagged"
+                slots[index] = need(recordSlot(origin, binding.name), "record field is not declared")
+            end
+            local values = ctx.operands(nodes, kinds)
+            if values == nil then
+                return nil as any
+            end
+            local record = ctx.emit(node, "NewTable", {}, "tagged")
+            for index, value in ipairs(values) do
+                local key = ctx.emit(node, "K", {pool(ctx, "int64", tostring(slots[index]))}, "tagged")
+                ctx.emit(node, "SetIdx", {record, key, value}, nil)
+            end
+
+            return record as integer
+        end
+        profile.fieldRead = function(ctx: any, node: any, expected: string?): integer
+            local slot = recordSlot(recordOrigin(node.obj.inferredType), node.name and node.name.text)
+            if slot == nil then
+                return tagged.constant(ctx, node, expected)
+            end
+            local object = ctx.expression(node.obj, "tagged")
+            if object == nil then
+                return nil as any
+            end
+            local key = ctx.emit(node, "K", {pool(ctx, "int64", tostring(slot))}, "tagged")
+
+            return ctx.emit(node, "GetIdx", {object, key}, "tagged") as integer
+        end
         profile.assignmentTarget = function(ctx: any, node: any, rhs: any): any
+            if node.kind == "dotIndex" then
+                local slot = need(
+                    recordSlot(recordOrigin(node.obj.inferredType), node.name and node.name.text),
+                    "only record field assignment is admitted"
+                )
+                local object = ctx.expression(node.obj, "tagged")
+                if object == nil then
+                    return {receiver = 0, kind = "tagged"}
+                end
+                local held = ctx.hold(object)
+                local key = ctx.emit(node, "K", {pool(ctx, "int64", tostring(slot))}, "tagged")
+                object = ctx.readHeld(held)
+                ctx.release(held)
+                return {receiver = object, index = key, kind = "tagged"}
+            end
             need(node.kind == "bracketIndex", "only keyed assignment targets are admitted")
             local operands = ctx.operands({node.obj, node.expr}, {"tagged", "tagged"})
             if operands == nil then
@@ -542,6 +635,14 @@ function tagged.forVersion(version: integer): any
         profile.call = function(ctx: any, node: any, expected: string?): integer
             if node.runtimeLoader == "require" then
                 return tagged.call(ctx, node, expected)
+            end
+            if graph.coreLibraryCall(node) == "math.floor" then
+                need(#(node.args.exprs or {}) == 1, "math.floor takes one number")
+                local operand = ctx.expression(node.args.exprs[1], "tagged")
+                if operand == nil then
+                    return nil as any
+                end
+                return ctx.emit(node, "MathFloor", {operand}, "tagged") as integer
             end
             need(expected == nil or expected == "tagged", "call requires tagged destination")
 

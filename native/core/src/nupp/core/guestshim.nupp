@@ -536,6 +536,11 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
             dispatch[index] = byName[name]
         end
     end
+    for name, id in pairs(require("nupp.compiler.vm.corebytecode").coreOnly()) do
+        if byName[name] then
+            dispatch[id + 1] = byName[name]
+        end
+    end
     if raw then
         local bytes = #linked.words * 4
         assert(bytes < 4294967296 and bytes % 4 == 0)

@@ -1345,7 +1345,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
                 else
                     invoke("exportStatement", stat, nil)
                 end
-            elseif stat.kind == "moduleStmt" or stat.kind == "typeAlias" then
+            elseif stat.kind == "moduleStmt" or stat.kind == "typeAlias" or stat.kind == "recordDecl" then
                 invoke("erasedStatement", stat, nil)
             elseif stat.kind == "returnStmt" then
                 if cleanupEnabled then

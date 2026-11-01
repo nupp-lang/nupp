@@ -56,7 +56,8 @@ local CASES = {
     {"workloadFib", 0x7FFF0000000CB228},
     {"tablesBasic", 0x7FFF5B0A5989C37B},
     {"workloadClosures", 0x7FFF00000007A0B4},
-    {"workloadTables", 0x7FFF00001D148D33}
+    {"workloadTables", 0x7FFF00001D148D33},
+    {"workloadRecords", 0x7FFF0000000C3500}
 }
 -- These refuse at run time and must publish nothing: Lua 5.5 raises for the
 -- first; the second needs a canonical integer object.
@@ -72,7 +73,8 @@ local NUMERIC = {
     workloadFib = "catalog-workload-fib",
     tablesBasic = "catalog-tables-basic",
     workloadClosures = "catalog-workload-closures",
-    workloadTables = "catalog-workload-tables"
+    workloadTables = "catalog-workload-tables",
+    workloadRecords = "catalog-workload-records"
 }
 local FIXTURES = {
     "catalog-boolean",
@@ -104,7 +106,8 @@ local FIXTURES = {
     "catalog-calls-numeric",
     "catalog-tables-basic",
     "catalog-workload-closures",
-    "catalog-workload-tables"
+    "catalog-workload-tables",
+    "catalog-workload-records"
 }
 local AUDITS = {
     {"fresh", "success"},
@@ -456,7 +459,13 @@ local function main()
             local version = get64(data, 0)
             check(
                 version == (
-                    (name:match("^tables") or name == "workloadClosures" or name == "workloadTables") and 8
+                    (
+                        name:match("^tables")
+                        or name == "workloadClosures"
+                        or name == "workloadTables"
+                        or name == "workloadRecords"
+                    )
+                    and 8
                     or (name:match("^calls") or name == "workloadFib") and 7
                     or (name:match("^numeric") or name:match("^workload")) and 6
                     or name:match("^numberLoop") and 5

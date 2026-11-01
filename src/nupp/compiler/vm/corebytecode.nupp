@@ -23,6 +23,7 @@ local recipes: any = {
     SetCell = {{"v", "use", 1, 1}, {"v", "use", 2, 1}},
     GetUpval = {{"v", "def", 1, 1}, {"n", "use", 4, 4}},
     NewTable = {{"v", "def", 1, 1}},
+    MathFloor = {{"v", "def", 1, 1}, {"v", "use", 2, 1}},
     GetIdx = {{"v", "def", 1, 1}, {"v", "use", 2, 1}, {"v", "use", 3, 1}},
     SetIdx = {{"v", "use", 1, 1}, {"v", "use", 2, 1}, {"v", "use", 3, 1}},
     Len = {{"v", "def", 1, 1}, {"v", "use", 2, 1}},
@@ -49,6 +50,7 @@ local policies: any = {
     SetCell = {"next", ""},
     GetUpval = {"next", ""},
     NewTable = {"next", ""},
+    MathFloor = {"next", ""},
     GetIdx = {"next", ""},
     SetIdx = {"next", ""},
     Len = {"next", ""},
@@ -61,9 +63,19 @@ local ids = {}
 for index, name in ipairs(opcodes.names()) do
     ids[name] = index - 1
 end
+-- Core-only opcodes take ids above the frozen VM's table. Each is final-core
+-- behavior with no frozen VM counterpart.
+local coreOnly: any = {MathFloor = 250}
+for name, id in pairs(coreOnly) do
+    assert(id > #opcodes.names() and id < 256, "core-only opcode id")
+    ids[name] = id
+end
 
 local function recipe(name: string): any
     local result = assert(recipes[name], "unsupported final-core encoding")
+    if coreOnly[name] then
+        return result
+    end
     local canonical = assert(opcodes.describe(name))
     assert(#canonical.operands == #result and not canonical.frame, "canonical operand recipe differs")
     local policy = policies[name]
@@ -83,6 +95,16 @@ local function recipe(name: string): any
     return result
 end
 
+-- The core-only opcodes by name and id, for dispatch tables.
+function bytecode.coreOnly(): {[string]: integer}
+    local result = {}
+    for name, id in pairs(coreOnly) do
+        result[name] = id
+    end
+
+    return result
+end
+
 function bytecode.describe(name: string): any
     local fields = {}
     for index, field in ipairs(recipe(name)) do
@@ -95,7 +117,9 @@ end
 function bytecode.encode(instruction: any): string
     local name = instruction[1]
     local fields = recipe(name)
-    opcodes.check(instruction)
+    if not coreOnly[name] then
+        opcodes.check(instruction)
+    end
     local bytes = {}
     for index = 1, 16 do
         bytes[index] = 0

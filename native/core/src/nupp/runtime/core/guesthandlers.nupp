@@ -1023,6 +1023,56 @@ export function Len(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
 
+-- math.floor of a float's bits: an integer immediate when the floor is in the
+-- 48-bit range (as Lua answers an integer when it fits), else the float.
+local function floorBits(bits: uint64): uint64
+    local floored = native.floor(native.fromBits(bits))
+    local limit = native.fromBits(0x42e0000000000000ULL)
+    if floored >= -limit and floored < limit then
+        return values.TAG_INTEGER | (native.word(native.toInt(floored)) & values.PAYLOAD)
+    end
+
+    return native.bits(floored)
+end
+
+export function MathFloor(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local dst = program.readByte(pc, 1)
+    local src = program.readByte(pc, 2)
+    local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    if native.word(dst) >= count or native.word(src) >= count then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local value = slots.readValue(frame, regs, src)
+    local result = value
+    if value & 0xffff000000000000ULL ~= values.TAG_INTEGER then
+        if value & values.QNAN == values.QNAN and value ~= values.QNAN then
+            ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+            return native.fail()
+        end
+        result = floorBits(value)
+    end
+    slots.writeValue(frame, regs, dst, result)
+    local nextPC = ops.branch(ctx, frame, pc, 0)
+    if nextPC == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+
+    return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
+end
+
 export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
     if ops.charge(ctx, frame, pc) ~= 1ULL then
         return native.fail()

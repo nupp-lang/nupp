@@ -386,6 +386,10 @@ function verify.resultKind(g: any, signature: any, output: any): string
                     assign(dst, "number")
                     yield nil
                 end
+                case "MathFloor" -> do
+                    assign(dst, "number")
+                    yield nil
+                end
                 case "SetIdx" -> nil
                 else -> error("core graph contracts: unsupported operation", 0)
             end
@@ -445,7 +449,9 @@ function verify.resultKind(g: any, signature: any, output: any): string
         for at, op in ipairs(block.op) do
             local args = block.args[at]
             need(op == "SetCell" or op == "SetIdx" or kinds[block.dst[at]] ~= nil, "unresolved scalar operation")
-            if op == "NewCell"
+            if op == "MathFloor" then
+                need(fits(kinds[args[1]], "number"), "numeric operation needs numeric operands")
+            elseif op == "NewCell"
                 or op == "GetCell"
                 or op == "SetCell"
                 or op == "GetUpval"
