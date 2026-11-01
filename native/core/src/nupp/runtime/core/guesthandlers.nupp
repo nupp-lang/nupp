@@ -40,6 +40,9 @@ export function K(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ct
     if value & 0xffff000000000000ULL == catalog.STRING_CONSTANT then
         value = values.TAG_OBJ | guestscope.stringConstant(ctx, value)
     end
+    if value & 0xffff000000000000ULL == catalog.INTEGER_CONSTANT then
+        value = guestscope.integerConstant(ctx, value)
+    end
     if value == 0ULL then
         if ops.constantPresent(ctx, frame, pc, native.word(index)) == 0ULL then
             ops.fail(ctx, frame, pc, ops.INVALID)

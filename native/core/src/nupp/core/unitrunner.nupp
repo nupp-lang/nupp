@@ -14,7 +14,7 @@ local base = require("nupp.compiler.vm.nativegraph")
 local cleanup = require("nupp.compiler.vm.nativecleanup")
 local sink = require("nupp.compiler.s0.nativegraph")
 local linker = require("nupp.core.link")
-local digest = require("binary.hash.digest")
+local fingerprint = require("nupp.compiler.project.fingerprint")
 local json = require("serde.json")
 local runner = {}
 
@@ -35,8 +35,13 @@ local function writeFile(path: string, text: string): nil
     file:close()
 end
 
-local function sha(text: string): string
-    return digest.hexDigest("sha256", text)
+-- Cache keys use the build's content digest, which the CLI answers natively:
+-- SHA-256 in Nupp ran at about 75 KB/s here, and hashing the lowering's 2 MB
+-- of sources took most of every cached selection.
+local contentDigest = fingerprint.contentDigest(true)
+
+local function digestOf(text: string): string
+    return contentDigest(text)
 end
 
 -- Everything that shapes selected code besides a function's own modules: the
@@ -53,7 +58,7 @@ local function compilerDigest(root: string): string
         end
     end
 
-    return sha(table.concat(parts, "\0"))
+    return digestOf(table.concat(parts, "\0"))
 end
 
 -- A module's source and, transitively, the sources of the modules it requires
@@ -87,7 +92,7 @@ local function moduleDigests(paths: {[string]: string}): {[string]: string}
         for _, member in ipairs(order) do
             parts[#parts + 1] = member .. "\0" .. sources[member]
         end
-        result[name] = sha(table.concat(parts, "\0"))
+        result[name] = digestOf(table.concat(parts, "\0"))
     end
 
     return result
@@ -149,7 +154,7 @@ function runner.select(
     local compiler = compilerDigest(root)
     -- Handlers read the dispatch table through the context layout.
     if context then
-        compiler = sha(compiler .. "\0" .. (readFile(context.path) or ""))
+        compiler = digestOf(compiler .. "\0" .. (readFile(context.path) or ""))
     end
     local modules = moduleDigests(paths)
     local codes, keys = {}, {}
@@ -159,7 +164,7 @@ function runner.select(
     for name, owner in pairs(byName) do
         keys[
             name
-        ] = sha(
+        ] = digestOf(
             "allocation\0" .. mode .. "\0" .. owner.nativeABI .. "\0" .. compiler .. "\0" .. (
                 modules[owner.scope.name] or ""
             ) .. "\0" .. name

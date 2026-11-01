@@ -8,6 +8,7 @@
 -- numeric expectations are recomputed with it. Bundles and outputs go under
 -- build/core-guests.
 local producer = require("nupp.core.guestprogramproducer")
+local guestbuild = require("nupp.core.guestbuild")
 local json = require("serde.json")
 
 local function cwd()
@@ -66,7 +67,8 @@ local CASES = {
     {"workloadRecords", 0x7FFF0000000C3500},
     {"workloadStrings", 0x7FFF000000509842},
     {"stringsBasic", 0x7FFF0000000004B1},
-    {"integersWide", 0x7FFF00064B7743CB}
+    {"integersWide", 0x7FFF00064B7743CB},
+    {"numbersText", 0x7FFF000004A6983A}
 }
 -- Heap-using cases that also run with a whole collection at every
 -- allocation. records and strings allocate per iteration, which makes their
@@ -98,7 +100,8 @@ local NUMERIC = {
     workloadRecords = "catalog-workload-records",
     workloadStrings = "catalog-workload-strings",
     stringsBasic = "catalog-strings-basic",
-    integersWide = "catalog-integers-wide"
+    integersWide = "catalog-integers-wide",
+    numbersText = "catalog-numbers-text"
 }
 local FIXTURES = {
     "catalog-boolean",
@@ -497,28 +500,10 @@ local function main()
             check(highWater <= SCRATCH, label .. " high water")
             local bundleBytes, codeBytes, data = bundleOf(selected, SCRATCH)
             local version = get64(data, 0)
-            check(
-                version == (
-                    (
-                        name:match("^tables")
-                        or name == "workloadClosures"
-                        or name == "workloadTables"
-                        or name == "workloadRecords"
-                        or name == "workloadStrings"
-                        or name:match("^strings")
-                        or name:match("^integers")
-                    )
-                    and 8
-                    or (name:match("^calls") or name == "workloadFib") and 7
-                    or (name:match("^numeric") or name:match("^workload")) and 6
-                    or name:match("^numberLoop") and 5
-                    or name == "numberBranch" and 4
-                    or name:match("^number") and 3
-                    or (name == "modulePair" or name == "moduleTriple") and 2
-                    or 1
-                ),
-                label .. " descriptor version"
-            )
+            -- The profile version from v3; before it one module is descriptor v1.
+            local profile = guestbuild.version(name)
+            local modules = (name == "modulePair" or name == "moduleTriple") and 2 or 1
+            check(version == (profile >= 3 and profile or modules), label .. " descriptor version")
             local bundle = OUT .. "/" .. label .. ".bundle"
             write(bundle, bundleBytes)
             if STATUS[name] then

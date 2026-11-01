@@ -23,6 +23,7 @@ export const CONCAT2: uint64 = 5ULL
 export const DIVIDE: uint64 = 6ULL
 export const FLOOR_DIVIDE: uint64 = 7ULL
 export const NEXT_STEP: uint64 = 8ULL
+export const TONUMBER: uint64 = 9ULL
 
 local function integerValue(value: uint64): int64
     local payload = value & values.PAYLOAD
@@ -329,6 +330,105 @@ local function nextStep(ctx: voidptr, stateValue: uint64): uint64
     end
 end
 
+local function space(c: uint64): boolean
+    return c == 32ULL or (c >= 9ULL and c <= 13ULL)
+end
+
+local function hexDigit(c: uint64): uint64
+    if c >= 48ULL and c <= 57ULL then
+        return c - 48ULL
+    elseif c >= 97ULL and c <= 102ULL then
+        return c - 87ULL
+    elseif c >= 65ULL and c <= 70ULL then
+        return c - 55ULL
+    end
+
+    return 16ULL
+end
+
+-- Lua's tonumber: numbers as they are; strings by l_str2int (optional sign,
+-- decimal or wrapping hexadecimal, surrounding space); nil for any other
+-- value or text that is not a numeral. Text that may be a float numeral, or
+-- a decimal past int64, refuses: the core converts no float text yet.
+local function tonumber(ctx: voidptr, value: uint64): uint64
+    if ints.isInteger(value) or floatOf(value) ~= values.NIL then
+        return value
+    end
+    local s = strings.header(value)
+    if s == 0ULL then
+        if value == values.NIL then
+            error("bad argument #1 to 'tonumber' (value expected)")
+        end
+        return values.NIL
+    end
+    @unsafe do
+        local p = strings.bytes(s)
+        local finish = p + strings.length(s)
+        while p < finish and space(native.word(native.load8(native.pointer(p), 0))) do
+            p = p + 1ULL
+        end
+        local negative = false
+        if p < finish and native.word(native.load8(native.pointer(p), 0)) == 45ULL then
+            negative = true
+            p = p + 1ULL
+        end
+        local bits: uint64 = 0ULL
+        local digits: uint64 = 0ULL
+        local overflow = false
+        local hex = p + 1ULL < finish
+            and native.word(native.load8(native.pointer(p), 0)) == 48ULL
+            and (native.word(native.load8(native.pointer(p), 1)) | 32ULL) == 120ULL
+        if hex then
+            p = p + 2ULL
+            while p < finish and hexDigit(native.word(native.load8(native.pointer(p), 0))) < 16ULL do
+                bits = bits * 16ULL + hexDigit(native.word(native.load8(native.pointer(p), 0)))
+                digits = digits + 1ULL
+                p = p + 1ULL
+            end
+        else
+            while p < finish do
+                local c = native.word(native.load8(native.pointer(p), 0))
+                if c < 48ULL or c > 57ULL then
+                    break
+                end
+                local d = c - 48ULL
+                -- Past 2^63 - 1 (2^63 when negative) is a float numeral.
+                local last: uint64 = 7ULL
+                if negative then
+                    last = 8ULL
+                end
+                if bits > 922337203685477580ULL or (bits == 922337203685477580ULL and d > last) then
+                    overflow = true
+                end
+                bits = bits * 10ULL + d
+                digits = digits + 1ULL
+                p = p + 1ULL
+            end
+        end
+        local numeral = digits > 0ULL and not overflow
+        while p < finish and space(native.word(native.load8(native.pointer(p), 0))) do
+            p = p + 1ULL
+        end
+        if numeral and p == finish then
+            if negative then
+                bits = 0ULL - bits
+            end
+            return ints.make(guestHeap(ctx), bits)
+        end
+        -- What remains may still be a float numeral ("1.5", "1e3", "inf" is not).
+        local q = strings.bytes(s)
+        while q < finish do
+            local c = native.word(native.load8(native.pointer(q), 0))
+            if c == 46ULL or (c | 32ULL) == 101ULL or (c | 32ULL) == 112ULL or overflow then
+                error("tonumber of float text is not yet supported by the core")
+            end
+            q = q + 1ULL
+        end
+
+        return values.NIL
+    end
+end
+
 -- Library call `id` with `count` arguments; answers the result value.
 export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint64, c: uint64, d: uint64): uint64
     if id == TOSTRING then
@@ -347,6 +447,8 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         return floorDivide(ctx, a, b)
     elseif id == NEXT_STEP then
         return nextStep(ctx, a)
+    elseif id == TONUMBER then
+        return tonumber(ctx, a)
     end
     error("unknown core library call")
 

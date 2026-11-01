@@ -763,6 +763,20 @@ function tagged.forVersion(version: integer): any
         profile.kind = function(t: any): string
             return "tagged"
         end
+        -- A bare `return`, or the end of a body, answers nil.
+        profile.returnStatement = function(ctx: any, stat: any): nil
+            if #stat.exprs > 0 then
+                return tagged.returnStatement(ctx, stat)
+            end
+            local value = ctx.emit(stat, "Nil", {}, "tagged")
+            ctx.block.term = {kind = "return", value = value, edges = {}, pos = ctx.position(stat)}
+            ctx.block = nil
+        end
+        profile.fallthrough = function(ctx: any, node: any): nil
+            local value = ctx.emit(node, "Nil", {}, "tagged")
+            ctx.block.term = {kind = "return", value = value, edges = {}, pos = ctx.position(node.eof or node)}
+            ctx.block = nil
+        end
         profile.call = function(ctx: any, node: any, expected: string?): integer
             if node.runtimeLoader == "require" then
                 return tagged.call(ctx, node, expected)
@@ -770,6 +784,10 @@ function tagged.forVersion(version: integer): any
             local library = graph.coreLibraryCall(node)
             if library == "tostring" or library == "table.concat" then
                 return libraryCall(ctx, node, library == "tostring" and 1 or 3, node.args.exprs or {})
+            end
+            if library == "tonumber" then
+                need(#(node.args.exprs or {}) == 1, "tonumber takes one value; a base is not yet admitted")
+                return libraryCall(ctx, node, 9, node.args.exprs)
             end
             if graph.coreLibraryCall(node) == "math.floor" then
                 need(#(node.args.exprs or {}) == 1, "math.floor takes one number")

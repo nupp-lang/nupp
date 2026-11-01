@@ -135,9 +135,9 @@ function verify.copyGraph(g: any, version: integer?, fromSource: boolean?): any
                 (top & 0x7ff8) ~= 0x7ff8 or value == string.rep(string.char(0), 6) .. string.char(0xf8, 0x7f),
                 "noncanonical numeric NaN"
             )
-        elseif constant.kind == "int64" then
-            -- Only the signed 48-bit immediate payload is executable until
-            -- the core has canonical integer objects.
+        elseif constant.kind == "int64" and (version or 2) < 8 then
+            -- Before v8 only the signed 48-bit immediate payload is executable;
+            -- v8 boxes wider constants when K loads them.
             local sign, low, high = value:byte(6, 8)
             need(
                 low == 0 and high == 0 and sign < 0x80 or low == 0xff and high == 0xff and sign >= 0x80,
