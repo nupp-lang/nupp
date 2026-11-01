@@ -2363,7 +2363,11 @@ function calls.install(c: state.Checker): calls.Ops
                         }
                     end
                 else
-                    if namedStarted then
+                    local trailingFunction = namedStarted
+                        and sourceIndex == #args
+                        and not cst.isToken(argument)
+                        and (argument.kind == "shortfn" or argument.kind == "funcExpr")
+                    if namedStarted and not trailingFunction then
                         c.diag("NUPP2006", argument, "a positional argument cannot follow a named argument")
                     end
                     local valueType
@@ -2381,7 +2385,12 @@ function calls.install(c: state.Checker): calls.Ops
                     end
                     rawArguments[
                         #rawArguments + 1
-                    ] = {kind = "plain", node = argument, type = valueType, source = argument}
+                    ] = {
+                        kind = trailingFunction and "trailing" or "plain",
+                        node = argument,
+                        type = valueType,
+                        source = argument,
+                    }
                 end
             end
 
@@ -2397,10 +2406,14 @@ function calls.install(c: state.Checker): calls.Ops
                 end
                 local named, firstNamed, lastNamed, priorNamed = {}, nil, 0, 0
                 local positional: {RawArgument} = {}
+                local trailing: RawArgument? = nil
                 local at: integer = 1
                 while at <= #rawArguments do
                     local argument = rawArguments[at]
-                    if argument.kind ~= "named" then
+                    if argument.kind == "trailing" then
+                        trailing = argument
+                        at = at + 1
+                    elseif argument.kind ~= "named" then
                         positional[#positional + 1] = argument
                         at = at + 1
                     else
@@ -2435,6 +2448,19 @@ function calls.install(c: state.Checker): calls.Ops
                         end
                         priorNamed = highest
                     end
+                end
+
+                if trailing then
+                    if ft.paramPack.tail then
+                        return nil, "a trailing function literal requires a final fixed parameter"
+                    end
+                    local index = #ft.params
+                    if index == 0 or index <= #positional or named[index] then
+                        return nil, "the trailing function literal's parameter is already filled"
+                    end
+                    named[index] = trailing
+                    firstNamed = firstNamed and math.min(firstNamed, index) or index
+                    lastNamed = index
                 end
 
                 local types, nodes, lowered = {}, {}, {}
@@ -2840,7 +2866,7 @@ function calls.install(c: state.Checker): calls.Ops
         -- first pass used `any` only to select and specialize the call; replace that
         -- provisional type before validating the completed argument list.
         local contextualArgs = false
-        for j, arg in ipairs(args) do
+        for j, arg in ipairs(advanced and argNodes or args) do
             local expected = params[j]
             local isFunction = not cst.isToken(arg) and (arg.kind == "shortfn" or arg.kind == "funcExpr")
             if isFunction and expected and rawType(expected).tag == "func" then

@@ -127,6 +127,9 @@ type lexer.Token = {
     --- The `:` introducing a type annotation, which erases with the type.
     typeColon: boolean?,
 
+    --- A contextual keyword introducing a type-only coroutine protocol.
+    typeKeyword: boolean?,
+
     --- A `,` separating annotated types rather than code.
     typeSeparator: boolean?,
 

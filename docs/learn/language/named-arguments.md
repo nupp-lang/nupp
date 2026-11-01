@@ -27,9 +27,9 @@ end
 
 `{x, y} = position` means `x = position.x, y = position.y` and nothing more.
 
-## Named arguments come last
+## Argument order
 
-A named argument follows every positional one and appears in parameter order.
+A named argument follows positional arguments and appears in parameter order.
 An optional slot skipped before a later named argument is emitted as `nil`, so
 the generated call is the positional one you would have written.
 
@@ -56,6 +56,27 @@ local function render()
 end
 ```
 :::
+
+## Final function literals
+
+A function literal may follow named or plucked arguments when it is the final
+argument. It fills the final fixed parameter; skipped optional parameters are
+passed as `nil`:
+
+```nupp
+local function invoke(name: string, option: string?, callback: function(string): nil): nil
+    callback(name)
+end
+
+invoke(name = "load", function(name: string): nil
+    print(name)
+end)
+```
+
+The final argument must be a function literal or a short function. A variable
+holding a function remains an ordinary positional argument. A variadic tail
+has no final fixed parameter, so name its callback parameter explicitly or put
+the function before the named arguments.
 
 ## Plucking reads a field
 
@@ -257,9 +278,9 @@ behind that bargain.
 
 ### Can positional and named arguments be mixed in one call?
 
-Yes, positional first. `draw(10, y = 20)` is the arrangement the checker
-accepts; `draw(y = 20, 10)` is refused, because nothing positional may
-follow a name.
+Yes, positional first. `draw(10, y = 20)` is accepted; `draw(y = 20, 10)` is
+refused. A final function literal may follow named arguments when it fills the
+final fixed parameter.
 
 ### Do plucked arguments work with methods and constructors?
 

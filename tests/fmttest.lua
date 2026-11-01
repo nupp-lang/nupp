@@ -23,6 +23,22 @@ end
 
 local M = {}
 
+function M.protocolClauseOrdersAndTrailingFunctionsAreIdempotent()
+    for _, source in ipairs({
+        "local type F=function(number)yields(number,string)resumes(boolean):string",
+        "local function f(x:number)yields(number)resumes(boolean):string return 'done' end",
+        "local type F=function(number):string yields(number,string)resumes(boolean)",
+        "local function f(x:number):string yields(number)resumes(boolean) return 'done' end",
+        "invoke(name='load',function(value:string):string return value end)",
+    }) do
+        local formatted = fmt1(source)
+        testAssert.equal(fmt1(formatted), formatted, "formatting is idempotent")
+        testAssert.equal(kinds(formatted), kinds(source), "formatting preserves syntax")
+        local result = require("nupp.compiler.syntax.parser").parse(formatted)
+        testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg)
+    end
+end
+
 function M.switchExpressionIndentation()
     local source = table.concat(
         {
@@ -121,73 +137,79 @@ end
 -- arguments, one on a declaration, and one a comment separates from its target each
 -- keep a line of their own.
 function M.argumentFreeAnnotationsStayInline()
-    local source = table.concat({
-        "local m = {}",
-        "@derive(nupp.Inspect)",
-        "record m.Cell",
-        "@readonly",
-        "value: string",
-        "@json(name = \"x\")",
-        "@private",
-        "hidden: string",
-        "@readonly @private both: integer",
-        "@readonly",
-        "-- why",
-        "other: string",
-        "@private",
-        "function helper(self): nil end",
-        "end",
-        "@comptime",
-        "local function F(T: type): type return T end",
-        "function m.f(owner: any): nil",
-        "@unsafe",
-        "do print(1) end",
-        "@allow(NUPP2001)",
-        "@nosuspend",
-        "do print(2) end",
-        "@unsafe",
-        "local x = 1",
-        "@unsafe",
-        "nupp.release(owner)",
-        "end",
-        "return m",
-    }, "\n")
-    local expected = table.concat({
-        "local m = {}",
-        "@derive(nupp.Inspect)",
-        "record m.Cell",
-        "    @readonly value: string",
-        "    @json(name = \"x\")",
-        "    @private hidden: string",
-        "    @readonly @private both: integer",
-        "    @readonly",
-        "    -- why",
-        "    other: string",
-        "    @private",
-        "    function helper(self): nil",
-        "    end",
-        "end",
-        "",
-        "@comptime",
-        "local function F(T: type): type",
-        "    return T",
-        "end",
-        "",
-        "function m.f(owner: any): nil",
-        "    @unsafe do",
-        "        print(1)",
-        "    end",
-        "    @allow(NUPP2001)",
-        "    @nosuspend do",
-        "        print(2)",
-        "    end",
-        "    @unsafe local x = 1",
-        "    @unsafe nupp.release(owner)",
-        "end",
-        "",
-        "return m",
-        "",
-    }, "\n")
+    local source = table.concat(
+        {
+            "local m = {}",
+            "@derive(nupp.Inspect)",
+            "record m.Cell",
+            "@readonly",
+            "value: string",
+            "@json(name = \"x\")",
+            "@private",
+            "hidden: string",
+            "@readonly @private both: integer",
+            "@readonly",
+            "-- why",
+            "other: string",
+            "@private",
+            "function helper(self): nil end",
+            "end",
+            "@comptime",
+            "local function F(T: type): type return T end",
+            "function m.f(owner: any): nil",
+            "@unsafe",
+            "do print(1) end",
+            "@allow(NUPP2001)",
+            "@nosuspend",
+            "do print(2) end",
+            "@unsafe",
+            "local x = 1",
+            "@unsafe",
+            "nupp.release(owner)",
+            "end",
+            "return m",
+        },
+        "\n"
+    )
+    local expected = table.concat(
+        {
+            "local m = {}",
+            "@derive(nupp.Inspect)",
+            "record m.Cell",
+            "    @readonly value: string",
+            "    @json(name = \"x\")",
+            "    @private hidden: string",
+            "    @readonly @private both: integer",
+            "    @readonly",
+            "    -- why",
+            "    other: string",
+            "    @private",
+            "    function helper(self): nil",
+            "    end",
+            "end",
+            "",
+            "@comptime",
+            "local function F(T: type): type",
+            "    return T",
+            "end",
+            "",
+            "function m.f(owner: any): nil",
+            "    @unsafe do",
+            "        print(1)",
+            "    end",
+            "    @allow(NUPP2001)",
+            "    @nosuspend do",
+            "        print(2)",
+            "    end",
+            "    @unsafe local x = 1",
+            "    @unsafe nupp.release(owner)",
+            "end",
+            "",
+            "return m",
+            "",
+        },
+        "\n"
+    )
     testAssert.equal(fmt1(source), expected)
     testAssert.equal(fmt1(expected), expected)
 end
@@ -329,7 +351,10 @@ function M.inlineIfIsBrokenUp()
     -- a trailing comment stays with the line it followed
     testAssert.equal(fmt1("if a then f() end -- why"), "if a then\n    f()\nend -- why\n")
     -- and the break is taken inside a nested block too
-    testAssert.equal(fmt1("while a do\nif b then c() end\nend"), "while a do\n    if b then\n        c()\n    end\nend\n")
+    testAssert.equal(
+        fmt1("while a do\nif b then c() end\nend"),
+        "while a do\n    if b then\n        c()\n    end\nend\n"
+    )
 end
 
 -- An annotation decorates the statement below it; that statement is still a
@@ -360,7 +385,10 @@ end
 function M.contextualOperatorsAreNotCallees()
     testAssert.equal(fmt1("local a = t as {number}"), "local a = t as {number}\n")
     testAssert.equal(fmt1("local a = t as {p: number}"), "local a = t as {p: number}\n")
-    testAssert.equal(fmt1("local a = t as {p: number, q: string}"), "local a = t as {\n    p: number,\n    q: string\n}\n")
+    testAssert.equal(
+        fmt1("local a = t as {p: number, q: string}"),
+        "local a = t as {\n    p: number,\n    q: string\n}\n"
+    )
     testAssert.equal(fmt1('local b = v is "red"'), 'local b = v is "red"\n')
     testAssert.equal(fmt1("local c = v is {string}"), "local c = v is {string}\n")
     -- and the sugar still hugs a real callee
