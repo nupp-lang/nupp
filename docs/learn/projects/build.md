@@ -585,7 +585,7 @@ The keys the target itself reads:
 | `includePrivate` | Renders what privacy rules hide: unexported declarations, internal modules, and private members |
 | `pages` | Handwritten pages: a `glob` over a tree, a `directory`, or one `source` at one `path` |
 | `diagnostics` | The generated diagnostic index, and the page it is appended to |
-| `stdlib` | The generated LuaJIT standard library page |
+| `stdlib` | The combined API reference and builtin declarations |
 | `dependencies` | Rocks to install before rendering, `lunamark` among them |
 
 The appended `customCss` overrides the documented `--nuppdoc-*` custom

@@ -42,6 +42,7 @@ type stdlib.Page = {
     title: string,
     navigation: stdlib.Navigation?,
     modules: {extractMod.Module},
+    indexModules: {extractMod.Module}?,
     globalItems: {extractMod.Item},
     typeItems: {extractMod.Item}
 }
@@ -77,8 +78,189 @@ local SOURCES: {
     new Source(file = "/decls/jit/vmdef.d.nupp", required = "jit.vmdef"),
 }
 
-local INTRO = "The LuaJIT libraries share their module pages with the APIs implemented in Nupp. "
-    .. "This index links to those pages and documents the remaining globals and intrinsic types."
+-- Lua standard-library names from the Lua 5.1 through 5.5 manual indexes.
+-- https://www.lua.org/manual/5.5/contents.html (and the 5.1 through 5.4 editions).
+-- https://www.lua.org/manual/5.0/manual.html#5.1 documents gcinfo;
+-- https://www.lua.org/source/5.1/lbaselib.c.html installs newproxy. The public
+-- path identifies the API even when its implementation belongs to Nupp.
+local LUA_NAMES = {
+    ["LuaFile.close"] = true,
+    ["LuaFile.flush"] = true,
+    ["LuaFile.lines"] = true,
+    ["LuaFile.read"] = true,
+    ["LuaFile.seek"] = true,
+    ["LuaFile.setvbuf"] = true,
+    ["LuaFile.write"] = true,
+    ["assert"] = true,
+    ["bit32.arshift"] = true,
+    ["bit32.band"] = true,
+    ["bit32.bnot"] = true,
+    ["bit32.bor"] = true,
+    ["bit32.btest"] = true,
+    ["bit32.bxor"] = true,
+    ["bit32.extract"] = true,
+    ["bit32.lrotate"] = true,
+    ["bit32.lshift"] = true,
+    ["bit32.replace"] = true,
+    ["bit32.rrotate"] = true,
+    ["bit32.rshift"] = true,
+    ["collectgarbage"] = true,
+    ["coroutine.close"] = true,
+    ["coroutine.create"] = true,
+    ["coroutine.isyieldable"] = true,
+    ["coroutine.resume"] = true,
+    ["coroutine.running"] = true,
+    ["coroutine.status"] = true,
+    ["coroutine.wrap"] = true,
+    ["coroutine.yield"] = true,
+    ["debug.debug"] = true,
+    ["debug.getfenv"] = true,
+    ["debug.gethook"] = true,
+    ["debug.getinfo"] = true,
+    ["debug.getlocal"] = true,
+    ["debug.getmetatable"] = true,
+    ["debug.getregistry"] = true,
+    ["debug.getupvalue"] = true,
+    ["debug.getuservalue"] = true,
+    ["debug.setfenv"] = true,
+    ["debug.sethook"] = true,
+    ["debug.setlocal"] = true,
+    ["debug.setmetatable"] = true,
+    ["debug.setupvalue"] = true,
+    ["debug.setuservalue"] = true,
+    ["debug.traceback"] = true,
+    ["debug.upvalueid"] = true,
+    ["debug.upvaluejoin"] = true,
+    ["dofile"] = true,
+    ["error"] = true,
+    ["gcinfo"] = true,
+    ["getfenv"] = true,
+    ["getmetatable"] = true,
+    ["io.close"] = true,
+    ["io.flush"] = true,
+    ["io.input"] = true,
+    ["io.lines"] = true,
+    ["io.open"] = true,
+    ["io.output"] = true,
+    ["io.popen"] = true,
+    ["io.read"] = true,
+    ["io.tmpfile"] = true,
+    ["io.type"] = true,
+    ["io.write"] = true,
+    ["ipairs"] = true,
+    ["load"] = true,
+    ["loadfile"] = true,
+    ["loadstring"] = true,
+    ["math.abs"] = true,
+    ["math.acos"] = true,
+    ["math.asin"] = true,
+    ["math.atan"] = true,
+    ["math.atan2"] = true,
+    ["math.ceil"] = true,
+    ["math.cos"] = true,
+    ["math.cosh"] = true,
+    ["math.deg"] = true,
+    ["math.exp"] = true,
+    ["math.floor"] = true,
+    ["math.fmod"] = true,
+    ["math.frexp"] = true,
+    ["math.ldexp"] = true,
+    ["math.log"] = true,
+    ["math.log10"] = true,
+    ["math.max"] = true,
+    ["math.min"] = true,
+    ["math.modf"] = true,
+    ["math.pow"] = true,
+    ["math.rad"] = true,
+    ["math.random"] = true,
+    ["math.randomseed"] = true,
+    ["math.sin"] = true,
+    ["math.sinh"] = true,
+    ["math.sqrt"] = true,
+    ["math.tan"] = true,
+    ["math.tanh"] = true,
+    ["math.tointeger"] = true,
+    ["math.type"] = true,
+    ["math.ult"] = true,
+    ["module"] = true,
+    ["newproxy"] = true,
+    ["next"] = true,
+    ["os.clock"] = true,
+    ["os.date"] = true,
+    ["os.difftime"] = true,
+    ["os.execute"] = true,
+    ["os.exit"] = true,
+    ["os.getenv"] = true,
+    ["os.remove"] = true,
+    ["os.rename"] = true,
+    ["os.setlocale"] = true,
+    ["os.time"] = true,
+    ["os.tmpname"] = true,
+    ["package.loadlib"] = true,
+    ["package.searchpath"] = true,
+    ["package.seeall"] = true,
+    ["pairs"] = true,
+    ["pcall"] = true,
+    ["print"] = true,
+    ["rawequal"] = true,
+    ["rawget"] = true,
+    ["rawlen"] = true,
+    ["rawset"] = true,
+    ["require"] = true,
+    ["select"] = true,
+    ["setfenv"] = true,
+    ["setmetatable"] = true,
+    ["string.byte"] = true,
+    ["string.char"] = true,
+    ["string.dump"] = true,
+    ["string.find"] = true,
+    ["string.format"] = true,
+    ["string.gmatch"] = true,
+    ["string.gsub"] = true,
+    ["string.len"] = true,
+    ["string.lower"] = true,
+    ["string.match"] = true,
+    ["string.pack"] = true,
+    ["string.packsize"] = true,
+    ["string.rep"] = true,
+    ["string.reverse"] = true,
+    ["string.sub"] = true,
+    ["string.unpack"] = true,
+    ["string.upper"] = true,
+    ["table.concat"] = true,
+    ["table.create"] = true,
+    ["table.insert"] = true,
+    ["table.maxn"] = true,
+    ["table.move"] = true,
+    ["table.pack"] = true,
+    ["table.remove"] = true,
+    ["table.sort"] = true,
+    ["table.unpack"] = true,
+    ["tonumber"] = true,
+    ["tostring"] = true,
+    ["type"] = true,
+    ["unpack"] = true,
+    ["utf8.char"] = true,
+    ["utf8.codepoint"] = true,
+    ["utf8.codes"] = true,
+    ["utf8.len"] = true,
+    ["utf8.offset"] = true,
+    ["warn"] = true,
+    ["xpcall"] = true,
+}
+
+local function markLua(items)
+    for _, item in ipairs(items or {}) do
+        local callable = item.kind == "function" or item.isFunction or item.kind == "variable"
+        if LUA_NAMES[item.path] and callable then
+            item.lua = true
+        end
+        markLua(item.members)
+    end
+end
+
+local INTRO = "The API reference includes Lua functions and the libraries implemented in Nupp. "
+    .. "Each module page documents both in one place; a Lua badge identifies functions with Lua API names."
 
 local GLOBALS = "The functions and values a program can name anywhere. Their "
     .. "declarations are loaded before any source is checked, so nothing requires them "
@@ -209,6 +391,11 @@ local function indexMarkdown(page: stdlib.Page): string
             globals[#globals + 1] = item
         end
     end
+    section(out, "Modules", nil, nil)
+    for _, module in ipairs(page.indexModules or page.modules) do
+        out[#out + 1] = "- [`" .. module.name .. "`](" .. prefix .. urlsMod.moduleFile(module.name) .. ")"
+    end
+    out[#out + 1] = ""
     section(out, "Globals", GLOBALS, globals)
     for _, item in ipairs(page.globalItems) do
         local owner = owners[item.name]
@@ -218,38 +405,6 @@ local function indexMarkdown(page: stdlib.Page): string
                 #out + 1
             ] = "- [`" .. item.name .. "`](" .. prefix .. urlsMod.moduleFile(owner) .. "#" .. item.path .. ")"
         end
-    end
-    for _, module in ipairs(page.modules) do
-        out[#out + 1] = ""
-        section(out, "`" .. module.name .. "`", nil, nil)
-        local target = prefix .. urlsMod.moduleFile(module.name)
-        for old, current in pairs(module.aliases or {}) do
-            if current == module.name then
-                out[#out + 1] = '<a id="' .. old .. '"></a>'
-            end
-        end
-        out[#out + 1] = "See [`" .. module.name .. "`](" .. target .. ") for its declarations."
-        out[#out + 1] = ""
-
-        local function links(items)
-            for _, item in ipairs(items) do
-                out[#out + 1] = '<a id="' .. item.path .. '"></a>'
-                local aliases = {}
-                for old, current in pairs(module.aliases or {}) do
-                    if current == item.path then
-                        aliases[#aliases + 1] = old
-                    end
-                end
-                table.sort(aliases)
-                for _, old in ipairs(aliases) do
-                    out[#out + 1] = '<a id="' .. old .. '"></a>'
-                end
-                out[#out + 1] = "- [`" .. item.path .. "`](" .. target .. "#" .. item.path .. ")"
-                links(item.members or {})
-            end
-        end
-
-        links(module.items)
     end
     section(
         out,
@@ -316,13 +471,18 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
         end)
     )
     navigation.reflection = navigationItems(only(types, isReflection))
+    markLua(globals)
+    markLua(types)
+    for _, library in ipairs(modules) do
+        markLua(library.items)
+    end
     local symbols: {[string]: string} = {}
     for _, item in ipairs(types) do
         symbols[item.name] = item.path
     end
     local page: stdlib.Page = {
-        path = settings.path or "luajit",
-        title = settings.title or "LuaJIT standard library",
+        path = settings.path or "api",
+        title = settings.title or "API reference",
         markdown = "",
         symbols = symbols,
         navigation = navigation,
@@ -353,6 +513,7 @@ function stdlib.merge(modules: {extractMod.Module}, page: stdlib.Page?): nil
         for _, item in ipairs(builtin) do
             local held = byPath[item.path]
             if held then
+                held.lua = held.lua or item.lua
                 if held.doc and item.doc and held.doc.text == "" then
                     held.doc = item.doc
                 end
@@ -405,11 +566,13 @@ function stdlib.merge(modules: {extractMod.Module}, page: stdlib.Page?): nil
     end
 
     for _, module in ipairs(modules) do
+        markLua(module.items)
         table.sort(module.items, itemOrder)
     end
     table.sort(modules, function(left, right)
         return left.name < right.name
     end)
+    page.indexModules = modules
     page.markdown = indexMarkdown(page)
 end
 

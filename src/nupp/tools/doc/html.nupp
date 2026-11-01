@@ -92,13 +92,17 @@ end
 --
 -- The shape is what the generated pages write and what nothing else does: a code span,
 -- then emphasis holding lowercase words and nothing after it.
-local function headingBadge(heading: string): string, string?
+local function headingBadge(heading: string): string, string?, boolean?
+    local lua = heading:match(" _Lua_$") ~= nil
+    if lua then
+        heading = heading:sub(1, -7)
+    end
     local name, _, kind = heading:match("^(.-`[^`]+`)%s+([_*])([%l][%l ]*)%2$")
     if not name then
         return heading, nil
     end
 
-    return name, kind
+    return name, kind, lua
 end
 
 local function markdownOutline(text: string?): {html.Heading}
@@ -443,10 +447,10 @@ local function headingSlugs(text)
     for line in (text .. "\n"):gmatch("(.-)\n") do
         local hashes, heading = line:match("^(#+)%s+(.+)$")
         if hashes then
-            local name, badge = headingBadge(heading)
+            local name, badge, lua = headingBadge(heading)
             -- The label is read aloud by a screen reader following the anchor, so it is
             -- the heading as it reads rather than as it was written.
-            slugs[#slugs + 1] = {id = headingId(heading), text = name:gsub("[`*_]", ""), badge = badge}
+            slugs[#slugs + 1] = {id = headingId(heading), text = name:gsub("[`*_]", ""), badge = badge, lua = lua}
             out[#out + 1] = badge and hashes .. " " .. name or line
         else
             out[#out + 1] = line
@@ -491,6 +495,7 @@ local function lunamarkParser(): any
             '">',
             content,
             heading and heading.badge and kindBadge(heading.badge) or "",
+            heading and heading.lua and kindBadge("Lua") or "",
             '<a class="nuppdoc-header-anchor" href="#',
             htmlEscape(id),
             '" aria-label="Link to ',

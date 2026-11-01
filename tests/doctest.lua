@@ -3290,7 +3290,7 @@ function M.siteMatchesTheNuppdocPageModel()
     assert(home:find('href="llms.txt"', 1, true), home)
     assert(home:find('class="nuppdoc-search-button"', 1, true), home)
     assert(home:find('data-nuppdoc-search-index="assets/search-index.js"', 1, true), home)
-    assert(home:find('<a href="https://nupp.org/modules/nupp/index.html">API</a>', 1, true), home)
+    assert(home:find('<a href="modules/engine/index.html">API</a>', 1, true), home)
     assert(not home:find('<h2 id="modules">Modules</h2>', 1, true), home)
     assert(not home:find('class="nuppdoc-module-grid"', 1, true), home)
 
@@ -4032,33 +4032,13 @@ function M.stdlibIndexHoldsTheLibrariesTheCompilerDeclares()
 
     local page = assert(stdlib.page({path = "luajit"}))
     assert(page.path == "luajit")
-    assert(page.title == "LuaJIT standard library")
-    local sections = {
-        "Globals",
-        "`string`",
-        "`table`",
-        "`math`",
-        "`os`",
-        "`package`",
-        "`io`",
-        "`coroutine`",
-        "`bit`",
-        "`jit`",
-        "`debug`",
-        "`ffi`",
-        "`string.buffer`",
-        "`jit.util`",
-        "`jit.profile`",
-        "`jit.zone`",
-        "`jit.vmdef`",
-        "Types",
-        "Reflection",
-    }
+    assert(page.title == "API reference")
+    local sections = {"Globals", "Modules", "Types", "Reflection"}
     for _, section in ipairs(sections) do
         assert(page.markdown:find("\n## " .. section .. "\n", 1, true), "no section for " .. section)
     end
     -- Library declarations live on their module page; this page retains index links.
-    assert(page.markdown:find("[`string.format`](../modules/string/index.html#string.format)", 1, true))
+    assert(page.markdown:find("[`string`](../modules/string/index.html)", 1, true))
     assert(not page.markdown:find("### `string.format`", 1, true), "library documentation duplicated in its index")
     local libraries = {}
     for _, module in ipairs(page.modules) do
@@ -4116,7 +4096,7 @@ function M.stdlibIndexAnchorsEveryNameTheWayItIsWritten()
     local page = assert(stdlib.page({path = "luajit"}))
 
     assert(page.markdown:find('<a id="print"></a>', 1, true), "print anchored as a member")
-    assert(page.markdown:find('<a id="string.format"></a>', 1, true), "string.format lost its anchor")
+    assert(page.markdown:find("[`string`](../modules/string/index.html)", 1, true), "string lost its module link")
     assert(not page.markdown:find('<a id="globals.', 1, true), "anchored a global to its file")
 end
 
@@ -4175,11 +4155,18 @@ function M.stdlibIndexIsWrittenWhereTheManifestAsked()
         }) == 0
     )
     local page = readFile(dir .. "/site/reference/luajit/index.html")
-    assert(page:find("LuaJIT standard library", 1, true), page:sub(1, 400))
+    assert(page:find("API reference", 1, true), page:sub(1, 400))
     assert(page:find("string.format", 1, true), "the page rendered without its declarations")
     local sidebar = assert(page:match('<aside class="nuppdoc%-sidebar".-</aside>'), "the page has a sidebar")
-    assert(sidebar:find('<details open><summary>API reference</summary>', 1, true), sidebar)
-    assert(sidebar:find('aria%-current="page"[^>]*>LuaJIT</a>'), sidebar)
+    assert(
+        sidebar:find(
+            '<details open><summary><a aria-current="page" href="../../reference/luajit/index.html">API reference</a></summary>',
+            1,
+            true
+        ),
+        sidebar
+    )
+    assert(not sidebar:find(">LuaJIT</a>", 1, true), sidebar)
     assert(not sidebar:find(">LuaJIT standard library</a>", 1, true), sidebar)
     local modulePage = readFile(dir .. "/site/modules/math/index.html")
     assert(
@@ -4316,7 +4303,7 @@ function M.builtinNavigationKeepsEveryDeclaredGlobalAndLibrary()
     anchors(catalog.types)
     anchors(catalog.reflection)
     for _, library in ipairs(catalog.libraries) do
-        anchors(library.items or {})
+        assert(page.markdown:find("[`" .. library.name .. "`](", 1, true), "missing module link " .. library.name)
     end
 end
 
@@ -4359,8 +4346,14 @@ function M.builtinNavigationMergesOwnedRootsAndStartsCollapsed()
     )
     local nested = readFile(dir .. "/site/modules/io/path/index.html")
     local sidebar = assert(nested:match('<aside class="nuppdoc%-sidebar".-</aside>'))
-    assert(sidebar:find('<details open><summary>API reference</summary>', 1, true))
-    local api = assert(sidebar:match('<summary>API reference</summary>(.*)'))
+    assert(
+        sidebar:find(
+            '<details open><summary><a href="../../../reference/lua/index.html">API reference</a></summary>',
+            1,
+            true
+        )
+    )
+    local api = assert(sidebar:match('>API reference</a></summary>(.*)'))
     assert(not api:find('<details open', 1, true), "an API branch starts open, including the active one")
     for _, name in ipairs({
         "arg",
@@ -4398,7 +4391,7 @@ function M.builtinNavigationMergesOwnedRootsAndStartsCollapsed()
     assert(api:find('href="../../../modules/arg/index.html"', 1, true), "array global lost its owned page")
     assert(api:find('href="../../../reference/lua/index.html#_G"', 1, true), "global value missing")
     assert(api:find('href="../../../reference/lua/index.html#print"', 1, true), "global function missing")
-    assert(api:find('href="../../../reference/lua/index.html">LuaJIT</a>', 1, true), "aggregate overview unreachable")
+    assert(not api:find(">LuaJIT</a>", 1, true), "obsolete LuaJIT navigation entry")
     local aggregate = readFile(dir .. "/site/reference/lua/index.html")
     for anchor in api:gmatch('href="%.%./%.%./%.%./reference/lua/index%.html#([^"]+)"') do
         assert(aggregate:find('id="' .. anchor .. '"', 1, true), "navigation target does not exist: " .. anchor)
@@ -4511,8 +4504,10 @@ end
         assert(zone:find('id="' .. anchor .. '"', 1, true), "lost a returned callable/type member: " .. anchor)
     end
     local index = readFile(dir .. "/site/reference/lua/llms.txt")
-    assert(index:find('<a id="ffi.ffi.new"></a>', 1, true), "legacy returned-record fragment disappeared")
-    assert(index:find('<a id="jit.util.JitUtil.funcinfo"></a>', 1, true), "legacy typed binding fragment disappeared")
+    assert(not index:find('<a id="ffi.ffi.new"></a>', 1, true), "obsolete wrapper anchor retained")
+    for _, name in ipairs({"io", "debug.bench", "string.extension", "assert", "arg", "ffi", "jit.util"}) do
+        assert(index:find("[`" .. name .. "`](", 1, true), "index misses module " .. name)
+    end
     assert(not index:find("```nupp\nlocal open:", 1, true), "index duplicates library signatures")
     assert(not index:find("### `arg`", 1, true), "index duplicates the owned global declaration")
     assert(index:find("### `_G`", 1, true) and index:find("### `_VERSION`", 1, true))
@@ -4529,6 +4524,40 @@ end
         names[item.path] = item
     end
     assert(names["io.open"] and names["io.style"] and names["io.write"].signature == "function io.write(): string")
+    assert(names["io.write"].lua == true, "owned implementations must retain their Lua identity")
+    assert(names["io.open"].lua == true and not names["io.style"].lua, "Lua identity is based on the exact public path")
+
+    local function luaHeading(text, id)
+        local section = text:match('id="' .. id:gsub("%.", "%%.") .. '"[^>]*><h%d>(.-)</h%d>')
+        return section and section:find('>Lua</span>', 1, true) ~= nil
+    end
+
+    assert(luaHeading(ioPage, "io.write"), "owned Lua function lacks its badge")
+    assert(luaHeading(ioPage, "io.open"), "builtin Lua function lacks its badge")
+    assert(not luaHeading(ioPage, "io.style"), "Nupp-only addition was labeled Lua")
+    assert(not luaHeading(ffi, "ffi.new"), "LuaJIT-only extension was labeled standard Lua")
+    local globalPage = readFile(dir .. "/site/reference/lua/index.html")
+    assert(globalPage:find('nuppdoc-kind-Lua">Lua</span>', 1, true), "global Lua function lacks its badge")
+    assert(index:find("`print` _[^_]+_ _Lua_"), "Markdown lost Lua provenance")
+    local fileRead
+    for _, item in ipairs(assert(stdlib.page({})).typeItems) do
+        if item.name == "LuaFile" then
+            for _, member in ipairs(item.members) do
+                if member.name == "read" then
+                    fileRead = member
+                end
+            end
+        end
+    end
+    assert(fileRead and fileRead.lua == true, "Lua file methods lack provenance")
+    local globalAssert
+    for _, item in ipairs(modules.assert.items) do
+        if item.path == "assert" then
+            globalAssert = item
+        end
+    end
+    assert(globalAssert and globalAssert.lua, "callable globals with named function types need Lua identity")
+
     assert(modules.ffi and modules["string.buffer"] and modules["jit.vmdef"])
     assert(not modules.re and not modules.lpeg and not modules.number)
     os.execute("rm -rf '" .. dir .. "'")

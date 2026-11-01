@@ -248,7 +248,14 @@ end
 -- One member's heading: the anchor the members table links to, and the `#` beside it
 -- that hands that anchor back. `badge` is what the member is, which the page used to
 -- say with a group heading above a run of members of the same kind.
-local function memberHeading(name: string, path: string, tag: string, extra: string?, badge: string): string
+local function memberHeading(
+    name: string,
+    path: string,
+    tag: string,
+    extra: string?,
+    badge: string,
+    lua: boolean?
+): string
     return '<div class="nuppdoc-api-member' .. (
         extra or ""
     ) .. '" id="' .. htmlEscape(
@@ -257,6 +264,8 @@ local function memberHeading(name: string, path: string, tag: string, extra: str
         name
     ) .. "</code>" .. kindBadge(
         badge
+    ) .. (
+        lua and kindBadge("Lua") or ""
     ) .. '<a class="nuppdoc-header-anchor" href="#' .. htmlEscape(
         path
     ) .. '" aria-label="Link to ' .. htmlEscape(name) .. '">#</a></' .. tag .. ">"
@@ -319,7 +328,8 @@ local function renderHtmlMembers(out: {string}, members: {extractMod.Member}?, l
             member.path,
             hName,
             member.isType and " nuppdoc-api-nested-type" or nil,
-            memberKind(member)
+            memberKind(member),
+            member.lua
         )
         -- A nested type's badge already spells its declaration, and what it holds is
         -- its own members below; only a field or a method has a type to show here.
@@ -369,6 +379,8 @@ local function renderHtmlItem(out: {string}, item: extractMod.Item, links: Links
         item.name
     ) .. "</code>" .. kindBadge(
         kind
+    ) .. (
+        item.lua and kindBadge("Lua") or ""
     ) .. '<a class="nuppdoc-header-anchor" href="#' .. htmlEscape(
         item.path
     ) .. '" aria-label="Link to ' .. htmlEscape(item.name) .. '">#</a></h3>'

@@ -440,6 +440,10 @@ input {
     vertical-align: middle
 }
 
+.nuppdoc-kind-Lua {
+    text-transform: none
+}
+
 .nuppdoc-kind-function,
 .nuppdoc-kind-method,
 .nuppdoc-kind-constructor,

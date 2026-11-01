@@ -302,6 +302,7 @@ function doc.json(modules: {extractMod.Module}): string
             isMetamethod = value.isMetamethod,
             isType = value.isType,
             comptimeKind = value.comptimeKind,
+            lua = value.lua,
             members = value.members and array(value.members, member) or nil,
             annotations = annotations(value.annotations),
         }
@@ -314,6 +315,7 @@ function doc.json(modules: {extractMod.Module}): string
             name = value.name,
             kind = value.kind,
             comptimeKind = value.comptimeKind,
+            lua = value.lua,
             signature = value.signature,
             path = value.path,
             module = value.module,
@@ -1098,7 +1100,7 @@ local function configuredPages(root, settings, title, standardLibrary: stdlibMod
         standardLibrary,
         "standard library index",
         true,
-        "LuaJIT",
+        "API reference",
         standardLibrary and standardLibrary.navigation or nil
     )
     if not added then

@@ -161,7 +161,9 @@ local function renderMarkdownMembers(out, members, level)
     local hName, hSub = heading(level), heading(level + 1)
     for _, member in ipairs(members or {}) do
         out[#out + 1] = '<a id="' .. member.path .. '"></a>'
-        out[#out + 1] = hName .. " `" .. member.name .. "` _" .. memberKind(member) .. "_"
+        out[
+            #out + 1
+        ] = hName .. " `" .. member.name .. "` _" .. memberKind(member) .. "_" .. (member.lua and " _Lua_" or "")
         out[#out + 1] = ""
         -- A nested type's kind already spells its declaration, and what it holds is its
         -- own members below; only a field or a method has a type to show here.
@@ -190,7 +192,7 @@ local function renderMarkdownItem(out, item, level)
     level = level or 3
     local h, hSub = heading(level), heading(level + 1)
     out[#out + 1] = '<a id="' .. item.path .. '"></a>'
-    out[#out + 1] = h .. " `" .. item.name .. "` _" .. displayKind(item) .. "_"
+    out[#out + 1] = h .. " `" .. item.name .. "` _" .. displayKind(item) .. "_" .. (item.lua and " _Lua_" or "")
     out[#out + 1] = ""
     out[#out + 1] = "```nupp"
     out[#out + 1] = displaySignature(item)

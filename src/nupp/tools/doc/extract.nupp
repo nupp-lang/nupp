@@ -59,6 +59,7 @@ record extract.Member
     params: {extract.Param}
     returns: {extract.Result}
     raises: {docblock.Raise}
+    lua: boolean?
     isFunction: boolean?
     isMetamethod: boolean?
     isType: boolean?
@@ -98,7 +99,8 @@ type extract.Item = {
     --- The compiler-only value kind, when this declaration exists only during
     --- comptime. Kept apart from `kind`, so functions retain their ordinary API
     --- grouping while renderers can distinguish when they are callable.
-    comptimeKind: string?
+    comptimeKind: string?,
+    lua: boolean?
 }
 
 --- A source file, read as its documented declarations.
@@ -119,10 +121,7 @@ type extract.Module = {
 
     --- Set on a name that only holds other modules. There is no file behind one and
     --- nothing to require by that name, so it has no source and no declarations.
-    namespace: boolean?,
-
-    --- Previous declaration paths retained by a projected library index.
-    aliases: {[string]: string}?
+    namespace: boolean?
 }
 
 --- What a caller wants included beyond the public surface a module hands out.
@@ -1740,25 +1739,16 @@ function extract.extract(
             shapeModule(name, record.entries, result.text, path, parsed.root.blocks, opts.includePrivate, {}, projected)
             if projected[1] then
                 local wrapper = declaredName(record)
-                local aliases = {}
-
-                local function remember(members)
-                    for _, member in ipairs(members or {}) do
-                        aliases[member.path] = name .. member.path:sub(#name + #wrapper + 2)
-                        remember(member.members)
-                    end
-                end
-
                 local kept = projected[1].items
                 for _, item in ipairs(result.items) do
-                    if item.name == wrapper and record.visibility == "local" then
-                        aliases[item.path] = name
-                        remember(item.members)
-                    elseif item.name ~= returned or record.visibility ~= "local" and item.name == wrapper then
+                    local hiddenWrapper = item.name == wrapper and record.visibility == "local"
+                    if not hiddenWrapper
+                        and (item.name ~= returned or record.visibility ~= "local" and item.name == wrapper)
+                    then
                         kept[#kept + 1] = item
                     end
                 end
-                result.items, result.aliases = kept, aliases
+                result.items = kept
             end
         end
     end

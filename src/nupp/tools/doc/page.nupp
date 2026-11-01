@@ -360,30 +360,26 @@ local function sidebar(modules, current, prefix, pages, currentPath)
             end
         end
     end
+    local apiLabel = "API reference"
+    for _, candidate in ipairs(pages or {}) do
+        if candidate.navigation then
+            local active = candidate.path == currentPath and ' aria-current="page"' or ""
+            apiLabel = '<a' .. active .. ' href="' .. pageLink(prefix, candidate.path) .. '">API reference</a>'
+            break
+        end
+    end
     out[
         #out + 1
     ] = '<li class="nuppdoc-sidebar-section"><details'
         .. apiOpen
-        .. '><summary>API reference</summary>'
-        .. '<ul class="nuppdoc-module-tree">'
+        .. '><summary>'
+        .. apiLabel
+        .. '</summary><ul class="nuppdoc-module-tree">'
         .. moduleTreeHtml(
             moduleTree(modules, pages),
             current,
             prefix
         )
-    -- The aggregate index remains reachable beside the merged library entries,
-    -- including declarations a reader searches across with the browser's find.
-    for _, candidate in ipairs(pages or {}) do
-        if candidate.api then
-            local active = candidate.path == currentPath and ' aria-current="page"' or ""
-            out[
-                #out + 1
-            ] = '<li><a' .. active .. ' href="' .. pageLink(
-                prefix,
-                candidate.path
-            ) .. '">' .. htmlEscape(candidate.navigationTitle or candidate.title) .. "</a></li>"
-        end
-    end
     out[#out + 1] = "</ul></details></li></ul></aside>"
 
     return table.concat(out)
@@ -660,6 +656,13 @@ function page.render(
     layout: string?
 ): string
     local prefix = relativePrefix(file)
+    local apiIndex = prefix .. (modules[1] and moduleFile(modules[1].name) or "index.html")
+    for _, candidate in ipairs(pages or {}) do
+        if candidate.navigation then
+            apiIndex = pageLink(prefix, candidate.path)
+            break
+        end
+    end
     local home = layout == "home"
     local shellClass = home and "nuppdoc-shell nuppdoc-home-shell" or "nuppdoc-shell"
     local contentClass = home and "nuppdoc-content nuppdoc-home-content" or "nuppdoc-content"
@@ -749,7 +752,8 @@ function page.render(
         .. '<div class="nuppdoc-top-nav"><a href="'
         .. prefix
         .. 'getting-started/index.html">Getting started</a><a href="'
-        .. 'https://nupp.org/modules/nupp/index.html">API</a><a href="/playground/">Playground</a></div><div class="nuppdoc-actions">'
+        .. apiIndex
+        .. '">API</a><a href="/playground/">Playground</a></div><div class="nuppdoc-actions">'
         .. table.concat(
             actions
         ) .. search .. mobileOutlineAction .. '</div></nav></header>' .. (

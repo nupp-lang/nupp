@@ -625,35 +625,26 @@ there asks for an editor, since text inside an editor frame is not findable.
 Each reported program instead carries a link that opens it in the playground.
 :::
 
-### LuaJIT standard library
+### API reference
 
-`stdlib` generates a page holding the LuaJIT standard library:
+`stdlib` adds the compiler's builtin declarations to the generated API reference:
 
 ```lua
-stdlib = {path = "luajit", title = "LuaJIT standard library"},
+stdlib = {path = "api", title = "API reference"},
 ```
 
-The page is the compiler's own declarations: the prelude it loads into every
-check, and the declaration files behind `require("ffi")`,
-`require("string.buffer")` and the `jit` submodules. A signature on the page is
-the signature the checker enforces, because the two read the same file.
+Lua and Nupp declarations for the same module share a page. The source-owned
+signature and documentation take precedence when both declare the same
+function, and a Lua badge identifies functions with Lua API names even when
+Nupp implements them.
 
-The compiler-provided globals come first, then one section per library table,
-`string`, `table`, `math` and the rest, then the modules `require` loads, then
-the types those signatures name, and last the `Layout` graph a reified `struct`
-is measured by. A name on the page is the name a program writes: `print` is a
-global and `string.format` is a member, so `#print` and `#string.format` both
-address what they look like they address. Every code block is static, for the
-same reason the diagnostic index's blocks are.
+The index links every documented module and groups standalone functions under
+Globals. Intrinsic types and the `Layout` graph appear after the modules.
+The API navigation starts with each library collapsed.
 
-What `nupp` itself provides is not on the page. Those are modules with pages of
-their own, and the prelude declares them only so that checked code can see
-them; the semantic descriptor graph a `comptime` block walks is documented with
-the callable [`types.reflect`](../language/reflection.md) namespace instead of
-leaking ambient types here. The page needs no `sources` entry, and a project's
-own manifest cannot point it at other files: the declarations belong to the
-compiler rendering the site, which is what makes the page true of the toolchain
-a reader is holding.
+The builtin declarations come from the compiler's prelude and its library
+declaration files, so the reference uses the signatures the checker enforces.
+The generated examples are static code blocks.
 
 ## Cross-references
 
