@@ -27,17 +27,14 @@ function M.buildsFilesAndLineReadersInAColdProject()
     end
     os.remove(directory)
     assert(os.execute("mkdir -p " .. quote(directory .. "/src")) == 0)
-    write(
-        directory .. "/nupp.lua",
-        [[
+    write(directory .. "/nupp.lua", [[
 return {include = {"src"}, build = {outDir = "build", entries = {"fixture"}}}
-]]
-    )
+]])
     write(
         directory .. "/src/fixture.nupp",
         [[
 module fixture
-local files = require("nupp.io.files")
+local files = require("io.files")
 export function read(path: string): string
     local lines = assert(files.lines(path, 1048576))
     local text = ""
@@ -70,8 +67,8 @@ assert(fixture.read("lines.txt") == string.rep("x", 70000) .. "\n\nlast\n")
     )
     local ran, runOutput = process.capture({compiler, "run", "read.nupp"}, {cwd = directory})
     os.execute("rm -rf " .. quote(directory))
-    test.equal(status, 0, output)
-    test.equal(ran, 0, runOutput)
+    test.eq(status, 0, output)
+    test.eq(ran, 0, runOutput)
 end
 
 return M

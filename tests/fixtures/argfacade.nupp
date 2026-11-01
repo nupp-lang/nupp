@@ -3,7 +3,7 @@ const assert2 = require("assert")
 local cli = require("arg")
 const {type TokenKind, type DecodeError} = require("arg")
 
-@derive(cli.Arguments)
+@derive(cli.arguments)
 local record Options
     @cli(value = "NAME")
     name: string
@@ -16,7 +16,7 @@ assert2(options.name == "Ada")
 assert2(cli == rawget(_G, "arg"))
 
 local alias = require("arg")
-local parser = alias.optParser({"--flag"})
+local parser = alias.optparser({"--flag"})
 local kind: TokenKind? = parser:next()
 assert2(kind == alias.longOption)
 assert2(parser:key() == "flag")

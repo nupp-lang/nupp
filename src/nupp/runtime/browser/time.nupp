@@ -3,7 +3,7 @@
 module nupp.runtime.browser.time
 
 --[[
-Browser implementation of [](nupp.time.spi).
+Browser implementation of [](coroutine.spi).
 
 `now` returns monotonic milliseconds from the Worker time origin; `wallTime`
 returns Unix milliseconds. Clock reads and sleeps use the shared response channel
@@ -14,7 +14,7 @@ Its callback receives whether the host completed without an error, and its
 returned cancellation function cancels the outstanding request. `sleepUntil`
 computes the remaining interval using the same monotonic clock.
 
-[](nupp.time) binds these operations at require-time. Timer handles and callbacks
+[](coroutine) binds these operations at require-time. Timer handles and callbacks
 belong to the current browser state and are not carried into worker lanes.
 ]]
 

@@ -176,7 +176,7 @@ export function write(
             if raw then
                 const layout = assert2(storage)
                 const source = assert2(plan.source.columns[component.componentId])
-                const rawOutput = buffer.newBuffer()
+                const rawOutput = buffer.newbuffer()
                 if plan.rows == nil then
                     ffistorage.writeRows(layout, source, 1, plan.count, rawOutput)
                 else

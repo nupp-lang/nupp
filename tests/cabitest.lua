@@ -8,7 +8,7 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 
 local function checked(source)
     local result = parser.parse(source, "src/game.nupp")
-    testAssert.equal(#result.errors, 0, "parse errors")
+    testAssert.eq(#result.errors, 0, "parse errors")
     local env = envMod.new(HERE .. "/..", {cache = false})
     local diagnostics, _, exports = check.check(result, "src/game.nupp", env, {moduleName = "game"})
     for _, diagnostic in ipairs(diagnostics) do
@@ -43,23 +43,23 @@ function M.canonicalIdentityIsNominalAndModuleQualified()
     local exports = checked(SOURCE)
     local position = assert(exports.types.Position)
     local motion = assert(exports.types.Motion)
-    testAssert.equal(cabi.identity(position), "game.Position")
-    testAssert.equal(cabi.identity(motion), "game.Motion")
+    testAssert.eq(cabi.identity(position), "game.Position")
+    testAssert.eq(cabi.identity(motion), "game.Motion")
     local a = assert(cabi.aggregate(position, TARGET))
     local b = assert(cabi.aggregate(motion, TARGET))
     assert(a.typedef ~= b.typedef, "distinct declarations keep distinct C names")
-    testAssert.equal(a.typedef, "nupp_4_game_8_Position")
+    testAssert.eq(a.typedef, "nupp_4_game_8_Position")
 end
 
 function M.descriptionCarriesTargetLayoutAndSemanticFingerprints()
     local exports = checked(SOURCE)
     local description = assert(cabi.aggregate(exports.types.Motion, TARGET))
-    testAssert.equal(description.schema, cabi.ABI)
-    testAssert.equal(description.target, TARGET)
-    testAssert.equal(description.size, 12)
-    testAssert.equal(description.alignment, 4)
-    testAssert.equal(description.fields[1].offset, 0)
-    testAssert.equal(description.fields[2].offset, 8)
+    testAssert.eq(description.schema, cabi.ABI)
+    testAssert.eq(description.target, TARGET)
+    testAssert.eq(description.size, 12)
+    testAssert.eq(description.alignment, 4)
+    testAssert.eq(description.fields[1].offset, 0)
+    testAssert.eq(description.fields[2].offset, 8)
     assert(#description.semanticFingerprint == 64, "semantic SHA-256")
     assert(#description.layoutFingerprint == 64, "layout SHA-256")
 end
@@ -75,7 +75,7 @@ function M.headerOrdersByValueDependenciesAndAssertsEveryOffset()
     assert(header:find("offsetof(" .. motion.typedef .. ", position) == 0", 1, true))
     assert(header:find("offsetof(" .. motion.typedef .. ", flags) == 8", 1, true))
     local repeated = assert(cabi.header({position, motion}, {}, "GAME_NUPP_H"))
-    testAssert.equal(repeated, header, "header output is deterministic")
+    testAssert.eq(repeated, header, "header output is deterministic")
 end
 
 function M.oneFunctionRecordRendersTypedAndErasedPointers()
@@ -90,11 +90,11 @@ function M.oneFunctionRecordRendersTypedAndErasedPointers()
         },
         nil
     )
-    testAssert.equal(
+    testAssert.eq(
         assert(cabi.prototype(signature, false)),
         "void integrate(nupp_4_game_8_Position *position, float dt);"
     )
-    testAssert.equal(assert(cabi.prototype(signature, true)), "void integrate(void *, float);")
+    testAssert.eq(assert(cabi.prototype(signature, true)), "void integrate(void *, float);")
 end
 
 function M.aPointerToAnArrayKeepsItsParentheses()
@@ -102,8 +102,8 @@ function M.aPointerToAnArrayKeepsItsParentheses()
     local T = require("nupp.compiler.types")
     local row = T.ptr(T.carray(T.int32, 4))
     local rows = T.carray(T.ptr(T.int32), 4)
-    testAssert.equal(cabi.declaration(row, "row", "ffi"), "int32_t (*row)[4]")
-    testAssert.equal(cabi.declaration(rows, "rows", "ffi"), "int32_t *rows[4]")
+    testAssert.eq(cabi.declaration(row, "row", "ffi"), "int32_t (*row)[4]")
+    testAssert.eq(cabi.declaration(rows, "rows", "ffi"), "int32_t *rows[4]")
 end
 
 function M.aGuardIsAlwaysACIdentifier()
@@ -121,8 +121,8 @@ end
 function M.functionRecordsRejectUnmodelledCallingConventions()
     local signature = cabi.functionRecord("callback", {}, nil, false, "stdcall")
     local prototype, why = cabi.prototype(signature)
-    testAssert.equal(prototype, nil)
-    testAssert.equal(why, "the C function signature has an unsupported calling convention")
+    testAssert.eq(prototype, nil)
+    testAssert.eq(why, "the C function signature has an unsupported calling convention")
 end
 
 function M.layoutAndSemanticChangesAlterThePublishedFingerprints()
@@ -153,8 +153,8 @@ end
 return game
 ]])
     local node = assert(cabi.aggregate(exports.types.Node, TARGET))
-    testAssert.equal(#node.dependencies, 0, "a pointer is not a by-value dependency")
-    testAssert.equal(node.pointerDependencies[1], exports.types.Node, "the recursive pointer is recorded")
+    testAssert.eq(#node.dependencies, 0, "a pointer is not a by-value dependency")
+    testAssert.eq(node.pointerDependencies[1], exports.types.Node, "the recursive pointer is recorded")
     local header = assert(cabi.header({node}, {}, "NODE_H"))
     local forward = assert(header:find("typedef struct " .. node.tag, 1, true))
     local body = assert(header:find("struct " .. node.tag .. " {", 1, true))
@@ -183,7 +183,7 @@ return game
             moduleName = "game"
         }
     )
-    testAssert.equal(diagnostics[1] and diagnostics[1].code, "NUPP2201")
+    testAssert.eq(diagnostics[1] and diagnostics[1].code, "NUPP2201")
     assert(
         diagnostics[1].msg:find("contain itself", 1, true),
         "the source diagnostic explains why the layout is impossible"
@@ -195,19 +195,19 @@ function M.vmForeignSignaturesUseCheckedTypes()
     local T = require("nupp.compiler.types")
     local declaration = {cAbiSignature = cabi.functionRecord("strlen", {{type = T.cstring, mode = "plain"}}, T.uint64)}
     local signature = metadata.foreignSignature(declaration)
-    testAssert.equal(signature.params[1].kind, "pointer")
-    testAssert.equal(signature.params[1].readonly, true)
-    testAssert.equal(signature.result, "uint64")
+    testAssert.eq(signature.params[1].kind, "pointer")
+    testAssert.eq(signature.params[1].readonly, true)
+    testAssert.eq(signature.result, "uint64")
     local pointer = {tag = "ptr", elem = {tag = "const", inner = T.uint8}}
     declaration.cAbiSignature.params[1].type = pointer
     local readonly = metadata.foreignSignature(declaration)
-    testAssert.equal(readonly.params[1].readonly, true)
+    testAssert.eq(readonly.params[1].readonly, true)
     pointer.elem = T.uint8
-    testAssert.equal(metadata.foreignSignature(declaration).params[1], "pointer")
+    testAssert.eq(metadata.foreignSignature(declaration).params[1], "pointer")
     -- A variadic function's extra arguments are typed per call.
     local variadic = {cAbiSignature = cabi.functionRecord("printf", {{type = T.cstring, mode = "plain"}}, T.int32)}
     variadic.cAbiSignature.varargs = true
-    testAssert.equal(metadata.foreignSignature(variadic).variadic, true)
+    testAssert.eq(metadata.foreignSignature(variadic).variadic, true)
     local cases = {
         {
             change = function(d)

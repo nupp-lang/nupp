@@ -38,20 +38,20 @@ function M.finalModuleKeepsVectorStorageAndNativeBoundaries()
     for _, module in ipairs({"nupp.simd", "simd"}) do
         local value = fixedVector(module)
         local element, lanes = targetLayout.storageVector(value)
-        test.equal(element, "float64")
-        test.equal(lanes, 4)
-        test.equal(nativeonly.carriesNativeOnly(value), true)
-        test.equal(nativeonly.fieldMakesNativeOnly(value), false)
+        test.eq(element, "float64")
+        test.eq(lanes, 4)
+        test.eq(nativeonly.carriesNativeOnly(value), true)
+        test.eq(nativeonly.fieldMakesNativeOnly(value), false)
         value.typeArgs[2].origin.name = "Preferred"
-        test.equal(nativeonly.fieldMakesNativeOnly(value), true)
+        test.eq(nativeonly.fieldMakesNativeOnly(value), true)
     end
-    test.equal(nativeonly.carriesNativeOnly(fixedVector("user.simd")), false)
+    test.eq(nativeonly.carriesNativeOnly(fixedVector("user.simd")), false)
 end
 
 function M.callAliasesKeepSemanticIdentityAndShadowing()
     for _, module in ipairs({"nupp.simd", "simd"}) do
-        test.equal(callIdentity({kind = "name", exactCallExport = {identity = module .. ".species"}}), "simd.species")
-        test.equal(
+        test.eq(callIdentity({kind = "name", exactCallExport = {identity = module .. ".species"}}), "simd.species")
+        test.eq(
             callIdentity({
                 kind = "name",
                 token = {definition = {exactCallExport = {identity = module .. ".reducer.wrappingSum"}}},
@@ -59,7 +59,7 @@ function M.callAliasesKeepSemanticIdentityAndShadowing()
             "simd.reducer.wrappingSum"
         )
     end
-    test.equal(
+    test.eq(
         callIdentity({
             kind = "dotIndex",
             obj = {kind = "name", token = {text = "simd", definition = {}}},
@@ -71,7 +71,7 @@ end
 
 local SCALE = [[
 local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local lanes = require(%q)
 @aot
 local function scale(exclusive values: span.WriteSpan<float>, factor: float): nil
@@ -82,21 +82,12 @@ local function scale(exclusive values: span.WriteSpan<float>, factor: float): ni
 end
 ]]
 
-function M.finalAndLegacyImportsKeepNativeVectorLoopOperations()
+function M.importAndGlobalRootKeepNativeVectorLoopOperations()
     local env = envMod.new(HERE .. "/..")
-    local resolveModule, resolveExports = env.resolveModule, env.resolveModuleExports
-    function env:resolveModule(name, ...)
-        return resolveModule(self, name == "nupp.simd" and "simd" or name, ...)
-    end
-
-    function env:resolveModuleExports(name, ...)
-        return resolveExports(self, name == "nupp.simd" and "simd" or name, ...)
-    end
-
     local before
-    for _, module in ipairs({"nupp.simd", "simd"}) do
+    for _, imported in ipairs({true, false}) do
         local source = SCALE:format(
-            module
+            "simd"
         )
             .. [[
 const values = array.scalar(array.float64, 5)
@@ -107,10 +98,13 @@ end
 local rows = values:read()
 return rows[1], rows[5]
 ]]
+        if not imported then
+            source = source:gsub('local lanes = require%("simd"%)', "local lanes = simd")
+        end
         local parsed = parser.parse(source, "simd-identity.nupp")
-        test.equal(#parsed.errors, 0)
+        test.eq(#parsed.errors, 0)
         local diagnostics = checker.check(parsed, "simd-identity.nupp", env)
-        test.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+        test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
         local listing = {}
         local image = program.image(parsed, "simd-identity", "simd-identity.nupp", listing)
         local after
@@ -121,20 +115,20 @@ return rows[1], rows[5]
         end
         assert(after, "the checked scale loop must have a native VM body")
         if before then
-            test.equal(after, before)
+            test.eq(after, before)
         end
         before = after
         program.installSourceModules()
         local execute = assert(assert(rawget(_G, "__nupp_load_image"))(image))
         local first, last = execute()
-        test.equal(first, 2)
-        test.equal(last, 10)
+        test.eq(first, 2)
+        test.eq(last, 10)
     end
 end
 
 local WORKGROUP = [[
 local gpu = require(%q)
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 @aot(target = "gpu")
 local function increment(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil
     local groups = math.u32.div(math.u32.wrap(#input), math.u32.wrap(4))
@@ -149,23 +143,18 @@ local function increment(exclusive output: span.WriteSpan<uint32>, borrows input
 end
 ]]
 
-function M.finalAndLegacyGpuImportsKeepTheCheckedWorkgroupContract()
+function M.importAndGlobalRootKeepTheCheckedWorkgroupContract()
     local before
-    for _, module in ipairs({"nupp.gpu", "gpu"}) do
+    for _, imported in ipairs({true, false}) do
         local env = envMod.new(HERE .. "/..")
-        local resolveModule, resolveExports = env.resolveModule, env.resolveModuleExports
-        function env:resolveModule(name, ...)
-            return resolveModule(self, name == "nupp.gpu" and "gpu" or name, ...)
+        local source = WORKGROUP:format("gpu")
+        if not imported then
+            source = source:gsub('local gpu = require%("gpu"%)', "local gpu = gpu")
         end
-
-        function env:resolveModuleExports(name, ...)
-            return resolveExports(self, name == "nupp.gpu" and "gpu" or name, ...)
-        end
-
-        local parsed = parser.parse(WORKGROUP:format(module), "gpu-identity.nupp")
-        test.equal(#parsed.errors, 0)
+        local parsed = parser.parse(source, "gpu-identity.nupp")
+        test.eq(#parsed.errors, 0)
         local diagnostics = checker.check(parsed, "gpu-identity.nupp", env)
-        test.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+        test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
         local calls = {}
 
         local function visit(node)
@@ -183,13 +172,13 @@ function M.finalAndLegacyGpuImportsKeepTheCheckedWorkgroupContract()
         end
 
         visit(parsed.root)
-        test.equal(#calls, 1)
+        test.eq(#calls, 1)
         local call = calls[1]
-        test.equal(#call.args.exprs, 3)
-        test.equal(call.args.exprs[3].kind, "funcExpr")
+        test.eq(#call.args.exprs, 3)
+        test.eq(call.args.exprs[3].kind, "funcExpr")
         local canonical = callIdentity(call.obj)
         if before then
-            test.equal(canonical, before)
+            test.eq(canonical, before)
         end
         before = canonical
     end
@@ -201,11 +190,11 @@ local imported = require("simd")
 return simd.species == imported.species
 ]]
     local parsed = parser.parse(source, "simd-root.nupp")
-    test.equal(#parsed.errors, 0)
+    test.eq(#parsed.errors, 0)
     local env = envMod.new(HERE .. "/..")
     local diagnostics = checker.check(parsed, "simd-root.nupp", env)
-    test.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
-    test.equal(program.run(parsed, "simd-root", "simd-root.nupp"), true)
+    test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    test.eq(program.run(parsed, "simd-root", "simd-root.nupp"), true)
 end
 
 function M.computeLibraryNamesRespectLocalShadowing()
@@ -216,60 +205,31 @@ local events = {id = function(value: number): number return value + 2 end}
 return simd.species(1) + events.id(2), gpu.available()
 ]]
     local parsed = parser.parse(source, "compute-shadow.nupp")
-    test.equal(#parsed.errors, 0)
+    test.eq(#parsed.errors, 0)
     local diagnostics = checker.check(parsed, "compute-shadow.nupp", envMod.new(HERE .. "/.."))
-    test.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     local value, available = program.run(parsed, "compute-shadow", "compute-shadow.nupp")
-    test.equal(value, 6)
-    test.equal(available, true)
+    test.eq(value, 6)
+    test.eq(available, true)
 end
 
 function M.formerPublicModulesAreAbsentAndGpuImplementationStaysPrivate()
     local env = envMod.new(HERE .. "/..")
     for _, name in ipairs({"nupp.gpu", "nupp.gpu.layout", "nupp.gpu.spi", "nupp.simd", "nupp.events"}) do
-        test.equal(env.resolveModule(env, name), nil, name)
+        test.eq(env.resolveModule(env, name), nil, name)
     end
-    test.equal(env.moduleAccess(env, "gpu", "nupp.gpu.api"), nil)
+    test.eq(env.moduleAccess(env, "gpu", "nupp.gpu.api"), nil)
     local reason = env.moduleAccess(env, "application", "nupp.gpu.api")
     assert(reason and reason:find("internal", 1, true), tostring(reason))
 end
 
-local function lowercaseSimdNamespaces(source)
-    for _, namespace in ipairs({"reducer", "horizontal"}) do
-        source = source:gsub("%f[%w_]" .. namespace .. "%.([%a_][%w_]*)", function(name)
-            return namespace .. "." .. (name:match("^[a-z]") and name:lower() or name)
-        end)
-    end
-
-    source = source:gsub("local reducer: %b{}", function(declaration)
-        return declaration:gsub("(\n    )([a-z][%w_]*)(: function)", function(indent, name, suffix)
-            return indent .. name:lower() .. suffix
-        end)
-    end)
-
-    return source
-end
-
-local function simdEnvironment(lowercase)
-    local root = HERE .. "/.."
-    local env = envMod.new(root, {cache = false})
-    if lowercase then
-        local path = root .. "/src/simd.nupp"
-        local file = assert(io.open(path, "rb"))
-        local source = file:read("*a")
-        file:close()
-        local _, diagnostics = envMod.checkModuleSource(env, path, lowercaseSimdNamespaces(source), {
-            moduleName = "simd"
-        })
-        test.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
-    end
-
-    return env
+local function simdEnvironment()
+    return envMod.new(HERE .. "/..", {cache = false})
 end
 
 local function checkedSimd(source, env)
     local parsed = parser.parse(source, "simd-case.nupp")
-    test.equal(#parsed.errors, 0)
+    test.eq(#parsed.errors, 0)
     local diagnostics = checker.check(parsed, "simd-case.nupp", env)
     return parsed, diagnostics
 end
@@ -279,8 +239,8 @@ local array = require("nupp.mem.array")
 local simd = require("simd")
 @aot
 local function fold(): number
-    local floating = simd.reducer.orderedSum(0.0)
-    local exact = simd.reducer.wrappingSum(array.int32, 0)
+    local floating = simd.reducer.orderedsum(0.0)
+    local exact = simd.reducer.wrappingsum(array.int32, 0)
     do
         floating:add(1.5)
         exact:add(2)
@@ -291,18 +251,16 @@ end
 local function horizontal(): (int32, integer)
     local integers = assert(simd.species(array.int32, 4))
     local floats = assert(simd.species(array.float64, 4))
-    local total: int32 = simd.horizontal.wrappingSum(integers:splat(3))
-    local at: integer = simd.horizontal.propagatingArgMax(floats:splat(2.0))
+    local total: int32 = simd.horizontal.wrappingsum(integers:splat(3))
+    local at: integer = simd.horizontal.propagatingargmax(floats:splat(2.0))
     return total, at
 end
 ]]
 
 function M.lowercaseSimdDeclarationsKeepVerifiedOperations()
-    local before
-    for _, lowercase in ipairs({false, true}) do
-        local source = lowercase and lowercaseSimdNamespaces(CASE_KERNEL) or CASE_KERNEL
-        local parsed, diagnostics = checkedSimd(source .. "\nreturn fold(), horizontal()", simdEnvironment(lowercase))
-        test.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    do
+        local parsed, diagnostics = checkedSimd(CASE_KERNEL .. "\nreturn fold(), horizontal()", simdEnvironment())
+        test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
         local listing = {}
         local image = program.image(parsed, "simd-case", "simd-case.nupp", listing)
         local horizontal, fold
@@ -315,23 +273,21 @@ function M.lowercaseSimdDeclarationsKeepVerifiedOperations()
             end
         end
         assert(horizontal and fold, "both checked kernels must have native VM bodies")
-        test.matches(fold, lowercase and "orderedsum" or "orderedSum")
-        test.matches(fold, lowercase and "wrappingsum" or "wrappingSum")
+        test.matches(fold, "orderedsum")
+        test.matches(fold, "wrappingsum")
         test.matches(horizontal, "Simd wrappingSum int32")
         test.matches(horizontal, "Simd horizontal%.propagatingArgMax float64")
-        if before then
-            test.equal(horizontal, before, "public casing changed private SIMD operations")
-        end
-        before = horizontal
         program.installSourceModules()
         local execute = assert(assert(rawget(_G, "__nupp_load_image"))(image))
         local reduced, total, at = execute()
         local runtime = require("simd")
-        test.equal(runtime.reducer.orderedsum, runtime.reducer.orderedSum)
-        test.equal(runtime.reducer.wrappingsum, runtime.reducer.wrappingSum)
-        test.equal(reduced, 3.5)
-        test.equal(total, 12)
-        test.equal(at, 1)
+        test.eq(runtime.reducer.orderedSum, nil)
+        test.eq(runtime.reducer.wrappingSum, nil)
+        test.eq(type(runtime.reducer.orderedsum), "function")
+        test.eq(type(runtime.reducer.wrappingsum), "function")
+        test.eq(reduced, 3.5)
+        test.eq(total, 12)
+        test.eq(at, 1)
     end
 end
 
@@ -342,26 +298,25 @@ local simd = require("simd")
 @aot
 local function invalid(): number
     local floats = assert(simd.species(array.float64, 4))
-    return simd.horizontal.wrappingSum(floats:splat(1.0))
+    return simd.horizontal.wrappingsum(floats:splat(1.0))
 end
 ]]
-    for _, lowercase in ipairs({false, true}) do
-        local input = lowercase and lowercaseSimdNamespaces(source) or source
-        local _, diagnostics = checkedSimd(input, simdEnvironment(lowercase))
-        test.equal(#diagnostics, 1)
-        test.equal(diagnostics[1].code, "NUPP2006")
+    do
+        local _, diagnostics = checkedSimd(source, simdEnvironment())
+        test.eq(#diagnostics, 1)
+        test.eq(diagnostics[1].code, "NUPP2006")
     end
     -- The frozen host has no scalar lane namespace. The native vector storage
     -- contract is checked above; this test executes only its existing operations.
-    test.equal(require("nupp.simd").lane, nil)
+    test.eq(require("nupp.simd").lane, nil)
     local _, diagnostics = checkedSimd(
         [[
 local simd = {horizontal = {wrappingsum = function(value: number): number return value + 1 end}}
 return simd.horizontal.wrappingsum(2)
 ]],
-        simdEnvironment(true)
+        simdEnvironment()
     )
-    test.equal(#diagnostics, 0, "a shadowed table remains an ordinary call")
+    test.eq(#diagnostics, 0, "a shadowed table remains an ordinary call")
 end
 
 return M

@@ -3,16 +3,23 @@ module nupp.vm.simdbinding
 local loaded: any = package.loaded
 local binding: any = loaded["nupp.simd"]
 
--- The accepting image exposes both public casings through the same frozen handles.
+-- The public namespace keeps the existing frozen handles under final names.
 for _, namespace in ipairs({binding.horizontal, binding.reducer}) do
     local aliases: {[string]: any} = {}
+    local retired: {string} = {}
     for name, value in pairs(namespace) do
         if type(name) == "string" and type(value) == "function" then
             aliases[name:lower()] = value
+            if name ~= name:lower() then
+                retired[#retired + 1] = name
+            end
         end
     end
     for name, value in pairs(aliases) do
         namespace[name] = value
+    end
+    for _, name in ipairs(retired) do
+        namespace[name] = nil
     end
 end
 

@@ -37,7 +37,7 @@ local M = {}
 function M.replacesCompilerConfigurationBoilerplate()
     local result = run(
         [[
-@derive(types.Debug)
+@derive(types.debug)
 local record PlannerLimits
     fields: integer = 2048
     semanticNodes: integer = 16384
@@ -93,10 +93,10 @@ local corpora = {
 }
 local bytes = {}
 local accepted = true
-local out = require("nupp.text").newBuffer()
+local out = require("nupp.text").newbuffer()
 for index, value in ipairs(corpora) do
-    local writer = typedJSON.newWriter(out)
-    typedJSON.writeValue(serde.binding(ModuleCache), value, writer)
+    local writer = typedJSON.newwriter(out)
+    typedJSON.writevalue(serde.binding(ModuleCache), value, writer)
     writer:close()
     bytes[index] = out:get()
     local decoded, why = decode(serde.binding(ModuleCache), bytes[index])
@@ -138,7 +138,7 @@ function M.runsTheExternalTecsMCPRequestCorpus()
         [[
 -- Proving case adapted from tecs.io.mcp.transport.Request. Its private loader.CPtr
 -- handle is intentionally outside JSON; the constrained result model refuses it.
-@derive(types.Debug)
+@derive(types.debug)
 local record TecsMCPRequest
     name: string
     arguments: string
@@ -157,10 +157,10 @@ local corpus = {
 }
 local bytes, debugged = {}, {}
 local accepted = true
-local out = require("nupp.text").newBuffer()
+local out = require("nupp.text").newbuffer()
 for index, request in ipairs(corpus) do
-    local writer = typedJSON.newWriter(out)
-    typedJSON.writeValue(serde.binding(TecsMCPRequest), request, writer)
+    local writer = typedJSON.newwriter(out)
+    typedJSON.writevalue(serde.binding(TecsMCPRequest), request, writer)
     writer:close()
     bytes[index] = out:get()
     debugged[index] = request:debug()

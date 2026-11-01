@@ -16,7 +16,7 @@ local env = envMod.new(HERE .. "/..")
 
 local function runs(src)
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors in test source")
+    testAssert.eq(#result.errors, 0, "syntax errors in test source")
     local diags = check.check(result, "test.nupp", env)
     for _, diag in ipairs(diags or {}) do
         if diag.severity == "error" then
@@ -38,14 +38,14 @@ b:put(1, 2)
 return b:tostring()
 ]]
     )
-    testAssert.equal(value, "ab12", "the module is reachable through the string namespace")
+    testAssert.eq(value, "ab12", "the module is reachable through the string namespace")
 end
 
 function M.theModuleIsTypedRatherThanAny()
     -- If `string.buffer` were `any` this would check silently. It resolves to the
     -- declaration in decls/stringbuffer.d.nupp, so the arity is held.
     local result = parser.parse("local b = string.buffer.new(1, 2, 3, 4)\nreturn b\n", "test")
-    testAssert.equal(#result.errors, 0, "syntax errors")
+    testAssert.eq(#result.errors, 0, "syntax errors")
     local diags = check.check(result, "test.nupp", env)
     local found = false
     for _, diag in ipairs(diags or {}) do
@@ -53,7 +53,7 @@ function M.theModuleIsTypedRatherThanAny()
             found = true
         end
     end
-    testAssert.equal(found, true, "too many arguments is an error, so the type is real")
+    testAssert.eq(found, true, "too many arguments is an error, so the type is real")
 end
 
 function M.aShadowingBindingWins()
@@ -63,7 +63,7 @@ local string = {buffer = {new = function(): string return "shadowed" end}}
 return string.buffer.new()
 ]]
     )
-    testAssert.equal(value, "shadowed", "a local named string is that local")
+    testAssert.eq(value, "shadowed", "a local named string is that local")
 end
 
 function M.anExplicitRequireStillWorks()
@@ -73,12 +73,12 @@ local b = buffer.new()
 b:put("x")
 return b:tostring()
 ]])
-    testAssert.equal(value, "x", "writing the require explicitly still works")
+    testAssert.eq(value, "x", "writing the require explicitly still works")
 end
 
 function M.bareBufferIsNotACompilerGlobal()
     local result = parser.parse("local b = buffer.new()\nreturn b\n", "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors")
+    testAssert.eq(#result.errors, 0, "syntax errors")
     local diags = check.check(result, "test.nupp", env)
     local found = false
     for _, diag in ipairs(diags or {}) do
@@ -86,7 +86,7 @@ function M.bareBufferIsNotACompilerGlobal()
             found = true
         end
     end
-    testAssert.equal(found, true, "strict source rejects the removed buffer global")
+    testAssert.eq(found, true, "strict source rejects the removed buffer global")
 end
 
 function M.decodingRoundTrips()
@@ -97,16 +97,16 @@ b:encode({1, 2, 3})
 local out = b:decode()
 return #out
 ]])
-    testAssert.equal(value, 3, "encode and decode are reachable too")
+    testAssert.eq(value, 3, "encode and decode are reachable too")
 end
 
 function M.compilerFactoryAliasRetainsTheBufferImplementation()
     local text = require("nupp.text")
-    testAssert.equal(type(text.newbuffer), "function")
-    testAssert.equal(text.newbuffer, text.newBuffer)
+    testAssert.eq(type(text.newbuffer), "function")
+    testAssert.eq(text.newbuffer, text.newbuffer)
     local buffer = text.newbuffer()
     buffer:put("native", " buffer")
-    testAssert.equal(buffer:tostring(), "native buffer")
+    testAssert.eq(buffer:tostring(), "native buffer")
 end
 
 return M

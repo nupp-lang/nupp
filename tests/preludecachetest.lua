@@ -47,7 +47,7 @@ end
 --- Every code the checker reports for one source in one environment.
 local function codes(env, source)
     local parsed = parser.parse(source, "prelude-cache.nupp")
-    test.equal(#parsed.errors, 0, "the sample parses")
+    test.eq(#parsed.errors, 0, "the sample parses")
     local out = {}
     for _, diagnostic in ipairs(check.check(parsed, "prelude-cache.nupp", env)) do
         out[#out + 1] = diagnostic.code
@@ -84,20 +84,16 @@ function M.aCachedPreludeAnswersLikeAFreshlyCheckedOne()
     -- Forbidden it, so it checks the prelude from source.
     local fresh = envMod.new(dir, {cache = false})
 
-    test.equal(names(cached.globals), names(fresh.globals), "the same globals")
-    test.equal(names(cached.globalTypes), names(fresh.globalTypes), "the same global types")
-    test.equal(names(cached.globalTypeDefs), names(fresh.globalTypeDefs), "the same declaration sites")
-    test.equal(
-        names(cached.preludeComptimeFunctions),
-        names(fresh.preludeComptimeFunctions),
-        "the same comptime helpers"
-    )
-    test.equal(names(cached.annotations.byname), names(fresh.annotations.byname), "the same built-in annotations")
+    test.eq(names(cached.globals), names(fresh.globals), "the same globals")
+    test.eq(names(cached.globalTypes), names(fresh.globalTypes), "the same global types")
+    test.eq(names(cached.globalTypeDefs), names(fresh.globalTypeDefs), "the same declaration sites")
+    test.eq(names(cached.preludeComptimeFunctions), names(fresh.preludeComptimeFunctions), "the same comptime helpers")
+    test.eq(names(cached.annotations.byname), names(fresh.annotations.byname), "the same built-in annotations")
     assert(cached.stringLib ~= nil, "the string library survives")
-    test.equal(names(cached.stringLib.fields), names(fresh.stringLib.fields), "with the same members")
+    test.eq(names(cached.stringLib.fields), names(fresh.stringLib.fields), "with the same members")
 
     for _, source in ipairs(SAMPLES) do
-        test.equal(codes(cached, source), codes(fresh, source), "the same diagnostics for:\n" .. source)
+        test.eq(codes(cached, source), codes(fresh, source), "the same diagnostics for:\n" .. source)
     end
 
     -- Two environments must not share the tables they are about to add
@@ -143,15 +139,15 @@ function M.theCachedPreludeKeepsItsTrivia()
     local one, other = anyArena(fresh), anyArena(cached)
     assert(one ~= nil, "the checked prelude carries trivia to compare against")
     assert(other ~= nil, "the cached prelude carries trivia")
-    test.equal(other.source, one.source, "the arena keeps the source it indexes")
-    test.equal(other.count, one.count, "and every record in it")
+    test.eq(other.source, one.source, "the arena keeps the source it indexes")
+    test.eq(other.count, one.count, "and every record in it")
     local kind, offset, length, line, col = other:record(1)
     local wantKind, wantOffset, wantLength, wantLine, wantCol = one:record(1)
-    test.equal(kind, wantKind)
-    test.equal(offset, wantOffset)
-    test.equal(length, wantLength)
-    test.equal(line, wantLine)
-    test.equal(col, wantCol)
+    test.eq(kind, wantKind)
+    test.eq(offset, wantOffset)
+    test.eq(length, wantLength)
+    test.eq(line, wantLine)
+    test.eq(col, wantCol)
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -182,8 +178,8 @@ function M.theNextCommandReadsWhatThisOneWrote()
     -- What is compared is the answer, not the bytes: a JSON object writes its
     -- members in whatever order it holds them, and that order is not the point.
     local second = json.decode(run())
-    test.equal(second.ok, first.ok, "and the second answers the same")
-    test.equal(#second.diagnostics, #first.diagnostics, "with the same diagnostics")
+    test.eq(second.ok, first.ok, "and the second answers the same")
+    test.eq(#second.diagnostics, #first.diagnostics, "with the same diagnostics")
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -252,7 +248,7 @@ function M.aStoredPreludeIsNotRestoredOverAnotherIdentity()
                 package.loaded[name] = nil
             end
         end
-        test.equal(package.loaded["nupp.compiler.types"], saved["nupp.compiler.types"], "type identity stays shared")
+        test.eq(package.loaded["nupp.compiler.types"], saved["nupp.compiler.types"], "type identity stays shared")
         if vm then
             for _, name in ipairs({
                 "nupp.compiler.hostpid",
@@ -261,7 +257,7 @@ function M.aStoredPreludeIsNotRestoredOverAnotherIdentity()
                 "nupp.digest.internal.sha256",
             }) do
                 assert(saved[name] ~= nil, "the VM installed " .. name)
-                test.equal(package.loaded[name], saved[name], "the host provider stays installed: " .. name)
+                test.eq(package.loaded[name], saved[name], "the host provider stays installed: " .. name)
             end
         end
     end
@@ -306,14 +302,14 @@ function M.aStoredPreludeIsNotRestoredOverAnotherIdentity()
             end
         end
         table.sort(shared)
-        test.equal(
+        test.eq(
             #shared,
             0,
             "no two interned types share an id:\n  " .. table.concat(shared, "\n  ", 1, math.min(#shared, 10))
         )
 
-        local source = "local function poll(): nupp.HotReloadPoll\n"
-            .. "    return nupp.hotreload.poll()\n"
+        local source = "local function poll(): debug.ReloadPoll\n"
+            .. "    return debug.reload.poll()\n"
             .. "end\n"
             .. "return poll\n"
         local parsed = require("nupp.compiler.syntax.parser").parse(source, "prelude-identity.nupp")
@@ -321,7 +317,7 @@ function M.aStoredPreludeIsNotRestoredOverAnotherIdentity()
         for _, diagnostic in ipairs(require("nupp.compiler.check").check(parsed, "prelude-identity.nupp", env)) do
             found[#found + 1] = tostring(diagnostic.code) .. " " .. tostring(diagnostic.msg)
         end
-        test.equal(table.concat(found, "\n"), "", "a nominal the prelude declares is one type")
+        test.eq(table.concat(found, "\n"), "", "a nominal the prelude declares is one type")
     end)
     restore()
     os.execute("rm -rf '" .. dir .. "'")
@@ -379,10 +375,10 @@ print("shared ids: " .. shared)
     end
 
     local written = run(5)
-    test.equal(written:match("shared ids: %d+"), "shared ids: 0", "the writer's own arena is consistent:\n" .. written)
+    test.eq(written:match("shared ids: %d+"), "shared ids: 0", "the writer's own arena is consistent:\n" .. written)
     local read = run(0)
     os.execute("rm -rf '" .. dir .. "'")
-    test.equal(read:match("shared ids: %d+"), "shared ids: 0", "no two interned types share an id:\n" .. read)
+    test.eq(read:match("shared ids: %d+"), "shared ids: 0", "no two interned types share an id:\n" .. read)
 end
 
 -- Written from the arena as it stands, so the origin is not what refuses it.
@@ -457,7 +453,7 @@ function M.nativeCacheRejectsMalformedPlainData()
         damage(image)
         local ok, decoded = pcall(cache.decode, image)
         assert(ok, "malformed native image " .. index .. " raised: " .. tostring(decoded))
-        test.equal(decoded, nil, "malformed native image " .. index .. " is a cache miss")
+        test.eq(decoded, nil, "malformed native image " .. index .. " is a cache miss")
     end
 end
 
@@ -483,7 +479,7 @@ function M.nativeCacheValidatesEveryRootBeforeAdoptingTypes()
     local ok, decoded = pcall(cache.decode, image)
     types.interned, types.adopt, types.resumeIdentity = oldInterned, oldAdopt, oldResume
     assert(ok, decoded)
-    test.equal(decoded, nil, "an incomplete root list is refused")
+    test.eq(decoded, nil, "an incomplete root list is refused")
     assert(not adopted and not resumed, "a refused native image changed type identity")
 end
 

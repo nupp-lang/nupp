@@ -1,7 +1,7 @@
 -- Width, view-count, and arithmetic-shape coverage for OPT-6. The five-way
 -- representative comparison remains in kernel.nupp/main.lua.
-local span = require("nupp.mem.span")
-local indexed = require("nupp.mem.indexed")
+local span = require("binary.span")
+local indexed = require("binary.span")
 local heap = require("nupp.mem.heap")
 local soa = require("nupp.mem.soa")
 
@@ -177,7 +177,7 @@ end
 function matrix.sharedRoot(borrows storage: float[?], count: integer, repeats: integer): number
     local total = 0
     for _ = 1, repeats do
-        const values = span.fromCarray(storage, count)
+        const values = span.fromcarray(storage, count)
         for index = 1, #values do
             total += values[index]
         end
@@ -189,7 +189,7 @@ end
 @relax("frames")
 function matrix.writableRoot(exclusive storage: float[?], count: integer, repeats: integer): nil
     for _ = 1, repeats do
-        const values = span.writeCarray(storage, count)
+        const values = span.writecarray(storage, count)
         for index = 1, #values do
             values[index] += 1
         end
@@ -200,7 +200,7 @@ end
 @relax("frames")
 function matrix.nestedWritableRoot(exclusive storage: float[?], count: integer, repeats: integer): nil
     for _ = 1, repeats do
-        const root = span.writeCarray(storage, count)
+        const root = span.writecarray(storage, count)
         const window = root:slice(2, count - 1)
         for index = 1, #window do
             window[index] += 1
@@ -212,7 +212,7 @@ end
 
 @relax("frames")
 function matrix.heapSharedRoot(count: integer, repeats: integer): number
-    const storage = heap.allocate(ffi.typeof<float>(), count)
+    const storage = heap.alloc(ffi.typeof<float>(), count)
     local total = 0
     for _ = 1, repeats do
         const values = storage:read()
@@ -227,7 +227,7 @@ end
 
 @relax("frames")
 function matrix.heapWritableRoot(count: integer, repeats: integer): nil
-    const storage = heap.allocate(ffi.typeof<float>(), count)
+    const storage = heap.alloc(ffi.typeof<float>(), count)
     for _ = 1, repeats do
         const values = storage:write()
         for index = 1, #values do
@@ -240,7 +240,7 @@ end
 
 @relax("frames")
 function matrix.soaSharedRoot(count: integer, repeats: integer): number
-    const storage = soa.allocate(ffi.typeof<matrix.RootParticle>(), count)
+    const storage = soa.alloc(ffi.typeof<matrix.RootParticle>(), count)
     local total = 0
     for _ = 1, repeats do
         const rows = storage:read()
@@ -256,7 +256,7 @@ end
 
 @relax("frames")
 function matrix.soaWritableRoot(count: integer, repeats: integer): nil
-    const storage = soa.allocate(ffi.typeof<matrix.RootParticle>(), count)
+    const storage = soa.alloc(ffi.typeof<matrix.RootParticle>(), count)
     for _ = 1, repeats do
         const rows = storage:write()
         do
@@ -284,7 +284,7 @@ end
 function matrix.staticParameterRoot(borrows storage: float[?], count: integer, repeats: integer): number
     local total = 0
     for _ = 1, repeats do
-        const values = span.fromCarray(storage, count)
+        const values = span.fromcarray(storage, count)
         total += sumStatic(values)
     end
 
@@ -292,7 +292,7 @@ function matrix.staticParameterRoot(borrows storage: float[?], count: integer, r
 end
 
 local function acquireStatic(borrows storage: float[?], count: integer): span.Span<float> borrows (storage)
-    return span.fromCarray(storage, count)
+    return span.fromcarray(storage, count)
 end
 
 @relax("frames")
@@ -309,7 +309,7 @@ function matrix.staticReturnedRoot(borrows storage: float[?], count: integer, re
 end
 
 local function acquireDynamic(borrows storage: float[?], count: integer): span.Span<float> borrows (storage)
-    return span.fromCarray(storage, count)
+    return span.fromcarray(storage, count)
 end
 
 local dynamicAcquire = acquireDynamic
@@ -331,7 +331,7 @@ local tecsDirtyCount = 0 as integer
 
 local function tecsGetMut(exclusive storage: float[?], count: integer): span.Writable<float> borrows (storage)
     tecsDirtyCount += 1
-    return span.writeCarray(storage, count)
+    return span.writecarray(storage, count)
 end
 
 @relax("frames")

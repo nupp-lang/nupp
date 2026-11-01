@@ -1,6 +1,6 @@
 module perf
 
-local tasks = require("nupp.tasks")
+local tasks = require("coroutine")
 local perf = {}
 
 local function sum(n: number): number
@@ -17,7 +17,7 @@ function perf.cpu(): number
 end
 
 function perf.worker(): number
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         local child = scope:fork(2000000, sum)
         return child:await()
     end

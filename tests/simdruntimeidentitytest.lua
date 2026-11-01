@@ -14,7 +14,7 @@ return first + second, -first, first:abs(), lanes.sqrt(first), holder.values
 
 local function checkedFixture(module, sealed)
     local parsed = parser.parse(SOURCE:format(module), "simd-runtime-identity.nupp")
-    test.equal(#parsed.errors, 0)
+    test.eq(#parsed.errors, 0)
     local origin = {name = "Vector"}
     origin[sealed and "sealedModule" or "moduleName"] = module
     local vector = {
@@ -72,7 +72,7 @@ function M.generatedHelpersUseTheConstructorsOwnModuleInstance()
             end
 
             local function value(item)
-                test.equal(getmetatable(item), marker, "helper used a different module's vector marker")
+                test.eq(getmetatable(item), marker, "helper used a different module's vector marker")
                 return item.value
             end
 
@@ -85,26 +85,26 @@ function M.generatedHelpersUseTheConstructorsOwnModuleInstance()
             runtime.lane = {
                 binary = function(op, element, left, right)
                     calls = calls + 1
-                    test.equal(op, "+")
-                    test.equal(element, "float")
+                    test.eq(op, "+")
+                    test.eq(element, "float")
                     return construct(value(left) + value(right))
                 end,
                 unary = function(op, element, item)
                     calls = calls + 1
-                    test.equal(op, "-")
-                    test.equal(element, "float")
+                    test.eq(op, "-")
+                    test.eq(element, "float")
                     return construct(-value(item))
                 end,
                 method = function(name, element, item)
                     calls = calls + 1
-                    test.equal(element, "float")
-                    test.equal(name == "abs" or name == "sqrt", true)
+                    test.eq(element, "float")
+                    test.eq(name == "abs" or name == "sqrt", true)
                     return construct(name == "sqrt" and math.sqrt(value(item)) or math.abs(value(item)))
                 end,
                 fromStorage = function(element, lanes, item)
                     calls = calls + 1
-                    test.equal(element, "float")
-                    test.equal(lanes, 4)
+                    test.eq(element, "float")
+                    test.eq(lanes, 4)
                     return construct(value(item))
                 end,
             }
@@ -121,16 +121,16 @@ function M.generatedHelpersUseTheConstructorsOwnModuleInstance()
             end
             local ok, problem = pcall(function()
                 local code, problems = generator.generate(checkedFixture(module, sealed), "simd-runtime-identity.nupp")
-                test.equal(#problems, 0, problems[1] and problems[1].msg)
+                test.eq(#problems, 0, problems[1] and problems[1].msg)
                 local sum, negated, absolute, root, stored = assert(loadstring(code, "@simd-runtime-identity.nupp"))()
-                test.equal(value(sum), 12)
-                test.equal(value(negated), -9)
-                test.equal(value(absolute), 9)
-                test.equal(value(root), 3)
-                test.equal(value(stored), 9)
-                test.equal(calls, 5)
-                test.equal(package.loaded[module], runtime)
-                test.equal(package.loaded[other], nil)
+                test.eq(value(sum), 12)
+                test.eq(value(negated), -9)
+                test.eq(value(absolute), 9)
+                test.eq(value(root), 3)
+                test.eq(value(stored), 9)
+                test.eq(calls, 5)
+                test.eq(package.loaded[module], runtime)
+                test.eq(package.loaded[other], nil)
             end)
             for name, previous in pairs(saved) do
                 package.loaded[name], package.preload[name] = previous.loaded, previous.preload

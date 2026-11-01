@@ -12,10 +12,10 @@ function M.theArgumentLibraryKeepsTheActualRawArgv()
     end
     local count = #original
     local argv = require("arg")
-    test.equal(argv, original)
-    test.equal(argv, arg)
-    test.equal(require("arg"), argv)
-    test.equal(#argv, count)
+    test.eq(argv, original)
+    test.eq(argv, arg)
+    test.eq(require("arg"), argv)
+    test.eq(#argv, count)
     local after, traversed = {}, {}
     for key, value in pairs(argv) do
         after[key] = value
@@ -23,17 +23,17 @@ function M.theArgumentLibraryKeepsTheActualRawArgv()
     for key, value in ipairs(argv) do
         traversed[key] = value
     end
-    test.deepEqual(after, before)
-    test.deepEqual(traversed, sequential)
-    for _, name in ipairs({"parse", "schema", "optParser", "getopt", "application", "command"}) do
-        test.equal(rawget(argv, name), nil, name)
-        test.equal(type(argv[name]), "function", name)
-        test.equal(argv[name], getmetatable(argv).__index[name])
+    test.deepeq(after, before)
+    test.deepeq(traversed, sequential)
+    for _, name in ipairs({"parse", "schema", "optparser", "getopt", "application", "descriptor"}) do
+        test.eq(rawget(argv, name), nil, name)
+        test.eq(type(argv[name]), "function", name)
+        test.eq(argv[name], getmetatable(argv).__index[name])
     end
-    test.equal(rawget(argv, "Arguments"), nil, "derive providers remain erased")
-    test.equal(rawget(argv, "Command"), nil, "derive providers remain erased")
-    test.equal(argv.decodeAs, nil)
-    test.equal(argv.style, nil)
+    test.eq(rawget(argv, "Arguments"), nil, "derive providers remain erased")
+    test.eq(rawget(argv, "Command"), nil, "derive providers remain erased")
+    test.eq(argv.decodeAs, nil)
+    test.eq(argv.style, nil)
 end
 
 function M.theTypedFacadeKeepsProvidersAliasesAndShadowing()

@@ -13,7 +13,7 @@ local P = table.concat({"local struct P", "    x: float", "    y: float", "end",
 
 local function diagsOf(src)
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax: " .. (result.errors[1] and result.errors[1].msg or ""))
+    testAssert.eq(#result.errors, 0, "syntax: " .. (result.errors[1] and result.errors[1].msg or ""))
     local out = {}
     for j, d in ipairs(check.check(result, "test.nupp", env)) do
         out[j] = d.code
@@ -28,9 +28,9 @@ local function run(src)
     fragments = fragments + 1
     local name = "carraytest" .. fragments
     local result = parser.parse(src, name .. ".nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors")
+    testAssert.eq(#result.errors, 0, "syntax errors")
     local diags = check.check(result, name .. ".nupp", env, {moduleName = name})
-    testAssert.equal(#diags, 0, "check: " .. (diags[1] and diags[1].msg or ""))
+    testAssert.eq(#diags, 0, "check: " .. (diags[1] and diags[1].msg or ""))
 
     return program.run(result, name)
 end
@@ -38,21 +38,21 @@ end
 local M = {}
 
 function M.elementsAreReachableAndTyped()
-    testAssert.equal(diagsOf(P .. "\nlocal ps = carray(P, 4)\nlocal v: number = ps[0].x"), "")
-    testAssert.equal(diagsOf(P .. "\nlocal ps = carray(P, 4)\nlocal s: string = ps[0].x"), "NUPP2001")
-    testAssert.equal(diagsOf(P .. "\nlocal ps = carray(P, 4)\nlocal v = ps[0].nope"), "NUPP2004")
+    testAssert.eq(diagsOf(P .. "\nlocal ps = carray(P, 4)\nlocal v: number = ps[0].x"), "")
+    testAssert.eq(diagsOf(P .. "\nlocal ps = carray(P, 4)\nlocal s: string = ps[0].x"), "NUPP2001")
+    testAssert.eq(diagsOf(P .. "\nlocal ps = carray(P, 4)\nlocal v = ps[0].nope"), "NUPP2004")
 end
 
 function M.indexMustBeNumericAndElementTypeIsAStruct()
-    testAssert.equal(diagsOf(P .. "\nlocal ps = carray(P, 4)\nps['k'].x = 1"), "NUPP2004")
-    testAssert.equal(diagsOf(P .. "\nlocal q = carray(4, 8)"), "NUPP2401")
-    testAssert.equal(diagsOf(P .. "\nlocal q = carray(P, 'many')"), "NUPP2401")
+    testAssert.eq(diagsOf(P .. "\nlocal ps = carray(P, 4)\nps['k'].x = 1"), "NUPP2004")
+    testAssert.eq(diagsOf(P .. "\nlocal q = carray(4, 8)"), "NUPP2401")
+    testAssert.eq(diagsOf(P .. "\nlocal q = carray(P, 'many')"), "NUPP2401")
     -- a record is not reifiable, so it cannot back a carray
-    testAssert.equal(diagsOf("local record R\n    n: number\nend\nlocal q = carray(R, 2)"), "NUPP2401")
+    testAssert.eq(diagsOf("local record R\n    n: number\nend\nlocal q = carray(R, 2)"), "NUPP2401")
 end
 
 function M.valuesRoundTripThroughTheArray()
-    testAssert.equal(
+    testAssert.eq(
         run(
             P .. table.concat(
                 {"", "local ps = carray(P, 3)", "for i = 0, 2 do", "    ps[i].x = i * 2", "end", "return ps[2].x",},
@@ -66,34 +66,34 @@ end
 function M.elementsAreReferencesIntoTheArray()
     -- taking an element and writing through it changes the array, which is
     -- what makes the layout worth having
-    testAssert.equal(
+    testAssert.eq(
         run(P .. table.concat({"", "local ps = carray(P, 2)", "local p = ps[1]", "p.x = 9", "return ps[1].x",}, "\n")),
         9
     )
 end
 
 function M.fixedAndVariableLengthAreDistinct()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(P .. "\nlocal ps: P[4] = carray(P, 4)"),
         "",
         "a literal allocation count carries its fixed bound"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(P .. "\nlocal n = 4\nlocal ps: P[4] = carray(P, n)"),
         "NUPP2001",
         "a dynamic allocation remains variable-length"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(P .. "\nlocal a: P[4] = nil as any\nlocal b: P[?] = a"),
         "",
         "a fixed array fits where any length is accepted"
     )
-    testAssert.equal(diagsOf(P .. "\nlocal a: P[?] = nil as any\nlocal b: P[4] = a"), "NUPP2001")
+    testAssert.eq(diagsOf(P .. "\nlocal a: P[?] = nil as any\nlocal b: P[4] = a"), "NUPP2001")
 end
 
 function M.arrayTypeIsWritableInAnnotations()
-    testAssert.equal(diagsOf(P .. "\nlocal ps: P[?] = carray(P, 4)"), "")
-    testAssert.equal(
+    testAssert.eq(diagsOf(P .. "\nlocal ps: P[?] = carray(P, 4)"), "")
+    testAssert.eq(
         diagsOf(
             P .. table.concat({"", "local struct Q", "    n: float", "end", "local ps: Q[?] = carray(P, 4)",}, "\n")
         ),
@@ -103,7 +103,7 @@ end
 
 function M.elementReadBorrowsTheArray()
     -- an element of a reified array is a reference into the array's memory
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             P .. table.concat(
                 {"", "local function grab(): P", "   local ps = carray(P, 4)", "   return ps[3]", "end",},
@@ -112,7 +112,7 @@ function M.elementReadBorrowsTheArray()
         ),
         "NUPP2608"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             P .. table.concat(
                 {
@@ -129,7 +129,7 @@ function M.elementReadBorrowsTheArray()
         ),
         ""
     )
-    testAssert.equal(
+    testAssert.eq(
         run(
             P .. table.concat(
                 {

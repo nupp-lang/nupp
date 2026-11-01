@@ -2,9 +2,5 @@ module nupp.vm.math
 
 local namespace: any = rawget(_G, "math")
 require("nupp.compiler.runtime.math").install(namespace)
-namespace.vec2.len = namespace.vec2.len or namespace.vec2.length
-namespace.vec2.dist = namespace.vec2.dist or namespace.vec2.distance
-namespace.quat.len = namespace.quat.len or namespace.quat.length
-namespace.quat.mul = namespace.quat.mul or namespace.quat.multiply
 
 export = namespace

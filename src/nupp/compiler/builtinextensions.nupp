@@ -23,18 +23,6 @@ local ROOTS = {
             newscalarwriter = true,
             newstringreader = true,
             readall = true,
-            style = true,
-            table = true,
-            writeTable = true,
-            cell = true,
-            paintedCell = true,
-            annotatedCell = true,
-            severity = true,
-            setColorMode = true,
-            withColorMode = true,
-            colorEnabled = true,
-            isTerminal = true,
-            columns = true,
         }
     },
     coroutine = {

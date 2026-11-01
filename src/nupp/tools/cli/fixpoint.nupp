@@ -139,7 +139,7 @@ end
 ---     nupp fixpoint --binary
 ---     nupp fixpoint --emit-stage0 build/stage0/nupp.image
 @cli("fixpoint")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Fixpoint
     --- Write the verified stage-zero image here.
     @cli(value = "PATH")

@@ -92,7 +92,7 @@ function M.cpuGpuMetadataRejectsFractionalIntegers(): nil
     local uncheckedNew = layout.new as any
     local uncheckedSubview = layout.subview as any
     local uncheckedTranspose = layout.transpose as any
-    local uncheckedStrided = layout.asStrided as any
+    local uncheckedStrided = layout.asstrided as any
     rejects(
         function(): nil
             uncheckedNew({1}, {1}, 0.5)
@@ -146,7 +146,7 @@ function M.tensorLayoutsTransposeBroadcastAndProveInjectivity(): nil
     assert2(not broadcast:isDense())
     assert2(not broadcast:isInjective())
 
-    local gapped = layout.asStrided(stored, {2, 2}, {3, 1}, 0)
+    local gapped = layout.asstrided(stored, {2, 2}, {3, 1}, 0)
     assert2(gapped.count == 4)
     assert2(gapped:extent() == 5)
     assert2(not gapped:isDense())
@@ -173,7 +173,7 @@ function M.tensorLayoutsCopyInputsAndValidateEveryTransformation(): nil
 
     local last = layout.subview(stored, {1, 2}, {1, 1})
     assert2(last:offset() == 12 and last:extent() == 1)
-    local shifted = layout.asStrided(stored, {1, 3}, {3, 1}, 3)
+    local shifted = layout.asstrided(stored, {1, 3}, {3, 1}, 3)
     assert2(shifted:offset() == 10 and shifted:extent() == 3)
 
     rejects(
@@ -220,7 +220,7 @@ function M.tensorLayoutsCopyInputsAndValidateEveryTransformation(): nil
     )
     rejects(
         function(): nil
-            layout.asStrided(stored, {2, 2}, {3, 1}, 2)
+            layout.asstrided(stored, {2, 2}, {3, 1}, 2)
         end,
         "exceeds its source"
     )

@@ -26,7 +26,7 @@ end
 
 local function checkOf(src, opts)
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax: " .. (result.errors[1] and result.errors[1].msg or ""))
+    testAssert.eq(#result.errors, 0, "syntax: " .. (result.errors[1] and result.errors[1].msg or ""))
     local merged = {}
     for key, value in pairs(opts or {}) do
         merged[key] = value
@@ -278,14 +278,14 @@ end
 
 function M.everyDiagnosticCarriesASeverity()
     local errs = checkOf('local x: number = "no"')
-    testAssert.equal(errs[1].severity, "error")
+    testAssert.eq(errs[1].severity, "error")
     local warns = checkOf(COLOR .. "\n" .. CHAIN)
-    testAssert.equal(warns[1].severity, "warning")
+    testAssert.eq(warns[1].severity, "warning")
 end
 
 function M.aWarningCanBeAllowed()
-    testAssert.equal(diagsOf(COLOR .. "\n" .. CHAIN), "NUPP2107")
-    testAssert.equal(diagsOf(COLOR .. "\n@allow(NUPP2107)\n" .. CHAIN), "")
+    testAssert.eq(diagsOf(COLOR .. "\n" .. CHAIN), "NUPP2107")
+    testAssert.eq(diagsOf(COLOR .. "\n@allow(NUPP2107)\n" .. CHAIN), "")
 end
 
 -- A registry entry is written by hand. A misspelled category or level would
@@ -316,8 +316,8 @@ function M.everyLintIsWellFormed()
         seen[lint.name], seen[lint.code] = true, true
         -- both spellings have to reach the same entry, since @allow and the
         -- manifest accept either
-        testAssert.equal(check.lintFor(lint.name), lint, at .. ": name does not resolve")
-        testAssert.equal(check.lintFor(lint.code), lint, at .. ": code does not resolve")
+        testAssert.eq(check.lintFor(lint.name), lint, at .. ": name does not resolve")
+        testAssert.eq(check.lintFor(lint.code), lint, at .. ": code does not resolve")
     end
     for category in pairs(check.lintCategories) do
         assert(categoryMembers[category], "lint category has no members: " .. category)
@@ -347,7 +347,7 @@ function M.everyLintHasAReportingAndQuietFixture()
                 reported = reported + 1
             end
         end
-        testAssert.equal(reported, 1, "lint " .. lint.name .. ": reporting fixture")
+        testAssert.eq(reported, 1, "lint " .. lint.name .. ": reporting fixture")
 
         for _, diag in ipairs(diagnosticsFor(fixture.quiet)) do
             assert(diag.code ~= lint.code, "lint " .. lint.name .. ": quiet fixture reported it")
@@ -367,19 +367,19 @@ function M.aProjectMovesALintsLevel()
         return d and (d.severity .. " " .. d.code) or "none"
     end
 
-    testAssert.equal(levelOf(nil), "warning NUPP2107", "the registry default")
-    testAssert.equal(levelOf({["exhaustiveness"] = "error"}), "error NUPP2107", "raised by name")
-    testAssert.equal(levelOf({["NUPP2107"] = "note"}), "note NUPP2107", "and by code, which means the same lint")
-    testAssert.equal(levelOf({["exhaustiveness"] = "off"}), "none", "off is not reported at all")
+    testAssert.eq(levelOf(nil), "warning NUPP2107", "the registry default")
+    testAssert.eq(levelOf({["exhaustiveness"] = "error"}), "error NUPP2107", "raised by name")
+    testAssert.eq(levelOf({["NUPP2107"] = "note"}), "note NUPP2107", "and by code, which means the same lint")
+    testAssert.eq(levelOf({["exhaustiveness"] = "off"}), "none", "off is not reported at all")
 end
 
 -- A category sets a group; a name written beside it still wins.
 function M.aNameBeatsItsCategory()
     local src = COLOR .. "\n" .. CHAIN
     local d = checkOf(src, {lints = {correctness = "off"}})[1]
-    testAssert.equal(d and d.code or "none", "none", "the category reached it")
+    testAssert.eq(d and d.code or "none", "none", "the category reached it")
     d = checkOf(src, {lints = {correctness = "off", ["exhaustiveness"] = "note",}})[1]
-    testAssert.equal(d and d.severity or "none", "note", "the name is more specific")
+    testAssert.eq(d and d.severity or "none", "note", "the name is more specific")
 end
 
 -- The style category exists so a project that prefers `&&` can say so once.
@@ -391,24 +391,24 @@ function M.aProjectTurnsOffTheCustomaryOperatorLint()
         return d and (d.severity .. " " .. d.code) or "none"
     end
 
-    testAssert.equal(levelOf(nil), "warning NUPP2504", "the registry default")
-    testAssert.equal(levelOf({["customary-operator"] = "off"}), "none", "by name")
-    testAssert.equal(levelOf({style = "off"}), "none", "and by category")
-    testAssert.equal(levelOf({style = "note"}), "note NUPP2504", "or moved wholesale")
+    testAssert.eq(levelOf(nil), "warning NUPP2504", "the registry default")
+    testAssert.eq(levelOf({["customary-operator"] = "off"}), "none", "by name")
+    testAssert.eq(levelOf({style = "off"}), "none", "and by category")
+    testAssert.eq(levelOf({style = "note"}), "note NUPP2504", "or moved wholesale")
 end
 
 -- A lint carries the name a person writes alongside the code tooling keys on.
 function M.diagnosticsCarryTheLintName()
     local d = checkOf(COLOR .. "\n" .. CHAIN)[1]
-    testAssert.equal(d.lint, "exhaustiveness", "the name travels with the report")
+    testAssert.eq(d.lint, "exhaustiveness", "the name travels with the report")
     d = checkOf('local x: number = "no"')[1]
-    testAssert.equal(d.lint, nil, "a type error is not a lint and has no name")
+    testAssert.eq(d.lint, nil, "a type error is not a lint and has no name")
 end
 
 function M.anErrorCannotBeAllowed()
     -- A type error is not a judgement to disagree with. The error still stands,
     -- and naming it is itself reported.
-    testAssert.equal(diagsOf('@allow(NUPP2001)\nlocal x: number = "no"'), "NUPP2108 NUPP2001")
+    testAssert.eq(diagsOf('@allow(NUPP2001)\nlocal x: number = "no"'), "NUPP2108 NUPP2001")
     local d = checkOf('@allow(NUPP2001)\nlocal x: number = "no"')[1]
     assert(d.msg:find("not a lint", 1, true), "says why: " .. d.msg)
 end
@@ -416,18 +416,18 @@ end
 -- A lint is a judgement, so a statement may disagree with one at any level --
 -- including a lint that a build would otherwise fail on. A type error is not.
 function M.allowReachesALintAtAnyLevel()
-    testAssert.equal(diagsOf(COLOR .. "\n@allow\n" .. CHAIN), "")
-    testAssert.equal(diagsOf('@allow\nlocal x: number = "no"'), "NUPP2001")
+    testAssert.eq(diagsOf(COLOR .. "\n@allow\n" .. CHAIN), "")
+    testAssert.eq(diagsOf('@allow\nlocal x: number = "no"'), "NUPP2001")
 end
 
 -- The name is what a person writes; the code is what tooling keys on.
 function M.allowTakesALintByNameOrCode()
-    testAssert.equal(diagsOf(COLOR .. '\n@allow("exhaustiveness")\n' .. CHAIN), "")
-    testAssert.equal(diagsOf(COLOR .. "\n@allow(NUPP2107)\n" .. CHAIN), "")
+    testAssert.eq(diagsOf(COLOR .. '\n@allow("exhaustiveness")\n' .. CHAIN), "")
+    testAssert.eq(diagsOf(COLOR .. "\n@allow(NUPP2107)\n" .. CHAIN), "")
 end
 
 function M.itCoversOnlyWhatItDecorates()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(COLOR .. "\n@allow(NUPP2107)\n" .. CHAIN .. "\n" .. CHAIN:gsub("name", "other")),
         "NUPP2107",
         "the next chain still reports"
@@ -439,33 +439,28 @@ function M.severalCodesAtOnce()
         {COLOR, "@allow(NUPP2107, NUPP2504)", "do", CHAIN, "    local both = true && true", "end",},
         "\n"
     )
-    testAssert.equal(diagsOf(src, {strict = true}), "")
-    testAssert.equal(
-        diagsOf((src:gsub("@allow%(NUPP2107, NUPP2504%)", "@allow(NUPP2107)")), {
-            strict = true
-        }),
-        "NUPP2504"
-    )
+    testAssert.eq(diagsOf(src, {strict = true}), "")
+    testAssert.eq(diagsOf((src:gsub("@allow%(NUPP2107, NUPP2504%)", "@allow(NUPP2107)")), {strict = true}), "NUPP2504")
 end
 
 function M.itReachesNestedStatements()
-    testAssert.equal(diagsOf(COLOR .. "\n@allow(NUPP2107)\ndo\n" .. CHAIN .. "\nend"), "")
+    testAssert.eq(diagsOf(COLOR .. "\n@allow(NUPP2107)\ndo\n" .. CHAIN .. "\nend"), "")
 end
 
 function M.aCodeThatNeverFiresIsHarmless()
-    testAssert.equal(diagsOf(COLOR .. "\n@allow(NUPP2501)\n" .. CHAIN), "NUPP2107")
+    testAssert.eq(diagsOf(COLOR .. "\n@allow(NUPP2501)\n" .. CHAIN), "NUPP2107")
 end
 
 function M.quotedCodesWork()
-    testAssert.equal(diagsOf(COLOR .. '\n@allow("NUPP2107")\n' .. CHAIN), "")
+    testAssert.eq(diagsOf(COLOR .. '\n@allow("NUPP2107")\n' .. CHAIN), "")
 end
 
 function M.strictLintsAreWarnings()
     local strict = {strict = true}
     local d = checkOf("local a = true\nlocal both = a && a", strict)
-    testAssert.equal(d[1].code, "NUPP2504")
-    testAssert.equal(d[1].severity, "warning")
-    testAssert.equal(
+    testAssert.eq(d[1].code, "NUPP2504")
+    testAssert.eq(d[1].severity, "warning")
+    testAssert.eq(
         diagsOf(table.concat({"local a = true", "@allow(NUPP2504)", "local both = a && a",}, "\n"), strict),
         ""
     )
@@ -479,33 +474,33 @@ function M.fixedWidthMigrationFixesAreComplete()
     )
     local diagnostics = checkOf(source, strict)
     local fixes = diagnostics[1] and diagnostics[1].fixes
-    testAssert.equal(fixes and #fixes or 0, 1, "a number can only widen the destination")
-    testAssert.equal(fixes[1].title, "change the type to `number`")
+    testAssert.eq(fixes and #fixes or 0, 1, "a number can only widen the destination")
+    testAssert.eq(fixes[1].title, "change the type to `number`")
     local rewritten = applyFix(source, fixes[1])
-    testAssert.equal(diagsOf(rewritten, strict), "", "the widening fix checks")
+    testAssert.eq(diagsOf(rewritten, strict), "", "the widening fix checks")
 
     source = source:gsub("wide: number", "wide: integer")
     diagnostics = checkOf(source, strict)
     fixes = diagnostics[1] and diagnostics[1].fixes
-    testAssert.equal(fixes and #fixes or 0, 2, "an integer can wrap or widen")
-    testAssert.equal(fixes[1].title, "convert with `math.i32.wrap`")
-    testAssert.equal(fixes[2].title, "change the type to `integer`")
+    testAssert.eq(fixes and #fixes or 0, 2, "an integer can wrap or widen")
+    testAssert.eq(fixes[1].title, "convert with `math.i32.wrap`")
+    testAssert.eq(fixes[2].title, "change the type to `integer`")
     rewritten = applyFix(source, fixes[1])
     assert(
         rewritten:find("math.i32.wrap(wide)", 1, true),
         "the conversion encloses the complete initializer: " .. rewritten
     )
-    testAssert.equal(diagsOf(rewritten, strict), "", "the conversion establishes the value")
+    testAssert.eq(diagsOf(rewritten, strict), "", "the conversion establishes the value")
 end
 
 function M.strictUnknownNamesOfferSafeSpellingFixes()
     local source = "local answer: number = 42\nprint(asnwer)"
     local diagnostics = checkOf(source, {strict = true})
-    testAssert.equal(diagnostics[1] and diagnostics[1].code, "NUPP2105")
+    testAssert.eq(diagnostics[1] and diagnostics[1].code, "NUPP2105")
     local fixes = diagnostics[1] and diagnostics[1].fixes
-    testAssert.equal(fixes and #fixes or 0, 1, "one visible name is uniquely close")
-    testAssert.equal(fixes[1].title, "change to `answer`")
-    testAssert.equal(
+    testAssert.eq(fixes and #fixes or 0, 1, "one visible name is uniquely close")
+    testAssert.eq(fixes[1].title, "change to `answer`")
+    testAssert.eq(
         diagsOf(applyFix(source, fixes[1]), {
             strict = true
         }),

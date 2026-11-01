@@ -143,7 +143,7 @@ handler supplies its own blocking behavior.
 
 Generic terminals use ordinary inference and bounds. A terminal is a const
 function identity, not a runtime callback value or a string, which is what makes
-`drop` a statically selected call. `own.attemptAll(value, operations...)` is
+`drop` a statically selected call. `own.attemptall(value, operations...)` is
 the ordinary way to author a single terminal that performs several independent
 operations; the affine type still records only that one terminal identity.
 
@@ -500,7 +500,7 @@ end
 
 `own.region(parent, child, first, last)` erases to `child`. It grants no bounds
 check of its own and therefore requires `@unsafe`, and dynamic bounds produce
-an unknown overlapping interval. `nupp.mem.span` splitting uses the same algebra
+an unknown overlapping interval. `binary.span` splitting uses the same algebra
 rather than receiving ownership privilege from method names.
 
 ### Loop-carried capabilities
@@ -529,7 +529,7 @@ loan can dangle across an edge that carries none:
 
 ```nupp:fragment
 local frame = heap.allocate(ffi.typeof<uint8>(), size)
-with scope = nupp.tasks.open() do
+with scope = coroutine.scope() do
     for generation = 1, 60 do
         frame = scope:fork(frame, generation, jobs.fill):await()
     end
@@ -610,7 +610,7 @@ even when callbacks raise, and close or take clears the payload and cleanup.
 
 `with` provides a shared callback borrow, `withExclusive` provides an exclusive
 one, `take` restores the original affine payload, and `close` exercises close
-authority without making the alias an owner. `own.recoverAlias(anyValue)`
+authority without making the alias an owner. `own.recoveralias(anyValue)`
 checks the unforgeable brand and yields `alias(unknown)`; `downcast<T>` then
 checks its erased representation and exact cleanup policy. Failures return
 `AliasError`, preserving success/error correlation.
@@ -618,7 +618,7 @@ checks its erased representation and exact cleanup policy. Failures return
 Transfer-only owners, external loans, pins, and unmatched foreign retentions
 cannot be managed because a cell could not discharge them independently.
 `own.ManagedGroup` supplies runtime-sized heterogeneous cleanup by storing
-aliases and closing them in reverse adoption order; `own.managedGroup()` creates
+aliases and closing them in reverse adoption order; `own.managedgroup()` creates
 one. It contains one audited
 release where static custody becomes the group's runtime invariant; the
 compiler has no special case for the group.

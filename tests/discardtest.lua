@@ -13,7 +13,7 @@ local envMod = require("nupp.compiler.project.env")
 -- which turns this lint off for everything that is not about it.
 local function lint(src, config)
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors in test source")
+    testAssert.eq(#result.errors, 0, "syntax errors in test source")
     local found = {}
     for _, diag in ipairs(check.check(result, "test.nupp", envMod.new("."), config or {})) do
         if diag.code == "NUPP2508" then
@@ -26,8 +26,8 @@ end
 
 local function assertFlagged(src, label)
     local found = lint(src)
-    testAssert.equal(#found, 1, (label or "expected one report") .. "\n" .. src)
-    testAssert.equal(found[1].lint, "discarded-result", "lint name")
+    testAssert.eq(#found, 1, (label or "expected one report") .. "\n" .. src)
+    testAssert.eq(found[1].lint, "discarded-result", "lint name")
     return found[1]
 end
 
@@ -49,11 +49,11 @@ local M = {}
 
 function M.flagsAPureCallWhoseResultIsDropped()
     local at = assertFlagged(PURE .. "double(21)\n\nreturn double\n")
-    testAssert.equal(at.line, 5, "reported at the statement")
-    testAssert.equal(at.severity, "warning", "suspicious lints warn by default")
-    testAssert.equal(at.msg, "double has no effects, so dropping its result leaves " .. "this statement doing nothing")
-    testAssert.equal(at.related and #at.related, 1, "the declaration comes with it")
-    testAssert.equal(at.related[1].line, 1, "pointing at where it was declared")
+    testAssert.eq(at.line, 5, "reported at the statement")
+    testAssert.eq(at.severity, "warning", "suspicious lints warn by default")
+    testAssert.eq(at.msg, "double has no effects, so dropping its result leaves " .. "this statement doing nothing")
+    testAssert.eq(at.related and #at.related, 1, "the declaration comes with it")
+    testAssert.eq(at.related[1].line, 1, "pointing at where it was declared")
 end
 
 function M.flagsAPureExpressionShortFunctionWhoseResultIsDropped()
@@ -64,7 +64,7 @@ double(21)
 
 return double
 ]])
-    testAssert.equal(at.line, 3, "the short function is analyzed through its binding")
+    testAssert.eq(at.line, 3, "the short function is analyzed through its binding")
 end
 
 function M.anEffectfulExpressionShortFunctionIsLeftAlone()
@@ -156,7 +156,7 @@ tally({1, 2})
 return tally
 ]]
     )
-    testAssert.equal(at.line, 9, "reported at the statement")
+    testAssert.eq(at.line, 9, "reported at the statement")
 end
 
 function M.aRaisingCallIsLeftAlone()
@@ -204,10 +204,10 @@ end
 
 function M.aProjectMovesItsLevel()
     local src = PURE .. "double(21)\n\nreturn double\n"
-    testAssert.equal(#lint(src, {lints = {["discarded-result"] = "off"}}), 0, "off is not reported")
+    testAssert.eq(#lint(src, {lints = {["discarded-result"] = "off"}}), 0, "off is not reported")
     local raised = lint(src, {lints = {["discarded-result"] = "error"}})
-    testAssert.equal(raised[1] and raised[1].severity, "error", "raised by name")
-    testAssert.equal(#lint(src, {lints = {suspicious = "off"}}), 0, "and by category")
+    testAssert.eq(raised[1] and raised[1].severity, "error", "raised by name")
+    testAssert.eq(#lint(src, {lints = {suspicious = "off"}}), 0, "and by category")
 end
 
 return M

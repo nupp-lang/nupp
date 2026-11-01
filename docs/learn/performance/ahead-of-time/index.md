@@ -100,5 +100,5 @@ and a tail. A loop without those operations is scalar. See
 
 ::: seealso
 - [performance.md](../index.md) for reading the bytecode ordinary Nupp lowers to
-- [](nupp.mem.span) for the span types a kernel takes
+- [](binary.span) for the span types a kernel takes
 :::

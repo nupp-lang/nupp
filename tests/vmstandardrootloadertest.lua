@@ -40,8 +40,8 @@ function M.finalStandardRootsUseTheExistingCompilerSourceLoader()
         function(loaders)
             for _, name in ipairs({"types", "own", "utf8", "io.path", "io.uri"}) do
                 local loader = loaders[#loaders](name)
-                test.equal(type(loader), "function", name)
-                test.equal(loader(), marker, name)
+                test.eq(type(loader), "function", name)
+                test.eq(loader(), marker, name)
                 local selected = reached[name]
                 assert(
                     selected.source ~= nil and selected.path == name or selected.path:find("/src/", 1, true),
@@ -49,7 +49,7 @@ function M.finalStandardRootsUseTheExistingCompilerSourceLoader()
                 )
             end
             local reason = loaders[#loaders]("application.nonexistent")
-            test.equal(type(reason), "string")
+            test.eq(type(reason), "string")
             assert(reason:find("no standard library source for module 'application.nonexistent'", 1, true), reason)
         end
     )
@@ -68,12 +68,12 @@ function M.dynamicPublicSimdUsesTheFrozenHostObject()
         end,
         function(loaders)
             local chunk = loaders[1]("simd")
-            test.equal(type(chunk), "function")
-            test.equal(reached, ROOT .. "/native/crates/vm/lib/nupp/vm/simdbinding.nupp")
-            test.equal(compiledName, "nupp.vm.simdbinding")
+            test.eq(type(chunk), "function")
+            test.eq(reached, ROOT .. "/native/crates/vm/lib/nupp/vm/simdbinding.nupp")
+            test.eq(compiledName, "nupp.vm.simdbinding")
             local value = chunk()
-            test.equal(value, package.loaded["nupp.simd"])
-            test.equal(value.vectors(), nil)
+            test.eq(value, package.loaded["nupp.simd"])
+            test.eq(value.vectors(), nil)
             test.raises(
                 function()
                     value.species()
@@ -92,13 +92,13 @@ end
 @comptime local function Items(Element: type): type
     return types.array(Element)
 end
-local store = require("types").newStore()
+local store = require("types").newstore()
 return type(store)
 ]]
     local env = environment.new(ROOT, {cache = false})
     local image = assert(compile.image("metadata-comptime.nupp", env, "metadatacomptime", nil, source, false))
     local chunk = assert(assert(rawget(_G, "__nupp_load_image"))(image))
-    test.equal(chunk(), "table", "ordinary runtime namespace remains available")
+    test.eq(chunk(), "table", "ordinary runtime namespace remains available")
 end
 
 return M

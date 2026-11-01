@@ -1,16 +1,18 @@
+@!internal
+
 module nupp.mem.span
 
 --[[
-`nupp.mem.span` gives a C array a rooted, one-based, bounds-checked view. A
+`binary.span` gives a C array a rooted, one-based, bounds-checked view. A
 shared `Span<T>` reads contiguous elements; a writable span adds exclusive
 access and an [affine lifetime](docs/learn/runtime/ownership/index.md), so the pointer
 cannot outlive or overlap its owner.
 
 ```nupp
-local span = nupp.mem.span
+local span = binary.span
 
 const text = "hello"
-const bytes = span.fromString(text)
+const bytes = span.fromstring(text)
 assert(#bytes == 5)
 ```
 
@@ -24,12 +26,12 @@ reach the raw pointer it holds. Indexing and slicing check that count first.
 
 ## Creating a shared span
 
-`fromCarray(source, count)` borrows a C array and records its logical element
-count. `fromString(source)` creates the byte-specialized `ByteSpan`. Both keep
+`fromcarray(source, count)` borrows a C array and records its logical element
+count. `fromstring(source)` creates the byte-specialized `ByteSpan`. Both keep
 their source rooted for the lifetime of the view.
 
 ```nupp
-local span = nupp.mem.span
+local span = binary.span
 
 local struct Point
     x: float
@@ -37,7 +39,7 @@ local struct Point
 end
 
 const storage = carray(Point, 4)
-const points = span.fromCarray(storage, 4)
+const points = span.fromcarray(storage, 4)
 assert(#points == 4)
 assert(points[1].x == 0)
 ```
@@ -56,18 +58,18 @@ last access, so the checked meaning does not change with the optimization
 level. An escape or an opaque call materializes the same checked span.
 :::
 
-`fromFixedCarray(source, count)` returns `FixedSpan<T, N>` when the array and
+`fromfixedcarray(source, count)` returns `FixedSpan<T, N>` when the array and
 literal count carry the same static `N`. It satisfies `Span<T>`, while
 preserving the exact count for checks and generated code.
 
 ## Writable spans
 
-`writeCarray` returns the affine alias `Writable<T>`. Its underlying
+`writecarray` returns the affine alias `Writable<T>`. Its underlying
 `WriteSpan<T>` contract is what a function accepting exclusive access names:
 
 ```nupp
-local span = nupp.mem.span
-local indexed = nupp.mem.indexed
+local span = binary.span
+local indexed = binary.span
 
 local struct Point
     x: float
@@ -83,7 +85,7 @@ local function clear(exclusive points: span.WriteSpan<Point>): nil
 end
 
 local storage = carray(Point, 4)
-const points = span.writeCarray(storage, 4)
+const points = span.writecarray(storage, 4)
 clear(points)
 own.drop(points)
 ```
@@ -94,7 +96,7 @@ view's lifetime.
 
 A writable span is affine because it represents exclusive access rather than
 owned memory. Dropping it, explicitly or at scope exit, ends that access; it
-does not free or copy the source array. `writeFixedCarray` and
+does not free or copy the source array. `writefixedcarray` and
 `FixedWritable<T, N>` preserve a static count in the same way as their shared
 counterparts.
 
@@ -123,8 +125,8 @@ trusted Span or [SoA view](docs/learn/runtime/data/structure-of-arrays.md) and
 returns a record whose `first` and `last` are ordinary integers:
 
 ```nupp
-local span = nupp.mem.span
-local indexed = nupp.mem.indexed
+local span = binary.span
+local indexed = binary.span
 
 local struct Value
     n: integer
@@ -147,7 +149,7 @@ local function dot(
 end
 
 const storage = carray(Value, 4)
-const values = span.fromCarray(storage, 4)
+const values = span.fromcarray(storage, 4)
 print(dot(values, values))
 ```
 
@@ -216,7 +218,7 @@ sealed interface span.Span<T>
     --- `first, first - 1` is how an empty subspan is written.
     ---
     --- ```nupp:fragment
-    --- const values = span.fromCarray(storage, 4)
+    --- const values = span.fromcarray(storage, 4)
     --- const middle = values:slice(2, 3)
     --- assert(#middle == 2)
     --- ```
@@ -627,7 +629,7 @@ function FixedWriteSpanImpl.drop<T, const N: integer>(takes self: FixedWriteSpan
     end
 end
 
---- The byte-specialized shared view, which is what `fromString` returns.
+--- The byte-specialized shared view, which is what `fromstring` returns.
 --- @export
 type span.ByteSpan = span.Span<uint8>
 
@@ -639,7 +641,7 @@ type span.ByteWriteSpan = span.WriteSpan<uint8>
 ---
 --- ```nupp:fragment
 --- const text = "hello"
---- const bytes = span.fromString(text)
+--- const bytes = span.fromstring(text)
 --- assert(#bytes == 5 and bytes[1] == 104)
 --- ```
 ---
@@ -690,7 +692,7 @@ rawset(span as table, "__foreignSpan", foreignSpan)
 --- end
 ---
 --- const storage = carray(Value, 4)
---- const values = span.fromCarray(storage, 4)
+--- const values = span.fromcarray(storage, 4)
 --- assert(#values == 4)
 --- ```
 ---
@@ -739,12 +741,12 @@ end
 ---
 --- const storage = carray(Value, 4)
 --- do
----     local writable = span.writeCarray(storage, 4)
+---     local writable = span.writecarray(storage, 4)
 ---     writable[1] = new Value(42)
 ---     own.drop(writable)
 --- end
 ---
---- const values = span.fromCarray(storage, 4)
+--- const values = span.fromcarray(storage, 4)
 --- assert(values[1].n == 42)
 --- ```
 ---

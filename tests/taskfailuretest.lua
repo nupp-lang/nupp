@@ -1,11 +1,12 @@
 local testAssert = require("assert")
-local tasks = require("nupp.tasks")
-local time = require("nupp.time")
+require("nupp.runtime.standardcoroutine")
+local tasks = require("coroutine")
+local time = require("coroutine")
 local M = {}
 
 local function raises(body)
     local ok, problem = pcall(body)
-    testAssert.equal(ok, false, "expected a failure")
+    testAssert.eq(ok, false, "expected a failure")
     return problem
 end
 
@@ -28,8 +29,8 @@ local function failWithCleanupErrors(scope, primary, first, second)
 end
 
 local function assertCleanupErrors(problem, primary, first, second)
-    testAssert.equal(problem.primary, primary, "the original failure keeps its identity")
-    testAssert.equal(#problem.suppressed, 2, "both sibling failures survive")
+    testAssert.eq(problem.primary, primary, "the original failure keeps its identity")
+    testAssert.eq(#problem.suppressed, 2, "both sibling failures survive")
     local seen = {}
     for _, failure in ipairs(problem.suppressed) do
         seen[failure] = true
@@ -39,7 +40,7 @@ end
 
 function M.closeRetainsEverySiblingCleanupFailure()
     local primary, first, second = {}, {}, {}
-    local scope = tasks.open()
+    local scope = tasks.scope()
     failWithCleanupErrors(scope, primary, first, second)
     local problem = raises(function()
         scope:close()
@@ -60,14 +61,14 @@ end
 
 function M.cancellationDoesNotBecomeASuppressedFailure()
     local primary = {}
-    local scope = tasks.open()
+    local scope = tasks.scope()
     scope:spawn(function()
         time.sleep(5000)
     end)
     scope:spawn(function()
         error(primary, 0)
     end)
-    testAssert.equal(
+    testAssert.eq(
         raises(function()
             scope:close()
         end),
@@ -89,30 +90,30 @@ function M.runRetainsCleanupFailureAfterADeadline()
             time.sleep(5000)
         end)
     end)
-    assert(tasks.isCancelled(problem.primary), "the deadline stays primary")
-    testAssert.equal(problem.suppressed[1], cleanup, "cleanup survives deadline cancellation")
+    assert(tasks.iscancelled(problem.primary), "the deadline stays primary")
+    testAssert.eq(problem.suppressed[1], cleanup, "cleanup survives deadline cancellation")
 end
 
 function M.equalFailuresFromDifferentChildrenAreRetained()
-    local scope = tasks.open()
+    local scope = tasks.scope()
     failWithCleanupErrors(scope, "same failure", "same failure", "same failure")
     local problem = raises(function()
         scope:close()
     end)
-    testAssert.equal(problem.primary, "same failure")
-    testAssert.equal(problem.suppressedCount, 2)
-    testAssert.equal(problem.suppressed[1], "same failure")
-    testAssert.equal(problem.suppressed[2], "same failure")
+    testAssert.eq(problem.primary, "same failure")
+    testAssert.eq(problem.suppressedCount, 2)
+    testAssert.eq(problem.suppressed[1], "same failure")
+    testAssert.eq(problem.suppressed[2], "same failure")
 end
 
 function M.nilCleanupFailuresKeepTheirPosition()
-    local scope = tasks.open()
+    local scope = tasks.scope()
     failWithCleanupErrors(scope, "primary", nil, "last")
     local problem = raises(function()
         scope:close()
     end)
-    testAssert.equal(problem.primary, "primary")
-    testAssert.equal(problem.suppressedCount, 2)
+    testAssert.eq(problem.primary, "primary")
+    testAssert.eq(problem.suppressedCount, 2)
     local nils, lasts = 0, 0
     for index = 1, problem.suppressedCount do
         if problem.suppressed[index] == nil then
@@ -122,8 +123,8 @@ function M.nilCleanupFailuresKeepTheirPosition()
             lasts = lasts + 1
         end
     end
-    testAssert.equal(nils, 1)
-    testAssert.equal(lasts, 1)
+    testAssert.eq(nils, 1)
+    testAssert.eq(lasts, 1)
     assert(tostring(problem):find("cleanup: nil", 1, true))
 end
 

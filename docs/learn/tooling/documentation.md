@@ -134,7 +134,7 @@ The type is the value `error` is called with. An ordinary Lua message is a
 links the name to that declaration's own documentation:
 
 ```nupp:fragment
-const tasks = require("nupp.tasks")
+const tasks = require("coroutine")
 
 --- Waits for the batch to settle.
 ---
@@ -599,13 +599,13 @@ to whatever documents it. The name may be a module, a declaration, or a member,
 and it works the same in a handwritten page, a module blurb, and a `---` run:
 
 ```markdown
-[the span module](nupp.mem.span)
-[](nupp.mem.span.WriteSplit)
-[the conversion](nupp.mem.span.fromString)
-[](nupp.mem.span#writable-spans)
+[the span module](binary.span)
+[](binary.span.WriteSplit)
+[the conversion](binary.span.fromstring)
+[](binary.span#writable-spans)
 ```
 
-Empty link text stands for the target, so `[](nupp.mem.span)` renders that
+Empty link text stands for the target, so `[](binary.span)` renders that
 name as code and links it, which is the whole cost of a reference in passing.
 
 An unqualified name works wherever it is unambiguous, and a name declared in

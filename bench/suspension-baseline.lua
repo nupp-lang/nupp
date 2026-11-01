@@ -129,6 +129,7 @@ end
 -- The work each path performs, so the rows differ by their machinery and not by what
 -- they compute.
 local total = 0
+
 local function payload(value)
     total = total + value
 
@@ -147,22 +148,29 @@ local function bench(name, body, note, operations)
     local timed = measure(function()
         body(operations or OPERATIONS)
     end)
-    local bytes = allocated(function()
-        body(operations and math.max(math.floor(operations / 10), 1) or ALLOC_OPERATIONS)
-    end, operations and math.max(math.floor(operations / 10), 1) or ALLOC_OPERATIONS)
+    local bytes = allocated(
+        function()
+            body(operations and math.max(math.floor(operations / 10), 1) or ALLOC_OPERATIONS)
+        end,
+        operations and math.max(math.floor(operations / 10), 1) or ALLOC_OPERATIONS
+    )
     record(name, timed, note, bytes, operations or OPERATIONS)
 end
 
 bench("direct", directLoop, "a traced loop, not a call")
 
 if task then
-    bench("blocking", function(n)
-        for _ = 1, n do
-            if task.waitMode() == "blocking" then
-                payload(1)
+    bench(
+        "blocking",
+        function(n)
+            for _ = 1, n do
+                if task.waitMode() == "blocking" then
+                    payload(1)
+                end
             end
-        end
-    end, "waitMode check, then call through")
+        end,
+        "waitMode check, then call through"
+    )
 
     -- Drives a task to completion, stepping until it settles or nothing is ready.
     local function drive(spawn, onIdle)
@@ -180,76 +188,96 @@ if task then
 
     -- The comparison `handled-ready` wants: identical context, identical scheduler, one
     -- fewer protocol.
-    bench("task-direct", function(n)
-        drive(function()
-            local sum = 0
-            for _ = 1, n do
-                sum = sum + 1
-            end
+    bench(
+        "task-direct",
+        function(n)
+            drive(function()
+                local sum = 0
+                for _ = 1, n do
+                    sum = sum + 1
+                end
 
-            return sum
-        end)
-    end, "the same work inside a task")
+                return sum
+            end)
+        end,
+        "the same work inside a task"
+    )
 
     -- The gate alone, without the await protocol wrapped round it.
-    bench("gate-only", function(n)
-        drive(function()
-            local sum = 0
-            for _ = 1, n do
-                local gate = task.newGate(function()
-                end)
-                gate:complete(1)
-                local value = gate:wait()
-                sum = sum + (value or 0)
-            end
+    bench(
+        "gate-only",
+        function(n)
+            drive(function()
+                local sum = 0
+                for _ = 1, n do
+                    local gate = task.newGate(function()
+                    end)
+                    gate:complete(1)
+                    local value = gate:wait()
+                    sum = sum + (value or 0)
+                end
 
-            return sum
-        end)
-    end, "newGate, complete, wait")
+                return sum
+            end)
+        end,
+        "newGate, complete, wait"
+    )
 
-    bench("handled-ready", function(n)
-        drive(function()
-            local sum = 0
-            for _ = 1, n do
-                sum = sum + task.awaitCallback(function(resume)
-                    resume(1)
+    bench(
+        "handled-ready",
+        function(n)
+            drive(function()
+                local sum = 0
+                for _ = 1, n do
+                    sum = sum + task.awaitCallback(function(resume)
+                        resume(1)
 
-                    return function()
-                    end
-                end)
-            end
+                        return function()
+                        end
+                    end)
+                end
 
-            return sum
-        end)
-    end, "awaitCallback resumed synchronously")
+                return sum
+            end)
+        end,
+        "awaitCallback resumed synchronously"
+    )
 
     local PARKS = math.max(math.floor(OPERATIONS / 100), 1)
-    bench("park-resume", function(n)
-        local pending = nil
-        drive(function()
-            local sum = 0
-            for _ = 1, n do
-                sum = sum + task.awaitCallback(function(resume)
-                    pending = resume
+    bench(
+        "park-resume",
+        function(n)
+            local pending = nil
+            drive(
+                function()
+                    local sum = 0
+                    for _ = 1, n do
+                        sum = sum + task.awaitCallback(function(resume)
+                            pending = resume
 
-                    return function()
+                            return function()
+                            end
+                        end)
                     end
-                end)
-            end
 
-            return sum
-        end, function()
-            if pending then
-                local resume = pending
-                pending = nil
-                resume(1)
+                    return sum
+                end,
+                function()
+                    if pending then
+                        local resume = pending
+                        pending = nil
+                        resume(1)
 
-                return true
-            end
+                        return true
+                    end
 
-            return false
-        end)
-    end, format("%d parks, each with a scheduler round trip", PARKS), PARKS)
+                    return false
+                end
+            )
+        end,
+        format("%d parks, each with a scheduler round trip", PARKS),
+        PARKS
+    )
 end
 
 -- Nupp's own rows, so the acceptance gate is reproducible rather than recorded. The
@@ -257,54 +285,74 @@ end
 -- above, so the comparison is like for like; the hoisted variant separates the
 -- runtime's
 -- own cost from it.
-local nuppOk, nupp = pcall(require, "nupp.suspension")
+local nuppOk, nupp = pcall(require, "coroutine.suspension")
 if nuppOk then
-    bench("nupp-ready", function(n)
-        for _ = 1, n do
-            payload(nupp.suspend("bench", function(resume)
-                resume(1)
+    bench(
+        "nupp-ready",
+        function(n)
+            for _ = 1, n do
+                payload(
+                    nupp.suspend("bench", function(resume)
+                        resume(1)
 
-                return nil
-            end))
-        end
-    end, "suspend, subscription ready in the call")
+                        return nil
+                    end)
+                )
+            end
+        end,
+        "suspend, subscription ready in the call"
+    )
 
     local hoisted = function(resume)
         resume(1)
 
         return nil
     end
-    bench("nupp-ready-h", function(n)
-        for _ = 1, n do
-            payload(nupp.suspend("bench", hoisted))
-        end
-    end, "the same, subscription hoisted out")
+    bench(
+        "nupp-ready-h",
+        function(n)
+            for _ = 1, n do
+                payload(nupp.suspend("bench", hoisted))
+            end
+        end,
+        "the same, subscription hoisted out"
+    )
 end
 
 -- Item (b)'s cost, measured before it exists and again after. Handler inheritance
 -- means every resume saves, switches and restores, so the row is per resumed task
 -- rather than per await -- which is why it gets a budget rather than a comparison.
 local RESUMES = math.max(math.floor(OPERATIONS / 10), 1)
-bench("coroutine-resume", function(n)
-    for _ = 1, n do
-        local co = coroutine.create(function()
-            coroutine.yield()
-        end)
-        coroutine.resume(co)
-        coroutine.resume(co)
-    end
-end, "create, resume, resume: the floor inheritance adds to", RESUMES)
-
-if nuppOk then
-    bench("nupp-create", function(n)
+bench(
+    "coroutine-resume",
+    function(n)
         for _ = 1, n do
-            local co = nupp.create(function()
+            local co = coroutine.create(function()
                 coroutine.yield()
             end)
             coroutine.resume(co)
             coroutine.resume(co)
         end
-    end, "an inheriting create, then ordinary resumes", RESUMES)
+    end,
+    "create, resume, resume: the floor inheritance adds to",
+    RESUMES
+)
+
+if nuppOk then
+    bench(
+        "nupp-create",
+        function(n)
+            for _ = 1, n do
+                local co = nupp.create(function()
+                    coroutine.yield()
+                end)
+                coroutine.resume(co)
+                coroutine.resume(co)
+            end
+        end,
+        "an inheriting create, then ordinary resumes",
+        RESUMES
+    )
 end
 
 print(

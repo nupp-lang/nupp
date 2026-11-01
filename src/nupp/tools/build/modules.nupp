@@ -11,7 +11,7 @@ change anywhere in that set rebuilds it and a change anywhere else does not.
 ]]
 const assert2 = require("assert")
 
-const files = require("nupp.io.files")
+const files = require("io.files")
 const {type Target as Target2} = require("nupp.tools.build.manifest")
 const {type Inc} = require("nupp.compiler.project.incremental")
 const {type ConstTerm} = require("nupp.compiler.types")

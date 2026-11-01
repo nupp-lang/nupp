@@ -25,7 +25,7 @@ function M.everyOverloadGuideExampleChecksAsDocumented()
         expected = expected:gsub(",", "")
 
         local result = parser.parse(source, "overloads-example-" .. count .. ".nupp")
-        testAssert.equal(#result.errors, 0, "syntax errors in overload guide example " .. count)
+        testAssert.eq(#result.errors, 0, "syntax errors in overload guide example " .. count)
 
         local actual = {}
         for _, diag in ipairs(check.check(result, "overloads-example-" .. count .. ".nupp", env, {strict = true})) do
@@ -33,7 +33,7 @@ function M.everyOverloadGuideExampleChecksAsDocumented()
                 actual[#actual + 1] = diag.code
             end
         end
-        testAssert.equal(
+        testAssert.eq(
             table.concat(actual, " "),
             expected,
             "diagnostics in overload guide example " .. count .. "\n" .. source

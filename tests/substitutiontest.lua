@@ -16,7 +16,7 @@ local env = envMod.new(HERE .. "/..")
 local function diagnostics(source)
     env.loaded = {}
     local parsed = parser.parse(source, "test.nupp")
-    testAssert.equal(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
+    testAssert.eq(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
     return check.check(parsed, "test.nupp", env)
 end
 
@@ -30,11 +30,11 @@ local function codes(source)
 end
 
 local function clean(source)
-    testAssert.equal(codes(source), "", "expected clean check for:\n" .. source)
+    testAssert.eq(codes(source), "", "expected clean check for:\n" .. source)
 end
 
 local function reports(source, want)
-    testAssert.equal(codes(source), want, "for:\n" .. source)
+    testAssert.eq(codes(source), want, "for:\n" .. source)
 end
 
 local M = {}
@@ -443,11 +443,11 @@ function M.anUninferredResultParameterIsAnError()
     -- leaves it, is a different binder: the diagnostic below names T, not A.
     local renamed = body:gsub("<T>%(%): T", "<A>(): A")
     local earlier = diagnostics(renamed .. "local value = make()\n")
-    testAssert.equal(#earlier, 1, "one uninferred parameter")
+    testAssert.eq(#earlier, 1, "one uninferred parameter")
     assert(earlier[1].msg:find("parameter A ", 1, true), earlier[1].msg)
     local found = diagnostics(body .. "local value = make()\n")
-    testAssert.equal(#found, 1, "one uninferred parameter")
-    testAssert.equal(found[1].code, "NUPP2148")
+    testAssert.eq(#found, 1, "one uninferred parameter")
+    testAssert.eq(found[1].code, "NUPP2148")
     assert(found[1].msg:find("parameter T ", 1, true), "diagnostic names the parameter: " .. found[1].msg)
     assert(found[1].msg:find("make", 1, true), "diagnostic names the callee")
     assert(found[1].help and found[1].help:find("make<T>(...)", 1, true), "help shows the explicit form")
@@ -717,11 +717,11 @@ end
     for index, source in ipairs(revisions) do
         local parsed = parser.parse(source, "generic-bound-edit.nupp")
         retained[index] = parsed
-        testAssert.equal(#parsed.errors, 0, "revision syntax")
+        testAssert.eq(#parsed.errors, 0, "revision syntax")
         local diagnostics = check.check(parsed, "generic-bound-edit.nupp", revisionEnv)
-        testAssert.equal(#diagnostics, 0, "revision " .. index .. ": " .. (diagnostics[1] and diagnostics[1].msg or ""))
+        testAssert.eq(#diagnostics, 0, "revision " .. index .. ": " .. (diagnostics[1] and diagnostics[1].msg or ""))
     end
-    testAssert.equal(#retained, 2, "both checked revisions remain live")
+    testAssert.eq(#retained, 2, "both checked revisions remain live")
 end
 
 -- A table written with positional entries where a tuple result is declared is that

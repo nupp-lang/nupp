@@ -96,7 +96,7 @@ if saveWorld:getStats().entities ~= COUNT then
 end
 
 const save = harness.newStage("save")
-const output = buffer.newBuffer()
+const output = buffer.newbuffer()
 const options: ecs.SnapshotOptions = {format = "binary", buffer = output}
 harness.measure(save, WARMUP, SAMPLES, function(): nil
     if saveWorld:saveSnapshot(options).entityCount ~= COUNT then

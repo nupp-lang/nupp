@@ -17,7 +17,7 @@ local function compile(text, sourcePath, profile)
     local path = sourcePath or "=guest_branch_fixture.nupp"
     local parsed = parser.parse(text, path)
     local name = cst.declaredModule(parsed.root) or "guest_branch_fixture"
-    test.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
+    test.eq(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
     local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
     local diagnostics = checker.check(parsed, path, env, {
         moduleName = name,
@@ -67,7 +67,7 @@ end
 
 local function refuses(action, expected)
     local ok, problem = pcall(action)
-    test.equal(ok, false)
+    test.eq(ok, false)
     assert(tostring(problem):find(expected, 1, true), tostring(problem))
 end
 
@@ -75,8 +75,8 @@ function M.literalBooleanConditionsRetainBothSourceArms()
     for _, condition in ipairs({"true", "false"}) do
         local complete = accept("if " .. condition .. " then return true else return false end")
         local g = complete.graphs[complete.header.entry + 1]
-        test.equal(#terms(g, "branch"), 1)
-        test.equal(#terms(g, "return"), 2)
+        test.eq(#terms(g, "branch"), 1)
+        test.eq(#terms(g, "return"), 2)
         local seen = {}
         for _, constant in ipairs(g.constants) do
             seen[constant.kind] = true
@@ -95,9 +95,9 @@ return choose(true)
 ]]
     )
     local g = ownerGraph(complete, "choose")
-    test.equal(g.nparams, 1)
-    test.equal(terms(g, "branch")[1].term.value, 1)
-    test.equal(g.slots[1], 1)
+    test.eq(g.nparams, 1)
+    test.eq(terms(g, "branch")[1].term.value, 1)
+    test.eq(g.slots[1], 1)
 end
 
 function M.callConditionBranchesFromItsActualContinuation()
@@ -110,9 +110,9 @@ if identity(true) then return true else return false end
     local g = complete.graphs[complete.header.entry + 1]
     local call = terms(g, "invoke")[1].term
     local branch = terms(g, "branch")[1]
-    test.equal(call.edges[1].target, branch.block.id)
-    test.equal(branch.term.value, call.result)
-    test.equal(branch.block.params[1], call.result)
+    test.eq(call.edges[1].target, branch.block.id)
+    test.eq(branch.term.value, call.result)
+    test.eq(branch.block.params[1], call.result)
 end
 
 function M.elseifCallIsOnlyReachedThroughTheFalseEdge()
@@ -130,11 +130,11 @@ end
     )
     local g = complete.graphs[complete.header.entry + 1]
     local calls, branches = terms(g, "invoke"), terms(g, "branch")
-    test.equal(#calls, 2)
-    test.equal(#branches, 2)
-    test.equal(#terms(g, "return"), 3)
-    test.equal(branches[1].term.edges[2].target, calls[2].block.id)
-    test.equal(calls[2].term.edges[1].target, branches[2].block.id)
+    test.eq(#calls, 2)
+    test.eq(#branches, 2)
+    test.eq(#terms(g, "return"), 3)
+    test.eq(branches[1].term.edges[2].target, calls[2].block.id)
+    test.eq(calls[2].term.edges[1].target, branches[2].block.id)
 end
 
 function M.armCallsJoinTheUpdatedLocalAfterResuming()
@@ -151,25 +151,25 @@ return choose(true)
     )
     local g = ownerGraph(complete, "choose")
     local calls, returned = terms(g, "invoke"), terms(g, "return")[1]
-    test.equal(#calls, 2)
+    test.eq(#calls, 2)
     assert(returned.term.value > g.nparams)
     local joins = 0
     for _, call in ipairs(calls) do
         local resumed = g.blocks[call.term.edges[1].target]
-        test.equal(resumed.term.kind, "jump")
-        test.equal(resumed.term.edges[1].target, returned.block.id)
+        test.eq(resumed.term.kind, "jump")
+        test.eq(resumed.term.edges[1].target, returned.block.id)
         local edge, target = resumed.term.edges[1], returned.block.params
         local carried = false
         for index, value in ipairs(target) do
             if value == returned.term.value then
-                test.equal(edge.args[index], call.term.result)
+                test.eq(edge.args[index], call.term.result)
                 carried = true
             end
         end
         assert(carried, "arm result did not reach the join")
         joins = joins + 1
     end
-    test.equal(joins, 2)
+    test.eq(joins, 2)
 end
 
 function M.elseLessAssignmentJoinsTheUnchangedFalsePath()
@@ -188,17 +188,17 @@ return choose(false)
     local incoming = {}
     for _, edge in ipairs(branch.term.edges) do
         local arm = g.blocks[edge.target]
-        test.equal(arm.term.kind, "jump")
-        test.equal(arm.term.edges[1].target, returned.block.id)
+        test.eq(arm.term.kind, "jump")
+        test.eq(arm.term.edges[1].target, returned.block.id)
         for index, value in ipairs(returned.block.params) do
             if value == returned.term.value then
                 incoming[#incoming + 1] = arm.term.edges[1].args[index]
             end
         end
     end
-    test.equal(#incoming, 2)
+    test.eq(#incoming, 2)
     assert(incoming[1] ~= incoming[2], "false edge lost the original local value")
-    test.equal(#terms(g, "return"), 1)
+    test.eq(#terms(g, "return"), 1)
 end
 
 function M.shadowingInsideAnArmDoesNotReplaceTheOuterBinding()
@@ -220,7 +220,7 @@ return choose(false)
     )
     local g = ownerGraph(complete, "choose")
     local calls = terms(g, "invoke")
-    test.equal(#calls, 2)
+    test.eq(#calls, 2)
     assert(calls[1].term.result == nil and calls[2].term.result == nil)
     local definitions = {}
     for _, binding in ipairs(complete.catalog.bindings) do
@@ -228,9 +228,9 @@ return choose(false)
             definitions[#definitions + 1] = binding.definition
         end
     end
-    test.equal(#definitions, 2)
+    test.eq(#definitions, 2)
     assert(definitions[1] ~= definitions[2])
-    test.equal(#terms(g, "return"), 1)
+    test.eq(#terms(g, "return"), 1)
 end
 
 function M.oneArmReturnLeavesTheOtherPathAndItsCallLive()
@@ -245,9 +245,9 @@ return choose(false)
 ]]
     )
     local g = ownerGraph(complete, "choose")
-    test.equal(#terms(g, "branch"), 1)
-    test.equal(#terms(g, "invoke"), 2)
-    test.equal(#terms(g, "return"), 2)
+    test.eq(#terms(g, "branch"), 1)
+    test.eq(#terms(g, "invoke"), 2)
+    test.eq(#terms(g, "return"), 2)
 end
 
 function M.nestedBranchesRetainOnlyOuterJoinBindings()
@@ -266,9 +266,9 @@ return choose(true, false)
 ]]
     )
     local g = ownerGraph(complete, "choose")
-    test.equal(#terms(g, "branch"), 2)
-    test.equal(#terms(g, "return"), 1)
-    test.equal(g.nparams, 2)
+    test.eq(#terms(g, "branch"), 2)
+    test.eq(#terms(g, "return"), 1)
+    test.eq(g.nparams, 2)
 end
 
 function M.absentReturnAndExplicitNilRemainDistinct()
@@ -290,7 +290,7 @@ return choose(false)
             end
         end
     end
-    test.equal(absent, 1)
+    test.eq(absent, 1)
     assert(produced >= 2)
 end
 
@@ -396,8 +396,8 @@ function M.declaredModuleFixturesRetainTheirCheckedBranchBodies()
         local text = file:read("*a")
         file:close()
         local parsed = parser.parse(text, path)
-        test.equal(#parsed.errors, 0)
-        test.equal(cst.declaredModule(parsed.root), "nupp.core." .. fixture[2])
+        test.eq(#parsed.errors, 0)
+        test.eq(cst.declaredModule(parsed.root), "nupp.core." .. fixture[2])
         local complete = accept(text, path)
         local result = executable.fromChecked(complete)
         executable.validate(result)
@@ -408,9 +408,9 @@ function M.declaredModuleFixturesRetainTheirCheckedBranchBodies()
                     count = count + 1
                 end
             end
-            test.equal(#body.code, body.instructionCount * 16)
+            test.eq(#body.code, body.instructionCount * 16)
         end
-        test.equal(count, fixture[3])
+        test.eq(count, fixture[3])
         assert(result.instanceCapacity >= 1 and result.frameDepth >= 2)
     end
 end
@@ -422,7 +422,7 @@ function M.checkedNumericLessThanFeedsBothBranchEdges()
     file:close()
     local complete = compile(text, path)
     local g = ownerGraph(complete, "choose")
-    test.equal(#terms(g, "branch"), 2)
+    test.eq(#terms(g, "branch"), 2)
     local comparisons = 0
     for _, block in ipairs(g.blocks) do
         for _, operation in ipairs(block.op) do
@@ -431,12 +431,12 @@ function M.checkedNumericLessThanFeedsBothBranchEdges()
             end
         end
     end
-    test.equal(comparisons, 2)
+    test.eq(comparisons, 2)
     local normalized = contracts.normalize(complete, 4)
     semantic.semantic(normalized)
     local result = executable.fromChecked(complete, 4)
     executable.validate(result)
-    test.equal(result.version, 4)
+    test.eq(result.version, 4)
     local lessThan, branches = 0, 0
     for _, body in ipairs(result.functions) do
         for _, instruction in ipairs(body.instructions) do
@@ -447,8 +447,8 @@ function M.checkedNumericLessThanFeedsBothBranchEdges()
             end
         end
     end
-    test.equal(lessThan, 2)
-    test.equal(branches, 2)
+    test.eq(lessThan, 2)
+    test.eq(branches, 2)
     refuses(
         function()
             contracts.normalize(complete, 3)
@@ -491,14 +491,14 @@ function M.checkedNumericWhileCarriesBothScalarsThroughBackedge()
             end
         end
         assert(header and backedge)
-        test.equal(#header.params, 2)
-        test.equal(#backedge.args, 2)
+        test.eq(#header.params, 2)
+        test.eq(#backedge.args, 2)
         local normalized = contracts.normalize(complete, 5)
         semantic.semantic(normalized)
-        test.equal(normalized.schema.version, 5)
+        test.eq(normalized.schema.version, 5)
         local result = executable.fromChecked(complete, 5)
         executable.validate(result)
-        test.equal(result.version, 5)
+        test.eq(result.version, 5)
         assert(result.functions[1].instructionCount > 0)
         local backwards = false
         for _, instruction in ipairs(result.functions[1].instructions) do
@@ -530,7 +530,7 @@ function M.checkedNumericLoopRejectsMalformedScalarPhi()
     end
     assert(source and backedge)
     local header = g.blocks[backedge.target]
-    test.equal(#header.params, 2)
+    test.eq(#header.params, 2)
     g.constants[#g.constants + 1] = {kind = "true", value = ""}
     local wrong = graph.emit(g, source, "K", {#g.constants - 1}, source.term.pos)
     backedge.args[1] = wrong
@@ -666,7 +666,7 @@ local function numericProgram(source, path)
     end
     local normalized = contracts.normalize(complete, 6)
     semantic.semantic(normalized)
-    test.equal(normalized.schema.version, 6)
+    test.eq(normalized.schema.version, 6)
     local result = executable.fromChecked(complete, 6)
     executable.validate(result)
 
@@ -674,8 +674,8 @@ local function numericProgram(source, path)
 end
 
 local function same(actual, expected)
-    test.equal(math.type(actual), math.type(expected))
-    test.equal(actual, expected)
+    test.eq(math.type(actual), math.type(expected))
+    test.eq(actual, expected)
 end
 
 function M.checkedNumericForRunsLuaIntegerAndFloatLoops()
@@ -723,9 +723,9 @@ function M.checkedNumericForBuildsHeaderBodyLatchAndWrapExit()
         end
     end
     -- The entry guard, the integer wrap exit and the continue test.
-    test.equal(branches, 3)
-    test.equal(ops.Le, 2)
-    test.equal(ops.Lt, 1)
+    test.eq(branches, 3)
+    test.eq(ops.Le, 2)
+    test.eq(ops.Lt, 1)
     local backwards = false
     for _, instruction in ipairs(result.functions[1].instructions) do
         if instruction[1] == "Jmp" and instruction[2] < 0 then
@@ -741,8 +741,8 @@ function M.checkedNumericForBuildsHeaderBodyLatchAndWrapExit()
             floatOps[op] = (floatOps[op] or 0) + 1
         end
     end
-    test.equal(floatOps.Lt, 1)
-    test.equal(floatOps.Le, 1)
+    test.eq(floatOps.Lt, 1)
+    test.eq(floatOps.Le, 1)
 end
 
 function M.checkedNumericOperatorsFollowLuaFloorModulo()

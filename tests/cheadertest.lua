@@ -23,9 +23,9 @@ function M.anonymousTypedefKeepsItsFieldsAndIdentity()
     assert(cheaderMod.declare("typedef struct { int x; } CheckAnonymousIdentity;"))
     local first = assert(cheaderMod.typeFromString("CheckAnonymousIdentity"))
     local second = assert(cheaderMod.typeFromString("CheckAnonymousIdentity"))
-    testAssert.equal(first, second)
-    testAssert.equal(first.name, "CheckAnonymousIdentity")
-    testAssert.equal(first.byname.x, T.int32)
+    testAssert.eq(first, second)
+    testAssert.eq(first.name, "CheckAnonymousIdentity")
+    testAssert.eq(first.byname.x, T.int32)
 end
 
 local function loaded()
@@ -37,20 +37,20 @@ end
 function M.signaturesComeFromLuaJITsOwnParse()
     local res = loaded()
     -- imported pointers are nullable: C does not say which may be NULL
-    testAssert.equal(T.tostring(res.exports.nuppSinkOpen), "function(cstring?): boolean")
-    testAssert.equal(T.tostring(res.exports.nuppSinkCategory), "function(int32, int32, cstring?)")
-    testAssert.equal(T.tostring(res.exports.nuppSinkClose), "function()")
+    testAssert.eq(T.tostring(res.exports.nuppSinkOpen), "function(cstring?): boolean")
+    testAssert.eq(T.tostring(res.exports.nuppSinkCategory), "function(int32, int32, cstring?)")
+    testAssert.eq(T.tostring(res.exports.nuppSinkClose), "function()")
     -- `unsigned long` follows the host ABI: LLP64 on Windows, LP64 here.
     local width = windows and "uint32" or "uint64"
-    testAssert.equal(T.tostring(res.exports.nuppSinkCount), "function(): " .. width)
+    testAssert.eq(T.tostring(res.exports.nuppSinkCount), "function(): " .. width)
 end
 
 function M.pointersAndStructsDecode()
     local res = loaded()
     -- float parameter, struct pointer, double return
-    testAssert.equal(T.tostring(res.exports.nuppSinkScale), "function(float32, SinkPoint*?): float")
-    testAssert.equal(T.tostring(res.exports.nuppSinkBytes), "function(uint8*?, const uint8*?): uint8*?")
-    testAssert.equal(
+    testAssert.eq(T.tostring(res.exports.nuppSinkScale), "function(float32, SinkPoint*?): float")
+    testAssert.eq(T.tostring(res.exports.nuppSinkBytes), "function(uint8*?, const uint8*?): uint8*?")
+    testAssert.eq(
         T.tostring(assert(cheaderMod.typeFromString("const unsigned char *"))),
         "const uint8*?",
         "literal type strings preserve unsigned bytes and const"
@@ -63,12 +63,12 @@ function M.completeDirectDeclaratorsDecode()
     local parameter = res.exports.nupp_complete_use_context.params[1]
     local pointer = parameter.members[1] == T.nil_ and parameter.members[2] or parameter.members[1]
     local context = pointer.elem
-    testAssert.equal(context.name, "nupp_complete_context", "typedef names the anonymous struct identity")
-    testAssert.equal(T.tostring(context.byname.matrix), "float32[3][2]")
-    testAssert.equal(T.tostring(context.byname.callback), "function(int32)?")
-    testAssert.equal(T.tostring(res.exports.nupp_complete_get_callback), "function(): function(int32)?")
-    testAssert.equal(T.tostring(res.exports.nupp_complete_set_callbacks), "function((function(int32)?)*?)")
-    testAssert.equal(T.tostring(res.exports.nupp_complete_get_row), "function(): int32[4]*?")
+    testAssert.eq(context.name, "nupp_complete_context", "typedef names the anonymous struct identity")
+    testAssert.eq(T.tostring(context.byname.matrix), "float32[3][2]")
+    testAssert.eq(T.tostring(context.byname.callback), "function(int32)?")
+    testAssert.eq(T.tostring(res.exports.nupp_complete_get_callback), "function(): function(int32)?")
+    testAssert.eq(T.tostring(res.exports.nupp_complete_set_callbacks), "function((function(int32)?)*?)")
+    testAssert.eq(T.tostring(res.exports.nupp_complete_get_row), "function(): int32[4]*?")
 end
 
 local function scratchHeader(name, text)
@@ -100,9 +100,9 @@ function M.onlyAConstCharPointerIsText()
     local res = assert(cheaderMod.load(path))
     os.execute("rm -rf '" .. dir .. "'")
     local width = windows and "uint32" or "uint64"
-    testAssert.equal(T.tostring(res.exports.nupp_charp_fill), "function(int8*?, " .. width .. ")")
-    testAssert.equal(T.tostring(res.exports.nupp_charp_dup), "function(cstring?): int8*?")
-    testAssert.equal(T.tostring(res.exports.nupp_charp_signed), "function(int8*?)")
+    testAssert.eq(T.tostring(res.exports.nupp_charp_fill), "function(int8*?, " .. width .. ")")
+    testAssert.eq(T.tostring(res.exports.nupp_charp_dup), "function(cstring?): int8*?")
+    testAssert.eq(T.tostring(res.exports.nupp_charp_signed), "function(int8*?)")
 end
 
 function M.aBoolBitfieldIsTypedAsTheBooleanItReadsAs()
@@ -114,8 +114,8 @@ function M.aBoolBitfieldIsTypedAsTheBooleanItReadsAs()
     os.execute("rm -rf '" .. dir .. "'")
     local result = res.exports.nupp_flags_new.rets[1]
     local pointer = result.members[1] == T.nil_ and result.members[2] or result.members[1]
-    testAssert.equal(T.tostring(pointer.elem.byname.on), "boolean")
-    testAssert.equal(T.tostring(pointer.elem.byname.level), "int32")
+    testAssert.eq(T.tostring(pointer.elem.byname.on), "boolean")
+    testAssert.eq(T.tostring(pointer.elem.byname.level), "int32")
 end
 
 function M.aConditionalNeedsThePreprocessor()
@@ -135,12 +135,12 @@ function M.aConditionalNeedsThePreprocessor()
     ) .. "\n"
     local path, dir = scratchHeader("cond.h", header)
     local res, err = cheaderMod.load(path)
-    testAssert.equal(res, nil, "both branches would reach LuaJIT")
+    testAssert.eq(res, nil, "both branches would reach LuaJIT")
     assert(err:find("cond.h:3: #ifdef _WIN32 needs cheader's \"preprocess\" argument", 1, true), err)
     if os.execute("cc --version >/dev/null 2>&1") == 0 then
         local preprocessed = assert(cheaderMod.load(path, {preprocess = true}))
         local want = windows and "function(uint16): uint16" or "function(uint32): uint32"
-        testAssert.equal(T.tostring(preprocessed.exports.nupp_cond_width), want, "the preprocessor picks the branch")
+        testAssert.eq(T.tostring(preprocessed.exports.nupp_cond_width), want, "the preprocessor picks the branch")
     end
     os.execute("rm -rf '" .. dir .. "'")
 
@@ -178,8 +178,8 @@ function M.aCplusplusGuardIsSettledWithoutAPreprocessor()
     local res, err = cheaderMod.load(path)
     os.execute("rm -rf '" .. dir .. "'")
     assert(res, err)
-    testAssert.equal(T.tostring(res.exports.nupp_cpp_add), "function(int32, int32): int32")
-    testAssert.equal(T.tostring(res.exports.nupp_cpp_c_only), "function(): int32")
+    testAssert.eq(T.tostring(res.exports.nupp_cpp_add), "function(int32, int32): int32")
+    testAssert.eq(T.tostring(res.exports.nupp_cpp_c_only), "function(): int32")
 end
 
 function M.aParseErrorNamesTheHeadersOwnLine()
@@ -219,7 +219,7 @@ function M.aNulByteIsRefused()
     local read = require("nupp.compiler.fs").readFile(path)
     local res, err = cheaderMod.load(path)
     os.execute("rm -rf '" .. dir .. "'")
-    testAssert.equal(
+    testAssert.eq(
         res,
         nil,
         (
@@ -243,7 +243,7 @@ end
 
 local function diagsOf(src)
     local result = parser.parse(src, HERE .. "/probe.nupp")
-    testAssert.equal(#result.errors, 0, "syntax: " .. (result.errors[1] and result.errors[1].msg or ""))
+    testAssert.eq(#result.errors, 0, "syntax: " .. (result.errors[1] and result.errors[1].msg or ""))
     local out = {}
     for j, d in ipairs(check.check(result, HERE .. "/probe.nupp", env)) do
         out[j] = d.code
@@ -253,7 +253,7 @@ local function diagsOf(src)
 end
 
 function M.cheaderTypesCallSites()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -267,32 +267,32 @@ function M.cheaderTypesCallSites()
         ""
     )
     -- a wrong argument is caught against the header's own signature
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(table.concat({"local sink = cheader('fixtures/sink.h')", "sink.nuppSinkOpen(42)",}, "\n")),
         "NUPP2006"
     )
     -- so is a symbol the header does not declare
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(table.concat({"local sink = cheader('fixtures/sink.h')", "sink.nuppNoSuchThing()",}, "\n")),
         "NUPP2004"
     )
 end
 
 function M.badArgumentsToCheaderAreReported()
-    testAssert.equal(diagsOf("local x = cheader()"), "NUPP2301")
-    testAssert.equal(diagsOf("local x = cheader('fixtures/missing.h')"), "NUPP2302")
+    testAssert.eq(diagsOf("local x = cheader()"), "NUPP2301")
+    testAssert.eq(diagsOf("local x = cheader('fixtures/missing.h')"), "NUPP2302")
 end
 
 function M.cheaderArgumentsAreLiteralsOrReported()
-    testAssert.equal(diagsOf("local lib = 'z'\nlocal x = cheader('fixtures/sink.h', lib)"), "NUPP2301")
-    testAssert.equal(diagsOf("local x = cheader('fixtures/sink.h', nil, 'preprocessed')"), "NUPP2301")
-    testAssert.equal(diagsOf("local x = cheader('fixtures/sink.h', 'z', 'preprocess', 'more')"), "NUPP2301")
-    testAssert.equal(diagsOf("local x = cheader('fixtures/sink.h', nil)\nreturn x"), "")
+    testAssert.eq(diagsOf("local lib = 'z'\nlocal x = cheader('fixtures/sink.h', lib)"), "NUPP2301")
+    testAssert.eq(diagsOf("local x = cheader('fixtures/sink.h', nil, 'preprocessed')"), "NUPP2301")
+    testAssert.eq(diagsOf("local x = cheader('fixtures/sink.h', 'z', 'preprocess', 'more')"), "NUPP2301")
+    testAssert.eq(diagsOf("local x = cheader('fixtures/sink.h', nil)\nreturn x"), "")
 end
 
 local function diagnosticsAt(file, src)
     local result = parser.parse(src, file)
-    testAssert.equal(#result.errors, 0, "syntax")
+    testAssert.eq(#result.errors, 0, "syntax")
     return check.check(result, file, env)
 end
 
@@ -301,10 +301,10 @@ function M.theFirstHeaderThatExistsIsTheOneReported()
     -- directory; a later candidate that does not exist must not replace it.
     local path, dir = scratchHeader("broken.h", "int nupp_broken(int a b);\n")
     local diags = diagnosticsAt(dir .. "/probe.nupp", "local x = cheader('broken.h')")
-    testAssert.equal(diags[1] and diags[1].code, "NUPP2302")
+    testAssert.eq(diags[1] and diags[1].code, "NUPP2302")
     assert(diags[1].msg:find("could not parse", 1, true), diags[1].msg)
     local absolute = diagnosticsAt(HERE .. "/probe.nupp", ("local x = cheader(%q)"):format(path))
-    testAssert.equal(#absolute, 1, "an absolute path names the one file")
+    testAssert.eq(#absolute, 1, "an absolute path names the one file")
     assert(absolute[1].msg:find("broken.h:1: ", 1, true), absolute[1].msg)
     os.execute("rm -rf '" .. dir .. "'")
 end
@@ -337,7 +337,7 @@ function M.aStructHasOneIdentityWhicheverWayItIsReached()
         )
     )
     os.execute("rm -rf '" .. dir .. "'")
-    testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
+    testAssert.eq(#diags, 0, diags[1] and diags[1].msg)
 end
 
 function M.enumMembersAreExported()
@@ -349,22 +349,22 @@ function M.enumMembersAreExported()
         ) .. "\n"
     )
     local res = assert(cheaderMod.load(path))
-    testAssert.equal(T.tostring(res.exports.NUPP_MODE_ON), "int32")
+    testAssert.eq(T.tostring(res.exports.NUPP_MODE_ON), "int32")
     local file = dir .. "/probe.nupp"
     local diags = diagnosticsAt(file, "local h = cheader('modes.h')\nlocal rc: int32 = h.nupp_mode_set(h.NUPP_MODE_ON)")
-    testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
+    testAssert.eq(#diags, 0, diags[1] and diags[1].msg)
     local result = parser.parse("local h = cheader('modes.h')\nreturn h.NUPP_MODE_ON", dir .. "/probe.nupp")
     check.check(result, dir .. "/probe.nupp", env)
-    testAssert.equal(program.run(result, "modes", dir .. "/probe.nupp"), 2, "the namespace answers the constant")
+    testAssert.eq(program.run(result, "modes", dir .. "/probe.nupp"), 2, "the namespace answers the constant")
     os.execute("rm -rf '" .. dir .. "'")
 end
 
 function M.headerProvenanceNamesTheDirectInput()
     local path = HERE .. "/fixtures/sink.h"
     local result = assert(cheaderMod.load(path))
-    testAssert.equal(result.sourcePath, require("nupp.compiler.fs").canonical(path))
-    testAssert.equal(#result.dependencies, 1)
-    testAssert.equal(result.dependencies[1], result.sourcePath)
+    testAssert.eq(result.sourcePath, require("nupp.compiler.fs").canonical(path))
+    testAssert.eq(#result.dependencies, 1)
+    testAssert.eq(result.dependencies[1], result.sourcePath)
     assert(
         type(result.semanticFingerprint) == "string" and #result.semanticFingerprint > 0,
         "semantic header fingerprint"

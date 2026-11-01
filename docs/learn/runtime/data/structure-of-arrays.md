@@ -16,7 +16,7 @@ local struct Position
     velocity: float32
 end
 
-local positions = soa.allocate(ffi.typeof<Position>(), 128)
+local positions = soa.alloc(ffi.typeof<Position>(), 128)
 with rows = positions:write() do
     for index = 1, #rows do
         rows[index].x += rows[index].velocity
@@ -124,12 +124,12 @@ NUPP2009: SoA shared rows are read-only
 
 ## Column spans
 
-`rows.x` projects one resolved field as a normal typed [](nupp.mem.span) view. A
+`rows.x` projects one resolved field as a normal typed [](binary.span) view. A
 shared row view returns `span.Span<Field>`, and an exclusive row view returns
 `span.Writable<Field>`.
 
 ```nupp:fragment
-local span = nupp.mem.span
+local span = binary.span
 
 with
     rows = particles:write(),
@@ -336,7 +336,7 @@ layout](#containers-select-the-layout) for the two layouts side by side.
 Project it with `rows.name`, or `rows["name"]` when the name collides with a
 view member, and pass the resulting span. It is the only typed contiguous
 handle on a column. The container itself never yields a column pointer. See
-[](nupp.mem.span) for the span operations a C boundary uses.
+[](binary.span) for the span operations a C boundary uses.
 
 ### Can a record be stored in an SoA array?
 
@@ -346,6 +346,6 @@ instead, and see [Limits](#limits) for the other field types the container
 refuses.
 
 ::: seealso
-- [](nupp.mem.span) for the views `field` projects
+- [](binary.span) for the views `field` projects
 - [reflection.md](../../language/reflection.md) for the comptime description of a struct
 :::

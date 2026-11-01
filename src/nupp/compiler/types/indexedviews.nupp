@@ -74,7 +74,7 @@ end
 
 indexed.describe = describe
 
---- The element type of a `nupp.mem.span` Span, FixedSpan, WriteSpan or
+--- The element type of a `binary.span` Span, FixedSpan, WriteSpan or
 --- FixedWriteSpan nominal, and nil for anything else. Strict where `describe`
 --- is permissive: no ownership unwrapping, no intersection walk, and only the
 --- span module's own families answer.

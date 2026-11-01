@@ -136,7 +136,7 @@ export const decimal = scalars.decimal
 ---
 --- @param member the member the value sits at
 --- @return the adapter
-export const bigInteger = scalars.bigInteger
+export const biginteger = scalars.bigInteger
 
 --- Binary data. JSON writes it as base64.
 ---
@@ -290,10 +290,10 @@ export type CopyGet<T, V is own.Copyable> = structures.CopyGet<T, V>
 export type Get<T, V is own.Copyable> = structures.Get<T, V>
 
 --- Wraps a borrowing field reader.
-export const borrowedGet = structures.borrowedGet
+export const borrowedget = structures.borrowedGet
 
 --- Wraps a copying field reader, for a field computed rather than stored.
-export const copiedGet = structures.copiedGet
+export const copiedget = structures.copiedGet
 
 --- Visits one field of a structure with its value type recovered.
 export type FieldConsumer<T, S is own.Closeable, M is core.Member, R> = structures.FieldConsumer<T, S, M, R>

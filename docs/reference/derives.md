@@ -3,11 +3,11 @@ order: 680
 title: Declaration derives
 ---
 
-`types.Debug` adds a checked `debug` method to a record or struct.
+`types.debug` adds a checked `debug` method to a record or struct.
 Packages publish additional providers through the same recipe API.
 
 ```nupp
-@derive(types.Debug)
+@derive(types.debug)
 local record User
     id: integer
     name: string = "anonymous"
@@ -19,11 +19,11 @@ print(user:debug())
 
 Applying a provider is a declaration-augmentation phase, not a text macro: it
 cannot add imports, top-level declarations, modules, records, interfaces, or
-independently nameable types. `types.Debug` adds `debug(self): string`
+independently nameable types. `types.debug` adds `debug(self): string`
 and `types.Debug` conformance. Serialization uses explicit
 [bindings](../learn/runtime/data/serde.md) and needs no derive.
 
-[`events.Event`](#event) is applied the same way and marks a record or a
+[`events.event`](#event) is applied the same way and marks a record or a
 fixed-layout struct as an event a [](events) source constructs and
 delivers.
 
@@ -41,7 +41,7 @@ declaration order. The method forwards the declaration witness to the value
 visitor, which caches its Debug policy on first use.
 
 ```nupp
-@derive(types.Debug)
+@derive(types.debug)
 local record Point
     x: integer
     y: integer
@@ -60,12 +60,12 @@ records render through their own `debug`, and a runtime table that reaches
 itself renders as `<cycle>`.
 
 ```nupp
-@derive(types.Debug)
+@derive(types.debug)
 local record Tag
     name: string
 end
 
-@derive(types.Debug)
+@derive(types.debug)
 local record Post
     title: string
     views: integer
@@ -93,7 +93,7 @@ name and replaces the value, which is what a secret wants; `skip` removes the
 field from the output entirely.
 
 ```nupp
-@derive(types.Debug)
+@derive(types.debug)
 local record Credentials
     user: string
     @debug(redact = true)
@@ -122,14 +122,14 @@ local struct Vec2
     y: float
 end
 local binding = serde.binding(Vec2)
-local output = nupp.text.newBuffer()
+local output = nupp.text.newbuffer()
 debug.write(binding, new Vec2(1.25, 2.5), output)
 assert(output:tostring() == "Vec2 { x = 1.25, y = 2.5 }")
 ```
 
 ## Event
 
-`events.Event` records an event's name and representation and asks the
+`events.event` records an event's name and representation and asks the
 compiler for the declaration's initializer, so a source can construct the event
 into storage it already holds. It generates no members; what it adds is the
 `events.Emittable` contract that every `Type<E>` an event source takes is
@@ -138,7 +138,7 @@ bounded by.
 ```nupp
 local events = require("events")
 
-@derive(events.Event)
+@derive(events.event)
 @event(name = "combat.Damage")
 local record Damage
     amount: number
@@ -146,7 +146,7 @@ local record Damage
     kind: string = "physical"
 end
 
-local bus: events.MessageBus<integer> = events.newMessageBus()
+local bus: events.MessageBus<integer> = events.newmessagebus()
 bus:observe(7, Damage, |event| -> print(event.kind))
 bus:emit(7, Damage, amount = 10, source = 3)
 ```
@@ -199,7 +199,7 @@ closed comptime-built signature. Generic, variadic, overloaded, and effectful
 provider declarations are not part of the first recipe version.
 
 ::: deepdive
-`Debug` is an exported `@comptime function` in `src/types/init.nupp`.
+`debug` is an exported `@comptime function` in `src/types/init.nupp`.
 It uses the same comptime worker, immutable `Info`, result envelope, cache, and
 recipe lowering as package providers. Its `@debug` configuration is part of
 the semantic annotations visible through `Info`.
@@ -321,7 +321,7 @@ and supplies a closed argument list:
   `@ref` annotation argument from the owner or one of its fields.
 - `array(arguments)` constructs a fresh array from argument recipes.
 
-`annotationType` accepts only a `kind = "type"` argument taken from the
+`annotationtype` accepts only a `kind = "type"` argument taken from the
 provider's immutable `Info`. The referenced record remains typed across the
 comptime boundary instead of being reduced to a name string.
 

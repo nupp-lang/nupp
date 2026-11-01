@@ -144,7 +144,7 @@ local record Unknown is core.UnknownConsumer<Builder>
     ): nil
         -- This fixture's JSON field identity exposes its literal name explicitly.
         -- Protocols with different identities supply their own capture operation.
-        local name = jsonDocument.fieldName(field)
+        local name = jsonDocument.fieldname(field)
         state.additional[name] = reader:captureValue(documents.adapter())
     end
 end
@@ -276,7 +276,7 @@ local record DocumentField is structures.Field<documents.Document, DocumentBuild
             function(borrows source: documents.Document): boolean
                 return source:get(name) ~= nil
             end,
-            structures.copiedGet<documents.Document, documents.Document>(function(
+            structures.copiedget<documents.Document, documents.Document>(function(
                 borrows source: documents.Document
             ): documents.Document
                 return (assert2(source:get(name), "absent property"))
@@ -302,7 +302,7 @@ local record DocumentScalar is core.Adapter<documents.Document, Property>
     function write(self, borrows value: documents.Document, exclusive writer: core.Writer<Property>): nil
         if self.member == self.schema.payload then
             local copied = value.kind == "string" and documents.string(value:string())
-                or documents.numberToken(value:numberToken())
+                or documents.numbertoken(value:numberToken())
             local selected = choose(self.schema, copied)
             if selected.alternative == "text" then
                 writer:writeString(self.member, selected.value:string())
@@ -332,7 +332,7 @@ local record DocumentUnknown is core.UnknownConsumer<DocumentBuilder>
     ): nil
         state.fields[
             #state.fields + 1
-        ] = new documents.Entry(name = jsonDocument.fieldName(field), value = reader:captureValue(documents.adapter()))
+        ] = new documents.Entry(name = jsonDocument.fieldname(field), value = reader:captureValue(documents.adapter()))
     end
 end
 local record DocumentAdditional is core.Members<Property, documents.Document>
@@ -405,7 +405,7 @@ end
 local record Factory is plans.PolicyFactory
     @readonly view: View
     function policy<M is core.Member>(self, member: M): plans.Policy<M>
-        local documentPolicy = __serdeJson.documentPolicy(member, true)
+        local documentPolicy = __serdeJson.documentpolicy(member, true)
         if documentPolicy ~= nil then
             return documentPolicy
         end

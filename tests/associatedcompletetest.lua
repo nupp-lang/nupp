@@ -16,7 +16,7 @@ function M.runtimeCompletionNeverOffersAnAssociatedName()
         out[#out + 1] = name
     end
     table.sort(out)
-    testAssert.equal(table.concat(out, ","), "field")
+    testAssert.eq(table.concat(out, ","), "field")
 end
 
 -- Members reached through an opaque projection come from its bound, and are read as
@@ -33,7 +33,7 @@ function M.membersThroughAnOpaqueProjectionKeepTheProjectionAsReceiver()
     local projection = T.projection(binder, "Item")
     local members = complete.membersOf(projection)
     assert(members.clone, "the bound's members were not offered")
-    testAssert.equal(
+    testAssert.eq(
         T.tostring(members.clone.type),
         "function(T.Item): T.Item",
         "the bound was shown instead of the projection"

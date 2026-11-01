@@ -1,7 +1,7 @@
 -- The compression primitives the VM's compression provider is written over.
 -- Steps read and write the spans they are given in place and answer the
 -- crate's progress: bytes consumed, bytes written and the step status.
-local {type ByteSpan, type ByteWriteSpan} = require("nupp.mem.span")
+local {type ByteSpan, type ByteWriteSpan} = require("binary.span")
 
 local record Host
     encoderCreate: function(format: integer, level: integer): (integer?, string?)

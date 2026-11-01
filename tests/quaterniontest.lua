@@ -56,18 +56,18 @@ end
 function M.multiplicationFollowsTheHamiltonTable()
     -- `i * j = k` and `j * i = -k`. The table is what fixes the component order and
     -- the sign convention, and it is checked before anything built on top of it.
-    local x, y, z, w = quat.multiply(1, 0, 0, 0, 0, 1, 0, 0)
+    local x, y, z, w = quat.mul(1, 0, 0, 0, 0, 1, 0, 0)
     assertRotation("i times j", nil, rotationOf(x, y, z, w), {0, 0, 1, 0})
 
-    x, y, z, w = quat.multiply(0, 1, 0, 0, 1, 0, 0, 0)
+    x, y, z, w = quat.mul(0, 1, 0, 0, 1, 0, 0, 0)
     assertRotation("j times i", nil, rotationOf(x, y, z, w), {0, 0, -1, 0})
 
-    x, y, z, w = quat.multiply(0, 0, 1, 0, 1, 0, 0, 0)
+    x, y, z, w = quat.mul(0, 0, 1, 0, 1, 0, 0, 0)
     assertRotation("k times i", nil, rotationOf(x, y, z, w), {0, 1, 0, 0})
 
     -- Every imaginary unit squares to minus one.
     for _, unit in ipairs({{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}) do
-        x, y, z, w = quat.multiply(unit[1], unit[2], unit[3], 0, unit[1], unit[2], unit[3], 0)
+        x, y, z, w = quat.mul(unit[1], unit[2], unit[3], 0, unit[1], unit[2], unit[3], 0)
         assertRotation("a unit squared", nil, rotationOf(x, y, z, w), {0, 0, 0, -1})
     end
 end
@@ -139,9 +139,9 @@ end
 function M.compositionAppliesTheSecondFirst()
     -- `multiply(a, b)` has to mean the same as turning by `b` and then by `a`, which
     -- is the order a column-major matrix product means.
-    local ax, ay, az, aw = quat.fromAxisAngle(0, 0, 1, math.pi / 2)
-    local bx, by, bz, bw = quat.fromAxisAngle(1, 0, 0, math.pi / 2)
-    local cx, cy, cz, cw = quat.multiply(ax, ay, az, aw, bx, by, bz, bw)
+    local ax, ay, az, aw = quat.fromaxisangle(0, 0, 1, math.pi / 2)
+    local bx, by, bz, bw = quat.fromaxisangle(1, 0, 0, math.pi / 2)
+    local cx, cy, cz, cw = quat.mul(ax, ay, az, aw, bx, by, bz, bw)
     for _, vector in ipairs({{0, 0, 1}, {1, 2, 3}, {-0.5, 0.25, 4.0}}) do
         local sx, sy, sz = quat.rotate(bx, by, bz, bw, vector[1], vector[2], vector[3])
         sx, sy, sz = quat.rotate(ax, ay, az, aw, sx, sy, sz)
@@ -155,7 +155,7 @@ end
 function M.inverseUndoesAndConjugateAgreesOnUnits()
     local qx, qy, qz, qw = quat.normalize(0.3, -0.7, 0.2, 0.9)
     local ix, iy, iz, iw = quat.inverse(qx, qy, qz, qw)
-    local x, y, z, w = quat.multiply(qx, qy, qz, qw, ix, iy, iz, iw)
+    local x, y, z, w = quat.mul(qx, qy, qz, qw, ix, iy, iz, iw)
     assertRotation("a rotation times its inverse", nil, rotationOf(x, y, z, w), {0, 0, 0, 1})
 
     -- For a unit rotation the cheap conjugate is the inverse; away from one it is not,
@@ -164,14 +164,14 @@ function M.inverseUndoesAndConjugateAgreesOnUnits()
     assertRotation("the conjugate of a unit rotation", nil, rotationOf(cx, cy, cz, cw), {ix, iy, iz, iw})
 
     local dx, dy, dz, dw = quat.inverse(2 * qx, 2 * qy, 2 * qz, 2 * qw)
-    x, y, z, w = quat.multiply(2 * qx, 2 * qy, 2 * qz, 2 * qw, dx, dy, dz, dw)
+    x, y, z, w = quat.mul(2 * qx, 2 * qy, 2 * qz, 2 * qw, dx, dy, dz, dw)
     assertRotation("a scaled rotation times its inverse", nil, rotationOf(x, y, z, w), {0, 0, 0, 1})
 end
 
 function M.axisAngleRoundTrips()
     for _, angle in ipairs({0.0, 0.5, 1.1, math.pi / 2, 3.0}) do
-        local x, y, z, w = quat.fromAxisAngle(0, 1, 0, angle)
-        local axisX, axisY, axisZ, recovered = quat.toAxisAngle(x, y, z, w)
+        local x, y, z, w = quat.fromaxisangle(0, 1, 0, angle)
+        local axisX, axisY, axisZ, recovered = quat.toaxisangle(x, y, z, w)
         if angle == 0.0 then
             -- The identity has no axis to recover, so a real one is named rather than
             -- a zero vector the caller would have to guard.
@@ -186,17 +186,17 @@ function M.axisAngleRoundTrips()
     end
 
     -- An axis that did not arrive as a unit vector is normalized here.
-    local x, y, z, w = quat.fromAxisAngle(0, 5, 0, 1.0)
-    local unitX, unitY, unitZ, unitW = quat.fromAxisAngle(0, 1, 0, 1.0)
+    local x, y, z, w = quat.fromaxisangle(0, 5, 0, 1.0)
+    local unitX, unitY, unitZ, unitW = quat.fromaxisangle(0, 1, 0, 1.0)
     assertRotation("a long axis matches its unit", nil, rotationOf(x, y, z, w), {unitX, unitY, unitZ, unitW})
 
     -- `q` and `-q` are the same rotation reached the two opposite ways, and which one
     -- arrived is kept rather than folded away.
-    local negatedAxisX, _, _, negatedAngle = quat.toAxisAngle(-unitX, -unitY, -unitZ, -unitW)
+    local negatedAxisX, _, _, negatedAngle = quat.toaxisangle(-unitX, -unitY, -unitZ, -unitW)
     assertNear(negatedAngle, 2 * math.pi - 1.0, "the negated spelling turns the long way")
     assertNear(negatedAxisX, 0, "the negated spelling keeps an x-free axis")
 
-    local identityAxisX, identityAxisY, identityAxisZ, identityAngle = quat.toAxisAngle(0, 0, 0, -1)
+    local identityAxisX, identityAxisY, identityAxisZ, identityAngle = quat.toaxisangle(0, 0, 0, -1)
     assertNear(identityAxisX, 1, "negative identity names the x axis")
     assertNear(identityAxisY, 0, "negative identity has no y axis component")
     assertNear(identityAxisZ, 0, "negative identity has no z axis component")
@@ -207,7 +207,7 @@ function M.fromToCarriesOneDirectionOntoAnother()
     local cases = {{{1, 0, 0}, {0, 1, 0}}, {{0, 0, 3}, {0, 4, 0}}, {{1, 1, 1}, {-1, 2, 0.5}}, {{2, 0, 0}, {2, 0, 0}},}
     for _, case in ipairs(cases) do
         local from, to = case[1], case[2]
-        local x, y, z, w = quat.fromTo(from[1], from[2], from[3], to[1], to[2], to[3])
+        local x, y, z, w = quat.fromto(from[1], from[2], from[3], to[1], to[2], to[3])
         local rx, ry, rz = quat.rotate(x, y, z, w, from[1], from[2], from[3])
         local fromLength = math.sqrt(from[1] * from[1] + from[2] * from[2] + from[3] * from[3])
         local toLength = math.sqrt(to[1] * to[1] + to[2] * to[2] + to[3] * to[3])
@@ -223,7 +223,7 @@ function M.fromToHandlesOpposedDirections()
     -- some half turn across them is answered -- and that it is a real rotation rather
     -- than a zero or a NaN, which is what a cross product alone would give.
     for _, direction in ipairs({{1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {1, 1, 0}, {-2, 3, -4}}) do
-        local x, y, z, w = quat.fromTo(
+        local x, y, z, w = quat.fromto(
             direction[1],
             direction[2],
             direction[3],
@@ -231,7 +231,7 @@ function M.fromToHandlesOpposedDirections()
             -direction[2],
             -direction[3]
         )
-        assertNear(quat.length(x, y, z, w), 1, "the opposed turn is a unit rotation", 1e-12)
+        assertNear(quat.len(x, y, z, w), 1, "the opposed turn is a unit rotation", 1e-12)
         local rx, ry, rz = quat.rotate(x, y, z, w, direction[1], direction[2], direction[3])
         assertNear(rx, -direction[1], "the opposed turn reverses x", 1e-11)
         assertNear(ry, -direction[2], "the opposed turn reverses y", 1e-11)
@@ -242,7 +242,7 @@ end
 function M.fromToDoesNotSnapNearOpposedDirections()
     for _, angle in ipairs({0.001, 1e-9}) do
         local bx, by = -math.cos(angle), math.sin(angle)
-        local x, y, z, w = quat.fromTo(1, 0, 0, bx, by, 0)
+        local x, y, z, w = quat.fromto(1, 0, 0, bx, by, 0)
         local rx, ry, rz = quat.rotate(x, y, z, w, 1, 0, 0)
         assertNear(rx, bx, "a near-opposed turn reaches x", 1e-12)
         assertNear(ry, by, "a near-opposed turn reaches y", 1e-12)
@@ -253,18 +253,18 @@ end
 function M.interpolationReachesTheHalfAngle()
     -- Constant angular speed means the midpoint of a turn is the half turn, which is
     -- computed here from the angle rather than from the endpoints.
-    local ax, ay, az, aw = quat.fromAxisAngle(0, 0, 1, 0)
-    local bx, by, bz, bw = quat.fromAxisAngle(0, 0, 1, math.pi / 2)
+    local ax, ay, az, aw = quat.fromaxisangle(0, 0, 1, 0)
+    local bx, by, bz, bw = quat.fromaxisangle(0, 0, 1, math.pi / 2)
     for _, t in ipairs({0.25, 0.5, 0.75}) do
         local x, y, z, w = quat.slerp(ax, ay, az, aw, bx, by, bz, bw, t)
-        local ex, ey, ez, ew = quat.fromAxisAngle(0, 0, 1, t * math.pi / 2)
+        local ex, ey, ez, ew = quat.fromaxisangle(0, 0, 1, t * math.pi / 2)
         assertRotation("the spherical midpoint", 1e-12, rotationOf(x, y, z, w), {ex, ey, ez, ew})
     end
 end
 
 function M.interpolationKeepsItsEndpointHemisphere()
     local ax, ay, az, aw = quat.identity()
-    local bx, by, bz, bw = quat.fromAxisAngle(0, 0, 1, math.pi / 2)
+    local bx, by, bz, bw = quat.fromaxisangle(0, 0, 1, math.pi / 2)
     bx, by, bz, bw = -bx, -by, -bz, -bw
     for _, name in ipairs({"slerp", "nlerp"}) do
         local blend = quat[name]
@@ -284,8 +284,8 @@ end
 function M.interpolationTakesTheShortWayAround()
     -- A negated endpoint is the same rotation, so both spellings have to interpolate
     -- through the same rotations rather than one of them going the long way.
-    local ax, ay, az, aw = quat.fromAxisAngle(0, 0, 1, 0)
-    local bx, by, bz, bw = quat.fromAxisAngle(0, 0, 1, math.pi / 3)
+    local ax, ay, az, aw = quat.fromaxisangle(0, 0, 1, 0)
+    local bx, by, bz, bw = quat.fromaxisangle(0, 0, 1, math.pi / 3)
     for _, name in ipairs({"slerp", "nlerp"}) do
         local blend = quat[name]
         local x, y, z, w = blend(ax, ay, az, aw, bx, by, bz, bw, 0.5)
@@ -305,11 +305,11 @@ function M.interpolationSurvivesNearlyParallelEndpoints()
     -- Where the arc vanishes the spherical form divides by a sine going to zero, so it
     -- hands over to the linear one. The handover has to be continuous and has to stay
     -- a unit rotation, which is what a division by nearly nothing would lose.
-    local ax, ay, az, aw = quat.fromAxisAngle(0, 0, 1, 0)
+    local ax, ay, az, aw = quat.fromaxisangle(0, 0, 1, 0)
     for _, angle in ipairs({1e-3, 1e-6, 1e-9, 1e-12, 0.0}) do
-        local bx, by, bz, bw = quat.fromAxisAngle(0, 0, 1, angle)
+        local bx, by, bz, bw = quat.fromaxisangle(0, 0, 1, angle)
         local x, y, z, w = quat.slerp(ax, ay, az, aw, bx, by, bz, bw, 0.5)
-        assertNear(quat.length(x, y, z, w), 1, "a vanishing arc stays a unit rotation", 1e-12)
+        assertNear(quat.len(x, y, z, w), 1, "a vanishing arc stays a unit rotation", 1e-12)
         assertNear(z, math.sin(angle / 4), "a vanishing arc still reaches its midpoint", 1e-9)
     end
 
@@ -325,14 +325,14 @@ function M.interpolationStaysAUnitRotation()
         local t = step / 10
         for _, name in ipairs({"slerp", "nlerp"}) do
             local x, y, z, w = quat[name](ax, ay, az, aw, bx, by, bz, bw, t)
-            assertNear(quat.length(x, y, z, w), 1, name .. " stays a unit rotation at " .. t, 1e-12)
+            assertNear(quat.len(x, y, z, w), 1, name .. " stays a unit rotation at " .. t, 1e-12)
         end
     end
 end
 
 function M.matrixWritesSixteenColumnMajorNumbers()
     local out = {}
-    quat.toMatrix(0, 0, HALF, HALF, out, 1)
+    quat.tomatrix(0, 0, HALF, HALF, out, 1)
     local want = {0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}
     for index = 1, 16 do
         assertNear(out[index], want[index], "the matrix entry at " .. index)
@@ -344,7 +344,7 @@ function M.matrixWritesSixteenColumnMajorNumbers()
     for index = 1, 40 do
         shifted[index] = -1
     end
-    quat.toMatrix(0, 0, HALF, HALF, shifted, 17)
+    quat.tomatrix(0, 0, HALF, HALF, shifted, 17)
     for index = 1, 16 do
         assertNear(shifted[index], -1, "the numbers before the offset are left alone")
         assertNear(shifted[16 + index], want[index], "the shifted matrix entry at " .. index)
@@ -358,7 +358,7 @@ function M.theMatrixAgreesWithTheBasis()
     local qx, qy, qz, qw = quat.normalize(0.3, -0.7, 0.2, 0.9)
     local m00, m10, m20, m01, m11, m21, m02, m12, m22 = quat.basis(qx, qy, qz, qw)
     local out = {}
-    quat.toMatrix(qx, qy, qz, qw, out, 1)
+    quat.tomatrix(qx, qy, qz, qw, out, 1)
     local expected = {m00, m10, m20, 0, m01, m11, m21, 0, m02, m12, m22, 0, 0, 0, 0, 1}
     for index = 1, 16 do
         assertNear(out[index], expected[index], "the four-by-four entry at " .. index)
@@ -375,16 +375,16 @@ function M.degenerateInputsAreAnswered()
     x, y, z, w = quat.inverse(0, 0, 0, 0)
     assertRotation("inverting zero", nil, rotationOf(x, y, z, w), {0, 0, 0, 1})
 
-    x, y, z, w = quat.fromAxisAngle(0, 0, 0, 1.0)
+    x, y, z, w = quat.fromaxisangle(0, 0, 0, 1.0)
     assertRotation("a zero axis", nil, rotationOf(x, y, z, w), {0, 0, 0, 1})
 
-    x, y, z, w = quat.fromTo(0, 0, 0, 1, 0, 0)
+    x, y, z, w = quat.fromto(0, 0, 0, 1, 0, 0)
     assertRotation("a zero starting direction", nil, rotationOf(x, y, z, w), {0, 0, 0, 1})
 
-    x, y, z, w = quat.fromTo(1, 0, 0, 0, 0, 0)
+    x, y, z, w = quat.fromto(1, 0, 0, 0, 0, 0)
     assertRotation("a zero target direction", nil, rotationOf(x, y, z, w), {0, 0, 0, 1})
 
-    x, y, z, w = quat.toAxisAngle(0, 0, 0, 1)
+    x, y, z, w = quat.toaxisangle(0, 0, 0, 1)
     assertRotation("the identity's axis and angle", nil, rotationOf(x, y, z, w), {1, 0, 0, 0})
 end
 
@@ -395,7 +395,7 @@ function M.normalizationKeepsTheSign()
     local x, y, z, w = quat.normalize(-0.6, 0, 0, -0.8)
     assertNear(w, -0.8, "a negative scalar part stays negative")
     assertNear(x, -0.6, "a negative vector part stays negative")
-    assertNear(quat.length(x, y, z, w), 1, "the normalized rotation is a unit one")
+    assertNear(quat.len(x, y, z, w), 1, "the normalized rotation is a unit one")
 end
 
 function M.componentwiseArithmeticIntegratesAngularVelocity()
@@ -408,11 +408,11 @@ function M.componentwiseArithmeticIntegratesAngularVelocity()
     local steps = 1000
     local dt = 1.0 / steps
     for _ = 1, steps do
-        local dx, dy, dz, dw = quat.multiply(0, 0, rate, 0, x, y, z, w)
+        local dx, dy, dz, dw = quat.mul(0, 0, rate, 0, x, y, z, w)
         dx, dy, dz, dw = quat.scale(dx, dy, dz, dw, 0.5 * dt)
         x, y, z, w = quat.normalize(quat.add(x, y, z, w, dx, dy, dz, dw))
     end
-    local ex, ey, ez, ew = quat.fromAxisAngle(0, 0, 1, rate)
+    local ex, ey, ez, ew = quat.fromaxisangle(0, 0, 1, rate)
     assertRotation("the integrated orientation", 1e-6, rotationOf(x, y, z, w), {ex, ey, ez, ew})
 
     local sx, sy, sz, sw = quat.sub(1, 2, 3, 4, 0.5, 1.5, 2.5, 3.5)
@@ -420,14 +420,14 @@ function M.componentwiseArithmeticIntegratesAngularVelocity()
 end
 
 function M.dotAndLengthDescribeTheSameRotation()
-    local ax, ay, az, aw = quat.fromAxisAngle(0, 0, 1, 0)
-    local bx, by, bz, bw = quat.fromAxisAngle(0, 0, 1, math.pi / 3)
+    local ax, ay, az, aw = quat.fromaxisangle(0, 0, 1, 0)
+    local bx, by, bz, bw = quat.fromaxisangle(0, 0, 1, math.pi / 3)
     -- The dot product of two unit rotations is the cosine of half the angle between
     -- them, which is the identity `slerp` is built on.
     assertNear(quat.dot(ax, ay, az, aw, bx, by, bz, bw), math.cos(math.pi / 6), "the dot product is the half angle")
-    assertNear(quat.lengthSquared(1, 2, 3, 4), 30, "the squared length")
-    assertNear(quat.length(0, 0, 0, 0), 0, "a zero rotation has no length")
-    assertNear(quat.length(HALF, 0, 0, HALF), 1, "a quarter turn is a unit rotation")
+    assertNear(quat.lengthsquared(1, 2, 3, 4), 30, "the squared length")
+    assertNear(quat.len(0, 0, 0, 0), 0, "a zero rotation has no length")
+    assertNear(quat.len(HALF, 0, 0, HALF), 1, "a quarter turn is a unit rotation")
 end
 
 return M

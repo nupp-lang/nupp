@@ -133,9 +133,9 @@ return {include = {"src"}, build = {default = "app", targets = {app = {
         [
             "src/main.nupp"
         ] = [[
-const http = require("nupp.io.http")
+const http = require("io.http")
 
-with client = http.newClient() do
+with client = http.newclient() do
     print("mixed native provider")
 end
 ]],
@@ -198,6 +198,7 @@ end
 
 function M.aStampedBinaryRunsStructuredTasksOnTheSharedScheduler()
     local dir = tempProject({
+        ["shared-bytes.bin"] = "engine\0bytes\255",
         [
             "nupp.lua"
         ] = [[
@@ -328,7 +329,7 @@ end
 
 const heap = require("nupp.mem.heap")
 
-export function stamp(takes frame: heap.Array<uint8>, value: integer): affine(heap.Array<uint8>, heap.destroyArray)
+export function stamp(takes frame: heap.Array<uint8>, value: integer): affine(heap.Array<uint8>, heap.destroyarray)
     local writable = frame:write()
     writable[1] = value % 256
     own.drop(writable)
@@ -349,11 +350,11 @@ export function total(takes values: heap.Array<int32>): integer
     return sum
 end
 
-const tasks = require("nupp.tasks")
+const tasks = require("coroutine")
 
 export function nested(shards: integer): integer
     local squared: integer = 0
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         squared = scope:fork(|| -> shards * shards):await()
     end
 
@@ -365,12 +366,12 @@ end
         ] = [[
 const capture = require("capture")
 const jobs = require("jobs")
-const tasks = require("nupp.tasks")
+const tasks = require("coroutine")
 const sharedbytes = require("nupp.mem.sharedbytes")
 
 local counter = require("counter")
 for index = 1, 100 do assert(counter.next() == index) end
-with scope = tasks.open() do
+with scope = tasks.scope() do
     local independent = scope:fork(jobs.nextCounter)
     -- A LuaJIT worker is a fresh Lua state that runs its modules again, so its
     -- provider starts over; a VM worker runs none of its modules' bodies and
@@ -464,7 +465,7 @@ end
 print(capture.run(40))
 
 local nestedOk, nestedProblem = pcall(function(): nil
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         scope:fork(4, jobs.nested):await()
     end
 end)
@@ -472,7 +473,7 @@ print(not nestedOk, tostring(nestedProblem):find("another worker scope", 1, true
 
 
 local ok, problem = pcall(function(): nil
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         scope:fork(jobs.fail)
     end
 end)
@@ -484,7 +485,7 @@ if arg[1] == "check-stack" then
 end
 
 local copied, copyProblem = pcall(function(): nil
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         scope:fork(setmetatable({value = 1}, {}), jobs.gradual)
     end
 end)
@@ -492,8 +493,8 @@ print(copied, tostring(copyProblem):find("has a metatable", 1, true) ~= nil)
 
 const heap = require("nupp.mem.heap")
 
-local frame = heap.allocate(ffi.typeof<uint8>(), 64)
-with scope = tasks.open() do
+local frame = heap.alloc(ffi.typeof<uint8>(), 64)
+with scope = tasks.scope() do
     frame = scope:fork(frame, 200, jobs.stamp):await()
 end
 do
@@ -502,7 +503,7 @@ do
 end
 own.drop(frame)
 
-local counts = heap.allocate(ffi.typeof<int32>(), 5)
+local counts = heap.alloc(ffi.typeof<int32>(), 5)
 do
     local writable = counts:write()
     for index = 1, 5 do
@@ -510,11 +511,19 @@ do
     end
     own.drop(writable)
 end
-with scope = tasks.open() do
+with scope = tasks.scope() do
     print(scope:fork(counts, jobs.total):await())
 end
 
-local builder = sharedbytes.newBuilder()
+local dynamicShared = sharedbytes as any
+assert(dynamicShared.newBuilder == nil and dynamicShared.readFile == nil)
+local loaded, readProblem = sharedbytes.readfile("shared-bytes.bin")
+if loaded == nil then error(readProblem or "shared byte file failed") end
+assert(loaded:len() == 13 and loaded:toString() == "engine\0bytes\255")
+local absent, missingReason = sharedbytes.readfile("missing-shared-bytes.bin")
+assert(absent == nil and type(missingReason) == "string")
+
+local builder = sharedbytes.newbuilder()
 with writer = builder:reserve(3) do
     writer[1] = 104
     writer[2] = 105
@@ -530,11 +539,11 @@ print(builder:freeze():toString())
 module capture
 
 const jobs = require("jobs")
-const tasks = require("nupp.tasks")
+const tasks = require("coroutine")
 
 export function run(base: integer): integer
     const box = new jobs.Box(value = 21)
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         const scalar = scope:fork(2, |value: integer| -> base + value)
         const record = scope:fork(|| -> box:doubled())
         return scalar:await() + record:await()
@@ -568,7 +577,7 @@ return {include = {"src"}, build = {default = "app", targets = {app = {
         ] = [[
 module jobs
 
-const tasks = require("nupp.tasks")
+const tasks = require("coroutine")
 
 export function cancellable(limit: integer): integer
     for index = 1, limit do
@@ -593,9 +602,9 @@ end
             "src/main.nupp"
         ] = [[
 const jobs = require("jobs")
-const suspension = require("nupp.suspension")
-const suspensionHost = require("nupp.suspension.host")
-const tasks = require("nupp.tasks")
+const suspension = require("coroutine.suspension")
+const suspensionHost = require("coroutine.suspension.host")
+const tasks = require("coroutine")
 
 local runnable: {thread} = {}
 local queued: {[thread]: boolean} = {}
@@ -643,36 +652,36 @@ local handler = {
 
 const app = coroutine.create(function(): nil
 with handling = suspensionHost.install(handler) do
-with scope = tasks.open() do
+with scope = tasks.scope() do
     const running = scope:fork(1000000000, jobs.cancellable)
     while running:status() == "queued" do
         suspension.poll()
     end
     const requested = running:cancel("stop running")
     const ok, problem = pcall(function(): integer return running:await() end)
-    print(requested, ok, tasks.isCancelled(problem),
+    print(requested, ok, tasks.iscancelled(problem),
         tostring(problem):find("stop running", 1, true) ~= nil)
 end
 
-with scope = tasks.open() do
+with scope = tasks.scope() do
     const returning = scope:fork(jobs.returnsAfterCancellation)
     while returning:status() == "queued" do suspension.poll() end
     const requested = returning:cancel("observe at return")
     const ok, problem = pcall(function(): integer return returning:await() end)
-    print(requested, ok, tasks.isCancelled(problem),
+    print(requested, ok, tasks.iscancelled(problem),
         tostring(problem):find("observe at return", 1, true) ~= nil)
 end
 
 -- A fork is a worker child with the task scope's own handle: it counts against the
 -- scope's limit until its lane answers, and its result pack comes back intact.
-with scope = tasks.open(limit = 2) do
+with scope = tasks.scope(limit = 2) do
     const forked = scope:fork(3, jobs.cancellable)
     const sibling = scope:fork(2, jobs.cancellable)
     print(forked:await() + sibling:await(), forked:status(), sibling:isDone())
 end
 
 pcall(function(): nil
-with scope = tasks.open() do
+with scope = tasks.scope() do
     for _ = 1, 64 do
         scope:fork(1000000000, jobs.cancellable)
     end
@@ -680,7 +689,7 @@ with scope = tasks.open() do
     const wasQueued = queued:status() == "queued"
     const requested = queued:cancel("never start")
     const ok, problem = pcall(function(): integer return queued:await() end)
-    print(wasQueued, requested, ok, tasks.isCancelled(problem))
+    print(wasQueued, requested, ok, tasks.iscancelled(problem))
     -- The block's own failure drains the family rather than cancelling it, and
     -- these children spin until told to stop, so say so before leaving.
     scope:cancel("finish queued cancellation test")
@@ -689,11 +698,11 @@ end
 end)
 
 const deadlineOk, deadlineProblem = pcall(function(): nil
-    with scope = tasks.open(timeoutMs = 1) do
+    with scope = tasks.scope(timeoutMs = 1) do
         scope:fork(1000000000, jobs.cancellable):await()
     end
 end)
-print(deadlineOk, tasks.isCancelled(deadlineProblem),
+print(deadlineOk, tasks.iscancelled(deadlineProblem),
     tostring(deadlineProblem):find("deadline", 1, true) ~= nil,
     tostring(deadlineProblem))
 end
@@ -760,7 +769,7 @@ end
             "src/main.nupp"
         ] = [[
 const jobs = require("jobs")
-const tasks = require("nupp.tasks")
+const tasks = require("coroutine")
 
 local paths: {[string]: string} = {}
 local expected: integer = 0
@@ -769,7 +778,7 @@ for index = 1, 9 do
     expected = expected + #("item" .. index) + #("path/" .. index)
 end
 local total: integer = 0
-with scope = tasks.open(2) do
+with scope = tasks.scope(2) do
     for name, path in pairs(paths) do
         scope:spawn(function(): nil
             const size = scope:fork(name, path, jobs.compress):await()
@@ -811,7 +820,7 @@ export function square(value: integer): integer
     return value * value
 end
 
-export function stamp(takes frame: heap.Array<uint8>, value: integer): affine(heap.Array<uint8>, heap.destroyArray)
+export function stamp(takes frame: heap.Array<uint8>, value: integer): affine(heap.Array<uint8>, heap.destroyarray)
     local writable = frame:write()
     writable[1] = value % 256
     own.drop(writable)
@@ -820,17 +829,17 @@ export function stamp(takes frame: heap.Array<uint8>, value: integer): affine(he
 end
 ]],
         [
-            "src/main.nupp"
+            "src/nupp/internal/scopeobserver.nupp"
         ] = [[
 const heap = require("nupp.mem.heap")
 const jobs = require("jobs")
-const tasks = require("nupp.tasks")
+const tasks = require("coroutine")
 
-const lifecycle = rawget(tasks, "__lifecycle") as function(borrows scope: tasks.Scope): {workers: integer}
+const lifecycle = rawget(require("nupp.tasks"), "__lifecycle") as function(borrows scope: tasks.Scope): {workers: integer}
 
 local most: integer = 0
 local repeated = false
-with scope = tasks.open(4) do
+with scope = tasks.scope(4) do
     const first = scope:fork(3, jobs.square)
     for index = 1, 40 do
         scope:fork(index, jobs.square)
@@ -843,9 +852,9 @@ with scope = tasks.open(4) do
 end
 print(most <= 4, repeated)
 
-local frame = heap.allocate(ffi.typeof<uint8>(), 64)
+local frame = heap.alloc(ffi.typeof<uint8>(), 64)
 local owing: integer = -1
-with scope = tasks.open(1) do
+with scope = tasks.scope(1) do
     scope:fork(frame, 7, jobs.stamp)
     for index = 1, 10 do
         scope:fork(index, jobs.square)
@@ -1007,9 +1016,9 @@ return {include = {"src"}, build = {default = "app", targets = {app = {
         [
             "src/main.nupp"
         ] = [[
-const tasks = require("nupp.tasks")
+const tasks = require("coroutine")
 local answer = 0
-with scope = tasks.open() do
+with scope = tasks.scope() do
     answer = scope:spawn(function(): integer return 42 end):await()
 end
 print(answer)
@@ -1133,7 +1142,7 @@ return wrong
         ] = [[
 local function format<F is string>(
     value: F,
-    ...: unpackof types.formatArguments(F)
+    ...: unpackof types.formatarguments(F)
 ): string
     return string.format(value, ...)
 end
@@ -1155,15 +1164,15 @@ return 1
 ]],
         -- And the workers surface carries both halves.
         ["workerstyped.nupp"] = [[
-local tasks = require("nupp.tasks")
-local wrong: integer = tasks.open
+local tasks = require("coroutine")
+local wrong: integer = tasks.scope
 return wrong
 ]],
         [
             "workersowned.nupp"
         ] = [[
-local tasks = require("nupp.tasks")
-with scope = tasks.open() do
+local tasks = require("coroutine")
+with scope = tasks.scope() do
     print(scope ~= nil)
 end
 return true

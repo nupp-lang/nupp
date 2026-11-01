@@ -20,7 +20,7 @@ The facade closes state on successful or failed finalization. Standard digest
 names retain their standard output sizes. MD5 and SHA-1 support interoperability;
 applications requiring collision resistance must choose an appropriate digest.
 ]]
-local {type ByteSpan, type ByteWriteSpan} = require("nupp.mem.span")
+local {type ByteSpan, type ByteWriteSpan} = require("binary.span")
 
 --- Independent incremental state; close consumes its ownership without suspension.
 export interface State is own.Closeable

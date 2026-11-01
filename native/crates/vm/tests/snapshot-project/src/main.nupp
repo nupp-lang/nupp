@@ -7,7 +7,7 @@ local persist = require("nupp.vm.persist")
 local vm = require("nupp.vm")
 local net = require("nupp.vm.net")
 local host = require("nupp.vm.files")
-local files = require("nupp.io.files")
+local files = require("io.files")
 local main = {}
 
 local record Sound
@@ -246,7 +246,7 @@ end
 -- Game bodies run in their own VM, where a module whose functions are shape
 -- methods must be required again rather than captured.
 local function reader(path: string): string
-    local files = require("nupp.io.files")
+    local files = require("io.files")
     local file = assert2(files.open(path, "r"))
     local first = assert2(file:read(4)) as string
     busy()
@@ -257,7 +257,7 @@ local function reader(path: string): string
 end
 
 local function writer(path: string, strategy: string): string
-    local files = require("nupp.io.files")
+    local files = require("io.files")
     local snapshot = require("nupp.snapshot")
     if strategy ~= "" then
         snapshot.fileStrategy(path, strategy as snapshot.FileStrategy)

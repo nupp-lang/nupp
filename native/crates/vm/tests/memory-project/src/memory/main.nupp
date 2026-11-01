@@ -2,7 +2,7 @@ module memory.main
 
 const assert2 = require("assert")
 
-const tasks = require("nupp.tasks")
+const tasks = require("coroutine")
 
 -- The standard modules LuaJIT reaches through `ffi`, run on the VM: SoA
 -- slabs, heap arrays, shared byte regions, the logging clock, and the host and
@@ -37,7 +37,7 @@ end
 
 local function heapArrays(): nil
     do
-        local values = heap.allocate(ffi.typeof<int32>(), 4)
+        local values = heap.alloc(ffi.typeof<int32>(), 4)
         assert2(values.count == 4)
         with writable = values:write() do
             for index = 1, #writable do
@@ -53,17 +53,17 @@ local function heapArrays(): nil
         assert2(total == 100)
     end
     do
-        local wide = heap.allocate(ffi.typeof<number>(), 3)
+        local wide = heap.alloc(ffi.typeof<number>(), 3)
         with writable = wide:write() do
             writable[2] = 2.5
         end
         assert2(wide:read()[1] == 0 and wide:read()[2] == 2.5)
-        local empty = heap.allocate(ffi.typeof<uint8>(), 0)
+        local empty = heap.alloc(ffi.typeof<uint8>(), 0)
         assert2(empty.count == 0 and #empty:read() == 0)
     end
     raises(
         function(): nil
-            local _broken = heap.allocate(ffi.typeof<int32>(), -1)
+            local _broken = heap.alloc(ffi.typeof<int32>(), -1)
         end,
         "nonnegative integer"
     )
@@ -90,7 +90,7 @@ local function soaSlabs(): nil
     assert2(instance.segments[3].offset == 60 and instance.segments[4].offset == 72)
     assert2(instance.byteSize == 75)
 
-    local bodies = soa.allocate(ffi.typeof<Body>(), 4)
+    local bodies = soa.alloc(ffi.typeof<Body>(), 4)
     assert2(bodies.count == 4 and bodies.fingerprint == layout.fingerprint)
     with rows = bodies:write() do
         assert2(#rows == 4)
@@ -120,7 +120,7 @@ local function soaSlabs(): nil
     local ids = readable.id
     assert2(#ids == 4 and ids[1] == 100 and ids[4] == 400)
 
-    local copies = soa.allocate(ffi.typeof<Body>(), 2)
+    local copies = soa.alloc(ffi.typeof<Body>(), 2)
     with rows = copies:write() do
         rows:copyFrom(1, bodies:read(), 3, 2)
     end
@@ -148,7 +148,7 @@ local function sharedRegions(): nil
         "out of bounds"
     )
 
-    local builder = sharedbytes.newBuilder()
+    local builder = sharedbytes.newbuilder()
     with writer = builder:reserve(5) do
         for index = 1, 5 do
             writer[index] = 64 + index
@@ -171,16 +171,16 @@ local function sharedRegions(): nil
         "not suitably aligned"
     )
 
-    local missing, why = sharedbytes.readFile("definitely/not/here.bin")
+    local missing, why = sharedbytes.readfile("definitely/not/here.bin")
     assert2(missing == nil and why ~= nil)
 end
 
 local function logging(): nil
     local lines: {string} = {}
-    log.setSink(function(_: any, module: string, _: integer, message: string): nil
+    log.setsink(function(_: any, module: string, _: integer, message: string): nil
         lines[#lines + 1] = module .. ": " .. message
     end)
-    log.setLevel("info")
+    log.setlevel("info")
     log.named("memory"):info("%d rows", 4)
     log.named("memory"):debug("hidden")
     assert2(#lines == 1 and lines[1] == "memory: 4 rows", lines[1])
@@ -246,12 +246,12 @@ end
 
 local function workerRegions(): nil
     local region = sharedbytes.copy("hello, worker")
-    local builder = sharedbytes.newBuilder()
+    local builder = sharedbytes.newbuilder()
     builder:append("built ")
     builder:append("bytes")
     local built = builder:freeze()
     local large = sharedbytes.copy(string.rep("large", 200000))
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         const one = scope:fork(region, test.regionPrefix)
         const two = scope:fork(built, test.regionPrefix)
         assert2(one:await() == "hello")
@@ -275,9 +275,9 @@ local function workerRegions(): nil
 end
 
 local function workerMoves(): nil
-    local frame = heap.allocate(ffi.typeof<int32>(), 1024)
+    local frame = heap.alloc(ffi.typeof<int32>(), 1024)
     const before = arrayAddress(frame)
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         frame = scope:fork(frame, 5, test.fillMoved):await()
         -- Moved there and back: the same allocation, not a copy.
         assert2(arrayAddress(frame) == before, "a heap array moves rather than copies")

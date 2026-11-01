@@ -404,8 +404,8 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
         if bindingErr then
             return nil, bindingErr
         end
-        local linkOutputs = json.asArray({})
-        local linkFlags = json.asArray({})
+        local linkOutputs = json.asarray({})
+        local linkFlags = json.asarray({})
         if staticOutput then
             linkOutputs[#linkOutputs + 1] = staticOutput
             appendChildLinkInputs(dep, childResults, linkOutputs, linkFlags)
@@ -667,8 +667,8 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
         end
     end
 
-    local linkOutputs = json.asArray({})
-    local linkFlags = json.asArray({})
+    local linkOutputs = json.asarray({})
+    local linkFlags = json.asarray({})
     if staticOutput then
         linkOutputs[#linkOutputs + 1] = staticOutput
         appendChildLinkInputs(dep, childResults, linkOutputs, linkFlags)
@@ -774,7 +774,7 @@ local function buildCargo(root, outDir, name, dep, previous)
         end
         if not dep.artifactPath then
             for line in cargoOutput:gmatch("[^\r\n]+") do
-                local message = json.decodeValue(line, json.NULL)
+                local message = json.decodevalue(line, json.NULL)
                 if type(message) == "table"
                     and message.reason == "compiler-artifact"
                     and message.target

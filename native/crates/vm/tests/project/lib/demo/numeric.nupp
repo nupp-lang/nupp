@@ -73,18 +73,18 @@ function numeric.run(): number
     assert(math.u64.popcount(wide) == 64)
     assert(indirectCount(math.u64.popcount, wide) == 64)
     local u64 = math.u64
-    assert(indirectCount(u64.leadingZeros, 1ULL) == 63)
-    assert(u64.prefixXor(1ULL) == wide)
-    assert(u64.rotateLeft(wide - 1ULL, 1) == wide - 2ULL)
+    assert(indirectCount(u64.leadingzeros, 1ULL) == 63)
+    assert(u64.prefixxor(1ULL) == wide)
+    assert(u64.rotateleft(wide - 1ULL, 1) == wide - 2ULL)
     local high: uint64 = 0x8000000000000005ULL
-    assert(u64.rotateRight(high, 1) == 0xc000000000000002ULL)
+    assert(u64.rotateright(high, 1) == 0xc000000000000002ULL)
     for value = -10, 10 do
         local direct = math.f32.exp(math.f32.narrow(value / 3))
         local indirect = indirectExp(math.f32.exp, math.f32.narrow(value / 3))
-        assert(math.f32.toBits(direct) == math.f32.toBits(indirect))
+        assert(math.f32.tobits(direct) == math.f32.tobits(indirect))
     end
-    assert(math.f32.fromF16Bits(math.f32.toF16Bits(1.5)) == 1.5)
-    assert(math.f32.fromBF16Bits(math.f32.toBF16Bits(1.5)) == 1.5)
+    assert(math.f32.fromf16bits(math.f32.tof16bits(1.5)) == 1.5)
+    assert(math.f32.frombf16bits(math.f32.tobf16bits(1.5)) == 1.5)
     local nupp = {
         math = {
             u64 = {

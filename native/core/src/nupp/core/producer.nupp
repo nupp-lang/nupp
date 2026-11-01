@@ -60,7 +60,7 @@ function producer.compile(mode: string): string
     local result = shim.build(codes)
     result.handlers, result.mode = metrics, mode
 
-    return json.encodeValue(result)
+    return json.encodevalue(result)
 end
 
 function producer.data(path: string, slots: string, offsets: string, codeBytes: string): string

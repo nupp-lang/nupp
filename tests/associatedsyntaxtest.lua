@@ -20,8 +20,8 @@ end
 
 local function roundtrip(src)
     local result = parse(src)
-    testAssert.equal(#result.errors, 0, "parse errors: " .. (result.errors[1] and result.errors[1].msg or ""))
-    testAssert.equal(cst.textOf(result.root), src, "round trip")
+    testAssert.eq(#result.errors, 0, "parse errors: " .. (result.errors[1] and result.errors[1].msg or ""))
+    testAssert.eq(cst.textOf(result.root), src, "round trip")
     return result
 end
 
@@ -60,7 +60,7 @@ function M.everyFormParsesAndRoundTrips()
             "\n"
         ) .. "\n"
     )
-    testAssert.equal(kinds, "associatedDecl associatedDecl associatedDecl associatedDecl")
+    testAssert.eq(kinds, "associatedDecl associatedDecl associatedDecl associatedDecl")
 end
 
 function M.theBoundAndTheValueAreBothRecorded()
@@ -71,12 +71,12 @@ function M.theBoundAndTheValueAreBothRecorded()
         ) .. "\n"
     )
     local entry = decl.entries[1]
-    testAssert.equal(entry.name.text, "Tag")
+    testAssert.eq(entry.name.text, "Tag")
     assert(entry.bound, "the bound was dropped")
     assert(entry.value, "the value was dropped")
     -- `textOf` carries a node's leading trivia, so the spacing is part of it.
-    testAssert.equal((cst.textOf(entry.bound):gsub("^%s+", "")), "Named")
-    testAssert.equal((cst.textOf(entry.value):gsub("^%s+", "")), "Label")
+    testAssert.eq((cst.textOf(entry.bound):gsub("^%s+", "")), "Named")
+    testAssert.eq((cst.textOf(entry.value):gsub("^%s+", "")), "Label")
 end
 
 -- Contextual, on the same rule as the rest of the added words.
@@ -87,7 +87,7 @@ function M.aFieldMayStillBeCalledAssociatedOrType()
             "\n"
         ) .. "\n"
     )
-    testAssert.equal(kinds, "fieldDecl fieldDecl")
+    testAssert.eq(kinds, "fieldDecl fieldDecl")
 end
 
 -- `type` has to sit on the introducer's own line, or a field named `type` following
@@ -106,7 +106,7 @@ function M.aNewlineBetweenTheWordsIsNotTheConstruct()
             "\n"
         ) .. "\n"
     )
-    testAssert.equal(kinds, "fieldDecl fieldDecl fieldDecl")
+    testAssert.eq(kinds, "fieldDecl fieldDecl fieldDecl")
 end
 
 function M.nestedGenericBoundsAndValuesClose()
@@ -152,7 +152,7 @@ function M.aMalformedMemberDoesNotSwallowTheRest()
             fields = fields + 1
         end
     end
-    testAssert.equal(fields, 2, "the members after the broken one were swallowed")
+    testAssert.eq(fields, 2, "the members after the broken one were swallowed")
 end
 
 function M.commentsAndAnnotationsSurvive()
@@ -179,10 +179,10 @@ function M.formattingIsCanonicalAndIdempotent()
         "\n"
     ) .. "\n"
     local formatted, errors = fmt.format(ugly, "test.nupp")
-    testAssert.equal(#errors, 0, "formatting reported: " .. (errors[1] and errors[1].msg or ""))
+    testAssert.eq(#errors, 0, "formatting reported: " .. (errors[1] and errors[1].msg or ""))
     assert(formatted:find("associated type Tag is Named = Label", 1, true), "not canonically spaced:\n" .. formatted)
     local again = fmt.format(formatted, "test.nupp")
-    testAssert.equal(again, formatted, "formatting is not idempotent")
+    testAssert.eq(again, formatted, "formatting is not idempotent")
 end
 
 -- Erasure. An associated declaration is a fact for the checker and nothing at all at
@@ -191,7 +191,7 @@ end
 function M.associatedDeclarationsEraseCompletely()
     local function generate(src)
         local result = parser.parse(src, "test.nupp")
-        testAssert.equal(#result.errors, 0, "syntax errors: " .. (result.errors[1] and result.errors[1].msg or ""))
+        testAssert.eq(#result.errors, 0, "syntax errors: " .. (result.errors[1] and result.errors[1].msg or ""))
         env.loaded = {}
         check.check(result, "test.nupp", env)
 
@@ -222,7 +222,7 @@ function M.associatedDeclarationsEraseCompletely()
     local withThem = generate(table.concat(lines, "\n") .. "\n")
     local without = generate(table.concat(blanked, "\n") .. "\n")
 
-    testAssert.equal(withThem, without, "an associated declaration reached the output")
+    testAssert.eq(withThem, without, "an associated declaration reached the output")
 end
 
 return M

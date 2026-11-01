@@ -2,7 +2,7 @@ module tests.fixtures.cliremainderinvalid
 
 local cli = require("arg")
 
-@derive(cli.Arguments)
+@derive(cli.arguments)
 local record Misordered
     @cli(remainder = true)
     arguments: {string} = {}

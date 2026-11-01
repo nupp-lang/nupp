@@ -22,6 +22,8 @@ See `docs/reference/diagnostics.md` for the shape of what is being rendered, and
 `nupp check --json` for the form meant for programs.
 ]]
 
+const terminal = require("io.terminal")
+
 local diagnostics = {}
 
 local policy = require("nupp.compiler.diagnosticpolicy")
@@ -83,7 +85,7 @@ function diagnostics.report(values: {any}): boolean
     if #values == 0 then
         return false
     end
-    local style = io.style(io.stderr)
+    local style = terminal.style(io.stderr)
     local failed = false
     local sources = {}
     local out: {string} = {}
@@ -104,7 +106,7 @@ function diagnostics.report(values: {any}): boolean
         if severity == "error" then
             failed = true
         end
-        local paint = io.severity(style, severity)
+        local paint = terminal.severity(style, severity)
         local code = diagnostic.code or ""
         if diagnostic.lint then
             -- The name is what a suppression or a config entry writes, so it is said
@@ -124,7 +126,7 @@ function diagnostics.report(values: {any}): boolean
             diagnostic.status and ("[" .. diagnostic.status .. "] ") or ""
         ) .. style.strong(diagnostic.msg or "error") .. "\n"
         writeSourceMark(out, style, paint, sourceFor(diagnostic.filename), diagnostic)
-        local notePaint = io.severity(style, "note")
+        local notePaint = terminal.severity(style, "note")
         for _, related in ipairs(diagnostic.related or {}) do
             out[
                 #out + 1
@@ -139,7 +141,7 @@ function diagnostics.report(values: {any}): boolean
             out[#out + 1] = notePaint("note") .. ": " .. note .. "\n"
         end
         if diagnostic.help then
-            out[#out + 1] = io.severity(style, "help")("help") .. ": " .. diagnostic.help .. "\n"
+            out[#out + 1] = terminal.severity(style, "help")("help") .. ": " .. diagnostic.help .. "\n"
         end
     end
     io.stderr:write(table.concat(out))

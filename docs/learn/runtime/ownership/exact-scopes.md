@@ -17,7 +17,7 @@ local struct Position
     velocity: float
 end
 
-local positions = soa.allocate(ffi.typeof<Position>(), 128)
+local positions = soa.alloc(ffi.typeof<Position>(), 128)
 with rows = positions:write() do
     for index = 1, #rows do
         rows[index].x += rows[index].velocity
@@ -27,9 +27,9 @@ end
 
 The hidden owner is dropped when the body falls through, returns, raises, or
 leaves through loop control or an outward `goto`. For writable
-[SoA](../data/structure-of-arrays.md) and [span](nupp.mem.span) views, dropping only
-ends the exclusive borrow: stores already changed the original columns, so the
-scope performs no flush or copy.
+[SoA](../data/structure-of-arrays.md) and [span](binary.span) views, dropping
+only ends the exclusive borrow: stores already changed the original columns, so
+the scope performs no flush or copy.
 
 ## Syntax
 

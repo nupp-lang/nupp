@@ -3,7 +3,7 @@ module binary.compress
 --[[
 Compressing and decompressing a stream of bytes.
 
-Ask for a format, then use its one-shot helpers or wrap a [](nupp.io) reader or
+Ask for a format, then use its one-shot helpers or wrap a [](io) reader or
 writer:
 
 ```nupp:fragment
@@ -47,8 +47,8 @@ const assert2 = require("assert")
 local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
 
-const io = require("nupp.io")
-const span = require("nupp.mem.span")
+const io = require("io")
+const span = require("binary.span")
 const storage = require("nupp.runtime.storage")
 const provider = require("binary.compress.spi")
 
@@ -263,7 +263,7 @@ local record Writer is CompressionWriter
     @private abort: @nosuspend function(takes self: Writer): nil
 
     function write(exclusive self, bytes: string): (boolean, string?)
-        local input = span.fromString(bytes)
+        local input = span.fromstring(bytes)
         local written, reason = self:writeSpan(input)
         if written == nil or written ~= #bytes then
             return false, reason or "compression writer accepted only part of the input"
@@ -276,7 +276,7 @@ local record Writer is CompressionWriter
         local at: integer = 1
         while at <= #input do
             local remaining = input:slice(at, #input)
-            local output = span.writeCarray(self.output, self.capacity)
+            local output = span.writecarray(self.output, self.capacity)
             local consumed, written, status, reason = self.state:write(remaining, output)
             own.drop(output)
             if consumed == nil or written == nil or status == nil then
@@ -305,7 +305,7 @@ local record Writer is CompressionWriter
 
     function flush(self): (boolean, string?)
         while true do
-            local output = span.writeCarray(self.output, self.capacity)
+            local output = span.writecarray(self.output, self.capacity)
             local written, status, reason = self.state:flush(output)
             own.drop(output)
             if written == nil or status == nil then
@@ -334,7 +334,7 @@ local record Writer is CompressionWriter
         local output, capacity = self.output, self.capacity
         with owner = new PairOwner(state = self.state, destination = self.destination) do
             while true do
-                local writable = span.writeCarray(output, capacity)
+                local writable = span.writecarray(output, capacity)
                 local written, status, reason = owner.state:finish(writable)
                 own.drop(writable)
                 if written == nil or status == nil then
@@ -347,7 +347,7 @@ local record Writer is CompressionWriter
                     return false, "compression provider reported invalid progress"
                 end
                 if written > 0 then
-                    local bytes = span.fromCarray(output, written)
+                    local bytes = span.fromcarray(output, written)
                     local at: integer = 1
                     while at <= written do
                         local remaining = bytes:slice(at, written)
@@ -383,7 +383,7 @@ function Writer.drain(exclusive self: Writer, count: integer): (boolean, string?
     if count == 0 then
         return true, nil
     end
-    local bytes = span.fromCarray(self.output, count)
+    local bytes = span.fromcarray(self.output, count)
     local at: integer = 1
     while at <= count do
         local remaining = bytes:slice(at, count)
@@ -505,7 +505,7 @@ local record Reader is io.Reader
                 end
             end
 
-            local all = span.fromCarray(self.input, self.inputLength)
+            local all = span.fromcarray(self.input, self.inputLength)
             local input = all:slice(self.inputAt, self.inputLength)
             local consumed, written, status, reason = self.state:read(input, destination)
             if consumed == nil or written == nil or status == nil then
@@ -542,7 +542,7 @@ local record Reader is io.Reader
     function read(exclusive self, count: integer): (string?, string?)
         local wanted = positive(count, count, "compression Reader:read count")
         local output = storage.allocateBytes(wanted)
-        local writable = span.writeCarray(output, wanted)
+        local writable = span.writecarray(output, wanted)
         local written, reason = self:readSpan(writable)
         own.drop(writable)
         if written == nil then
@@ -584,7 +584,7 @@ local record Reader is io.Reader
         local output = storage.allocateBytes(self.capacity)
         local total: integer = 0
         while true do
-            local writable = span.writeCarray(output, self.capacity)
+            local writable = span.writecarray(output, self.capacity)
             local read, reason = self:readSpan(writable)
             own.drop(writable)
             if read == nil then
@@ -592,7 +592,7 @@ local record Reader is io.Reader
             elseif read == 0 then
                 return total, nil
             end
-            local bytes = span.fromCarray(output, read)
+            local bytes = span.fromcarray(output, read)
             local at: integer = 1
             while at <= read do
                 local remaining = bytes:slice(at, read)
@@ -611,7 +611,7 @@ local record Reader is io.Reader
 end
 
 function Reader.refill(self: Reader): (boolean?, string?)
-    local writable = span.writeCarray(self.input, self.capacity)
+    local writable = span.writecarray(self.input, self.capacity)
     local count, reason = self.source:readSpan(writable)
     own.drop(writable)
     if count == nil then
@@ -713,14 +713,14 @@ export record Format
     --- Compresses a string into a destination buffer.
     --- @raises string when options are invalid or compression fails
     function compress(self, bytes: string, exclusive destination: io.Buffer, options: WriterOptions?): nil
-        local input = span.fromString(bytes)
+        local input = span.fromstring(bytes)
         self:compress(input, destination, options)
     end
 
     --- Compresses a borrowed span into a new string.
     --- @raises string when options are invalid or compression fails
     function compress(self, borrows bytes: span.ByteSpan, options: WriterOptions?): string
-        local destination = io.newBuffer()
+        local destination = io.newbuffer()
         self:compress(bytes, destination, options)
         local answer = destination:getString()
         destination:close()
@@ -731,7 +731,7 @@ export record Format
     --- Compresses a string into a new string.
     --- @raises string when options are invalid or compression fails
     function compress(self, bytes: string, options: WriterOptions?): string
-        local input = span.fromString(bytes)
+        local input = span.fromstring(bytes)
         return self:compress(input, options)
     end
 
@@ -744,7 +744,7 @@ export record Format
         exclusive destination: io.Buffer,
         options: ReaderOptions?
     ): nil
-        local source = io.newStringReader(storage.string(bytes:ref(), #bytes))
+        local source = io.newstringreader(storage.string(bytes:ref(), #bytes))
         local reader = self:newReader(source, options)
         local writer = destination:newWriter()
         local _, reason = reader:transferTo(writer)
@@ -759,7 +759,7 @@ export record Format
     --- @raises string when options are invalid, the stream is invalid or a limit is
     ---     exceeded
     function decompress(self, bytes: string, exclusive destination: io.Buffer, options: ReaderOptions?): nil
-        local input = span.fromString(bytes)
+        local input = span.fromstring(bytes)
         self:decompress(input, destination, options)
     end
 
@@ -767,7 +767,7 @@ export record Format
     --- @raises string when options are invalid, the stream is invalid or a limit is
     ---     exceeded
     function decompress(self, borrows bytes: span.ByteSpan, options: ReaderOptions?): string
-        local destination = io.newBuffer()
+        local destination = io.newbuffer()
         self:decompress(bytes, destination, options)
         local answer = destination:getString()
         destination:close()
@@ -779,7 +779,7 @@ export record Format
     --- @raises string when options are invalid, the stream is invalid or a limit is
     ---     exceeded
     function decompress(self, bytes: string, options: ReaderOptions?): string
-        local input = span.fromString(bytes)
+        local input = span.fromstring(bytes)
         return self:decompress(input, options)
     end
 end

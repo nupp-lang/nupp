@@ -4,7 +4,7 @@ order: 150
 
 # Worker tasks
 
-`nupp.workers` runs sendable functions in parallel on a shared,
+`coroutine.workers` runs sendable functions in parallel on a shared,
 bounded scheduler whose lanes are native threads, each running its own VM.
 A lane is reached through `fork` on an [application task scope](task-scopes.md),
 which owns the worker children it starts. Arguments and results cross as copies,
@@ -23,10 +23,10 @@ end
 module main
 
 const jobs = require("jobs")
-const tasks = nupp.tasks
+const tasks = coroutine
 
 export function hashes(left: string, right: string): (string, string)
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         const first = scope:fork(left, jobs.hash)
         const second = scope:fork(right, jobs.hash)
 
@@ -49,7 +49,7 @@ Every worker task belongs to the task scope that forked it. Leaving the exact
 awaited and every path out by return or error.
 
 ```nupp:fragment
-with scope = tasks.open() do
+with scope = tasks.scope() do
     scope:fork(snapshot, jobs.rebuildIndex)
 end -- rebuildIndex has settled here
 ```
@@ -94,12 +94,12 @@ export function hashEach(inputs: {string}): {string}
     local hashed: {string} = {}
 
     local function hashInto(index: integer, bytes: string): nil
-        with lane = tasks.open() do
+        with lane = tasks.scope() do
             hashed[index] = lane:fork(bytes, jobs.hash):await()
         end
     end
 
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         for index, bytes in ipairs(inputs) do
             scope:spawn(index, bytes, hashInto)
         end
@@ -112,9 +112,9 @@ end
 Waiting inside the loop that forks would fork one task, wait for it, and fork the
 next: still correct, and exactly as parallel as calling the function. A handle
 rarely needs a type annotation, because `const task = scope:fork(bytes,
-jobs.hash)` infers one. Where one is written, it is `nupp.tasks.Task<F>`, named
+jobs.hash)` infers one. Where one is written, it is `coroutine.Task<F>`, named
 by the submitted function's type: the handle is derived from the signature
-alone, so it is `nupp.tasks.Task<function(string): string>` even though [`fork`
+alone, so it is `coroutine.Task<function(string): string>` even though [`fork`
 requires an `@sendable` function](#functions-that-can-be-submitted).
 
 ### Work in the caller
@@ -124,7 +124,7 @@ work divides:
 
 ```nupp:fragment
 export function bothHashes(left: string, right: string): (string, string)
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         const task = scope:fork(right, jobs.hash)
         const mine = jobs.hash(left)
 
@@ -144,12 +144,12 @@ export function hashChunks(inputs: {string}, size: integer): {string}
     local chunks: {{string}} = {}
 
     local function hashChunk(at: integer, chunk: {string}): nil
-        with lane = tasks.open() do
+        with lane = tasks.scope() do
             chunks[at] = lane:fork(chunk, jobs.hashAll):await()
         end
     end
 
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         local count = 0
         for first = 1, #inputs, size do
             local chunk: {string} = {}
@@ -202,13 +202,13 @@ boundary or risking that a lane waits on itself.
 ```nupp
 module jobs.index
 
-const tasks = nupp.tasks
+const tasks = coroutine
 
 -- Submitting this raises where it forks: a worker task cannot open another
 -- worker scope.
 export function countAll(shards: {{string}}): integer
     local total: integer = 0
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         for _, paths in ipairs(shards) do
             total = total + scope:fork(|| -> #paths):await()
         end
@@ -234,12 +234,12 @@ export function countAll(shards: {{string}}): number
     local total: number = 0
 
     local function countShard(paths: {string}): nil
-        with lane = tasks.open() do
+        with lane = tasks.scope() do
             total = total + lane:fork(paths, indexJobs.count):await()
         end
     end
 
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         for _, paths in ipairs(shards) do
             scope:spawn(paths, countShard)
         end
@@ -356,7 +356,7 @@ A rejection names the position it found, so the message says which argument and
 which field stopped the copy rather than that the message was untransferable:
 
 ```nupp:fragment
-with scope = tasks.open() do
+with scope = tasks.scope() do
     const row = new jobs.Row(name = "a")
 
     -- The lane receives its own jobs.Row metatable, so its methods work there.
@@ -424,7 +424,7 @@ end
 
 ```nupp:fragment
 local frame = heap.allocate(ffi.typeof<uint8>(), 8 * 1048576)
-with scope = tasks.open() do
+with scope = tasks.scope() do
     for generation = 1, 60 do
         frame = scope:fork(frame, generation, jobs.fill):await()
     end
@@ -464,7 +464,7 @@ raises it too, and so does any later task operation in the scope.
 ```nupp:fragment
 export function observed(): string
     local digest = ""
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         const bad = scope:fork("beta", jobs.refuse)
 
         -- false, "nupp: worker task failed: ...: cannot hash beta"
@@ -479,7 +479,7 @@ export function observed(): string
 end
 
 export function unobserved(): string
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         scope:fork("beta", jobs.refuse)
 
         return jobs.hash("alpha") -- the failure is raised leaving the scope
@@ -503,7 +503,7 @@ general interruption point, so leaving a scope waits for a task that is already 
 A bounded function can cooperate by calling `tasks.checkpoint()`:
 
 ```nupp:fragment
-const tasks = nupp.tasks
+const tasks = coroutine
 
 export function search(limit: integer): integer
     for index = 1, limit do

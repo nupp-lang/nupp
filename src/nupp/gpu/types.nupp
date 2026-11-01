@@ -3,7 +3,7 @@ module nupp.gpu.types
 
 local {type Layout as TensorLayout} = require("gpu.layout")
 local api = require("nupp.gpu.api")
-local {type Span} = require("nupp.mem.span")
+local {type Span} = require("binary.span")
 local gpu = {}
 
 --- The provider's release of a root allocation or a compiled kernel's

@@ -3,7 +3,7 @@ local library = require("${moduleName}")
 local suite = {}
 
 function suite.greetsByName(): nil
-    test.equal(library.greet("Nupp"), "Hello, Nupp!")
+    test.eq(library.greet("Nupp"), "Hello, Nupp!")
 end
 
 return suite

@@ -15,7 +15,7 @@ formats with the same names and may add others. Discovery order never selects a
 provider.
 ]]
 
-local {type ByteSpan, type ByteWriteSpan} = require("nupp.mem.span")
+local {type ByteSpan, type ByteWriteSpan} = require("binary.span")
 
 --- The step needs another input chunk.
 export const NEED_INPUT = 1

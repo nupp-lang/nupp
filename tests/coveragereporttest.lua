@@ -52,7 +52,7 @@ local function run(hits)
     write(dir .. "/shard.json", json.encode({hits = {[source] = hits}}))
     local model = coverage.collect(dir .. "/state.json", dir .. "/shard.json")
     assert(os.execute("rm -rf " .. string.format("%q", dir)) == 0)
-    test.equal(#model.files, 1)
+    test.eq(#model.files, 1)
     local sites = {}
     for _, site in ipairs(model.files[1].sites) do
         sites[site.id] = site
@@ -63,18 +63,18 @@ end
 
 function M.functionSitesCarryTheirDeclaredNameAndSpan()
     local _, sites = run({["1"] = 3, ["2"] = 3})
-    test.equal(sites[1].name, "named")
-    test.equal(sites[1].line, 1)
-    test.equal(sites[1].endLine, 3)
-    test.equal(sites[1].count, 3)
+    test.eq(sites[1].name, "named")
+    test.eq(sites[1].line, 1)
+    test.eq(sites[1].endLine, 3)
+    test.eq(sites[1].count, 3)
 end
 
 -- An anonymous function still gets a site, and a report that invented a name for
 -- it would be inventing the only thing a reader could use to find it again.
 function M.anonymousFunctionSitesAreNamelessRatherThanGuessed()
     local _, sites = run({})
-    test.equal(sites[4].name, nil)
-    test.equal(sites[4].count, 0)
+    test.eq(sites[4].name, nil)
+    test.eq(sites[4].count, 0)
 end
 
 -- The distinction this whole change is for: a condition that ran a hundred times
@@ -82,29 +82,29 @@ end
 -- only says "100" cannot tell anyone that.
 function M.branchSitesCarryBothOutcomesSeparately()
     local _, sites = run({["1"] = 1, ["2"] = 100, ["3:true"] = 100, ["3:false"] = 0})
-    test.equal(sites[3].kind, "branch")
-    test.equal(sites[3].trueCount, 100)
-    test.equal(sites[3].falseCount, 0)
+    test.eq(sites[3].kind, "branch")
+    test.eq(sites[3].trueCount, 100)
+    test.eq(sites[3].falseCount, 0)
 end
 
 function M.statementSitesCountWhatReachedThem()
     local _, sites = run({["2"] = 7})
-    test.equal(sites[2].kind, "statement")
-    test.equal(sites[2].count, 7)
+    test.eq(sites[2].kind, "statement")
+    test.eq(sites[2].count, 7)
 end
 
 -- Both halves of a branch count towards the denominator, so one taken arm is
 -- half a branch rather than a whole one.
 function M.oneTakenArmIsHalfOfItsBranch()
     local model = select(1, run({["3:true"] = 4}))
-    test.equal(model.files[1].branches.total, 2)
-    test.equal(model.files[1].branches.covered, 1)
+    test.eq(model.files[1].branches.total, 2)
+    test.eq(model.files[1].branches.covered, 1)
 end
 
 function M.nonBranchSitesDoNotClaimOutcomeCounts()
     local _, sites = run({["2"] = 1})
-    test.equal(sites[2].trueCount, nil)
-    test.equal(sites[1].falseCount, nil)
+    test.eq(sites[2].trueCount, nil)
+    test.eq(sites[1].falseCount, nil)
 end
 
 -- The report is read back by `nupp test --coverage --report-json` and by CI, so its
@@ -117,7 +117,10 @@ function M.aReportInAnotherFormatIsRefusedOnRead()
     assert(text and value and not err, tostring(err))
     write(dir .. "/coverage.json", json.encode({version = 1, files = {}, summary = {}}))
     text, value, err = coverage.read(dir .. "/coverage.json")
-    assert(not text and err:find("schemaVersion nil", 1, true) and err:find("reads " .. coverage.SCHEMA_VERSION, 1, true), err)
+    assert(
+        not text and err:find("schemaVersion nil", 1, true) and err:find("reads " .. coverage.SCHEMA_VERSION, 1, true),
+        err
+    )
     write(dir .. "/coverage.json", json.encode({schemaVersion = 99, files = {}, summary = {}}))
     text, value, err = coverage.read(dir .. "/coverage.json")
     assert(not text and err:find("schemaVersion 99", 1, true), err)

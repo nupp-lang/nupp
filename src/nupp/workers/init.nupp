@@ -1,9 +1,11 @@
+@!internal
+
 module nupp.workers
 
 --[[
 Runs functions in parallel, on real threads.
 
-A lane is reached through `fork` on a [](nupp.tasks) scope: the scope hands the
+A lane is reached through `fork` on a [](coroutine) scope: the scope hands the
 work to a pool of lanes and settles every child when the block ends.
 
 ```nupp:fragment
@@ -13,7 +15,7 @@ const jobs = require("jobs")
 
 export function hashes(left: string, right: string): (string, string)
     local first, second = "", ""
-    with scope = nupp.tasks.open() do
+    with scope = coroutine.scope() do
         const one = scope:fork(left, jobs.hash)
         const two = scope:fork(right, jobs.hash)
 

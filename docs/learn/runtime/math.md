@@ -5,7 +5,7 @@ two-dimensional vector operations.
 
 ```nupp:playground
 assert(math.lerp(10, 20, 0.25) == 12.5)
-local turn = math.deltaAngle(math.rad(350), math.rad(10))
+local turn = math.dtangle(math.rad(350), math.rad(10))
 assert(math.abs(math.deg(turn) - 20) < 0.000001)
 ```
 
@@ -15,8 +15,8 @@ assert(math.abs(math.deg(turn) - 20) < 0.000001)
 factors outside `[0, 1]` extrapolate. It returns `from` exactly at zero
 and `to` exactly at one, because it returns the endpoints without computing them.
 
-`wrapAngle(radians)` returns the equivalent angle in `[-π, π)`, and
-`deltaAngle(from, to)` returns the shortest signed rotation from one
+`wrapangle(radians)` returns the equivalent angle in `[-π, π)`, and
+`dtangle(from, to)` returns the shortest signed rotation from one
 angle to another.
 
 ## Fixed-width arithmetic
@@ -29,7 +29,7 @@ value.
 
 ```nupp
 local flags: uint32 = 0x12
-local rotated = math.u32.rotateLeft(flags, 7)
+local rotated = math.u32.rotateleft(flags, 7)
 ```
 
 ### Establishing a fixed-width value
@@ -59,22 +59,22 @@ intrinsic treatment.
 
 `i32` and `u32` wrap modulo 2^32. Shift counts are masked by 31, and each
 operation states whether its interpretation is signed or unsigned, as
-`shiftRightArithmetic` against `shiftRightLogical`. Calls use Lua numbers in
+`shiftrightarithmetic` against `shiftrightlogical`. Calls use Lua numbers in
 canonical ranges rather than allocating scalar cdata.
 
 ```nupp
-assert(math.u32.shiftRightLogical(math.u32.wrap(-1), 24) == 255)
+assert(math.u32.shiftrightlogical(math.u32.wrap(-1), 24) == 255)
 ```
 
-`u32` and `u64` also carry rotations, `popcount`, `trailingZeros` and
-`leadingZeros`. `u64.prefixXor` computes inclusive prefix parity over all
+`u32` and `u64` also carry rotations, `popcount`, `trailingzeros` and
+`leadingzeros`. `u64.prefixXor` computes inclusive prefix parity over all
 sixty-four bits.
 
 ### Binary32 namespace
 
 `f32` rounds every input and result to nearest, ties to even. It preserves
 signed zero, subnormals, and infinities, canonicalizes NaNs, and makes `fma` one
-fused operation. `fromBits` and `toBits` expose that canonical bit contract.
+fused operation. `frombits` and `tobits` expose that canonical bit contract.
 `f32.narrow` performs one binary32 store and load without changing a NaN
 payload, and `f32.round` retains the canonical-NaN contract.
 
@@ -105,14 +105,14 @@ local projectedX, projectedY = vec2.project(x, y, 1, 0)
 | `add`, `sub` | (ax, ay, bx, by) -> x, y |
 | `scale` | (x, y, factor) -> x, y |
 | `dot`, `cross` | (ax, ay, bx, by) -> number |
-| `length`, `lengthSquared` | (x, y) -> number |
-| `distance`, `distanceSquared` | (ax, ay, bx, by) -> number |
+| `len`, `lengthsquared` | (x, y) -> number |
+| `dist`, `distancesquared` | (ax, ay, bx, by) -> number |
 | `normalize` | (x, y) -> x, y |
 | `lerp` | (ax, ay, bx, by, t) -> x, y |
-| `moveTowards` | (ax, ay, bx, by, maxDistance) -> x, y |
+| `movetowards` | (ax, ay, bx, by, maxDistance) -> x, y |
 | `rotate` | (x, y, radians) -> x, y |
 | `angle` | (x, y) -> radians |
-| `angleBetween`, `signedAngleBetween` | (ax, ay, bx, by) -> radians |
+| `anglebetween`, `signedanglebetween` | (ax, ay, bx, by) -> radians |
 | `project`, `reflect` | (x, y, axisX, axisY) -> x, y |
 
 A zero vector has no direction, so the operations that would need one
@@ -121,7 +121,7 @@ projection onto the zero vector return `(0, 0)`, an angle involving a
 zero vector is zero, and reflection across a zero normal returns the
 original vector.
 
-`moveTowards` snaps exactly to the destination when the remaining distance is
+`movetowards` snaps exactly to the destination when the remaining distance is
 within the requested step, and a nonpositive step leaves the start unchanged.
 `lerp` is unclamped, like the scalar one. Compare squared lengths and distances
 where only the ordering matters, to avoid a square root that cannot change it.

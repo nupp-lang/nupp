@@ -22,10 +22,10 @@ Nupp-authored libraries outside that surface are ordinary declared modules on
 disk. A qualified module path loads one only when the source uses it:
 
 ```nupp
-const span = nupp.mem.span
+const span = binary.span
 
 const text = "four"
-local bytes = span.fromString(text)
+local bytes = span.fromstring(text)
 ```
 
 The full qualified form reaches the same declared file without the short
@@ -33,7 +33,7 @@ binding:
 
 ```nupp
 const text = "four"
-local bytes = nupp.mem.span.fromString(text)
+local bytes = binary.span.fromstring(text)
 ```
 
 It lowers to one hidden `require` in the containing module. It does not build a
@@ -55,54 +55,51 @@ table: the members a file names are the members that get emitted.
 The standard surface is deliberately small. These pages cover both the
 intrinsic namespaces and the declared modules:
 
-- [](binary.hash.digest) provides incremental MD5, SHA-1, SHA-256 and SHA-512 with
-  provider lookup, output-size metadata and consuming finalization.
-- [](binary.hash.checksum) provides Adler-32 and explicitly named CRC variants as
-  numeric values; protocols choose their serialization byte order.
+- [](binary.hash.digest) provides incremental MD5, SHA-1, SHA-256 and SHA-512
+  with provider lookup, output-size metadata and consuming finalization.
+- [](binary.hash.checksum) provides Adler-32 and explicitly named CRC variants
+  as numeric values; protocols choose their serialization byte order.
 - [](binary.hash.mac) provides keyed authentication, including HMAC-SHA256.
 - [](binary.hash.fnv1a64) hashes bytes with FNV-1a.
-- [](serde.json), [](serde.base64) and [](serde.hex) encode and
-  decode representations. [](serde.valuebuilder) supports codec authors.
+- [](serde.json), [](serde.base64) and [](serde.hex) encode and decode
+  representations. [](serde.valuebuilder) supports codec authors.
 - [](utf8) validates and walks UTF-8 text.
 - [](serde) binds application types to reusable serialization schemas.
 - [](nupp.util) owns the small general-purpose types: [](nupp.util.Bitset) is a
-  growable set of bit positions.
-  [](nupp.util.Pool) leases cleared record instances of one declared type from a
-  free list.
-- [](types.Store) is a bag of values indexed by the typed keys
-  [](types.newKey) creates.
-- `os.info()` reports execution platform, architecture, endianness, pointer width
-  and available parallelism. `os.uuid4()` and `os.uuid7()` generate identifiers;
-  `os.monotonic()` and `os.walltime()` read the host clocks. See
+  growable set of bit positions. [](nupp.util.Pool) leases cleared record
+  instances of one declared type from a free list.
+- [](types.Store) is a bag of values indexed by the typed keys [](types.newkey)
+  creates.
+- `os.info()` reports execution platform, architecture, endianness, pointer
+  width and available parallelism. `os.uuid4()` and `os.uuid7()` generate
+  identifiers; `os.monotonic()` and `os.walltime()` read the host clocks. See
   [System services](../system.md) for their contracts.
 - [](nupp.host) asks whatever runs the program, a page or an embedding
   application, for something by kind, and carries streams between them.
   [](nupp.host.pump) runs an embedded component's operations for a host-owned
   loop. See [host.md](../host.md).
-- [](nupp.io) owns byte buffers, readers, writers, and typed scalar reads and
-  writes over them.
-- [](nupp.io.files) owns filesystem metadata and directories.
-- [](nupp.io.net) owns listeners and the connections they accept, and
-  connections a program opens itself.
-- [](nupp.io.tls) encrypts one of those connections.
-- [](io.path) models filesystem paths, and [](io.uri) models resource
-  names.
+- [](io) owns byte buffers, readers, writers, and typed scalar reads and writes
+  over them.
+- [](io.files) owns filesystem metadata and directories.
+- [](io.net) owns listeners and the connections they accept, and connections a
+  program opens itself.
+- [](io.tls) encrypts one of those connections.
+- [](io.path) models filesystem paths, and [](io.uri) models resource names.
 - [](log) owns leveled logging over a swappable destination.
 - [](math) owns scalar and two-dimensional vector helpers.
-- [](nupp.mem.span) owns rooted, bounds-checked shared and writable C array
-  views.
+- [](binary.span) owns rooted, bounds-checked shared and writable C array views.
 - [`nupp.mem.soa`](structure-of-arrays.md) stores every top-level field of a
   reified struct in its own column.
 - [](nupp.mem.arena) leases zero-filled struct rows from pages that never move.
-- [](gpu) owns resident buffers, generated kernel dispatches, and
-  tensor views. [](gpu.layout) owns the checked layout algebra.
+- [](gpu) owns resident buffers, generated kernel dispatches, and tensor views.
+  [](gpu.layout) owns the checked layout algebra.
 - [](nupp.random) provides cryptographically secure random bytes and owns
   deterministic pseudo-random sequences with explicit, serializable state.
-- [](nupp.suspension), [](nupp.tasks), and [](nupp.workers) provide waiting,
-  application task scopes, and isolated worker lanes.
-  [](nupp.suspension.host) is the other side of waiting: what a host installs to
-  decide which coroutine runs while something is parked.
-- [](os) provides monotonic and wall clocks. [](nupp.time) owns sleeps and
+- [](coroutine.suspension), [](coroutine), and [](coroutine.workers) provide
+  waiting, application task scopes, and isolated worker lanes.
+  [](coroutine.suspension.host) is the other side of waiting: what a host
+  installs to decide which coroutine runs while something is parked.
+- [](os) provides monotonic and wall clocks. [](coroutine) owns sleeps and
   deadlines.
 - [](nupp.text.regex) matches regular expressions where Lua patterns are not enough.
 
@@ -147,11 +144,11 @@ keeps the same Nupp API when a provider changes.
 ## Byte positions
 
 Storage offsets count from zero; element indexes count from one. Storage is a
-[](nupp.io.Buffer), a [](nupp.io.ByteView), a
+[](io.Buffer), a [](io.ByteView), a
 [`sharedbytes.Region`](nupp.mem.sharedbytes) or an open file: a range in one is
 a zero-based offset and a count, because an offset names a distance from the
 beginning and maps directly onto a native byte range. An element view, a
-[span](nupp.mem.span) or a [SoA](structure-of-arrays.md) view, and text, a Lua
+[span](binary.span) or a [SoA](structure-of-arrays.md) view, and text, a Lua
 string or [](utf8), use 1-based positions, as a Lua array and
 `string.sub` do. Do not pass a `string.find` position to a buffer method.
 
@@ -159,7 +156,7 @@ string or [](utf8), use 1-based positions, as a Lua array and
 
 An operation that can fail because of the environment returns `nil, reason`. The
 files, process, network, TLS and HTTP modules give that reason as a
-[](nupp.io.Error), whose `kind` names the failure the same way on every
+[](io.Error), whose `kind` names the failure the same way on every
 platform, so a program branches on `err.kind == "notFound"` rather than on the
 message. An invalid argument or a malformed programmer-owned value raises at the
 call site. Every owner the library hands out, from a buffer to an open file, is
@@ -177,7 +174,7 @@ result carries.
 
 No. A member reached through the `nupp` namespace is selected by the compiler
 from the source that names it, which is why the example above runs with no
-imports. A declared module such as `nupp.mem.span` is a file on disk, so it is
+imports. A declared module such as `binary.span` is a file on disk, so it is
 bound with `require` or reached through its qualified name, as [Intrinsics and
 declared modules](#intrinsics-and-declared-modules) shows.
 
@@ -194,7 +191,7 @@ from one, so the two differ by one on every call. Convert at the boundary, and
 see [Byte positions](#byte-positions) for which convention an API uses.
 
 ::: seealso
-- [](nupp.io) for buffers, readers, writers, and byte views
+- [](io) for buffers, readers, writers, and byte views
 - [ownership.md](../ownership/index.md) for the affine results these modules return
 - [build.md](../../projects/build.md#native-facilities) for the native
   facilities a binary links

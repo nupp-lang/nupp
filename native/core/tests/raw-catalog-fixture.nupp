@@ -101,7 +101,7 @@ end
 
 function fixture.validateMany(path: string): string
     local list = assert(io.open(path, "rb"))
-    local inputs = json.decodeValue(list:read("*a"))
+    local inputs = json.decodevalue(list:read("*a"))
     list:close()
     local results = {}
     for _, input in ipairs(inputs) do
@@ -116,15 +116,15 @@ function fixture.validateMany(path: string): string
         ] = {physical = physical, catalog = catalog, semantic = semantic, metrics = catalog and metrics or nil}
     end
 
-    return json.encodeValue(results)
+    return json.encodevalue(results)
 end
 
 function fixture.wire(): string
-    return json.encodeValue(schema.wire())
+    return json.encodevalue(schema.wire())
 end
 
 function fixture.definition(): string
-    return json.encodeValue(schema.describe())
+    return json.encodevalue(schema.describe())
 end
 
 export = fixture

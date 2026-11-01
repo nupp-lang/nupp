@@ -14,7 +14,7 @@ local function checked(source, name, preparedEnvironment)
     name = name or "programgraph_fixture"
     local path = "=" .. name .. ".nupp"
     local parsed = parser.parse(source, path)
-    test.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
+    test.eq(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
     local env = preparedEnvironment or environment.new(".", {
         memoryOnly = true,
         cache = false,
@@ -42,7 +42,7 @@ end
 
 local function refuses(fn, text)
     local ok, message = pcall(fn)
-    test.equal(ok, false)
+    test.eq(ok, false)
     assert(tostring(message):find(text, 1, true), tostring(message))
 end
 
@@ -50,15 +50,15 @@ function M.reservesRealInitializersBeforeFunctionOwners()
     local first = checked("local function answer(): integer return 42 end\nreturn answer", "first")
     local second = checked("local function answer(): integer return 7 end\nreturn answer", "second")
     local p = program.describe({first, second}, "second")
-    test.equal(p.entry, 1)
-    test.equal(#p.owners, 4)
-    test.equal(p.owners[1].node, first.parsed.root)
-    test.equal(p.owners[1].body, first.parsed.root)
-    test.equal(p.owners[2].node, second.parsed.root)
-    test.equal(p.owners[3].parent, 0)
-    test.equal(p.owners[4].parent, 1)
-    test.equal(p.functionsByDefinition[p.owners[3].definition], p.owners[3])
-    test.equal(program.verify(p), true)
+    test.eq(p.entry, 1)
+    test.eq(#p.owners, 4)
+    test.eq(p.owners[1].node, first.parsed.root)
+    test.eq(p.owners[1].body, first.parsed.root)
+    test.eq(p.owners[2].node, second.parsed.root)
+    test.eq(p.owners[3].parent, 0)
+    test.eq(p.owners[4].parent, 1)
+    test.eq(p.functionsByDefinition[p.owners[3].definition], p.owners[3])
+    test.eq(program.verify(p), true)
     refuses(
         function()
             program.image(p, guest)
@@ -72,17 +72,17 @@ end
 function M.variadicCatalogBindsTheNamelessPackParameter()
     local input = checked("local function first(value: integer, ...: integer): integer return value end\nreturn first")
     local body = input.parsed.root.blocks[1].stats[1].body
-    test.equal(#body.params, 2)
-    test.equal(body.params[1].name.text, "value")
-    test.equal(body.params[2].vararg, true)
-    test.equal(body.params[2].name, nil)
-    test.equal(body.signatureType.vararg, true)
+    test.eq(#body.params, 2)
+    test.eq(body.params[1].name.text, "value")
+    test.eq(body.params[2].vararg, true)
+    test.eq(body.params[2].name, nil)
+    test.eq(body.signatureType.vararg, true)
     local p = program.describe({input}, input.name)
     local owner = p.owners[2]
-    test.equal(owner.variadic, true)
+    test.eq(owner.variadic, true)
     local pack = p.byDefinition[body.params[2]]
-    test.equal(pack ~= nil and pack.pack, true)
-    test.equal(pack.owner, owner.id)
+    test.eq(pack ~= nil and pack.pack, true)
+    test.eq(pack.owner, owner.id)
 end
 
 function M.shadowingAndGrandparentCapturesKeepDeclarationIdentity()
@@ -103,14 +103,14 @@ return outer, other
     )
     local outer, middle, leaf, other = owner(p, "outer"), owner(p, "middle"), owner(p, "leaf"), owner(p, "other")
     local forwarded, used = middle.captures[1], leaf.captures[1]
-    test.equal(#outer.captures, 0)
-    test.equal(forwarded.sourceOwner, outer.id)
-    test.equal(forwarded.sourceKind, "local")
-    test.equal(used.sourceOwner, middle.id)
-    test.equal(used.sourceKind, "capture")
-    test.equal(used.source, forwarded.id)
-    test.equal(used.definition, forwarded.definition)
-    test.equal(used.mode, "cell")
+    test.eq(#outer.captures, 0)
+    test.eq(forwarded.sourceOwner, outer.id)
+    test.eq(forwarded.sourceKind, "local")
+    test.eq(used.sourceOwner, middle.id)
+    test.eq(used.sourceKind, "capture")
+    test.eq(used.source, forwarded.id)
+    test.eq(used.definition, forwarded.definition)
+    test.eq(used.mode, "cell")
     assert(used.definition ~= other.captures[1].definition)
 end
 
@@ -126,10 +126,10 @@ return recur
 ]]
         )
         local f = owner(p, "recur")
-        test.equal(#f.captures, 1)
-        test.equal(f.captures[1].recursive, true)
-        test.equal(f.captures[1].definition, f.definition)
-        test.equal(f.captures[1].mode, prefix == "const" and "value" or "cell")
+        test.eq(#f.captures, 1)
+        test.eq(f.captures[1].recursive, true)
+        test.eq(f.captures[1].definition, f.definition)
+        test.eq(f.captures[1].mode, prefix == "const" and "value" or "cell")
     end
 end
 
@@ -152,16 +152,16 @@ print(callback())
 own.drop(borrowed)
 ]]
     )
-    test.equal(#owner(p, "close").captures, 0)
+    test.eq(#owner(p, "close").captures, 0)
     -- Constructing a plain record builds its value in place: the record's
     -- name is a type use there, not a captured read of its runtime value.
-    test.equal(#owner(p, "open").captures, 0)
+    test.eq(#owner(p, "open").captures, 0)
     local found = {}
     for _, f in ipairs(p.owners) do
         for _, capture in ipairs(f.captures) do
             if capture.mode == "take" or capture.mode == "borrow" then
                 found[capture.mode] = capture
-                test.equal(capture.ownership.outer.definition, capture.definition)
+                test.eq(capture.ownership.outer.definition, capture.definition)
                 assert(capture.storage == "value" or capture.storage == "cell")
                 refuses(
                     function()
@@ -173,8 +173,8 @@ own.drop(borrowed)
         end
     end
     assert(found.take and found.borrow)
-    test.equal(#p.intrinsics, 1)
-    test.equal(p.intrinsics[1].operation, "drop")
+    test.eq(#p.intrinsics, 1)
+    test.eq(p.intrinsics[1].operation, "drop")
     assert(p.intrinsics[1].node.ownerCleanups)
     assert(#p.externals > 0)
     for _, external in ipairs(p.externals) do
@@ -187,7 +187,7 @@ own.drop(borrowed)
         "external execution bindings are not established"
     )
     assert(found.take.inner and found.take.inner ~= found.take.definition)
-    test.equal(program.verify(p), true)
+    test.eq(program.verify(p), true)
 end
 
 function M.checkedIntrinsicDependenciesRefuseExecutionAndPreserveArgumentReads()
@@ -207,10 +207,10 @@ end
 return answer
 ]]
     )
-    test.equal(#p.externals, 0)
-    test.equal(#p.intrinsics, 1)
+    test.eq(#p.externals, 0)
+    test.eq(#p.intrinsics, 1)
     local intrinsic = p.intrinsics[1]
-    test.equal(intrinsic.owner, owner(p, "answer").id)
+    test.eq(intrinsic.owner, owner(p, "answer").id)
     local argument = intrinsic.node.args.exprs[1].token
     local found = false
     for _, reference in ipairs(p.references) do
@@ -247,8 +247,8 @@ local function answer(): integer return own.drop(1) end
 return answer
 ]]
     )
-    test.equal(#p.intrinsics, 0)
-    test.equal(owner(p, "answer").captures[1].definition.name, "own")
+    test.eq(#p.intrinsics, 0)
+    test.eq(owner(p, "answer").captures[1].definition.name, "own")
     local input = checked("local value: integer = 1\nlocal function answer(): integer return value end\nreturn answer")
     local body = input.parsed.root.blocks[1].stats[2].body
     body.body.stats[1].exprs[1].token.definition = nil
@@ -280,8 +280,8 @@ return Point
     for _, f in ipairs(p.owners) do
         if f.node.kind == "inlineMethod" or f.node.kind == "constructorDecl" then
             found[f.node.kind] = f
-            test.equal(f.node.body, f.body)
-            test.equal(f.parent, 0)
+            test.eq(f.node.body, f.body)
+            test.eq(f.parent, 0)
             refuses(
                 function()
                     program.functionGraph(p, f, guest)
@@ -298,7 +298,7 @@ return Point
     end
     assert(found.inlineMethod and found.constructorDecl)
     for _, id in ipairs(found.inlineMethod.constants) do
-        test.equal(p.constants[id + 1].owner, found.inlineMethod.id)
+        test.eq(p.constants[id + 1].owner, found.inlineMethod.id)
     end
     found.inlineMethod.body.signatureType = nil
     refuses(
@@ -318,16 +318,16 @@ local function identity<T>(value: T): T return value end
 return answer, identity
 ]]
     )
-    test.equal(#owner(p, "answer").captures, 0)
-    test.equal(#owner(p, "identity").captures, 0)
+    test.eq(#owner(p, "answer").captures, 0)
+    test.eq(#owner(p, "identity").captures, 0)
     local erased = 0
     for _, binding in ipairs(p.bindings) do
         if binding.definition.name == "Count" or binding.definition.name == "T" then
-            test.equal(binding.mode, "type")
+            test.eq(binding.mode, "type")
             erased = erased + 1
         end
     end
-    test.equal(erased, 2)
+    test.eq(erased, 2)
 end
 
 function M.reassignedFunctionDoesNotResolveToItsOriginalBody()
@@ -430,13 +430,13 @@ return outer, recur
             result[8][#result[8] + 1] = {e.id, e.path, e.definition.name, e.token.line, e.token.col}
         end
 
-        return json.encodeValue(result)
+        return json.encodevalue(result)
     end
 
     local first, second = describe(source), describe(source)
     assert(first.owners[1].node ~= second.owners[1].node)
     assert(first.bindings[1].definition ~= second.bindings[1].definition)
-    test.equal(projection(first), projection(second))
+    test.eq(projection(first), projection(second))
 end
 
 function M.constantsKeepWideBitsFloatZeroAndBinaryStrings()
@@ -459,16 +459,16 @@ return constants
     for _, constant in ipairs(p.constants) do
         constants[constant.text or constant.bytes] = constant
     end
-    test.equal(constants["-9223372036854775808"].bytes, string.rep("\0", 7) .. "\128")
-    test.equal(constants["18446744073709551615"].bytes, string.rep("\255", 8))
-    test.equal(constants["9007199254740993"].bytes, "\1\0\0\0\0\0\32\0")
-    test.equal(constants["0.0"].bytes, string.rep("\0", 8))
-    test.equal(constants["-0.0"].bytes, string.rep("\0", 7) .. "\128")
-    test.equal(constants["a\0\255z"].kind, "str")
-    test.equal(constants["long\nbytes"].kind, "str")
+    test.eq(constants["-9223372036854775808"].bytes, string.rep("\0", 7) .. "\128")
+    test.eq(constants["18446744073709551615"].bytes, string.rep("\255", 8))
+    test.eq(constants["9007199254740993"].bytes, "\1\0\0\0\0\0\32\0")
+    test.eq(constants["0.0"].bytes, string.rep("\0", 8))
+    test.eq(constants["-0.0"].bytes, string.rep("\0", 7) .. "\128")
+    test.eq(constants["a\0\255z"].kind, "str")
+    test.eq(constants["long\nbytes"].kind, "str")
     -- The catalog deliberately shares the image's NaN policy rather than
     -- inventing a payload-preserving numeric conversion.
-    test.equal(graphimage.floatBytes(0 / 0), "\0\0\0\0\0\0\248\127")
+    test.eq(graphimage.floatBytes(0 / 0), "\0\0\0\0\0\0\248\127")
 end
 
 function M.selectedGraphsResolveOnlyImmutableTopLevelScalarLiterals()
@@ -485,8 +485,8 @@ return answer
     )
     local g = program.functionGraph(p, owner(p, "answer"), guest)
     graph.verify(g)
-    test.equal(g.programOwner, owner(p, "answer").id)
-    test.equal(g.native, nil)
+    test.eq(g.programOwner, owner(p, "answer").id)
+    test.eq(g.native, nil)
     for _, source in ipairs({
         "local amount: integer = 40",
         "local function value(): integer return 40 end\nconst amount: integer = value()",
@@ -579,16 +579,16 @@ function M.initializerTraversalRequiresExplicitProfileAndCompleteGraphs()
     -- This test profile admits only the already supported scalar statements.
     -- It exercises the real module root through the same function traversal.
     profile.initializeModule = function(fn)
-        test.equal(fn.node, fn.body)
-        test.equal(fn.body.kind, "chunk")
+        test.eq(fn.node, fn.body)
+        test.eq(fn.body.kind, "chunk")
         local g = graph.new(0)
         g.exactTypes, g.guestResult = {}, "int64"
 
         return g
     end
     local complete = program.compile(p, profile)
-    test.equal(#complete.graphs, #p.owners)
-    test.equal(complete.header.entry, p.entry)
+    test.eq(#complete.graphs, #p.owners)
+    test.eq(complete.header.entry, p.entry)
     assert(#program.image(p, profile) > 0)
     local unsupported = describe("local function unused(): integer return 1 end\nreturn 42")
     refuses(
@@ -908,19 +908,19 @@ function M.taggedModuleCompletionReturnsZeroOrOneValue()
     for _, source in ipairs({"", "return", "local value = 4"}) do
         local p = describe(source)
         local complete = program.compile(p, tagged)
-        test.equal(#complete.graphs, #p.owners)
+        test.eq(#complete.graphs, #p.owners)
         local term = complete.graphs[1].blocks[1].term
-        test.equal(term.kind, "return")
-        test.equal(term.value, nil)
+        test.eq(term.kind, "return")
+        test.eq(term.value, nil)
     end
     local named = checked("module programgraphfixture\nlocal value = 4", "programgraphfixture")
     local initialized = program.compile(program.describe({named}, "programgraphfixture"), tagged)
-    test.equal(initialized.graphs[1].blocks[1].term.kind, "return")
-    test.equal(initialized.graphs[1].blocks[1].term.value, nil)
+    test.eq(initialized.graphs[1].blocks[1].term.kind, "return")
+    test.eq(initialized.graphs[1].blocks[1].term.value, nil)
     local p = describe("return 9223372036854775807LL")
     local g = program.compile(p, tagged).graphs[1]
-    test.equal(g.constants[1].value, "9223372036854775807")
-    test.equal(g.blocks[1].term.value, operations(g, "K")[1].dst)
+    test.eq(g.constants[1].value, "9223372036854775807")
+    test.eq(g.blocks[1].term.value, operations(g, "K")[1].dst)
     refuses(
         function()
             program.compile(describe("return 1, 2"), tagged)
@@ -937,9 +937,9 @@ return y
 ]])
     local g = program.compile(p, tagged).graphs[1]
     local constants = operations(g, "K")
-    test.equal(#constants, 2)
-    test.equal(g.blocks[1].term.value, constants[1].dst)
-    test.equal(#operations(g, "NewCell"), 0)
+    test.eq(#constants, 2)
+    test.eq(g.blocks[1].term.value, constants[1].dst)
+    test.eq(#operations(g, "NewCell"), 0)
 end
 
 function M.taggedRecursiveConstFunctionPublishesThroughSelfCell()
@@ -947,23 +947,23 @@ function M.taggedRecursiveConstFunctionPublishesThroughSelfCell()
         local p = describe(prefix .. " function recur(): any return recur end\nreturn recur")
         local f = owner(p, "recur")
         local binding = p.byDefinition[f.definition]
-        test.equal(binding.storage, "cell")
-        test.equal(f.captures[1].mode, prefix == "const" and "value" or "cell")
-        test.equal(f.captures[1].storage, "cell")
+        test.eq(binding.storage, "cell")
+        test.eq(f.captures[1].mode, prefix == "const" and "value" or "cell")
+        test.eq(f.captures[1].storage, "cell")
         local complete = program.compile(p, tagged)
         local ops = operations(complete.graphs[1])
-        test.equal(ops[1].op, "Nil")
-        test.equal(ops[2].op, "NewCell")
-        test.equal(ops[3].op, "Closure")
-        test.equal(ops[3].args[1], f.id)
-        test.equal(ops[3].args[2], ops[2].dst)
-        test.equal(ops[4].op, "SetCell")
-        test.equal(ops[4].args[1], ops[2].dst)
-        test.equal(ops[4].args[2], ops[3].dst)
+        test.eq(ops[1].op, "Nil")
+        test.eq(ops[2].op, "NewCell")
+        test.eq(ops[3].op, "Closure")
+        test.eq(ops[3].args[1], f.id)
+        test.eq(ops[3].args[2], ops[2].dst)
+        test.eq(ops[4].op, "SetCell")
+        test.eq(ops[4].args[1], ops[2].dst)
+        test.eq(ops[4].args[2], ops[3].dst)
         local inside = operations(complete.graphs[f.id + 1])
-        test.equal(inside[1].op, "GetUpval")
-        test.equal(inside[2].op, "GetCell")
-        test.equal(inside[2].args[1], inside[1].dst)
+        test.eq(inside[1].op, "GetUpval")
+        test.eq(inside[2].op, "GetCell")
+        test.eq(inside[2].args[1], inside[1].dst)
     end
 end
 
@@ -974,16 +974,16 @@ local f = function(): any return f end
 return f
 ]])
     local child = p.owners[2]
-    test.equal(child.definition, nil)
-    test.equal(child.captures[1].recursive, false)
+    test.eq(child.definition, nil)
+    test.eq(child.captures[1].recursive, false)
     local complete = program.compile(p, tagged)
     local g = complete.graphs[1]
     local cell = operations(g, "NewCell")[1]
     local closure = operations(g, "Closure")[1]
-    test.equal(#operations(g, "NewCell"), 1)
-    test.equal(#operations(g, "SetCell"), 0)
-    test.equal(closure.args[2], cell.dst)
-    test.equal(g.blocks[1].term.value, closure.dst)
+    test.eq(#operations(g, "NewCell"), 1)
+    test.eq(#operations(g, "SetCell"), 0)
+    test.eq(closure.args[2], cell.dst)
+    test.eq(g.blocks[1].term.value, closure.dst)
 end
 
 function M.taggedMutationAndForwardingKeepOneCellIdentity()
@@ -1002,14 +1002,14 @@ return outer
     local complete = program.compile(p, tagged)
     local init = complete.graphs[1]
     local cell = operations(init, "NewCell")[1]
-    test.equal(operations(init, "Closure")[1].args[2], cell.dst)
+    test.eq(operations(init, "Closure")[1].args[2], cell.dst)
     local g = complete.graphs[outer.id + 1]
     local incoming = operations(g, "GetUpval")[1]
-    test.equal(#operations(g, "NewCell"), 0)
-    test.equal(operations(g, "Closure")[1].args[2], incoming.dst)
-    test.equal(operations(g, "SetCell")[1].args[1], incoming.dst)
-    test.equal(read.captures[1].source, outer.captures[1].id)
-    test.equal(read.captures[1].storage, "cell")
+    test.eq(#operations(g, "NewCell"), 0)
+    test.eq(operations(g, "Closure")[1].args[2], incoming.dst)
+    test.eq(operations(g, "SetCell")[1].args[1], incoming.dst)
+    test.eq(read.captures[1].source, outer.captures[1].id)
+    test.eq(read.captures[1].storage, "cell")
 end
 
 function M.taggedCapturedParameterWrapsOnceAtEntry()
@@ -1026,10 +1026,10 @@ return outer
     local outer = owner(p, "outer")
     local g = program.compile(p, tagged).graphs[outer.id + 1]
     local cell = operations(g, "NewCell")[1]
-    test.equal(cell.args[1], 1)
-    test.equal(operations(g, "Closure")[1].args[2], cell.dst)
-    test.equal(operations(g, "SetCell")[1].args[1], cell.dst)
-    test.equal(#operations(g, "NewCell"), 1)
+    test.eq(cell.args[1], 1)
+    test.eq(operations(g, "Closure")[1].args[2], cell.dst)
+    test.eq(operations(g, "SetCell")[1].args[1], cell.dst)
+    test.eq(#operations(g, "NewCell"), 1)
 end
 
 function M.taggedRequireUsesCheckedCallsiteAndSourceOrder()
@@ -1042,19 +1042,19 @@ return imported]],
         "lexical_consumer"
     )
     local p = program.describe({consumer, dependency}, "lexical_consumer")
-    test.equal(#p.requires, 1)
-    test.equal(#p.externals, 0)
+    test.eq(#p.requires, 1)
+    test.eq(#p.externals, 0)
     local site = p.requires[1]
-    test.equal(site.node.runtimeLoader, "require")
-    test.equal(site.target, 1)
+    test.eq(site.node.runtimeLoader, "require")
+    test.eq(site.target, 1)
     local g = program.compile(p, tagged).graphs[1]
     local ops = operations(g)
-    test.equal(ops[1].op, "K")
-    test.equal(ops[2].op, "Require")
-    test.equal(ops[3].op, "K")
-    test.equal(g.positions[ops[2].pos].line, 2)
-    test.equal(g.constants[ops[2].args[1] + 1].value, "lexical_dependency")
-    test.equal(g.blocks[1].term.value, ops[2].dst)
+    test.eq(ops[1].op, "K")
+    test.eq(ops[2].op, "Require")
+    test.eq(ops[3].op, "K")
+    test.eq(g.positions[ops[2].pos].line, 2)
+    test.eq(g.constants[ops[2].args[1] + 1].value, "lexical_dependency")
+    test.eq(g.blocks[1].term.value, ops[2].dst)
     site.target = 0
     refuses(
         function()
@@ -1067,7 +1067,7 @@ end
 function M.taggedDynamicAndShadowedLoadersRefuse()
     local p = describe([[local name = "unknown_module"
 return require(name)]])
-    test.equal(#p.requires, 1)
+    test.eq(#p.requires, 1)
     refuses(
         function()
             program.compile(p, tagged)
@@ -1076,7 +1076,7 @@ return require(name)]])
     )
     local shadowed = describe([[local function require(name: any): any return name end
 return require("anything")]])
-    test.equal(#shadowed.requires, 0)
+    test.eq(#shadowed.requires, 0)
     refuses(
         function()
             program.compile(shadowed, tagged)
@@ -1098,11 +1098,11 @@ function M.taggedTypeOnlyRequireEmitsNoRuntimeLoader()
 return 3]], "lexical_consumer", env)
     local dependency = checked("local type Count = integer", "lexical_types")
     local p = program.describe({consumer, dependency}, "lexical_consumer")
-    test.equal(#p.requires, 1)
-    test.equal(p.requires[1].typeOnly, true)
+    test.eq(#p.requires, 1)
+    test.eq(p.requires[1].typeOnly, true)
     local complete = program.compile(p, tagged)
-    test.equal(#operations(complete.graphs[1], "Require"), 0)
-    test.equal(#operations(complete.graphs[1], "K"), 1)
+    test.eq(#operations(complete.graphs[1], "Require"), 0)
+    test.eq(#operations(complete.graphs[1], "K"), 1)
 end
 
 function M.taggedUnsupportedBodiesAreNotOmitted()
@@ -1113,7 +1113,7 @@ function M.taggedUnsupportedBodiesAreNotOmitted()
     }) do
         local p = describe(source)
         local ok = pcall(program.compile, p, tagged)
-        test.equal(ok, false)
+        test.eq(ok, false)
     end
     local p = describe("local value = 1\nlocal function read(): any return value end\nreturn read")
     local b = p.bindings[p.owners[2].captures[1].binding + 1]
@@ -1140,19 +1140,19 @@ function M.taggedLiteralConstantsRetainExactValues()
         local p = describe("return " .. item[1])
         local g = program.compile(p, tagged).graphs[1]
         local k = g.constants[operations(g, "K")[1].args[1] + 1]
-        test.equal(k.kind, item[2])
+        test.eq(k.kind, item[2])
         if item[3] ~= nil then
-            test.equal(k.value, item[3])
+            test.eq(k.value, item[3])
         end
         if k.kind == "num" then
             local negativeZero = string.rep("\0", 7) .. "\128"
-            test.equal(k.value, negativeZero)
+            test.eq(k.value, negativeZero)
             assert(program.image(p, tagged):find(negativeZero, 1, true), "graph image lost negative zero")
         end
     end
     local nilGraph = program.compile(describe("return nil"), tagged).graphs[1]
-    test.equal(#nilGraph.constants, 0)
-    test.equal(nilGraph.blocks[1].term.value, operations(nilGraph, "Nil")[1].dst)
+    test.eq(#nilGraph.constants, 0)
+    test.eq(nilGraph.blocks[1].term.value, operations(nilGraph, "Nil")[1].dst)
     -- There is no NaN literal. Constructing one by arithmetic is not silently
     -- folded into a new numeric semantics path by this lexical profile.
     refuses(
@@ -1209,10 +1209,10 @@ return answer
     )
     local g = program.functionGraph(p, owner(p, "answer"), guest)
     local ops = operations(g, "IK")
-    test.equal(#ops, 2)
-    test.equal(ops[1].args[1], "7")
-    test.equal(ops[2].args[1], "8")
-    test.equal(g.blocks[1].term.value, ops[1].dst)
+    test.eq(#ops, 2)
+    test.eq(ops[1].args[1], "7")
+    test.eq(ops[2].args[1], "8")
+    test.eq(g.blocks[1].term.value, ops[1].dst)
 end
 
 function M.completeGuestGraphsBindParametersAndRefuseNativeProfiles()

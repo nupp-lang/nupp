@@ -21,10 +21,10 @@ rolling:write("second chunk")
 local raw: string = rolling:digest()
 ```
 
-`binary.hash.digest.newDigest(name)` is shorthand for
+`binary.hash.digest.newdigest(name)` is shorthand for
 `algorithm(name):newDigest()`.
 `lookup(name)` returns nil when an algorithm is unavailable; `algorithm` and
-`newDigest` raise instead. `algorithms()` returns sorted canonical names.
+`newdigest` raise instead. `algorithms()` returns sorted canonical names.
 Descriptors expose `name` and `digestSize` before construction; a created
 digest exposes `algorithm()` and `digestSize()`.
 
@@ -32,7 +32,7 @@ The built-ins are `md5` (16 bytes), `sha1` (20), `sha256` (32), and
 `sha512` (64). MD5 and SHA-1 are legacy interoperability algorithms and
 must not be used where collision resistance is required.
 
-A digest is an [`io.Writer`](nupp.io.Writer): `write(string)` and
+A digest is an [`io.Writer`](io.Writer): `write(string)` and
 `writeSpan(ByteSpan)` accept chunks without retaining input views, and the state
 stays bounded as the message grows. Anything that fills a writer fills a digest,
 so `reader:transferTo(rolling)` hashes a file or a response body a window at a
@@ -40,8 +40,8 @@ time.
 
 ## Finalization and caller storage
 
-`digest()` returns raw bytes, `digest(destination)` writes a writable byte
-span and returns the byte count, and `hexDigest()` returns lowercase hexadecimal.
+`digest()` returns raw bytes, `digest(destination)` writes a writable byte span
+and returns the byte count, and `hexdigest()` returns lowercase hexadecimal.
 Every finalization consumes the digest; it neither snapshots nor resets it.
 Scope exit closes an unfinished provider context.
 
@@ -63,7 +63,7 @@ any output is written. The digest is consumed and the provider context is closed
 even when finalization fails. The destination remains owned by the caller.
 
 One-shot conveniences are `binary.hash.digest.digest(name, bytes)` and
-`binary.hash.digest.hexDigest(name, bytes)`. Encoding is also available
+`binary.hash.digest.hexdigest(name, bytes)`. Encoding is also available
 separately:
 `serde.hex.encode(raw)` or `serde.base64.encode(raw)`.
 
@@ -89,10 +89,10 @@ It differs from Smithy's `CRC64NVME` algorithm.
 The checksum API chooses no byte order: a protocol writes the value using its
 own scalar serialization rules. Checksums provide no authentication.
 
-`binary.hash.mac.newMac("hmac-sha256", key)` accepts a raw-byte key and returns the
-same writer and consuming finalization as a digest. Its descriptor has
-`digestSize = 32`. The one-shot forms are `mac.digest(name, key, bytes)`
-and `mac.hexDigest(name, key, bytes)`.
+`binary.hash.mac.newmac("hmac-sha256", key)` accepts a raw-byte key and returns
+the same writer and consuming finalization as a digest. Its descriptor has
+`digestSize = 32`. The one-shot forms are `mac.digest(name, key, bytes)` and
+`mac.hexDigest(name, key, bytes)`.
 
 `hmac-sha256` names the HMAC construction over SHA-256. Smithy's `httpChecksum`
 trait defines no MAC algorithms. AWS KMS uses `HMAC_SHA_256` for this

@@ -7,7 +7,7 @@ local envMod = require("nupp.compiler.project.env")
 -- registry default so that a case reads the same if the default is reconsidered.
 local function lint(src, level)
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors in test source")
+    testAssert.eq(#result.errors, 0, "syntax errors in test source")
     local diags = check.check(result, "test.nupp", envMod.new("."), {
         lints = {["reifiable-record"] = level or "warning"}
     })
@@ -26,11 +26,11 @@ end
 -- whitelist, rewrite the source and check that nothing is reported.
 local function assertSuggested(src, label)
     local found = lint(src)
-    testAssert.equal(#found, 1, (label or "expected one suggestion") .. "\n" .. src)
-    testAssert.equal(found[1].lint, "reifiable-record", "lint name")
+    testAssert.eq(#found, 1, (label or "expected one suggestion") .. "\n" .. src)
+    testAssert.eq(found[1].lint, "reifiable-record", "lint name")
     local asStruct = src:gsub("record ", "struct ", 1)
     local result = parser.parse(asStruct, "test")
-    testAssert.equal(#result.errors, 0, "the suggested source does not parse\n" .. asStruct)
+    testAssert.eq(#result.errors, 0, "the suggested source does not parse\n" .. asStruct)
     local diags = check.check(result, "test.nupp", envMod.new("."), {})
     for _, diag in ipairs(diags) do
         if diag.severity == "error" then
@@ -43,7 +43,7 @@ end
 
 local function assertSilent(src, label)
     local found = lint(src)
-    testAssert.equal(#found, 0, (label or "expected no suggestion") .. "\n" .. src)
+    testAssert.eq(#found, 0, (label or "expected no suggestion") .. "\n" .. src)
 end
 
 local test = {}
@@ -55,10 +55,10 @@ local record Vec2
     y: float32
 end
 ]])
-    testAssert.equal(d.severity, "warning", "reported at the configured level")
-    testAssert.equal(d.line, 1, "reported on the declaration")
-    testAssert.equal(d.msg:find("Vec2", 1, true) ~= nil, true, "names the record")
-    testAssert.equal(d.help ~= nil, true, "says what the change costs")
+    testAssert.eq(d.severity, "warning", "reported at the configured level")
+    testAssert.eq(d.line, 1, "reported on the declaration")
+    testAssert.eq(d.msg:find("Vec2", 1, true) ~= nil, true, "names the record")
+    testAssert.eq(d.help ~= nil, true, "says what the change costs")
 end
 
 function test.everyReifiablePrimitiveCounts()
@@ -273,7 +273,7 @@ local record Vec2
 end
 ]]
     for _, diag in ipairs(check.check(parser.parse(src, "test.nupp"), "test", envMod.new("."), {})) do
-        testAssert.equal(diag.code ~= "NUPP2509", true, "a performance suggestion is met by asking, not by being told")
+        testAssert.eq(diag.code ~= "NUPP2509", true, "a performance suggestion is met by asking, not by being told")
     end
     -- Whether a record is worth reifying depends on how many are built and where,
     -- which no declaration states, so the class is asked for as a class.
@@ -284,8 +284,8 @@ end
             found = diag
         end
     end
-    testAssert.equal(found ~= nil, true, "the category turns it on")
-    testAssert.equal(found.severity, "note", "at the level the category asked for")
+    testAssert.eq(found ~= nil, true, "the category turns it on")
+    testAssert.eq(found.severity, "note", "at the level the category asked for")
 end
 
 function test.allowSuppressesIt()
@@ -296,7 +296,7 @@ local record Vec2
     y: float32
 end
 ]])
-    testAssert.equal(#found, 0, "an @allow silences it")
+    testAssert.eq(#found, 0, "an @allow silences it")
 end
 
 function test.theSuggestionCanBeApplied()
@@ -309,12 +309,12 @@ local record Vec2
     y: float32
 end
 ]])
-    testAssert.equal(d.fixes ~= nil and #d.fixes == 1, true, "exactly one fix is offered")
+    testAssert.eq(d.fixes ~= nil and #d.fixes == 1, true, "exactly one fix is offered")
     local fix = d.fixes[1]
-    testAssert.equal(fix.title, "change `record` to `struct`", "and it says what it does")
-    testAssert.equal(#fix.edits, 1, "one edit")
-    testAssert.equal(fix.edits[1].newText, "struct", "replacing the keyword")
-    testAssert.equal(fix.edits[1].length, #"record", "and only the keyword")
+    testAssert.eq(fix.title, "change `record` to `struct`", "and it says what it does")
+    testAssert.eq(#fix.edits, 1, "one edit")
+    testAssert.eq(fix.edits[1].newText, "struct", "replacing the keyword")
+    testAssert.eq(fix.edits[1].length, #"record", "and only the keyword")
 end
 
 function test.theEditLandsOnTheKeywordNotAField()

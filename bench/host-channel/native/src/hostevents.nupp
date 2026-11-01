@@ -3,7 +3,7 @@ module hostevents
 local events = require("events")
 
 --- A pointer moved to `x`, `y`.
-@derive(events.Event)
+@derive(events.event)
 export record PointerMove
     x: number
     y: number

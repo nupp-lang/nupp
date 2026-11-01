@@ -73,7 +73,7 @@ local function main(): integer
     end
     nupp = harness.absolute(nupp)
     out = harness.absolute(out)
-    if not require("nupp.io.files").exists(nupp) then
+    if not require("io.files").exists(nupp) then
         error("no compiler at " .. nupp, 0)
     end
     if not harness.commandAvailable("claude") then
@@ -93,8 +93,8 @@ local function main(): integer
             harness.spent(record.agent)
         )
     )
-    print("  before=" .. json.encodeValue(record.grade.diagnosticsBefore))
-    print("  after=" .. json.encodeValue(record.grade.diagnosticsAfter))
+    print("  before=" .. json.encodevalue(record.grade.diagnosticsBefore))
+    print("  after=" .. json.encodevalue(record.grade.diagnosticsAfter))
     if record.grade.suspiciousShrink then
         print("  note: the file shrank by more than half; check the repair")
     end

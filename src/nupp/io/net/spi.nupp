@@ -1,3 +1,5 @@
+@!internal
+
 module nupp.io.net.spi
 
 --[[
@@ -9,7 +11,7 @@ handles are opaque; shared Address values come from [](nupp.io.net.types).
 
 Listener acceptance, connection completion, and stream I/O are readiness probes.
 They must not run a private blocking loop. `run(timeoutMs)` pumps the provider's
-reactor, and the public facade exposes pumping as `nupp.io.net.pump`. Keep handle
+reactor, and the public facade exposes pumping as `io.net.pump`. Keep handle
 ownership separate for listeners, connect requests, streams, and datagrams.
 
 Pending and EOF conventions differ by operation and are documented below. Report

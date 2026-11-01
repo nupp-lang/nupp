@@ -8,12 +8,12 @@ order: 560
 functions you edit while it keeps running. Every function in the VM is an id, and
 a commit replaces the body stored at that id, so closures already made, methods
 and direct calls all enter the new body on their next call. Reload is
-cooperative, so the program calls `nupp.hotreload.poll()` at a point where
+cooperative, so the program calls `debug.reload.poll()` at a point where
 changing future calls is safe:
 
 ```nupp:fragment
 while running do
-    nupp.hotreload.poll()
+    debug.reload.poll()
     update()
 end
 ```
@@ -33,7 +33,7 @@ local function message(): string
 end
 
 while true do
-    nupp.hotreload.poll()
+    debug.reload.poll()
     print(message())
     io.read("*l")
 end

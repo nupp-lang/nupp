@@ -29,7 +29,7 @@ function fieldcodec.installEvaluator(state: any, env: any, newOpaque: any, prove
     state.intrinsics[token] = function(at, args)
         local reflected = state.opaque[args[1]]
         if args.n ~= 1 or not reflected or reflected.provider ~= "reflection" or reflected.family ~= "TypeInfo" then
-            return nil, failure("NUPP2418", "types.reflect.fieldCodec needs one reflected type")
+            return nil, failure("NUPP2418", "types.reflect.fieldcodec needs one reflected type")
         end
 
         return newOpaque(
@@ -39,7 +39,6 @@ function fieldcodec.installEvaluator(state: any, env: any, newOpaque: any, prove
             provenance(at, "types.reflect.fieldCodec")
         )
     end
-    library.fieldCodec = token
     library.fieldcodec = token
     env.nupp = env.nupp or {}
     env.types.reflect = library

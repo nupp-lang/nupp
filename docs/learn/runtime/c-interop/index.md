@@ -644,7 +644,7 @@ library allocation and give it bounds immediately:
 ```nupp
 local heap = nupp.mem.heap
 
-local values = heap.allocate(ffi.typeof<int32>(), 1000000)
+local values = heap.alloc(ffi.typeof<int32>(), 1000000)
 local writable = values:write()
 writable[1] = 42 as int32
 own.drop(writable)
@@ -788,7 +788,7 @@ A const pointer becomes a shared span and a mutable pointer becomes a writable
 span. A counted pointer must use `borrows`, and a count currently uses plain
 `uint64`. Strides, byte counts, capacities, prefixes, sentinel termination,
 output pointers, and retained pointers require handwritten `ref()` wrappers. See
-[](nupp.mem.span) for construction, slicing, partitioning, and shared-range
+[](binary.span) for construction, slicing, partitioning, and shared-range
 validation.
 
 ## Export ordinary structs to C
@@ -869,7 +869,7 @@ of the pointer and count.
 
 ::: seealso
 - [ownership.md](../ownership/index.md) for the resource workflow a C boundary joins
-- [](nupp.mem.span) for the views a counted pointer projects
+- [](binary.span) for the views a counted pointer projects
 - [build.md](../../projects/build.md#c-dependencies) for C and Cargo dependency provider
   configuration
 - [native-modules.md](../../projects/native-modules.md#embedding-the-vm) for running the VM inside a C or Rust application

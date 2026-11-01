@@ -48,7 +48,7 @@ local function entries(inc: any): {any}
 
     local source = text.readFile(fs.join(inc.env.rootDir, "nupp/spi.json"))
     if source then
-        local document = json.decodeValue(source)
+        local document = json.decodevalue(source)
         if type(document) == "table" then
             for interface, modules in pairs(document) do
                 if type(interface) == "string" and interface:sub(1, 1) ~= "$" and type(modules) == "table" then

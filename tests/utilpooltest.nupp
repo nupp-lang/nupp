@@ -1,5 +1,5 @@
 -- nupp.util.Pool: record instances leased from a free list, cleared on release.
-const {type Pool, newPool} = require("nupp.util")
+const {type Pool, newpool as newPool} = require("nupp.util")
 local test = require("assert")
 
 local M = {}
@@ -53,10 +53,10 @@ end
 
 function M.newReservesTheCapacityUpFront(): nil
     local events = newPool(Event, 4)
-    test.equal(events.capacity, 4)
-    test.equal(events:free(), 4)
-    test.equal(events:live(), 0)
-    test.equal(newPool(Event).capacity, 32)
+    test.eq(events.capacity, 4)
+    test.eq(events:free(), 4)
+    test.eq(events:live(), 0)
+    test.eq(newPool(Event).capacity, 32)
     test.raises(
         function()
             newPool(Event, -1)
@@ -70,8 +70,8 @@ function M.acquireStampsTheDeclarationWithNoFieldsSet(): nil
     local event = events:acquire()
     test(event is Event, "the instance carries the record's metatable")
     test(hasNoFields(event), "a fresh instance has no fields")
-    test.equal(events:live(), 1)
-    test.equal(events:free(), 1)
+    test.eq(events:live(), 1)
+    test.eq(events:free(), 1)
     events:release(event)
 end
 
@@ -124,8 +124,8 @@ function M.releaseClearsEveryField(): nil
     event.x = 7
     event.name = "seven"
     events:release(event)
-    test.equal(events:live(), 0)
-    test.equal(events:free(), 1)
+    test.eq(events:live(), 0)
+    test.eq(events:free(), 1)
     local again = events:acquire()
     test(again == event, "within capacity the same instance comes back")
     test(hasNoFields(again), "a released instance comes back with no fields")
@@ -143,10 +143,10 @@ function M.instancesAreDistinctWhileLive(): nil
         event.x = index
         held[index] = event
     end
-    test.equal(events:live(), 8)
-    test.equal(events:free(), 0)
+    test.eq(events:live(), 8)
+    test.eq(events:free(), 0)
     for index = 1, 8 do
-        test.equal(held[index].x, index)
+        test.eq(held[index].x, index)
     end
     for index = 1, 8 do
         events:release(held[index])
@@ -162,8 +162,8 @@ function M.releaseDiscardsPastCapacity(): nil
     for index = 1, 5 do
         events:release(held[index])
     end
-    test.equal(events:free(), 2)
-    test.equal(events:live(), 0)
+    test.eq(events:free(), 2)
+    test.eq(events:live(), 0)
 end
 
 function M.reserveTopsTheFreeListUp(): nil
@@ -172,13 +172,13 @@ function M.reserveTopsTheFreeListUp(): nil
     for index = 1, 4 do
         held[index] = events:acquire()
     end
-    test.equal(events:free(), 0)
+    test.eq(events:free(), 0)
     events:reserve(2)
-    test.equal(events:free(), 2)
+    test.eq(events:free(), 2)
     events:reserve(1)
-    test.equal(events:free(), 2, "reserve never shrinks the free list")
+    test.eq(events:free(), 2, "reserve never shrinks the free list")
     events:reserve(6)
-    test.equal(events:free(), 6, "reserve may hold more than capacity")
+    test.eq(events:free(), 6, "reserve may hold more than capacity")
     test.raises(
         function()
             events:reserve(-1)
@@ -188,7 +188,7 @@ function M.reserveTopsTheFreeListUp(): nil
     for index = 1, 4 do
         events:release(held[index])
     end
-    test.equal(events:free(), 6, "releases past capacity are discarded, not the reserve")
+    test.eq(events:free(), 6, "releases past capacity are discarded, not the reserve")
 end
 
 function M.resetWithLiveInstancesRaisesAndChangesNothing(): nil
@@ -200,16 +200,16 @@ function M.resetWithLiveInstancesRaisesAndChangesNothing(): nil
         end,
         "live"
     )
-    test.equal(events:live(), 1)
-    test.equal(events:free(), 2)
-    test.equal(events.capacity, 3)
+    test.eq(events:live(), 1)
+    test.eq(events:free(), 2)
+    test.eq(events.capacity, 3)
     events:release(event)
     events:reset()
-    test.equal(events:free(), 0)
-    test.equal(events:live(), 0)
-    test.equal(events.capacity, 3)
+    test.eq(events:free(), 0)
+    test.eq(events:live(), 0)
+    test.eq(events.capacity, 3)
     events:reserve(3)
-    test.equal(events:free(), 3)
+    test.eq(events:free(), 3)
 end
 
 function M.releaseRefusesWhatThePoolDidNotStamp(): nil
@@ -241,8 +241,8 @@ function M.releaseRefusesValuesNotLiveInThatPool(): nil
         end,
         "not live in this pool"
     )
-    test.equal(events:live(), 1)
-    test.equal(events:free(), 1)
+    test.eq(events:live(), 1)
+    test.eq(events:free(), 1)
 
     local other = newPool(Event, 1)
     local foreign = other:acquire()

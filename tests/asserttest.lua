@@ -1,9 +1,22 @@
 local test = require("assert")
 local M = {}
 
+function M.publicHelpersUseFinalNamesWithoutCompatibilityKeys()
+    for old, current in pairs({
+        equal = "eq",
+        notEqual = "ne",
+        notequal = "ne",
+        deepEqual = "deepeq",
+        deepequal = "deepeq"
+    }) do
+        test.eq(rawget(test, old), nil)
+        test.eq(type(rawget(test, current)), "function")
+    end
+end
+
 function M.describesDifferentValues()
     local err = test.raises(function()
-        test.equal("actual", "expected")
+        test.eq("actual", "expected")
     end)
     test.matches(err, 'expected "expected", got "actual"')
 end
@@ -17,19 +30,19 @@ end
 
 function M.keepsCallerMessage()
     local err = test.raises(function()
-        test.equal(2, 1, "numbers differ")
+        test.eq(2, 1, "numbers differ")
     end)
     test.matches(err, "numbers differ")
 end
 
 function M.rendersMultilineAndNestedValuesAsBlocks()
     local lines = test.raises(function()
-        test.equal("first\nactual", "first\nexpected", "generated output differs")
+        test.eq("first\nactual", "first\nexpected", "generated output differs")
     end)
     test.matches(lines, "generated output differs:\n  want:")
     test.matches(lines, "first\\\n        expected")
     local nested = test.raises(function()
-        test.equal({one = {two = {three = 1}}}, {}, "nested values differ")
+        test.eq({one = {two = {three = 1}}}, {}, "nested values differ")
     end)
     test.matches(nested, "three")
 end
@@ -42,7 +55,7 @@ function M.boundsRenderedValuesBySize()
         cursor = cursor.next
     end
     local err = test.raises(function()
-        test.equal(value, {}, "large value")
+        test.eq(value, {}, "large value")
     end)
     test(#err < 700, "rendered assertion exceeded its size budget")
     test(err:find("...", 1, true), "rendered assertion did not mark its truncation")
@@ -52,13 +65,13 @@ function M.comparesStructuresAndReportsTheFirstPath()
     local actual = {false, {code = "NUPP2002"}, flag = true, [false] = "boolean"}
     local expected = {false, {code = "NUPP2114"}, flag = true, [false] = "boolean"}
     local err = test.raises(function()
-        test.deepEqual(actual, expected)
+        test.deepeq(actual, expected)
     end)
     test.matches(err, 'at value%[2%]%.code: want "NUPP2114", got "NUPP2002"')
 
     for _ = 1, 50 do
         local ordered = test.raises(function()
-            test.deepEqual({[false] = 1, [2] = 1, value = 1}, {[false] = 2, [2] = 2, value = 2})
+            test.deepeq({[false] = 1, [2] = 1, value = 1}, {[false] = 2, [2] = 2, value = 2})
         end)
         test.matches(ordered, "at value%[false%]")
     end
@@ -69,11 +82,11 @@ function M.comparesCyclesByBisimulationAndIgnoresAliasing()
     actual.self = actual
     local expected = {name = "root"}
     expected.self = expected
-    test.deepEqual(actual, expected)
+    test.deepeq(actual, expected)
 
     local shared = {value = 1}
     local actualAliases = {left = shared, right = shared}
-    test.equal(test.deepEqual(actualAliases, {left = {value = 1}, right = {value = 1}}), actualAliases)
+    test.eq(test.deepeq(actualAliases, {left = {value = 1}, right = {value = 1}}), actualAliases)
 end
 
 function M.honorsMetatablesAndTheirEquality()
@@ -82,9 +95,9 @@ function M.honorsMetatablesAndTheirEquality()
             return left.id == right.id
         end
     }
-    test.deepEqual(setmetatable({id = 1, detail = "left"}, mt), setmetatable({id = 1, detail = "right"}, mt))
+    test.deepeq(setmetatable({id = 1, detail = "left"}, mt), setmetatable({id = 1, detail = "right"}, mt))
     local err = test.raises(function()
-        test.deepEqual(setmetatable({}, {}), setmetatable({}, {}))
+        test.deepeq(setmetatable({}, {}), setmetatable({}, {}))
     end)
     test.matches(err, "value%.<metatable>")
 end
@@ -92,32 +105,32 @@ end
 function M.usesNativeLeafEqualityAndRefusesUnorderedKeys()
     local nan = 0 / 0
     local nanError = test.raises(function()
-        test.deepEqual({value = nan}, {value = nan})
+        test.deepeq({value = nan}, {value = nan})
     end)
     test.matches(nanError, "value%.value")
 
     -- A userdata leaf compares by identity: a string buffer is one on every host.
     local buffer = require("string.buffer")
     local pattern = buffer.new()
-    test.deepEqual({pattern = pattern}, {pattern = pattern})
+    test.deepeq({pattern = pattern}, {pattern = pattern})
     local patternError = test.raises(function()
-        test.deepEqual({pattern = buffer.new()}, {pattern = buffer.new()})
+        test.deepeq({pattern = buffer.new()}, {pattern = buffer.new()})
     end)
     test.matches(patternError, "value%.pattern")
 
     local key = {}
     local keyError = test.raises(function()
-        test.deepEqual({[key] = 1}, {[key] = 1})
+        test.deepeq({[key] = 1}, {[key] = 1})
     end)
     test.matches(keyError, "boolean, number, or string key")
 end
 
 function M.preservesSuccessfulAssertionResultsExactly()
-    test.equal(select("#", test(true)), 1)
-    test.equal(select("#", test("value", nil)), 2)
+    test.eq(select("#", test(true)), 1)
+    test.eq(select("#", test("value", nil)), 2)
     local value, message = test("value", "message")
-    test.equal(value, "value")
-    test.equal(message, "message")
+    test.eq(value, "value")
+    test.eq(message, "message")
 end
 
 function M.identifiesSkippedTests()
@@ -125,44 +138,44 @@ function M.identifiesSkippedTests()
         test.suite.skip("needs a network connection")
     end)
     test(not ok)
-    test(test.suite.isSkip(skip))
-    test.equal(test.suite.skipReason(skip), "needs a network connection")
+    test(test.suite.isskip(skip))
+    test.eq(test.suite.skipreason(skip), "needs a network connection")
 end
 
 function M.theCallableIsTheGlobalAndRequiredModule()
-    test.equal(type(test), "table")
-    test.equal(test, assert)
-    test.equal(test, rawget(_G, "assert"))
-    test.equal(test, require("assert"))
-    test.equal(rawget(test, "assert"), nil)
-    test.equal(rawget(test, "skip"), nil)
+    test.eq(type(test), "table")
+    test.eq(test, assert)
+    test.eq(test, rawget(_G, "assert"))
+    test.eq(test, require("assert"))
+    test.eq(rawget(test, "assert"), nil)
+    test.eq(rawget(test, "skip"), nil)
     for _, name in ipairs({
         "skip",
-        "isSkip",
-        "skipReason",
+        "isskip",
+        "skipreason",
         "cases",
-        "notExecuted",
-        "isNotExecuted",
-        "notExecutedReason",
-        "requireCapability",
+        "notexecuted",
+        "isnotexecuted",
+        "notexecutedreason",
+        "requirecapability",
         "fact",
         "metric",
         "work",
         "fixture"
     }) do
-        test.equal(type(test.suite[name]), "function", name)
+        test.eq(type(test.suite[name]), "function", name)
     end
 end
 
 function M.preservesErrorObjectsAndEvaluatesEveryArgument()
     for _, message in ipairs({"failure", false, {reason = "error object"}}) do
         local succeeded, problem = pcall(test, false, message)
-        test.equal(succeeded, false)
-        test.equal(problem, message)
+        test.eq(succeeded, false)
+        test.eq(problem, message)
     end
     local succeeded, problem = pcall(test, false, 17)
-    test.equal(succeeded, false)
-    test.equal(tostring(problem), "17")
+    test.eq(succeeded, false)
+    test.eq(tostring(problem), "17")
     local count = 0
 
     local function argument(value)
@@ -173,37 +186,37 @@ function M.preservesErrorObjectsAndEvaluatesEveryArgument()
     succeeded, problem = pcall(function()
         test(argument(false), argument("failure"), argument(42))
     end)
-    test.equal(succeeded, false)
+    test.eq(succeeded, false)
     test.matches(problem, "failure$")
-    test.equal(count, 3)
+    test.eq(count, 3)
 
     local function collect(...)
         return {n = select("#", ...), ...}
     end
 
-    test.deepEqual(collect(test("value", nil, false, nil)), {n = 4, "value", nil, false})
+    test.deepeq(collect(test("value", nil, false, nil)), {n = 4, "value", nil, false})
 end
 
 function M.suiteHelpersKeepTheirOriginalInternalBindings()
     local suite = test.suite
-    local isSkip, isNotExecuted, metric = suite.isSkip, suite.isNotExecuted, suite.metric
+    local isSkip, isNotExecuted, metric = suite.isskip, suite.isnotexecuted, suite.metric
     local ok, problem = pcall(function()
         local _, skipped = pcall(suite.skip, "skip marker")
-        local _, unavailable = pcall(suite.notExecuted, "unavailable marker")
-        suite.isSkip = function()
+        local _, unavailable = pcall(suite.notexecuted, "unavailable marker")
+        suite.isskip = function()
             return false
         end
-        suite.isNotExecuted = function()
+        suite.isnotexecuted = function()
             return false
         end
         suite.metric = function()
             error("the public binding was replaced")
         end
-        test.equal(suite.skipReason(skipped), "skip marker")
-        test.equal(suite.notExecutedReason(unavailable), "unavailable marker")
+        test.eq(suite.skipreason(skipped), "skip marker")
+        test.eq(suite.notexecutedreason(unavailable), "unavailable marker")
         suite.work("assert.original-work-binding", 1)
     end)
-    suite.isSkip, suite.isNotExecuted, suite.metric = isSkip, isNotExecuted, metric
+    suite.isskip, suite.isnotexecuted, suite.metric = isSkip, isNotExecuted, metric
     if not ok then
         error(problem, 0)
     end

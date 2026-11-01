@@ -8,7 +8,7 @@ const digest2 = require("binary.hash.digest")
 -- and grade whether an agent can rediscover the implementation without editing
 -- the specification.
 
-local files = require("nupp.io.files")
+local files = require("io.files")
 local harness = require("harness")
 
 local tier2 = {}
@@ -133,13 +133,13 @@ function tier2.prepare(repo: string, commit: string, at: string): tier2.Prepared
     local rocks = harness.join(repo, ".rocks")
     local stagedRocks = harness.join(at, ".rocks")
     if files.exists(rocks) and not files.exists(stagedRocks) then
-        local linked, linkErr = files.createSymlink(rocks, stagedRocks, "directory")
+        local linked, linkErr = files.createsymlink(rocks, stagedRocks, "directory")
         if not linked then
             error("cannot link the dependency tree: " .. tostring(linkErr), 2)
         end
     end
     local cache = harness.join(repo, "build", "cache")
-    if files.isDirectory(cache) then
+    if files.isdirectory(cache) then
         harness.copyTree(cache, harness.join(at, "build", "cache"))
     end
     local reverted: {string} = {}
@@ -157,7 +157,7 @@ function tier2.digests(at: string, paths: {string}): {[string]: string}
     for _, path in ipairs(paths) do
         local target = harness.join(at, path)
         if files.exists(target) then
-            digests[path] = digest2.hexDigest("sha256", harness.read(target))
+            digests[path] = digest2.hexdigest("sha256", harness.read(target))
         end
     end
 
@@ -239,8 +239,8 @@ function tier2.repairDiff(repo: string, commit: string, at: string, reverted: {s
     local ok, answer = pcall(function(): string
         local before = harness.join(root, "before")
         local after = harness.join(root, "after")
-        assert2(files.createDirectory(before))
-        assert2(files.createDirectory(after))
+        assert2(files.createdirectory(before))
+        assert2(files.createdirectory(after))
         for _, path in ipairs(reverted) do
             local prior = harness.run({"git", "-C", repo, "show", commit .. "^:" .. path})
             if prior.returncode == 0 then

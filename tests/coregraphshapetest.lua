@@ -17,7 +17,7 @@ local function fixture()
         "local function identity(value: boolean): boolean return value end\nreturn identity(true)",
         path
     )
-    test.equal(#parsed.errors, 0)
+    test.eq(#parsed.errors, 0)
     local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
     local diagnostics = checker.check(parsed, path, env, {
         moduleName = name,
@@ -85,7 +85,7 @@ end
 
 local function refuses(action, expected)
     local ok, message = pcall(action)
-    test.equal(ok, false)
+    test.eq(ok, false)
     if expected then
         assert(tostring(message):find(expected, 1, true), tostring(message))
     end
@@ -96,9 +96,9 @@ function M.actualCheckedGraphHasPhysicalShape()
     local tables, wire = rows(bytes)
     local before = codec.encode(codec.decode(bytes))
     local result = shape.rows(tables, wire, 0)
-    test.equal(result.records, codec.validateShape(bytes).records)
+    test.eq(result.records, codec.validateShape(bytes).records)
     assert(result.expansion > 0 and result.stringExpansion > 0)
-    test.equal(codec.encode(codec.decode(bytes)), before)
+    test.eq(codec.encode(codec.decode(bytes)), before)
 end
 
 function M.rolesComeFromCanonicalDescriptors()
@@ -114,10 +114,10 @@ function M.rolesComeFromCanonicalDescriptors()
                 assert(wire.sections[field.role.target + 1])
             end
             if field.kind == "zero" then
-                test.equal(field.role.kind, "zero")
+                test.eq(field.role.kind, "zero")
             end
             if field.kind == "u64" then
-                test.equal(field.role.kind, "bounded64")
+                test.eq(field.role.kind, "bounded64")
             end
         end
     end
@@ -193,12 +193,12 @@ end
 function M.optionalNoneAndNonzeroEmptySpanRemainAccepted()
     local bytes = fixture()
     local _, _, offsets = rows(bytes)
-    test.equal(read(bytes, field(offsets, "blocks", 1, "paramsCount")), 0)
+    test.eq(read(bytes, field(offsets, "blocks", 1, "paramsCount")), 0)
     local changed = patch(bytes, field(offsets, "blocks", 1, "paramsFirst"), offsets.words.count)
     assert(codec.validateShape(changed))
-    test.equal(codec.encode(codec.decode(changed)), bytes)
+    test.eq(codec.encode(codec.decode(changed)), bytes)
     local tables, wire = rows(bytes)
-    test.equal(tables.catalog[1].parent, NONE)
+    test.eq(tables.catalog[1].parent, NONE)
     assert(shape.rows(tables, wire, 0))
 end
 

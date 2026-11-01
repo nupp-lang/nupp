@@ -9,9 +9,9 @@ local env = envMod.new(HERE .. "/..")
 
 local function run(src)
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors")
+    testAssert.eq(#result.errors, 0, "syntax errors")
     local diags = check.check(result, "test.nupp", env)
-    testAssert.equal(#diags, 0, "check diagnostics" .. (diags[1] and (": " .. diags[1].msg) or ""))
+    testAssert.eq(#diags, 0, "check diagnostics" .. (diags[1] and (": " .. diags[1].msg) or ""))
 
     return program.run(result, "table_intrinsic_test", "test.nupp")
 end
@@ -26,8 +26,8 @@ local result = table.move(values, 1, 3, 2)
 return values, result == values
 ]]
     )
-    testAssert.equal(same, true)
-    testAssert.deepEqual(values, {1, 1, 2, 3})
+    testAssert.eq(same, true)
+    testAssert.deepeq(values, {1, 1, 2, 3})
     values, same = run(
         [[
 local values: {integer} = {1, 2, 3, 4}
@@ -35,8 +35,8 @@ local result = table.move(values, 2, 4, 1, nil)
 return values, result == values
 ]]
     )
-    testAssert.equal(same, true)
-    testAssert.deepEqual(values, {2, 3, 4, 4})
+    testAssert.eq(same, true)
+    testAssert.deepeq(values, {2, 3, 4, 4})
     local source, destination, returned = run(
         [[
 local source: const {integer} = {7, 8, 9}
@@ -45,9 +45,9 @@ local result = table.move(source, 1, 3, 2, destination)
 return source, destination, result == destination
 ]]
     )
-    testAssert.equal(returned, true)
-    testAssert.deepEqual(source, {7, 8, 9})
-    testAssert.deepEqual(destination, {1, 7, 8, 9})
+    testAssert.eq(returned, true)
+    testAssert.deepeq(source, {7, 8, 9})
+    testAssert.deepeq(destination, {1, 7, 8, 9})
 end
 
 function M.tableMoveKeepsEmptyMissingAndNonpositiveKeyRanges()
@@ -61,15 +61,15 @@ local empty = table.move(source, 2, 1, 10, destination)
 return destination, result == destination, empty == destination and destination[10] == nil
 ]]
     )
-    testAssert.equal(same, true)
-    testAssert.equal(unchanged, true)
-    testAssert.deepEqual(destination, {1, 2, 3, 6, 7, 8})
+    testAssert.eq(same, true)
+    testAssert.eq(unchanged, true)
+    testAssert.deepeq(destination, {1, 2, 3, 6, 7, 8})
     local copied = table.move({9}, 1, 3, 1, {1, 2, 3})
-    testAssert.equal(copied[1], 9)
-    testAssert.equal(rawget(copied, 2), nil)
-    testAssert.equal(rawget(copied, 3), nil)
+    testAssert.eq(copied[1], 9)
+    testAssert.eq(rawget(copied, 2), nil)
+    testAssert.eq(rawget(copied, 3), nil)
     local ok, problem = pcall(table.move, {}, "not a number", 1, 1)
-    testAssert.equal(ok, false)
+    testAssert.eq(ok, false)
     testAssert.matches(tostring(problem), "number expected")
 end
 
@@ -85,9 +85,9 @@ local result = table.move(source, first, last, first, destination)
 return result == destination, destination[first], destination[last]
 ]]
     )
-    testAssert.equal(same, true)
-    testAssert.equal(first, 17)
-    testAssert.equal(last, 29)
+    testAssert.eq(same, true)
+    testAssert.eq(first, 17)
+    testAssert.eq(last, 29)
 end
 
 function M.tableNewAndClearRun()
@@ -102,8 +102,8 @@ function M.tableNewAndClearRun()
         "\n"
     )
     local first, second = run(src)
-    testAssert.equal(next(first), nil, "first table was cleared")
-    testAssert.equal(next(second), nil, "second table was cleared")
+    testAssert.eq(next(first), nil, "first table was cleared")
+    testAssert.eq(next(second), nil, "second table was cleared")
 end
 
 function M.leavesAShadowedTableAlone()
@@ -119,9 +119,9 @@ function M.leavesAShadowedTableAlone()
         "\n"
     )
     local first, second, third = run(src)
-    testAssert.equal(first, 7, "shadowed new result")
-    testAssert.equal(second, 8, "shadowed clear result")
-    testAssert.equal(third, 9, "shadowed clone result")
+    testAssert.eq(first, 7, "shadowed new result")
+    testAssert.eq(second, 8, "shadowed clear result")
+    testAssert.eq(third, 9, "shadowed clone result")
 end
 
 function M.sourceNamesLikeTheIntrinsicsSurvive()
@@ -137,9 +137,9 @@ function M.sourceNamesLikeTheIntrinsicsSurvive()
         "\n"
     )
     local first, second, remaining = run(src)
-    testAssert.equal(first, "new", "source new name survives")
-    testAssert.equal(second, "clear", "source clear name survives")
-    testAssert.equal(remaining, nil, "table.clear still clears")
+    testAssert.eq(first, "new", "source new name survives")
+    testAssert.eq(second, "clear", "source clear name survives")
+    testAssert.eq(remaining, nil, "table.clear still clears")
 end
 
 function M.clonesOneLevelDeep()
@@ -154,8 +154,8 @@ function M.clonesOneLevelDeep()
         "\n"
     )
     local source, copy = run(src)
-    testAssert.equal(source.kind, "point", "the original keeps its own keys")
-    testAssert.equal(copy.kind, "moved", "the copy takes its own keys")
+    testAssert.eq(source.kind, "point", "the original keeps its own keys")
+    testAssert.eq(copy.kind, "moved", "the copy takes its own keys")
     assert(rawequal(source.inner, copy.inner), "a nested table stays shared")
 end
 
@@ -169,8 +169,8 @@ function M.cloneCarriesTheMetatableAcross()
         "\n"
     )
     local absent, shared = run(src)
-    testAssert.equal(absent, "from base", "__index still answers for the copy")
-    testAssert.equal(shared, true, "the copy shares the metatable it was cloned from")
+    testAssert.eq(absent, "from base", "__index still answers for the copy")
+    testAssert.eq(shared, true, "the copy shares the metatable it was cloned from")
 end
 
 function M.everyCloneCallRuns()
@@ -179,8 +179,8 @@ function M.everyCloneCallRuns()
         "\n"
     )
     local a, b = run(src)
-    testAssert.equal(a, 1, "first clone")
-    testAssert.equal(b, 2, "second clone")
+    testAssert.eq(a, 1, "first clone")
+    testAssert.eq(b, 2, "second clone")
 end
 
 function M.aSourceNameLikeCloneSurvives()
@@ -189,8 +189,8 @@ function M.aSourceNameLikeCloneSurvives()
         "\n"
     )
     local name, value = run(src)
-    testAssert.equal(name, "clone", "source clone name survives")
-    testAssert.equal(value, 1, "table.clone still copies")
+    testAssert.eq(name, "clone", "source clone name survives")
+    testAssert.eq(value, 1, "table.clone still copies")
 end
 
 return M

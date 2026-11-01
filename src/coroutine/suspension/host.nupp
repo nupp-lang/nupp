@@ -1,0 +1,51 @@
+module coroutine.suspension.host
+
+--[[
+`coroutine.suspension.host` installs handlers for suspension requests.
+Schedulers use its driver operations to pass waits to the enclosing host.
+
+```nupp:fragment
+local host = require("coroutine.suspension.host")
+
+local function application(): nil
+    with installation = host.install(frameHandler) do
+        work()
+    end
+end
+```
+
+`install` puts a handler on the current coroutine for the extent of the `with`.
+Driving the readiness pumps while it waits is [](coroutine.suspension)'s `poll`: the
+pumps are registered through that module and drained through it, by a scheduler
+here or by an embedding host that never installs a handler at all. `create`
+makes a coroutine that inherits the handler, so work started inside a handled
+extent is handled too.
+
+A *driver* stands in front of a host rather than being one: a task scope opened
+in a frame installs one so the frame's own waits keep its children running.
+`installdriver` says so, `delegatedpark` and `delegatedcanpark` capture the
+handler it displaces so what it cannot satisfy goes outward, `derive` builds the
+wait to hand there, and the turn budget bounds how long it may run before it owes
+its host a turn.
+
+See [suspension.md](docs/learn/runtime/concurrency/suspension.md) for the handler
+contract and a worked frame handler.
+]]
+local selected = require("nupp.suspension.selected")
+local contract = require("nupp.suspension.spi")
+local source1 = require("nupp.suspension.host")
+export type Handler = source1.Handler
+export type Installed = source1.Installed
+export type Waiting = source1.Waiting
+export const Handler = source1.Handler
+export const Installed = source1.Installed
+export const Waiting = source1.Waiting
+export const consumeturn: selected.ConsumeTurn = source1.consumeTurn
+export const create: contract.Provider.["create"] = source1.create
+export const deferturn: selected.DeferTurn = source1.deferTurn
+export const delegatedcanpark: contract.Provider.["delegatedCanPark"] = source1.delegatedCanPark
+export const delegatedpark: contract.Provider.["delegatedPark"] = source1.delegatedPark
+export const derive: contract.Provider.["derive"] = source1.derive
+export const install: contract.Provider.["install"] = source1.install
+export const installdriver: contract.Provider.["installDriver"] = source1.installDriver
+export const turnavailable: selected.TurnAvailable = source1.turnAvailable

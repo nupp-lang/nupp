@@ -2,11 +2,12 @@
 module nupp.runtime.browser.files
 
 local effects = require("nupp.runtime.browser.effects")
-local messages = require("nupp.io.files.messages")
+local messages = require("io.files.messages")
 local appPaths = require("nupp.io.files.path")
-local io = require("nupp.io")
-local span = require("nupp.mem.span")
-local suspension = require("nupp.suspension")
+local io = require("io")
+local privateIo = require("nupp.io")
+local span = require("binary.span")
+local suspension = require("coroutine.suspension")
 local memory = require("nupp.runtime.browser.memory") as any
 
 local files = {}
@@ -279,7 +280,7 @@ local record File is io.Reader, io.Writer
             return nil, "the file is closed"
         end
         local wanted = math.min(positive(count, "File:read count", 2), READ_SIZE)
-        local destination = io.newBuffer(wanted)
+        local destination = io.newbuffer(wanted)
         local lease = destination:reserveWrite(0, wanted)
         local got: integer?
         local reason: string?
@@ -368,7 +369,7 @@ local record File is io.Reader, io.Writer
         if self._closed then
             return false, "the file is closed"
         end
-        local source = span.fromString(bytes)
+        local source = span.fromstring(bytes)
         local wrote, reason = self:writeSpan(source)
         if wrote == nil then
             return false, reason
@@ -419,11 +420,11 @@ local record File is io.Reader, io.Writer
         end
         local value, reason = effect("file-size", nil, {handle = self._handle,})
         if value == nil then
-            return nil, io.toError(reason)
+            return nil, privateIo.toError(reason)
         end
         local size, invalid = protocol(value, "size", 0)
 
-        return size, io.toError(invalid, "invalid")
+        return size, privateIo.toError(invalid, "invalid")
     end
 
     function seek(exclusive self, offset: integer?, origin: messages.Origin?): (integer?, io.Error?)
@@ -441,11 +442,11 @@ local record File is io.Reader, io.Writer
             origin = whence,
         })
         if value == nil then
-            return nil, io.toError(reason)
+            return nil, privateIo.toError(reason)
         end
         local position, invalid = protocol(value, "position", 0)
 
-        return position, io.toError(invalid, "invalid")
+        return position, privateIo.toError(invalid, "invalid")
     end
 
     function position(exclusive self): (integer?, io.Error?)

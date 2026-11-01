@@ -153,21 +153,21 @@ export function load(ast: documents.Document): Model
 end
 
 export function parse(source: string): Model
-    return load(jsonDocument.decodeDocument(documents.adapter(), source))
+    return load(jsonDocument.decodedocument(documents.adapter(), source))
 end
 
 local plans = require("serde.json")
 local json = require("serde.json")
 local timestamps = require("serde.codec")
 
-export const schemaContext = util.newKey<Shape>()
-export const memberContext = util.newKey<Member>()
-local wireFieldContext = util.newKey<core.WireField>()
+export const schemaContext = util.newkey<Shape>()
+export const memberContext = util.newkey<Member>()
+local wireFieldContext = util.newkey<core.WireField>()
 export record UnknownField
     @readonly field: core.WireField
     @readonly value: documents.Document
 end
-export const unknownFieldsContext = util.newKey<{UnknownField}>()
+export const unknownFieldsContext = util.newkey<{UnknownField}>()
 
 local function defaultValue(shape: Shape, value: documents.Document): documents.Document
     local numbers = require("serde.codec")
@@ -194,7 +194,7 @@ local function defaultValue(shape: Shape, value: documents.Document): documents.
             new core.Float(value = numbers.float(assert(tonumber(value:numberToken())), width), width = width)
         )
     elseif shape.kind == "bigInteger" then
-        return documents.bigInteger(value:numberToken())
+        return documents.biginteger(value:numberToken())
     end
     error("unsupported default for Smithy fixture shape " .. shape.id, 2)
 end
@@ -286,13 +286,13 @@ local record Unknown is core.UnknownConsumer<State>
         end
         local context = assert(value:context(), "unknown JSON content requires its source context")
         local contexts = require("serde.codec")
-        local metadata = contexts.contextBuilder(context.codec, context.profile, context)
+        local metadata = contexts.contextbuilder(context.codec, context.profile, context)
         metadata:set(wireFieldContext, field)
         state.fields[
             #state.fields + 1
         ] = new documents.Entry(
-            name = jsonDocument.fieldName(field),
-            value = documents.withContext(value, metadata:freeze())
+            name = jsonDocument.fieldname(field),
+            value = documents.withcontext(value, metadata:freeze())
         )
     end
 end
@@ -435,7 +435,7 @@ local record Adapter is core.Adapter<documents.Document, Member>
                 )
             )
         elseif kind == "bigInteger" then
-            value = documents.bigInteger(reader:readBigInteger(member))
+            value = documents.biginteger(reader:readBigInteger(member))
         elseif kind == "decimal" then
             value = documents.decimal(reader:readDecimal(member))
         elseif kind == "bytes" then
@@ -488,7 +488,7 @@ local record Adapter is core.Adapter<documents.Document, Member>
             end
         end
         local contexts = require("serde.codec")
-        local source = contexts.contextBuilder(
+        local source = contexts.contextbuilder(
             context ~= nil and context.codec or {},
             context ~= nil and context.profile or {},
             context
@@ -499,7 +499,7 @@ local record Adapter is core.Adapter<documents.Document, Member>
             source:set(unknownFieldsContext, unknown)
         end
 
-        return documents.withContext(value, source:freeze())
+        return documents.withcontext(value, source:freeze())
     end
 end
 
@@ -602,11 +602,11 @@ local record Policy<M is core.Member> is plans.Policy<M>
         local format = (member as Member):trait("smithy.api#timestampFormat")
         local epoch = format ~= nil and format:string() == "epoch-seconds" or format == nil and self.epoch
         if epoch then
-            return json.numberToken(timestamps.formatEpoch(value))
+            return json.numbertoken(timestamps.formatepoch(value))
         end
         assert(format == nil or format:string() == "date-time", "unsupported timestamp format in fixture")
 
-        return json.encoded(timestamps.formatDateTime(value))
+        return json.encoded(timestamps.formatdatetime(value))
     end
 
     function parseTimestamp(self, member: M, value: string, kind: "string" | "number"): core.Timestamp
@@ -614,19 +614,19 @@ local record Policy<M is core.Member> is plans.Policy<M>
         local epoch = format ~= nil and format:string() == "epoch-seconds" or format == nil and self.epoch
         if epoch then
             assert(kind == "number", "expected epoch seconds")
-            return timestamps.parseEpoch(value)
+            return timestamps.parseepoch(value)
         end
         assert(format == nil or format:string() == "date-time", "unsupported timestamp format in fixture")
         assert(kind == "string", "expected date-time")
 
-        return timestamps.parseDateTime(value)
+        return timestamps.parsedatetime(value)
     end
 end
 local record Factory is plans.PolicyFactory
     @readonly epoch: boolean
     @readonly rename: boolean
     function policy<M is core.Member>(self, member: M): plans.Policy<M>
-        local document = __serdeJson.documentPolicy(member, self.epoch)
+        local document = __serdeJson.documentpolicy(member, self.epoch)
         if document ~= nil then
             return document
         end

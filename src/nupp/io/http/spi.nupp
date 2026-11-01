@@ -1,3 +1,5 @@
+@!internal
+
 module nupp.io.http.spi
 
 --[[
@@ -6,7 +8,7 @@ Shared interfaces for HTTP implementations.
 The HTTP module selects during initialization. Provider functions
 have no implicit receiver; Client and Response methods do. Request, Options,
 Version, and Capabilities come from [](nupp.io.http.messages), URI from
-[](io.uri), and Body is the canonical [](nupp.io) Reader interface.
+[](io.uri), and Body is the canonical [](io) Reader interface.
 
 A Client owns its transport and outstanding work. A successful send returns an
 affine Response owning the response resources and body reader. Preserve borrowing

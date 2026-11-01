@@ -355,7 +355,7 @@ local function stage()
         end
         write(
             base .. "/snapshot.json",
-            json.encodeValue({
+            json.encodevalue({
                 version = 1,
                 target = "aarch64-apple-darwin",
                 sources = sources

@@ -1,3 +1,5 @@
+@!internal
+
 module nupp.tasks
 
 --[[
@@ -9,7 +11,7 @@ until every one of them has run, been cancelled, or unwound.
 ```nupp
 local greeting = ""
 
-with scope = nupp.tasks.open() do
+with scope = coroutine.scope() do
     const hello = scope:spawn(function(): string
         return "hello"
     end)
@@ -23,7 +25,7 @@ end
 assert(greeting == "hello world")
 ```
 
-`open` takes a `limit`, which parks `spawn` and `fork` while that many children
+`scope` takes a `limit`, which parks `spawn` and `fork` while that many children
 are live, and a `timeoutMs`, how long the scope may take. A running child
 cooperates by calling `checkpoint`, which is where it learns the scope was
 cancelled or its deadline passed.
@@ -31,11 +33,11 @@ cancelled or its deadline passed.
 ```nupp
 local total = 0
 
-with scope = nupp.tasks.open(timeoutMs = 1000) do
+with scope = coroutine.scope(timeoutMs = 1000) do
     const sum = scope:spawn("sum values", function(): integer
         local answer: integer = 0
         for value = 1, 1000 do
-            nupp.tasks.checkpoint()
+            coroutine.checkpoint()
             answer = answer + value
         end
 
@@ -50,14 +52,14 @@ assert(total == 500500)
 
 ## Growing task families
 
-[](nupp.suspension)'s combinators own a family that is complete when the call is
+[](coroutine.suspension)'s combinators own a family that is complete when the call is
 written: `all` cannot be handed a fourth body once it is running. `create` makes
 a coroutine that inherits a handler and says nothing about its result, failure,
 or lifetime. A server, a loading pipeline, or a scene needs somewhere to put
 children found over time and one answer to what happens when the body returns, a
 child fails, or the whole thing is cancelled.
 
-CPU work on other threads is [](nupp.workers), and a task scope is the only way
+CPU work on other threads is [](coroutine.workers), and a task scope is the only way
 to it: `fork` hands a child to a lane, and the scope owns the family of lanes
 lazily and closes it through the suspension-aware path, so leaving the block
 inside a frame parks rather than blocking the thread.
@@ -109,7 +111,7 @@ end
 
 --- Represents what a cancelled task raises.
 ---
---- Nominal rather than a string, so `isCancelled` recognizes it without matching
+--- Nominal rather than a string, so `iscancelled` recognizes it without matching
 --- text, and so a program that catches everything still sees something it can ask
 --- about. `tostring` renders it because an uncaught one reaches a human.
 record tasks.Cancellation
@@ -132,7 +134,7 @@ end
 ---
 --- ```nupp:fragment
 --- const ok, problem = pcall(work)
---- if not ok and not tasks.isCancelled(problem) then
+--- if not ok and not tasks.iscancelled(problem) then
 ---     report(problem)
 --- end
 --- ```
@@ -257,9 +259,9 @@ local function Parameters(F: type): typepack
     return types.parameters(F)
 end
 
---- Represents a scope opened by `open`.
+--- Represents a scope opened by `scope`.
 ---
---- A `own.Closeable`: `open` returns it as an owner a `with` block holds, and
+--- A `own.Closeable`: `scope` returns it as an owner a `with` block holds, and
 --- leaving the block closes it. The block can add children to the scope and
 --- reach the worker scope it owns.
 record tasks.Scope is own.Closeable
@@ -280,7 +282,7 @@ record tasks.Scope is own.Closeable
             name: string
         ): tasks.Task<F> borrows (self)
 
-    --- Where the named overload of [](nupp.tasks.Scope.spawn) lands.
+    --- Where the named overload of [](coroutine.Scope.spawn) lands.
     ---
     --- The two forms are the same shape at run time -- a body and one more value --
     --- so the compiler routes the named one here rather than leaving a type test in
@@ -1380,7 +1382,7 @@ end
 --- exit. A child spawned after this settles as cancelled without running.
 ---
 --- ```nupp:fragment
---- with scope = nupp.tasks.open(limit = 4) do
+--- with scope = coroutine.scope(limit = 4) do
 ---     for _, mirror in ipairs(mirrors) do
 ---         scope:spawn(mirror, probe)
 ---     end
@@ -1656,10 +1658,10 @@ end
 ---
 --- A failure the block itself raises does not cancel the children: they run to
 --- completion before it propagates. Call `cancel` first where that is not wanted, or
---- run the body with [](nupp.tasks.run), which cancels them when it fails.
+--- run the body with [](coroutine.run), which cancels them when it fails.
 ---
 --- ```nupp:fragment
---- with scope = nupp.tasks.open() do
+--- with scope = coroutine.scope() do
 ---     scope:spawn(function(): nil work() end)
 --- end
 --- ```
@@ -1692,15 +1694,15 @@ end
 --- from now on the monotonic clock, and expiry requests ordinary cancellation.
 --- A scope opened inside another takes the earlier of the two deadlines: a
 --- child may bound itself more tightly than its parent did, and may not extend
---- what its parent already promised. [](nupp.tasks.deadline) returns the
+--- what its parent already promised. [](coroutine.deadline) returns the
 --- absolute deadline that results.
 ---
---- Both are named arguments: `open()`, `open(limit = 8)`, `open(timeoutMs = 500)`,
---- or `open(limit = 8, timeoutMs = 500)`.
+--- Both are named arguments: `scope()`, `scope(limit = 8)`, `scope(timeoutMs = 500)`,
+--- or `scope(limit = 8, timeoutMs = 500)`.
 ---
 --- ```nupp:fragment
 --- const sizes: {integer} = {}
---- with scope = nupp.tasks.open(limit = 8) do
+--- with scope = coroutine.scope(limit = 8) do
 ---     for index, url in ipairs(urls) do
 ---         scope:spawn(sizes, index, url, storeSize)
 ---     end
@@ -1712,7 +1714,7 @@ end
 --- @return the scope, settled when its `with` ends
 --- @raises string where the limit is not a positive integer or the timeout is not a
 ---     finite non-negative number
---- Opens a scope's state on the running frame, for `open` and `run`. Errors name the
+--- Opens a scope's state on the running frame, for `scope` and `run`. Errors name the
 --- caller of whichever of the two was called.
 local function openState(limit: integer?, timeoutMs: number?): ScopeState
     if limit ~= nil and (limit < 1 or limit ~= math.floor(limit)) then
@@ -1762,7 +1764,7 @@ local function runImpl(...: any): ...any
     const answer = pack(pcall(body, scope))
     if answer.values[1] == true then
         -- The body returned: its children run to completion, and a failure one of them
-        -- has is raised here exactly as leaving an `open` block raises it.
+        -- has is raised here exactly as leaving an `scope` block raises it.
         closeScope(owner)
 
         return unpack(answer.values, 2, answer.count)
@@ -1803,24 +1805,24 @@ end
 
 --- Runs `body` in a new scope and settles the scope however the body ends.
 ---
---- The callback form of [](nupp.tasks.open). The body is handed the scope and may
+--- The callback form of [](coroutine.scope). The body is handed the scope and may
 --- start children in it with `spawn` and `fork`. Where it returns, the children run
 --- to completion and its results are this call's, every position kept, `nil`s
---- included; a child's failure is raised instead, as leaving an `open` block raises
+--- included; a child's failure is raised instead, as leaving an `scope` block raises
 --- it. Where the body fails, its children are cancelled before the scope drains
 --- them, and the body's failure is raised once they have unwound. A child that fails
 --- while it unwinds does not replace that failure: it is attached beside it.
 ---
---- That last case is the difference from `with scope = open()`. A block cannot tell
+--- That last case is the difference from `with scope = scope()`. A block cannot tell
 --- its own failure from a normal exit, so it waits for every child either way; this
 --- knows how its body ended, so a failure is not held up behind children that only
 --- mattered while the body was going to use them.
 ---
---- Takes the same named `limit` and `timeoutMs` as `open`. The body may come alone,
+--- Takes the same named `limit` and `timeoutMs` as `scope`. The body may come alone,
 --- `run(body)`, or named after them, `run(limit = 8, body = body)`.
 ---
 --- ```nupp:fragment
---- const total = nupp.tasks.run(limit = 8, body = function(borrows scope: nupp.tasks.Scope): integer
+--- const total = coroutine.run(limit = 8, body = function(borrows scope: nupp.tasks.Scope): integer
 ---     const left = scope:spawn(function(): integer return countLeft() end)
 ---     const right = scope:spawn(function(): integer return countRight() end)
 ---
@@ -1851,7 +1853,7 @@ tasks.run = run
 
 --- Opens the scope one whole-family call runs its bodies in.
 ---
---- What `open` does, without the affine handle: the family is complete at the call,
+--- What `scope` does, without the affine handle: the family is complete at the call,
 --- so there is no block to hold a scope and nothing for a caller to discharge. It is
 --- soft, which is the whole difference from an application scope -- a branch failure
 --- stays on the branch that had it, and the call decides what the family does about
@@ -1926,7 +1928,7 @@ end
 --- failure should end the rest.
 ---
 --- ```nupp:fragment
---- const values, errors = nupp.tasks.gather({
+--- const values, errors = coroutine.gather({
 ---     function(): string return fetch(primary) end,
 ---     function(): string return fetch(mirror) end,
 --- })
@@ -1983,7 +1985,7 @@ tasks.gather = gather
 --- raises saying how many.
 ---
 --- ```nupp:fragment
---- const answer, which = nupp.tasks.race({
+--- const answer, which = coroutine.race({
 ---     function(): string return fetch(primary) end,
 ---     function(): string return fetch(mirror) end,
 --- })

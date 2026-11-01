@@ -1504,7 +1504,7 @@ The operand's result count must be fixed and must not be a pack union, and its
 first result must admit both a falsy and a successful value. The checker refuses
 any other operand. A direct `pcall` or `xpcall` is refused by that rule: they lead
 with a discriminator rather than a result. [](nupp.util.try) and
-[](nupp.util.tryWith) answer the conventional layout instead. No slot after the
+[](nupp.util.trywith) answer the conventional layout instead. No slot after the
 first may be ownership-bearing, since the successful path discards every one of
 them.
 
@@ -2152,7 +2152,7 @@ conversion; a table-backed record write may not.
 local m = {}
 
 function m.step(flags: uint32, distance: number, inverseTime: number): (uint32, float)
-    local rotated = math.u32.rotateLeft(flags, 7) ~ ((flags >> 3) & 0xff)
+    local rotated = math.u32.rotateleft(flags, 7) ~ ((flags >> 3) & 0xff)
     local d = math.f32.narrow(distance)
     local dt = math.f32.narrow(inverseTime)
     local speed = math.f32.mul(d, dt)
@@ -2270,8 +2270,8 @@ checked.
 See the `nupp.mem.span` module reference for the complete span contracts.
 ]=],
         example = [=[
-local span = require("nupp.mem.span")
-local indexed = require("nupp.mem.indexed")
+local span = require("binary.span")
+local indexed = require("binary.span")
 local m = {}
 
 local struct Value
@@ -2280,7 +2280,7 @@ end
 
 function m.total(): number
     const storage = carray(Value, 4)
-    const values = span.fromCarray(storage, 4)
+    const values = span.fromcarray(storage, 4)
     const rows = indexed.range(1, #values, values)
     local total = 0
     for index = rows.first, rows.last do
@@ -2698,20 +2698,20 @@ cancellation, and the protocol a waiting library subscribes through, and
         example = [=[
 local m = {}
 
-local http = require("nupp.io.http")
-local tasks = require("nupp.tasks")
+local http = require("io.http")
+local tasks = require("coroutine")
 local uri = require("io.uri")
 
 function m.statuses(urls: {string}): {integer}
     local function storeStatus(codes: {integer}, index: integer, url: string): nil
-        local client = http.newClient()
-        local response = assert(client:send(new http.Request(url = assert(uri.newURI(url)))))
+        local client = http.newclient()
+        local response = assert(client:send(new http.Request(url = assert(uri.newuri(url)))))
         codes[index] = response.status
         response:close()
     end
 
     local codes: {integer} = {}
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         for index, url in ipairs(urls) do
             scope:spawn(codes, index, url, storeStatus)
         end
@@ -3045,7 +3045,7 @@ local record Position
 end
 
 const PositionCodec: types.reflect.FieldCodec<Position> = comptime do
-    return types.reflect.fieldCodec(types.reflect(Position))
+    return types.reflect.fieldcodec(types.reflect(Position))
 end
 
 function m.encode(position: Position): {[string]: any}

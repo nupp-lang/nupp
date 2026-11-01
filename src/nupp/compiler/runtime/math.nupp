@@ -301,11 +301,7 @@ local function rounddd(hi: number, lo: number): number
     return value
 end
 
---- Signed 32-bit conversions and rotations.
----
---- `mul` is not part of the declared namespace. It is what generated Lua calls
---- for `*` between two established `int32` values, the one wrapping operator
---- whose product does not fit an expression; the rest inline as BitOp.
+--- Signed 32-bit integer arithmetic.
 local i32 = {}
 
 function i32.wrap(a: number): number
@@ -316,26 +312,23 @@ function i32.mul(a: number, c: number): number
     return mul32(ui32(a), ui32(c))
 end
 
-function i32.rotateLeft(a: number, c: number): number
+function i32.rotateleft(a: number, c: number): number
     return rol(a, band(c, 31))
 end
 
-function i32.rotateRight(a: number, c: number): number
+function i32.rotateright(a: number, c: number): number
     return ror(a, band(c, 31))
 end
 
-function i32.fromU32(a: number): number
+function i32.fromu32(a: number): number
     return tobit(a)
 end
 
-function i32.toU32(a: number): number
+function i32.tou32(a: number): number
     return ui32(a)
 end
 
---- Unsigned 32-bit conversions, rotations, bit counts and division.
----
---- `mul` is here for `*` between two established `uint32` values, as `i32.mul`
---- is for `int32`.
+--- Unsigned 32-bit integer arithmetic.
 local u32 = {}
 
 function u32.wrap(a: number): number
@@ -358,19 +351,19 @@ function u32.mod(a: number, c: number): number
     return divisor == 0 and 0 or ui32(a) % divisor
 end
 
-function u32.rotateLeft(a: number, c: number): number
+function u32.rotateleft(a: number, c: number): number
     return ui32(rol(a, band(c, 31)))
 end
 
-function u32.rotateRight(a: number, c: number): number
+function u32.rotateright(a: number, c: number): number
     return ui32(ror(a, band(c, 31)))
 end
 
-function u32.fromI32(a: number): number
+function u32.fromi32(a: number): number
     return ui32(a)
 end
 
-function u32.toI32(a: number): number
+function u32.toi32(a: number): number
     return tobit(a)
 end
 
@@ -385,7 +378,7 @@ function u32.popcount(a: number): number
     return count
 end
 
-function u32.trailingZeros(a: number): number
+function u32.trailingzeros(a: number): number
     local remaining = ui32(a)
     if remaining == 0 then
         return 32
@@ -399,7 +392,7 @@ function u32.trailingZeros(a: number): number
     return count
 end
 
-function u32.leadingZeros(a: number): number
+function u32.leadingzeros(a: number): number
     local remaining = ui32(a)
     if remaining == 0 then
         return 32
@@ -417,12 +410,12 @@ end
 --- Unsigned 64-bit bit operations.
 local u64 = {}
 
-function u64.rotateLeft(a: uint64, count: integer): uint64
+function u64.rotateleft(a: uint64, count: integer): uint64
     local amount = band(count, 63)
     return (a << amount) | (a >> band(-amount, 63))
 end
 
-function u64.rotateRight(a: uint64, count: integer): uint64
+function u64.rotateright(a: uint64, count: integer): uint64
     local amount = band(count, 63)
     return (a >> amount) | (a << band(-amount, 63))
 end
@@ -441,7 +434,7 @@ function u64.popcount(a: uint64): number
     return count
 end
 
-function u64.trailingZeros(a: uint64): number
+function u64.trailingzeros(a: uint64): number
     local remaining = a
     if remaining == 0ULL then
         return 64
@@ -455,7 +448,7 @@ function u64.trailingZeros(a: uint64): number
     return count
 end
 
-function u64.leadingZeros(a: uint64): number
+function u64.leadingzeros(a: uint64): number
     if a == 0ULL then
         return 64
     end
@@ -469,7 +462,7 @@ function u64.leadingZeros(a: uint64): number
     return count
 end
 
-function u64.prefixXor(a: uint64): uint64
+function u64.prefixxor(a: uint64): uint64
     local bits = a
     bits = bits ~ (bits << 1ULL)
     bits = bits ~ (bits << 2ULL)
@@ -594,16 +587,16 @@ function f32.exp(value: number): number
     return out
 end
 
-function f32.fromBits(bits: number): number
+function f32.frombits(bits: number): number
     return putbits(ui32(bits))
 end
 
-function f32.toBits(value: number): number
+function f32.tobits(value: number): number
     return bits32(round32(value))
 end
 
 --- Decodes the low sixteen bits as IEEE-754 binary16 and widens exactly.
-function f32.fromF16Bits(value: number): number
+function f32.fromf16bits(value: number): number
     local bits = ui32(value) % 65536
     local sign = bits >= 32768 and 2147483648 or 0
     local magnitude = bits % 32768
@@ -629,7 +622,7 @@ function f32.fromF16Bits(value: number): number
 end
 
 --- Rounds a binary32 to IEEE-754 binary16 bits, ties to even.
-function f32.toF16Bits(value: number): number
+function f32.tof16bits(value: number): number
     local bits = bits32(round32(value))
     local sign = bits >= 2147483648 and 32768 or 0
     local magnitude = bits % 2147483648
@@ -669,7 +662,7 @@ function f32.toF16Bits(value: number): number
 end
 
 --- Decodes the low sixteen bits as IEEE bfloat16 and widens exactly.
-function f32.fromBF16Bits(value: number): number
+function f32.frombf16bits(value: number): number
     local bits = (ui32(value) % 65536) * 65536
     local magnitude = bits % 2147483648
     if magnitude > PINF then
@@ -680,7 +673,7 @@ function f32.fromBF16Bits(value: number): number
 end
 
 --- Rounds a binary32 to IEEE bfloat16 bits, ties to even.
-function f32.toBF16Bits(value: number): number
+function f32.tobf16bits(value: number): number
     local bits = bits32(round32(value))
     local magnitude = bits % 2147483648
     if magnitude > PINF then
@@ -722,26 +715,26 @@ function vec2.cross(ax: number, ay: number, bx: number, by: number): number
     return ax * by - ay * bx
 end
 
-function vec2.lengthSquared(x: number, y: number): number
+function vec2.lengthsquared(x: number, y: number): number
     return x * x + y * y
 end
 
-function vec2.length(x: number, y: number): number
+function vec2.len(x: number, y: number): number
     return math.sqrt(x * x + y * y)
 end
 
-function vec2.distanceSquared(ax: number, ay: number, bx: number, by: number): number
+function vec2.distancesquared(ax: number, ay: number, bx: number, by: number): number
     local x, y = bx - ax, by - ay
 
     return x * x + y * y
 end
 
-function vec2.distance(ax: number, ay: number, bx: number, by: number): number
-    return math.sqrt(vec2.distanceSquared(ax, ay, bx, by))
+function vec2.dist(ax: number, ay: number, bx: number, by: number): number
+    return math.sqrt(vec2.distancesquared(ax, ay, bx, by))
 end
 
 function vec2.normalize(x: number, y: number): number, number
-    local length = vec2.length(x, y)
+    local length = vec2.len(x, y)
     if length == 0 then
         return 0, 0
     end
@@ -760,7 +753,7 @@ function vec2.lerp(ax: number, ay: number, bx: number, by: number, t: number): n
 end
 
 --- Steps from one point toward another by at most a given distance.
-function vec2.moveTowards(ax: number, ay: number, bx: number, by: number, distance: number): number, number
+function vec2.movetowards(ax: number, ay: number, bx: number, by: number, distance: number): number, number
     if distance <= 0 then
         return ax, ay
     end
@@ -813,7 +806,7 @@ function vec2.angle(x: number, y: number): number
 end
 
 --- The unsigned turn between two vectors, zero when either has no direction.
-function vec2.angleBetween(ax: number, ay: number, bx: number, by: number): number
+function vec2.anglebetween(ax: number, ay: number, bx: number, by: number): number
     if (ax == 0 and ay == 0) or (bx == 0 and by == 0) then
         return 0
     end
@@ -822,7 +815,7 @@ function vec2.angleBetween(ax: number, ay: number, bx: number, by: number): numb
 end
 
 --- The signed turn between two vectors, in [-pi, pi).
-function vec2.signedAngleBetween(ax: number, ay: number, bx: number, by: number): number
+function vec2.signedanglebetween(ax: number, ay: number, bx: number, by: number): number
     if (ax == 0 and ay == 0) or (bx == 0 and by == 0) then
         return 0
     end
@@ -918,11 +911,11 @@ function quat.dot(
     return ax * bx + ay * by + az * bz + aw * bw
 end
 
-function quat.lengthSquared(x: number, y: number, z: number, w: number): number
+function quat.lengthsquared(x: number, y: number, z: number, w: number): number
     return x * x + y * y + z * z + w * w
 end
 
-function quat.length(x: number, y: number, z: number, w: number): number
+function quat.len(x: number, y: number, z: number, w: number): number
     return math.sqrt(x * x + y * y + z * z + w * w)
 end
 
@@ -963,7 +956,7 @@ end
 ---
 --- The order matches column-major matrix multiplication, so the matrix of
 --- `multiply(a, b)` is the matrix of `a` times the matrix of `b`.
-function quat.multiply(
+function quat.mul(
     ax: number,
     ay: number,
     az: number,
@@ -1006,7 +999,7 @@ end
 ---
 --- The axis is normalized here, so it need not arrive as a unit vector; a zero
 --- axis returns the identity rather than a division by zero.
-function quat.fromAxisAngle(x: number, y: number, z: number, radians: number): number, number, number, number
+function quat.fromaxisangle(x: number, y: number, z: number, radians: number): number, number, number, number
     local length = math.sqrt(x * x + y * y + z * z)
     if length == 0 then
         return 0, 0, 0, 1
@@ -1023,7 +1016,7 @@ end
 --- `-q` are the same rotation reached the two opposite ways around and which one was
 --- passed is the caller's to keep. The positive and negative identities answer the x
 --- axis with zero and `2pi` respectively, so the result always names a real axis.
-function quat.toAxisAngle(x: number, y: number, z: number, w: number): number, number, number, number
+function quat.toaxisangle(x: number, y: number, z: number, w: number): number, number, number, number
     local length = math.sqrt(x * x + y * y + z * z)
     if length == 0 then
         return 1, 0, 0, w < 0 and 2 * pi or 0
@@ -1038,7 +1031,7 @@ end
 --- Neither direction has to be a unit vector. Opposed directions have no
 --- shortest rotation -- every half turn about an axis across them does it -- so
 --- one such axis is chosen, and a zero direction returns the identity.
-function quat.fromTo(
+function quat.fromto(
     ax: number,
     ay: number,
     az: number,
@@ -1194,7 +1187,7 @@ end
 --- Sixteen numbers go to `out` starting at `offset`, which is the index of the first
 --- of them rather than a count before it. The layout is the one a GPU expects, so a
 --- destination that is uploaded is written in place rather than repacked.
-function quat.toMatrix(x: number, y: number, z: number, w: number, out: {number}, offset: integer): nil
+function quat.tomatrix(x: number, y: number, z: number, w: number, out: {number}, offset: integer): nil
     local m00, m10, m20, m01, m11, m21, m02, m12, m22 = quat.basis(x, y, z, w)
     out[offset], out[offset + 1], out[offset + 2], out[offset + 3] = m00, m10, m20, 0
     out[offset + 4], out[offset + 5], out[offset + 6], out[offset + 7] = m01, m11, m21, 0
@@ -1226,20 +1219,6 @@ local function deltaAngle(from: number, to: number): number
     return wrapAngle(to - from)
 end
 
--- The accepting compiler keeps both source generations executable until its
--- lowercase declarations can be used by the compiler's own sources.
-local function acceptLowercaseFunctions(namespace: any): nil
-    local accepted: {[string]: any} = {}
-    for name, value in pairs(namespace) do
-        if type(name) == "string" and type(value) == "function" and name ~= name:lower() then
-            accepted[name:lower()] = value
-        end
-    end
-    for name, value in pairs(accepted) do
-        namespace[name] = value
-    end
-end
-
 --- Fills a program's `math` namespace in.
 ---
 --- The bootstrap reserves the table before this module is required, because generated
@@ -1247,20 +1226,13 @@ end
 --- into whatever table it was given rather than a table being handed back.
 --- @export
 export function install(namespace: any): nil
-    vec2.len = vec2.length
-    vec2.dist = vec2.distance
-    quat.len = quat.length
-    quat.mul = quat.multiply
     namespace.lerp = lerp
-    namespace.wrapAngle = wrapAngle
-    namespace.deltaAngle = deltaAngle
+    namespace.wrapangle = wrapAngle
+    namespace.dtangle = deltaAngle
     namespace.i32 = i32
     namespace.u32 = u32
     namespace.u64 = u64
     namespace.f32 = f32
     namespace.vec2 = vec2
     namespace.quat = quat
-    for _, functions in ipairs({namespace, i32, u32, u64, f32, vec2, quat}) do
-        acceptLowercaseFunctions(functions)
-    end
 end

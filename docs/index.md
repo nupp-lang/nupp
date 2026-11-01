@@ -75,8 +75,8 @@ Structured task scopes and worker pools compose concurrent work at different
 isolation boundaries.
 
 ```nupp
-local tasks = nupp.tasks
-local time = nupp.time
+local tasks = coroutine
+local time = coroutine
 
 local function waitFor(results: {number}, index: integer, milliseconds: number): nil
     time.sleep(milliseconds)
@@ -84,7 +84,7 @@ local function waitFor(results: {number}, index: integer, milliseconds: number):
 end
 
 local results: {number} = {}
-with scope = tasks.open() do
+with scope = tasks.scope() do
     scope:spawn(results, 1, 20, waitFor)
     scope:spawn(results, 2, 10, waitFor)
 end
@@ -124,7 +124,7 @@ stated. `target = "gpu"` checks a function as a typed resident-buffer kernel;
 the VM has no GPU provider yet, so no device runs one.
 
 ```nupp
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function double(exclusive values: span.WriteSpan<float>): nil

@@ -31,8 +31,8 @@ function M.ordinaryWithInstallsAndRestores()
     local before, inside, after = run(
         table.concat(
             {
-                'local s = require("nupp.suspension")',
-                'local host = require("nupp.suspension.host")',
+                'local s = require("coroutine.suspension")',
+                'local host = require("coroutine.suspension.host")',
                 HANDLER,
                 "local before = s.handled()",
                 "local inside = false",
@@ -48,7 +48,7 @@ function M.ordinaryWithInstallsAndRestores()
 end
 
 function M.ordinaryCallChecksTheHandler()
-    local diagnostics = diagnose('with installation = require("nupp.suspension.host").install(42) do\nend')
+    local diagnostics = diagnose('with installation = require("coroutine.suspension.host").install(42) do\nend')
     local found = false
     for _, diagnostic in ipairs(diagnostics) do
         if diagnostic.code == "NUPP2006" and diagnostic.msg:find("Handler", 1, true) then
@@ -61,7 +61,12 @@ end
 function M.gotoCannotEnterInstallationScope()
     local diagnostics = diagnose(
         HANDLER .. table.concat(
-            {"goto inside", 'with installation = require("nupp.suspension.host").install(h) do', "    ::inside::", "end",},
+            {
+                "goto inside",
+                'with installation = require("coroutine.suspension.host").install(h) do',
+                "    ::inside::",
+                "end",
+            },
             "\n"
         )
     )
@@ -82,7 +87,7 @@ function M.returnDischargesInstallation()
                 "local h = {park = function() end, canPark = function() return true end,",
                 "    shutdown = function() released = released + 1 end}",
                 "local function run(): (integer, number)",
-                '    with installation = require("nupp.suspension.host").install(h) do',
+                '    with installation = require("coroutine.suspension.host").install(h) do',
                 "        return 1, released",
                 "    end",
                 "end",
@@ -103,7 +108,7 @@ function M.gotoOutDischargesInstallation()
                 "local h = {park = function() end, canPark = function() return true end,",
                 "    shutdown = function() released = released + 1 end}",
                 "local answer = 0",
-                'with installation = require("nupp.suspension.host").install(h) do',
+                'with installation = require("coroutine.suspension.host").install(h) do',
                 "    answer = 1",
                 "    goto done",
                 "end",
@@ -125,7 +130,7 @@ function M.breakDischargesInstallation()
                 "local h = {park = function() end, canPark = function() return true end,",
                 "    shutdown = function() released = released + 1 end}",
                 "while true do",
-                '    with installation = require("nupp.suspension.host").install(h) do',
+                '    with installation = require("coroutine.suspension.host").install(h) do',
                 "        break",
                 "    end",
                 "end",
@@ -145,7 +150,7 @@ function M.errorDischargesInstallation()
                 "local h = {park = function() end, canPark = function() return true end,",
                 "    shutdown = function() released = released + 1 end}",
                 "local function run(): nil",
-                '    with installation = require("nupp.suspension.host").install(h) do',
+                '    with installation = require("coroutine.suspension.host").install(h) do',
                 '        error("stop")',
                 "    end",
                 "end",
@@ -159,7 +164,9 @@ function M.errorDischargesInstallation()
 end
 
 function M.installationCarriesTheSuspensionRuntimeEffect()
-    local diagnostics, result = diagnose(HANDLER .. 'with installation = require("nupp.suspension.host").install(h) do\nend')
+    local diagnostics, result = diagnose(
+        HANDLER .. 'with installation = require("coroutine.suspension.host").install(h) do\nend'
+    )
     assert(#diagnostics == 0, diagnostics[1] and diagnostics[1].msg)
     assert(result.effects["runtime.suspension"], "the installation lost its runtime effect")
 end
@@ -168,11 +175,11 @@ function M.installationKeepsTheAotBoundary()
     local diagnostics = diagnose(
         table.concat(
             {
-                'local suspension = require("nupp.suspension")',
+                'local suspension = require("coroutine.suspension")',
                 HANDLER,
                 "@aot",
                 "local function run(): integer",
-                "    with installation = nupp.suspension.host.install(h) do",
+                "    with installation = coroutine.suspension.host.install(h) do",
                 "        return 1",
                 "    end",
                 "end",
@@ -193,8 +200,8 @@ function M.nestedInstallationsRestoreTheOuterHandler()
     local outer, inner, restored, cleared = run(
         table.concat(
             {
-                'local s = require("nupp.suspension")',
-                'local host = require("nupp.suspension.host")',
+                'local s = require("coroutine.suspension")',
+                'local host = require("coroutine.suspension.host")',
                 HANDLER,
                 "local outer: boolean?, inner: boolean?, restored: boolean?",
                 "with first = host.install(h) do",

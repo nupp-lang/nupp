@@ -72,7 +72,7 @@ end
 ---     nupp clean
 ---     nupp clean --target app
 @cli("clean")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Clean
     --- Clean only the named build target.
     @cli(value = "NAME")

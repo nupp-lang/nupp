@@ -224,12 +224,12 @@ unnecessary `else`. See
 [unions.md](types/unions.md#exhaustiveness) for the union shapes that
 are enumerable.
 
-A union declared with `types.nonExhaustive()` among its alternatives
+A union declared with `types.nonexhaustive()` among its alternatives
 requires `else` however many cases are written, because the member that call
 adds is one no case can name:
 
 ```nupp:fragment
-local type Status = "ok" | "error" | types.nonExhaustive()
+local type Status = "ok" | "error" | types.nonexhaustive()
 
 local label = switch status do
     case "ok" -> "fine"

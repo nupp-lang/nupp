@@ -7,7 +7,7 @@ const self = "caller receiver"
 --- Credentials used to authenticate.
 ---
 --- Kept as a typed record.
-@derive(inspect.derive, types.Debug)
+@derive(inspect.derive, types.debug)
 local record Credentials
     --- The public account name.
     username: string

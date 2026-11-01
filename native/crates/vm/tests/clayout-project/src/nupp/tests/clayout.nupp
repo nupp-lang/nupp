@@ -9,7 +9,7 @@ parameters.
 const assert2 = require("assert")
 
 local array = require("nupp.mem.array")
-const tasks = require("nupp.tasks")
+const tasks = require("coroutine")
 local foreign = require("nupp.foreign")
 
 cdef struct clayout_flags
@@ -323,7 +323,7 @@ local function counted(): nil
         tostring(problem)
     )
 
-    const items = array.newArray(new clayout_inner(), 3)
+    const items = array.newarray(new clayout_inner(), 3)
     with w = items:write() do
         for i = 1, 3 do
             w[i].a = i
@@ -429,13 +429,13 @@ local function sent(): nil
     -- A struct whose pointer field is set holds a process address, which
     -- another VM cannot keep.
     const ok, problem = pcall(function(): any
-        with scope = tasks.open() do
+        with scope = tasks.scope() do
             return scope:fork(first, test.nodeValue):await()
         end
     end)
     assert2(not ok and tostring(problem):find("holds process addresses", 1, true) ~= nil, tostring(problem))
     first.next = nil
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         equal(scope:fork(first, test.nodeValue):await(), 1, "a cleared one is copied")
     end
 end

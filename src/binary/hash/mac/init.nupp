@@ -8,9 +8,9 @@ Same shape as [](binary.hash.digest), plus a key.
 ```nupp:fragment
 const mac = binary.hash.mac
 
-print(mac.hexDigest("hmac-sha256", key, "hello"))
+print(mac.hexdigest("hmac-sha256", key, "hello"))
 
-local running = mac.newMac("hmac-sha256", key)
+local running = mac.newmac("hmac-sha256", key)
 
 running:write("hel")
 running:write("lo")
@@ -18,7 +18,7 @@ running:write("lo")
 print(running:hexDigest())
 ```
 
-The key is raw bytes. A context is an [`io.Writer`](nupp.io.Writer), as a
+The key is raw bytes. A context is an [`io.Writer`](io.Writer), as a
 digest is. Finalizing consumes the context; create another context to
 authenticate another message.
 
@@ -132,7 +132,7 @@ end
 --- @param key the raw-byte secret key
 --- @return an unfinished keyed context
 --- @raises string when lookup or provider initialization fails
-export function newMac(name: string, key: string): Mac
+export function newmac(name: string, key: string): Mac
     return algorithm(name):newMac(key)
 end
 
@@ -154,7 +154,7 @@ end
 --- @return the raw fixed-size authentication code
 --- @raises string when lookup or a provider operation fails
 export function digest(name: string, key: string, bytes: string): string
-    local mac = newMac(name, key)
+    local mac = newmac(name, key)
     mac:write(bytes)
     return mac:digest()
 end
@@ -165,8 +165,8 @@ end
 --- @param bytes the message bytes
 --- @return the lowercase hexadecimal authentication code
 --- @raises string when lookup or a provider operation fails
-export function hexDigest(name: string, key: string, bytes: string): string
-    local mac = newMac(name, key)
+export function hexdigest(name: string, key: string, bytes: string): string
+    local mac = newmac(name, key)
     mac:write(bytes)
     return mac:hexDigest()
 end

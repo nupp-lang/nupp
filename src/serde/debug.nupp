@@ -540,7 +540,7 @@ end
 ---     x: float
 ---     y: float
 --- end
---- local output = nupp.text.newBuffer()
+--- local output = nupp.text.newbuffer()
 --- debug.write(serde.binding(Vec2), new Vec2(1.25, 2.5), output)
 --- assert(output:tostring() == "Vec2 { x = 1.25, y = 2.5 }")
 --- ```

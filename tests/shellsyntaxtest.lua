@@ -3,32 +3,32 @@ local syntax = require("nupp.compiler.shellsyntax")
 local M = {}
 
 function M.shellWordsPreserveQuotingAndEmptyArguments()
-    test.deepEqual(syntax.shellWords([[-I"include dir" '-DNAME=two words' plain\ flag "" ab"cd"'ef']]), {
+    test.deepeq(syntax.shellWords([[-I"include dir" '-DNAME=two words' plain\ flag "" ab"cd"'ef']]), {
         "-Iinclude dir",
         "-DNAME=two words",
         "plain flag",
         "",
         "abcdef"
     })
-    test.deepEqual(syntax.shellWords(" \t\r\n\v\f"), {})
-    test.deepEqual(syntax.shellWords("'a\\b' \"a\\b\" a\\\nb"), {"a\\b", "ab", "a\nb"})
+    test.deepeq(syntax.shellWords(" \t\r\n\v\f"), {})
+    test.deepeq(syntax.shellWords("'a\\b' \"a\\b\" a\\\nb"), {"a\\b", "ab", "a\nb"})
     for _, source in ipairs({'"unclosed', "'unclosed", "trailing\\", '"trailing\\'}) do
-        test.equal(syntax.shellWords(source), nil, source)
+        test.eq(syntax.shellWords(source), nil, source)
     end
 end
 
 function M.depfilesPreserveEscapedPathsAndContinuations()
-    test.deepEqual(syntax.depfile("nupp_header: one.h two\\ three.h \\\n four\\#five.h one.h # ignored\n"), {
+    test.deepeq(syntax.depfile("nupp_header: one.h two\\ three.h \\\n four\\#five.h one.h # ignored\n"), {
         "one.h",
         "two three.h",
         "four#five.h",
         "one.h"
     })
-    test.deepEqual(syntax.depfile("escaped\\:target: \\\r\n first.h\\\n second.h"), {"first.h", "second.h"})
-    test.deepEqual(syntax.depfile(":"), {})
-    test.equal(syntax.depfile("not a depfile"), nil)
-    test.equal(syntax.depfile("target: trailing\\"), nil)
-    test.equal(syntax.depfile("target: # comment\nextra"), nil)
+    test.deepeq(syntax.depfile("escaped\\:target: \\\r\n first.h\\\n second.h"), {"first.h", "second.h"})
+    test.deepeq(syntax.depfile(":"), {})
+    test.eq(syntax.depfile("not a depfile"), nil)
+    test.eq(syntax.depfile("target: trailing\\"), nil)
+    test.eq(syntax.depfile("target: # comment\nextra"), nil)
 end
 
 function M.globsRespectPathSegments()

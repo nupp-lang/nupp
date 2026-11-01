@@ -109,7 +109,7 @@ end
 -- a word-at-a-time read reassembled by hand.
 local function assertSame(set, want, label)
     local positions = want:positions()
-    check.equal(set:count(), #positions, label .. ": count")
+    check.eq(set:count(), #positions, label .. ": count")
 
     local walked = {}
     local index = set:nextSetBit(0)
@@ -117,9 +117,9 @@ local function assertSame(set, want, label)
         walked[#walked + 1] = index
         index = set:nextSetBit(index + 1)
     end
-    check.equal(#walked, #positions, label .. ": walk length")
+    check.eq(#walked, #positions, label .. ": walk length")
     for at = 1, #positions do
-        check.equal(walked[at], positions[at], label .. ": walk position " .. at)
+        check.eq(walked[at], positions[at], label .. ": walk position " .. at)
     end
 
     for _, position in ipairs(positions) do
@@ -140,15 +140,15 @@ local function assertSame(set, want, label)
             end
         end
     end
-    check.equal(fromWords, #positions, label .. ": words hold exactly the set bits")
+    check.eq(fromWords, #positions, label .. ": words hold exactly the set bits")
 end
 
 function M.emptySet()
     local set = bitset.Bitset.__nuppCtor1()
-    check.equal(set:count(), 0, "empty count")
+    check.eq(set:count(), 0, "empty count")
     check(set:isEmpty(), "empty isEmpty")
-    check.equal(set:wordCount(), 0, "empty wordCount")
-    check.equal(set:nextSetBit(0), -1, "empty walk")
+    check.eq(set:wordCount(), 0, "empty wordCount")
+    check.eq(set:nextSetBit(0), -1, "empty walk")
     check(not set:get(0), "empty get 0")
     check(not set:get(FAR), "empty get far")
 end
@@ -178,7 +178,7 @@ function M.setIsIdempotent()
     set:set(70)
     set:set(70)
     set:set(70)
-    check.equal(set:count(), 1, "count counts distinct positions, not calls")
+    check.eq(set:count(), 1, "count counts distinct positions, not calls")
 end
 
 function M.growthPreservesContents()
@@ -258,7 +258,7 @@ function M.clearIsDefinedPastTheEnd()
     set:set(5)
     set:clear(1000)
     set:clear(-1)
-    check.equal(set:count(), 1, "clearing past the end changes nothing")
+    check.eq(set:count(), 1, "clearing past the end changes nothing")
     check(set:get(5), "the real bit survives")
 end
 
@@ -307,7 +307,7 @@ function M.positionsPastTheBoundAreRefused()
         )
         set:set(0)
         set:set(100)
-        check.equal(set:get(bad), false, "get " .. tostring(bad))
+        check.eq(set:get(bad), false, "get " .. tostring(bad))
         set:clear(bad)
         check(set:get(0), "clear " .. tostring(bad) .. " leaves bit 0")
     end
@@ -346,11 +346,11 @@ function M.positionsPastTheBoundAreRefused()
         "bitset",
         "reserve NaN"
     )
-    check.equal(set:wordCount(), before, "storage bound unchanged")
-    check.equal(set:count(), 2, "population unchanged")
-    check.equal(set:nextSetBit(TWO32), -1, "a walk from past the bound finds nothing")
-    check.equal(set:nextSetBit(nan), -1, "a walk from NaN finds nothing")
-    check.equal(set:wordAt(nan), 0, "wordAt NaN reads zero")
+    check.eq(set:wordCount(), before, "storage bound unchanged")
+    check.eq(set:count(), 2, "population unchanged")
+    check.eq(set:nextSetBit(TWO32), -1, "a walk from past the bound finds nothing")
+    check.eq(set:nextSetBit(nan), -1, "a walk from NaN finds nothing")
+    check.eq(set:wordAt(nan), 0, "wordAt NaN reads zero")
 end
 
 function M.numericValidationKeepsIntegralFloatsAndIgnoresInvalidReads()
@@ -358,28 +358,28 @@ function M.numericValidationKeepsIntegralFloatsAndIgnoresInvalidReads()
     set:set(31.0)
     set:setRange(64.0, 65.0)
     check.assert(set:get(31.0))
-    check.equal(set:wordAt(2.0), 3)
+    check.eq(set:wordAt(2.0), 3)
     set:clear(31.0)
-    check.equal(set:get(31), false)
+    check.eq(set:get(31), false)
     local nan = 0.0 / 0.0
     for _, invalid in ipairs({nan, 1.5, math.huge}) do
-        check.equal(set:get(invalid), false)
+        check.eq(set:get(invalid), false)
         set:clear(invalid)
-        check.equal(set:wordAt(invalid), 0)
-        check.equal(set:nextSetBit(invalid), -1)
+        check.eq(set:wordAt(invalid), 0)
+        check.eq(set:nextSetBit(invalid), -1)
     end
-    check.equal(set:nextSetBit(64.0), 64)
-    check.equal(set:count(), 2)
+    check.eq(set:nextSetBit(64.0), 64)
+    check.eq(set:count(), 2)
 end
 
 function M.clearAllKeepsCapacity()
     local set = bitset.Bitset.__nuppCtor1(8)
     set:set(4000)
-    check.equal(set:count(), 1, "grew and set")
+    check.eq(set:count(), 1, "grew and set")
     set:clearAll()
-    check.equal(set:count(), 0, "cleared")
-    check.equal(set:wordCount(), 0, "bound reset")
-    check.equal(set:nextSetBit(0), -1, "nothing to walk")
+    check.eq(set:count(), 0, "cleared")
+    check.eq(set:wordCount(), 0, "bound reset")
+    check.eq(set:nextSetBit(0), -1, "nothing to walk")
 
     -- Reusing it must not need another growth to reach the same position.
     set:set(4000)
@@ -466,13 +466,13 @@ function M.copyFromIsIndependent()
     -- Writing through one must not reach the other.
     target:set(1)
     check(not source:get(1), "copy does not share storage")
-    check.equal(source:count(), want:count(), "source untouched")
+    check.eq(source:count(), want:count(), "source untouched")
 
     local fromEmpty = bitset.Bitset.__nuppCtor1(64)
     fromEmpty:setRange(0, 100)
     fromEmpty:copyFrom(bitset.Bitset.__nuppCtor1())
-    check.equal(fromEmpty:count(), 0, "copying an empty set empties the target")
-    check.equal(fromEmpty:nextSetBit(0), -1, "and leaves nothing to walk")
+    check.eq(fromEmpty:count(), 0, "copying an empty set empties the target")
+    check.eq(fromEmpty:nextSetBit(0), -1, "and leaves nothing to walk")
 end
 
 function M.setAlgebraMatchesTheOracle()
@@ -572,10 +572,10 @@ function M.randomOperationSequence()
         elseif choice < 90 then
             -- Reading the count resolves a stale population; the sequence must be
             -- the same whether or not anyone looked.
-            check.equal(set:count(), want:count(), "count at step " .. step)
+            check.eq(set:count(), want:count(), "count at step " .. step)
         else
             local position = next(300)
-            check.equal(set:get(position), want:get(position), "get at step " .. step .. " position " .. position)
+            check.eq(set:get(position), want:get(position), "get at step " .. step .. " position " .. position)
         end
 
         if step % 200 == 0 then
@@ -603,30 +603,30 @@ function M.walkIsStatelessAndNestable()
         end
         outer = set:nextSetBit(outer + 1)
     end
-    check.equal(pairsSeen, 16, "4 by 4 interleaved walk")
+    check.eq(pairsSeen, 16, "4 by 4 interleaved walk")
 
     -- A walk resumed after a mutation still terminates and reports live bits.
     local index = set:nextSetBit(0)
     set:clear(40)
     index = set:nextSetBit(index + 1)
-    check.equal(index, 41, "cleared bit is skipped")
+    check.eq(index, 41, "cleared bit is skipped")
 
-    check.equal(set:nextSetBit(-5), 3, "a negative start reads as zero")
-    check.equal(set:nextSetBit(301), -1, "past the last bit")
-    check.equal(set:nextSetBit(FAR), -1, "far past the end")
+    check.eq(set:nextSetBit(-5), 3, "a negative start reads as zero")
+    check.eq(set:nextSetBit(301), -1, "past the last bit")
+    check.eq(set:nextSetBit(FAR), -1, "far past the end")
 end
 
 function M.wordAtIsBoundedAndSigned()
     local set = bitset.Bitset.__nuppCtor1(64)
-    check.equal(set:wordAt(0), 0, "unset word reads zero")
-    check.equal(set:wordAt(-1), 0, "negative word index reads zero")
-    check.equal(set:wordAt(FAR), 0, "word index past the end reads zero")
+    check.eq(set:wordAt(0), 0, "unset word reads zero")
+    check.eq(set:wordAt(-1), 0, "negative word index reads zero")
+    check.eq(set:wordAt(FAR), 0, "word index past the end reads zero")
 
     set:set(bitset.WORD_BITS - 1)
     check(set:wordAt(0) < 0, "the top bit of a word reads negative")
 
     set:set(bitset.WORD_BITS)
-    check.equal(set:wordAt(1), 1, "the next word holds the next position")
+    check.eq(set:wordAt(1), 1, "the next word holds the next position")
 end
 
 function M.wordCountBoundsEverySetBit()
@@ -662,10 +662,10 @@ function M.positionsIntoMatchesTheWalk()
         local expected = want:positions()
         local target = storage.allocateArray(storage.scalar("int32"), math.max(1, #expected))
         local written, resume = set:positionsInto(target, #expected, 0)
-        check.equal(written, #expected, "written at width " .. bits)
-        check.equal(resume, -1, "exhausted at width " .. bits)
+        check.eq(written, #expected, "written at width " .. bits)
+        check.eq(resume, -1, "exhausted at width " .. bits)
         for at = 1, #expected do
-            check.equal(target[at - 1], expected[at], ("position %d at width %d"):format(at, bits))
+            check.eq(target[at - 1], expected[at], ("position %d at width %d"):format(at, bits))
         end
     end
 end
@@ -693,9 +693,9 @@ function M.positionsIntoResumesWhenTargetFills()
         from = resume
     end
 
-    check.equal(#collected, #expected, "chunked total")
+    check.eq(#collected, #expected, "chunked total")
     for at = 1, #expected do
-        check.equal(collected[at], expected[at], "chunked position " .. at)
+        check.eq(collected[at], expected[at], "chunked position " .. at)
     end
 end
 
@@ -705,33 +705,33 @@ function M.positionsIntoEdges()
 
     local empty = bitset.Bitset.__nuppCtor1(64)
     local written, resume = empty:positionsInto(target, 4, 0)
-    check.equal(written, 0, "nothing written for an empty set")
-    check.equal(resume, -1, "and it is exhausted")
+    check.eq(written, 0, "nothing written for an empty set")
+    check.eq(resume, -1, "and it is exhausted")
 
     local set = bitset.Bitset.__nuppCtor1(64)
     set:set(5)
     set:set(100)
 
     written, resume = set:positionsInto(target, 0, 0)
-    check.equal(written, 0, "a zero capacity writes nothing")
-    check.equal(resume, 0, "and resumes where it started")
+    check.eq(written, 0, "a zero capacity writes nothing")
+    check.eq(resume, 0, "and resumes where it started")
 
     written, resume = set:positionsInto(target, 4, 6)
-    check.equal(written, 1, "a start past the first position skips it")
-    check.equal(target[0], 100, "and finds the next")
-    check.equal(resume, -1, "then is exhausted")
+    check.eq(written, 1, "a start past the first position skips it")
+    check.eq(target[0], 100, "and finds the next")
+    check.eq(resume, -1, "then is exhausted")
 
     written, resume = set:positionsInto(target, 4, 101)
-    check.equal(written, 0, "a start past every position writes nothing")
-    check.equal(resume, -1, "and is exhausted")
+    check.eq(written, 0, "a start past every position writes nothing")
+    check.eq(resume, -1, "and is exhausted")
 
     written, resume = set:positionsInto(target, 4, -5)
-    check.equal(written, 2, "a negative start reads as zero")
-    check.equal(target[0], 5, "first position")
+    check.eq(written, 2, "a negative start reads as zero")
+    check.eq(target[0], 5, "first position")
 
     written, resume = set:positionsInto(target, 4, FAR)
-    check.equal(written, 0, "a start far past the end writes nothing")
-    check.equal(resume, -1, "and is exhausted")
+    check.eq(written, 0, "a start far past the end writes nothing")
+    check.eq(resume, -1, "and is exhausted")
 
     check.raises(
         function()
@@ -763,10 +763,10 @@ function M.positionsIntoAfterSetAlgebra()
 
     local target = storage.allocateArray(storage.scalar("int32"), math.max(1, #expected))
     local written, resume = set:positionsInto(target, #expected, 0)
-    check.equal(written, #expected, "written after intersection")
-    check.equal(resume, -1, "exhausted after intersection")
+    check.eq(written, #expected, "written after intersection")
+    check.eq(resume, -1, "exhausted after intersection")
     for at = 1, #expected do
-        check.equal(target[at - 1], expected[at], "position " .. at)
+        check.eq(target[at - 1], expected[at], "position " .. at)
     end
 end
 

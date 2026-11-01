@@ -13,7 +13,7 @@ values themselves against the channel's value model -- `nil`, booleans, finite
 numbers, UTF-8 strings and byte spans -- because only the provider knows what it
 is about to encode, and it reports a refusal with the argument's position.
 
-`call` suspends through [](nupp.suspension) until the host answers. Should the
+`call` suspends through [](coroutine.suspension) until the host answers. Should the
 waiting task be cancelled after the request reached the host, a later answer is
 handed to `late` rather than dropped, so a result naming a host resource is
 always released by someone. `post` never suspends and discards the answer.

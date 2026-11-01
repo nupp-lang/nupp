@@ -17,7 +17,7 @@ local function normalized(source)
         source or "local function identity(value: boolean): boolean return value end\nreturn identity(true)",
         path
     )
-    test.equal(#parsed.errors, 0)
+    test.eq(#parsed.errors, 0)
     local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
     local diagnostics = checker.check(parsed, path, env, {
         moduleName = name,
@@ -85,7 +85,7 @@ end
 
 local function refuses(action, expected)
     local ok, message = pcall(action)
-    test.equal(ok, false)
+    test.eq(ok, false)
     if expected then
         assert(tostring(message):find(expected, 1, true), tostring(message))
     end
@@ -139,9 +139,9 @@ end
 function M.checkedCatalogRoundtripRetainsFullGraph()
     local bytes = fixture()
     local summary = codec.validateCatalog(bytes)
-    test.equal(summary.owners, 2)
-    test.equal(summary.contracts, 1)
-    test.equal(codec.encode(codec.decode(bytes)), bytes)
+    test.eq(summary.owners, 2)
+    test.eq(summary.contracts, 1)
+    test.eq(codec.encode(codec.decode(bytes)), bytes)
 end
 
 function M.sharedSignaturesRemainValid()
@@ -149,17 +149,17 @@ function M.sharedSignaturesRemainValid()
         "local function first(v: boolean): boolean return v end\n"
         .. "local function second(v: boolean): boolean return v end\nreturn second(first(true))"
     )
-    test.equal(#p.signatures, 2)
-    test.equal(p.catalog[2].signature, p.catalog[3].signature)
-    test.equal(#p.catalog, 3)
+    test.eq(#p.signatures, 2)
+    test.eq(p.catalog[2].signature, p.catalog[3].signature)
+    test.eq(#p.catalog, 3)
     local bytes = codec.encode(p)
-    test.equal(codec.validateCatalog(bytes).signatures, 2)
+    test.eq(codec.validateCatalog(bytes).signatures, 2)
     codec.decode(bytes)
 end
 
 function M.repeatedTargetsKeepDistinctCallsites()
     local bytes = fixture("local function same(v: boolean): boolean return v end\nreturn same(same(true))")
-    test.equal(codec.validateCatalog(bytes).contracts, 2)
+    test.eq(codec.validateCatalog(bytes).contracts, 2)
     codec.decode(bytes)
     local tables, _, offsets = rows(bytes)
     local reused = patch(bytes, field(offsets, "contracts", 2, "callsite"), tables.contracts[1].callsite)
@@ -176,7 +176,7 @@ function M.repeatedTargetsKeepDistinctCallsites()
             invokes[#invokes + 1] = index
         end
     end
-    test.equal(#invokes, 2)
+    test.eq(#invokes, 2)
     reused = patch(bytes, field(offsets, "terms", invokes[2], "contract"), tables.terms[invokes[1]].contract)
     codec.validateShape(reused)
     refuses(
@@ -231,8 +231,8 @@ function M.maximumCallsiteUsesFinalBitmapBit()
     local at = field(offsets, "contracts", 1, "callsite")
     local maximum = schema.describe().limits.items - 1
     local accepted = patch(bytes, at, maximum)
-    test.equal(codec.validateCatalog(accepted).contracts, 1)
-    test.equal(codec.decode(accepted).contracts[1].callsite, maximum)
+    test.eq(codec.validateCatalog(accepted).contracts, 1)
+    test.eq(codec.decode(accepted).contracts[1].callsite, maximum)
     local refused = patch(bytes, at, maximum + 1)
     codec.validateShape(refused)
     refuses(
@@ -376,8 +376,8 @@ function M.absentReturnAndExplicitNilRemainDistinct()
         codec.validateCatalog(bytes)
         local graph = codec.decode(bytes).graphs[1]
         local returned = graph.blocks[#graph.blocks].term
-        test.equal(returned.kind, "return")
-        test.equal(returned.value ~= nil, source == "return nil")
+        test.eq(returned.kind, "return")
+        test.eq(returned.value ~= nil, source == "return nil")
     end
 end
 

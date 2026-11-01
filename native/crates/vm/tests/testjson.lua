@@ -5,17 +5,17 @@ local json = {
     NULL = native.NULL,
     EMPTY_ARRAY = native.EMPTY_ARRAY,
     EMPTY_OBJECT = native.EMPTY_OBJECT,
-    arrayOf = native.arrayOf,
-    asArray = native.asArray,
-    asObject = native.asObject,
-    isArray = native.isArray,
-    encode = native.encodeValue,
-    newWriter = native.newWriter,
+    arrayOf = native.arrayof,
+    asArray = native.asarray,
+    asObject = native.asobject,
+    isArray = native.isarray,
+    encode = native.encodevalue,
+    newWriter = native.newwriter,
 }
 
 -- The facade answers a reason now; the runner's callers want a raise.
 function json.decode(text)
-    local value, reason = native.decodeValue(text, native.NULL)
+    local value, reason = native.decodevalue(text, native.NULL)
     if reason ~= nil then
         error(reason, 2)
     end

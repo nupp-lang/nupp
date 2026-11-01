@@ -5,7 +5,7 @@ Engine-owned immutable byte regions.
 
 A region names an extent of one reference-counted engine block. It crosses
 worker boundaries by reference, slices without copying, and is read in place
-through a borrowed [](nupp.mem.span) byte view; converting it to a Lua string
+through a borrowed [](binary.span) byte view; converting it to a Lua string
 is one explicit call.
 
 ```nupp
@@ -13,11 +13,11 @@ const sharedbytes = nupp.mem.sharedbytes
 
 const region = sharedbytes.copy("hello, region")
 const hello = region:slice(0, 5)
-assert(hello:length() == 5 and hello:toString() == "hello")
+assert(hello:len() == 5 and hello:toString() == "hello")
 ```
 
 A region is storage, so its positions are zero-based offsets and counts, as a
-[](nupp.io.Buffer)'s are: `slice(offset, count)` and `view(offset, count)`
+[](io.Buffer)'s are: `slice(offset, count)` and `view(offset, count)`
 name `count` bytes starting `offset` bytes in.
 
 A producer that has bytes only behind a pointer writes into builder storage
@@ -26,7 +26,7 @@ directly through a reserve-and-commit pair, with no intermediate chunk string:
 ```nupp
 const sharedbytes = nupp.mem.sharedbytes
 
-local builder = sharedbytes.newBuilder()
+local builder = sharedbytes.newbuilder()
 with writer = builder:reserve(5) do
     for index = 1, 5 do
         writer[index] = 64 + index
@@ -97,7 +97,7 @@ record sharedbytes.Region
     @private _length: integer
 
     --- How many bytes the region holds.
-    length: @nosuspend function(sharedbytes.Region): integer
+    len: @nosuspend function(sharedbytes.Region): integer
 
     --- A zero-copy region over `count` bytes starting `offset` bytes into this one.
     slice: function(sharedbytes.Region, integer, integer): sharedbytes.Region
@@ -129,7 +129,7 @@ local function wrap(handle: Block, first: integer, length: integer): sharedbytes
     return region
 end
 
-function sharedbytes.Region:length(): integer
+function sharedbytes.Region:len(): integer
     return self._length
 end
 
@@ -198,7 +198,7 @@ end
 --- @param path the native path of the file to read
 --- @return the region, or nil when the file cannot be opened, sized, or read
 --- @return why it could not be read, when unsuccessful
-function sharedbytes.readFile(path: string): (sharedbytes.Region?, string?)
+function sharedbytes.readfile(path: string): (sharedbytes.Region?, string?)
     local text, problem = files.read(path)
     if text == nil then
         return nil, tostring(problem)
@@ -346,7 +346,7 @@ function sharedbytes.Builder.drop(takes self: sharedbytes.Builder): nil
 end
 
 --- Opens an empty builder.
-function sharedbytes.newBuilder(): affine(sharedbytes.Builder)
+function sharedbytes.newbuilder(): affine(sharedbytes.Builder)
     local growing = new Growing(bytes = storage.allocateBytes(0), capacity = 0, length = 0, reserved = nil)
     return new sharedbytes.Builder(_handle = growing) as affine(sharedbytes.Builder)
 end

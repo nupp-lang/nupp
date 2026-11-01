@@ -4,7 +4,7 @@ module nupp.compiler.bundledlist
 -- in-memory compiler can read embedded declarations without importing host I/O.
 
 local bundled = require("nupp.compiler.bundled")
-local files = require("nupp.io.files")
+local files = require("io.files")
 local resource: any = {source = bundled.source,}
 
 function resource.list(prefix: string): {string}

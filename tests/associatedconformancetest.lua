@@ -43,28 +43,28 @@ local M = {}
 function M.aStructuralValueCannotSatisfyAnAssociatedInterface()
     local holder = contract("Holder")
     local shaped = T.shape({{name = "count", read = T.integer, write = T.integer}}, {}, nil)
-    testAssert.equal(fits(shaped, holder), false, "a shape answered an associated type")
+    testAssert.eq(fits(shaped, holder), false, "a shape answered an associated type")
     -- A record carrying every member but declaring no contract is the same case: it
     -- has the fields and no answering site.
     local lookalike = T.nominal("Lookalike", "record")
     lookalike.byname = {count = T.integer}
-    testAssert.equal(fits(lookalike, holder), false, "a structural record answered one")
+    testAssert.eq(fits(lookalike, holder), false, "a structural record answered one")
     -- and the members alone still satisfy an ordinary interface
     local plain = T.nominal("Plain", "interface")
     plain.byname = {count = T.integer}
-    testAssert.equal(fits(shaped, plain), true, "an ordinary interface stopped being structural")
+    testAssert.eq(fits(shaped, plain), true, "an ordinary interface stopped being structural")
 end
 
 function M.aConcreteRecordWithAFittingAnswerSatisfiesIt()
     local holder = contract("Holder2", NAMED)
     local good = implementing("Good", holder, {type = NAMED})
-    testAssert.equal(fits(good, holder), true)
+    testAssert.eq(fits(good, holder), true)
 end
 
 function M.aMissingOrUnfitAnswerDoesNot()
     local holder = contract("Holder3", NAMED)
-    testAssert.equal(fits(implementing("Silent", holder, nil), holder), false, "missing")
-    testAssert.equal(fits(implementing("Wrong", holder, {type = T.string}), holder), false, "unfit")
+    testAssert.eq(fits(implementing("Silent", holder, nil), holder), false, "missing")
+    testAssert.eq(fits(implementing("Wrong", holder, {type = T.string}), holder), false, "unfit")
 end
 
 function M.conflictingDefaultsDoNotSatisfyIt()
@@ -75,14 +75,14 @@ function M.conflictingDefaultsDoNotSatisfyIt()
     local silent = T.nominal("Taker", "record")
     silent.byname = {count = T.integer}
     silent.supertypes = {a, b}
-    testAssert.equal(fits(silent, a), false, "two contracts defaulting differently")
+    testAssert.eq(fits(silent, a), false, "two contracts defaulting differently")
     -- Writing the answer settles it. A second declaration rather than a mutation,
     -- because `isA` caches by identity pair and would hand back the first verdict.
     local written = T.nominal("TakerWritten", "record")
     written.byname = {count = T.integer}
     written.supertypes = {a, b}
     written.associatedAnswers = {Item = {type = T.string}}
-    testAssert.equal(fits(written, a), true)
+    testAssert.eq(fits(written, a), true)
 end
 
 function M.aCopiedDefaultSatisfiesIt()
@@ -90,9 +90,9 @@ function M.aCopiedDefaultSatisfiesIt()
     local default = {type = T.string, kind = "default"}
     holder.associatedAnswers = {Item = default}
     local taker = implementing("Inheritor", holder, default)
-    testAssert.equal(fits(taker, holder), true, "a default copied down did not answer")
+    testAssert.eq(fits(taker, holder), true, "a default copied down did not answer")
     -- The interface itself still satisfies its own contract, answering nothing.
-    testAssert.equal(fits(holder, holder), true)
+    testAssert.eq(fits(holder, holder), true)
 end
 
 function M.anInterfaceSatisfiesOneByDeclaringIt()
@@ -100,24 +100,24 @@ function M.anInterfaceSatisfiesOneByDeclaringIt()
     local wider = T.nominal("Wider", "interface")
     wider.byname = {count = T.integer}
     wider.supertypes = {holder}
-    testAssert.equal(fits(wider, holder), true, "an interface taking the contract")
+    testAssert.eq(fits(wider, holder), true, "an interface taking the contract")
     -- One that merely has the same members does not: it answers nothing and promises
     -- nothing about its implementors.
     local unrelated = T.nominal("Unrelated", "interface")
     unrelated.byname = {count = T.integer}
-    testAssert.equal(fits(unrelated, holder), false)
+    testAssert.eq(fits(unrelated, holder), false)
 end
 
 function M.gradualStaysGradual()
     local holder = contract("Holder6")
-    testAssert.equal(fits(T.any, holder), true, "any stopped being gradual")
+    testAssert.eq(fits(T.any, holder), true, "any stopped being gradual")
 end
 
 function M.aBoundedBinderSatisfiesItsOwnBound()
     local holder = contract("Holder7")
     local binder = T.typevar("T", "conformance-test:bounded")
     binder.bound = holder
-    testAssert.equal(fits(binder, holder), true, "a binder bounded by the interface does not satisfy it")
+    testAssert.eq(fits(binder, holder), true, "a binder bounded by the interface does not satisfy it")
 end
 
 function M.everyMemberOfAUnionMustSatisfyIt()
@@ -125,8 +125,8 @@ function M.everyMemberOfAUnionMustSatisfyIt()
     local good = implementing("Good2", holder, {type = NAMED})
     local other = implementing("Good3", holder, {type = NAMED})
     local silent = implementing("Silent2", holder, nil)
-    testAssert.equal(fits(T.union({good, other}), holder), true)
-    testAssert.equal(
+    testAssert.eq(fits(T.union({good, other}), holder), true)
+    testAssert.eq(
         fits(
             T.union({
                 good,
@@ -150,10 +150,10 @@ function M.theRelationCacheSurvivesIncrementalPopulation()
     iface.byname = {count = T.integer}
     local rec = T.nominal("LateRecord", "record")
     rec.byname = {}
-    testAssert.equal(fits(rec, iface), false, "it does not carry the member yet")
+    testAssert.eq(fits(rec, iface), false, "it does not carry the member yet")
     rec.byname = {count = T.integer}
     relations.invalidate()
-    testAssert.equal(fits(rec, iface), true, "a record queried before its members were read stayed wrong forever")
+    testAssert.eq(fits(rec, iface), true, "a record queried before its members were read stayed wrong forever")
 
     local holder = T.nominal("LateHolder", "interface")
     holder.byname = {}
@@ -161,10 +161,10 @@ function M.theRelationCacheSurvivesIncrementalPopulation()
     local impl = T.nominal("LateImpl", "record")
     impl.byname = {}
     impl.supertypes = {holder}
-    testAssert.equal(fits(impl, holder), false, "it answers nothing yet")
+    testAssert.eq(fits(impl, holder), false, "it answers nothing yet")
     impl.associatedAnswers = {Item = {type = T.string}}
     relations.invalidate()
-    testAssert.equal(fits(impl, holder), true, "an answer read after the query never took effect")
+    testAssert.eq(fits(impl, holder), true, "an answer read after the query never took effect")
 end
 
 return M

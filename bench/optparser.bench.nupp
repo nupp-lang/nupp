@@ -136,7 +136,7 @@ local function legacy(_: any, _: Invocation): integer
 end
 
 local function cursor(_: any, _: Invocation): integer
-    local stream = cli.optParser(ARGV, CONFIG)
+    local stream = cli.optparser(ARGV, CONFIG)
     local checksum: integer = 0
     while true do
         local kind, problem = stream:next()

@@ -250,8 +250,8 @@ export record Model
     @private @readonly owner: table
 end
 
-export const schemaContext = util.newKey<Model>()
-export const memberContext = util.newKey<string>()
+export const schemaContext = util.newkey<Model>()
+export const memberContext = util.newkey<string>()
 
 export record ModelDocument
     @private @readonly model: Model
@@ -301,11 +301,11 @@ export record ModelDocument
             return value
         end
         local source = state.sourceContext as core.Context
-        local context = contexts.contextBuilder(source.codec, source.profile, source)
+        local context = contexts.contextbuilder(source.codec, source.profile, source)
         context:set(schemaContext, self.model)
         context:set(memberContext, name)
 
-        return documents.withContext(value, context:freeze())
+        return documents.withcontext(value, context:freeze())
     end
 end
 
@@ -653,25 +653,25 @@ local record Policy<M is core.Member> is plans.Policy<M>
 
     function timestamp(self, member: M, borrows value: core.Timestamp): json.EncodedValue
         if self.rename then
-            return json.numberToken(timestamps.formatEpoch(value))
+            return json.numbertoken(timestamps.formatepoch(value))
         end
-        return json.encoded(timestamps.formatDateTime(value))
+        return json.encoded(timestamps.formatdatetime(value))
     end
 
     function parseTimestamp(self, member: M, value: string, kind: "string" | "number"): core.Timestamp
         if self.rename then
             assert2(kind == "number", "expected epoch seconds");
-            return timestamps.parseEpoch(value)
+            return timestamps.parseepoch(value)
         end
         assert2(kind == "string", "expected date-time string")
 
-        return timestamps.parseDateTime(value)
+        return timestamps.parsedatetime(value)
     end
 end
 local record Factory is plans.PolicyFactory
     @readonly rename: boolean
     function policy<M is core.Member>(self, member: M): plans.Policy<M>
-        local documentPolicy = __serdeJson.documentPolicy(member, self.rename)
+        local documentPolicy = __serdeJson.documentpolicy(member, self.rename)
         if documentPolicy ~= nil then
             return documentPolicy
         end

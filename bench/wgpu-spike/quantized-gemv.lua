@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local gpu = require("gpu")
 local generated = require("quantgemv")
 
@@ -34,17 +34,17 @@ end
 local expected8 = ffi.new("float[?]", rows)
 local expected4 = ffi.new("float[?]", rows)
 generated.int8Cpu(
-    span.writeCarray(expected8, rows),
-    span.fromCarray(weights8, rows * width),
-    span.fromCarray(input, width),
+    span.writecarray(expected8, rows),
+    span.fromcarray(weights8, rows * width),
+    span.fromcarray(input, width),
     width,
     scale,
     zeroPoint
 )
 generated.int4Cpu(
-    span.writeCarray(expected4, rows),
-    span.fromCarray(weights4, rows * width / 2),
-    span.fromCarray(input, width),
+    span.writecarray(expected4, rows),
+    span.fromcarray(weights4, rows * width / 2),
+    span.fromcarray(input, width),
     width,
     scale,
     zeroPoint
@@ -58,9 +58,9 @@ local weights8Buffer = context:buffer(require("nupp.mem.array").uint32, rows * w
 local weights4Buffer = context:buffer(require("nupp.mem.array").uint32, rows * width / 8)
 local output8Buffer = context:buffer(require("nupp.mem.array").float32, rows)
 local output4Buffer = context:buffer(require("nupp.mem.array").float32, rows)
-context:upload(inputBuffer, span.fromCarray(input, width))
-context:upload(weights8Buffer, span.fromCarray(words8, rows * width / 4))
-context:upload(weights4Buffer, span.fromCarray(words4, rows * width / 8))
+context:upload(inputBuffer, span.fromcarray(input, width))
+context:upload(weights8Buffer, span.fromcarray(words8, rows * width / 4))
+context:upload(weights4Buffer, span.fromcarray(words4, rows * width / 8))
 local int8 = generated.int8:compile(context):bind(output8Buffer, weights8Buffer, inputBuffer)
 local int4 = generated.int4:compile(context):bind(output4Buffer, weights4Buffer, inputBuffer)
 
@@ -90,8 +90,8 @@ local output4 = ffi.new("float[?]", rows)
 context:enqueueDownload(output8Buffer)
 context:enqueueDownload(output4Buffer)
 context:synchronize()
-context:readDownloaded(output8Buffer, span.writeCarray(output8, rows))
-context:readDownloaded(output4Buffer, span.writeCarray(output4, rows))
+context:readDownloaded(output8Buffer, span.writecarray(output8, rows))
+context:readDownloaded(output4Buffer, span.writecarray(output4, rows))
 for index = 0, rows - 1 do
     assert(
         output8[index] == expected8[index],

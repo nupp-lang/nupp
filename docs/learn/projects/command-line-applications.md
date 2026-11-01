@@ -10,7 +10,7 @@ records. Types control argument conversion, while doc comments supply help text.
 ```nupp
 local cli = require("arg")
 
-@derive(cli.Arguments)
+@derive(cli.arguments)
 local record Options
     --- Print more detail.
     @cli(short = "v")
@@ -31,7 +31,7 @@ assert(options ~= nil, problem and problem.message)
 
 ## Parse option tokens
 
-`optParser` is a mutable token cursor that does not allocate a token object on
+`optparser` is a mutable token cursor that does not allocate a token object on
 each advance. Configure which options take values, then advance it until it
 ends. `next` returns a token kind; the token's data remains on the parser until
 the following `next` call.
@@ -39,7 +39,7 @@ the following `next` call.
 ```nupp
 local cli = require("arg")
 
-local parser = cli.optParser(arg, {
+local parser = cli.optparser(arg, {
     arity = {output = cli.required, verbose = cli.none},
 })
 while true do
@@ -62,13 +62,13 @@ errors. `--` makes every remaining word an argument.
 
 ## Derive typed arguments
 
-`@derive(cli.Arguments)` adds `fromCLI`. Optional choice positionals are skipped
+`@derive(cli.arguments)` adds `fromCLI`. Optional choice positionals are skipped
 until an argument matches, so a required positional can follow them.
 
 ```nupp
 local cli = require("arg")
 
-@derive(cli.Arguments)
+@derive(cli.arguments)
 local record Input
     --- Execution mode.
     @cli(positional = "MODE", choices = {"fast", "thorough"})
@@ -85,7 +85,7 @@ assert(input.mode == nil and input.file == "main.nupp")
 
 ## Add commands
 
-`@derive(cli.Command)` adds typed parsing, metadata, help, and completion. A
+`@derive(cli.command)` adds typed parsing, metadata, help, and completion. A
 parent returns its children from `subcommands`, so the tree reads from the top
 down.
 
@@ -94,7 +94,7 @@ local cli = require("arg")
 
 --- Search files.
 @cli(name = "gmatch")
-@derive(cli.Command)
+@derive(cli.command)
 local record Gmatch
     --- Lua pattern to find.
     @cli(positional = "PATTERN")
@@ -119,11 +119,11 @@ end
 
 --- Project tools.
 @cli(name = "tool", group = true)
-@derive(cli.Command)
+@derive(cli.command)
 local record Tool
 end
 
-function Tool.subcommands(): {cli.CommandType}
+function Tool.subcommands(): {cli.commandType}
     return {Gmatch}
 end
 
@@ -147,7 +147,7 @@ local record Files
         request: cli.CompletionRequest
     ): {cli.CompletionCandidate}
         local out: {cli.CompletionCandidate} = {}
-        local entries = require("nupp.io.files").list(request.cwd) or {}
+        local entries = require("io.files").list(request.cwd) or {}
         for _, entry in ipairs(entries) do
             if entry.name:sub(1, #request.prefix) == request.prefix then
                 out[#out + 1] = new cli.CompletionCandidate(
@@ -160,7 +160,7 @@ local record Files
     end
 end
 
-@derive(cli.Arguments)
+@derive(cli.arguments)
 local record FileOptions
     --- File to open.
     @cli(positional = "FILE", complete = Files)
@@ -174,14 +174,16 @@ hidden `__complete` command, so the answer is always the current grammar's.
 
 ## Use terminal colors
 
-`io.style(stream)` returns styles that become identity functions when color is
-disabled.
+`io.terminal.style(stream)` returns styles that become identity functions when
+color is disabled.
 
 ```nupp:fragment
-local styles = io.style(io.stderr)
+const terminal = require("io.terminal")
+
+local styles = terminal.style(io.stderr)
 io.stderr:write(styles.strong("error:") .. " bad input\n")
 ```
 
 Automatic color respects the output stream, `NO_COLOR`, `CLICOLOR_FORCE`, and
 `TERM=dumb`; override it with
-`io.setColorMode("always" | "never" | "auto")`.
+`io.terminal.setcolormode("always" | "never" | "auto")`.

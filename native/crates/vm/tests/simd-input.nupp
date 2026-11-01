@@ -5,7 +5,7 @@ const assert2 = require("assert")
 const array = require("nupp.mem.array")
 const simd = require("simd")
 const persist = require("nupp.vm.persist")
-const tasks = require("nupp.tasks")
+const tasks = require("coroutine")
 
 local function memory(): nil
     local species = simd.species(array.uint32)
@@ -48,7 +48,7 @@ local function numerics(): nil
     local wide = simd.species(array.uint64, 3)
     local values = wide:iota(9007199254740993ULL, 2ULL)
     assert2(values:extract(3) == 9007199254740997ULL)
-    assert2(simd.horizontal.wrappingSum(values) == 27021597764222985ULL)
+    assert2(simd.horizontal.wrappingsum(values) == 27021597764222985ULL)
     local copy = persist.load(persist.save(values)) as simd.Vector<uint64, simd.Fixed<3>>
     assert2((copy == values):all())
     local floats = simd.species(array.float32, 3)
@@ -60,7 +60,7 @@ local function numerics(): nil
     local bits = simd.species(array.uint32, 3):reinterpret(floats:splat(1.0))
     assert2((bits == 0x3f800000):all())
     local zero = floats:splat(-0.0)
-    assert2(1 / simd.horizontal.propagatingMin(zero) == -math.huge)
+    assert2(1 / simd.horizontal.propagatingmin(zero) == -math.huge)
     local invalid = simd.species(array.float64, 3):splat(math.huge)
     assert2((simd.species(array.int64, 3):convert(invalid) == 0LL):all())
     local upper = simd.species(array.float64, 3):splat(9223372036854775808.0)
@@ -80,9 +80,9 @@ end
 
 local function reducers(): nil
     local species = simd.species(array.float64, 3)
-    local ordered = simd.reducer.orderedSum(0.0)
-    local pairwise = simd.reducer.pairwiseSum(0.0)
-    local compensated = simd.reducer.compensatedSum(0.0)
+    local ordered = simd.reducer.orderedsum(0.0)
+    local pairwise = simd.reducer.pairwisesum(0.0)
+    local compensated = simd.reducer.compensatedsum(0.0)
     ordered:add(1e16)
     ordered:add(1.0)
     ordered:add(-1e16)
@@ -99,16 +99,16 @@ local function reducers(): nil
     assert2(restored:value() == 15.0)
     assert2(pairwise:value() == 7.0)
     local wide = simd.species(array.uint64, 3)
-    local exact = simd.reducer.wrappingSum(array.uint64, 0ULL)
+    local exact = simd.reducer.wrappingsum(array.uint64, 0ULL)
     exact:add(wide:iota(9007199254740993ULL, 2ULL), wide:tail(2))
     assert2(exact:value() == 18014398509481988ULL)
-    local dot = simd.reducer.orderedDot(0.0)
+    local dot = simd.reducer.ordereddot(0.0)
     dot:add(2.0, species:iota(1.0, 1.0))
     dot:add(species:iota(1.0, 1.0), 2.0, species:tail(2))
     assert2(dot:value() == 18.0)
     local wrapped = simd.species(array.uint64, 2)
     assert2((wrapped:splat((-1) as any) == 18446744073709551615ULL):all())
-    local argmin = simd.reducer.numberArgMin()
+    local argmin = simd.reducer.numberargmin()
     argmin:add(species:iota(3.0, -1.0), species:tail(2))
     argmin:add(1.0)
     assert2(argmin:value() == 4)
@@ -163,7 +163,7 @@ end
 export function workers(): number
     local species = simd.species(array.uint64, 3)
     local vector = species:iota(9007199254740993ULL, 1ULL)
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         local job = scope:fork(vector, function(
             value: simd.Vector<uint64, simd.Fixed<3>>
         ): simd.Vector<uint64, simd.Fixed<3>>
@@ -185,7 +185,7 @@ export function checkpointStart(): number
         coroutine.create(function(): number
             local species = simd.species(array.float64, 3)
             local values = species:iota(1.0, 1.0)
-            local result = simd.reducer.pairwiseSum(0.0)
+            local result = simd.reducer.pairwisesum(0.0)
             result:add(values)
             coroutine.yield(20)
             result:add(values * 2)

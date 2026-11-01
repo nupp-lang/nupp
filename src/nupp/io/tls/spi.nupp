@@ -1,3 +1,5 @@
+@!internal
+
 module nupp.io.tls.spi
 
 --[[
@@ -6,7 +8,7 @@ Implementation interface for TLS transports.
 The facade selects during initialization, retains the provider, and supplies its
 explicit receiver. The provider wraps an opaque
 network stream handle, so its transport representation must agree with the
-selected [](nupp.io.net.spi) implementation.
+selected [](io.net.spi) implementation.
 
 Wrapping creates TLS state; handshake and I/O then report pending work to the
 facade, which drives readiness. Verification is a policy input and an observable

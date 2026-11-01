@@ -17,16 +17,16 @@ local function futureModule(name, path, transform)
     file:close()
     local transformed = transform(source)
     local _, diagnostics = envMod.checkModuleSource(env, ROOT .. "/" .. path, transformed, {moduleName = name})
-    test.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
 
     return env, transformed
 end
 
 local function checked(source, env)
     local parsed = parser.parse(source, "short-names.nupp")
-    test.equal(#parsed.errors, 0)
+    test.eq(#parsed.errors, 0)
     local diagnostics = checker.check(parsed, "short-names.nupp", env)
-    test.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
 
     return parsed
 end
@@ -34,16 +34,15 @@ end
 function M.shortMathNamesKeepTheExistingFunctionsAndContracts()
     local namespace = {}
     mathRuntime.install(namespace)
-    test.equal(namespace.vec2.len, namespace.vec2.length)
-    test.equal(namespace.vec2.dist, namespace.vec2.distance)
-    test.equal(namespace.quat.len, namespace.quat.length)
-    test.equal(namespace.quat.mul, namespace.quat.multiply)
-    test.equal(namespace.vec2.len(3, 4), 5)
-    test.equal(namespace.vec2.dist(1, 2, 4, 6), 5)
-    test.equal(namespace.quat.len(0, 0, 0, 1), 1)
+    test.eq(namespace.vec2.length, nil)
+    test.eq(namespace.vec2.distance, nil)
+    test.eq(namespace.quat.length, nil)
+    test.eq(namespace.quat.multiply, nil)
+    test.eq(namespace.vec2.len(3, 4), 5)
+    test.eq(namespace.vec2.dist(1, 2, 4, 6), 5)
+    test.eq(namespace.quat.len(0, 0, 0, 1), 1)
     local a = {namespace.quat.mul(1, 0, 0, 0, 0, 1, 0, 0)}
-    local b = {namespace.quat.multiply(1, 0, 0, 0, 0, 1, 0, 0)}
-    test.deepEqual(a, b)
+    test.deepeq(a, {0, 0, 1, 0})
     checked(
         [[
 local length: number = math.vec2.len(3, 4)
@@ -75,17 +74,17 @@ return rows[1].x
     local parsed = checked(source, env)
     local image = program.image(parsed, "short-names", "short-names.nupp")
     assert(image:find("_allocate", 1, true), "the VM retains the existing private allocation operation")
-    test.equal(program.run(parsed, "short-names", "short-names.nupp"), 17)
+    test.eq(program.run(parsed, "short-names", "short-names.nupp"), 17)
 end
 
 local BUILDER = [[
 local builder = require("serde.valuebuilder")
 @aot
 local function decode(source: string, nullValue: any): any
-    local count: uint32 = builder.length(source)
-    local state = builder.newSized(nullValue, count, count)
-    builder.openArray(state, math.u32.wrap(1))
-    builder.numberSlice(state, source, math.u32.wrap(0), count)
+    local count: uint32 = builder.len(source)
+    local state = builder.newsized(nullValue, count, count)
+    builder.openarray(state, math.u32.wrap(1))
+    builder.numberslice(state, source, math.u32.wrap(0), count)
     builder.close(state)
     return builder.finish(state)
 end
@@ -128,9 +127,9 @@ function M.lowercaseBuilderFunctionsAndLenKeepRuntimeValues()
         end)
         package.loaded["serde.valuebuilder"], package.preload["serde.valuebuilder"] = loaded, preload
         assert(ok, actual)
-        test.deepEqual(actual, {7})
+        test.deepeq(actual, {7})
         if before then
-            test.deepEqual(actual, before, "public names changed the retained VM implementation's results")
+            test.deepeq(actual, before, "public names changed the retained VM implementation's results")
         end
         before = actual
     end
@@ -144,7 +143,7 @@ local math = {quat = {mul = function(): number return 5 end}}
 return soa.alloc() + builder.len() + math.quat.mul()
 ]]
     local parsed = checked(source, envMod.new(ROOT))
-    test.equal(program.run(parsed, "short-names", "short-names.nupp"), 10)
+    test.eq(program.run(parsed, "short-names", "short-names.nupp"), 10)
 end
 
 return M

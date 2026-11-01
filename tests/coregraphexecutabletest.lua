@@ -13,7 +13,7 @@ local M = {}
 local function checked(text)
     local path, name = "=core_executable.nupp", "core_executable"
     local parsed = parser.parse(text, path)
-    test.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
+    test.eq(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
     local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
     local diagnostics = checker.check(parsed, path, env, {
         moduleName = name,
@@ -30,7 +30,7 @@ end
 
 local function refuses(action, message)
     local ok, problem = pcall(action)
-    test.equal(ok, false)
+    test.eq(ok, false)
     assert(tostring(problem):find(message, 1, true), tostring(problem))
 end
 
@@ -51,22 +51,22 @@ function M.completeBooleanAndNilInitializersRetainActualClosureAndCall()
         local input = identity(fixture[1], fixture[2])
         local output = executable.fromChecked(input)
         executable.validate(output)
-        test.equal(#output.functions, #input.catalog.owners)
-        test.equal(output.frameDepth, 2)
-        test.equal(output.instanceCapacity, 1)
+        test.eq(#output.functions, #input.catalog.owners)
+        test.eq(output.frameDepth, 2)
+        test.eq(output.instanceCapacity, 1)
         local root = output.functions[output.entry + 1]
-        test.equal(#root.calls, 1)
-        test.equal(root.closureCount, 1)
+        test.eq(#root.calls, 1)
+        test.eq(root.closureCount, 1)
         local call = root.calls[1]
-        test.equal(call.resultSlot, call.argumentBase + 1)
-        test.equal(call.wanted, 1)
-        test.equal(call.argumentCount, 1)
-        test.equal(call.resumePC, call.pc + 1)
-        test.equal(root.instructions[call.pc + 1][1], "CallK")
-        test.equal(root.code:byte(call.pc * 16 + 4), 1)
-        test.equal(root.code:byte(call.pc * 16 + 5), 1)
-        test.equal(#root.code, root.instructionCount * 16)
-        test.equal(executable.checkedOwner(output, call.target), input.catalog.owners[call.target + 1])
+        test.eq(call.resultSlot, call.argumentBase + 1)
+        test.eq(call.wanted, 1)
+        test.eq(call.argumentCount, 1)
+        test.eq(call.resumePC, call.pc + 1)
+        test.eq(root.instructions[call.pc + 1][1], "CallK")
+        test.eq(root.code:byte(call.pc * 16 + 4), 1)
+        test.eq(root.code:byte(call.pc * 16 + 5), 1)
+        test.eq(#root.code, root.instructionCount * 16)
+        test.eq(executable.checkedOwner(output, call.target), input.catalog.owners[call.target + 1])
         for _, fn in ipairs(output.functions) do
             assert(fn.copyScratch < fn.callBase and fn.callBase + 1 < fn.valueCount)
             assert(fn.valueCount <= 250)
@@ -88,12 +88,12 @@ return identity(true)
         )
     )
     local root = output.functions[output.entry + 1]
-    test.equal(#root.calls, 2)
-    test.equal(root.calls[1].discarded, true)
-    test.equal(root.calls[2].discarded, false)
+    test.eq(#root.calls, 2)
+    test.eq(root.calls[1].discarded, true)
+    test.eq(root.calls[2].discarded, false)
     for _, call in ipairs(root.calls) do
-        test.equal(call.wanted, 1)
-        test.equal(call.resultSlot, root.callBase + 1)
+        test.eq(call.wanted, 1)
+        test.eq(call.resultSlot, root.callBase + 1)
     end
 end
 
@@ -118,7 +118,7 @@ return held
         if ins[1] == "Jmp" then
             break
         end
-        test.equal(ins[1], "Move")
+        test.eq(ins[1], "Move")
         assert(ins[2] < root.copyScratch)
         moves = moves + 1
     end
@@ -131,11 +131,11 @@ function M.parallelCopiesPreserveCyclesDuplicatesAndIdentity()
     for _, move in ipairs(moves) do
         words[move[1]] = words[move[2]]
     end
-    test.equal(words[1], "second")
-    test.equal(words[2], "first")
-    test.equal(words[3], "first")
-    test.equal(words[4], "fourth")
-    test.equal(#moves, 4)
+    test.eq(words[1], "second")
+    test.eq(words[2], "first")
+    test.eq(words[3], "first")
+    test.eq(words[4], "fourth")
+    test.eq(#moves, 4)
     refuses(
         function()
             copies.schedule({1}, {5}, 5)
@@ -230,20 +230,20 @@ end
 function M.byteRecipesBindCanonicalOperandsAndFieldOffsets()
     local call = bytecode.encode({"CallK", 7, 10, 10, 3, 1})
     local desc = bytecode.describe("CallK")
-    test.equal(call:byte(1), desc.id)
-    test.equal(call:byte(2), 10)
-    test.equal(call:byte(3), 10)
-    test.equal(call:byte(4), 3)
-    test.equal(call:byte(5), 1)
-    test.equal(call:byte(9), 7)
+    test.eq(call:byte(1), desc.id)
+    test.eq(call:byte(2), 10)
+    test.eq(call:byte(3), 10)
+    test.eq(call:byte(4), 3)
+    test.eq(call:byte(5), 1)
+    test.eq(call:byte(9), 7)
     local closure = bytecode.encode({"NewClosure", 4, 7, 9, 0})
-    test.equal(closure:byte(2), 4)
-    test.equal(closure:byte(3), 9)
-    test.equal(closure:byte(4), 0)
-    test.equal(closure:byte(9), 7)
+    test.eq(closure:byte(2), 4)
+    test.eq(closure:byte(3), 9)
+    test.eq(closure:byte(4), 0)
+    test.eq(closure:byte(9), 7)
     local back = bytecode.encode({"Jmp", -1})
     for at = 5, 8 do
-        test.equal(back:byte(at), 255)
+        test.eq(back:byte(at), 255)
     end
     refuses(
         function()

@@ -56,7 +56,7 @@ export const pointerBits = provider.pointerBits
 --- no worker pool, so it is a fair default for the `limit` one is opened with.
 ---
 --- ```nupp:fragment
---- with scope = nupp.tasks.open(limit = os.info().parallelism) do
+--- with scope = coroutine.scope(limit = os.info().parallelism) do
 ---     for _, shard in ipairs(shards) do
 ---         scope:fork(shard, jobs.shard)
 ---     end

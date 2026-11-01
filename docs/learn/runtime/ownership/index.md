@@ -195,12 +195,12 @@ end)
 not keep custody alive. `with` and `withExclusive` acquire checked callback
 borrows, `take` restores the exact original owner once, and `close` closes
 through an alias. After close or take, every alias observes the same permanent
-tombstone. `own.recoverAlias(value)` validates the brand of an alias that
+tombstone. `own.recoveralias(value)` validates the brand of an alias that
 crossed `any`, and `alias:downcast<T>()` then validates its erased payload and
 cleanup policy.
 
 For runtime-sized heterogeneous shutdown, `own.ManagedGroup` adopts managed
-cells and closes them in reverse order. Create one with `own.managedGroup()`.
+cells and closes them in reverse order. Create one with `own.managedgroup()`.
 It is ordinary library code over
 aliases, not a compiler-recognized container.
 

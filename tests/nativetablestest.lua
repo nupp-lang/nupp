@@ -15,9 +15,9 @@ local env = envMod.new(HERE .. "/..")
 local function run(lines)
     local src = table.concat(lines, "\n")
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors")
+    testAssert.eq(#result.errors, 0, "syntax errors")
     local diags = check.check(result, "test.nupp", env)
-    testAssert.equal(#diags, 0, "check diagnostics" .. (diags[1] and (": " .. diags[1].msg) or ""))
+    testAssert.eq(#diags, 0, "check diagnostics" .. (diags[1] and (": " .. diags[1].msg) or ""))
 
     return program.run(result, "native_tables_test", "test.nupp")
 end
@@ -42,8 +42,8 @@ function M.hashKeysIterateInInsertionOrderAcrossGrowth()
             expected[#expected + 1] = "k" .. i
         end
     end
-    testAssert.equal(count, #expected, "every surviving key is visited once")
-    testAssert.equal(order, table.concat(expected, ","), "first insertion decides the order; a rewrite keeps it")
+    testAssert.eq(count, #expected, "every surviving key is visited once")
+    testAssert.eq(order, table.concat(expected, ","), "first insertion decides the order; a rewrite keeps it")
 end
 
 function M.nextContinuesFromAnyKeyAndSkipsNilValues()
@@ -58,10 +58,10 @@ function M.nextContinuesFromAnyKeyAndSkipsNilValues()
         "for k in pairs(m) do visited = visited + 1; m[k] = nil end",
         "return k1 as string, k2 as string, k3 as string, visited",
     })
-    testAssert.equal(first, "a", "the first key")
-    testAssert.equal(afterB, "d", "a key whose value went nil is skipped")
-    testAssert.equal(afterD, nil, "the last key has no successor")
-    testAssert.equal(visited, 3, "clearing the current key during traversal visits every key once")
+    testAssert.eq(first, "a", "the first key")
+    testAssert.eq(afterB, "d", "a key whose value went nil is skipped")
+    testAssert.eq(afterD, nil, "the last key has no successor")
+    testAssert.eq(visited, 3, "clearing the current key during traversal visits every key once")
 end
 
 function M.rehashDropsNilEntriesAndKeepsTheRest()
@@ -78,8 +78,8 @@ function M.rehashDropsNilEntriesAndKeepsTheRest()
     for i = 1, 20 do
         expected[#expected + 1] = "g" .. i
     end
-    testAssert.equal(keys, table.concat(expected, ","), "live entries keep their order through a rehash")
-    testAssert.equal(absent, true, "nil-valued keys stay absent")
+    testAssert.eq(keys, table.concat(expected, ","), "live entries keep their order through a rehash")
+    testAssert.eq(absent, true, "nil-valued keys stay absent")
 end
 
 function M.integerKeysFillTheArrayPartAndMigrateFromTheHash()
@@ -93,11 +93,11 @@ function M.integerKeysFillTheArrayPartAndMigrateFromTheHash()
         "t[4] = 'd'",
         "return #t, t[2], t[3], t[5], sparse",
     })
-    testAssert.equal(sparse, 3, "keys contiguous from 1 are the border; a gap stops it")
-    testAssert.equal(length, 5, "filling the gap pulls the keys past it into the array part")
-    testAssert.equal(second, "b", "a migrated key reads back")
-    testAssert.equal(third, "c", "a migrated key reads back")
-    testAssert.equal(fifth, "e", "the key past the gap reads back after migration")
+    testAssert.eq(sparse, 3, "keys contiguous from 1 are the border; a gap stops it")
+    testAssert.eq(length, 5, "filling the gap pulls the keys past it into the array part")
+    testAssert.eq(second, "b", "a migrated key reads back")
+    testAssert.eq(third, "c", "a migrated key reads back")
+    testAssert.eq(fifth, "e", "the key past the gap reads back after migration")
 end
 
 function M.typedIntegerIndicesAppendAndRead()
@@ -107,9 +107,9 @@ function M.typedIntegerIndicesAppendAndRead()
         "local past = a[101]",
         "return #a, a[50], past",
     })
-    testAssert.equal(length, 100, "a hundred appends by integer index")
-    testAssert.equal(middle, 100, "the fiftieth entry")
-    testAssert.equal(past, nil, "past the border reads nil")
+    testAssert.eq(length, 100, "a hundred appends by integer index")
+    testAssert.eq(middle, 100, "the fiftieth entry")
+    testAssert.eq(past, nil, "past the border reads nil")
 end
 
 function M.theBorderShrinksPastTrailingNils()
@@ -124,10 +124,10 @@ function M.theBorderShrinksPastTrailingNils()
         "t[3] = nil",
         "return afterLast, afterHole, #t, afterHoleOnly",
     })
-    testAssert.equal(afterLast, 4, "clearing the last entry shrinks by one")
-    testAssert.equal(afterHoleOnly, 4, "a hole in the middle leaves the border")
-    testAssert.equal(afterHole, 3, "clearing the last entry shrinks past the hole's neighbor")
-    testAssert.equal(afterBoth, 1, "the border scans back past every trailing nil")
+    testAssert.eq(afterLast, 4, "clearing the last entry shrinks by one")
+    testAssert.eq(afterHoleOnly, 4, "a hole in the middle leaves the border")
+    testAssert.eq(afterHole, 3, "clearing the last entry shrinks past the hole's neighbor")
+    testAssert.eq(afterBoth, 1, "the border scans back past every trailing nil")
 end
 
 function M.negativeZeroIsTheKeyZero()
@@ -140,9 +140,9 @@ function M.negativeZeroIsTheKeyZero()
         "for _ in pairs(t) do count = count + 1 end",
         "return read, t[0], count",
     })
-    testAssert.equal(read, "z", "-0 reads the entry 0 wrote")
-    testAssert.equal(overwritten, "w", "-0 writes the entry 0 holds")
-    testAssert.equal(count, 1, "one entry, not two")
+    testAssert.eq(read, "z", "-0 reads the entry 0 wrote")
+    testAssert.eq(overwritten, "w", "-0 writes the entry 0 holds")
+    testAssert.eq(count, 1, "one entry, not two")
 end
 
 function M.floatBooleanAndObjectKeysAreTheirOwnIdentity()
@@ -159,13 +159,13 @@ function M.floatBooleanAndObjectKeysAreTheirOwnIdentity()
         "t[f] = 'function'",
         "return t[1.5] as string, t[2 ^ 53] as string, t[true] as string, t[false] as string, t[key] as string, t[other] as string, t[f] as string",
     })
-    testAssert.equal(half, "half", "a fractional key")
-    testAssert.equal(big, "big", "a whole float past the array part")
-    testAssert.equal(yes, "yes", "true as a key")
-    testAssert.equal(no, "no", "false as a key")
-    testAssert.equal(byTable, "table", "a table key by identity")
-    testAssert.equal(byOther, nil, "another table is another key")
-    testAssert.equal(byFunction, "function", "a function key")
+    testAssert.eq(half, "half", "a fractional key")
+    testAssert.eq(big, "big", "a whole float past the array part")
+    testAssert.eq(yes, "yes", "true as a key")
+    testAssert.eq(no, "no", "false as a key")
+    testAssert.eq(byTable, "table", "a table key by identity")
+    testAssert.eq(byOther, nil, "another table is another key")
+    testAssert.eq(byFunction, "function", "a function key")
 end
 
 function M.int64KeysBeyondTheExactRangeAreKeys()
@@ -176,9 +176,9 @@ function M.int64KeysBeyondTheExactRangeAreKeys()
         "t[big + 1] = 'next'",
         "return t[9007199254740993], t[big + 1], #t",
     })
-    testAssert.equal(found, "boxed", "an integer a double cannot hold is a key")
-    testAssert.equal(other, "next", "its neighbor is another key")
-    testAssert.equal(length, 0, "neither is in the array part")
+    testAssert.eq(found, "boxed", "an integer a double cannot hold is a key")
+    testAssert.eq(other, "next", "its neighbor is another key")
+    testAssert.eq(length, 0, "neither is in the array part")
 end
 
 function M.stringKeysAreByContent()
@@ -193,9 +193,9 @@ function M.stringKeysAreByContent()
         "for _ in pairs(m) do longCount = longCount + 1 end",
         "return m[string.rep('x', 60)], m.ab, longCount",
     })
-    testAssert.equal(long, 4, "a long string built twice is one key")
-    testAssert.equal(built, 2, "a concatenated short key reads by name")
-    testAssert.equal(longCount, 3, "three distinct keys")
+    testAssert.eq(long, 4, "a long string built twice is one key")
+    testAssert.eq(built, 2, "a concatenated short key reads by name")
+    testAssert.eq(longCount, 3, "three distinct keys")
 end
 
 function M.structuralRecordsReadFreshStringsAndSlicesByContent()
@@ -207,9 +207,9 @@ function M.structuralRecordsReadFreshStringsAndSlicesByContent()
         "local dynamic: any = record",
         "return record.field as integer, dynamic[key] as integer, dynamic[slice] as integer",
     })
-    testAssert.equal(named, 37, "the statically named field")
-    testAssert.equal(fresh, 37, "a fresh uninterned string names the field")
-    testAssert.equal(sliced, 37, "a slice names the same field")
+    testAssert.eq(named, 37, "the statically named field")
+    testAssert.eq(fresh, 37, "a fresh uninterned string names the field")
+    testAssert.eq(sliced, 37, "a slice names the same field")
 end
 
 function M.dynamicRecordKeysPreserveAbsentAndNilMetamethods()
@@ -228,10 +228,10 @@ function M.dynamicRecordKeysPreserveAbsentAndNilMetamethods()
         "local nilKey = read(nil)",
         "return own as integer, absent as string, nilKey as string, count",
     })
-    testAssert.equal(own, 37, "a present field bypasses __index")
-    testAssert.equal(absent, "missing:absent", "an absent key reaches __index")
-    testAssert.equal(nilKey, "nil-key", "nil remains a lookup operand")
-    testAssert.equal(calls, 2, "one callback for each absent lookup")
+    testAssert.eq(own, 37, "a present field bypasses __index")
+    testAssert.eq(absent, "missing:absent", "an absent key reaches __index")
+    testAssert.eq(nilKey, "nil-key", "nil remains a lookup operand")
+    testAssert.eq(calls, 2, "one callback for each absent lookup")
 end
 
 function M.fieldStoresOnTablesKeepTheirPosition()
@@ -245,8 +245,8 @@ function M.fieldStoresOnTablesKeepTheirPosition()
         "for k in pairs(m) do order[#order + 1] = k end",
         "return gone as string, table.concat(order, ',')",
     })
-    testAssert.equal(x, nil, "a cleared field reads nil")
-    testAssert.equal(order, "x,y,z", "a cleared field written again keeps its first position")
+    testAssert.eq(x, nil, "a cleared field reads nil")
+    testAssert.eq(order, "x,y,z", "a cleared field written again keeps its first position")
 end
 
 function M.metatablesAnswerAbsentKeysOnly()
@@ -263,11 +263,11 @@ function M.metatablesAnswerAbsentKeysOnly()
         "local fn: {[string]: any} = setmetatable({}, {__index = function(t: {[string]: any}, k: string): string return 'computed:' .. k end})",
         "return obj.value as string, obj.first as integer, table.concat(written, ','), rawget(obj, 'value') as string, fn.anything as string",
     })
-    testAssert.equal(inherited, "base", "__index as a table answers an absent key")
-    testAssert.equal(own, 2, "a present key is stored raw")
-    testAssert.equal(log, "first,second", "__newindex runs for absent keys only")
-    testAssert.equal(rawValue, nil, "rawget sees through no metatable")
-    testAssert.equal(viaIndexFn, "computed:anything", "__index as a function is called with the key")
+    testAssert.eq(inherited, "base", "__index as a table answers an absent key")
+    testAssert.eq(own, 2, "a present key is stored raw")
+    testAssert.eq(log, "first,second", "__newindex runs for absent keys only")
+    testAssert.eq(rawValue, nil, "rawget sees through no metatable")
+    testAssert.eq(viaIndexFn, "computed:anything", "__index as a function is called with the key")
 end
 
 function M.nilAndNaNKeysAreErrorsAndReadNil()
@@ -280,11 +280,11 @@ function M.nilAndNaNKeysAreErrorsAndReadNil()
         "local nanOk, nanMessage = pcall(function() t[nan] = 1 end)",
         "return nilOk, tostring(nilMessage), nanOk, tostring(nanMessage), t[nan]",
     })
-    testAssert.equal(nilOk, false, "storing under nil raises")
+    testAssert.eq(nilOk, false, "storing under nil raises")
     assert(nilMessage:find("nil", 1, true), "the nil message names nil: " .. nilMessage)
-    testAssert.equal(nanOk, false, "storing under NaN raises")
+    testAssert.eq(nanOk, false, "storing under NaN raises")
     assert(nanMessage:find("NaN", 1, true), "the NaN message names NaN: " .. nanMessage)
-    testAssert.equal(readNaN, nil, "reading under NaN is nil")
+    testAssert.eq(readNaN, nil, "reading under NaN is nil")
 end
 
 function M.storesDuringCollectionKeepTheirValues()
@@ -304,8 +304,8 @@ function M.storesDuringCollectionKeepTheirValues()
         "for k, v in pairs(names) do if 'n' .. v[1] == k then hashKept = hashKept + 1 end end",
         "return kept, hashKept",
     })
-    testAssert.equal(kept, math.floor(20000 / 7), "every value stored while cycles ran survives")
-    testAssert.equal(hashKept, math.floor(20000 / 11), "every hash entry stored while cycles ran survives")
+    testAssert.eq(kept, math.floor(20000 / 7), "every value stored while cycles ran survives")
+    testAssert.eq(hashKept, math.floor(20000 / 11), "every hash entry stored while cycles ran survives")
 end
 
 return M

@@ -35,7 +35,7 @@ export function derive(info: types.derive.Info): types.derive.Result<HasWitness>
                 methods = {
                     witness = derive2.forward{
                         helper = derive2.helper(derivewitness, "returnWitness"),
-                        arguments = {derive2.witness(derive2.annotationType(applied.arguments[1]))},
+                        arguments = {derive2.witness(derive2.annotationtype(applied.arguments[1]))},
                     },
                 },
             }

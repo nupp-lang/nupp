@@ -1,4 +1,4 @@
-local files = require("nupp.io.files")
+local files = require("io.files")
 local harness = require("harness")
 local tier2 = require("tier2eval")
 local json = require("serde.json")
@@ -95,7 +95,7 @@ local function main(): integer
     if commit == nil or commit == "" then
         error("cannot resolve the commit", 0)
     end
-    local made, reason = files.createDirectory(out)
+    local made, reason = files.createdirectory(out)
     if not made then
         error("cannot create " .. out .. ": " .. tostring(reason), 0)
     end
@@ -123,13 +123,13 @@ local function main(): integer
                 tier = 2,
                 commit = commit,
                 subject = subject,
-                suites = json.asArray(names),
-                revertedFiles = json.asArray(prepared.reverted),
+                suites = json.asarray(names),
+                revertedFiles = json.asarray(prepared.reverted),
             },
             agent = harness.agentRecord(agent.result, agent.events, model),
             grade = {
                 suitesPass = afterPassed,
-                editedTests = json.asArray(edited),
+                editedTests = json.asarray(edited),
                 passed = afterPassed and #edited == 0,
                 reportAfter = after,
                 reportBefore = before,

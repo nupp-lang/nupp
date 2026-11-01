@@ -19,7 +19,7 @@ value returns a non-consuming uint64 snapshot; width specifies its meaningful
 bits from 1 through 64. Standard names retain their standard widths and exact
 CRC parameters. Checksums detect corruption and provide no authentication.
 ]]
-local {type ByteSpan} = require("nupp.mem.span")
+local {type ByteSpan} = require("binary.span")
 
 --- Independent incremental state; close consumes its ownership without suspension.
 export interface State is own.Closeable

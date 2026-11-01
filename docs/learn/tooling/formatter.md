@@ -53,16 +53,16 @@ module name; types used only in annotations use an erased selection:
 
 ::: code-group
 ```nupp [Written]
-local function count(values: nupp.mem.span.Span<uint8>): integer
+local function count(values: binary.span.Span<uint8>): integer
     return #values
 end
 
-return nupp.io.files.read("notes.txt"), count
+return io.files.read("notes.txt"), count
 ```
 
 ```nupp [Formatted]
-const {type Span} = require("nupp.mem.span")
-const files = require("nupp.io.files")
+const {type Span} = require("binary.span")
+const files = require("io.files")
 
 local function count(values: Span<uint8>): integer
     return #values

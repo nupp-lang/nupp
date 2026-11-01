@@ -27,7 +27,7 @@ end
 
 local function decode(text)
     local json = require("serde.json")
-    local value, reason = json.decodeValue(text, json.NULL)
+    local value, reason = json.decodevalue(text, json.NULL)
     if reason ~= nil then
         error(reason, 2)
     end
@@ -137,15 +137,15 @@ local function checkTransportMetrics(report)
     end
     for id, expected in pairs({["noisepasstest/case"] = -2, ["noisefailtest/case"] = 5}) do
         local metrics = byId[id].metrics
-        test.equal(#metrics, 1)
-        test.equal(metrics[1].name, "transport")
-        test.equal(metrics[1].unit, "items")
-        test.equal(metrics[1].value, expected, "signed fractional contributions survive the worker")
+        test.eq(#metrics, 1)
+        test.eq(metrics[1].name, "transport")
+        test.eq(metrics[1].unit, "items")
+        test.eq(metrics[1].value, expected, "signed fractional contributions survive the worker")
     end
-    test.equal(#report.metrics, 1)
-    test.equal(report.metrics[1].name, "transport")
-    test.equal(report.metrics[1].unit, "items")
-    test.equal(report.metrics[1].value, 3, "the parent sums metrics from passing and failing rows")
+    test.eq(#report.metrics, 1)
+    test.eq(report.metrics[1].name, "transport")
+    test.eq(report.metrics[1].unit, "items")
+    test.eq(report.metrics[1].value, 3, "the parent sums metrics from passing and failing rows")
 end
 
 -- One known case per suite keeps this transport control unsliced. Empty
@@ -177,18 +177,18 @@ local function transportRunner(fresh)
             "cd %s && %s NUPP_TEST_BUILD=%s %s %s 2>/dev/null"
         ):format(shellWord(dir), env, shellWord(dir .. "/build"), RUNNER, arguments)
     )
-    test.equal(invocation.status, 1, "only the intentional test/hook failures fail" .. evidence(invocation))
+    test.eq(invocation.status, 1, "only the intentional test/hook failures fail" .. evidence(invocation))
     local report = decode(output)
-    test.equal(report.total, 3, "a failed afterAll adds a result beyond the declared case count")
-    test.equal(report.passed, 1)
-    test.equal(report.failed, 2)
+    test.eq(report.total, 3, "a failed afterAll adds a result beyond the declared case count")
+    test.eq(report.passed, 1)
+    test.eq(report.failed, 2)
     checkTransportMetrics(report)
     local byId = {}
     for _, record in ipairs(report.tests) do
         byId[record.id] = record
-        test.equal(record.name == "<shard>" or record.name == "<unrun>", false, "no report was lost")
+        test.eq(record.name == "<shard>" or record.name == "<unrun>", false, "no report was lost")
     end
-    test.equal(byId["noisepasstest/case"].status, "passed")
+    test.eq(byId["noisepasstest/case"].status, "passed")
     test.matches(byId["noisefailtest/case"].failure.message, "transport case failure")
     test.matches(byId["noisefailtest/afterAll"].failure.message, "transport hook failure")
     local noise = ""
@@ -199,7 +199,7 @@ local function transportRunner(fresh)
     test(#workerArtifactsIn(dir, "json") >= 2, "each child retained its complete report")
     test(#workerArtifactsIn(dir, "err") >= 2, "each child retained its stderr")
     if fresh then
-        test.equal(#report.claimed, 2, "the supervisor kept its claims")
+        test.eq(#report.claimed, 2, "the supervisor kept its claims")
         test.matches(noise, "__piece_status__:1", "the full piece stdout includes its terminal status")
     end
 
@@ -286,7 +286,7 @@ function M.workerReportsRejectMissingMalformedAndAbnormalChildren()
                     "cd %s && %s NUPP_TEST_BUILD=%s %s %s 2>/dev/null"
                 ):format(shellWord(dir), env, shellWord(dir .. "/build"), RUNNER, args)
             )
-            test.equal(invocation.status, 1, "an invalid child cannot pass" .. evidence(invocation))
+            test.eq(invocation.status, 1, "an invalid child cannot pass" .. evidence(invocation))
             local report = decode(output)
             test(report.failed > 0)
             local failures = ""
@@ -306,7 +306,7 @@ function M.workerReportsRejectMissingMalformedAndAbnormalChildren()
             test(#outFiles > 0)
             test.matches(read(outFiles[1]), "q bad%-child")
             if mode ~= "missing" then
-                test.equal(read(workerArtifactsIn(dir, "json")[1]), document, "rejected bytes were retained in full")
+                test.eq(read(workerArtifactsIn(dir, "json")[1]), document, "rejected bytes were retained in full")
             end
             os.execute("rm -rf " .. shellWord(dir))
         end
@@ -331,20 +331,20 @@ function M.workerReportPathsAreNotReusedAcrossInvocations()
             "(%s >%s 2>/dev/null) & first=$!; (%s >%s 2>/dev/null) & second=$!; wait $first; a=$?; wait $second; b=$?; printf '%%s %%s\n' $a $b"
         ):format(invocation, shellWord(dir .. "/first.json"), invocation, shellWord(dir .. "/second.json"))
     )
-    test.equal(runs.status, 0, evidence(runs))
+    test.eq(runs.status, 0, evidence(runs))
     test.matches(output, "1 1", "both concurrent invocations reached their intentional failures")
     for _, name in ipairs({"first", "second"}) do
         local report = decode(read(dir .. "/" .. name .. ".json"))
-        test.equal(report.total, 2)
-        test.equal(report.passed, 1)
-        test.equal(report.failed, 1)
-        test.equal(#report.tests, 2)
+        test.eq(report.total, 2)
+        test.eq(report.passed, 1)
+        test.eq(report.failed, 1)
+        test.eq(#report.tests, 2)
         local expected = {["noisepasstest/case"] = "passed", ["noisefailtest/case"] = "failed"}
         local byId = {}
         for _, row in ipairs(report.tests) do
             test(expected[row.id], "only the two intentional case rows may be reported")
             test(not byId[row.id], "concurrent reports contain no duplicate case IDs")
-            test.equal(row.status, expected[row.id])
+            test.eq(row.status, expected[row.id])
             byId[row.id] = row
         end
         test(byId["noisepasstest/case"] and byId["noisefailtest/case"], "both cases ran")
@@ -354,7 +354,7 @@ function M.workerReportPathsAreNotReusedAcrossInvocations()
     local after = workerArtifactsIn(dir, "json")
     test(#after > #before, "a later invocation reserved different report paths")
     for path, text in pairs(old) do
-        test.equal(read(path), text, "a prior report was not overwritten")
+        test.eq(read(path), text, "a prior report was not overwritten")
     end
     os.execute("rm -rf " .. shellWord(dir))
 end
@@ -368,7 +368,7 @@ function M.explicitWorkerReportRequiresAUsableUniquePath()
                 "cd %s && NUPP_TEST_BUILD=%s %s quiettest --jobs=1 %s 2>&1"
             ):format(shellWord(dir), shellWord(dir .. "/build"), RUNNER, arguments)
         )
-        test.equal(invocation.status, 2, evidence(invocation))
+        test.eq(invocation.status, 2, evidence(invocation))
         test.matches(output, "%-%-worker%-report requires")
     end
     local path = dir .. "/missing/report.json"
@@ -378,8 +378,8 @@ function M.explicitWorkerReportRequiresAUsableUniquePath()
         ):format(shellWord(dir), shellWord(dir .. "/build"), RUNNER, shellWord(path))
     )
     test(invocation.status ~= 0, "an explicit report write failure cannot pass" .. evidence(invocation))
-    test.equal(io.open(path, "rb"), nil)
-    test.equal(output:find('"schemaVersion"', 1, true), nil, "no silent stdout report fallback")
+    test.eq(io.open(path, "rb"), nil)
+    test.eq(output:find('"schemaVersion"', 1, true), nil, "no silent stdout report fallback")
     os.execute("rm -rf " .. shellWord(dir))
 end
 
@@ -407,22 +407,22 @@ function M.internalCliWorkersUseTheCarriedReportTransport()
                 "cd %s && %s NUPP_TEST_BUILD=%s %s test --internal-runner --json --worker-report=%s %s 2>/dev/null"
             ):format(shellWord(dir), env, shellWord(dir .. "/build"), shellWord(NUPP), shellWord(reportPath), arguments)
         )
-        test.equal(invocation.status, 1, "only the intentional failures fail" .. evidence(invocation))
-        test.equal(output:find('"schemaVersion"', 1, true), nil, "the private report was not written on stdout")
+        test.eq(invocation.status, 1, "only the intentional failures fail" .. evidence(invocation))
+        test.eq(output:find('"schemaVersion"', 1, true), nil, "the private report was not written on stdout")
         local report = decode(read(reportPath))
-        test.equal(report.total, 3)
-        test.equal(report.passed, 1)
-        test.equal(report.failed, 2)
+        test.eq(report.total, 3)
+        test.eq(report.passed, 1)
+        test.eq(report.failed, 2)
         checkTransportMetrics(report)
         for _, record in ipairs(report.tests) do
-            test.equal(
+            test.eq(
                 record.name == "<shard>" or record.name == "<unrun>",
                 false,
                 "the carried child used the same protocol"
             )
         end
         if fresh then
-            test.equal(#report.claimed, 2)
+            test.eq(#report.claimed, 2)
             local noise = ""
             for _, path in ipairs(workerArtifactsIn(dir, "out")) do
                 noise = noise .. read(path)

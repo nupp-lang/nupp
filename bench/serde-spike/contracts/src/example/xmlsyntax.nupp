@@ -275,7 +275,7 @@ end
 
 export function reader(input: string): Reader
     if #input > 16777216
-        or not utf8.isValid(input)
+        or not utf8.isvalid(input)
         or input:find("[%z\1-\8\11\12\14-\31]")
         or input:find("\239\191[\190\191]")
     then

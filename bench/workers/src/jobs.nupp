@@ -64,11 +64,11 @@ end
 
 const heap = require("nupp.mem.heap")
 
-export function bounce(takes frame: heap.Array<uint8>): affine(heap.Array<uint8>, heap.destroyArray)
+export function bounce(takes frame: heap.Array<uint8>): affine(heap.Array<uint8>, heap.destroyarray)
     return frame
 end
 
-export function bump(takes frame: heap.Array<uint8>, seed: integer): affine(heap.Array<uint8>, heap.destroyArray)
+export function bump(takes frame: heap.Array<uint8>, seed: integer): affine(heap.Array<uint8>, heap.destroyarray)
     local writable = frame:write()
     writable[1] = seed % 256
     own.drop(writable)

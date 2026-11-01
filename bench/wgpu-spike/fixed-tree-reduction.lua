@@ -1,7 +1,7 @@
 -- Fixed-tree reduction benchmark: one declared 256-lane tree is generated for
 -- the GPU and executed in the same stage order by the ordinary CPU control.
 local ffi = require("ffi")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local gpu = require("gpu")
 local generated = require("reduction")
 
@@ -92,7 +92,7 @@ local context = gpu.open()
 local input = context:buffer(require("nupp.mem.array").float32, count)
 local partials = context:buffer(require("nupp.mem.array").float32, workgroupSize)
 local result = context:buffer(require("nupp.mem.array").float32, 1)
-context:upload(input, span.fromCarray(values, count))
+context:upload(input, span.fromcarray(values, count))
 context:synchronize()
 
 local first = generated.exp:compile(context):bind(partials, input)
@@ -117,7 +117,7 @@ local elapsed = (now() - started) / passes
 local output = ffi.new("float[1]")
 context:enqueueDownload(result)
 context:synchronize()
-context:readDownloaded(result, span.writeCarray(output, 1))
+context:readDownloaded(result, span.writecarray(output, 1))
 assert(output[0] == expected, ("reduction mismatch: got %.9g, want %.9g"):format(output[0], expected))
 
 io.write(("Fixed 256-lane exp-sum tree: GPU and CPU agree at %.9g\n"):format(expected))

@@ -1,7 +1,7 @@
 local events = require("events")
 
 -- several constructors: no single construction contract
-@derive(events.Event)
+@derive(events.event)
 local record Overloaded
     x: integer
     constructor(self, x: integer)
@@ -14,7 +14,7 @@ end
 
 -- self escapes the constructor
 local kept: {any} = {}
-@derive(events.Event)
+@derive(events.event)
 local record Escaping
     x: integer
     constructor(self, x: integer)
@@ -30,7 +30,7 @@ local record Token
         self.closed = true
     end
 end
-@derive(events.Event)
+@derive(events.event)
 local record Moving
     token: Token
     constructor(self, takes token: Token)
@@ -39,13 +39,13 @@ local record Moving
 end
 
 -- generic owners share one runtime identity
-@derive(events.Event)
+@derive(events.event)
 local record Boxed<T>
     value: T
 end
 
 -- not a record or struct
-@derive(events.Event)
+@derive(events.event)
 local interface Contract
     x: integer
 end

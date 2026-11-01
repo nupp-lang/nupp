@@ -54,11 +54,11 @@ end
 -- converts to double and back for a pattern that never left thirty-two bits,
 -- and a value at or above 2^31 does not survive the return trip.
 local function signed(value: uint32): int32
-    return math.i32.fromU32(value)
+    return math.i32.fromu32(value)
 end
 
 local function unsigned(value: int32): uint32
-    return math.u32.fromI32(value)
+    return math.u32.fromi32(value)
 end
 
 -- `i32.rotateRight` exists, but it is not one of the intrinsics `@aot` admits,
@@ -158,23 +158,23 @@ const NEVER_NULL = {}
 --- @raises string when the builder cannot allocate or publish
 @aot
 local function digestHex(source: string, nullValue: any): any
-    local builder = valuebuilder.newSized(nullValue, u32(2), u32(64))
-    local scratch = valuebuilder.newFixedByteScratch(64)
-    local schedule = valuebuilder.newFixedWordScratch(64)
+    local builder = valuebuilder.newsized(nullValue, u32(2), u32(64))
+    local scratch = valuebuilder.newfixedbytescratch(64)
+    local schedule = valuebuilder.newfixedwordscratch(64)
 
     -- The final block, and the one before it when the length no longer fits
     -- beside the remainder. Fixed, so its bytes are writable in any order and
     -- the storage is a C array in the compiled entry rather than a fresh
     -- allocation for every digest.
-    local tail = valuebuilder.newFixedByteScratch(128)
+    local tail = valuebuilder.newfixedbytescratch(128)
 
-    local length = valuebuilder.length(source)
+    local length = valuebuilder.len(source)
     local rest = length & u32(63)
     local whole = length - rest
 
     local carrying: uint32 = u32(0)
     while carrying < rest do
-        valuebuilder.setScratchByte(tail, carrying, valuebuilder.byte(source, whole + carrying))
+        valuebuilder.setscratchbyte(tail, carrying, valuebuilder.byte(source, whole + carrying))
         carrying = carrying + u32(1)
     end
 
@@ -183,7 +183,7 @@ local function digestHex(source: string, nullValue: any): any
     -- length goes -- fifty-six when it still fits in this block and a hundred
     -- and twenty when it does not, which is the second block FIPS 180-4 calls
     -- for.
-    valuebuilder.setScratchByte(tail, rest, u32(0x80))
+    valuebuilder.setscratchbyte(tail, rest, u32(0x80))
     local upTo = u32(56)
     if rest >= 56 then
         upTo = u32(120)
@@ -197,8 +197,8 @@ local function digestHex(source: string, nullValue: any): any
     local counting: uint32 = u32(0)
     while counting < 4 do
         local shift = u32(24) - (counting << u32(3))
-        valuebuilder.setScratchByte(tail, upTo + counting, (high >> shift) & u32(255))
-        valuebuilder.setScratchByte(tail, upTo + u32(4) + counting, (low >> shift) & u32(255))
+        valuebuilder.setscratchbyte(tail, upTo + counting, (high >> shift) & u32(255))
+        valuebuilder.setscratchbyte(tail, upTo + u32(4) + counting, (low >> shift) & u32(255))
         counting = counting + u32(1)
     end
 
@@ -235,21 +235,21 @@ local function digestHex(source: string, nullValue: any): any
             while at < 16 do
                 local reading = (offset >> u32(2)) + at
                 local nativeWord = valuebuilder.word(source, reading)
-                valuebuilder.setScratchWord(schedule, at, bigEndianWord(nativeWord))
+                valuebuilder.setscratchword(schedule, at, bigEndianWord(nativeWord))
                 at = at + u32(1)
             end
         else
             local base = offset - whole
             while at < 16 do
                 local within = base + (at << u32(2))
-                valuebuilder.setScratchWord(
+                valuebuilder.setscratchword(
                     schedule,
                     at,
                     unsigned(
-                        (signed(valuebuilder.scratchByte(tail, within)) << 24)
-                        | (signed(valuebuilder.scratchByte(tail, within + u32(1))) << 16)
-                        | (signed(valuebuilder.scratchByte(tail, within + u32(2))) << 8)
-                        | signed(valuebuilder.scratchByte(tail, within + u32(3)))
+                        (signed(valuebuilder.scratchbyte(tail, within)) << 24)
+                        | (signed(valuebuilder.scratchbyte(tail, within + u32(1))) << 16)
+                        | (signed(valuebuilder.scratchbyte(tail, within + u32(2))) << 8)
+                        | signed(valuebuilder.scratchbyte(tail, within + u32(3)))
                     )
                 )
                 at = at + u32(1)
@@ -260,15 +260,15 @@ local function digestHex(source: string, nullValue: any): any
         while extending < 64 do
             local word = add(
                 add(
-                    signed(valuebuilder.scratchWord(schedule, extending - u32(16))),
-                    smallSigmaZero(signed(valuebuilder.scratchWord(schedule, extending - u32(15))))
+                    signed(valuebuilder.scratchword(schedule, extending - u32(16))),
+                    smallSigmaZero(signed(valuebuilder.scratchword(schedule, extending - u32(15))))
                 ),
                 add(
-                    signed(valuebuilder.scratchWord(schedule, extending - u32(7))),
-                    smallSigmaOne(signed(valuebuilder.scratchWord(schedule, extending - u32(2))))
+                    signed(valuebuilder.scratchword(schedule, extending - u32(7))),
+                    smallSigmaOne(signed(valuebuilder.scratchword(schedule, extending - u32(2))))
                 )
             )
-            valuebuilder.setScratchWord(schedule, extending, unsigned(word))
+            valuebuilder.setscratchword(schedule, extending, unsigned(word))
             extending = extending + u32(1)
         end
 
@@ -281,7 +281,7 @@ local function digestHex(source: string, nullValue: any): any
                 add(h, bigSigmaOne(e)),
                 add(
                     add(choose(e, f, g), signed(valuebuilder.word(ROUND_CONSTANTS, round))),
-                    signed(valuebuilder.scratchWord(schedule, round))
+                    signed(valuebuilder.scratchword(schedule, round))
                 )
             )
             local second = add(bigSigmaZero(a), majority(a, b, c))
@@ -308,21 +308,21 @@ local function digestHex(source: string, nullValue: any): any
         offset = offset + u32(64)
     end
 
-    valuebuilder.setScratchWord(schedule, u32(0), unsigned(h0))
-    valuebuilder.setScratchWord(schedule, u32(1), unsigned(h1))
-    valuebuilder.setScratchWord(schedule, u32(2), unsigned(h2))
-    valuebuilder.setScratchWord(schedule, u32(3), unsigned(h3))
-    valuebuilder.setScratchWord(schedule, u32(4), unsigned(h4))
-    valuebuilder.setScratchWord(schedule, u32(5), unsigned(h5))
-    valuebuilder.setScratchWord(schedule, u32(6), unsigned(h6))
-    valuebuilder.setScratchWord(schedule, u32(7), unsigned(h7))
+    valuebuilder.setscratchword(schedule, u32(0), unsigned(h0))
+    valuebuilder.setscratchword(schedule, u32(1), unsigned(h1))
+    valuebuilder.setscratchword(schedule, u32(2), unsigned(h2))
+    valuebuilder.setscratchword(schedule, u32(3), unsigned(h3))
+    valuebuilder.setscratchword(schedule, u32(4), unsigned(h4))
+    valuebuilder.setscratchword(schedule, u32(5), unsigned(h5))
+    valuebuilder.setscratchword(schedule, u32(6), unsigned(h6))
+    valuebuilder.setscratchword(schedule, u32(7), unsigned(h7))
 
     local word: uint32 = u32(0)
     while word < 8 do
-        local value = valuebuilder.scratchWord(schedule, word)
+        local value = valuebuilder.scratchword(schedule, word)
         local nibble: uint32 = u32(0)
         while nibble < 8 do
-            valuebuilder.setScratchByte(
+            valuebuilder.setscratchbyte(
                 scratch,
                 (word << u32(3)) + nibble,
                 hexDigit((value >> (u32(28) - (nibble << u32(2)))) & u32(15))
@@ -332,7 +332,7 @@ local function digestHex(source: string, nullValue: any): any
         word = word + u32(1)
     end
 
-    valuebuilder.stringScratch(builder, scratch, u32(0), u32(64))
+    valuebuilder.stringscratch(builder, scratch, u32(0), u32(64))
 
     return valuebuilder.finish(builder)
 end

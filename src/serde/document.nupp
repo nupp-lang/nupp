@@ -9,11 +9,11 @@ documents, typed views, and saved [](types.Store) snapshots; see
 ```nupp
 local document = require("serde.document")
 local json = require("serde.json")
-local value = json.decodeDocument(document.adapter(), '{"id":18446744073709551615,"tags":["a","b"]}')
+local value = json.decodedocument(document.adapter(), '{"id":18446744073709551615,"tags":["a","b"]}')
 assert(value.kind == "structure")
 assert(assert(value:get("id")):numberToken() == "18446744073709551615")
 assert(assert(value:get("tags")):at(2):string() == "b")
-assert(json.encodeDocument(document.adapter(), value) == '{"id":18446744073709551615,"tags":["a","b"]}')
+assert(json.encodedocument(document.adapter(), value) == '{"id":18446744073709551615,"tags":["a","b"]}')
 ```
 
 A document keeps what the codec read without rounding it: integers beyond 2^53
@@ -89,7 +89,7 @@ export const string = documents.string
 
 --- A number kept as the lexeme it was written as, such as a JSON number too
 --- large for any integer width.
-export const numberToken = documents.numberToken
+export const numbertoken = documents.numberToken
 
 --- A fixed-width integer.
 export const integer = documents.integer
@@ -102,7 +102,7 @@ export const decimal = documents.decimal
 
 --- An integer of unbounded size, from its decimal text.
 --- @raises string when the text is not an integer
-export const bigInteger = documents.bigInteger
+export const biginteger = documents.bigInteger
 
 --- Binary data.
 export const bytes = documents.bytes
@@ -145,7 +145,7 @@ export const map = documents.map
 export const boundary = documents.document
 
 --- The same document with a context attached.
-export const withContext = documents.withContext
+export const withcontext = documents.withContext
 
 --- Converts a bound value to its document.
 ---
@@ -182,7 +182,7 @@ export const decoder = reconstruction.decoder
 export const clear = reconstruction.clear
 
 --- Returns how many bindings the [](decoder) cache holds.
-export const cachedBindings = reconstruction.cachedBindings
+export const cachedbindings = reconstruction.cachedBindings
 
 --- Reads a document through the [](serde.DocumentReader) contract, as a
 --- codec's own reader would.
@@ -229,7 +229,7 @@ export const view = views.of
 ---
 --- @param binding the binding the views were made with
 --- @return the adapter
-export const viewAdapter = views.adapter
+export const viewadapter = views.adapter
 
 --- Saves and restores the entries of a [](types.Store) by name and
 --- version.
@@ -245,11 +245,11 @@ export const viewAdapter = views.adapter
 --- local record Settings
 ---     volume: integer
 --- end
---- local settings: types.Key<Settings> = types.newKey()
+--- local settings: types.Key<Settings> = types.newkey()
 --- local registry = document.storeRegistry()
 --- registry:register("settings", settings, serde.binding(Settings), 1, nil)
 ---
---- local store = types.newStore()
+--- local store = types.newstore()
 --- store:set(settings, new Settings(volume = 7))
 --- local bytes = json.encode(document.storeBinding(), registry:save(store))
 ---
@@ -259,7 +259,7 @@ export const viewAdapter = views.adapter
 export type StoreRegistry = persistence.Registry
 
 --- Starts an empty [](StoreRegistry).
-export const storeRegistry = persistence.registry
+export const storeregistry = persistence.registry
 
 --- The saved entries of a store.
 export type StoreSnapshot = persistence.Snapshot
@@ -275,4 +275,4 @@ export const StoreEntry = persistence.Entry
 export type Migration = persistence.Migration
 
 --- Returns the binding a codec writes and reads a [](StoreSnapshot) through.
-export const storeBinding = persistence.binding
+export const storebinding = persistence.binding

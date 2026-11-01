@@ -307,7 +307,7 @@ end
 ---     nupp export-c --target library -o include/library.h src/library.nupp library.Widget
 ---     nupp export-c --json -o include/game.h src/game.nupp game.Position
 @cli("export-c")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record ExportC
     --- Write the generated header to this file.
     @cli(short = "o", value = "FILE")

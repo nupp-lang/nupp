@@ -382,8 +382,8 @@ function M.readerRejectsATruncatedFrame()
     local ok, status = pcall(lsp.readerMain)
     io.stdin, io.stdout = originalInput, originalOutput
     assert(ok, status)
-    test.equal(status, 1)
-    test.equal(emitted, "")
+    test.eq(status, 1)
+    test.eq(emitted, "")
 end
 
 function M.syntaxTreeSpansAreHalfOpen()
@@ -1078,8 +1078,8 @@ function M.hoverOnALocalFunctionNameShowsItsSignature()
 
     local signature = "function(name: string): string"
     assertContains(responseWithId(out, 10).result.contents.value, signature, "hover on the declaration")
-    test.equal(responseWithId(out, 11).result.type, signature)
-    test.equal(responseWithId(out, 12).result.type, signature)
+    test.eq(responseWithId(out, 11).result.type, signature)
+    test.eq(responseWithId(out, 12).result.type, signature)
 end
 
 function M.hoverAndInspectExposeAutomaticCleanup()
@@ -4162,7 +4162,7 @@ end
 function M.rangeFormattingKeepsQualifiedReferencesBound()
     local projectDir = makeDir()
     local uri = fileUri(projectDir .. "/imports.nupp")
-    local source = '-- imports stay outside the selection\n\nreturn nupp.io.files.read(  "a"  )\n'
+    local source = '-- imports stay outside the selection\n\nreturn io.files.read(  "a"  )\n'
     local out = runSession(
         {
             {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -4189,7 +4189,7 @@ function M.rangeFormattingKeepsQualifiedReferencesBound()
     os.execute("rm -rf '" .. projectDir .. "'")
     local edits = responseWithId(out, 10).result
     assert(#edits == 1, "range receives its layout edit")
-    assert(edits[1].newText == 'return nupp.io.files.read("a")\n', "reference keeps its module path")
+    assert(edits[1].newText == 'return io.files.read("a")\n', "reference keeps its module path")
 end
 
 function M.formattingHonorsAManifestThatTurnsMethodParensOff()
@@ -4564,8 +4564,9 @@ function M.generatedMembersHaveEditorIdentityAndProvenance()
     local providerSource = providerFile:read("*a")
     providerFile:close()
     writeFile(projectDir .. "/deriveeditor.nupp", providerSource)
-    local source = [[local provider = require("deriveeditor")
-@derive(types.Debug, provider.derive)
+    local source = [[
+local provider = require("deriveeditor")
+@derive(types.debug, provider.derive)
 local record Model
     value: integer = 0
 end
@@ -5111,7 +5112,7 @@ function M.codeLensesAreOfferedOnlyToAClientThatNamedItsCommand()
         {jsonrpc = "2.0", id = 2, method = "shutdown"},
         {jsonrpc = "2.0", method = "exit"},
     })
-    test.equal(responseWithId(silent, 1).result.capabilities.codeLensProvider, nil)
+    test.eq(responseWithId(silent, 1).result.capabilities.codeLensProvider, nil)
 
     local asked = runSession({
         {
@@ -5139,7 +5140,7 @@ function M.codeLensesCarryTheCommandTheClientNamed()
     os.execute("rm -rf '" .. projectDir .. "'")
     assert(#lenses > 0, "a client that asked gets lenses")
     for _, lens in ipairs(lenses) do
-        test.equal(lens.command.command, "demo.inspect")
+        test.eq(lens.command.command, "demo.inspect")
     end
 end
 
@@ -5149,7 +5150,7 @@ function M.codeLensesAreEmptyForAClientThatNamedNoCommand()
     writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
     local lenses = artifactSession(projectDir, "silent.nupp", ARTIFACT_SOURCE, "textDocument/codeLens", {})
     os.execute("rm -rf '" .. projectDir .. "'")
-    test.equal(#lenses, 0)
+    test.eq(#lenses, 0)
 end
 
 function M.artifactDiscoveryNamesTheFunctionTheCursorIsIn()
@@ -5164,9 +5165,9 @@ function M.artifactDiscoveryNamesTheFunctionTheCursorIsIn()
         kinds[entry.kind] = entry
     end
     assert(kinds.image, "the VM image is offered")
-    test.equal(kinds.image.languageId, "nupp-image")
-    test.equal(kinds.image.scope, "module")
-    test.equal(result["function"].name, "scale")
+    test.eq(kinds.image.languageId, "nupp-image")
+    test.eq(kinds.image.scope, "module")
+    test.eq(result["function"].name, "scale")
 end
 
 -- Outside any function there is still a file to inspect, so discovery answers
@@ -5179,7 +5180,7 @@ function M.artifactDiscoveryOutsideAFunctionStillOffersTheFile()
     })
     os.execute("rm -rf '" .. projectDir .. "'")
     assert(#result.artifacts > 0, "the file's artifacts are still offered")
-    test.equal(result["function"], nil)
+    test.eq(result["function"], nil)
 end
 
 -- The image maps its rows back to the source lines they came from. A client
@@ -5191,10 +5192,10 @@ function M.theImageArtifactMapsItsRowsToSourceLines()
     local result = artifactSession(projectDir, "lowered.nupp", ARTIFACT_SOURCE, "nupp/artifact", {kind = "image"})
     os.execute("rm -rf '" .. projectDir .. "'")
     assert(result.available, "the file lowers: " .. json.encode(result.unavailable or {}))
-    test.equal(result.kind, "image")
-    test.equal(result.languageId, "nupp-image")
-    test.equal(result.mapping.kind, "lines")
-    test.equal(result.version, 7)
+    test.eq(result.kind, "image")
+    test.eq(result.languageId, "nupp-image")
+    test.eq(result.mapping.kind, "lines")
+    test.eq(result.version, 7)
     local mapped = false
     for _, entry in ipairs(result.mapping.entries) do
         mapped = mapped or entry.sourceLine == 4
@@ -5224,10 +5225,10 @@ function M.anUnresolvableArtifactSaysWhyRatherThanComingBackEmpty()
         kind = "image"
     })
     os.execute("rm -rf '" .. projectDir .. "'")
-    test.equal(result.available, false)
-    test.equal(result.unavailable.reason, "not-lowered")
+    test.eq(result.available, false)
+    test.eq(result.unavailable.reason, "not-lowered")
     assert(result.unavailable.detail, "an unavailable artifact says what stopped it")
-    test.equal(result.text, nil)
+    test.eq(result.text, nil)
 end
 
 function M.anUnknownArtifactKindIsRefusedByName()
@@ -5235,8 +5236,8 @@ function M.anUnknownArtifactKindIsRefusedByName()
     writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
     local result = artifactSession(projectDir, "kind.nupp", ARTIFACT_SOURCE, "nupp/artifact", {kind = "wgsl"})
     os.execute("rm -rf '" .. projectDir .. "'")
-    test.equal(result.available, false)
-    test.equal(result.unavailable.reason, "unknown-kind")
+    test.eq(result.available, false)
+    test.eq(result.unavailable.reason, "unknown-kind")
 end
 
 -- One lens per function rather than one per artifact kind: most kinds do not
@@ -5254,10 +5255,10 @@ function M.codeLensesOfferOneInspectPerFunction()
     os.execute("rm -rf '" .. projectDir .. "'")
     local names = {}
     for _, lens in ipairs(lenses) do
-        test.equal(lens.command.title, "Inspect")
-        test.equal(lens.command.command, "nupp.inspectCompiledFunction")
+        test.eq(lens.command.title, "Inspect")
+        test.eq(lens.command.command, "nupp.inspectCompiledFunction")
         names[lens.command.arguments[1].name] = true
-        test.equal(lens.range.start.line, lens.range["end"].line)
+        test.eq(lens.range.start.line, lens.range["end"].line)
     end
     assert(names.scale and names.second, "every function gets a lens")
 end
@@ -5679,15 +5680,15 @@ function M.artifactDiscoveryNamesAotKernel()
 local i32 = require("math.i32")
 @aot
 local function double(value: int32): int32
-    return i32.rotateLeft(value, 1)
+    return i32.rotateleft(value, 1)
 end
 return double
 ]],
         "nupp/artifacts",
         {position = {line = 3, character = 8}}
     )
-    test.equal(answer["function"].aotSymbol, "ks_double")
-    test.equal(answer["function"].aotSource, "kernel.nupp")
+    test.eq(answer["function"].aotSymbol, "ks_double")
+    test.eq(answer["function"].aotSource, "kernel.nupp")
 end
 
 -- The stdio transport, driven with raw bytes through the real server. What a
@@ -5810,9 +5811,9 @@ function M.theTransportKeepsTheNewestVersionAndEveryFrame()
     end
 
     assert(t.feed(change(3) .. change(2)) == nil)
-    test.equal(t.documentVersion("file:///a.nupp"), 3)
+    test.eq(t.documentVersion("file:///a.nupp"), 3)
     assert(t.feed(change(4)) == nil)
-    test.equal(t.documentVersion("file:///a.nupp"), 4)
+    test.eq(t.documentVersion("file:///a.nupp"), 4)
 
     local u = transport.new()
     local ping = frame({jsonrpc = "2.0", id = 7, method = "ping"})

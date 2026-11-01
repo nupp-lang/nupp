@@ -330,7 +330,7 @@ local function requireVmCli()
     if selected then
         selected:close()
     end
-    test.suite.requireCapability("vm-hosted-cli", os.getenv("NUPP_VM_CLI_IMAGE") ~= nil or selected ~= nil)
+    test.suite.requirecapability("vm-hosted-cli", os.getenv("NUPP_VM_CLI_IMAGE") ~= nil or selected ~= nil)
 end
 
 function M.artifactsListsWhatIsAvailableAndNamesTheEnclosingFunction()

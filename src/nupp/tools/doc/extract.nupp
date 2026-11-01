@@ -75,7 +75,7 @@ record extract.Member
     --- The compiler-only value kind, when this member exists only during comptime.
     comptimeKind: string?
 
-    --- What it was annotated with, as written, such as `@derive(types.Debug)`.
+    --- What it was annotated with, as written, such as `@derive(types.debug)`.
     annotations: {string}?
 
     --- Whether an annotation's value member may be omitted or names a type.
@@ -248,7 +248,7 @@ end
 -- A cleanup whose own declaration documentation leaves out has no business appearing in
 -- a signature documentation publishes. The prelude's `__nuppDestroyReader` is the
 -- clearest case: it is the library's terminal, a reader neither calls it nor writes it
--- down, and printing it in every `nupp.io` signature says otherwise.
+-- down, and printing it in every `io` signature says otherwise.
 --
 -- Dropping the argument would be worse than printing it, because `affine(T)` is not
 -- `affine(T, cleanup)` with the cleanup left off. It is a different type:
@@ -799,7 +799,7 @@ end
 --
 -- Tried first as a full path from a top-level declaration, which is how a field outside
 -- the record it names has to spell it. Failing that, as a bare reference to a type
--- nested somewhere in this file, as `files: Files.Library` inside `record nupp.io`,
+-- nested somewhere in this file, as `files: Files.Library` inside `record io`,
 -- which answers to its own simple name the same as any other nested reference does
 -- inside the body it sits in, so resolving it has to search every record's own nested
 -- types too, not just the top-level ones a full path starts from.
@@ -1612,6 +1612,260 @@ local function headerDoc(root, tokens)
     return nil
 end
 
+-- A literal type builder already states its members, even when its alias is reached
+-- through another module. Read only constructors whose type meaning is explicit;
+-- computed descriptors remain opaque rather than executing a compile-time helper.
+local function literalBuilderMembers(root: any, item: any, imports: any, includePrivate: boolean): any
+    local alias
+    local helpers, bindings = {}, {}
+    for _, block in ipairs(root.blocks or {}) do
+        for _, wrapped in ipairs(block.stats or {}) do
+            local stat = wrapped
+            while (stat.kind == "pragmaStmt" or stat.kind == "exportStmt") and stat.stat do
+                stat = stat.stat
+            end
+            if stat.kind == "typeAlias"
+                and syntax(stat.value) == item.aliasSource
+                and stat.name
+                and stat.name.text == item.name:match("([%w_]+)$")
+            then
+                alias = stat
+            end
+            if stat.kind == "localFuncStmt" then
+                helpers[stat.name.text] = stat
+                bindings[stat.name.text] = (bindings[stat.name.text] or 0) + 1
+            elseif stat.kind == "localStmt" then
+                for _, name in ipairs(stat.names or {}) do
+                    bindings[name.text] = (bindings[name.text] or 0) + 1
+                end
+            end
+        end
+    end
+    local call = alias and alias.value
+    local helperName = call and call.kind == "ttypecall" and syntax(call.callee)
+    local helper = helperName and bindings[helperName] == 1 and helpers[helperName]
+    if not helper or not helper.comptimeTok then
+        return nil
+    end
+    local arguments = {}
+    for index, param in ipairs(helper.body.params or {}) do
+        if not param.name or not call.arguments[index] then
+            return nil
+        end
+        arguments[param.name.text] = syntax(call.arguments[index])
+    end
+    if #call.arguments ~= #helper.body.params then
+        return nil
+    end
+    local returned
+    for _, stat in ipairs(helper.body.body.stats or {}) do
+        if stat.kind == "returnStmt" then
+            if returned or #stat.exprs ~= 1 then
+                return nil
+            end
+            returned = stat.exprs[1]
+        end
+    end
+    local namespace, operation
+    if returned and returned.kind == "call" then
+        namespace, operation = syntax(returned.obj):match("^([%w_]+)%.([%w_]+)$")
+    end
+    if operation ~= "shape" or imports[namespace] ~= "types" or bindings[namespace] ~= 1 or arguments[namespace] then
+        return nil
+    end
+
+    local function changesBinding(target: any): boolean
+        while target and (target.kind == "dotIndex" or target.kind == "bracketIndex" or target.kind == "paren") do
+            target = target.obj or target.expr
+        end
+        local name = target and target.kind == "name" and target.token.text
+
+        return name ~= nil and (name == namespace or name == helperName or arguments[name] ~= nil)
+    end
+
+    local function shadowed(node: any): boolean
+        if node.kind == "localStmt" then
+            for _, name in ipairs(node.names or {}) do
+                if name.text == namespace or arguments[name.text] ~= nil then
+                    return true
+                end
+            end
+        elseif node.kind == "localFuncStmt" and (node.name.text == namespace or arguments[node.name.text] ~= nil) then
+            return true
+        elseif node.kind == "assignStmt" then
+            for _, target in ipairs(node.targets or {}) do
+                if changesBinding(target) then
+                    return true
+                end
+            end
+        elseif node.kind == "compoundAssign" and changesBinding(node.target) then
+            return true
+        elseif node.kind == "returnStmt" and node.exprs[1] ~= returned then
+            local value = node.exprs[1]
+            if #node.exprs ~= 1 or value.kind ~= "call" or syntax(value.obj) ~= namespace .. ".error" then
+                return true
+            end
+        end
+        for _, child in ipairs(node) do
+            if child.kind and shadowed(child) then
+                return true
+            end
+        end
+
+        return false
+    end
+
+    if shadowed(helper.body) then
+        return nil
+    end
+    for _, block in ipairs(root.blocks or {}) do
+        for _, stat in ipairs(block.stats or {}) do
+            if (stat.kind == "assignStmt" or stat.kind == "compoundAssign") and shadowed(stat) then
+                return nil
+            end
+        end
+    end
+
+    local function constructor(node: any, name: string): any
+        if node and node.kind == "call" and syntax(node.obj) == namespace .. "." .. name then
+            return node.args.exprs
+        end
+    end
+
+    local function array(node: any): any
+        if not node or node.kind ~= "tableExpr" then
+            return nil
+        end
+        local values = {}
+        for _, field in ipairs(node.fields or {}) do
+            if field.kind ~= "fieldItem" then
+                return nil
+            end
+            values[#values + 1] = field.value
+        end
+
+        return values
+    end
+
+    local primitives: {
+        [string]: boolean
+    } = {any = true, boolean = true, integer = true, number = true, string = true, never = true}
+    local typeText: (function(node: any): string?)
+
+    local function packText(node: any): string?
+        local args = constructor(node, "pack")
+        if args and #args == 1 then
+            local values = array(args[1])
+            if not values then
+                return nil
+            end
+            local pieces = {}
+            for _, value in ipairs(values) do
+                local text = typeText(value)
+                if not text then
+                    return nil
+                end
+                pieces[#pieces + 1] = text
+            end
+
+            return "(" .. table.concat(pieces, ", ") .. ")"
+        end
+        args = constructor(node, "results") or constructor(node, "parameters")
+        if args and #args == 1 and arguments[syntax(args[1])] then
+            local name = syntax(node.obj):match("%.([%w_]+)$")
+            return "unpackof " .. namespace .. "." .. name .. "(" .. arguments[syntax(args[1])] .. ")"
+        end
+
+        return nil
+    end
+
+    typeText = function(node)
+        local primitive = node.kind == "dotIndex" and syntax(node):match("^" .. namespace .. "%.([%w_]+)$")
+        if primitive and primitives[primitive] then
+            return primitive
+        end
+        local args = constructor(node, "literal")
+        if args
+            and #args == 1
+            and (args[1].kind == "string" or args[1].kind == "number" or args[1].kind == "literal")
+        then
+            return syntax(args[1])
+        end
+        args = constructor(node, "optional")
+        if args and #args == 1 then
+            local text = typeText(args[1])
+            return text and "(" .. text .. ")?" or nil
+        end
+        args = constructor(node, "union")
+        if args and #args == 1 then
+            local values = array(args[1])
+            if not values or #values == 0 then
+                return nil
+            end
+            local pieces = {}
+            for _, value in ipairs(values) do
+                local text = typeText(value)
+                if not text then
+                    return nil
+                end
+                pieces[#pieces + 1] = text
+            end
+
+            return "(" .. table.concat(pieces, " | ") .. ")"
+        end
+        args = constructor(node, "function_")
+        if args and #args == 2 then
+            local params, results = packText(args[1]), packText(args[2])
+            if params and results then
+                return "function" .. params .. ": " .. results
+            end
+        end
+
+        return nil
+    end
+    local shape = constructor(returned, "shape")
+    local descriptors = shape and #shape == 1 and array(shape[1])
+    if not descriptors then
+        return nil
+    end
+    local source, docs, names = {"record DocumentedShape"}, {}, {}
+    for _, descriptor in ipairs(descriptors) do
+        if descriptor.kind ~= "tableExpr" then
+            return nil
+        end
+        local name, read
+        for _, field in ipairs(descriptor.fields or {}) do
+            if field.kind ~= "fieldNamed" then
+                return nil
+            elseif field.name.text == "name" then
+                name = syntax(field.value):match("^[\"']([%a_][%w_]*)[\"']$")
+            elseif field.name.text == "read" then
+                read = typeText(field.value)
+            else
+                return nil
+            end
+        end
+        if not name or not read or names[name] then
+            return nil
+        end
+        names[name] = true
+        docs[name] = entryDoc(descriptor).text
+        source[#source + 1] = name .. ": " .. read
+    end
+    source[#source + 1] = "end"
+    local parsed = parser.parse(table.concat(source, "\n"), "documented-shape.nupp")
+    if #parsed.errors > 0 then
+        return nil
+    end
+
+    local declaration = parsed.root.blocks[1].stats[1]
+    if declaration.kind ~= "recordDecl" then
+        return nil
+    end
+
+    return buildMembers(declaration.entries, item.path, includePrivate, docs)
+end
+
 function extract.extract(
     source: string,
     path: string?,
@@ -1775,6 +2029,12 @@ function extract.extract(
                     result.items[#result.items + 1] = item
                 end
             end
+        end
+    end
+    for _, item in ipairs(result.items) do
+        if item.kind == "type" and item.aliasSource then
+            item.members = literalBuilderMembers(parsed.root, item, result.imports, opts.includePrivate == true)
+                or item.members
         end
     end
     result.items = foldMethods(

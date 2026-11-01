@@ -317,7 +317,7 @@ standard library. A suspension-aware operation is an ordinary call with an
 ordinary result:
 
 ```nupp
-local process = nupp.io.process
+local process = io.process
 
 local child = assert(process.spawn({args = {"cc", "--version"}}))
 local result = assert(child:communicate())
@@ -331,9 +331,10 @@ so other work can run. A ready operation does neither.
 
 Whether a function may suspend is an inferred effect. Use `@nosuspend do` where
 control must not park; the compiler follows calls to the possible suspension and
-reports the path. Libraries subscribe through `nupp.suspension`, [suspension
-handlers](../learn/runtime/concurrency/suspension.md#hosts-supply-scheduling-policy) own
-scheduling policy, and `all`, `gather`, `race`, and `batch` compose several
+reports the path. Libraries subscribe through `coroutine.suspension`,
+[suspension
+handlers](../learn/runtime/concurrency/suspension.md#hosts-supply-scheduling-policy)
+own scheduling policy, and `all`, `gather`, `race`, and `batch` compose several
 waiting operations without promises.
 
 ::: deepdive
@@ -382,7 +383,7 @@ function-like macros.
 - [describe lifetime
   behavior](../learn/runtime/c-interop/index.md#describe-lifetime-behavior) for what each
   parameter mode promises
-- [](nupp.mem.span) for bounds-checked views over C storage
+- [](binary.span) for bounds-checked views over C storage
 :::
 
 ## Tooling in one binary

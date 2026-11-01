@@ -2,7 +2,7 @@ module tests.fixtures.cliconflictinvalid
 
 local cli = require("arg")
 
-@derive(cli.Arguments)
+@derive(cli.arguments)
 local record Conflicting
     @cli("same")
     first: boolean = false

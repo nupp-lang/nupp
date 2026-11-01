@@ -153,7 +153,7 @@ export record Sink
     function integer(self, member: Member, scalar: integer): nil
         self.total += scalar * member.index
         if self.parts ~= nil then
-            self.parts[#self.parts + 1] = member.key .. ":" .. json.encodeValue(scalar)
+            self.parts[#self.parts + 1] = member.key .. ":" .. json.encodevalue(scalar)
         end
     end
 end
@@ -446,7 +446,7 @@ export function buildOperation(description: Model, variant: Variant): Operation
     for index, member in ipairs(description.members) do
         assert(member.index == index and names[member.name] == nil, "invalid member layout")
         names[member.name] = index
-        selected[index] = new Member(index = index, name = member.name, key = json.encodeValue(member.name))
+        selected[index] = new Member(index = index, name = member.name, key = json.encodevalue(member.name))
     end
     description = new Model(members = selected, indexed = description.indexed, names = names)
     local ops: {Op} = {}

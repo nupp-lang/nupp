@@ -22,7 +22,7 @@ local function validText(value: any, what: string, level: integer): string
     if type(value) ~= "string" or value == "" then
         error("nupp: io.files " .. what .. " must be a non-empty string", level)
     end
-    if not utf8.isValid(value as string) then
+    if not utf8.isvalid(value as string) then
         error("nupp: io.files " .. what .. " must be valid UTF-8", level)
     end
 
@@ -123,7 +123,7 @@ end
 newPath = function(provider: string, root: string, parts: {string}): ApplicationPath
     local text: string
     if provider == "native" then
-        local built = paths.newPath(root)
+        local built = paths.newpath(root)
         for _, part in ipairs(parts) do
             built = built:join(part)
         end

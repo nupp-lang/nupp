@@ -18,7 +18,7 @@ local M = {}
 function M.spanAssignmentsPreserveLocationsOrderAndTupleAdjustment()
     local source = [[
 local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local u32 = math.u32
 local function apply(exclusive values: span.WriteSpan<float64>, trace: {number}): number
     local function index(mark: number): uint32
@@ -63,7 +63,7 @@ end
 
 function M.mixedAssignmentsFreezeTableReceiversBeforeRebinding()
     local source = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local u32 = math.u32
 local function apply(exclusive values: span.WriteSpan<float64>, trace: {number}): number
     local current: {number} = {10}
@@ -120,7 +120,7 @@ end
 
 function M.temporaryStructFieldReceiversRemainRefused()
     local source = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local u32 = math.u32
 local struct Cell value: float64 end
 local function apply(factory: function(): span.WriteSpan<Cell>, trace: {number}): nil
@@ -154,7 +154,7 @@ end
 function M.rootedStructFieldsEvaluateIndicesOnce()
     local source = [[
 local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local u32 = math.u32
 local struct Cell value: float64 end
 local function apply(exclusive values: span.WriteSpan<Cell>, trace: {number}): nil
@@ -169,7 +169,7 @@ local function apply(exclusive values: span.WriteSpan<Cell>, trace: {number}): n
     values[index(1)].value, values[index(2)].value = value(3), value(4)
 end
 local function run(trace: {number}): number
-    const storage = array.newArray(new Cell(0), 1)
+    const storage = array.newarray(new Cell(0), 1)
     const values = storage:write()
     apply(values, trace)
     own.drop(values)

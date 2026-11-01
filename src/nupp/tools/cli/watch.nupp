@@ -266,8 +266,7 @@ function watch.open(path: string, root: string?): (watch.Session?, {any}?)
         watchSession:persist()
     end
 
-    _G.nupp = _G.nupp or {}
-    _G.nupp.hotreload = {
+    _G.debug.reload = {
         generation = function(): integer
             return watchSession.generation
         end,

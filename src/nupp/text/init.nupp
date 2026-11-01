@@ -1,15 +1,15 @@
 module nupp.text
 
 --[[
-Working with text a byte at a time.
+`nupp.text` builds and reads text a byte at a time.
 
-`newBuffer` hands back a FIFO byte buffer: append to one end, read from the
+`newbuffer` hands back a FIFO byte buffer: append to one end, read from the
 other, and the string is built once instead of once per concatenation.
 
 ```nupp
 local text = require("nupp.text")
 
-const out = text.newBuffer()
+const out = text.newbuffer()
 out:put("hello", ", ", "world")
 print(out:get())
 ```
@@ -46,7 +46,4 @@ export type Buffer = SharedBuffer
 --- @param size a capacity hint, or the options table when it is the only argument
 --- @param options the host buffer library's options, where it has any
 --- @return the buffer, holding nothing
-export const newBuffer: function(size: (integer | table)?, options: table?): Buffer = provider.new
-
---- @internal
-export const newbuffer = newBuffer
+export const newbuffer: function(size: (integer | table)?, options: table?): Buffer = provider.new

@@ -44,7 +44,7 @@ function extract.inspect(source: string, selected: string): string
         bytes[i] = assert(result.code:byte(i))
     end
 
-    return json.encodeValue({
+    return json.encodevalue({
         name = result.name,
         slots = result.slots,
         count = result.count,
@@ -96,7 +96,7 @@ end
 
 function extract.cycleInspect(): string
     local result = program.fromBlocks(cycleGraph())
-    return json.encodeValue({
+    return json.encodevalue({
         name = "copy-cycle",
         slots = result.slots,
         count = result.count,

@@ -1,5 +1,5 @@
 local state = require("providerstate")
-local io2 = require("nupp.io")
+local io2 = require("io")
 local M = {}
 
 local NEED_INPUT = 1
@@ -49,7 +49,7 @@ function M.decoderEofCanFillMoreThanOneOutputSpan()
             end)
         ),
     })
-    local reader = load("binary.compress").format("fixture"):newReader(io2.newStringReader("input"), {
+    local reader = load("binary.compress").format("fixture"):newReader(io2.newstringreader("input"), {
         workspaceBytes = 1,
         unbounded = true
     })
@@ -69,7 +69,7 @@ function M.rejectsInvalidProviderAndSourceProgress()
         end,
     }) do
         local load = state.family("compression", {provider("fixture", decoder(finishInput))})
-        local reader = load("binary.compress").format("fixture"):newReader(io2.newStringReader("input"), {
+        local reader = load("binary.compress").format("fixture"):newReader(io2.newstringreader("input"), {
             workspaceBytes = 1,
             unbounded = true
         })
@@ -111,7 +111,7 @@ function M.rejectsMalformedUntypedOptions()
     local format = load("binary.compress").format("fixture")
 
     local function rejects(options, expected)
-        local source = io2.newStringReader("")
+        local source = io2.newstringreader("")
         local ok, problem = pcall(format.newReader, format, source, options)
         if ok then
             problem:close()
@@ -125,7 +125,7 @@ function M.rejectsMalformedUntypedOptions()
     rejects({unbounded = "yes"}, "unbounded must be a boolean")
     rejects({maxExpansionRatio = "1"}, "maxExpansionRatio must be positive and finite")
 
-    local destination = io2.newBuffer()
+    local destination = io2.newbuffer()
     local sink = destination:newWriter()
     local ok, problem = pcall(format.newWriter, format, sink, false)
     if ok then

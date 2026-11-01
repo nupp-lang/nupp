@@ -8,7 +8,7 @@ holds the library to it before any of the library's code runs.
 ]]
 
 local counter = require("demo.counter")
-local tasks = require("nupp.tasks")
+local tasks = require("coroutine")
 
 local app = {}
 local saved: any = nil
@@ -62,7 +62,7 @@ end
 --- Sibling tasks parked on native requests at once, and a failed completion
 --- raised at the call that parked.
 function app.concurrent(): number
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         local slow = scope:spawn(function(): string
             return counter.later("ba", 20)
         end)

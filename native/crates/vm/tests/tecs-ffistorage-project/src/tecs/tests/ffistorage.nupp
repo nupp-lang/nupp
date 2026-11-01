@@ -39,9 +39,9 @@ function suite.rawStorageRelocatesWithABulkCopy(): nil
     end
     const target = ffistorage.resize(storage, source, 2, 100) as Point[?]
     @unsafe do
-        test.equal(target[1].x, 13)
-        test.equal(target[2].y, 23)
-        test.equal(target[100].x, 0)
+        test.eq(target[1].x, 13)
+        test.eq(target[2].y, 23)
+        test.eq(target[100].x, 0)
     end
 end
 
@@ -53,15 +53,15 @@ function suite.rawColumnIOIsBoundedAndDoesNotCopyPaddingRowZero(): nil
         source[1].values[1] = 9
         source[2].values[2] = 11
     end
-    const bytes = buffer.newBuffer()
+    const bytes = buffer.newbuffer()
     ffistorage.writeRows(storage, source, 1, 2, bytes)
-    test.equal(#bytes, storage.width * 2)
+    test.eq(#bytes, storage.width * 2)
     ffistorage.readRows(storage, target, 2, 2, bytes)
-    test.equal(#bytes, 0)
+    test.eq(#bytes, 0)
     @unsafe do
-        test.equal(target[0].values[1], 0)
-        test.equal(target[2].values[1], 9)
-        test.equal(target[3].values[2], 11)
+        test.eq(target[0].values[1], 0)
+        test.eq(target[2].values[1], 9)
+        test.eq(target[3].values[2], 11)
     end
     test.raises(
         function(): nil
@@ -117,7 +117,7 @@ function suite.customBackingIsRootedAndUsedAgainOnGrowth(): nil
     local allocations: integer = 0
     ffistorage.setAllocator(storage, function(bytes: integer, alignment: integer): (any, any)
         allocations = allocations + 1
-        test.equal(alignment, pointLayout.alignment)
+        test.eq(alignment, pointLayout.alignment)
         const owner = native.allocateBytes(bytes)
         return owner, owner
     end)
@@ -129,10 +129,10 @@ function suite.customBackingIsRootedAndUsedAgainOnGrowth(): nil
     test(ffistorage.owner(source) ~= nil)
     const target = ffistorage.resize(storage, source, 10, 100) as Point[?]
     collectgarbage("collect")
-    test.equal(allocations, 2)
-    test.equal(ffistorage.capacity(target), 100)
+    test.eq(allocations, 2)
+    test.eq(ffistorage.capacity(target), 100)
     @unsafe do
-        test.equal(target[1].x, 91)
+        test.eq(target[1].x, 91)
     end
     ffistorage.setAllocator(storage, nil)
     test(ffistorage.owner(ffistorage.allocate(storage, 10)) == nil)
@@ -146,25 +146,25 @@ function suite.codecsAndStagingPreserveValues(): nil
     original.serial = 18446744073709551615ULL
     original.enabled = true
     const encoded = ffistorage.serialize(arrayStorage, original)
-    test.equal(encoded.serial, "18446744073709551615")
+    test.eq(encoded.serial, "18446744073709551615")
     const restored = ffistorage.deserialize(arrayStorage, encoded) as ArrayValue
-    test.equal(restored.values[0], 1)
-    test.equal(restored.values[1], 2)
-    test.equal(restored.values[2], 3)
+    test.eq(restored.values[0], 1)
+    test.eq(restored.values[1], 2)
+    test.eq(restored.values[2], 3)
     test(restored.serial == 18446744073709551615ULL)
     test(restored.enabled)
     const fromOne = ffistorage.deserialize(arrayStorage, {values = {4, 5, 6}}) as ArrayValue
     const fromZero = ffistorage.deserialize(arrayStorage, {values = {[0] = 7, [1] = 8, [2] = 9}}) as ArrayValue
-    test.equal(fromOne.values[2], 6)
-    test.equal(fromZero.values[0], 7)
-    test.equal(fromZero.values[2], 9)
+    test.eq(fromOne.values[2], 6)
+    test.eq(fromZero.values[0], 7)
+    test.eq(fromZero.values[2], 9)
     test(arrayStorage.rawCodec)
     test(not pointStorage.rawCodec)
-    test.equal(pointStorage.fingerprint, "x:double,y:double|16")
+    test.eq(pointStorage.fingerprint, "x:double,y:double|16")
     const signed = ffistorage.new(new SignedValue())
     const minimum = ffistorage.deserialize(signed, {serial = "-9223372036854775808"}) as SignedValue
     test(minimum.serial == -9223372036854775808LL)
-    test.equal(ffistorage.serialize(signed, minimum).serial, "-9223372036854775808")
+    test.eq(ffistorage.serialize(signed, minimum).serial, "-9223372036854775808")
     test.raises(
         function(): nil
             ffistorage.new(new NestedValue())
@@ -179,12 +179,12 @@ function suite.codecsAndStagingPreserveValues(): nil
     const detached: any = ffistorage.capture(pointStorage, row)
     test(not rawequal(row, detached))
     rows[1].x = 42
-    test.equal(detached.x, 19)
-    test.equal(owned.x, 19)
+    test.eq(detached.x, 19)
+    test.eq(owned.x, 19)
     const reloaded: any = persist.load(persist.save({rows = rows, row = row, detached = detached}))
     reloaded.row.x = 47
-    test.equal(reloaded.rows[1].x, 47)
-    test.equal(reloaded.detached.x, 19)
+    test.eq(reloaded.rows[1].x, 47)
+    test.eq(reloaded.detached.x, 19)
     test(native.isBorrowed(reloaded.row))
     test(not native.isBorrowed(reloaded.detached))
 end
@@ -201,14 +201,14 @@ function suite.run(): number
 end
 
 function suite.publicBufferLengthTracksBytes(): nil
-    const bytes = buffer.newBuffer()
+    const bytes = buffer.newbuffer()
     bytes:put("hello")
-    test.equal(#bytes, 5)
-    test.equal(bytes:tostring(), "hello")
-    test.equal(bytes:get(2), "he")
-    test.equal(#bytes, 3)
-    test.equal(bytes:get(), "llo")
-    test.equal(#bytes, 0)
+    test.eq(#bytes, 5)
+    test.eq(bytes:tostring(), "hello")
+    test.eq(bytes:get(2), "he")
+    test.eq(#bytes, 3)
+    test.eq(bytes:get(), "llo")
+    test.eq(#bytes, 0)
 end
 
 export = suite

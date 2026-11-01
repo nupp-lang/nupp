@@ -59,7 +59,7 @@ function M.providerSelectionAndCleanup()
     assert(digest.algorithm("sha256").digestSize == 32 and created == 0)
     assert(digest.lookup("sha512") ~= nil, "unreplaced built-ins remain available")
     for _ = 1, 20 do
-        assert(digest.hexDigest("sha256", "abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        assert(digest.hexdigest("sha256", "abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
         assert(#digest.algorithms() == 4)
     end
     assert(created == 20 and closed == 20)
@@ -98,9 +98,9 @@ function M.digestAndMacProviderFailuresCloseAndDoNotFallBack()
             local api = load("binary.hash." .. kind)
             local ok, problem
             if kind == "digest" then
-                ok, problem = pcall(api.hexDigest, name, "abc")
+                ok, problem = pcall(api.hexdigest, name, "abc")
             else
-                ok, problem = pcall(api.hexDigest, name, "key", "abc")
+                ok, problem = pcall(api.hexdigest, name, "key", "abc")
             end
             assert(not ok and tostring(problem):find("test " .. kind .. " " .. failure .. " failure", 1, true))
             assert(closed == 1, "failed " .. kind .. " " .. failure .. " closes exactly once")
@@ -198,7 +198,7 @@ function M.failedLoadFailsTheFacadeInitialization()
     assert(not ok and tostring(problem):find("loader failure", 1, true))
 end
 
-local FACTORIES = {digest = "newDigest", checksum = "newChecksum", mac = "newMac"}
+local FACTORIES = {digest = "newdigest", checksum = "newchecksum", mac = "newmac"}
 
 function M.emptyDiscoveryRetainsBuiltinsAndIndependentListings()
     for _, kind in ipairs({"digest", "checksum", "mac"}) do

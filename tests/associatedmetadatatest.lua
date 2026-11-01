@@ -35,9 +35,9 @@ function M.aGenericAnswerFollowsTheInstantiation()
     local param = T.typevar("T", "meta-test:cell")
     local cell = declaring("Cell", {param}, {order = {"Value"}, answers = {Value = {type = param}},})
     local ofString = generics.instantiate(cell, {[param] = T.string})
-    testAssert.equal(shown(T.projection(ofString, "Value")), "string")
+    testAssert.eq(shown(T.projection(ofString, "Value")), "string")
     local ofInteger = generics.instantiate(cell, {[param] = T.integer})
-    testAssert.equal(shown(T.projection(ofInteger, "Value")), "integer")
+    testAssert.eq(shown(T.projection(ofInteger, "Value")), "integer")
 end
 
 -- An answer mentioning a binder the instantiation knows nothing about keeps it.
@@ -47,7 +47,7 @@ function M.anUnrelatedBinderInAnAnswerSurvives()
     local other = T.typevar("E", "meta-test:pair-other")
     local pair = declaring("Pair", {param}, {order = {"Value"}, answers = {Value = {type = T.func({other}, {param})}},})
     local ofString = generics.instantiate(pair, {[param] = T.string})
-    testAssert.equal(shown(T.projection(ofString, "Value")), "function(E): string")
+    testAssert.eq(shown(T.projection(ofString, "Value")), "function(E): string")
 end
 
 -- `= self` reduces to the declaration actually projected, which for an
@@ -58,10 +58,10 @@ function M.selfAnswersWithTheInstantiatedNominal()
     holder.associatedAnswers = {Value = {type = holder.selfType, selfBinder = holder.selfType},}
     local ofString = generics.instantiate(holder, {[param] = T.string})
     local reduced = generics.normalize(T.projection(ofString, "Value")).type
-    testAssert.equal(reduced, ofString, "self answered with something other than the receiver")
+    testAssert.eq(reduced, ofString, "self answered with something other than the receiver")
     assert(reduced ~= holder, "self answered with the origin declaration")
     assert(reduced ~= T.any, "self answered with any")
-    testAssert.equal(T.tostring(reduced), "Holder<string>")
+    testAssert.eq(T.tostring(reduced), "Holder<string>")
 end
 
 -- An inherited default keeps the binder it was written under, so a later
@@ -75,13 +75,13 @@ function M.anInheritedDefaultRebindsToItsImplementor()
     local source = declaring("Source", {}, {kind = "interface", order = {"Value"}})
     local default = {type = source.selfType, selfBinder = source.selfType, kind = "default",}
     source.associatedAnswers = {Value = default}
-    testAssert.equal(shown(T.projection(source, "Value")), "Source.Value", "an interface resolved its own default")
+    testAssert.eq(shown(T.projection(source, "Value")), "Source.Value", "an interface resolved its own default")
     -- Copying it to a concrete implementor is what makes it an answer, and the binder
     -- rebinds there.
     local taker = T.nominal("Taker", "record")
     taker.associatedAnswers = {Value = default}
     local reduced = generics.normalize(T.projection(taker, "Value")).type
-    testAssert.equal(reduced, taker, "the default did not rebind to the implementor")
+    testAssert.eq(reduced, taker, "the default did not rebind to the implementor")
     assert(reduced ~= source, "the default stayed with the interface")
 end
 
@@ -93,8 +93,8 @@ function M.anInterfaceNeverExposesADefaultAnImplementorOverrides()
     local impl = T.nominal("R", "record")
     impl.supertypes = {iface}
     impl.associatedAnswers = {Item = {type = T.integer}}
-    testAssert.equal(shown(T.projection(iface, "Item")), "I.Item", "a value typed as the interface exposed the default")
-    testAssert.equal(shown(T.projection(impl, "Item")), "integer", "the implementor's own answer")
+    testAssert.eq(shown(T.projection(iface, "Item")), "I.Item", "a value typed as the interface exposed the default")
+    testAssert.eq(shown(T.projection(impl, "Item")), "integer", "the implementor's own answer")
 end
 
 function M.everyPieceOfMetadataSurvivesInstantiation()
@@ -114,14 +114,14 @@ function M.everyPieceOfMetadataSurvivesInstantiation()
     for j, requirement in ipairs(instance.associatedRequirements) do
         order[j] = requirement.name
     end
-    testAssert.equal(table.concat(order, ","), "Value,Error", "order")
-    testAssert.equal(instance.associatedRequirements[1].bound, named, "bound")
-    testAssert.equal(T.tostring(instance.associatedAnswers.Value.type), "integer", "answer")
-    testAssert.equal(instance.associatedAnswers.Error.kind, "default", "provenance")
-    testAssert.equal(instance.associatedAnswers.Value.definition, site, "definition")
-    testAssert.equal(instance.associatedAnswers.Error.definition, site, "definition")
+    testAssert.eq(table.concat(order, ","), "Value,Error", "order")
+    testAssert.eq(instance.associatedRequirements[1].bound, named, "bound")
+    testAssert.eq(T.tostring(instance.associatedAnswers.Value.type), "integer", "answer")
+    testAssert.eq(instance.associatedAnswers.Error.kind, "default", "provenance")
+    testAssert.eq(instance.associatedAnswers.Value.definition, site, "definition")
+    testAssert.eq(instance.associatedAnswers.Error.definition, site, "definition")
     -- The origin is untouched by having been instantiated.
-    testAssert.equal(T.tostring(full.associatedAnswers.Value.type), "T", "the origin moved")
+    testAssert.eq(T.tostring(full.associatedAnswers.Value.type), "T", "the origin moved")
 end
 
 -- The answer is reachable through the instantiation and reduces all the way.
@@ -131,8 +131,8 @@ function M.aProjectionThroughAnInstantiatedAnswerNormalizesFully()
     local ofString = generics.instantiate(inner, {[param] = T.string})
     local outer = T.nominal("Outer", "record")
     outer.associatedAnswers = {Value = {type = T.projection(ofString, "Value")}}
-    testAssert.equal(shown(T.projection(outer, "Value")), "string")
-    testAssert.equal(shown(T.array(T.projection(outer, "Value"))), "{string}")
+    testAssert.eq(shown(T.projection(outer, "Value")), "string")
+    testAssert.eq(shown(T.array(T.projection(outer, "Value"))), "{string}")
 end
 
 function M.instantiationIsMemoizedWithItsMetadata()
@@ -140,9 +140,9 @@ function M.instantiationIsMemoizedWithItsMetadata()
     local cell = declaring("Cell2", {param}, {order = {"Value"}, answers = {Value = {type = param}},})
     local once = generics.instantiate(cell, {[param] = T.string})
     local twice = generics.instantiate(cell, {[param] = T.string})
-    testAssert.equal(once, twice, "two instantiations of one application")
-    testAssert.equal(once.associatedAnswers.Value.type, twice.associatedAnswers.Value.type)
-    testAssert.equal(shown(T.projection(twice, "Value")), "string")
+    testAssert.eq(once, twice, "two instantiations of one application")
+    testAssert.eq(once.associatedAnswers.Value.type, twice.associatedAnswers.Value.type)
+    testAssert.eq(shown(T.projection(twice, "Value")), "string")
 end
 
 -- A parameter the instantiation left out is genuinely unknown, and only there is
@@ -151,7 +151,7 @@ function M.aMissingArgumentMaterializesInTheAnswer()
     local param = T.typevar("T", "meta-test:missing")
     local cell = declaring("Cell3", {param}, {order = {"Value"}, answers = {Value = {type = param}},})
     local bare = generics.instantiate(cell, {})
-    testAssert.equal(shown(T.projection(bare, "Value")), "any")
+    testAssert.eq(shown(T.projection(bare, "Value")), "any")
 end
 
 return M

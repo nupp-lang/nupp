@@ -38,8 +38,8 @@ method, module member, name, or runtime identity.
 ## Inspection and construction
 
 Type handles are opaque and immutable. `types.describe(T)`, `kind`,
-`elements`, `sameNominal`, `fields`, `readKeys`, `writeKeys`, `readAt`, and
-`writeAt` expose checked semantic information without exposing mutable checker
+`elements`, `samenominal`, `fields`, `readkeys`, `writekeys`, `readat`, and
+`writeat` expose checked semantic information without exposing mutable checker
 state. Builders
 such as `literal`, `optional`, `array`, `tuple`, `map`, `shape`, `union`,
 `intersection`, `pointer`, `carray`, `constof`, `function_`, and `pack` produce
@@ -82,7 +82,7 @@ The builder reads its descriptor array without changing it. Descriptor members i
 the API are therefore read-only, and an annotated descriptor shape may omit an
 optional member such as `write` instead of writing `write: type?` at every use.
 
-`types.nonExhaustive()` takes no arguments and returns the one type no name
+`types.nonexhaustive()` takes no arguments and returns the one type no name
 resolves to: the member that keeps a union open. It is written in a type
 directly as well as inside a generator, since a union is where it means
 anything. See [Unions that may grow](unions.md#unions-that-may-grow) for what it
@@ -107,7 +107,7 @@ print(leaf + 1)
 distinct from an evaluator crash or timeout, and it reports the authored
 message at the application with a bounded comptime call trace.
 
-`types.sameNominal(A, B)` asks whether two types are applications of the
+`types.samenominal(A, B)` asks whether two types are applications of the
 same nominal declaration without exposing that declaration's identity. Generic
 arguments do not have to match, aliases and ownership wrappers are transparent,
 and two structural types or different declarations return false:
@@ -123,7 +123,7 @@ end
 
 @comptime
 local function SameFamily(A: type, B: type): type
-    return types.literal(types.sameNominal(A, B))
+    return types.literal(types.samenominal(A, B))
 end
 
 local same: SameFamily(Cell<string>, Cell<number>) = true
@@ -265,7 +265,7 @@ not a format-specific checker branch.
 `%s`:
 
 ```nupp
-@derive(types.Debug)
+@derive(types.debug)
 local record User
     name: string
 end
@@ -274,7 +274,7 @@ local inspected = string.format("user=%?", new User(name = "Ada"))
 ```
 
 See [derives.md](../../../reference/derives.md#debug) for what
-`@derive(types.Debug)` generates.
+`@derive(types.debug)` generates.
 
 ### Formats the checker cannot read
 
@@ -312,14 +312,14 @@ local invalid = string.format("%q %y", 1, 2)
 
 ### Typed wrappers
 
-`types.formatArguments(Format)` exposes the same directive
+`types.formatarguments(Format)` exposes the same directive
 computation, so a wrapper around `string.format` checks its callers the way
 `string.format` checks its own:
 
 ```nupp
 local function format<Format is string>(
     fmt: Format,
-    ...: unpackof types.formatArguments(Format)
+    ...: unpackof types.formatarguments(Format)
 ): string
     return string.format(fmt, ...)
 end

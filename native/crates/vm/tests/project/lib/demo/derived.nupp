@@ -9,7 +9,7 @@ local json = require("serde.json")
 local constructed = require("demo.qualifiedconstructor")
 
 @cli("probe")
-@derive(cli.Command)
+@derive(cli.command)
 local record Options
     @cli(short = "v")
     verbose: boolean = false
@@ -93,7 +93,7 @@ local function managedOwnership(): boolean
     local owner = own.manage(open(1))
     local handle = owner:alias()
     local erased: any = handle
-    local recovered, problem = own2.recoverAlias(erased)
+    local recovered, problem = own2.recoveralias(erased)
     assert2(problem == nil)
     if not recovered then
         error("alias recovery failed")
@@ -117,7 +117,7 @@ local function managedOwnership(): boolean
         local other = own.manage(open(2))
     end
     do
-        local group = own2.managedGroup()
+        local group = own2.managedgroup()
         local held = group:adopt(own.manage(open(4)))
         assert2(
             held:with(function(borrows value)
@@ -148,12 +148,12 @@ function derived.run(): integer
     assert2((new Constructed(40)).value == 42)
     assert2((new Constructed(39)).value == 42)
     assert2((new derived.Counter(42)).value == 42)
-    local decoded, problem = json.decodeValue(json.encodeValue({present = 42, absent = nil}))
+    local decoded, problem = json.decodevalue(json.encodevalue({present = 42, absent = nil}))
     assert2(decoded and problem == nil and decoded.present == 42 and decoded.absent == nil)
     local controls = string.char(0, 1, 2, 8, 9, 10, 12, 13, 31) .. '\\"'
-    local escaped = json.encodeValue({[controls] = controls})
+    local escaped = json.encodevalue({[controls] = controls})
     assert2(not escaped:find("[%z\1-\31]"))
-    local roundTrip = assert2(json.decodeValue(escaped)) as any
+    local roundTrip = assert2(json.decodevalue(escaped)) as any
     assert2(roundTrip[controls] == controls)
     local captured: integer = 40
     local add = |value: integer| -> captured + value

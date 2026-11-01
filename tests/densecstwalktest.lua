@@ -42,7 +42,7 @@ return {increment = increment, forward = forward}
 ]],
         "test.nupp"
     )
-    testAssert.equal(#result.errors, 0, "dense child fixture parses")
+    testAssert.eq(#result.errors, 0, "dense child fixture parses")
     local snapshots = {}
 
     local function snapshot(node)
@@ -61,7 +61,7 @@ return {increment = increment, forward = forward}
                 testAssert(key >= 1 and key <= #children and key % 1 == 0, "CST children have dense indices")
             end
         end
-        testAssert.equal(numeric, #children, "CST children have no holes")
+        testAssert.eq(numeric, #children, "CST children have no holes")
         snapshots[#snapshots + 1] = {node = node, children = children}
     end
 
@@ -77,7 +77,7 @@ return {increment = increment, forward = forward}
     testAssert(facts.uses(definition) > 0, "query walks names")
     facts.calledOnly(definition)
     for _, entry in ipairs(snapshots) do
-        testAssert.equal(#entry.node, #entry.children, "analysis preserves child count")
+        testAssert.eq(#entry.node, #entry.children, "analysis preserves child count")
         for index, child in ipairs(entry.children) do
             testAssert(rawequal(entry.node[index], child), "analysis preserves child identity and order")
         end
@@ -117,12 +117,12 @@ function M.emitTypedWalkArtifactsWhenRequested()
         end
         local before = report[module]["numeric-baseline"].totals
         local after = report[module].typed.totals
-        testAssert.equal((after.GetIdxI or 0) - (before.GetIdxI or 0), 8, "each cursor reaches integer indexing")
-        testAssert.equal((before.GetIdx or 0) - (after.GetIdx or 0), 8, "generic child indexing disappears")
-        testAssert.equal((after.ICmpSLe or 0) - (before.ICmpSLe or 0), 8, "each bound uses integer comparison")
+        testAssert.eq((after.GetIdxI or 0) - (before.GetIdxI or 0), 8, "each cursor reaches integer indexing")
+        testAssert.eq((before.GetIdx or 0) - (after.GetIdx or 0), 8, "generic child indexing disappears")
+        testAssert.eq((after.ICmpSLe or 0) - (before.ICmpSLe or 0), 8, "each bound uses integer comparison")
     end
     local file = assert(io.open(directory .. "/mechanism.json", "wb"))
-    file:write(json.encodeValue(report))
+    file:write(json.encodevalue(report))
     file:close()
 end
 

@@ -937,13 +937,13 @@ function resolve.install(c: state.Checker): nil
                 end
                 node.resolvedType = result
                 return result
-            elseif identity == "types.nonExhaustive" or identity == "types.nonexhaustive" then
+            elseif identity == "types.nonexhaustive" then
                 -- The one type that has no name to resolve. Calling for it is what puts
                 -- the open member in a union, so a reader sees the decision where the
                 -- alternatives are written.
                 local argumentCount = #(node.arguments or {})
                 if argumentCount ~= 0 then
-                    c.diag("NUPP2421", node, ("nonExhaustive takes no arguments, got %d"):format(argumentCount))
+                    c.diag("NUPP2421", node, ("nonexhaustive takes no arguments, got %d"):format(argumentCount))
                     return T.any
                 end
                 node.resolvedType = T.open
@@ -970,7 +970,7 @@ function resolve.install(c: state.Checker): nil
             local helperLookupName = name
             if not helper then
                 local member = identity:match("^types%.([%a_][%w_]*)$")
-                if member then
+                if member and member == member:lower() then
                     local implementationMember = member == "formatarguments" and "formatArguments" or member
                     local implementation = "__NuppTypes"
                         .. implementationMember:sub(1, 1):upper()

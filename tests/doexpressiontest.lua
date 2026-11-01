@@ -426,7 +426,7 @@ local soa = require("nupp.mem.soa")
 local struct Row
     value: float64
 end
-local owner = soa.allocate(ffi.typeof<Row>(), 2)
+local owner = soa.alloc(ffi.typeof<Row>(), 2)
 local answer = false
 with rows = owner:write() do
     rows[1].value = 2.0

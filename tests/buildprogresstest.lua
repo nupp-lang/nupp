@@ -1,3 +1,5 @@
+const terminal = require("io.terminal")
+
 local testAssert = require("assert")
 -- What a build says about itself while it runs and when it finishes.
 --
@@ -77,11 +79,11 @@ end
 local M = {}
 
 function M.durationsReadAsMillisecondsThenSeconds()
-    testAssert.equal(progress.duration(0), "0ms")
-    testAssert.equal(progress.duration(12.4), "12ms")
-    testAssert.equal(progress.duration(999), "999ms")
-    testAssert.equal(progress.duration(1000), "1.0s")
-    testAssert.equal(progress.duration(12345), "12.3s")
+    testAssert.eq(progress.duration(0), "0ms")
+    testAssert.eq(progress.duration(12.4), "12ms")
+    testAssert.eq(progress.duration(999), "999ms")
+    testAssert.eq(progress.duration(1000), "1.0s")
+    testAssert.eq(progress.duration(12345), "12.3s")
 end
 
 function M.theTimelineChargesEveryMillisecondToOneActivity()
@@ -97,12 +99,12 @@ function M.theTimelineChargesEveryMillisecondToOneActivity()
         total = total + phase.durationMs
     end
     assert(total <= timing.totalMs + 1, "the parts cannot add up to more than the whole")
-    testAssert.equal(timing.compiledModules, 2)
-    testAssert.equal(timing.reusedModules, 3)
-    testAssert.equal(timing.parallel.mode, "parallel")
-    testAssert.equal(timing.parallel.workers, 6)
-    testAssert.equal(timing.parallel.retries, 1)
-    testAssert.equal(timing.parallel.batches, 20)
+    testAssert.eq(timing.compiledModules, 2)
+    testAssert.eq(timing.reusedModules, 3)
+    testAssert.eq(timing.parallel.mode, "parallel")
+    testAssert.eq(timing.parallel.workers, 6)
+    testAssert.eq(timing.parallel.retries, 1)
+    testAssert.eq(timing.parallel.batches, 20)
     for _, phase in ipairs(timing.phases) do
         assert(phase.durationMs >= 0, "no activity took negative time")
     end
@@ -117,9 +119,9 @@ function M.theSlowestModulesAreOrderedAndBounded()
     -- checking and generating one module are two separate measurements.
     report:spent("module1", 500)
     local slowest = report:timing().slowest
-    testAssert.equal(#slowest, progress.SLOWEST, "the list is bounded")
-    testAssert.equal(slowest[1].module, "module1", "the costliest is first")
-    testAssert.equal(slowest[1].durationMs, 510)
+    testAssert.eq(#slowest, progress.SLOWEST, "the list is bounded")
+    testAssert.eq(slowest[1].module, "module1", "the costliest is first")
+    testAssert.eq(slowest[1].durationMs, 510)
     for index = 2, #slowest do
         assert(slowest[index - 1].durationMs >= slowest[index].durationMs, "the list descends")
     end
@@ -134,7 +136,7 @@ function M.aQuietReporterMeasuresAndSaysNothing()
     report:counted(1, 0)
     report:finish("built", "app")
     stream:close()
-    testAssert.equal(readAll(path), "", "nothing was written")
+    testAssert.eq(readAll(path), "", "nothing was written")
     assert(report:timing().totalMs >= 0, "and it was measured anyway")
     os.remove(path)
 end
@@ -174,7 +176,7 @@ function M.aStepLineWithNoTotalCountsNothing()
     report:step("resolving dependencies")
     stream:close()
     local text = readAll(path)
-    testAssert.equal(text, "  resolving dependencies\n", "no counter and no percentage: " .. text)
+    testAssert.eq(text, "  resolving dependencies\n", "no counter and no percentage: " .. text)
     os.remove(path)
 end
 
@@ -198,7 +200,7 @@ end
 function M.aColoredSummaryPaintsSuccessAndBuildCounts()
     local path = os.tmpname()
     local stream = assert(io.open(path, "wb"))
-    io.withColorMode("always", function()
+    terminal.withcolormode("always", function()
         local report = progress.new("always", stream)
         report:counted(2, 3)
         report:finish("built", "app")
@@ -218,15 +220,15 @@ function M.aRunWithNothingToCompileSaysSoInOneLine()
     stream:close()
     local text = readAll(path)
     assert(text:match("7 modules reused"), "it said nothing was rebuilt: " .. text)
-    testAssert.equal(select(2, text:gsub("\n", "")), 1, "one line: " .. text)
+    testAssert.eq(select(2, text:gsub("\n", "")), 1, "one line: " .. text)
     os.remove(path)
 end
 
 function M.aBuildIsQuietWhenNobodyIsWatching()
     local dir = tempProject()
     local out, err = run(dir, "build")
-    testAssert.equal(out, "", "nothing on standard output: " .. out)
-    testAssert.equal(err, "", "and nothing on standard error: " .. err)
+    testAssert.eq(out, "", "nothing on standard output: " .. out)
+    testAssert.eq(err, "", "and nothing on standard error: " .. err)
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -236,7 +238,7 @@ function M.progressAlwaysReportsToStandardError()
     assert(err:match("built app in %d"), "the summary is on stderr: " .. err)
     assert(err:match("compiled"), "and says what it built: " .. err)
     local out, second = run(dir, "build --progress=always")
-    testAssert.equal(out, "", "standard output stays clear")
+    testAssert.eq(out, "", "standard output stays clear")
     assert(second:match("modules reused"), "a second build reports reuse: " .. second)
     os.execute("rm -rf '" .. dir .. "'")
 end
@@ -246,7 +248,7 @@ function M.theEnvironmentSaysTheSameThingAndTheFlagOverrulesIt()
     local _, viaEnv = run(dir, "build", "NUPP_PROGRESS=always ")
     assert(viaEnv:match("built app in %d"), "NUPP_PROGRESS=always: " .. viaEnv)
     local _, refused = run(dir, "build -q", "NUPP_PROGRESS=always ")
-    testAssert.equal(refused, "", "the flag overrules the environment: " .. refused)
+    testAssert.eq(refused, "", "the flag overrules the environment: " .. refused)
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -257,25 +259,25 @@ function M.aCheckNarratesOnTheSameTermsABuildDoes()
     -- it produced is an answer and not an artifact.
     local dir = tempProject()
     local narratedOut, narrated = run(dir, "check --progress=always")
-    testAssert.equal(narratedOut, "", "nothing on standard output: " .. narratedOut)
+    testAssert.eq(narratedOut, "", "nothing on standard output: " .. narratedOut)
     assert(narrated:match("checked app in %d"), "the summary is on stderr: " .. narrated)
     assert(narrated:match("compiled"), "and says what it checked: " .. narrated)
     local out, quiet = run(dir, "check")
-    testAssert.equal(out, "", "standard output stays clear: " .. out)
-    testAssert.equal(quiet, "", "and a scripted check stays quiet: " .. quiet)
+    testAssert.eq(out, "", "standard output stays clear: " .. out)
+    testAssert.eq(quiet, "", "and a scripted check stays quiet: " .. quiet)
     local _, reused = run(dir, "check --progress=always")
     assert(reused:match("modules reused"), "a second check reports reuse: " .. reused)
     local _, refused = run(dir, "check -q", "NUPP_PROGRESS=always ")
-    testAssert.equal(refused, "", "the flag overrules the environment: " .. refused)
+    testAssert.eq(refused, "", "the flag overrules the environment: " .. refused)
     os.execute("rm -rf '" .. dir .. "'")
 end
 
 function M.aCheckIsNotNarratedAtInJsonUnlessAsked()
     local dir = tempProject()
     local out, err = run(dir, "check --json")
-    testAssert.equal(err, "", "a machine reader is not narrated at: " .. err)
+    testAssert.eq(err, "", "a machine reader is not narrated at: " .. err)
     local decoded = require("testjson").decode(out)
-    testAssert.equal(decoded.ok, true, "the check worked: " .. out)
+    testAssert.eq(decoded.ok, true, "the check worked: " .. out)
     assert(decoded.timing.totalMs > 0, "and carries the numbers in the document instead")
     local _, narrated = run(dir, "check --json --progress=always")
     assert(narrated:match("checked app in %d"), "--progress overrules the silence --json implies: " .. narrated)
@@ -285,13 +287,13 @@ end
 function M.jsonCarriesTheTimingAndStaysADocument()
     local dir = tempProject()
     local out, err = run(dir, "build --json")
-    testAssert.equal(err, "", "a machine reader is not narrated at: " .. err)
+    testAssert.eq(err, "", "a machine reader is not narrated at: " .. err)
     local decoded = require("testjson").decode(out)
-    testAssert.equal(decoded.ok, true, "the build worked: " .. out)
+    testAssert.eq(decoded.ok, true, "the build worked: " .. out)
     local timing = assert(decoded.timing, "there is a timing object: " .. out)
     assert(timing.totalMs > 0, "with a total")
-    testAssert.equal(type(timing.phases), "table", "and the activities it covers")
-    testAssert.equal(type(timing.slowest), "table", "and the modules that cost the most")
+    testAssert.eq(type(timing.phases), "table", "and the activities it covers")
+    testAssert.eq(type(timing.slowest), "table", "and the modules that cost the most")
     local charged = 0
     for _, phase in ipairs(timing.phases) do
         charged = charged + phase.durationMs
