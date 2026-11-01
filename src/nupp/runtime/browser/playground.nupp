@@ -1,6 +1,8 @@
 @!internal
 module nupp.runtime.browser.playground
 
+const assert2 = require("assert")
+
 -- Installed only in the playground application VM. The generated program is
 -- loaded from the compiler's exact output bytes, and this checked runner owns
 -- output capture without synthesizing Lua source in JavaScript.
@@ -19,6 +21,39 @@ local rendering = require("serde.debug")
 -- The in-memory compiler resolves these public browser facades. Carry their
 -- checked implementations so imports in user programs reach the same services.
 local platformLibraries = {
+    function()
+        return require("assert")
+    end,
+    function()
+        return require("arg")
+    end,
+    function()
+        return require("types")
+    end,
+    function()
+        return require("types.reflect")
+    end,
+    function()
+        return require("types.derive")
+    end,
+    function()
+        return require("own")
+    end,
+    function()
+        return require("simd")
+    end,
+    function()
+        return require("events")
+    end,
+    function()
+        return require("io.path")
+    end,
+    function()
+        return require("io.uri")
+    end,
+    function()
+        return require("nupp.runtime.standardio")
+    end,
     function()
         return os.info
     end,
@@ -101,7 +136,7 @@ _G.__nuppPlaygroundRun = function(source: string): string
     then
         error("nupp: derive runtime did not load", 0)
     end
-    assert(#platformLibraries == 11, "nupp: browser library loaders are missing")
+    assert2(#platformLibraries == 23, "nupp: browser library loaders are missing")
     lines = {}
     outputBytes = 0
     local chunk, problem = loadstring(source, "@playground.nupp")

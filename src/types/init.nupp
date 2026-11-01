@@ -1,7 +1,7 @@
 module types
 
 --[[
-Type builders, typed keys, stores, and generated debug formatting.
+`types` provides type builders, typed keys, stores, and generated debug formatting.
 Compiler-only builders run inside `@comptime` functions.
 
 ```nupp

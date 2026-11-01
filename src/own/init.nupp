@@ -1,8 +1,8 @@
 module own
 
 --[[
-Checked ownership, managed aliases, and resource groups.
-Ownership operations preserve the cleanup and borrowing contracts of each resource.
+`own` provides checked ownership, managed aliases, and resource groups.
+Its operations preserve the cleanup and borrowing contracts of each resource.
 
 ```nupp
 local record Resource is own.Closeable
