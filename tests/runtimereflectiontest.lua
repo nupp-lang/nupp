@@ -331,4 +331,29 @@ return getmetatable(value) == Alias and User == (Alias as any)
     testAssert.equal(code:find("__reflect", 1, true), nil)
 end
 
+function M.lowercaseReflectionFunctionsKeepHandlesAndWitnessIdentity()
+    local result = run(
+        [[
+local record Leaf value: integer end
+local record Root leaf: Leaf end
+local info = types.reflect.runtime(Root)
+local extension = types.reflect.extensionkey(function(host: any): string return host.name end)
+local reachable = types.reflect.runtimetype
+local witness = reachable(info, info.fields[1].type as integer)
+return {sameKey = types.reflect.extensionkey == types.reflect.extensionKey,
+    sameWitness = reachable == types.reflect.runtimeType,
+    witness = witness == Leaf, info = info, extension = extension}
+]]
+    )
+    testAssert.equal(result.sameKey, true)
+    testAssert.equal(result.sameWitness, true)
+    testAssert.equal(result.witness, true)
+    testAssert.equal(result.info:extension(result.extension), "Root")
+    local source = [[
+local types = {reflect = {extensionkey = function(): integer return 37 end}}
+return types.reflect.extensionkey()
+]]
+    testAssert.equal(run(source), 37)
+end
+
 return M

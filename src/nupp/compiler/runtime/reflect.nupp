@@ -98,6 +98,7 @@ function reflectruntime.install(namespace: any): any
     require("nupp.compiler.runtime.typewitness").install(namespace)
     local api = claim(namespace, "__reflectionApi", {})
     api.extensionKey = extensions.key
+    api.extensionkey = api.extensionKey
     local reflect = claim(namespace, "__reflect", {})
     local blueprints = reflect.blueprints or setmetatable({}, {__mode = "k"})
     local infos = claim(reflect, "valueInfos", setmetatable({}, {__mode = "kv"}))
@@ -227,6 +228,8 @@ function reflectruntime.install(namespace: any): any
 
         return search(state.type)
     end
+
+    api.runtimetype = api.runtimeType
 
     return api
 end

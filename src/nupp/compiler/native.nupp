@@ -367,7 +367,13 @@ local FEATURES: {[string]: native.Feature} = {
         "stdlib.reflection"
     ] = {
         name = "reflection",
-        globals = {"types.reflect.extensionKey", "types.reflect.runtime", "types.reflect.runtimeType"},
+        globals = {
+            "types.reflect.extensionKey",
+            "types.reflect.extensionkey",
+            "types.reflect.runtime",
+            "types.reflect.runtimeType",
+            "types.reflect.runtimetype"
+        },
         runtimeModule = "nupp.compiler.runtime.reflect",
         portableRuntime = true,
     },
@@ -411,7 +417,9 @@ local FEATURES: {[string]: native.Feature} = {
             "math",
             "math.lerp",
             "math.wrapAngle",
+            "math.wrapangle",
             "math.deltaAngle",
+            "math.deltaangle",
             "math.i32",
             "math.u32",
             "math.u64",
