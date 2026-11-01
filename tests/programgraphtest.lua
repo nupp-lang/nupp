@@ -241,14 +241,14 @@ end
 function M.shadowedIntrinsicNamesUseOrdinaryCheckedReferences()
     local p = describe(
         [[
-local nupp = {}
+local own = {}
 function own.drop(value: integer): integer return value end
 local function answer(): integer return own.drop(1) end
 return answer
 ]]
     )
     test.equal(#p.intrinsics, 0)
-    test.equal(owner(p, "answer").captures[1].definition.name, "nupp")
+    test.equal(owner(p, "answer").captures[1].definition.name, "own")
     local input = checked("local value: integer = 1\nlocal function answer(): integer return value end\nreturn answer")
     local body = input.parsed.root.blocks[1].stats[2].body
     body.body.stats[1].exprs[1].token.definition = nil
