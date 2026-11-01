@@ -13,7 +13,7 @@ local options: Options?, problem: DecodeError? = cli.parse(Options, {"--name", "
 assert2(problem == nil, problem and problem.message)
 assert2(options ~= nil)
 assert2(options.name == "Ada")
-assert2(cli == cli)
+assert2(cli == rawget(_G, "arg"))
 
 local alias = require("arg")
 local parser = alias.optParser({"--flag"})
