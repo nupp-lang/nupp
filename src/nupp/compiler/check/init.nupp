@@ -1232,7 +1232,12 @@ function checkMod.check(
     c.aot = aotMod.install(c)
     c.effectRegions = effectregionsMod.install(c)
     c.typeFunctionEvaluator = function(helper, arguments, helpers)
-        local program = comptime.typeFunctionProgram(helper, helpers)
+        local program = comptime.sealTypeFunction(
+            helper,
+            helpers,
+            helper and helper.comptimeSignature,
+            helper and helper.comptimeDefinition
+        )
         local memo = c.typeFunctionMemo[program.identity]
         if not memo then
             memo = {}
@@ -1318,7 +1323,7 @@ function checkMod.check(
                 c.env and c.env.host or nil
             )
         else
-            envelope, evaluationFailure = comptime.evaluateTypeFunctionDirect(helper, arguments, helpers)
+            envelope, evaluationFailure = comptime.evaluateTypeFunctionDirect(program, arguments, helpers)
         end
         if not envelope then
             memo[memoKey] = {failure = evaluationFailure}

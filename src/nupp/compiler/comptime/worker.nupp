@@ -200,7 +200,10 @@ local function serializedHelper(node)
         return nil
     end
 
-    return {source = require("nupp.compiler.syntax.cst").textOf(node), line = token.line, column = token.col,}
+    local comptime = require("nupp.compiler.comptime") as {sealTypeFunction: function(any, any, any, any): any}
+    local program = comptime.sealTypeFunction(node, {}, node.comptimeSignature, node.comptimeDefinition)
+
+    return program.serializedHelpers[program.main]
 end
 
 local function findComptime(node)

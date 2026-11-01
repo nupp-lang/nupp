@@ -519,6 +519,211 @@ end
     test.equal(program.identity, comptime.typeFunctionProgram(helper, {}).identity)
 end
 
+function M.closesTopLevelCompilerImportsForDirectLocalTypeCalls()
+    withProject("module types\nexport const answer: integer = 17", function(env)
+        local _, errors = compile(
+            [[
+local builders = require("types")
+@comptime local function List(Element: type): type
+    return builders.array(Element)
+end
+@comptime local function Checked(Element: type): type
+    local builders = 7
+    assert(builders == 7)
+    return List(Element)
+end
+local type Names = Checked(string)
+local names: Names = {"first", "second"}
+return #names
+]],
+            env
+        )
+        test.equal(errors, "", errors)
+    end)
+end
+
+function M.closesImportedNamespacesForHelpersCalledFromComptimeBlocks()
+    withProject("module types\nexport const answer: integer = 17", function(env)
+        local _, errors, parsed = compile(
+            [[
+local builders = require("types")
+@comptime local function List(Element: type): type
+    return builders.array(Element)
+end
+return comptime do return nupp.types.kind(List(nupp.types.string)) end
+]],
+            env
+        )
+        test.equal(errors, "", errors)
+        local evaluated = parsed.root.blocks[1].stats[3].exprs[1]
+        test.equal(assert(loadstring("return " .. evaluated.comptimeValue))(), "array")
+    end)
+end
+
+function M.closesAmbientCompilerImportsBeforeModuleResolutionIsInstalled()
+    local env = finalEnv()
+    env.resolveModule = nil
+    local _, errors = compile(
+        [[
+const types2 = require("types")
+@comptime local function List(Element: type): type
+    return types2.array(Element)
+end
+local type Names = List(string)
+local names: Names = {"first", "second"}
+return #names
+]],
+        env
+    )
+    test.equal(errors, "", errors)
+end
+
+function M.workerRequestsCarryTheSameClosedLocalHelperSource()
+    withProject("module types\nexport const answer: integer = 17", function(env)
+        local _, errors, parsed = compile(
+            [[
+local builders = require("types")
+@comptime local function List(Element: type): type
+    return builders.array(Element)
+end
+local type Names = List(string)
+local names: Names = {"first"}
+return names
+]],
+            env
+        )
+        test.equal(errors, "", errors)
+        local helper
+
+        local function find(node)
+            if node.kind == "localFuncStmt" and node.name.text == "List" then
+                helper = node
+            end
+            for _, child in ipairs(node) do
+                if type(child) == "table" then
+                    find(child)
+                end
+            end
+        end
+
+        find(parsed.root)
+        assert(helper)
+        local process = require("nupp.compiler.process")
+        local worker = require("nupp.compiler.comptime.worker")
+        local json = require("testjson")
+        local original = process.captureIsolated
+        process.captureIsolated = function(argv)
+            local file = assert(io.open(argv[3], "rb"))
+            local request = json.decode(file:read("*a"))
+            file:close()
+            assert(request.helpers.List.source:find("types.array", 1, true))
+            assert(not request.helpers.List.source:find("builders.array", 1, true))
+            local pieces, write = {}, io.write
+            io.write = function(...)
+                for _, text in ipairs({...}) do
+                    pieces[#pieces + 1] = text
+                end
+            end
+            local ok, status = pcall(worker.main, {argv[3]})
+            io.write = write
+            assert(ok, status)
+
+            return status, table.concat(pieces)
+        end
+        local ok, quoted, failure = pcall(
+            worker.evaluate,
+            "comptime do return nupp.types.kind(List(nupp.types.string)) end",
+            "fixture-worker",
+            {},
+            {},
+            {List = helper}
+        )
+        process.captureIsolated = original
+        assert(ok, quoted)
+        test.equal(failure, nil, failure and failure.message)
+        test.equal(assert(loadstring("return " .. quoted))(), "array")
+    end)
+end
+
+function M.formattedLuaDeclarationHelpersCloseImportedNamespaces()
+    local bundled = require("nupp.compiler.bundled")
+    local cst = require("nupp.compiler.syntax.cst")
+    local source = assert(bundled.source("/decls/lua.d.nupp"))
+    local parsed = parser.parse(source, "lua.d.nupp")
+    local wanted = {__NuppPatternClassEnd = true, __NuppPatternCaptures = true, __NuppFindResults = true}
+    local pieces = {'const types2 = require("types")'}
+
+    local function collect(node)
+        if node.kind == "localFuncStmt" and node.name and wanted[node.name.text] then
+            local text = cst.textOf(node):gsub("nupp%.types", "types2")
+            pieces[#pieces + 1] = "@comptime\n" .. text
+        end
+        for _, child in ipairs(node) do
+            if type(child) == "table" then
+                collect(child)
+            end
+        end
+    end
+
+    collect(parsed.root)
+    test.equal(#pieces, 4)
+    pieces[
+        #pieces + 1
+    ] = [[
+local function accepts(...: unpackof __NuppFindResults("(%a+)", false)): nil end
+accepts(1, 3, "one")
+]]
+    local formatted = require("nupp.tools.fmt").new():format(table.concat(pieces, "\n"))
+    withProject("module types\nexport const answer: integer = 17", function(env)
+        local _, errors = compile(formatted, env)
+        test.equal(errors, "", errors)
+        local shadow = formatted:gsub(
+            "local plain = types2.describe",
+            "local types2 = 7\n    local plain = types2.describe",
+            1
+        )
+        local _, refusal = compile(shadow, env)
+        assert(refusal ~= "", "a lexical shadow must not become the imported compiler namespace")
+    end)
+end
+
+function M.reusesSealedProgramsUntilTheirHelperDependenciesChange()
+    local comptime = require("nupp.compiler.comptime")
+
+    local function helper(source)
+        local parsed = parser.parse(source, "cached-helper.nupp")
+        test.equal(#parsed.errors, 0)
+        return parsed.root.blocks[1].stats[1]
+    end
+
+    local main = helper("local function Main(Element: type): type return Dependency(Element) end")
+    local dependency = helper("local function Dependency(Element: type): type return nupp.types.array(Element) end")
+    local first = comptime.sealTypeFunction(main, {Dependency = dependency})
+    test.equal(comptime.sealTypeFunction(main, {Dependency = dependency}), first)
+    local changed = helper("local function Dependency(Element: type): type return nupp.types.optional(Element) end")
+    local nextProgram = comptime.sealTypeFunction(main, {Dependency = changed})
+    assert(nextProgram ~= first)
+    assert(nextProgram.identity ~= first.identity)
+    local original, parses = parser.parse, 0
+    parser.parse = function(...)
+        parses = parses + 1
+        return original(...)
+    end
+    local ok, failure = pcall(function()
+        local arguments = {{kind = "type", value = T.string}}
+        local firstResult, firstFailure = comptime.evaluateTypeFunctionDirect(first, arguments, {})
+        assert(firstResult, firstFailure and firstFailure.message)
+        local afterFirst = parses
+        assert(afterFirst > 0)
+        local secondResult, secondFailure = comptime.evaluateTypeFunctionDirect(first, arguments, {})
+        assert(secondResult, secondFailure and secondFailure.message)
+        test.equal(parses, afterFirst, "an immutable sealed program must be parsed once")
+        test.equal(secondResult.fingerprint, firstResult.fingerprint)
+    end)
+    parser.parse = original
+    assert(ok, failure)
+end
+
 function M.referencedRecipeRefusalsKeepTheirDiagnostic()
     withProject(
         [[
