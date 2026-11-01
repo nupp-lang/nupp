@@ -135,6 +135,12 @@ export function scalar(kind: uint64, value: uint64): uint64
         return 1ULL
     elseif kind == VALUE then
         return 1ULL
+    elseif kind == NUMBER
+        and value & values.TAG_MASK == values.TAG_OBJ
+        and native.word(native.load8(native.pointer(value & values.PAYLOAD), 0)) == 12ULL
+    then
+        -- A boxed integer (heap.KIND_INTEGER; the kind is the header's first byte).
+        return 1ULL
     end
 
     return 0ULL

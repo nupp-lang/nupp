@@ -485,13 +485,16 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
         local clean = #words + 1
         emit(arm.cbz(64, 0, 0))
         emit(arm.ldr(8, 16, 31, 200))
+        emit(arm.cmp_imm(64, 16, 1, 0))
         local reported = #words + 1
-        emit(arm.cbnz(64, 16, 0))
-        emit(arm.movz(64, 16, 1, 0))
+        emit(arm.b_cond(8, 0))
+        -- Report the scope's first error as status 256 + code, over success or
+        -- a generic refusal (1); a guest status is kept.
+        emit(arm.add_imm(64, 16, 0, 256, 0))
         emit(arm.str(8, 16, 31, 200))
         words[unprepared] = arm.cbz(64, 0, (#words + 1 - unprepared) * 4)
         words[clean] = arm.cbz(64, 0, (#words + 1 - clean) * 4)
-        words[reported] = arm.cbnz(64, 16, (#words + 1 - reported) * 4)
+        words[reported] = arm.b_cond(8, (#words + 1 - reported) * 4)
         emit(arm.ldr(8, 0, 31, 200))
     end
     if raw then

@@ -13,6 +13,7 @@ const strings = require("nupp.runtime.core.corestrings")
 const tables = require("nupp.runtime.core.coretables")
 const patterns = require("nupp.runtime.core.corepattern")
 const guestscope = require("nupp.runtime.core.guestscope")
+const ints = require("nupp.runtime.core.coreintegers")
 
 export const TOSTRING: uint64 = 1ULL
 export const FORMAT: uint64 = 2ULL
@@ -46,8 +47,8 @@ local function appendText(h: heap.Heap*, b: strings.Builder*, value: uint64): ui
     if s ~= 0ULL then
         return strings.appendString(h, b, s)
     end
-    if isInteger(value) then
-        return strings.appendInteger(h, b, integerValue(value))
+    if ints.isInteger(value) then
+        return strings.appendInteger(h, b, native.index(ints.bitsOf(value)))
     end
     -- "true", "false" and "nil" as little-endian byte words.
     if value == values.TRUE then
@@ -115,10 +116,10 @@ local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: ui
                     end
                     next = next + 1ULL
                     if directive == 100ULL then
-                        if not isInteger(argument) then
+                        if not ints.isInteger(argument) then
                             error("bad argument to 'format' (number has no integer representation)")
                         end
-                        strings.appendInteger(h, builder, integerValue(argument))
+                        strings.appendInteger(h, builder, native.index(ints.bitsOf(argument)))
                     elseif directive == 115ULL then
                         appendText(h, builder, argument)
                     else
@@ -153,7 +154,7 @@ local function concat(ctx: voidptr, count: uint64, list: uint64, separator: uint
         local i: uint64 = 1ULL
         while i <= n do
             local item = tables.get(t, values.TAG_INTEGER | i)
-            if strings.header(item) == 0ULL and not isInteger(item) then
+            if strings.header(item) == 0ULL and not ints.isInteger(item) then
                 strings.release(builder)
                 error("invalid value (at index) in table for 'concat'")
             end

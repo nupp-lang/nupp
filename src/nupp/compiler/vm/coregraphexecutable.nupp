@@ -313,6 +313,10 @@ local function derive(g: any, catalog: any): any
                     emit({"MathFloor", physical(dst), physical(args[1])}, position)
                     yield nil
                 end
+                case "Not" -> do
+                    emit({"Not", physical(dst), physical(args[1])}, position)
+                    yield nil
+                end
                 case "LibCall" -> do
                     for index = 2, #args do
                         emit({"Move", callBase + index - 1, physical(args[index])}, position)

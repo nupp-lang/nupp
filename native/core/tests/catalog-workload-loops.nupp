@@ -1,12 +1,11 @@
 module nupp.core.catalogworkloadloops
 
--- The `loops` workload of bench/vm/workloads.bench.nupp at scale 1, cut to
--- 3,000,000 iterations: at the original 30,000,000, `i * i` leaves the
--- 48-bit integer immediates near i = 11,900,000 and needs boxed integers.
--- The scale stays an operand rather than folding away.
+-- The `loops` workload of bench/vm/workloads.bench.nupp at scale 1, whose
+-- checksum is 761038; the scale stays an operand rather than folding away.
+-- From i = 11,863,284, i * i leaves the 48-bit immediates and is boxed.
 local scale = 1
 local total = 0
-for i = 1, 3000000 do
+for i = 1, 30000000 do
     total = (total + i * i * scale) % 1000003
 end
 export = total

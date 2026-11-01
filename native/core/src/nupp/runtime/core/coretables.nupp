@@ -177,8 +177,9 @@ export function length(table: uint64): uint64
     end
 end
 
--- Releases the owned parts of every table the sweep retired, then reclaims
--- them. The guest entry calls this after collector work.
+-- Recycles every object the sweep retired onto the released list (tables,
+-- interned strings and boxed integers), releasing a table's owned parts
+-- first. Every allocating guest leaf calls this after its collector work.
 export function drain(h: heap.Heap*): nil
     @unsafe do
         while h.released.count > 0ULL do

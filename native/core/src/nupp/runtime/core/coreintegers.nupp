@@ -1,0 +1,188 @@
+module nupp.runtime.core.coreintegers
+
+-- Lua integers on the core. Values in the 48-bit range are immediates; any
+-- other int64 is an interned KIND_INTEGER object holding its bits in auxLen,
+-- so every integer has one canonical form and boxed equality is identity.
+-- Arithmetic wraps modulo 2^64 as Lua's does; comparisons with floats follow
+-- Lua 5.5's exact rules rather than converting the integer.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const collector = require("nupp.runtime.vm.collector")
+const values = require("nupp.runtime.vm.values")
+const weakindex = require("nupp.runtime.vm.weakindex")
+
+export const ADD: uint64 = 0ULL
+export const SUB: uint64 = 1ULL
+export const MUL: uint64 = 2ULL
+export const MOD: uint64 = 3ULL
+
+local function immediate(value: uint64): boolean
+    return value & 0xffff000000000000ULL == values.TAG_INTEGER
+end
+
+-- True for a boxed integer object.
+export function boxed(value: uint64): boolean
+    if value & values.TAG_MASK ~= values.TAG_OBJ then
+        return false
+    end
+    local header = native.pointer(value & values.PAYLOAD)
+
+    return native.word(native.load8(header, native.fieldOffset<heap.Header>("kind"))) == heap.KIND_INTEGER
+end
+
+export function isInteger(value: uint64): boolean
+    return immediate(value) or boxed(value)
+end
+
+-- The int64 bits of an integer value.
+export function bitsOf(value: uint64): uint64
+    if immediate(value) then
+        local payload = value & values.PAYLOAD
+        if payload & 0x0000800000000000ULL ~= 0ULL then
+            payload = payload | 0xffff000000000000ULL
+        end
+        return payload
+    end
+
+    return native.load64(native.pointer(value & values.PAYLOAD), native.fieldOffset<heap.Header>("auxLen"))
+end
+
+-- The canonical value of int64 `bits`: an immediate when it fits, else the
+-- interned box.
+export function make(h: heap.Heap*, bits: uint64): uint64
+    if bits + 0x0000800000000000ULL < 0x0001000000000000ULL then
+        return values.TAG_INTEGER | (bits & values.PAYLOAD)
+    end
+    @unsafe do
+        local found = weakindex.weakIntegerLookup(h, bits, 0ULL, h.phase, h.stats.cycles)
+        if found ~= 0ULL then
+            return values.TAG_OBJ | found
+        end
+        local o = collector.allocate(h, heap.KIND_INTEGER, 0ULL)
+        o.auxLen = bits
+        o.aux = 0
+        if weakindex.weakInsert(h, o) ~= 0ULL then
+            error("core integers: the intern table refused an integer")
+        end
+
+        return values.TAG_OBJ | native.address(o as voidptr)
+    end
+end
+
+-- Lua's integer modulo: the remainder takes the divisor's sign.
+local function modulo(a: uint64, b: uint64): uint64
+    local x = native.index(a)
+    local y = native.index(b)
+    if y == -1 then
+        return 0ULL
+    end
+    local r = x % y
+
+    return native.word(r)
+end
+
+-- a op b over int64 bits, wrapping; for MOD the caller has refused b == 0.
+export function arithmetic(op: uint64, a: uint64, b: uint64): uint64
+    if op == ADD then
+        return a + b
+    elseif op == SUB then
+        return a - b
+    elseif op == MUL then
+        return a * b
+    end
+
+    return modulo(a, b)
+end
+
+-- The float of int64 bits, as IEEE bits.
+export function toFloatBits(bits: uint64): uint64
+    return native.bits(native.toFloat(native.index(bits)))
+end
+
+-- 1 when the integer fits a float exactly (|i| <= 2^53), as Lua's l_intfitsf.
+local function fitsFloat(bits: uint64): boolean
+    return bits + 0x0020000000000000ULL <= 0x0040000000000000ULL
+end
+
+-- Float bits to int64 bits by floor (mode 0) or ceil (mode 1); answers the
+-- bits, with `ok` in the returned flag word: 1 in range, 0 out of range or NaN.
+local function floatToInteger(fbits: uint64, ceiling: boolean): uint64
+    local f = native.fromBits(fbits)
+    local rounded = native.floor(f)
+    if ceiling and rounded ~= f then
+        rounded = rounded + native.fromBits(0x3ff0000000000000ULL)
+    end
+
+    return native.bits(rounded)
+end
+
+local function inIntegerRange(rbits: uint64): boolean
+    local r = native.fromBits(rbits)
+    local low = native.fromBits(0xc3e0000000000000ULL)
+    local high = native.fromBits(0x43e0000000000000ULL)
+    return r >= low and r < high
+end
+
+-- i < f (strict) or i <= f, for int64 bits and float bits; Lua's
+-- LTintfloat and LEintfloat. NaN compares false.
+export function intFloatLess(i: uint64, fbits: uint64, orEqual: boolean): boolean
+    local f = native.fromBits(fbits)
+    if fitsFloat(i) then
+        local x = native.toFloat(native.index(i))
+        if orEqual then
+            return x <= f
+        end
+        return x < f
+    end
+    -- i < f <=> i < ceil(f); i <= f <=> i <= floor(f).
+    local rbits = floatToInteger(fbits, not orEqual)
+    if f ~= f then
+        return false
+    end
+    if not inIntegerRange(rbits) then
+        return f > native.fromBits(0ULL)
+    end
+    local r = native.toInt(native.fromBits(rbits))
+    if orEqual then
+        return native.index(i) <= r
+    end
+
+    return native.index(i) < r
+end
+
+-- f < i (strict) or f <= i; Lua's LTfloatint and LEfloatint.
+export function floatIntLess(fbits: uint64, i: uint64, orEqual: boolean): boolean
+    local f = native.fromBits(fbits)
+    if fitsFloat(i) then
+        local x = native.toFloat(native.index(i))
+        if orEqual then
+            return f <= x
+        end
+        return f < x
+    end
+    -- f < i <=> floor(f) < i; f <= i <=> ceil(f) <= i.
+    local rbits = floatToInteger(fbits, orEqual)
+    if f ~= f then
+        return false
+    end
+    if not inIntegerRange(rbits) then
+        return f < native.fromBits(0ULL)
+    end
+    local r = native.toInt(native.fromBits(rbits))
+    if orEqual then
+        return r <= native.index(i)
+    end
+
+    return r < native.index(i)
+end
+
+-- An integer equals a float only when the float is integral and in range
+-- with the same value.
+export function intFloatEqual(i: uint64, fbits: uint64): boolean
+    local f = native.fromBits(fbits)
+    if native.floor(f) ~= f or not inIntegerRange(fbits) then
+        return false
+    end
+
+    return native.toInt(f) == native.index(i)
+end

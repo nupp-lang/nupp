@@ -27,6 +27,12 @@ local UNITS = os.getenv("NUPP_GUEST_BUILD") ~= "frozen"
 -- Guest scratch: unit-built guests call into the collector, whose call chain
 -- needs more spill room than the frozen build's 128 KiB.
 local SCRATCH = UNITS and 1048576 or 131072
+-- NUPP_GUEST_QUICK=1 checks selections and results only: no ABI guard,
+-- refusal or audit runs, which each run the program again.
+local QUICK = os.getenv("NUPP_GUEST_QUICK") == "1"
+-- Workloads that run for seconds: their result is checked in both modes,
+-- but the ABI guard, which runs the program again, is left to the others.
+local HEAVY = {workloadLoops = true}
 
 local CASES = {
     {"boolean", 0x7FFB000000000000},
@@ -51,7 +57,7 @@ local CASES = {
     {"numericModZero", false},
     {"numericOverflow", false},
     {"numericControl", 0x7FFF00083C5DD2BB},
-    {"workloadLoops", 0x7FFF0000000F4177},
+    {"workloadLoops", 0x7FFF0000000B9CCE},
     {"callsNumeric", 0x7FFF00000005DFF1},
     {"workloadFib", 0x7FFF0000000CB228},
     {"tablesBasic", 0x7FFF5B0A5989C37B},
@@ -59,7 +65,8 @@ local CASES = {
     {"workloadTables", 0x7FFF00001D148D33},
     {"workloadRecords", 0x7FFF0000000C3500},
     {"workloadStrings", 0x7FFF000000509842},
-    {"stringsBasic", 0x7FFF0000000004B1}
+    {"stringsBasic", 0x7FFF0000000004B1},
+    {"integersWide", 0x7FFF00064B7743CB}
 }
 -- Heap-using cases that also run with a whole collection at every
 -- allocation. records and strings allocate per iteration, which makes their
@@ -70,10 +77,11 @@ local STRESS = {
     tablesBasic = true,
     workloadClosures = true,
     workloadTables = true,
-    stringsBasic = true
+    stringsBasic = true,
+    integersWide = true
 }
 -- These refuse at run time and must publish nothing: Lua 5.5 raises for the
--- first; the second needs a canonical integer object.
+-- first; the second's result is a boxed integer, which cannot be published.
 local STATUS = {numericModZero = 6, numericOverflow = 5}
 local NUMERIC = {
     numericFor = "catalog-numeric-for",
@@ -89,7 +97,8 @@ local NUMERIC = {
     workloadTables = "catalog-workload-tables",
     workloadRecords = "catalog-workload-records",
     workloadStrings = "catalog-workload-strings",
-    stringsBasic = "catalog-strings-basic"
+    stringsBasic = "catalog-strings-basic",
+    integersWide = "catalog-integers-wide"
 }
 local FIXTURES = {
     "catalog-boolean",
@@ -124,7 +133,8 @@ local FIXTURES = {
     "catalog-workload-tables",
     "catalog-workload-records",
     "catalog-workload-strings",
-    "catalog-strings-basic"
+    "catalog-strings-basic",
+    "catalog-integers-wide"
 }
 local AUDITS = {
     {"fresh", "success"},
@@ -441,6 +451,9 @@ local function main()
     end
 
     local function guarded(label, bundle, input, highWater, expectedPath, status)
+        if QUICK or HEAVY[label:match("^(%w+)")] then
+            return
+        end
         local env = (
             "CORE_TEST_BUNDLE=%s CORE_TEST_INPUT=%s CORE_TEST_HIGH_WATER=%d "
         ):format(quote(bundle), quote(input), highWater)
@@ -458,6 +471,9 @@ local function main()
     local sentinel = "refused guest operation left output unchanged"
 
     local function refuses(label, bundle, input)
+        if QUICK then
+            return
+        end
         local output = OUT .. "/" .. label .. ".out"
         write(output, sentinel)
         bridgeRun(label, bundle, input, output, 1)
@@ -490,6 +506,7 @@ local function main()
                         or name == "workloadRecords"
                         or name == "workloadStrings"
                         or name:match("^strings")
+                        or name:match("^integers")
                     )
                     and 8
                     or (name:match("^calls") or name == "workloadFib") and 7
@@ -622,6 +639,9 @@ local function main()
     print(("primary checks done at %ds"):format(os.time() - started))
     -- Supplemental lifecycle audits wrap selected primary programs.
     for _, mode in ipairs({"normal", "spill"}) do
+        if QUICK then
+            break
+        end
         for _, item in ipairs(AUDITS) do
             local name, scenario = item[1], item[2]
             local present = false

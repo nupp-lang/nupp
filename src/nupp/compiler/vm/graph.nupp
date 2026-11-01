@@ -1252,9 +1252,17 @@ local function dense(values: any): nil
     assert(count == #values, "invoke requires a dense array")
 end
 
-local function invokeScalar(t: any): nil
+local invokeScalar: function(any): nil
+invokeScalar = function(t: any): nil
     while t and (t.tag == "literal" or t.tag == "const") do
         t = t.tag == "literal" and t.base or t.inner
+    end
+    -- A union of admitted types (integer | number, say) passes as a value.
+    if t and t.tag == "union" and #t.members > 0 then
+        for _, member in ipairs(t.members) do
+            invokeScalar(member)
+        end
+        return
     end
     assert(
         t

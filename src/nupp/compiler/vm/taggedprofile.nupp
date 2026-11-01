@@ -189,6 +189,15 @@ end
 local function binary(ctx: any, node: any, expected: string?, version: integer): integer
     local operation = node.op.text
     need(expected == nil or expected == "tagged", "tagged result required")
+    -- From v8 `a ~= b` is `not (a == b)`.
+    if operation == "~=" and version >= 8 then
+        local operands = ctx.operands({node.lhs, node.rhs}, {"tagged", "tagged"})
+        if operands == nil then
+            return nil as any
+        end
+        local equal = ctx.emit(node, "Eq", operands, "tagged")
+        return ctx.emit(node, "Not", {equal}, "tagged")
+    end
     local admits = version >= 6 and numericType or numberType
     local op = arithmetic[operation] or ordering[operation]
     need(
@@ -733,6 +742,14 @@ function tagged.forVersion(version: integer): any
             end
         end
         profile.unary = function(ctx: any, node: any, expected: string?): integer
+            if node.op and node.op.text == "not" then
+                need(expected == nil or expected == "tagged", "negation requires tagged destination")
+                local operand = ctx.expression(node.operand, "tagged")
+                if operand == nil then
+                    return nil as any
+                end
+                return ctx.emit(node, "Not", {operand}, "tagged") as integer
+            end
             if node.op and node.op.text == "#" then
                 need(expected == nil or expected == "tagged", "length requires tagged destination")
                 local operand = ctx.expression(node.operand, "tagged")

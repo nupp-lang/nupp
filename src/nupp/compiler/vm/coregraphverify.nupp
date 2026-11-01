@@ -395,6 +395,10 @@ function verify.resultKind(g: any, signature: any, output: any): string
                     assign(dst, "value")
                     yield nil
                 end
+                case "Not" -> do
+                    assign(dst, "boolean")
+                    yield nil
+                end
                 case "SetIdx" -> nil
                 else -> error("core graph contracts: unsupported operation", 0)
             end
@@ -456,6 +460,8 @@ function verify.resultKind(g: any, signature: any, output: any): string
             need(op == "SetCell" or op == "SetIdx" or kinds[block.dst[at]] ~= nil, "unresolved scalar operation")
             if op == "MathFloor" then
                 need(fits(kinds[args[1]], "number"), "numeric operation needs numeric operands")
+            elseif op == "Not" then
+                need(kinds[args[1]] ~= nil, "unresolved negation operand")
             elseif op == "LibCall" then
                 for index = 2, #args do
                     need(kinds[args[index]] ~= nil, "unresolved library argument")

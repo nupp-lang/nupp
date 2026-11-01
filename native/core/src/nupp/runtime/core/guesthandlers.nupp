@@ -14,6 +14,7 @@ const guestlib = require("nupp.runtime.core.guestlib")
 const strings = require("nupp.runtime.core.corestrings")
 const tables = require("nupp.runtime.core.coretables")
 const heap = require("nupp.runtime.vm.heap")
+const wide = require("nupp.runtime.core.coreintegers")
 
 -- The closed checked producer binds these program/slot reads to corebytecode's
 -- canonical opcode recipes and its retained complete graph-derived byte stream.
@@ -238,6 +239,11 @@ local function integerModulo(a: uint64, b: uint64): uint64
 end
 
 local function arithmetic(operation: uint64, left: uint64, right: uint64): uint64
+    -- A boxed integer operand takes the wide path (NIL), as does an integer
+    -- result outside the immediates.
+    if wide.boxed(left) or wide.boxed(right) then
+        return values.NIL
+    end
     local leftInteger = integerWord(left)
     local rightInteger = integerWord(right)
     if not (leftInteger or floatWord(left)) or not (rightInteger or floatWord(right)) then
@@ -281,6 +287,50 @@ local function arithmetic(operation: uint64, left: uint64, right: uint64): uint6
     return floatValue(native.bits(m))
 end
 
+-- The wide path of arithmetic: integers wider than the immediates wrap in
+-- int64 and are boxed; a boxed integer meeting a float becomes its float.
+-- Answers as arithmetic does (TRUE not a number, FALSE modulo by zero).
+local function wideResult(ctx: voidptr, operation: uint64, left: uint64, right: uint64): uint64
+    if wide.isInteger(left) and wide.isInteger(right) then
+        if operation == MOD and wide.bitsOf(right) == 0ULL then
+            return values.FALSE
+        end
+        return guestscope.integer(ctx, wide.arithmetic(operation, wide.bitsOf(left), wide.bitsOf(right)))
+    end
+    local x = left
+    local y = right
+    if wide.boxed(x) then
+        x = wide.toFloatBits(wide.bitsOf(x))
+    end
+    if wide.boxed(y) then
+        y = wide.toFloatBits(wide.bitsOf(y))
+    end
+
+    return arithmetic(operation, x, y)
+end
+
+-- Comparisons with a boxed integer: 1 true, 0 false, 2 not numbers.
+local function wideOrder(orEqual: boolean, left: uint64, right: uint64): uint64
+    local li = wide.isInteger(left)
+    local ri = wide.isInteger(right)
+    if li and ri then
+        local a = native.index(wide.bitsOf(left))
+        local b = native.index(wide.bitsOf(right))
+        if orEqual then
+            return native.asWord(a <= b)
+        end
+        return native.asWord(a < b)
+    end
+    if li and floatWord(right) then
+        return native.asWord(wide.intFloatLess(wide.bitsOf(left), doubleBits(right), orEqual))
+    end
+    if ri and floatWord(left) then
+        return native.asWord(wide.floatIntLess(doubleBits(left), wide.bitsOf(right), orEqual))
+    end
+
+    return 2ULL
+end
+
 -- 1 for true, 0 for false, 2 for an operand that is not a number.
 local function order(orEqual: boolean, left: uint64, right: uint64): uint64
     local leftInteger = integerWord(left)
@@ -305,6 +355,14 @@ end
 -- Lua equality for scalars: numbers by value (NaN unequal, signed zeros
 -- equal, integers and floats exact), Booleans and nil by identity. 1 or 0.
 local function equal(left: uint64, right: uint64): uint64
+    -- Boxed integers are interned: equal ones are one object. Only a float can
+    -- equal a boxed integer without being it.
+    if wide.boxed(left) and floatWord(right) then
+        return native.asWord(wide.intFloatEqual(wide.bitsOf(left), doubleBits(right)))
+    end
+    if wide.boxed(right) and floatWord(left) then
+        return native.asWord(wide.intFloatEqual(wide.bitsOf(right), doubleBits(left)))
+    end
     local leftInteger = integerWord(left)
     local rightInteger = integerWord(right)
     local leftNumber = leftInteger or floatWord(left)
@@ -342,6 +400,9 @@ export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     end
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
     local result = arithmetic(ADD, left, right)
+    if result == values.NIL then
+        result = wideResult(ctx, ADD, left, right)
+    end
     if result == values.TRUE then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
@@ -385,6 +446,9 @@ export function Sub(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     end
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
     local result = arithmetic(SUB, left, right)
+    if result == values.NIL then
+        result = wideResult(ctx, SUB, left, right)
+    end
     if result == values.TRUE then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
@@ -428,6 +492,9 @@ export function Mul(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     end
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
     local result = arithmetic(MUL, left, right)
+    if result == values.NIL then
+        result = wideResult(ctx, MUL, left, right)
+    end
     if result == values.TRUE then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
@@ -471,6 +538,9 @@ export function Mod(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     end
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
     local result = arithmetic(MOD, left, right)
+    if result == values.NIL then
+        result = wideResult(ctx, MOD, left, right)
+    end
     if result == values.TRUE then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
@@ -515,6 +585,9 @@ export function Lt(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
     local result = order(false, left, right)
     if result > 1ULL then
+        result = wideOrder(false, left, right)
+    end
+    if result > 1ULL then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -549,6 +622,9 @@ export function Le(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
     end
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
     local result = order(true, left, right)
+    if result > 1ULL then
+        result = wideOrder(true, left, right)
+    end
     if result > 1ULL then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
@@ -1070,7 +1146,7 @@ export function MathFloor(
     end
     local value = slots.readValue(frame, regs, src)
     local result = value
-    if value & 0xffff000000000000ULL ~= values.TAG_INTEGER then
+    if value & 0xffff000000000000ULL ~= values.TAG_INTEGER and not wide.boxed(value) then
         if value & values.QNAN == values.QNAN and value ~= values.QNAN then
             ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
             return native.fail()
@@ -1126,6 +1202,35 @@ export function LibCall(
         d = slots.readValue(frame, regs, base + 4)
     end
     slots.writeValue(frame, regs, dst, guestlib.call(ctx, native.word(id), native.word(count), a, b, c, d))
+    local nextPC = ops.branch(ctx, frame, pc, 0)
+    if nextPC == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+
+    return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
+end
+
+-- Lua's not: true for false and nil, false for anything else.
+export function Not(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local dst = program.readByte(pc, 1)
+    local src = program.readByte(pc, 2)
+    local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    if native.word(dst) >= count or native.word(src) >= count then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local value = slots.readValue(frame, regs, src)
+    slots.writeValue(
+        frame,
+        regs,
+        dst,
+        native.chooseWord(value == values.FALSE or value == values.NIL, values.TRUE, values.FALSE)
+    )
     local nextPC = ops.branch(ctx, frame, pc, 0)
     if nextPC == 0ULL then
         ops.fail(ctx, frame, pc, ops.INVALID)
@@ -1209,6 +1314,12 @@ export function Ret(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     local s = native.pointer(ops.state(ctx))
     ops.checkpoint(ctx, frame, pc)
     if ops.root(ctx, frame) == 1ULL then
+        -- The root result outlives the guest heap, so it must be an immediate:
+        -- a table, string or boxed integer cannot be published.
+        if value & values.TAG_MASK == values.TAG_OBJ then
+            ops.fail(ctx, frame, pc, ops.RESOURCE)
+            return native.fail()
+        end
         local finished = ops.finish(ctx, frame, value)
         if finished ~= 1ULL then
             ops.failure(ctx, ops.INVALID)

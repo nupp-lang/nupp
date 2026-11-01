@@ -52,7 +52,8 @@ local CASES: {[string]: {
     workloadTables = {fixture = "catalog-workload-tables", version = 8},
     workloadRecords = {fixture = "catalog-workload-records", version = 8},
     workloadStrings = {fixture = "catalog-workload-strings", version = 8},
-    stringsBasic = {fixture = "catalog-strings-basic", version = 8}
+    stringsBasic = {fixture = "catalog-strings-basic", version = 8},
+    integersWide = {fixture = "catalog-integers-wide", version = 8}
 }
 
 -- The handlers a profile version dispatches, in table order.
@@ -80,7 +81,8 @@ local function handlerNames(caseName: string, version: integer): {string}
         SetIdx = 8,
         Len = 8,
         MathFloor = 8,
-        LibCall = 8
+        LibCall = 8,
+        Not = 8
     }
     for _, name in ipairs({
         "Add",
@@ -99,7 +101,8 @@ local function handlerNames(caseName: string, version: integer): {string}
         "SetIdx",
         "Len",
         "MathFloor",
-        "LibCall"
+        "LibCall",
+        "Not"
     }) do
         if version >= introduced[name] then
             table.insert(names, 2, name)
@@ -249,7 +252,7 @@ local function compileProgram(caseName: string, fixture: string, version: intege
     local modules = {}
     local moduleName = ""
     for _, name in ipairs(names) do
-        local path = root .. "/native/core/tests/" .. name .. ".nupp"
+        local path = name:sub(1, 1) == "/" and name .. ".nupp" or root .. "/native/core/tests/" .. name .. ".nupp"
         local source = read(path)
         local parsed = parser.parse(source, path)
         assert(#parsed.errors == 0, "guest source parse failed: " .. name)
@@ -286,7 +289,15 @@ end
 -- runtime's selected code by qualified name, and the scopes whose layouts
 -- the shim and artifact writer read.
 function build.guest(caseName: string, mode: string, cacheDirectory: string?, audited: boolean?): any
-    local case = assert(CASES[caseName], "unknown guest case: " .. caseName)
+    -- Generated oracle programs (tests/guests/oracle.lua) live under build.
+    local case = CASES[caseName]
+    if case == nil and caseName:match("^generated%d+$") then
+        case = {
+            fixture = assert(os.getenv("NUPP_COMPILER_ROOT")) .. "/build/core-guests/generated/" .. caseName,
+            version = 8
+        }
+    end
+    case = assert(case, "unknown guest case: " .. caseName)
     local held = runtime(mode, cacheDirectory, audited == true)
     local program = compileProgram(caseName, case.fixture, case.version)
     local resolved = {}
