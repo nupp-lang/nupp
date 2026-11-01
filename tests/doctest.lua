@@ -4301,7 +4301,9 @@ function M.stdlibIndexIsWrittenWhereTheManifestAsked()
     )
     local page = readFile(dir .. "/site/reference/luajit/index.html")
     assert(page:find("API reference", 1, true), page:sub(1, 400))
-    assert(page:find("string.format", 1, true), "the page rendered without its declarations")
+    assert(page:find("modules/string/index.html", 1, true), "the API index lost a builtin module")
+    local stringPage = readFile(dir .. "/site/modules/string/index.html")
+    assert(stringPage:find('id="string.format"', 1, true), "the module page rendered without its declarations")
     local sidebar = assert(page:match('<aside class="nuppdoc%-sidebar".-</aside>'), "the page has a sidebar")
     assert(
         sidebar:find(
@@ -4475,6 +4477,7 @@ function M.builtinNavigationMergesOwnedRootsAndStartsCollapsed()
         ["src/arg/init.nupp"] = library("arg", {"parse"}),
         ["src/warn.nupp"] = library("warn", {"emit"}),
         ["src/types/init.nupp"] = library("types", {"newStore"}),
+        ["src/example/tools/widget.nupp"] = library("example.tools.widget", {"work"}),
         ["docs/guide.md"] = "# Guide\n\nRead the library.\n"
     })
     assert(
@@ -4526,16 +4529,27 @@ function M.builtinNavigationMergesOwnedRootsAndStartsCollapsed()
     assert(api:find('>Intrinsic types</a>', 1, true), "intrinsic types confused with public types")
     assert(api:find('>Layout reflection</a>', 1, true))
     assert(api:find('<code>types</code>', 1, true), "the public types root disappeared")
-    assert(api:find('href="../../../modules/io/index.html#io.write"', 1, true), "owned member lost its canonical link")
-    assert(api:find('href="../../../modules/io/index.html#io.style"', 1, true), "owned extension member missing")
-    assert(
-        api:find('href="../../../modules/io/index.html#io.open"', 1, true),
-        "builtin member did not join the owned page"
-    )
-    assert(api:find('href="../../../modules/assert/index.html"', 1, true), "callable global lost its owned page")
-    assert(api:find('href="../../../modules/arg/index.html"', 1, true), "array global lost its owned page")
-    assert(api:find('href="../../../reference/lua/index.html#_G"', 1, true), "global value missing")
-    assert(api:find('href="../../../reference/lua/index.html#print"', 1, true), "global function missing")
+    for _, anchor in ipairs({"io.write", "io.style", "io.open", "_G", "print"}) do
+        assert(not api:find("#" .. anchor .. '\"', 1, true), "a declaration became a left navigation leaf: " .. anchor)
+    end
+    assert(api:find('href="../../../modules/assert/index.html"', 1, true), "callable global lost its module page")
+    assert(api:find('href="../../../modules/arg/index.html"', 1, true), "array global lost its module page")
+    assert(api:find('data-module="io.path"', 1, true), "a submodule disappeared")
+    assert(api:find('href="../../../modules/io/path/index.html"', 1, true), "a submodule lost its page link")
+    for _, name in ipairs({"example", "example.tools", "example.tools.widget"}) do
+        assert(api:find('data-module="' .. name .. '"', 1, true), "a qualified namespace disappeared: " .. name)
+    end
+    local sectionAnchors = {globals = true, types = true, reflection = true, annotations = true}
+    for anchor in api:gmatch('href="[^\"]*#([^\"]+)"') do
+        assert(sectionAnchors[anchor], "a declaration became a left navigation leaf: " .. anchor)
+    end
+    assert(api:find('href="../../../reference/lua/index.html#globals"', 1, true), "global content link missing")
+    local tableNode = assert(api:match('<li data%-module="table">(.-)</li>'), "a leaf module is not a plain link")
+    assert(tableNode:find('href="../../../modules/table/index.html"', 1, true), "a leaf module lost its page")
+    assert(not tableNode:find("<details", 1, true), "a leaf module has an empty expander")
+    local outline = assert(nested:match('<aside class="nuppdoc%-outline".-</aside>'))
+    assert(outline:find('#io.path.join', 1, true), "a declaration disappeared from the page outline")
+    assert(nested:find('id="io.path.join"', 1, true), "a declaration disappeared from the body")
     assert(not api:find(">LuaJIT</a>", 1, true), "obsolete LuaJIT navigation entry")
     local aggregate = readFile(dir .. "/site/reference/lua/index.html")
     for anchor in api:gmatch('href="%.%./%.%./%.%./reference/lua/index%.html#([^"]+)"') do
