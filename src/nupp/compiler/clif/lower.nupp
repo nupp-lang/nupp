@@ -23,6 +23,7 @@ function: compiled on its own and tail-called with the pc, the context, up to
 five words of its own and the table, so the fast path stays frameless while the
 slow path calls the Rust helpers.
 ]]
+const assert2 = require("assert")
 
 local parser = require("nupp.compiler.syntax.parser")
 local checker = require("nupp.compiler.check")
@@ -156,7 +157,7 @@ local function helperSymbol(prefix: string, member: string): string
 end
 
 local function need(ok: any, message: string): any
-    assert(ok, "lower: " .. message)
+    assert2(ok, "lower: " .. message)
     return ok
 end
 
@@ -2154,7 +2155,7 @@ end
 -- The structure offsets a handler names come from the runtime's glue
 -- (`nupp-vm native layouts`), which measures the layouts it links against.
 local function layouts(path: string): function(string): number
-    local offsets: any = json.decode((assert(fs.readFile(path))))
+    local offsets: any = json.decode((assert2(fs.readFile(path))))
     return function(field: string): number
         local offset = offsets[field]
         need(type(offset) == "number", "unknown context field " .. field)
@@ -2325,7 +2326,7 @@ function lower.compile(root: string, paths: {string}, options: any?): string
     local scopes: {Scope} = {}
     local pending = {}
     for _, path in ipairs(paths) do
-        local parsed = parser.parse(assert(fs.readFile(path)), path)
+        local parsed = parser.parse(assert2(fs.readFile(path)), path)
         need(#parsed.errors == 0, "parse failed: " .. path)
         local diagnostics = checker.check(parsed, path, env as any, {})
         for _, diagnostic in ipairs(diagnostics) do

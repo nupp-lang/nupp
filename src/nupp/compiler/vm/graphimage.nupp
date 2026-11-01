@@ -1,5 +1,7 @@
 module nupp.compiler.vm.graphimage
 
+const assert2 = require("assert")
+
 --- The graph image: every function's graph with its constants, source
 --- positions, certificates and region tree, beside the image's shapes,
 --- modules, extension declarations and entry. No bytecode: the runtime
@@ -273,7 +275,7 @@ function image.encoder(): any
         word(#constants)
         for i = 1, #constants do
             local c = constants[i]
-            local kind = assert(constantKinds[c.kind], "unknown constant kind")
+            local kind = assert2(constantKinds[c.kind], "unknown constant kind")
             word(kind)
             if kind == 3 then
                 word(float(c.value))
@@ -335,14 +337,14 @@ function image.encoder(): any
     --- @raises string when the graph does not verify, a wide literal is not
     --- an exact integer, or a region annotation does not describe its graph.
     local function add(g: any): nil
-        assert(g.native == nil, "native-system graphs cannot be encoded as VM images")
+        assert2(g.native == nil, "native-system graphs cannot be encoded as VM images")
         -- V5 has fixed operand lists and no capture-layout catalog. Refuse
         -- before verification, region derivation or writing any function data.
         for _, block in ipairs(g.blocks) do
-            assert(not block.term or block.term.kind ~= "invoke", "invoke requires a final-core image schema")
+            assert2(not block.term or block.term.kind ~= "invoke", "invoke requires a final-core image schema")
             for _, op in ipairs(block.op) do
                 local signature = G.signatures[op]
-                assert(not (signature and signature.coreOnly), "graph operation requires a final-core image schema")
+                assert2(not (signature and signature.coreOnly), "graph operation requires a final-core image schema")
             end
         end
         nbody = 0
@@ -384,7 +386,7 @@ function image.encoder(): any
                 word(certs[i] == 0 and NONE or certs[i] - 1)
             end
             local t = b.term
-            word((assert(termKinds[t.kind], "unknown terminator")))
+            word((assert2(termKinds[t.kind], "unknown terminator")))
             word(t.value and t.value - 1 or NONE)
             word(t.constant or NONE)
             word(t.count or NONE)
@@ -443,7 +445,7 @@ function image.encoder(): any
             for j = 1, #slots do
                 local slot = slots[j]
                 word(str(slot.name))
-                word((assert(slotTypes[slot.type or "any"], "unknown slot type")))
+                word((assert2(slotTypes[slot.type or "any"], "unknown slot type")))
                 word(slot.record or NONE)
             end
             local methods = s.methods or {}
