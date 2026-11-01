@@ -4,6 +4,73 @@ local incremental = require("nupp.compiler.project.incremental")
 
 local M = {}
 
+function M.cachedStandardMembersRetainEachModulesEffectsAndDependencies()
+    local directory = os.tmpname()
+    os.remove(directory)
+    assert(os.execute("mkdir -p '" .. directory .. "/src'") == 0)
+
+    local function write(path, source)
+        local file = assert(io.open(path, "wb"))
+        file:write(source)
+        file:close()
+    end
+
+    write(
+        directory .. "/src/terminal.nupp",
+        [[
+@!internal
+module nupp.runtime.standardio
+export function columns(): integer return 73 end
+export const value: table = rawget(_G, "io") as table
+]]
+    )
+    write(
+        directory .. "/src/system.nupp",
+        [[
+@!internal
+module nupp.runtime.standardos
+export type Info = {platform: string}
+export function monotonic(): number return 42 end
+export const value: table = rawget(_G, "os") as table
+]]
+    )
+    local inc = incremental.new(directory, {config = {include = {"src"}}, cache = false})
+    require("nupp.compiler.builtinextensions").type({env = inc.env}, "io")
+    local consumers = {
+        "return os.monotonic()",
+        "local system = os\nreturn system.monotonic()",
+        'local system = require("os")\nreturn system.monotonic()',
+    }
+    for index, source in ipairs(consumers) do
+        local path = directory .. "/src/user" .. index .. ".nupp"
+        write(path, source)
+        inc.openDocument(path, source)
+        local result = inc.checkFile(path)
+        testAssert.equal(#result.diags, 0, "consumer " .. index)
+        testAssert.equal(result.result.effects["runtime.clocks"], true, "consumer clock effect " .. index)
+        local reached = {}
+        for _, dependency in ipairs(inc.moduleDependencies(path)) do
+            reached[dependency] = true
+        end
+        testAssert.equal(reached["nupp.runtime.standardos"], true, "consumer OS dependency " .. index)
+    end
+    local osType = inc.env.builtinExtensions.os
+    for index, source in ipairs({
+        "local facts: os.Info? = nil\nreturn facts",
+        "local os = {monotonic = function(): number return 19 end}\nreturn os.monotonic()",
+        "return os.time()",
+    }) do
+        local path = directory .. "/src/independent" .. index .. ".nupp"
+        write(path, source)
+        inc.openDocument(path, source)
+        local result = inc.checkFile(path)
+        testAssert.equal(#result.diags, 0, "independent consumer " .. index)
+        testAssert.equal(result.result.effects["runtime.clocks"], nil, "no clock effect " .. index)
+    end
+    testAssert.equal(inc.env.builtinExtensions.os, osType, "the canonical extension type is reused")
+    assert(require("nupp.io.files").remove(directory, true))
+end
+
 function M.memoizationAndInvalidation()
     local q = query.new()
     q:setInput("src", "a", 10)
