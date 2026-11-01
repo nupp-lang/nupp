@@ -26,12 +26,41 @@ const MATH_EXTENSION_MEMBERS = {
     lerp = true,
     wrapAngle = true,
     deltaAngle = true,
+    wrapangle = true,
+    deltaangle = true,
     i32 = true,
     u32 = true,
     u64 = true,
     f32 = true,
     vec2 = true,
     quat = true
+}
+-- Public namespace casing changes do not change the frozen instruction keys.
+const SIMD_NAMESPACE_OPERATIONS = {
+    orderedsum = "orderedSum",
+    pairwisesum = "pairwiseSum",
+    algebraicsum = "algebraicSum",
+    wrappingsum = "wrappingSum",
+    andbits = "andBits",
+    orbits = "orBits",
+    xorbits = "xorBits",
+    orderedproduct = "orderedProduct",
+    pairwiseproduct = "pairwiseProduct",
+    algebraicproduct = "algebraicProduct",
+    wrappingproduct = "wrappingProduct",
+    integermin = "integerMin",
+    integermax = "integerMax",
+    propagatingmin = "propagatingMin",
+    propagatingmax = "propagatingMax",
+    numbermin = "numberMin",
+    numbermax = "numberMax",
+    ordereddot = "orderedDot",
+    pairwisedot = "pairwiseDot",
+    algebraicdot = "algebraicDot",
+    propagatingargmin = "propagatingArgMin",
+    propagatingargmax = "propagatingArgMax",
+    numberargmin = "numberArgMin",
+    numberargmax = "numberArgMax"
 }
 const nodeLine = lowerstate.nodeLine
 const SPILL_AT = lowerstate.SPILL_AT
@@ -1606,6 +1635,7 @@ function lower.emit(
             elseif node.simdHorizontal then
                 ty = args[1] and simdType(args[1].inferredType)
                 operation = node.simdHorizontal:match("^horizontal%.(.+)$")
+                operation = SIMD_NAMESPACE_OPERATIONS[operation] or operation
                 if operation:match("^propagating") or operation:match("^number") then
                     operation = "horizontal." .. operation
                 end

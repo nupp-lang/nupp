@@ -597,7 +597,7 @@ function frontend.build(body: any, mapMode: boolean?): any
                 need(elements[witness:sub(16)] == kind, "matching storage witness")
                 seenVector = true
                 return shape("species", kind, lanes)
-            elseif id == "simd.horizontal.algebraicSum" then
+            elseif id == "simd.horizontal.algebraicSum" or id == "simd.horizontal.algebraicsum" then
                 need(#args == 1, "horizontal arity")
                 local r = expression(args[1]);
                 need(r.class == "vector" and r.element == 9, "f64 reduction")
