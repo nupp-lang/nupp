@@ -28,6 +28,7 @@ local MEMBERS: {
     [string]: string
 } = {
     ["nupp.Debug"] = "types.Debug",
+    ["nupp.__Debug"] = "types.Debug",
     ["nupp.derive.Debug"] = "types.Debug",
     ["nupp.util.Key"] = "types.Key",
     ["nupp.util.Store"] = "types.Store",
