@@ -52,7 +52,7 @@ local bytes = nupp.mem.array.bytes(rolling:digestSize())
 local output = bytes:write()
 local written: integer = rolling:digest(output)
 assert(written == 32)
-nupp.drop(output)
+own.drop(output)
 local readable = bytes:read()
 assert(#readable == 32)
 ```

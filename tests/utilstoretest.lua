@@ -8,7 +8,7 @@
 -- declaration every caller writes.
 
 local check = require("assert")
-local data = require("nupp.util")
+local data = require("types")
 local parser = require("nupp.compiler.syntax.parser")
 local fragment = require("fragment")
 local envMod = require("nupp.compiler.project.env")
@@ -42,8 +42,8 @@ end
 
 local function raises(body, needle)
     local ok, why = pcall(body)
-    check.assert(not ok, "expected a raise")
-    check.assert(tostring(why):find(needle, 1, true) ~= nil, "unexpected message: " .. tostring(why))
+    check(not ok, "expected a raise")
+    check(tostring(why):find(needle, 1, true) ~= nil, "unexpected message: " .. tostring(why))
 end
 
 -- Runtime -------------------------------------------------------------------
@@ -80,7 +80,7 @@ end
 
 function M.keyFindReturnsTheRegisteredIdentityOrNil()
     local key = data.newKey("store.test.find")
-    check.assert(rawequal(data.Key.find("store.test.find"), key), "lookup returned another table")
+    check(rawequal(data.Key.find("store.test.find"), key), "lookup returned another table")
     check.equal(data.Key.find("store.test.absent"), nil)
 end
 
@@ -91,7 +91,7 @@ function M.keyRegisteredWalksNamesAscendingByIdWithoutTheRegistry()
     local seen = {}
     for id, name in data.Key.registered() do
         seen[name] = id
-        check.assert(id ~= anonymous.id, "an anonymous key was walked")
+        check(id ~= anonymous.id, "an anonymous key was walked")
     end
     check.equal(seen["store.test.list.first"], first.id)
     check.equal(seen["store.test.list.second"], second.id)
@@ -101,7 +101,7 @@ function M.keyRegisteredWalksNamesAscendingByIdWithoutTheRegistry()
         ids[#ids + 1] = id
     end
     for index = 2, #ids do
-        check.assert(ids[index] > ids[index - 1], "ids did not ascend")
+        check(ids[index] > ids[index - 1], "ids did not ascend")
     end
     -- The loop is handed a step and an integer, so there is no registry to reach.
     local _, state = data.Key.registered()
@@ -124,9 +124,9 @@ function M.removeDeletesAndSetRejectsNil()
     local store = data.newStore()
     local held = {}
     store:set(key, held)
-    check.assert(rawequal(store:get(key), held), "reference identity was lost")
+    check(rawequal(store:get(key), held), "reference identity was lost")
     store:set(key, false)
-    check.assert(rawequal(store:get(key), false), "false was not stored")
+    check(rawequal(store:get(key), false), "false was not stored")
     store:set(key, 0)
     check.equal(store:get(key), 0)
     store:set(key, "")
@@ -153,7 +153,7 @@ function M.clearDropsValuesAndKeepsRegistrations()
     store:set(key, "ready")
     store:clear()
     check.equal(store:get(key), nil)
-    check.assert(rawequal(data.Key.find("store.test.clear"), key), "clearing touched the registry")
+    check(rawequal(data.Key.find("store.test.clear"), key), "clearing touched the registry")
     store:set(key, "again")
     check.equal(store:get(key), "again")
 end
@@ -199,9 +199,9 @@ local PRELUDE = [=[
 local record State
     frames: integer
 end
-local frames: nupp.util.Key<integer> = nupp.util.newKey("fixture.frames")
-local state: nupp.util.Key<State> = nupp.util.newKey("fixture.state")
-local store = nupp.util.newStore()
+local frames: types.Key<integer> = types.newKey("fixture.frames")
+local state: types.Key<State> = types.newKey("fixture.state")
+local store = types.newStore()
 ]=]
 
 function M.annotatedDeclarationsTypeTheKey()
@@ -235,14 +235,14 @@ end
 
 function M.keysNeitherWidenNorNarrow()
     check.equal(codes(PRELUDE .. [=[
-local wide: nupp.util.Key<number> = frames
+local wide: types.Key<number> = frames
 print(wide)
 ]=])[1], "NUPP2001")
     check.equal(
         codes(
             PRELUDE
             .. [=[
-local narrow: nupp.util.Key<integer> = nupp.util.newKey<number>("fixture.number") as nupp.util.Key<number>
+local narrow: types.Key<integer> = types.newKey<number>("fixture.number") as types.Key<number>
 print(narrow)
 ]=]
         )[1],
@@ -261,19 +261,17 @@ end
 
 function M.lookupRequiresACast()
     check.equal(
-        codes(
-            PRELUDE .. [=[
-local direct: nupp.util.Key<integer>? = nupp.util.Key.find("fixture.frames")
+        codes(PRELUDE .. [=[
+local direct: types.Key<integer>? = types.Key.find("fixture.frames")
 print(direct)
-]=]
-        )[1],
+]=])[1],
         "NUPP2001"
     )
     check.equal(
         #errors(
             PRELUDE
             .. [=[
-local found = nupp.util.Key.find("fixture.frames") as nupp.util.Key<integer>
+local found = types.Key.find("fixture.frames") as types.Key<integer>
 store:set(found, 2)
 print(store:get(found))
 ]=]
@@ -289,7 +287,7 @@ function M.anUnannotatedKeyNeedsATypeArgument()
         codes(
             PRELUDE
             .. [=[
-local loose = nupp.util.newKey("fixture.loose")
+local loose = types.newKey("fixture.loose")
 store:set(loose, 7)
 local text: string? = store:get(loose)
 print(text)

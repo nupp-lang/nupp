@@ -1,4 +1,4 @@
-local test = require("nupp.test")
+local test = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local cst = require("nupp.compiler.syntax.cst")
 local executable = require("nupp.compiler.vm.coregraphexecutable")
@@ -574,6 +574,7 @@ end
 local function interpret(result)
     local fn = result.functions[#result.functions]
     local constants, regs, pc, steps = fn.constants, {}, 1, 0
+
     local function constant(index)
         local c = constants[index + 1]
         local b = {c.value:byte(1, 8)}
@@ -601,8 +602,10 @@ local function interpret(result)
         elseif c.kind == "nil" then
             return nil
         end
+
         return c.kind == "true"
     end
+
     while true do
         steps = steps + 1
         assert(steps < 100000, "interpreted program does not finish")
@@ -701,7 +704,9 @@ end
 function M.checkedNumericForEvaluatesControlsBeforeBindingTheVariable()
     -- The inner `i` shadows the outer one only inside the body, and every
     -- control reads the outer binding.
-    local result = numericProgram("local i: integer = 3\nlocal t = 0\nfor i = i, i + 2 do t = t + i end\nexport = t * 10 + i")
+    local result = numericProgram(
+        "local i: integer = 3\nlocal t = 0\nfor i = i, i + 2 do t = t + i end\nexport = t * 10 + i"
+    )
     same(interpret(result), 123)
 end
 
@@ -750,7 +755,10 @@ function M.checkedNumericOperatorsFollowLuaFloorModulo()
         {"local a = 1e308\nlocal b = 3.0\nexport = a % b", 2.0},
         {"local a = 6\nlocal b = 7\nexport = a * b - 2", 40},
         {"local a = 2\nlocal b = 2.5\nexport = a * b", 5.0},
-        {"local a = 3\nlocal b = 3.0\nlocal t = 0\nif a <= b then t = t + 1 end\nif b >= a then t = t + 2 end\nif a > 1 then t = t + 4 end\nexport = t", 7},
+        {
+            "local a = 3\nlocal b = 3.0\nlocal t = 0\nif a <= b then t = t + 1 end\nif b >= a then t = t + 2 end\nif a > 1 then t = t + 4 end\nexport = t",
+            7
+        },
     }
     for _, case in ipairs(cases) do
         same(interpret(numericProgram(case[1])), case[2])
@@ -760,20 +768,39 @@ end
 function M.checkedNumericForRefusesWhatTheCoreCannotRunYet()
     local refusals = {
         {"local t = 0\nfor i = 1, 3, 0 do t = t + i end\nexport = t", "'for' step is zero"},
-        {"local s = 2\nlocal t = 0\nfor i = 1, 3, s do t = t + i end\nexport = t", "numeric for step must be a numeric literal"},
-        {"local n: number = 1\nlocal t = 0\nfor i = n, 3 do t = t + i end\nexport = t", "statically integer or float initial value"},
+        {
+            "local s = 2\nlocal t = 0\nfor i = 1, 3, s do t = t + i end\nexport = t",
+            "numeric for step must be a numeric literal"
+        },
+        {
+            "local n: number = 1\nlocal t = 0\nfor i = n, 3 do t = t + i end\nexport = t",
+            "statically integer or float initial value"
+        },
         {"local t = 0\nfor i = 1, 3, 0.5 do t = t + i end\nexport = t", "statically integer or float initial value"},
-        {"local t = 0\nfor i = 1, 3 do t = t + i end\nexport = 140737488355328", "integer constant exceeds the immediate range"},
+        {
+            "local t = 0\nfor i = 1, 3 do t = t + i end\nexport = 140737488355328",
+            "integer constant exceeds the immediate range"
+        },
     }
     for _, case in ipairs(refusals) do
-        refuses(function()
-            numericProgram(case[1])
-        end, case[2])
+        refuses(
+            function()
+                numericProgram(case[1])
+            end,
+            case[2]
+        )
     end
     -- Earlier profiles still refuse the statement.
-    refuses(function()
-        compile("module guestnumericfixture\nlocal t = 0\nfor i = 1, 3 do t = t + i end\nexport = t", nil, tagged.forVersion(5))
-    end, "control flow is outside lexical construction")
+    refuses(
+        function()
+            compile(
+                "module guestnumericfixture\nlocal t = 0\nfor i = 1, 3 do t = t + i end\nexport = t",
+                nil,
+                tagged.forVersion(5)
+            )
+        end,
+        "control flow is outside lexical construction"
+    )
 end
 
 function M.nativeNumericFixturesInterpretToTheirLuaResults()
@@ -794,7 +821,10 @@ function M.checkedLoopsBreakContinueAndRepeat()
         -- continue advances a numeric for's counter
         {"local t = 0\nfor i = 1, 10 do if i % 3 == 0 then continue end t = t + i end\nexport = t", 37},
         -- continue in while returns to the condition
-        {"local i = 0\nlocal t = 0\nwhile i < 10 do i = i + 1 if i % 2 == 0 then continue end t = t + i end\nexport = t", 25},
+        {
+            "local i = 0\nlocal t = 0\nwhile i < 10 do i = i + 1 if i % 2 == 0 then continue end t = t + i end\nexport = t",
+            25
+        },
         -- the until condition sees body locals and runs the body at least once
         {"local i = 0\nlocal t = 0\nrepeat local n = i * 2 t = t + n i = i + 1 until n >= 8\nexport = t", 20},
         {"local t = 0\nrepeat t = t + 1 until true\nexport = t", 1},
@@ -806,9 +836,12 @@ function M.checkedLoopsBreakContinueAndRepeat()
     for _, case in ipairs(cases) do
         same(interpret(numericProgram(case[1])), case[2])
     end
-    refuses(function()
-        numericProgram("local t = 0\nrepeat t = t + 1 if t < 3 then continue end until t > 5\nexport = t")
-    end, "continue in repeat is unsupported")
+    refuses(
+        function()
+            numericProgram("local t = 0\nrepeat t = t + 1 if t < 3 then continue end until t > 5\nexport = t")
+        end,
+        "continue in repeat is unsupported"
+    )
 end
 
 return M

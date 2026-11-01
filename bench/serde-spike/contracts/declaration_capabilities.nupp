@@ -1,3 +1,5 @@
+const assert2 = require("assert")
+
 local __serdeJson = require("serde.json")
 local declarations = require("serde")
 local json = require("serde.json")
@@ -22,17 +24,17 @@ if pcall(original, "ffi") then
         return original(name)
     end
     local ok, result = pcall(function(): nil
-        assert(codec:decode(text, '{"value":"portable"}').value == "portable")
+        assert2(codec:decode(text, '{"value":"portable"}').value == "portable")
         local accepted, problem = pcall(codec.decode, codec, wide, "invalid input")
-        assert(not accepted and tostring(problem):find("no exact 64-bit carrier", 1, true))
+        assert2(not accepted and tostring(problem):find("no exact 64-bit carrier", 1, true))
     end)
     _G.require = original
-    assert(ok, tostring(result))
+    assert2(ok, tostring(result))
 end
-assert(codec:decode(text, '{"value":"portable"}').value == "portable")
-assert(not pcall(codec.decode, codec, wide, "invalid input"))
+assert2(codec:decode(text, '{"value":"portable"}').value == "portable")
+assert2(not pcall(codec.decode, codec, wide, "invalid input"))
 
-local record Owned is nupp.Closeable
+local record Owned is own.Closeable
     value: string
     function close(takes self): nil
     end
@@ -41,4 +43,4 @@ end
 -- ordinary copyable result. The descriptor retains the semantic capability.
 local erased = Owned as Type<unknown>
 local owning = declarations.binding(erased)
-assert(not pcall(json.decode, owning, '{"value":"owned"}'))
+assert2(not pcall(json.decode, owning, '{"value":"owned"}'))

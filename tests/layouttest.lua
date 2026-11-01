@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- `layoutof(T)`, run rather than read.
 --
 -- Every number it reports is the build target's. The shapes below use only

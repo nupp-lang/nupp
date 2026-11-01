@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- `@raises`, and the lint that asks a documented function to write one.
 
 local parser = require("nupp.compiler.syntax.parser")

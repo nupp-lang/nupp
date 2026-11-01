@@ -1129,7 +1129,7 @@ function expr.install(c: state.Checker): nil
             )
         elseif openMember(residue) then
             c.diag("NUPP2140", node, "switch is not exhaustive: the selector type is open", nil, {
-                help = "add an `else` arm, which is what `nupp.types.nonExhaustive()` asks every switch for"
+                help = "add an `else` arm, which is what `types.nonExhaustive()` asks every switch for"
             })
         elseif residue ~= T.never then
             local missing = finiteMembers(residue)
@@ -1543,7 +1543,7 @@ function expr.install(c: state.Checker): nil
             node.fixedWidthCallableUntrusted = target.tag == "func" and true or nil
             if c.ownershipKind(target) then
                 if c.ownershipKind(target) == "pinned" and c.ownershipKind(source) ~= "pinned" then
-                    c.diag("NUPP2604", node, "a pinned(T) value must be constructed with nupp.pin(pointer, anchor)")
+                    c.diag("NUPP2604", node, "a pinned(T) value must be constructed with own.pin(pointer, anchor)")
                 end
                 return target
             end

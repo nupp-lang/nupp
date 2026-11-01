@@ -11,6 +11,7 @@ dependent module rechecks only when an interface really changed.
 This module is the session, the handlers, and the loop. What each handler
 returns with is next door.
 ]]
+const arg2 = require("arg")
 
 local incremental = require("nupp.compiler.project.incremental")
 
@@ -2010,7 +2011,7 @@ function lsp.run(rootDir: string?): integer
     local process = require("nupp.io.process")
     local compilerRoot = os.getenv("NUPP_COMPILER_ROOT")
     local executable = compilerRoot and compilerRoot .. "/bin/nupp"
-        or type(arg) == "table" and type(arg[0]) == "string" and arg[0]
+        or type(arg2) == "table" and type(arg2[0]) == "string" and arg2[0]
         or nil
     if not executable then
         io.stderr:write("nupp-lsp: cannot identify the current executable\n")
@@ -2029,7 +2030,7 @@ function lsp.run(rootDir: string?): integer
         io.stderr:write("nupp-lsp: cannot start the input relay: " .. tostring(spawnProblem) .. "\n")
         return 1
     end
-    local relayOwner = nupp.manage(spawned)
+    local relayOwner = own.manage(spawned)
     local relay = relayOwner:alias()
     -- Frames, cancellations, and the newest version of each document the client has
     -- told this process about, recorded as each message is read rather than as it is
@@ -2048,7 +2049,7 @@ function lsp.run(rootDir: string?): integer
     --- @raises string when the cell is gone after all, which is a fault in this file
     local function read(waiting: boolean): string?
         local chunk, problem = relay:with(function(borrows child: process.Process): string?
-            local reader = nupp.borrow(child.stdout)
+            local reader = own.borrow(child.stdout)
             if reader == nil then
                 return nil
             end
@@ -2133,7 +2134,7 @@ function lsp.run(rootDir: string?): integer
             relayFailed = not child:wait():succeeded()
         end)
     end
-    nupp.drop(relayOwner)
+    own.drop(relayOwner)
     if broken then
         io.stderr:write("nupp-lsp: " .. broken .. "\n")
         return 1

@@ -435,7 +435,7 @@ with rows = owner:write() do
     rows[index].value += do index = 2; yield 3.0 end
     answer = rows[1].value == 5.0 and rows[2].value == 40.0
 end
-nupp.drop(owner)
+own.drop(owner)
 return answer
 ]]
         )

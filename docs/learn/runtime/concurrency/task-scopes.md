@@ -80,7 +80,7 @@ in completion order by construction. A worker result comes back through the
 child that awaits it, which is the child that occupies the slot:
 
 ```nupp:fragment
-with scope = nupp.tasks.open(limit = nupp.system.availableParallelism()) do
+with scope = nupp.tasks.open(limit = os.info().parallelism) do
     for name, path in pairs(paths) do
         scope:spawn(function(): nil
             const size = scope:fork(name, path, jobs.compress):await()
@@ -287,11 +287,11 @@ or `open(limit = 8, timeoutMs = 500)`.
 
 ## Settlement
 
-A scope is a `nupp.Closeable`, and its `close` is what leaving the `with` calls.
+A scope is a `own.Closeable`, and its `close` is what leaving the `with` calls.
 It is a settling terminal: it parks until every child has settled and the owned
 worker scope has been closed through the suspension-aware path, and so it is
 refused inside a `@nosuspend` region. A scope held in an ordinary local rather
-than a `with` is closed early by `nupp.drop(scope)`, and settles once. Operations on a settled scope raise. A close that raises before its
+than a `with` is closed early by `own.drop(scope)`, and settles once. Operations on a settled scope raise. A close that raises before its
 children have settled, because nothing could complete a wait one of them is
 parked on, still gives the frame back and forgets the scope.
 

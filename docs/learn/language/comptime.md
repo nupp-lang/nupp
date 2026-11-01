@@ -88,8 +88,8 @@ local record Position
     y: number
 end
 
-const PositionCodec: nupp.reflect.FieldCodec<Position> = comptime do
-    return nupp.reflect.fieldCodec(nupp.reflect(Position))
+const PositionCodec: types.reflect.FieldCodec<Position> = comptime do
+    return types.reflect.fieldCodec(types.reflect(Position))
 end
 
 print(PositionCodec)
@@ -105,7 +105,7 @@ local record Position
 end
 
 const codec = comptime do
-    return nupp.reflect.fieldCodec(nupp.reflect(Position))
+    return types.reflect.fieldCodec(types.reflect(Position))
 end
 
 print(codec)
@@ -115,7 +115,7 @@ print(codec)
 error: NUPP2414: an opaque comptime value needs a directly declared materialization boundary
 ```
 
-`nupp.reflect.fieldCodec` is the provider shown here. See [Field
+`types.reflect.fieldCodec` is the provider shown here. See [Field
 codecs](reflection.md#field-codecs) for the descriptor it reads and the codec it
 produces.
 
@@ -157,7 +157,7 @@ type while the program is checked:
 ```nupp
 @comptime
 local function Optional(T: type): type
-    return nupp.types.optional(T)
+    return types.optional(T)
 end
 
 local value: Optional(string) = nil
@@ -214,7 +214,7 @@ functions](#type-functions) for what a call in type position may build.
 
 Not yet. A `@comptime function` is neither generic nor variadic, so an algorithm
 that has to cover several shapes takes a `type` handle and inspects it with
-`nupp.types`.
+`types`.
 
 ::: seealso
 - [reflection.md](reflection.md#comptime-reflection) for the descriptors a block

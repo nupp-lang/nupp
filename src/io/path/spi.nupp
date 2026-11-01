@@ -1,4 +1,4 @@
-module nupp.io.path.spi
+module io.path.spi
 
 --[[Implementation interfaces consumed during ordinary module initialization.
 Discover with package.providers; the consumer chooses the unique highest priority.
@@ -8,7 +8,7 @@ Omitted priority is zero. Importing these declarations loads no implementation.]
 ---
 --- separator reports the host convention. currentDirectory and canonicalize may
 --- return nil with an explanatory message when the host has no such facility or
---- an operating-system operation fails. Public Path identity remains in nupp.io.path.
+--- an operating-system operation fails. Public Path identity remains in io.path.
 export interface Provider
     @readonly priority: integer?
 

@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
@@ -50,6 +50,24 @@ local producer: Producer = worker
         ),
         "NUPP2001"
     )
+end
+
+function M.functionProtocolRenderingUsesTheFinalGrammar()
+    local types = require("nupp.compiler.types")
+    local arguments = {
+        [1] = {types.number},
+        [2] = {types.string},
+        [17] = types.pack({
+            types.number,
+            types.string
+        }),
+        [18] = types.pack({types.boolean}),
+    }
+    local value = types.func(unpack(arguments, 1, 18))
+    local rendered = types.tostring(value)
+    testAssert.equal(rendered, "function(number) yields (number, string) resumes (boolean): string")
+    local parsed = parser.parse("local type Producer = " .. rendered)
+    testAssert.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
 end
 
 function M.genericForChecksIteratorInputsAndNextControl()
@@ -507,8 +525,8 @@ function M.coroutineProtocolsTypeYieldResumeAndReturnValues()
     clean(
         table.concat(
             {
-                "local function worker(start: number): string",
-                "   yields (number, string) resumes (boolean)",
+                "local function worker(start: number)",
+                "   yields (number, string) resumes (boolean): string",
                 "   local again: boolean = coroutine.yield(start, 'paused')",
                 "   return tostring(again)",
                 "end",
@@ -530,8 +548,8 @@ function M.namedCoroutineFunctionTypeUsesTheThreadProtocolType()
         table.concat(
             {
                 "local type Feed = thread<(number), (boolean), (number, string), (string)>",
-                "local type Producer = function(number): string yields(number, string) resumes(boolean)",
-                "local function worker(start: number): string yields(number, string) resumes(boolean)",
+                "local type Producer = function(number) yields(number, string) resumes(boolean): string",
+                "local function worker(start: number) yields(number, string) resumes(boolean): string",
                 "   local again: boolean = coroutine.yield(start, 'paused')",
                 "   return tostring(again)",
                 "end",
@@ -547,8 +565,8 @@ end
 function M.coroutineStartAndResumePacksFollowTheLocalHandlePhase()
     local declaration = table.concat(
         {
-            "local function worker(start: number): string",
-            "   yields (number) resumes (boolean)",
+            "local function worker(start: number)",
+            "   yields (number) resumes (boolean): string",
             "   local again: boolean = coroutine.yield(start)",
             "   return tostring(again)",
             "end",
@@ -588,8 +606,8 @@ end
 function M.coroutineWrapCarriesTheSameStatefulProtocol()
     local declaration = table.concat(
         {
-            "local function worker(start: number): string",
-            "   yields (number) resumes (boolean)",
+            "local function worker(start: number)",
+            "   yields (number) resumes (boolean): string",
             "   local again: boolean = coroutine.yield(start)",
             "   return tostring(again)",
             "end",
@@ -617,8 +635,8 @@ function M.coroutineStatusNarrowsADeadHandle()
         codes(
             table.concat(
                 {
-                    "local function worker(start: number): string",
-                    "   yields (number) resumes (boolean)",
+                    "local function worker(start: number)",
+                    "   yields (number) resumes (boolean): string",
                     "   local again: boolean = coroutine.yield(start)",
                     "   return tostring(again)",
                     "end",
@@ -667,7 +685,7 @@ function M.protectedCallOwnersAutoDestroyOnlyInTheSuccessArm()
     )
     clean(
         declaration .. "\n" .. table.concat(
-            {"local ok, resource = pcall(acquire)", "if ok then", "   nupp.drop(resource)", "end",},
+            {"local ok, resource = pcall(acquire)", "if ok then", "   own.drop(resource)", "end",},
             "\n"
         )
     )
@@ -824,7 +842,7 @@ end
 
 function M.coroutineProtocolsPropagateThroughNestedCalls()
     local declaration = [[
-local function leaf(): nil yields(number) resumes(boolean)
+local function leaf() yields(number) resumes(boolean): nil
     local again: boolean = coroutine.yield(1)
 end
 local alias = leaf
@@ -853,7 +871,7 @@ coroutine.resume(co, 1)
     )
     testAssert.equal(
         codes(declaration .. [[
-local function wrong(): nil yields(string) resumes(boolean)
+local function wrong() yields(string) resumes(boolean): nil
     outer()
 end
 ]]),
@@ -861,7 +879,7 @@ end
     )
     testAssert.equal(
         codes(declaration .. [[
-local function wrong(): nil yields(number) resumes(string)
+local function wrong() yields(number) resumes(string): nil
     outer()
 end
 ]]),
@@ -871,10 +889,10 @@ end
 
 function M.coroutineResumeInferenceSatisfiesEveryCallee()
     local declaration = [[
-local function a(): nil yields(number) resumes(boolean | string)
+local function a() yields(number) resumes(boolean | string): nil
     coroutine.yield(1)
 end
-local function b(): nil yields(string) resumes(boolean | number)
+local function b() yields(string) resumes(boolean | number): nil
     coroutine.yield('x')
 end
 local function both(): nil
@@ -892,13 +910,13 @@ end
 function M.coroutineProtocolsFollowGenericAndCallbackCalls()
     clean(
         [[
-local function leaf<T>(value: T): nil yields(T) resumes(boolean)
+local function leaf<T>(value: T) yields(T) resumes(boolean): nil
     coroutine.yield(value)
 end
-local function worker(): nil yields(number) resumes(boolean)
+local function worker() yields(number) resumes(boolean): nil
     leaf(1)
 end
-local function via(callback: function(): nil yields(number) resumes(boolean)): nil
+local function via(callback: function() yields(number) resumes(boolean): nil): nil
     callback()
 end
 local function outer(): nil
@@ -912,10 +930,10 @@ end
 function M.resumingAnotherCoroutineDoesNotForwardItsProtocol()
     clean(
         [[
-local function leaf(): nil yields(number) resumes(boolean)
+local function leaf() yields(number) resumes(boolean): nil
     coroutine.yield(1)
 end
-local function driver(): nil yields(string) resumes(number)
+local function driver() yields(string) resumes(number): nil
     local co = coroutine.create(leaf)
     coroutine.resume(co)
     coroutine.yield('ready')
@@ -928,10 +946,10 @@ function M.forwardedYieldPacksKeepArityAndCorrelation()
     testAssert.equal(
         codes(
             [[
-local function leaf(): nil yields(number, string) resumes(boolean)
+local function leaf() yields(number, string) resumes(boolean): nil
     coroutine.yield(1, 'x')
 end
-local function wrong(): nil yields(number) resumes(boolean)
+local function wrong() yields(number) resumes(boolean): nil
     leaf()
 end
 ]]
@@ -940,13 +958,13 @@ end
     )
     clean(
         [[
-local function a(): nil yields(number, string) resumes(boolean)
+local function a() yields(number, string) resumes(boolean): nil
     coroutine.yield(1, 'x')
 end
-local function b(): nil yields(string, number) resumes(boolean)
+local function b() yields(string, number) resumes(boolean): nil
     coroutine.yield('x', 1)
 end
-local function worker(flag: boolean): nil yields((number, string) | (string, number)) resumes(boolean)
+local function worker(flag: boolean) yields((number, string) | (string, number)) resumes(boolean): nil
     if flag then a() else b() end
 end
 ]]
@@ -960,7 +978,7 @@ local record R
     function outer(self): nil
         self:leaf()
     end
-    function leaf(self): nil yields(number) resumes(boolean)
+    function leaf(self) yields(number) resumes(boolean): nil
         coroutine.yield(1)
     end
 end
@@ -978,7 +996,7 @@ function M.yieldAliasesCheckAndForwardTheirValuePacks()
         codes(
             [[
 local pause = coroutine.yield
-local function leaf(): nil yields(number) resumes(boolean)
+local function leaf() yields(number) resumes(boolean): nil
     local again: boolean = pause('wrong')
 end
 ]]
@@ -989,7 +1007,7 @@ end
         [[
 local coLibrary = coroutine
 local pause = coLibrary.yield
-local function leaf(): nil yields(number) resumes(boolean)
+local function leaf() yields(number) resumes(boolean): nil
     local again: boolean = pause(1)
 end
 local function worker(): nil
@@ -1004,7 +1022,7 @@ function M.inferredResumePacksCannotDropIndependentGenericRequirements()
     testAssert.equal(
         codes(
             [[
-local function forward<A..., B...>(left: function(): nil yields(number) resumes(A...), right: function(): nil yields(number) resumes(B...)): nil
+local function forward<A..., B...>(left: function() yields(number) resumes(A...): nil, right: function() yields(number) resumes(B...): nil): nil
     left()
     right()
 end
@@ -1014,7 +1032,7 @@ end
     )
     clean(
         [[
-local function forward<A...>(left: function(): nil yields(number) resumes(A...), right: function(): nil yields(number) resumes(A...)): nil
+local function forward<A...>(left: function() yields(number) resumes(A...): nil, right: function() yields(number) resumes(A...): nil): nil
     left()
     right()
 end
@@ -1027,7 +1045,7 @@ function M.unsafeYieldAliasesKeepTheirValueProtocol()
         codes(
             [[
 local pause = coroutine.yield
-local function leaf(): nil yields(number) resumes(boolean)
+local function leaf() yields(number) resumes(boolean): nil
     @unsafe do
         pause('wrong')
     end

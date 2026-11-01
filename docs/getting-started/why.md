@@ -125,7 +125,7 @@ destruction is not the desired end:
 ```nupp
 local handle = assert(io.open("in.txt", "r"))
 print(handle:read("*a"))
-nupp.drop(handle)
+own.drop(handle)
 ```
 
 Cleanup runs on fallthrough, errors, and every structured exit. The checker also

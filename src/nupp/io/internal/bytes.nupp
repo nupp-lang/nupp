@@ -87,7 +87,7 @@ end
 --- an open file and a request body all satisfy it, and a producer written
 --- against the contract fills any of them.
 --- @export
-export interface Writer is nupp.Closeable
+export interface Writer is own.Closeable
 
     --- Appends bytes.
     --- @param self this writer
@@ -119,7 +119,7 @@ end
 --- code written against the contract works over any of them without knowing
 --- which it has.
 --- @export
-export interface Reader is nupp.Closeable
+export interface Reader is own.Closeable
 
     --- Reads up to `count` bytes.
     ---
@@ -239,7 +239,7 @@ end
 
 --- A snapshot of bytes that cannot be written through.
 --- @export
-export sealed interface ByteView is nupp.Closeable
+export sealed interface ByteView is own.Closeable
     length: function(borrows self: ByteView): integer
     getString: function(borrows self: ByteView): string
     readSpan: function(borrows self: ByteView): span.ByteSpan borrows (self)
@@ -306,7 +306,7 @@ end
 
 --- Growable byte storage whose pointer and logical length never escape separately.
 --- @export
-export sealed interface Buffer is nupp.Closeable
+export sealed interface Buffer is own.Closeable
     length: function(borrows self: Buffer): integer
     capacity: function(borrows self: Buffer): integer
     clear: function(exclusive self: Buffer): nil
@@ -463,7 +463,7 @@ local record WriteLease is BufferWriteLease
         if used > self.count then
             error("nupp: io.Buffer committed byte count exceeds its lease", 2)
         end
-        local raw = @unsafe nupp.release(self)
+        local raw = @unsafe own.release(self)
         local target = raw.state
         opened(target._closed, "io.Buffer", 2)
         if used > 0 then
@@ -561,7 +561,7 @@ local record BufferWriter is Writer
                 -- every protected cleanup closure on the native interpreter.
                 require("nupp.runtime.storage").copy(destinationPointer, sourcePointer, count)
             end
-            nupp.drop(output)
+            own.drop(output)
         end
         lease:commit(count)
         self._at = sizeSum(at, count, "Writer position", 2)
@@ -680,7 +680,7 @@ local record StringReader is Reader
         do
             local output = lease:span()
             copyString(output, bytes, at - 1, taking)
-            nupp.drop(output)
+            own.drop(output)
         end
         lease:commit(taking)
         self._at = at + taking
@@ -783,7 +783,7 @@ local record QueueReader is Reader
         do
             local output = lease:span()
             copyString(output, chunk, 0, taking)
-            nupp.drop(output)
+            own.drop(output)
         end
         lease:commit(taking)
 
@@ -823,13 +823,13 @@ end
 ----------------------------------------------------------------------------
 
 function Snapshot.close(takes self: Snapshot): nil
-    local state = @unsafe nupp.release(self)
+    local state = @unsafe own.release(self)
     state._closed = true
     state._bytes = ""
 end
 
 function HeapBuffer.close(takes self: HeapBuffer): nil
-    local state = @unsafe nupp.release(self)
+    local state = @unsafe own.release(self)
     state._closed = true
     state._length = 0
     state._capacity = 0
@@ -839,23 +839,23 @@ end
 
 function WriteLease.drop(takes self: WriteLease): nil
     @nosuspend do
-        local _raw = @unsafe nupp.release(self)
+        local _raw = @unsafe own.release(self)
     end
 end
 
 function BufferWriter.close(takes self: BufferWriter): nil
-    local state = @unsafe nupp.release(self)
+    local state = @unsafe own.release(self)
     state._closed = true
 end
 
 function StringReader.close(takes self: StringReader): nil
-    local state = @unsafe nupp.release(self)
+    local state = @unsafe own.release(self)
     state._closed = true
     state._bytes = ""
 end
 
 function QueueReader.close(takes self: QueueReader): nil
-    local state = @unsafe nupp.release(self)
+    local state = @unsafe own.release(self)
     state._closed = true
     state._source = nil
 end
@@ -1044,7 +1044,7 @@ export function readAll(takes reader: Reader, maxBytes: integer?): (string?, str
         end
         parts[#parts + 1] = chunk
     end
-    nupp.drop(reader)
+    own.drop(reader)
     if failure ~= nil then
         return nil, failure
     end

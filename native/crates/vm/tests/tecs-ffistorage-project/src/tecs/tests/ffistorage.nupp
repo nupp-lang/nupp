@@ -5,7 +5,7 @@ Direct storage tests adapted from tests/tecs/ffistoragetest.nupp at
 87bd7da2873f7b7267752e5af3a8dfb8648785bb. Copyright (c) 2026 Michael Dowling;
 see the project LICENSE-MIT. The original world and engine tests remain separate.
 ]]
-local test = require("nupp.test")
+local test = require("assert")
 local native: any = assert(require("nupp.mem.representation").storage)
 local buffer = require("nupp.text")
 local ffistorage = require("tecs.internal.ffistorage")
@@ -126,7 +126,7 @@ function suite.customBackingIsRootedAndUsedAgainOnGrowth(): nil
         source[1].x = 91
     end
     collectgarbage("collect")
-    test.assert(ffistorage.owner(source) ~= nil)
+    test(ffistorage.owner(source) ~= nil)
     const target = ffistorage.resize(storage, source, 10, 100) as Point[?]
     collectgarbage("collect")
     test.equal(allocations, 2)
@@ -135,7 +135,7 @@ function suite.customBackingIsRootedAndUsedAgainOnGrowth(): nil
         test.equal(target[1].x, 91)
     end
     ffistorage.setAllocator(storage, nil)
-    test.assert(ffistorage.owner(ffistorage.allocate(storage, 10)) == nil)
+    test(ffistorage.owner(ffistorage.allocate(storage, 10)) == nil)
 end
 
 function suite.codecsAndStagingPreserveValues(): nil
@@ -151,19 +151,19 @@ function suite.codecsAndStagingPreserveValues(): nil
     test.equal(restored.values[0], 1)
     test.equal(restored.values[1], 2)
     test.equal(restored.values[2], 3)
-    test.assert(restored.serial == 18446744073709551615ULL)
-    test.assert(restored.enabled)
+    test(restored.serial == 18446744073709551615ULL)
+    test(restored.enabled)
     const fromOne = ffistorage.deserialize(arrayStorage, {values = {4, 5, 6}}) as ArrayValue
     const fromZero = ffistorage.deserialize(arrayStorage, {values = {[0] = 7, [1] = 8, [2] = 9}}) as ArrayValue
     test.equal(fromOne.values[2], 6)
     test.equal(fromZero.values[0], 7)
     test.equal(fromZero.values[2], 9)
-    test.assert(arrayStorage.rawCodec)
-    test.assert(not pointStorage.rawCodec)
+    test(arrayStorage.rawCodec)
+    test(not pointStorage.rawCodec)
     test.equal(pointStorage.fingerprint, "x:double,y:double|16")
     const signed = ffistorage.new(new SignedValue())
     const minimum = ffistorage.deserialize(signed, {serial = "-9223372036854775808"}) as SignedValue
-    test.assert(minimum.serial == -9223372036854775808LL)
+    test(minimum.serial == -9223372036854775808LL)
     test.equal(ffistorage.serialize(signed, minimum).serial, "-9223372036854775808")
     test.raises(
         function(): nil
@@ -172,12 +172,12 @@ function suite.codecsAndStagingPreserveValues(): nil
         "require paired snapshot codecs"
     )
     const owned = new Point(19, 23)
-    test.assert(rawequal(ffistorage.capture(pointStorage, owned), owned))
+    test(rawequal(ffistorage.capture(pointStorage, owned), owned))
     const rows: any = ffistorage.allocate(pointStorage, 2)
     rows[1] = owned
     const row: any = rows[1]
     const detached: any = ffistorage.capture(pointStorage, row)
-    test.assert(not rawequal(row, detached))
+    test(not rawequal(row, detached))
     rows[1].x = 42
     test.equal(detached.x, 19)
     test.equal(owned.x, 19)
@@ -185,8 +185,8 @@ function suite.codecsAndStagingPreserveValues(): nil
     reloaded.row.x = 47
     test.equal(reloaded.rows[1].x, 47)
     test.equal(reloaded.detached.x, 19)
-    test.assert(native.isBorrowed(reloaded.row))
-    test.assert(not native.isBorrowed(reloaded.detached))
+    test(native.isBorrowed(reloaded.row))
+    test(not native.isBorrowed(reloaded.detached))
 end
 
 function suite.run(): number

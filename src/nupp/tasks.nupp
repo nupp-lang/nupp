@@ -68,6 +68,8 @@ then, in FIFO order, up to a bounded number of activations per host turn.
 Nesting divides that bound rather than multiplying it, because the token belongs
 to the turn.
 ]]
+const types = require("types")
+
 const {type Task as Task2} = require("nupp.workers.spi")
 const {type Status as Status2} = require("nupp.workers.spi")
 
@@ -240,27 +242,27 @@ local type Nullary = function(): any
 
 @comptime
 local function Parameters(F: type): typepack
-    if nupp.types.kind(F) ~= "function" then
-        return nupp.types.error("a task must name a function type")
+    if types.kind(F) ~= "function" then
+        return types.error("a task must name a function type")
     end
-    local described = nupp.types.describe(nupp.types.parameters(F))
+    local described = types.describe(types.parameters(F))
     for position, mode in ipairs(described.modes or {}) do
         if mode ~= "plain" then
-            return nupp.types.error(
+            return types.error(
                 "argument " .. tostring(position) .. " is an owner or a borrow, which a child cannot be handed"
             )
         end
     end
 
-    return nupp.types.parameters(F)
+    return types.parameters(F)
 end
 
 --- Represents a scope opened by `open`.
 ---
---- A `nupp.Closeable`: `open` returns it as an owner a `with` block holds, and
+--- A `own.Closeable`: `open` returns it as an owner a `with` block holds, and
 --- leaving the block closes it. The block can add children to the scope and
 --- reach the worker scope it owns.
-record tasks.Scope is nupp.Closeable
+record tasks.Scope is own.Closeable
     --- Private state. Named rather than hidden because the checked surface below is
     --- what callers use, and a record needs somewhere to keep this.
     _state: any
@@ -1438,7 +1440,7 @@ end
 --- So a body can size its work rather than discover the bound by being cancelled
 --- part way through it.
 ---
---- @return an absolute monotonic reading, as `nupp.time.now` returns
+--- @return an absolute monotonic reading, as `os.monotonic` returns
 function tasks.deadline(): number?
     const owner = currentScope()
     if owner == nil then
@@ -1650,7 +1652,7 @@ end
 --- scope, where one was opened, has been closed through the suspension-aware path.
 --- It is a settling terminal: it parks until that is so, and so is refused inside a
 --- `@nosuspend` region. A scope held in an ordinary local rather than a `with` is
---- closed early by `nupp.drop(scope)`, and closes once.
+--- closed early by `own.drop(scope)`, and closes once.
 ---
 --- A failure the block itself raises does not cancel the children: they run to
 --- completion before it propagates. Call `cancel` first where that is not wanted, or
@@ -1733,7 +1735,7 @@ local function openState(limit: integer?, timeoutMs: number?): ScopeState
     -- front of the host, not a host, so where nothing hosts the frame the turn stays
     -- unbounded as it is for any unhosted frame.
     local handling = suspensionHost.installDriver(frameHandler(owner))
-    owner.frame = @unsafe nupp.release(handling)
+    owner.frame = @unsafe own.release(handling)
 
     return owner
 end
@@ -1860,7 +1862,7 @@ local function familyScope(): ScopeState
     registerOpen(owner)
     -- The call's own frame drives the branches, exactly as a block's does.
     local handling = suspensionHost.installDriver(frameHandler(owner))
-    owner.frame = @unsafe nupp.release(handling)
+    owner.frame = @unsafe own.release(handling)
 
     return owner
 end
@@ -1945,7 +1947,7 @@ end
 ---     family settled
 local function gatherImpl<T>(takes bodies: {function(): T}): ({T?}, {any})
     local rawBodies: {function(): T}
-    rawBodies = @unsafe nupp.release(bodies)
+    rawBodies = @unsafe own.release(bodies)
     const count = #rawBodies
     if count == 0 then
         return {}, {}
@@ -1993,7 +1995,7 @@ tasks.gather = gather
 --- @raises any the winner's error, when the first to settle settled by failing
 local function raceImpl<T>(takes bodies: {function(): T}): T?, integer?
     local rawBodies: {function(): T}
-    rawBodies = @unsafe nupp.release(bodies)
+    rawBodies = @unsafe own.release(bodies)
     const count = #rawBodies
     if count == 0 then
         return nil, nil

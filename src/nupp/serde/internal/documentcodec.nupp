@@ -1,5 +1,7 @@
 module nupp.serde.internal.documentcodec
 
+const assert2 = require("assert")
+
 local core = require("nupp.serde.internal.value")
 local publication = require("nupp.serde.internal.publication")
 local memos = require("nupp.serde.internal.memo")
@@ -19,11 +21,11 @@ local function plan<M is core.Member>(description: core.Description<M>, seen: {[
     if prior ~= nil then
         return prior
     end
-    assert(description.canRead, "binding has no construction operation")
+    assert2(description.canRead, "binding has no construction operation")
     local result = new Plan<M>(description = description)
     seen[description] = result
     for _, child in ipairs(description.children) do
-        assert(result.names[child.member.name] == nil, "duplicate logical member name")
+        assert2(result.names[child.member.name] == nil, "duplicate logical member name")
         result.names[child.member.name] = child.member
         result.children[child.member] = plan(child:describe("read"), seen)
     end
@@ -31,7 +33,7 @@ local function plan<M is core.Member>(description: core.Description<M>, seen: {[
     return result
 end
 
-local record Unknown is core.UnknownReader, nupp.Closeable
+local record Unknown is core.UnknownReader, own.Closeable
     @readonly value: documents.Document
     used: boolean = false
     expired: boolean = false
@@ -40,7 +42,7 @@ local record Unknown is core.UnknownReader, nupp.Closeable
     end
 
     function live(self): nil
-        assert(not self.expired and not self.used, "unknown document reader is no longer usable")
+        assert2(not self.expired and not self.used, "unknown document reader is no longer usable")
     end
 
     function skipValue(exclusive self): nil
@@ -62,7 +64,7 @@ local record Unknown is core.UnknownReader, nupp.Closeable
     end
 end
 
-local record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
+local record Input<M is core.Member> is core.Reader<M>, own.Closeable
     @readonly value: documents.Document
     @readonly plan: Plan<M>
     used: boolean = false
@@ -76,7 +78,7 @@ local record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
     end
 
     function live(self): nil
-        assert(not self.expired and not self.used, "document value reader is no longer usable")
+        assert2(not self.expired and not self.used, "document value reader is no longer usable")
     end
 
     function context(self): core.Context?
@@ -91,12 +93,12 @@ local record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
 
     function consume(exclusive self, kind: core.Kind): nil
         self:live()
-        assert(self.value.kind == kind, "document kind does not match the binding")
+        assert2(self.value.kind == kind, "document kind does not match the binding")
         self.used = true
     end
 
     function readNull(exclusive self, member: M): nil
-        assert(self.plan.description.nullable or self.plan.description.kind == "null", "binding does not admit null")
+        assert2(self.plan.description.nullable or self.plan.description.kind == "null", "binding does not admit null")
         self:consume("null")
     end
 
@@ -186,8 +188,8 @@ local record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
     end
 
     function slot(self, index: integer): Plan<M>
-        local child = assert(self.plan.description.children[index], "binding has no container child")
-        return assert(self.plan.children[child.member])
+        local child = assert2(self.plan.description.children[index], "binding has no container child")
+        return assert2(self.plan.children[child.member])
     end
 
     function child(self, value: documents.Document, child: Plan<M>): Input<M>
@@ -208,19 +210,19 @@ local record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
     ): nil
         self:consume(kind)
         if kind == "union" then
-            assert(self.value:size() == 1, "union requires exactly one alternative")
+            assert2(self.value:size() == 1, "union requires exactly one alternative")
         end
         for index = 1, self.value:size() do
             local entry = self.value:field(index)
             local member = self.plan.names[entry.name]
             if member ~= nil then
-                local child = self:child(entry.value, assert(self.plan.children[member]))
+                local child = self:child(entry.value, assert2(self.plan.children[member]))
                 consume:apply(state, member, child)
-                assert(child.used, "member callback did not consume its value")
+                assert2(child.used, "member callback did not consume its value")
             else
                 local child = new Unknown(value = entry.value)
                 unknown:apply(state, new documents.Name(name = entry.name), child)
-                assert(child.used, "unknown callback did not consume its value")
+                assert2(child.used, "unknown callback did not consume its value")
             end
         end
     end
@@ -253,11 +255,11 @@ local record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
         consume: core.ElementConsumer<M, S>
     ): nil
         self:consume(kind)
-        assert(size == nil or self.value:size() == size, "wrong tuple size")
+        assert2(size == nil or self.value:size() == size, "wrong tuple size")
         for index = 1, self.value:size() do
             local child = self:child(self.value:at(index), self:slot(kind == "tuple" and index or 1))
             consume:apply(state, index, child)
-            assert(child.used, "element callback did not consume its value")
+            assert2(child.used, "element callback did not consume its value")
         end
     end
 
@@ -292,7 +294,7 @@ local record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
             local key = self:scoped(keyDocument, self:slot(1))
             local value = self:scoped(valueDocument, self:slot(2))
             consume:apply(state, key, value)
-            assert(key.used and value.used, "entry callback did not consume key and value")
+            assert2(key.used and value.used, "entry callback did not consume key and value")
         end
     end
 end

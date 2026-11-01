@@ -1,3 +1,5 @@
+const assert2 = require("assert")
+
 local standard = require("nupp.io")
 local http = require("nupp.io.http")
 local tests = {}
@@ -18,20 +20,20 @@ local record Upload is http.Reader
 end
 
 local function consume(takes source: http.Reader): string
-    local first = assert(source:read(3))
-    local second = assert(source:read(3))
+    local first = assert2(source:read(3))
+    local second = assert2(source:read(3))
     source:close()
     return first .. second
 end
 
 function tests.lightweightUploadsKeepTheirNarrowContract(): nil
     local closed = {false}
-    assert(consume(new Upload(bytes = "abcdef", closed = closed)) == "abcdef")
-    assert(closed[1])
+    assert2(consume(new Upload(bytes = "abcdef", closed = closed)) == "abcdef")
+    assert2(closed[1])
 end
 
 function tests.ordinaryReadersSatisfyTheUploadSubset(): nil
-    assert(consume(standard.newStringReader("abcdef")) == "abcdef")
+    assert2(consume(standard.newStringReader("abcdef")) == "abcdef")
 end
 
 local record Queue is standard.ByteQueue
@@ -55,35 +57,35 @@ end
 function tests.byteQueuesAreStructuralSources(): nil
     local queue = new Queue(bytes = "abcdef")
     local reader = standard.newQueueReader(queue)
-    assert(reader:read(3) == "abc")
-    assert(#queue.bytes == 3)
-    assert(reader:read(3) == "def")
-    assert(#queue.bytes == 0)
+    assert2(reader:read(3) == "abc")
+    assert2(#queue.bytes == 3)
+    assert2(reader:read(3) == "def")
+    assert2(#queue.bytes == 0)
 end
 
 function tests.scalarReadersAcceptStructuralQueues(): nil
     local queue = new Queue(bytes = "\1\2\3\4")
     local reader = standard.newScalarReader(queue)
-    assert(reader:remaining() == 4)
-    assert(reader:readUint32() == 67305985)
-    assert(reader:remaining() == 0)
-    assert(#queue.bytes == 0)
+    assert2(reader:remaining() == 4)
+    assert2(reader:readUint32() == 67305985)
+    assert2(reader:remaining() == 0)
+    assert2(#queue.bytes == 0)
 end
 
 function tests.structuralQueuesReadIntoBuffersAndWritableSpans(): nil
     local queue = new Queue(bytes = "abcdef")
     local reader = standard.newQueueReader(queue)
     local destination = standard.newBuffer(8)
-    assert(reader:readInto(destination, 0, 3) == 3)
+    assert2(reader:readInto(destination, 0, 3) == 3)
     local lease = destination:reserveWrite(3, 3)
     do
         local output = lease:span()
-        assert(reader:readSpan(output) == 3)
-        nupp.drop(output)
+        assert2(reader:readSpan(output) == 3)
+        own.drop(output)
     end
     lease:commit(3)
-    assert(destination:getString() == "abcdef")
-    assert(reader:read(1) == "")
+    assert2(destination:getString() == "abcdef")
+    assert2(reader:read(1) == "")
 end
 
 function tests.stringReadersFillWritableSpans(): nil
@@ -92,19 +94,19 @@ function tests.stringReadersFillWritableSpans(): nil
     local lease = destination:reserveWrite(0, 3)
     do
         local output = lease:span()
-        assert(reader:readSpan(output) == 3)
-        nupp.drop(output)
+        assert2(reader:readSpan(output) == 3)
+        own.drop(output)
     end
     lease:commit(3)
-    assert(destination:getString() == "abc")
+    assert2(destination:getString() == "abc")
 end
 
 function tests.linesKeepTerminatorsAndFinalFragments(): nil
     local lines = standard.newLines(standard.newStringReader("one\r\ntwo\nlast"))
-    assert(lines:read() == "one")
-    assert(lines:read() == "two")
-    assert(lines:read() == "last")
-    assert(lines:read() == nil)
+    assert2(lines:read() == "one")
+    assert2(lines:read() == "two")
+    assert2(lines:read() == "last")
+    assert2(lines:read() == nil)
     lines:close()
 end
 

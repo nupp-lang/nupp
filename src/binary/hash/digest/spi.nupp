@@ -23,7 +23,7 @@ applications requiring collision resistance must choose an appropriate digest.
 local {type ByteSpan, type ByteWriteSpan} = require("nupp.mem.span")
 
 --- Independent incremental state; close consumes its ownership without suspension.
-export interface State is nupp.Closeable
+export interface State is own.Closeable
     --- Releases all state resources.
     close: @nosuspend function(takes self: State): nil
 

@@ -7,16 +7,13 @@ local apiidentity = {}
 local ROOTS: {
     [string]: string
 } = {
-    ["nupp.types"] = "types",
-    ["nupp.reflect"] = "types.reflect",
-    ["nupp.derive"] = "types.derive",
     ["nupp.simd"] = "simd",
     ["nupp.events"] = "events",
     ["nupp.gpu"] = "gpu",
     ["nupp.math"] = "math",
     ["nupp.log"] = "log",
 }
-local PUBLIC_ROOTS: {[string]: boolean} = {own = true}
+local PUBLIC_ROOTS: {[string]: boolean} = {own = true, types = true}
 for _, path in pairs(ROOTS) do
     local root = path:match("^[^.]+")
     if root then
@@ -24,41 +21,7 @@ for _, path in pairs(ROOTS) do
     end
 end
 
-local MEMBERS: {
-    [string]: string
-} = {
-    ["nupp.Debug"] = "types.Debug",
-    ["nupp.__Debug"] = "types.Debug",
-    ["nupp.derive.Debug"] = "types.Debug",
-    ["nupp.util.Key"] = "types.Key",
-    ["nupp.util.Store"] = "types.Store",
-    ["nupp.util.newKey"] = "types.newKey",
-    ["nupp.util.newStore"] = "types.newStore",
-}
-local OWN: {
-    [string]: boolean
-} = {
-    Copyable = true,
-    Affine = true,
-    Closeable = true,
-    AliasError = true,
-    ManagedGroup = true,
-    Managed = true,
-    Alias = true,
-    attemptAll = true,
-    borrow = true,
-    borrowFrom = true,
-    partition = true,
-    region = true,
-    pin = true,
-    manage = true,
-    adopt = true,
-    release = true,
-    drop = true,
-    recoverAlias = true,
-    managedGroup = true,
-}
-
+local MEMBERS: {[string]: string} = {["nupp.__Debug"] = "types.Debug",}
 local PRIVATE_MODULES = {
     "nupp.gpu.api",
     "nupp.gpu.types",
@@ -77,10 +40,6 @@ function apiidentity.canonical(path: string): string
     if mapped then
         return mapped
     end
-    local member = path:match("^nupp%.([%w_]+)$")
-    if member and OWN[member] then
-        return "own." .. member
-    end
     for old, current in pairs(ROOTS) do
         if path == old or path:sub(1, #old + 1) == old .. "." then
             return current .. path:sub(#old + 1)
@@ -98,13 +57,6 @@ function apiidentity.legacy(path: string): string
                 return path
             end
         end
-    end
-    local member = path:match("^own%.([%w_]+)$")
-    if member and OWN[member] then
-        return "nupp." .. member
-    end
-    if path == "types.Debug" then
-        return "nupp.Debug"
     end
     local selectedOld, selectedCurrent = nil, nil
     for old, current in pairs(ROOTS) do
@@ -157,12 +109,7 @@ function apiidentity.sourcePath(c: any, written: string): string?
     end
     -- Environment-free fragment checks still resolve compiler type constructors.
     -- A lexical declaration always takes precedence over this intrinsic surface.
-    if not entry
-        and not c.env
-        and c.opts
-        and c.opts.strict == false
-        and (written:match("^nupp%.types%.") or written:match("^types%."))
-    then
+    if not entry and not c.env and c.opts and c.opts.strict == false and written:match("^types%.") then
         return written
     end
     if not entry and PUBLIC_ROOTS[root] and c.env then

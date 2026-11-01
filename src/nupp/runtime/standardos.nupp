@@ -1,0 +1,65 @@
+@!internal
+
+--- @namespace os
+module nupp.runtime.standardos
+
+--[[
+`os` provides process operations, system facts, clocks, and UUIDs.
+Its clocks return milliseconds and distinguish elapsed time from calendar time.
+
+```nupp
+local facts = os.info()
+print(facts.platform, facts.arch, facts.parallelism)
+print(os.monotonic())
+```
+
+See [system services](docs/learn/runtime/system.md) for facts, clocks, and UUIDs.
+]]
+
+local system = require("nupp.runtime.system")
+local clocks = require("nupp.runtime.clocks").selected
+local uuid = require("nupp.util.internal.uuid")
+
+--- The executing ABI and the available parallelism at the time of a query.
+export record Info
+    @readonly platform: string
+    @readonly arch: string
+    @readonly endianness: "little" | "big"
+    @readonly pointerbits: integer
+    @readonly parallelism: integer
+end
+
+--- Returns the executing ABI's facts and current available parallelism.
+export function info(): Info
+    return new Info(
+        platform = system.platform,
+        arch = system.architecture,
+        endianness = system.endianness,
+        pointerbits = system.pointerBits,
+        parallelism = system.availableParallelism()
+    )
+end
+
+--- Returns monotonic milliseconds with the host's unspecified origin.
+export const monotonic: function(): number = clocks.now
+
+--- Returns milliseconds since the Unix epoch.
+export const walltime: function(): number = clocks.wallTime
+
+--- Generates a random version 4 UUID using the retained host service.
+export const uuid4: function(): string = uuid.uuid4
+
+--- Generates a time-ordered version 7 UUID using the retained host service.
+export const uuid7: function(): string = uuid.uuid7
+
+--- The original host table with these shared implementations installed.
+--- @internal
+export const value: table = do
+    local original = rawget(_G, "os") as any
+    original.info = info
+    original.monotonic = monotonic
+    original.walltime = walltime
+    original.uuid4 = uuid4
+    original.uuid7 = uuid7
+    yield original
+end

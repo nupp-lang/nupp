@@ -108,11 +108,11 @@ export const ContextBuilder = contexts.Builder
 ---
 --- `codec` and `profile` identify where the value came from, so a protocol can
 --- refuse to replay a document captured under an incompatible one. Values are
---- set under [](nupp.util.Key)s and must be Copyable.
+--- set under [](types.Key)s and must be Copyable.
 ---
 --- ```nupp
 --- local codec = require("serde.codec")
---- local source: nupp.util.Key<string> = nupp.util.newKey()
+--- local source: types.Key<string> = types.newKey()
 --- local builder = codec.contextBuilder({}, {}, nil)
 --- builder:set(source, "upload.json")
 --- assert(builder:freeze():get(source) == "upload.json")

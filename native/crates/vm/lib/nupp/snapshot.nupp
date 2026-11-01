@@ -118,7 +118,7 @@ export type Header = {
 
 --- A restored value not yet published. Closing it discards the resources
 --- its restore staged; publishing hands the value over.
-export record Prepared is nupp.Closeable
+export record Prepared is own.Closeable
     @private _value: any
     @private _staged: {any}
     @private _resources: {Resource}?
@@ -131,7 +131,7 @@ export record Prepared is nupp.Closeable
 
     --- Publishes the candidate and returns it; its resources stay live.
     function publish(takes self): any
-        local state = @unsafe nupp.release(self)
+        local state = @unsafe own.release(self)
         state._open = false
 
         return state._value
@@ -141,7 +141,7 @@ export record Prepared is nupp.Closeable
 end
 
 function Prepared.close(takes self: Prepared): nil
-    local state = @unsafe nupp.release(self)
+    local state = @unsafe own.release(self)
     if not state._open then
         return
     end

@@ -30,7 +30,7 @@ export const FINISHED = 3
 export type FormatOptions = {@readonly [string]: any}
 
 --- Independent incremental compression state.
-export interface Encoder is nupp.Closeable
+export interface Encoder is own.Closeable
     --- Releases encoder state without producing a trailer.
     close: @nosuspend function(takes self: Encoder): nil
 
@@ -52,7 +52,7 @@ export interface Encoder is nupp.Closeable
 end
 
 --- Independent incremental decompression state.
-export interface Decoder is nupp.Closeable
+export interface Decoder is own.Closeable
     --- Releases decoder state.
     close: @nosuspend function(takes self: Decoder): nil
 

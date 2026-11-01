@@ -1,3 +1,6 @@
+const types2 = require("types")
+const derive = require("types.derive")
+
 local provider = {}
 
 interface provider.Inspect
@@ -9,29 +12,26 @@ function provider.text(value: string): string
 end
 
 @comptime
-function provider.derive(info: nupp.derive.Info): nupp.derive.Result<provider.Inspect>
-    local signature = nupp.types.function_(nupp.types.pack({}), nupp.types.pack({nupp.types.string}))
+function provider.derive(info: types.derive.Info): types.derive.Result<provider.Inspect>
+    local signature = types2.function_(types2.pack({}), types2.pack({types2.string}))
 
-    return nupp.derive.implement{
+    return derive.implement{
         methods = {
-            inspect = nupp.derive.forward{
-                helper = nupp.derive.helper(provider, "text"),
-                arguments = {nupp.derive.constant(info.name)}
-            }
+            inspect = derive.forward{helper = derive.helper(provider, "text"), arguments = {derive.constant(info.name)}}
         },
         statics = {
-            kind = nupp.derive.member{
+            kind = derive.member{
                 signature = signature,
-                forward = nupp.derive.forward{
-                    helper = nupp.derive.helper(provider, "text"),
-                    arguments = {nupp.derive.constant(info.kind)}
+                forward = derive.forward{
+                    helper = derive.helper(provider, "text"),
+                    arguments = {derive.constant(info.kind)}
                 }
             },
-            fields = nupp.derive.member{
+            fields = derive.member{
                 signature = signature,
-                forward = nupp.derive.forward{
-                    helper = nupp.derive.helper(provider, "text"),
-                    arguments = {nupp.derive.constant(tostring(#info.fields))}
+                forward = derive.forward{
+                    helper = derive.helper(provider, "text"),
+                    arguments = {derive.constant(tostring(#info.fields))}
                 }
             },
         },

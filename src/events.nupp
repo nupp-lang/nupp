@@ -1,7 +1,7 @@
-module nupp.events
+module events
 
 --[[
-Addressed, synchronous events whose payloads are ordinary declarations.
+`events` delivers synchronous events to observers at an address.
 
 An event is a `record` or a fixed-layout `struct` marked `@derive(events.Event)`.
 Emitting one by type constructs it into storage the source already owns, and
@@ -10,7 +10,7 @@ caller built allocates nothing. Observers receive the event as a call-scoped
 borrow they may write to but not keep.
 
 ```nupp
-local events = nupp.events
+local events = require("events")
 
 @derive(events.Event)
 local record Damage
@@ -31,11 +31,13 @@ forward to the module functions below; the equivalent direct call is
 `events.observe(bus, 7, Damage, callback, "log")`.
 
 Observer state belongs to a source: `MessageBus<A>` is one, and any record with
-an `observers` field implements [](nupp.events.Source) and dispatches through
+an `observers` field implements [](events.Source) and dispatches through
 the same functions. Record events draw from a [](nupp.util.Pool) and struct
 events from a [](nupp.mem.arena), each created the first time an event type is
 emitted through a source; `setAllocator` installs one the caller owns instead.
 ]]
+const derive2 = require("types.derive")
+const types2 = require("types")
 
 local derive = require("nupp.derive")
 local pool = require("nupp.util.internal.pool")
@@ -100,16 +102,16 @@ end
 --- @param info the declaration being derived
 --- @return the recipe claiming `events.Emittable`
 @comptime
-function events.Event(info: nupp.derive.Info): nupp.derive.Result<events.Emittable>
+function events.Event(info: types.derive.Info): types.derive.Result<events.Emittable>
     if info.kind ~= "record" and info.kind ~= "struct" then
-        return nupp.derive.error("events.Event admits a record or a fixed-layout struct", info.reference)
+        return derive2.error("events.Event admits a record or a fixed-layout struct", info.reference)
     end
     local name = option(info.annotations, "event", "name")
     if name ~= nil and type(name) ~= "string" then
-        return nupp.derive.error("@event(name = ...) takes a string", info.reference)
+        return derive2.error("@event(name = ...) takes a string", info.reference)
     end
 
-    return nupp.derive.implement{
+    return derive2.implement{
         data = {events = {name = name or info.name, representation = info.kind}},
         initializer = true,
     }
@@ -118,7 +120,7 @@ end
 --- The parameters an event is constructed with, named, so `emit` binds them.
 @comptime
 local function Construction(E: type): typepack
-    return nupp.types.construction(E)
+    return types2.construction(E)
 end
 
 ----------------------------------------------------------------------------
@@ -864,7 +866,7 @@ end
 record events.MessageBus<A> is events.Source<A>
     observers: events.Observers<A>
 
-    --- Registers an observer; see [](nupp.events.observe).
+    --- Registers an observer; see [](events.observe).
     observe: function<E is events.Emittable>(
         exclusive self: MessageBus<A>,
         address: A,
@@ -874,7 +876,7 @@ record events.MessageBus<A> is events.Source<A>
     ): nil
 
     --- Registers an observer consumed on first delivery; see
-    --- [](nupp.events.observeOnce).
+    --- [](events.observeOnce).
     observeOnce: function<E is events.Emittable>(
         exclusive self: MessageBus<A>,
         address: A,
@@ -883,7 +885,7 @@ record events.MessageBus<A> is events.Source<A>
         id: string?
     ): nil
 
-    --- Removes registrations; see [](nupp.events.stopObserving).
+    --- Removes registrations; see [](events.stopObserving).
     stopObserving: function<E is events.Emittable>(
         exclusive self: MessageBus<A>,
         address: A,
@@ -892,10 +894,10 @@ record events.MessageBus<A> is events.Source<A>
     ): boolean
 
     --- Whether anything observes an event here; see
-    --- [](nupp.events.hasObservers).
+    --- [](events.hasObservers).
     hasObservers: function<E is events.Emittable>(self: MessageBus<A>, address: A, event: Type<E>): boolean
 
-    --- Constructs and delivers an event; see [](nupp.events.emit).
+    --- Constructs and delivers an event; see [](events.emit).
     emit: function<E is events.Emittable>(
         exclusive self: MessageBus<A>,
         address: A,
@@ -903,7 +905,7 @@ record events.MessageBus<A> is events.Source<A>
         ...: unpackof Construction(E)
     ): nil
 
-    --- Delivers an instance; see [](nupp.events.deliver).
+    --- Delivers an instance; see [](events.deliver).
     deliver: function<E is events.Emittable>(
         exclusive self: MessageBus<A>,
         address: A,
@@ -912,13 +914,13 @@ record events.MessageBus<A> is events.Source<A>
     ): nil
 
     --- Removes every registration at an address; see
-    --- [](nupp.events.clearAddress).
+    --- [](events.clearAddress).
     clearAddress: function(exclusive self: MessageBus<A>, address: A): nil
 
-    --- Removes every registration; see [](nupp.events.reset).
+    --- Removes every registration; see [](events.reset).
     reset: function(exclusive self: MessageBus<A>): nil
 
-    --- Installs storage for an event type; see [](nupp.events.setAllocator).
+    --- Installs storage for an event type; see [](events.setAllocator).
     setAllocator: function<E is events.Emittable>(
         exclusive self: MessageBus<A>,
         event: Type<E>,

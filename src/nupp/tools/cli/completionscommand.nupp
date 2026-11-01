@@ -2,7 +2,7 @@ module nupp.tools.cli.completionscommand
 
 -- `nupp completions`: print shell completion generated from the CLI schema.
 
-local cliModule = require("nupp.cli")
+local cliModule = require("arg")
 
 --- Print a shell completion script.
 ---

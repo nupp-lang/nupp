@@ -187,6 +187,23 @@ export = setmetatable(callable, {__call = original})
     assert(next(expected) == nil, "a callable helper or nested suite member is missing")
 end
 
+function M.functionDocumentationKeepsCoroutineProtocolsBeforeResults()
+    local source = [[
+--- Produces a value and receives its continuation flag.
+function produce(start: number) yields(number, string) resumes(boolean): string
+    return 'done'
+end
+]]
+    local module, errors = doc.extract(source, "src/producer.nupp", "producer")
+    assert(module, errors and errors[1] and errors[1].msg)
+    local produce = module.items[1]
+    assert(
+        produce.signature == "function produce(start: number) yields (number, string) resumes (boolean): string",
+        produce.signature
+    )
+    assert(produce.returns[1].type == "string", "protocol packs changed the result contract")
+end
+
 -- An example is the one place a doc comment writes a line that looks like a tag and
 -- is not one, so a fence has to suspend tag parsing rather than eat the annotation
 -- the example exists to show.
@@ -196,7 +213,7 @@ function M.aFencedExampleKeepsAnAnnotationRatherThanReadingItAsATag()
             "--- Renders a value.",
             "---",
             "--- ```nupp",
-            "--- @derive(nupp.derive.Debug)",
+            "--- @derive(types.Debug)",
             "--- local record Point",
             "---     x: integer",
             "--- end",
@@ -213,7 +230,7 @@ function M.aFencedExampleKeepsAnAnnotationRatherThanReadingItAsATag()
     local render = module.items[1]
     assert(render and render.name == "render", "declaration missing")
     assert(
-        render.doc.text:find("@derive(nupp.derive.Debug)", 1, true),
+        render.doc.text:find("@derive(types.Debug)", 1, true),
         "the annotation stays in the example: " .. render.doc.text
     )
     assert(render.doc.tags.derive == nil, "and never became a tag")
@@ -1014,11 +1031,11 @@ function M.standardTypesApiMarksItsCompilerOnlyValues()
 
     local types
     for _, candidate in ipairs(extra or {}) do
-        if candidate.name == "nupp.types" then
+        if candidate.name == "types" then
             types = candidate
         end
     end
-    assert(types, "the prelude did not synthesize nupp.types")
+    assert(types, "the prelude did not synthesize types")
 
     local foundType, foundFunction = false, false
     for _, item in ipairs(types.items) do
@@ -1028,8 +1045,8 @@ function M.standardTypesApiMarksItsCompilerOnlyValues()
             foundFunction = item.comptimeKind == "function"
         end
     end
-    assert(foundType, "nupp.types.string lost its @comptime type kind")
-    assert(foundFunction, "nupp.types.optional lost its @comptime function kind")
+    assert(foundType, "types.string lost its @comptime type kind")
+    assert(foundFunction, "types.optional lost its @comptime function kind")
 end
 
 function M.spiReferenceShowsTheInterfaceArgumentRatherThanItsLowering()
@@ -1168,7 +1185,7 @@ end
 
 -- Public UTF-8 and digest modules document their complete declared surface.
 function M.standardDataApiHasCompleteDocumentation()
-    local modules = {"src/nupp/text/utf8.nupp", "src/binary/hash/digest/init.nupp",}
+    local modules = {"src/utf8.nupp", "src/binary/hash/digest/init.nupp",}
     for _, relative in ipairs(modules) do
         local source = assert(readFile(HERE .. "/../" .. relative), "no module at " .. relative)
         local name = relative:match("^src/(.+)%.nupp$"):gsub("/", "."):gsub("%.init$", "")
@@ -1206,10 +1223,10 @@ function M.standardIOApiHasCompleteDocumentation()
             functions = {newBuffer = true, newStringReader = true,},
         },
         [
-            "src/nupp/io/path/init.nupp"
+            "src/io/path/init.nupp"
         ] = {types = {Path = true,}, functions = {newPath = true, currentDirectory = true, separator = true,},},
         [
-            "src/nupp/io/uri/init.nupp"
+            "src/io/uri/init.nupp"
         ] = {types = {URI = true, Components = true,}, functions = {newURI = true, validate = true, isURI = true,},},
         [
             "src/nupp/io/files/init.nupp"
@@ -1220,13 +1237,13 @@ function M.standardIOApiHasCompleteDocumentation()
     }
     for relative, expected in pairs(modules) do
         local source = assert(readFile(HERE .. "/../" .. relative), "no module at " .. relative)
-        local name = relative:match("src/nupp/(.+)%.nupp"):gsub("/", "."):gsub("%.init$", "")
-        local module, errors = doc.extract(source, relative, "nupp." .. name)
+        local name = relative:match("src/(.+)%.nupp"):gsub("/", "."):gsub("%.init$", "")
+        local module, errors = doc.extract(source, relative, name)
         assert(module, errors and errors[1] and errors[1].msg)
-        assert(module.text ~= "", "nupp." .. name .. " has no module documentation")
+        assert(module.text ~= "", name .. " has no module documentation")
         local foundTypes, foundFunctions = {}, {}
         for _, item in ipairs(module.items) do
-            local prefix = "nupp." .. name .. "." .. item.name
+            local prefix = name .. "." .. item.name
             assert(item.doc.text ~= "", prefix .. " has no documentation")
             if expected.types[item.name] then
                 foundTypes[item.name] = true
@@ -1242,24 +1259,24 @@ function M.standardIOApiHasCompleteDocumentation()
             end
         end
         for member in pairs(expected.types) do
-            assert(foundTypes[member], "nupp." .. name .. " did not document " .. member)
+            assert(foundTypes[member], name .. " did not document " .. member)
         end
         for member in pairs(expected.functions) do
-            assert(foundFunctions[member], "nupp." .. name .. " did not document " .. member)
+            assert(foundFunctions[member], name .. " did not document " .. member)
         end
     end
 
     -- Paths are interned by `newPath`; direct construction is intentionally
     -- unavailable.
-    local path = assert(readFile(HERE .. "/../src/nupp/io/path/init.nupp"))
-    local module = assert(doc.extract(path, "src/nupp/io/path/init.nupp", "nupp.io.path"))
+    local path = assert(readFile(HERE .. "/../src/io/path/init.nupp"))
+    local module = assert(doc.extract(path, "src/io/path/init.nupp", "io.path"))
     local factory
     for _, item in ipairs(module.items) do
         if item.name == "newPath" then
             factory = item
         end
     end
-    assert(factory, "nupp.io.path did not document newPath")
+    assert(factory, "io.path did not document newPath")
     assert(factory.doc.text:find("#### Examples", 1, true), "path.newPath has no examples")
     assert(
         factory.doc.text:find('path.newPath("src", "main.nupp")', 1, true),
@@ -1268,15 +1285,15 @@ function M.standardIOApiHasCompleteDocumentation()
 
     -- URIs are likewise interned by `newURI`; their exported record is a value type,
     -- not a public construction surface.
-    local uri = assert(readFile(HERE .. "/../src/nupp/io/uri/init.nupp"))
-    local uriModule = assert(doc.extract(uri, "src/nupp/io/uri/init.nupp", "nupp.io.uri"))
+    local uri = assert(readFile(HERE .. "/../src/io/uri/init.nupp"))
+    local uriModule = assert(doc.extract(uri, "src/io/uri/init.nupp", "io.uri"))
     local uriFactory
     for _, item in ipairs(uriModule.items) do
         if item.name == "newURI" then
             uriFactory = item
         end
     end
-    assert(uriFactory, "nupp.io.uri did not document newURI")
+    assert(uriFactory, "io.uri did not document newURI")
     assert(uriFactory.doc.text:find("#### Examples", 1, true), "uri.newURI has no examples")
     assert(
         uriFactory.doc.text:find('uri.newURI("https://example.com/a?b=1")', 1, true),
@@ -1295,7 +1312,7 @@ function M.standardReflectApiKeepsItsGraphAndMaterializerTogether()
             reflect = item
         end
     end
-    assert(reflect, "the prelude did not document nupp.reflect")
+    assert(reflect, "the prelude did not document types.reflect")
 
     local expected = {
         AnnotationArgument = true,
@@ -1320,25 +1337,25 @@ function M.standardReflectApiKeepsItsGraphAndMaterializerTogether()
         fieldCodec = true,
     }
     local _, moduleExamples = reflect.doc.text:gsub("```nupp", "")
-    assert(moduleExamples >= 2, "nupp.reflect needs root and graph examples")
+    assert(moduleExamples >= 2, "types.reflect needs root and graph examples")
     for _, member in ipairs(reflect.members) do
         if expected[member.name] then
-            assert(member.text ~= "", "nupp.reflect." .. member.name .. " has no documentation")
+            assert(member.text ~= "", "types.reflect." .. member.name .. " has no documentation")
             expected[member.name] = nil
         end
         if examples[member.name] then
-            assert(member.text:find("```nupp", 1, true), "nupp.reflect." .. member.name .. " has no source example")
+            assert(member.text:find("```nupp", 1, true), "types.reflect." .. member.name .. " has no source example")
             examples[member.name] = nil
         end
         if member.name == "fieldCodec" then
-            assert(member.comptimeKind == "function", "nupp.reflect.fieldCodec must document its comptime-only phase")
+            assert(member.comptimeKind == "function", "types.reflect.fieldCodec must document its comptime-only phase")
         end
     end
     for name in pairs(expected) do
-        error("the prelude did not document nupp.reflect." .. name)
+        error("the prelude did not document types.reflect." .. name)
     end
     for name in pairs(examples) do
-        error("the prelude did not keep the nupp.reflect." .. name .. " example")
+        error("the prelude did not keep the types.reflect." .. name .. " example")
     end
 end
 
@@ -1367,7 +1384,7 @@ function M.standardLibraryBackingRecordsStayInternal()
     )
     assert(module, errors and errors[1] and errors[1].msg)
 
-    local expected = {["nupp.math.vec2"] = "add", ["nupp.math.quat"] = "multiply",}
+    local expected = {["math.vec2"] = "add", ["math.quat"] = "multiply",}
     for _, child in ipairs(extra or {}) do
         local member = expected[child.name]
         if member then
@@ -1398,7 +1415,7 @@ function M.standardLibraryBackingRecordsStayInternal()
     assert(closeable, "the prelude did not document Closeable")
     assert(closeable.module == "nupp", "Closeable is not owned by the nupp module")
     assert(
-        closeable.signature:find("interface nupp.Closeable is nupp.Affine<self.close>", 1, true),
+        closeable.signature:find("interface own.Closeable is own.Affine<self.close>", 1, true),
         "Closeable lost its qualified declaration"
     )
 
@@ -1430,6 +1447,138 @@ function M.standardLibraryBackingRecordsStayInternal()
     assert(nestedLibraries == 0, "private docs grew a nested backing record")
 end
 
+function M.namedNamespaceProjectsAPrivateDeclarationContract()
+    local source = [[
+--- Shared operations.
+--- @internal
+--- @namespace sample
+record PrivateLibrary
+    --- Produces the next value.
+    --- @param value the input
+    --- @return the next value
+    next: function(value: integer): integer
+end
+]]
+    local module, errors, namespaces = doc.extract(source, "sample.d.nupp", "private")
+    assert(module, errors and errors[1] and errors[1].msg)
+    assert(#module.items == 0, "the backing record stays private")
+    assert(#namespaces == 1 and namespaces[1].name == "sample")
+    local item = namespaces[1].items[1]
+    assert(item.name == "next" and item.path == "sample.next")
+    assert(item.signature == "local next: function(value: integer): integer", item.signature)
+    assert(item.params[1].text == "the input")
+    assert(item.returns[1].text == "the next value")
+    local private = assert(doc.extract(source, "sample.d.nupp", "private", {includePrivate = true}))
+    assert(private.items[1].name == "PrivateLibrary")
+end
+
+function M.namedNamespaceProjectsAHostTableWithoutPublishingItsImplementation()
+    local source = [[
+@!internal
+--- @namespace console
+module package.internal.console
+local implementation = {}
+--- A message.
+record implementation.Message text: string end
+--- Writes a message.
+function implementation.write(message: implementation.Message): nil end
+--- The private host value.
+--- @internal
+implementation.value = {}
+export = implementation
+]]
+    for _, includePrivate in ipairs({false, true}) do
+        local original, errors, extra = doc.extract(source, "console.nupp", "package.internal.console", {
+            includePrivate = includePrivate
+        })
+        assert(original and #errors == 0 and original.documentationInternal)
+        assert(#extra == 1 and extra[1].name == "console" and not extra[1].documentationInternal)
+        local listed = {}
+        for _, item in ipairs(extra[1].items) do
+            listed[item.name] = item
+        end
+        assert(
+            listed.Message and listed.write and not listed.value,
+            "only the existing public declarations project onto the host table"
+        )
+        assert(listed.write.path == "console.write")
+        assert(listed.write.signature:find("console.write", 1, true), listed.write.signature)
+        assert(listed.write.params[1].type == "console.Message", listed.write.params[1].type)
+        assert(not listed.Message.signature:find("implementation.", 1, true), listed.Message.signature)
+    end
+end
+
+function M.hostExtensionPagesKeepTheirContractsAndClockLinks()
+    local fixture = {['guide.md'] = '# Extensions\n\nThe clock is [](os.monotonic).\n'}
+    for _, name in ipairs({
+        "nupp/runtime/standardio.nupp",
+        "nupp/runtime/standardos.nupp",
+        "nupp/cli/internal/terminal.nupp",
+        "nupp/cli/internal/table.nupp",
+    }) do
+        fixture["src/" .. name] = readFile(HERE .. "/../src/" .. name)
+    end
+    local dir = tempProject(fixture)
+    local config = {include = {"src"}}
+    local settings = {sources = {"src"}, pages = {{path = "guide", source = "guide.md", title = "Extensions"}}}
+    assert(doc.build(dir, config, settings, {format = "json", output = "api.json"}) == 0)
+    local model = require("testjson").decode(readFile(dir .. "/api.json"))
+    local modules = {}
+    for _, module in ipairs(model.modules) do
+        assert(not module.name:find("nupp.runtime.standard", 1, true), "the implementation remains private")
+        modules[module.name] = module
+    end
+    local publicIO, publicOS = assert(modules.io, "io has no public page"), assert(modules.os, "os has no public page")
+    local ioItems, osItems = {}, {}
+    for _, item in ipairs(publicIO.items) do
+        ioItems[item.name] = item
+    end
+    for _, item in ipairs(publicOS.items) do
+        osItems[item.name] = item
+    end
+    for _, name in ipairs({"ColorMode", "Style", "Cell", "TableOptions", "Alignment", "Column"}) do
+        assert(ioItems[name], "the terminal type is missing: " .. name)
+    end
+    for _, name in ipairs({
+        "style",
+        "table",
+        "writeTable",
+        "cell",
+        "paintedCell",
+        "annotatedCell",
+        "severity",
+        "setColorMode",
+        "withColorMode",
+        "colorEnabled",
+        "isTerminal",
+        "columns"
+    }) do
+        assert(ioItems[name], "the terminal member is missing: " .. name)
+        assert(not ioItems[name].signature:find("terminal.", 1, true), ioItems[name].signature)
+    end
+    assert(
+        #ioItems.Style.members > 0 and #ioItems.TableOptions.members > 0,
+        "public type aliases retain their source contract members"
+    )
+    assert(not ioItems.value and not osItems.value, "private host-table values do not become public API")
+    for _, name in ipairs({"Info", "info", "monotonic", "walltime", "uuid4", "uuid7"}) do
+        assert(osItems[name], "the system member is missing: " .. name)
+    end
+    local fields = {}
+    for _, field in ipairs(osItems.Info.members) do
+        fields[field.name] = true
+    end
+    for _, name in ipairs({"platform", "arch", "endianness", "pointerbits", "parallelism"}) do
+        assert(fields[name], "os.Info lost its field: " .. name)
+    end
+    assert(doc.build(dir, config, settings, {format = "site", output = "site"}) == 0)
+    local guide = readFile(dir .. "/site/guide/index.html")
+    assert(guide:find("modules/os/index.html#os.monotonic", 1, true), "the clock links to its public declaration")
+    local osPage = readFile(dir .. "/site/modules/os/index.html")
+    assert(osPage:find('id="os.monotonic"', 1, true), "the public clock anchor is missing")
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
 function M.standardMathApiHasCompleteDocumentation()
     local source = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp")
     local module, errors, extra = doc.extract(
@@ -1441,21 +1590,21 @@ function M.standardMathApiHasCompleteDocumentation()
 
     local mathModule, vec2Module, quatModule
     for _, candidate in ipairs(extra or {}) do
-        if candidate.name == "nupp.math" then
+        if candidate.name == "math" then
             mathModule = candidate
         end
-        if candidate.name == "nupp.math.vec2" then
+        if candidate.name == "math.vec2" then
             vec2Module = candidate
         end
-        if candidate.name == "nupp.math.quat" then
+        if candidate.name == "math.quat" then
             quatModule = candidate
         end
     end
-    assert(mathModule, "the prelude did not synthesize nupp.math")
-    assert(vec2Module, "the prelude did not synthesize nupp.math.vec2")
-    assert(#vec2Module.items > 0, "nupp.math.vec2 has no operations")
-    assert(quatModule, "the prelude did not synthesize nupp.math.quat")
-    assert(#quatModule.items > 0, "nupp.math.quat has no operations")
+    assert(mathModule, "the prelude did not synthesize math")
+    assert(vec2Module, "the prelude did not synthesize math.vec2")
+    assert(#vec2Module.items > 0, "math.vec2 has no operations")
+    assert(quatModule, "the prelude did not synthesize math.quat")
+    assert(#quatModule.items > 0, "math.quat has no operations")
 
     local function assertDocumented(documentedModule)
         for _, item in ipairs(documentedModule.items) do
@@ -1530,7 +1679,7 @@ end
 
 function M.standardManagedGroupApiHasCompleteDocumentation()
     local source = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp")
-    assert(source:find("interface nupp.ManagedGroup", 1, true), "the root ownership surface lost ManagedGroup")
+    assert(source:find("interface own.ManagedGroup", 1, true), "the root ownership surface lost ManagedGroup")
     assert(source:find("managedGroup: function", 1, true), "the root ownership surface lost its ManagedGroup factory")
 end
 
@@ -1864,8 +2013,8 @@ function M.highlightsCurrentNuppSyntaxWithTheParser()
                 "   end",
                 "   satisfies |self| -> self.ready",
                 "end",
-                "local function worker(): const unknown & Serializable",
-                "   yields (number) resumes (boolean)",
+                "local function worker()",
+                "   yields (number) resumes (boolean): const unknown & Serializable",
                 "   return new Factory()",
                 "end",
             },
@@ -2325,18 +2474,18 @@ end
 function M.aNamespaceAndTheModuleImplementingItShareOnePage()
     local dir = tempProject({
         [
-            "src/nupp.nupp"
+            "src/types.nupp"
         ] = table.concat(
             {
-                "--- @namespace nupp",
+                "--- @namespace types",
                 "--- @export",
-                "local nupp: {",
+                "local types: {",
                 "   --- Generates checked members on a declaration.",
                 "   --- @namespace",
-                "   derive: nupp.derive",
+                "   derive: types.derive",
                 "}",
                 "",
-                "record nupp.derive",
+                "record types.derive",
                 "   --- Declares what a provider generates.",
                 "   implement: function(): boolean",
                 "",
@@ -2347,7 +2496,7 @@ function M.aNamespaceAndTheModuleImplementingItShareOnePage()
             "\n"
         ) .. "\n",
         [
-            "src/nupp/derive.nupp"
+            "src/types/derive.nupp"
         ] = table.concat(
             {
                 "local derive = {}",
@@ -2363,15 +2512,15 @@ function M.aNamespaceAndTheModuleImplementingItShareOnePage()
     })
     local config, settings = {include = {"src"}}, {sources = {"src"}}
     assert(doc.build(dir, config, settings, {format = "site", output = "site"}) == 0)
-    local page = readFile(dir .. "/site/modules/nupp/derive/index.html")
+    local page = readFile(dir .. "/site/modules/types/derive/index.html")
     assert(page:find("Generates checked members on a declaration%."), page)
-    assert(page:find('id="nupp.derive.implement"', 1, true), page)
-    local _, anchors = page:gsub('id="nupp%.derive%.Debug"', "")
+    assert(page:find('id="types.derive.implement"', 1, true), page)
+    local _, anchors = page:gsub('id="types%.derive%.Debug"', "")
     assert(anchors == 1, page)
     assert(page:find("Renders the declaration fields%."), page)
     assert(doc.build(dir, config, settings, {format = "markdown", output = "api.md"}) == 0)
     local api = readFile(dir .. "/api.md")
-    local _, sections = api:gsub('<a id="nupp%.derive"></a>', "")
+    local _, sections = api:gsub('<a id="types%.derive"></a>', "")
     assert(sections == 1, api)
     os.execute("rm -rf '" .. dir .. "'")
 end
@@ -2525,6 +2674,43 @@ function M.aModuleAliasConstDocumentsTheNamespaceItPublishes()
         end
     end
     assert(aliasedType and aliasedType.kind == "type", "the exported type alias is missing")
+end
+
+function M.privateExportTablesDoNotPublishTypesOnMatchingPublicRoots()
+    local byName = aliasModel({
+        [
+            "src/widget/init.nupp"
+        ] = [[
+module widget
+local model = require("widget.internal.model")
+--- A visible value.
+export type Value = model.Value
+]],
+        [
+            "src/widget/internal/model.nupp"
+        ] = [[
+@!internal
+module widget.internal.model
+local widget = {}
+--- A value shared with the public facade.
+record widget.Value
+    --- The stored number.
+    count: integer
+end
+--- A provider-only handle.
+record widget.Hidden
+    --- The private integration hook.
+    integration: function(): nil
+end
+export = widget
+]],
+    })
+    local module = assert(byName.widget, "the public facade is missing")
+    assert(not byName["widget.internal.model"], "the private implementation has a public page")
+    assert(#module.items == 1, "a matching local table published private declarations")
+    local value = module.items[1]
+    assert(value.name == "Value" and value.path == "widget.Value", "the explicit alias is missing")
+    assert(#value.members == 1 and value.members[1].name == "count", "the explicit alias lost its contract")
 end
 
 -- An aliased module the site already shows keeps its one page. The declaration says
@@ -2983,7 +3169,7 @@ function M.siteMatchesTheNuppdocPageModel()
                 "",
                 "```lua [Generated Lua]",
                 "local resource = openResource()",
-                "nupp.drop(resource)",
+                "own.drop(resource)",
                 "```",
                 ":::",
                 "",
@@ -3799,7 +3985,7 @@ end
 
 -- Layout is reached by asking about a reified type rather than by calling a library,
 -- so its graph sits apart from the types the signatures above merely name. Semantic
--- reflection owns its graph under `nupp.reflect` instead of leaking ambient types.
+-- reflection owns its graph under `types.reflect` instead of leaking ambient types.
 function M.stdlibIndexSectionsReflectionApartFromTypes()
     local stdlib = require("nupp.tools.doc.stdlib")
     local page = assert(stdlib.page({path = "luajit"}))
@@ -3843,7 +4029,7 @@ function M.stdlibIndexIsWrittenWhereTheManifestAsked()
     local linkedSource = SOURCE .. table.concat(
         {
             "--- An owned handle.",
-            "record Handle is nupp.Closeable",
+            "record Handle is own.Closeable",
             "   --- Its backing Lua stream.",
             "   file: LuaFile",
             "   --- Closes it.",
@@ -3862,9 +4048,9 @@ function M.stdlibIndexIsWrittenWhereTheManifestAsked()
             {
                 "@!internal",
                 "--- A deterministic resource.",
-                "interface nupp.Affine<const cleanup: function> end",
-                "interface nupp.Closeable is nupp.Affine<self.close>",
-                "   close: @nosuspend function(takes self: nupp.Closeable): nil",
+                "interface own.Affine<const cleanup: function> end",
+                "interface own.Closeable is own.Affine<self.close>",
+                "   close: @nosuspend function(takes self: own.Closeable): nil",
                 "end",
             },
             "\n"
@@ -3890,8 +4076,8 @@ function M.stdlibIndexIsWrittenWhereTheManifestAsked()
         "a module signature did not link the ambient LuaFile type"
     )
     assert(
-        modulePage:find('href="../../modules/nupp/index.html#nupp.Closeable"', 1, true),
-        "a module signature did not link nupp.Closeable"
+        modulePage:find('href="../../modules/nupp/index.html#own.Closeable"', 1, true),
+        "a module signature did not link own.Closeable"
     )
 
     local dir2 = tempProject({["src/math.nupp"] = SOURCE})
@@ -4109,8 +4295,8 @@ return declared
 end
 
 function M.gpuDocumentsApplicationOperationsAndHidesGeneratedBindings()
-    local source = readFile(HERE .. "/../src/nupp/gpu/init.nupp")
-    local module = assert(doc.extract(source, "src/nupp/gpu/init.nupp", "nupp.gpu"))
+    local source = readFile(HERE .. "/../src/gpu/init.nupp")
+    local module = assert(doc.extract(source, "src/gpu/init.nupp", "gpu"))
     local foundOpen, foundContext = false, false
     for _, item in ipairs(module.items) do
         if item.name == "gpu.open" or item.name == "open" then
@@ -4144,7 +4330,8 @@ function M.gpuPublicPageExpandsItsExplicitAliases()
         "layout.nupp",
         "layoutfacts.nupp"
     }) do
-        files["src/nupp/gpu/" .. path] = readFile(HERE .. "/../src/nupp/gpu/" .. path)
+        local base = (path == "init.nupp" or path == "layout.nupp") and "src/gpu/" or "src/nupp/gpu/"
+        files[base .. path] = readFile(HERE .. "/../" .. base .. path)
     end
     local dir = tempProject(files)
     assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "markdown", output = "api.md"}) == 0)
@@ -4242,7 +4429,7 @@ local VERSION_SOURCES = {
     ["Documentation model"] = {"src/nupp/tools/doc/init.nupp", "schemaVersion = (%d+), modules = model"},
     ["Coverage report"] = {"src/nupp/tools/coverage.nupp", "coverage%.SCHEMA_VERSION = (%d+)"},
     ["Test report"] = {"src/nupp/tools/cli/test.nupp", "schemaVersion = {%s*type = \"integer\",%s*enum = {(%d+)}"},
-    ["Bench record"] = {"src/nupp/bench/init.nupp", "bench%.SCHEMA = (%d+)"},
+    ["Bench record"] = {"src/debug/bench.nupp", "bench%.SCHEMA = (%d+)"},
     ["GPU cost records"] = {"native/crates/gpu/src/costs.rs", "values%[\"schemaVersion\"%] = json!%((%d+)%)"},
 }
 

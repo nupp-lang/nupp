@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local fmt = require("nupp.tools.fmt")
 local formatter = fmt.new()
 local lexer = require("nupp.compiler.syntax.lexer")
@@ -50,8 +50,6 @@ function M.protocolClauseOrdersAndTrailingFunctionsAreIdempotent()
     for _, source in ipairs({
         "local type F=function(number)yields(number,string)resumes(boolean):string",
         "local function f(x:number)yields(number)resumes(boolean):string return 'done' end",
-        "local type F=function(number):string yields(number,string)resumes(boolean)",
-        "local function f(x:number):string yields(number)resumes(boolean) return 'done' end",
         "invoke(name='load',function(value:string):string return value end)",
     }) do
         local formatted = fmt1(source)
@@ -60,6 +58,14 @@ function M.protocolClauseOrdersAndTrailingFunctionsAreIdempotent()
         local result = require("nupp.compiler.syntax.parser").parse(formatted)
         testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg)
     end
+end
+
+function M.protocolsAfterResultsRemainRefusedByFormatting()
+    local source = "local function worker(): string yields(number) resumes(boolean) return 'done' end"
+    local formatted, errors = formatter:format(source, "test.nupp")
+    testAssert.equal(formatted, source)
+    testAssert.equal(errors[1] and errors[1].code, "NUPP1005")
+    testAssert.equal(errors[1] and errors[1].msg, "coroutine protocol clauses must precede the result type")
 end
 
 function M.switchExpressionIndentation()
@@ -188,7 +194,7 @@ function M.argumentFreeAnnotationsStayInline()
             "@unsafe",
             "local x = 1",
             "@unsafe",
-            "nupp.release(owner)",
+            "own.release(owner)",
             "end",
             "return m",
         },
@@ -225,7 +231,7 @@ function M.argumentFreeAnnotationsStayInline()
             "        print(2)",
             "    end",
             "    @unsafe local x = 1",
-            "    @unsafe nupp.release(owner)",
+            "    @unsafe own.release(owner)",
             "end",
             "",
             "return m",

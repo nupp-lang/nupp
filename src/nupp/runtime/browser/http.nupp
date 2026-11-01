@@ -24,8 +24,8 @@ local effects = require("nupp.runtime.browser.effects")
 local span = require("nupp.mem.span")
 local response = require("nupp.runtime.browser.response")
 local suspension = require("nupp.suspension")
-local uri = require("nupp.io.uri")
-const {type Path} = require("nupp.io.path")
+local uri = require("io.uri")
+const {type Path} = require("io.path")
 local io = require("nupp.io")
 local ownedReader = require("nupp.io.internal.ownedreader")
 local contracts = require("nupp.io.http.spi")
@@ -421,7 +421,7 @@ record http.Client is contracts.Client
                     error("nupp: browser HTTP host returned an invalid copied byte count", 0)
                 end
             end
-            nupp.drop(output)
+            own.drop(output)
         end
         lease:commit(bodyBytes)
         local responseBody = ownedReader.newOwnedReader(storage)

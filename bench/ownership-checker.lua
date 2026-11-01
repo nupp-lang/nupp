@@ -45,8 +45,8 @@ local function source(bodyDelta, publicDelta)
     if MAPPED then
         local midpoint = math.max(1, math.floor(WIDTH / 2))
         lines[#lines + 1] = "   @unsafe do"
-        lines[#lines + 1] = ("      local left = nupp.region(value, value.f1, 1, %d)"):format(midpoint)
-        lines[#lines + 1] = ("      local right = nupp.region(value, value.f2, %d, %d)"):format(midpoint + 1, WIDTH)
+        lines[#lines + 1] = ("      local left = own.region(value, value.f1, 1, %d)"):format(midpoint)
+        lines[#lines + 1] = ("      local right = own.region(value, value.f2, %d, %d)"):format(midpoint + 1, WIDTH)
         lines[#lines + 1] = "      pair(left, right)"
         lines[#lines + 1] = "   end"
     end
@@ -54,7 +54,7 @@ local function source(bodyDelta, publicDelta)
     lines[#lines + 1] = "      local current = indexes[index]"
     if MAPPED then
         lines[#lines + 1] = "      @unsafe do"
-        lines[#lines + 1] = "         local region = nupp.region(value, value.f3, current, current)"
+        lines[#lines + 1] = "         local region = own.region(value, value.f3, current, current)"
         lines[#lines + 1] = "         print(region)"
         lines[#lines + 1] = "      end"
     else

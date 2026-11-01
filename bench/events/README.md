@@ -1,6 +1,6 @@
 # Typed events benchmark
 
-`nupp.events` against the Teal router it replaces, on the same work. Run from
+`events` against the Teal router it replaces, on the same work. Run from
 the repository root:
 
 ```sh

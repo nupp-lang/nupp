@@ -1,4 +1,4 @@
-local test = require("nupp.test")
+local test = require("assert")
 local unit = require("nupp.compiler.vm.nativeunit")
 local lower = require("nupp.compiler.vm.lower")
 local profile = require("nupp.compiler.vm.nativegraph")

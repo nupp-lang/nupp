@@ -22,7 +22,7 @@ CRC parameters. Checksums detect corruption and provide no authentication.
 local {type ByteSpan} = require("nupp.mem.span")
 
 --- Independent incremental state; close consumes its ownership without suspension.
-export interface State is nupp.Closeable
+export interface State is own.Closeable
     --- Releases all state resources.
     close: @nosuspend function(takes self: State): nil
 

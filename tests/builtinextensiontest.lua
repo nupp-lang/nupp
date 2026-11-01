@@ -1,4 +1,4 @@
-local test = require("nupp.test")
+local test = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local checker = require("fragment")
 local gen = require("nupp.compiler.lua.gen")
@@ -62,7 +62,7 @@ export = setmetatable(argv, {__index = methods})
         assertionPath = root .. "/src/assert.nupp"
     end
     local assertionFile = assert(io.open(assertionPath, "wb"))
-    assertionFile:write(assertionSource or 'return require("nupp.test")')
+    assertionFile:write(assertionSource or 'return _G.assert')
     assertionFile:close()
     local osFile = assert(io.open(directory .. "/standardos.nupp", "wb"))
     osFile:write(

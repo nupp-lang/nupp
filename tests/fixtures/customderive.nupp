@@ -1,5 +1,8 @@
 -- A derive is an ordinary exported comptime function. It inspects the record
 -- being declared and returns checked recipes for the members it wants to add.
+const derive2 = require("types.derive")
+const types2 = require("types")
+
 local labels = {}
 
 -- Generated methods forward to ordinary runtime functions. This keeps their
@@ -9,25 +12,25 @@ function labels.render(typeName: string): string
 end
 
 @comptime
-function labels.derive(info: nupp.derive.Info): nupp.derive.Result<any>
+function labels.derive(info: types.derive.Info): types.derive.Result<any>
     if info.kind ~= "record" then
-        return nupp.derive.error("Label can be derived only for records", info.reference)
+        return derive2.error("Label can be derived only for records", info.reference)
     end
 
-    return nupp.derive.implement{
+    return derive2.implement{
         methods = {
-            label = nupp.derive.member{
-                signature = nupp.types.function_(
-                    nupp.types.pack({
+            label = derive2.member{
+                signature = types2.function_(
+                    types2.pack({
                         info.ownerType
                     }),
-                    nupp.types.pack({
-                        nupp.types.string
+                    types2.pack({
+                        types2.string
                     })
                 ),
-                forward = nupp.derive.forward{
-                    helper = nupp.derive.helper(labels, "render"),
-                    arguments = {nupp.derive.constant(info.name)},
+                forward = derive2.forward{
+                    helper = derive2.helper(labels, "render"),
+                    arguments = {derive2.constant(info.name)},
                 },
             },
         },

@@ -20,7 +20,7 @@ else, which is what keeps a scripted check as quiet as it has always been.
 ]]
 
 local usageError = require("nupp.tools.cli.error").forCommand("check")
-local cliModule = require("nupp.cli")
+local cliModule = require("arg")
 
 local REPORT_SCHEMA = {
     type = "object",

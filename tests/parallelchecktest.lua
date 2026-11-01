@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local cache = require("nupp.tools.build.cache")
 local fingerprint = require("nupp.compiler.project.fingerprint")
 local fs = require("nupp.compiler.fs")
@@ -449,7 +449,7 @@ local time = require("nupp.time")
 
 local function stamp(path: string): number
     if files.exists(path) then
-        return time.now()
+        return os.monotonic()
     end
     return 0
 end
@@ -468,7 +468,7 @@ local time = require("nupp.time")
 
 local function value(path: string): number
     local exists = files.exists(path) and 1 or 0
-    return clock.stamp(path) + time.now() + exists + %d
+    return clock.stamp(path) + os.monotonic() + exists + %d
 end
 
 local function described(info: files.Info?): boolean
@@ -504,8 +504,8 @@ function M.aStandardGenericFillsAFieldInEitherSchedule()
     write(
         directory .. "/src/world.nupp",
         [[
-const {type Observers} = require("nupp.events")
-local events = require("nupp.events")
+const {type Observers} = require("events")
+local events = require("events")
 local files = require("nupp.io.files")
 
 local record World
@@ -678,9 +678,11 @@ function M.anInterruptedCheckLeavesNoWorkers()
     if package.config:sub(1, 1) == "\\" then
         return
     end
+
     local function kill(signal, pid)
         return os.execute(("kill -%d -- %d 2>/dev/null"):format(signal, pid))
     end
+
     local lookup = assert(io.popen("command -v perl"))
     local perl = lookup:read("*l")
     lookup:close()
@@ -716,15 +718,15 @@ function M.anInterruptedCheckLeavesNoWorkers()
     )
     -- Generous: the waits end as soon as the workers are up, and a loaded host can
     -- take several seconds to start two compilers.
-    local deadline = time.now() + 60000
+    local deadline = os.monotonic() + 60000
     local pids = workerPids(pidFile)
     while countKeys(pids) < 2 do
-        assert(time.now() < deadline, "parallel workers did not start")
+        assert(os.monotonic() < deadline, "parallel workers did not start")
         time.sleep(10)
         pids = workerPids(pidFile)
     end
     while next(workerPids(activeFile)) == nil do
-        assert(time.now() < deadline, "parallel workers did not begin a request")
+        assert(os.monotonic() < deadline, "parallel workers did not begin a request")
         time.sleep(10)
     end
     testAssert.equal(kill(2, -child.pid), 0, "send SIGINT")
@@ -745,9 +747,9 @@ function M.anInterruptedCheckLeavesNoWorkers()
         ):format(tostring(exit.exitCode), tostring(exit.killed), tostring(exit.timedOut)) .. " output=" .. said
     )
 
-    deadline = time.now() + 60000
+    deadline = os.monotonic() + 60000
     for pid in pairs(pids) do
-        while kill(0, pid) == 0 and time.now() < deadline do
+        while kill(0, pid) == 0 and os.monotonic() < deadline do
             time.sleep(10)
         end
         assert(kill(0, pid) ~= 0, "parallel worker survived its interrupted parent: " .. tostring(pid))

@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- The checker rules supporting typed events: closure literals adopting
 -- the modes of the slot they are passed to, pack binders forwarding the contracts
 -- of the arguments that bound them, a declaration's construction contract as a
@@ -15,6 +15,7 @@ local NUPP = HERE .. "/../bin/nupp"
 local env = envMod.new(HERE .. "/..")
 
 local run = 0
+
 local function diagnostics(source)
     run = run + 1
     env.loaded = {}
@@ -36,7 +37,11 @@ end
 
 local function clean(source)
     local found = diagnostics(source)
-    testAssert.equal(#found, 0, "expected a clean check, got " .. (found[1] and (found[1].code .. ": " .. found[1].msg) or ""))
+    testAssert.equal(
+        #found,
+        0,
+        "expected a clean check, got " .. (found[1] and (found[1].code .. ": " .. found[1].msg) or "")
+    )
 end
 
 local function contains(text, needle)
@@ -449,7 +454,7 @@ local record Diagonal
 end
 
 @comptime local function Construction(E: type): typepack
-    return nupp.types.construction(E)
+    return types.construction(E)
 end
 
 local function count<E>(event: Type<E>, ...: unpackof Construction(E)): integer
@@ -500,7 +505,7 @@ local record Overloaded
 end
 
 @comptime local function Construction(E: type): typepack
-    return nupp.types.construction(E)
+    return types.construction(E)
 end
 
 local function count<E>(event: Type<E>, ...: unpackof Construction(E)): integer

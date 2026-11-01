@@ -41,7 +41,6 @@ local function fixtureProject()
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/build")) == 0)
     write(dir .. "/tests/run.lua", 'error("the internal CLI loaded the fixture runner")\n')
-    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
 
     return dir
 end
@@ -88,14 +87,16 @@ for _, argument in ipairs(arg) do
 end
 local M = {}
 function M.case()
-    local test = require("nupp.test")
-    test.metric("transport", ]]
+    local test = require("assert")
+    test.suite.metric("transport", ]]
         .. (
             failing and "4.5" or "-2.5"
-        ) .. [[, "items")
-    test.metric("transport", 0.5, "items")
+        )
+        .. [[, "items")
+    test.suite.metric("transport", 0.5, "items")
     assert(os.execute("exit 0") == 0)
-    ]] .. (
+    ]]
+        .. (
             failing and 'error("transport case failure")' or ''
         ) .. [[
 end
@@ -195,8 +196,8 @@ local function transportRunner(fresh)
         noise = noise .. read(path)
     end
     test.matches(noise, 'q {"not":"the report"}')
-    test.assert(#workerArtifactsIn(dir, "json") >= 2, "each child retained its complete report")
-    test.assert(#workerArtifactsIn(dir, "err") >= 2, "each child retained its stderr")
+    test(#workerArtifactsIn(dir, "json") >= 2, "each child retained its complete report")
+    test(#workerArtifactsIn(dir, "err") >= 2, "each child retained its stderr")
     if fresh then
         test.equal(#report.claimed, 2, "the supervisor kept its claims")
         test.matches(noise, "__piece_status__:1", "the full piece stdout includes its terminal status")
@@ -287,7 +288,7 @@ function M.workerReportsRejectMissingMalformedAndAbnormalChildren()
             )
             test.equal(invocation.status, 1, "an invalid child cannot pass" .. evidence(invocation))
             local report = decode(output)
-            test.assert(report.failed > 0)
+            test(report.failed > 0)
             local failures = ""
             for _, record in ipairs(report.tests) do
                 failures = failures .. (record.failure and record.failure.message or "")
@@ -299,10 +300,10 @@ function M.workerReportsRejectMissingMalformedAndAbnormalChildren()
                 or badMetrics[mode] and "invalid worker metric"
                 or mode == "exit" and "worker exit 2"
                 or "worker killed by signal 9"
-            test.assert(failures:find(expected, 1, true), failures)
-            test.assert(failures:find("artifacts:", 1, true), failures)
+            test(failures:find(expected, 1, true), failures)
+            test(failures:find("artifacts:", 1, true), failures)
             local outFiles = workerArtifactsIn(dir, "out")
-            test.assert(#outFiles > 0)
+            test(#outFiles > 0)
             test.matches(read(outFiles[1]), "q bad%-child")
             if mode ~= "missing" then
                 test.equal(read(workerArtifactsIn(dir, "json")[1]), document, "rejected bytes were retained in full")
@@ -341,17 +342,17 @@ function M.workerReportPathsAreNotReusedAcrossInvocations()
         local expected = {["noisepasstest/case"] = "passed", ["noisefailtest/case"] = "failed"}
         local byId = {}
         for _, row in ipairs(report.tests) do
-            test.assert(expected[row.id], "only the two intentional case rows may be reported")
-            test.assert(not byId[row.id], "concurrent reports contain no duplicate case IDs")
+            test(expected[row.id], "only the two intentional case rows may be reported")
+            test(not byId[row.id], "concurrent reports contain no duplicate case IDs")
             test.equal(row.status, expected[row.id])
             byId[row.id] = row
         end
-        test.assert(byId["noisepasstest/case"] and byId["noisefailtest/case"], "both cases ran")
+        test(byId["noisepasstest/case"] and byId["noisefailtest/case"], "both cases ran")
         test.matches(byId["noisefailtest/case"].failure.message, "transport case failure")
         checkTransportMetrics(report)
     end
     local after = workerArtifactsIn(dir, "json")
-    test.assert(#after > #before, "a later invocation reserved different report paths")
+    test(#after > #before, "a later invocation reserved different report paths")
     for path, text in pairs(old) do
         test.equal(read(path), text, "a prior report was not overwritten")
     end
@@ -376,7 +377,7 @@ function M.explicitWorkerReportRequiresAUsableUniquePath()
             "cd %s && NUPP_TEST_BUILD=%s %s quiettest --jobs=1 --json --worker-report=%s 2>&1"
         ):format(shellWord(dir), shellWord(dir .. "/build"), RUNNER, shellWord(path))
     )
-    test.assert(invocation.status ~= 0, "an explicit report write failure cannot pass" .. evidence(invocation))
+    test(invocation.status ~= 0, "an explicit report write failure cannot pass" .. evidence(invocation))
     test.equal(io.open(path, "rb"), nil)
     test.equal(output:find('"schemaVersion"', 1, true), nil, "no silent stdout report fallback")
     os.execute("rm -rf " .. shellWord(dir))

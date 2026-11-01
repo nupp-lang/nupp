@@ -54,15 +54,15 @@ const TWO21 = 2097152
 const TWO32 = 4294967296
 const TWO53 = 9007199254740992
 const DEFAULT_SEED = 0x5EED1234
-const GOLDEN = nupp.math.i32.wrap(0x9E3779B9)
-const ZERO = nupp.math.i32.wrap(0)
+const GOLDEN = math.i32.wrap(0x9E3779B9)
+const ZERO = math.i32.wrap(0)
 
 --- SplitMix32's finalizer: one word in, one avalanched word out.
 local function mix32(value: int32): int32
     local shifted = value >> 16
-    local mixed = (value ~ shifted) * nupp.math.i32.wrap(0x21F0AAAD)
+    local mixed = (value ~ shifted) * math.i32.wrap(0x21F0AAAD)
     shifted = mixed >> 15
-    mixed = (mixed ~ shifted) * nupp.math.i32.wrap(0x735A2D97)
+    mixed = (mixed ~ shifted) * math.i32.wrap(0x735A2D97)
     shifted = mixed >> 15
 
     return mixed ~ shifted
@@ -70,7 +70,7 @@ end
 
 --- Expands a seed into four state words without xoshiro's all-zero state.
 local function expand(seed: integer): (int32, int32, int32, int32)
-    local counter = nupp.math.i32.wrap(seed)
+    local counter = math.i32.wrap(seed)
     counter = counter + GOLDEN
     local s0 = mix32(counter)
     counter = counter + GOLDEN
@@ -104,18 +104,18 @@ export record Xoshiro128
         -- A destructured record load no longer carries the checker's
         -- fixed-width provenance, so establish each local explicitly before
         -- feeding it back to the i32 operations.
-        local s0 = nupp.math.i32.wrap(self.s0 as integer)
-        local s1 = nupp.math.i32.wrap(self.s1 as integer)
-        local s2 = nupp.math.i32.wrap(self.s2 as integer)
-        local s3 = nupp.math.i32.wrap(self.s3 as integer)
-        local result = nupp.math.i32.rotateLeft(s1 * nupp.math.i32.wrap(5), 7) * nupp.math.i32.wrap(9)
+        local s0 = math.i32.wrap(self.s0 as integer)
+        local s1 = math.i32.wrap(self.s1 as integer)
+        local s2 = math.i32.wrap(self.s2 as integer)
+        local s3 = math.i32.wrap(self.s3 as integer)
+        local result = math.i32.rotateLeft(s1 * math.i32.wrap(5), 7) * math.i32.wrap(9)
         local shifted = s1 << 9
         s2 = s2 ~ s0
         s3 = s3 ~ s1
         s1 = s1 ~ s2
         s0 = s0 ~ s3
         s2 = s2 ~ shifted
-        s3 = nupp.math.i32.rotateLeft(s3, 11)
+        s3 = math.i32.rotateLeft(s3, 11)
         self.s0, self.s1, self.s2, self.s3 = s0, s1, s2, s3
 
         return ((result as number) * INV32) % 1
@@ -208,10 +208,10 @@ export record Xoshiro128
         if #words ~= 4 then
             error("nupp: random.Xoshiro128:setState needs four state words", 2)
         end
-        local s0 = nupp.math.i32.wrap(words[1])
-        local s1 = nupp.math.i32.wrap(words[2])
-        local s2 = nupp.math.i32.wrap(words[3])
-        local s3 = nupp.math.i32.wrap(words[4])
+        local s0 = math.i32.wrap(words[1])
+        local s1 = math.i32.wrap(words[2])
+        local s2 = math.i32.wrap(words[3])
+        local s3 = math.i32.wrap(words[4])
         if s0 == ZERO and s1 == ZERO and s2 == ZERO and s3 == ZERO then
             error("nupp: random.Xoshiro128:setState refused the all-zero state, the one xoshiro cannot leave", 2)
         end

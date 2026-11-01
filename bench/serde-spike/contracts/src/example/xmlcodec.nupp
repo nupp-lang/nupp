@@ -1,5 +1,7 @@
 module example.xmlcodec
 
+const assert2 = require("assert")
+
 local __serdeJson = require("serde.json")
 
 local core = require("serde")
@@ -11,7 +13,7 @@ local documents = require("serde.document")
 local documentReaders = require("serde.document")
 local bridge = require("serde.document")
 local contexts = require("serde.codec")
-local utf8 = require("nupp.text.utf8")
+local utf8 = require("utf8")
 
 export interface Policy
     field: function<M is core.Member>(self, member: M): syntax.Field
@@ -43,15 +45,15 @@ local function plan<M is core.Member>(
     if previous ~= nil then
         return previous
     end
-    assert(not description.nullable, "XML fixture has no null representation")
-    assert(direction ~= "read" or description.canRead, "binding has no construction operation")
+    assert2(not description.nullable, "XML fixture has no null representation")
+    assert2(direction ~= "read" or description.canRead, "binding has no construction operation")
     local kind = description.kind
-    assert(supported[kind], "unsupported XML fixture kind: " .. kind)
+    assert2(supported[kind], "unsupported XML fixture kind: " .. kind)
     local field = policy:field(description.member)
-    assert(field.localName:match("^[A-Za-z_][A-Za-z0-9_.-]*$") ~= nil, "invalid XML local name")
+    assert2(field.localName:match("^[A-Za-z_][A-Za-z0-9_.-]*$") ~= nil, "invalid XML local name")
     local flattened = policy:flattened(description.member)
-    assert(not flattened or kind == "list", "only XML lists can be flattened")
-    assert(
+    assert2(not flattened or kind == "list", "only XML lists can be flattened")
+    assert2(
         field.role ~= "attribute" or kind == "string" or kind == "boolean" or kind == "integer",
         "XML attribute must be scalar"
     )
@@ -64,20 +66,20 @@ local function plan<M is core.Member>(
         result.ordered[index] = selected
         if kind == "structure" then
             local key = identity(selected.field)
-            assert(not names[key], "colliding expanded XML field")
+            assert2(not names[key], "colliding expanded XML field")
             names[key] = true
             result.mappings[
                 index
             ] = new assembly.Mapping<M>(member = child.member, field = selected.field, repeated = selected.flattened)
         else
-            assert(
+            assert2(
                 kind == "list" and index == 1 and selected.field.role == "element",
                 "XML list requires one element binding"
             )
         end
     end
     if kind == "list" then
-        assert(#result.ordered == 1, "XML list requires an element binding")
+        assert2(#result.ordered == 1, "XML list requires an element binding")
     end
 
     return result
@@ -106,14 +108,14 @@ local record Scope
                 error("recursive XML extension initialization", 2)
             end
         end
-        assert(self.count < 256, "XML fixture extension cache is full")
+        assert2(self.count < 256, "XML fixture extension cache is full")
         local slot = new Slot()
         cache[adapter] = slot
         self.count += 1
         self.active += 1
         local ok, selected = pcall(function(): Plan<M>
             local description = adapter:describe(direction)
-            assert(description.kind == "structure", "XML fixture root must be a structure")
+            assert2(description.kind == "structure", "XML fixture root must be a structure")
             return plan(description, self.policy, direction, {})
         end)
         self.active -= 1
@@ -134,13 +136,13 @@ local record Opaque is core.Atom
         return new Opaque(family = family, node = assembly.copy(self.node))
     end
 end
-local record Unknown is core.UnknownReader, nupp.Closeable
+local record Unknown is core.UnknownReader, own.Closeable
     @readonly node: assembly.Node
     @readonly source: core.Context
     used: boolean = false
     closed: boolean = false
     function live(self): nil
-        assert(not self.closed and not self.used, "XML unknown reader has expired")
+        assert2(not self.closed and not self.used, "XML unknown reader has expired")
     end
 
     function skipValue(exclusive self): nil
@@ -186,7 +188,7 @@ local record Collect<M is core.Member> is assembly.Consumer<M, {Group<M>}>
         state[#state + 1] = new Group<M>(values = {value})
     end
 end
-local record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
+local record Input<M is core.Member> is core.Reader<M>, own.Closeable
     @readonly selected: Plan<M>
     @readonly value: assembly.Node
     @readonly source: core.Context
@@ -194,8 +196,8 @@ local record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
     used: boolean = false
     closed: boolean = false
     function live(self): nil
-        assert(not self.closed and not self.used, "XML reader has expired")
-        assert(self.depth <= 128, "XML nesting limit exceeded")
+        assert2(not self.closed and not self.used, "XML reader has expired")
+        assert2(self.depth <= 128, "XML nesting limit exceeded")
     end
 
     function context(self): core.Context?
@@ -210,7 +212,7 @@ local record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
 
     function consume(exclusive self, member: M, kind: string): nil
         self:live()
-        assert(
+        assert2(
             member == self.selected.description.member and kind == self.selected.description.kind,
             "XML adapter does not match its description"
         )
@@ -228,7 +230,7 @@ local record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
 
     function readInteger(exclusive self, member: M, width: 8 | 16 | 32 | 64, signed: boolean): core.Integer
         self:consume(member, "integer")
-        assert(
+        assert2(
             width == self.selected.description.width and signed == self.selected.description.signed,
             "integer access does not match its schema"
         )
@@ -263,11 +265,11 @@ local record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
                 end
                 local reader = self:child(selected, node)
                 consume:apply(state, selected.description.member, reader)
-                assert(reader.used, "XML member was not consumed")
+                assert2(reader.used, "XML member was not consumed")
             else
                 local reader: affine(Unknown) = new Unknown(node = node, source = self.source)
                 unknown:apply(state, node.field, reader)
-                assert(reader.used, "unknown XML field was not consumed")
+                assert2(reader.used, "unknown XML field was not consumed")
             end
         end
     end
@@ -298,7 +300,7 @@ local record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
     function readBoolean(exclusive self, member: M): boolean
         self:consume(member, "boolean")
         local text = assembly.text(self.value)
-        assert(text == "true" or text == "false", "invalid XML boolean")
+        assert2(text == "true" or text == "false", "invalid XML boolean")
         return text == "true"
     end
 
@@ -342,22 +344,22 @@ local record Input<M is core.Member> is core.Reader<M>, nupp.Closeable
 
     function readList<S>(exclusive self, member: M, exclusive state: S, consume: core.ElementConsumer<M, S>): nil
         self:consume(member, "list")
-        assert(#self.value.attributes == 0, "XML list has attributes")
+        assert2(#self.value.attributes == 0, "XML list has attributes")
         local selected = self.selected.ordered[1]
         local index: integer = 0
         for _, item in ipairs(self.value.content) do
             if type(item) == "string" then
-                assert((item as string):match("^%s*$") ~= nil, "XML list has mixed content")
+                assert2((item as string):match("^%s*$") ~= nil, "XML list has mixed content")
             else
                 local node = item as assembly.Node
-                assert(
+                assert2(
                     self.selected.flattened or identity(node.field) == identity(selected.field),
                     "unexpected XML list element"
                 )
                 index += 1
                 local input = self:child(selected, node)
                 consume:apply(state, index, input)
-                assert(input.used, "XML list item was not consumed")
+                assert2(input.used, "XML list item was not consumed")
             end
         end
     end
@@ -379,19 +381,19 @@ local record Output<M is core.Member> is core.Writer<M>
     result: assembly.Node?
     closed: boolean = false
     function live(self): nil
-        assert(not self.closed, "XML writer has expired")
-        assert(#self.frames <= 128, "XML nesting limit exceeded")
+        assert2(not self.closed, "XML writer has expired")
+        assert2(#self.frames <= 128, "XML nesting limit exceeded")
     end
 
     function selected(self, member: M): Plan<M>
         self:live()
         local frame = self.frames[#self.frames]
         if frame == nil then
-            assert(self.root.description.member == member, "foreign XML root member")
+            assert2(self.root.description.member == member, "foreign XML root member")
             return self.root
         end
 
-        return assert(frame.selected.children[member], "foreign XML member")
+        return assert2(frame.selected.children[member], "foreign XML member")
     end
 
     function include(exclusive self, member: M): boolean
@@ -401,10 +403,10 @@ local record Output<M is core.Member> is core.Writer<M>
 
     function put(exclusive self, member: M, kind: string, value: assembly.Node): nil
         local selected = self:selected(member)
-        assert(selected.description.kind == kind, "XML adapter does not match its description")
-        local frame = assert(self.frames[#self.frames], "scalar XML root is unsupported")
+        assert2(selected.description.kind == kind, "XML adapter does not match its description")
+        local frame = assert2(self.frames[#self.frames], "scalar XML root is unsupported")
         if frame.selected.description.kind == "structure" then
-            assert(not frame.seen[member], "duplicate XML member")
+            assert2(not frame.seen[member], "duplicate XML member")
             frame.seen[member] = true
         end
         if selected.field.role == "attribute" then
@@ -413,7 +415,7 @@ local record Output<M is core.Member> is core.Writer<M>
             ] = new syntax.Attribute(field = selected.field, value = assembly.text(value))
         elseif selected.flattened then
             for _, item in ipairs(value.content) do
-                assert(type(item) ~= "string", "invalid flattened XML content")
+                assert2(type(item) ~= "string", "invalid flattened XML content")
                 local node = item as assembly.Node
                 frame.node.content[
                     #frame.node.content + 1
@@ -433,7 +435,7 @@ local record Output<M is core.Member> is core.Writer<M>
     end
 
     function writeString(exclusive self, member: M, value: string): nil
-        assert(utf8.isValid(value), "invalid UTF-8 string")
+        assert2(utf8.isValid(value), "invalid UTF-8 string")
         self:scalar(member, "string", value)
     end
 
@@ -456,13 +458,13 @@ local record Output<M is core.Member> is core.Writer<M>
 
     function aggregate<S>(exclusive self, member: M, kind: string, borrows source: S, emit: core.Members<M, S>): nil
         local selected = self:selected(member)
-        assert(selected.description.kind == kind, "XML aggregate does not match its description")
+        assert2(selected.description.kind == kind, "XML aggregate does not match its description")
         local node = new assembly.Node(field = selected.field, attributes = {}, content = {})
         self.frames[#self.frames + 1] = new Frame<M>(selected = selected, node = node)
         emit:apply(source, self)
         self.frames[#self.frames] = nil
         if #self.frames == 0 then
-            assert(self.result == nil, "XML root was written twice")
+            assert2(self.result == nil, "XML root was written twice")
             self.result = node
         else
             self:put(member, kind, node)
@@ -485,21 +487,21 @@ local record Output<M is core.Member> is core.Writer<M>
     ): nil
         self:live()
         local selected = syntax.identity(field)
-        local frame = assert(self.frames[#self.frames], "unknown XML field outside structure")
-        assert(frame.selected.description.kind == "structure", "unknown XML field outside structure")
+        local frame = assert2(self.frames[#self.frames], "unknown XML field outside structure")
+        assert2(frame.selected.description.kind == "structure", "unknown XML field outside structure")
         for _, mapping in ipairs(frame.selected.mappings) do
-            assert(identity(mapping.field) ~= identity(selected), "unknown XML field collides with a known member")
+            assert2(identity(mapping.field) ~= identity(selected), "unknown XML field collides with a known member")
         end
         local source = adapter:context(value)
-        assert(
+        assert2(
             source ~= nil and source.codec == family and source.profile == self.policy,
             "unknown XML value needs its original protocol context"
         )
         local captured = bridge.from(adapter:contents(), value)
         local atom = captured:atom()
-        assert(getmetatable(atom) == Opaque and atom.family == family, "unknown XML value is not an owned subtree")
+        assert2(getmetatable(atom) == Opaque and atom.family == family, "unknown XML value is not an owned subtree")
         local node = assembly.copy((atom as Opaque).node)
-        assert(identity(node.field) == identity(selected), "unknown XML identity changed")
+        assert2(identity(node.field) == identity(selected), "unknown XML identity changed")
         if selected.role == "attribute" then
             frame.node.attributes[
                 #frame.node.attributes + 1
@@ -578,7 +580,7 @@ end
 
 local function input<M is core.Member>(selected: Plan<M>, bytes: string, source: core.Context): affine(Input<M>)
     local node = assembly.parse(bytes)
-    assert(identity(node.field) == identity(selected.field), "unexpected XML root")
+    assert2(identity(node.field) == identity(selected.field), "unexpected XML root")
     return new Input<M>(selected = selected, value = node, source = source)
 end
 
@@ -588,8 +590,8 @@ local record Encode<T> is core.Consumer<T, T, string>
         local selected = self.scope:resolve(adapter, "write")
         local writer = output(selected, self.scope.policy)
         adapter:write(value, writer)
-        local result = assembly.encode(assert(writer.result, "XML binding did not write its root"))
-        assert(#result <= 16777216, "XML output exceeds byte limit")
+        local result = assembly.encode(assert2(writer.result, "XML binding did not write its root"))
+        assert2(#result <= 16777216, "XML output exceeds byte limit")
 
         return result
     end
@@ -621,7 +623,7 @@ local record Cached is Codec
     end
 
     function decode<T>(self, binding: core.Binding<T>, bytes: string): T
-        assert(#bytes <= 16777216, "XML input exceeds byte limit")
+        assert2(#bytes <= 16777216, "XML input exceeds byte limit")
         return binding:accept(new Decode<T>(binding = binding, scope = self.scope, bytes = bytes), nil)
     end
 end

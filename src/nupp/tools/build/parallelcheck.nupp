@@ -17,6 +17,7 @@ reuses them as it would records from an earlier run, so anything this checker ge
 wrong is caught there or rechecked serially, and any failure here returns the whole
 check to the serial checker before a partial record is published.
 ]]
+const arg2 = require("arg")
 
 local envMod = require("nupp.compiler.project.env")
 local fingerprint = require("nupp.compiler.project.fingerprint")
@@ -115,11 +116,10 @@ function parallelcheck.run(input: any): (any?, string?)
             totalBytes = totalBytes + #(text as string)
         end
     end
-    local system = require("nupp.system")
     local plan = parallelcheck.plan(
         #ordered,
         totalBytes,
-        system.availableParallelism(),
+        os.info().parallelism,
         tonumber(os.getenv("NUPP_CHECK_JOBS") or "")
     )
     local jobCount = plan.workers as integer
@@ -128,7 +128,6 @@ function parallelcheck.run(input: any): (any?, string?)
     end
 
     local workerchannel = require("nupp.compiler.workerchannel")
-    local clock = require("nupp.time")
     report:at(input.build and "parallel build" or "parallel check")
     local tasks = require("nupp.tasks")
     local suspension = require("nupp.suspension")
@@ -138,7 +137,7 @@ function parallelcheck.run(input: any): (any?, string?)
     local hosted: any = rawget(_G, "__NUPP_EXECUTABLE")
     local executable = compilerRoot and join(compilerRoot, "bin/nupp")
         or type(hosted) == "string" and hosted
-        or tostring(arg and arg[0] or "nupp")
+        or tostring(arg2 and arg2[0] or "nupp")
     local timeoutMs = os.getenv("NUPP_TEST_PARALLEL_CHECK_FAILURE") == "hang" and 100 or WORKER_TIMEOUT_MS
 
     -- What the run shares between its lanes.
@@ -197,7 +196,7 @@ function parallelcheck.run(input: any): (any?, string?)
             end
             error(problem or "parallel check worker has no protocol streams", 0)
         end
-        state.channels[index] = workerchannel.open(@unsafe nupp.release(child), {maxFrame = protocol.MAX_FRAME})
+        state.channels[index] = workerchannel.open(@unsafe own.release(child), {maxFrame = protocol.MAX_FRAME})
         state.resident[index] = {}
         state.initialized[index] = nil
         -- A restarted lane gets a namespace no earlier process used.
@@ -249,7 +248,7 @@ function parallelcheck.run(input: any): (any?, string?)
                 0
             )
         end
-        local requestStarted = clock.now()
+        local requestStarted = os.monotonic()
         local trace = tracing()
         if trace then
             -- Retain this request's phase diagnostics within the bounded stderr
@@ -262,7 +261,7 @@ function parallelcheck.run(input: any): (any?, string?)
             )
         end
         local text, stopped = workerchannel.request(channel, payload, requestStarted + timeoutMs)
-        local elapsed = clock.now() - requestStarted
+        local elapsed = os.monotonic() - requestStarted
         if trace then
             io.stderr:write(
                 "parallel request end worker=" .. tostring(
@@ -312,7 +311,7 @@ function parallelcheck.run(input: any): (any?, string?)
 
     -- Parsing the project to discover its graph is real work on a cold check, so the
     -- workers do it. Largest first, each to the least loaded worker.
-    local scanStarted = clock.now()
+    local scanStarted = os.monotonic()
     local objects: {any} = {}
     table.sort(ordered, function(left, right)
         if left.bytes ~= right.bytes then
@@ -408,7 +407,7 @@ function parallelcheck.run(input: any): (any?, string?)
         end
         weights[index] = weight
     end
-    local scanMs = clock.now() - scanStarted
+    local scanMs = os.monotonic() - scanStarted
 
     local remaining: integer = #components
     local waiting: {integer} = {}

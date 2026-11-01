@@ -3,7 +3,7 @@ module nupp.generator
 local core = require("nupp.vm.coroutine")
 local generator = {}
 
-record generator.Generator<T> is nupp.Closeable
+record generator.Generator<T> is own.Closeable
     thread: any
 
     function next(borrows self): (T?, boolean)

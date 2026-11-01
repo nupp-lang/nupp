@@ -1308,7 +1308,7 @@ nupp completions fish > ~/.config/fish/completions/nupp.fish
 ```
 
 ```text [nupp completions bash]
-# Completion for nupp; generated from nupp.cli.
+# Completion for nupp; generated from arg.
 _nupp() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
   local words=( "${COMP_WORDS[@]:1}" )

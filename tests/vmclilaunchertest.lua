@@ -347,7 +347,7 @@ end
 
 function M.reinstallingIdenticalArtifactsRefreshesOnlyValidatedInstallProvenance()
     if package.config:sub(1, 1) == "\\" then
-        require("assert").skip("the fixture runtime is a shell script, which Windows cannot execute")
+        require("assert").suite.skip("the fixture runtime is a shell script, which Windows cannot execute")
     end
     local dir, plant = plantedTree()
     assert(os.execute(("mkdir -p '%s/tests'"):format(dir)) == 0)
@@ -450,7 +450,7 @@ end
 
 function M.macCacheWrapperKeepsStartupPathsShortWithoutChangingBuildTemps()
     if package.config:sub(1, 1) == "\\" then
-        require("assert").skip("the cache-wrapper fixture executes POSIX shell scripts")
+        require("assert").suite.skip("the cache-wrapper fixture executes POSIX shell scripts")
     end
     local dir, plant = plantedTree()
     assert(os.execute(("cp '%s/rust-toolchain.toml' '%s/rust-toolchain.toml'"):format(ROOT, dir)) == 0)

@@ -1,4 +1,4 @@
-local test = require("nupp.test")
+local test = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local checker = require("fragment")
 local environment = require("nupp.compiler.project.env")
@@ -15,7 +15,7 @@ local function checked(source)
     local parsed = parser.parse(source, name)
     test.equal(#parsed.errors, 0, "loop fixture syntax")
     for _, diagnostic in ipairs(checker.check(parsed, name, env)) do
-        test.assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
+        test(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
     end
 
     return parsed, name
@@ -188,10 +188,10 @@ function M.zeroStepRaisesEvenWhenTheInitialRangeIsEmpty()
     for _, step in ipairs({"0LL", "0.0", "-0.0"}) do
         local parsed, name = checked("for i = 3LL, 1LL, " .. step .. " do end")
         local chunk, problem = program.load(parsed, (name:gsub("%.nupp$", "")))
-        test.assert(chunk ~= nil, problem)
+        test(chunk ~= nil, problem)
         local ok, message = pcall(chunk)
         test.equal(ok, false)
-        test.assert(tostring(message):find("'for' step is zero", 1, true) ~= nil)
+        test(tostring(message):find("'for' step is zero", 1, true) ~= nil)
     end
 end
 

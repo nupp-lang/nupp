@@ -121,14 +121,11 @@ function providers.installEvaluator(state: any, env: any)
         return opaque(state, provider, family, payload, at)
     end
 
-    fieldcodec.installEvaluator(state, env, newOpaque, provenance)
     typeprovider.installEvaluator(state, env, newOpaque, provenance)
+    fieldcodec.installEvaluator(state, env, newOpaque, provenance)
     deriveprovider.installEvaluator(state, env, newOpaque, provenance, function(handle)
         return state.opaque[handle]
     end)
-    env.types = env.nupp.types
-    env.types.reflect = env.nupp.reflect
-    env.types.derive = env.nupp.derive
 end
 
 function providers.materializeDeriveInfo(state: any, input: any): any

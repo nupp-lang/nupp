@@ -1,7 +1,9 @@
 module demo.managedgroup
 
+const own2 = require("own")
+
 export function run(): integer
-    local group = nupp.managedGroup()
-    nupp.drop(group)
+    local group = own2.managedGroup()
+    own.drop(group)
     return 42
 end

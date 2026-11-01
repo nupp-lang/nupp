@@ -14,7 +14,7 @@ do
     local values = heap.allocate(ffi.typeof<int32>(), 4)
     local writable = values:write()
     writable[1] = 42 as int32
-    nupp.drop(writable)
+    own.drop(writable)
     local readable = values:read()
     print(readable[1], #readable)
 end -- released here
@@ -36,17 +36,18 @@ See [c-interop.md](docs/learn/runtime/c-interop/index.md#c-arrays) for how this 
 `carray`, and [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the borrow rules
 the views are written against.
 ]]
+const assert2 = require("assert")
 
 local heap = {}
 local span = require("nupp.mem.span")
-local storage: any = assert(
+local storage: any = assert2(
     require("nupp.mem.representation").storage,
     "nupp.mem.heap: no storage implementation is available for the target"
 )
 
 local function finish_array(takes self: any): nil
     @nosuspend do
-        local raw = @unsafe nupp.release(self)
+        local raw = @unsafe own.release(self)
         -- The husk outlives the release wherever a dynamic reference still sees
         -- it, and a nil pointer is what marks the allocation gone.
         raw.pointer = nil
@@ -62,7 +63,7 @@ end
 --- Releases an allocation, which is what every heap array's contract names.
 ---
 --- Nothing calls this by hand. It is the terminal consumer `affine` carries, so a
---- scope boundary or an explicit `nupp.drop` reaches it.
+--- scope boundary or an explicit `own.drop` reaches it.
 ---
 --- @param self the array, spent by this call
 --- @export
@@ -79,7 +80,7 @@ record heap.Array<T> is heap.ArrayToken
     --- How many elements the allocation holds.
     @readonly count: integer
 
-    --- Releases the allocation. `nupp.drop` and scope exit both reach this.
+    --- Releases the allocation. `own.drop` and scope exit both reach this.
     close: @nosuspend function(takes self: Array<T>): nil
 
     --- Borrows the whole allocation as a shared checked span.

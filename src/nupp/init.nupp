@@ -6,7 +6,7 @@ standard library. It's available without a `require`.
 -- You can use nupp and nested modules without any `require` statements.
 local text = serde.json.encodeValue({ok = true})
 
-nupp.log.info("wrote %d bytes", #text)
+log.info("wrote %d bytes", #text)
 ```
 
 `nupp` and nested submodules within it are available using sub-property access

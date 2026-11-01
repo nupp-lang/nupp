@@ -20,6 +20,7 @@ The browser host must install its effect transport before consumers load
 [](nupp.suspension). Handler, source, and waiting state stays local to each Lua
 state, and scheduling operations never resolve the service again.
 ]]
+const assert2 = require("assert")
 
 local effects = require("nupp.runtime.browser.effects")
 local contract = require("nupp.suspension.spi")
@@ -77,7 +78,7 @@ local function contextsource(
     active: (function(suspension.Source): boolean)?
 ): suspension.Source
     local source = suspension.source(name, order, poller, waiter, active)
-    local associated = assert((self as any)._associated)
+    local associated = assert2((self as any)._associated)
     associated[#associated + 1] = source
     local owned = ownedSources[self]
     if owned == nil then
@@ -93,7 +94,7 @@ local function contextuses(self: contract.Context, source: suspension.Source): n
     if source == nil or (source as any)._released then
         error("nupp: cannot use a released readiness source", 2)
     end
-    local associated = assert((self as any)._associated)
+    local associated = assert2((self as any)._associated)
     associated[#associated + 1] = source
 end
 
@@ -586,7 +587,7 @@ local function installHandler(value: suspension.Handler, transparent: boolean): 
     -- The coroutine's slot keeps the record as well as the caller, who holds the one
     -- obligation to close it. The extent's own state is written here rather than
     -- declared on the record, because nothing outside this file reads it.
-    local installed: any = @unsafe nupp.release(owned)
+    local installed: any = @unsafe own.release(owned)
     installed._co = coroutine
     installed._previous = previous
     installed.transparent = transparent

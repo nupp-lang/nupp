@@ -5,7 +5,7 @@ module batcheval
 local harness = require("harness")
 local tier1 = require("tier1eval")
 local tasks = require("nupp.tasks")
-local time = require("nupp.time")
+
 local json = require("serde.json")
 
 local batch = {}
@@ -93,7 +93,7 @@ function batch.runnable(nupp: string, jobs: integer): {string}
 end
 
 function batch.one(options: batch.Options, code: string): any
-    local started = time.now()
+    local started = os.monotonic()
     local ok, record = pcall(
         tier1.evaluate,
         options.nupp,
@@ -115,7 +115,7 @@ function batch.one(options: batch.Options, code: string): any
         invalid = tostring(record),
         agent = json.asObject({}),
         grade = {passed = false},
-        elapsed = harness.rounded((time.now() - started) / 1000, 1),
+        elapsed = harness.rounded((os.monotonic() - started) / 1000, 1),
     }
 end
 

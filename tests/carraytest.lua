@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- Reified arrays: the contiguous layout that makes reifying a struct worth
 -- it, and the checking that keeps it honest.
 local parser = require("nupp.compiler.syntax.parser")

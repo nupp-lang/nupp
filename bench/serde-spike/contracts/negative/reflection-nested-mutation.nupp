@@ -1,6 +1,8 @@
+const reflect = require("types.reflect")
+
 local record User
     name: string
 end
-local info = nupp.reflect.runtime(User)
+local info = reflect.runtime(User)
 local fields = assert(info.types[info.root].fields)
 fields[1] = fields[1]

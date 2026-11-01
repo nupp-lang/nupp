@@ -2,7 +2,7 @@
 -- the GPU and executed in the same stage order by the ordinary CPU control.
 local ffi = require("ffi")
 local span = require("nupp.mem.span")
-local gpu = require("nupp.gpu")
+local gpu = require("gpu")
 local generated = require("reduction")
 
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))

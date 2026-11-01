@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- S2: the suspend operation and its handlers.
 --
 -- The ready path is what the baselines said to protect, so it is what most of this

@@ -43,20 +43,23 @@ arg[0] = "tests/run.lua"
 -- The runner is loaded as a file, so its dependency is invisible to the module
 -- graph unless the host names it. Keeping the public module loaded also means every
 -- worker state and every suite observes the same assertion implementation.
-package.loaded["nupp.test"] = require("nupp.test")
+package.loaded["assert"] = require("assert")
+require("arg")
+local _ = io.style
 
 -- File-loaded suites share these host facilities in the parent and worker states.
 require("nupp.random")
 require("nupp.util")
-require("nupp.system")
+const _ = os.info
+require("utf8")
 require("binary.hash")
 require("binary.hash.digest")
 require("binary.hash.checksum")
 require("binary.hash.mac")
 require("binary.compress")
 require("serde.json")
-require("nupp.io.path")
-require("nupp.io.uri")
+require("io.path")
+require("io.uri")
 require("nupp.text")
 require("nupp.time")
 require("nupp.io.net")

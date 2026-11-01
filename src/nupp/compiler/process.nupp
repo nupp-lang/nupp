@@ -8,6 +8,7 @@ to the system shell, which means every argument has to be quoted for the shell
 that will read it. Windows and POSIX disagree about how, so quoting is the whole
 of this module, and callers pass an argv and never build a command line.
 ]]
+const assert2 = require("assert")
 
 const {type Process as NativeProcess, type Options as NativeOptions} = require("nupp.io.process")
 const {type Error as IoError} = require("nupp.io")
@@ -137,14 +138,14 @@ end
 -- The shell-string entry points can only say `cd` and assignments; a bound they
 -- cannot honor is a caller that wanted `captureIsolated`.
 local function assertUnbounded(opts: process.Options, entry: string): nil
-    assert(
+    assert2(
         opts.timeoutMs == nil and opts.memoryMb == nil and opts.pump == nil and opts.cancelled == nil,
         "process." .. entry .. " honors only cwd and env; use captureIsolated for a bounded child"
     )
 end
 
 function process.command(argv: {string}, opts: process.Options?): string
-    assert(type(argv) == "table" and #argv > 0, "argv must not be empty")
+    assert2(type(argv) == "table" and #argv > 0, "argv must not be empty")
     opts = (opts or {}) as process.Options
     assertUnbounded(opts, "command")
     argv = launchArgs(argv)
@@ -156,7 +157,7 @@ function process.command(argv: {string}, opts: process.Options?): string
         end
         table.sort(names)
         for _, name in ipairs(names) do
-            assert(name:match("^[%a_][%w_]*$"), "invalid environment name")
+            assert2(name:match("^[%a_][%w_]*$"), "invalid environment name")
             if windows then
                 -- The closing quote, rather than whitespace before `&&`, ends
                 -- the value. `set NAME=value &&` stores that space in NAME.
@@ -293,8 +294,8 @@ function process.captureIsolated(argv: {string}, opts: process.Options?): intege
     end
     -- Borrowed in place: taking the field out through `assert` would leave the
     -- reader with nothing to close it.
-    local reader = nupp.borrow(child.stdout)
-    assert(reader ~= nil)
+    local reader = own.borrow(child.stdout)
+    assert2(reader ~= nil)
     local chunks = {}
     local cancelled = false
     while true do
@@ -351,7 +352,7 @@ end
 --- caller must drain the second pipe; nothing else empties it.
 function process.startIsolated(argv: {string}, opts: process.Options?): (affine(NativeProcess)?, IoError?)
     opts = (opts or {}) as process.Options
-    assert(
+    assert2(
         opts.timeoutMs == nil and opts.pump == nil and opts.cancelled == nil,
         "process.startIsolated leaves deadlines and cancellation to the session caller"
     )

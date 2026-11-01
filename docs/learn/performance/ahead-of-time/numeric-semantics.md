@@ -11,7 +11,7 @@ any target-specific code is produced.
 ```nupp
 @aot
 local function add(left: float32, right: float32): float32
-    return nupp.math.f32.add(left, right)
+    return math.f32.add(left, right)
 end
 ```
 
@@ -20,8 +20,8 @@ end
 | `a + b` on numbers | binary64 | not contracted, not reassociated |
 | a `float32` field read | binary64 | the physical load widens |
 | a `float32` field write | binary32 | the physical store narrows |
-| `nupp.math.f32.add(a, b)` | binary32, one rounding | exact, see below |
-| `nupp.math.f32.min`/`max`/`fma` | binary32, corrected | a helper repairs NaN behavior |
+| `math.f32.add(a, b)` | binary32, one rounding | exact, see below |
+| `math.f32.min`/`max`/`fma` | binary32, corrected | a helper repairs NaN behavior |
 | `int32` `+`, `-`, `*` on established operands | wrapping int32 | wraps in unsigned, comes back; see below |
 | `uint32` `+`, `-`, `*` on established operands | wrapping uint32 | native unsigned modular arithmetic |
 | `int64` `+`, `-`, `*` in AOT | wrapping int64 | operates as uint64, then converts back |
@@ -40,7 +40,7 @@ their [narrower signed-int32 contract](gpu.md).
 
 Ordinary `math.min` and `math.max` choose the first operand on ties or
 unordered comparisons: `math.min(-0.0, 0.0)` is `-0` and `math.max(0/0, 1)` is
-NaN. The corrected `nupp.math.f32` operations have their own target-independent
+NaN. The corrected `math.f32` operations have their own target-independent
 contract below. `math.log(value, base)` honors its optional base.
 
 `a % b` is Lua's floored modulo, `a - floor(a / b) * b`, computed operation for
@@ -51,7 +51,7 @@ divisor (Lua returns NaN), and wherever `a / b` rounds (`1 % 0.1`).
 Ordinary floating-point arithmetic assumes round-to-nearest-even. Signed zero
 and numeric NaN behavior are preserved. NaN signaling state, payload bits, and
 floating-point exception flags are not observable guarantees. The bit-level
-surface of `nupp.math.f32`, including its canonical NaN behavior, retains the
+surface of `math.f32`, including its canonical NaN behavior, retains the
 stronger guarantees described below.
 
 Signed wrapping arithmetic operates on the two's-complement bits and wraps.
@@ -95,13 +95,13 @@ instruction, because 53 ≥ 2 × 24 + 2.
 
 `min`, `max` and `fma` are not covered by that argument. A differential over
 every interesting binary32 value found they disagree with `fminf`, `fmaxf` and
-`fmaf` in exactly one respect each: `nupp.math.f32` canonicalizes every NaN
+`fmaf` in exactly one respect each: `math.f32` canonicalizes every NaN
 where the instruction propagates a payload, and `min` and `max` return that
 canonical NaN where IEEE `minNum` returns the operand that is not NaN. Both are
 repaired by a select, so they are admitted with a correction rather than left
 out.
 
-`nupp.math.f32.exp` is instead defined by the scalar IR itself: clamp the input
+`math.f32.exp` is instead defined by the scalar IR itself: clamp the input
 to `[-104, 88]`, evaluate a degree-12 Taylor polynomial for `exp(x / 128)` in
 Horner order with `fma`, then square seven times. The interpreter, native code
 and SPIR-V execute that same binary32 sequence; WGPU translates the canonical
@@ -116,7 +116,7 @@ arithmetic type:
 ```nupp:fragment [Nupp]
 local wide = inputs[i].value
 local doubled = wide + wide
-local narrow = nupp.math.f32.add(nupp.math.f32.narrow(wide), nupp.math.f32.narrow(wide))
+local narrow = math.f32.add(math.f32.narrow(wide), math.f32.narrow(wide))
 outputs[i].value = narrow + doubled
 ```
 
@@ -138,13 +138,13 @@ add, and adding it back to a binary64 promotes it rather than narrowing the
 other operand.
 
 An entry conversion takes a binary64, so an `int32` or `uint32` reaching one --
-a counted-loop index handed to `nupp.math.u32.wrap`, say -- is promoted to
+a counted-loop index handed to `math.u32.wrap`, say -- is promoted to
 binary64 first, and that promotion is written down like any other. It is exact
 for every 32-bit integer and establishes nothing: the conversion it is an
 argument to is what establishes. Nothing narrows on the way in, so an operand
 the source never established is still refused.
 
-`nupp.math.u32.fromI32`, `nupp.math.i32.fromU32` and `nupp.math.u32.toI32` are
+`math.u32.fromI32`, `math.i32.fromU32` and `math.u32.toI32` are
 the exceptions, and are the ones to reach for between the two views of the same
 thirty-two bits. They take the width they convert from rather than a binary64,
 so nothing is promoted and nothing comes back: the emitted cast reinterprets
@@ -245,7 +245,7 @@ of the lanes they test beside the mask of the lanes that are active.
 
 A floating-point reducer accumulates in the element its constructor names.
 `orderedSum(initial)` is binary64; `orderedSum(array.float32, initial)` is
-binary32 under every contract, rounding after every operation as `nupp.math.f32`
+binary32 under every contract, rounding after every operation as `math.f32`
 does: an ordered binary32 sum rounds after every lane, a pairwise one at every
 node of the tree, a compensated one keeps its total and its compensation in
 binary32, a dot rounds each product before adding it (or fuses the two under the

@@ -1,6 +1,9 @@
 module demo.derived
 
-local cli = require("nupp.cli")
+const assert2 = require("assert")
+const own2 = require("own")
+
+local cli = require("arg")
 local derive = require("nupp.derive")
 local json = require("serde.json")
 local constructed = require("demo.qualifiedconstructor")
@@ -29,7 +32,7 @@ local function shadowing(): boolean
             return outer
         end
 
-        assert(read() == 18)
+        assert2(read() == 18)
     end
 
     local function render(): string
@@ -87,36 +90,36 @@ local function managedOwnership(): boolean
         return new Resource(value = value)
     end
 
-    local owner = nupp.manage(open(1))
+    local owner = own.manage(open(1))
     local handle = owner:alias()
     local erased: any = handle
-    local recovered, problem = nupp.recoverAlias(erased)
-    assert(problem == nil)
+    local recovered, problem = own2.recoverAlias(erased)
+    assert2(problem == nil)
     if not recovered then
         error("alias recovery failed")
     end
     local exact, mismatch = recovered:downcast<affine(Resource, closeResource)>()
-    assert(mismatch == nil)
+    assert2(mismatch == nil)
     if not exact then
         error("alias policy changed")
     end
     local resource, takeProblem = exact:take()
-    assert(takeProblem == nil)
+    assert2(takeProblem == nil)
     if not resource then
         error("ownership recovery failed")
     end
-    nupp.drop(resource)
+    own.drop(resource)
     local _, stale = handle:with(function(borrows value)
         return value.value
     end)
-    assert(stale and stale.code == "NUPP2614")
+    assert2(stale and stale.code == "NUPP2614")
     do
-        local other = nupp.manage(open(2))
+        local other = own.manage(open(2))
     end
     do
-        local group = nupp.managedGroup()
-        local held = group:adopt(nupp.manage(open(4)))
-        assert(
+        local group = own2.managedGroup()
+        local held = group:adopt(own.manage(open(4)))
+        assert2(
             held:with(function(borrows value)
                 return value.value
             end) == 4
@@ -127,50 +130,50 @@ local function managedOwnership(): boolean
 end
 
 function derived.run(): integer
-    assert((new constructed.Item(41)).value == 42)
-    assert(shadowing())
-    assert(string.char(tonumber("65") as integer) == "A")
+    assert2((new constructed.Item(41)).value == 42)
+    assert2(shadowing())
+    assert2(string.char(tonumber("65") as integer) == "A")
     local success, letter = pcall(string.char, tonumber("66") as integer)
-    assert(success and letter == "B")
-    assert(managedOwnership())
+    assert2(success and letter == "B")
+    assert2(managedOwnership())
     local parent = {answer = 42}
     local meta = {__index = parent, __newindex = parent}
     local overlay = setmetatable({answer = nil}, meta) as Overlay
-    assert(overlay.answer == 42 and getmetatable(overlay) == meta)
+    assert2(overlay.answer == 42 and getmetatable(overlay) == meta)
     overlay.answer = 43
-    assert(rawget(overlay, "answer") == nil and parent.answer == 43)
+    assert2(rawget(overlay, "answer") == nil and parent.answer == 43)
     setmetatable(overlay, nil)
     overlay.answer = 44
-    assert(rawget(overlay, "answer") == 44)
-    assert((new Constructed(40)).value == 42)
-    assert((new Constructed(39)).value == 42)
-    assert((new derived.Counter(42)).value == 42)
+    assert2(rawget(overlay, "answer") == 44)
+    assert2((new Constructed(40)).value == 42)
+    assert2((new Constructed(39)).value == 42)
+    assert2((new derived.Counter(42)).value == 42)
     local decoded, problem = json.decodeValue(json.encodeValue({present = 42, absent = nil}))
-    assert(decoded and problem == nil and decoded.present == 42 and decoded.absent == nil)
+    assert2(decoded and problem == nil and decoded.present == 42 and decoded.absent == nil)
     local controls = string.char(0, 1, 2, 8, 9, 10, 12, 13, 31) .. '\\"'
     local escaped = json.encodeValue({[controls] = controls})
-    assert(not escaped:find("[%z\1-\31]"))
-    local roundTrip = assert(json.decodeValue(escaped)) as any
-    assert(roundTrip[controls] == controls)
+    assert2(not escaped:find("[%z\1-\31]"))
+    local roundTrip = assert2(json.decodeValue(escaped)) as any
+    assert2(roundTrip[controls] == controls)
     local captured: integer = 40
     local add = |value: integer| -> captured + value
     local nested = || -> do
         return |value: integer| -> add(value)
     end
-    assert(nested()(2) == 42)
+    assert2(nested()(2) == 42)
     local counter = new derived.Counter(value = 41)
-    assert(counter:advance() == 42)
-    assert(loaded(require("nupp.derive")))
+    assert2(counter:advance() == 42)
+    assert2(loaded(require("nupp.derive")))
     local first, second = imported()
-    assert(first == derive and second == nil)
-    assert(Options.cliName() == "probe")
-    assert(derive.entry(Options) ~= nil)
+    assert2(first == derive and second == nil)
+    assert2(Options.cliName() == "probe")
+    assert2(derive.entry(Options) ~= nil)
     local plain, problem = Options.fromCLI({})
-    assert(plain and problem == nil and not plain.verbose and plain.output == "default" and #plain.files == 0)
+    assert2(plain and problem == nil and not plain.verbose and plain.output == "default" and #plain.files == 0)
     local selected, why = Options.fromCLI({"-v", "--output", "chosen", "one", "two"})
-    assert(selected and why == nil and selected.output == "chosen")
+    assert2(selected and why == nil and selected.output == "chosen")
     local invalid, failure = Options.fromCLI({"--unknown"})
-    assert(
+    assert2(
         invalid == nil and failure ~= nil,
         "unknown option result: " .. tostring(invalid) .. ", " .. tostring(failure)
     )

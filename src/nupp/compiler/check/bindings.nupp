@@ -312,7 +312,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                         erased and "a value of type any cannot become an owner by annotation"
                         or ("%s cannot become an owner by annotation"):format(T.tostring(init)),
                         nil,
-                        {help = "obtain the owner from a typed producer, or use @unsafe nupp.adopt<Owner>(value)"}
+                        {help = "obtain the owner from a typed producer, or use @unsafe own.adopt<Owner>(value)"}
                     )
                 end
             end
@@ -612,7 +612,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     boundEntry.definition.scalarIntrinsic = scalarIdentity
                 end
             end
-            -- A local bound to a namespace path, `local i32 = nupp.math.i32`, keeps
+            -- A local bound to a namespace path, `local i32 = math.i32`, keeps
             -- the path its members are spelled under, so intrinsic identities read
             -- through it reach the same entries the full spelling does.
             local initDynamic: any = initNode

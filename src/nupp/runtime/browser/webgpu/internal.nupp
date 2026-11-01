@@ -17,7 +17,7 @@ their context borrows, and closing the context or any of its children queues
 the host's destruction without waiting for it.
 
 The browser application must install WebGPU effects and memory before requiring
-[](nupp.gpu). Its facade binds `open` directly; dispatch and cleanup use
+[](gpu). Its facade binds `open` directly; dispatch and cleanup use
 retained context state without service lookups.
 ]]
 
@@ -418,7 +418,7 @@ function gpu.Binding.setRead<T>(
     borrows bufferValue: api.Buffer<T>,
     matchCount: boolean
 ): nil
-    local buffer = nupp.borrow(bufferValue as gpu.Buffer<T>)
+    local buffer = own.borrow(bufferValue as gpu.Buffer<T>)
     if self._released or self._kernel._released then
         error("nupp: browser GPU binding or kernel was released", 2)
     end
@@ -446,7 +446,7 @@ function gpu.Binding.setWrite<T>(
     borrows bufferValue: api.Buffer<T>,
     matchCount: boolean
 ): nil
-    local buffer = nupp.borrow(bufferValue as gpu.Buffer<T>)
+    local buffer = own.borrow(bufferValue as gpu.Buffer<T>)
     if self._released or self._kernel._released then
         error("nupp: browser GPU binding or kernel was released", 2)
     end
@@ -490,10 +490,10 @@ function gpu.Binding.dispatchWords(borrows self: gpu.Binding, scalars: {uint32})
             error("nupp: browser GPU binding contains a released buffer", 2)
         end
     end
-    local words: {uint32} = {nupp.math.u32.wrap(self.count)}
+    local words: {uint32} = {math.u32.wrap(self.count)}
     for _, values in ipairs({self._readCounts, self._writeCounts, self._readOffsets, self._writeOffsets, scalars}) do
         for _, value in ipairs(values) do
-            words[#words + 1] = nupp.math.u32.wrap(value as integer)
+            words[#words + 1] = math.u32.wrap(value as integer)
         end
     end
     if #words * 4 ~= self._kernel._uniformBytes then
@@ -504,7 +504,7 @@ function gpu.Binding.dispatchWords(borrows self: gpu.Binding, scalars: {uint32})
     for index, value in ipairs(words) do
         writable[index] = value
     end
-    nupp.drop(writable)
+    own.drop(writable)
     local pointer = allocation:read():ref()
     local leasePointer = memory.lease as function(borrows pointer: const uint32[?], bytes: integer): integer
     local lease = leasePointer(pointer, #words * 4)
@@ -523,7 +523,7 @@ function gpu.Context.upload<T>(
     borrows bufferValue: api.Buffer<T>,
     borrows source: Span<T>
 ): nil
-    local buffer = nupp.borrow(bufferValue as gpu.Buffer<T>)
+    local buffer = own.borrow(bufferValue as gpu.Buffer<T>)
     live(self)
     local pointer, count = source:ref()
     if buffer._context ~= self or buffer._state.released or not buffer:isDense() then
@@ -548,7 +548,7 @@ function gpu.Context.upload<T>(
 end
 
 function gpu.Context.enqueueDownload<T>(borrows self: gpu.Context, borrows bufferValue: api.Buffer<T>): nil
-    local buffer = nupp.borrow(bufferValue as gpu.Buffer<T>)
+    local buffer = own.borrow(bufferValue as gpu.Buffer<T>)
     live(self)
     if buffer._context ~= self or buffer._state.released or not buffer:isDense() then
         error("nupp: browser GPU download buffer is unavailable in this context", 2)
@@ -571,7 +571,7 @@ function gpu.Context.readDownloaded<T>(
     borrows bufferValue: api.Buffer<T>,
     exclusive destination: WriteSpan<T>
 ): nil
-    local buffer = nupp.borrow(bufferValue as gpu.Buffer<T>)
+    local buffer = own.borrow(bufferValue as gpu.Buffer<T>)
     live(self)
     local pointer, count = destination:ref()
     if buffer._context ~= self or buffer._state.released or not buffer:isDense() then
@@ -590,7 +590,7 @@ function gpu.Context.download<T>(
     borrows bufferValue: api.Buffer<T>,
     exclusive destination: WriteSpan<T>
 ): nil
-    local buffer = nupp.borrow(bufferValue as gpu.Buffer<T>)
+    local buffer = own.borrow(bufferValue as gpu.Buffer<T>)
     self:enqueueDownload(buffer)
     self:synchronize()
     self:readDownloaded(buffer, destination)
@@ -665,7 +665,7 @@ function gpu.Context.bindKernel(
 end
 
 function gpu.Context.close(takes self: gpu.Context): nil
-    local state = @unsafe nupp.release(self)
+    local state = @unsafe own.release(self)
     state._destroy(state)
 end
 

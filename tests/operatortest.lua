@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- Nil-coalescing and compound assignment: semantics, not just syntax.
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")

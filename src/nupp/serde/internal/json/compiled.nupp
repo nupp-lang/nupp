@@ -1,6 +1,8 @@
 @!internal
 module nupp.serde.internal.json.compiled
 
+const assert2 = require("assert")
+
 local core = require("nupp.serde.internal.value")
 local plans = require("nupp.serde.internal.json.plan")
 local lowering = require("nupp.serde.internal.json.lower")
@@ -15,24 +17,24 @@ local diagnostic = require("nupp.serde.internal.json.diagnostic")
 local json = require("nupp.serde.internal.json.values")
 const {type Buffer} = require("nupp.text")
 
-local interface Assign<S is nupp.Closeable>
+local interface Assign<S is own.Closeable>
     apply: function(self, exclusive state: S, value: unknown): nil
 end
-local record Set<S is nupp.Closeable, V is nupp.Copyable> is Assign<S>
+local record Set<S is own.Closeable, V is own.Copyable> is Assign<S>
     @readonly set: structures.Set<S, V>
     function apply(self, exclusive state: S, value: unknown): nil
         -- The paired native recipe validates and constructs precisely V.
         self.set(state, value as V)
     end
 end
-local record Field<T, S is nupp.Closeable, M is core.Member> is structures.FieldConsumer<T, S, M, boolean>
+local record Field<T, S is own.Closeable, M is core.Member> is structures.FieldConsumer<T, S, M, boolean>
     @readonly resolver: lowering.Resolver<M>
     @readonly plan: plans.Plan<M>
     @readonly path: string
     @readonly syntax: {any}
     @readonly setters: {Assign<S>}
     @readonly required: boolean
-    function apply<V is nupp.Copyable>(
+    function apply<V is own.Copyable>(
         self,
         member: M,
         has: structures.Has<T>,
@@ -56,7 +58,7 @@ local record Field<T, S is nupp.Closeable, M is core.Member> is structures.Field
             #self.syntax + 1
         ] = {
             name = member.name,
-            wire = assert(self.plan:wireName(member)),
+            wire = assert2(self.plan:wireName(member)),
             target = recipe.syntax,
             required = self.required,
             hasDefault = false
@@ -66,7 +68,7 @@ local record Field<T, S is nupp.Closeable, M is core.Member> is structures.Field
         return true
     end
 end
-local record Construct<T, S is nupp.Closeable>
+local record Construct<T, S is own.Closeable>
     @readonly construction: structures.Construction<T, S>
     @readonly setters: {Assign<S>}
     function apply(self, values: {unknown}): T
@@ -85,7 +87,7 @@ local record Structure<T, M is core.Member> is structures.Consumer<T, M, lowerin
     @readonly resolver: lowering.Resolver<M>
     @readonly plan: plans.Plan<M>
     @readonly path: string
-    function apply<S is nupp.Closeable>(
+    function apply<S is own.Closeable>(
         self,
         member: M,
         fields: const{structures.Field<T, S, M>},
@@ -173,8 +175,8 @@ local record Native<T> is Decoder<T>
     end
 
     function decodeBuffer(self, exclusive input: Buffer): T
-        assert(self:acceptsBuffer(input), "compiled buffer input exceeds its execution capability")
-        local invoke = assert(self.invokeBuffer)
+        assert2(self:acceptsBuffer(input), "compiled buffer input exceeds its execution capability")
+        local invoke = assert2(self.invokeBuffer)
         local ok, value, problem = pcall(invoke, self.schema, input)
         if not ok then
             error(diagnostic.explain(self.syntax, input:tostring(), value), 0)
@@ -194,7 +196,7 @@ local record Native<T> is Decoder<T>
     end
 
     function decode(self, bytes: string): T
-        assert(self:accepts(bytes), "compiled input exceeds its execution capability")
+        assert2(self:accepts(bytes), "compiled input exceeds its execution capability")
         local ok, value, problem = pcall(self.invoke, self.schema, bytes)
         if not ok then
             error(diagnostic.explain(self.syntax, bytes, value), 0)

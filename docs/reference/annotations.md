@@ -242,8 +242,8 @@ are unsupported targets. Annotate operations inside functions; write
 `return @unsafe expression` or `yield @unsafe expression` for terminal values.
 `@aot` continues to reject unsafe constructs, and comptime gains no operations.
 
-Ownership transfers remain explicit: `@unsafe nupp.release(owner)` consumes an
-affine obligation without cleanup, and `@unsafe nupp.adopt<Owner>(raw)` creates
+Ownership transfers remain explicit: `@unsafe own.release(owner)` consumes an
+affine obligation without cleanup, and `@unsafe own.adopt<Owner>(raw)` creates
 one with the target's cleanup policy. These compiler-recognized calls require
 `@unsafe` even inside an annotated block.
 
@@ -278,13 +278,13 @@ publishes.
 ## Compile-time reflection
 
 Checked user-defined annotations on records, interfaces, structs, and their
-fields are available through `nupp.reflect(T)` inside
+fields are available through `types.reflect(T)` inside
 [comptime](../learn/language/comptime.md). Applications retain source order, and
 arguments follow the annotation definition's member order:
 
 ```nupp:fragment
 return comptime do
-    local info = nupp.reflect(User)
+    local info = types.reflect(User)
     local recordMetadata = info.annotations
     local fieldMetadata = info.fields[1].annotations
     return {recordMetadata = #recordMetadata, fieldMetadata = #fieldMetadata}
@@ -331,9 +331,9 @@ any of their names.
 | `@effects` | named effect members | function, c-function, local-binding |
 | `@relax` | guarantee names | function |
 | `@derive` | qualified comptime providers | record, struct |
-| `@cli` | command and field options for the `nupp.cli` derives | record, field |
+| `@cli` | command and field options for the `arg` derives | record, field |
 | `@debug` | `skip` or `redact` | field in a derived record |
-| `@event` | the registered event name | record, struct deriving `nupp.events.Event` |
+| `@event` | the registered event name | record, struct deriving `events.Event` |
 | `@deprecated` | optional reason and replacement | declaration, field, c-declaration |
 | `@syntax` | one syntax name | local binding |
 | `@aot` | `target = "cpu"` or `target = "gpu"` | function |
@@ -405,7 +405,7 @@ local sealed interface Splitter
 end
 ```
 
-That preserves a private implementation's `nupp.partition` proof through the
+That preserves a private implementation's `own.partition` proof through the
 public interface signature. It may not be attached to an unsealed or externally
 implementable contract, and `nupp ownership-audit` lists every use. See
 [ownership.md](../learn/runtime/ownership/borrowing.md#public-capability-contracts) for the
@@ -413,12 +413,12 @@ contracts a public signature is allowed to carry.
 
 ### `@derive`
 
-`@derive` accepts `nupp.derive.Debug` or an exported comptime provider and adds
+`@derive` accepts `types.Debug` or an exported comptime provider and adds
 checked members
 or format-neutral materialization data without exposing source or AST macros:
 
 ```nupp
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record Point
     x: integer
     y: integer
@@ -496,7 +496,7 @@ function to compile.
 `NUPP2905` through `NUPP2908` were that lowering's refusals and are retired:
 nothing reports them.
 
-Code that runs in vector lanes uses `nupp.simd`. See
+Code that runs in vector lanes uses `simd`. See
 [simd-programming.md](../learn/performance/ahead-of-time/simd-programming.md) for the
 vector loop and scalar continuation patterns.
 
@@ -543,7 +543,7 @@ buffers without an intermediate CPU copy.
 
 `Context:tensor(element, shape)` allocates dense row-major storage.
 `buffer:layout()` returns an element-independent layout.
-The `nupp.gpu.layout` module (imported as `layout`) owns the
+The `gpu.layout` module (imported as `layout`) owns the
 `layout.subview`,
 `layout.transpose`, `layout.broadcast`, and `layout.asStrided`
 operations, which are allocation-free;
@@ -556,7 +556,7 @@ coordinates and one complete span extent, so broadcast and overlapping writes
 are refused.
 
 Binary16 and bfloat16 storage conversions are explicit through
-`nupp.math.f32.fromF16Bits`, `toF16Bits`, `fromBF16Bits`, and `toBF16Bits`.
+`math.f32.fromF16Bits`, `toF16Bits`, `fromBF16Bits`, and `toBF16Bits`.
 The narrow integer names remain physical span and buffer element types, so a
 kernel can define its own dequantization while accumulation uses explicit
 binary32. These portable paths require no optional device feature. Native half
@@ -724,7 +724,7 @@ local function activate(
 ): nil
     assert(#output == #input, "length mismatch")
     for i = 1, #output do
-        output[i] = nupp.math.f32.exp(nupp.math.f32.narrow(input[i]))
+        output[i] = math.f32.exp(math.f32.narrow(input[i]))
     end
 end
 ```

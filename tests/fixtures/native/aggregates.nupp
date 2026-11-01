@@ -107,7 +107,7 @@ local function checksum(base: voidptr, count: uint64): uint64
     local span = new bytes.Span(base as bytes.Byte*, count)
     local i: uint64 = 0
     while i < count do
-        bytes.put(span, i, nupp.math.u32.wrap(native.index(i * 7)))
+        bytes.put(span, i, math.u32.wrap(native.index(i * 7)))
         i = i + 1
     end
 

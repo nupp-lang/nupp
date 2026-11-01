@@ -456,7 +456,20 @@ end
 local function buildEnvironment(state)
     local env = {}
 
-    env.assert = assert
+    local assertion: any = require("assert")
+    if type(assertion) == "table" then
+        env.assert = {
+            equal = assertion.equal,
+            notEqual = assertion.notEqual,
+            deepEqual = assertion.deepEqual,
+            matches = assertion.matches,
+        }
+        state.callableValues[env.assert] = function(...)
+            return assertion(...)
+        end
+    else
+        env.assert = assertion
+    end
     env.error = error
     env.select = select
     env.tonumber = tonumber
@@ -676,6 +689,10 @@ local function buildEnvironment(state)
     -- is not missing, it is deliberately absent.
     local libraries = {[env.math] = "math", [env.string] = "string", [env.table] = "table", [env.bit] = "bit",}
 
+    if type(env.assert) == "table" then
+        libraries[env.assert] = "assert"
+    end
+
     materializeProviders.installEvaluator(state, env)
 
     return env, libraries
@@ -696,6 +713,7 @@ local function newState()
     return {
         env = {},
         libraries = {},
+        callableValues = {},
         result = nil,
         steps = 0,
         opaque = {},
@@ -962,10 +980,14 @@ local function callValues(state, node, callee, args)
 
         return {n = 1, value}
     end
-    if type(callee) ~= "function" then
-        fail("NUPP2411", node, ("a %s is not callable at comptime"):format(type(callee)))
+    local callable = state.callableValues[callee]
+    if callable == nil then
+        if type(callee) ~= "function" then
+            fail("NUPP2411", node, ("a %s is not callable at comptime"):format(type(callee)))
+        end
+        callable = callee
     end
-    local produced = pack(pcall(callee, unpack(args, 1, args.n)))
+    local produced = pack(pcall(callable, unpack(args, 1, args.n)))
     if not produced[1] then
         local message = produced[2]
         fail("NUPP2412", node, type(message) == "string" and message or "the call failed")
@@ -1522,7 +1544,7 @@ evalMulti = function(state, node)
         local key = #args == 1 and typePath(argument) or nil
         local descriptor = key and state.reflections[key] or nil
         if not descriptor then
-            fail("NUPP2418", node, "nupp.reflect type information is unavailable in this comptime worker")
+            fail("NUPP2418", node, "types.reflect type information is unavailable in this comptime worker")
         end
         values = {n = 1, materializeProviders.reflect(state, descriptor, node)}
     elseif kind == "call" and intrinsicQualified and comptimeIntrinsic then
@@ -2202,7 +2224,7 @@ end
 
 --- Executes a checked derive provider and returns its closed recipe envelope.
 --- The immutable Info projection is transported as plain semantic data; every type
---- edge is imported as an opaque `nupp.types` handle before provider code sees it.
+--- edge is imported as an opaque `types` handle before provider code sees it.
 function comptime.evaluateDeriveProviderDirect(
     helper: any,
     input: any,
@@ -2306,7 +2328,7 @@ function comptime.evaluateDeriveProviderDirect(
         {n = 1, infoHandle},
         "NUPP2810",
         "derive",
-        "a derive provider must return nupp.derive.implement or nupp.derive.error",
+        "a derive provider must return types.derive.implement or types.derive.error",
         "derive provider returned a foreign blueprint",
         "derive provider returned a foreign blueprint"
     )

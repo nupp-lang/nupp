@@ -30,7 +30,7 @@ on the same runtime as its callers.
 GPU entries replace the function with a checked `compile`, `bind`, and
 `dispatch` surface; the VM has no GPU provider yet, so no device opens on it. A
 loop that runs in CPU vector lanes states its species, masks, and tail through
-`nupp.simd`.
+`simd`.
 
 ## Const-specialized families
 
@@ -94,7 +94,7 @@ changes the result.
 
 ### How does a loop run in vector lanes?
 
-By saying so with `nupp.simd`: a species, its vector loads and stores, masks,
+By saying so with `simd`: a species, its vector loads and stores, masks,
 and a tail. A loop without those operations is scalar. See
 [simd-programming.md](simd-programming.md) for the model and vector operations.
 

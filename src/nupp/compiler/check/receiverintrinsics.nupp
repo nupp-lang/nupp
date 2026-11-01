@@ -11,6 +11,6 @@ member names as a dependency on the module. Both read this one table.
 ]]
 
 --- Member name -> the module its receiver must hold.
-local receiverintrinsics: {[string]: string} = {keep = "nupp.bench",}
+local receiverintrinsics: {[string]: string} = {keep = "debug.bench",}
 
 export = receiverintrinsics

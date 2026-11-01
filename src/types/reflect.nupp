@@ -1,0 +1,40 @@
+module types.reflect
+
+--[[
+`types.reflect` describes types and provides descriptor extensions.
+Compile-time reflection reads a type; runtime reflection reads its checked witness.
+
+```nupp
+local record Point x: integer end
+const fields: integer = comptime do
+    return #types.reflect(Point).fields
+end
+assert(fields == 1)
+```
+
+See [reflection.md](docs/learn/language/reflection.md) for descriptor graphs.
+]]
+
+local implementation = require("nupp.compiler.runtime.reflect")
+local api = implementation.install(rawget(_G, "nupp"))
+
+export type ExtensionKey<T> = types.reflect.ExtensionKey<T>
+export type AnnotationArgument = types.reflect.AnnotationArgument
+export type Annotation = types.reflect.Annotation
+export type Field = types.reflect.Field
+export type Entry = types.reflect.Entry
+export type Node = types.reflect.Node
+export type SoAField = types.reflect.SoAField
+export type SoAInfo = types.reflect.SoAInfo
+export type Info = types.reflect.Info
+export type FieldCodecBlueprint = types.reflect.FieldCodecBlueprint
+export type FieldCodec<T> = types.reflect.FieldCodec<T>
+
+--- Creates a key for a lazily derived descriptor value.
+export const extensionKey: function<T>(build: function(host: any): T): ExtensionKey<T> = api.extensionKey
+
+--- Reads the descriptor carried by a first-class type witness.
+export const runtime: function<T>(typeObject: Type<T>): Info = api.runtime
+
+--- Reads a reachable nominal witness, or nil for an unresolved declaration.
+export const runtimeType: function(info: Info, index: integer): Type<unknown>? = api.runtimeType

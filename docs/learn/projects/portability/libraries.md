@@ -42,7 +42,7 @@ module. Shared storage, struct, memory-host, and integer declarations remain in
 Its native adapter uses `string.buffer`. Explicitly native pointer and
 serialization facilities remain on the native `string.buffer` surface.
 
-GPU providers use the shared interfaces in `nupp.gpu.spi`. Each context retains its
+GPU providers use the shared interfaces in `gpu.spi`. Each context retains its
 device methods. CPU workgroups and tensor layout operations are ordinary code.
 HTTP clients are created with `nupp.io.http.newClient(options)` and retain their
 response and body cleanup responsibilities.

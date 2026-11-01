@@ -1,5 +1,7 @@
 module example.xmlassembly
 
+const assert2 = require("assert")
+
 local core = require("serde")
 local syntax = require("example.xmlsyntax")
 
@@ -12,11 +14,11 @@ end
 local function element(reader: syntax.Reader, start: syntax.Event): Node
     local content: {string | Node} = {}
     while true do
-        local event = assert(reader:next(), "incomplete XML element")
+        local event = assert2(reader:next(), "incomplete XML element")
         if event.kind == "end" then
-            return new Node(field = assert(start.field), attributes = start.attributes, content = content)
+            return new Node(field = assert2(start.field), attributes = start.attributes, content = content)
         elseif event.kind == "text" then
-            content[#content + 1] = assert(event.text)
+            content[#content + 1] = assert2(event.text)
         else
             content[#content + 1] = element(reader, event)
         end
@@ -25,19 +27,19 @@ end
 
 export function parse(bytes: string): Node
     local reader = syntax.reader(bytes)
-    local start = assert(reader:next(), "missing XML root")
-    assert(start.kind == "start", "expected XML root")
+    local start = assert2(reader:next(), "missing XML root")
+    assert2(start.kind == "start", "expected XML root")
     local result = element(reader, start)
-    assert(reader:next() == nil, "trailing XML content")
+    assert2(reader:next() == nil, "trailing XML content")
 
     return result
 end
 
 export function text(node: Node): string
-    assert(#node.attributes == 0, "scalar XML value has attributes")
+    assert2(#node.attributes == 0, "scalar XML value has attributes")
     local parts: {string} = {}
     for _, item in ipairs(node.content) do
-        assert(type(item) == "string", "scalar XML value has a nested element")
+        assert2(type(item) == "string", "scalar XML value has a nested element")
         parts[#parts + 1] = item as string
     end
 
@@ -73,8 +75,8 @@ export function read<M is core.Member, S>(
     local ordered: {Group<M>} = {}
     for _, mapping in ipairs(mappings) do
         local key = identity(mapping.field)
-        assert(byIdentity[key] == nil, "duplicate expanded XML binding")
-        assert(not mapping.repeated or mapping.field.role == "element", "XML attributes cannot repeat")
+        assert2(byIdentity[key] == nil, "duplicate expanded XML binding")
+        assert2(not mapping.repeated or mapping.field.role == "element", "XML attributes cannot repeat")
         local group = new Group<M>(mapping = mapping, values = {})
         byIdentity[key] = group
         ordered[#ordered + 1] = group
@@ -85,7 +87,7 @@ export function read<M is core.Member, S>(
     end
     for _, item in ipairs(root.content) do
         if type(item) == "string" then
-            assert((item as string):match("^%s*$") ~= nil, "mixed content is not a modeled XML structure")
+            assert2((item as string):match("^%s*$") ~= nil, "mixed content is not a modeled XML structure")
         else
             values[#values + 1] = item as Node
         end
@@ -96,7 +98,7 @@ export function read<M is core.Member, S>(
         if group == nil then
             unknown[#unknown + 1] = value
         else
-            assert(group.mapping.repeated or #group.values == 0, "duplicate scalar XML member")
+            assert2(group.mapping.repeated or #group.values == 0, "duplicate scalar XML member")
             group.values[#group.values + 1] = value
         end
     end
@@ -114,7 +116,7 @@ end
 
 export function copy(borrows node: const Node, depth: integer?): Node
     local current = depth or 0
-    assert(current <= 128, "XML nesting limit exceeded")
+    assert2(current <= 128, "XML nesting limit exceeded")
     local attributes: {syntax.Attribute} = {}
     for _, attribute in ipairs(node.attributes) do
         attributes[
@@ -145,8 +147,8 @@ export function copy(borrows node: const Node, depth: integer?): Node
 end
 
 local function escaped(value: string): string
-    local utf8 = require("nupp.text.utf8")
-    assert(
+    local utf8 = require("utf8")
+    assert2(
         utf8.isValid(value) and not value:find("[%z\1-\8\11\12\14-\31]") and not value:find("\239\191[\190\191]"),
         "invalid XML text"
     )
@@ -163,14 +165,14 @@ local function escaped(value: string): string
 end
 
 local function name(field: syntax.Field): string
-    assert(field.localName:match("^[A-Za-z_][A-Za-z0-9_.-]*$") ~= nil, "invalid XML local name")
-    assert(field.namespaceUri ~= "http://www.w3.org/2000/xmlns/", "reserved XML namespace")
+    assert2(field.localName:match("^[A-Za-z_][A-Za-z0-9_.-]*$") ~= nil, "invalid XML local name")
+    assert2(field.namespaceUri ~= "http://www.w3.org/2000/xmlns/", "reserved XML namespace")
     return field.localName
 end
 
 local function emit(node: Node, parts: {string}, depth: integer): nil
-    assert(depth <= 128, "XML nesting limit exceeded")
-    assert(node.field.role == "element", "XML root must be an element")
+    assert2(depth <= 128, "XML nesting limit exceeded")
+    assert2(node.field.role == "element", "XML root must be an element")
     local localName = name(node.field)
     local qualified = localName
     if node.field.namespaceUri ~= "" then
@@ -186,12 +188,12 @@ local function emit(node: Node, parts: {string}, depth: integer): nil
     end
     local seen: {[string]: boolean} = {}
     for index, attribute in ipairs(node.attributes) do
-        assert(attribute.field.role == "attribute", "invalid XML attribute identity")
+        assert2(attribute.field.role == "attribute", "invalid XML attribute identity")
         local key = identity(attribute.field)
-        assert(not seen[key], "duplicate expanded XML attribute")
+        assert2(not seen[key], "duplicate expanded XML attribute")
         seen[key] = true
         local attributeName = name(attribute.field)
-        assert(attributeName ~= "xmlns", "namespace declaration is not a value attribute")
+        assert2(attributeName ~= "xmlns", "namespace declaration is not a value attribute")
         if attribute.field.namespaceUri == "http://www.w3.org/XML/1998/namespace" then
             attributeName = "xml:" .. attributeName
         elseif attribute.field.namespaceUri ~= "" then
@@ -216,7 +218,7 @@ export function encode(node: Node): string
     local parts: {string} = {}
     emit(node, parts, 0)
     local result = table.concat(parts)
-    assert(#result <= 16777216, "XML output exceeds byte limit")
+    assert2(#result <= 16777216, "XML output exceeds byte limit")
 
     return result
 end

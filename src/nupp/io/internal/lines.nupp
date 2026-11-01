@@ -14,7 +14,7 @@ local positive = bytes.validatePositive
 --- source rather than borrowing one: two things reading the same bytes would
 --- each see half of them.
 --- @export
-export sealed interface Lines is nupp.Closeable
+export sealed interface Lines is own.Closeable
     --- Reads the next line, without its terminator.
     ---
     --- Both `\n` and `\r\n` end a line. Bytes left after the last terminator are

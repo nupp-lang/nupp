@@ -5,7 +5,7 @@ local core = require("serde")
 local documents = require("serde.document")
 local numbers = require("serde.codec")
 local persistence = require("serde.document")
-local util = require("nupp.util")
+local util = require("types")
 
 local record Save
     name: string

@@ -157,7 +157,7 @@ end
 --- The severity a logging call site carries, as the runtime numbers them.
 local LOG_SEVERITY: {[string]: integer} = {error = 1, warn = 2, info = 3, debug = 4}
 
--- Which severity `nupp.log.<name>` names, or nil for anything else.
+-- Which severity `log.<name>` names, or nil for anything else.
 --
 -- Marking the node rather than answering the call's type is deliberate: the call goes
 -- on to be checked like any other, so the format directives and their arguments are
@@ -203,15 +203,15 @@ local function debugFormatPlan(format: string): any
 end
 
 -- Whether a call is `keep` on a receiver statically known to hold the module
--- `nupp.bench` returns. Only a plain identifier whose own type is that module counts: a
--- receiver more elaborate than a name stays an ordinary call. The sink exists to make a
--- measured value escape, and a call in the measured loop is the cost it must not add.
+-- `debug.bench` returns. Recognized on the same terms as zoneIntrinsic above, and for
+-- the same reason: the sink exists to make a measured value escape, and a call in the
+-- measured loop is the cost it must not add.
 local function keepIntrinsic(c, callee): boolean
     if not callee or callee.kind ~= "dotIndex" or not callee.name then
         return false
     end
     local benchModule = RECEIVER_INTRINSICS[callee.name.text]
-    if benchModule ~= "nupp.bench" then
+    if benchModule ~= "debug.bench" then
         return false
     end
     local base = callee.obj
@@ -438,7 +438,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
     end
 
     -- Resolves an expression-shaped type path without inferring it as a runtime value.
-    -- `nupp.reflect` and the layout intrinsics share this spelling and dependency
+    -- `types.reflect` and the layout intrinsics share this spelling and dependency
     -- behavior.
     local function concreteTypePath(argument: Node?, typePosition: boolean?): string?, Type?
         if argument and typePosition then
@@ -680,14 +680,14 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         end
         if comptimeIntrinsic == "reflect" and intrinsicQualified and #argExprs == 1 and not argStr and not argTable then
             if (c.comptimeDepth or 0) == 0 then
-                c.diag("NUPP2418", node, "nupp.reflect is available only inside a comptime block")
+                c.diag("NUPP2418", node, "types.reflect is available only inside a comptime block")
                 return T.any
             end
             local stable = calleeIdentity == "types.reflect"
             local typeArgument = callArgs and callArgs.typeArg or argExprs[1]
             local key, reflected = concreteTypePath(typeArgument, callArgs and callArgs.typeArg ~= nil)
             if not stable or not reflected then
-                c.diag("NUPP2418", argExprs[1] or node, "nupp.reflect expects one concrete type name", nil, {
+                c.diag("NUPP2418", argExprs[1] or node, "types.reflect expects one concrete type name", nil, {
                     help = "pass a declared or qualified type, not a runtime value"
                 })
                 return T.any
@@ -712,7 +712,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             if positionalOnly(argExprs) and format and format.kind == "string" then
                 node.logIntrinsic = severity
                 local sourceIdentity = apiidentity.sourceExpression(c, callee)
-                node.logModule = sourceIdentity and sourceIdentity:match("^(.*)%.[^.]+$") or "nupp.log"
+                node.logModule = sourceIdentity and sourceIdentity:match("^(.*)%.[^.]+$") or "log"
                 node.logFormatIntrinsic = debugFormatPlan(literalString(format) or "")
             end
         end
@@ -730,17 +730,17 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 local targetNode = callee and callee.kind == "dotIndex" and callee.ownershipTypeArg or nil
                 local target = targetNode and c.resolveType(targetNode) or T.any
                 if not targetNode then
-                    c.diag("NUPP2602", node, "nupp.adopt needs an owner type: nupp.adopt<Owner>(value)")
+                    c.diag("NUPP2602", node, "own.adopt needs an owner type: own.adopt<Owner>(value)")
                 elseif target.tag ~= "affine" then
-                    c.diag("NUPP2602", targetNode, "nupp.adopt target must be an affine type")
+                    c.diag("NUPP2602", targetNode, "own.adopt target must be an affine type")
                 end
                 if #args ~= 1 then
-                    c.diag("NUPP2602", node, "nupp.adopt expects one unmanaged value")
+                    c.diag("NUPP2602", node, "own.adopt expects one unmanaged value")
                 elseif c.ownershipKind(valueT) then
-                    c.diag("NUPP2602", args[1], "nupp.adopt expects an unmanaged value")
+                    c.diag("NUPP2602", args[1], "own.adopt expects an unmanaged value")
                 end
                 if c.unsafeDepth == 0 then
-                    c.diag("NUPP2604", node, "nupp.adopt requires @unsafe on the call")
+                    c.diag("NUPP2604", node, "own.adopt requires @unsafe on the call")
                 end
                 local representation = rawType(target)
                 if valueT ~= T.any and target ~= T.any and not isA(valueT, representation) then
@@ -756,12 +756,12 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             elseif intrinsic == "release" then
                 local valueT = args[1] and c.infer(args[1]) or T.any
                 if #args ~= 1 or c.ownershipKind(valueT) ~= "affine" then
-                    c.diag("NUPP2602", args[1] or node, "nupp.release expects one affine value")
+                    c.diag("NUPP2602", args[1] or node, "own.release expects one affine value")
                 end
                 if c.unsafeDepth == 0 then
-                    c.diag("NUPP2604", node, "nupp.release requires @unsafe on the call")
+                    c.diag("NUPP2604", node, "own.release requires @unsafe on the call")
                 end
-                c.moveExpression(args[1] or node, valueT, "nupp.release")
+                c.moveExpression(args[1] or node, valueT, "own.release")
                 node.ownershipIntrinsic = "release"
                 return rawType(valueT)
             elseif intrinsic == "manage" then
@@ -782,7 +782,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     c.diag(
                         "NUPP2612",
                         args[1] or node,
-                        "nupp.manage requires one self-contained owner with an exact cleanup policy",
+                        "own.manage requires one self-contained owner with an exact cleanup policy",
                         nil,
                         {
                             help = "remove borrows, pins, foreign retention, or transfer-only leaves before managing the value"
@@ -790,7 +790,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     )
                     return T.any
                 end
-                c.moveExpression(args[1], valueT, "nupp.manage")
+                c.moveExpression(args[1], valueT, "own.manage")
                 node.ownershipIntrinsic = "manage"
                 node.managedCleanups = T.capabilityCleanups(capability)
                 node.managedPolicy = policyFor(valueT)
@@ -1178,7 +1178,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         -- Its ordinary exports have module provenance; recipe projections do not.
         local deriveRuntime = selectedExport and selectedExport.module == "nupp.derive"
         if deriveIntrinsic and not deriveRuntime and (c.comptimeFunctionDepth or 0) == 0 then
-            c.diag("NUPP2809", node, "nupp.derive builders are available only inside a comptime provider")
+            c.diag("NUPP2809", node, "types.derive builders are available only inside a comptime provider")
             return T.any
         end
         -- The frozen toolchain calls the private string contract. Retain its
@@ -2255,7 +2255,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             -- A checked node may be inferred again; the overload below starts from
             -- no member rather than from the previous pass's choice.
             node.overloadMember = nil
-            local aliasDeclaration = c.lookupType("own.Alias") or c.lookupType("nupp.Alias")
+            local aliasDeclaration = c.lookupType("own.Alias")
             local aliasOrigin = aliasDeclaration
                 and aliasDeclaration.tag == "nominal"
                 and ((aliasDeclaration.origin or aliasDeclaration) as T.Nominal)

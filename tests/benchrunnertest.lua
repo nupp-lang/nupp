@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- The `nupp bench` runner, exercised by starting real processes.
 --
 -- Split out from `benchtest.lua` because of what it costs. Every case here spawns
@@ -75,9 +75,15 @@ function M.gpuCostFilesAreUniqueAcrossForksAndCandidates()
     local directory, stdout = working .. "/gpu-costs", working .. "/stdout.json"
     local fixture = HERE .. "/fixtures/bench_fixed_records.nupp"
     local command = (
-        "%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --case '^fixed$' --forks 2 --against %q --margin 5 --gpu-costs %q --json > %q"
+        "%q bench --timeout-ms "
+        .. TIMEOUT_MS
+        .. " --file %q --case '^fixed$' --forks 2 --against %q --margin 5 --gpu-costs %q --json > %q"
     ):format(NUPP, fixture, NUPP, directory, stdout)
-    testAssert.equal(os.execute(inWorkspace(working, command)), 0, "cost routing works without requiring a GPU workload")
+    testAssert.equal(
+        os.execute(inWorkspace(working, command)),
+        0,
+        "cost routing works without requiring a GPU workload"
+    )
     local report = json.decode(read(stdout))
     local seen, count = {}, 0
     for _, side in ipairs({report.benchmarks, report.comparisons[1].baseline.benchmarks}) do
@@ -100,6 +106,7 @@ end
 local function evidence(text)
     local value = json.decode(text)
     value.ok, value.diagnostics = nil, nil
+
     local function canonical(item)
         if type(item) ~= "table" then
             return json.encode(item)
@@ -115,6 +122,7 @@ local function evidence(text)
         for _, key in ipairs(keys) do
             parts[#parts + 1] = tostring(key) .. "=" .. canonical(item[key])
         end
+
         return "{" .. table.concat(parts, ",") .. "}"
     end
 
@@ -130,10 +138,16 @@ function M.comparisonRecordsRetainBothSidesAndVerdicts()
     local fixture = HERE .. "/fixtures/bench_fixed_records.nupp"
 
     local function run(extra)
-        local command = ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --json %s > %q"):format(NUPP, fixture, extra, stdout)
+        local command = (
+            "%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --json %s > %q"
+        ):format(NUPP, fixture, extra, stdout)
         testAssert.equal(os.execute(inWorkspace(working, command)), 0, "fixed-record comparison succeeds")
         local output = read(stdout)
-        testAssert.equal(evidence(output), evidence(read(working .. "/build/bench-record.json")), "stdout and saved record agree")
+        testAssert.equal(
+            evidence(output),
+            evidence(read(working .. "/build/bench-record.json")),
+            "stdout and saved record agree"
+        )
         local decoded = json.decode(output)
         testAssert.equal(decoded.ok, true, "the printed document says the run succeeded")
 
@@ -174,7 +188,11 @@ function M.comparisonRecordsRetainBothSidesAndVerdicts()
     testAssert.equal(comparison.source, baseline, "the baseline record is named")
     testAssert.equal(#comparison.baseline.benchmarks[1].forks, 12, "stored baseline measurements survive")
     testAssert.equal(comparison.baseline.comparisons, nil, "accepted baselines do not nest comparison history")
-    testAssert.equal(comparison.verdicts[1].withheld, "below-minimum-forks", "too few forks explain the absent interval")
+    testAssert.equal(
+        comparison.verdicts[1].withheld,
+        "below-minimum-forks",
+        "too few forks explain the absent interval"
+    )
     testAssert.equal(comparison.verdicts[1].verdict, "inconclusive", "too few forks remain inconclusive")
     testAssert.equal(evidence(read(baseline)), evidence(read(stdout)), "accepted baseline retains the full report")
 
@@ -194,14 +212,13 @@ end
 -- both, rather than decoding as a baseline that matches nothing and passes.
 function M.aBaselineSchemaIsCheckedWhereItIsRead()
     local working = workspace()
-    local stdout, stderr, baseline = working
-        .. "/stdout.json", working
-        .. "/stderr.txt", working
-        .. "/baseline.json"
+    local stdout, stderr, baseline = working .. "/stdout.json", working .. "/stderr.txt", working .. "/baseline.json"
     local fixture = HERE .. "/fixtures/bench_fixed_records.nupp"
 
     local function run(extra)
-        local command = ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --json %s > %q 2> %q"):format(NUPP, fixture, extra, stdout, stderr)
+        local command = (
+            "%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --json %s > %q 2> %q"
+        ):format(NUPP, fixture, extra, stdout, stderr)
 
         return os.execute(inWorkspace(working, command))
     end
@@ -302,10 +319,7 @@ function M.caseListingIsSeparateFromApplicationOutputAndRunnerNIsFixed()
     testAssert.equal(read(stdout), "application started\n", "application output stays on stdout")
 
     local ran = os.execute(
-        inWorkspace(
-            working,
-            ("%q run %q --case protocol --n 3 --out %q > %q"):format(NUPP, fixture, recordOut, stdout)
-        )
+        inWorkspace(working, ("%q run %q --case protocol --n 3 --out %q > %q"):format(NUPP, fixture, recordOut, stdout))
     )
     testAssert.equal(ran, 0, "the selected case exits successfully")
     local record = json.decode(read(recordOut))
@@ -392,7 +406,9 @@ function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
         inWorkspace(
             working,
             (
-                "%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --case %q --variant %q --parameter %q --history %q --label smoke --json > %q"
+                "%q bench --timeout-ms "
+                .. TIMEOUT_MS
+                .. " --file %q --case %q --variant %q --parameter %q --history %q --label smoke --json > %q"
             ):format(NUPP, fixture, "^work$", "^base$", "^size=1$", history, stdout)
         )
     )
@@ -431,7 +447,9 @@ function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
         inWorkspace(
             working,
             (
-                "%q bench --timeout-ms " .. TIMEOUT_MS .. " --list --json --file %q --case %q --case %q --variant %q --parameter %q > %q"
+                "%q bench --timeout-ms "
+                .. TIMEOUT_MS
+                .. " --list --json --file %q --case %q --case %q --variant %q --parameter %q > %q"
             ):format(NUPP, fixture, "^absent$", "^work$", "^other$", "^size=2$", stdout)
         )
     )
@@ -448,12 +466,9 @@ function M.runnerUsesSpecificFilesAndAppendsMachineReadableHistory()
     local single = os.execute(
         inWorkspace(
             working,
-            ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --case %q > %q"):format(
-                NUPP,
-                simpleFixture,
-                "^protocol$",
-                stdout
-            )
+            (
+                "%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --case %q > %q"
+            ):format(NUPP, simpleFixture, "^protocol$", stdout)
         )
     )
     testAssert.equal(single, 0, "a single selected case runs successfully")
@@ -479,7 +494,12 @@ function M.replicatedRunKeepsEveryForkAndFixesTheWorkAcrossThem()
     local fixture = HERE .. "/fixtures/bench_protocol.nupp"
 
     local ran = os.execute(
-        inWorkspace(working, ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --forks 12 --seed 4242 --json > %q"):format(NUPP, fixture, stdout))
+        inWorkspace(
+            working,
+            (
+                "%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --forks 12 --seed 4242 --json > %q"
+            ):format(NUPP, fixture, stdout)
+        )
     )
     testAssert.equal(ran, 0, "a replicated run exits successfully")
     local document = json.decode(read(stdout))
@@ -524,7 +544,12 @@ function M.pilotSizesTheRunWithoutReportingAResult()
     local stdout = working .. "/stdout.txt"
     local fixture = HERE .. "/fixtures/bench_protocol.nupp"
 
-    local ran = os.execute(inWorkspace(working, ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --pilot > %q 2>&1"):format(NUPP, fixture, stdout)))
+    local ran = os.execute(
+        inWorkspace(
+            working,
+            ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --pilot > %q 2>&1"):format(NUPP, fixture, stdout)
+        )
+    )
     testAssert.equal(ran, 0, "a pilot exits successfully")
     local report = read(stdout)
     assert(report:find("Between%-fork CV") ~= nil, "the pilot reports the variance it observed")
@@ -553,7 +578,12 @@ function M.eachSelectorNarrowsOnItsOwn()
         local flags = table.concat({...}, " ")
         testAssert.equal(
             os.execute(
-                inWorkspace(working, ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --list --file %q %s > %q"):format(NUPP, fixture, flags, stdout))
+                inWorkspace(
+                    working,
+                    (
+                        "%q bench --timeout-ms " .. TIMEOUT_MS .. " --list --file %q %s > %q"
+                    ):format(NUPP, fixture, flags, stdout)
+                )
             ),
             0,
             "listing with " .. flags .. " exits successfully"
@@ -584,7 +614,9 @@ function M.eachSelectorNarrowsOnItsOwn()
         os.execute(
             inWorkspace(
                 working,
-                ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --list --file %q --case %q > %q 2>&1"):format(NUPP, fixture, "^nosuchcase$", stdout)
+                (
+                    "%q bench --timeout-ms " .. TIMEOUT_MS .. " --list --file %q --case %q > %q 2>&1"
+                ):format(NUPP, fixture, "^nosuchcase$", stdout)
             )
         ) ~= 0,
         "a case pattern matching nothing selects nothing rather than everything"
@@ -623,21 +655,26 @@ function M.againstAlternatesOrderNamesTheExecutableAndFailsAChecksumMismatch()
     -- The checksum is the executable the child was told about, so the two sides agree
     -- exactly when they were told the same thing.
     local source = assert(io.open(program, "wb"))
-    source:write(table.concat({
-        'local bench = require("nupp.bench")',
-        "",
-        'bench.case("stamped", function(b: bench.Case): nil',
-        "    local total = 0",
-        "    for index = 1, b.n do",
-        "        total = total + index",
-        "    end",
-        "    bench.keep(total)",
-        '    b.checksum = os.getenv("NUPP_BENCH_EXECUTABLE") or "unset"',
-        "end, 1)",
-        "",
-        "bench.report()",
-        "",
-    }, "\n"))
+    source:write(
+        table.concat(
+            {
+                'local bench = require("debug.bench")',
+                "",
+                'bench.case("stamped", function(b: bench.Case): nil',
+                "    local total = 0",
+                "    for index = 1, b.n do",
+                "        total = total + index",
+                "    end",
+                "    bench.keep(total)",
+                '    b.checksum = os.getenv("NUPP_BENCH_EXECUTABLE") or "unset"',
+                "end, 1)",
+                "",
+                "bench.report()",
+                "",
+            },
+            "\n"
+        )
+    )
     source:close()
     -- The same compiler under another name.
     local wrapper = assert(io.open(other, "wb"))
@@ -646,12 +683,11 @@ function M.againstAlternatesOrderNamesTheExecutableAndFailsAChecksumMismatch()
     os.execute(("chmod +x %q"):format(other))
 
     local function run(against)
-        local command = ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --forks 2 --against %q --margin 5 --json > %q 2>/dev/null"):format(
-            NUPP,
-            program,
-            against,
-            stdout
-        )
+        local command = (
+            "%q bench --timeout-ms "
+            .. TIMEOUT_MS
+            .. " --file %q --forks 2 --against %q --margin 5 --json > %q 2>/dev/null"
+        ):format(NUPP, program, against, stdout)
         local status = os.execute(inWorkspace(working, command))
 
         return status, json.decode(read(stdout))
@@ -671,7 +707,10 @@ function M.againstAlternatesOrderNamesTheExecutableAndFailsAChecksumMismatch()
     testAssert.equal(#comparison.verdicts, 0, "no verdict is reported for a benchmark that computed two answers")
     testAssert.equal(comparison.noninferiorityPass, false, "and nothing passes")
     local candidate, baseline = report.benchmarks[1], comparison.baseline.benchmarks[1]
-    assert(candidate.summary.checksum:find("/bin/nupp$"), "this side's children were told this executable: " .. candidate.summary.checksum)
+    assert(
+        candidate.summary.checksum:find("/bin/nupp$"),
+        "this side's children were told this executable: " .. candidate.summary.checksum
+    )
     testAssert.equal(baseline.summary.checksum, other, "the other side's children were told the other executable")
     for _, side in ipairs({candidate, baseline}) do
         testAssert.equal(#side.forks, 2, "both forks of both sides are kept")
@@ -683,7 +722,10 @@ function M.againstAlternatesOrderNamesTheExecutableAndFailsAChecksumMismatch()
             local uname = assert(io.popen("uname -s")):read("*l")
             if uname == "Darwin" or uname == "Linux" then
                 for _, fork in ipairs(side.forks) do
-                    assert(type(fork.maxRssBytes) == "number" and fork.maxRssBytes > 0, "a fork records its peak resident set")
+                    assert(
+                        type(fork.maxRssBytes) == "number" and fork.maxRssBytes > 0,
+                        "a fork records its peak resident set"
+                    )
                 end
                 assert(side.summary.maxRssBytes > 0, "and the summary the median")
             end
@@ -703,7 +745,11 @@ function M.againstAlternatesOrderNamesTheExecutableAndFailsAChecksumMismatch()
     testAssert.equal(verdict.noninferiority, nil, "so noninferiority is not claimed")
     testAssert.equal(comparison.noninferiorityPass, false, "and the comparison does not pass")
     assert(type(verdict.meanRatio) == "number" and verdict.meanRatio > 0, "the geometric mean ratio is reported")
-    testAssert.equal(report.benchmarks[1].summary.checksum, comparison.baseline.benchmarks[1].summary.checksum, "both sides agree")
+    testAssert.equal(
+        report.benchmarks[1].summary.checksum,
+        comparison.baseline.benchmarks[1].summary.checksum,
+        "both sides agree"
+    )
     os.execute(("rm -rf %q"):format(working))
 end
 

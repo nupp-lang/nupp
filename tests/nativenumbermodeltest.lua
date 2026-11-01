@@ -224,7 +224,7 @@ local narrow: array.Scalar<float32> = array.float32
 local wide: array.Scalar<float64> = array.float64
 local exposed: any = array
 assert(exposed.float == nil and exposed.number == nil)
-local simd = require("nupp.simd")
+local simd = require("simd")
 local sum = simd.reducer.orderedSum(1)
 local total: float64 = sum:value()
 assert(total == 1.0 and math.type(total) == "float")
@@ -240,7 +240,7 @@ do
     const values = array.scalar(wide, 3)
     const writable = values:write()
     writable[1], writable[2], writable[3] = -0.0, math.huge, 0.0 / 0.0
-    nupp.drop(writable)
+    own.drop(writable)
     const readable = values:read()
     assert(math.type(readable[1]) == "float" and 1.0 / readable[1] == -math.huge)
     assert(readable[2] == math.huge and readable[3] ~= readable[3])
@@ -249,9 +249,9 @@ do
     const values = array.scalar(narrow, 1)
     const writable = values:write()
     writable[1] = 0.1
-    nupp.drop(writable)
+    own.drop(writable)
     const readable = values:read()
-    assert(readable[1] == nupp.math.f32.narrow(0.1))
+    assert(readable[1] == math.f32.narrow(0.1))
 end
 return true
 ]]
@@ -281,10 +281,10 @@ return Physical, floating
         'local ffi = require("ffi"); return ffi.new<number[1]>()',
         'local ffi = require("ffi"); return ffi.cast<number*>(nil)',
         'local ffi = require("ffi"); return ffi.typeof<number[4]>()',
-        'local simd = require("nupp.simd"); local struct Bad value: simd.Vector<number, simd.Fixed<4>> end; return Bad',
+        'local simd = require("simd"); local struct Bad value: simd.Vector<number, simd.Fixed<4>> end; return Bad',
         'cdef function bad(value: number): float64 from "not-loaded"; return bad',
         'cdef function bad(value: float64): number from "not-loaded"; return bad',
-        'local simd = require("nupp.simd"); local function bad(value: simd.Vector<number, simd.Fixed<4>>): number return simd.horizontal.orderedSum(value) end; return bad',
+        'local simd = require("simd"); local function bad(value: simd.Vector<number, simd.Fixed<4>>): number return simd.horizontal.orderedSum(value) end; return bad',
     }) do
         local result = parser.parse(source, "generic-number-storage.nupp")
         assert(#result.errors == 0, "storage refusal fixture syntax")

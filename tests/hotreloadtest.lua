@@ -4,7 +4,7 @@
 -- check and lower; the cases that load and patch code need the VM, and the
 -- command cases need a launcher whose CLI runs on it.
 
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local hotSession = require("nupp.tools.hotsession")
 
 local loadImage = rawget(_G, "__nupp_load_image")
@@ -60,7 +60,7 @@ end
 -- returned, and the state `commit` and `edit` work on.
 local function running(source, module)
     if not loadImage or not hotPatch then
-        return nil, require("assert").skip("loading and patching code needs the VM")
+        return nil, require("assert").suite.skip("loading and patching code needs the VM")
     end
     module = module or "main"
     local dir = temporaryProject({[module .. ".nupp"] = source})
@@ -87,8 +87,12 @@ end
 local function commit(state, source)
     local prepared = edit(state, source)
     if prepared.kind ~= "prepared" then
-        error("expected a prepared patch, got " .. tostring(prepared.kind) .. ": "
-            .. tostring(prepared.diagnostics and prepared.diagnostics[1] and prepared.diagnostics[1].msg), 2)
+        error(
+            "expected a prepared patch, got " .. tostring(
+                prepared.kind
+            ) .. ": " .. tostring(prepared.diagnostics and prepared.diagnostics[1] and prepared.diagnostics[1].msg),
+            2
+        )
     end
     for _, patch in ipairs(prepared.patches) do
         assert(hotPatch(patch, true))
@@ -156,15 +160,7 @@ function M.anonymousClosuresArePatchIdentities()
 end
 
 function M.aChangedBodyMayAddAClosure()
-    local before = table.concat(
-        {
-            "local function compute(): integer",
-            "   return 1",
-            "end",
-            "return compute",
-        },
-        "\n"
-    )
+    local before = table.concat({"local function compute(): integer", "   return 1", "end", "return compute",}, "\n")
     local compute, state = running(before)
     if not compute then
         return
@@ -233,12 +229,23 @@ function M.sessionRefusesSignatureDeclarationAndLayoutChanges()
     )
     local cases = {
         {
-            (before:gsub("p: Point%): number", "p: Point, scale: number): number"):gsub("size%(new Point%(x = 1%)%)", "size(new Point(x = 1), 2)")),
+            (
+                before:gsub("p: Point%): number", "p: Point, scale: number): number")
+                    :gsub("size%(new Point%(x = 1%)%)", "size(new Point(x = 1), 2)")
+            ),
             "callable-abi",
             "callable signature changed: size",
         },
-        {before .. "\nlocal function extra(): integer return 1 end", "reloadable-declaration", "reloadable declaration was added: extra"},
-        {(before:gsub("   x: number", "   x: number\n   y: number?")), "record-layout", "record layout changed in main"},
+        {
+            before .. "\nlocal function extra(): integer return 1 end",
+            "reloadable-declaration",
+            "reloadable declaration was added: extra"
+        },
+        {
+            (before:gsub("   x: number", "   x: number\n   y: number?")),
+            "record-layout",
+            "record layout changed in main"
+        },
     }
     for _, case in ipairs(cases) do
         local dir = temporaryProject({["main.nupp"] = before})
@@ -753,10 +760,10 @@ function M.sessionTracksDeriveProviderFilesystemInputs()
             "   label: function(self): string",
             "end",
             "function M.labelValue(value: string): string return value end",
-            "@comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Labelled>",
-            "   local label = nupp.derive.file('schema.txt')",
-            "   return nupp.derive.implement{methods = {",
-            "      label = nupp.derive.forward{helper = nupp.derive.helper(M, 'labelValue'), arguments = {nupp.derive.constant(label)}},",
+            "@comptime function M.derive(info: types.derive.Info): types.derive.Result<M.Labelled>",
+            "   local label = types.derive.file('schema.txt')",
+            "   return types.derive.implement{methods = {",
+            "      label = types.derive.forward{helper = types.derive.helper(M, 'labelValue'), arguments = {types.derive.constant(label)}},",
             "   }}",
             "end",
             "@derive(M.derive)",
@@ -796,10 +803,10 @@ function M.deriveProviderFilesystemInputsRequireLiteralPaths()
             "   value: function(self): string",
             "end",
             "function M.value(): string return 'value' end",
-            "@comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Contract>",
+            "@comptime function M.derive(info: types.derive.Info): types.derive.Result<M.Contract>",
             "   local path = 'schema.txt'",
-            "   local schema = nupp.derive.file(path)",
-            "   return nupp.derive.implement{methods = {value = nupp.derive.forward{helper = nupp.derive.helper(M, 'value'), arguments = {}}}}",
+            "   local schema = types.derive.file(path)",
+            "   return types.derive.implement{methods = {value = types.derive.forward{helper = types.derive.helper(M, 'value'), arguments = {}}}}",
             "end",
             "@derive(M.derive)",
             "record M.Value end",
@@ -823,9 +830,9 @@ function M.deriveProviderFilesystemInputsStayInsideTheProject()
             "   value: function(self): string",
             "end",
             "function M.value(): string return 'value' end",
-            "@comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Contract>",
-            "   local schema = nupp.derive.file('../outside.txt')",
-            "   return nupp.derive.implement{methods = {value = nupp.derive.forward{helper = nupp.derive.helper(M, 'value'), arguments = {}}}}",
+            "@comptime function M.derive(info: types.derive.Info): types.derive.Result<M.Contract>",
+            "   local schema = types.derive.file('../outside.txt')",
+            "   return types.derive.implement{methods = {value = types.derive.forward{helper = types.derive.helper(M, 'value'), arguments = {}}}}",
             "end",
             "@derive(M.derive)",
             "record M.Value end",
@@ -906,7 +913,7 @@ end
 
 function M.sessionTracksPreprocessedHeaderClosure()
     if os.execute("cc --version >/dev/null 2>&1") ~= 0 then
-        return require("assert").skip("cc is unavailable")
+        return require("assert").suite.skip("cc is unavailable")
     end
     local dir = temporaryProject({
         ["nested.h"] = "typedef int hot_nested_value;\n",
@@ -1068,7 +1075,7 @@ end
 
 function M.mappedNativeSymlinkRetargetRequiresRestart()
     if package.config:sub(1, 1) == "\\" then
-        return require("assert").skip("symbolic-link fixture is POSIX-only")
+        return require("assert").suite.skip("symbolic-link fixture is POSIX-only")
     end
     local dir = temporaryProject({
         ["one.bin"] = "identical bytes",
@@ -1093,7 +1100,7 @@ end
 
 function M.headerDependencyClosureGrowsAndShrinksAfterNoChange()
     if os.execute("cc --version >/dev/null 2>&1") ~= 0 then
-        return require("assert").skip("cc is unavailable")
+        return require("assert").suite.skip("cc is unavailable")
     end
     local withInclude = '#include "nested.h"\nint hot_closure(void);\n'
     local dir = temporaryProject({
@@ -1168,8 +1175,9 @@ end
 function M.cliWatchCommitsAndKeepsTheLastGoodGeneration()
     local nupp = watchCommand()
     if not nupp then
-        return require("assert").skip("--watch runs on the VM CLI, and none is installed")
+        return require("assert").suite.skip("--watch runs on the VM CLI, and none is installed")
     end
+
     local function watched(body)
         return table.concat(
             {"local M = {}", "function M.value(): integer", "   " .. body, "end", "return M", "",},
@@ -1229,8 +1237,9 @@ end
 function M.cliWatchPatchesUnderARunningLoop()
     local nupp = watchCommand()
     if not nupp then
-        return require("assert").skip("--watch runs on the VM CLI, and none is installed")
+        return require("assert").suite.skip("--watch runs on the VM CLI, and none is installed")
     end
+
     local function program(message, nextVersion)
         return table.concat(
             {
@@ -1253,6 +1262,7 @@ function M.cliWatchPatchesUnderARunningLoop()
             "\n"
         )
     end
+
     -- The program writes its own next version, in which only the bodies differ.
     local second = program("version two", "''")
     local first = program("version one", string.format("%q", second))
@@ -1271,11 +1281,11 @@ end
 function M.cliWatchRequiresRestartForMappedNativeReplacement()
     local nupp = watchCommand()
     if not nupp then
-        return require("assert").skip("--watch runs on the VM CLI, and none is installed")
+        return require("assert").suite.skip("--watch runs on the VM CLI, and none is installed")
     end
     local windows = package.config:sub(1, 1) == "\\"
     if windows or os.execute("cc --version >/dev/null 2>&1") ~= 0 then
-        return require("assert").skip("a POSIX C compiler is unavailable")
+        return require("assert").suite.skip("a POSIX C compiler is unavailable")
     end
     local darwin = io.popen("uname -s"):read("*l") == "Darwin"
     withProject(
@@ -1289,7 +1299,10 @@ function M.cliWatchRequiresRestartForMappedNativeReplacement()
             local current = "libmini" .. extension
             local replacement = "libmini-next" .. extension
             local flags = darwin and "-dynamiclib" or "-shared -fPIC"
-            assert(os.execute(("cc %s -o '%s/%s' '%s/first.c'"):format(flags, dir, current, dir)), "compile first library")
+            assert(
+                os.execute(("cc %s -o '%s/%s' '%s/first.c'"):format(flags, dir, current, dir)),
+                "compile first library"
+            )
             assert(
                 os.execute(("cc %s -o '%s/%s' '%s/second.c'"):format(flags, dir, replacement, dir)),
                 "compile replacement library"

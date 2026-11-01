@@ -1,5 +1,5 @@
 local scalar = require("serde.adapters")
-local record Resource is nupp.Closeable
+local record Resource is own.Closeable
     function close(takes self): nil
     end
 end

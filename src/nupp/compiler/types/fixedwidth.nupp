@@ -305,11 +305,11 @@ end
 function fixed.conversionPath(t: T.Type): string?
     local tag = T.unwrapOwnership(t).tag
     if tag == "float32" then
-        return "nupp.math.f32.narrow"
+        return "math.f32.narrow"
     elseif tag == "int32" then
-        return "nupp.math.i32.wrap"
+        return "math.i32.wrap"
     elseif tag == "uint32" then
-        return "nupp.math.u32.wrap"
+        return "math.u32.wrap"
     else
         return nil
     end

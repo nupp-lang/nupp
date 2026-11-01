@@ -115,7 +115,7 @@ const ROUND_CONSTANTS: {
 }
 
 local function i32(value: integer): int32
-    return nupp.math.i32.wrap(value)
+    return math.i32.wrap(value)
 end
 
 local function add(a: int32, b: int32): int32
@@ -131,7 +131,7 @@ local function logicalRight(value: int32, count: int32): int32
 end
 
 local function rotateRight(value: int32, count: integer): int32
-    return nupp.math.i32.rotateRight(value, count)
+    return math.i32.rotateRight(value, count)
 end
 
 local function smallSigmaZero(word: int32): int32
@@ -163,7 +163,7 @@ local function wordAt(words: {int32}, index: integer): int32
 end
 
 local function unsignedWordAt(words: {uint32}, index: integer): uint32
-    return nupp.math.u32.wrap(words[index] as integer)
+    return math.u32.wrap(words[index] as integer)
 end
 
 local record Sha256 is hash.Hasher
@@ -184,7 +184,7 @@ local record Sha256 is hash.Hasher
             i32(0x5BE0CD19),
         }
         self.tail = ""
-        self.length = {nupp.math.u32.wrap(0), nupp.math.u32.wrap(0)}
+        self.length = {math.u32.wrap(0), math.u32.wrap(0)}
         self.schedule = {}
     end
 
@@ -243,10 +243,10 @@ end
 
 local function addLength(self: Sha256, count: integer): nil
     local before = unsignedWordAt(self.length, 1)
-    local after = before + nupp.math.u32.wrap(count)
+    local after = before + math.u32.wrap(count)
     self.length[1] = after
     if after < before then
-        self.length[2] = unsignedWordAt(self.length, 2) + nupp.math.u32.wrap(1)
+        self.length[2] = unsignedWordAt(self.length, 2) + math.u32.wrap(1)
     end
 end
 
@@ -320,7 +320,7 @@ local function rawDigest(source: Sha256): string
 
     local bytes: {string} = {}
     for index = 1, 8 do
-        local value = nupp.math.u32.fromI32(wordAt(state.state, index)) as number
+        local value = math.u32.fromI32(wordAt(state.state, index)) as number
         for shift = 24, 0, -8 do
             bytes[#bytes + 1] = string.char(math.floor(value / 2 ^ shift) % 256)
         end
@@ -349,7 +349,7 @@ end
 function Sha256.writeDigest(self: Sha256, exclusive destination: span.ByteWriteSpan): nil
     local state = finalState(self)
     for index = 1, 8 do
-        local value = nupp.math.u32.fromI32(wordAt(state.state, index)) as number
+        local value = math.u32.fromI32(wordAt(state.state, index)) as number
         for byte = 0, 3 do
             destination[(index - 1) * 4 + byte + 1] = math.floor(value / 2 ^ (24 - byte * 8)) % 256
         end
@@ -362,9 +362,9 @@ end
 
 local function xorPad(key: string, pad: integer): string
     local bytes: {string} = {}
-    local mask = nupp.math.u32.wrap(pad)
+    local mask = math.u32.wrap(pad)
     for index = 1, 64 do
-        bytes[index] = string.char((nupp.math.u32.wrap(key:byte(index)) ~ mask) as integer)
+        bytes[index] = string.char((math.u32.wrap(key:byte(index)) ~ mask) as integer)
     end
 
     return table.concat(bytes)

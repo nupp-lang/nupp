@@ -1,5 +1,7 @@
 module example.registry
 
+const assert2 = require("assert")
+
 local __serdeJson = require("serde.json")
 
 local core = require("serde")
@@ -7,13 +9,13 @@ local documents = require("serde.document")
 local bridge = require("serde.document")
 
 export interface Consumer<R>
-    apply: function<T is nupp.Copyable>(self, identity: string, binding: core.Binding<T>, borrows value: T): R
+    apply: function<T is own.Copyable>(self, identity: string, binding: core.Binding<T>, borrows value: T): R
 end
 export interface Value
     identity: function(self): string
     accept: function<R>(self, consumer: Consumer<R>): R
 end
-local record Selected<T is nupp.Copyable> is Value
+local record Selected<T is own.Copyable> is Value
     @readonly id: string
     @readonly binding: core.Binding<T>
     @readonly value: T
@@ -28,7 +30,7 @@ end
 local interface Entry
     read: function(self, value: documents.Document): Value
 end
-local record Bound<T is nupp.Copyable> is Entry
+local record Bound<T is own.Copyable> is Entry
     @readonly id: string
     @readonly binding: core.Binding<T>
     function read(self, value: documents.Document): Value
@@ -40,8 +42,8 @@ end
 -- request to load executable code, and resolution does not use global state.
 export record Registry
     @private @readonly entries: {[string]: Entry} = {}
-    function register<T is nupp.Copyable>(self, identity: string, binding: core.Binding<T>): nil
-        assert(identity ~= "" and self.entries[identity] == nil, "duplicate or empty type identity")
+    function register<T is own.Copyable>(self, identity: string, binding: core.Binding<T>): nil
+        assert2(identity ~= "" and self.entries[identity] == nil, "duplicate or empty type identity")
         self.entries[identity] = new Bound<T>(id = identity, binding = binding)
     end
 
@@ -50,12 +52,12 @@ export record Registry
     end
 
     function reconstruct(self, identity: string, value: documents.Document): Value
-        return assert(self.entries[identity], "unknown type discriminator: " .. identity):read(value)
+        return assert2(self.entries[identity], "unknown type discriminator: " .. identity):read(value)
     end
 end
 
 local record Project is Consumer<documents.Document>
-    function apply<T is nupp.Copyable>(
+    function apply<T is own.Copyable>(
         self,
         identity: string,
         binding: core.Binding<T>,

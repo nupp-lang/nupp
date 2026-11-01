@@ -92,9 +92,9 @@ local handle: ctype<voidptr>
 local frozen: const {string}
 --            ^^^^^ storage.modifier.const.nupp
 
-local function worker(): string & Serializable
---                              ^ keyword.operator.nupp
-   yields (number) resumes (boolean)
+local function worker()
+   yields (number) resumes (boolean): string & Serializable
+--                                           ^ keyword.operator.nupp
    return "done"
 end
 
@@ -350,7 +350,7 @@ local type Events<T> = {
 @comptime local function First(T: type): type
 --    ^^^^^^^^ storage.modifier.directive.nupp
 --             ^^^^^^^^ storage.type.function.nupp
-   local elements = nupp.types.elements(T)
+   local elements = types.elements(T)
    return elements[1]
 end
 
@@ -393,15 +393,15 @@ local interface Matcher
 end
 
 local function releaseSpan(writable: WriteSpan): nil
-   nupp.drop(writable)
+   own.drop(writable)
 -- ^^^^ keyword.control.nupp
 end
 
-local x = @unsafe nupp.release(writable)
+local x = @unsafe own.release(writable)
 --        ^ punctuation.definition.annotation.nupp
 --         ^^^^^^ entity.name.tag.nupp
 --                ^^^^^^^ storage.modifier.ownership.nupp
-local y = @unsafe nupp.adopt<Owner>(raw)
+local y = @unsafe own.adopt<Owner>(raw)
 --        ^ punctuation.definition.annotation.nupp
 --         ^^^^^^ entity.name.tag.nupp
 --                ^^^^^ storage.modifier.ownership.nupp

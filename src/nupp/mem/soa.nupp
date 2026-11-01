@@ -42,10 +42,11 @@ worker transfer like any other storage. The compiler lowers a row, a row's
 field and a projected column to this module's checked view methods; the
 element witness is the row struct's storage descriptor.
 ]]
+const assert2 = require("assert")
 
 local soa = {}
 local span = require("nupp.mem.span")
-local storage: any = assert(
+local storage: any = assert2(
     require("nupp.mem.representation").storage,
     "nupp.mem.soa: no storage implementation is available for the target"
 )
@@ -241,7 +242,7 @@ end
 --- Frees a slab, which is what every SoA array's contract names.
 ---
 --- Nothing calls this by hand. It is the terminal consumer `affine` carries, so a
---- scope boundary or an explicit `nupp.drop` reaches it.
+--- scope boundary or an explicit `own.drop` reaches it.
 ---
 --- @param self the array, spent by this call
 --- @export
@@ -252,13 +253,13 @@ end
 --- Ends a row writer, which is what every writable row view's contract names.
 ---
 --- Nothing calls this by hand. It is the terminal consumer `affine` carries, so a
---- scope boundary or an explicit `nupp.drop` reaches it.
+--- scope boundary or an explicit `own.drop` reaches it.
 ---
 --- @param self the writer, spent by this call
 --- @export
 function soa.destroyWriteSpan<T is soa.WriteToken>(takes self: T): nil
     @nosuspend do
-        local _raw = @unsafe nupp.release(self)
+        local _raw = @unsafe own.release(self)
     end
 end
 
@@ -488,7 +489,7 @@ end
 
 function WriteSpanImpl.drop<T>(takes self: WriteSpanImpl<T>): nil
     @nosuspend do
-        local _raw = @unsafe nupp.release(self)
+        local _raw = @unsafe own.release(self)
     end
 end
 
@@ -515,12 +516,12 @@ record soa.Array<T> is soa.ArrayToken
     --- Borrows the rows as an exclusive checked view.
     ---
     --- Exclusive for as long as the writer is live, and affine, so a scope
-    --- boundary or an explicit `nupp.drop` is what ends it.
+    --- boundary or an explicit `own.drop` is what ends it.
     write: function(
         exclusive self: Array<T>
     ): affine(soa.WriteToken & soa.WriteSpan<T>, soa.destroyWriteSpan) borrows (self)
 
-    --- Frees the slab. `nupp.drop` and scope exit both reach this.
+    --- Frees the slab. `own.drop` and scope exit both reach this.
     close: @nosuspend function(takes self: Array<T>): nil
 end
 
@@ -552,7 +553,7 @@ end
 -- collector reclaims the bytes once no view still reaches them.
 local function finishArray(takes self: any): nil
     @nosuspend do
-        local raw = @unsafe nupp.release(self)
+        local raw = @unsafe own.release(self)
         raw.raw = nil
     end
 end

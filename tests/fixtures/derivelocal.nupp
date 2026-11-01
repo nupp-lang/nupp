@@ -1,3 +1,7 @@
+const assert2 = require("assert")
+
+const derive2 = require("types.derive")
+
 local M = {}
 
 interface M.Named
@@ -17,26 +21,23 @@ function M.genericLabel(): string
 end
 
 @comptime
-function M.deriveNamed(info: nupp.derive.Info): nupp.derive.Result<M.Named>
+function M.deriveNamed(info: types.derive.Info): types.derive.Result<M.Named>
     local field = info.fields[1]
     if not field or field.name ~= "name" then
-        return nupp.derive.error("Named requires a first field named name", info.reference)
+        return derive2.error("Named requires a first field named name", info.reference)
     end
 
-    return nupp.derive.implement{
+    return derive2.implement{
         methods = {
-            named = nupp.derive.forward{
-                helper = nupp.derive.helper(M, "nameValue"),
-                arguments = {nupp.derive.field(field)},
-            },
+            named = derive2.forward{helper = derive2.helper(M, "nameValue"), arguments = {derive2.field(field)},},
         },
     }
 end
 
 @comptime
-function M.deriveLabelled(info: nupp.derive.Info): nupp.derive.Result<M.Labelled>
-    return nupp.derive.implement{
-        methods = {label = nupp.derive.forward{helper = nupp.derive.helper(M, "genericLabel"), arguments = {},},},
+function M.deriveLabelled(info: types.derive.Info): types.derive.Result<M.Labelled>
+    return derive2.implement{
+        methods = {label = derive2.forward{helper = derive2.helper(M, "genericLabel"), arguments = {},},},
     }
 end
 
@@ -46,7 +47,7 @@ record M.Value
 end
 
 local value = new M.Value(name = "local")
-assert(value:named() == "name=local")
+assert2(value:named() == "name=local")
 
 @derive(M.deriveLabelled)
 record M.Box<T>
@@ -54,6 +55,6 @@ record M.Box<T>
 end
 
 local box = new M.Box(value = "anything")
-assert(box:label() == "generic")
+assert2(box:label() == "generic")
 
 return M

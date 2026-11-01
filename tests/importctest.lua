@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local importc = require("nupp.compiler.cinterop.importc")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
@@ -320,7 +320,7 @@ end
 
 function M.theBridgeWrapsOnlyWhatThisPlatformCompiles()
     if os.execute("cc --version >/dev/null 2>&1") ~= 0 then
-        return require("assert").skip("cc is unavailable")
+        return require("assert").suite.skip("cc is unavailable")
     end
     local path, dir = scratchHeader(
         "vec.h",
@@ -545,7 +545,7 @@ end
 
 function M.bridgeWriteFailureDoesNotRestyleEarlierWarningsAsErrors()
     if package.config:sub(1, 1) == "\\" then
-        require("assert").skip("POSIX directory permissions provide this failure seam")
+        require("assert").suite.skip("POSIX directory permissions provide this failure seam")
     end
     local dir = os.tmpname()
     os.remove(dir)
@@ -640,7 +640,7 @@ end
 -- by the C compiler from the header, must be the same.
 function M.importedLayoutsMatchWhatTheCCompilerLaysOut()
     if os.execute("cc --version >/dev/null 2>&1") ~= 0 then
-        return require("assert").skip("cc is unavailable")
+        return require("assert").suite.skip("cc is unavailable")
     end
     local specs = {
         {c = "struct layout_inner", name = "layout_inner", fields = {"a", "b"}},

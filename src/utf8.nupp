@@ -1,12 +1,12 @@
-module nupp.text.utf8
+module utf8
 
 --[[
-`nupp.text.utf8` reads Unicode scalars out of strings and
+`utf8` reads Unicode scalars out of strings and
 [](nupp.io.ByteView) values. Reach for it to count, decode,
 validate or truncate text whose bytes came from somewhere else.
 
 ```nupp
-const utf8 = nupp.text.utf8
+const utf8 = utf8
 
 assert(utf8.length("A€") == 2)
 assert(utf8.encode(0x20ac) == "€")
@@ -31,7 +31,7 @@ it with the offset it starts at, so the two walk in opposite directions over the
 same positions:
 
 ```nupp
-const utf8 = nupp.text.utf8
+const utf8 = utf8
 
 local codepoint, nextByte = utf8.decodeAt("A€", 2)
 assert(codepoint == 0x20ac and nextByte == 5)
@@ -45,7 +45,7 @@ damaged text makes progress rather than stalling. Nil is the end of the value,
 and that is what stops the walk:
 
 ```nupp:fragment
-const utf8 = nupp.text.utf8
+const utf8 = utf8
 
 local at: integer = 1
 while true do
@@ -63,7 +63,7 @@ Validation is explicit, because decoding never refuses. `isValid` checks a
 complete byte sequence:
 
 ```nupp
-const utf8 = nupp.text.utf8
+const utf8 = utf8
 
 assert(utf8.isValid("café"))
 assert(not utf8.isValid("\xff"))
@@ -79,7 +79,7 @@ from splitting a scalar in half. `truncate` applies that to a string and copies
 the prefix:
 
 ```nupp
-const utf8 = nupp.text.utf8
+const utf8 = utf8
 
 assert(utf8.validPrefixLength("A€B", 4) == 4)
 assert(utf8.truncate("A€B", 4) == "A€")
@@ -229,7 +229,7 @@ local utf8 = {}
 --- A malformed byte counts as one.
 ---
 --- ```nupp
---- const utf8 = nupp.text.utf8
+--- const utf8 = utf8
 ---
 --- assert(utf8.length("A€") == 2)
 --- ```
@@ -255,7 +255,7 @@ end
 --- returns `0xFFFD` and still advances:
 ---
 --- ```nupp:fragment
---- const utf8 = nupp.text.utf8
+--- const utf8 = utf8
 ---
 --- local at: integer = 1
 --- while true do
@@ -282,7 +282,7 @@ end
 --- directions, so decoding forward and then back lands where it started:
 ---
 --- ```nupp
---- const utf8 = nupp.text.utf8
+--- const utf8 = utf8
 ---
 --- local codepoint, nextByte = utf8.decodeAt("A€", 2)
 --- assert(codepoint == 0x20ac and nextByte == 5)
@@ -319,14 +319,14 @@ end
 --- Encodes a codepoint as UTF-8 bytes.
 ---
 --- ```nupp
---- const utf8 = nupp.text.utf8
+--- const utf8 = utf8
 ---
 --- assert(utf8.encode(0x20ac) == "€")
 --- ```
 ---
 --- Surrogate halves encode rather than raise, the way a lone half decodes to the
 --- replacement rather than stopping a walk: what refuses them is
---- [](nupp.text.utf8.isValid), on the bytes, and encoding one is how a caller
+--- [](utf8.isValid), on the bytes, and encoding one is how a caller
 --- reproducing damaged text writes it back out.
 ---
 --- @param codepoint the codepoint to encode
@@ -361,7 +361,7 @@ end
 --- Reports whether the whole value is well-formed UTF-8.
 ---
 --- ```nupp
---- const utf8 = nupp.text.utf8
+--- const utf8 = utf8
 ---
 --- assert(utf8.isValid("café"))
 --- assert(not utf8.isValid("\xff"))
@@ -378,7 +378,7 @@ end
 --- Measures the longest well-formed prefix no longer than `maxBytes`.
 ---
 --- ```nupp
---- const utf8 = nupp.text.utf8
+--- const utf8 = utf8
 ---
 --- -- "A€B" is 5 bytes; the 4-byte budget stops just short of "B" rather
 --- -- than splitting "€" in half.
@@ -401,7 +401,7 @@ end
 --- Cuts text to at most `maxBytes`, never through a codepoint.
 ---
 --- ```nupp
---- const utf8 = nupp.text.utf8
+--- const utf8 = utf8
 ---
 --- assert(utf8.truncate("A€B", 4) == "A€")
 --- ```

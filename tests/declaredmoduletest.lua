@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local program = require("program")
@@ -429,7 +429,7 @@ end
 function M.registryRejectsReservedAndChildExportCollisions()
     withProject(
         {
-            ["src/nupp/pin.nupp"] = "module nupp.pin\nexport const value: integer = 1\n",
+            ["src/nupp/pin.nupp"] = "module own.pin\nexport const value: integer = 1\n",
             ["src/pkg.nupp"] = "module pkg\nexport const child: integer = 1\n",
             ["src/pkg/child.nupp"] = "module pkg.child\nexport const value: integer = 2\n",
         },
@@ -898,10 +898,10 @@ end
 
 local type BuiltinAssert = function<A...>(A...): A...
 local original = rawget(_G, "assert") as BuiltinAssert
-local helper = require("nupp.test")
+local helper = require("assert")
 local value = {
     equal = helper.equal,
-    suite = {skip = helper.skip, isSkip = helper.isSkip, skipReason = helper.skipReason},
+    suite = {skip = helper.suite.skip, isSkip = helper.suite.isSkip, skipReason = helper.suite.skipReason},
 } as Callable
 
 export = setmetatable(value, {__call = function<A...>(_self: Callable, ...: A...): A...

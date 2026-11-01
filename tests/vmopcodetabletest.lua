@@ -3,7 +3,7 @@
 -- runtime reads an image that carries none against a built-in copy, kept in
 -- `native/crates/vm/src/opcodes.table`; this suite holds that copy equal to
 -- what the compiler emits. NUPP_WRITE_OPCODE_TABLE=1 rewrites it.
-local test = require("nupp.test")
+local test = require("assert")
 local opcodes = require("nupp.compiler.vm.opcodes")
 local lowerstate = require("nupp.compiler.vm.lowerstate")
 local fs = require("nupp.compiler.fs")
@@ -30,11 +30,11 @@ function M.everyRowSpellsItsOperands()
     test.equal(#opcodes.order, 168)
     local names = {}
     for _, name in ipairs(opcodes.order) do
-        test.assert(not names[name], name .. " listed twice")
+        test(not names[name], name .. " listed twice")
         names[name] = true
         local opcode = opcodes.byName[name]
         test.equal(opcode.name, name)
-        test.assert(opcode.min <= opcode.max)
+        test(opcode.min <= opcode.max)
         test.equal(opcode.max, #opcode.operands)
     end
     test.equal(opcodes.byName.Simd.min, 4)
@@ -52,7 +52,7 @@ end
 
 local function fails(instruction)
     local ok, err = pcall(opcodes.check, instruction)
-    test.assert(not ok, "accepted an instruction the table does not describe")
+    test(not ok, "accepted an instruction the table does not describe")
 
     return tostring(err)
 end
@@ -84,11 +84,11 @@ function M.anEmittedInstructionGoesThroughTheTable()
     f:place(done)
     test.equal(#f.blocks[1].code, 1)
     test.equal(f.blocks[1].ends, "jump")
-    test.assert(f.blocks[1].target == done, "the jump names its label")
-    test.assert(not pcall(f.op, f, "Nill", 1))
-    test.assert(not pcall(f.op, f, "Nil", 1, 2))
+    test(f.blocks[1].target == done, "the jump names its label")
+    test(not pcall(f.op, f, "Nill", 1))
+    test(not pcall(f.op, f, "Nil", 1, 2))
     -- A jump is a block's ending, which only jump and branch write.
-    test.assert(not pcall(f.op, f, "Jmp", 0))
+    test(not pcall(f.op, f, "Jmp", 0))
     test.equal(#f.blocks[1].code, 1)
 end
 

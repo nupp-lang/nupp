@@ -1,6 +1,6 @@
 module compaction
 
-local gpu = require("nupp.gpu")
+local gpu = require("gpu")
 local span = require("nupp.mem.span")
 
 const BLOCK = 256
@@ -14,39 +14,39 @@ local function compactBlocks(
     borrows input: span.Span<uint32>,
     borrows selected: span.Span<uint32>
 ): nil
-    local groups = nupp.math.u32.div(nupp.math.u32.wrap(#blocked), nupp.math.u32.wrap(BLOCK))
+    local groups = math.u32.div(math.u32.wrap(#blocked), math.u32.wrap(BLOCK))
     gpu.workgroups(groups, 256, function(groupIndex: uint32, phases: gpu.Phases)
-        local prefix = phases:scratch(nupp.math.u32.wrap(0), 256)
-        local temporary = phases:scratch(nupp.math.u32.wrap(0), 256)
+        local prefix = phases:scratch(math.u32.wrap(0), 256)
+        local temporary = phases:scratch(math.u32.wrap(0), 256)
         phases:run(function(localIndex: uint32)
-            local source = groupIndex * nupp.math.u32.wrap(BLOCK) + localIndex
+            local source = groupIndex * math.u32.wrap(BLOCK) + localIndex
             if source < #selected then
-                if selected[source + 1] ~= nupp.math.u32.wrap(0) then
-                    prefix[localIndex] = nupp.math.u32.wrap(1)
+                if selected[source + 1] ~= math.u32.wrap(0) then
+                    prefix[localIndex] = math.u32.wrap(1)
                 else
-                    prefix[localIndex] = nupp.math.u32.wrap(0)
+                    prefix[localIndex] = math.u32.wrap(0)
                 end
             else
-                prefix[localIndex] = nupp.math.u32.wrap(0)
+                prefix[localIndex] = math.u32.wrap(0)
             end
         end)
         phases:inclusiveScan(prefix, temporary)
         phases:run(function(localIndex: uint32)
             local countCursor = groupIndex
-            if localIndex == nupp.math.u32.wrap(255) and countCursor < #counts then
+            if localIndex == math.u32.wrap(255) and countCursor < #counts then
                 counts[countCursor + 1] = prefix[255]
             end
         end)
         phases:run(function(localIndex: uint32)
-            local source = groupIndex * nupp.math.u32.wrap(BLOCK) + localIndex
+            local source = groupIndex * math.u32.wrap(BLOCK) + localIndex
             local selectedCursor = source
             local inputCursor = source
             if selectedCursor < #selected then
-                if selected[selectedCursor + 1] ~= nupp.math.u32.wrap(0) then
+                if selected[selectedCursor + 1] ~= math.u32.wrap(0) then
                     if inputCursor < #input then
-                        local destination = groupIndex * nupp.math.u32.wrap(
+                        local destination = groupIndex * math.u32.wrap(
                             BLOCK
-                        ) + (nupp.math.u32.wrap(prefix[localIndex] as integer) - nupp.math.u32.wrap(1))
+                        ) + (math.u32.wrap(prefix[localIndex] as integer) - math.u32.wrap(1))
                         local blockedCursor = destination
                         if blockedCursor < #blocked then
                             blocked[blockedCursor + 1] = input[inputCursor + 1]
@@ -61,16 +61,16 @@ end
 --- Converts up to one workgroup of block counts into exclusive offsets.
 @aot(target = "gpu")
 local function exclusiveOffsets(exclusive offsets: span.WriteSpan<uint32>, borrows counts: span.Span<uint32>): nil
-    local groups = nupp.math.u32.div(nupp.math.u32.wrap(#offsets), nupp.math.u32.wrap(BLOCK))
+    local groups = math.u32.div(math.u32.wrap(#offsets), math.u32.wrap(BLOCK))
     gpu.workgroups(groups, 256, function(groupIndex: uint32, phases: gpu.Phases)
-        local values = phases:scratch(nupp.math.u32.wrap(0), 256)
-        local temporary = phases:scratch(nupp.math.u32.wrap(0), 256)
+        local values = phases:scratch(math.u32.wrap(0), 256)
+        local temporary = phases:scratch(math.u32.wrap(0), 256)
         phases:run(function(localIndex: uint32)
             local countCursor = localIndex
             if countCursor < #counts then
                 values[localIndex] = counts[countCursor + 1]
             else
-                values[localIndex] = nupp.math.u32.wrap(0)
+                values[localIndex] = math.u32.wrap(0)
             end
         end)
         phases:inclusiveScan(values, temporary)
@@ -81,9 +81,7 @@ local function exclusiveOffsets(exclusive offsets: span.WriteSpan<uint32>, borro
                 if countCursor < #counts then
                     offsets[
                         offsetCursor + 1
-                    ] = nupp.math.u32.wrap(
-                        values[localIndex] as integer
-                    ) - nupp.math.u32.wrap(counts[countCursor + 1] as integer)
+                    ] = math.u32.wrap(values[localIndex] as integer) - math.u32.wrap(counts[countCursor + 1] as integer)
                 else
                     offsets[offsetCursor + 1] = values[localIndex]
                 end
@@ -100,7 +98,7 @@ local function scatter(
     borrows counts: span.Span<uint32>,
     borrows offsets: span.Span<uint32>
 ): nil
-    local groups = nupp.math.u32.div(nupp.math.u32.wrap(#blocked), nupp.math.u32.wrap(BLOCK))
+    local groups = math.u32.div(math.u32.wrap(#blocked), math.u32.wrap(BLOCK))
     gpu.workgroups(groups, 256, function(groupIndex: uint32, phases: gpu.Phases)
         phases:run(function(localIndex: uint32)
             local countGroup = groupIndex
@@ -108,8 +106,8 @@ local function scatter(
             if countGroup < #counts then
                 if localIndex < counts[countGroup + 1] then
                     if offsetGroup < #offsets then
-                        local source = groupIndex * nupp.math.u32.wrap(BLOCK) + localIndex
-                        local destination = nupp.math.u32.wrap(offsets[offsetGroup + 1] as integer) + localIndex
+                        local source = groupIndex * math.u32.wrap(BLOCK) + localIndex
+                        local destination = math.u32.wrap(offsets[offsetGroup + 1] as integer) + localIndex
                         local blockedCursor = source
                         local outputCursor = destination
                         if blockedCursor < #blocked then

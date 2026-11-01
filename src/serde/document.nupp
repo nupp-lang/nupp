@@ -3,7 +3,7 @@ module serde.document
 --[[
 A document is a value without a schema, which any codec reads and writes. This
 module holds the [](Document) tree, conversion between bound values and
-documents, typed views, and saved [](nupp.util.Store) snapshots; see
+documents, typed views, and saved [](types.Store) snapshots; see
 [serde.md](docs/learn/runtime/data/serde.md#documents) for the guide.
 
 ```nupp
@@ -213,7 +213,7 @@ export const snapshot = readers.snapshot
 --- assert(json.encodeDocument(views, live) == '{"count":2}')
 --- assert(json.encodeDocument(views, frozen) == '{"count":1}')
 --- ```
-export type View<T is nupp.Copyable> = views.View<T>
+export type View<T is own.Copyable> = views.View<T>
 
 export const View = views.View
 
@@ -231,7 +231,7 @@ export const view = views.of
 --- @return the adapter
 export const viewAdapter = views.adapter
 
---- Saves and restores the entries of a [](nupp.util.Store) by name and
+--- Saves and restores the entries of a [](types.Store) by name and
 --- version.
 ---
 --- Each registered key names its entry, its binding, its current version, and
@@ -245,11 +245,11 @@ export const viewAdapter = views.adapter
 --- local record Settings
 ---     volume: integer
 --- end
---- local settings: nupp.util.Key<Settings> = nupp.util.newKey()
+--- local settings: types.Key<Settings> = types.newKey()
 --- local registry = document.storeRegistry()
 --- registry:register("settings", settings, serde.binding(Settings), 1, nil)
 ---
---- local store = nupp.util.newStore()
+--- local store = types.newStore()
 --- store:set(settings, new Settings(volume = 7))
 --- local bytes = json.encode(document.storeBinding(), registry:save(store))
 ---

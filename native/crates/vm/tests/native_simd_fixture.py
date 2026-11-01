@@ -6,7 +6,7 @@ def native_source():
     source = '''module nupp.tests.vmnativesimd
 const array = require("nupp.mem.array")
 const span = require("nupp.mem.span")
-const simd = require("nupp.simd")
+const simd = require("simd")
 const tasks = require("nupp.tasks")
 const kernels = require("kernels")
 '''

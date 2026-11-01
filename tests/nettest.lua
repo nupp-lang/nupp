@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- The platform-neutral socket state machine.
 --
 -- Driven by a fake backend, on purpose: what is checked here is the policy above
@@ -283,9 +283,9 @@ function M.pendingIsALocalFact()
 end
 
 function M.closingTheWriterViewHalfCloses()
-    -- The departure from a process stream's asWriter that the proposal records: a socket has
-    -- one handle with two halves, so closing the writing view ends a direction
-    -- rather than returning a resource.
+    -- The departure from a process stream's asWriter that the proposal records: a
+    -- socket has one handle with two halves, so closing the writing view ends a
+    -- direction rather than returning a resource.
     local stream, state = connected({})
     local writer = stream:asWriter()
     writer:close()
@@ -369,14 +369,20 @@ function M.listenReportsWhyItCouldNotBind()
     install((fakeBackend({listenFails = "address already in use"})))
     local listener, why = net.listen({host = "127.0.0.1", port = 80})
     testAssert.equal(listener, nil, "a refused bind answers nil")
-    assert(why ~= nil and tostring(why):find("address already in use", 1, true) ~= nil, "and carries what the platform said")
+    assert(
+        why ~= nil and tostring(why):find("address already in use", 1, true) ~= nil,
+        "and carries what the platform said"
+    )
 end
 
 function M.connectReportsWhyItCouldNotConnect()
     install((fakeBackend({connectFails = "connection refused"})))
     local stream, why = net.connect({host = "example", port = 80})
     testAssert.equal(stream, nil, "a refused connect answers nil")
-    assert(why ~= nil and tostring(why):find("connection refused", 1, true) ~= nil, "and carries what the platform said")
+    assert(
+        why ~= nil and tostring(why):find("connection refused", 1, true) ~= nil,
+        "and carries what the platform said"
+    )
     testAssert.equal(why.kind, "refused", "as a refusal a caller can branch on")
 end
 
@@ -518,7 +524,10 @@ function M.bindReportsWhyItCouldNotBind()
     install((fakeBackend({bindFails = "address already in use"})))
     local socket, why = net.bind({host = "0.0.0.0", port = 53})
     testAssert.equal(socket, nil, "a refused bind answers nil")
-    assert(why ~= nil and tostring(why):find("address already in use", 1, true) ~= nil, "and carries what the platform said")
+    assert(
+        why ~= nil and tostring(why):find("address already in use", 1, true) ~= nil,
+        "and carries what the platform said"
+    )
 end
 
 function M.flushWaitsForTheQueueToEmpty()
@@ -609,19 +618,21 @@ function M.listenerBacklogsAndPumpDelaysAreChecked()
 end
 
 function M.aSocketPathMayBeAPathValue()
-    -- The filesystem names every other io facade accepts: text, a nupp.io.path.Path,
+    -- The filesystem names every other io facade accepts: text, a io.path.Path,
     -- or an application path. The platform receives the text either way.
     local backend, state = fakeBackend({})
     function backend:listenPath(path, backlog)
         state.listenedPath = path
         return {host = "", port = 0}
     end
+
     function backend:connectPath(path, timeoutMs)
         state.connectedPath = path
         return nil, "nobody there"
     end
+
     install(backend)
-    local paths = require("nupp.io.path")
+    local paths = require("io.path")
     local listener = assert(net.listen({path = paths.newPath("/tmp/nupp-b04.sock")}))
     testAssert.equal(state.listenedPath, "/tmp/nupp-b04.sock", "a Path listens on its text")
     listener:close()

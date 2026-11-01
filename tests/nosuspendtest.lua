@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- S1: `@nosuspend` regions.
 --
 -- Lexical, static, and erased. What is asserted here is the verdict and the erasure:
@@ -267,7 +267,7 @@ function M.judgesTheTerminalsARegionDischarges()
     testAssert.equal(#refusals, 1, "a with acquisition is judged")
     refusals = diagnose(
         resource .. table.concat(
-            {"@nosuspend do", "    local value = openSettling()", "    nupp.drop(value)", "end",},
+            {"@nosuspend do", "    local value = openSettling()", "    own.drop(value)", "end",},
             "\n"
         )
     )
@@ -327,10 +327,7 @@ function M.staysAName()
     local refusals, diags = diagnose("local nosuspend = 1\nreturn nosuspend")
     testAssert.equal(#refusals, 0, "no region was opened")
     for _, diag in ipairs(diags) do
-        assert(
-            diag.severity == "warning" or diag.severity == "note",
-            "an ordinary name still checks: " .. diag.code
-        )
+        assert(diag.severity == "warning" or diag.severity == "note", "an ordinary name still checks: " .. diag.code)
     end
 end
 
@@ -377,7 +374,10 @@ end
 
 function M.aBodylessUnannotatedDeclarationIsRefused()
     local refusals = diagnose(
-        table.concat({"local host: {loud: function(): nil} = nil as any", "@nosuspend do", "    host.loud()", "end",}, "\n")
+        table.concat(
+            {"local host: {loud: function(): nil} = nil as any", "@nosuspend do", "    host.loud()", "end",},
+            "\n"
+        )
     )
     testAssert.equal(#refusals, 1, "silence is not a guarantee")
 end
@@ -483,6 +483,7 @@ local function runGenerated(src)
             "source checks before execution: " .. diag.code .. " " .. diag.msg
         )
     end
+
     return program.run(result, "handled_exit")
 end
 
@@ -777,7 +778,11 @@ function M.anImplementationOfANoSuspendMemberMayNotSuspend()
             "\n"
         )
     )
-    testAssert.equal(#quietDiags, 0, "a proved-quiet body is silent" .. (quietDiags[1] and (": " .. quietDiags[1].msg) or ""))
+    testAssert.equal(
+        #quietDiags,
+        0,
+        "a proved-quiet body is silent" .. (quietDiags[1] and (": " .. quietDiags[1].msg) or "")
+    )
 end
 
 function M.aMetamethodIsNotARegionByItself()

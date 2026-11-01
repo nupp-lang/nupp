@@ -1,8 +1,10 @@
+const types = require("types")
+
 local exported = require("tests.fixtures.witnessexported")
 
 @comptime
 local function Construction(E: type): typepack
-    return nupp.types.construction(E)
+    return types.construction(E)
 end
 
 local function count<E>(event: Type<E>, ...: unpackof Construction(E)): integer

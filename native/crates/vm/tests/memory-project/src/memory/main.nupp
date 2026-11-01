@@ -1,5 +1,7 @@
 module memory.main
 
+const assert2 = require("assert")
+
 const tasks = require("nupp.tasks")
 
 -- The standard modules LuaJIT reaches through `ffi`, run on the VM: SoA
@@ -9,9 +11,9 @@ const tasks = require("nupp.tasks")
 local heap = require("nupp.mem.heap")
 local soa = require("nupp.mem.soa")
 local sharedbytes = require("nupp.mem.sharedbytes")
-local log = require("nupp.log")
+local log = require("log")
 local host = require("nupp.host")
-local gpu = require("nupp.gpu")
+local gpu = require("gpu")
 
 local test = {}
 
@@ -29,35 +31,35 @@ end
 
 local function raises(fn: function(): nil, text: string): nil
     local ok, problem = pcall(fn)
-    assert(not ok, "expected a failure mentioning " .. text)
-    assert(tostring(problem):find(text, 1, true), tostring(problem))
+    assert2(not ok, "expected a failure mentioning " .. text)
+    assert2(tostring(problem):find(text, 1, true), tostring(problem))
 end
 
 local function heapArrays(): nil
     do
         local values = heap.allocate(ffi.typeof<int32>(), 4)
-        assert(values.count == 4)
+        assert2(values.count == 4)
         with writable = values:write() do
             for index = 1, #writable do
                 writable[index] = (index * 10) as int32
             end
         end
         local readable = values:read()
-        assert(#readable == 4 and readable[1] == 10 and readable[4] == 40)
+        assert2(#readable == 4 and readable[1] == 10 and readable[4] == 40)
         local total = 0
         for index = 1, #readable do
             total = total + readable[index]
         end
-        assert(total == 100)
+        assert2(total == 100)
     end
     do
         local wide = heap.allocate(ffi.typeof<number>(), 3)
         with writable = wide:write() do
             writable[2] = 2.5
         end
-        assert(wide:read()[1] == 0 and wide:read()[2] == 2.5)
+        assert2(wide:read()[1] == 0 and wide:read()[2] == 2.5)
         local empty = heap.allocate(ffi.typeof<uint8>(), 0)
-        assert(empty.count == 0 and #empty:read() == 0)
+        assert2(empty.count == 0 and #empty:read() == 0)
     end
     raises(
         function(): nil
@@ -77,21 +79,21 @@ end
 
 local function soaSlabs(): nil
     local layout = soa.layoutof(ffi.typeof<Body>())
-    assert(layout.name == "Body" and #layout.fields == 4)
-    assert(layout.fields[1].name == "position" and layout.fields[1].elementSize == 16)
-    assert(layout.fields[2].ctype == "float" and layout.fields[2].elementSize == 4)
-    assert(layout.fields[4].ctype == "uint8_t" and layout.fields[4].alignment == 1)
-    assert(layout.alignment == 8)
-    assert(layout.fingerprint:find("Body.mass:float@4/4", 1, true), layout.fingerprint)
+    assert2(layout.name == "Body" and #layout.fields == 4)
+    assert2(layout.fields[1].name == "position" and layout.fields[1].elementSize == 16)
+    assert2(layout.fields[2].ctype == "float" and layout.fields[2].elementSize == 4)
+    assert2(layout.fields[4].ctype == "uint8_t" and layout.fields[4].alignment == 1)
+    assert2(layout.alignment == 8)
+    assert2(layout.fingerprint:find("Body.mass:float@4/4", 1, true), layout.fingerprint)
     local instance = layout:forCount(3)
-    assert(instance.segments[1].offset == 0 and instance.segments[2].offset == 48)
-    assert(instance.segments[3].offset == 60 and instance.segments[4].offset == 72)
-    assert(instance.byteSize == 75)
+    assert2(instance.segments[1].offset == 0 and instance.segments[2].offset == 48)
+    assert2(instance.segments[3].offset == 60 and instance.segments[4].offset == 72)
+    assert2(instance.byteSize == 75)
 
     local bodies = soa.allocate(ffi.typeof<Body>(), 4)
-    assert(bodies.count == 4 and bodies.fingerprint == layout.fingerprint)
+    assert2(bodies.count == 4 and bodies.fingerprint == layout.fingerprint)
     with rows = bodies:write() do
-        assert(#rows == 4)
+        assert2(#rows == 4)
         for index = 1, #rows do
             rows[index].mass = index * 1.5
             rows[index].id = (index * 100) as int32
@@ -100,23 +102,23 @@ local function soaSlabs(): nil
         rows[2].mass += 10
         rows[3] = new Body(new Vector(7, 8), 0.5, 9, 3)
         with masses = rows.mass do
-            assert(#masses == 4 and masses[2] == 13)
+            assert2(#masses == 4 and masses[2] == 13)
             masses[4] = 64
         end
         with tail = rows:slice(3, 4) do
-            assert(#tail == 2 and tail[1].id == 9 and tail[2].mass == 64)
+            assert2(#tail == 2 and tail[1].id == 9 and tail[2].mass == 64)
             tail[2].flags = 5
         end
-        assert(rows[4].flags == 5)
+        assert2(rows[4].flags == 5)
     end
     local outside, problem = pcall(rowAt, bodies:read(), 5)
-    assert(not outside and tostring(problem):find("SoA row index out of bounds", 1, true), tostring(problem))
+    assert2(not outside and tostring(problem):find("SoA row index out of bounds", 1, true), tostring(problem))
     local readable = bodies:read()
     local third = readable[3]
-    assert(third.position.x == 7 and third.position.y == 8 and third.id == 9 and third.flags == 3)
-    assert(readable[1].position.x == 1 and readable[2].mass == 13)
+    assert2(third.position.x == 7 and third.position.y == 8 and third.id == 9 and third.flags == 3)
+    assert2(readable[1].position.x == 1 and readable[2].mass == 13)
     local ids = readable.id
-    assert(#ids == 4 and ids[1] == 100 and ids[4] == 400)
+    assert2(#ids == 4 and ids[1] == 100 and ids[4] == 400)
 
     local copies = soa.allocate(ffi.typeof<Body>(), 2)
     with rows = copies:write() do
@@ -124,21 +126,21 @@ local function soaSlabs(): nil
     end
     with rows = copies:write() do
         local copiedPast, why = pcall(copyPast, rows, bodies:read())
-        assert(not copiedPast and tostring(why):find("SoA copy range is out of bounds", 1, true), tostring(why))
+        assert2(not copiedPast and tostring(why):find("SoA copy range is out of bounds", 1, true), tostring(why))
     end
     local copied = copies:read()
-    assert(copied[1].id == 9 and copied[1].position.y == 8 and copied[2].mass == 64)
+    assert2(copied[1].id == 9 and copied[1].position.y == 8 and copied[2].mass == 64)
 end
 
 local function sharedRegions(): nil
     local region = sharedbytes.copy("hello, region")
-    assert(region:length() == 13)
+    assert2(region:length() == 13)
     local hello = region:slice(0, 5)
-    assert(hello:length() == 5 and hello:toString() == "hello")
+    assert2(hello:length() == 5 and hello:toString() == "hello")
     local bytes = region:view(7)
-    assert(#bytes == 6 and bytes[1] == string.byte("r"))
-    assert(region == region:slice(0, 13) and region ~= sharedbytes.copy("hello, region"))
-    assert(sharedbytes.copy("") ~= sharedbytes.copy(""))
+    assert2(#bytes == 6 and bytes[1] == string.byte("r"))
+    assert2(region == region:slice(0, 13) and region ~= sharedbytes.copy("hello, region"))
+    assert2(sharedbytes.copy("") ~= sharedbytes.copy(""))
     raises(
         function(): nil
             region:slice(10, 4)
@@ -156,12 +158,12 @@ local function sharedRegions(): nil
     builder:append("!")
     builder:append(string.rep("z", 100))
     local frozen = builder:freeze()
-    assert(frozen:length() == 106 and frozen:slice(0, 6):toString() == "ABCDE!")
-    assert(frozen:view(5, 2)[1] == string.byte("!"))
+    assert2(frozen:length() == 106 and frozen:slice(0, 6):toString() == "ABCDE!")
+    assert2(frozen:view(5, 2)[1] == string.byte("!"))
 
     local words = sharedbytes.copy(string.rep("\0", 28)):slice(4, 24)
     local triples = words:viewAs(ffi.typeof<int32>())
-    assert(#triples == 6 and triples[1] == 0)
+    assert2(#triples == 6 and triples[1] == 0)
     raises(
         function(): nil
             words:slice(1, 8):viewAs(ffi.typeof<int32>())
@@ -170,7 +172,7 @@ local function sharedRegions(): nil
     )
 
     local missing, why = sharedbytes.readFile("definitely/not/here.bin")
-    assert(missing == nil and why ~= nil)
+    assert2(missing == nil and why ~= nil)
 end
 
 local function logging(): nil
@@ -181,8 +183,8 @@ local function logging(): nil
     log.setLevel("info")
     log.named("memory"):info("%d rows", 4)
     log.named("memory"):debug("hidden")
-    assert(#lines == 1 and lines[1] == "memory: 4 rows", lines[1])
-    assert(log.timestamp():match("^%d%d%d%d%-%d%d%-%d%d %d%d:%d%d:%d%d $"), log.timestamp())
+    assert2(#lines == 1 and lines[1] == "memory: 4 rows", lines[1])
+    assert2(log.timestamp():match("^%d%d%d%d%-%d%d%-%d%d %d%d:%d%d:%d%d $"), log.timestamp())
 end
 
 -- The storage provider's private view of where an allocation lives: a shared
@@ -252,24 +254,24 @@ local function workerRegions(): nil
     with scope = tasks.open() do
         const one = scope:fork(region, test.regionPrefix)
         const two = scope:fork(built, test.regionPrefix)
-        assert(one:await() == "hello")
-        assert(two:await() == "built")
+        assert2(one:await() == "hello")
+        assert2(two:await() == "built")
         -- By reference: the worker reads the block the caller holds.
         const three = scope:fork(region:slice(7, 6), test.regionBlock)
         const four = scope:fork(built, test.regionBlock)
         const five = scope:fork(large, test.regionBlock)
         local text, address = three:await()
-        assert(text == "worke" and address == regionAddress(region), "a region crosses by reference")
+        assert2(text == "worke" and address == regionAddress(region), "a region crosses by reference")
         text, address = four:await()
-        assert(text == "built" and address == regionAddress(built), "a frozen builder crosses by reference")
+        assert2(text == "built" and address == regionAddress(built), "a frozen builder crosses by reference")
         text, address = five:await()
-        assert(text == "large" and address == regionAddress(large), "a large region crosses by reference")
+        assert2(text == "large" and address == regionAddress(large), "a large region crosses by reference")
         -- A region a worker made comes back as the same block.
         local made, madeAt = scope:fork("made in a worker", test.makeRegion):await()
-        assert(made:toString() == "made in a worker" and regionAddress(made) == madeAt)
+        assert2(made:toString() == "made in a worker" and regionAddress(made) == madeAt)
     end
     collectgarbage()
-    assert(large:slice(0, 5):toString() == "large" and region:toString() == "hello, worker")
+    assert2(large:slice(0, 5):toString() == "large" and region:toString() == "hello, worker")
 end
 
 local function workerMoves(): nil
@@ -278,22 +280,22 @@ local function workerMoves(): nil
     with scope = tasks.open() do
         frame = scope:fork(frame, 5, test.fillMoved):await()
         -- Moved there and back: the same allocation, not a copy.
-        assert(arrayAddress(frame) == before, "a heap array moves rather than copies")
-        assert(frame:read()[1] == 6 and frame:read()[1024] == 1029)
+        assert2(arrayAddress(frame) == before, "a heap array moves rather than copies")
+        assert2(frame:read()[1] == 6 and frame:read()[1024] == 1029)
         local sum, address = scope:fork(frame, test.totalMoved):await()
-        assert(sum == (6 + 1029) * 1024 // 2 and address == before, "the worker owns the moved allocation")
+        assert2(sum == (6 + 1029) * 1024 // 2 and address == before, "the worker owns the moved allocation")
     end
 end
 
 local function detached(): nil
-    assert(not host.attached())
+    assert2(not host.attached())
     raises(
         function(): nil
             host.post("memory.ping")
         end,
         "no embedding application is attached"
     )
-    assert(not gpu.available())
+    assert2(not gpu.available())
     raises(
         function(): nil
             local _context = gpu.open()

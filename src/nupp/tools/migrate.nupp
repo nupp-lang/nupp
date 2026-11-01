@@ -246,6 +246,20 @@ local function serdePlan(source: string, path: string, given: table?): (migrate.
         return out
     end
 
+    local migratedReferences: {[any]: boolean} = {}
+
+    local function migratedArgument(node: any): nil
+        if type(node) ~= "table" or cst.isToken(node) then
+            return
+        end
+        if node.kind == "name" and node.token then
+            migratedReferences[node.token] = true
+        end
+        for _, child in ipairs(node) do
+            migratedArgument(child)
+        end
+    end
+
     for _, node in ipairs(nodes) do
         if node.kind == "recordDecl" then
             local legacy, json = false, false
@@ -258,6 +272,13 @@ local function serdePlan(source: string, path: string, given: table?): (migrate.
                     then
                         legacy, changed = true, true
                         json = json or argument.deriveProviderMember == "JSON"
+                        migratedArgument(argument)
+                    elseif argument.deriveProviderModule == "nupp.derive"
+                        and argument.deriveProviderMember == "Debug"
+                    then
+                        changed = true
+                        retained[#retained + 1] = "types.Debug"
+                        migratedArgument(argument)
                     else
                         retained[#retained + 1] = typeText(argument)
                     end
@@ -512,6 +533,26 @@ local function serdePlan(source: string, path: string, given: table?): (migrate.
                     )
                     needsJSON = true
                 end
+            end
+        end
+    end
+    -- Retire an old provider import only when every checked reference was rewritten.
+    for _, node in ipairs(nodes) do
+        if node.kind == "localStmt"
+            and #(node.names or {}) == 1
+            and #(node.exprs or {}) == 1
+            and node.exprs[1].requiredModule == "nupp.derive"
+        then
+            local declaration, used = node.names[1], false
+            for _, reference in ipairs(nodes) do
+                local token = reference.kind == "name" and reference.token
+                local definition = token and token.definition
+                if definition and definition.token == declaration and not migratedReferences[token] then
+                    used = true
+                end
+            end
+            if not used then
+                replace(node, "")
             end
         end
     end

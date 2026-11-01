@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- Width-aware formatting, docblocks, and the safety invariant.
 local fmt = require("nupp.tools.fmt")
 local formatter = fmt.new()

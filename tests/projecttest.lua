@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local project = require("nupp.tools.build.project")
 local deps = require("nupp.tools.build.deps")
 local hash = require("nupp.compiler.hash")
@@ -90,7 +90,7 @@ local function requireCargo()
         probe:close()
     end
     if found == nil or found == "" then
-        require("assert").skip("cargo is unavailable")
+        require("assert").suite.skip("cargo is unavailable")
     end
 end
 
@@ -176,8 +176,7 @@ function M.moduleSourceChecksReuseOnlyMatchingSourceAndContext()
         strict = false,
         compat = "lua51"
     })
-    testAssert.equal(#compatDiagnostics, 1)
-    testAssert.equal(compatDiagnostics[1].code, "NUPP3013", "the changed profile refuses runtime const")
+    testAssert.equal(#compatDiagnostics, 0, "native checking has no Lua compatibility profile")
     assert(compatible ~= strict, "changed compatibility must not reuse the earlier check")
     local named, namedDiagnostics = compilerEnv.checkModuleSource(env, dir .. "/context.nupp", "return 1\n", {
         moduleName = "first"
@@ -474,8 +473,8 @@ local record Position
     x: number
 end
 
-const PositionCodec: nupp.reflect.FieldCodec<Position> = comptime do
-    return nupp.reflect.fieldCodec(nupp.reflect(Position))
+const PositionCodec: types.reflect.FieldCodec<Position> = comptime do
+    return types.reflect.fieldCodec(types.reflect(Position))
 end
 
 return PositionCodec:encode(new Position(x = 1))
@@ -522,7 +521,7 @@ function M.cachedProducersRetainNestedRuntimeTypeWitnesses()
         -- only the consumer and not what the build has to link.
         [
             "src/main.nupp"
-        ] = 'local models=require("witnessmodels") local _=nupp.reflect.runtime(models.Parent) '
+        ] = 'local models=require("witnessmodels") local _=types.reflect.runtime(models.Parent) '
         .. "return models.make().child.value",
         [
             "src/witnessmodels.nupp"
@@ -545,8 +544,8 @@ return models
         dir .. "/src/main.nupp",
         [[
 local models = require("witnessmodels")
-local info = nupp.reflect.runtime(models.Parent)
-local child = nupp.reflect.runtimeType(info, info.fields[1].type as integer)
+local info = types.reflect.runtime(models.Parent)
+local child = types.reflect.runtimeType(info, info.fields[1].type as integer)
 local value = models.make()
 return child == getmetatable(value.child) and value.child.value == 7
 ]]
@@ -585,8 +584,8 @@ local children = require("childmodels")
 collectgarbage("collect")
 collectgarbage("collect")
 local parents = require("parentmodels")
-local info = nupp.reflect.runtime(parents.Parent)
-return nupp.reflect.runtimeType(info, info.fields[1].type as integer) == children.Child
+local info = types.reflect.runtime(parents.Parent)
+return types.reflect.runtimeType(info, info.fields[1].type as integer) == children.Child
 ]],
     })
     testAssert.equal(project.build(dir, {}), 0)
@@ -603,8 +602,8 @@ return {include = {"src"}, build = {outDir = "out", entries = {"main"}}}
             "src/main.nupp"
         ] = [[
 local models = require("models")
-const UserCodec: nupp.reflect.FieldCodec<models.User> = comptime do
-    return nupp.reflect.fieldCodec(nupp.reflect(models.User))
+const UserCodec: types.reflect.FieldCodec<models.User> = comptime do
+    return types.reflect.fieldCodec(types.reflect(models.User))
 end
 return UserCodec.fingerprint
 ]],
@@ -991,7 +990,7 @@ function M.browserHostsCannotSelectNativeDistributionPlatforms()
         "a check rejects the resolved host before applying a native layout"
     )
 
-    local root = assert(require("nupp.io.path").currentDirectory()):toString()
+    local root = assert(require("io.path").currentDirectory()):toString()
     local status, output = process.capture({root .. "/bin/nupp", "build", "--host", "browser"}, {cwd = dir})
     testAssert.equal(status, 1, "the command-line host override is also rejected\n" .. output)
     assert(output:find('platforms selects native binary hosts', 1, true), output)
@@ -1514,7 +1513,7 @@ return {
         ] = table.concat(
             {
                 "const SUMMARY = comptime do",
-                "   local info = nupp.reflect(ReflectedModel)",
+                "   local info = types.reflect(ReflectedModel)",
                 "   return info.fields[1].name",
                 "end",
                 "return SUMMARY",
@@ -1982,7 +1981,7 @@ function M.exportedComptimeTypeFunctionsInvalidateAndPersistSafely()
         {
             "local M = {}",
             "@comptime local function AddNil(T: type): type",
-            "   return nupp.types.optional(T)",
+            "   return types.optional(T)",
             "end",
             "@comptime function M.Maybe(T: type): type",
             "   return AddNil(T)",
@@ -2046,7 +2045,7 @@ return {include = {"src"}, build = {outDir = "out", entries = {"main"}}}
 
     -- The sealed helper closure is part of the exported interface. Changing its
     -- behavior rechecks the unchanged consumer and changes the generated answer.
-    write(dir .. "/src/gen.nupp", optional:gsub("return nupp.types.optional%(T%)", "return T"))
+    write(dir .. "/src/gen.nupp", optional:gsub("return types.optional%(T%)", "return T"))
     local diagnostics = {}
     assert(
         project.check(dir, {

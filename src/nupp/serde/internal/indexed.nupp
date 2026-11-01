@@ -1,12 +1,14 @@
 module nupp.serde.internal.indexed
 
+const assert2 = require("assert")
+
 local core = require("nupp.serde.internal.value")
 local structures = require("nupp.serde.internal.structure")
 
 --- A typed field of one indexed layout.
 ---
 --- A slot reads and writes only the values of the layout that made it.
-export record Slot<V is nupp.Copyable>
+export record Slot<V is own.Copyable>
     @private @readonly owner: table
     @private @readonly position: integer
     @private @readonly valueType: (function(value: V): V)?
@@ -26,8 +28,8 @@ export record Value
     --- @param slot the slot to test
     --- @return whether the slot is present
     --- @raises string when the slot belongs to another layout
-    function has<V is nupp.Copyable>(self, slot: Slot<V>): boolean
-        assert(slot.owner == self.owner, "slot belongs to another layout")
+    function has<V is own.Copyable>(self, slot: Slot<V>): boolean
+        assert2(slot.owner == self.owner, "slot belongs to another layout")
         return self.present[slot.position] == true
     end
 
@@ -40,8 +42,8 @@ export record Value
     --- @param slot the slot to read
     --- @return the value, or nil when the slot is absent or explicitly null
     --- @raises string when the slot belongs to another layout
-    function get<V is nupp.Copyable>(self, slot: Slot<V>): V?
-        assert(slot.owner == self.owner, "slot belongs to another layout")
+    function get<V is own.Copyable>(self, slot: Slot<V>): V?
+        assert2(slot.owner == self.owner, "slot belongs to another layout")
         return self.values[slot.position] as V?
     end
 
@@ -50,8 +52,8 @@ export record Value
     --- @param slot the slot to write
     --- @param value the value, which is nil for an explicit null
     --- @raises string when the slot belongs to another layout
-    function set<V is nupp.Copyable>(self, slot: Slot<V>, value: V): nil
-        assert(slot.owner == self.owner, "slot belongs to another layout")
+    function set<V is own.Copyable>(self, slot: Slot<V>, value: V): nil
+        assert2(slot.owner == self.owner, "slot belongs to another layout")
         self.values[slot.position] = value
         self.present[slot.position] = true
     end
@@ -60,21 +62,21 @@ export record Value
     ---
     --- @param slot the slot to clear
     --- @raises string when the slot belongs to another layout
-    function remove<V is nupp.Copyable>(self, slot: Slot<V>): nil
-        assert(slot.owner == self.owner, "slot belongs to another layout")
+    function remove<V is own.Copyable>(self, slot: Slot<V>): nil
+        assert2(slot.owner == self.owner, "slot belongs to another layout")
         self.values[slot.position] = nil
         self.present[slot.position] = nil
     end
 end
 
-local record Builder is nupp.Closeable
+local record Builder is own.Closeable
     value: Value?
     function close(takes self): nil
         self.value = nil
     end
 end
 
-local record Field<V is nupp.Copyable, M is core.Member> is structures.Field<Value, Builder, M>
+local record Field<V is own.Copyable, M is core.Member> is structures.Field<Value, Builder, M>
     @readonly member: M
     @readonly required: boolean
     @readonly hasDefault: boolean
@@ -86,19 +88,19 @@ local record Field<V is nupp.Copyable, M is core.Member> is structures.Field<Val
     end
 
     function write(self, borrows source: Value, exclusive writer: core.Writer<M>): nil
-        assert(source.owner == self.slot.owner, "value belongs to another layout")
+        assert2(source.owner == self.slot.owner, "value belongs to another layout")
         if source:has(self.slot) then
             self.adapter:write(source.values[self.slot.position] as V, writer)
         elseif self.hasDefault then
-            self.adapter:write(assert(self.default)(), writer)
+            self.adapter:write(assert2(self.default)(), writer)
         else
-            assert(not self.required, "missing required indexed member: " .. self.member.name)
+            assert2(not self.required, "missing required indexed member: " .. self.member.name)
         end
     end
 
     function read(self, exclusive state: Builder, exclusive reader: core.Reader<M>): nil
-        local value = assert(state.value, "closed indexed builder")
-        assert(not value:has(self.slot), "duplicate indexed member")
+        local value = assert2(state.value, "closed indexed builder")
+        assert2(not value:has(self.slot), "duplicate indexed member")
         value:set(self.slot, self.adapter:read(reader))
     end
 
@@ -110,11 +112,11 @@ local record Field<V is nupp.Copyable, M is core.Member> is structures.Field<Val
                 return source:has(slot)
             end,
             structures.borrowedGet<Value, V>(function(borrows source: Value): V borrows (source)
-                assert(source:has(slot), "absent indexed member")
+                assert2(source:has(slot), "absent indexed member")
                 return source.values[slot.position] as V
             end),
             function(exclusive state: Builder, value: V): nil
-                assert(state.value, "closed indexed builder"):set(slot, value)
+                assert2(state.value, "closed indexed builder"):set(slot, value)
             end,
             self.adapter,
             self.default
@@ -132,12 +134,15 @@ local record Construction<M is core.Member> is structures.Construction<Value, Bu
 
     function finish(self, takes state: Builder): Value
         local owned: Builder = state
-        local value = assert(owned.value)
+        local value = assert2(owned.value)
         for index, field in ipairs(self.fields) do
             if not value.present[index] then
-                assert(not field.required or field.hasDefault, "missing required indexed member: " .. field.member.name)
+                assert2(
+                    not field.required or field.hasDefault,
+                    "missing required indexed member: " .. field.member.name
+                )
                 if field.hasDefault then
-                    value.values[index] = assert(self.defaults[index])()
+                    value.values[index] = assert2(self.defaults[index])()
                     value.present[index] = true
                 end
             end
@@ -162,7 +167,7 @@ export interface Layout<M is core.Member>
     --- @return the field's slot
     --- @raises string when the layout is sealed, the adapter describes another
     ---     member, or the member is already a field
-    add: function<V is nupp.Copyable>(self, member: M, adapter: core.Adapter<V, M>, required: boolean): Slot<V>
+    add: function<V is own.Copyable>(self, member: M, adapter: core.Adapter<V, M>, required: boolean): Slot<V>
 
     --- Adds a field that falls back to a default when absent.
     ---
@@ -177,7 +182,7 @@ export interface Layout<M is core.Member>
     --- @return the field's slot
     --- @raises string when the layout is sealed, the adapter describes another
     ---     member, or the member is already a field
-    addDefault: function<V is nupp.Copyable>(
+    addDefault: function<V is own.Copyable>(
         self,
         member: M,
         adapter: core.Adapter<V, M>,
@@ -206,7 +211,7 @@ local record Mapping<M is core.Member> is Layout<M>
     @private @readonly defaults: {[integer]: function(): unknown} = {}
     @private selected: core.Binding<Value>?
 
-    function define<V is nupp.Copyable>(
+    function define<V is own.Copyable>(
         self,
         member: M,
         adapter: core.Adapter<V, M>,
@@ -214,10 +219,10 @@ local record Mapping<M is core.Member> is Layout<M>
         default: (function(): V)?,
         hasDefault: boolean
     ): Slot<V>
-        assert(self.selected == nil, "indexed layout is sealed")
-        assert(adapter:describe("write").member == member, "adapter describes another member")
+        assert2(self.selected == nil, "indexed layout is sealed")
+        assert2(adapter:describe("write").member == member, "adapter describes another member")
         for _, field in ipairs(self.fields) do
-            assert(field.member ~= member, "duplicate indexed member")
+            assert2(field.member ~= member, "duplicate indexed member")
         end
         local position = #self.fields + 1
         local slot = new Slot<V>(owner = self.owner, position = position)
@@ -238,11 +243,11 @@ local record Mapping<M is core.Member> is Layout<M>
         return slot
     end
 
-    function add<V is nupp.Copyable>(self, member: M, adapter: core.Adapter<V, M>, required: boolean): Slot<V>
+    function add<V is own.Copyable>(self, member: M, adapter: core.Adapter<V, M>, required: boolean): Slot<V>
         return self:define<V>(member, adapter, required, nil, false)
     end
 
-    function addDefault<V is nupp.Copyable>(
+    function addDefault<V is own.Copyable>(
         self,
         member: M,
         adapter: core.Adapter<V, M>,

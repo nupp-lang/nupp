@@ -6,7 +6,7 @@ local record Task<R...>
     cancel: function(self: Task<R...>, reason: string?): boolean
 end
 
-local record Scope is nupp.Closeable
+local record Scope is own.Closeable
     spawn: function<A..., R...>(
         borrows self: Scope,
         takes body: function(A...): R...,
@@ -32,7 +32,7 @@ local record ChannelEndpoint<T>
     receive: function(self: ChannelEndpoint<T>): (T?, boolean)
 end
 
-local record Channel<T> is nupp.Closeable
+local record Channel<T> is own.Closeable
     send: function(borrows self: Channel<T>, value: T): nil
     receive: function(borrows self: Channel<T>): (T?, boolean)
     share: function(borrows self: Channel<T>): ChannelEndpoint<T>

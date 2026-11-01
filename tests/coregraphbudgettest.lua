@@ -1,4 +1,4 @@
-local test = require("nupp.test")
+local test = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local checker = require("nupp.compiler.check")
 local environment = require("nupp.compiler.project.env")

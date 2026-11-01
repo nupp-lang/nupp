@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local assertions = require("helpers.assertions")
 -- Record and struct members, and multi-value return expansion.
 local parser = require("nupp.compiler.syntax.parser")
@@ -922,7 +922,7 @@ end
 function M.aTerminalTakesItsReceiverTheWayTheContractSays()
     local iface = table.concat(
         {
-            "local interface Closer is nupp.Affine<self.close>",
+            "local interface Closer is own.Affine<self.close>",
             "   close: @nosuspend function(takes self: Closer): nil",
             "end",
         },
@@ -952,7 +952,7 @@ function M.aTerminalTakesItsReceiverTheWayTheContractSays()
                 "local record Taking is Closer",
                 "   open: boolean",
                 "   function close(takes self): nil",
-                "      local state = @unsafe nupp.release(self)",
+                "      local state = @unsafe own.release(self)",
                 "      state.open = false",
                 "   end",
                 "end",

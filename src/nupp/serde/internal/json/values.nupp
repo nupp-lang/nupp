@@ -84,7 +84,7 @@ input but constructs only the Lua values the shape asks for.
 
 ## Streaming output
 
-The `nupp.Closeable` writer emits checked JSON into caller-owned storage without first
+The `own.Closeable` writer emits checked JSON into caller-owned storage without first
 building a Lua table or a complete result string. `endArray()` and
 `endObject()` end containers, `flush()` publishes a bounded staged batch while
 leaving the document open, and consuming `close()` requires one complete root:

@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- private-export-type: a valid unnameable nominal in a declared module's public
 -- surface is suspicious, while transparent aliases and intentionally private fields
 -- are not.

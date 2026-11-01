@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- Allocation- and raising-free checked regions and their observed module sidecars.
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
@@ -52,8 +52,8 @@ function M.fixedWidthScalarOperationsSatisfyBothRegions()
     local found = refusals(
         table.concat(
             {
-                "@noalloc do local x = nupp.math.u32.rotateLeft(0xffffffff, 3) end",
-                "@noraise do local y = nupp.math.f32.fma(1.0, 2.0, 3.0) end",
+                "@noalloc do local x = math.u32.rotateLeft(0xffffffff, 3) end",
+                "@noraise do local y = math.f32.fma(1.0, 2.0, 3.0) end",
             },
             "\n"
         )

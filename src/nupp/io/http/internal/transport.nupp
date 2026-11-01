@@ -9,8 +9,6 @@ the native library's C ABI, with the readiness pump `nupp.vm.net` shares among
 every native family.
 ]]
 
-const time = require("nupp.time")
-
 export interface NativeTransfer
     onHead: function(self: NativeTransfer, wake: function()): function()
     onBody: function(self: NativeTransfer, wake: function()): function()
@@ -430,7 +428,7 @@ local record Client is NativeClient
     -- A request deadline is comparable with a process deadline and with a task
     -- deadline because all three read this one clock.
     function now(self: Client): number
-        return time.now()
+        return os.monotonic()
     end
 
     --- Closes every transfer still in flight, then the pool.

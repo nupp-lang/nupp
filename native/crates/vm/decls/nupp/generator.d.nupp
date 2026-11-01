@@ -1,4 +1,4 @@
-local record Generator<T> is nupp.Closeable
+local record Generator<T> is own.Closeable
     next: function(borrows self: Generator<T>): (T?, boolean)
     close: function(takes self: Generator<T>): nil
 end

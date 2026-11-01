@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local cst = require("nupp.compiler.syntax.cst")
 local fmt = require("nupp.tools.fmt")

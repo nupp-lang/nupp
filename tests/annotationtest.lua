@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- Statement annotations are an extensible, checked language surface. The
 -- parser accepts their general shape; the registry decides what exists.
 local parser = require("nupp.compiler.syntax.parser")
@@ -27,7 +27,7 @@ local M = {}
 
 function M.policyAnnotationsComposeAcrossTypesDeclarationsMembersAndRegions()
     local source = [[
-local sealed interface Resource is nupp.Affine<self.close>
+local sealed interface Resource is own.Affine<self.close>
     close: @nosuspend function(takes self: Resource): nil
 end
 
@@ -72,7 +72,7 @@ function M.namedCoroutineFunctionTypeWorksOnBodylessCallableField()
         checked(
             [[
 local type Feed = thread<(number), (boolean), (number), (string)>
-local type Producer = function(number): string yields(number) resumes(boolean)
+local type Producer = function(number) yields(number) resumes(boolean): string
 local interface Worker
     run: Producer
 end
@@ -249,7 +249,10 @@ function M.effectContractsCannotHideBodyEffects()
     )
     testAssert.equal(
         checked(
-            table.concat({"@effects()", "local function opaque(value: table, callback: any)", "    callback(value)", "end",}, "\n")
+            table.concat(
+                {"@effects()", "local function opaque(value: table, callback: any)", "    callback(value)", "end",},
+                "\n"
+            )
         ),
         "NUPP2112"
     )

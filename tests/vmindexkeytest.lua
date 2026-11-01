@@ -1,5 +1,5 @@
 -- Draft only: actual zero-head results stay values until indexing dispatches.
-local test = require("nupp.test")
+local test = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
@@ -508,7 +508,7 @@ return (large as integer) > (rounded as integer),
             ordered = ordered or instruction.op == "Lt" or instruction.op == "Le"
         end
     end
-    test.assert(checked and ordered)
+    test(checked and ordered)
     test.equal(greater, true)
     test.equal(fractional, false)
     test.equal(nanLess, false)

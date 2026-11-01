@@ -1,6 +1,6 @@
 local ecs = require("tecs.ecs")
 local idallocator = require("tecs.internal.idallocator")
-local test = require("nupp.test")
+local test = require("assert")
 local suite = {}
 
 local record SnapshotPosition
@@ -37,12 +37,12 @@ function suite.roundTripsIdsComponentsRelationshipsAndStates(): nil
 
     test.equal(prelude.version, 1)
     test.equal(prelude.entityCount, 2)
-    test.assert(world:isAlive(root))
-    test.assert(world:isAlive(child))
+    test(world:isAlive(root))
+    test(world:isAlive(child))
     test.equal(assert(world:get(child, position)).label, "child")
-    test.assert(world:has(child, marker))
+    test(world:has(child, marker))
     test.equal(assert(world:get(child, parent)).target, root)
-    test.assert(world:has(root, state))
+    test(world:has(root, state))
     test.equal(world:peekState() as string, "test.snapshot.state")
 end
 
@@ -73,11 +73,11 @@ function suite.omitsTransientComponentsButKeepsTheirEntities(): nil
 
     world:loadSnapshot(snapshot)
 
-    test.assert(world:isAlive(entity))
+    test(world:isAlive(entity))
     test.equal(world:get(entity, health) as number, 5)
-    test.assert(not world:has(entity, temporary))
+    test(not world:has(entity, temporary))
     for index = 1, #snapshot.componentTable do
-        test.assert(snapshot.componentTable[index].name ~= temporary.componentName)
+        test(snapshot.componentTable[index].name ~= temporary.componentName)
     end
 end
 
@@ -135,7 +135,7 @@ function suite.savesLoadsAndFinishesNamedHandlerData(): nil
     world:loadSnapshot(snapshot)
 
     test.equal(loaded, 41)
-    test.assert(finished)
+    test(finished)
     test.equal(#snapshot.data, 2)
 end
 
@@ -154,7 +154,7 @@ function suite.rejectsInvalidSnapshotsBeforeClearingTheWorld(): nil
         end,
         "unknown component"
     )
-    test.assert(world:isAlive(entity))
+    test(world:isAlive(entity))
 end
 
 function suite.rebuildsAllocatorHolesAfterLoading(): nil
@@ -171,8 +171,8 @@ function suite.rebuildsAllocatorHolesAfterLoading(): nil
     local replacement = world:spawn()
 
     test.equal(idallocator.slotOf(replacement), idallocator.slotOf(hole))
-    test.assert(world:isAlive(first))
-    test.assert(world:isAlive(third))
+    test(world:isAlive(first))
+    test(world:isAlive(third))
 end
 
 function suite.commitsPendingWorkBeforeSaving(): nil
@@ -180,7 +180,7 @@ function suite.commitsPendingWorkBeforeSaving(): nil
     local world = ecs.newWorld()
     local entity = world:spawn(marker)
     local snapshot = world:saveSnapshot()
-    test.assert(world:isAlive(entity))
+    test(world:isAlive(entity))
     test.equal(snapshot.entityCount, 1)
 end
 

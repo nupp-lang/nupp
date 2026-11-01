@@ -1,12 +1,14 @@
 module nupp.serde.internal.view
 
+const assert2 = require("assert")
+
 local core = require("nupp.serde.internal.value")
 local documents = require("nupp.serde.internal.document")
 local bridge = require("nupp.serde.internal.documentcodec")
 
 -- Views retain a copyable owner. Reads observe its current state; snapshots
 -- reconstruct an independent value through the same explicit binding.
-export record View<T is nupp.Copyable>
+export record View<T is own.Copyable>
     --- The binding the view reads its value through.
     @readonly binding: core.Binding<T>
 
@@ -44,7 +46,7 @@ export record View<T is nupp.Copyable>
     end
 end
 
-local record Contents<T is nupp.Copyable, M is core.Member> is core.Adapter<View<T>, M>
+local record Contents<T is own.Copyable, M is core.Member> is core.Adapter<View<T>, M>
     @readonly binding: core.Binding<T>
     @readonly original: core.Adapter<T, M>
     function describe(self, direction: core.Direction): core.Description<M>
@@ -52,7 +54,7 @@ local record Contents<T is nupp.Copyable, M is core.Member> is core.Adapter<View
     end
 
     function write(self, borrows value: View<T>, exclusive writer: core.Writer<M>): nil
-        assert(value.binding == self.binding, "typed document belongs to another binding")
+        assert2(value.binding == self.binding, "typed document belongs to another binding")
         self.original:write(value.value, writer)
     end
 
@@ -60,7 +62,7 @@ local record Contents<T is nupp.Copyable, M is core.Member> is core.Adapter<View
         return new View<T>(binding = self.binding, value = self.original:read(reader), source = reader:context())
     end
 end
-local record Select<T is nupp.Copyable> is core.Consumer<T, nil, nil>
+local record Select<T is own.Copyable> is core.Consumer<T, nil, nil>
     @readonly binding: core.Binding<T>
     result: core.Binding<View<T>>?
     function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows state: nil): nil
@@ -69,11 +71,11 @@ local record Select<T is nupp.Copyable> is core.Consumer<T, nil, nil>
         )
     end
 end
-local record Adapter<T is nupp.Copyable> is core.DocumentAdapter<View<T>>
+local record Adapter<T is own.Copyable> is core.DocumentAdapter<View<T>>
     @readonly binding: core.Binding<T>
     @readonly selected: core.Binding<View<T>>
     function context(self, borrows document: View<T>): core.Context?
-        assert(document.binding == self.binding, "typed document belongs to another binding")
+        assert2(document.binding == self.binding, "typed document belongs to another binding")
         return document:context()
     end
 
@@ -88,15 +90,15 @@ local record Adapter<T is nupp.Copyable> is core.DocumentAdapter<View<T>>
     end
 
     function discard(self, takes value: View<T>): nil
-        local _copy = @unsafe nupp.release(value)
+        local _copy = @unsafe own.release(value)
     end
 end
-export function of<T is nupp.Copyable>(binding: core.Binding<T>, value: T, context: core.Context?): View<T>
+export function of<T is own.Copyable>(binding: core.Binding<T>, value: T, context: core.Context?): View<T>
     return new View<T>(binding = binding, value = value, source = context)
 end
 
-export function adapter<T is nupp.Copyable>(binding: core.Binding<T>): core.DocumentAdapter<View<T>>
+export function adapter<T is own.Copyable>(binding: core.Binding<T>): core.DocumentAdapter<View<T>>
     local select = new Select<T>(binding = binding)
     binding:accept(select, nil)
-    return new Adapter<T>(binding = binding, selected = assert(select.result))
+    return new Adapter<T>(binding = binding, selected = assert2(select.result))
 end

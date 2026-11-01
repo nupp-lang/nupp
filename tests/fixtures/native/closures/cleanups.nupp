@@ -4,11 +4,13 @@
 -- and a closeable record's method as its cleanup. The log of what closed, in
 -- order, is checked against a literal here and printed for the differential
 -- run.
+const assert2 = require("assert")
+
 local out: {string} = {}
 local log: {string} = {}
 
 local function show(name: string, v: any, expected: any): nil
-    assert(v == expected, name .. ": got " .. tostring(v) .. ", expected " .. tostring(expected))
+    assert2(v == expected, name .. ": got " .. tostring(v) .. ", expected " .. tostring(expected))
     out[#out + 1] = name .. "=" .. tostring(v)
 end
 
@@ -26,10 +28,10 @@ end
 
 local function consume(takes r: affine(Res, closeRes)): nil
     log[#log + 1] = "took " .. r.name
-    nupp.drop(r)
+    own.drop(r)
 end
 
-local record Handle is nupp.Closeable
+local record Handle is own.Closeable
     label: string
 
     function close(takes self): nil
@@ -51,7 +53,7 @@ show("scope", flush(), "b,a")
 
 do
     local a = open("a")
-    nupp.drop(a)
+    own.drop(a)
     log[#log + 1] = "after"
 end
 show("drop", flush(), "a,after")
@@ -65,7 +67,7 @@ show("moved", flush(), "took a,a,after")
 
 do
     local a = open("first")
-    nupp.drop(a)
+    own.drop(a)
     a = open("second")
 end
 show("rearm", flush(), "first,second")

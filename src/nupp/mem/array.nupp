@@ -11,7 +11,7 @@ do
     const writable = values:write()
 
     writable[1] = 42
-    nupp.drop(writable)
+    own.drop(writable)
 
     print(values:read()[1])
 end -- the array is released here
@@ -72,7 +72,7 @@ end
 ---     target's storage limit
 function array.newArray<T>(takes witness: T, count: integer): array.Array<T>
     local storage = require("nupp.runtime.storage")
-    local raw = @unsafe nupp.release(witness)
+    local raw = @unsafe own.release(witness)
     local element = storage.descriptor(raw)
     return new array.Array(pointer = storage.allocateArray(element, count) as T[?], count = count) as array.Array<T>
 end

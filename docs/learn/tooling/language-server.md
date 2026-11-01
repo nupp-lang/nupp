@@ -166,9 +166,9 @@ token carrying the diagnostic rather than only at its first byte.
 | Title | Reported by |
 | --- | --- |
 | ``change to `name` `` | a misspelled name within edit distance |
-| ``convert with `nupp.math.f32.narrow` `` | establishing a binary32 value |
-| ``convert with `nupp.math.i32.wrap` `` | establishing a signed 32-bit integer |
-| ``convert with `nupp.math.u32.wrap` `` | establishing an unsigned 32-bit integer |
+| ``convert with `math.f32.narrow` `` | establishing a binary32 value |
+| ``convert with `math.i32.wrap` `` | establishing a signed 32-bit integer |
+| ``convert with `math.u32.wrap` `` | establishing an unsigned 32-bit integer |
 | ``change the type to `number` `` | preserving an unestablished Lua value |
 | `require("module")` | an unbound module, one fix per candidate module |
 | `use bound.name` | the module is already bound in this file |

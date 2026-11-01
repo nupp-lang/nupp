@@ -1,4 +1,4 @@
-local test = require("nupp.test")
+local test = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
@@ -42,7 +42,7 @@ return events, ok, tostring(problem)
     )
     test.equal(events, "C")
     test.equal(ok, false)
-    test.assert(message:find("assert failure marker", 1, true) ~= nil)
+    test(message:find("assert failure marker", 1, true) ~= nil)
 end
 
 function M.shadowedAssertionsStillCallTheirFunction()
@@ -103,11 +103,11 @@ end
             call = call or instruction.op == "CallDyn"
         end
     end
-    test.assert(branch and call)
+    test(branch and call)
     run(true)
     local ok, message = pcall(run, false)
     test.equal(ok, false)
-    test.assert(tostring(message):find("condition failed", 1, true) ~= nil)
+    test(tostring(message):find("condition failed", 1, true) ~= nil)
 end
 
 return M

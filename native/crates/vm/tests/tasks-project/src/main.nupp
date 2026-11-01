@@ -1,11 +1,13 @@
 module main
 
+const assert2 = require("assert")
+
 local tasks = require("nupp.tasks")
 local main = {}
 local savedThread: any = nil
 
 function main.checkpointStart(): number
-    savedThread = @unsafe nupp.release(
+    savedThread = @unsafe own.release(
         coroutine.create(function(): number
             local suspension = require("nupp.suspension")
             local host = require("nupp.suspension.host")
@@ -36,15 +38,15 @@ function main.checkpointStart(): number
         end)
     )
     local ok, value = coroutine.resume(savedThread)
-    assert(ok and value == 20)
+    assert2(ok and value == 20)
 
     return 42
 end
 
 function main.checkpointFinish(): number
     local ok, value = coroutine.resume(savedThread)
-    assert(ok, tostring(value))
-    assert(value == 42 and coroutine.status(savedThread) == "dead")
+    assert2(ok, tostring(value))
+    assert2(value == 42 and coroutine.status(savedThread) == "dead")
     savedThread = nil
 
     return 42
@@ -67,10 +69,10 @@ end
 
 function main.resultPacks(): number
     local packed: any = {7, resultPack()}
-    assert(packed[1] == 7 and packed[2] == 20 and packed[3] == nil and packed[4] == 22, "trailing results")
-    assert(table.maxn(packed) == 4)
+    assert2(packed[1] == 7 and packed[2] == 20 and packed[3] == nil and packed[4] == 22, "trailing results")
+    assert2(table.maxn(packed) == 4)
     local protected = protectedPack(20, nil, 22)
-    assert(
+    assert2(
         protected[1] == true and protected[2] == 20 and protected[3] == nil and protected[4] == 22,
         "protected varargs"
     )
@@ -79,22 +81,22 @@ function main.resultPacks(): number
         (function(): nil
         end)()
     }
-    assert(empty[1] == 9 and table.maxn(empty) == 1)
+    assert2(empty[1] == 9 and table.maxn(empty) == 1)
     local nan: any = 0 / 0
     local zero: any = 0
     local negativeZero: any = -zero
-    assert(nan ~= nan and zero == negativeZero)
+    assert2(nan ~= nan and zero == negativeZero)
     local problem: any = setmetatable({answer = 42}, {
         __tostring = function(value: any): string
             return "answer: " .. tostring(value.answer)
         end
     })
-    assert(tostring(problem) == "answer: 42")
+    assert2(tostring(problem) == "answer: 42")
 
     return 42
 end
 
-local record Resource is nupp.Closeable
+local record Resource is own.Closeable
     state: any
 
     function close(takes self: Resource): nil
@@ -123,7 +125,7 @@ function main.run(): number
         end)
         answer = first:await() + second:await()
     end
-    assert(state.closed == 2, "expected two cleanups: " .. tostring(state.closed))
+    assert2(state.closed == 2, "expected two cleanups: " .. tostring(state.closed))
 
     return answer
 end
@@ -133,12 +135,12 @@ function main.cancellation(): number
         local child = scope:spawn(function(): number
             error("a cancelled queued task must not start")
         end)
-        assert(child:cancel())
+        assert2(child:cancel())
         local ok, reason = pcall(function(): number
             return child:await()
         end)
-        assert(not ok and tasks.isCancelled(reason))
-        assert(child:isDone() and child:status() == "cancelled")
+        assert2(not ok and tasks.isCancelled(reason))
+        assert2(child:isDone() and child:status() == "cancelled")
     end
 
     return 42
@@ -152,10 +154,10 @@ function main.churn(): number
                 return 1
             end)
             total = total + child:await()
-            assert(child:isDone() and child:await() == 1)
+            assert2(child:isDone() and child:await() == 1)
         end
     end
-    assert(total == 1000)
+    assert2(total == 1000)
 
     return 42
 end
@@ -165,18 +167,18 @@ function main.ownership(): number
     do
         local owned = resource(state)
         with moved = owned do
-            assert(state.closed == 0)
+            assert2(state.closed == 0)
         end
-        assert(state.closed == 1, "expected one cleanup: " .. tostring(state.closed))
+        assert2(state.closed == 1, "expected one cleanup: " .. tostring(state.closed))
     end
-    assert(state.closed == 1, "expected one cleanup: " .. tostring(state.closed))
+    assert2(state.closed == 1, "expected one cleanup: " .. tostring(state.closed))
     local marker: any = {}
     local ok, reason = pcall(function()
         with owned = resource(state) do
             error(marker)
         end
     end)
-    assert(not ok and reason == marker and state.closed == 2)
+    assert2(not ok and reason == marker and state.closed == 2)
     local childOk, childReason = pcall(function()
         with scope = tasks.open() do
             local child = scope:spawn(function()
@@ -185,7 +187,7 @@ function main.ownership(): number
             child:await()
         end
     end)
-    assert(not childOk and childReason == nil)
+    assert2(not childOk and childReason == nil)
 
     return 42
 end
@@ -194,7 +196,7 @@ function main.families(): number
     local a, b, c = tasks.run(function(borrows scope: any): (number, nil, number)
         return 20, nil, 22
     end)
-    assert(a == 20 and b == nil and c == 22)
+    assert2(a == 20 and b == nil and c == 22)
     local values, errors = tasks.gather<number>({
         function(): number
             return 20
@@ -206,8 +208,8 @@ function main.families(): number
             return 22
         end,
     })
-    assert(values[1] == 20 and values[2] == nil and values[3] == 22)
-    assert(errors[2] == "expected failure")
+    assert2(values[1] == 20 and values[2] == nil and values[3] == 22)
+    assert2(errors[2] == "expected failure")
     local value, index = tasks.race<number>({
         function(): number
             return 42
@@ -216,7 +218,7 @@ function main.families(): number
             return 0
         end
     })
-    assert(value == 42 and index == 1)
+    assert2(value == 42 and index == 1)
 
     return 42
 end
@@ -226,19 +228,19 @@ function main.captures(): number
     do
         local owned = resource(state)
         local body = function(): number takes (owned)
-            assert(owned.state.closed == 0)
+            assert2(owned.state.closed == 0)
             return 42
         end
-        assert(body() == 42)
+        assert2(body() == 42)
     end
-    assert(state.closed == 1, "expected one cleanup: " .. tostring(state.closed))
+    assert2(state.closed == 1, "expected one cleanup: " .. tostring(state.closed))
     do
         local owned = resource(state)
         local body = function(): number takes (owned)
             error("uncalled closure")
         end
     end
-    assert(state.closed == 2, "expected two cleanups: " .. tostring(state.closed))
+    assert2(state.closed == 2, "expected two cleanups: " .. tostring(state.closed))
     with scope = tasks.open() do
         local owned = resource(state)
         local child = scope:spawn(function(): number takes (owned)
@@ -246,7 +248,7 @@ function main.captures(): number
         end)
         child:cancel()
     end
-    assert(state.closed == 3, "expected three cleanups: " .. tostring(state.closed))
+    assert2(state.closed == 3, "expected three cleanups: " .. tostring(state.closed))
 
     return 42
 end
@@ -257,12 +259,12 @@ function main.workers(): number
     with scope = tasks.open() do
         local child = scope:fork(source, function(value: any): any
             value.answer = 42
-            assert(value.self == value)
+            assert2(value.self == value)
             return value
         end)
         local result = child:await()
-        assert(result.answer == 42 and result.self == result)
-        assert(source.answer == 1 and result ~= source)
+        assert2(result.answer == 42 and result.self == result)
+        assert2(source.answer == 1 and result ~= source)
     end
 
     return 42
@@ -276,7 +278,7 @@ function main.workerSettlement(): number
             end)
         end
     end)
-    assert(not failed and tostring(problem):find("worker settlement failure", 1, true) ~= nil)
+    assert2(not failed and tostring(problem):find("worker settlement failure", 1, true) ~= nil)
     local completed, cancelled = pcall(function(): nil
         with scope = tasks.open(timeoutMs = 10) do
             local child = scope:fork(function(): number
@@ -290,7 +292,7 @@ function main.workerSettlement(): number
             child:await()
         end
     end)
-    assert(not completed and tasks.isCancelled(cancelled))
+    assert2(not completed and tasks.isCancelled(cancelled))
 
     return 42
 end
@@ -304,9 +306,9 @@ function main.named(): number
         local ok, reason = pcall(function(): number
             return child:await()
         end)
-        assert(not ok and tasks.isCancelled(reason))
+        assert2(not ok and tasks.isCancelled(reason))
         local cancellation = reason as any
-        assert(cancellation.operation == "named job" and cancellation.reason == "requested")
+        assert2(cancellation.operation == "named job" and cancellation.reason == "requested")
     end
 
     return 42
@@ -320,17 +322,17 @@ end
 local function conditional(flag: boolean, state: any): nil
     local pair = new Pair(left = resource(state), right = resource(state))
     if flag then
-        nupp.drop(pair.left)
+        own.drop(pair.left)
     end
-    nupp.drop(pair)
+    own.drop(pair)
 end
 
 function main.fields(): number
     local state: any = {closed = 0}
     conditional(true, state)
-    assert(state.closed == 2)
+    assert2(state.closed == 2)
     conditional(false, state)
-    assert(state.closed == 4)
+    assert2(state.closed == 4)
 
     return 42
 end
@@ -340,16 +342,16 @@ function main.coroutines(): number
         local again = coroutine.yield(start, nil)
         return again + 1
     end)
-    assert(type(thread) == "thread" and coroutine.status(thread) == "suspended")
+    assert2(type(thread) == "thread" and coroutine.status(thread) == "suspended")
     local ok, value, tail = coroutine.resume(thread, 20)
-    assert(ok and value == 20 and tail == nil)
+    assert2(ok and value == 20 and tail == nil)
     local done, answer = coroutine.resume(thread, 41)
-    assert(done and answer == 42 and coroutine.status(thread) == "dead")
+    assert2(done and answer == 42 and coroutine.status(thread) == "dead")
     local wrapped = coroutine.wrap(function(): number
         coroutine.yield(20)
         return 22
     end)
-    assert(wrapped() + wrapped() == 42)
+    assert2(wrapped() + wrapped() == 42)
 
     return 42
 end
@@ -365,8 +367,8 @@ function main.channels(): number
             end)
             local first, firstOk = channel:receive()
             local second, secondOk = channel:receive()
-            assert(firstOk and secondOk and assert(first) + assert(second) == 42)
-            assert(sender:await() == 1)
+            assert2(firstOk and secondOk and assert2(first) + assert2(second) == 42)
+            assert2(sender:await() == 1)
         end
     end
 
@@ -383,9 +385,9 @@ function main.generators(): number
         end
     end) do
         local first, present = values:next()
-        assert(present and first == 20)
+        assert2(present and first == 20)
     end
-    assert(state.closed == 1)
+    assert2(state.closed == 1)
 
     return 42
 end
@@ -400,9 +402,9 @@ function main.automaticClose(): number
             end
         end)
         local ok = coroutine.resume(co)
-        assert(ok)
+        assert2(ok)
     end
-    assert(state.closed == 1, "coroutine scope exit must close its resources")
+    assert2(state.closed == 1, "coroutine scope exit must close its resources")
     do
         local step = coroutine.wrap(function(): nil
             with owned = resource(state) do
@@ -411,19 +413,19 @@ function main.automaticClose(): number
                 coroutine.yield(3)
             end
         end)
-        assert(step() == 1 and step() == 2)
+        assert2(step() == 1 and step() == 2)
     end
-    assert(state.closed == 2, "wrapped coroutine must close on scope exit")
+    assert2(state.closed == 2, "wrapped coroutine must close on scope exit")
     local ok = pcall(function(): nil
         local co = coroutine.create(function(): nil
             with owned = resource(state) do
                 coroutine.yield(1)
             end
         end)
-        assert(coroutine.resume(co))
+        assert2(coroutine.resume(co))
         error("stop")
     end)
-    assert(not ok and state.closed == 3)
+    assert2(not ok and state.closed == 3)
     local endpoint: any
     do
         local channel = tasks.channel<number>(1)
@@ -431,9 +433,9 @@ function main.automaticClose(): number
         channel:send(42)
     end
     local value, present = endpoint:receive()
-    assert(present and value == 42)
+    assert2(present and value == 42)
     local _, more = endpoint:receive()
-    assert(not more, "channel scope exit must close after draining")
+    assert2(not more, "channel scope exit must close after draining")
 
     return 42
 end

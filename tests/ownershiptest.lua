@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local assertions = require("helpers.assertions")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
@@ -59,16 +59,16 @@ function M.aCloseableBoundDestroysFactoryResultsOnEveryExit()
     runGenerated(
         [[
 local closed = 0
-local record Resource is nupp.Closeable
+local record Resource is own.Closeable
     function close(takes self): nil closed += 1 end
 end
-local interface Factory<S is nupp.Closeable>
+local interface Factory<S is own.Closeable>
     begin: function(self): S
 end
 local record Resources is Factory<Resource>
     function begin(self): Resource return new Resource() end
 end
-local function use<S is nupp.Closeable>(factory: Factory<S>, fail: boolean): nil
+local function use<S is own.Closeable>(factory: Factory<S>, fail: boolean): nil
     local value = factory:begin()
     if fail then error("abort") end
 end
@@ -79,10 +79,10 @@ local function fail(): nil use(factory, true) end
 assert(not pcall(fail))
 assert(closed == 2)
 local interface Consumer
-    apply: function<S is nupp.Closeable>(self, factory: Factory<S>): nil
+    apply: function<S is own.Closeable>(self, factory: Factory<S>): nil
 end
 local record Consume is Consumer
-    function apply<S is nupp.Closeable>(self, factory: Factory<S>): nil
+    function apply<S is own.Closeable>(self, factory: Factory<S>): nil
         local value = factory:begin()
     end
 end
@@ -98,7 +98,7 @@ function M.aCallableBoundRetainsTheActualOwningResult()
     runGenerated(
         [[
 local closed = 0
-local record Resource is nupp.Closeable
+local record Resource is own.Closeable
     function close(takes self): nil
         closed += 1
     end
@@ -123,7 +123,7 @@ end
 function M.copyableBoundsRejectOwnedInitializersBeforeErasure()
     assertClean(
         [[
-local function cache<V is nupp.Copyable>(build: function(): V): V
+local function cache<V is own.Copyable>(build: function(): V): V
     return build()
 end
 local value: string? = cache(function(): string? return nil end)
@@ -136,13 +136,13 @@ print(value, node.value)
 ]]
     )
     for _, result in ipairs({"Resource", "managed(Resource)"}) do
-        local construct = result == "Resource" and "new Resource()" or "nupp.manage(new Resource())"
+        local construct = result == "Resource" and "new Resource()" or "own.manage(new Resource())"
         local problem = codes(
             [[
-local record Resource is nupp.Closeable
+local record Resource is own.Closeable
     function close(takes self): nil end
 end
-local function cache<V is nupp.Copyable>(build: function(): V): V
+local function cache<V is own.Copyable>(build: function(): V): V
     return build()
 end
 local value = cache(function(): ]]
@@ -172,13 +172,13 @@ end
 
 function M.copyabilityCannotBeHiddenByAnInheritedBoundOrBorrow()
     local source = [[
-local record Resource is nupp.Closeable
+local record Resource is own.Closeable
     function close(takes self): nil end
 end
-local interface Cached is nupp.Copyable
+local interface Cached is own.Copyable
     label: string
 end
-local function retain<V is nupp.Copyable>(value: V): nil end
+local function retain<V is own.Copyable>(value: V): nil end
 local function inherited<V is Cached>(value: V): nil end
 local function inspect(borrows value: Resource): nil
     retain(value)
@@ -199,7 +199,7 @@ end
 function M.genericCallableResultsKeepTheirOwnership()
     runGenerated(
         [[
-local record Resource is nupp.Closeable
+local record Resource is own.Closeable
     function close(takes self): nil end
 end
 local function invoke<V>(build: function(): V): V
@@ -215,7 +215,7 @@ end
 function M.optionalCallableResultsKeepTheirOwnership()
     runGenerated(
         [[
-local record Resource is nupp.Closeable
+local record Resource is own.Closeable
     function close(takes self): nil end
 end
 local function invoke<V>(build: function(): V?): V?
@@ -235,7 +235,7 @@ local record Host
     closes: integer
 end
 
-local record Owner<H is table> is nupp.Closeable
+local record Owner<H is table> is own.Closeable
     host: H
     function close(takes self): nil
     end
@@ -251,7 +251,7 @@ owner:close()
     testAssert.equal(
         codes(
             [[
-local record Owner<H is table> is nupp.Closeable
+local record Owner<H is table> is own.Closeable
     host: H
     function close(takes self): nil end
 end
@@ -270,7 +270,7 @@ end
 function M.genericBorrowingCallbacksCanReborrowAnOwningTypeArgument()
     assertClean(
         [[
-local record Resource is nupp.Closeable
+local record Resource is own.Closeable
     function close(takes self): nil end
 end
 local interface Consumer<T>
@@ -304,9 +304,9 @@ function M.everyArmOfABranchDischargesIndependently()
                 "local function twoArms(flag: boolean): nil",
                 "   local value = resource_new()",
                 "   if flag then",
-                "      nupp.drop(value)",
+                "      own.drop(value)",
                 "   else",
-                "      nupp.drop(value)",
+                "      own.drop(value)",
                 "   end",
                 "end",
             },
@@ -321,11 +321,11 @@ function M.everyArmOfABranchDischargesIndependently()
                 "local function chain(n: integer): nil",
                 "   local value = resource_new()",
                 "   if n == 1 then",
-                "      nupp.drop(value)",
+                "      own.drop(value)",
                 "   elseif n == 2 then",
-                "      nupp.drop(value)",
+                "      own.drop(value)",
                 "   else",
-                "      nupp.drop(value)",
+                "      own.drop(value)",
                 "   end",
                 "end",
             },
@@ -345,8 +345,8 @@ function M.branchIndependenceStillCatchesADoubleMove()
                     "local function twice(flag: boolean): nil",
                     "   local value = resource_new()",
                     "   if flag then",
-                    "      nupp.drop(value)",
-                    "      nupp.drop(value)",
+                    "      own.drop(value)",
+                    "      own.drop(value)",
                     "   end",
                     "end",
                 },
@@ -365,11 +365,11 @@ function M.branchIndependenceStillCatchesADoubleMove()
                     "local function afterwards(flag: boolean): nil",
                     "   local value = resource_new()",
                     "   if flag then",
-                    "      nupp.drop(value)",
+                    "      own.drop(value)",
                     "   else",
-                    "      nupp.drop(value)",
+                    "      own.drop(value)",
                     "   end",
-                    "   nupp.drop(value)",
+                    "   own.drop(value)",
                     "end",
                 },
                 "\n"
@@ -390,7 +390,7 @@ function M.scalarGenericPreservationTransfersAnOwner()
                 "end",
                 "local value = resource_new()",
                 "local forwarded = id(value)",
-                "nupp.drop(forwarded)",
+                "own.drop(forwarded)",
             },
             "\n"
         )
@@ -409,7 +409,7 @@ function M.scalarGenericPreservationMovesItsInputExactlyOnce()
                     "local value = resource_new()",
                     "local forwarded = id(value)",
                     "print(value)",
-                    "nupp.drop(forwarded)",
+                    "own.drop(forwarded)",
                 },
                 "\n"
             )
@@ -432,7 +432,7 @@ function M.genericPreservationAgreesAcrossBranchSpecificReturns()
                 "   end",
                 "end",
                 "local forwarded = choose(resource_new(), true)",
-                "nupp.drop(forwarded)",
+                "own.drop(forwarded)",
             },
             "\n"
         )
@@ -449,7 +449,7 @@ function M.fixedPackPreservationCarriesTheExactResultSlot()
                 "end",
                 "local name, forwarded = label(resource_new())",
                 "print(name)",
-                "nupp.drop(forwarded)",
+                "own.drop(forwarded)",
             },
             "\n"
         )
@@ -468,7 +468,7 @@ function M.genericPreservationMovesCapabilitiesIntoAggregateResults()
                 "   return new Box(value = value)",
                 "end",
                 "local boxed = box(resource_new())",
-                "nupp.drop(boxed)",
+                "own.drop(boxed)",
             },
             "\n"
         )
@@ -507,7 +507,7 @@ function M.genericPreservationReducesIdentityMappedResults()
                 "end",
                 RESOURCE,
                 "local boxed = box(resource_new())",
-                "nupp.drop(boxed)",
+                "own.drop(boxed)",
             },
             "\n"
         )
@@ -579,7 +579,7 @@ function M.assertPreservesAndNarrowsAnOptionalOwner()
                 "   return maybe_resource_c()",
                 "end",
                 "local value = assert(maybe_resource())",
-                "nupp.drop(value)",
+                "own.drop(value)",
             },
             "\n"
         )
@@ -596,8 +596,8 @@ function M.assertForwardsOwnersInItsCompleteResultPack()
                 "local last = resource_new()",
                 "local present, gap, tail = assert(first, nil, last)",
                 "local empty: nil = gap",
-                "nupp.drop(present)",
-                "nupp.drop(tail)",
+                "own.drop(present)",
+                "own.drop(tail)",
             },
             "\n"
         )
@@ -610,8 +610,8 @@ function M.assertForwardsOwnersInItsCompleteResultPack()
                 "local last = resource_new()",
                 "local present, gap, tail = assert(through(first, nil, last))",
                 "local empty: nil = gap",
-                "nupp.drop(present)",
-                "nupp.drop(tail)",
+                "own.drop(present)",
+                "own.drop(tail)",
             },
             "\n"
         )
@@ -625,8 +625,8 @@ function M.assertForwardsOwnersInItsCompleteResultPack()
                 "local last = resource_new()",
                 "local present, gap, tail = requireTruthy(first, nil, last)",
                 "local empty: nil = gap",
-                "nupp.drop(present)",
-                "nupp.drop(tail)",
+                "own.drop(present)",
+                "own.drop(tail)",
             },
             "\n"
         )
@@ -656,7 +656,7 @@ function M.optionalAliasesKeepExplicitCleanupOwnership()
                 "   return new Resource(closed = false)",
                 "end",
                 "local value: MaybeResource = open()",
-                "if value then nupp.drop(value) end",
+                "if value then own.drop(value) end",
             },
             "\n"
         )
@@ -666,7 +666,7 @@ end
 function M.expressionSelectionCannotDuplicateAnOwner()
     assertClean(
         RESOURCE .. table.concat(
-            {"", "local value = resource_new()", "local moved = (value)", "nupp.drop(moved)",},
+            {"", "local value = resource_new()", "local moved = (value)", "own.drop(moved)",},
             "\n"
         )
     )
@@ -674,7 +674,7 @@ function M.expressionSelectionCannotDuplicateAnOwner()
     testAssert.equal(
         codes(
             RESOURCE .. table.concat(
-                {"", "local value = resource_new()", "local moved = true and value", "nupp.drop(moved)",},
+                {"", "local value = resource_new()", "local moved = true and value", "own.drop(moved)",},
                 "\n"
             )
         ),
@@ -711,7 +711,7 @@ function M.localFunctionDeclarationsBorrowCapturedOwners()
                     "local function run(): nil",
                     "   local value = resource_new()",
                     "   local function read(): nil print(value.value) end",
-                    "   nupp.drop(value)",
+                    "   own.drop(value)",
                     "   read()",
                     "end",
                     "return run",
@@ -727,7 +727,7 @@ function M.backwardGotosAreOwnershipLoopEdges()
     testAssert.equal(
         codes(
             RESOURCE .. table.concat(
-                {"", "local value = resource_new()", "::again::", "nupp.drop(value)", "goto again",},
+                {"", "local value = resource_new()", "::again::", "own.drop(value)", "goto again",},
                 "\n"
             )
         ),
@@ -759,37 +759,37 @@ function M.aMoveBeforeAnExitEdgeReachesWhereTheEdgeLands()
     testAssert.equal(
         run({
             "while true do",
-            "   if flag then nupp.drop(value) break end",
+            "   if flag then own.drop(value) break end",
             "   break",
             "end",
-            "nupp.drop(value)"
+            "own.drop(value)"
         }),
         "NUPP2601"
     )
     testAssert.equal(
         run({
             "repeat",
-            "   if flag then nupp.drop(value) break end",
+            "   if flag then own.drop(value) break end",
             "until true",
-            "nupp.drop(value)"
+            "own.drop(value)"
         }),
         "NUPP2601"
     )
     testAssert.equal(
         run({
             "for i = 1, 2 do",
-            "   if flag then nupp.drop(value) break end",
+            "   if flag then own.drop(value) break end",
             "end",
-            "nupp.drop(value)"
+            "own.drop(value)"
         }),
         "NUPP2601"
     )
     testAssert.equal(
         run({
             "for _ in ipairs({1, 2}) do",
-            "   if flag then nupp.drop(value) break end",
+            "   if flag then own.drop(value) break end",
             "end",
-            "nupp.drop(value)"
+            "own.drop(value)"
         }),
         "NUPP2601"
     )
@@ -797,12 +797,12 @@ function M.aMoveBeforeAnExitEdgeReachesWhereTheEdgeLands()
     testAssert.equal(
         run({
             "for i = 1, 2 do",
-            "   if flag then nupp.drop(value) end",
+            "   if flag then own.drop(value) end",
             "   local n = tonumber(flag and 'x' or '1') or break",
             "   print(n)",
             "   break",
             "end",
-            "nupp.drop(value)",
+            "own.drop(value)",
         }),
         "NUPP2601"
     )
@@ -810,9 +810,9 @@ function M.aMoveBeforeAnExitEdgeReachesWhereTheEdgeLands()
     testAssert.equal(
         run({
             "for i = 1, 2 do",
-            "   if i == 1 then nupp.drop(value) continue end",
+            "   if i == 1 then own.drop(value) continue end",
             "end",
-            "nupp.drop(value)"
+            "own.drop(value)"
         }),
         "NUPP2609"
     )
@@ -820,10 +820,10 @@ function M.aMoveBeforeAnExitEdgeReachesWhereTheEdgeLands()
     testAssert.equal(
         run({
             "do",
-            "   if flag then nupp.drop(value) goto done end",
+            "   if flag then own.drop(value) goto done end",
             "end",
             "::done::",
-            "nupp.drop(value)"
+            "own.drop(value)"
         }),
         "NUPP2601"
     )
@@ -831,27 +831,27 @@ function M.aMoveBeforeAnExitEdgeReachesWhereTheEdgeLands()
     testAssert.equal(
         run({
             "while true do",
-            "   if flag then nupp.drop(value) break end",
-            "   nupp.drop(value)",
+            "   if flag then own.drop(value) break end",
+            "   own.drop(value)",
             "   break",
             "end"
         }),
         ""
     )
-    testAssert.equal(run({"for i = 1, 2 do", "   if flag then break end", "end", "nupp.drop(value)"}), "")
-    testAssert.equal(run({"if flag then goto done end", "print(value.value)", "::done::", "nupp.drop(value)"}), "")
+    testAssert.equal(run({"for i = 1, 2 do", "   if flag then break end", "end", "own.drop(value)"}), "")
+    testAssert.equal(run({"if flag then goto done end", "print(value.value)", "::done::", "own.drop(value)"}), "")
     testAssert.equal(
         run({
             "for i = 1, 2 do",
             "   if flag then continue end",
             "   print(i)",
             "end",
-            "nupp.drop(value)"
+            "own.drop(value)"
         }),
         ""
     )
     -- a loop whose body always returns leaves by its own test with the owner intact
-    testAssert.equal(run({"for i = 1, 2 do", "   nupp.drop(value)", "   return", "end", "nupp.drop(value)"}), "")
+    testAssert.equal(run({"for i = 1, 2 do", "   own.drop(value)", "   return", "end", "own.drop(value)"}), "")
 end
 
 function M.aConsumingParameterMustBeDischargedOnEveryExitEdge()
@@ -859,7 +859,7 @@ function M.aConsumingParameterMustBeDischargedOnEveryExitEdge()
         exitEdge({
             "local function run(takes value: affine(resource*, resource_free), n: integer): nil",
             "   for i = 1, n do",
-            "      if i == 2 then nupp.drop(value) break end",
+            "      if i == 2 then own.drop(value) break end",
             "   end",
             "end",
             "return run",
@@ -870,7 +870,7 @@ function M.aConsumingParameterMustBeDischargedOnEveryExitEdge()
         exitEdge({
             "local function run(takes value: affine(resource*, resource_free), flag: boolean): nil",
             "   while true do",
-            "      if flag then nupp.drop(value) break end",
+            "      if flag then own.drop(value) break end",
             "   end",
             "end",
             "return run",
@@ -888,7 +888,7 @@ function M.sharedAndExclusiveArgumentsCannotAlias()
                     "local function inspect(borrows left: resource*, exclusive right: resource*): nil end",
                     "local value = resource_new()",
                     "inspect(value, value)",
-                    "nupp.drop(value)",
+                    "own.drop(value)",
                 },
                 "\n"
             )
@@ -906,7 +906,7 @@ function M.untypedVarargsCannotEraseOwners()
                     "local function keep(...: any): nil end",
                     "local value = resource_new()",
                     "keep(value)",
-                    "nupp.drop(value)",
+                    "own.drop(value)",
                 },
                 "\n"
             )
@@ -923,11 +923,11 @@ function M.earlyExitMovesDoNotPoisonFallthrough()
                 "local function run(stop: boolean): nil",
                 "   local value = resource_new()",
                 "   if stop then",
-                "      nupp.drop(value)",
+                "      own.drop(value)",
                 "      return",
                 "   end",
                 "   print(value.value)",
-                "   nupp.drop(value)",
+                "   own.drop(value)",
                 "end",
                 "return run",
             },
@@ -942,11 +942,11 @@ function M.earlyExitMovesDoNotPoisonFallthrough()
                 "local function run(stop: boolean): nil",
                 "   local value = resource_new()",
                 "   if stop then",
-                "      nupp.drop(value)",
+                "      own.drop(value)",
                 "      error('stop')",
                 "   end",
                 "   print(value.value)",
-                "   nupp.drop(value)",
+                "   own.drop(value)",
                 "end",
                 "return run",
             },
@@ -962,11 +962,11 @@ function M.earlyExitMovesDoNotPoisonFallthrough()
                 "   local value = resource_new()",
                 "   while true do",
                 "      if stop then",
-                "         nupp.drop(value)",
+                "         own.drop(value)",
                 "         break",
                 "      end",
                 "      print(value.value)",
-                "      nupp.drop(value)",
+                "      own.drop(value)",
                 "      break",
                 "   end",
                 "end",
@@ -984,13 +984,13 @@ function M.earlyExitMovesDoNotPoisonFallthrough()
                 "   local value = resource_new()",
                 "   local selected = switch stop do",
                 "      case true -> do",
-                "         nupp.drop(value)",
+                "         own.drop(value)",
                 "         return",
                 "      end",
                 "      case false -> 1",
                 "   end",
                 "   print(selected, value.value)",
-                "   nupp.drop(value)",
+                "   own.drop(value)",
                 "end",
                 "return run",
             },
@@ -1017,7 +1017,7 @@ function M.assertingANamedOptionalOwnerKeepsItInPlace()
                 declaration,
                 "local value = maybe_resource()",
                 "local present = assert(value, 'resource is required')",
-                "nupp.drop(present)",
+                "own.drop(present)",
             },
             "\n"
         )
@@ -1105,7 +1105,7 @@ function M.ffiGcCannotAttachASecondCleanupToAnOwner()
     testAssert.equal(
         codes(
             table.concat(
-                {RESOURCE, "local value = resource_new()", "ffi.gc(value, resource_free)", "nupp.drop(value)",},
+                {RESOURCE, "local value = resource_new()", "ffi.gc(value, resource_free)", "own.drop(value)",},
                 "\n"
             )
         ),
@@ -1153,7 +1153,7 @@ function M.nominalRecordsCanRetainDeclaredBorrowedFields()
                 "   local cursor = new Cursor(source = source, bytes = view(source))",
                 "   print(cursor.bytes.value)",
                 "end",
-                "nupp.drop(source)",
+                "own.drop(source)",
             },
             "\n"
         )
@@ -1198,7 +1198,7 @@ function M.aRecordCanOwnTheRootOfItsBorrowedField()
                 "local source = resource_new()",
                 "local parsed = new Parsed(source = source, view = borrow(source))",
                 "print(parsed.view.value)",
-                "nupp.drop(parsed)",
+                "own.drop(parsed)",
             },
             "\n"
         )
@@ -1218,8 +1218,8 @@ function M.anInternallyBorrowedRootFieldCannotMoveAlone()
                     "local source = resource_new()",
                     "local parsed = new Parsed(source = source, view = borrow(source))",
                     "local detached = parsed.source",
-                    "nupp.drop(detached)",
-                    "nupp.drop(parsed)",
+                    "own.drop(detached)",
+                    "own.drop(parsed)",
                 },
                 "\n"
             )
@@ -1238,7 +1238,7 @@ function M.scopedCallbacksMayCaptureABorrow()
                 "   local view = borrow(value)",
                 "   pcall(function() borrows (view) print(view.value) end)",
                 "end",
-                "nupp.drop(value)",
+                "own.drop(value)",
             },
             "\n"
         )
@@ -1248,7 +1248,7 @@ end
 function M.callbackCapturesBorrowOwnersByDefault()
     assertClean(
         table.concat(
-            {RESOURCE, "local value = resource_new()", "pcall(function() print(value.value) end)", "nupp.drop(value)",},
+            {RESOURCE, "local value = resource_new()", "pcall(function() print(value.value) end)", "own.drop(value)",},
             "\n"
         )
     )
@@ -1267,7 +1267,7 @@ function M.coroutineChildrenCannotCaptureAParentBorrow()
                     "   local child = suspension.create(function() print(view.value) end)",
                     "   coroutine.resume(child)",
                     "end",
-                    "nupp.drop(value)",
+                    "own.drop(value)",
                 },
                 "\n"
             )
@@ -1292,7 +1292,7 @@ function M.settlingTerminalsAreAcceptedOutsideRegions()
                     "   return new Resource(value = 1)",
                     "end",
                     "local value = open()",
-                    "nupp.drop(value)",
+                    "own.drop(value)",
                 },
                 "\n"
             )
@@ -1316,7 +1316,7 @@ function M.settlingTerminalsAreRefusedInsideANosuspendRegion()
                     "end",
                     "@nosuspend do",
                     "   local value = open()",
-                    "   nupp.drop(value)",
+                    "   own.drop(value)",
                     "end",
                 },
                 "\n"
@@ -1388,7 +1388,7 @@ function M.aQualifiedMethodOwnsTheParameterItTakes()
     )
 end
 
--- `@unsafe nupp.release` lowers to its argument, so using it for the assertion rather
+-- `@unsafe own.release` lowers to its argument, so using it for the assertion rather
 -- than the value left an expression where Lua wants a statement. The check and the
 -- build both passed and the output would not load.
 function M.aDiscardedOwnershipIntrinsicEmitsLoadableLua()
@@ -1397,7 +1397,7 @@ function M.aDiscardedOwnershipIntrinsicEmitsLoadableLua()
             RESOURCE,
             "local function spend(takes value: resource*): nil",
             "   @unsafe do",
-            "      local _raw = @unsafe nupp.release(value)",
+            "      local _raw = @unsafe own.release(value)",
             "   end",
             "end",
             "return spend",
@@ -1415,8 +1415,8 @@ function M.managedGroupsUseOrdinaryLibraryCalls()
         {
             RESOURCE,
             "do",
-            "   local group = nupp.managedGroup()",
-            "   local handle = group:adopt(nupp.manage(resource_new()))",
+            "   local group = own.managedGroup()",
+            "   local handle = group:adopt(own.manage(resource_new()))",
             "   local value = handle:with(function(borrows item) return item.value end)",
             "   print(value)",
             "end",
@@ -1437,7 +1437,7 @@ function M.manageRejectsTransferOnlyOwners()
                     "   value: integer",
                     "end",
                     "local function beginRequest(): affine(Request) return new Request(value = 1) end",
-                    "local cell = nupp.manage(beginRequest())",
+                    "local cell = own.manage(beginRequest())",
                 },
                 "\n"
             )
@@ -1452,10 +1452,10 @@ function M.managedGroupsCanTransferARegistrationBackOutExactlyOnce()
             {
                 RESOURCE,
                 "do",
-                "   local group = nupp.managedGroup()",
-                "   local handle = group:adopt(nupp.manage(resource_new()))",
+                "   local group = own.managedGroup()",
+                "   local handle = group:adopt(own.manage(resource_new()))",
                 "   local returned = group:remove(handle)",
-                "   nupp.drop(returned)",
+                "   own.drop(returned)",
                 "end",
             },
             "\n"
@@ -1468,11 +1468,11 @@ function M.managedCellsCarryExactCleanupPoliciesBehindAliases()
         {
             RESOURCE,
             "do",
-            "   local owner = nupp.manage(resource_new())",
+            "   local owner = own.manage(resource_new())",
             "   local handle = owner:alias()",
             "   local returned, problem = handle:take()",
             "   assert(problem == nil)",
-            "   nupp.drop(assert(returned))",
+            "   own.drop(assert(returned))",
             "end",
         },
         "\n"
@@ -1493,11 +1493,11 @@ function M.managedCellsEnforceCustodyAtRuntime()
             "local function openFile(value: integer): affine(FileState, closeFile)",
             "   return new FileState(value = value)",
             "end",
-            "local owner = nupp.manage(openFile(1))",
+            "local owner = own.manage(openFile(1))",
             "local handle = owner:alias()",
             "local stale = handle",
             "local erased: any = handle",
-            "local recoveredAlias, recoveryProblem = nupp.recoverAlias(erased)",
+            "local recoveredAlias, recoveryProblem = own.recoverAlias(erased)",
             "assert(recoveryProblem == nil)",
             "if not recoveredAlias then error('recovery failed') end",
             "local recovered, policyProblem = recoveredAlias:downcast<affine(FileState, closeFile)>()",
@@ -1506,10 +1506,10 @@ function M.managedCellsEnforceCustodyAtRuntime()
             "local file, takeProblem = recovered:take()",
             "assert(takeProblem == nil)",
             "if not file then error('take failed') end",
-            "nupp.drop(file)",
+            "own.drop(file)",
             "local _, staleProblem = stale:with(function(borrows value) return value.value end)",
             "assert(staleProblem ~= nil)",
-            "do local another = nupp.manage(openFile(2)) end",
+            "do local another = own.manage(openFile(2)) end",
             "return cleaned, staleProblem and staleProblem.code",
         },
         "\n"
@@ -1530,7 +1530,7 @@ function M.managedCellsRejectCapabilitiesTheyCannotDischarge()
                 {
                     "local record Request value: integer end",
                     "local function begin(): affine(Request) return new Request(value = 1) end",
-                    "local owner = nupp.manage(begin())",
+                    "local owner = own.manage(begin())",
                 },
                 "\n"
             )
@@ -1567,7 +1567,7 @@ function M.loopBackEdgesCannotConsumeAnOuterCapabilityConditionally()
                 "local function run(flag: boolean): nil",
                 "   local value = resource_new()",
                 "   while flag do",
-                "      nupp.drop(value)",
+                "      own.drop(value)",
                 "   end",
                 "end",
             },
@@ -1619,8 +1619,8 @@ function M.checkedRegionIntervalsProveOnlyActualDisjointness()
         prelude .. table.concat(
             {
                 "",
-                "   local left = nupp.region(values, values, 1, 2)",
-                "   local right = nupp.region(values, values, 3, 4)",
+                "   local left = own.region(values, values, 1, 2)",
+                "   local right = own.region(values, values, 3, 4)",
                 "   together(left, right)",
                 "end",
             },
@@ -1631,8 +1631,8 @@ function M.checkedRegionIntervalsProveOnlyActualDisjointness()
         prelude .. table.concat(
             {
                 "",
-                "   local left = nupp.region(values, values, 1, 3)",
-                "   local right = nupp.region(values, values, 3, 4)",
+                "   local left = own.region(values, values, 1, 3)",
+                "   local right = own.region(values, values, 3, 4)",
                 "   together(left, right)",
                 "end",
             },
@@ -1672,17 +1672,17 @@ end
 function M.aliasRecoveryChecksTheStoredCapabilityPolicy()
     local source = table.concat(
         {
-            "local record File is nupp.Closeable",
+            "local record File is own.Closeable",
             "   function flush(exclusive self): nil end",
             "   function close(takes self): nil end",
             "end",
-            "local record Socket is nupp.Closeable",
+            "local record Socket is own.Closeable",
             "   function flush(exclusive self): nil end",
             "   function close(takes self): nil end",
             "end",
-            "local owner = nupp.manage(new File())",
+            "local owner = own.manage(new File())",
             "local erased: any = owner:alias()",
-            "local recovered, problem = nupp.recoverAlias(erased)",
+            "local recovered, problem = own.recoverAlias(erased)",
             "assert(recovered ~= nil and problem == nil)",
             "local file, fileProblem = recovered:downcast<File>()",
             "assert(file ~= nil and fileProblem == nil)",
@@ -1703,12 +1703,12 @@ end
 function M.managedCallbackBorrowsReleaseOnErrorsAndRejectConflicts()
     local source = table.concat(
         {
-            "local record Client is nupp.Closeable",
+            "local record Client is own.Closeable",
             "   value: integer",
             "   function flush(exclusive self): nil end",
             "   function close(takes self): nil end",
             "end",
-            "local owner = nupp.manage(new Client(value = 1))",
+            "local owner = own.manage(new Client(value = 1))",
             "local handle = owner:alias()",
             "local conflict: string? = nil",
             "local _, outerProblem = handle:with(function(borrows value)",
@@ -1753,7 +1753,7 @@ function M.spansCarryBoundsRootsAndAnAffineWriteExtent()
                 "do",
                 "   local writable = spans.writeCarray(storage, 4)",
                 "   writable[1] = 65",
-                "   nupp.drop(writable)",
+                "   own.drop(writable)",
                 "end",
             },
             "\n"
@@ -1773,7 +1773,7 @@ function M.spansPreserveTheCArrayElementType()
                 "end",
                 "local writable = spans.writeCarray(storage, 4)",
                 "writable[2] = 42 as int32",
-                "nupp.drop(writable)",
+                "own.drop(writable)",
             },
             "\n"
         )
@@ -1847,7 +1847,7 @@ function M.fixedSpansRefineDynamicSpansWithoutLengthChecks()
                 "   print(exact(shared))",
                 "end",
                 "writable[1] = 42 as int32",
-                "nupp.drop(writable)",
+                "own.drop(writable)",
             },
             "\n"
         )
@@ -1907,7 +1907,7 @@ function M.spanRefsExposeOnlyTheCapabilityTheirViewOwns()
                 "      write_values(pointer, count)",
                 "   end",
                 "   writable[1] = 7 as int32",
-                "   nupp.drop(writable)",
+                "   own.drop(writable)",
                 "end",
             },
             "\n"
@@ -1942,7 +1942,7 @@ function M.writeSpanDowngradesAndRefsHoldItsExclusiveBarrier()
                     "local storage = ffi.new<int32[4]>()",
                     "local writable = spans.writeCarray(storage, 4)",
                     "local pointer, count = writable:ref()",
-                    "nupp.drop(writable)",
+                    "own.drop(writable)",
                     "print(pointer ~= nil, count)",
                 },
                 "\n"
@@ -1962,7 +1962,7 @@ function M.writeSpanDowngradesAndRefsHoldItsExclusiveBarrier()
                     "local shared = writable:shared()",
                     "writable[1] = 1 as int32",
                     "print(shared[1])",
-                    "nupp.drop(writable)",
+                    "own.drop(writable)",
                 },
                 "\n"
             )
@@ -1990,10 +1990,10 @@ function M.writableSlicesAreAffineChildrenOfTheirWriter()
                 "end",
                 "do",
                 "   local empty = writable:slice(4, 3)",
-                "   nupp.drop(empty)",
+                "   own.drop(empty)",
                 "end",
                 "writable[6] = 14 as int32",
-                "nupp.drop(writable)",
+                "own.drop(writable)",
             },
             "\n"
         )
@@ -2025,8 +2025,8 @@ function M.writableSlicesAreAffineChildrenOfTheirWriter()
                 "local writable = spans.writeFixedCarray(storage, 4)",
                 "local child: spans.Writable<int32> = writable:slice(2, 3)",
                 "child[1] = 7 as int32",
-                "nupp.drop(child)",
-                "nupp.drop(writable)",
+                "own.drop(child)",
+                "own.drop(writable)",
             },
             "\n"
         )
@@ -2047,7 +2047,7 @@ function M.commonSpanRangesBorrowEveryInputWithoutBoxingOrConsumption()
                 "for index = indices.first, indices.last do",
                 "   output[index] = input[index]",
                 "end",
-                "nupp.drop(output)",
+                "own.drop(output)",
             },
             "\n"
         )
@@ -2095,7 +2095,7 @@ function M.heapArraysAreOwnedAndBecomeCheckedSpans()
                 "   local writable = values:write()",
                 "   writable[1] = 42 as int32",
                 "   print(#writable)",
-                "   nupp.drop(writable)",
+                "   own.drop(writable)",
                 "end",
                 "local readable = values:read()",
                 "local value: int32 = readable[1]",
@@ -2164,7 +2164,7 @@ function M.heapArraysPreserveCountsAndCleanUpAtRuntime()
             "   if count > 0 then",
             "      local writable = values:write()",
             "      writable[count] = 73 as int32",
-            "      nupp.drop(writable)",
+            "      own.drop(writable)",
             "   end",
             "   local readable = values:read()",
             "   local value: int32 = 0",
@@ -2263,7 +2263,7 @@ function M.writeSpansProveSiblingPartitionsAndRejectOverlap()
                 "   split.left[1] = 1 as int32",
                 "end",
                 "writable[2] = 2 as int32",
-                "nupp.drop(writable)",
+                "own.drop(writable)",
             },
             "\n"
         )
@@ -2328,7 +2328,7 @@ function M.writeSpanPartitionsKeepCountsOffsetsAndBoundsAtRuntime()
             "   do",
             "      local zeroing = values:write()",
             "      for i = 1, #zeroing do zeroing[i] = 0 as int32 end",
-            "      nupp.drop(zeroing)",
+            "      own.drop(zeroing)",
             "   end",
             "   do",
             "      local writable = values:write()",
@@ -2342,7 +2342,7 @@ function M.writeSpanPartitionsKeepCountsOffsetsAndBoundsAtRuntime()
             "            nested.right[1] = 33 as int32",
             "         end",
             "      end",
-            "      nupp.drop(writable)",
+            "      own.drop(writable)",
             "   end",
             "   local readable = values:read()",
             "   return leftCount, rightCount, readable[1], readable[4]",
@@ -2394,7 +2394,7 @@ function M.tecsShapedColumnsPartitionIntoCheckedNativeKernelInputs()
                 "      update_transforms(halves.left)",
                 "      update_transforms(halves.right)",
                 "   end",
-                "   nupp.drop(writable)",
+                "   own.drop(writable)",
                 "end",
                 "local readable = column:read()",
                 "print(#readable)",
@@ -2454,7 +2454,7 @@ local ITERATOR_BORROWS = table.concat(
         "   value: integer",
         "end",
         "@comptime local function IterationResult(T: type, mode: string): typepack",
-        "   return nupp.types.pack({T}, nil, {mode})",
+        "   return types.pack({T}, nil, {mode})",
         "end",
         "local record Cursor",
         "   next: function(): unpackof IterationResult(Iterated, 'borrowed')",
@@ -2477,7 +2477,7 @@ function M.genericForBorrowsItsIteratorForEachBody()
                     "",
                     "local cursor = openCursor()",
                     "for value in cursor.next do",
-                    "   nupp.drop(cursor)",
+                    "   own.drop(cursor)",
                     "   print(value.value)",
                     "end",
                 },
@@ -2500,7 +2500,7 @@ function M.genericForReleasesIterationBorrowsOnEveryExit()
                 "   end",
                 "   break",
                 "end",
-                "nupp.drop(cursor)",
+                "own.drop(cursor)",
             },
             "\n"
         )
@@ -2530,7 +2530,7 @@ function M.aBorrowedResultBlocksReleasingItsSource()
     testAssert.equal(
         codes(
             POOL .. table.concat(
-                {"", "local pool = open_pool()", "local held = peek(pool)", "nupp.drop(pool)", "print(held.items)",},
+                {"", "local pool = open_pool()", "local held = peek(pool)", "own.drop(pool)", "print(held.items)",},
                 "\n"
             )
         ),
@@ -2542,7 +2542,7 @@ function M.aMethodResultCanBorrowTheReceiver()
     testAssert.equal(
         codes(
             POOL .. table.concat(
-                {"", "local pool = open_pool()", "local item = pool:get(1)", "nupp.drop(pool)", "print(item.name)",},
+                {"", "local pool = open_pool()", "local item = pool:get(1)", "own.drop(pool)", "print(item.name)",},
                 "\n"
             )
         ),
@@ -2560,7 +2560,7 @@ function M.aBorrowedResultIsReleasedWithItsScope()
                 "   local item = pool:get(1)",
                 "   print(item.name)",
                 "end",
-                "nupp.drop(pool)",
+                "own.drop(pool)",
             },
             "\n"
         )
@@ -2648,7 +2648,7 @@ function M.aCallableSlotCannotForgetABorrowRelation()
                     "local f: function(borrows p: Pool): Pool = peek",
                     "local pool = open_pool()",
                     "local v = f(pool)",
-                    "nupp.drop(pool)",
+                    "own.drop(pool)",
                     "print(v ~= nil)",
                 },
                 "\n"
@@ -2664,7 +2664,7 @@ function M.aCallableSlotCannotForgetABorrowRelation()
                     "local f: function(borrows p: Pool): Pool borrows (p) = peek",
                     "local pool = open_pool()",
                     "local v = f(pool)",
-                    "nupp.drop(pool)",
+                    "own.drop(pool)",
                     "print(v ~= nil)",
                 },
                 "\n"
@@ -2682,7 +2682,7 @@ function M.aCallableSlotCannotForgetABorrowRelation()
                 "   local v = f(pool)",
                 "   print(v ~= nil)",
                 "end",
-                "nupp.drop(pool)",
+                "own.drop(pool)",
             },
             "\n"
         )
@@ -2739,7 +2739,7 @@ local LAYERED = table.concat(
 function M.anOwningResultCanRetainAnInputBorrow()
     assertClean(
         LAYERED .. table.concat(
-            {"", "local sock = open_socket()", "local tls = open_tls(sock)", "nupp.drop(tls)", "nupp.drop(sock)",},
+            {"", "local sock = open_socket()", "local tls = open_tls(sock)", "own.drop(tls)", "own.drop(sock)",},
             "\n"
         )
     )
@@ -2749,7 +2749,7 @@ function M.theHeldSourceCannotBeReleasedFirst()
     testAssert.equal(
         codes(
             LAYERED .. table.concat(
-                {"", "local sock = open_socket()", "local tls = open_tls(sock)", "nupp.drop(sock)", "nupp.drop(tls)",},
+                {"", "local sock = open_socket()", "local tls = open_tls(sock)", "own.drop(sock)", "own.drop(tls)",},
                 "\n"
             )
         ),
@@ -2781,7 +2781,7 @@ function M.anOwningResultThatBorrowsIsStillOwned()
     testAssert.equal(
         codes(
             LAYERED .. table.concat(
-                {"", "local sock = open_socket()", "local tls = open_tls(sock)", "nupp.drop(sock)",},
+                {"", "local sock = open_socket()", "local tls = open_tls(sock)", "own.drop(sock)",},
                 "\n"
             )
         ),
@@ -2800,7 +2800,7 @@ function M.aMethodBorrowedReturnElidesToTheReceiver()
                     "end",
                     "local pool = open_pool()",
                     "local item = pool:first()",
-                    "nupp.drop(pool)",
+                    "own.drop(pool)",
                     "print(item.name)",
                 },
                 "\n"
@@ -2829,7 +2829,7 @@ function M.aBorrowedResultMayBeAnyResult()
                 "for index, item in walk(pool) do",
                 "   print(index, item.name)",
                 "end",
-                "nupp.drop(pool)",
+                "own.drop(pool)",
             },
             "\n"
         )
@@ -2889,7 +2889,7 @@ function M.aLaterBorrowedResultStillOutlivesNothing()
                     "end",
                     "local pool = open_pool()",
                     "local count, held = view(pool)",
-                    "nupp.drop(pool)",
+                    "own.drop(pool)",
                     "print(count, held.items)",
                 },
                 "\n"
@@ -2920,7 +2920,7 @@ function M.anInlineMethodsBorrowedResultKeepsItsSource()
                     "local function open_holder(): affine(Holder, close_holder) return new Holder(items = {}) end",
                     "local h = open_holder()",
                     "local item = h:first()",
-                    "nupp.drop(h)",
+                    "own.drop(h)",
                     "print(item.name)",
                 },
                 "\n"
@@ -2949,7 +2949,7 @@ function M.aDeclaredMethodsBorrowedResultKeepsItsSource()
                     "local function open_holder(): affine(Holder, close_holder) return new Holder(items = {}) end",
                     "local h = open_holder()",
                     "local item = h:first()",
-                    "nupp.drop(h)",
+                    "own.drop(h)",
                     "print(item.name)",
                 },
                 "\n"
@@ -2969,7 +2969,7 @@ function M.aMethodReturningAPlainValueDoesNotBorrow()
                 "end",
                 "local pool = open_pool()",
                 "local n = pool:count()",
-                "nupp.drop(pool)",
+                "own.drop(pool)",
                 "print(n)",
             },
             "\n"
@@ -2998,7 +2998,7 @@ function M.aChainOfBorrowsStillHoldsTheRoot()
                     "local pool = open_pool()",
                     "local first = peek(pool)",
                     "local second = peek(first)",
-                    "nupp.drop(pool)",
+                    "own.drop(pool)",
                     "print(second.items)",
                 },
                 "\n"
@@ -3020,7 +3020,7 @@ function M.aDerivedBorrowCannotOutliveItsIntermediate()
                     "   local inner = peek(pool)",
                     "   held = peek(inner)",
                     "end",
-                    "nupp.drop(pool)",
+                    "own.drop(pool)",
                 },
                 "\n"
             )
@@ -3041,7 +3041,7 @@ function M.aDerivedBorrowCannotBeStored()
                     "local sink: {Pool} = {}",
                     "local first = peek(pool)",
                     "sink[1] = peek(first)",
-                    "nupp.drop(pool)",
+                    "own.drop(pool)",
                 },
                 "\n"
             )
@@ -3102,13 +3102,13 @@ function M.affineUsesItsExactCleanupFunction()
             "local function closeFile(takes file: File): nil",
             "   calls = calls .. 'close'",
             "   file.closed = true",
-            "   @unsafe do local _raw = @unsafe nupp.release(file) end",
+            "   @unsafe do local _raw = @unsafe own.release(file) end",
             "end",
             "local function openFile(): affine(File, closeFile)",
             "   return new File(closed = false)",
             "end",
             "local file = openFile()",
-            "nupp.drop(file)",
+            "own.drop(file)",
             "return calls",
         },
         "\n"
@@ -3127,7 +3127,7 @@ function M.anExplicitDropAfterACallIsASeparateStatement()
             "local record File",
             "   function drop(takes self): nil calls = calls .. 'stop' end",
             "end",
-            "local function closeFile(takes file: File): nil @unsafe do local _raw = @unsafe nupp.release(file) end end",
+            "local function closeFile(takes file: File): nil @unsafe do local _raw = @unsafe own.release(file) end end",
             "local function openFile(): affine(File, closeFile) return new File() end",
             "local file = openFile()",
             "print('before')",
@@ -3172,7 +3172,7 @@ function M.ownedFieldsApplyToEveryOverload()
                 "local record File",
                 "   function drop(takes self): nil end",
                 "end",
-                "local function closeFile(takes file: File): nil @unsafe do local _raw = @unsafe nupp.release(file) end end",
+                "local function closeFile(takes file: File): nil @unsafe do local _raw = @unsafe own.release(file) end end",
                 "local record Library",
                 "   open: function(name: string): affine(File, closeFile) & function(id: integer): affine(File, closeFile)",
                 "end",
@@ -3350,7 +3350,7 @@ function M.aCallbackOnlyInvokedIsInferredScoped()
                 "local function body(): nil",
                 "   local r = open('a')",
                 "   run(function(): nil borrows (r) print(r.name) end)",
-                "   nupp.drop(r)",
+                "   own.drop(r)",
                 "end",
             },
             "\n"
@@ -3371,7 +3371,7 @@ function M.aCallbackOnlyInvokedIsInferredScoped()
                     "local function body(): nil",
                     "   local r = open('a')",
                     "   keep(function(): nil borrows (r) print(r.name) end)",
-                    "   nupp.drop(r)",
+                    "   own.drop(r)",
                     "end",
                 },
                 "\n"
@@ -3441,7 +3441,7 @@ function M.aDeclaredScopedCallbackCannotEscapeThroughANestedClosure()
                 "local function body(): nil",
                 "   local r = open('a')",
                 "   run(function(): nil borrows (r) print(r.name) end)",
-                "   nupp.drop(r)",
+                "   own.drop(r)",
                 "end",
             },
             "\n"
@@ -3674,7 +3674,7 @@ function M.nullableOwnersNarrowWithoutLosingOwnership()
                 "local value = maybe_new()",
                 "if value then",
                 "   print(value.value)",
-                "   nupp.drop(value)",
+                "   own.drop(value)",
                 "end",
             },
             "\n"
@@ -3815,7 +3815,7 @@ function M.rawReconstructionRequiresUnsafe()
             {
                 "",
                 "local raw = resource_create()",
-                "local value = @unsafe nupp.adopt<affine(resource*, resource_free)>(raw)",
+                "local value = @unsafe own.adopt<affine(resource*, resource_free)>(raw)",
                 "resource_free(value)",
             },
             "\n"
@@ -3828,8 +3828,8 @@ function M.rawReconstructionRequiresUnsafe()
                 "",
                 "local raw = resource_create()",
                 "@unsafe do",
-                "   local value = @unsafe nupp.adopt<affine(resource*, resource_free)>(raw)",
-                "   nupp.drop(value)",
+                "   local value = @unsafe own.adopt<affine(resource*, resource_free)>(raw)",
+                "   own.drop(value)",
                 "end",
             },
             "\n"
@@ -3842,7 +3842,7 @@ function M.rawReconstructionRequiresUnsafe()
                     "local raw: voidptr = nil as any",
                     "local function wrong(takes value: string): nil end",
                     "@unsafe do",
-                    "   local value = @unsafe nupp.adopt<affine(voidptr, wrong)>(raw)",
+                    "   local value = @unsafe own.adopt<affine(voidptr, wrong)>(raw)",
                     "end",
                 },
                 "\n"
@@ -3858,10 +3858,10 @@ function M.ownershipCallsReplaceAdoptReleaseAndDropSyntax()
             {
                 "",
                 "local raw = resource_create()",
-                "local value = @unsafe nupp.adopt<affine(resource*, resource_free)>(raw)",
-                "local restored = @unsafe nupp.release(value)",
-                "local again = @unsafe nupp.adopt<affine(resource*, resource_free)>(restored)",
-                "nupp.drop(again)",
+                "local value = @unsafe own.adopt<affine(resource*, resource_free)>(raw)",
+                "local restored = @unsafe own.release(value)",
+                "local again = @unsafe own.adopt<affine(resource*, resource_free)>(restored)",
+                "own.drop(again)",
             },
             "\n"
         )
@@ -3869,7 +3869,7 @@ function M.ownershipCallsReplaceAdoptReleaseAndDropSyntax()
     testAssert.equal(
         codes(
             RESOURCE
-            .. "\nlocal raw = resource_create()\nlocal value = nupp.adopt<affine(resource*, resource_free)>(raw)"
+            .. "\nlocal raw = resource_create()\nlocal value = own.adopt<affine(resource*, resource_free)>(raw)"
         ),
         "NUPP2604"
     )
@@ -3878,7 +3878,7 @@ end
 function M.rawAbandonmentRequiresUnsafe()
     assertClean(
         RESOURCE .. table.concat(
-            {"", "local value = resource_new()", "local raw = @unsafe nupp.release(value)", "print(raw)",},
+            {"", "local value = resource_new()", "local raw = @unsafe own.release(value)", "print(raw)",},
             "\n"
         )
     )
@@ -3990,7 +3990,7 @@ function M.borrowedResultsCanNameMultipleSources()
                 "local left = resource_new()",
                 "local right = resource_new()",
                 "local joined = pair(left, right)",
-                "nupp.drop(joined)",
+                "own.drop(joined)",
                 "resource_free(right)",
                 "resource_free(left)",
             },
@@ -4006,7 +4006,7 @@ function M.borrowedResultsCanNameMultipleSources()
                     "local right = resource_new()",
                     "local joined = pair(left, right)",
                     "resource_free(left)",
-                    "nupp.drop(joined)",
+                    "own.drop(joined)",
                     "resource_free(right)",
                 },
                 "\n"
@@ -4034,7 +4034,7 @@ function M.affineRecordsDropOwnedFieldsInReverseOrder()
             "   second: affine(Res, closeRes)",
             "end",
             "local bundle = new Bundle(first = openRes('a'), second = openRes('b'))",
-            "nupp.drop(bundle)",
+            "own.drop(bundle)",
             "return calls",
         },
         "\n"
@@ -4058,8 +4058,8 @@ function M.affineRecordsTrackPartialFieldMoves()
                 "end",
                 "local bundle = new Bundle(value = openRes())",
                 "local value = bundle.value",
-                "nupp.drop(value)",
-                "nupp.drop(bundle)",
+                "own.drop(value)",
+                "own.drop(bundle)",
             },
             "\n"
         )
@@ -4077,8 +4077,8 @@ function M.affineRecordsTrackPartialFieldMoves()
                     "local bundle = new Bundle(value = openRes())",
                     "local value = bundle.value",
                     "print(bundle.value)",
-                    "nupp.drop(value)",
-                    "nupp.drop(bundle)",
+                    "own.drop(value)",
+                    "own.drop(bundle)",
                 },
                 "\n"
             )
@@ -4108,7 +4108,7 @@ function M.customDropOperationsMustDischargeEveryOwnedField()
                 "   end",
                 "end",
                 "local bundle = new Bundle(first = openRes(), second = openRes())",
-                "nupp.drop(bundle)",
+                "own.drop(bundle)",
             },
             "\n"
         )
@@ -4148,14 +4148,14 @@ function M.contextualCleanupUsesExplicitOwnerFields()
             "end",
             "local function releaseAllocation(takes allocation: Allocation): nil",
             "   released = allocation.arena.name .. ':' .. allocation.value",
-            "   @unsafe do local _raw = @unsafe nupp.release(allocation) end",
+            "   @unsafe do local _raw = @unsafe own.release(allocation) end",
             "end",
             "local function allocate(arena: Arena, value: string): affine(Allocation, releaseAllocation)",
             "   return new Allocation(arena = arena, value = value)",
             "end",
             "local arena = new Arena(name = 'frame')",
             "local allocation = allocate(arena, 'buffer')",
-            "nupp.drop(allocation)",
+            "own.drop(allocation)",
             "return released",
         },
         "\n"
@@ -4425,7 +4425,7 @@ function M.cdefOwnedOutputsBecomeLuaReturns()
             "cdef function posix_memalign(out result: affine(voidptr, free)*,"
             .. " alignment: uint64, size: uint64): Success<int32, 0>",
             "local status, pointer = posix_memalign(16, 64)",
-            "if pointer then nupp.drop(pointer) end",
+            "if pointer then own.drop(pointer) end",
             "return status == 0",
         },
         "\n"
@@ -4451,7 +4451,7 @@ function M.failedOwnedOutputsAreNil()
             .. " alignment: uint64, size: uint64): Success<int32, 0>",
             "local status, pointer = posix_memalign(3, 64)",
             "local failed = pointer == nil",
-            "if pointer then nupp.drop(pointer) end",
+            "if pointer then own.drop(pointer) end",
             "return status ~= 0 and failed",
         },
         "\n"
@@ -4490,8 +4490,8 @@ function M.multipleOwnedOutputsPreserveCAndLuaOrder()
             "cdef function make_pair(out first: affine(voidptr, free)*, seed: int32,"
             .. " out second: affine(voidptr, free)*): Success<int32, 7>",
             "local status, first, second = make_pair(1)",
-            "if second then nupp.drop(second) end",
-            "if first then nupp.drop(first) end",
+            "if second then own.drop(second) end",
+            "if first then own.drop(first) end",
         },
         "\n"
     )
@@ -4509,7 +4509,7 @@ function M.cdefReturnsMayOwnTheirResult()
                 "cdef function free(takes value: voidptr)",
                 "cdef function malloc(size: uint64): affine(voidptr, free)",
                 "local value = malloc(8)",
-                "nupp.drop(value)",
+                "own.drop(value)",
             },
             "\n"
         )
@@ -4542,11 +4542,11 @@ end
 -- failure are obligations of their own. This is the contract automatic
 -- destruction and resource sets already keep, reached from a terminal.
 function M.attemptAllRunsEveryStepAfterAFailure()
-    local invocations = {"   nupp.attemptAll(value, stop, release)"}
+    local invocations = {"   own.attemptAll(value, stop, release)"}
     if program.onVm() then
         -- VM lowering also publishes callbacks when the intrinsic is an expression.
-        invocations[#invocations + 1] = "   local completed: nil = nupp.attemptAll(value, stop, release)"
-        invocations[#invocations + 1] = "   return nupp.attemptAll(value, stop, release)"
+        invocations[#invocations + 1] = "   local completed: nil = own.attemptAll(value, stop, release)"
+        invocations[#invocations + 1] = "   return own.attemptAll(value, stop, release)"
     end
     for index, invocation in ipairs(invocations) do
         local source = table.concat(
@@ -4568,7 +4568,7 @@ function M.attemptAllRunsEveryStepAfterAFailure()
                 "end",
                 "local ok = pcall(function()",
                 "   local value = open()",
-                "   nupp.drop(value)",
+                "   own.drop(value)",
                 "end)",
                 "return calls, ok",
             },
@@ -4599,7 +4599,7 @@ function M.onlyTheFinalAttemptAllOperationMayTakeTheValue()
     -- `first` consuming its own parameter is NUPP2603 in its empty body; the
     -- ordering rule is the second diagnostic.
     testAssert.equal(
-        codes(declaration .. table.concat({"", "   nupp.attemptAll(value, first, second)", "end",}, "\n")),
+        codes(declaration .. table.concat({"", "   own.attemptAll(value, first, second)", "end",}, "\n")),
         "NUPP2615"
     )
     assertClean(
@@ -4608,10 +4608,10 @@ function M.onlyTheFinalAttemptAllOperationMayTakeTheValue()
                 "local record Resource id: integer end",
                 "local function first(value: Resource): nil end",
                 "local function second(takes value: Resource): nil",
-                "   @unsafe do local _raw = @unsafe nupp.release(value) end",
+                "   @unsafe do local _raw = @unsafe own.release(value) end",
                 "end",
                 "local function finish(takes value: Resource): nil",
-                "   nupp.attemptAll(value, first, second)",
+                "   own.attemptAll(value, first, second)",
                 "end",
                 "return finish",
             },
@@ -4636,7 +4636,7 @@ function M.cdefBorrowedOutputsTrackTheirInputOwner()
     testAssert.equal(
         codes(
             declarations .. "\n" .. table.concat(
-                {"local owner = make_owner()", "local status, view = get_view(owner)", "nupp.drop(owner)",},
+                {"local owner = make_owner()", "local status, view = get_view(owner)", "own.drop(owner)",},
                 "\n"
             )
         ),
@@ -4644,7 +4644,7 @@ function M.cdefBorrowedOutputsTrackTheirInputOwner()
     )
     assertClean(
         declarations .. "\n" .. table.concat(
-            {"local owner = make_owner()", "do", "   local status, view = get_view(owner)", "end", "nupp.drop(owner)",},
+            {"local owner = make_owner()", "do", "   local status, view = get_view(owner)", "end", "own.drop(owner)",},
             "\n"
         )
     )
@@ -4689,7 +4689,7 @@ function M.cdefBorrowedOutputsMayNameSeveralSharedInputs()
                     "local left = make_owner()",
                     "local right = make_owner()",
                     "local _, view = combine(left, right)",
-                    "nupp.drop(left)",
+                    "own.drop(left)",
                 },
                 "\n"
             )
@@ -4703,7 +4703,7 @@ function M.cdefBorrowedOutputsMayNameSeveralSharedInputs()
                     "local left = make_owner()",
                     "local right = make_owner()",
                     "local _, view = combine(left, right)",
-                    "nupp.drop(right)",
+                    "own.drop(right)",
                 },
                 "\n"
             )
@@ -4762,7 +4762,7 @@ function M.callbackPointersRequireUnsafe()
             "@unsafe do",
             "   local callback = function() end",
             "   local cb = ffi.cast<voidptr>(callback)",
-            "   local handle = nupp.pin(cb, callback)",
+            "   local handle = own.pin(cb, callback)",
             "end",
         },
         "\n"
@@ -4823,7 +4823,7 @@ function M.pinsProveAndAnchorManagedPointers()
                 "cdef function forget(releases value: cstring)",
                 "local text = 'hello'",
                 "local pointer = ffi.cast<cstring>(text)",
-                "local handle: pinned(cstring) = nupp.pin(pointer, text)",
+                "local handle: pinned(cstring) = own.pin(pointer, text)",
                 "remember(handle)",
                 "forget(handle)",
             },
@@ -4838,7 +4838,7 @@ function M.pinsProveAndAnchorManagedPointers()
                     "local first = 'first'",
                     "local second = 'second'",
                     "local pointer = ffi.cast<cstring>(first)",
-                    "local handle = nupp.pin(pointer, second)",
+                    "local handle = own.pin(pointer, second)",
                 },
                 "\n"
             )
@@ -4854,7 +4854,7 @@ function M.retainedPinsMustFollowReleaseContracts()
             "cdef function forget(releases value: cstring)",
             "local text = 'hello'",
             "local pointer = ffi.cast<cstring>(text)",
-            "local handle = nupp.pin(pointer, text)",
+            "local handle = own.pin(pointer, text)",
         },
         "\n"
     )
@@ -4887,7 +4887,7 @@ function M.pinnedArgumentsLowerToTheirCPointers()
             "cdef function forget(releases value: cstring)",
             "local text = 'hello'",
             "local pointer = ffi.cast<cstring>(text)",
-            "local handle = nupp.pin(pointer, text)",
+            "local handle = own.pin(pointer, text)",
             "remember(handle)",
             "forget(handle)",
         },
@@ -4909,9 +4909,9 @@ function M.rawTransferAndDropAreStaticAndDeterministic()
             "local value = ownedMalloc(8)",
             "local raw",
             "@unsafe do",
-            "   raw = @unsafe nupp.release(value)",
-            "   local restored = @unsafe nupp.adopt<affine(voidptr, free)>(raw)",
-            "   nupp.drop(restored)",
+            "   raw = @unsafe own.release(value)",
+            "   local restored = @unsafe own.adopt<affine(voidptr, free)>(raw)",
+            "   own.drop(restored)",
             "end",
             "return true",
         },
@@ -4933,13 +4933,13 @@ function M.sameSpelledCleanupBindingsKeepDistinctReferences()
             "   local function close(takes value: Resource): nil calls = calls .. 'a' end",
             "   local function open(): affine(Resource, close) return new Resource() end",
             "   local value = open()",
-            "   nupp.drop(value)",
+            "   own.drop(value)",
             "end",
             "do",
             "   local function close(takes value: Resource): nil calls = calls .. 'b' end",
             "   local function open(): affine(Resource, close) return new Resource() end",
             "   local value = open()",
-            "   nupp.drop(value)",
+            "   own.drop(value)",
             "end",
             "return calls",
         },
@@ -4984,9 +4984,9 @@ function M.ownershipLoweringEmitsLoadableTransparentValues()
             "local value = ownedMalloc(8)",
             "local raw",
             "@unsafe do",
-            "   raw = @unsafe nupp.release(value)",
-            "   local restored = @unsafe nupp.adopt<affine(voidptr, free)>(raw)",
-            "   nupp.drop(restored)",
+            "   raw = @unsafe own.release(value)",
+            "   local restored = @unsafe own.adopt<affine(voidptr, free)>(raw)",
+            "   own.drop(restored)",
             "end",
         },
         "\n"
@@ -5035,7 +5035,7 @@ function M.aFunctionValuedFieldCanDeclareAnOwningProducer()
                 "end",
                 "local api: Api = nil as any",
                 "local value = api.open()",
-                "nupp.drop(value)",
+                "own.drop(value)",
             },
             "\n"
         )
@@ -5050,7 +5050,7 @@ local MIGRATABLE_SESSION = table.concat(
         "      print(self.id)",
         "   end",
         "end",
-        "local function closeSession(takes session: Session): nil @unsafe do local _raw = @unsafe nupp.release(session) end end",
+        "local function closeSession(takes session: Session): nil @unsafe do local _raw = @unsafe own.release(session) end end",
     },
     "\n"
 )
@@ -5064,7 +5064,7 @@ function M.ownedBorrowingCallableFieldKeepsItsDischargeObligation()
                 "end",
                 "local pool: Pool = nil as any",
                 "local session = pool:open()",
-                "nupp.drop(session)",
+                "own.drop(session)",
             },
             "\n"
         )
@@ -5126,9 +5126,9 @@ function M.remainingOwnershipHelpersAnswerToTheirQualifiedSpelling()
                 RESOURCE,
                 "local value = resource_new()",
                 "do",
-                "   local view = nupp.borrow(value)",
+                "   local view = own.borrow(value)",
                 "end",
-                "nupp.drop(value)",
+                "own.drop(value)",
             },
             "\n"
         )
@@ -5143,12 +5143,12 @@ function M.remainingOwnershipHelpersAnswerToTheirQualifiedSpelling()
                 "end",
                 "local value = ownedMalloc(8)",
                 "@unsafe do",
-                "   local raw = @unsafe nupp.release(value)",
-                "   local owner = @unsafe nupp.adopt<affine(voidptr, free)>(raw)",
+                "   local raw = @unsafe own.release(value)",
+                "   local owner = @unsafe own.adopt<affine(voidptr, free)>(raw)",
                 "   do",
-                "      local view = nupp.borrowFrom(raw, owner)",
+                "      local view = own.borrowFrom(raw, owner)",
                 "   end",
-                "   nupp.drop(owner)",
+                "   own.drop(owner)",
                 "end",
             },
             "\n"
@@ -5161,7 +5161,7 @@ function M.remainingOwnershipHelpersAnswerToTheirQualifiedSpelling()
                 "cdef function forget(releases value: cstring)",
                 "local text = 'hello'",
                 "local pointer = ffi.cast<cstring>(text)",
-                "local handle: pinned(cstring) = nupp.pin(pointer, text)",
+                "local handle: pinned(cstring) = own.pin(pointer, text)",
                 "remember(handle)",
                 "forget(handle)",
             },
@@ -5208,7 +5208,7 @@ function M.bothSpellingsOfDropLowerTheSameWay()
                 "end",
                 "local function closeFile(takes file: File): nil",
                 "   calls = calls .. 'close'",
-                "   @unsafe do local _raw = @unsafe nupp.release(file) end",
+                "   @unsafe do local _raw = @unsafe own.release(file) end",
                 "end",
                 "local function openFile(): affine(File, closeFile)",
                 "   return new File(closed = false)",
@@ -5226,8 +5226,8 @@ function M.bothSpellingsOfDropLowerTheSameWay()
         testAssert.equal(chunk(), "close", "the drop operation runs")
     end
 
-    lowered("nupp.drop(file)")
-    lowered("nupp.drop(file)")
+    lowered("own.drop(file)")
+    lowered("own.drop(file)")
 end
 
 function M.aBindingNamedNuppShadowsTheQualifiedSpelling()
@@ -5239,7 +5239,7 @@ function M.aBindingNamedNuppShadowsTheQualifiedSpelling()
                 "local nupp = {",
                 "   drop = function(value: integer): integer return value end",
                 "}",
-                "local answer = nupp.drop(3)",
+                "local answer = own.drop(3)",
             },
             "\n"
         )
@@ -5261,7 +5261,7 @@ function M.aQualifiedIntrinsicGivesItsParameterTheSameMode()
                 {
                     RESOURCE,
                     "local function release(value: resource*)",
-                    "   nupp.drop(value)",
+                    "   own.drop(value)",
                     "end",
                     "local value = resource_new()",
                     "release(value)",
@@ -5275,7 +5275,7 @@ function M.aQualifiedIntrinsicGivesItsParameterTheSameMode()
                 {
                     RESOURCE,
                     "local function release(value: resource*)",
-                    "   nupp.drop(value)",
+                    "   own.drop(value)",
                     "end",
                     "local value = resource_new()",
                     "release(value)",
@@ -5404,7 +5404,7 @@ function M.aBorrowingClosureKeepsItsSourceLive()
                     "local callback = function() borrows (resource)",
                     "   print(resource.value)",
                     "end",
-                    "nupp.drop(resource)",
+                    "own.drop(resource)",
                     "callback()",
                 },
                 "\n"
@@ -5427,7 +5427,7 @@ function M.aBorrowingClosureEndsItsBorrowWithItsScope()
                 "   end",
                 "   callback()",
                 "end",
-                "nupp.drop(resource)",
+                "own.drop(resource)",
             },
             "\n"
         )
@@ -5461,7 +5461,7 @@ function M.aResultAnnotatedClosureInfersItsBorrowCapture()
                 "   end",
                 "   print(callback())",
                 "end",
-                "nupp.drop(resource)",
+                "own.drop(resource)",
             },
             "\n"
         )
@@ -5479,7 +5479,7 @@ function M.resultAnnotatedClosuresComposeTakingAndBorrowedCaptures()
                 "   return taken.value + borrowed.value",
                 "end",
                 "print(callback())",
-                "nupp.drop(borrowed)",
+                "own.drop(borrowed)",
             },
             "\n"
         )
@@ -5521,7 +5521,7 @@ function M.aTakesCallbackCannotEraseBorrowedClosureProvenance()
                     "local retained = retain(function(): any borrows (resource)",
                     "   print(resource.value)",
                     "end)",
-                    "nupp.drop(resource)",
+                    "own.drop(resource)",
                     "retained()",
                 },
                 "\n"
@@ -5571,7 +5571,7 @@ function M.aRepeatableParameterCannotReceiveATakingClosure()
     local taking = {
         "local resource = openClosureResource(7)",
         "local callback = function(): nil takes (resource)",
-        "   nupp.drop(resource)",
+        "   own.drop(resource)",
         "end",
     }
     testAssert.equal(
@@ -5586,7 +5586,7 @@ function M.aRepeatableParameterCannotReceiveATakingClosure()
                     "",
                     "local resource = openClosureResource(7)",
                     "twice(function(): nil takes (resource)",
-                    "   nupp.drop(resource)",
+                    "   own.drop(resource)",
                     "end)",
                 },
                 "\n"
@@ -5607,7 +5607,7 @@ function M.aRepeatableParameterCannotReceiveATakingClosure()
                     "",
                     "local resource = openClosureResource(7)",
                     "viaBorrow(function(): nil takes (resource)",
-                    "   nupp.drop(resource)",
+                    "   own.drop(resource)",
                     "end)",
                 },
                 "\n"
@@ -5628,7 +5628,7 @@ function M.aCapturedTakingClosureCannotBeInvokedThroughABorrow()
             "local function body(): nil",
             "   local resource = openClosureResource(7)",
             "   local finish = function(): nil takes (resource)",
-            "      nupp.drop(resource)",
+            "      own.drop(resource)",
             "   end",
         },
         "\n"
@@ -5739,14 +5739,14 @@ function M.raceAcceptsBorrowedClosuresWithoutRetainingThem()
                 "   end,",
                 "})",
                 "print(answer)",
-                "nupp.drop(resource)",
+                "own.drop(resource)",
             },
             "\n"
         )
     )
 end
 
--- A task scope is a Closeable: its `with` closes it on the way out, and `nupp.drop`
+-- A task scope is a Closeable: its `with` closes it on the way out, and `own.drop`
 -- closes one held in an ordinary local early, settling its children there rather
 -- than where the block ends.
 function M.aTaskScopeClosesThroughItsWithAndThroughDrop()
@@ -5762,7 +5762,7 @@ function M.aTaskScopeClosesThroughItsWithAndThroughDrop()
                 "do",
                 "   local scope = tasks.open()",
                 "   scope:spawn(function(): nil order[#order + 1] = 'early child' end)",
-                "   nupp.drop(scope)",
+                "   own.drop(scope)",
                 "   order[#order + 1] = 'after drop'",
                 "end",
                 "return table.concat(order, ',')",
@@ -5830,7 +5830,7 @@ function M.gatherAcceptsBorrowedClosuresWithoutRetainingThem()
                 "   end,",
                 "})",
                 "print(values[1])",
-                "nupp.drop(resource)",
+                "own.drop(resource)",
             },
             "\n"
         )
@@ -5848,10 +5848,10 @@ local DROPPING_RECORD = table.concat(
         "end",
         "function Session.drop(takes self): nil",
         "   @unsafe do",
-        "      local _raw = @unsafe nupp.release(self)",
+        "      local _raw = @unsafe own.release(self)",
         "   end",
         "end",
-        "local function closeSession(takes session: Session): nil @unsafe do local _raw = @unsafe nupp.release(session) end end",
+        "local function closeSession(takes session: Session): nil @unsafe do local _raw = @unsafe own.release(session) end end",
     },
     "\n"
 )
@@ -5885,7 +5885,7 @@ function M.anOwnedResultUsesALaterQualifiedStructuralDropOperation()
             "record m.Factory",
             "end",
             "function m.Session.drop(takes self): nil",
-            "   local _raw = @unsafe nupp.release(self)",
+            "   local _raw = @unsafe own.release(self)",
             "end",
             "function m.closeSession(takes session: m.Session): nil session:drop() end",
             "record m.Pool",
@@ -5931,7 +5931,7 @@ function M.anOwnedResultCanNameAQualifiedFreeTerminal()
             "function m.closeSession(takes session: m.Session): nil",
             "   m.closed = m.closed + 1",
             "   @unsafe do",
-            "      local _raw = @unsafe nupp.release(session)",
+            "      local _raw = @unsafe own.release(session)",
             "   end",
             "end",
             "record m.Pool",
@@ -5942,7 +5942,7 @@ function M.anOwnedResultCanNameAQualifiedFreeTerminal()
             "      return new m.Session(id = 1)",
             "   end",
             ")",
-            "nupp.drop(pool.open())",
+            "own.drop(pool.open())",
             "return m",
         },
         "\n"
@@ -5961,7 +5961,7 @@ function M.aTransferFieldDoesNotInvokeItsValuesStructuralDropOperation()
             {
                 "local record Session",
                 "   function drop(takes self): nil",
-                "      local _raw = @unsafe nupp.release(self)",
+                "      local _raw = @unsafe own.release(self)",
                 "   end",
                 "end",
                 "local record Box",
@@ -5973,7 +5973,7 @@ function M.aTransferFieldDoesNotInvokeItsValuesStructuralDropOperation()
                 "local function box(takes value: Session): nil",
                 "   local stored = new Box(value = value)",
                 "   @unsafe do",
-                "      local _raw = @unsafe nupp.release(stored)",
+                "      local _raw = @unsafe own.release(stored)",
                 "   end",
                 "end",
                 "box(open())",
@@ -6003,7 +6003,7 @@ function M.anAffineResultNeedsOneCleanupOrExplicitTransferOnlyPolicy()
                 "end",
                 "local value = allocate()",
                 "@unsafe do",
-                "   local _raw = @unsafe nupp.release(value)",
+                "   local _raw = @unsafe own.release(value)",
                 "end",
             },
             "\n"
@@ -6151,7 +6151,7 @@ local record Resource
     function destroy(takes self): nil
         assert(self.id == 7)
         @unsafe do
-            local _self = @unsafe nupp.release(self)
+            local _self = @unsafe own.release(self)
         end
     end
 end
@@ -6177,14 +6177,14 @@ local record Resource
     function destroy(takes self): nil
         closed = closed + 1
         @unsafe do
-            local _self = @unsafe nupp.release(self)
+            local _self = @unsafe own.release(self)
         end
     end
 end
 local function create(): affine(Resource, Resource.destroy)
     return new Resource()
 end
-nupp.drop(create())
+own.drop(create())
 return closed
 ]]
     )
@@ -6205,7 +6205,7 @@ end
 function resource.release(takes value: resource.Value): nil
     resource.closed = resource.closed + 1
     @unsafe do
-        local _value = @unsafe nupp.release(value)
+        local _value = @unsafe own.release(value)
     end
 end
 export = resource
@@ -6221,7 +6221,7 @@ local imported = require("cleanupcontract")
 local function create(): affine(imported.Value, imported.release)
     return {id = 1} as any
 end
-nupp.drop(create())
+own.drop(create())
 return true
 ]],
         "cleanupconsumer.nupp"
@@ -6263,7 +6263,7 @@ function M.closeableTypesCarryAnInherentCloseObligation()
     assertClean(
         table.concat(
             {
-                "local record Client is nupp.Closeable",
+                "local record Client is own.Closeable",
                 "   function flush(exclusive self): nil end",
                 "   function close(takes self): nil end",
                 "end",
@@ -6279,7 +6279,7 @@ function M.affineOfAnAffineInterfaceSelectsItsInherentTerminal()
     assertClean(
         table.concat(
             {
-                "local interface Sink is nupp.Closeable",
+                "local interface Sink is own.Closeable",
                 "   close: @nosuspend function(takes self: Sink): nil",
                 "end",
                 "local record BufferSink is Sink",
@@ -6302,7 +6302,7 @@ function M.constructorsMayInitializeCloseableFields()
     assertClean(
         table.concat(
             {
-                "local record Resource is nupp.Closeable",
+                "local record Resource is own.Closeable",
                 "   function close(takes self): nil end",
                 "end",
                 "local record Pair",
@@ -6324,7 +6324,7 @@ function M.consumingAggregatesMayForwardTheWholeOwner()
     assertClean(
         table.concat(
             {
-                "local record Resource is nupp.Closeable",
+                "local record Resource is own.Closeable",
                 "   function close(takes self): nil end",
                 "end",
                 "local record Box",
@@ -6348,7 +6348,7 @@ function M.aggregatesOwnTheAffineMemberActuallyStoredInAUnionField()
     local source = table.concat(
         {
             "local calls = ''",
-            "local record Resource is nupp.Closeable",
+            "local record Resource is own.Closeable",
             "   name: string",
             "   function close(takes self): nil calls = calls .. self.name end",
             "end",
@@ -6380,7 +6380,7 @@ function M.affineInterfacesRequireOneValidTerminal()
         codes(
             table.concat(
                 {
-                    "local interface Broken is nupp.Affine<self.close>",
+                    "local interface Broken is own.Affine<self.close>",
                     "   close: function(self: Broken): boolean",
                     "end",
                 },
@@ -6393,10 +6393,10 @@ function M.affineInterfacesRequireOneValidTerminal()
     local conflicts = codes(
         table.concat(
             {
-                "local interface First is nupp.Affine<self.close>",
+                "local interface First is own.Affine<self.close>",
                 "   close: @nosuspend function(takes self: First): nil",
                 "end",
-                "local interface Second is nupp.Affine<self.destroy>",
+                "local interface Second is own.Affine<self.destroy>",
                 "   destroy: @nosuspend function(takes self: Second): nil",
                 "end",
                 "interface Both is First, Second end",
@@ -6459,7 +6459,7 @@ function M.returningTaskSpawnsRefuseBorrowedAffineCaptures()
         codes(
             table.concat(
                 {
-                    "local record Resource is nupp.Closeable",
+                    "local record Resource is own.Closeable",
                     "   function close(takes self): nil end",
                     "end",
                     "local resource = new Resource()",
@@ -6525,7 +6525,7 @@ function M.aChildBodyMayBorrowTheScopeThatStartsIt()
         codes(
             table.concat(
                 {
-                    "local record Resource is nupp.Closeable",
+                    "local record Resource is own.Closeable",
                     "   function close(takes self): nil end",
                     "end",
                     "with resource = new Resource() do",
@@ -6551,10 +6551,10 @@ function M.anOwnerMovedIntoAFieldIsClosedOnce()
     local source = table.concat(
         {
             "local closed: integer = 0",
-            "local record Inner is nupp.Closeable",
+            "local record Inner is own.Closeable",
             "   function close(takes self): nil closed = closed + 1 end",
             "end",
-            "local record Outer is nupp.Closeable",
+            "local record Outer is own.Closeable",
             "   _inner: Inner",
             "   function close(takes self): nil self._inner:close() end",
             "end",
@@ -6570,7 +6570,7 @@ function M.anOwnerMovedIntoAFieldIsClosedOnce()
             "end",
             "local function viaDrop(): nil",
             "   local inner = new Inner()",
-            "   nupp.drop(new Outer(_inner = inner))",
+            "   own.drop(new Outer(_inner = inner))",
             "end",
             "local function make(): Outer",
             "   local inner = new Inner()",
@@ -6582,7 +6582,7 @@ function M.anOwnerMovedIntoAFieldIsClosedOnce()
             "viaDrop() counts[3] = closed closed = 0",
             "local outer = make()",
             "counts[4] = closed",
-            "nupp.drop(outer)",
+            "own.drop(outer)",
             "counts[5] = closed",
             "return counts",
         },
@@ -6612,11 +6612,11 @@ function M.aClaimDeclaredBelowItsFirstUseStillGivesATerminal()
             "local record Kernel is Resource",
             "   function close(takes self): nil closed = closed + 1 end",
             "end",
-            "local record Box<T> is nupp.Closeable",
+            "local record Box<T> is own.Closeable",
             "   v: T",
             "   function close(takes self): nil closed = closed + 10 end",
             "end",
-            "local interface Resource is nupp.Closeable end",
+            "local interface Resource is own.Closeable end",
             "local spec = new Spec(",
             "   compile = function(borrows self: Spec): affine(Kernel) return new Kernel() end,",
             "   box = function(borrows self: Spec): affine(Box<integer>)",
@@ -6653,10 +6653,10 @@ function M.aNestedClaimDeclaredBelowItsFirstUseStillGivesATerminal()
             "   record Kernel is Resource",
             "      function close(takes self): nil closed = closed + 1 end",
             "   end",
-            "   record Plain is nupp.Closeable",
+            "   record Plain is own.Closeable",
             "      function close(takes self): nil closed = closed + 10 end",
             "   end",
-            "   interface Resource is nupp.Closeable end",
+            "   interface Resource is own.Closeable end",
             "end",
             "local spec = new Outer.Spec(",
             "   compile = function(borrows self: Outer.Spec): affine(Outer.Kernel)",
@@ -6710,8 +6710,8 @@ end
 function M.aFieldMovesOutOfAnOptionalOwnerOnceItIsNarrowed()
     local source = table.concat(
         {
-            "local record W is nupp.Closeable function close(takes self): nil end end",
-            "local record P is nupp.Closeable",
+            "local record W is own.Closeable function close(takes self): nil end end",
+            "local record P is own.Closeable",
             "   w: W?",
             "   function close(takes self): nil if self.w ~= nil then self.w:close() end end",
             "end",
@@ -6746,17 +6746,17 @@ function M.anOptionalFieldTakenFromASelfClosingRecordIsClosedOnce()
     local source = table.concat(
         {
             "local closed: integer = 0",
-            "local record W is nupp.Closeable",
+            "local record W is own.Closeable",
             "   function close(takes self): nil closed = closed + 1 end",
             "end",
-            "local record P is nupp.Closeable",
+            "local record P is own.Closeable",
             "   w: W?",
             "   function close(takes self): nil",
             "      if self.w ~= nil then self.w:close() end",
             "      closed = closed + 100",
             "   end",
             "end",
-            "local record Box is nupp.Closeable",
+            "local record Box is own.Closeable",
             "   held: W?",
             "   function close(takes self): nil if self.held ~= nil then self.held:close() end end",
             "end",
@@ -6810,8 +6810,8 @@ end
 function M.aRequiredFieldCannotLeaveASelfClosingRecord()
     local source = table.concat(
         {
-            "local record W is nupp.Closeable function close(takes self): nil end end",
-            "local record P is nupp.Closeable",
+            "local record W is own.Closeable function close(takes self): nil end end",
+            "local record P is own.Closeable",
             "   w: W",
             "   function close(takes self): nil self.w:close() end",
             "end",
@@ -6841,7 +6841,7 @@ function M.anOptionalAggregateOwnerClosesItsFields()
     local source = table.concat(
         {
             "local closed: integer = 0",
-            "local record W is nupp.Closeable",
+            "local record W is own.Closeable",
             "   function close(takes self): nil closed = closed + 1 end",
             "end",
             "local record P",
@@ -6886,8 +6886,8 @@ end
 function M.aFieldCannotMoveOutOfAnOwnerThatMayBeNil()
     local source = table.concat(
         {
-            "local record W is nupp.Closeable function close(takes self): nil end end",
-            "local record P is nupp.Closeable",
+            "local record W is own.Closeable function close(takes self): nil end end",
+            "local record P is own.Closeable",
             "   w: W?",
             "   function close(takes self): nil if self.w ~= nil then self.w:close() end end",
             "end",
@@ -6907,7 +6907,7 @@ function M.cancellingAQueuedTaskDropsItsTransferredCaptures()
     local source = table.concat(
         {
             "local drops = 0",
-            "local record Resource is nupp.Closeable",
+            "local record Resource is own.Closeable",
             "   function close(takes self): nil drops = drops + 1 end",
             "end",
             "with scope = nupp.tasks.open() do",
@@ -6934,7 +6934,7 @@ end
 -- function, so a body that returned early or fell through leaked it silently.
 local CONSUMABLE = table.concat(
     {
-        "local record Res is nupp.Closeable",
+        "local record Res is own.Closeable",
         "   id: integer",
         "   function flush(exclusive self): nil end",
         "   function close(takes self): nil end",
@@ -6951,7 +6951,7 @@ function M.takesParameterLeftLiveAtAReturnIsReported()
                 {
                     "local function sink(takes r: Res, flag: boolean): nil",
                     "   if flag then return end",
-                    "   nupp.drop(r)",
+                    "   own.drop(r)",
                     "end",
                     "sink(open(1), true)",
                 },
@@ -6972,7 +6972,7 @@ function M.takesParameterLeftLiveAtTheBodyEndIsReported()
             CONSUMABLE .. "\n" .. table.concat(
                 {
                     "local function sink(takes r: Res, takes s: Res): nil",
-                    "   nupp.drop(s)",
+                    "   own.drop(s)",
                     "end",
                     "sink(open(1), open(2))",
                 },
@@ -7004,7 +7004,7 @@ function M.takesParameterDischargedOnOnlySomePathsIsReported()
             CONSUMABLE .. "\n" .. table.concat(
                 {
                     "local function sink(takes r: Res, flag: boolean): nil",
-                    "   if flag then nupp.drop(r) end",
+                    "   if flag then own.drop(r) end",
                     "end",
                     "sink(open(1), true)",
                 },
@@ -7020,7 +7020,7 @@ function M.takesParameterDischargedOnOnlySomePathsIsReported()
                     "local function sink(takes r: Res, flag: boolean): integer",
                     "   return switch flag do",
                     "      case true -> 1",
-                    "      else -> do nupp.drop(r) yield 2 end",
+                    "      else -> do own.drop(r) yield 2 end",
                     "   end",
                     "end",
                     "sink(open(1), true)",
@@ -7039,17 +7039,17 @@ function M.takesParameterDischargedOnEveryPathIsAccepted()
                 "local function pass(takes r: Res): Res return r end",
                 "local function sink(takes r: Res, flag: boolean): nil",
                 "   if flag then",
-                "      nupp.drop(r)",
+                "      own.drop(r)",
                 "      return",
                 "   end",
                 "   local kept = pass(r)",
-                "   nupp.drop(kept)",
+                "   own.drop(kept)",
                 "end",
                 "local function either(takes r: Res, flag: boolean): nil",
-                "   if flag then nupp.drop(r) else r:close() end",
+                "   if flag then own.drop(r) else r:close() end",
                 "end",
                 "local function released(takes r: Res): integer",
-                "   local raw = @unsafe nupp.release(r)",
+                "   local raw = @unsafe own.release(r)",
                 "   return raw.id",
                 "end",
                 "sink(open(1), true)",
@@ -7073,15 +7073,15 @@ function M.terminalDefinitionsAreTheEndpointOfTheirParameter()
                 "end",
                 "local function closeFile(takes file: File): nil file.closed = true end",
                 "local function openFile(): affine(File, closeFile) return new File(closed = false) end",
-                "local record Sock is nupp.Closeable",
+                "local record Sock is own.Closeable",
                 "   closed: boolean",
                 "   function flush(exclusive self): nil end",
                 "   function close(takes self): nil self.closed = true end",
                 "end",
                 "local file = openFile()",
-                "nupp.drop(file)",
+                "own.drop(file)",
                 "local sock = new Sock(closed = false)",
-                "nupp.drop(sock)",
+                "own.drop(sock)",
             },
             "\n"
         )
@@ -7112,7 +7112,7 @@ function M.statementOwnedTemporariesRunTheirTerminalsAtCompletion()
     local source = table.concat(
         {
             "local calls = ''",
-            "local record Res is nupp.Closeable",
+            "local record Res is own.Closeable",
             "   name: string",
             "   function flush(exclusive self): nil end",
             "   function close(takes self): nil calls = calls .. self.name end",
@@ -7159,7 +7159,7 @@ function M.aLocalInitializedThroughAStatementOwnedTemporaryIsBound()
     local source = table.concat(
         {
             "local calls = ''",
-            "local record Res is nupp.Closeable",
+            "local record Res is own.Closeable",
             "   name: string",
             "   function close(takes self): nil calls = calls .. self.name end",
             "end",
@@ -7226,7 +7226,7 @@ function M.anOwnedTemporaryThatIsBoundMovedOrReturnedIsAccepted()
                 "local record Holder",
                 "   kept: Res",
                 "end",
-                "local function sink(takes r: Res): nil nupp.drop(r) end",
+                "local function sink(takes r: Res): nil own.drop(r) end",
                 "local function pass(takes r: Res): Res return r end",
                 "local function make(id: integer): Res return new Res(id = id) end",
                 "local function pick(flag: boolean): Res",
@@ -7241,17 +7241,17 @@ function M.anOwnedTemporaryThatIsBoundMovedOrReturnedIsAccepted()
                 "local d = open(6)",
                 "local h = new Holder(kept = open(7))",
                 "sink(open(8))",
-                "nupp.drop(open(9))",
+                "own.drop(open(9))",
                 "sink(make(10))",
                 "sink(pick(true))",
-                "local raw = @unsafe nupp.release(open(11))",
+                "local raw = @unsafe own.release(open(11))",
                 "print(raw.id)",
                 "with w = open(12) do print(w.id) end",
-                "nupp.drop(a)",
-                "nupp.drop(b)",
-                "nupp.drop(c)",
-                "nupp.drop(d)",
-                "nupp.drop(h)",
+                "own.drop(a)",
+                "own.drop(b)",
+                "own.drop(c)",
+                "own.drop(d)",
+                "own.drop(h)",
             },
             "\n"
         )
@@ -7269,7 +7269,7 @@ local PAIR = table.concat(
         "   left: Res",
         "   right: Res",
         "end",
-        "local function consume(takes r: Res): nil nupp.drop(r) end",
+        "local function consume(takes r: Res): nil own.drop(r) end",
         "local function pair(): Pair return new Pair(left = open(1), right = open(2)) end",
     },
     "\n"
@@ -7291,7 +7291,7 @@ function M.aFieldMovedOnSomePathsOfAnAutomaticOwnerIsDroppedConditionally()
                 "local function run(flag: boolean): nil",
                 "   local p = pair()",
                 "   if flag then consume(p.left) end",
-                "   nupp.drop(p)",
+                "   own.drop(p)",
                 "end",
                 "local function lexical(flag: boolean): nil",
                 "   local p = pair()",
@@ -7308,12 +7308,7 @@ function M.aFieldMovedOnSomePathsOfAnAutomaticOwnerIsDroppedConditionally()
     testAssert.equal(
         codes(
             PAIR .. "\n" .. table.concat(
-                {
-                    "local p = pair()",
-                    "if p.right.id == 2 then consume(p.left) end",
-                    "p.left = open(3)",
-                    "nupp.drop(p)",
-                },
+                {"local p = pair()", "if p.right.id == 2 then consume(p.left) end", "p.left = open(3)", "own.drop(p)",},
                 "\n"
             )
         ),
@@ -7330,8 +7325,8 @@ function M.aFieldMovedOnSomePathsOfAConsumingParameterIsReported()
                 {
                     "local function sink(takes p: Pair, flag: boolean): nil",
                     "   if flag then consume(p.left) end",
-                    "   nupp.drop(p.left)",
-                    "   nupp.drop(p.right)",
+                    "   own.drop(p.left)",
+                    "   own.drop(p.right)",
                     "end",
                     "sink(pair(), true)",
                 },
@@ -7344,8 +7339,8 @@ function M.aFieldMovedOnSomePathsOfAConsumingParameterIsReported()
         PAIR .. "\n" .. table.concat(
             {
                 "local function sink(takes p: Pair, flag: boolean): nil",
-                "   if flag then consume(p.left) else nupp.drop(p.left) end",
-                "   nupp.drop(p.right)",
+                "   if flag then consume(p.left) else own.drop(p.left) end",
+                "   own.drop(p.right)",
                 "end",
                 "sink(pair(), true)",
             },
@@ -7383,15 +7378,15 @@ function M.aFieldDischargedBeforeAReturnFromAConsumingParameterIsAccepted()
         PAIR .. "\n" .. table.concat(
             {
                 "local function sink(takes p: Pair): nil",
-                "   nupp.drop(p.left)",
-                "   nupp.drop(p.right)",
+                "   own.drop(p.left)",
+                "   own.drop(p.right)",
                 "   return",
                 "end",
                 "local function pass(takes p: Pair): Pair",
                 "   return p",
                 "end",
                 "sink(pair())",
-                "nupp.drop(pass(pair()))",
+                "own.drop(pass(pair()))",
             },
             "\n"
         )
@@ -7407,9 +7402,9 @@ function M.anOwnedFieldNarrowedToNilAtAReturnNeedsNoDischarge()
                 "   right: Res",
                 "end",
                 "local function sink(takes p: MaybePair): nil",
-                "   nupp.drop(p.right)",
+                "   own.drop(p.right)",
                 "   if p.left == nil then return end",
-                "   nupp.drop(p.left)",
+                "   own.drop(p.left)",
                 "end",
                 "sink(new MaybePair(left = open(1), right = open(2)))",
             },
@@ -7425,11 +7420,11 @@ function M.anOptionalConsumingParameterNarrowedToNilIsDischarged()
         CONSUMABLE .. "\n" .. table.concat(
             {
                 "local function sink(takes r: Res?): nil",
-                "   if r ~= nil then nupp.drop(r) end",
+                "   if r ~= nil then own.drop(r) end",
                 "end",
                 "local function other(takes r: Res?): nil",
                 "   if r == nil then return end",
-                "   nupp.drop(r)",
+                "   own.drop(r)",
                 "end",
                 "sink(open(1))",
                 "sink(nil)",
@@ -7441,7 +7436,7 @@ function M.anOptionalConsumingParameterNarrowedToNilIsDischarged()
     testAssert.equal(
         codes(
             CONSUMABLE
-            .. "\nlocal function sink(takes r: Res?, flag: boolean): nil\n   if flag then nupp.drop(r) end\nend\nsink(open(1), true)"
+            .. "\nlocal function sink(takes r: Res?, flag: boolean): nil\n   if flag then own.drop(r) end\nend\nsink(open(1), true)"
         ),
         "NUPP2603"
     )
@@ -7509,7 +7504,7 @@ function M.aSwitchArmNamingAnOwnerMovesIt()
                 "      case true -> a",
                 "      else -> do yield open(2) end",
                 "   end",
-                "   nupp.drop(b)",
+                "   own.drop(b)",
                 "end",
                 "pick(true)",
             },
@@ -7528,7 +7523,7 @@ function M.aSwitchArmNamingAnOwnerMovesIt()
                     "      else -> open(2)",
                     "   end",
                     "   use(a)",
-                    "   nupp.drop(b)",
+                    "   own.drop(b)",
                     "end",
                     "pick(true)",
                 },
@@ -7611,7 +7606,7 @@ function M.aLocalFunctionStillBorrowsItsCaptureAtEachCall()
                 "   return resource.value",
                 "end",
                 "print(peek())",
-                "nupp.drop(resource)",
+                "own.drop(resource)",
             },
             "\n"
         )
@@ -7625,7 +7620,7 @@ function M.aLocalFunctionStillBorrowsItsCaptureAtEachCall()
                     "local function peek(): integer",
                     "   return resource.value",
                     "end",
-                    "nupp.drop(resource)",
+                    "own.drop(resource)",
                     "print(peek())",
                 },
                 "\n"
@@ -7682,7 +7677,7 @@ function M.aRecordBuiltFromABorrowIsAViewOfItsRoot()
                 "   local holder = wrap(resource)",
                 "   print(holder.peek())",
                 "end",
-                "nupp.drop(resource)",
+                "own.drop(resource)",
             },
             "\n"
         )
@@ -7706,8 +7701,8 @@ function M.aBorrowCannotFillAnOwningRecordField()
                     "end",
                     "local resource = openClosureResource(7)",
                     "local holder = wrap(resource)",
-                    "nupp.drop(resource)",
-                    "nupp.drop(holder)",
+                    "own.drop(resource)",
+                    "own.drop(holder)",
                 },
                 "\n"
             )
@@ -7732,7 +7727,7 @@ function M.aBorrowCannotCrossAnAnyParameter()
                 "end",
                 "local resource = openClosureResource(7)",
                 "via(resource)",
-                "nupp.drop(resource)",
+                "own.drop(resource)",
             },
             "\n"
         )
@@ -7778,7 +7773,7 @@ function M.aBorrowCrossesACallableSlotThatDeclaresBorrows()
                 "end",
                 "local resource = openClosureResource(7)",
                 "print(via(resource))",
-                "nupp.drop(resource)",
+                "own.drop(resource)",
             },
             "\n"
         )
@@ -7794,7 +7789,7 @@ function M.aBorrowCrossesACallableSlotThatDeclaresBorrows()
                     "end",
                     "local resource = openClosureResource(7)",
                     "print(via(resource))",
-                    "nupp.drop(resource)",
+                    "own.drop(resource)",
                 },
                 "\n"
             )
@@ -7886,7 +7881,7 @@ function M.aBorrowMayReachThePreludesNonRetainingHelpers()
                 "local r = openClosureResource(1)",
                 "print(r)",
                 "print(probe(r))",
-                "nupp.drop(r)",
+                "own.drop(r)",
             },
             "\n"
         )
@@ -7907,7 +7902,7 @@ function M.aSharedArgumentMayReadThroughItsExclusiveView()
                 "   local pointer, count = writable:ref()",
                 "   print(pointer ~= nil, count)",
                 "end",
-                "nupp.drop(writable)",
+                "own.drop(writable)",
             },
             "\n"
         )
@@ -7934,7 +7929,7 @@ end
 function M.anExclusiveReceiverCanReborrowItselfForACallback()
     assertClean(
         [[
-local interface Output is nupp.Closeable
+local interface Output is own.Closeable
     write: function(exclusive self: Output, value: string): nil
 end
 local interface Emit<T>
@@ -7951,7 +7946,7 @@ end
     )
     local rejected = codes(
         [[
-local record Sink is nupp.Closeable
+local record Sink is own.Closeable
     function close(takes self): nil end
     function view(borrows self): Sink borrows(self)
         return self
@@ -7975,7 +7970,7 @@ function M.anAnnotationCannotMintAnOwnerFromAny()
     testAssert.equal(
         codes(
             RESOURCE .. table.concat(
-                {"", "local raw: any = {}", "local value: affine(resource*, resource_free) = raw", "nupp.drop(value)",},
+                {"", "local raw: any = {}", "local value: affine(resource*, resource_free) = raw", "own.drop(value)",},
                 "\n"
             )
         ),
@@ -7988,7 +7983,7 @@ function M.anAnnotationCannotMintAnOwnerFromAny()
                     "",
                     "local raw: resource* = resource_create()",
                     "local value: affine(resource*, resource_free) = raw",
-                    "nupp.drop(value)",
+                    "own.drop(value)",
                 },
                 "\n"
             )
@@ -8019,7 +8014,7 @@ function M.aRootedOwnerCannotOutliveItsRoot()
                     "   local sock = open_socket()",
                     "   tls = open_tls(sock)",
                     "end",
-                    "nupp.drop(tls)",
+                    "own.drop(tls)",
                 },
                 "\n"
             )
@@ -8036,7 +8031,7 @@ function M.aRootedOwnerCannotOutliveItsRoot()
                     "   local sock = open_socket()",
                     "   return open_tls(sock)",
                     "end",
-                    "nupp.drop(leak())",
+                    "own.drop(leak())",
                 },
                 "\n"
             )
@@ -8053,8 +8048,8 @@ function M.aRootedOwnerCannotOutliveItsRoot()
                     "   return open_tls(sock)",
                     "end",
                     "local sock = open_socket()",
-                    "nupp.drop(forget(sock))",
-                    "nupp.drop(sock)",
+                    "own.drop(forget(sock))",
+                    "own.drop(sock)",
                 },
                 "\n"
             )
@@ -8074,8 +8069,8 @@ function M.anAssignedRootedOwnerHoldsItsRoot()
                 "local sock = open_socket()",
                 "local tls: affine(TLS, close_tls)",
                 "tls = open_tls(sock)",
-                "nupp.drop(tls)",
-                "nupp.drop(sock)",
+                "own.drop(tls)",
+                "own.drop(sock)",
             },
             "\n"
         )
@@ -8088,8 +8083,8 @@ function M.anAssignedRootedOwnerHoldsItsRoot()
                     "local sock = open_socket()",
                     "local tls: affine(TLS, close_tls)",
                     "tls = open_tls(sock)",
-                    "nupp.drop(sock)",
-                    "nupp.drop(tls)",
+                    "own.drop(sock)",
+                    "own.drop(tls)",
                 },
                 "\n"
             )
@@ -8113,7 +8108,7 @@ function M.aChildSpanCannotOutliveItsWriter()
                     "   child = writable:slice(2, 3)",
                     "end",
                     "child[1] = 1 as int32",
-                    "nupp.drop(child)",
+                    "own.drop(child)",
                 },
                 "\n"
             )
@@ -8236,7 +8231,7 @@ local function transfer(flag: boolean): nil
         yield owner
     end
     print(owner.value)
-    nupp.drop(result)
+    own.drop(result)
 end
 ]]
     )
@@ -8248,15 +8243,15 @@ function M.unsafeAnnotationKeepsOwnershipChecksAndOperandGrammar()
         .. "\n"
         .. [[
 local raw = resource_create()
-local owner = @unsafe nupp.adopt<affine(resource*, resource_free)>(raw)
-local released = @unsafe nupp.release(owner)
-local restored = @unsafe nupp.adopt<affine(resource*, resource_free)>(released)
-nupp.drop(restored)
+local owner = @unsafe own.adopt<affine(resource*, resource_free)>(raw)
+local released = @unsafe own.release(owner)
+local restored = @unsafe own.adopt<affine(resource*, resource_free)>(released)
+own.drop(restored)
 ]]
     assertClean(source)
-    testAssert.equal(codes(source .. "\nlocal again = @unsafe nupp.release(owner)"), "NUPP2601")
-    testAssert.equal(codes("local n = @unsafe nupp.release(1)"), "NUPP2602 NUPP2602")
-    testAssert.equal(codes("local n = @unsafe nupp.adopt<integer>(1)"), "NUPP2602")
+    testAssert.equal(codes(source .. "\nlocal again = @unsafe own.release(owner)"), "NUPP2601")
+    testAssert.equal(codes("local n = @unsafe own.release(1)"), "NUPP2602 NUPP2602")
+    testAssert.equal(codes("local n = @unsafe own.adopt<integer>(1)"), "NUPP2602")
     testAssert.equal(codes([[local p: int32* = nil as any
 @unsafe local n: string = p[0]
 ]]), "NUPP2001")
@@ -8273,16 +8268,16 @@ resource_free(owner)
         "NUPP2603"
     )
     for _, expression in ipairs({
-        "nupp.release(first + second)",
-        "nupp.release((first or second))",
-        "nupp.adopt<Owner>((first or second))"
+        "own.release(first + second)",
+        "own.release((first or second))",
+        "own.adopt<Owner>((first or second))"
     }) do
         local parsed = parser.parse("local v = @unsafe " .. expression)
         testAssert.equal(#parsed.errors, 0)
         local node = parsed.root.blocks[1].stats[1].exprs[1]
         testAssert.equal(node.kind, "call")
         assert(node.expressionAnnotations)
-        testAssert.equal(node.args.exprs[1].kind, expression == "nupp.release(first + second)" and "binop" or "paren")
+        testAssert.equal(node.args.exprs[1].kind, expression == "own.release(first + second)" and "binop" or "paren")
     end
     assertClean([[local unsafe, adopt, release = print, print, print
 unsafe(1) adopt(2) release(3)
@@ -8295,9 +8290,9 @@ local log = ''
 local record Resource id: string end
 local function close(takes value: Resource): nil log = log .. value.id end
 local function open(id: string): affine(Resource, close) return new Resource(id = id) end
-local raw = @unsafe nupp.release(open('a'))
-local owner = @unsafe nupp.adopt<affine(Resource, close)>(raw)
-nupp.drop(owner)
+local raw = @unsafe own.release(open('a'))
+local owner = @unsafe own.adopt<affine(Resource, close)>(raw)
+own.drop(owner)
 local function run(): integer
     return @unsafe do
         local held = open('y')
@@ -8358,7 +8353,7 @@ print(other)
 ]])
     assert(bad:find("NUPP2607", 1, true), "exclusive native arguments must not overlap: " .. bad)
     bad = codes(prelude .. [[
-nupp.drop(xs)
+own.drop(xs)
 @unsafe do one(xp as float*) end
 ]])
     assert(bad:find("NUPP2602", 1, true), "a pointer keeps its column owner alive: " .. bad)
@@ -8368,22 +8363,22 @@ function M.explicitAffineClaimAndTransparentGenericBound()
     local source = [[
 local function releaseId(takes id: integer): nil end
 local function acquireId(): affine(integer, releaseId) return 7 end
-local function consume<C is nupp.Affine<releaseId>>(takes value: C): nil
+local function consume<C is own.Affine<releaseId>>(takes value: C): nil
     print(value)
-    nupp.drop(value)
+    own.drop(value)
 end
 
 consume(acquireId())
 
-local record Resource is nupp.Affine<self.finish>
+local record Resource is own.Affine<self.finish>
     function finish(takes self): nil end
 end
 local function acquire(): Resource return new Resource() end
 local owner: Resource = acquire()
-nupp.drop(owner)
+own.drop(owner)
 ]]
     assertClean(source)
-    local leak = codes(source:gsub("    nupp.drop%(value%)\n", ""))
+    local leak = codes(source:gsub("    own.drop%(value%)\n", ""))
     assert(leak:find("NUPP2603", 1, true), "a consuming bounded value must be discharged: " .. leak)
     local bad = codes(
         [[
@@ -8391,7 +8386,7 @@ local function releaseId(takes id: integer): nil end
 local record Incidental
     function close(takes self): nil end
 end
-local function accept<C is nupp.Affine<releaseId>>(takes value: C): nil end
+local function accept<C is own.Affine<releaseId>>(takes value: C): nil end
 accept(new Incidental())
 ]]
     )
@@ -8401,7 +8396,7 @@ end
 function M.closeableInheritsAffineAndAllowsSuspendingClose()
     local source = [[
 local park: function(): nil = nil as any
-local interface Stream is nupp.Closeable
+local interface Stream is own.Closeable
     next: function(exclusive self: Stream): Stream borrows (self)
 end
 local record Input is Stream
@@ -8412,14 +8407,14 @@ local record Input is Stream
 end
 local input = new Input()
 input:next()
-nupp.drop(input)
+own.drop(input)
 ]]
     assertClean(source)
-    local bad = codes(source:gsub("nupp.drop%(input%)", "@nosuspend do nupp.drop(input) end"))
+    local bad = codes(source:gsub("own.drop%(input%)", "@nosuspend do own.drop(input) end"))
     assert(bad:find("NUPP2701", 1, true), "a suspending close cannot run in a nosuspend region: " .. bad)
     assertClean(
         [[
-local record Child is nupp.Closeable
+local record Child is own.Closeable
     @effects(suspends = false) function close(takes self): nil end
 end
 local record Parent
@@ -8435,7 +8430,7 @@ end
 local record Incidental
     function close(takes self): nil end
 end
-local function accept<C is nupp.Closeable>(takes value: C): nil end
+local function accept<C is own.Closeable>(takes value: C): nil end
 accept(new Incidental())
 ]]
     )
@@ -8505,7 +8500,7 @@ end
 local step = acquireStep()
 for n in step, 7, nil do break end
 events[#events + 1] = "after"
-nupp.drop(step)
+own.drop(step)
 return table.concat(events, ",")
 ]]
     local result, diags = checked(source)
@@ -8626,7 +8621,7 @@ function M.genericForOwnsAnInherentlyAffineCallableRecord()
     local got = runGenerated(
         [[
 local events: {string} = {}
-local record Iterator is nupp.Closeable
+local record Iterator is own.Closeable
     current: integer
     function close(takes self): nil
         events[#events + 1] = "close"
@@ -8649,7 +8644,7 @@ return table.concat(events, ",")
 end
 
 function M.ownershipIntrinsicsCannotBeStoredAsValues()
-    for _, expression in ipairs({"nupp.adopt", "nupp.release", "nupp.drop"}) do
+    for _, expression in ipairs({"own.adopt", "own.release", "own.drop"}) do
         local bad = codes("local intrinsic = " .. expression .. "\nprint(intrinsic)")
         assert(bad ~= "", expression .. " became a first-class value")
     end
@@ -8669,10 +8664,10 @@ function M.anAliasAppliedInAParameterKeepsItsArgumentsOwnership()
                 "end",
                 "local type Alias<S> = Sink<S>",
                 "local interface Uses",
-                "    run: function<S is nupp.Closeable>(self, sink: Sink<S>): nil",
+                "    run: function<S is own.Closeable>(self, sink: Sink<S>): nil",
                 "end",
                 "local record Impl is Uses",
-                "    function run<S is nupp.Closeable>(self, sink: Alias<S>): nil",
+                "    function run<S is own.Closeable>(self, sink: Alias<S>): nil",
                 "    end",
                 "end",
                 "print(new Impl())",

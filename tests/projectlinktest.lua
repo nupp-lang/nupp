@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
@@ -726,7 +726,7 @@ local use = {}
 
 function use.touch(path: string): nil
     local file = res.open(path)
-    nupp.drop(file)
+    own.drop(file)
 end
 
 return use
@@ -849,8 +849,8 @@ local record User
 end
 
 @comptime local function Structural(T: type): type
-    local fields: {schema.Field} = nupp.types.fields(T)
-    return nupp.types.shape(fields)
+    local fields: {schema.Field} = types.fields(T)
+    return types.shape(fields)
 end
 
 export type UserView = Structural(User)
@@ -1273,7 +1273,7 @@ return model
 local model = require("model")
 
 local a = new model.Account("Ada", 42)
-nupp.drop(a)
+own.drop(a)
 
 return 0
 ]],

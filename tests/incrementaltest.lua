@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local query = require("nupp.compiler.project.query")
 local incremental = require("nupp.compiler.project.incremental")
 
@@ -259,7 +259,7 @@ function M.changingADeriveProviderReplansItsClaim()
     end
 
     local model = table.concat(
-        {"module model", "@derive(nupp.derive.Debug)", "export record Config", "   value: string", "end",},
+        {"module model", "@derive(types.Debug)", "export record Config", "   value: string", "end",},
         "\n"
     )
     write(modelPath, model)
@@ -278,7 +278,7 @@ function M.changingADeriveProviderReplansItsClaim()
     local inc = incremental.new(dir, {cache = false})
     testAssert.equal(#inc.checkFile(mainPath).diags, 0, "the first provider claim checks")
 
-    inc.changeDocument(modelPath, model:gsub("@derive%(nupp.derive.Debug%)", ""))
+    inc.changeDocument(modelPath, model:gsub("@derive%(types.Debug%)", ""))
     local changed = inc.checkFile(mainPath)
     testAssert.equal(
         changed.diags[1] and changed.diags[1].code,
@@ -326,7 +326,7 @@ function M.countedPointerLogicalSignaturesCrossModuleSummaries()
                 "local writer = spans.writeCarray(output, 4)",
                 "local reader = spans.fromCarray(input, 4)",
                 "native.copy(writer, reader)",
-                "nupp.drop(writer)",
+                "own.drop(writer)",
             },
             "\n"
         )
@@ -372,7 +372,7 @@ function M.deriveRecipesMemoizeAndPublishBehaviorChanges()
     local dep = table.concat(
         {
             "local dep = {}",
-            "@derive(nupp.derive.Debug)",
+            "@derive(types.Debug)",
             "record dep.Config",
             "   entries: {[string]: string} = {}",
             "end",
@@ -444,10 +444,10 @@ function M.deriveDocumentationChangesInvalidateGeneratedBehavior()
                 "   documentation: function(self): string",
                 "end",
                 "function M.returnText(text: string): string return text end",
-                "@comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Documented>",
-                "   return nupp.derive.implement{methods = {documentation = nupp.derive.forward{",
-                "      helper = nupp.derive.helper(M, 'returnText'),",
-                "      arguments = {nupp.derive.constant(info.documentation or '')},",
+                "@comptime function M.derive(info: types.derive.Info): types.derive.Result<M.Documented>",
+                "   return types.derive.implement{methods = {documentation = types.derive.forward{",
+                "      helper = types.derive.helper(M, 'returnText'),",
+                "      arguments = {types.derive.constant(info.documentation or '')},",
                 "   }}}",
                 "end",
                 "return M",
@@ -869,7 +869,7 @@ function M.reflectionDependsOnlyOnTheExportedTypeItReads()
         table.concat(
             {
                 "const SUMMARY = comptime do",
-                "   local info = nupp.reflect(Reflected)",
+                "   local info = types.reflect(Reflected)",
                 "   return info.fields[1].name",
                 "end",
                 "return SUMMARY",
@@ -1340,8 +1340,8 @@ function M.stagingACarriedModuleChecksNothingAgain()
     file:write(
         table.concat(
             {
-                "const {type Observers} = require('nupp.events')",
-                "local events = require('nupp.events')",
+                "const {type Observers} = require('events')",
+                "local events = require('events')",
                 "local files = require('nupp.io.files')",
                 "local m = {}",
                 "record m.Holder",
@@ -1384,12 +1384,12 @@ function M.stagingACarriedModuleChecksNothingAgain()
 
     -- Nor is a staged copy whose text is not what the compiler carries: it answers for
     -- the name, and what requires the name is checked against it.
-    local events = assert(require("nupp.compiler.bundled").source("/nupp/events.nupp"))
+    local events = assert(require("nupp.compiler.bundled").source("/events.nupp"))
     os.execute("mkdir -p '" .. staged .. "/nupp'")
-    local changed = assert(io.open(staged .. "/nupp/events.nupp", "wb"))
+    local changed = assert(io.open(staged .. "/events.nupp", "wb"))
     changed:write(events .. "\n-- edited\n")
     changed:close()
-    inc.stageCarriedDocument("nupp.events", staged .. "/nupp/events.nupp", events .. "\n-- edited\n")
+    inc.stageCarriedDocument("events", staged .. "/events.nupp", events .. "\n-- edited\n")
     testAssert.equal(#inc.checkFile(mainPath).diags, 0, "the edited copy still checks")
     assert(inc.q.stats.checkModule > checks, "a copy that differs is checked, and so is what requires it")
 

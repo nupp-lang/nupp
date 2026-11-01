@@ -1,4 +1,4 @@
-local test = require("nupp.test")
+local test = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local checker = require("nupp.compiler.check")
 local environment = require("nupp.compiler.project.env")
@@ -192,11 +192,16 @@ function M.flaggedArgumentCountsAndPhysicalOverflowRefuse()
         function()
             executable.fromChecked(
                 checked(
-                    "local function wide(" .. table.concat(wide, ", ") .. "): boolean\n"
-                    .. table.concat(locals, "\n")
-                    .. "\nif p1 then v1 = false end\nreturn v190\nend\nreturn wide("
-                    .. table.concat(actual, ", ")
-                    .. ")"
+                    "local function wide(" .. table.concat(
+                        wide,
+                        ", "
+                    ) .. "): boolean\n" .. table.concat(
+                        locals,
+                        "\n"
+                    ) .. "\nif p1 then v1 = false end\nreturn v190\nend\nreturn wide(" .. table.concat(
+                        actual,
+                        ", "
+                    ) .. ")"
                 )
             )
         end,

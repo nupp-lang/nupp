@@ -1,4 +1,4 @@
-local test = require("nupp.test")
+local test = require("assert")
 local project = require("nupp.tools.vm.project")
 local compile = require("nupp.tools.cli.compile")
 local environment = require("nupp.compiler.project.env")

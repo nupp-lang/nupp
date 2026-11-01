@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- The nupp.bench surface: the harness conventions and the comparison rules, which
 -- baselines compare and what a comparison only reports. The two that matter are that
 -- the record's schema keys a baseline -- an older record is an inconclusive one -- and
@@ -38,7 +38,7 @@ local M = {}
 
 function M.bundledBenchmarkChecksWithoutCheckoutModuleRoots()
     local standalone = envMod.new(".", {config = {include = {}}, typeRoots = {}, cache = false})
-    local source = [[local bench = require("nupp.bench")
+    local source = [[local bench = require("debug.bench")
 bench.case("standalone", function(case)
     bench.keep(case.n)
 end)
@@ -50,7 +50,7 @@ bench.report()
     for _, diagnostic in ipairs(diagnostics) do
         assert(diagnostic.severity ~= "error", diagnostic.msg)
     end
-    assert(envMod.resolveModule(standalone, "nupp.bench"))
+    assert(envMod.resolveModule(standalone, "debug.bench"))
 end
 
 function M.everyTopLevelNuppBenchmarkUsesTheHarness()
@@ -62,7 +62,7 @@ function M.everyTopLevelNuppBenchmarkUsesTheHarness()
     testAssert.equal(#paths, 6, "all six top-level Nupp benchmarks are present")
     for _, path in ipairs(paths) do
         assert(path:match("%.bench%.nupp$") ~= nil, path .. " does not use the benchmark discovery convention")
-        assert(read(path):find("nupp.bench", 1, true) ~= nil, path .. " does not use the shared harness")
+        assert(read(path):find("debug.bench", 1, true) ~= nil, path .. " does not use the shared harness")
     end
 end
 
@@ -70,7 +70,7 @@ end
 -- execution profile, and once nothing wrote one every comparison said "execution
 -- profile differs; nothing is comparable": the gate was off and read like a pass.
 function M.aBaselineOfTheSameSchemaCompares()
-    local bench = require("nupp.bench")
+    local bench = require("debug.bench")
     local compiler = {version = "0.0.0", digest = "aaaaaaaaaaaaaaaaaaaa"}
     local baseline = {schema = bench.SCHEMA, compiler = compiler, cases = {{name = "parse", kind = "case", n = 4}}}
     local record = {
@@ -103,7 +103,7 @@ end
 -- An older record still reads as a baseline, and an inconclusive one. A schema four
 -- record named the optimization level it timed, which no longer exists.
 function M.anOlderSchemaBaselineIsInconclusive()
-    local bench = require("nupp.bench")
+    local bench = require("debug.bench")
     local older = {
         schema = bench.SCHEMA - 1,
         executionProfile = {optLevel = 1, disabled = ""},
@@ -119,7 +119,7 @@ function M.anOlderSchemaBaselineIsInconclusive()
 end
 
 function M.duplicateBenchmarkNamesAreRejected()
-    local bench = require("nupp.bench")
+    local bench = require("debug.bench")
     bench.case("duplicate-name", function()
     end)
     local ok, err = pcall(function()
@@ -131,7 +131,7 @@ function M.duplicateBenchmarkNamesAreRejected()
 end
 
 function M.formatsHumanResultsAsPerOperationScores()
-    local bench = require("nupp.bench")
+    local bench = require("debug.bench")
     local rendered = bench.format({
         cases = {
             {name = "parse", kind = "case", n = 4, rounds = 7, medianMs = 0.000004, allocatedKb = 0.5,},
@@ -159,7 +159,7 @@ note: 1 fork per benchmark. p25-p99 is within-process spread, NOT a confidence
 end
 
 function M.formatsSuiteAllocationAsBytesPerRepresentedOperation()
-    local bench = require("nupp.bench")
+    local bench = require("debug.bench")
     local rendered = bench.format({
         cases = {
             {
@@ -183,7 +183,7 @@ end
 -- and the note are the whole defence against a reader treating one process's quartiles
 -- as an error bar, so both are asserted rather than left to review.
 function M.singleForkTableRefusesToCallItsSpreadAnInterval()
-    local bench = require("nupp.bench")
+    local bench = require("debug.bench")
     local rendered = bench.format({
         cases = {
             {
@@ -211,7 +211,7 @@ end
 -- The replicated table carries the coverage it attained, and the attained value for ten
 -- forks is the sign test's, not the one that was asked for.
 function M.replicatedTableReportsAttainedCoverage()
-    local bench = require("nupp.bench")
+    local bench = require("debug.bench")
     local rendered = bench.format(
         {
             cases = {
@@ -243,7 +243,7 @@ end
 -- A benchmark whose interval was withheld says so in the column rather than leaving it
 -- blank, because a blank reads as "no change" to anyone skimming.
 function M.withheldIntervalIsNamedInTheTable()
-    local bench = require("nupp.bench")
+    local bench = require("debug.bench")
     local rendered = bench.format(
         {
             cases = {
@@ -267,7 +267,7 @@ function M.withheldIntervalIsNamedInTheTable()
 end
 
 function M.formatsComparativeSuitesWithBaselineRatios()
-    local bench = require("nupp.bench")
+    local bench = require("debug.bench")
     local record = {
         cases = {
             {
@@ -820,7 +820,7 @@ end
 -- baseline is read, and the refusal names the record's schema and the ones this
 -- version reads.
 function M.aBaselineWithASchemaThisVersionCannotReadIsRefused()
-    local bench = require("nupp.bench")
+    local bench = require("debug.bench")
     testAssert.equal(bench.SCHEMA, 5, "records are written at schema 5")
     for _, schema in ipairs({2, 3, 4, 5}) do
         local document, refused = bench.decodeBaseline(('{"schema":%d,"cases":[]}'):format(schema), "b.json")
@@ -843,7 +843,7 @@ end
 
 -- A checksum is text so two runtimes rendering one number differently still agree.
 function M.checksumTextRendersWholeNumbersAsIntegers()
-    local bench = require("nupp.bench")
+    local bench = require("debug.bench")
     testAssert.equal(bench.checksumText(832040), "832040", "a whole number is an integer")
     testAssert.equal(bench.checksumText(3.0), "3", "an integral float is the same integer")
     testAssert.equal(bench.checksumText(-7), "-7", "and so is a negative one")
@@ -854,7 +854,7 @@ end
 -- The one deterministic counter a baseline gates: a case that computed a different
 -- answer is a failure, where a case without one, on either side, is not compared.
 function M.aChecksumIsGatedAgainstTheBaseline()
-    local bench = require("nupp.bench")
+    local bench = require("debug.bench")
 
     local function record(checksum)
         return {schema = bench.SCHEMA, cases = {{name = "fib", kind = "case", n = 1, checksum = checksum}}}

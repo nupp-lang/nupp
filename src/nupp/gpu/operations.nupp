@@ -3,9 +3,9 @@ module nupp.gpu.operations
 
 local api = require("nupp.gpu.api")
 local types = require("nupp.gpu.types")
-local tensorlayout = require("nupp.gpu.layout")
+local tensorlayout = require("gpu.layout")
 local layoutFacts = require("nupp.gpu.layoutfacts").layoutFacts
-local {type Layout as TensorLayout} = require("nupp.gpu.layout")
+local {type Layout as TensorLayout} = require("gpu.layout")
 local array = require("nupp.mem.array")
 local gpu = {}
 
@@ -127,7 +127,7 @@ end
 
 function gpu.Phases.run(borrows self: gpu.Phases, scoped stage: function(uint32): nil): nil
     for index = 0, self._size - 1 do
-        stage(nupp.math.u32.wrap(index))
+        stage(math.u32.wrap(index))
     end
 end
 
@@ -142,9 +142,7 @@ function gpu.Phases.reduceSum(borrows self: gpu.Phases, exclusive valuesInput: a
         self:run(function(localIndex: uint32)
             local lane = localIndex as integer
             if lane < active then
-                values[
-                    lane
-                ] = nupp.math.f32.add(nupp.math.f32.narrow(values[lane]), nupp.math.f32.narrow(values[lane + active]))
+                values[lane] = math.f32.add(math.f32.narrow(values[lane]), math.f32.narrow(values[lane + active]))
             end
         end)
         stride = stride // 2
@@ -174,8 +172,8 @@ function gpu.Phases.inclusiveScan(
                 local lane = localIndex as integer
                 local value = values[lane]
                 if lane >= distance then
-                    local earlier = nupp.math.u32.wrap(values[lane - distance] as integer)
-                    value = nupp.math.u32.wrap(value as integer) + earlier
+                    local earlier = math.u32.wrap(values[lane - distance] as integer)
+                    value = math.u32.wrap(value as integer) + earlier
                 end
                 temporary[lane] = value
             end)
@@ -184,8 +182,8 @@ function gpu.Phases.inclusiveScan(
                 local lane = localIndex as integer
                 local value = temporary[lane]
                 if lane >= distance then
-                    local earlier = nupp.math.u32.wrap(temporary[lane - distance] as integer)
-                    value = nupp.math.u32.wrap(value as integer) + earlier
+                    local earlier = math.u32.wrap(temporary[lane - distance] as integer)
+                    value = math.u32.wrap(value as integer) + earlier
                 end
                 values[lane] = value
             end)
@@ -218,7 +216,7 @@ function gpu.workgroups(groups: uint32, size: uint32, scoped controller: functio
     end
     local phases = new types.Phases(_size = groupSize)
     for groupIndex = 0, groupCount - 1 do
-        controller(nupp.math.u32.wrap(groupIndex), phases)
+        controller(math.u32.wrap(groupIndex), phases)
     end
 end
 

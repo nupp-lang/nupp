@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local ir = require("nupp.compiler.comptime.materialize.ir")
 local codec = require("nupp.compiler.comptime.materialize.codec")
 local providers = require("nupp.compiler.comptime.materialize.providers")

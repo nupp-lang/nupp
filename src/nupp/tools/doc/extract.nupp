@@ -73,7 +73,7 @@ record extract.Member
     --- The compiler-only value kind, when this member exists only during comptime.
     comptimeKind: string?
 
-    --- What it was annotated with, as written, such as `@derive(nupp.derive.Debug)`.
+    --- What it was annotated with, as written, such as `@derive(types.Debug)`.
     annotations: {string}?
 end
 
@@ -522,6 +522,9 @@ local function functionSignature(stat, name)
         end
     end
     local result = prefix .. shownName .. genericText(body) .. "(" .. table.concat(params, ", ") .. ")"
+    if body and body.yieldPack then
+        result = result .. " yields " .. syntax(body.yieldPack) .. " resumes " .. syntax(body.resumePack)
+    end
     if #returns > 0 then
         result = result .. ": " .. table.concat(returns, ", ")
     end
@@ -867,7 +870,7 @@ local function byKindThenName(left, right)
     return left.kind < right.kind
 end
 
-local declarationItem: function(any, string, boolean, boolean, boolean, {[string]: boolean}?): extract.Item?
+local declarationItem: function(any, string, boolean, boolean, boolean, {[string]: boolean}?, string?): extract.Item?
 
 -- What a shape-typed thing holds: an inline shape's own fields, or the fields of the
 -- record a field spelled as a name refers to, when the same file declares one. A field
@@ -1191,7 +1194,7 @@ end
 -- wrapper owns the leading trivia, so documentation comes from the outside while the
 -- name, signature and visibility come from the declaration at the centre. Following
 -- every wrapper also handles stacked annotations.
-declarationItem = function(stat, moduleName, everyDeclaration, declarationFile, includePrivate, published)
+declarationItem = function(stat, moduleName, everyDeclaration, declarationFile, includePrivate, published, moduleLocal)
     local documented = stat
     local applied = {}
     while stat.kind == "pragmaStmt" and stat.stat do
@@ -1274,6 +1277,11 @@ declarationItem = function(stat, moduleName, everyDeclaration, declarationFile, 
     if stat.kind == "typeAlias" or stat.kind == "recordDecl" then
         local qualified = declaredName(stat)
         itemModule = qualified:match("^(.*)%.[^.]+$")
+        if itemModule == moduleLocal then
+            -- A local export table owns declarations in this module, even when
+            -- its name also names a different public module.
+            itemModule = nil
+        end
     end
     local moduleTail = moduleName:match("([^.]+)$") or moduleName
     if not itemModule and name:sub(1, #moduleTail + 1) == moduleTail .. "." then
@@ -1625,6 +1633,24 @@ function extract.extract(
             if info.tags.internal and not opts.includePrivate then
                 shapePublic = false
             end
+            -- A named namespace can publish a declaration's fields while its
+            -- backing record remains private.
+            local recordNamespace = declarationFile
+                and stat.kind == "recordDecl"
+                and type(info.tags.namespace) == "string"
+                and not opts.shapesAsModules
+            if stat.kind == "recordDecl" and recordNamespace then
+                shapeModule(
+                    info.tags.namespace,
+                    stat.entries,
+                    info.text,
+                    path,
+                    parsed.root.blocks,
+                    opts.includePrivate,
+                    {},
+                    extraModules
+                )
+            end
             if shape and info.tags.namespace and shapePublic then
                 if not opts.shapesAsModules then
                     local prefix = info.tags.namespace == true and name or info.tags.namespace
@@ -1640,14 +1666,15 @@ function extract.extract(
                 ) do
                     extraModules[#extraModules + 1] = module
                 end
-            else
+            elseif not recordNamespace or opts.includePrivate then
                 local item = declarationItem(
                     stat,
                     name,
                     opts.includePrivate,
                     declarationFile,
                     opts.includePrivate,
-                    published
+                    published,
+                    result.moduleLocal
                 )
                 if item then
                     result.items[#result.items + 1] = item
@@ -1664,6 +1691,55 @@ function extract.extract(
         publishedTables(parsed.root, result.moduleLocal)
     )
     table.sort(result.items, byKindThenName)
+
+    -- A private implementation can publish its existing declarations under a host
+    -- table's public namespace without making its own module a public API.
+    local _, moduleNode = cst.declaredModule(parsed.root)
+    local namespace = moduleNode and parseDoc(docLines(moduleNode)).tags.namespace
+    if type(namespace) == "string" and namespace ~= name then
+        local projection = extract.extract(source, path, namespace, {includePrivate = false})
+        if projection then
+            projection.documentationInternal = nil
+            local localName = projection.moduleLocal
+
+            local function publicName(text: string): string
+                if localName then
+                    return (text:gsub("%f[%w_]" .. localName .. "%.", namespace .. "."))
+                end
+                return text
+            end
+
+            local function members(values: {extract.Member}): nil
+                for _, value in ipairs(values) do
+                    value.path = publicName(value.path)
+                    value.type = publicName(value.type)
+                    for _, param in ipairs(value.params or {}) do
+                        param.type = publicName(param.type)
+                    end
+                    for _, returned in ipairs(value.returns or {}) do
+                        returned.type = publicName(returned.type)
+                    end
+                    members(value.members or {})
+                end
+            end
+
+            for _, item in ipairs(projection.items) do
+                if localName and item.name:sub(1, #localName + 1) == localName .. "." then
+                    item.name = item.name:sub(#localName + 2)
+                end
+                item.path = namespace .. "." .. item.name
+                item.signature = publicName(item.signature)
+                for _, param in ipairs(item.params) do
+                    param.type = publicName(param.type)
+                end
+                for _, returned in ipairs(item.returns) do
+                    returned.type = publicName(returned.type)
+                end
+                members(item.members)
+            end
+            extraModules[#extraModules + 1] = projection
+        end
+    end
 
     return result, {}, extraModules
 end

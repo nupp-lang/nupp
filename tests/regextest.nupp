@@ -1,6 +1,6 @@
 -- nupp.text.regex: the typed surface over the VM's `regex` crate provider.
 local regex = require("nupp.text.regex")
-local test = require("nupp.test")
+local test = require("assert")
 
 local M = {}
 

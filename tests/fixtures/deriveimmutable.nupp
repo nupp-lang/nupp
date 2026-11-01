@@ -1,3 +1,5 @@
+const derive2 = require("types.derive")
+
 local M = {}
 
 interface M.Contract
@@ -9,11 +11,11 @@ function M.value(): string
 end
 
 @comptime
-function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Contract>
+function M.derive(info: types.derive.Info): types.derive.Result<M.Contract>
     info.fields[1] = info.fields[1]
 
-    return nupp.derive.implement{
-        methods = {value = nupp.derive.forward{helper = nupp.derive.helper(M, "value"), arguments = {},},},
+    return derive2.implement{
+        methods = {value = derive2.forward{helper = derive2.helper(M, "value"), arguments = {},},},
     }
 end
 

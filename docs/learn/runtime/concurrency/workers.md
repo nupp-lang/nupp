@@ -181,7 +181,7 @@ same lanes and pay ten thousand copies to do it.
 
 The first fork creates one scheduler for the process. Its lane count is the
 host's online processor count, capped at 64, and
-`nupp.system.availableParallelism()` returns that count without opening
+`os.info().parallelism` returns that count without opening
 anything. Later and concurrent scopes reuse the same lanes rather than creating
 a pool or a thread per task.
 
@@ -416,7 +416,7 @@ export function fill(takes frame: heap.Array<uint8>, seed: integer): affine(heap
     for index = 1, #writable do
         writable[index] = (seed + index) % 256
     end
-    nupp.drop(writable)
+    own.drop(writable)
 
     return frame
 end
@@ -429,7 +429,7 @@ with scope = tasks.open() do
         frame = scope:fork(frame, generation, jobs.fill):await()
     end
 end
-nupp.drop(frame)
+own.drop(frame)
 ```
 
 Sixty generations shuttle one allocation between lanes with nothing copied

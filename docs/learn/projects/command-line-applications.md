@@ -4,11 +4,11 @@ order: 570
 
 # Command-line applications
 
-`nupp.cli` parses raw option tokens or derives complete applications from typed
+`arg` parses raw option tokens or derives complete applications from typed
 records. Types control argument conversion, while doc comments supply help text.
 
 ```nupp
-local cli = require("nupp.cli")
+local cli = require("arg")
 
 @derive(cli.Arguments)
 local record Options
@@ -37,7 +37,7 @@ ends. `next` returns a token kind; the token's data remains on the parser until
 the following `next` call.
 
 ```nupp
-local cli = require("nupp.cli")
+local cli = require("arg")
 
 local parser = cli.optParser(arg, {
     arity = {output = cli.required, verbose = cli.none},
@@ -66,7 +66,7 @@ errors. `--` makes every remaining word an argument.
 until an argument matches, so a required positional can follow them.
 
 ```nupp
-local cli = require("nupp.cli")
+local cli = require("arg")
 
 @derive(cli.Arguments)
 local record Input
@@ -90,7 +90,7 @@ parent returns its children from `subcommands`, so the tree reads from the top
 down.
 
 ```nupp
-local cli = require("nupp.cli")
+local cli = require("arg")
 
 --- Search files.
 @cli(name = "gmatch")
@@ -174,14 +174,14 @@ hidden `__complete` command, so the answer is always the current grammar's.
 
 ## Use terminal colors
 
-`cli.style(stream)` returns styles that become identity functions when color is
+`io.style(stream)` returns styles that become identity functions when color is
 disabled.
 
 ```nupp:fragment
-local styles = cli.style(io.stderr)
-io.stderr:write(styles.bold("error:") .. " bad input\n")
+local styles = io.style(io.stderr)
+io.stderr:write(styles.strong("error:") .. " bad input\n")
 ```
 
 Automatic color respects the output stream, `NO_COLOR`, `CLICOLOR_FORCE`, and
 `TERM=dumb`; override it with
-`cli.setColorMode("always" | "never" | "auto")`.
+`io.setColorMode("always" | "never" | "auto")`.

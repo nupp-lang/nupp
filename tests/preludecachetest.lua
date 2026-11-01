@@ -60,7 +60,7 @@ local SAMPLES = {
     -- Reaches the string library, which is a prelude root of its own.
     "local n = ('abc'):len()\nreturn n\n",
     -- Reaches a prelude interface by name.
-    "local c: nupp.Closeable? = nil\nreturn c\n",
+    "local c: own.Closeable? = nil\nreturn c\n",
     -- And one the checker has to reject, so agreement is not agreement on silence.
     "local n: integer = 'not a number'\nreturn n\n",
 }

@@ -16,7 +16,7 @@ local store = require("nupp.util.internal.store")
 
 local extensions = {}
 local states: any = setmetatable({}, {__mode = "k"})
--- The provider behind each key, by id. A key is an anonymous `nupp.util.Key`:
+-- The provider behind each key, by id. A key is an anonymous `types.Key`:
 -- its id identifies the extension only inside this process, may change when
 -- module initialization order changes, and must never become a persistent or
 -- wire identity.
@@ -24,7 +24,7 @@ local providers: {[integer]: any} = {}
 
 --- Creates a typed extension key.
 --- @export
-function extensions.key<T>(build: function(host: any): T): nupp.reflect.ExtensionKey<T>
+function extensions.key<T>(build: function(host: any): T): types.reflect.ExtensionKey<T>
     local key: store.Key<T> = store.newKey(nil)
     providers[key.id] = build
 
@@ -47,7 +47,7 @@ end
 --- @raises string when the host is foreign, the key is not an extension key,
 ---     initialization recurs, or the provider fails
 --- @internal
-function extensions.resolve<T>(host: any, key: nupp.reflect.ExtensionKey<T>): T
+function extensions.resolve<T>(host: any, key: types.reflect.ExtensionKey<T>): T
     local state = states[host]
     if state == nil then
         error("nupp: value is not an extension host", 2)

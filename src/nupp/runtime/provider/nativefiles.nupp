@@ -10,7 +10,7 @@ they return, so `pendingTransfers` is always zero.
 ]]
 
 const host = require("nupp.vm.files")
-const paths = require("nupp.io.path")
+const paths = require("io.path")
 const io = require("nupp.io")
 const span = require("nupp.mem.span")
 const messages = require("nupp.io.files.messages")
@@ -149,7 +149,7 @@ export record File is io.Reader, io.Writer
             for index = 1, taking do
                 output[index] = input[index]
             end
-            nupp.drop(output)
+            own.drop(output)
         end
         lease:commit(taking)
 
@@ -270,7 +270,7 @@ export record File is io.Reader, io.Writer
 end
 
 function File.close(takes self: File): nil
-    local state = @unsafe nupp.release(self)
+    local state = @unsafe own.release(self)
     if state._closed then
         return
     end
@@ -278,7 +278,7 @@ function File.close(takes self: File): nil
     host.fileClose(state._handle)
 end
 
-export record TemporaryPath is nupp.Closeable
+export record TemporaryPath is own.Closeable
     @private _text: string
     @private _directory: boolean
     @private _closed: boolean
@@ -318,7 +318,7 @@ export record TemporaryPath is nupp.Closeable
 end
 
 function TemporaryPath.close(takes self: TemporaryPath): nil
-    local state = @unsafe nupp.release(self)
+    local state = @unsafe own.release(self)
     if state._closed then
         return
     end

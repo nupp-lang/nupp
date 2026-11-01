@@ -10,9 +10,9 @@ end
 
 function M.describesFalsyAssertions()
     local err = test.raises(function()
-        test.assert(nil)
+        test(nil)
     end)
-    test.matches(err, "expected a truthy value, got nil")
+    test.matches(err, "assertion failed!$")
 end
 
 function M.keepsCallerMessage()
@@ -44,8 +44,8 @@ function M.boundsRenderedValuesBySize()
     local err = test.raises(function()
         test.equal(value, {}, "large value")
     end)
-    test.assert(#err < 700, "rendered assertion exceeded its size budget")
-    test.assert(err:find("...", 1, true), "rendered assertion did not mark its truncation")
+    test(#err < 700, "rendered assertion exceeded its size budget")
+    test(err:find("...", 1, true), "rendered assertion did not mark its truncation")
 end
 
 function M.comparesStructuresAndReportsTheFirstPath()
@@ -113,20 +113,100 @@ function M.usesNativeLeafEqualityAndRefusesUnorderedKeys()
 end
 
 function M.preservesSuccessfulAssertionResultsExactly()
-    test.equal(select("#", test.assert(true)), 1)
-    test.equal(select("#", test.assert("value", nil)), 2)
-    local value, message = test.assert("value", "message")
+    test.equal(select("#", test(true)), 1)
+    test.equal(select("#", test("value", nil)), 2)
+    local value, message = test("value", "message")
     test.equal(value, "value")
     test.equal(message, "message")
 end
 
 function M.identifiesSkippedTests()
     local ok, skip = pcall(function()
-        test.skip("needs a network connection")
+        test.suite.skip("needs a network connection")
     end)
-    test.assert(not ok)
-    test.assert(test.isSkip(skip))
-    test.equal(test.skipReason(skip), "needs a network connection")
+    test(not ok)
+    test(test.suite.isSkip(skip))
+    test.equal(test.suite.skipReason(skip), "needs a network connection")
+end
+
+function M.theCallableIsTheGlobalAndRequiredModule()
+    test.equal(type(test), "table")
+    test.equal(test, assert)
+    test.equal(test, rawget(_G, "assert"))
+    test.equal(test, require("assert"))
+    test.equal(rawget(test, "assert"), nil)
+    test.equal(rawget(test, "skip"), nil)
+    for _, name in ipairs({
+        "skip",
+        "isSkip",
+        "skipReason",
+        "cases",
+        "notExecuted",
+        "isNotExecuted",
+        "notExecutedReason",
+        "requireCapability",
+        "fact",
+        "metric",
+        "work",
+        "fixture"
+    }) do
+        test.equal(type(test.suite[name]), "function", name)
+    end
+end
+
+function M.preservesErrorObjectsAndEvaluatesEveryArgument()
+    for _, message in ipairs({"failure", false, {reason = "error object"}}) do
+        local succeeded, problem = pcall(test, false, message)
+        test.equal(succeeded, false)
+        test.equal(problem, message)
+    end
+    local succeeded, problem = pcall(test, false, 17)
+    test.equal(succeeded, false)
+    test.equal(tostring(problem), "17")
+    local count = 0
+
+    local function argument(value)
+        count = count + 1
+        return value
+    end
+
+    succeeded, problem = pcall(function()
+        test(argument(false), argument("failure"), argument(42))
+    end)
+    test.equal(succeeded, false)
+    test.matches(problem, "failure$")
+    test.equal(count, 3)
+
+    local function collect(...)
+        return {n = select("#", ...), ...}
+    end
+
+    test.deepEqual(collect(test("value", nil, false, nil)), {n = 4, "value", nil, false})
+end
+
+function M.suiteHelpersKeepTheirOriginalInternalBindings()
+    local suite = test.suite
+    local isSkip, isNotExecuted, metric = suite.isSkip, suite.isNotExecuted, suite.metric
+    local ok, problem = pcall(function()
+        local _, skipped = pcall(suite.skip, "skip marker")
+        local _, unavailable = pcall(suite.notExecuted, "unavailable marker")
+        suite.isSkip = function()
+            return false
+        end
+        suite.isNotExecuted = function()
+            return false
+        end
+        suite.metric = function()
+            error("the public binding was replaced")
+        end
+        test.equal(suite.skipReason(skipped), "skip marker")
+        test.equal(suite.notExecutedReason(unavailable), "unavailable marker")
+        suite.work("assert.original-work-binding", 1)
+    end)
+    suite.isSkip, suite.isNotExecuted, suite.metric = isSkip, isNotExecuted, metric
+    if not ok then
+        error(problem, 0)
+    end
 end
 
 return M

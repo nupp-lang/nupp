@@ -1,6 +1,6 @@
 -- Source programs for the Nupp record and physical-field handlers. The native
 -- contract tests additionally exercise wide slots and exact error paths.
-local test = require("nupp.test")
+local test = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local program = require("program")

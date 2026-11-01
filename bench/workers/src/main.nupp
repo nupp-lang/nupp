@@ -1,4 +1,4 @@
-const system = require("nupp.system")
+const assert2 = require("assert")
 
 const jobs = require("jobs")
 const ffi = require("ffi")
@@ -28,7 +28,7 @@ end
 local function median(values: {number}): number
     table.sort(values)
 
-    return values[assert(math.tointeger(math.ceil(#values / 2)))] as number
+    return values[assert2(math.tointeger(math.ceil(#values / 2)))] as number
 end
 
 local function report(row: Row): nil
@@ -45,7 +45,7 @@ with scope = tasks.open() do
     sink = sink + scope:fork(0, jobs.identity):await()
 end
 const coldMs = now() - coldStarted
-const lanes = math.max(1, math.min(system.availableParallelism(), 64)) as integer
+const lanes = math.max(1, math.min(os.info().parallelism, 64)) as integer
 print(("worker benchmark: %d lanes, median of %d samples"):format(lanes, SAMPLES))
 print(("cold scheduler     %9.2f ms       %9s  first fork"):format(coldMs, "-"))
 
@@ -332,7 +332,7 @@ for sample = 1, SAMPLES + 2 do
         smallMoveSamples[#smallMoveSamples + 1] = now() - started
     end
 end
-nupp.drop(small)
+own.drop(small)
 rows[
     #rows + 1
 ] = {
@@ -361,7 +361,7 @@ end
 if frame.count ~= FRAME_BYTES then
     error("a moved buffer changed size across lanes")
 end
-nupp.drop(frame)
+own.drop(frame)
 rows[
     #rows + 1
 ] = {

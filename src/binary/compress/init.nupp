@@ -42,6 +42,7 @@ raw DEFLATE has no checksum at all. Trailing bytes are rejected in every case.
 A provider-added format keys its options by its own canonical name;
 `deflateRaw` above is the built-in ergonomic spelling of `deflate-raw`.
 ]]
+const assert2 = require("assert")
 
 local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
@@ -211,7 +212,7 @@ local function decoderOptions(settings: ReaderOptions, name: string): provider.F
     return options
 end
 
-local function closeBoth(takes first: nupp.Closeable, takes second: nupp.Closeable): nil
+local function closeBoth(takes first: own.Closeable, takes second: own.Closeable): nil
     local firstOk, firstFailure = pcall(function(): nil takes (first)
         first:close()
     end)
@@ -228,7 +229,7 @@ local function closeBoth(takes first: nupp.Closeable, takes second: nupp.Closeab
     end
 end
 
-local interface OwnedPair is nupp.Closeable
+local interface OwnedPair is own.Closeable
     state: affine(provider.Encoder)
     destination: affine(io.Writer)
 end
@@ -277,7 +278,7 @@ local record Writer is CompressionWriter
             local remaining = input:slice(at, #input)
             local output = span.writeCarray(self.output, self.capacity)
             local consumed, written, status, reason = self.state:write(remaining, output)
-            nupp.drop(output)
+            own.drop(output)
             if consumed == nil or written == nil or status == nil then
                 return nil, reason
             end
@@ -306,7 +307,7 @@ local record Writer is CompressionWriter
         while true do
             local output = span.writeCarray(self.output, self.capacity)
             local written, status, reason = self.state:flush(output)
-            nupp.drop(output)
+            own.drop(output)
             if written == nil or status == nil then
                 return false, reason
             end
@@ -335,7 +336,7 @@ local record Writer is CompressionWriter
             while true do
                 local writable = span.writeCarray(output, capacity)
                 local written, status, reason = owner.state:finish(writable)
-                nupp.drop(writable)
+                own.drop(writable)
                 if written == nil or status == nil then
                     return false, reason
                 end
@@ -543,7 +544,7 @@ local record Reader is io.Reader
         local output = storage.allocateBytes(wanted)
         local writable = span.writeCarray(output, wanted)
         local written, reason = self:readSpan(writable)
-        nupp.drop(writable)
+        own.drop(writable)
         if written == nil then
             return nil, reason
         end
@@ -568,10 +569,10 @@ local record Reader is io.Reader
         do
             local output = lease:span()
             written, reason = self:readSpan(output)
-            nupp.drop(output)
+            own.drop(output)
         end
         if written == nil then
-            nupp.drop(lease)
+            own.drop(lease)
             return nil, reason
         end
         lease:commit(written)
@@ -585,7 +586,7 @@ local record Reader is io.Reader
         while true do
             local writable = span.writeCarray(output, self.capacity)
             local read, reason = self:readSpan(writable)
-            nupp.drop(writable)
+            own.drop(writable)
             if read == nil then
                 return nil, reason
             elseif read == 0 then
@@ -612,7 +613,7 @@ end
 function Reader.refill(self: Reader): (boolean?, string?)
     local writable = span.writeCarray(self.input, self.capacity)
     local count, reason = self.source:readSpan(writable)
-    nupp.drop(writable)
+    own.drop(writable)
     if count == nil then
         return nil, reason
     end
@@ -804,7 +805,7 @@ local selected: provider.Provider = do
     if chosen ~= nil then
         yield chosen
     end
-    assert(target.host == "native", "binary.compress: no implementation is available")
+    assert2(target.host == "native", "binary.compress: no implementation is available")
     yield _G.require("nupp.runtime.provider.nativecompression") as provider.Provider
 end
 validate(selected)

@@ -6,6 +6,7 @@ C compiler lays out. Each side reads what the other wrote: bitfields, pointer,
 nested union, fixed-array and callback fields, counted pointers and out
 parameters.
 ]]
+const assert2 = require("assert")
 
 local array = require("nupp.mem.array")
 const tasks = require("nupp.tasks")
@@ -159,12 +160,12 @@ local test = {}
 
 local function refuses(expected: string, f: function(): any): nil
     const ok, problem = pcall(f)
-    assert(not ok, "expected a refusal containing " .. expected)
-    assert(tostring(problem):find(expected, 1, true) ~= nil, tostring(problem))
+    assert2(not ok, "expected a refusal containing " .. expected)
+    assert2(tostring(problem):find(expected, 1, true) ~= nil, tostring(problem))
 end
 
 local function equal(actual: any, expected: any, what: string): nil
-    assert(actual == expected, what .. ": " .. tostring(actual) .. " ~= " .. tostring(expected))
+    assert2(actual == expected, what .. ": " .. tostring(actual) .. " ~= " .. tostring(expected))
 end
 
 local function bitfields(): nil
@@ -261,9 +262,9 @@ local function mixed(): nil
     equal(tonumber(clayout_mixed_read(m)), 1231364, "C reads every field the VM wrote")
     @unsafe do
         const head = m.head
-        assert(head ~= nil and head.value == 1, "a pointer field reads back what it was given")
+        assert2(head ~= nil and head.value == 1, "a pointer field reads back what it was given")
         const linked = head.next
-        assert(linked ~= nil and linked.value == 2, "and is followed to its pointee")
+        assert2(linked ~= nil and linked.value == 2, "and is followed to its pointee")
     end
     equal(m.callback, doubler, "a callback field reads back its retained callback")
 
@@ -276,7 +277,7 @@ local function mixed(): nil
     moved.next = holder.next
     @unsafe do
         const followed = moved.next
-        assert(followed ~= nil and followed.value == 1, "a pointer copied from another struct")
+        assert2(followed ~= nil and followed.value == 1, "a pointer copied from another struct")
     end
 
     -- An address C wrote is a foreign pointer: it passes back to C.
@@ -317,7 +318,7 @@ local function counted(): nil
     with w = short:write() do
         ok, problem = pcall(clayout_scale, w, values:read(), 3)
     end
-    assert(
+    assert2(
         not ok and tostring(problem):find("spans counted by count must have equal lengths", 1, true) ~= nil,
         tostring(problem)
     )
@@ -366,7 +367,7 @@ local function outputs(): nil
     const allocated, pointer = clayout_allocate(64)
     equal(allocated, 0, "allocated")
     if pointer then
-        nupp.drop(pointer)
+        own.drop(pointer)
     end
 end
 
@@ -405,7 +406,7 @@ local function generic(): nil
     equal(ref:counted(), 42, "an instance's fields and its declaration's methods")
     @unsafe do
         const target = ref.target
-        assert(target ~= nil and target.value == 9, "a generic pointer field")
+        assert2(target ~= nil and target.value == 9, "a generic pointer field")
     end
     const other = new Ref<clayout_inner>(nil, 1)
     equal(other.count, 1, "another instance of the same declaration")
@@ -432,7 +433,7 @@ local function sent(): nil
             return scope:fork(first, test.nodeValue):await()
         end
     end)
-    assert(not ok and tostring(problem):find("holds process addresses", 1, true) ~= nil, tostring(problem))
+    assert2(not ok and tostring(problem):find("holds process addresses", 1, true) ~= nil, tostring(problem))
     first.next = nil
     with scope = tasks.open() do
         equal(scope:fork(first, test.nodeValue):await(), 1, "a cleared one is copied")

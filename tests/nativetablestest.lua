@@ -3,7 +3,7 @@
 -- `scripts/vm-cli build --native-core` every store, lookup, append and border
 -- here runs on the Nupp table handlers; without the object the Rust step
 -- answers the same programs, which is what makes the suite differential.
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local program = require("program")

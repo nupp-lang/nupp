@@ -1,19 +1,19 @@
-local system = require("nupp.system")
+local system = os.info()
 local random = require("nupp.random")
-local uuid = require("nupp.util")
+local uuid = os
 local providerstate = require("providerstate")
 local targetLayout = require("nupp.compiler.targetlayout")
 local M = {}
 
 function M.systemReportsExecutingAbiWithoutWorkers()
     assert(type(system.platform) == "string" and #system.platform > 0)
-    assert(type(system.architecture) == "string" and #system.architecture > 0)
+    assert(type(system.arch) == "string" and #system.arch > 0)
     -- The host's modeled target: every one is little-endian, and the i686 and
     -- wasm32 ones are the 32-bit targets.
     local key = assert(targetLayout.hostKey(), "the host is a modeled target")
-    assert(system.pointerBits == ((key:match("^i686") or key:match("^wasm32")) and 32 or 64))
+    assert(system.pointerbits == ((key:match("^i686") or key:match("^wasm32")) and 32 or 64))
     assert(system.endianness == "little")
-    local count = system.availableParallelism()
+    local count = system.parallelism
     assert(type(count) == "number" and count >= 1 and count == math.floor(count))
 end
 
@@ -27,7 +27,7 @@ function M.secureRandomBytesSizesAndValidation()
     assert(random.sha256 == nil and random.uuid4 == nil and random.hmacSha256 == nil)
 end
 
-function M.identifiersAreMembersOfTheUtilNamespace()
+function M.identifiersAreMembersOfTheOsNamespace()
     assert(uuid.uuid4():match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-4%x%x%x%-[89ab]%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"))
     assert(uuid.uuid7():match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-7%x%x%x%-[89ab]%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"))
     assert(uuid.v4 == nil and uuid.v7 == nil, "the old nested spelling is gone")

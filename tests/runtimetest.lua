@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local program = require("program")
@@ -198,13 +198,10 @@ end
 
 function M.cliRunLoadsStdlibFromALuaEntry()
     withProject(
-        {
-            ["nupp.lua"] = "return { include = { 'src' } }\n",
-            ["main.lua"] = [[
-local time = require("nupp.time")
-print(type(time.now()))
-]],
-        },
+        {["nupp.lua"] = "return { include = { 'src' } }\n", ["main.lua"] = [[
+
+print(type(os.monotonic()))
+]],},
         function(dir)
             local output = dir .. "/output.txt"
             local errors = dir .. "/errors.txt"
@@ -341,7 +338,7 @@ function M.cliRunLoadsCrossModuleDeriveDependencies()
                 "main.nupp"
             ] = [[
 local models = require("runtime_derive_models")
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record Outer inner: models.Inner end
 local value = new Outer(inner = new models.Inner())
 print(value:debug())
@@ -355,7 +352,7 @@ print(out:tostring())
                 "src/runtime_derive_models.nupp"
             ] = [[
 local models = {}
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 record models.Inner value: integer = 0 end
 return models
 ]],

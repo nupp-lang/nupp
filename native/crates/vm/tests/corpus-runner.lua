@@ -22,7 +22,7 @@ function runner.main(argv)
     table.sort(names)
     local passed, failed, notExecuted = 0, 0, 0
     local json = require("serde.json")
-    local test = require("nupp.test")
+    local test = require("assert")
 
     -- A case that declared a capability this runtime lacks (`test.requireCapability`)
     -- did not run, and says which capability; it is counted apart rather than as a

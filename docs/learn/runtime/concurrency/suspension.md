@@ -455,7 +455,7 @@ once per frame instead of using this standalone loop.
 ## Cancellation unwinds the parked stack
 
 `host.install(handler)` returns an owned handler installation, a
-`nupp.Closeable`. When its extent ends and it is closed, the runtime restores the previous handler, cancels outstanding
+`own.Closeable`. When its extent ends and it is closed, the runtime restores the previous handler, cancels outstanding
 subscriptions, wakes their coroutines, and invokes `shutdown`. A cancelled
 `suspend` raises inside its parked coroutine, so lexical resource drops run as
 the stack unwinds.

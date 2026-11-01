@@ -178,12 +178,12 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
     library.integer = library.int64
     library.float = library.float64
 
-    -- Not in `PRIMITIVES`, so `nupp.types.open` is not a handle anybody can read. The
+    -- Not in `PRIMITIVES`, so `types.open` is not a handle anybody can read. The
     -- only way to place the open member in a union is to call for it, which is what
     -- makes a non-exhaustive union a written decision rather than an inferred one.
     installIntrinsic(state, library, "nonExhaustive", function(at, args)
         if args[1] ~= nil then
-            return nil, failure("NUPP2415", "nupp.types.nonExhaustive takes no arguments")
+            return nil, failure("NUPP2415", "types.nonExhaustive takes no arguments")
         end
 
         return make(
@@ -208,7 +208,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
             and valueKind ~= "boolean"
             and (valueKind ~= "number" or value ~= math.floor(value))
         then
-            return nil, failure("NUPP2415", "nupp.types.literal needs a string, boolean, or exact integer")
+            return nil, failure("NUPP2415", "types.literal needs a string, boolean, or exact integer")
         end
         local base = valueKind == "string" and library.string
             or valueKind == "boolean" and library.boolean
@@ -232,15 +232,15 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
             local base = entry(state, args[1], "Type")
             local low, high = args[2], args[3]
             if not base or type(low) ~= "number" or type(high) ~= "number" then
-                return nil, failure("NUPP2415", "nupp.types." .. name .. " needs a type handle and two bounds")
+                return nil, failure("NUPP2415", "types." .. name .. " needs a type handle and two bounds")
             end
             if low ~= math.floor(low) or high ~= math.floor(high) then
-                return nil, failure("NUPP2415", "nupp.types." .. name .. " needs whole-number bounds")
+                return nil, failure("NUPP2415", "types." .. name .. " needs whole-number bounds")
             end
             if low > high then
                 return nil, failure(
                     "NUPP2420",
-                    ("nupp.types.%s was given the bounds %d..%d, which are in descending order"):format(name, low, high)
+                    ("types.%s was given the bounds %d..%d, which are in descending order"):format(name, low, high)
                 )
             end
 
@@ -267,7 +267,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
     installIntrinsic(state, library, "array", function(at, args)
         local element = entry(state, args[1], "Type")
         if not element then
-            return nil, failure("NUPP2415", "nupp.types.array needs one type handle")
+            return nil, failure("NUPP2415", "types.array needs one type handle")
         end
 
         return make(
@@ -286,7 +286,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
     end)
 
     installIntrinsic(state, library, "tuple", function(at, args)
-        local members, why = memberArray(state, args[1], "Type", "nupp.types.tuple")
+        local members, why = memberArray(state, args[1], "Type", "types.tuple")
         if not members then
             return nil, why
         end
@@ -345,7 +345,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
 
     local function setLike(name, kind)
         installIntrinsic(state, library, name, function(at, args)
-            local members, why = memberArray(state, args[1], "Type", "nupp.types." .. name)
+            local members, why = memberArray(state, args[1], "Type", "types." .. name)
             if not members then
                 return nil, why
             end
@@ -360,14 +360,14 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
     installIntrinsic(state, library, "optional", function(at, args)
         local inner = entry(state, args[1], "Type")
         if not inner then
-            return nil, failure("NUPP2415", "nupp.types.optional needs one type handle")
+            return nil, failure("NUPP2415", "types.optional needs one type handle")
         end
 
         return setLikeHandle(at, "union", "optional", {args[1], library.nil_})
     end)
 
     -- The parameters a declaration is constructed with, as a pack whose slots are
-    -- named, so `...: unpackof nupp.types.construction(E)` binds named arguments
+    -- named, so `...: unpackof types.construction(E)` binds named arguments
     -- and admits an omitted slot the declaration defaults. A slot with a default
     -- is optional here rather than filled: the initializer that runs against
     -- acquired storage applies the default when it sees nil, which is the one
@@ -377,12 +377,12 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
         local nominal = found and found.payload.kind == "reference" and found.payload.nominal or nil
         local construction = nominal and nominal.construction or nil
         if not construction then
-            return nil, failure("NUPP2415", "nupp.types.construction needs a record or struct handle")
+            return nil, failure("NUPP2415", "types.construction needs a record or struct handle")
         end
         if construction.overloaded then
             return nil, failure(
                 "NUPP2415",
-                "nupp.types.construction needs a declaration with one constructor, and " .. tostring(
+                "types.construction needs a declaration with one constructor, and " .. tostring(
                     nominal.name
                 ) .. " declares several"
             )
@@ -391,7 +391,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
         for position, parameter in ipairs(construction.params or {}) do
             local member = parameter.type
             if not member then
-                return nil, failure("NUPP2415", "nupp.types.construction found a parameter without a type")
+                return nil, failure("NUPP2415", "types.construction found a parameter without a type")
             end
             if parameter.optional then
                 member = setLikeHandle(at, "union", "optional", {member, library.nil_})
@@ -415,7 +415,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
         installIntrinsic(state, library, name, function(at, args)
             local inner = entry(state, args[1], "Type")
             if not inner then
-                return nil, failure("NUPP2415", "nupp.types." .. name .. " needs one type handle")
+                return nil, failure("NUPP2415", "types." .. name .. " needs one type handle")
             end
 
             return make(
@@ -441,11 +441,11 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
     installIntrinsic(state, library, "affine", function(at, args)
         local inner = entry(state, args[1], "Type")
         if not inner then
-            return nil, failure("NUPP2415", "nupp.types.affine needs a representation type handle")
+            return nil, failure("NUPP2415", "types.affine needs a representation type handle")
         end
         local terminal = args[2] and entry(state, args[2], "FunctionConst") or nil
         if args[2] ~= nil and not terminal then
-            return nil, failure("NUPP2415", "nupp.types.affine terminal must be a const-function parameter")
+            return nil, failure("NUPP2415", "types.affine terminal must be a const-function parameter")
         end
         local terminalKey = terminal and terminal.payload.key or nil
 
@@ -468,10 +468,10 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
         local element = entry(state, args[1], "Type")
         local count = args[2]
         if not element then
-            return nil, failure("NUPP2415", "nupp.types.carray needs an element type")
+            return nil, failure("NUPP2415", "types.carray needs an element type")
         end
         if count ~= nil and (type(count) ~= "number" or count ~= math.floor(count) or count < 0) then
-            return nil, failure("NUPP2415", "nupp.types.carray count must be a non-negative exact integer")
+            return nil, failure("NUPP2415", "types.carray count must be a non-negative exact integer")
         end
 
         return make(
@@ -495,14 +495,14 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
         local names = {"read key", "read value", "write key", "write value"}
         for index = 1, 4 do
             if args[index] ~= nil and not entry(state, args[index], "Type") then
-                return nil, failure("NUPP2415", "nupp.types.indexer " .. names[index] .. " must be a type handle")
+                return nil, failure("NUPP2415", "types.indexer " .. names[index] .. " must be a type handle")
             end
         end
         if (args[1] == nil) ~= (args[2] == nil) or (args[3] == nil) ~= (args[4] == nil) then
-            return nil, failure("NUPP2415", "nupp.types.indexer capabilities need key/value pairs")
+            return nil, failure("NUPP2415", "types.indexer capabilities need key/value pairs")
         end
         if args[1] == nil and args[3] == nil then
-            return nil, failure("NUPP2415", "nupp.types.indexer needs a read or write capability")
+            return nil, failure("NUPP2415", "types.indexer needs a read or write capability")
         end
         local keys = {}
         for index = 1, 4 do
@@ -539,7 +539,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
         if not readKey or not readValue or not writeKey or not writeValue then
             return nil, failure(
                 "NUPP2415",
-                "nupp.types.map needs read key/value handles and optional write key/value handles"
+                "types.map needs read key/value handles and optional write key/value handles"
             )
         end
         local keys = {readKey.payload.key, readValue.payload.key, writeKey.payload.key, writeValue.payload.key}
@@ -563,12 +563,12 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
     installIntrinsic(state, library, "shape", function(at, args)
         local supplied, indexer = args[1], args[2]
         if type(supplied) ~= "table" or #supplied > typeprovider.MAX_MEMBERS then
-            return nil, failure("NUPP2415", "nupp.types.shape needs at most 1000 field descriptors")
+            return nil, failure("NUPP2415", "types.shape needs at most 1000 field descriptors")
         end
         if indexer ~= nil then
             local found = entry(state, indexer, "Type")
             if not found or found.payload.kind ~= "indexer" then
-                return nil, failure("NUPP2415", "nupp.types.shape indexer must come from nupp.types.indexer")
+                return nil, failure("NUPP2415", "types.shape indexer must come from types.indexer")
             end
         end
         local fields: {{
@@ -581,7 +581,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
             if type(field) ~= "table" or type(field.name) ~= "string" or field.name == "" or seen[field.name] then
                 return nil, failure(
                     "NUPP2415",
-                    "nupp.types.shape has an invalid or repeated field at " .. tostring(position)
+                    "types.shape has an invalid or repeated field at " .. tostring(position)
                 )
             end
             local read, write = field.read, field.write
@@ -589,10 +589,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
                 or read ~= nil and not entry(state, read, "Type")
                 or write ~= nil and not entry(state, write, "Type")
             then
-                return nil, failure(
-                    "NUPP2415",
-                    "nupp.types.shape field " .. field.name .. " needs a read or write type"
-                )
+                return nil, failure("NUPP2415", "types.shape field " .. field.name .. " needs a read or write type")
             end
             seen[field.name] = true
             fields[#fields + 1] = {name = field.name, read = read, write = write}
@@ -620,17 +617,17 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
     end)
 
     installIntrinsic(state, library, "pack", function(at, args)
-        local head, why = memberArray(state, args[1] or {}, "Type", "nupp.types.pack")
+        local head, why = memberArray(state, args[1] or {}, "Type", "types.pack")
         if not head then
             return nil, why
         end
         local tail = args[2]
         if tail ~= nil and not entry(state, tail, "Type") then
-            return nil, failure("NUPP2415", "nupp.types.pack tail must be a type handle")
+            return nil, failure("NUPP2415", "types.pack tail must be a type handle")
         end
         local modes = args[3] or {}
         if type(modes) ~= "table" or #modes > #head then
-            return nil, failure("NUPP2415", "nupp.types.pack modes must align with its fixed head")
+            return nil, failure("NUPP2415", "types.pack modes must align with its fixed head")
         end
         local keys, copiedModes = {}, {}
         for index, member in ipairs(head) do
@@ -641,7 +638,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
                 and mode ~= "exclusive"
                 and mode ~= "pinned"
             then
-                return nil, failure("NUPP2415", "nupp.types.pack has an invalid mode at " .. tostring(index))
+                return nil, failure("NUPP2415", "types.pack has an invalid mode at " .. tostring(index))
             end
             copiedModes[index] = mode
             keys[index] = composeKey(mode, {keyOf(state, member)})
@@ -660,7 +657,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
     installIntrinsic(state, library, "function_", function(at, args)
         local parameters, results = entry(state, args[1], "Pack"), entry(state, args[2], "Pack")
         if not parameters or not results then
-            return nil, failure("NUPP2415", "nupp.types.function_ needs parameter and result type packs")
+            return nil, failure("NUPP2415", "types.function_ needs parameter and result type packs")
         end
 
         return make(
@@ -683,7 +680,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
     installIntrinsic(state, library, "parameters", function(_, args)
         local found = entry(state, args[1], "Type")
         if not found or found.payload.kind ~= "function" then
-            return nil, failure("NUPP2415", "nupp.types.parameters needs a function type")
+            return nil, failure("NUPP2415", "types.parameters needs a function type")
         end
 
         return found.payload.parameters
@@ -692,7 +689,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
     installIntrinsic(state, library, "results", function(_, args)
         local found = entry(state, args[1], "Type")
         if not found or found.payload.kind ~= "function" then
-            return nil, failure("NUPP2415", "nupp.types.results needs a function type")
+            return nil, failure("NUPP2415", "types.results needs a function type")
         end
 
         return found.payload.results
@@ -701,7 +698,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
     installIntrinsic(state, library, "kind", function(_, args)
         local found = entry(state, args[1])
         if not found then
-            return nil, failure("NUPP2415", "nupp.types.kind needs a type or type-pack handle")
+            return nil, failure("NUPP2415", "types.kind needs a type or type-pack handle")
         end
 
         return found.payload.kind
@@ -710,7 +707,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
     installIntrinsic(state, library, "describe", function(_, args)
         local found = entry(state, args[1])
         if not found then
-            return nil, failure("NUPP2415", "nupp.types.describe needs a type or type-pack handle")
+            return nil, failure("NUPP2415", "types.describe needs a type or type-pack handle")
         end
         local payload = found.payload
 
@@ -741,7 +738,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
     installIntrinsic(state, library, "elements", function(_, args)
         local found = entry(state, args[1])
         if not found then
-            return nil, failure("NUPP2415", "nupp.types.elements needs a type or type-pack handle")
+            return nil, failure("NUPP2415", "types.elements needs a type or type-pack handle")
         end
         local payload = found.payload
         -- A pack's elements are its fixed head. A tail is a separate question, since it
@@ -770,13 +767,13 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
             return payload.members
         end
 
-        return nil, failure("NUPP2415", "nupp.types.elements cannot inspect " .. tostring(payload.kind))
+        return nil, failure("NUPP2415", "types.elements cannot inspect " .. tostring(payload.kind))
     end)
 
     installIntrinsic(state, library, "arguments", function(_, args)
         local found = entry(state, args[1], "Type")
         if not found then
-            return nil, failure("NUPP2415", "nupp.types.arguments needs a type handle")
+            return nil, failure("NUPP2415", "types.arguments needs a type handle")
         end
         local nominal = found.payload.nominal
         local supplied = type(nominal) == "table" and nominal.arguments or nil
@@ -790,7 +787,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
 
     installIntrinsic(state, library, "sameNominal", function(_, args)
         if not entry(state, args[1], "Type") or not entry(state, args[2], "Type") then
-            return nil, failure("NUPP2415", "nupp.types.sameNominal needs two type handles")
+            return nil, failure("NUPP2415", "types.sameNominal needs two type handles")
         end
 
         local function nominal(value)
@@ -821,7 +818,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
         if not found
             or found.payload.kind ~= "shape" and not (found.payload.kind == "reference" and found.payload.nominal)
         then
-            return nil, failure("NUPP2415", "nupp.types.fields needs a shape or nominal handle")
+            return nil, failure("NUPP2415", "types.fields needs a shape or nominal handle")
         end
         local fields = {}
         for position, field in ipairs(found.payload.fields or {}) do
@@ -834,7 +831,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
     local function keysFor(args, capability)
         local found = entry(state, args[1], "Type")
         if not found or found.payload.kind ~= "shape" and found.payload.kind ~= "indexer" then
-            return nil, failure("NUPP2415", "nupp.types." .. capability .. "Keys needs a shape or indexer handle")
+            return nil, failure("NUPP2415", "types." .. capability .. "Keys needs a shape or indexer handle")
         end
         local keys = {}
         for _, field in ipairs(found.payload.fields or {}) do
@@ -878,7 +875,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
     local function atFor(args, capability)
         local found, key = entry(state, args[1], "Type"), entry(state, args[2], "Type")
         if not found or not key then
-            return nil, failure("NUPP2415", "nupp.types." .. capability .. "At needs type handles")
+            return nil, failure("NUPP2415", "types." .. capability .. "At needs type handles")
         end
         if key.payload.kind == "literal" and type(key.payload.value) == "string" then
             for _, field in ipairs(found.payload.fields or {}) do
@@ -904,13 +901,13 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
 
     installIntrinsic(state, library, "error", function(_, args)
         if type(args[1]) ~= "string" then
-            return nil, failure("NUPP2415", "nupp.types.error needs a string message")
+            return nil, failure("NUPP2415", "types.error needs a string message")
         end
         return nil, failure("NUPP2420", args[1])
     end)
 
     env.nupp = env.nupp or {}
-    env.nupp.types = library
+    env.types = library
 end
 
 ----------------------------------------------------------------------------
@@ -1068,7 +1065,7 @@ function typeprovider.importDescriptor(
                 reflected.arguments[position] = import(argument)
             end
             -- How the declaration is constructed: its one constructor's parameters,
-            -- or its stored fields when it declares none. `nupp.types.construction`
+            -- or its stored fields when it declares none. `types.construction`
             -- answers this as a pack whose slots carry the names a call binds by.
             if node.construction then
                 local construction = {

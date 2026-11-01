@@ -12,7 +12,7 @@ embedding host refuse exactly the same things with exactly the same message.
 
 local ffi = require("ffi")
 local span = require("nupp.mem.span")
-local utf8 = require("nupp.text.utf8")
+local utf8 = require("utf8")
 
 local values = {}
 

@@ -396,7 +396,7 @@ local BUILTINS = {
         targets = {"record", "struct"},
         builtin = true,
         qualifiedNames = true,
-        doc = "Runs a closed comptime recipe, e.g. `nupp.derive.Debug`, that adds checked members or data without exposing source or AST macros.",
+        doc = "Runs a closed comptime recipe, e.g. `types.Debug`, that adds checked members or data without exposing source or AST macros.",
         docsPath = "docs/reference/annotations.md#derive",
     },
     {
@@ -404,7 +404,7 @@ local BUILTINS = {
         arguments = "typed",
         targets = {"record", "field"},
         builtin = true,
-        doc = "Configures command and field metadata consumed by `nupp.cli` derives.",
+        doc = "Configures command and field metadata consumed by `arg` derives.",
         docsPath = "docs/learn/projects/command-line-applications.md#derive-typed-arguments",
     },
     {
@@ -420,7 +420,7 @@ local BUILTINS = {
         arguments = "typed",
         targets = {"record", "struct"},
         builtin = true,
-        doc = "Names the event a declaration deriving `nupp.events.Event` registers as.",
+        doc = "Names the event a declaration deriving `events.Event` registers as.",
         docsPath = "docs/reference/derives.md#event",
     },
     {

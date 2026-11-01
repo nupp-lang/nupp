@@ -116,7 +116,7 @@ prints N of them, and `--timings=0` prints none. Under `--json` the same
 measurements are `suites` and `shards` beside `tests`. Named metrics are stored
 on each test and added under the run's `metrics` field.
 
-The `app` and `lib` templates include a real suite using `nupp.test`.
+The `app` and `lib` templates include a real suite using `assert`.
 `nupp test` builds first and forwards its remaining arguments to the runner.
 
 ::: deepdive
@@ -134,7 +134,7 @@ runner.
 A test is a function on the table a suite returns:
 
 ```lua
-local test = require("nupp.test")
+local test = require("assert")
 local M = {}
 
 function M.narrowsOnIs()
@@ -145,25 +145,25 @@ end
 return M
 ```
 
-`nupp.test` is a shipped module, not a file copied from Nupp's own tests.
-`test.assert`, `test.equal`, `test.notEqual`, `test.matches`, and `test.raises`
-include the relevant values in failures. Long and multiline values use a block
-layout, and large values are truncated to keep the failure readable.
+`assert` is a callable table and a shipped module. Calling it returns every
+argument when the first is truthy and keeps Lua's error behavior otherwise.
+
+`test.equal`, `test.notEqual`, `test.matches`, and `test.raises` include the
+relevant values in failures. Long and multiline values use a block layout,
+and large values are truncated to keep the failure readable.
 `test.deepEqual(actual, expected)` compares table fields recursively and names
 the first differing path. Its table keys are booleans, numbers, or strings;
-other leaves use native equality. `test.skip("reason")` records a skipped test.
-The runner also upgrades the ordinary global `assert` to report the falsy value
-it received, so existing suites get better failures without being rewritten.
+other leaves use native equality. `test.suite.skip("reason")` records a skipped test.
 
 ### Parameterized cases
 
-`test.cases` expands data rows into ordinary named cases. Each name is stable,
+`test.suite.cases` expands data rows into ordinary named cases. Each name is stable,
 unique within the suite, and independent of execution order:
 
 ```lua
-local test = require("nupp.test")
+local test = require("assert")
 
-return test.cases(
+return test.suite.cases(
    {
       { name = "empty", input = "", expected = 0 },
       { name = "three", input = "nupp", expected = 4 },
@@ -199,18 +199,18 @@ case.
 
 ### Immutable fixtures
 
-`test.fixture` produces an expensive artifact once for a complete content key.
+`test.suite.fixture` produces an expensive artifact once for a complete content key.
 The runner publishes the directory only after the producer succeeds:
 
 ```lua
-local path, manifest, reused = test.fixture("parser-9d30c2-linux-x64", function(dir)
+local path, manifest, reused = test.suite.fixture("parser-9d30c2-linux-x64", function(dir)
    buildParser(dir)
    return { executable = "parser" }
 end)
 
 run(path .. "/" .. manifest.executable)
 if not reused then
-   test.work("compiler.invocations", 1)
+   test.suite.work("compiler.invocations", 1)
 end
 ```
 
@@ -250,10 +250,10 @@ A case reports unavailable hardware or software as not executed. The result is
 distinct from a pass, an authored skip, and a failure:
 
 ```lua
-test.requireCapability("cpu.avx2", hasAvx2, { probe = probeOutput })
+test.suite.requireCapability("cpu.avx2", hasAvx2, { probe = probeOutput })
 ```
 
-The third argument records the evidence used by the test. `test.notExecuted`
+The third argument records the evidence used by the test. `test.suite.notExecuted`
 is available when the capability check does not fit a Boolean probe. The text
 runner prints `N`, and JSON reports `status: "not-executed"`. A
 `requireCapability` result also carries its evidence. Not executed is a
@@ -264,9 +264,9 @@ Cases can attach JSON-compatible facts, additive metrics, and integer work
 counts:
 
 ```lua
-test.fact("simd.operation", { type = "int32", operation = "add" })
-test.metric("generated.source", #source, "bytes")
-test.work("compiler.invocations", 1)
+test.suite.fact("simd.operation", { type = "int32", operation = "add" })
+test.suite.metric("generated.source", #source, "bytes")
+test.suite.work("compiler.invocations", 1)
 ```
 
 Facts stay attached only when their case passes. Metrics describe attempted
@@ -321,7 +321,7 @@ does:
 module tests.arithmetictest
 
 local fixture = tests.nuppfixture
-local test = nupp.test
+local test = assert
 
 export function addsNumbers(): nil
     test.equal(20 + 22, 42)

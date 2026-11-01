@@ -72,12 +72,12 @@ end
 local function vectorType(elementTag, lanes)
     return {
         tag = "nominal",
-        origin = {moduleName = "nupp.simd", name = "Vector"},
+        origin = {moduleName = "simd", name = "Vector"},
         typeArgs = {
             {tag = elementTag},
             {
                 tag = "nominal",
-                origin = {moduleName = "nupp.simd", name = "Fixed"},
+                origin = {moduleName = "simd", name = "Fixed"},
                 constArgs = {{tag = "constLiteral", domain = "integer", value = lanes}},
             },
         },
@@ -121,13 +121,13 @@ end
 
 -- A mask and a preferred-species vector have no layout a struct could hold.
 function M.tierDependentFieldsHaveNoLayout()
-    local mask = {tag = "nominal", origin = {moduleName = "nupp.simd", name = "Mask"}, typeArgs = {{tag = "float32"}}}
+    local mask = {tag = "nominal", origin = {moduleName = "simd", name = "Mask"}, typeArgs = {{tag = "float32"}}}
     local _, why = targetLayout.of(struct{{"hit", mask}}, "aarch64-apple-darwin")
     assert(why and why:find("a mask has no storage layout", 1, true), tostring(why))
     local preferred = {
         tag = "nominal",
-        origin = {moduleName = "nupp.simd", name = "Vector"},
-        typeArgs = {{tag = "float32"}, {tag = "nominal", origin = {moduleName = "nupp.simd", name = "Preferred"}}},
+        origin = {moduleName = "simd", name = "Vector"},
+        typeArgs = {{tag = "float32"}, {tag = "nominal", origin = {moduleName = "simd", name = "Preferred"}}},
     }
     local _, reason = targetLayout.of(struct{{"v", preferred}}, "aarch64-apple-darwin")
     assert(reason and reason:find("tier-dependent species", 1, true), tostring(reason))

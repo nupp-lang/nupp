@@ -1,4 +1,4 @@
-local test = require("nupp.test")
+local test = require("assert")
 local identities = require("nupp.compiler.apiidentity")
 local parser = require("nupp.compiler.syntax.parser")
 local checker = require("fragment")
@@ -10,43 +10,15 @@ local T = require("nupp.compiler.types")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local M = {}
 
--- Model the next prelude without moving a declaration in the accepting seed.
 local function finalEnv(root)
-    local env = envMod.new(root or HERE .. "/..", root and {config = {include = {"src"}}} or nil)
-    local globals = {}
-    for name, entry in pairs(env.globals) do
-        globals[name] = entry
-    end
-    env.globals = globals
-    local old = env.globals.nupp.t
-    local types = old.byname.types
-    local members = {}
-    for name, value in pairs(types.byname) do
-        members[#members + 1] = {name = name, read = value}
-    end
-    members[#members + 1] = {name = "reflect", read = old.byname.reflect}
-    members[#members + 1] = {name = "derive", read = old.byname.derive}
-    env.globals.types = {t = T.shape(members), definition = {name = "types", kind = "variable"}}
-    env.globals.own = {t = old, definition = {name = "own", kind = "variable"}}
-    local globalTypes = {}
-    for name, value in pairs(env.globalTypes) do
-        globalTypes[name] = value
-    end
-    env.globalTypes = globalTypes
-    for name, value in pairs(globalTypes) do
-        local final = identities.canonical(name)
-        if final ~= name then
-            env.globalTypes[final] = value
-        end
-    end
-
-    return env
+    return envMod.new(root or HERE .. "/..", {config = {include = {"src"}}})
 end
 
-local function compile(source, env)
-    local parsed = parser.parse(source, "api-identity.nupp")
+local function compile(source, env, filename)
+    filename = filename or "api-identity.nupp"
+    local parsed = parser.parse(source, filename)
     test.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
-    local diagnostics = checker.check(parsed, "api-identity.nupp", env or finalEnv())
+    local diagnostics = checker.check(parsed, filename, env or finalEnv())
     local errors = {}
     for _, diagnostic in ipairs(diagnostics) do
         if diagnostic.severity ~= "warning" and diagnostic.severity ~= "note" then
@@ -65,49 +37,44 @@ local function run(source)
 end
 
 function M.canonicalizesOnlyRegisteredPublicIdentities()
-    for old, final in pairs({
-        ["nupp.types.array"] = "types.array",
-        ["nupp.reflect.Info"] = "types.reflect.Info",
-        ["nupp.derive.array"] = "types.derive.array",
-        ["nupp.derive.Debug"] = "types.Debug",
-        ["nupp.Debug"] = "types.Debug",
-        ["nupp.__Debug"] = "types.Debug",
-        ["nupp.util.newStore"] = "types.newStore",
-        ["nupp.Copyable"] = "own.Copyable",
-        ["nupp.recoverAlias"] = "own.recoverAlias",
+    for _, old in ipairs({
+        "nupp.types.array",
+        "nupp.reflect.Info",
+        "nupp.derive.array",
+        "nupp.derive.Debug",
+        "nupp.Debug",
+        "nupp.util.newStore",
+        "nupp.Copyable",
+        "nupp.recoverAlias"
     }) do
-        test.equal(identities.canonical(old), final)
+        test.equal(identities.canonical(old), old)
     end
+    test.equal(identities.canonical("nupp.__Debug"), "types.Debug")
     test.equal(identities.canonical("nupp.compiler.types"), "nupp.compiler.types")
-    test.equal(identities.canonical("nupp.typesExtra.array"), "nupp.typesExtra.array")
-    test.equal(identities.canonical("nupp.math.u32.add"), "math.u32.add")
-    test.equal(identities.canonical("nupp.simd.Vector"), "simd.Vector")
-    test.equal(identities.legacy("gpu.internal.Image"), "gpu.internal.Image")
-    test.equal(identities.canonical("nupp.gpu.layout.Buffer"), "gpu.layout.Buffer")
     test.equal(identities.canonical("nupp.gpu.types.Buffer"), "nupp.gpu.types.Buffer")
-    test.equal(identities.canonical("nupp.gpu.internal.Image"), "nupp.gpu.internal.Image")
+    test.equal(identities.legacy("gpu.internal.Image"), "gpu.internal.Image")
     test.equal(identities.canonical("types.array"), "types.array")
     test.equal(identities.canonical("types.derive.array"), "types.derive.array")
 end
 
 function M.preservesOneNominalAndOneEvaluatorLibrary()
     local env = finalEnv()
-    test.equal(identities.lookup(env.globalTypes, "types.reflect"), env.globalTypes["nupp.reflect"])
-    test.equal(identities.lookup(env.globalTypes, "types.derive"), env.globalTypes["nupp.derive"])
-    test.equal(identities.lookup(env.globalTypes, "types.Debug"), env.globalTypes["nupp.Debug"])
+    test.equal(identities.lookup(env.globalTypes, "types.reflect"), env.globalTypes["types.reflect"])
+    test.equal(identities.lookup(env.globalTypes, "types.derive"), env.globalTypes["types.derive"])
+    test.equal(identities.lookup(env.globalTypes, "nupp.__Debug"), env.globalTypes["types.Debug"])
     local values = {}
     providers.installEvaluator({}, values)
-    test.equal(values.types, values.nupp.types)
-    test.equal(values.types.reflect, values.nupp.reflect)
-    test.equal(values.types.derive, values.nupp.derive)
+    test.equal(values.nupp.types, nil)
+    test.equal(values.nupp.reflect, nil)
+    test.equal(values.nupp.derive, nil)
     assert(values.types.array ~= values.types.derive.array)
     assert(values.types.error ~= values.types.derive.error)
 end
 
-function M.resolvesFinalContractsWithUnchangedPreludeDeclarations()
+function M.preservesFinalContractsAndThePrivateDebugAlias()
     local env = envMod.new(HERE .. "/..", {config = {include = {"src"}}})
-    test.equal(env.globalTypes["own.Closeable"], nil)
-    test.equal(env.globalTypes["types.Debug"], nil)
+    test.equal(env.globalTypes["nupp.Closeable"], nil)
+    test.equal(env.globalTypes["nupp.Debug"], nil)
     local _, errors = compile(
         [[
 local function render(value: types.Debug): string
@@ -136,7 +103,7 @@ return 17
 end
 
 function M.executesBothTypeBuilderSurfacesAndAliases()
-    for _, root in ipairs({"nupp.types", "types"}) do
+    for _, root in ipairs({"types"}) do
         test.equal(
             run(
                 (
@@ -158,7 +125,7 @@ return #values
 end
 
 function M.reflectsThroughBothCallableSurfacesAndLocalAliases()
-    for _, root in ipairs({"nupp.reflect", "types.reflect"}) do
+    for _, root in ipairs({"types.reflect"}) do
         test.equal(
             run(
                 (
@@ -180,7 +147,7 @@ end
 function M.keepsOwnershipAliasesIntrinsicAndLocalShadowsOrdinary()
     local _, errors, parsed = compile(
         [[
-local record Resource is nupp.Closeable
+local record Resource is own.Closeable
     function close(takes self): nil end
 end
 local manage = own.manage
@@ -219,7 +186,7 @@ local function runtimeEnv()
     for name, value in pairs(values) do
         fields[#fields + 1] = {name = name, read = value}
     end
-    env.loaded["nupp.derive"] = {type = T.shape(fields), exports = {values = values}}
+    env.loaded["nupp.derive"] = {type = T.shape(fields), exports = {types = {}, values = values}}
 
     return env
 end
@@ -234,10 +201,11 @@ local initializer = runtime.initializer(Value)
 local render = runtime.debug
 return 17
 ]],
-        runtimeEnv()
+        runtimeEnv(),
+        HERE .. "/../src/nupp/compiler/apiidentityfixture.nupp"
     )
     test.equal(errors, "", errors)
-    for _, root in ipairs({"nupp.derive", "types.derive"}) do
+    for _, root in ipairs({"types.derive"}) do
         local source = ([[
 return ROOT.entry()
 ]]):gsub("ROOT", root)
@@ -255,7 +223,8 @@ local function later(): any
 end
 return 17
 ]],
-        runtimeEnv()
+        runtimeEnv(),
+        HERE .. "/../src/nupp/compiler/apiidentityfixture.nupp"
     )
     test.equal(errors, "", errors)
     local original = _G.require
@@ -319,7 +288,7 @@ function M.mixesImportedRuntimeExportsAndCompilerMembers()
         [[
 module types
 export const answer: integer = 17
-export type Debug = nupp.Debug
+export type Debug = nupp.__Debug
 @comptime
 export function Debug(info: types.derive.Info): types.derive.Result<types.Debug>
     return types.derive.implement{
@@ -381,7 +350,7 @@ end
 function M.parsesCanonicalAdoptTypeArgumentsAndPreservesShadows()
     local _, errors, parsed = compile(
         [[
-local record Resource is nupp.Closeable
+local record Resource is own.Closeable
     function close(takes self): nil end
 end
 local raw: any = {}
@@ -550,7 +519,7 @@ local builders = require("types")
 @comptime local function List(Element: type): type
     return builders.array(Element)
 end
-return comptime do return nupp.types.kind(List(nupp.types.string)) end
+return comptime do return types.kind(List(types.string)) end
 ]],
             env
         )
@@ -632,7 +601,7 @@ return names
         end
         local ok, quoted, failure = pcall(
             worker.evaluate,
-            "comptime do return nupp.types.kind(List(nupp.types.string)) end",
+            "comptime do return types.kind(List(types.string)) end",
             "fixture-worker",
             {},
             {},
@@ -655,7 +624,7 @@ function M.formattedLuaDeclarationHelpersCloseImportedNamespaces()
 
     local function collect(node)
         if node.kind == "localFuncStmt" and node.name and wanted[node.name.text] then
-            local text = cst.textOf(node):gsub("nupp%.types", "types2")
+            local text = cst.textOf(node):gsub("nupp%.types", "types2"):gsub("([^%w_])types%.", "%1types2.")
             pieces[#pieces + 1] = "@comptime\n" .. text
         end
         for _, child in ipairs(node) do
@@ -697,10 +666,10 @@ function M.reusesSealedProgramsUntilTheirHelperDependenciesChange()
     end
 
     local main = helper("local function Main(Element: type): type return Dependency(Element) end")
-    local dependency = helper("local function Dependency(Element: type): type return nupp.types.array(Element) end")
+    local dependency = helper("local function Dependency(Element: type): type return types.array(Element) end")
     local first = comptime.sealTypeFunction(main, {Dependency = dependency})
     test.equal(comptime.sealTypeFunction(main, {Dependency = dependency}), first)
-    local changed = helper("local function Dependency(Element: type): type return nupp.types.optional(Element) end")
+    local changed = helper("local function Dependency(Element: type): type return types.optional(Element) end")
     local nextProgram = comptime.sealTypeFunction(main, {Dependency = changed})
     assert(nextProgram ~= first)
     assert(nextProgram.identity ~= first.identity)
@@ -754,8 +723,8 @@ function M.referencedRecipeRefusalsKeepTheirDiagnostic()
         [[
 module types
 @comptime
-export function Refuse(info: nupp.derive.Info): nupp.derive.Result<any>
-    return nupp.derive.error("fixture refusal", info.reference)
+export function Refuse(info: types.derive.Info): types.derive.Result<any>
+    return types.derive.error("fixture refusal", info.reference)
 end
 ]],
         function(env)
@@ -774,7 +743,7 @@ local record Point label: string end
 end
 
 function M.reflectionParsesFinalGenericTypeArguments()
-    for _, root in ipairs({"nupp.reflect", "types.reflect"}) do
+    for _, root in ipairs({"types.reflect"}) do
         test.equal(
             run(
                 (
@@ -831,7 +800,7 @@ export const answer: integer = 17
         env.globals.own = nil
         local _, errors = compile(
             [[
-local record Resource is nupp.Closeable
+local record Resource is own.Closeable
     function close(takes self): nil end
 end
 local value = new Resource()
@@ -883,7 +852,7 @@ log.info("value=%d", 1)
 end
 
 function M.resolvesConstraintIntrinsicsWithoutAProjectEnvironment()
-    for _, root in ipairs({"nupp.types", "types"}) do
+    for _, root in ipairs({"types"}) do
         local function diagnostics(prefix, expression)
             local source = prefix .. "\nlocal type Count = " .. root .. expression
             local parsed = parser.parse(source, "constraint-fragment.nupp")

@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
@@ -60,17 +60,17 @@ end
 
 function M.surfaceHasFixedStaticResults()
     local source = [[
-local si: int32 = nupp.math.i32.wrap(0x7fffffff) * 2
-local ui: uint32 = nupp.math.u32.wrap(0xffffffff) + 1
-local quotient: uint32 = nupp.math.u32.div(17, 5)
-local remainder: uint32 = nupp.math.u32.mod(17, 5)
-local shifted: uint32 = nupp.math.u32.wrap(0x80000000) >> 31
-local compared: boolean = nupp.math.u32.wrap(0xffffffff) < 0
-local rounded: float32 = nupp.math.f32.fma(1.0, 2.0, 3.0)
-local exponential: float32 = nupp.math.f32.exp(-1.0)
-local floatBits: uint32 = nupp.math.f32.toBits(rounded)
-local halfBits: uint32 = nupp.math.f32.toF16Bits(rounded)
-local widened: float32 = nupp.math.f32.fromF16Bits(halfBits)
+local si: int32 = math.i32.wrap(0x7fffffff) * 2
+local ui: uint32 = math.u32.wrap(0xffffffff) + 1
+local quotient: uint32 = math.u32.div(17, 5)
+local remainder: uint32 = math.u32.mod(17, 5)
+local shifted: uint32 = math.u32.wrap(0x80000000) >> 31
+local compared: boolean = math.u32.wrap(0xffffffff) < 0
+local rounded: float32 = math.f32.fma(1.0, 2.0, 3.0)
+local exponential: float32 = math.f32.exp(-1.0)
+local floatBits: uint32 = math.f32.toBits(rounded)
+local halfBits: uint32 = math.f32.toF16Bits(rounded)
+local widened: float32 = math.f32.fromF16Bits(halfBits)
 return si, ui, quotient, remainder, shifted, compared, rounded, exponential, floatBits, halfBits, widened
 ]]
     local result = parser.parse(source, "fixed-width.nupp")
@@ -105,9 +105,9 @@ return exact, decimal, copied, returnsFloat
     checkedTree(
         [[
 local input: number = 0.1
-local f: float32 = nupp.math.f32.narrow(input)
-local i: int32 = nupp.math.i32.wrap(2147483648)
-local u: uint32 = nupp.math.u32.wrap(-1)
+local f: float32 = math.f32.narrow(input)
+local i: int32 = math.i32.wrap(2147483648)
+local u: uint32 = math.u32.wrap(-1)
 local wide: number = f + f
 return f, i, u, wide
 ]]
@@ -224,7 +224,7 @@ local record Reading
     value: float32
 end
 local function keep(reading: Reading): float32
-    reading.value = nupp.math.f32.narrow(0.1)
+    reading.value = math.f32.narrow(0.1)
     return reading.value
 end
 return keep
@@ -337,12 +337,12 @@ function M.assignmentKeepsAFixedWidthValueEstablished()
         [[
 local function step(v: number): (float32, int32)
     local x: float32 = 0.0
-    x = nupp.math.f32.narrow(v)
-    x = nupp.math.f32.mul(x, x)
+    x = math.f32.narrow(v)
+    x = math.f32.mul(x, x)
     local n: int32 = 0
     while n < 4 do
         n = n + 1
-        x = nupp.math.f32.add(x, x)
+        x = math.f32.add(x, x)
     end
     return x, n
 end
@@ -360,7 +360,7 @@ function M.assignmentDoesNotInventEstablishment()
 local input: number = 0.1
 local x: float32 = 0.0
 x = input as float32
-local y: float32 = nupp.math.f32.mul(x, x)
+local y: float32 = math.f32.mul(x, x)
 return y
 ]]
         ),
@@ -393,11 +393,11 @@ end
 
 local function withFloatOracle(fn)
     if package.config:sub(1, 1) == "\\" then
-        test.skip("the C oracle fixture is POSIX-only")
+        test.suite.skip("the C oracle fixture is POSIX-only")
     end
     local probe = os.execute("cc --version >/dev/null 2>&1")
     if probe ~= 0 and probe ~= true then
-        test.skip("cc is unavailable")
+        test.suite.skip("cc is unavailable")
     end
     local base = os.tmpname()
     os.remove(base)
@@ -434,7 +434,7 @@ uint32_t oracle_fma(uint32_t a, uint32_t b, uint32_t c) {
     local compiled = os.execute(command)
     if compiled ~= 0 and compiled ~= true then
         os.remove(source);
-        test.skip("the C binary32 oracle did not compile")
+        test.suite.skip("the C binary32 oracle did not compile")
     end
     local from = (" from %q"):format(output)
     local oracle = run(
@@ -573,10 +573,10 @@ function M.intrinsicIdentityFollowsAliasesButNotShadowing()
     local result = checkedTree(
         table.concat(
             {
-                "local rotate = nupp.math.u32.rotateLeft",
+                "local rotate = math.u32.rotateLeft",
                 "local a = rotate(0xffffffff, 1)",
-                "local nupp = {math = {u32 = {rotateLeft = function(x: number, y: number): number return x + y end}}}",
-                "local b = nupp.math.u32.rotateLeft(1, 2)",
+                "local math = {u32 = {rotateLeft = function(x: number, y: number): number return x + y end}}",
+                "local b = math.u32.rotateLeft(1, 2)",
                 "return a, b",
             },
             "\n"
@@ -1029,7 +1029,7 @@ function M.compoundAssignmentsStoreTheOrdinaryOperatorResult()
     )
     testAssert.equal(
         run([[
-local value: uint32 = nupp.math.u32.wrap(4294967295)
+local value: uint32 = math.u32.wrap(4294967295)
 value += 1
 return value
 ]], "compound-uint32.nupp"),

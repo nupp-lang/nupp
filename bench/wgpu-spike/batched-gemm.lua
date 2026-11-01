@@ -4,7 +4,7 @@
 local ffi = require("ffi")
 local span = require("nupp.mem.span")
 local generated = require("gemm")
-local gpu = require("nupp.gpu")
+local gpu = require("gpu")
 ffi.cdef("float fmaf(float, float, float);")
 
 local batches = tonumber(os.getenv("BATCHED_GEMM_BATCHES") or 4)

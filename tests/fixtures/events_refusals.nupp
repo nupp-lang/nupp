@@ -1,4 +1,4 @@
-local events = require("nupp.events")
+local events = require("events")
 
 -- several constructors: no single construction contract
 @derive(events.Event)

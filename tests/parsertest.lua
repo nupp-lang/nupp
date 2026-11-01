@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")
@@ -43,10 +43,7 @@ end
 local M = {}
 
 function M.protocolClausesBeforeResultsKeepTheExistingPacks()
-    for _, signature in ipairs({
-        "(start: number): string yields(number, string) resumes(boolean)",
-        "(start: number) yields(number, string) resumes(boolean): string",
-    }) do
+    for _, signature in ipairs({"(start: number) yields(number, string) resumes(boolean): string",}) do
         local source = "local type Producer = function"
             .. signature
             .. "\nlocal function worker"
@@ -63,6 +60,31 @@ function M.protocolClausesBeforeResultsKeepTheExistingPacks()
     end
 end
 
+function M.protocolClausesAfterResultsHaveMachineApplicableFixes()
+    for _, source in ipairs({
+        "local type Producer = function(number): string yields(number, string) resumes(boolean)",
+        "local function worker(start: number): string yields(number) resumes(boolean) return 'done' end",
+        "local callback = function(): string yields(number) resumes(boolean) return 'done' end",
+        "local record Feed function next(self): boolean yields() resumes(number) return true end end",
+        "local function worker(): string borrows(state) yields(number) resumes(boolean) return 'done' end",
+    }) do
+        local result = assertRoundtrip(source)
+        local diagnostic
+        for _, problem in ipairs(result.errors) do
+            if problem.msg == "coroutine protocol clauses must precede the result type" then
+                diagnostic = problem
+            end
+        end
+        assert(diagnostic, source)
+        testAssert.equal(diagnostic.code, "NUPP1005")
+        assert(diagnostic.help:find("before ':'", 1, true), diagnostic.help)
+        testAssert.equal(#diagnostic.fixes, 1)
+        local fixed = applyFix(source, diagnostic.fixes[1])
+        local corrected = assertRoundtrip(fixed)
+        testAssert.equal(#corrected.errors, 0, corrected.errors[1] and corrected.errors[1].msg)
+    end
+end
+
 function M.protocolClausesBeforeResultsParseLiteralsAndMethods()
     local source = [[
 local callback = function(start: number) yields(number) resumes(boolean): string return 'done' end
@@ -72,6 +94,17 @@ end
 function Feed:next() yields() resumes(number): boolean return true end
 ]]
     local result = assertRoundtrip(source)
+    testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg)
+    local kinds = require("nupp.tools.lsp.semantic").syntaxKinds(result)
+    for _, token in ipairs(result.tokens) do
+        if token.text == "yields" or token.text == "resumes" then
+            testAssert.equal(kinds[token], "nuppKeyword", "coroutine clauses retain semantic highlighting")
+        end
+    end
+end
+
+function M.yieldsRemainsAnOrdinaryFunctionNameInTheBody()
+    local result = assertRoundtrip("local function worker(): nil yields(1) end")
     testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg)
 end
 
@@ -947,12 +980,12 @@ end
 
 function M.legacyOwnershipAndHandlerFormsHaveMachineApplicableFixes()
     for _, case in ipairs({
-        {source = "local raw = @unsafe release owner", fixed = "local raw = @unsafe nupp.release(owner)",},
+        {source = "local raw = @unsafe release owner", fixed = "local raw = @unsafe own.release(owner)",},
         {
             source = "local owner = @unsafe adopt raw as affine(integer, close)",
-            fixed = "local owner = @unsafe nupp.adopt<affine(integer, close)>(raw)",
+            fixed = "local owner = @unsafe own.adopt<affine(integer, close)>(raw)",
         },
-        {source = "drop owner", fixed = "nupp.drop(owner)"},
+        {source = "drop owner", fixed = "own.drop(owner)"},
         {
             source = "handle suspension with frame.handler do print('inside') end",
             fixed = "with installation = nupp.suspension.host.install(frame.handler) do print('inside') end",

@@ -1,5 +1,7 @@
 module nupp.serde.internal.document
 
+const assert2 = require("assert")
+
 local core = require("nupp.serde.internal.value")
 local plans = require("nupp.serde.internal.json.plan")
 local json = require("nupp.serde.internal.json.values")
@@ -98,7 +100,7 @@ export record Document
     --- Returns the string a `string` document holds.
     --- @raises string when the document is not a string
     function string(self): string
-        assert(self.kind == "string", "document is not a string")
+        assert2(self.kind == "string", "document is not a string")
         return self.text as string
     end
 
@@ -106,14 +108,14 @@ export record Document
     --- @return the number as it was written
     --- @raises string when the document is not a number token
     function numberToken(self): string
-        assert(self.kind == "numberToken", "document is not a number token")
+        assert2(self.kind == "numberToken", "document is not a number token")
         return self.text as string
     end
 
     --- Returns the value a `boolean` document holds.
     --- @raises string when the document is not a boolean
     function boolean(self): boolean
-        assert(self.kind == "boolean", "document is not a boolean")
+        assert2(self.kind == "boolean", "document is not a boolean")
         return self.flag as boolean
     end
 
@@ -121,7 +123,7 @@ export record Document
     --- @return the integer's decimal digits, width, and signedness
     --- @raises string when the document is not an integer
     function integer(self): core.Integer
-        assert(self.kind == "integer", "document is not an integer")
+        assert2(self.kind == "integer", "document is not an integer")
         return self.integerValue as core.Integer
     end
 
@@ -129,7 +131,7 @@ export record Document
     --- @return the decimal's coefficient and exponent
     --- @raises string when the document is not a decimal
     function decimal(self): core.Decimal
-        assert(self.kind == "decimal", "document is not a decimal")
+        assert2(self.kind == "decimal", "document is not a decimal")
         return self.decimalValue as core.Decimal
     end
 
@@ -137,7 +139,7 @@ export record Document
     --- @return the float's value and width
     --- @raises string when the document is not a float
     function float(self): core.Float
-        assert(self.kind == "float", "document is not a float")
+        assert2(self.kind == "float", "document is not a float")
         return self.floatValue as core.Float
     end
 
@@ -145,7 +147,7 @@ export record Document
     --- @return the data as a string
     --- @raises string when the document is not bytes
     function bytes(self): string
-        assert(self.kind == "bytes", "document is not bytes")
+        assert2(self.kind == "bytes", "document is not bytes")
         return self.text as string
     end
 
@@ -153,14 +155,14 @@ export record Document
     --- @return the integer's decimal text
     --- @raises string when the document is not a big integer
     function bigInteger(self): string
-        assert(self.kind == "bigInteger", "document is not a big integer")
+        assert2(self.kind == "bigInteger", "document is not a big integer")
         return self.text as string
     end
 
     --- Returns the timestamp a `timestamp` document holds.
     --- @raises string when the document is not a timestamp
     function timestamp(self): core.Timestamp
-        assert(self.kind == "timestamp", "document is not a timestamp")
+        assert2(self.kind == "timestamp", "document is not a timestamp")
         return self.time as core.Timestamp
     end
 
@@ -169,7 +171,7 @@ export record Document
     --- Each call returns a new snapshot, so the document keeps its own.
     --- @raises string when the document is not an atom
     function atom(self): core.Atom
-        assert(self.kind == "atom", "document is not an atom")
+        assert2(self.kind == "atom", "document is not an atom")
         return (self.atomValue as core.Atom):snapshot()
     end
 
@@ -179,8 +181,8 @@ export record Document
     --- @raises string when the document is not a map
     --- @raises string when no entry is at the index
     function entry(self, index: integer): MapEntry
-        assert(self.kind == "map", "document is not a map")
-        return (assert((self.entries as {MapEntry})[index], "document entry out of range"))
+        assert2(self.kind == "map", "document is not a map")
+        return (assert2((self.entries as {MapEntry})[index], "document entry out of range"))
     end
 
     --- Returns the member at a position in a `structure` or `union` document.
@@ -189,14 +191,14 @@ export record Document
     --- @raises string when the document is neither a structure nor a union
     --- @raises string when no member is at the index
     function field(self, index: integer): Entry
-        assert(self.kind == "structure" or self.kind == "union", "document has no named members")
-        return (assert(self.fields[index], "document member out of range"))
+        assert2(self.kind == "structure" or self.kind == "union", "document has no named members")
+        return (assert2(self.fields[index], "document member out of range"))
     end
 
     --- Returns the contents of a `document` boundary.
     --- @raises string when the document is not a boundary
     function document(self): Document
-        assert(self.kind == "document", "document is not a boundary")
+        assert2(self.kind == "document", "document is not a boundary")
         return self.elements[1]
     end
 
@@ -403,7 +405,7 @@ end
 
 local record Adapter is core.DocumentAdapter<Document>
     function discard(self, takes value: Document): nil
-        local _copy = @unsafe nupp.release(value)
+        local _copy = @unsafe own.release(value)
     end
 
     @readonly binding: core.Binding<Document>
@@ -482,7 +484,7 @@ export function float(value: core.Float): Document
 end
 
 export function bigInteger(value: string): Document
-    assert(
+    assert2(
         value:match("^-?[0-9]+$") and (value == "0" or value == "-0" or value:match("^-?[1-9][0-9]*$")),
         "invalid big integer"
     )
@@ -495,7 +497,7 @@ export function bytes(value: string): Document
 end
 
 export function timestamp(value: core.Timestamp): Document
-    assert(value.nanos >= 0 and value.nanos < 1000000000, "invalid timestamp nanos")
+    assert2(value.nanos >= 0 and value.nanos < 1000000000, "invalid timestamp nanos")
     return new Document(kind = "timestamp", time = value, elements = {}, fields = {})
 end
 

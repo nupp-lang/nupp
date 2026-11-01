@@ -17,7 +17,9 @@ function testrunner.run(args: any): integer
     for index, argument in ipairs(args) do
         forwarded[index] = argument
     end
-    arg = forwarded
+    setmetatable(forwarded, getmetatable(rawget(_G, "arg")))
+    rawset(_G, "arg", forwarded)
+    package.loaded.arg = forwarded
 
     -- The carried runner is still one ordinary Lua program. These two values are
     -- the process facts a file invocation used to derive from arg[0]: where suites
@@ -28,7 +30,7 @@ function testrunner.run(args: any): integer
     -- A suite requiring the public assertion module receives this exact instance.
     -- The literal require also keeps it in a stamped compiler whose runner source is
     -- loaded dynamically below.
-    package.loaded["nupp.test"] = require("nupp.test")
+    package.loaded["assert"] = require("assert")
 
     local source = assert(require("nupp.compiler.bundled").source("/nupp/test/runner.lua"))
     local execute, problem = loadstring(source, "@nupp:test-runner")

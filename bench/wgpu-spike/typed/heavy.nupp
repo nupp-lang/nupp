@@ -13,10 +13,10 @@ local function heavy(
     end
 
     for index = 1, #output do
-        local value = nupp.math.f32.narrow(input[index])
+        local value = math.f32.narrow(input[index])
         local step: int32 = 0
         while step < steps do
-            value = nupp.math.f32.add(nupp.math.f32.mul(value, nupp.math.f32.narrow(scale)), nupp.math.f32.narrow(bias))
+            value = math.f32.add(math.f32.mul(value, math.f32.narrow(scale)), math.f32.narrow(bias))
             step = step + 1
         end
         output[index] = value

@@ -109,8 +109,11 @@ function runtime.install(
     -- replaces the checkout's LuaJIT spelling wherever that would be found.
     local function vmOverride(name: string): string?
         local root = envMod.compilerRoot()
-        if not root or name:sub(1, 5) ~= "nupp." or not rawget(_G, "__nupp_load_image") then
+        if not root or envMod.packageNamespace(name) ~= "nupp" or not rawget(_G, "__nupp_load_image") then
             return nil
+        end
+        if name == "simd" then
+            return root .. "/native/crates/vm/lib/nupp/vm/simdbinding.nupp"
         end
         local path = root .. "/native/crates/vm/lib/" .. name:gsub("%.", "/") .. ".nupp"
         local file = io.open(path, "rb")
@@ -157,14 +160,14 @@ function runtime.install(
         return loadPath(name, path)
     end
 
-    -- The standard library of the compiler's own checkout: a `nupp.` module the
+    -- The standard library of the compiler's own checkout: a standard module the
     -- compiler image does not carry compiles from source, checked as the
     -- checkout's own module rather than as the project's, where the VM's
     -- declarations resolve.
 
     local function loadStandardModule(name)
         local root = envMod.compilerRoot()
-        if compiling or name:sub(1, 5) ~= "nupp." or not root then
+        if compiling or envMod.packageNamespace(name) ~= "nupp" or not root then
             return
         end
         local rel = name:gsub("%.", "/")

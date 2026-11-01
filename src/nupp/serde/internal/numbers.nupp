@@ -35,7 +35,7 @@ export function floating(value: number, width: 32 | 64, allowNonfinite: boolean?
         error("float32 is out of range", 2)
     end
     if width == 32 then
-        return nupp.math.f32.narrow(value)
+        return math.f32.narrow(value)
     else
         return value
     end

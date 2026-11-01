@@ -29,7 +29,7 @@
 -- keeps an edit cheap, the allocation budget keeps a check linear in the project, and
 -- the bytecode budget keeps the benchmarks' kernels what was measured.
 local json = require("testjson")
-local test = require("nupp.test")
+local test = require("assert")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if HERE:sub(1, 1) ~= "/" and not HERE:match("^%a:[/\\]") then
@@ -162,7 +162,7 @@ function M.theBenchmarkProgramsStayWithinTheirBytecodeBudgets()
     if selected then
         selected:close()
     end
-    test.requireCapability("vm-hosted-cli", os.getenv("NUPP_VM_CLI_IMAGE") ~= nil or selected ~= nil)
+    test.suite.requireCapability("vm-hosted-cli", os.getenv("NUPP_VM_CLI_IMAGE") ~= nil or selected ~= nil)
     local names = {}
     for name in pairs(BYTECODE) do
         names[#names + 1] = name
@@ -349,7 +349,7 @@ function M.aVectorProgramRunsFromItsBinary()
         [[
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 local function count(borrows text: span.Span<uint8>, needle: uint32): uint32
     local found: uint32 = 0
@@ -374,7 +374,7 @@ const w = bytes:write()
 for i = 1, 70 do
     w[i] = i % 2 == 0 and 7 or 1
 end
-nupp.drop(w)
+own.drop(w)
 print(count(bytes:read(), 7))
 ]]
     )

@@ -5,7 +5,7 @@ local function evaluator()
     local state, env = {}, {}
     providers.installEvaluator(state, env)
 
-    return state, env.nupp.derive
+    return state, env.types.derive
 end
 
 local function invoke(state, intrinsic, ...)

@@ -188,7 +188,7 @@ through a read-only view.
   `table`, and a `table` may be used where any of them is wanted. It is closer
   to "`any`, for tables" than to a top type.
 - **A declared `is` edge is trusted rather than proved.** If a record says
-  `is nupp.Closeable`, it satisfies `nupp.Closeable` even before a runtime registrar has
+  `is own.Closeable`, it satisfies `own.Closeable` even before a runtime registrar has
   filled the members in.
 
 Each is a place where the checker chose compatibility over proof. See [`is` is

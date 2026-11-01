@@ -1,5 +1,7 @@
 module main
 
+const assert2 = require("assert")
+
 local snapshot = require("nupp.snapshot")
 local persist = require("nupp.vm.persist")
 local vm = require("nupp.vm")
@@ -16,8 +18,8 @@ local record Sound
 end
 
 local function refused(ok: boolean, problem: any, expected: string): nil
-    assert(not ok, "expected a failure mentioning " .. expected)
-    assert(tostring(problem):find(expected, 1, true) ~= nil, tostring(problem))
+    assert2(not ok, "expected a failure mentioning " .. expected)
+    assert2(tostring(problem):find(expected, 1, true) ~= nil, tostring(problem))
 end
 
 --- @raises string when the call succeeds or fails without `expected`
@@ -27,7 +29,7 @@ local function fails(expected: string, body: function(): nil): nil
 end
 
 local function scratch(): string
-    return assert(host.createTemporary("", "nupp-snapshot-", "", true)) as string
+    return assert2(host.createTemporary("", "nupp-snapshot-", "", true)) as string
 end
 
 -- Graph saves: policies, application resources, staged restores.
@@ -61,31 +63,31 @@ local function graphs(): nil
             name = "demo.Sound.v1",
             transient = {"cache"},
             afterLoad = function(value: any): nil
-                assert(value.self.channel == "channel-7", "resources restore before hooks")
+                assert2(value.self.channel == "channel-7", "resources restore before hooks")
                 value.cache = value.volume * 2
             end,
         },
     }
     local options: snapshot.Options = {policies = policies, resources = resources}
     local bytes = snapshot.save(sound, options)
-    assert(captured == 1)
+    assert2(captured == 1)
 
     -- prepare, inspect, publish
     do
         local prepared = snapshot.prepare(bytes, options)
         local candidate = prepared:value()
-        assert(candidate ~= sound and candidate.cache == 6 and candidate.self.channel == "channel-7")
+        assert2(candidate ~= sound and candidate.cache == 6 and candidate.self.channel == "channel-7")
         local published = prepared:publish()
-        assert(published == candidate)
+        assert2(published == candidate)
     end
-    assert(restored == 1 and discarded == 0)
+    assert2(restored == 1 and discarded == 0)
 
     -- closing an unpublished candidate discards its resources
     do
         local prepared = snapshot.prepare(bytes, options)
         prepared:close()
     end
-    assert(restored == 2 and discarded == 1)
+    assert2(restored == 2 and discarded == 1)
 
     -- validation runs before publication; failing it discards
     fails("not loud enough", function(): nil
@@ -99,7 +101,7 @@ local function graphs(): nil
             end,
         })
     end)
-    assert(restored == 3 and discarded == 2)
+    assert2(restored == 3 and discarded == 2)
 
     -- loadInto is all or nothing: a failing hook leaves the target untouched
     local target = new Sound(name = "old", volume = 1, cache = 0, self = nil)
@@ -116,10 +118,10 @@ local function graphs(): nil
     fails("hook failed", function(): nil
         snapshot.loadInto(bytes, target, {policies = broken, resources = resources})
     end)
-    assert(target.name == "old" and target.volume == 1 and target.self == nil)
-    assert(restored == 4 and discarded == 3)
-    assert(snapshot.loadInto(bytes, target, options) == target)
-    assert(target.name == "theme" and target.cache == 6 and (target as any).self.channel == "channel-7")
+    assert2(target.name == "old" and target.volume == 1 and target.self == nil)
+    assert2(restored == 4 and discarded == 3)
+    assert2(snapshot.loadInto(bytes, target, options) == target)
+    assert2(target.name == "theme" and target.cache == 6 and (target as any).self.channel == "channel-7")
 
     -- a tracked table needs its registration; an open file never saves
     fails("demo.player", function(): nil
@@ -127,24 +129,24 @@ local function graphs(): nil
     end)
     local directory = scratch()
     local path = directory .. "/held.txt"
-    assert(host.write(path, "held"))
+    assert2(host.write(path, "held"))
     do
-        local file = assert(files.open(path, "r"))
+        local file = assert2(files.open(path, "r"))
         -- Hold the record the way game state would, outside the affine owner.
-        local held: any = @unsafe nupp.release(file)
+        local held: any = @unsafe own.release(file)
         fails("open file", function(): nil
             snapshot.save({file = held})
         end)
         host.fileClose(held._handle as integer)
         held._closed = true
-        assert(#snapshot.save({file = held}) > 0)
+        assert2(#snapshot.save({file = held}) > 0)
     end
     snapshot.untrack(player)
-    assert(#snapshot.save(sound, {policies = policies}) > 0)
+    assert2(#snapshot.save(sound, {policies = policies}) > 0)
     fails("reserved", function(): nil
         snapshot.track({}, "nupp.mine")
     end)
-    assert(host.remove(directory, true))
+    assert2(host.remove(directory, true))
 end
 
 local record Save
@@ -185,16 +187,16 @@ local function durable(): nil
     local bytes = snapshot.durable(game, options)
     -- The hook ran in the scratch VM: neither the live value nor this VM's
     -- module state changed.
-    assert(game.secret == "debug" and hookRuns == 0)
-    assert(host.read(path) == bytes)
+    assert2(game.secret == "debug" and hookRuns == 0)
+    assert2(host.read(path) == bytes)
     local header = snapshot.inspect(bytes)
-    assert(header.application == "demo.game" and header.version == 2)
-    assert(header.metadata.level == 4 and header.metadata.items == 2)
-    assert(#header.sections == 1 and header.sections[1] == "inventory")
+    assert2(header.application == "demo.game" and header.version == 2)
+    assert2(header.metadata.level == 4 and header.metadata.items == 2)
+    assert2(#header.sections == 1 and header.sections[1] == "inventory")
     local loaded = snapshot.loadDurable(bytes, {application = "demo.game", version = 2, policies = policies}) as Save
-    assert(loaded ~= game and loaded.level == 4 and loaded.secret == "" and loaded.inventory[2] == "map")
+    assert2(loaded ~= game and loaded.level == 4 and loaded.secret == "" and loaded.inventory[2] == "map")
     local inventory = snapshot.section(bytes, "inventory", {application = "demo.game"})
-    assert(inventory[1] == "sword")
+    assert2(inventory[1] == "sword")
     fails("belongs to demo.game", function(): nil
         snapshot.loadDurable(bytes, {application = "other.game"})
     end)
@@ -210,7 +212,7 @@ local function durable(): nil
             return value.game
         end,
     })
-    assert((snapshot.loadDurable(picked, {application = "demo.game"}) as Save).level == 4)
+    assert2((snapshot.loadDurable(picked, {application = "demo.game"}) as Save).level == 4)
 
     -- a failing hook publishes nothing and leaves the previous save in place
     fails("disk full", function(): nil
@@ -223,11 +225,11 @@ local function durable(): nil
             path = path,
         })
     end)
-    assert(host.read(path) == bytes)
+    assert2(host.read(path) == bytes)
     fails("functions", function(): nil
         snapshot.durable({run = durable}, {application = "demo.game", version = 1})
     end)
-    assert(host.remove(directory, true))
+    assert2(host.remove(directory, true))
 end
 
 -- Computes for about 1,500 supervisor turns of 10,000 instructions each, so
@@ -245,10 +247,10 @@ end
 -- methods must be required again rather than captured.
 local function reader(path: string): string
     local files = require("nupp.io.files")
-    local file = assert(files.open(path, "r"))
-    local first = assert(file:read(4)) as string
+    local file = assert2(files.open(path, "r"))
+    local first = assert2(file:read(4)) as string
     busy()
-    local second = assert(file:read(4)) as string
+    local second = assert2(file:read(4)) as string
     file:close()
 
     return first .. second
@@ -260,17 +262,17 @@ local function writer(path: string, strategy: string): string
     if strategy ~= "" then
         snapshot.fileStrategy(path, strategy as snapshot.FileStrategy)
     end
-    local file = assert(files.open(path, "w"))
-    assert(file:write("head"))
+    local file = assert2(files.open(path, "w"))
+    assert2(file:write("head"))
     busy()
-    assert(file:write("tail"))
+    assert2(file:write("tail"))
     file:close()
 
     return "written"
 end
 
 local function listener(): string
-    local handle = assert(net.listen("127.0.0.1", 0, 4, false))
+    local handle = assert2(net.listen("127.0.0.1", 0, 4, false))
     busy()
 
     return tostring(handle)
@@ -280,7 +282,7 @@ end
 local function checkpoints(): nil
     local directory = scratch()
     local path = directory .. "/level.dat"
-    assert(host.write(path, "abcdefgh"))
+    assert2(host.write(path, "abcdefgh"))
     with game = vm.spawn(reader, path) do
         local generation = game:generation()
 
@@ -312,22 +314,22 @@ local function checkpoints(): nil
             turn(generation, 0)
         end
         const captured = game:capture()
-        assert(finish(generation) == "abcdefgh")
+        assert2(finish(generation) == "abcdefgh")
         do
             local candidate = game:prepareRestore(captured)
             local next = game:replace(candidate)
             generation = next
         end
         -- The restored VM reopened the file and reads on from offset 4.
-        assert(finish(generation) == "abcdefgh")
+        assert2(finish(generation) == "abcdefgh")
         -- A changed asset refuses the restore, and the game stays usable.
-        assert(host.write(path, "abcdWXYZ"))
+        assert2(host.write(path, "abcdWXYZ"))
         local ok, problem = pcall(function(): nil
             with candidate = game:prepareRestore(captured) do
             end
         end)
         refused(ok, problem, "contents changed")
-        assert(game:generation() == generation)
+        assert2(game:generation() == generation)
     end
 
     -- A writable file needs a strategy; "reopen" never truncates.
@@ -349,7 +351,7 @@ local function checkpoints(): nil
                 const captured = game:capture()
                 with candidate = game:prepareRestore(captured) do
                 end
-                assert(host.read(journal) == "head")
+                assert2(host.read(journal) == "head")
             end
         end
     end
@@ -367,7 +369,7 @@ local function checkpoints(): nil
         end)
         refused(ok, problem, "1 network listener")
     end
-    assert(host.remove(directory, true))
+    assert2(host.remove(directory, true))
 end
 
 function main.run(): number

@@ -2,7 +2,7 @@ module nupp.tools.cli.ownershipaudit
 
 --[[ Enumerates the ownership claims that make up a project's trusted FFI surface. ]]
 
-local cliModule = require("nupp.cli")
+local cliModule = require("arg")
 
 local type OwnerEntry = {
     name: string,
@@ -229,7 +229,7 @@ local function run(options: any): integer
                 kind = "unsafe assertion region",
             }
             inUnsafe = true
-            -- `@unsafe nupp.adopt` and `@unsafe nupp.release` are expressions, legal
+            -- `@unsafe own.adopt` and `@unsafe own.release` are expressions, legal
             -- outside an annotated block, and are assertion sites wherever they appear.
             -- The other intrinsics are ordinary helpers, worth listing only inside a
             -- declared unsafe region.

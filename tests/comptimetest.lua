@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- Comptime, C1: expression blocks.
 --
 -- The property that matters is not that a literal appears in the output but that the
@@ -121,15 +121,15 @@ local M = {}
 function M.internsStructurallyDistinctTypesApart()
     local value = evaluateTypeBlueprint(
         [[
-      const a = nupp.types.indexer(nupp.types.union({nupp.types.nil_, nupp.types.number}), nupp.types.integer)
-      const b = nupp.types.union({nupp.types.nil_, nupp.types.indexer(nupp.types.number, nupp.types.integer)})
-      if a == b or nupp.types.kind(a) ~= "indexer" or nupp.types.kind(b) ~= "union" then
-         return nupp.types.error("distinct types interned as one")
+      const a = types.indexer(types.union({types.nil_, types.number}), types.integer)
+      const b = types.union({types.nil_, types.indexer(types.number, types.integer)})
+      if a == b or types.kind(a) ~= "indexer" or types.kind(b) ~= "union" then
+         return types.error("distinct types interned as one")
       end
-      const pair = nupp.types.tuple({nupp.types.string, nupp.types.integer})
-      const nested = nupp.types.tuple({nupp.types.tuple({nupp.types.string}), nupp.types.integer})
+      const pair = types.tuple({types.string, types.integer})
+      const nested = types.tuple({types.tuple({types.string}), types.integer})
       if pair == nested then
-         return nupp.types.error("nested tuple interned as flat")
+         return types.error("nested tuple interned as flat")
       end
       return b
    ]]
@@ -140,14 +140,14 @@ end
 function M.flattensOptionalIntoTheUnionItNames()
     local value = evaluateTypeBlueprint(
         [[
-      const direct = nupp.types.union({nupp.types.string, nupp.types.number, nupp.types.nil_})
-      const viaOptional = nupp.types.optional(nupp.types.union({nupp.types.string, nupp.types.number}))
+      const direct = types.union({types.string, types.number, types.nil_})
+      const viaOptional = types.optional(types.union({types.string, types.number}))
       if direct ~= viaOptional then
-         return nupp.types.error("optional of a union is not the flat union")
+         return types.error("optional of a union is not the flat union")
       end
-      const once = nupp.types.optional(nupp.types.string)
-      if nupp.types.optional(once) ~= once then
-         return nupp.types.error("optional of optional is not optional")
+      const once = types.optional(types.string)
+      if types.optional(once) ~= once then
+         return types.error("optional of optional is not optional")
       end
       return viaOptional
    ]]
@@ -157,18 +157,18 @@ end
 
 function M.rejectsANonHandleMapWriteSide()
     local failure = typeBlueprintFailure([[
-      return nupp.types.map(nupp.types.string, nupp.types.number, 42)
+      return types.map(types.string, types.number, 42)
    ]])
     testAssert.equal(failure.code, "NUPP2415", "a stray write key fails at the call")
-    assert(failure.message:find("nupp.types.map", 1, true), failure.message)
+    assert(failure.message:find("types.map", 1, true), failure.message)
 end
 
 function M.finalizesAndValidatesStructuralTypeHandles()
     local value = evaluateTypeBlueprint(
         [[
-      const name = nupp.types.literal("id")
-      const maybeInteger = nupp.types.optional(nupp.types.integer)
-      return nupp.types.tuple({name, maybeInteger})
+      const name = types.literal("id")
+      const maybeInteger = types.optional(types.integer)
+      return types.tuple({name, maybeInteger})
    ]]
     )
     testAssert.equal(value.tag, "tuple", "the parent interns the structural result")
@@ -179,9 +179,9 @@ end
 function M.finalizesAndValidatesTypePackHandles()
     local value = evaluateTypeBlueprint(
         [[
-      return nupp.types.pack(
-         {nupp.types.string, nupp.types.integer},
-         nupp.types.any,
+      return types.pack(
+         {types.string, types.integer},
+         types.any,
          {"plain", "borrowed"}
       )
    ]]
@@ -195,16 +195,16 @@ end
 function M.preservesStructuralFieldAndIndexerCapabilities()
     local value = evaluateTypeBlueprint(
         [[
-      const indexer = nupp.types.indexer(
-         nupp.types.string,
-         nupp.types.number,
-         nupp.types.string,
-         nupp.types.integer
+      const indexer = types.indexer(
+         types.string,
+         types.number,
+         types.string,
+         types.integer
       )
-      return nupp.types.shape({
-         {name = "read", read = nupp.types.string},
-         {name = "write", write = nupp.types.integer},
-         {name = "both", read = nupp.types.number, write = nupp.types.number}
+      return types.shape({
+         {name = "read", read = types.string},
+         {name = "write", write = types.integer},
+         {name = "both", read = types.number, write = types.number}
       }, indexer)
    ]]
     )
@@ -220,9 +220,9 @@ end
 function M.reconstructsWrappersCArrayIntersectionsAndFunctions()
     local wrapped = evaluateTypeBlueprint(
         [[
-      return nupp.types.intersection({
-         nupp.types.pointer(nupp.types.uint8),
-         nupp.types.constof(nupp.types.carray(nupp.types.uint8, 16))
+      return types.intersection({
+         types.pointer(types.uint8),
+         types.constof(types.carray(types.uint8, 16))
       })
    ]]
     )
@@ -237,9 +237,9 @@ function M.reconstructsWrappersCArrayIntersectionsAndFunctions()
 
     local callable = evaluateTypeBlueprint(
         [[
-      const parameters = nupp.types.pack({nupp.types.string}, nupp.types.any)
-      const results = nupp.types.pack({nupp.types.boolean})
-      return nupp.types.function_(parameters, results)
+      const parameters = types.pack({types.string}, types.any)
+      const results = types.pack({types.boolean})
+      return types.function_(parameters, results)
    ]]
     )
     testAssert.equal(callable.tag, "func", "function blueprint interns as an ordinary function")
@@ -272,17 +272,17 @@ function M.scansFormatArgumentsWithOrdinaryComptimeControlFlow()
                end
                const conversion = format:sub(cursor, cursor)
                if conversion == "s" or conversion == "q" then
-                  arguments[#arguments + 1] = nupp.types.any
+                  arguments[#arguments + 1] = types.any
                elseif conversion == "d" or conversion == "i" then
-                  arguments[#arguments + 1] = nupp.types.number
+                  arguments[#arguments + 1] = types.number
                else
-                  return nupp.types.error("unsupported format conversion %" .. conversion)
+                  return types.error("unsupported format conversion %" .. conversion)
                end
             end
          end
          cursor = cursor + 1
       end
-      return nupp.types.pack(arguments)
+      return types.pack(arguments)
    ]]
     )
     testAssert.equal(#value.head, 3, "the ordinary scanner computes format arity")
@@ -295,7 +295,7 @@ function M.separatesAuthoredTypeFailureFromEvaluatorFailure()
     local result = parser.parse(
         [[
       return comptime do
-         return nupp.types.error("expected a literal format")
+         return types.error("expected a literal format")
       end
    ]],
         "type-error-test.nupp"
@@ -314,7 +314,7 @@ function M.separatesAuthoredTypeFailureFromEvaluatorFailure()
 end
 
 function M.rejectsTamperedTypeBlueprints()
-    local _, envelope = evaluateTypeBlueprint([[return nupp.types.array(nupp.types.string)]])
+    local _, envelope = evaluateTypeBlueprint([[return types.array(types.string)]])
     envelope.payload.nodes[1].element = 999
     envelope.fingerprint = hash.sha256("nupp.types\0v1\0" .. stable(envelope.payload))
     local _, invalid = typeblueprint.validate(envelope)
@@ -332,29 +332,27 @@ function M.rejectsMalformedTypeBlueprintPayloads()
         assert(invalid and invalid.code == "NUPP2415", label)
     end
 
-    local _, tuple = evaluateTypeBlueprint(
-        [[
-      return nupp.types.tuple({nupp.types.string, nupp.types.integer})
-   ]]
-    )
+    local _, tuple = evaluateTypeBlueprint([[
+      return types.tuple({types.string, types.integer})
+   ]])
     local tupleNode = tuple.payload.nodes[tuple.payload.root]
     tupleNode.members[3] = tupleNode.members[2]
     tupleNode.members[2] = nil
     rejected(tuple, "a sparse member array is not truncated")
 
     local _, constraint = evaluateTypeBlueprint([[
-      return nupp.types.range(nupp.types.integer, 1, 2)
+      return types.range(types.integer, 1, 2)
    ]])
     constraint.payload.nodes[constraint.payload.root].low = "1"
     rejected(constraint, "non-numeric bounds do not reach the constructor")
 
-    local _, literal = evaluateTypeBlueprint([[return nupp.types.literal("name")]])
+    local _, literal = evaluateTypeBlueprint([[return types.literal("name")]])
     local literalNode = literal.payload.nodes[literal.payload.root]
     literal.payload.nodes[literalNode.base].name = "integer"
     rejected(literal, "a literal must retain its value's primitive base")
 
     local _, pack = evaluateTypeBlueprint([[
-      return nupp.types.pack({nupp.types.string, nupp.types.integer})
+      return types.pack({types.string, types.integer})
    ]])
     pack.payload.nodes[pack.payload.root].names = {[3] = "extra"}
     rejected(pack, "pack metadata cannot name a missing slot")
@@ -936,6 +934,73 @@ end
 
 -- A helper's optional parameter may be left out, exactly as the checker admits it:
 -- the missing argument is nil, and only a required one omitted is a mistake.
+function M.callableAssertionsKeepTheirTableAndResultPack()
+    local value = run(
+        [[
+return comptime do
+    local verify = assert
+    local first, gap, third, tail = verify(true, nil, false, nil)
+    verify.equal(first, true)
+    verify.notEqual(third, true)
+    verify.deepEqual({first, third}, {true, false})
+    return {
+        kind = type(assert), aliasKind = type(verify), same = verify == assert,
+        first = first, gap = gap == nil, third = third, tail = tail == nil,
+        count = select("#", verify("ready", nil, 7, nil)),
+        matched = verify.matches("ready", "^ready$")
+    }
+end
+]]
+    )
+    testAssert.equal(value.kind, "table", "the public assertion keeps its table type")
+    testAssert.equal(value.aliasKind, "table", "an alias keeps the same table type")
+    testAssert.equal(value.same, true, "aliases share one evaluator capability")
+    testAssert.equal(value.first, true, "the first result survives")
+    testAssert.equal(value.gap, true, "an interior nil survives")
+    testAssert.equal(value.third, false, "a later false result survives")
+    testAssert.equal(value.tail, true, "the trailing nil survives")
+    testAssert.equal(value.count, 4, "the full result arity survives")
+    testAssert.equal(value.matched, "ready", "pure helpers use the shared implementation")
+end
+
+function M.callableAssertionFailuresKeepTheLuaErrorContract()
+    for _, value in ipairs({"false", "nil"}) do
+        local codes, diags = errorsOf(
+            "return comptime do local verify = assert; verify(" .. value .. ", \"assertion marker\"); return 1 end"
+        )
+        testAssert.equal(codes[1], "NUPP2412", "a falsy assertion raises through the call boundary")
+        assert(diags[1].msg:find("assertion marker", 1, true), diags[1].msg)
+    end
+    local codes = errorsOf("return comptime do assert(); return 1 end")
+    testAssert.equal(codes[1], "NUPP2412", "omitting the condition keeps the Lua argument error")
+end
+
+function M.callableAssertionCapabilitiesDoNotAdmitOtherTables()
+    local codes, diags = errorsOf([[
+return comptime do
+    local assert: any = {}
+    return assert(true)
+end
+]])
+    testAssert.equal(codes[1], "NUPP2411", "a shadowed table is not the registered callable")
+    assert(diags[1].msg:find("a table is not callable", 1, true), diags[1].msg)
+    testAssert.equal(
+        run([[
+return comptime do
+    local assert = math.abs
+    return assert(-4)
+end
+]]),
+        4,
+        "a shadowed function retains its ordinary meaning"
+    )
+    for _, member in ipairs({"suite.fixture", "raises"}) do
+        local unavailable, failures = errorsOf("return comptime do return assert." .. member .. " end")
+        testAssert.equal(unavailable[1], "NUPP2411", "effectful and callback helpers stay outside the allowlist")
+        assert(failures[1].msg:find("assert.", 1, true), failures[1].msg)
+    end
+end
+
 function M.callsAHelperWithoutItsOptionalArgument()
     testAssert.equal(
         run(

@@ -1,4 +1,4 @@
-local test = require("nupp.test")
+local test = require("assert")
 local library = require("${moduleName}")
 local suite = {}
 

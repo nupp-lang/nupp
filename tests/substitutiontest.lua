@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- Substitution has two jobs. Rebinding `self` over a member must preserve every
 -- other binder; specializing a call must materialize the ones inference never
 -- reached, as `any`. One operation did both, and the preserving callers silently
@@ -41,7 +41,7 @@ local M = {}
 
 function M.nominalArgumentsRetainTheirCleanupIdentityDuringInference()
     local source = [[
-local record Resource is nupp.Closeable
+local record Resource is own.Closeable
     function close(takes self): nil end
 end
 local record Key<V>

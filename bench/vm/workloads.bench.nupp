@@ -1,6 +1,6 @@
 --- The interpreter workloads: six cases a replacement runtime is judged on.
 ---
---- The same source the hand-rolled comparison ran, as `nupp.bench` cases so the
+--- The same source the hand-rolled comparison ran, as `debug.bench` cases so the
 --- runner's paired `--against` protocol applies to them. Each case runs its workload
 --- once per iteration -- `n` is fixed at one, so a round is one run of the original
 --- work -- and declares the checksum the original printed, which every fork and both
@@ -14,7 +14,7 @@
 ---
 --- Run: nupp bench --file bench/vm/workloads.bench.nupp --against OTHER_NUPP --forks 12
 --- --margin 2
-local bench = require("nupp.bench")
+local bench = require("debug.bench")
 
 local scale: number = tonumber(os.getenv("BENCH_SCALE") or "1") or 1
 

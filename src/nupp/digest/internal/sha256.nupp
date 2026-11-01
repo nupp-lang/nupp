@@ -41,7 +41,7 @@ local digest = {}
 -- wrote, and both routes inline a helper whose body is one return, so wrapping
 -- them costs nothing either way and keeps a round legible.
 local function u32(value: integer): uint32
-    return nupp.math.u32.wrap(value)
+    return math.u32.wrap(value)
 end
 
 local function add(a: int32, b: int32): int32
@@ -54,11 +54,11 @@ end
 -- converts to double and back for a pattern that never left thirty-two bits,
 -- and a value at or above 2^31 does not survive the return trip.
 local function signed(value: uint32): int32
-    return nupp.math.i32.fromU32(value)
+    return math.i32.fromU32(value)
 end
 
 local function unsigned(value: int32): uint32
-    return nupp.math.u32.fromI32(value)
+    return math.u32.fromI32(value)
 end
 
 -- `i32.rotateRight` exists, but it is not one of the intrinsics `@aot` admits,

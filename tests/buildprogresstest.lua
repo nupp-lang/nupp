@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- What a build says about itself while it runs and when it finishes.
 --
 -- Two halves, tested the two ways they are reachable: the reporter directly,
@@ -8,7 +8,6 @@ local testAssert = require("nupp.test")
 -- as long as there have been scripts reading its output, and the only reason
 -- that is still true is that nothing is written unless somebody is watching.
 local progress = require("nupp.tools.build.progress")
-local ansi = require("nupp.cli")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -199,7 +198,7 @@ end
 function M.aColoredSummaryPaintsSuccessAndBuildCounts()
     local path = os.tmpname()
     local stream = assert(io.open(path, "wb"))
-    ansi.withColorMode("always", function()
+    io.withColorMode("always", function()
         local report = progress.new("always", stream)
         report:counted(2, 3)
         report:finish("built", "app")

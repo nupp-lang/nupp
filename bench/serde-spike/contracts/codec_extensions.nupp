@@ -1,3 +1,5 @@
+const assert2 = require("assert")
+
 local __serdeCodec = require("serde.codec")
 local core = require("serde")
 local json = require("serde.json")
@@ -35,7 +37,7 @@ local record Counted<T, M is core.Member> is core.Adapter<T, M>
     end
 end
 
-local record Wrap<T is nupp.Copyable> is core.Consumer<T, nil, nil>
+local record Wrap<T is own.Copyable> is core.Consumer<T, nil, nil>
     @readonly counts: Counts
     result: core.Binding<T>?
     function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows state: nil): nil
@@ -43,10 +45,10 @@ local record Wrap<T is nupp.Copyable> is core.Consumer<T, nil, nil>
     end
 end
 
-local function counted<T is nupp.Copyable>(binding: core.Binding<T>, counts: Counts): core.Binding<T>
+local function counted<T is own.Copyable>(binding: core.Binding<T>, counts: Counts): core.Binding<T>
     local wrapper = new Wrap<T>(counts = counts)
     binding:accept(wrapper, nil)
-    return assert(wrapper.result)
+    return assert2(wrapper.result)
 end
 
 local schema = model.newModel()
@@ -54,21 +56,21 @@ local counts = new Counts()
 local binding = counted(model.binding(schema), counts)
 local profile = model.policy(true)
 local codec = json.codec(profile, 2)
-assert(codec:cachedBindings() == 0 and counts.reads == 0 and counts.writes == 0)
+assert2(codec:cachedBindings() == 0 and counts.reads == 0 and counts.writes == 0)
 local bytes = '{"identifier":"cached","created":0}'
 local value = codec:decode(binding, bytes)
-assert(counts.reads == 1 and counts.writes == 0)
-assert(codec:encode(binding, value) == bytes)
-assert(counts.writes == 1)
+assert2(counts.reads == 1 and counts.writes == 0)
+assert2(codec:encode(binding, value) == bytes)
+assert2(counts.writes == 1)
 for _ = 1, 20 do
-    assert(codec:encode(binding, value) == bytes)
-    assert(codec:decode(binding, bytes).id == "cached")
+    assert2(codec:encode(binding, value) == bytes)
+    assert2(codec:decode(binding, bytes).id == "cached")
 end
-assert(counts.writes == 1 and counts.reads == 1 and codec:cachedBindings() == 1)
+assert2(counts.writes == 1 and counts.reads == 1 and codec:cachedBindings() == 1)
 
 local alternate = json.codec(model.policy(false))
-assert(alternate:encode(binding, value):find('"id":"cached"', 1, true))
-assert(counts.writes == 2)
+assert2(alternate:encode(binding, value):find('"id":"cached"', 1, true))
+assert2(counts.writes == 2)
 
 local second, third = new Counts(), new Counts()
 local secondBinding = counted(model.binding(schema), second)
@@ -76,24 +78,24 @@ local thirdBinding = counted(model.binding(schema), third)
 codec:encode(secondBinding, value)
 codec:encode(binding, value)
 codec:encode(thirdBinding, value)
-assert(codec:cachedBindings() == 2)
+assert2(codec:cachedBindings() == 2)
 codec:encode(binding, value)
-assert(counts.writes == 2, "the recently used adapter was evicted")
+assert2(counts.writes == 2, "the recently used adapter was evicted")
 codec:encode(secondBinding, value)
-assert(second.writes == 2, "the least recently used adapter was retained")
+assert2(second.writes == 2, "the least recently used adapter was retained")
 
 local failure: table = {}
 local bad = new Counts(failure = failure)
 local invalid = counted(model.binding(schema), bad)
 for _ = 1, 2 do
     local ok, problem = pcall(codec.encode, codec, invalid, value)
-    assert(not ok and getmetatable(problem) == errors.Error and (problem as errors.Error).cause == failure)
+    assert2(not ok and getmetatable(problem) == errors.Error and (problem as errors.Error).cause == failure)
 end
-assert(bad.writes == 1)
+assert2(bad.writes == 1)
 codec:clear()
-assert(codec:cachedBindings() == 0)
-assert(not pcall(codec.encode, codec, invalid, value))
-assert(bad.writes == 2)
+assert2(codec:cachedBindings() == 0)
+assert2(not pcall(codec.encode, codec, invalid, value))
+assert2(bad.writes == 2)
 print("codec extensions initialize lazily by adapter, profile, and direction with bounded retention")
 
 local directCounts = new Counts()
@@ -102,6 +104,6 @@ local directProfile = model.policy(true)
 local directJson = json.codec(directProfile)
 for _ = 1, 3 do
     local restored = directJson:decode(directBinding, bytes)
-    assert(directJson:encode(directBinding, restored) == bytes)
+    assert2(directJson:encode(directBinding, restored) == bytes)
 end
-assert(directCounts.reads == 1 and directCounts.writes == 1, "convenience calls rebuilt protocol schema extensions")
+assert2(directCounts.reads == 1 and directCounts.writes == 1, "convenience calls rebuilt protocol schema extensions")

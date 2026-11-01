@@ -1,5 +1,5 @@
 -- Existing VM call contracts, independent of any inlining experiment.
-local test = require("nupp.test")
+local test = require("assert")
 local compile = require("nupp.tools.cli.compile")
 local envMod = require("nupp.compiler.project.env")
 local lower = require("nupp.compiler.vm.lower")
@@ -245,7 +245,7 @@ end
 function M.providerBodyPatchReachesAnAlreadyLoadedCaller()
     if not program.onVm() then
         -- The Lua runner has no in-process VM function-body patch surface.
-        return require("assert").skip("provider body patching requires the VM")
+        return require("assert").suite.skip("provider body patching requires the VM")
     end
     local hotPatch = assert(rawget(_G, "__nupp_hot_patch"), "the VM exposes its body-patch API")
     withProject(
@@ -254,7 +254,9 @@ function M.providerBodyPatchReachesAnAlreadyLoadedCaller()
             local retainedProvider = assert(package.loaded[state.names.PROVIDER]).present
             local receiver = {tag = false}
             test.equal(retainedCaller(receiver), true)
-            local nextImage, nextLayout = state.rebuildProvider((state.providerSource:gsub("value%.tag", "value.other")))
+            local nextImage, nextLayout = state.rebuildProvider(
+                (state.providerSource:gsub("value%.tag", "value.other"))
+            )
             test.equal(
                 nextLayout.shapes,
                 state.initialProviderLayout.shapes,

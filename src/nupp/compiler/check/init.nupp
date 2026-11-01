@@ -19,6 +19,8 @@ the run through it.
 Diagnostics carry stable `NUPP2xxx` codes; `docs/reference/diagnostics.md` is the
 reference for their shape and their families.
 ]]
+const assert2 = require("assert")
+
 const {type Target} = require("nupp.compiler.analysis")
 
 local apiidentity = require("nupp.compiler.apiidentity")
@@ -1514,7 +1516,7 @@ function checkMod.check(
                     entry.definition and entry.definition.token or entry.assignedAt,
                     (
                         "owned value %q leaves scope without being consumed, "
-                        .. "dropped, returned, or released with @unsafe nupp.release"
+                        .. "dropped, returned, or released with @unsafe own.release"
                     ):format(name)
                 )
             elseif not entry.ownershipOrigin
@@ -2081,7 +2083,7 @@ function checkMod.check(
             and (c.env and c.env.compilerServices and c.env.compilerServices.cheader ~= nil)
             and next(c.cDeclared) ~= nil
         then
-            local cheader: any = assert(
+            local cheader: any = assert2(
                 c.env and c.env.compilerServices and c.env.compilerServices.cheader,
                 "native C-header compiler service is unavailable"
             )

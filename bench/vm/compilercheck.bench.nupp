@@ -20,12 +20,11 @@
 ---
 --- Run: nupp bench --file bench/vm/compilercheck.bench.nupp --against OTHER_NUPP
 --- --forks 3 --margin 2 --timeout-ms 600000
-local bench = require("nupp.bench")
+local bench = require("debug.bench")
 
 local files = require("nupp.io.files")
 local json = require("serde.json")
 local process = require("nupp.io.process")
-local time = require("nupp.time")
 
 --- Milliseconds one check may take before it counts as hung.
 local CHECK_TIMEOUT_MS: integer = 600000
@@ -59,7 +58,7 @@ end
 
 --- Runs one check in `project` and returns its wall time in milliseconds.
 local function check(executable: string, project: string, cacheDir: string, state: string): number
-    local started = time.now()
+    local started = os.monotonic()
     local child, spawnProblem = process.spawn({
         args = {executable, "check", "--json"},
         cwd = project,
@@ -73,7 +72,7 @@ local function check(executable: string, project: string, cacheDir: string, stat
         return 0.0
     end
     local result, problem = child:communicate()
-    local elapsed = time.now() - started
+    local elapsed = os.monotonic() - started
     child:close()
     if not result then
         fail(state .. " check: " .. tostring(problem))

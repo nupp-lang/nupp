@@ -127,12 +127,12 @@ record Cell
 end
 
 @comptime local function Optional(T: type): type
-    return nupp.types.optional(T)
+    return types.optional(T)
 end
 
 @unsafe
 do
-    nupp.release(owner)
+    own.release(owner)
 end
 ```
 
@@ -145,11 +145,11 @@ end
 
 @comptime
 local function Optional(T: type): type
-    return nupp.types.optional(T)
+    return types.optional(T)
 end
 
 @unsafe do
-    nupp.release(owner)
+    own.release(owner)
 end
 ```
 :::

@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("nupp.compiler.check")
 local envMod = require("nupp.compiler.project.env")
@@ -58,7 +58,7 @@ return {increment = increment, forward = forward}
         for key in pairs(node) do
             if type(key) == "number" then
                 numeric = numeric + 1
-                testAssert.assert(key >= 1 and key <= #children and key % 1 == 0, "CST children have dense indices")
+                testAssert(key >= 1 and key <= #children and key % 1 == 0, "CST children have dense indices")
             end
         end
         testAssert.equal(numeric, #children, "CST children have no holes")
@@ -66,20 +66,20 @@ return {increment = increment, forward = forward}
     end
 
     snapshot(result.root)
-    testAssert.assert(#snapshots > 50, "fixture covers nested syntax")
+    testAssert(#snapshots > 50, "fixture covers nested syntax")
     for _, diagnostic in ipairs(check.check(result, "test.nupp", sharedEnv, {})) do
-        testAssert.assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
+        testAssert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
     end
     analysis.run(result)
     local body = result.root.blocks[1]
     local facts = analysis.queries(result.analysis).body(body)
     local definition = findName(body, "increment").definition
-    testAssert.assert(facts.uses(definition) > 0, "query walks names")
+    testAssert(facts.uses(definition) > 0, "query walks names")
     facts.calledOnly(definition)
     for _, entry in ipairs(snapshots) do
         testAssert.equal(#entry.node, #entry.children, "analysis preserves child count")
         for index, child in ipairs(entry.children) do
-            testAssert.assert(rawequal(entry.node[index], child), "analysis preserves child identity and order")
+            testAssert(rawequal(entry.node[index], child), "analysis preserves child identity and order")
         end
     end
 end

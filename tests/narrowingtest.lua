@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local assertions = require("helpers.assertions")
 -- Narrowing through paths, discriminated unions, literal types, and the
 -- typed module boundary.

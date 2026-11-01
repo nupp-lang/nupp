@@ -4,9 +4,11 @@ module nupp.compiler.builtinextensions
 -- additional members and publish that same table as their internal value.
 local T = require("nupp.compiler.types")
 local members = require("nupp.compiler.types.members")
+local native = require("nupp.compiler.native")
 local extensions = {}
 
 local ROOTS = {
+    warn = {module = "warn", direct = true},
     assert = {module = "assert", direct = true},
     arg = {module = "arg", direct = true},
     io = {
@@ -122,6 +124,7 @@ function extensions.type(c: any, root: string): any
     end
     entry.t = merged
     env.globals[root] = entry
+    env.featureEffects = native.decorateGlobals(env.globals)
     local exports = env.resolveModuleExports and env.resolveModuleExports(env, specification.module)
     local published = env.builtinExtensionExports or {}
     env.builtinExtensionExports = published

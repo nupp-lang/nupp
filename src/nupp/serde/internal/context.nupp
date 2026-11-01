@@ -12,7 +12,7 @@ local record Context is core.Context
     @readonly profile: table
     @readonly parent: core.Context?
     @private @readonly values: {[unknown]: Entry}
-    function get<V is nupp.Copyable>(self, key: store.Key<V>): V?
+    function get<V is own.Copyable>(self, key: store.Key<V>): V?
         local value = self.values[key]
         if value ~= nil then
             return value.value as V
@@ -37,7 +37,7 @@ export record Builder
     --- @param key the key to store under
     --- @param value the value
     --- @raises string when the builder is frozen
-    function set<V is nupp.Copyable>(self, key: store.Key<V>, value: V): nil
+    function set<V is own.Copyable>(self, key: store.Key<V>, value: V): nil
         if self.frozen then
             error("context builder is frozen", 2)
         end

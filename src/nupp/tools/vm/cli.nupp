@@ -12,7 +12,7 @@ function cli.main(argv: {string}): integer
         return 0
     end
 
-    return require("nupp.cli").application(command, {name = "nupp check"}):main(argv)
+    return require("arg").application(command, {name = "nupp check"}):main(argv)
 end
 
 export = cli

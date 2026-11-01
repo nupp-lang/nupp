@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- The compiler reference, held to what the compiler actually does.
 --
 -- A reference is read as authoritative, so an example that stopped compiling is
@@ -216,7 +216,7 @@ end
 
 function M.everyReferenceOutputBranchReportsWriteFailure()
     if package.config:sub(1, 1) == "\\" then
-        require("assert").skip("POSIX directory permissions provide this failure seam")
+        require("assert").suite.skip("POSIX directory permissions provide this failure seam")
     end
     local dir = os.tmpname()
     os.remove(dir)

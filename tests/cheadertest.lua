@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- Typing a pinned C header at compile time: a C parser reads it, and the
 -- types are read back out of its declarations rather than translated by us.
 local cheaderMod = require("nupp.compiler.cinterop.cheader")
@@ -373,7 +373,7 @@ end
 
 function M.preprocessorProvenanceIncludesNestedHeaders()
     if os.execute("cc --version >/dev/null 2>&1") ~= 0 then
-        return require("assert").skip("cc is unavailable")
+        return require("assert").suite.skip("cc is unavailable")
     end
     local dir = os.tmpname()
     os.remove(dir)
@@ -397,7 +397,7 @@ end
 
 function M.preprocessorFingerprintIncludesCompilerArguments()
     if os.execute("cc --version >/dev/null 2>&1") ~= 0 then
-        return require("assert").skip("cc is unavailable")
+        return require("assert").suite.skip("cc is unavailable")
     end
     local path = HERE .. "/fixtures/sink.h"
     local plain = assert(cheaderMod.provenance(path, {preprocess = true}))

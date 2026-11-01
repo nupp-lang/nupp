@@ -89,7 +89,7 @@ def kinds_source():
     source = '''module nupp.tests.nojitkinds
 const array = require("nupp.mem.array")
 const span = require("nupp.mem.span")
-const simd = require("nupp.simd")
+const simd = require("simd")
 '''
     calls = []
     for kind, start, step in KINDS:

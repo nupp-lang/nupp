@@ -123,7 +123,7 @@ local function assertSame(set, want, label)
     end
 
     for _, position in ipairs(positions) do
-        check.assert(set:get(position), label .. ": get " .. position)
+        check(set:get(position), label .. ": get " .. position)
     end
 
     local fromWords = 0
@@ -133,7 +133,7 @@ local function assertSame(set, want, label)
             local mask = bit.lshift(1, offset)
             if bit.band(bits, mask) ~= 0 then
                 fromWords = fromWords + 1
-                check.assert(
+                check(
                     want:get(word * bitset.WORD_BITS + offset),
                     label .. ": word " .. word .. " bit " .. offset .. " unexpected"
                 )
@@ -146,11 +146,11 @@ end
 function M.emptySet()
     local set = bitset.Bitset.__nuppCtor1()
     check.equal(set:count(), 0, "empty count")
-    check.assert(set:isEmpty(), "empty isEmpty")
+    check(set:isEmpty(), "empty isEmpty")
     check.equal(set:wordCount(), 0, "empty wordCount")
     check.equal(set:nextSetBit(0), -1, "empty walk")
-    check.assert(not set:get(0), "empty get 0")
-    check.assert(not set:get(FAR), "empty get far")
+    check(not set:get(0), "empty get 0")
+    check(not set:get(FAR), "empty get far")
 end
 
 function M.setAndGetAcrossWordBoundaries()
@@ -161,15 +161,15 @@ function M.setAndGetAcrossWordBoundaries()
         want:set(position)
         assertSame(set, want, "single bit " .. position)
 
-        check.assert(not set:get(position + 1), "neighbour above " .. position)
+        check(not set:get(position + 1), "neighbour above " .. position)
         if position > 0 then
-            check.assert(not set:get(position - 1), "neighbour below " .. position)
+            check(not set:get(position - 1), "neighbour below " .. position)
         end
 
         set:clear(position)
         want:clear(position)
         assertSame(set, want, "cleared " .. position)
-        check.assert(set:isEmpty(), "empty after clear " .. position)
+        check(set:isEmpty(), "empty after clear " .. position)
     end
 end
 
@@ -259,7 +259,7 @@ function M.clearIsDefinedPastTheEnd()
     set:clear(1000)
     set:clear(-1)
     check.equal(set:count(), 1, "clearing past the end changes nothing")
-    check.assert(set:get(5), "the real bit survives")
+    check(set:get(5), "the real bit survives")
 end
 
 function M.negativeWritesRaise()
@@ -309,7 +309,7 @@ function M.positionsPastTheBoundAreRefused()
         set:set(100)
         check.equal(set:get(bad), false, "get " .. tostring(bad))
         set:clear(bad)
-        check.assert(set:get(0), "clear " .. tostring(bad) .. " leaves bit 0")
+        check(set:get(0), "clear " .. tostring(bad) .. " leaves bit 0")
     end
     check.raises(
         function()
@@ -383,7 +383,7 @@ function M.clearAllKeepsCapacity()
 
     -- Reusing it must not need another growth to reach the same position.
     set:set(4000)
-    check.assert(set:get(4000), "reusable after clearAll")
+    check(set:get(4000), "reusable after clearAll")
 end
 
 function M.setOnlyReplacesEverything()
@@ -407,21 +407,21 @@ function M.comparisonsMatchTheOracle()
         rightWant:set(position)
     end
 
-    check.assert(left:containsAll(right), "evens contain multiples of four")
-    check.assert(not right:containsAll(left), "not the other way")
-    check.assert(left:overlaps(right), "they overlap")
-    check.assert(not left:disjoint(right), "so they are not disjoint")
+    check(left:containsAll(right), "evens contain multiples of four")
+    check(not right:containsAll(left), "not the other way")
+    check(left:overlaps(right), "they overlap")
+    check(not left:disjoint(right), "so they are not disjoint")
 
     local odd = bitset.Bitset.__nuppCtor1(64)
     odd:set(1)
-    check.assert(not left:overlaps(odd), "evens miss an odd bit")
-    check.assert(left:disjoint(odd), "so they are disjoint")
+    check(not left:overlaps(odd), "evens miss an odd bit")
+    check(left:disjoint(odd), "so they are disjoint")
 
     local empty = bitset.Bitset.__nuppCtor1()
-    check.assert(left:containsAll(empty), "everything contains the empty set")
-    check.assert(not left:overlaps(empty), "nothing overlaps the empty set")
-    check.assert(empty:containsAll(empty), "the empty set contains itself")
-    check.assert(empty:disjoint(empty), "and is disjoint from itself")
+    check(left:containsAll(empty), "everything contains the empty set")
+    check(not left:overlaps(empty), "nothing overlaps the empty set")
+    check(empty:containsAll(empty), "the empty set contains itself")
+    check(empty:disjoint(empty), "and is disjoint from itself")
 end
 
 function M.containsAllAcrossDifferentCapacities()
@@ -429,11 +429,11 @@ function M.containsAllAcrossDifferentCapacities()
     local narrow = bitset.Bitset.__nuppCtor1(8)
     wide:set(3)
     narrow:set(3)
-    check.assert(wide:containsAll(narrow), "capacity does not affect containment")
-    check.assert(narrow:containsAll(wide), "in either direction")
+    check(wide:containsAll(narrow), "capacity does not affect containment")
+    check(narrow:containsAll(wide), "in either direction")
 
     narrow:set(5000)
-    check.assert(not wide:containsAll(narrow), "a bit beyond is not contained")
+    check(not wide:containsAll(narrow), "a bit beyond is not contained")
 end
 
 function M.containsAllIgnoresClearedTrailingWords()
@@ -444,10 +444,10 @@ function M.containsAllIgnoresClearedTrailingWords()
     formerlyWide:set(5000)
     formerlyWide:clear(5000)
 
-    check.assert(narrow:containsAll(formerlyWide), "a cleared high bit does not prevent containment")
+    check(narrow:containsAll(formerlyWide), "a cleared high bit does not prevent containment")
 
     formerlyWide:clear(3)
-    check.assert(narrow:containsAll(formerlyWide), "a loose bound does not make an empty set nonempty")
+    check(narrow:containsAll(formerlyWide), "a loose bound does not make an empty set nonempty")
 end
 
 function M.copyFromIsIndependent()
@@ -465,7 +465,7 @@ function M.copyFromIsIndependent()
 
     -- Writing through one must not reach the other.
     target:set(1)
-    check.assert(not source:get(1), "copy does not share storage")
+    check(not source:get(1), "copy does not share storage")
     check.equal(source:count(), want:count(), "source untouched")
 
     local fromEmpty = bitset.Bitset.__nuppCtor1(64)
@@ -623,7 +623,7 @@ function M.wordAtIsBoundedAndSigned()
     check.equal(set:wordAt(FAR), 0, "word index past the end reads zero")
 
     set:set(bitset.WORD_BITS - 1)
-    check.assert(set:wordAt(0) < 0, "the top bit of a word reads negative")
+    check(set:wordAt(0) < 0, "the top bit of a word reads negative")
 
     set:set(bitset.WORD_BITS)
     check.equal(set:wordAt(1), 1, "the next word holds the next position")
@@ -645,7 +645,7 @@ function M.wordCountBoundsEverySetBit()
         highest = index
         index = set:nextSetBit(index + 1)
     end
-    check.assert(set:wordCount() * bitset.WORD_BITS > highest, "every set bit is below the bound")
+    check(set:wordCount() * bitset.WORD_BITS > highest, "every set bit is below the bound")
 end
 
 function M.positionsIntoMatchesTheWalk()
@@ -689,7 +689,7 @@ function M.positionsIntoResumesWhenTargetFills()
         for at = 1, written do
             collected[#collected + 1] = target[at - 1]
         end
-        check.assert(resume == -1 or written == 7, "a partial fill means the set was exhausted")
+        check(resume == -1 or written == 7, "a partial fill means the set was exhausted")
         from = resume
     end
 

@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- S5: the platform-neutral process state machine.
 --
 -- Driven by a fake backend, on purpose. What is being checked here is the lifecycle,

@@ -237,7 +237,7 @@ function reflection.graph(root: any, hooks: any?): (integer?, {any}, {any})
             -- or the stored fields in declaration order when there is none. A slot
             -- is optional when the field has a default or already admits nil; a
             -- declaration with several constructors has no single contract and says
-            -- so, which is what `nupp.types.construction` refuses.
+            -- so, which is what `types.construction` refuses.
             out.copyable = relations.isCopyable(t)
             local entries = t.constructorEntries or {}
             if #entries > 1 then

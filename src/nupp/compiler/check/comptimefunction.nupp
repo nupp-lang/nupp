@@ -95,7 +95,7 @@ local function check(c: state.Checker, helper: any, checkOrdinary: function(any)
             c.diag(
                 "NUPP2809",
                 helper.name,
-                "a derive provider must have signature function(nupp.derive.Info): nupp.derive.Result<I>",
+                "a derive provider must have signature function(types.derive.Info): types.derive.Result<I>",
                 nil,
                 {help = "I must be one existing interface, or any for self-declared members"}
             )
@@ -170,7 +170,7 @@ local function check(c: state.Checker, helper: any, checkOrdinary: function(any)
                         sealedProgram.runtimeHelpers[modulePath .. "." .. memberName] = descriptor
                         sealedProgram.runtimeHelpers[moduleName .. "." .. memberName] = descriptor
                     else
-                        c.diag("NUPP2809", value, "nupp.derive.helper must name an exported runtime function")
+                        c.diag("NUPP2809", value, "types.derive.helper must name an exported runtime function")
                     end
                 end
                 for _, child in ipairs(value) do

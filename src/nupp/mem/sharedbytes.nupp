@@ -45,10 +45,11 @@ size. Every VM holding a block reads it in place; the last one to let go frees
 it. A checkpoint writes the block's bytes once, and a restore in the same
 process shares the live block again.
 ]]
+const assert2 = require("assert")
 
 local span = require("nupp.mem.span")
 local files = require("nupp.vm.files")
-local storage: any = assert(
+local storage: any = assert2(
     require("nupp.mem.representation").storage,
     "nupp.mem.sharedbytes: no storage implementation is available for the target"
 )
@@ -208,7 +209,7 @@ end
 
 --- An affine accumulator of engine storage. Appending grows one private
 --- allocation, and freezing transfers it into a region without copying.
-interface sharedbytes.BuilderToken is nupp.Affine<self.drop>
+interface sharedbytes.BuilderToken is own.Affine<self.drop>
     drop: @nosuspend function(takes self: sharedbytes.BuilderToken): nil
 end
 
@@ -324,7 +325,7 @@ end
 function sharedbytes.Builder.freeze(takes self: sharedbytes.Builder): sharedbytes.Region
     -- Sealing spends the builder: its storage becomes the region's block, and
     -- the builder's own terminal has nothing left to release.
-    local builder = @unsafe nupp.release(self)
+    local builder = @unsafe own.release(self)
     local growing = live(builder, 2)
     if growing.reserved ~= nil then
         error("nupp: a region builder has an open reservation", 2)
@@ -337,7 +338,7 @@ function sharedbytes.Builder.freeze(takes self: sharedbytes.Builder): sharedbyte
 end
 
 function sharedbytes.Builder.drop(takes self: sharedbytes.Builder): nil
-    local builder = @unsafe nupp.release(self)
+    local builder = @unsafe own.release(self)
     local growing = builder._handle as Growing?
     if growing ~= nil then
         growing.bytes = nil

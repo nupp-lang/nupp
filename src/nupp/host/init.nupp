@@ -78,13 +78,13 @@ its answer is discarded and its failure reported rather than raised.
 A stream carries messages one way, without answers. `send` appends one to a
 kind's outbound stream, which ships with the frame it was sent in; `bindSend`
 binds a kind to a typed function as `bind` does, which is how bytes are sent.
-`route` delivers a kind's inbound messages as [](nupp.events) on a bus the
+`route` delivers a kind's inbound messages as [](events) on a bus the
 program owns, at an address it picks, with each message's values filling the
 event's fields in declaration order:
 
 ```nupp:fragment
 local host = nupp.host
-local events = nupp.events
+local events = require("events")
 
 @derive(events.Event)
 local struct PointerMove
@@ -118,7 +118,7 @@ such as `tecs.image.decode`. Names under `nupp.` are reserved for the runtime.
 ]]
 
 local spi = require("nupp.runtime.packages")
-local events = require("nupp.events")
+local events = require("events")
 local target = require("nupp.runtime.target")
 local contracts = require("nupp.host.spi")
 

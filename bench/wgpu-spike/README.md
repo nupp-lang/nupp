@@ -8,7 +8,7 @@ These benchmarks exercise Nupp's native GPU architecture end to end:
 3. WGPU selects Metal, Vulkan, DX12, or GLES and owns the platform-specific
    translation and device API.
 4. Resident buffers are uploaded, dispatched, synchronized, and downloaded
-   through `nupp.gpu`.
+   through `gpu`.
 
 There is no SDL provider, SDL build prerequisite, compiler-owned MSL artifact,
 or SPIRV-Cross step. Browser kernels use the separate WGSL/WebGPU provider.

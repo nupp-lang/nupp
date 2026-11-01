@@ -20,7 +20,7 @@ the language server shows on hover.
 
 The comptime helpers that give `find`, `match`, `gmatch`, `gsub` and `format`
 their result and argument packs live here rather than beside the Nupp
-namespaces, because the library they type is here. `nupp.Debug` comes with them:
+namespaces, because the library they type is here. `types.Debug` comes with them:
 `format` names it, and it has to be declared before anything that reads a format
 string. `os.date` reads its literal format the same way, and its helper sits
 beside `os` rather than with these, because the `DateFields` it returns belongs
@@ -152,12 +152,33 @@ local setmetatable: function<T>(takes t: T, mt: metatable<T>?): T preserves t
 --- @return the metatable, its `__metatable` stand-in, or nil
 local getmetatable: function<T>(v: T): metatable<T>?
 
+--- Callable assertions and test-suite operations.
+local interface Assertion
+    equal: function(any, any, string?): any
+    notEqual: function(any, any, string?): any
+    deepEqual: function(any, any, string?): any
+    matches: function(any, string, string?): string
+    raises: function(function(...: any): any, string?): any
+    suite: {
+        skip: function(string): never,
+        isSkip: function(any): boolean,
+        skipReason: function(any): string?,
+        cases: function({any}, function(any, integer): string, function(any, integer): any): any,
+        notExecuted: function(string): never,
+        isNotExecuted: function(any): boolean,
+        notExecutedReason: function(any): string?,
+        requireCapability: function(string, boolean, any?): nil,
+        fact: function(string, any): nil,
+        metric: function(string, number, string?): nil,
+        work: function(string, integer): nil,
+        fixture: function(string, function(string): any): (string, any, boolean)
+    }
+    metamethod __call: function<A...>(self, A...): A...
+end
+
 --- Returns every argument when the first is truthy; otherwise raises the second.
----
 --- The error is "assertion failed!" when the second argument is omitted.
----
---- @return the complete input pack, whose first value is truthy
-local assert: function<A...>(A...): A...
+local assert: Assertion
 
 --- Raises `msg` as an error, unwinding to the nearest `pcall`. A string message is
 --- prefixed with a source position chosen by `level`: 1, the default, blames the caller
@@ -218,9 +239,13 @@ local unpack: function<T>(t: const{T}, i: number?, j: number?): ...T
 local require: function(name: string): any
 
 --- Values with deterministic compiler-generated debug formatting.
-interface nupp.Debug
+interface types.Debug
     debug: function(self): string
 end
+
+--- The Debug contract re-exported by the public types facade.
+--- @internal
+type nupp.__Debug = types.Debug
 
 --- Controls the garbage collector. `opt` is "collect" for a full cycle, the default, or
 --- "stop", "restart", "count", "step", "setpause", "setstepmul" or "isrunning".
@@ -314,13 +339,13 @@ local _VERSION: string
 --- @local
 @comptime
 local function __NuppFormatArguments(Format: type, Debug: type): typepack
-    local info = nupp.types.describe(Format)
+    local info = types.describe(Format)
     local value = info.value
     if info.kind ~= "literal" then
-        return nupp.types.pack({}, nupp.types.any)
+        return types.pack({}, types.any)
     end
     if type(value) ~= "string" then
-        return nupp.types.pack({}, nupp.types.any)
+        return types.pack({}, types.any)
     end
     local format = value as string
     local arguments = {}
@@ -341,9 +366,7 @@ local function __NuppFormatArguments(Format: type, Debug: type): typepack
                     current = format:sub(index, index)
                 end
                 if current == "%" then
-                    nupp.types.error(
-                        'invalid string.format directive starting at "%' .. seen .. format:sub(index) .. '"'
-                    )
+                    types.error('invalid string.format directive starting at "%' .. seen .. format:sub(index) .. '"')
                 end
 
                 local width = 0
@@ -353,7 +376,7 @@ local function __NuppFormatArguments(Format: type, Debug: type): typepack
                     index = index + 1
                     current = format:sub(index, index)
                     if width > 2 then
-                        nupp.types.error('invalid string.format directive starting at "%' .. seen .. '"')
+                        types.error('invalid string.format directive starting at "%' .. seen .. '"')
                     end
                 end
 
@@ -368,28 +391,26 @@ local function __NuppFormatArguments(Format: type, Debug: type): typepack
                         index = index + 1
                         current = format:sub(index, index)
                         if precision > 2 then
-                            nupp.types.error('invalid string.format directive starting at "%' .. seen .. '"')
+                            types.error('invalid string.format directive starting at "%' .. seen .. '"')
                         end
                     end
                 end
 
                 if string.find("aAcdiouxXeEfgG", current, 1, true) then
-                    arguments[#arguments + 1] = nupp.types.number
+                    arguments[#arguments + 1] = types.number
                 elseif current == "?" then
                     arguments[#arguments + 1] = Debug
                 elseif string.find("pqs", current, 1, true) then
-                    arguments[#arguments + 1] = nupp.types.any
+                    arguments[#arguments + 1] = types.any
                 else
-                    nupp.types.error(
-                        'invalid string.format directive starting at "%' .. seen .. format:sub(index) .. '"'
-                    )
+                    types.error('invalid string.format directive starting at "%' .. seen .. format:sub(index) .. '"')
                 end
                 index = index + 1
             end
         end
     end
 
-    return nupp.types.pack(arguments)
+    return types.pack(arguments)
 end
 
 -- Literal Lua patterns carry their capture shape through ordinary prelude type
@@ -490,111 +511,111 @@ end
 --- @local
 @comptime
 local function __NuppMatchResults(Pattern: type): typepack
-    local info = nupp.types.describe(Pattern)
+    local info = types.describe(Pattern)
     local value = info.value
     if info.kind ~= "literal" then
-        return nupp.types.pack({nupp.types.optional(nupp.types.string)})
+        return types.pack({types.optional(types.string)})
     end
     if type(value) ~= "string" then
-        return nupp.types.pack({nupp.types.optional(nupp.types.string)})
+        return types.pack({types.optional(types.string)})
     end
     local pattern = value as string
     local parsed = __NuppPatternCaptures(pattern)
     if parsed.error then
-        nupp.types.error("invalid Lua pattern: " .. parsed.error)
+        types.error("invalid Lua pattern: " .. parsed.error)
     end
     local results = {}
     if #parsed.captures == 0 then
-        results[1] = nupp.types.optional(nupp.types.string)
+        results[1] = types.optional(types.string)
     else
         for index, kind in ipairs(parsed.captures) do
-            local capture = nupp.types.string
+            local capture = types.string
             if kind == "position" then
-                capture = nupp.types.integer
+                capture = types.integer
             end
             if index == 1 then
-                capture = nupp.types.optional(capture)
+                capture = types.optional(capture)
             end
             results[index] = capture
         end
     end
 
-    return nupp.types.pack(results)
+    return types.pack(results)
 end
 
 --- @local
 @comptime
 local function __NuppFindResults(Pattern: type, Plain: type): typepack
-    local plain = nupp.types.describe(Plain)
-    local endpoints = {nupp.types.optional(nupp.types.integer), nupp.types.optional(nupp.types.integer)}
+    local plain = types.describe(Plain)
+    local endpoints = {types.optional(types.integer), types.optional(types.integer)}
     if plain.kind == "literal" and plain.value == true then
-        return nupp.types.pack(endpoints)
+        return types.pack(endpoints)
     end
-    local info = nupp.types.describe(Pattern)
+    local info = types.describe(Pattern)
     local value = info.value
     if info.kind ~= "literal" then
-        return nupp.types.pack(endpoints)
+        return types.pack(endpoints)
     end
     if type(value) ~= "string" then
-        return nupp.types.pack(endpoints)
+        return types.pack(endpoints)
     end
     local pattern = value as string
     local parsed = __NuppPatternCaptures(pattern)
     if parsed.error then
-        nupp.types.error("invalid Lua pattern: " .. parsed.error)
+        types.error("invalid Lua pattern: " .. parsed.error)
     end
     for _, kind in ipairs(parsed.captures) do
         if kind == "position" then
-            endpoints[#endpoints + 1] = nupp.types.integer
+            endpoints[#endpoints + 1] = types.integer
         else
-            endpoints[#endpoints + 1] = nupp.types.string
+            endpoints[#endpoints + 1] = types.string
         end
     end
 
-    return nupp.types.pack(endpoints)
+    return types.pack(endpoints)
 end
 
 --- @local
 @comptime
 local function __NuppGmatchResults(Pattern: type): typepack
-    local results = {nupp.types.string}
-    local info = nupp.types.describe(Pattern)
+    local results = {types.string}
+    local info = types.describe(Pattern)
     local value = info.value
     if info.kind == "literal" and type(value) == "string" then
         local pattern = value as string
         local parsed = __NuppPatternCaptures(pattern)
         if parsed.error then
-            nupp.types.error("invalid Lua pattern: " .. parsed.error)
+            types.error("invalid Lua pattern: " .. parsed.error)
         end
         if #parsed.captures > 0 then
             results = {}
             for index, kind in ipairs(parsed.captures) do
                 if kind == "position" then
-                    results[index] = nupp.types.integer
+                    results[index] = types.integer
                 else
-                    results[index] = nupp.types.string
+                    results[index] = types.string
                 end
             end
         end
     end
 
-    return nupp.types.pack(results)
+    return types.pack(results)
 end
 
 --- @local
 @comptime
 local function __NuppGsubResults(Pattern: type): typepack
-    local info = nupp.types.describe(Pattern)
+    local info = types.describe(Pattern)
     local value = info.value
     if info.kind == "literal" and type(value) == "string" then
         local pattern = value as string
         local parsed = __NuppPatternCaptures(pattern)
         if parsed.error then
-            nupp.types.error("invalid Lua pattern: " .. parsed.error)
+            types.error("invalid Lua pattern: " .. parsed.error)
         end
     end
 
-    return nupp.types.pack({nupp.types.string, nupp.types.integer})
+    return types.pack({types.string, types.integer})
 end
 
 ----------------------------------------------------------------------------
@@ -655,7 +676,7 @@ local string: {
     --- @return the formatted string
     format: @nosuspend function<Format is string>(
         fmt: Format,
-        ...: unpackof __NuppFormatArguments(Format, nupp.Debug)
+        ...: unpackof __NuppFormatArguments(Format, types.Debug)
     ): string,
 
     --- Returns an iterator over each successive match of `pat` in `s`, or over that
@@ -1062,16 +1083,16 @@ end
 --- @local
 @comptime
 local function __NuppDateResult(Format: type, Fields: type): type
-    local info = nupp.types.describe(Format)
+    local info = types.describe(Format)
     local value = info.value
     -- An omitted `fmt` leaves `Format` unbound, which arrives here as `any`. That call
     -- formats with the default "%c" and so answers a string, and a gradual argument is
     -- trusted the same way rather than widening every caller that has one.
     if info.kind == "primitive" and info.name == "any" then
-        return nupp.types.string
+        return types.string
     end
     if info.kind ~= "literal" or type(value) ~= "string" then
-        return nupp.types.union({nupp.types.string, Fields})
+        return types.union({types.string, Fields})
     end
     local literal = value as string
     local format = literal
@@ -1080,7 +1101,7 @@ local function __NuppDateResult(Format: type, Fields: type): type
     end
     if format:sub(1, 2) == "*t" then
         if #format > 2 then
-            nupp.types.error('os.date reads "*t" and ignores the rest of "' .. literal .. '"')
+            types.error('os.date reads "*t" and ignores the rest of "' .. literal .. '"')
         end
         return Fields
     end
@@ -1089,13 +1110,13 @@ local function __NuppDateResult(Format: type, Fields: type): type
         if format:sub(index, index) ~= "%" then
             index = index + 1
         elseif index == #format then
-            nupp.types.error('os.date format "' .. literal .. '" ends in a lone "%"')
+            types.error('os.date format "' .. literal .. '" ends in a lone "%"')
         else
             index = index + 2
         end
     end
 
-    return nupp.types.string
+    return types.string
 end
 
 ----------------------------------------------------------------------------
@@ -1738,3 +1759,6 @@ local debug: {
 --- Index 0 holds the script name, and negative indices hold the interpreter and the
 --- options it was given.
 local arg: {string}
+
+--- Joins its messages and routes a warning through the shared log sink.
+local warn: function(message: string, ...: string): nil

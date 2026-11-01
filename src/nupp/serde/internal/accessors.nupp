@@ -1,22 +1,26 @@
 module nupp.serde.internal.accessors
 
+const assert2 = require("assert")
+
+const reflect = require("types.reflect")
+
 -- Neutral declaration operations. Protocols choose their own member handles;
 -- these handles identify only readable storage and constructor parameters.
 
 const carrier = require("nupp.serde.internal.carrier")
 
 local cacheKey: table = {}
-local create: function<T is nupp.Copyable>(target: Type<T>, info: nupp.reflect.Info, index: integer): Access<T>
+local create: function<T is own.Copyable>(target: Type<T>, info: types.reflect.Info, index: integer): Access<T>
 
 local function fail(path: string, expected: string): nil
     error("nupp: " .. path .. " expects " .. expected, 3)
 end
 
-local function witness(info: nupp.reflect.Info, index: integer): any
-    return (assert(nupp.reflect.runtimeType(info, index), "runtime declaration is not available"))
+local function witness(info: types.reflect.Info, index: integer): any
+    return (assert2(reflect.runtimeType(info, index), "runtime declaration is not available"))
 end
 
-local function checkValue(info: nupp.reflect.Info, index: integer, value: any, path: string, seen: any): boolean
+local function checkValue(info: types.reflect.Info, index: integer, value: any, path: string, seen: any): boolean
     local node: any = info.types[index]
     local kind = node.kind
     if kind == "nil" then
@@ -28,7 +32,7 @@ local function checkValue(info: nupp.reflect.Info, index: integer, value: any, p
     elseif kind == "number" then
         return type(value) == "number"
     elseif kind == "float32" then
-        return type(value) == "number" and (value ~= value or nupp.math.f32.narrow(value) == value)
+        return type(value) == "number" and (value ~= value or math.f32.narrow(value) == value)
     elseif kind == "float64" then
         return type(value) == "number"
     elseif kind == "integer"
@@ -45,7 +49,7 @@ local function checkValue(info: nupp.reflect.Info, index: integer, value: any, p
         if kind == "integer" then
             return true
         end
-        local width = assert(tonumber(kind:match("%d+")))
+        local width = assert2(tonumber(kind:match("%d+")))
         local signed = kind:sub(1, 1) == "i"
         local limit = 2 ^ (width - (signed and 1 or 0))
         return value >= (signed and -limit or 0) and value < limit
@@ -159,7 +163,7 @@ end
 
 -- A function's signature and an owner's lifetime cannot be checked from an
 -- erased value. Those cases use typed, application-supplied construction.
-local function checkable(info: nupp.reflect.Info, index: integer, seen: {[integer]: boolean}): boolean
+local function checkable(info: types.reflect.Info, index: integer, seen: {[integer]: boolean}): boolean
     if seen[index] then
         return true
     end
@@ -223,7 +227,7 @@ end
 --- A field reads values only through the access that listed it.
 export record Field
     --- The annotations declared on the field, empty when it has none.
-    @readonly annotations: const{nupp.reflect.Annotation} = {}
+    @readonly annotations: const{types.reflect.Annotation} = {}
 
     --- The field's declared name.
     @readonly name: string
@@ -265,9 +269,9 @@ end
 ---
 --- [](serde.Access.begin) opens one and
 --- [](serde.Access.finish) takes it.
-export record Builder<T is nupp.Copyable> is nupp.Closeable
+export record Builder<T is own.Copyable> is own.Closeable
     @private @readonly owner: table
-    @private @readonly info: nupp.reflect.Info
+    @private @readonly info: types.reflect.Info
     @private values: {unknown}
     @private present: {[integer]: boolean}
     @private closed: boolean = false
@@ -284,9 +288,9 @@ export record Builder<T is nupp.Copyable> is nupp.Closeable
     ---     another access or is already set, or the value does not fit the
     ---     parameter's type
     function set(exclusive self, parameter: const Parameter, value: unknown): nil
-        assert(not self.closed, "construction is closed")
-        assert(parameter.owner == self.owner, "foreign construction parameter")
-        assert(not self.present[parameter.index], "duplicate construction parameter")
+        assert2(not self.closed, "construction is closed")
+        assert2(parameter.owner == self.owner, "foreign construction parameter")
+        assert2(not self.present[parameter.index], "duplicate construction parameter")
         if not checkValue(self.info, parameter.typeIndex, value, parameter.name, {}) then
             fail(parameter.name, self.info.types[parameter.typeIndex].kind)
         end
@@ -304,9 +308,9 @@ export record Builder<T is nupp.Copyable> is nupp.Closeable
     end
 end
 
-export record Access<T is nupp.Copyable>
+export record Access<T is own.Copyable>
     --- The reflection graph the declaration was read from.
-    @readonly info: nupp.reflect.Info
+    @readonly info: types.reflect.Info
 
     --- The position of the declaration in `info.types`.
     @readonly typeIndex: integer
@@ -336,7 +340,7 @@ export record Access<T is nupp.Copyable>
     --- @return the field's value
     --- @raises string when the field belongs to another access
     function get(self, borrows value: T, field: const Field): unknown borrows (value)
-        assert(field.owner == self.owner, "foreign access field")
+        assert2(field.owner == self.owner, "foreign access field")
         return (value as {[string]: unknown})[field.name]
     end
 
@@ -349,7 +353,7 @@ export record Access<T is nupp.Copyable>
     --- @raises string when the declaration cannot be constructed; the message
     ---     is the one `constructionError` returns
     function begin(self): Builder<T>
-        assert(self.constructionProblem == nil, self.constructionProblem)
+        assert2(self.constructionProblem == nil, self.constructionProblem)
         return new Builder<T>(owner = self.owner, info = self.info, values = {}, present = {})
     end
 
@@ -377,12 +381,12 @@ export record Access<T is nupp.Copyable>
     --- @raises string when the type is not reachable through readable storage,
     ---     is not a record or struct, or has no runtime declaration
     function nested(self, index: integer): Access<unknown>
-        assert(self.accessible[index], "type is not reachable through readable storage")
+        assert2(self.accessible[index], "type is not reachable through readable storage")
         local cached = self.nestedCache[index]
         if cached ~= nil then
             return cached
         end
-        local target = assert(nupp.reflect.runtimeType(self.info, index), "nested declaration is not available")
+        local target = assert2(reflect.runtimeType(self.info, index), "nested declaration is not available")
         local result = create<unknown>(target, self.info, index)
         self.nestedCache[index] = result
 
@@ -404,8 +408,8 @@ export record Access<T is nupp.Copyable>
     ---     not fit its declared type
     function finish(self, takes builder: Builder<T>): T
         local state: Builder<T> = builder
-        assert(state.owner == self.owner, "foreign construction state")
-        assert(not state.closed, "construction is closed")
+        assert2(state.owner == self.owner, "foreign construction state")
+        assert2(not state.closed, "construction is closed")
         local arguments: any = {}
         for _, parameter in ipairs(self.parameters) do
             if not state.present[parameter.index] and not parameter.optional then
@@ -440,9 +444,9 @@ export record Access<T is nupp.Copyable>
     end
 end
 
-create = function<T is nupp.Copyable>(target: Type<T>, info: nupp.reflect.Info, index: integer): Access<T>
+create = function<T is own.Copyable>(target: Type<T>, info: types.reflect.Info, index: integer): Access<T>
     local root: any = info.types[index]
-    assert(root.kind == "record" or root.kind == "struct", "access requires a record or struct")
+    assert2(root.kind == "record" or root.kind == "struct", "access requires a record or struct")
     local owner: table = {}
     local fields: {Field} = {}
     local parameters: {Parameter} = {}
@@ -538,8 +542,8 @@ create = function<T is nupp.Copyable>(target: Type<T>, info: nupp.reflect.Info, 
     return result
 end
 
-export function of<T is nupp.Copyable>(target: Type<T>): Access<T>
-    local info = nupp.reflect.runtime(target)
+export function of<T is own.Copyable>(target: Type<T>): Access<T>
+    local info = reflect.runtime(target)
     local cached = rawget(info, cacheKey)
     if cached ~= nil then
         return cached as Access<T>

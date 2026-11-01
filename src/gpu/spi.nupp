@@ -1,9 +1,9 @@
-module nupp.gpu.spi
+module gpu.spi
 
 --[[
-Shared interfaces for resident GPU implementations.
+`gpu.spi` defines the shared interfaces for GPU providers.
 
-The [](nupp.gpu) module selects a device implementation during initialization.
+The [](gpu) module selects a device implementation during initialization.
 `open` is a receiver-free function; it returns a closeable `KernelContext`.
 
 Implementations define private records satisfying the shared context, buffer,

@@ -1,10 +1,10 @@
--- The nupp.events side of bench/events: one scenario per row of the report,
+-- The events side of bench/events: one scenario per row of the report,
 -- each doing the work bench/events/reference/router.lua does with the Teal
 -- router, so the two sides are compared on the same observers, addresses and
 -- payloads. `make(name)` answers a fresh scenario whose `run(n)` performs n
 -- operations and whose `read()` answers the checksum and callback count since
 -- the last read, which the harness asserts equal across the two sides.
-local events = require("nupp.events")
+local events = require("events")
 
 --- A scalar event: the one-field record most rows emit.
 @derive(events.Event)
@@ -50,6 +50,7 @@ function candidate.make(name: string): Scenario
     local bus: events.MessageBus<integer> = events.newMessageBus()
     local checksum: number = 0
     local calls: integer = 0
+
     local function read(): (number, integer)
         local sum, count = checksum, calls
         checksum, calls = 0, 0

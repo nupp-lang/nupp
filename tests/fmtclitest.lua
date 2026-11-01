@@ -102,7 +102,7 @@ end
 
 function M.aFailedAtomicRewriteLeavesTheSourceWhole()
     if package.config:sub(1, 1) == "\\" then
-        require("assert").skip("POSIX directory permissions provide this failure seam")
+        require("assert").suite.skip("POSIX directory permissions provide this failure seam")
     end
     local dir = tempProject({["locked/messy.nupp"] = UNFORMATTED,})
     assert(os.execute("chmod 555 '" .. dir .. "/locked'") == 0)

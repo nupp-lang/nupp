@@ -3,11 +3,11 @@
 module nupp.io.http.messages
 
 const {type Path} = require("nupp.io.files")
-const uri = require("nupp.io.uri")
+const uri = require("io.uri")
 local http = {}
 
 --- A portable byte source for an HTTP upload, with consuming teardown.
-interface http.Reader is nupp.Closeable
+interface http.Reader is own.Closeable
     read: function(exclusive self: http.Reader, count: integer): (string?, string?)
 end
 
@@ -101,7 +101,7 @@ type http.Options = {
 ---
 --- Built by [](nupp.io.http.reader). A redirect that preserves the request body
 --- cannot replay one, so the request fails rather than following that redirect.
-record http.ReaderBody is nupp.Closeable
+record http.ReaderBody is own.Closeable
     --- Where the body's bytes come from.
     reader: http.Reader
 
@@ -123,7 +123,7 @@ end
 --- FIFO or directory has no length to send, and the native transport refuses it.
 record http.FileBody
     --- The file to send, named as anything [](nupp.io.files) accepts: text, a
-    --- [](nupp.io.path.Path), or an application path.
+    --- [](io.path.Path), or an application path.
     path: Path
 
     --- The `content-type` to send, unless the request names one itself.
@@ -149,7 +149,7 @@ type http.RequestBody = string | http.ReaderBody | http.FileBody
 ---     body = document
 --- )
 --- ```
-record http.Request is nupp.Closeable
+record http.Request is own.Closeable
     --- Where the request goes.
     url: uri.URI
 

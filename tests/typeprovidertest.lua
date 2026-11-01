@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local providers = require("nupp.compiler.comptime.materialize.providers")
 local reflection = require("nupp.compiler.reflection")
 

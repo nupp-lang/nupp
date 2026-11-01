@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local project = require("nupp.tools.build.project")
 local process = require("nupp.compiler.process")
 local fs = require("nupp.compiler.fs")
@@ -64,7 +64,7 @@ function M.namedManifestTargetsCarryTheSelectedHostAndVm()
 local text = require("nupp.text")
 local time = require("nupp.time")
 local representation = require("nupp.mem.representation")
-return {newBuffer = text.newBuffer, now = time.now, storage = representation.storage}
+return {newBuffer = text.newBuffer, now = os.monotonic, storage = representation.storage}
 ]]
     local dir = tempProject({
         [

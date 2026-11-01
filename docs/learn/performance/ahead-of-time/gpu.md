@@ -47,7 +47,7 @@ specification. The application allocates buffers, compiles the specification,
 binds buffers in parameter order, and dispatches scalar uniforms separately:
 
 ```nupp:fragment
-local gpu = require("nupp.gpu")
+local gpu = require("gpu")
 local kernels = require("kernels")
 local array = nupp.mem.array
 
@@ -78,7 +78,7 @@ The context, its buffers, compiled kernels and bindings are all closeable, and
 each child borrows what it was made from: a binding its kernel, a kernel and a
 buffer the context. The checker therefore refuses a close while something still
 borrows the closed value, and any use after a close. `with` gives each one exact
-extent; `nupp.drop(buffer)` releases a buffer early. Closing a root buffer
+extent; `own.drop(buffer)` releases a buffer early. Closing a root buffer
 releases its allocation, and closing a view ends only the view. No close
 suspends. `gpu.open()` raises when no device can be opened, so a program with
 another way to run asks `gpu.available()` first.
@@ -116,7 +116,7 @@ The controller allocates bounded scratch and divides execution into immediate
 `phases:run` callbacks:
 
 ```nupp
-local gpu = require("nupp.gpu")
+local gpu = require("gpu")
 local span = require("nupp.mem.span")
 
 @aot(target = "gpu")
@@ -124,12 +124,12 @@ local function reduce(
     exclusive output: span.WriteSpan<float32>,
     borrows input: span.Span<float32>
 ): nil
-    local groups = nupp.math.u32.div(
-        nupp.math.u32.wrap(#input),
-        nupp.math.u32.wrap(4)
+    local groups = math.u32.div(
+        math.u32.wrap(#input),
+        math.u32.wrap(4)
     )
     gpu.workgroups(groups, 4, function(groupIndex: uint32, phases: gpu.Phases)
-        local shared = phases:scratch(nupp.math.f32.narrow(0.0), 4)
+        local shared = phases:scratch(math.f32.narrow(0.0), 4)
         phases:run(function(localIndex: uint32)
             local cursor = groupIndex * 4 + localIndex
             if cursor < #input then
@@ -138,7 +138,7 @@ local function reduce(
         end)
         phases:reduceSum(shared)
         phases:run(function(localIndex: uint32)
-            if localIndex == nupp.math.u32.wrap(0) and groupIndex < #output then
+            if localIndex == math.u32.wrap(0) and groupIndex < #output then
                 output[groupIndex + 1] = shared[0]
             end
         end)
@@ -160,7 +160,7 @@ artifact; unordered and atomic reductions are not part of this contract.
 ## Tensor layouts and fixed-width storage
 
 `Context:tensor(element, shape)` allocates dense row-major storage. The
-`nupp.gpu.layout` module (imported as `layout`) builds one with
+`gpu.layout` module (imported as `layout`) builds one with
 `layout.new(shape, strides, offset?)` and provides `layout.subview`,
 `layout.transpose`, `layout.broadcast`, and `layout.asStrided` to transform
 checked layout values without allocating. A layout provides `dimensions()`,
@@ -266,6 +266,6 @@ and synchronization costs before any residency optimization is attempted.
 ::: seealso
 - [annotations.md](../../../reference/annotations.md#built-in-annotations)
   for the exact `@aot` arguments
-- [](nupp.gpu) for the generated binding and resident-buffer API
-- [](nupp.gpu.layout) for layout functions
+- [](gpu) for the generated binding and resident-buffer API
+- [](gpu.layout) for layout functions
 :::

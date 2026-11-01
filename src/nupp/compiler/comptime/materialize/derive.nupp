@@ -337,7 +337,7 @@ function deriveProvider.installEvaluator(state: any, env: any, opaque: any, prov
     end)
 
     env.nupp = env.nupp or {}
-    env.nupp.derive = library
+    env.types.derive = library
     state.deriveHelperIntrinsic = library.helper
 end
 

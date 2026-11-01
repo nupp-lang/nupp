@@ -1,6 +1,6 @@
 local ffi = require("ffi")
 local span = require("nupp.mem.span")
-local gpu = require("nupp.gpu")
+local gpu = require("gpu")
 local generated = require("quantgemv")
 
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))

@@ -13,17 +13,17 @@ special-scheme host that needs IDNA.
 
 Either way text that is not valid UTF-8 or holds a NUL byte is refused first,
 with the reasons the native provider gives. Parsing performs no network or
-effect request. [](nupp.io.uri) retains the parser during module initialization
+effect request. [](io.uri) retains the parser during module initialization
 and constructs its shared public URI values from the returned components.
 ]]
 
-local contracts = require("nupp.io.uri.spi")
+local contracts = require("io.uri.spi")
 const whatwg = require("nupp.io.uri.whatwg")
 local browserHost: any = rawget(_G, "__nuppBrowser")
 local provider = {}
 
 -- Browser URI parsing supplies components; the public URI value and its
--- operations are owned by nupp.io.uri on every host.
+-- operations are owned by io.uri on every host.
 function provider.parse(text: string): (contracts.UriParts?, string?)
     local hostParse: any = browserHost ~= nil and browserHost.url or nil
     if hostParse == nil then

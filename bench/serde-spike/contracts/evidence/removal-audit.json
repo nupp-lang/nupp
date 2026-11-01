@@ -6,7 +6,7 @@
     "sha256": "ad2406dc574811ce8c2a25fcce2f2c034407b1cda7206f401347ea383d2e3881",
     "referenceCounts": {
       "nupp.serde": 32,
-      "nupp.derive.JSONOptions": 1,
+      "types.derive.JSONOptions": 1,
       "derive.JSON": 11,
       "derive.Serde": 11,
       "reflect.json": 3,

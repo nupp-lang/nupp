@@ -58,7 +58,7 @@ costs:
 - [Benchmarks](benchmarks.md) runs each case in its own process, replicates
   across processes, and says when a difference is not yet a difference.
 - [Ahead-of-time compilation](ahead-of-time/index.md) covers `@aot` and vector
-  code through `nupp.simd`.
+  code through `simd`.
 
 ::: seealso
 - [Benchmarks](benchmarks.md): measure changes and compare builds.

@@ -6,12 +6,12 @@ order: 633
 
 With *SIMD* (single instruction, multiple data), a processor applies an
 operation to several values at once. In Nupp, an [`@aot`](index.md) function
-uses `nupp.simd` to multiply a sequence of values in groups:
+uses `simd` to multiply a sequence of values in groups:
 
 ```nupp
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 @aot
 local function scale(exclusive output: span.WriteSpan<float32>, borrows input: span.Span<float32>, factor: float32): nil
@@ -110,7 +110,7 @@ these modules to connect its data to those instructions:
 - [](nupp.mem.span) provides a *span*, a bounds-checked view of
   storage. Its native representation includes an address and an element
   count, so the kernel can read the data without navigating a table.
-- [](nupp.simd) provides vector operations. A *species* describes
+- [](simd) provides vector operations. A *species* describes
   their element type and lane count, such as four `float32` lanes on NEON.
 
 Each example followed by output runs with `nupp run`; shorter snippets
@@ -120,7 +120,7 @@ kernel becomes a runnable program when supplied with arrays:
 ```nupp
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 @aot
 local function scale(exclusive output: span.WriteSpan<float32>, borrows input: span.Span<float32>, factor: float32): nil
@@ -255,7 +255,7 @@ The VM runs explicit lane operations as vector instructions, so a kernel needs
 no separate build step under `nupp run`. A `binary` target whose program has
 vector code is stamped onto a runtime with its image compiled ahead of time.
 
-A loop without `nupp.simd` operations is scalar in Nupp's *intermediate
+A loop without `simd` operations is scalar in Nupp's *intermediate
 representation* (IR). Explicit SIMD puts the lane operations in the source, so
 their presence does not depend on a backend's auto-vectorization decisions.
 The rest of this page shows explicit SIMD for loop shapes that can need it:
@@ -270,7 +270,7 @@ The rest of this page shows explicit SIMD for loop shapes that can need it:
 
 ## Vectors and species
 
-A vector in `nupp.simd` is immutable: an operation produces a new value. A
+A vector in `simd` is immutable: an operation produces a new value. A
 load reads its elements from memory. A *splat* repeats one value in every
 lane, while `species:iota(first, step)` produces an arithmetic sequence.
 Arithmetic between vectors operates lane by lane; a scalar on the right is
@@ -354,11 +354,11 @@ local adjusted = root:fma(0.5, 1.0)
 ```
 
 Both `root` and `mapped` hold 2 in every lane. `fma` multiplies and adds with
-one rounding, giving 2 in `adjusted`. It follows `nupp.math.f32.fma` for
+one rounding, giving 2 in `adjusted`. It follows `math.f32.fma` for
 `float32` lanes and the binary64 fused operation for `float64` lanes.
 
 Use `species:map` for the other supported math functions or a helper of your
-own. See [](nupp.simd) for the supported operations.
+own. See [](simd) for the supported operations.
 
 ### Integer operations
 
@@ -400,7 +400,7 @@ with that bound, and values above the upper bound with the upper bound:
 ```nupp
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 @aot
 local function clamp(exclusive values: span.WriteSpan<float32>, low: float32, high: float32): nil
@@ -470,7 +470,7 @@ The mask named `live` tracks the lanes that still have work:
 ```nupp
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 @aot
 local function halvings(exclusive output: span.WriteSpan<float64>, borrows input: span.Span<float64>): nil
@@ -591,7 +591,7 @@ A compensated reducer can preserve the small contributions when it receives
 `1`, `big`, `1`, and `-big` separately:
 
 ```nupp
-local simd = require("nupp.simd")
+local simd = require("simd")
 local big = 1e100
 local ordered = simd.reducer.orderedSum(0.0)
 local compensated = simd.reducer.compensatedSum(0.0)
@@ -644,7 +644,7 @@ The loop has the same structure as the earlier kernels. Passing its mask to
 ```nupp
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 @aot
 local function total(borrows values: span.Span<float64>): float64
@@ -678,7 +678,7 @@ the products. A dot reducer takes both values for each contribution:
 ```nupp
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 @aot
 local function dot(borrows left: span.Span<float32>, borrows right: span.Span<float32>): float32
@@ -745,7 +745,7 @@ floating-point value produced by operations such as zero divided by zero.
 A propagating minimum preserves NaN; a number minimum ignores it when a
 numeric operand is available. See
 [numeric-semantics.md](numeric-semantics.md#reducer-contributions) for logical
-positions and rounding, and [](nupp.simd) for NaNs, signed zeros,
+positions and rounding, and [](simd) for NaNs, signed zeros,
 and ties.
 
 Vector and scalar contributions can share a reducer. This kernel finds the
@@ -812,7 +812,7 @@ its one-based position or zero when no byte matches:
 ```nupp
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 @aot
 local function find(borrows text: span.Span<uint8>, needle: uint32): integer
@@ -860,7 +860,7 @@ number kept, and a mask limits the store to those lanes:
 ```nupp
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 @aot
 local function above(exclusive output: span.WriteSpan<float32>, borrows input: span.Span<float32>, threshold: float32): integer
@@ -1022,7 +1022,7 @@ The index can depend on the species' lane count:
 ```nupp
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 @aot
 local function prefix(exclusive out: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): integer
@@ -1092,7 +1092,7 @@ the views a kernel takes.
 A native CPU `@aot` function can take and return vectors or masks:
 
 ```nupp
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 @aot
 local function twice(value: simd.Vector<float32, simd.Preferred>): simd.Vector<float32, simd.Preferred>
@@ -1153,7 +1153,7 @@ A struct whose vectors are all `Fixed<N>` is instead a storage struct; see
 [Stored vector fields](#stored-vector-fields) below.
 
 ```nupp
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 local struct Pair
     re: simd.Vector<float32, simd.Preferred>
@@ -1226,7 +1226,7 @@ a native kernel and in ordinary code alike:
 
 ```nupp
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 local struct Particle
     mass: float32
@@ -1319,7 +1319,7 @@ These terms connect the processor model to the Nupp operations.
 
 - *Scalar*: one value, or an instruction that works on one value.
 - *Vector*: a group of values of one type. It can occupy one or several
-  registers; in `nupp.simd`, it is an immutable value in a kernel's locals.
+  registers; in `simd`, it is an immutable value in a kernel's locals.
 - *Lane*: one slot of a vector. A 128-bit register has four `float32` lanes
   or sixteen `uint8` lanes.
 - *SIMD*: single instruction, multiple data. One instruction that operates
@@ -1346,5 +1346,5 @@ These terms connect the processor model to the Nupp operations.
   element type with the same lane count.
 
 ::: seealso
-- [](nupp.simd) for the complete vector API
+- [](simd) for the complete vector API
 :::

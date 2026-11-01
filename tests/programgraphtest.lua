@@ -1,4 +1,4 @@
-local test = require("nupp.test")
+local test = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local checker = require("nupp.compiler.check")
 local environment = require("nupp.compiler.project.env")
@@ -147,7 +147,7 @@ local callback = function(): integer takes (taken) borrows (borrowed)
     return taken.value + borrowed.value
 end
 print(callback())
-nupp.drop(borrowed)
+own.drop(borrowed)
 ]]
     )
     test.equal(#owner(p, "close").captures, 0)
@@ -200,7 +200,7 @@ local function open(value: integer): affine(Resource, close)
 end
 local function answer(): nil
     local resource = open(7)
-    nupp.drop(resource)
+    own.drop(resource)
 end
 return answer
 ]]
@@ -240,8 +240,8 @@ function M.shadowedIntrinsicNamesUseOrdinaryCheckedReferences()
     local p = describe(
         [[
 local nupp = {}
-function nupp.drop(value: integer): integer return value end
-local function answer(): integer return nupp.drop(1) end
+function own.drop(value: integer): integer return value end
+local function answer(): integer return own.drop(1) end
 return answer
 ]]
     )

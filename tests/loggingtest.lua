@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local program = require("program")
 local check = require("fragment")
@@ -42,7 +42,7 @@ end
 -- The logging module itself, so behaviour can be exercised without generating a
 -- module around it. It is an ordinary module now, not something a bootstrap installs.
 local function runtime()
-    return require("nupp.log")
+    return require("log")
 end
 
 -- A sink that records what it was handed, so a test can read the parts rather
@@ -57,39 +57,40 @@ end
 local M = {}
 
 function M.formatDirectivesAreCheckedAtTheCallSite()
-    testAssert.equal(codesOf("nupp.log.error('id %d', 3)"), "", "a well-formed call is clean")
-    testAssert.equal(codesOf("nupp.log.error('id %d')"), "NUPP2006", "a directive with no argument is reported")
-    testAssert.equal(codesOf("nupp.log.info('%s and %d', 'a', 'b')"), "NUPP2006", "an argument of the wrong type is reported")
-    testAssert.equal(codesOf("nupp.log.debug('plain')"), "", "a format with no directives is clean")
+    testAssert.equal(codesOf("log.error('id %d', 3)"), "", "a well-formed call is clean")
+    testAssert.equal(codesOf("log.error('id %d')"), "NUPP2006", "a directive with no argument is reported")
+    testAssert.equal(
+        codesOf("log.info('%s and %d', 'a', 'b')"),
+        "NUPP2006",
+        "an argument of the wrong type is reported"
+    )
+    testAssert.equal(codesOf("log.debug('plain')"), "", "a format with no directives is clean")
     testAssert.equal(
         codesOf(
             table.concat(
-                {"@derive(nupp.derive.Debug)", "local record Value end", "nupp.log.debug('value=%?', new Value())",},
+                {"@derive(types.Debug)", "local record Value end", "log.debug('value=%?', new Value())",},
                 "\n"
             )
         ),
         "",
-        "a debug directive accepts nupp.Debug"
+        "a debug directive accepts types.Debug"
     )
-    testAssert.equal(codesOf("nupp.log.debug('value=%?', 'wrong')"), "NUPP2006", "a debug directive requires nupp.Debug")
+    testAssert.equal(codesOf("log.debug('value=%?', 'wrong')"), "NUPP2006", "a debug directive requires types.Debug")
     testAssert.equal(
-        codesOf(table.concat({"local logger = nupp.log.named('named')", "logger:debug('value=%?', 'wrong')",}, "\n")),
+        codesOf(table.concat({"local logger = log.named('named')", "logger:debug('value=%?', 'wrong')",}, "\n")),
         "NUPP2006",
         "a named logger requires the same contract"
     )
 end
 
 function M.levelNamesAreCheckedAtTheCallSite()
-    testAssert.equal(codesOf("nupp.log.setLevel('debug')"), "", "a known level is clean")
-    testAssert.equal(codesOf("nupp.log.setModuleLevel('game.physics', 'debug')"), "", "a module level is checked")
-    testAssert.equal(codesOf("nupp.log.setModuleLevel('game.physics', 'inherit')"), "", "an override can be removed")
-    testAssert.equal(codesOf("nupp.log.enabled('warn')"), "", "enabled takes the same names")
+    testAssert.equal(codesOf("log.setLevel('debug')"), "", "a known level is clean")
+    testAssert.equal(codesOf("log.setModuleLevel('game.physics', 'debug')"), "", "a module level is checked")
+    testAssert.equal(codesOf("log.setModuleLevel('game.physics', 'inherit')"), "", "an override can be removed")
+    testAssert.equal(codesOf("log.enabled('warn')"), "", "enabled takes the same names")
+    assert(codesOf("log.setLevel('verbose')"):find("NUPP2006") ~= nil, "an unknown level is not one of the level names")
     assert(
-        codesOf("nupp.log.setLevel('verbose')"):find("NUPP2006") ~= nil,
-        "an unknown level is not one of the level names"
-    )
-    assert(
-        codesOf("nupp.log.setModuleLevel('game.physics', 'verbose')"):find("NUPP2006") ~= nil,
+        codesOf("log.setModuleLevel('game.physics', 'verbose')"):find("NUPP2006") ~= nil,
         "an unknown module level is refused"
     )
 end
@@ -107,7 +108,7 @@ local function logged(src, level)
 end
 
 function M.aStatementCallWithALiteralFormatIsLowered()
-    local lines = logged("nupp.log.error('id %d', 3)")
+    local lines = logged("log.error('id %d', 3)")
     testAssert.equal(#lines, 1, "the site emitted")
     testAssert.equal(lines[1].level, 1, "at its own severity")
     testAssert.equal(lines[1].line, 1, "the line is a constant")
@@ -125,7 +126,7 @@ function M.aDebugDirectiveLowersInsideTheLevelGuard()
             "        return 'v'",
             "    end",
             "end",
-            "nupp.log.debug('value=%?', new Value())",
+            "log.debug('value=%?', new Value())",
             "return renders",
         },
         "\n"
@@ -143,7 +144,7 @@ function M.debugDirectivesRunThroughDirectAndMethodFormattingCalls()
     local direct, method = run(
         table.concat(
             {
-                "@derive(nupp.derive.Debug)",
+                "@derive(types.Debug)",
                 "local record Value",
                 "   name: string",
                 "end",
@@ -160,7 +161,7 @@ end
 
 function M.eachSeverityCarriesItsOwnIndex()
     for index, name in ipairs({"error", "warn", "info", "debug"}) do
-        local lines = logged(("nupp.log.%s('m')"):format(name))
+        local lines = logged(("log.%s('m')"):format(name))
         testAssert.equal(lines[1].level, index, name .. " tests its own level")
     end
 end
@@ -175,10 +176,10 @@ local function assertOrdinaryCall(src, message, why)
 end
 
 function M.whatIsNotLoweredStaysAnOrdinaryCall()
-    assertOrdinaryCall("local f = 'id %d'\nnupp.log.error(f, 3)", "id 3", "a computed format has nothing to fold")
-    assertOrdinaryCall("local f = nupp.log.error\nf('id %d', 3)", "id 3", "reading the function is not calling it")
+    assertOrdinaryCall("local f = 'id %d'\nlog.error(f, 3)", "id 3", "a computed format has nothing to fold")
+    assertOrdinaryCall("local f = log.error\nf('id %d', 3)", "id 3", "reading the function is not calling it")
 
-    local lines, ok = logged("local ok = nupp.log.enabled('warn')\nreturn ok")
+    local lines, ok = logged("local ok = log.enabled('warn')\nreturn ok")
     testAssert.equal(ok, true, "a call in value position keeps its value")
     testAssert.equal(#lines, 0, "and logs nothing")
 
@@ -188,7 +189,7 @@ function M.whatIsNotLoweredStaysAnOrdinaryCall()
                 "local record Value",
                 "    function debug(self): string return 'v' end",
                 "end",
-                "local ignored = nupp.log.debug('value=%?', new Value())",
+                "local ignored = log.debug('value=%?', new Value())",
             },
             "\n"
         ),
@@ -200,8 +201,8 @@ function M.whatIsNotLoweredStaysAnOrdinaryCall()
         table.concat(
             {
                 "local seen = ''",
-                "local nupp = {log = {error = function(m: string): nil seen = m end}}",
-                "nupp.log.error('m')",
+                "local log = {error = function(m: string): nil seen = m end}",
+                "log.error('m')",
                 "return seen",
             },
             "\n"
@@ -214,7 +215,7 @@ end
 function M.aNamedArgumentKeepsTheOrdinaryCall()
     -- Named arguments are positional only after the adjustment the ordinary call path
     -- performs, and lowering goes around it.
-    assertOrdinaryCall("nupp.log.error(fmt = 'plain')", "plain", "a named argument keeps its call")
+    assertOrdinaryCall("log.error(fmt = 'plain')", "plain", "a named argument keeps its call")
 end
 
 function M.aPluckedArgumentKeepsTheOrdinaryCall()
@@ -225,7 +226,7 @@ function M.aPluckedArgumentKeepsTheOrdinaryCall()
                 "    fmt: string",
                 "end",
                 "local message = new Message(fmt = 'plain')",
-                "nupp.log.error({fmt} = message)",
+                "log.error({fmt} = message)",
             },
             "\n"
         ),
@@ -247,7 +248,7 @@ function M.aLoweredSiteDoesNotEvaluateAFilteredArgument()
         return calls
     end
 
-    -- What a lowered `nupp.log.debug("%d", expensive())` compiles to.
+    -- What a lowered `log.debug("%d", expensive())` compiles to.
     if log.on[4] then
         log.emit(4, "amb", 7, string.format("%d", expensive()))
     end
@@ -325,7 +326,11 @@ function M.settersAnswerWhatTheyReplaced()
     local formatter = function()
         return ""
     end
-    testAssert.equal(log.setFormatter(formatter), formatterBefore, "the formatter setter answers the previous formatter")
+    testAssert.equal(
+        log.setFormatter(formatter),
+        formatterBefore,
+        "the formatter setter answers the previous formatter"
+    )
     testAssert.equal(log.formatter(), formatter, "and the new one is in force")
 
     local previousFormat = log.setTimestampFormat("%H ")
@@ -460,7 +465,11 @@ function M.aModuleLevelOverridesOnlyThatExactModule()
     assert(physics.on[4], "a global change leaves the override in place")
     assert(collision.on[1] and not collision.on[2], "an inheriting module follows the global change")
 
-    testAssert.equal(log.setModuleLevel("test.scoped.physics", "inherit"), "debug", "inherit answers the replaced override")
+    testAssert.equal(
+        log.setModuleLevel("test.scoped.physics", "inherit"),
+        "debug",
+        "inherit answers the replaced override"
+    )
     testAssert.equal(log.moduleLevel("test.scoped.physics"), "error", "inherit restores the effective global level")
     assert(physics.on[1] and not physics.on[2], "the existing view resumes inheritance")
 
@@ -510,13 +519,13 @@ end
 
 function M.theLoggingViewLandsOnlyInModulesThatLog()
     local without = compile("local m = {}\nreturn m", "amb")
-    testAssert.equal(without:find("nupp.log", 1, true), nil, "a module that never logs requires no logging module")
+    testAssert.equal(without:find("log", 1, true), nil, "a module that never logs requires no logging module")
 end
 
--- Every call written through the `nupp.log` path runs from a generated module rather
+-- Every call written through the `log` path runs from a generated module rather
 -- than only checking. The path reaches the module table; the lowered severity sites
 -- reach a per-module view carrying only `on` and `emit`, and a module that did both
--- used to hand the path the view, so `nupp.log.level()` called nil (ER-009).
+-- used to hand the path the view, so `log.level()` called nil (ER-009).
 function M.everyPathCallRunsFromAModule()
     local log = runtime()
     local saved = {sink = log.sink(), formatter = log.formatter(), stamp = log.timestampFormat()}
@@ -524,27 +533,27 @@ function M.everyPathCallRunsFromAModule()
     local module = run(
         table.concat(
             {
-                "return function(sink: nupp.log.Sink): {any}",
+                "return function(sink: log.Sink): {any}",
                 "    local answers: {any} = {}",
-                "    answers[#answers + 1] = nupp.log.setLevel('debug')",
-                "    answers[#answers + 1] = nupp.log.level()",
-                "    answers[#answers + 1] = nupp.log.setModuleLevel('amb.other', 'error')",
-                "    answers[#answers + 1] = nupp.log.moduleLevel('amb.other')",
-                "    answers[#answers + 1] = nupp.log.setModuleLevel('amb.other', 'inherit')",
-                "    answers[#answers + 1] = nupp.log.enabled('info')",
-                "    answers[#answers + 1] = nupp.log.setTimestampFormat('')",
-                "    answers[#answers + 1] = nupp.log.timestampFormat()",
-                "    answers[#answers + 1] = nupp.log.timestamp()",
-                "    nupp.log.setFormatter(function(level: integer, module: string, line: integer, message: string, stamp: string): string",
+                "    answers[#answers + 1] = log.setLevel('debug')",
+                "    answers[#answers + 1] = log.level()",
+                "    answers[#answers + 1] = log.setModuleLevel('amb.other', 'error')",
+                "    answers[#answers + 1] = log.moduleLevel('amb.other')",
+                "    answers[#answers + 1] = log.setModuleLevel('amb.other', 'inherit')",
+                "    answers[#answers + 1] = log.enabled('info')",
+                "    answers[#answers + 1] = log.setTimestampFormat('')",
+                "    answers[#answers + 1] = log.timestampFormat()",
+                "    answers[#answers + 1] = log.timestamp()",
+                "    log.setFormatter(function(level: integer, module: string, line: integer, message: string, stamp: string): string",
                 "        return message",
                 "    end)",
-                "    answers[#answers + 1] = nupp.log.formatter() ~= nil",
-                "    nupp.log.setFormatter(nil)",
-                "    nupp.log.setSink(sink)",
-                "    answers[#answers + 1] = nupp.log.sink() == sink",
-                "    answers[#answers + 1] = nupp.log.levelName(3)",
-                "    nupp.log.named('amb.named'):info('named %d', 1)",
-                "    nupp.log.info('lowered %d', 2)",
+                "    answers[#answers + 1] = log.formatter() ~= nil",
+                "    log.setFormatter(nil)",
+                "    log.setSink(sink)",
+                "    answers[#answers + 1] = log.sink() == sink",
+                "    answers[#answers + 1] = log.levelName(3)",
+                "    log.named('amb.named'):info('named %d', 1)",
+                "    log.info('lowered %d', 2)",
                 "    return answers",
                 "end",
             },

@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- The scaffolder: what a TEMPLATE argument means, what substitution does, what
 -- the sandbox refuses, and what never reaches the disk.
 --
@@ -326,7 +326,7 @@ function M.aSymlinkIsReportedRatherThanFollowed()
     end
     if not linked then
         remove(dir)
-        return require("assert").skip("this platform has no unprivileged symbolic link")
+        return require("assert").suite.skip("this platform has no unprivileged symbolic link")
     end
 
     local into = tempDirectory()
@@ -476,15 +476,18 @@ function M.thePathCheckDoesNotAskTheSharedStringLibrary()
         {["template.lua"] = [[return {variables = {up = {default = ".."}}}]], ["a/${up}/${up}/escaped.txt"] = "x"},
         function()
             local real = {gmatch = string.gmatch, find = string.find, match = string.match, sub = string.sub}
+
             local function hides(s)
                 return type(s) == "string" and real.find(s, "/..", 1, true) ~= nil
             end
+
             string.gmatch = function(s, p)
                 if hides(s) then
                     return function()
                         return nil
                     end
                 end
+
                 return real.gmatch(s, p)
             end
             string.find = function(s, ...)

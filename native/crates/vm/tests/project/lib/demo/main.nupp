@@ -1,5 +1,7 @@
 module demo.main
 
+const assert2 = require("assert")
+
 const {type Answer} = require("demo.types")
 local arithmetic = require("demo.math")
 local main = {}
@@ -25,39 +27,39 @@ function main.run(): Answer
 
     local function useLease(): nil
         local owned = lease(state)
-        assert(owned.state.closed == 0)
+        assert2(owned.state.closed == 0)
     end
 
     useLease()
-    assert(state.closed == 1)
+    assert2(state.closed == 1)
     with owned = lease(state) do
-        assert(owned.state.closed == 1)
+        assert2(owned.state.closed == 1)
     end
-    assert(state.closed == 2)
+    assert2(state.closed == 2)
     local dropped = lease(state)
-    nupp.drop(dropped)
-    assert(state.closed == 3)
+    own.drop(dropped)
+    assert2(state.closed == 3)
     local moduleName = "contracts.tail"
     moduleName = "serde.json.spi" .. moduleName:sub(10)
-    assert(moduleName == "serde.json.spi.tail")
+    assert2(moduleName == "serde.json.spi.tail")
     local repeated = "x"
     repeated = "prefix" .. repeated .. repeated
-    assert(repeated == "prefixxx")
+    assert2(repeated == "prefixxx")
     local previous = rawget(_G, "_")
     local status = ""
     _, status = 17, "assigned"
-    assert(rawget(_G, "_") == 17 and status == "assigned")
+    assert2(rawget(_G, "_") == 17 and status == "assigned")
     _ = 23
-    assert(rawget(_G, "_") == 23)
+    assert2(rawget(_G, "_") == 23)
     _G._ = previous
     local intrinsic: any = nupp
-    assert(intrinsic == rawget(_G, "nupp"))
+    assert2(intrinsic == rawget(_G, "nupp"))
     intrinsic.vmSmoke = 9
-    assert(rawget(rawget(_G, "nupp"), "vmSmoke") == 9)
-    assert(demo.math.twice(21) == 42)
+    assert2(rawget(rawget(_G, "nupp"), "vmSmoke") == 9)
+    assert2(demo.math.twice(21) == 42)
     do
         local demo = {math = {answer = 7}}
-        assert(demo.math.answer == 7)
+        assert2(demo.math.answer == 7)
     end
     local jumps = 0
     ::again::
@@ -67,46 +69,46 @@ function main.run(): Answer
     end
     do
         with owned = lease(state) do
-            assert(owned.state.closed == 3)
+            assert2(owned.state.closed == 3)
             goto cleaned
         end
     end
     ::cleaned::
-    assert(jumps == 3 and state.closed == 4)
+    assert2(jumps == 3 and state.closed == 4)
     for i = 1, 2 do
         if i == 1 then
             goto nextIteration
         end
         local owned = lease(state)
-        assert(owned.state.closed == 4)
+        assert2(owned.state.closed == 4)
         ::nextIteration::
     end
-    assert(state.closed == 5)
+    assert2(state.closed == 5)
     local libraries: {table} = {math, string, table}
     local floor = rawget(libraries[1], "floor")
-    assert(floor(3.75) == 3 and rawget(libraries[1], "huge") > 1e300)
-    assert(rawget(libraries[1], "pi") == math.pi)
-    assert(libraries[2].sub("library", 1, 3) == "lib")
-    assert(libraries[3].concat({"a", "b"}, ":") == "a:b")
+    assert2(floor(3.75) == 3 and rawget(libraries[1], "huge") > 1e300)
+    assert2(rawget(libraries[1], "pi") == math.pi)
+    assert2(libraries[2].sub("library", 1, 3) == "lib")
+    assert2(libraries[3].concat({"a", "b"}, ":") == "a:b")
     local values = pack(1, nil, 3, 4, 5, 6, 7, 8, 9, 10, 11, nil)
-    assert(values.n == 12 and values[1] == "prefix" and values[2] == 1)
-    assert(values[3] == nil and values[12] == 11 and values[13] == nil)
+    assert2(values.n == 12 and values[1] == "prefix" and values[2] == 1)
+    assert2(values[3] == nil and values[12] == 11 and values[13] == nil)
     local returned = pack(
         pcall(function()
             return 7, nil, 9
         end)
     )
-    assert(returned.n == 4 and returned[2] == true and returned[3] == 7)
-    assert(returned[4] == nil and returned[5] == 9)
+    assert2(returned.n == 4 and returned[2] == true and returned[3] == 7)
+    assert2(returned[4] == nil and returned[5] == 9)
     local failed = pack(
         pcall(function()
             error("expected")
         end)
     )
-    assert(failed.n == 2 and failed[2] == false and failed[3] == "expected")
+    assert2(failed.n == 2 and failed[2] == false and failed[3] == "expected")
     local bigA, bigB = 9007199254740990, 9007199254740991
     local tiny = 1e-20
-    assert(bigB - bigA == 1 and tiny > 0)
+    assert2(bigB - bigA == 1 and tiny > 0)
 
     return arithmetic.twice(20) + 2
 end

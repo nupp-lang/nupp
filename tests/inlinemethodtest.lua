@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- A record's inline method, run rather than read.
 --
 -- A leading `self` makes an inline function an instance method. Without it the

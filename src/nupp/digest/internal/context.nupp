@@ -48,7 +48,7 @@ export interface Digest is Writer
     hexDigest: function(takes self: Digest): string
 end
 
-local record StateOwner is nupp.Closeable
+local record StateOwner is own.Closeable
     state: provider.State
     function close(takes self): nil
         self.state:close()
@@ -112,7 +112,7 @@ local record Context is Digest
             local bytes = storage.allocateBytes(size)
             local output = span.writeCarray(bytes, size)
             owner.state:finish(output)
-            nupp.drop(output)
+            own.drop(output)
             return storage.string(bytes, size)
         end
     end
@@ -123,7 +123,7 @@ local record Context is Digest
             local bytes = storage.allocateBytes(size)
             local output = span.writeCarray(bytes, size)
             owner.state:finish(output)
-            nupp.drop(output)
+            own.drop(output)
             return hex.encode(storage.string(bytes, size))
         end
     end

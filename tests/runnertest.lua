@@ -73,7 +73,6 @@ local function copiedRunner()
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/build")) == 0)
     write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
-    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
 
     return dir
 end
@@ -132,7 +131,7 @@ function M.bundledRunnerWorksOutsideTheCompilerCheckout()
             ("%s/tests/%stest.lua"):format(dir, name),
             (
                 [=[
-local test = require("nupp.test")
+local test = require("assert")
 local M = {}
 function M.passes() test.equal(%q, %q) end
 return M
@@ -169,12 +168,12 @@ function M.bundledRunnerCarriesStructuredCasesFixturesAndExactReruns()
         dir .. "/tests/featuretest.lua",
         (
             [=[
-local test = require("nupp.test")
-local M = test.cases(
+local test = require("assert")
+local M = test.suite.cases(
     {{name = "alpha", value = 20}, {name = "beta", value = 22}},
     function(row) return row.name end,
     function(row)
-        local path, value, reused = test.fixture(%q, function(directory)
+        local path, value, reused = test.suite.fixture(%q, function(directory)
             local count = assert(io.open("fixture-productions", "ab"))
             count:write("made\n")
             count:close()
@@ -188,14 +187,14 @@ local M = test.cases(
         artifact:close()
         test.equal(value.answer, 42)
         test.equal(type(reused), "boolean")
-        test.fact("example.witness", {row = row.name})
-        test.metric("source.bytes", row.value, "bytes")
-        test.work("semantic.cases", 1)
-        test.requireCapability("runtime.lua", true, {engine = _VERSION})
+        test.suite.fact("example.witness", {row = row.name})
+        test.suite.metric("source.bytes", row.value, "bytes")
+        test.suite.work("semantic.cases", 1)
+        test.suite.requireCapability("runtime.lua", true, {engine = _VERSION})
     end
 )
 function M.unavailable()
-    test.requireCapability("example.absent", false, {probe = "synthetic"})
+    test.suite.requireCapability("example.absent", false, {probe = "synthetic"})
 end
 return M
 ]=]
@@ -208,9 +207,9 @@ return {fails = function() error("rerun sentinel") end}
         dir .. "/tests/fixturepeertest.lua",
         (
             [=[
-local test = require("nupp.test")
+local test = require("assert")
 return {peer = function()
-    local path, value = test.fixture(%q, function(directory)
+    local path, value = test.suite.fixture(%q, function(directory)
         local count = assert(io.open("fixture-productions", "ab"))
         count:write("made\n")
         count:close()
@@ -231,9 +230,9 @@ end}
         dir .. "/tests/fixturefailuretest.lua",
         (
             [=[
-local test = require("nupp.test")
+local test = require("assert")
 local function consume()
-    test.fixture(%q, function()
+    test.suite.fixture(%q, function()
         local count = assert(io.open("failed-fixture-productions", "ab"))
         count:write("made\n")
         count:close()
@@ -305,9 +304,9 @@ return {first = consume, second = consume}
     test.equal(timingsAfter.suites.featuretest, timingsBefore.suites.featuretest)
     test.equal(timingsAfter.cases.featuretest.alpha, timingsBefore.cases.featuretest.alpha)
     test.equal(timingsAfter.cases.featuretest.unavailable, timingsBefore.cases.featuretest.unavailable)
-    test.assert(timingsAfter.cases.featuretest.beta ~= nil)
+    test(timingsAfter.cases.featuretest.beta ~= nil)
 
-    test.assert(os.remove(fixturePath .. "/answer.txt"))
+    test(os.remove(fixturePath .. "/answer.txt"))
     local rebuiltOutput, rebuilt = capturedRun(
         ("cd %q && %q test --case=featuretest/alpha --jobs=1 --json 2>/dev/null"):format(dir, NUPP)
     )
@@ -320,11 +319,11 @@ return {first = consume, second = consume}
     write(
         dir .. "/tests/fixturealiastest.lua",
         [[
-local test = require("nupp.test")
+local test = require("assert")
 return {distinctKeys = function()
     local paths = {}
     for _, key in ipairs({"Case-Key", "case-key", "."}) do
-        local path, value = test.fixture(key, function(directory)
+        local path, value = test.suite.fixture(key, function(directory)
             local artifact = assert(io.open(directory .. "/value.txt", "wb"))
             artifact:write(key)
             artifact:close()
@@ -416,7 +415,7 @@ end}
     )
 
     local duplicate = test.raises(function()
-        test.cases(
+        test.suite.cases(
             {1, 2},
             function()
                 return "same"
@@ -427,7 +426,7 @@ end}
     end)
     test.matches(tostring(duplicate), "duplicate parameterized case name")
     local unsafe = test.raises(function()
-        test.cases(
+        test.suite.cases(
             {
                 function()
                 end
@@ -441,7 +440,7 @@ end}
     end)
     test.matches(tostring(unsafe), "not serialization%-safe")
     local sparse = test.raises(function()
-        test.cases(
+        test.suite.cases(
             {[1] = {name = "first"}, [3] = {name = "third"}},
             function(row)
                 return row.name
@@ -452,7 +451,7 @@ end}
     end)
     test.matches(tostring(sparse), "dense JSON%-compatible sequence")
     local mixed = test.raises(function()
-        test.cases(
+        test.suite.cases(
             {{name = "mixed", value = {[1] = "array", label = "object"}}},
             function(row)
                 return row.name
@@ -463,7 +462,7 @@ end}
     end)
     test.matches(tostring(mixed), "not serialization%-safe")
     local reserved = test.raises(function()
-        test.cases(
+        test.suite.cases(
             {{name = "beforeAll"}},
             function(row)
                 return row.name
@@ -474,7 +473,7 @@ end}
     end)
     test.matches(tostring(reserved), "reserved for a lifecycle hook")
     local runnerReserved = test.raises(function()
-        test.cases(
+        test.suite.cases(
             {{name = "<unrun>"}},
             function(row)
                 return row.name
@@ -485,7 +484,7 @@ end}
     end)
     test.matches(tostring(runnerReserved), "reserved by the test runner")
     local control = test.raises(function()
-        test.cases(
+        test.suite.cases(
             {{name = "line\nbreak"}},
             function(row)
                 return row.name
@@ -511,13 +510,13 @@ function M.bundledRunnerRecoversStaleFixtureLeasesAndKeepsFreshOnes()
     assert(os.execute("mkdir -p " .. string.format("%q", fixtureSlot("wrong-shape"))) == 0)
     assert(os.execute("mkdir -p " .. string.format("%q", fixtureSlot("malformed"))) == 0)
     write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
-    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+
     write(
         dir .. "/tests/stalefixtest.lua",
         [[
-local test = require("nupp.test")
+local test = require("assert")
 local function fixture(key)
-    local _, value, reused = test.fixture(key, function()
+    local _, value, reused = test.suite.fixture(key, function()
         return {answer = 42}
     end)
     test.equal(value.answer, 42)
@@ -565,7 +564,7 @@ end
 -- ten minutes.
 function M.fixtureWaitsFollowTheProducerNotTheClock()
     if package.config:sub(1, 1) == "\\" then
-        return test.skip("the holders here are POSIX background processes")
+        return test.suite.skip("the holders here are POSIX background processes")
     end
     local dir = os.tmpname()
     os.remove(dir)
@@ -578,7 +577,7 @@ function M.fixtureWaitsFollowTheProducerNotTheClock()
 
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/build/test-fixtures")) == 0)
     write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
-    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+
     -- A process that has exited: its id names nobody by the time a lock does.
     assert(os.execute(("sh -c 'echo $$' > %q"):format(dir .. "/dead.pid")) == 0)
     local dead = tonumber(read(dir .. "/dead.pid"):match("%d+"))
@@ -586,10 +585,10 @@ function M.fixtureWaitsFollowTheProducerNotTheClock()
         dir .. "/tests/holderfixtest.lua",
         (
             [[
-local test = require("nupp.test")
+local test = require("assert")
 local function produce(key)
     local started = os.time()
-    local _, value, reused = test.fixture(key, function()
+    local _, value, reused = test.suite.fixture(key, function()
         return {answer = 42}
     end)
     test.equal(value.answer, 42)
@@ -601,14 +600,14 @@ return {
         -- The holder runs until this says otherwise, two seconds from now.
         assert(os.execute(("(sleep 2; touch %%q) </dev/null >/dev/null 2>&1 &"):format(%q)) == 0)
         local waited = produce("live-holder")
-        test.assert(waited >= 1, "a live producer's lock was reaped after " .. waited .. "s")
+        test(waited >= 1, "a live producer's lock was reaped after " .. waited .. "s")
     end,
     reclaimsAnExitedHoldersLock = function()
         local lock = assert(io.open(%q, "wb"))
         lock:write(os.time(), " ", %d, "\n")
         lock:close()
         local waited = produce("exited-holder")
-        test.assert(waited <= 5, "an exited producer's lock held its consumer for " .. waited .. "s")
+        test(waited <= 5, "an exited producer's lock held its consumer for " .. waited .. "s")
     end,
 }
 ]]
@@ -650,7 +649,7 @@ function M.aTemporaryDirectoryACaseFillsIsRemovedWithItsRun()
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/build")) == 0)
     write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
-    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+
     write(
         dir .. "/tests/tempdirtest.lua",
         [[
@@ -687,7 +686,7 @@ function M.exactCasesAreValidatedBeforeHooksOrCasesRun()
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/build")) == 0)
     write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
-    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+
     write(
         dir .. "/tests/hookselecttest.lua",
         [[
@@ -722,7 +721,7 @@ return {
     test.equal(exact.status, 0, "a valid exact case failed during load accounting" .. evidence(exact))
     local exactReport = decode(exactOutput)
     test.equal(exactReport.tests[1].id, "hookselecttest/present")
-    test.assert(exactReport.suites[1].durationMs >= exactReport.suites[1].loadMs)
+    test(exactReport.suites[1].durationMs >= exactReport.suites[1].loadMs)
     test.equal(read(dir .. "/before-ran"), "ran")
     test.equal(read(dir .. "/case-ran"), "ran")
     test.equal(read(dir .. "/after-ran"), "ran")
@@ -742,7 +741,7 @@ function M.failureReportRerunsTheWholeSuiteForLifecycleHookFailures()
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/build")) == 0)
     write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
-    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+
     write(
         dir .. "/tests/hookreruntest.lua",
         [[
@@ -788,14 +787,14 @@ function M.invalidStructuredMetadataFailsOneCaseWithoutBreakingJson()
     os.remove(dir)
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
     write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
-    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+
     write(
         dir .. "/tests/metadatatest.lua",
         [[
-local test = require("nupp.test")
+local test = require("assert")
 return {invalid = function()
     local evidence = {probe = "valid"}
-    test.requireCapability("runtime.synthetic", true, evidence)
+    test.suite.requireCapability("runtime.synthetic", true, evidence)
     evidence.callback = function() end
 end}
 ]]
@@ -816,7 +815,7 @@ function M.shellingFailureStaysInsideItsTestOnAProcessWorker()
     os.remove(dir)
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
     write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
-    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+
     write(
         dir .. "/tests/shellingtest.lua",
         [[
@@ -861,7 +860,6 @@ function M.processAndSharedWorkersRunAtTheSameTime()
     os.remove(dir)
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
     write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
-    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
 
     local shellMarker = dir .. "/shell-ready"
     local sharedMarker = dir .. "/shared-ready"
@@ -923,7 +921,7 @@ return M
             reportedLanes[suite.executionLane] = true
         end
     end
-    test.assert(reportedLanes.isolated and reportedLanes.shared and reportedLanes.shell)
+    test(reportedLanes.isolated and reportedLanes.shared and reportedLanes.shell)
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
@@ -932,7 +930,7 @@ function M.nestedRunnerTemporaryNamesStayProcessDistinct()
     os.remove(dir)
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
     write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
-    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+
     write(
         dir .. "/tests/tempnametest.lua",
         [[
@@ -961,7 +959,7 @@ end}
     local second = dir .. "/second-name"
     invoke(first)
     invoke(second)
-    test.assert(read(first) ~= read(second), "separate runner processes reserve distinct temporary names")
+    test(read(first) ~= read(second), "separate runner processes reserve distinct temporary names")
     test.equal(io.open(read(first), "rb"), nil, "a runner removes unused temporary reservations on exit")
     test.equal(io.open(read(second), "rb"), nil, "each runner cleans its own temporary reservations")
     os.execute("rm -rf " .. string.format("%q", dir))
@@ -978,7 +976,7 @@ function M.namingSeveralSuitesRunsEveryOneOfThem()
     local b = tonumber(second:match("(%d+) tests,"))
     local together = tonumber(both:match("(%d+) tests,"))
     local runs = evidence(firstRun, secondRun, bothRun)
-    test.assert(a and b and together, "each run reports a count" .. runs)
+    test(a and b and together, "each run reports a count" .. runs)
     test.equal(together, a + b, "naming two suites runs both of them" .. runs)
 end
 
@@ -1039,7 +1037,7 @@ function M.caseSlicesDetermineShellWorkerCount()
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/build")) == 0)
     write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
-    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+
     write(
         dir .. "/tests/shellingtest.lua",
         [[
@@ -1075,7 +1073,7 @@ end
 
 function M.runnerColorsOnlyWhenAskedDownAPipe()
     local colored, coloredRun = runRepositoryRunner("lexertest --timings=0 --color=always")
-    test.assert(colored:find("\27[", 1, true), "--color=always paints runner output" .. evidence(coloredRun))
+    test(colored:find("\27[", 1, true), "--color=always paints runner output" .. evidence(coloredRun))
 
     local plain, plainRun = runRepositoryRunner("lexertest --timings=0 --no-color")
     test.equal(
@@ -1120,7 +1118,7 @@ return M
         ):format(dir, dir .. "/build", RUNNER, progress, output)
     )
     local result = read(output)
-    test.assert(status == 0, "the outer runner failed after launching its nested runner: " .. result)
+    test(status == 0, "the outer runner failed after launching its nested runner: " .. result)
     test.matches(result, "1 tests, 1 passed, 0 skipped, 0 failed")
     os.execute("rm -rf " .. string.format("%q", dir))
 end
@@ -1183,7 +1181,7 @@ function M.reportsFailuresBeforeTheNextSuiteFinishes()
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/build")) == 0)
     write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
-    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+
     local errors = dir .. "/failures.log"
     local failure = [[
 return {fails = function()
@@ -1301,8 +1299,8 @@ return M
     test.equal(record.suite, "slowtest")
     test.equal(record.tests, 18)
     test.equal(record.slowestCase, "slow")
-    test.assert(record.hooksMs >= 25, "beforeAll is measured with the suite")
-    test.assert(
+    test(record.hooksMs >= 25, "beforeAll is measured with the suite")
+    test(
         record.durationMs >= record.casesMs + record.hooksMs - 1,
         "the suite is at least what its cases and hooks cost"
     )
@@ -1322,7 +1320,7 @@ function M.slicesASuiteByWhatItsCasesCost()
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/build")) == 0)
     write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
-    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+
     write(
         dir .. "/tests/slicedtest.lua",
         [[
@@ -1359,7 +1357,7 @@ function M.workersDivideAQueueBetweenThem()
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/queue")) == 0)
     write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
-    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+
     for _, name in ipairs({"alpha", "beta", "gamma", "delta"}) do
         write(
             ("%s/tests/%stest.lua"):format(dir, name),
@@ -1394,7 +1392,6 @@ function M.processQueueRestoresModuleGlobalsBetweenPieces()
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests/templater")) == 0)
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/queue")) == 0)
     write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
-    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
     -- Modules that publish themselves as globals and read each other through
     -- them at call time, as Lua 5.1's `module` makes them: a piece that kept the
     -- loaded modules but lost the globals would call into a nil.
@@ -1450,7 +1447,7 @@ function M.processQueueLeavesNoPieceStateForTheNextOne()
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/queue")) == 0)
     write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
-    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+
     write(dir .. "/tests/lanevictim.lua", "return {loadedBy = \"the first piece\"}\n")
     write(
         dir .. "/tests/adirtiestest.lua",
@@ -1496,7 +1493,7 @@ function M.isolatedQueuePiecesRunInFreshProcesses()
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/build")) == 0)
     write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
-    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+
     write(
         dir .. "/tests/isolationmutatortest.lua",
         [[
@@ -1558,7 +1555,7 @@ local function runnerProject(suite, source)
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/build")) == 0)
     write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
-    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+
     write(dir .. "/tests/" .. suite .. ".lua", source)
     write(dir .. "/tests/quiettest.lua", '-- require("nupp.io.process")\nreturn {passes = function() end}\n')
 
@@ -1619,7 +1616,7 @@ end
 -- waiting for a report forever.
 function M.aProcessACaseLeavesRunningEndsWithItsWorker()
     if package.config:sub(1, 1) == "\\" then
-        return test.skip("process groups are POSIX")
+        return test.suite.skip("process groups are POSIX")
     end
     local dir = runnerProject("lingertest", LINGERING .. [[
 return {leavesAProcessRunning = linger}
@@ -1638,8 +1635,8 @@ return {leavesAProcessRunning = linger}
     end
     test.equal(invocation.status, 0, "the lingering case failed" .. evidence(invocation))
     test.equal(decode(output).passed, 2)
-    test.assert(pid, "the case never reported its process")
-    test.assert(ended, "pid " .. tostring(pid) .. " outlived the worker whose case started it")
+    test(pid, "the case never reported its process")
+    test(ended, "pid " .. tostring(pid) .. " outlived the worker whose case started it")
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
@@ -1648,7 +1645,7 @@ end
 -- started ends with them.
 function M.workersEndWhenTheirRunnerIsKilled()
     if package.config:sub(1, 1) == "\\" then
-        return test.skip("process groups are POSIX")
+        return test.suite.skip("process groups are POSIX")
     end
     local dir = runnerProject(
         "stucktest",
@@ -1697,8 +1694,8 @@ end}
     if pid then
         os.execute(("kill -KILL %d 2>/dev/null"):format(pid))
     end
-    test.assert(pid, "the case never reported its process")
-    test.assert(ended, "pid " .. tostring(pid) .. " outlived the runner that was killed")
+    test(pid, "the case never reported its process")
+    test(ended, "pid " .. tostring(pid) .. " outlived the runner that was killed")
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
@@ -1711,7 +1708,7 @@ end
 -- shell of its own between the two.
 function M.aRunnerEndsWhatItStartedWhenItsCommandIsKilled()
     if package.config:sub(1, 1) == "\\" then
-        return test.skip("process groups are POSIX")
+        return test.suite.skip("process groups are POSIX")
     end
     for _, shape in ipairs({"parent", "named"}) do
         local dir = runnerProject(
@@ -1749,8 +1746,8 @@ end}
             os.execute(("kill -KILL %d 2>/dev/null"):format(pid))
         end
         os.execute("pkill -KILL -f " .. string.format("%q", dir) .. " 2>/dev/null")
-        test.assert(pid, shape .. ": the case never reported its process")
-        test.assert(ended, shape .. ": pid " .. tostring(pid) .. " outlived the command that started its runner")
+        test(pid, shape .. ": the case never reported its process")
+        test(ended, shape .. ": pid " .. tostring(pid) .. " outlived the command that started its runner")
         os.execute("rm -rf " .. string.format("%q", dir))
     end
 end

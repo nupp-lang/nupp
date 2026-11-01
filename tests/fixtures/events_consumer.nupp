@@ -1,4 +1,4 @@
-local events = require("nupp.events")
+local events = require("events")
 
 @derive(events.Event)
 local record Damage

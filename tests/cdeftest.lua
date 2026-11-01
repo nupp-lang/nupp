@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local assertions = require("helpers.assertions")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
@@ -87,7 +87,7 @@ function M.countedPointerCallsCheckAgainstSpans()
             "local writable = spans.writeCarray(p, 4)",
             "local readable = spans.fromCarray(v, 4)",
             "counted_integrate(writable, readable, 0.5 as float)",
-            "nupp.drop(writable)",
+            "own.drop(writable)",
         },
         "\n"
     )
@@ -134,7 +134,7 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
             "do",
             "   local values = input:write()",
             "   for i = 1, 6 do values[i] = i as int32 end",
-            "   nupp.drop(values)",
+            "   own.drop(values)",
             "end",
             "counted_pointer_reset()",
             "do",
@@ -144,7 +144,7 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
             "      local readable = input:read():slice(2, 6)",
             "      counted_pointer_transform(parts.right, readable)",
             "   end",
-            "   nupp.drop(writer)",
+            "   own.drop(writer)",
             "end",
             "local offsetFirst: int32, offsetLast: int32",
             "do",
@@ -159,9 +159,9 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
             "      local emptyOutput = writer:slice(1, 0)",
             "      local emptyInput = input:read():slice(1, 0)",
             "      counted_pointer_transform(emptyOutput, emptyInput)",
-            "      nupp.drop(emptyOutput)",
+            "      own.drop(emptyOutput)",
             "   end",
-            "   nupp.drop(writer)",
+            "   own.drop(writer)",
             "end",
             "local zeroCalls = counted_pointer_call_count()",
             "counted_pointer_reset()",
@@ -171,9 +171,9 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
             "      local independentOutput = writer:slice(1, 3)",
             "      local independentInput = input:read():slice(1, 5)",
             "      counted_pointer_independent(independentOutput, independentInput)",
-            "      nupp.drop(independentOutput)",
+            "      own.drop(independentOutput)",
             "   end",
-            "   nupp.drop(writer)",
+            "   own.drop(writer)",
             "end",
             "local outputCount: int32, inputCount: int32, inputFirst: int32",
             "do",
@@ -190,8 +190,8 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
             "      local sourceReader = sourceWriter:shared()",
             "      counted_pointer_transform(destinationWriter, sourceReader)",
             "   end",
-            "   nupp.drop(destinationWriter)",
-            "   nupp.drop(sourceWriter)",
+            "   own.drop(destinationWriter)",
+            "   own.drop(sourceWriter)",
             "end",
             "local sharedRead = sharedOutput:read()",
             "local unequalOutput = array.scalar(array.int32, 1)",
@@ -202,7 +202,7 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
             "   local shortOutput = unequalOutput:write()",
             "   local longInput = unequalInput:read()",
             "   unequalOk = pcall(counted_pointer_transform, shortOutput, longInput)",
-            "   nupp.drop(shortOutput)",
+            "   own.drop(shortOutput)",
             "end",
             "local unequalCalls = counted_pointer_call_count()",
             "return offsetFirst, offsetLast, transformCalls, zeroCalls,",
@@ -499,7 +499,7 @@ function M.ownIsStaticAndDropIsExplicit()
                     "end",
                     "local p = ownedMalloc(64ULL)",
                     "local ok = p ~= nil",
-                    "nupp.drop(p)",
+                    "own.drop(p)",
                     "return ok",
                 },
                 "\n"

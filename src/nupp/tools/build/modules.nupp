@@ -9,6 +9,8 @@ that is not already current, and copies the resources the target declared. What
 own text, the interfaces it imported, the compiler that would compile it -- so a
 change anywhere in that set rebuilds it and a change anywhere else does not.
 ]]
+const assert2 = require("assert")
+
 const files = require("nupp.io.files")
 const {type Target as Target2} = require("nupp.tools.build.manifest")
 const {type Inc} = require("nupp.compiler.project.incremental")
@@ -200,7 +202,7 @@ record modules.Session
     stageBundled: function(string, boolean?): string?
 
     --- Stages the compiler-carried native GPU runtime -- the layout, the native
-    --- binding, its provider and the `nupp.gpu` facade -- for a source that
+    --- binding, its provider and the `gpu` facade -- for a source that
     --- declares a GPU target under `aot = "require"`.
     stageGpuRuntime: function(): nil
 
@@ -771,7 +773,7 @@ local function openSession(
         if not stagedReady then
             if not isolated then
                 files.remove(stagedRoot, true)
-                assert(fs.mkdir(stagedRoot), "cannot create runtime source staging tree")
+                assert2(fs.mkdir(stagedRoot), "cannot create runtime source staging tree")
             end
             inc.env.roots[#inc.env.roots + 1] = stagedRoot
             stagedReady = true
@@ -783,7 +785,7 @@ local function openSession(
         local path = join(stagedRoot, name:gsub("%.", "/") .. suffix)
         if not isolated then
             local wrote, problem = writeFile(path, source)
-            assert(wrote, problem)
+            assert2(wrote, problem)
         end
         inc.stageCarriedDocument(name, path, source)
         staged[#staged + 1] = {name = name, replaceTypeOnly = replaceTypeOnly}
@@ -797,11 +799,11 @@ local function openSession(
 
     local function stageGpuRuntime(): nil
         stageBundled("nupp.gpu.internal")
-        stageBundled("nupp.gpu.layout")
+        stageBundled("gpu.layout")
         if target.host ~= "browser" then
             stageBundled("nupp.runtime.native")
         end
-        stageBundled("nupp.gpu")
+        stageBundled("gpu")
     end
 
     return new modules.Session(

@@ -11,22 +11,25 @@ query layers will build on.
 This module orders ECS systems, but owns no private task or completion runtime.
 Systems suspend through `nupp.tasks`; parallel work belongs to `nupp.workers`.
 ]]
-const {type Source} = require("nupp.events")
-const {type Observers} = require("nupp.events")
+const assert2 = require("assert")
+const types = require("types")
+
+const {type Source} = require("events")
+const {type Observers} = require("events")
 const {type Store} = require("nupp.util")
 const {type DoubleArray} = require("tecs.internal.entitycolumn")
-const {type Emittable} = require("nupp.events")
-const {type Observer} = require("nupp.events")
+const {type Emittable} = require("events")
+const {type Observer} = require("events")
 const util = require("nupp.util")
 
 local tasks = require("nupp.tasks")
-local nativeStorage: any = assert(require("nupp.mem.representation").storage)
+local nativeStorage: any = assert2(require("nupp.mem.representation").storage)
 local random = require("nupp.random")
 local archetype = require("tecs.internal.archetype")
 local components = require("tecs.internal.components")
 local derived = require("tecs.internal.derived")
 local events = require("tecs.internal.events")
-local nuppevents = require("nupp.events")
+local nuppevents = require("events")
 local ffistorage = require("tecs.internal.ffistorage")
 local idallocator = require("tecs.internal.idallocator")
 local inverseindex = require("tecs.internal.inverseindex")
@@ -365,7 +368,7 @@ end
 --- The parameters an event is constructed with, so `emit` binds them by name.
 @comptime
 local function Construction(E: type): typepack
-    return nupp.types.construction(E)
+    return types.construction(E)
 end
 
 local record PendingSpawn
@@ -1181,7 +1184,7 @@ local function appendRelationshipDefinitions(
     if #edges == 0 then
         return
     end
-    definitions[#definitions + 1] = assert(components.findById(relationship.componentId))
+    definitions[#definitions + 1] = assert2(components.findById(relationship.componentId))
     if not relationship.sparse then
         for index = 1, #edges do
             definitions[#definitions + 1] = relationship:targeting(components.edgeTarget(edges[index]))
@@ -1572,7 +1575,7 @@ local function logicalEdges(
     end
     const archetypeId, row = idallocator.placement(world.allocator, slot)
 
-    return archetype.edgeValues(assert(world.archetypeById[archetypeId]), row, relationship)
+    return archetype.edgeValues(assert2(world.archetypeById[archetypeId]), row, relationship)
 end
 
 local function stageEdges(
@@ -1642,7 +1645,7 @@ function World.set(exclusive self: World, id: integer, input: components.Input, 
             raw = components.defaultValue(component)
         end
         if component.storageType == "ffi" then
-            raw = ffistorage.capture(assert(ffistorage.find(component.componentId)), raw)
+            raw = ffistorage.capture(assert2(ffistorage.find(component.componentId)), raw)
         end
     end
     const reusable = archetype.has(source, component)
@@ -1747,8 +1750,8 @@ local function batchIds(borrows world: World, selection: query.Query): {integer}
     end
     const ids: {integer} = {}
     for _, count, entities in selection:iter() do
-        const stored = assert(entities)
-        for row = 1, assert(count) do
+        const stored = assert2(entities)
+        for row = 1, assert2(count) do
             ids[#ids + 1] = stored[row]
         end
     end
@@ -1770,7 +1773,7 @@ local function copyBatchValues(supplied: {[integer]: any}, shared: {[integer]: b
     for id, value in pairs(supplied) do
         if shared[id] then
             result[id] = value
-        elseif components.asRelationship(assert(components.findById(id))) ~= nil then
+        elseif components.asRelationship(assert2(components.findById(id))) ~= nil then
             const edges: {any} = {}
             for index = 1, #value do
                 edges[index] = copyBatchValue(value[index])
@@ -1799,7 +1802,7 @@ local function batchSignature(
             end
         end
         if not present then
-            values[#values + 1] = assert(world.autoStateComponent)
+            values[#values + 1] = assert2(world.autoStateComponent)
         end
     end
     const definitions, supplied = collectInputs(values)
@@ -2033,10 +2036,10 @@ local function tryStageBulk(
     end
     const batches: {MutationBatch} = {}
     for candidate, rows in selection:iter() do
-        const count = assert(rows)
+        const count = assert2(rows)
         if count > 0 then
-            const selected = assert(candidate)
-            const source = assert(logicalArchetype(world, selected.entities[1]))
+            const selected = assert2(candidate)
+            const source = assert2(logicalArchetype(world, selected.entities[1]))
             if not archetype.bulkSafe(source) then
                 return false
             end
@@ -2164,7 +2167,7 @@ function World.batchSet(
                     targets[source] = target
                     requirements[source] = required
                 end
-                const supplied: {[integer]: any} = table.clone(assert(requirements[source]))
+                const supplied: {[integer]: any} = table.clone(assert2(requirements[source]))
                 if component.storageType ~= "tag" then
                     if explicit then
                         supplied[component.componentId] = copyBatchValue(raw)
@@ -2243,7 +2246,7 @@ function World.has(borrows self: World, id: integer, component: components.Selec
     local slot = idallocator.slotOf(id)
     local archetypeId = idallocator.placement(self.allocator, slot)
 
-    return archetype.has(assert(self.archetypeById[archetypeId]), component)
+    return archetype.has(assert2(self.archetypeById[archetypeId]), component)
 end
 
 --- Returns one committed component value.
@@ -2259,7 +2262,7 @@ World.get = function(borrows self: World, id: integer, selector: components.Sele
     local slot = idallocator.slotOf(id)
     local archetypeId, row = idallocator.placement(self.allocator, slot)
 
-    return archetype.valueAt(assert(self.archetypeById[archetypeId]), row, component)
+    return archetype.valueAt(assert2(self.archetypeById[archetypeId]), row, component)
 end
 
 --- Returns one committed component value and marks its archetype column dirty.
@@ -2274,7 +2277,7 @@ World.getMut = function(exclusive self: World, id: integer, selector: components
     end
     local slot = idallocator.slotOf(id)
     local archetypeId, row = idallocator.placement(self.allocator, slot)
-    local source = assert(self.archetypeById[archetypeId])
+    local source = assert2(self.archetypeById[archetypeId])
     source:markComponentDirty(component)
 
     return archetype.valueAt(source, row, component)
@@ -2291,7 +2294,7 @@ function World.markComponentDirty(exclusive self: World, id: integer, component:
     end
     local slot = idallocator.slotOf(id)
     local archetypeId = idallocator.placement(self.allocator, slot)
-    assert(self.archetypeById[archetypeId]):markComponentDirty(component)
+    assert2(self.archetypeById[archetypeId]):markComponentDirty(component)
 end
 
 --- Reports whether any archetype holds a dirty column for one of these components.
@@ -2331,7 +2334,7 @@ end
 --- @return a sorted caller-owned source list
 --- @raises string when the component is not a relationship with a reverse index.
 function World.relationshipSources(borrows self: World, relationship: components.Selector, target: integer): {integer}
-    const metadata = assert(components.asRelationship(components.select(relationship)), "expected a relationship")
+    const metadata = assert2(components.asRelationship(components.select(relationship)), "expected a relationship")
     if not metadata.reverseIndex then
         error("relationshipSources requires reverseIndex = true", 2)
     end
@@ -2356,7 +2359,7 @@ World.forEachRelationship = function(
         return
     end
     const archetypeId, row = idallocator.placement(self.allocator, idallocator.slotOf(id))
-    assert(self.archetypeById[archetypeId]):forEachRelationship(relationship, row + 1, callback)
+    assert2(self.archetypeById[archetypeId]):forEachRelationship(relationship, row + 1, callback)
 end
 
 World.getFirstRelationship = function(borrows self: World, id: integer, selector: components.Selector): any
@@ -2386,7 +2389,7 @@ function World.traverse(
     root: integer,
     relationship: components.Selector
 ): function(): (integer?, integer?)
-    const metadata = assert(components.asRelationship(components.select(relationship)), "expected a relationship")
+    const metadata = assert2(components.asRelationship(components.select(relationship)), "expected a relationship")
     if not metadata.reverseIndex then
         error("traverse requires reverseIndex = true", 2)
     end
@@ -2409,7 +2412,7 @@ function World.traverse(
 
     return function(): (integer?, integer?)
         while #stack > 0 do
-            const item = assert(table.remove(stack))
+            const item = assert2(table.remove(stack))
             const id: integer = item[1]
             const depth: integer = item[2]
             if not seen[id] then
@@ -2431,7 +2434,7 @@ function World.walkUp<T>(
     context: T,
     maxDepth: integer?
 ): nil
-    const metadata = assert(components.asRelationship(components.select(relationship)), "expected a relationship")
+    const metadata = assert2(components.asRelationship(components.select(relationship)), "expected a relationship")
     const limit = maxDepth or 100
     if limit < 1 then
         error("walkUp requires a positive depth limit", 2)
@@ -2643,7 +2646,7 @@ function World.despawn(exclusive self: World, id: integer): nil
     for _, child in pairs(self.pendingSpawnBySlot) do
         local childSlot = idallocator.slotOf(child.id)
         if not pendingDespawn(self, childSlot) then
-            const target = assert(logicalArchetype(self, child.id))
+            const target = assert2(logicalArchetype(self, child.id))
             for componentIndex = 1, #target.components do
                 local relationship = components.asRelationship(target.components[componentIndex])
                 if relationship ~= nil and relationship.cascadeDelete then
@@ -2665,7 +2668,7 @@ function World.despawn(exclusive self: World, id: integer): nil
                 if idallocator.spawnBatchAt(self.allocator, childSlot) == children.index
                     and not pendingDespawn(self, childSlot)
                 then
-                    const target = assert(logicalArchetype(self, childId))
+                    const target = assert2(logicalArchetype(self, childId))
                     for componentIndex = 1, #target.components do
                         const relationship = components.asRelationship(target.components[componentIndex])
                         if relationship ~= nil and relationship.cascadeDelete then
@@ -2815,13 +2818,13 @@ local function publishMove(exclusive world: World, pending: PendingMove, notices
     end
     local slot = idallocator.slotOf(id)
     local archetypeId, row = idallocator.placement(world.allocator, slot)
-    local source = assert(world.archetypeById[archetypeId])
+    local source = assert2(world.archetypeById[archetypeId])
     local target = pending.target
     if source == target then
         for componentId, raw in pairs(pending.values) do
             if source.componentIds[componentId] then
-                local stored = assert(source.columns[componentId])
-                local relationship = components.asRelationship(assert(components.findById(componentId)))
+                local stored = assert2(source.columns[componentId])
+                local relationship = components.asRelationship(assert2(components.findById(componentId)))
                 if relationship ~= nil then
                     const previous = archetype.edgeValues(source, row, relationship)
                     const replacement = raw as {any}
@@ -2845,7 +2848,7 @@ local function publishMove(exclusive world: World, pending: PendingMove, notices
                         end
                     end
                     stored[row + 1] = raw
-                    source:markComponentDirty(assert(components.findById(componentId)))
+                    source:markComponentDirty(assert2(components.findById(componentId)))
                 end
             end
         end
@@ -2937,7 +2940,7 @@ local function publishBatchWrite(exclusive world: World, writer: BatchWrite): ni
         const slot = idallocator.slotOf(id)
         if world:isAlive(id) and not pendingDespawn(world, slot) then
             const archetypeId, row = idallocator.placement(world.allocator, slot)
-            const target = assert(world.archetypeById[archetypeId])
+            const target = assert2(world.archetypeById[archetypeId])
             if archetype.has(target, writer.component) then
                 local selected = rows[target]
                 if selected == nil then
@@ -2951,7 +2954,7 @@ local function publishBatchWrite(exclusive world: World, writer: BatchWrite): ni
     end
     for index = 1, #ordered do
         const target = ordered[index]
-        const selected = assert(rows[target])
+        const selected = assert2(rows[target])
         table.sort(selected)
         local position: integer = 1
         while position <= #selected do
@@ -3003,7 +3006,7 @@ publishDespawn = function(exclusive world: World, id: integer): nil
     end
     local slot = idallocator.slotOf(id)
     local archetypeId, row = idallocator.placement(world.allocator, slot)
-    local source = assert(world.archetypeById[archetypeId])
+    local source = assert2(world.archetypeById[archetypeId])
     local relationships = components.relationships()
     for index = 1, #relationships do
         local relationship = relationships[index]
@@ -3036,7 +3039,7 @@ publishDespawn = function(exclusive world: World, id: integer): nil
     end
     -- Descendant removal can swap this entity's row in the same sparse archetype.
     archetypeId, row = idallocator.placement(world.allocator, slot)
-    source = assert(world.archetypeById[archetypeId])
+    source = assert2(world.archetypeById[archetypeId])
     unlinkOutgoing(world, source, row, id)
     publishDespawnEvents(world, id, source, row)
     world:clearObservers(id)
@@ -3151,8 +3154,8 @@ local function publishMutationBatch(exclusive world: World, batch: MutationBatch
     if writerIds ~= nil then
         const writer = new BatchWrite(
             ids = writerIds,
-            component = assert(batch.writeComponent),
-            callback = assert(batch.callback)
+            component = assert2(batch.writeComponent),
+            callback = assert2(batch.callback)
         )
         publishBatchWrite(world, writer)
     end
@@ -3495,7 +3498,7 @@ function World.compact(exclusive self: World): (integer, integer)
             archetype.destroy(candidate)
             for position = 1, #candidate.components do
                 const componentId = candidate.components[position].componentId
-                const entries = assert(self.componentArchetypes[componentId])
+                const entries = assert2(self.componentArchetypes[componentId])
                 for offset = #entries, 1, -1 do
                     if entries[offset] == candidate then
                         table.remove(entries, offset)
@@ -3591,13 +3594,13 @@ local function executeStatePolicy(exclusive world: World, operation: StatePolicy
         return
     end
     if operation is string then
-        applyStateAction(world, operation as StateAction, assert(world.stateComponents[stateName]))
+        applyStateAction(world, operation as StateAction, assert2(world.stateComponents[stateName]))
     elseif type(operation) == "function" then
         (operation as StateCallback)(world)
     else
         local compound = operation as StatePolicyAction
         if compound.apply ~= nil then
-            applyStateAction(world, compound.apply, assert(world.stateComponents[stateName]))
+            applyStateAction(world, compound.apply, assert2(world.stateComponents[stateName]))
         end
         if compound.call ~= nil then
             compound.call(world)
@@ -3644,13 +3647,13 @@ function World.pushState(exclusive self: World, name: string): nil
     end
     local previous = self.stateStack[#self.stateStack]
     if previous ~= nil then
-        local previousPolicy = assert(self.statePolicies[previous])
+        local previousPolicy = assert2(self.statePolicies[previous])
         executeStatePolicy(self, previousPolicy.onBlur, previous)
         self:emit(0, events.StateBlur, previous, name)
     end
     self.stateStack[#self.stateStack + 1] = name
     self.autoStateComponent = component
-    local policy = assert(self.statePolicies[name])
+    local policy = assert2(self.statePolicies[name])
     executeStatePolicy(self, policy.onEnter, name)
     self:emit(0, events.StateEnter, name)
     const observer = self.transitionObserver
@@ -3668,7 +3671,7 @@ function World.popState(exclusive self: World): nil
         error("Cannot pop state: state stack is empty", 2)
     end
     local popped = self.stateStack[index]
-    local poppedPolicy = assert(self.statePolicies[popped])
+    local poppedPolicy = assert2(self.statePolicies[popped])
     executeStatePolicy(self, poppedPolicy.onExit, popped)
     self:emit(0, events.StateExit, popped)
     self.stateStack[index] = nil
@@ -3677,7 +3680,7 @@ function World.popState(exclusive self: World): nil
         self.autoStateComponent = nil
     else
         self.autoStateComponent = self.stateComponents[focused]
-        local focusedPolicy = assert(self.statePolicies[focused])
+        local focusedPolicy = assert2(self.statePolicies[focused])
         executeStatePolicy(self, focusedPolicy.onFocus, focused)
         self:emit(0, events.StateFocus, focused, popped)
     end
@@ -3948,7 +3951,7 @@ local function saveComponentValue(component: components.Component, value: any): 
 end
 
 local function saveEdges(component: components.Component, edges: {any}): any
-    const relationship = assert(components.asRelationship(component))
+    const relationship = assert2(components.asRelationship(component))
     if relationship.exclusive and component.storageType == "relationship" then
         return components.edgeTarget(edges[1])
     end
@@ -4076,7 +4079,7 @@ function World.saveSnapshot(exclusive self: World, options: SnapshotOptions?): S
     end
     const phaseStates: {boolean} = {}
     for index = 1, phases.count do
-        phaseStates[index] = not self.disabledPhases[assert(phases.at(index))]
+        phaseStates[index] = not self.disabledPhases[assert2(phases.at(index))]
     end
     const pipelineState = {
         fixedAccumulator = self.fixedAccumulator,
@@ -4118,7 +4121,7 @@ function World.saveSnapshot(exclusive self: World, options: SnapshotOptions?): S
     if binary then
         addSnapshotData(data, dataSeen, "__tecs.pipeline", pipelineState)
         addSnapshotData(data, dataSeen, "__tecs.stateStack", self:listStates())
-        const output = assert(options).buffer or buffer.newBuffer()
+        const output = assert2(options).buffer or buffer.newBuffer()
         const prelude = snapshotcodec.write(
             self.archetypes,
             selection,
@@ -4127,10 +4130,10 @@ function World.saveSnapshot(exclusive self: World, options: SnapshotOptions?): S
             data,
             output
         )
-        if assert(options).path ~= nil then
-            const ok, reason = files.write(assert(assert(options).path), output:tostring())
+        if assert2(options).path ~= nil then
+            const ok, reason = files.write(assert2(assert2(options).path), output:tostring())
             if not ok then
-                error("snapshot write failed: " .. assert(reason), 2)
+                error("snapshot write failed: " .. assert2(reason), 2)
             end
         end
         return new Snapshot(
@@ -4164,7 +4167,7 @@ local function loadComponentInput(component: components.Component, value: any, e
     const relationship = components.asRelationship(component)
     if relationship ~= nil then
         const selected = components.targetOf(component)
-        component = assert(components.findById(relationship.componentId))
+        component = assert2(components.findById(relationship.componentId))
         local saved: {any}
         if selected ~= nil then
             if component.storageType == "relationship" then
@@ -4595,7 +4598,7 @@ function World.loadSnapshot(exclusive self: World, source: any): SnapshotPrelude
                     const relationship = components.asRelationship(component)
                     if relationship ~= nil and not roots[relationship.componentId] then
                         roots[relationship.componentId] = true
-                        definitions[#definitions + 1] = assert(components.findById(relationship.componentId))
+                        definitions[#definitions + 1] = assert2(components.findById(relationship.componentId))
                     end
                 end
                 const target = resolveArchetype(self, definitions)
@@ -4688,7 +4691,7 @@ function World.loadSnapshot(exclusive self: World, source: any): SnapshotPrelude
         elseif type(pipeline.phaseStates) == "table" then
             for index = 1, phases.count do
                 if pipeline.phaseStates[index] == false then
-                    self.disabledPhases[assert(phases.at(index))] = true
+                    self.disabledPhases[assert2(phases.at(index))] = true
                 end
             end
         end
@@ -5178,7 +5181,7 @@ local function runPhaseRange(
     borrows scope: tasks.Scope
 ): nil
     for phaseIndex = first, last do
-        runPhase(world, assert(phases.at(phaseIndex)), dt, scope)
+        runPhase(world, assert2(phases.at(phaseIndex)), dt, scope)
     end
 end
 
@@ -5224,7 +5227,7 @@ local function runLifecycle(
     borrows scope: tasks.Scope
 ): nil
     for index = 1, count do
-        runPhase(world, assert(phaseAt(index)), 0, scope)
+        runPhase(world, assert2(phaseAt(index)), 0, scope)
     end
 end
 
@@ -5234,7 +5237,7 @@ local function runCustomPipeline(
     dt: number,
     borrows scope: tasks.Scope
 ): nil
-    const pipeline = assert(world.pipeline)
+    const pipeline = assert2(world.pipeline)
     world.runningSystem = true
     world.systemThread = coroutine.running()
     if phase ~= nil then
@@ -5450,13 +5453,13 @@ export function onFixedStep(exclusive world: World, callback: function(exclusive
         if world.beforeFixedCallbacks == nil then
             world.beforeFixedCallbacks = {}
         end
-        const entries = assert(world.beforeFixedCallbacks)
+        const entries = assert2(world.beforeFixedCallbacks)
         entries[#entries + 1] = callback
     else
         if world.afterFixedCallbacks == nil then
             world.afterFixedCallbacks = {}
         end
-        const entries = assert(world.afterFixedCallbacks)
+        const entries = assert2(world.afterFixedCallbacks)
         entries[#entries + 1] = callback
     end
 end

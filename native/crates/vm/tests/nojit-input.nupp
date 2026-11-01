@@ -1,11 +1,13 @@
 module nupp.tests.nojitgate
 
+const assert2 = require("assert")
+
 -- The no-JIT gate's own fixture (tests/nojit-gate.py). Its image also holds
 -- the public SIMD suites, the per-kind maps and the task fixture, so one
 -- linked object covers every case the gate runs.
 const array = require("nupp.mem.array")
 const span = require("nupp.mem.span")
-const simd = require("nupp.simd")
+const simd = require("simd")
 const tasks = require("nupp.tasks")
 const time = require("nupp.time")
 const kernels = require("kernels")
@@ -122,11 +124,11 @@ local parked: any = nil
 --- Parks a coroutine inside a vector loop, with the accumulator live in
 --- the suspended frame. The gate checkpoints the process here.
 export function parkStart(): number
-    parked = @unsafe nupp.release(
+    parked = @unsafe own.release(
         coroutine.create(function(): string
             const owned = numbers(67, 29)
             const reader = owned:read()
-            local species = assert(simd.species(array.float64, 4))
+            local species = assert2(simd.species(array.float64, 4))
             local total = species:splat(0.5)
             local cursor: uint32 = 0
             local blocks = 0
@@ -153,7 +155,7 @@ export function parkStart(): number
         end)
     )
     local ok, value = coroutine.resume(parked)
-    assert(ok and value == 4, tostring(value))
+    assert2(ok and value == 4, tostring(value))
 
     return 42
 end
@@ -164,7 +166,7 @@ export function parkFinish(): string
     local seen: {string} = {}
     while true do
         local ok, value = coroutine.resume(parked)
-        assert(ok, tostring(value))
+        assert2(ok, tostring(value))
         seen[#seen + 1] = tostring(value)
         if coroutine.status(parked) == "dead" then
             break
@@ -185,7 +187,7 @@ end
 local function blockSum(seed: integer, pause: integer): string
     const owned = numbers(259, seed)
     const reader = owned:read()
-    local species = assert(simd.species(array.float64, 4))
+    local species = assert2(simd.species(array.float64, 4))
     local total = species:splat(0.0)
     local cursor: uint32 = 0
     local blocks = 0

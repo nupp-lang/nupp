@@ -33,7 +33,7 @@ const INVERSE = "\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\25
 const INVALID = {}
 
 local function u32(value: integer): uint32
-    return nupp.math.u32.wrap(value)
+    return math.u32.wrap(value)
 end
 
 local function add(a: uint32, b: uint32): uint32

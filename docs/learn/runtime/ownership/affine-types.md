@@ -48,7 +48,7 @@ distinct is what lets one syntax serve both the built-in generators and
 user-defined comptime type functions, so a package that wants its own policy
 constructor writes an ordinary `@comptime function` rather than asking for a
 language keyword. The cost is that `affine(T, cleanup)` reads like a call at a
-glance, and the payment for it is that `nupp.types.affine` and every user
+glance, and the payment for it is that `types.affine` and every user
 generator are written the same way. See
 [type-level-computation.md](../../language/types/comptime-types.md) for the rest of the
 comptime type surface.
@@ -119,7 +119,7 @@ constructor result may say.
 
 ## Moving a field out of a record that closes itself
 
-A record with its own cleanup, such as one that is `nupp.Closeable`, runs that
+A record with its own cleanup, such as one that is `own.Closeable`, runs that
 cleanup on whatever it still holds when it is dropped. Moving an affine field
 out of it therefore works the way Rust's `Option::take` does. An optional field
 is taken: the generated code writes nil where the field was, so the record's
@@ -127,7 +127,7 @@ is taken: the generated code writes nil where the field was, so the record's
 until it is assigned again.
 
 ```nupp:fragment
-local record Child is nupp.Closeable
+local record Child is own.Closeable
     stdin: Writer?
 
     function close(takes self): nil
@@ -162,14 +162,14 @@ local function MakeOwner(
     T: type,
     const cleanup: function
 ): type
-    return nupp.types.affine(T, cleanup)
+    return types.affine(T, cleanup)
 end
 
 local type HeldAgain = MakeOwner(LockToken, unlock)
 ```
 
-`nupp.types.affine` builds the same types `affine(...)` does, including the
-transfer-only `nupp.types.affine(T)`. Its cleanup argument must come from a
+`types.affine` builds the same types `affine(...)` does, including the
+transfer-only `types.affine(T)`. Its cleanup argument must come from a
 const function parameter, so declaration identity stays static and unforgeable.
 
 ## Generic capability preservation

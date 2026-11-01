@@ -10,8 +10,7 @@ ends up running. Colour is the exception: it governs both the build this command
 performs and the configured runner, so it is read here and still passed along.
 ]]
 
-local ansi = require("nupp.cli")
-local cliModule = ansi
+local cliModule = require("arg")
 local usageError = require("nupp.tools.cli.error").forCommand("test")
 
 --- What a
@@ -382,7 +381,7 @@ local function applyTestColor(args: {string}): integer?
         end
     end
     if color ~= nil then
-        ansi.setColorMode(color as ansi.ColorMode)
+        io.setColorMode(color as io.ColorMode)
     end
 
     return nil

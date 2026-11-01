@@ -20,6 +20,7 @@ A child and its streams are owners. See
 [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the contract they are handed
 out under.
 ]]
+const assert2 = require("assert")
 
 local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
@@ -40,7 +41,7 @@ local provider: contract.Provider = do
     if chosen ~= nil then
         yield chosen
     end
-    assert(target.host == "native", "nupp.io.process: no implementation is available")
+    assert2(target.host == "native", "nupp.io.process: no implementation is available")
     yield _G.require("nupp.runtime.provider.nativeprocess") as contract.Provider
 end
 local process = {}
@@ -275,7 +276,7 @@ record process.Reader is Reader2
             for index = 1, #chunk do
                 output[index] = input[index]
             end
-            nupp.drop(output)
+            own.drop(output)
         end
         lease:commit(#chunk)
 
@@ -373,7 +374,7 @@ record process.Writer is Writer2
     --- many went, which is all of them unless the far end went away or a bound
     --- ran out first.
     ---
-    --- `deadline` is a time in the [](nupp.time.now) domain after which no more is
+    --- `deadline` is a time in the [](os.monotonic) domain after which no more is
     --- sent, however the child is keeping up. `stallTimeoutMs` bounds a period with no
     --- progress instead, so a child that keeps taking bytes keeps the write going
     --- until the deadline. Without either, only the child's own deadline and the
@@ -609,7 +610,7 @@ end
 --- The child is an owner: closing it ends the process, waits for the exit, and
 --- releases every stream, and the same runs when its scope ends. Reading a stream
 --- or waiting for the exit suspends, so a caller under a scheduler keeps its frame.
-record process.Process is nupp.Closeable
+record process.Process is own.Closeable
     @private state: Child
 
     --- Operating-system process identifier.
@@ -703,9 +704,9 @@ record process.Process is nupp.Closeable
             if type(maximum) ~= "number" or maximum < 0 or maximum ~= math.floor(maximum) then
                 error("nupp: process maximum output must be a non-negative integer", 2)
             end
-            local stdin = nupp.borrow(self.stdin)
-            local stdout = nupp.borrow(self.stdout)
-            local stderr = nupp.borrow(self.stderr)
+            local stdin = own.borrow(self.stdin)
+            local stdout = own.borrow(self.stdout)
+            local stderr = own.borrow(self.stderr)
             local sent = 0
             local out, err = {}, {}
             local outputBytes = 0

@@ -1,3 +1,5 @@
+const assert2 = require("assert")
+
 local __serdeJson = require("serde.json")
 local declarations = require("serde")
 local debug = require("serde.debug")
@@ -24,17 +26,17 @@ local value = new Credentials(
     end
 )
 local expected = 'Credentials { user = "ada", password = <redacted>, callback = <redacted> }'
-assert(debug.render(binding, value) == expected)
-assert(
+assert2(debug.render(binding, value) == expected)
+assert2(
     not pcall(function()
         return json.codec(__serdeJson.defaultPolicy):encode(binding, value)
     end)
 )
-assert(debug.render(binding, value) == expected)
+assert2(debug.render(binding, value) == expected)
 local buffer = text.newBuffer()
 buffer:put("prefix:")
 debug.write(binding, value, buffer)
-assert(buffer:tostring() == "prefix:" .. expected)
+assert2(buffer:tostring() == "prefix:" .. expected)
 local record Other
     name: string
     @debug(skip = true)
@@ -43,12 +45,12 @@ end
 local other = declarations.binding(Other)
 local instance = new Other(name = "second", ignored = function(): nil
 end)
-assert(
+assert2(
     not pcall(function()
         return json.codec(__serdeJson.defaultPolicy):encode(other, instance)
     end)
 )
-assert(debug.render(other, instance) == 'Other { name = "second" }')
+assert2(debug.render(other, instance) == 'Other { name = "second" }')
 local record Node
     name: string
     next: Node?
@@ -56,26 +58,26 @@ end
 local nodes = declarations.binding(Node)
 local cycle = new Node(name = "root")
 cycle.next = cycle
-assert(debug.render(nodes, cycle) == 'Node { name = "root", next = <cycle> }')
+assert2(debug.render(nodes, cycle) == 'Node { name = "root", next = <cycle> }')
 local record Pair
     first: Node
     second: Node
 end
 local leaf = new Node(name = "shared")
 local rendered = debug.render(declarations.binding(Pair), new Pair(first = leaf, second = leaf))
-assert(not rendered:find("<cycle>", 1, true))
+assert2(not rendered:find("<cycle>", 1, true))
 local record Wide
     signed: int64
     unsigned: uint64
 end
-assert(
+assert2(
     debug.render(
         declarations.binding(Wide),
         new Wide(signed = -7LL, unsigned = 9ULL)
     ) == "Wide { signed = -7LL, unsigned = 9ULL }"
 )
 
-local record Custom is nupp.Debug
+local record Custom is types.Debug
     value: integer
     function debug(self): string
         return "CUSTOM(" .. self.value .. ")"
@@ -86,32 +88,32 @@ local record Nested
     list: {Custom}
 end
 local customized = new Custom(value = 7)
-assert(
+assert2(
     debug.render(
         debug.binding(Nested),
         new Nested(custom = customized, list = {customized})
     ) == "Nested { custom = CUSTOM(7), list = {CUSTOM(7)} }"
 )
 local record Printable
-    value: nupp.Debug
+    value: types.Debug
 end
-assert(debug.render(debug.binding(Printable), new Printable(value = customized)) == "Printable { value = CUSTOM(7) }")
-assert(
+assert2(debug.render(debug.binding(Printable), new Printable(value = customized)) == "Printable { value = CUSTOM(7) }")
+assert2(
     not pcall(function()
         return json.codec(__serdeJson.defaultPolicy)
             :encode(declarations.binding(Printable), new Printable(value = customized))
     end)
 )
 
-local record Box<T is nupp.Debug>
+local record Box<T is types.Debug>
     value: T
 end
-assert(debug.derived(Box as Type<unknown>, new Box<Custom>(value = customized)) == "Box { value = CUSTOM(7) }")
+assert2(debug.derived(Box as Type<unknown>, new Box<Custom>(value = customized)) == "Box { value = CUSTOM(7) }")
 
 local record MapOwner
     values: {[integer]: string}
 end
-assert(
+assert2(
     debug.render(
         declarations.binding(MapOwner),
         new MapOwner(values = {[2] = "two", [10] = "ten"})

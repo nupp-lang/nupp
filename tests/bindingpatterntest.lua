@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local program = require("program")
@@ -126,7 +126,7 @@ function M.patternsDoNotPartiallyMoveOwnedContainers()
                     "const owned = open()",
                     "local {x} = owned",
                     "print(x)",
-                    "nupp.drop(owned)",
+                    "own.drop(owned)",
                 },
                 "\n"
             )

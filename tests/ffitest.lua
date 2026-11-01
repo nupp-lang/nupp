@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- FFI operations the checker knows about: their return type follows the
 -- type they are given, rather than collapsing to any.
 local parser = require("nupp.compiler.syntax.parser")
@@ -250,7 +250,10 @@ function M.unsignedBytePointerCastsAreIndexableUnderUnsafe()
         ""
     )
     testAssert.equal(diagsOf(V .. "local raw = ffi.cast('unsigned char*', v)\nlocal a = raw[0]"), "NUPP2604")
-    testAssert.equal(diagsOf(V .. "local raw = ffi.cast('unsigned char*', v)\n@unsafe do\n   raw[0] = 300\nend"), "NUPP2001")
+    testAssert.equal(
+        diagsOf(V .. "local raw = ffi.cast('unsigned char*', v)\n@unsafe do\n   raw[0] = 300\nend"),
+        "NUPP2001"
+    )
     -- a plain char pointer is still text
     testAssert.equal(diagsOf(V .. "local text = ffi.cast('const char*', v)\nlocal s: cstring = text"), "")
 end

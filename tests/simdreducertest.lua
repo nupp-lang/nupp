@@ -1,7 +1,7 @@
 -- Independent reducer contracts: a level-at-a-time tree, never the runtime's
 -- online partial stack, decides the expected association.
 local test = require("assert")
-local simd = require("nupp.simd")
+local simd = require("simd")
 local M = {}
 
 local function tree(values, multiply)
@@ -64,7 +64,7 @@ function M.theElementWitnessDecidesHowAnIntegerReducerWraps()
 end
 
 -- The `float` witness selects binary32 accumulation in the Lua bodies too:
--- every operation rounds as `nupp.math.f32` rounds, and the seed is rounded
+-- every operation rounds as `math.f32` rounds, and the seed is rounded
 -- on the way in.
 function M.theFloatWitnessRoundsEveryOperationToBinary32()
     local array = require("nupp.mem.array")

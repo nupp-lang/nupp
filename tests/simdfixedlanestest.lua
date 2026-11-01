@@ -3,7 +3,7 @@
 -- mask, every operator and method works lane by lane, and reducers, horizontals
 -- and `simd.transpose` fold the lanes. The kernels here are compiled and run,
 -- and their answers are held to what the same source means in lanes.
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local program = require("program")
 local check = require("fragment")
@@ -19,7 +19,7 @@ local M = {}
 local PRELUDE = [[
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 ]]
 
 local function compile(src)
@@ -118,7 +118,7 @@ return function(): {number}
     w[2] = 250
     w[3] = 3
     w[4] = 200
-    nupp.drop(w)
+    own.drop(w)
     return probe(bytes:read())
 end
 ]]

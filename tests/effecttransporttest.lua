@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- S0: the suspension effect, transported across a module boundary.
 --
 -- The fact rides on the function type rather than beside it, so an alias carries it
@@ -133,7 +133,9 @@ end
 
 function M.anUncontractedVisibleBodyThatCannotBeReadMayYield()
     -- A body inference could not get through. Not the bodyless case, which is below.
-    local moduleType = moduleTypeOf("local M = {}\nlocal opaque: any = nil\nfunction M.f(): nil\n    opaque()\nend\nreturn M")
+    local moduleType = moduleTypeOf(
+        "local M = {}\nlocal opaque: any = nil\nfunction M.f(): nil\n    opaque()\nend\nreturn M"
+    )
     local t = fieldType(moduleType, "f")
     assert(t ~= nil, "the export is present")
     testAssert.equal(t.noYield, nil, "an unreadable body may suspend")
@@ -186,10 +188,7 @@ function M.theQualifierReachesBothIdentityMechanisms()
     -- circumstance under which it matters.
     local modules = require("nupp.tools.build.modules")
     assert(modules.typeFingerprint ~= nil, "build reuse hashes the boundary through this")
-    assert(
-        modules.typeFingerprint(safe) ~= modules.typeFingerprint(any),
-        "the build fingerprint separates them too"
-    )
+    assert(modules.typeFingerprint(safe) ~= modules.typeFingerprint(any), "the build fingerprint separates them too")
 end
 
 function M.nominalMethodsCarryTheirOwnGuarantees()
@@ -499,7 +498,11 @@ function M.aBodyThatStartsYieldingInvalidatesDependents()
         -- Same signature, same everything the eye sees. The boundary changed anyway.
         inc.changeDocument(depPath, (QUIET:gsub("local n = 1", "coroutine.yield()")))
         inc.checkFile(mainPath)
-        testAssert.equal(inc.q.stats.checkModule, cold + 2, "dep AND main recheck: the export stopped being non-yielding")
+        testAssert.equal(
+            inc.q.stats.checkModule,
+            cold + 2,
+            "dep AND main recheck: the export stopped being non-yielding"
+        )
     end)
 end
 
@@ -509,7 +512,11 @@ function M.aBodyEditThatKeepsTheEffectDoesNot()
         local cold = inc.q.stats.checkModule
         inc.changeDocument(depPath, (QUIET:gsub("local n = 1", "local n = 2")))
         inc.checkFile(mainPath)
-        testAssert.equal(inc.q.stats.checkModule, cold + 1, "only dep rechecks: the boundary is unchanged, so cutoff holds")
+        testAssert.equal(
+            inc.q.stats.checkModule,
+            cold + 1,
+            "only dep rechecks: the boundary is unchanged, so cutoff holds"
+        )
     end)
 end
 
@@ -548,7 +555,11 @@ function M.aNominalMethodThatStartsYieldingInvalidatesDependents()
         local cold = inc.q.stats.checkModule
         inc.changeDocument(depPath, (QUIET_METHOD:gsub("local n = 1", "coroutine.yield()")))
         local after = inc.checkFile(mainPath)
-        testAssert.equal(inc.q.stats.checkModule, cold + 2, "the nominal effect digest invalidates the dependency and consumer")
+        testAssert.equal(
+            inc.q.stats.checkModule,
+            cold + 2,
+            "the nominal effect digest invalidates the dependency and consumer"
+        )
         local found = false
         for _, diag in ipairs(after.diags or {}) do
             if diag.code == "NUPP2701" then

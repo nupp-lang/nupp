@@ -921,7 +921,7 @@ function control.install(c: state.Checker): state.StatHandlers
                 c.diag("NUPP2602", binding.expr, "a 'with' acquisition must be a non-optional affine value")
             elseif #cleanups == 0 then
                 c.diag("NUPP2615", binding.expr, "a 'with' acquisition needs an affine terminal", nil, {
-                    help = "name the cleanup in affine(T, cleanup), or claim nupp.Affine through an interface"
+                    help = "name the cleanup in affine(T, cleanup), or claim own.Affine through an interface"
                 })
             end
             if binding.type then

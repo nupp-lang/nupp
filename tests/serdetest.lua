@@ -58,7 +58,7 @@ function M.schemaDebugPreservesWideIntegerSupport()
     local result = run(
         "serdetest.schemaDebugPreservesWideIntegerSupport",
         [=[
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record Wide
     signed: int64
     unsigned: uint64
@@ -75,11 +75,11 @@ function M.debugNamesRecordsInsideContainers()
     local result = run(
         "serdetest.debugNamesRecordsInsideContainers",
         [=[
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record Child
     label: string
 end
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record Parent
     first: Child
     rest: {Child}
@@ -103,7 +103,7 @@ function M.debugPoliciesDoNotRequireTraversableFieldTypes()
     local result = run(
         "serdetest.debugPoliciesDoNotRequireTraversableFieldTypes",
         [=[
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record Policies
     shown: string
     @debug(skip = true)
@@ -121,10 +121,10 @@ end
 function M.typedExtensionKeysKeepTheirValueType()
     local problems = diagnostics(
         [=[
-local text = nupp.reflect.extensionKey(function(_host: any): string
+local text = types.reflect.extensionKey(function(_host: any): string
     return "text"
 end)
-local narrowed: nupp.reflect.ExtensionKey<integer> = text
+local narrowed: types.reflect.ExtensionKey<integer> = text
 print(narrowed)
 ]=]
     )
@@ -286,7 +286,7 @@ function M.debugDoesNotAuthorizeOrRestrictSerialization()
         "serdetest.debugDoesNotAuthorizeOrRestrictSerialization",
         imports
         .. [[
-@derive(nupp.derive.Debug)
+@derive(types.Debug)
 local record Credentials
     user: string
     @debug(redact = true)

@@ -1,13 +1,13 @@
-module nupp.io.path
+module io.path
 
 --[[
-`nupp.io.path` returns an immutable path value whose joining, normalizing and
+`io.path` returns an immutable path value whose joining, normalizing and
 splitting follow the platform's own rules. Reach for it when a program builds a
 filesystem name or takes one apart, rather than when it reads the bytes behind
 one.
 
 ```nupp
-const path = nupp.io.path
+const path = io.path
 
 local source = path.newPath("src", "app", "..", "main.nupp"):normalize()
 assert(source:toString() == "src" .. path.separator() .. "main.nupp")
@@ -25,7 +25,7 @@ another path. `Path` has no public constructor; creation goes through `newPath`,
 which interns recent paths in a bounded LRU cache.
 
 ```nupp
-const path = nupp.io.path
+const path = io.path
 
 local native = path.newPath("out"):join("lib", "native")
 assert(native:fileName() == "native")
@@ -35,7 +35,7 @@ assert(native:fileName() == "native")
 record, because neither builds a path out of components:
 
 ```nupp
-const path = nupp.io.path
+const path = io.path
 
 local current, reason = path.currentDirectory()
 assert(current, reason)
@@ -49,7 +49,7 @@ assert(log:extension() == "jsonl")
 filesystem, so it returns even for a path that does not exist:
 
 ```nupp
-const path = nupp.io.path
+const path = io.path
 
 assert(path.newPath("src", "app", "..", "main.nupp"):normalize():stem() == "main")
 ```
@@ -68,7 +68,7 @@ with a reason when it does.
   that stays where the base already is.
 
 ```nupp
-const path = nupp.io.path
+const path = io.path
 
 local real, reason = path.newPath("."):canonicalize()
 assert(real, reason)
@@ -82,7 +82,7 @@ the final component, that component without its extension, and the extension
 without its dot:
 
 ```nupp
-const path = nupp.io.path
+const path = io.path
 
 local source = path.newPath("src", "main.nupp")
 assert(source:fileName() == "main.nupp")
@@ -97,7 +97,7 @@ into a file name is reported where it was written rather than carried into the
 path it would have produced:
 
 ```nupp
-const path = nupp.io.path
+const path = io.path
 
 local report = path.newPath("out", "report.tmp"):withExtension("json")
 assert(report:fileName() == "report.json")
@@ -107,7 +107,7 @@ assert(report:fileName() == "report.json")
 
 ::: seealso
 - [](nupp.io.files) for reading, writing and listing what a path names
-- [](nupp.io.uri) for network and resource identity, which is URI text rather
+- [](io.uri) for network and resource identity, which is URI text rather
   than a filesystem name
 - [](nupp.io) for the byte buffers, readers and writers a file's contents move
   through
@@ -397,7 +397,7 @@ end
 --- #### Examples
 ---
 --- ```nupp
---- const path = nupp.io.path
+--- const path = io.path
 --- local source = path.newPath("src", "main.nupp")
 --- ```
 --- @param first the first path component

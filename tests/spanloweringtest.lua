@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 -- Span checking: removed members, the trusted range, refused indexes, and the
 -- view facts the compiler infers for a function body.
 local parser = require("nupp.compiler.syntax.parser")
@@ -69,7 +69,7 @@ function Probe.storage(): array.Array<int32>
     for at = 1, 4 do
         values[at] = at as int32
     end
-    nupp.drop(values)
+    own.drop(values)
     return owned
 end
 function Probe.element(borrows storage: array.Array<int32>, at: integer): int32
@@ -79,15 +79,15 @@ function Probe.writeTail(exclusive storage: array.Array<int32>, index: integer):
     const values = storage:write()
     const tail = values:slice(3, 4)
     tail[index] = 99
-    nupp.drop(tail)
-    nupp.drop(values)
+    own.drop(tail)
+    own.drop(values)
 end
 function Probe.writeSlice(exclusive storage: array.Array<int32>, index: integer): nil
     const values = storage:write()
     const part = values:slice(index, 4)
     part[1] = 99
-    nupp.drop(part)
-    nupp.drop(values)
+    own.drop(part)
+    own.drop(values)
 end
 function Probe.split(exclusive storage: array.Array<int32>, index: integer): nil
     const values = storage:write()
@@ -95,7 +95,7 @@ function Probe.split(exclusive storage: array.Array<int32>, index: integer): nil
         const parts = values:splitAt(index)
         parts.right[1] = 99
     end
-    nupp.drop(values)
+    own.drop(values)
 end
 function Probe.readTail(borrows storage: array.Array<int32>, index: integer): int32
     const values = storage:read()

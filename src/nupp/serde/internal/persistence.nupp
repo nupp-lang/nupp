@@ -1,5 +1,7 @@
 module nupp.serde.internal.persistence
 
+const assert2 = require("assert")
+
 local core = require("nupp.serde.internal.value")
 local util = require("nupp.util.internal.store")
 local documents = require("nupp.serde.internal.document")
@@ -38,7 +40,7 @@ local interface Registered
     save: function(self, borrows store: util.Store): Entry?
     restore: function(self, store: util.Store, entry: Entry): nil
 end
-local record Selected<T is nupp.Copyable> is Registered
+local record Selected<T is own.Copyable> is Registered
     @readonly name: string
     @readonly version: integer
     @readonly key: util.Key<T>
@@ -55,16 +57,16 @@ local record Selected<T is nupp.Copyable> is Registered
 
     function restore(self, store: util.Store, entry: Entry): nil
         local value = entry.value
-        assert(entry.version >= 1 and entry.version % 1 == 0, "invalid persisted key version")
+        assert2(entry.version >= 1 and entry.version % 1 == 0, "invalid persisted key version")
         if entry.version ~= self.version then
-            assert(
+            assert2(
                 entry.version < self.version and self.migration ~= nil,
                 "unsupported persisted key version: " .. self.name
             )
             value = (self.migration as Migration):apply(entry.version, value)
         end
         local restored = bridge.into(self.binding, value)
-        assert(restored ~= nil, "persisted key value cannot be nil")
+        assert2(restored ~= nil, "persisted key value cannot be nil")
         store:set(self.key, restored)
     end
 end
@@ -80,7 +82,7 @@ export interface Registry
     --- @raises string when the name is empty or already registered
     --- @raises string when the key is already registered
     --- @raises string when the version is not a positive integer
-    register: function<T is nupp.Copyable>(
+    register: function<T is own.Copyable>(
         self,
         name: string,
         key: util.Key<T>,
@@ -121,7 +123,7 @@ local record Owned is Registry
     @readonly names: {[string]: Registered} = {}
     @readonly keys: {[integer]: boolean} = {}
     @readonly ordered: {Registered} = {}
-    function register<T is nupp.Copyable>(
+    function register<T is own.Copyable>(
         self,
         name: string,
         key: util.Key<T>,
@@ -129,9 +131,9 @@ local record Owned is Registry
         version: integer,
         migration: Migration?
     ): nil
-        assert(name ~= "" and self.names[name] == nil, "duplicate or empty persistent name")
-        assert(not self.keys[key.id], "store key already has a persistence binding")
-        assert(version >= 1 and version % 1 == 0, "invalid persistence version")
+        assert2(name ~= "" and self.names[name] == nil, "duplicate or empty persistent name")
+        assert2(not self.keys[key.id], "store key already has a persistence binding")
+        assert2(version >= 1 and version % 1 == 0, "invalid persistence version")
         local entry = new Selected<T>(
             name = name,
             key = key,
@@ -157,17 +159,17 @@ local record Owned is Registry
     end
 
     function load(self, snapshot: Snapshot, unknown: "reject" | "skip"): util.Store
-        assert(snapshot.format == 1, "unsupported persistence snapshot version")
+        assert2(snapshot.format == 1, "unsupported persistence snapshot version")
         local result = util.newStore()
         local seen: {[string]: boolean} = {}
         for _, entry in ipairs(snapshot.entries) do
-            assert(not seen[entry.name], "duplicate persisted key: " .. entry.name)
+            assert2(not seen[entry.name], "duplicate persisted key: " .. entry.name)
             seen[entry.name] = true
             local selected = self.names[entry.name]
             if selected ~= nil then
                 selected:restore(result, entry)
             else
-                assert(unknown == "skip", "unknown persisted key: " .. entry.name)
+                assert2(unknown == "skip", "unknown persisted key: " .. entry.name)
             end
         end
 
@@ -197,20 +199,20 @@ local record Mapping is scalar.Conversion<Snapshot, documents.Document>
     end
 
     function restore(self, value: documents.Document): Snapshot
-        assert(value.kind == "structure" and value:size() == 2, "invalid persistence snapshot")
-        assert(assert(value:get("format")):numberToken() == "1", "unsupported persistence snapshot version")
-        local entries = assert(value:get("entries"))
-        assert(entries.kind == "list", "invalid persisted entries")
+        assert2(value.kind == "structure" and value:size() == 2, "invalid persistence snapshot")
+        assert2(assert2(value:get("format")):numberToken() == "1", "unsupported persistence snapshot version")
+        local entries = assert2(value:get("entries"))
+        assert2(entries.kind == "list", "invalid persisted entries")
         local result: {Entry} = {}
         for index = 1, entries:size() do
             local entry = entries:at(index)
-            assert(entry.kind == "structure" and entry:size() == 3, "invalid persisted entry")
-            local version = tonumber(assert(entry:get("version")):numberToken())
-            assert(
+            assert2(entry.kind == "structure" and entry:size() == 3, "invalid persisted entry")
+            local version = tonumber(assert2(entry:get("version")):numberToken())
+            assert2(
                 version ~= nil and version >= 1 and version <= 9007199254740991 and version % 1 == 0,
                 "invalid persisted key version"
             )
-            local contents = assert(entry:get("value"))
+            local contents = assert2(entry:get("value"))
             -- JSON document contents have no explicit boundary tag; a native
             -- persistence document retains it. Both use this explicit mapping.
             if contents.kind == "document" then
@@ -218,7 +220,7 @@ local record Mapping is scalar.Conversion<Snapshot, documents.Document>
             end
             result[
                 #result + 1
-            ] = new Entry(name = assert(entry:get("name")):string(), version = version as integer, value = contents)
+            ] = new Entry(name = assert2(entry:get("name")):string(), version = version as integer, value = contents)
         end
 
         return new Snapshot(entries = result)

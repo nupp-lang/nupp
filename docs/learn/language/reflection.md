@@ -5,7 +5,7 @@ order: 130
 # Reflection
 
 Reflection asks what a declared type means without making an instance carry the
-answer. `Record.reflect()` returns at runtime, and `nupp.reflect(T)` returns
+answer. `Record.reflect()` returns at runtime, and `types.reflect(T)` returns
 while the program is compiled.
 
 ```nupp
@@ -22,7 +22,7 @@ The two forms are separate:
 
 | Where it runs | Entry point | Result |
 | --- | --- | --- |
-| Comptime | `nupp.reflect(T)` | an immutable semantic graph used to generate or validate code |
+| Comptime | `types.reflect(T)` | an immutable semantic graph used to generate or validate code |
 | Runtime | `Record.reflect()` | one cached immutable descriptor for that record |
 
 Both describe declarations, not object layout. For the target-specific layout of
@@ -62,7 +62,7 @@ instance does not request the descriptor.
 ### Extensions
 
 `info:extension(key)` is the cache boundary for work derived from a descriptor.
-`nupp.reflect.extensionKey` creates a typed key with a provider; the first call builds
+`types.reflect.extensionKey` creates a typed key with a provider; the first call builds
 it against that descriptor, and every later call with the same key returns what
 was built. Key identity is assigned a dense process-local slot rather than a
 name, so two extensions that happen to describe the same thing stay separate
@@ -141,7 +141,7 @@ to a universal representation attached to the type. See
 
 ## Comptime reflection
 
-`nupp.reflect(T)` resolves a type in type position and hands comptime an
+`types.reflect(T)` resolves a type in type position and hands comptime an
 immutable, target-independent descriptor. It is for generators and validators,
 and it adds no runtime descriptor to the program.
 
@@ -151,8 +151,8 @@ local record Position
     y: number
 end
 
-const PositionCodec: nupp.reflect.FieldCodec<Position> = comptime do
-    return nupp.reflect.fieldCodec(nupp.reflect(Position))
+const PositionCodec: types.reflect.FieldCodec<Position> = comptime do
+    return types.reflect.fieldCodec(types.reflect(Position))
 end
 
 local function encode(position: Position): {[string]: any}
@@ -188,8 +188,8 @@ descriptor fingerprint and invalidates results derived from it.
 
 ### Field codecs
 
-`nupp.reflect.fieldCodec` is a materialization boundary. It produces a
-`nupp.reflect.FieldCodec<R>` for the same nominal record `R` and copies exactly
+`types.reflect.fieldCodec` is a materialization boundary. It produces a
+`types.reflect.FieldCodec<R>` for the same nominal record `R` and copies exactly
 that record's declared present fields with `rawget`. Encoding and decoding are
 shallow; decoding selects the same fields from a keyed table and restores the
 record's runtime identity. Its compatibility fingerprint is `t:` followed by

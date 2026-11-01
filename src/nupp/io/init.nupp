@@ -19,8 +19,8 @@ against either contract works over every implementation without knowing which
 one it has.
 
 The rest of what `io` means is a module of its own, because each has a luacase
-name and so can have one. See [](nupp.io.path) for filesystem names,
-[](nupp.io.uri) for resource identifiers, [](nupp.io.files) for the filesystem
+name and so can have one. See [](io.path) for filesystem names,
+[](io.uri) for resource identifiers, [](nupp.io.files) for the filesystem
 itself, [](nupp.io.process) for running a child process, [](nupp.io.net) for
 network connections, [](nupp.io.tls) for encrypting one, and [](nupp.io.http)
 for the asynchronous HTTP client.
@@ -316,7 +316,7 @@ empty leaves an empty queue rather than a released one.
 
 ::: seealso
 - [](nupp.io.files) for the same contracts over a file on disk
-- [](nupp.io.path) for filesystem names rather than file contents
+- [](io.path) for filesystem names rather than file contents
 - [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the complete
   contract every owned value here follows
 - [standard-library.md](docs/learn/runtime/data/standard-library.md) for the

@@ -1,9 +1,9 @@
 -- The mutable OptParser cursor compared with the record-per-token API it replaced.
 -- Run: nupp bench --file bench/optparser.bench.nupp
 
-local bench = require("nupp.bench")
-local cli = require("nupp.cli")
-const {type Invocation} = require("nupp.bench")
+local bench = require("debug.bench")
+local cli = require("arg")
+const {type Invocation} = require("debug.bench")
 
 local record LegacyToken
     kind: cli.TokenKind

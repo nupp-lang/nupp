@@ -1,4 +1,4 @@
-local testAssert = require("nupp.test")
+local testAssert = require("assert")
 local assertions = require("helpers.assertions")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
@@ -2279,10 +2279,10 @@ function M.aNamespaceAliasKeepsTypesAndIntrinsics()
     testAssert.equal((checkedDiags(spanSource, env)), "", spanSource)
     local source = table.concat(
         {
-            "local i32 = nupp.math.i32",
-            "local math32 = nupp.math",
+            "local i32 = math.i32",
+            "local math32 = math",
             "local function mask(a: int32, b: int32): (int32, int32, int32)",
-            "    return i32.rotateLeft(a, b), nupp.math.i32.rotateLeft(a, b), math32.i32.rotateLeft(a, b)",
+            "    return i32.rotateLeft(a, b), math.i32.rotateLeft(a, b), math32.i32.rotateLeft(a, b)",
             "end",
             "return mask",
         },
@@ -2693,9 +2693,9 @@ end
 function M.constrainedTypesNarrowTheirBase()
     local aliases = table.concat(
         {
-            "local type Percent = nupp.types.range(integer, 0, 100)",
-            "local type Digit = nupp.types.range(Percent, 0, 9)",
-            "local type Short = nupp.types.length(string, 1, 4)",
+            "local type Percent = types.range(integer, 0, 100)",
+            "local type Digit = types.range(Percent, 0, 9)",
+            "local type Short = types.length(string, 1, 4)",
         },
         "\n"
     )
@@ -2724,8 +2724,8 @@ function M.constrainedTypesAreStructural()
     assertClean(
         table.concat(
             {
-                "local type A = nupp.types.range(integer, 0, 31)",
-                "local type B = nupp.types.range(integer, 0, 31)",
+                "local type A = types.range(integer, 0, 31)",
+                "local type B = types.range(integer, 0, 31)",
                 "local function pass(a: A): B",
                 "   return a",
                 "end",
@@ -2739,18 +2739,18 @@ end
 -- The bounds are checked where they are written, so a declaration that admits
 -- nothing is reported rather than compiled into a test no value passes.
 function M.constrainedDeclarationsAreValidated()
-    testAssert.equal((diagsOf("local type E = nupp.types.range(integer, 10, 0)\nreturn E")), "NUPP2422:1")
-    testAssert.equal((diagsOf("local type E = nupp.types.length(integer, 0, 4)\nreturn E")), "NUPP2422:1")
-    testAssert.equal((diagsOf("local type E = nupp.types.range(string, 0, 4)\nreturn E")), "NUPP2422:1")
-    testAssert.equal((diagsOf("local type E = nupp.types.range(uint32, -1, 4)\nreturn E")), "NUPP2422:1")
+    testAssert.equal((diagsOf("local type E = types.range(integer, 10, 0)\nreturn E")), "NUPP2422:1")
+    testAssert.equal((diagsOf("local type E = types.length(integer, 0, 4)\nreturn E")), "NUPP2422:1")
+    testAssert.equal((diagsOf("local type E = types.range(string, 0, 4)\nreturn E")), "NUPP2422:1")
+    testAssert.equal((diagsOf("local type E = types.range(uint32, -1, 4)\nreturn E")), "NUPP2422:1")
     -- an intersection that admits nothing
     testAssert.equal(
         (
             diagsOf(
                 table.concat(
                     {
-                        "local type Small = nupp.types.range(integer, 0, 9)",
-                        "local type None = nupp.types.range(Small, 20, 30)",
+                        "local type Small = types.range(integer, 0, 9)",
+                        "local type None = types.range(Small, 20, 30)",
                         "return None",
                     },
                     "\n"
