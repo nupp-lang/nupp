@@ -4012,10 +4012,10 @@ function M.whileBoundsStopAuthorizingAChangedCursor()
 end
 
 function M.scopedSimdSelectsOnePackedRegisterForTheTargetTier()
-    local dir = project{["simd.nupp"] = SCOPED_SIMD}
+    local dir = project{["vector_kernel.nupp"] = SCOPED_SIMD}
     local baseline, baselineRaw, baselineCode, baselineWhere = lowered(
         dir,
-        "--triple x86_64-unknown-linux-gnu --json simd.nupp"
+        "--triple x86_64-unknown-linux-gnu --json vector_kernel.nupp"
     )
     test.equal(baselineCode, 0, baselineRaw)
     assert(baseline.ir:find("simd species(uint8,16)", 1, true), baselineWhere .. "\n" .. baseline.ir)
@@ -4027,7 +4027,7 @@ function M.scopedSimdSelectsOnePackedRegisterForTheTargetTier()
 
     local avx, avxRaw, avxCode, avxWhere = lowered(
         dir,
-        "--triple x86_64-unknown-linux-gnu --features avx2 --json simd.nupp"
+        "--triple x86_64-unknown-linux-gnu --features avx2 --json vector_kernel.nupp"
     )
     test.equal(avxCode, 0, avxRaw)
     assert(avx.ir:find("simd species(uint8,32)", 1, true), avxWhere .. "\n" .. avx.ir)
@@ -4041,7 +4041,7 @@ function M.scopedSimdSelectsOnePackedRegisterForTheTargetTier()
         avxWhere .. ": and takes all thirty-two lanes' bits at once\n" .. wide
     )
 
-    local neon, neonCode = run(dir, "--triple aarch64-unknown-linux-gnu --emit ir simd.nupp")
+    local neon, neonCode = run(dir, "--triple aarch64-unknown-linux-gnu --emit ir vector_kernel.nupp")
     test.equal(neonCode, 0, neon)
     assert(neon:find("simd species(uint8,16)", 1, true), neon)
     assert(neon:find("simd_load", 1, true) and neon:find("simd_mask_count", 1, true), neon)
@@ -5192,7 +5192,7 @@ return {decode = decode}
     test.equal(code, 1, "a proof the loop does not renew is not a proof\n" .. out)
     assert(
         out:find(
-            "outside.nupp:10:46: aot: NUPP2905: span loads need a counted-loop index or cursor + 1 under cursor < #span",
+            "outside.nupp:10:41: aot: NUPP2905: span loads need a counted-loop index or cursor + 1 under cursor < #span",
             1,
             true
         ),
