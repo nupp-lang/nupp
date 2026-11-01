@@ -62,7 +62,6 @@ function M.soaAllocKeepsTheExistingAllocationOperation()
     end)
     local source = [[
 local soa = require("nupp.mem.soa")
-local ffi = require("ffi")
 local struct Row
     x: int32
 end
@@ -108,7 +107,7 @@ function M.lowercaseBuilderFunctionsAndLenKeepRuntimeValues()
         local source = future and BUILDER:gsub("builder%.([%w_]+)", function(name)
             return "builder." .. (name == "length" and "len" or name:lower())
         end) or BUILDER
-        local parsed = checked(source .. '\nreturn decode("7", {})', env)
+        local parsed = checked(source .. '\nreturn decode("7", {}) as {number}', env)
         local loaded, preload = package.loaded["serde.valuebuilder"], package.preload["serde.valuebuilder"]
         local ok, actual = pcall(function()
             if implementation then

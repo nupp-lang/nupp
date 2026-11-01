@@ -1111,7 +1111,12 @@ function metadata.expand(root, moduleName: string?)
     end
 
     local function visit(current)
-        if type(current) ~= "table" or seen[current] or current.comptimeTok or current.comptimeFunction then
+        if type(current) ~= "table"
+            or seen[current]
+            or current.typeOnlyRequire
+            or current.comptimeTok
+            or current.comptimeFunction
+        then
             return
         end
         seen[current] = true
