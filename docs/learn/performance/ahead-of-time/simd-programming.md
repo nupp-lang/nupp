@@ -10,7 +10,7 @@ uses `simd` to multiply a sequence of values in groups:
 
 ```nupp
 local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 
 @aot
@@ -110,7 +110,7 @@ kernel uses these modules to connect its data to those instructions:
   one element type. Contiguous means the elements sit next to each other in
   memory. A *type witness*, such as `array.float`, names the element type
   when passed to an allocation or species constructor.
-- [](nupp.mem.span) provides a *span*, a bounds-checked view of
+- [](binary.span) provides a *span*, a bounds-checked view of
   storage. Its native representation includes an address and an element
   count, so the kernel can read the data without navigating a Lua table.
 - [](simd) provides vector operations. A *species* describes
@@ -123,7 +123,7 @@ kernel becomes a runnable program when supplied with arrays:
 
 ```nupp
 local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 
 @aot
@@ -297,7 +297,7 @@ The same function written as a plain loop, with no `simd` operations,
 also lowers to vector multiplies in this NEON build:
 
 ```nupp
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function scale(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>, factor: float): nil
@@ -485,7 +485,7 @@ with that bound, and values above the upper bound with the upper bound:
 
 ```nupp
 local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 
 @aot
@@ -555,7 +555,7 @@ The mask named `live` tracks the lanes that still have work:
 
 ```nupp
 local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 
 @aot
@@ -650,7 +650,7 @@ constructor names the *numerical contract*, the rules for grouping and
 rounding those contributions:
 
 ```nupp:fragment
-local sum = simd.reducer.pairwiseSum(array.float, 0.0)
+local sum = simd.reducer.pairwisesum(array.float, 0.0)
 sum:add(1.0)
 sum:add(2.0)
 local result = sum:value()
@@ -659,16 +659,16 @@ local result = sum:value()
 This reducer accumulates in binary32 and returns 3. The sum contracts differ
 in how they combine contributions:
 
-- `orderedSum` adds in contribution order, including lane order within each
+- `orderedsum` adds in contribution order, including lane order within each
   vector. Its additions remain dependent on the preceding total.
-- `pairwiseSum` adds adjacent pairs, then pairs of those, in a tree. The tree
+- `pairwisesum` adds adjacent pairs, then pairs of those, in a tree. The tree
   includes the initial value as its first leaf and is independent of vector
   width. It reduces the number of successive rounding steps for each input,
   though it is not more accurate for every input sequence.
-- `algebraicSum` permits regrouping, so the compiler can keep independent
+- `algebraicsum` permits regrouping, so the compiler can keep independent
   partial sums. The answer can vary between targets and between compiled and
   ordinary Lua execution; cancellation can make the difference substantial.
-- `compensatedSum` carries the rounding error of each addition beside the
+- `compensatedsum` carries the rounding error of each addition beside the
   total and adds the correction at the end. It improves accuracy at the cost
   of extra arithmetic and still has finite precision.
 
@@ -680,8 +680,8 @@ A compensated reducer can preserve the small contributions when it receives
 ```nupp
 local simd = require("simd")
 local big = 1e100
-local ordered = simd.reducer.orderedSum(0.0)
-local compensated = simd.reducer.compensatedSum(0.0)
+local ordered = simd.reducer.orderedsum(0.0)
+local compensated = simd.reducer.compensatedsum(0.0)
 for _, value in ipairs({1, big, 1, -big}) do
     ordered:add(value)
     compensated:add(value)
@@ -708,9 +708,9 @@ binary32, so the chosen grouping affects the result:
 | Reducer | Time | Answer |
 | --- | --- | --- |
 | Plain scalar loop | 0.52 ms | 499,941,376,000 |
-| `orderedSum` | 0.51 ms | 499,941,376,000 |
-| `pairwiseSum` | 0.33 ms | 500,000,489,472 |
-| `algebraicSum` | 0.13 ms | 500,007,927,808 |
+| `orderedsum` | 0.51 ms | 499,941,376,000 |
+| `pairwisesum` | 0.33 ms | 500,000,489,472 |
+| `algebraicsum` | 0.13 ms | 500,007,927,808 |
 
 The same inputs produce different results under these contracts. For this
 sequence, the pairwise sum is the most accurate of the measured variants; the
@@ -730,13 +730,13 @@ The loop has the same structure as the earlier kernels. Passing its mask to
 
 ```nupp
 local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 
 @aot
 local function total(borrows values: span.Span<number>): number
     local species = simd.species(array.number)
-    local sum = simd.reducer.algebraicSum(0.0)
+    local sum = simd.reducer.algebraicsum(0.0)
     for at, active in species:over(#values) do
         sum:add(species:load(values, at, active), active)
     end
@@ -754,7 +754,7 @@ print(total(values:read()))
 55
 ```
 
-`algebraicSum(0.0)` accumulates in `number`. Passing `array.float` before
+`algebraicsum(0.0)` accumulates in `number`. Passing `array.float` before
 the initial value selects binary32 accumulation instead.
 
 ### Dot products
@@ -764,14 +764,14 @@ the products. A dot reducer takes both values for each contribution:
 
 ```nupp
 local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 
 @aot
 local function dot(borrows left: span.Span<float>, borrows right: span.Span<float>): float
     assert(#left == #right, "length mismatch")
     local species = simd.species(array.float)
-    local sum = simd.reducer.pairwiseDot(array.float, 0.0)
+    local sum = simd.reducer.pairwisedot(array.float, 0.0)
     for at, active in species:over(#left) do
         sum:add(species:load(left, at, active), species:load(right, at, active), active)
     end
@@ -792,7 +792,7 @@ print(dot(a:read(), b:read()))
 ```
 
 Here the products are `4`, `10`, and `18`, which sum to `32`.
-`pairwiseDot(array.float, 0.0)` rounds each product to binary32, then rounds
+`pairwisedot(array.float, 0.0)` rounds each product to binary32, then rounds
 each addition in its pairwise tree. It need not match a left-to-right sum.
 
 ### Integer and predicate reducers
@@ -801,15 +801,15 @@ An integer reducer takes an array witness for `int32`, `uint32`, `int64`, or
 `uint64` to name its arithmetic width:
 
 ```nupp:fragment
-local sum = simd.reducer.wrappingSum(array.uint32, 4294967290)
+local sum = simd.reducer.wrappingsum(array.uint32, 4294967290)
 sum:add(10)
 local result = sum:value()
 ```
 
 `result` is 4 because the sum wraps at 32 bits. Regrouping preserves this
-answer. `wrappingProduct`, `andBits`, `orBits`, and `xorBits` also use the
-named integer width. `integerMin`, `integerMax`, `integerArgMin`, and
-`integerArgMax` select extrema or their logical positions.
+answer. `wrappingproduct`, `andbits`, `orbits`, and `xorbits` also use the
+named integer width. `integermin`, `integermax`, `integerargmin`, and
+`integerargmax` select extrema or their logical positions.
 
 Predicate reducers `any`, `all`, and `count` accept masks as contributions.
 A count receives the selected lanes and the active mask for each chunk:
@@ -840,8 +840,8 @@ minimum and its position, using a scalar loop for the remaining elements:
 
 ```nupp:fragment
 local species = simd.species(array.float)
-local low = simd.reducer.propagatingMin(array.float, math.huge)
-local where = simd.reducer.propagatingArgMin(array.float)
+local low = simd.reducer.propagatingmin(array.float, math.huge)
+local where = simd.reducer.propagatingargmin(array.float)
 local cursor: uint32 = 0
 do
     while cursor + species.lanes <= #values do
@@ -880,7 +880,7 @@ A *horizontal reduction* combines the lanes of one vector into a scalar:
 ```nupp:fragment
 local species = simd.species(array.uint32, 4)
 local partial = species:iota(1, 1)
-local total = simd.horizontal.wrappingSum(partial)
+local total = simd.horizontal.wrappingsum(partial)
 ```
 
 `partial` holds `1, 2, 3, 4`, so `total` is 10. Use `simd.horizontal` when a
@@ -898,7 +898,7 @@ its one-based position or zero when no byte matches:
 
 ```nupp
 local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 
 @aot
@@ -912,7 +912,7 @@ local function find(borrows text: span.Span<uint8>, needle: uint32): integer
 end
 
 const sentence = "the quick brown fox"
-local text = span.fromString(sentence)
+local text = span.fromstring(sentence)
 print(find(text, ("q"):byte()))
 print(find(text, ("z"):byte()))
 ```
@@ -929,7 +929,7 @@ On NEON, comparing sixteen bytes to the needle gives a sixteen-lane mask.
 in a kernel is at least
 thirty-two bits wide, even when it is compared against byte lanes.
 
-`span.fromString` makes a byte span of a string without copying it. The
+`span.fromstring` makes a byte span of a string without copying it. The
 string is a `const` so it remains the stable source the span borrows from.
 
 In the recorded measurement over ten million bytes with the needle in the
@@ -946,7 +946,7 @@ number kept, and a mask limits the store to those lanes:
 
 ```nupp
 local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 
 @aot
@@ -1108,7 +1108,7 @@ The index can depend on the species' lane count:
 
 ```nupp
 local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 
 @aot
@@ -1315,7 +1315,7 @@ array holds it, and the field is read and written whole through its row, in
 a native kernel and as ordinary Lua alike:
 
 ```nupp
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 
 local struct Particle

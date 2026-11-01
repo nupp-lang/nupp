@@ -177,22 +177,22 @@ end
 
 -- Cached writers retain the same dynamic paths and transactional output.
 local text = require("nupp.text")
-local buffer = text.newBuffer()
+local buffer = text.newbuffer()
 buffer:put("prefix:")
 value.rows[2].value = -1
-local ok, failure = pcall(json.encodeInto, fixture.collectionsBinding, value, buffer)
+local ok, failure = pcall(json.encodeinto, fixture.collectionsBinding, value, buffer)
 assert(not ok and failure.path == '$["rows"][2]["value"]', tostring(failure))
 assert(buffer:tostring() == "prefix:")
 value.rows[2].value = 2
 value.labels.a = false
-ok, failure = pcall(json.encodeInto, fixture.collectionsBinding, value, buffer)
+ok, failure = pcall(json.encodeinto, fixture.collectionsBinding, value, buffer)
 assert(not ok and failure.path == '$["labels"]["a"]', tostring(failure))
 assert(buffer:tostring() == "prefix:")
 local many = setmetatable({items = {}}, fixture.Numbers)
 for index = 1, 1000000 do
     many.items[index] = index
 end
-ok, failure = pcall(json.encodeInto, fixture.numbersBinding, many, buffer)
+ok, failure = pcall(json.encodeinto, fixture.numbersBinding, many, buffer)
 assert(not ok and failure.code == "limit", tostring(failure))
 assert(failure.path:find('$["items"][', 1, true) == 1, failure.path)
 assert(buffer:tostring() == "prefix:")
@@ -200,7 +200,7 @@ assert(buffer:tostring() == "prefix:")
 -- Buffer input reaches the provider without another facade copy. The current
 -- native host bridge materializes one input string; a future borrowing bridge
 -- may eliminate that copy without changing this contract.
-local inputBuffer = text.newBuffer()
+local inputBuffer = text.newbuffer()
 inputBuffer:put('{"name":"buffer","child":{"value":"nested"}}')
 assert(decoder:acceptsBuffer(inputBuffer))
 local methods = debug.getmetatable(inputBuffer).__index
@@ -225,4 +225,4 @@ assert(bufferError.path == stringError.path and bufferError.byte == stringError.
 inputBuffer:set('{"name":"facade","child":{"value":"retained"}}')
 local facade = json.codec()
 assert(facade:decodeBuffer(fixture.recordBinding, inputBuffer).child.value == "retained")
-assert(json.decodeBuffer(fixture.recordBinding, inputBuffer).name == "facade")
+assert(json.decodebuffer(fixture.recordBinding, inputBuffer).name == "facade")

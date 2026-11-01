@@ -1,7 +1,7 @@
 -- Naive f32 GEMM through gpu's generated binding, validated element-exact
 -- against the generated CPU AOT kernel from the same source.
 local ffi = require("ffi")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local generated = require("gemm")
 local gpu = require("gpu")
 
@@ -38,10 +38,10 @@ for i = 0, k * n - 1 do
 end
 
 local expected = ffi.new("float[?]", m * n)
-local spans = {a = span.fromCarray(a, m * k), b = span.fromCarray(b, k * n),}
+local spans = {a = span.fromcarray(a, m * k), b = span.fromcarray(b, k * n),}
 
 local cpuStarted = now()
-generated.cpu(span.writeCarray(expected, m * n), spans.a, spans.b, n, k)
+generated.cpu(span.writecarray(expected, m * n), spans.a, spans.b, n, k)
 local cpuElapsed = now() - cpuStarted
 
 local output = ffi.new("float[?]", m * n)
@@ -72,7 +72,7 @@ local invocation = kernel:bind(cBuffer, aBuffer, bBuffer)
 for i = 0, m * n - 1 do
     output[i] = 127.25
 end
-context:upload(cBuffer, span.fromCarray(output, m * n))
+context:upload(cBuffer, span.fromcarray(output, m * n))
 context:upload(aBuffer, spans.a)
 context:upload(bBuffer, spans.b)
 context:synchronize()
@@ -81,7 +81,7 @@ local function verifyTransfer(buffer, source, count, name)
     local copied = ffi.new("float[?]", count)
     context:enqueueDownload(buffer)
     context:synchronize()
-    context:readDownloaded(buffer, span.writeCarray(copied, count))
+    context:readDownloaded(buffer, span.writecarray(copied, count))
     for i = 0, count - 1 do
         assert(
             copied[i] == source[i],
@@ -97,7 +97,7 @@ local function readBuffer(buffer, count)
     local copied = ffi.new("float[?]", count)
     context:enqueueDownload(buffer)
     context:synchronize()
-    context:readDownloaded(buffer, span.writeCarray(copied, count))
+    context:readDownloaded(buffer, span.writecarray(copied, count))
 
     return copied
 end
@@ -187,7 +187,7 @@ local gpuElapsed = (now() - started) / passes
 
 context:enqueueDownload(cBuffer)
 context:synchronize()
-context:readDownloaded(cBuffer, span.writeCarray(output, m * n))
+context:readDownloaded(cBuffer, span.writecarray(output, m * n))
 
 assert(output[0] ~= 127.25, "GEMM dispatch left its output buffer unchanged")
 local maximumDifference = 0.0

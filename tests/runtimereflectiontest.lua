@@ -32,7 +32,7 @@ function M.constructionKeepsStoredCallbacksAndOmitsMethods()
     local result = run(
         [[
 local events = require("events")
-@derive(events.Event)
+@derive(events.event)
 local record Action
     callback: function(): integer
     extra: integer = 5
@@ -41,7 +41,7 @@ local record Action
     end
 end
 local description = Action.reflect()
-local bus: events.MessageBus<integer> = events.newMessageBus()
+local bus: events.MessageBus<integer> = events.newmessagebus()
 local result = 0
 bus:observe(1, Action, |event| -> do result = event:evaluate() end)
 bus:emit(1, Action, callback = function(): integer return 7 end)
@@ -107,7 +107,7 @@ return {target = User, info = User.reflect() as types.reflect.Info}
     )
     local reflection = require("types.reflect")
     local calls = 0
-    local key = reflection.extensionKey(function(info)
+    local key = reflection.extensionkey(function(info)
         calls = calls + 1
         return info.name
     end)
@@ -241,7 +241,7 @@ do
     local record Leaf
         value: integer
     end
-    local actual = types.reflect.runtimeType(info, info.fields[1].type as integer)
+    local actual = types.reflect.runtimetype(info, info.fields[1].type as integer)
     return {original = actual == expected, different = actual ~= Leaf}
 end
 ]]
@@ -261,11 +261,11 @@ local index: integer = 0
 for i, node in ipairs(info.types) do
     if node.kind == "record" and node.name == "Second" then index = i end
 end
-local before = types.reflect.runtimeType(info, index)
+local before = types.reflect.runtimetype(info, index)
 local record Second
     next: First?
 end
-local after = types.reflect.runtimeType(info, index)
+local after = types.reflect.runtimetype(info, index)
 return {absent = before == nil, correct = after == Second}
 ]]
     )
@@ -284,11 +284,11 @@ local function make(): (types.reflect.Info, Type<unknown>?)
         child: Child
     end
     local info = types.reflect.runtime(Parent)
-    return info, types.reflect.runtimeType(info, info.fields[1].type as integer)
+    return info, types.reflect.runtimetype(info, info.fields[1].type as integer)
 end
 local first, left = make()
 local second, right = make()
-return {distinct = left ~= right, stable = left == types.reflect.runtimeType(first, first.fields[1].type as integer),
+return {distinct = left ~= right, stable = left == types.reflect.runtimetype(first, first.fields[1].type as integer),
     same = first.fingerprint == second.fingerprint}
 ]]
     )
@@ -340,8 +340,8 @@ local info = types.reflect.runtime(Root)
 local extension = types.reflect.extensionkey(function(host: any): string return host.name end)
 local reachable = types.reflect.runtimetype
 local witness = reachable(info, info.fields[1].type as integer)
-return {sameKey = types.reflect.extensionkey == types.reflect.extensionKey,
-    sameWitness = reachable == types.reflect.runtimeType,
+return {sameKey = types.reflect.extensionkey == types.reflect.extensionkey,
+    sameWitness = reachable == types.reflect.runtimetype,
     witness = witness == Leaf, info = info, extension = extension}
 ]]
     )

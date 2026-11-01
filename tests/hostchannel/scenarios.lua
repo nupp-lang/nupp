@@ -5,9 +5,9 @@
 -- returns a table the driver's test inspects; a contract violation is an error.
 
 local host = require("nupp.host")
-local span = require("nupp.mem.span")
-local tasks = require("nupp.tasks")
-local time = require("nupp.time")
+local span = require("binary.span")
+local tasks = require("coroutine")
+local time = require("coroutine")
 local ffi = require("ffi")
 
 local unpackValues = rawget(_G, "unpack") or table.unpack
@@ -53,7 +53,7 @@ local function failure(f, ...)
 end
 
 local function scoped(timeoutMs, body)
-    local scope = tasks.open(nil, timeoutMs)
+    local scope = tasks.scope(nil, timeoutMs)
     local ok, problem = pcall(body, scope)
     local closed, closeProblem = pcall(scope.close, scope)
     return ok and closed, ok and closeProblem or problem
@@ -94,14 +94,14 @@ end
 function scenarios.bytes()
     local small = pattern(5000, 3)
     local large = pattern(3 * 1024 * 1024 + 17, 5)
-    local length, total, back = host.call("test.digest", span.fromString(small))
-    local largeLength, largeTotal = host.call("test.digest", span.fromString(large))
+    local length, total, back = host.call("test.digest", span.fromstring(small))
+    local largeLength, largeTotal = host.call("test.digest", span.fromstring(large))
     local three = {pattern(1024 * 1024, 7), pattern(1024 * 1024, 8), pattern(1024 * 1024, 9)}
     local count = host.call(
         "test.count",
-        span.fromString(three[1]),
-        span.fromString(three[2]),
-        span.fromString(three[3])
+        span.fromstring(three[1]),
+        span.fromstring(three[2]),
+        span.fromstring(three[3])
     )
     local made = host.call("test.make", 8 * 1024 * 1024, 11)
     local empty = host.call("test.make", 0, 1)
@@ -121,9 +121,9 @@ function scenarios.slowCallBesideADeadline()
     local started = os.monotonic()
     local firedAfter
     local slowAnswer
-    local outer = tasks.open()
+    local outer = tasks.scope()
     local slow = outer:spawn(function()
-        local length = host.call("test.slow", span.fromString(pattern(4096, 1)), 1000)
+        local length = host.call("test.slow", span.fromstring(pattern(4096, 1)), 1000)
         return length
     end)
     outer:spawn(function()
@@ -244,7 +244,7 @@ end
 -- a time and all arrive.
 function scenarios.concurrentLargeResults()
     local sizes = {}
-    local scope = tasks.open()
+    local scope = tasks.scope()
     local children = {}
     for index = 1, 4 do
         children[index] = scope:spawn(function()
@@ -263,7 +263,7 @@ end
 
 -- More small requests than one frame carries all ship and all answer.
 function scenarios.manySmallCalls()
-    local scope = tasks.open()
+    local scope = tasks.scope()
     local children = {}
     for index = 1, 600 do
         children[index] = scope:spawn(function()
@@ -283,7 +283,7 @@ end
 
 function scenarios.posts()
     for index = 1, 10 do
-        host.post("test.note", index, span.fromString(pattern(100, index)))
+        host.post("test.note", index, span.fromstring(pattern(100, index)))
     end
     local notes = host.call("test.notes")
 
@@ -297,7 +297,7 @@ end
 function scenarios.streams()
     local hostevents = require("hostevents")
     local events = require("events")
-    local bus = events.newMessageBus()
+    local bus = events.newmessagebus()
     local moves, keys, order = {}, {}, {}
     bus:observe(
         1,
@@ -321,14 +321,14 @@ function scenarios.streams()
     local keyRoute = host.route("test.key", hostevents.KeyPress, bus, 1, "latest")
     host.call("test.pushInput", 5)
     time.sleep(30)
-    local packet = host.bindSend("test.packet", "latest")
-    packet(span.fromString("aaa"))
-    packet(span.fromString("bbbb"))
-    local logged = host.bindSend("test.log", "dropOldest", 2)
+    local packet = host.bindsend("test.packet", "latest")
+    packet(span.fromstring("aaa"))
+    packet(span.fromstring("bbbb"))
+    local logged = host.bindsend("test.log", "dropOldest", 2)
     logged("one")
     logged("two")
     logged("three")
-    local blocked = host.bindSend("test.block", "block", 2)
+    local blocked = host.bindsend("test.block", "block", 2)
     blocked("x")
     blocked("y")
     blocked("z")
@@ -352,7 +352,7 @@ end
 function scenarios.streamObserverFails()
     local hostevents = require("hostevents")
     local events = require("events")
-    local bus = events.newMessageBus()
+    local bus = events.newmessagebus()
     local order = {}
     bus:observe(
         1,
@@ -386,7 +386,7 @@ end
 -- Natively, with no suspension handler around it, a call the host does not
 -- answer at once is refused rather than left to block the host's own call.
 function scenarios.unansweredWithoutAHandler()
-    local problem = failure(host.call, "test.slow", span.fromString("x"), 10)
+    local problem = failure(host.call, "test.slow", span.fromstring("x"), 10)
     local echoed = host.call("test.echo", "answered at once")
     return {problem = problem, echoed = echoed}
 end

@@ -1,4 +1,4 @@
--- `nupp.io.files` against a real filesystem, through the real provider.
+-- `io.files` against a real filesystem, through the real provider.
 --
 -- The launcher's provider is reused when available, and otherwise one is built for
 -- the suite. It is reached the way a generated program reaches it, so what is proved
@@ -12,7 +12,7 @@ local nativeStage = require("nupp.tools.build.native")
 
 local M = {}
 
--- Whether a reason is a nupp.io.Error: a kind to branch on and a message that is
+-- Whether a reason is a io.Error: a kind to branch on and a message that is
 -- also what it prints as.
 local function isIoError(reason, kind)
     return type(reason) == "table"
@@ -67,8 +67,8 @@ function M.beforeAll()
     previous = rawget(_G, "nupp")
     _G.nupp = nil
     assert(loadstring(source))()
-    provider = require("nupp.io.files")
-    buffers = require("nupp.io")
+    provider = require("io.files")
+    buffers = require("io")
 end
 
 function M.afterAll()
@@ -245,7 +245,7 @@ function M.temporariesAreCreatedNotProposed()
     )
 
     local other = assert(files.createTemporaryFile({directory = inRoot("temporary")}))
-    test.notEqual(other:toString(), name, "two temporaries do not collide")
+    test.notequal(other:toString(), name, "two temporaries do not collide")
 
     local directory = assert(files.createTemporaryDirectory({directory = inRoot("temporary"),}))
     assert(files.isDirectory(directory:toString()))
@@ -352,8 +352,8 @@ end
 -- the handler, which drives the registered pump and resumes it.
 function M.aTransferParksUnderAHandlerAndBlocksWithoutOne()
     local files = ready()
-    local suspension = require("nupp.suspension")
-    local suspensionHost = require("nupp.suspension.host")
+    local suspension = require("coroutine.suspension")
+    local suspensionHost = require("coroutine.suspension.host")
     assert(files.createDirectory(inRoot("parking")))
     assert(files.write(inRoot("parking/payload.bin"), ("park"):rep(40000)))
 
@@ -389,7 +389,7 @@ end
 -- every later transfer may hold until nothing fits at all.
 function M.aCancelledTransferGivesItsLaneSlotBack()
     local files = ready()
-    local tasks = require("nupp.tasks")
+    local tasks = require("coroutine")
     assert(files.createDirectory(inRoot("cancel")))
     assert(files.write(inRoot("cancel/large.bin"), ("drop"):rep(1000000)))
     test.equal(files.pendingTransfers(), 0, "the lane starts idle")
@@ -480,7 +480,7 @@ function M.transfersMoveBytesWithoutAStringInBetween()
     test.equal(assert(files.read(inRoot("transfer/copy.bin"))), payload)
 
     local file = assert(files.open(inRoot("transfer/big.bin")))
-    local buffer = buffers.newBuffer()
+    local buffer = buffers.newbuffer()
     local reader = file
     test.equal(reader:readInto(buffer, 0, 5), 5)
     test.equal(buffer:getString(), "chunk")
@@ -492,7 +492,7 @@ end
 function M.aBufferWritesIntoAFileFromItsOwnStorage()
     local files = ready()
     assert(files.createDirectory(inRoot("frombuffer")))
-    local buffer = buffers.newBuffer("prefix:body")
+    local buffer = buffers.newbuffer("prefix:body")
     local file = assert(files.open(inRoot("frombuffer/out.bin"), "w"))
     local writer = file
     local bytes = buffer:readSpan()
@@ -685,7 +685,7 @@ function M.aPathObjectIsAcceptedWhereverAStringIs()
 end
 
 function M.theProviderIsSelectedOnlyByReachingIt()
-    local recorded = native.forModule("nupp.io.files")
+    local recorded = native.forModule("io.files")
     test.equal(recorded, "runtime.files")
     test.equal(native.forModule("nupp.runtime.provider.nativefiles"), "native.files")
     local feature = assert(native.feature("native.files"))

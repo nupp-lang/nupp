@@ -147,7 +147,7 @@ The type is the value `error` is called with. An ordinary Lua message is a
 links the name to that declaration's own documentation:
 
 ```nupp:fragment
-const tasks = require("nupp.tasks")
+const tasks = require("coroutine")
 
 --- Waits for the batch to settle.
 ---
@@ -656,7 +656,7 @@ and it works the same in a handwritten page, a module blurb, and a `---` run:
 [the zone module](nupp.profile.zone)
 [](nupp.profile.zone.Zone)
 [the guard's field](nupp.profile.zone.Zone.active)
-[](nupp.mem.span#writable-spans)
+[](binary.span#writable-spans)
 ```
 
 Empty link text stands for the target, so `[](nupp.profile.zone)` renders that

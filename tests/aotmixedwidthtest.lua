@@ -27,7 +27,7 @@ function M.mapAndExplicitWidthsShareOneTranslationUnit()
     write(
         dir .. "/src/mixed.nupp",
         [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 local array = require("nupp.mem.array")
 @aot
@@ -54,17 +54,17 @@ return {map = map, fixed = fixed}
     assert(status == 0, dir .. ": " .. read(dir .. "/build.log"))
     local runSource = [[
 package.path="build/native/?.lua;" .. package.path
-local m, ffi, span = require("mixed"), require("ffi"), require("nupp.mem.span")
+local m, ffi, span = require("mixed"), require("ffi"), require("binary.span")
 assert(__nuppAotCompiled[m.map] and __nuppAotCompiled[m.fixed])
 for count = 0, 35 do
     local input, output = ffi.new("double[36]"), ffi.new("double[36]")
     for i=0,35 do input[i]=i*0.125; output[i]=-99 end
-    m.map(span.writeCarray(output,count),span.fromCarray(input,count))
+    m.map(span.writecarray(output,count),span.fromcarray(input,count))
     for i=0,count-1 do assert(output[i]==input[i]+1) end
     for i=count,35 do assert(output[i]==-99) end
 end
 local input, output = ffi.new("int32_t[3]", {11,22,33}), ffi.new("int32_t[4]", {0,0,0,-99})
-m.fixed(span.writeCarray(output,3),span.fromCarray(input,3))
+m.fixed(span.writecarray(output,3),span.fromcarray(input,3))
 assert(output[0]==33 and output[1]==22 and output[2]==11 and output[3]==-99)
 ]]
     runSource = equivalenceMutation.text("mixed-width-definitions", runSource, "output%[0%]==33", "output[0]==34")

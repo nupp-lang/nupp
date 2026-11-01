@@ -20,7 +20,7 @@ end
 @aot
 local function root(source: string, nullValue: any): any
     local state = valueBuilder.new(nullValue)
-    valueBuilder.openArray(state, math.u32.wrap(3))
+    valueBuilder.openarray(state, math.u32.wrap(3))
     valueBuilder.null(state)
     valueBuilder.string(state, source, math.u32.wrap(0), math.u32.wrap(#source), false)
     valueBuilder.boolean(state, false)

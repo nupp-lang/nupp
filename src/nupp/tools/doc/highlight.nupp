@@ -29,7 +29,7 @@ this module's rather than Lua's, which is all Scintillua's loader needs, since
 it looks a lexer up by asking `loadfile` for it and reading the answer.
 ]]
 const {type Links} = require("nupp.tools.doc.urls")
-const files = require("nupp.io.files")
+const files = require("io.files")
 
 local lexer = require("nupp.compiler.syntax.lexer")
 local parser = require("nupp.compiler.syntax.parser")
@@ -289,7 +289,7 @@ local function configureScintillua(root: string?, settings: highlight.Settings?)
         local custom = join(root, lexerDir)
         -- Opening a directory happens to succeed on Unix and fails on Windows;
         -- ask the filesystem the question that is actually being answered.
-        if files.isDirectory(custom) then
+        if files.isdirectory(custom) then
             searchPath = custom .. ";" .. base
         end
     end

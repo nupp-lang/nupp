@@ -1,6 +1,6 @@
 module kernels
 
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function cpu(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil
@@ -12,7 +12,7 @@ local function cpu(exclusive output: span.WriteSpan<uint32>, borrows input: span
         local round: int32 = 0
         while round < 64 do
             value = math.u32.add(math.u32.mul(value, 1664525), 1013904223)
-            value = math.u32.xorBits(value, math.u32.shiftRightLogical(value, 13))
+            value = math.u32.xorbits(value, math.u32.shiftrightlogical(value, 13))
             round = math.i32.add(round, 1)
         end
         output[index] = value
@@ -29,7 +29,7 @@ local function device(exclusive output: span.WriteSpan<uint32>, borrows input: s
         local round: int32 = 0
         while round < 64 do
             value = math.u32.add(math.u32.mul(value, 1664525), 1013904223)
-            value = math.u32.xorBits(value, math.u32.shiftRightLogical(value, 13))
+            value = math.u32.xorbits(value, math.u32.shiftrightlogical(value, 13))
             round = math.i32.add(round, 1)
         end
         output[index] = value

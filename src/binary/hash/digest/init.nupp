@@ -8,9 +8,9 @@ One call for a whole string, or a context you feed in pieces and then consume.
 ```nupp
 const digest = binary.hash.digest
 
-print(digest.hexDigest("sha256", "hello"))
+print(digest.hexdigest("sha256", "hello"))
 
-local running = digest.newDigest("sha256")
+local running = digest.newdigest("sha256")
 
 running:write("hel")
 running:write("lo")
@@ -18,14 +18,14 @@ running:write("lo")
 print(running:hexDigest())
 ```
 
-A context is an [`io.Writer`](nupp.io.Writer), so anything that fills a writer
+A context is an [`io.Writer`](io.Writer), so anything that fills a writer
 fills a digest: `reader:transferTo(running)` hashes a whole file or response
 body without holding it.
 
 Finalizing consumes the context, so a digest is taken once and the binding is
 spent afterward. Create another context to digest another message. `digest()`
 returns raw bytes, `digest(destination)` writes them into a writable byte span
-you already have, and `hexDigest()` returns lowercase hexadecimal. Dropping a
+you already have, and `hexdigest()` returns lowercase hexadecimal. Dropping a
 context that was never finalized closes its provider state.
 
 MD5 and SHA-1 are here for talking to things that already use them, and for
@@ -133,7 +133,7 @@ end
 --- @param name the canonical algorithm name
 --- @return an owned unfinished digest
 --- @raises string when the algorithm is unavailable or cannot be initialized
-export function newDigest(name: string): Digest
+export function newdigest(name: string): Digest
     return algorithm(name):newDigest()
 end
 
@@ -154,7 +154,7 @@ end
 --- @return the raw fixed-size digest bytes
 --- @raises string when lookup or a provider operation fails
 export function digest(name: string, bytes: string): string
-    local context = newDigest(name)
+    local context = newdigest(name)
     context:write(bytes)
     return context:digest()
 end
@@ -164,8 +164,8 @@ end
 --- @param bytes the message bytes
 --- @return the lowercase hexadecimal digest
 --- @raises string when lookup or a provider operation fails
-export function hexDigest(name: string, bytes: string): string
-    local context = newDigest(name)
+export function hexdigest(name: string, bytes: string): string
+    local context = newdigest(name)
     context:write(bytes)
     return context:hexDigest()
 end

@@ -18,14 +18,14 @@ local host = nupp.host
 local type DecodeImage = function(url: string, format: string?): (integer, integer, integer)
 local type ReleaseImage = function(id: integer): nil
 
-local releaseImage = host.bindPost<ReleaseImage>("tecs.image.release")
+local releaseImage = host.bindpost<ReleaseImage>("tecs.image.release")
 local decodeImage = host.bind<DecodeImage>("tecs.image.decode",
     late = function(id: any, ...: any): nil releaseImage(id) end)
 
 local id, width, height = decodeImage(url = "sprites.png")
 ```
 
-A call suspends through [](nupp.suspension) until the host answers, so it
+A call suspends through [](coroutine.suspension) until the host answers, so it
 composes with [task scopes](docs/learn/runtime/concurrency/task-scopes.md),
 deadlines and cancellation. A host failure is raised in the caller with the
 host's message. `bind` allocates its closure once; a call through it passes its
@@ -36,7 +36,7 @@ arguments straight through rather than gathering them into a table.
 Arguments and results are each a count of flat values: `nil`, booleans,
 numbers, strings and byte spans. Every position is kept, so interior and
 trailing `nil`s arrive as written. A number must be finite and a string must be
-UTF-8 text; arbitrary bytes are a [](nupp.mem.span) of bytes, never a string
+UTF-8 text; arbitrary bytes are a [](binary.span) of bytes, never a string
 holding binary. Tables and functions are refused, naming the argument's
 position. Structured data is encoded into bytes by the library that owns it.
 
@@ -46,7 +46,7 @@ cross, and carry the other values only:
 
 ```nupp:fragment
 local host = nupp.host
-local span = nupp.mem.span
+local span = binary.span
 
 local type Digest = function(borrows bytes: span.ByteSpan): (integer, span.ByteSpan)
 local digest = host.bind<Digest>("app.digest")
@@ -68,13 +68,13 @@ where no task is waiting, and must not suspend, so it releases through `post`,
 which queues a request without waiting for it. A kind without `late` drops a
 late answer.
 
-`post` and `bindPost` never suspend. The host runs the request like any call;
+`post` and `bindpost` never suspend. The host runs the request like any call;
 its answer is discarded and its failure reported rather than raised.
 
 ## Streams
 
 A stream carries messages one way, without answers. `send` appends one to a
-kind's outbound stream, which ships with the frame it was sent in; `bindSend`
+kind's outbound stream, which ships with the frame it was sent in; `bindsend`
 binds a kind to a typed function as `bind` does, which is how bytes are sent.
 `route` delivers a kind's inbound messages as [](events) on a bus the
 program owns, at an address it picks, with each message's values filling the
@@ -84,14 +84,14 @@ event's fields in declaration order:
 local host = nupp.host
 local events = require("events")
 
-@derive(events.Event)
+@derive(events.event)
 local struct PointerMove
     x: number
     y: number
 end
 
 const WINDOW = 1
-local input: events.MessageBus<integer> = events.newMessageBus()
+local input: events.MessageBus<integer> = events.newmessagebus()
 input:observe(WINDOW, PointerMove, |move| -> print(move.x, move.y), "cursor")
 local route = host.route("app.pointer.move", PointerMove, input, WINDOW, "dropOldest", 64)
 ```
@@ -246,7 +246,7 @@ end
 --- @param kind the dotted name the host answers
 --- @return a function posting `kind` with its arguments
 --- @export
-function host.bindPost<F>(kind: string): F
+function host.bindpost<F>(kind: string): F
     local checked = checkedKind(kind)
     local post = provider.post
     local bound = function(...: any): nil
@@ -272,7 +272,7 @@ end
 --- @param limit how many unshipped messages make the stream full, 1024 unless named
 --- @return a function sending on `kind` with its arguments
 --- @export
-function host.bindSend<F>(kind: string, policy: contracts.Policy?, limit: integer?): F
+function host.bindsend<F>(kind: string, policy: contracts.Policy?, limit: integer?): F
     local checked = checkedKind(kind)
     local selected = policy or "block"
     local bound = checkedLimit(limit)

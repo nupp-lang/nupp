@@ -72,8 +72,8 @@ function M.independentBoundaryVectors(): nil
             bytes[#bytes + 1] = string.char((index * 73 + 19) % 256)
         end
         local input = table.concat(bytes)
-        assert(digest.hexDigest(name, input) == expected, name .. " length " .. length)
-        local rolling = digest.newDigest(name)
+        assert(digest.hexdigest(name, input) == expected, name .. " length " .. length)
+        local rolling = digest.newdigest(name)
         for index = 1, length, 13 do
             rolling:write(input:sub(index, index + 12))
         end

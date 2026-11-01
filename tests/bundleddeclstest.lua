@@ -412,7 +412,7 @@ end
 
 function M.openFilesKeepTheirLexicalCleanupAcrossThePublicFacade()
     local source = [[
-const files = require("nupp.io.files")
+const files = require("io.files")
 do
     local file, reason = files.open("input.txt")
     if file == nil then error(reason) end

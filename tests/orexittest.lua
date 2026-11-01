@@ -1205,7 +1205,7 @@ local function handler(raised: any): %s
 end
 
 local function described(n: integer): (integer?, %s?)
-    local value = util.tryWith(work, handler, n) or return
+    local value = util.trywith(work, handler, n) or return
 
     return value + 1, nil
 end

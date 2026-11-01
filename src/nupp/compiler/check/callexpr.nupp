@@ -106,7 +106,7 @@ local COMPILER_SURFACES = require("nupp.compiler.check.surfaces").COMPILER_SURFA
 local RECEIVER_INTRINSICS = require("nupp.compiler.check.receiverintrinsics")
 
 --- Whether a callee names a trusted task-scope constructor.
---- Qualified paths and function aliases retain the identity of `nupp.tasks.open`
+--- Qualified paths and function aliases retain the identity of `coroutine.scope`
 --- or the accepting `coroutine.scope` surface.
 local function opensTaskScope(c: state.Checker, callee: any): boolean
     local identity = apiidentity.expression(c, callee)

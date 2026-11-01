@@ -145,71 +145,71 @@ local m = {}
 
 @aot
 local function iandb(a: int32, b: int32): int32
-    return math.i32.andBits(a, b)
+    return math.i32.andbits(a, b)
 end
 @aot
 local function iorb(a: int32, b: int32): int32
-    return math.i32.orBits(a, b)
+    return math.i32.orbits(a, b)
 end
 @aot
 local function ixorb(a: int32, b: int32): int32
-    return math.i32.xorBits(a, b)
+    return math.i32.xorbits(a, b)
 end
 @aot
 local function inotb(a: int32): int32
-    return math.i32.notBits(a)
+    return math.i32.notbits(a)
 end
 @aot
 local function ishlb(a: int32, b: int32): int32
-    return math.i32.shiftLeft(a, b)
+    return math.i32.shiftleft(a, b)
 end
 @aot
 local function isar(a: int32, b: int32): int32
-    return math.i32.shiftRightArithmetic(a, b)
+    return math.i32.shiftrightarithmetic(a, b)
 end
 @aot
 local function irol(a: int32, b: int32): int32
-    return math.i32.rotateLeft(a, b)
+    return math.i32.rotateleft(a, b)
 end
 @aot
 local function iror(a: int32, b: int32): int32
-    return math.i32.rotateRight(a, b)
+    return math.i32.rotateright(a, b)
 end
 @aot
 local function iless(a: int32, b: int32): boolean
-    return math.i32.lessThan(a, b)
+    return math.i32.lessthan(a, b)
 end
 @aot
 local function ilesseq(a: int32, b: int32): boolean
-    return math.i32.lessOrEqual(a, b)
+    return math.i32.lessorequal(a, b)
 end
 @aot
 local function itou(a: int32): uint32
-    return math.i32.toU32(a)
+    return math.i32.tou32(a)
 end
 @aot
 local function urol(a: uint32, b: uint32): uint32
-    return math.u32.rotateLeft(a, b)
+    return math.u32.rotateleft(a, b)
 end
 @aot
 local function uror(a: uint32, b: uint32): uint32
-    return math.u32.rotateRight(a, b)
+    return math.u32.rotateright(a, b)
 end
 @aot
 local function uless(a: uint32, b: uint32): boolean
-    return math.u32.lessThan(a, b)
+    return math.u32.lessthan(a, b)
 end
 @aot
 local function ulesseq(a: uint32, b: uint32): boolean
-    return math.u32.lessOrEqual(a, b)
+    return math.u32.lessorequal(a, b)
 end
 @aot
 local function fbits(a: uint32): uint32
-    return math.f32.toBits(math.f32.fromBits(a))
+    return math.f32.tobits(math.f32.frombits(a))
 end
 @aot
 local function ftobits(a: number): uint32
-    return math.f32.toBits(math.f32.narrow(a))
+    return math.f32.tobits(math.f32.narrow(a))
 end
 
 @aot
@@ -370,11 +370,11 @@ local function lusar(a: uint64, b: uint64): uint64
 end
 @aot
 local function lurol(a: uint64, count: integer): uint64
-    return math.u64.rotateLeft(a, count)
+    return math.u64.rotateleft(a, count)
 end
 @aot
 local function luror(a: uint64, count: integer): uint64
-    return math.u64.rotateRight(a, count)
+    return math.u64.rotateright(a, count)
 end
 
 @aot
@@ -506,7 +506,7 @@ m.lunneg = lunneg
 return m
 ]=],
     stores = [=[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 local m = {}
 
@@ -741,7 +741,7 @@ local DRIVER = [=[
 local repoBuild, group = REPO_BUILD, arg[1]
 package.path = repoBuild .. "/?.lua;" .. package.path
 local ffi = require("ffi")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local base = package.path
 
 local function load(out, modname)
@@ -785,11 +785,11 @@ end
 local function stored(M, fn, value)
     if fn == "storeWords" then
         local storage = ffi.new("int32_t[1]")
-        M[fn](span.writeCarray(storage, 1), value)
+        M[fn](span.writecarray(storage, 1), value)
         return storage[0]
     end
     local storage = ffi.new(ffi.typeof("$[?]", M.Cell), 1)
-    M[fn](span.writeCarray(storage, 1), value)
+    M[fn](span.writecarray(storage, 1), value)
     local c = storage[0]
     if fn == "storeUnsigned" then return c.u64 end
     return c.i8, c.u8, c.i16, c.u16, c.i32, c.u32, c.i64, c.u64, c.f
@@ -802,13 +802,13 @@ local function overlapping(M)
     local words = ffi.new("uint32_t[4]")
     local bytes = ffi.cast("uint8_t *", words)
     local answers = {
-        pcall(M.shift, span.writeCarray(numbers + 1, 7), span.fromCarray(numbers, 7)),
-        pcall(M.shift, span.writeCarray(numbers + 4, 4), span.fromCarray(numbers, 4)),
-        pcall(M.shift, span.writeCarray(numbers + 1, 0), span.fromCarray(numbers, 0)),
-        pcall(M.shiftBoxes, span.writeCarray(boxes + 1, 7), span.fromCarray(boxes, 7)),
-        pcall(M.shiftBoxes, span.writeCarray(boxes + 4, 4), span.fromCarray(boxes, 4)),
-        pcall(M.widen, span.writeCarray(words, 2), span.fromCarray(bytes + 7, 2)),
-        pcall(M.widen, span.writeCarray(words, 2), span.fromCarray(bytes + 8, 2)),
+        pcall(M.shift, span.writecarray(numbers + 1, 7), span.fromcarray(numbers, 7)),
+        pcall(M.shift, span.writecarray(numbers + 4, 4), span.fromcarray(numbers, 4)),
+        pcall(M.shift, span.writecarray(numbers + 1, 0), span.fromcarray(numbers, 0)),
+        pcall(M.shiftBoxes, span.writecarray(boxes + 1, 7), span.fromcarray(boxes, 7)),
+        pcall(M.shiftBoxes, span.writecarray(boxes + 4, 4), span.fromcarray(boxes, 4)),
+        pcall(M.widen, span.writecarray(words, 2), span.fromcarray(bytes + 7, 2)),
+        pcall(M.widen, span.writecarray(words, 2), span.fromcarray(bytes + 8, 2)),
     }
     local parts = {}
     for i, accepted in ipairs(answers) do parts[i] = tostring(accepted) end

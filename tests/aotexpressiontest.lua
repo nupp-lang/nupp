@@ -11,7 +11,7 @@ local M = {}
 
 local SOURCE = [[
 module expressions
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 const STRING_COMMAND = "ready\0go"
 @aot
 local function choose(value: number): number
@@ -501,20 +501,20 @@ assert(m.repeatedStringSelector("stop", 10000) == 10000)
 assert(m.countedHeaders() == 69)
 assert(m.countedHeaderExits() == 24)
 local ffi = require("ffi")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 for _, count in ipairs({0, 1, 3, 17, 64}) do
     local input = ffi.new("double[?]", math.max(1, count))
     local output = ffi.new("double[?]", math.max(1, count))
     for i = 0, count - 1 do input[i] = i % 8 end
-    local writable = span.writeCarray(output, count)
-    m.mapped(writable, span.fromCarray(input, count))
+    local writable = span.writecarray(output, count)
+    m.mapped(writable, span.fromcarray(input, count))
     for i = 0, count - 1 do
         local value = input[i]
         local expected = value < 2 and value + 10 or value == 3 and 30 or value * 2
         assert(output[i] == expected, "mapped result at " .. i)
     end
     for i = 0, count - 1 do output[i] = -99 end
-    m.mappedHeaders(writable, span.fromCarray(input, count))
+    m.mappedHeaders(writable, span.fromcarray(input, count))
     for i = 0, count - 1 do
         local expected = i < 4 and i ~= 2 and input[i] or -99
         assert(output[i] == expected, "mapped header result at " .. i)
@@ -522,7 +522,7 @@ for _, count in ipairs({0, 1, 3, 17, 64}) do
 end
 do
     local input = ffi.new("double[3]")
-    local three = span.fromCarray(input, 3)
+    local three = span.fromcarray(input, 3)
     assert(m.countBelow(three, -1) == false, "a negative cursor is below a count")
     assert(m.countBelow(three, 3) == false)
     assert(m.countBelow(three, 4) == true)

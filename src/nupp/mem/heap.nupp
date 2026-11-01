@@ -11,7 +11,7 @@ only through checked span views.
 local heap = nupp.mem.heap
 
 do
-    local values = heap.allocate(ffi.typeof<int32>(), 4)
+    local values = heap.alloc(ffi.typeof<int32>(), 4)
     local writable = values:write()
     writable[1] = 42 as int32
     own.drop(writable)
@@ -22,7 +22,7 @@ end -- free runs here
 
 An allocation here sits outside LuaJIT's GC allocation limit, which is the
 reason to reach for one over a `carray`. Reading and writing are the operations
-[](nupp.mem.span) defines, and a live reader and a live writer over one array
+[](binary.span) defines, and a live reader and a live writer over one array
 report `NUPP2607`.
 
 ::: tip Nonescaping views at -O1
@@ -37,7 +37,7 @@ the views are written against.
 
 local heap = {}
 local ffi = require("ffi")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 cdef function malloc(size: uint64): voidptr
 cdef function free(takes pointer: voidptr)
@@ -67,7 +67,7 @@ end
 ---
 --- @param self the array, spent by this call
 --- @export
-function heap.destroyArray<T is heap.ArrayToken>(takes self: T): nil
+function heap.destroyarray<T is heap.ArrayToken>(takes self: T): nil
     self:close()
 end
 
@@ -97,7 +97,7 @@ record heap.Array<T> is heap.ArrayToken
 end
 
 function heap.Array.read<T>(borrows self: heap.Array<T>): span.Span<T> borrows (self)
-    return span.fromCarray(self.pointer, self.count)
+    return span.fromcarray(self.pointer, self.count)
 end
 
 function heap.Array.close<T>(takes self: heap.Array<T>): nil
@@ -105,7 +105,7 @@ function heap.Array.close<T>(takes self: heap.Array<T>): nil
 end
 
 function heap.Array.write<T>(exclusive self: heap.Array<T>): span.Writable<T> borrows (self)
-    return span.writeCarray(self.pointer, self.count)
+    return span.writecarray(self.pointer, self.count)
 end
 
 --- Allocates `count` contiguous values of `element` outside LuaJIT's GC allocation
@@ -117,7 +117,7 @@ end
 ---
 --- ```nupp:fragment
 --- do
----     local values = heap.allocate(ffi.typeof<int32>(), 1000000)
+---     local values = heap.alloc(ffi.typeof<int32>(), 1000000)
 ---     print(values.count)
 --- end
 --- ```
@@ -128,7 +128,7 @@ end
 --- @export
 --- @raises string when count is invalid, the byte size overflows, or allocation
 ---     fails
-function heap.allocate<T>(element: ctype<T>, count: integer): affine(heap.Array<T>, heap.destroyArray)
+function heap.alloc<T>(element: ctype<T>, count: integer): affine(heap.Array<T>, heap.destroyarray)
     if count < 0 or count ~= math.floor(count) then
         error("nupp: heap array count must be a nonnegative integer", 2)
     end
@@ -161,7 +161,7 @@ end
 -- Private hooks for the worker transport: recognizing an owned array as a moved
 -- transfer leaf, taking its allocation apart for a message attachment, and
 -- rebuilding the one owner around a received pointer. The tag vocabulary is
--- positional and must agree with the comptime walk in nupp.workers; a receiver
+-- positional and must agree with the comptime walk in coroutine.workers; a receiver
 -- that cannot honor a tag gets nil and fails the task rather than
 -- reinterpreting memory. Kept off the authored surface.
 local MOVABLE_ELEMENTS: {
@@ -179,7 +179,7 @@ local pointerBox = ffi.new("void *[1]")
 local POINTER_SIZE = ffi.sizeof("void *") as integer
 
 local getmetatable_nosuspend = getmetatable as @nosuspend function(any): any
-local movedProbe = heap.allocate(ffi.typeof<int32>(), 0)
+local movedProbe = heap.alloc(ffi.typeof<int32>(), 0)
 local arrayMetatable: any = nil
 @nosuspend do
     local raw = @unsafe own.release(movedProbe)

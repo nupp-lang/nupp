@@ -51,7 +51,7 @@ local generation: integer = 0
 
 -- Fields rather than upvalues, so a lowered push or pop elsewhere in the program
 -- reads and writes the same state this file does. Not part of the documented API;
--- `isActive`, `depth`, `push` and `pop` are.
+-- `isactive`, `depth`, `push` and `pop` are.
 zone.__nuppActive = false
 zone.__nuppDepth = 0 as integer
 zone.__nuppStack = stack
@@ -64,7 +64,7 @@ local pathText = ""
 local pathBuffer: {string} = {}
 
 --- Whether pushes and pops are being recorded.
-function zone.isActive(): boolean
+function zone.isactive(): boolean
     return zone.__nuppActive
 end
 

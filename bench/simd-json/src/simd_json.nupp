@@ -2,7 +2,7 @@ const utf8 = require("utf8")
 
 local scanner = require("simd_json.scanner")
 local arena = require("simd_json.arena")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local ffi = require("ffi")
 
 local json = {}
@@ -18,8 +18,8 @@ local function decode(source: string): unknown
     local length: integer = #source
     local flagStorage = ffi.new("uint8_t[?]", length > 0 and length or 1) as uint8[?]
     do
-        local writable = span.writeCarray(flagStorage, length)
-        scanner.classify(writable, span.fromString(source))
+        local writable = span.writecarray(flagStorage, length)
+        scanner.classify(writable, span.fromstring(source))
         own.drop(writable)
     end
     local position: integer = 1

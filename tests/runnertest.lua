@@ -177,11 +177,11 @@ local M = test.suite.cases(
         test.suite.fact("example.witness", {row = row.name})
         test.suite.metric("source.bytes", row.value, "bytes")
         test.suite.work("semantic.cases", 1)
-        test.suite.requireCapability("runtime.lua", true, {engine = _VERSION})
+        test.suite.requirecapability("runtime.lua", true, {engine = _VERSION})
     end
 )
 function M.unavailable()
-    test.suite.requireCapability("example.absent", false, {probe = "synthetic"})
+    test.suite.requirecapability("example.absent", false, {probe = "synthetic"})
 end
 return M
 ]=]
@@ -319,9 +319,9 @@ return {distinctKeys = function()
         paths[#paths + 1] = path
         test.equal(value.key, key)
     end
-    test.notEqual(paths[1], paths[2])
-    test.notEqual(paths[1], paths[3])
-    test.notEqual(paths[2], paths[3])
+    test.notequal(paths[1], paths[2])
+    test.notequal(paths[1], paths[3])
+    test.notequal(paths[2], paths[3])
 end}
 ]]
     )
@@ -787,7 +787,7 @@ function M.invalidStructuredMetadataFailsOneCaseWithoutBreakingJson()
 local test = require("assert")
 return {invalid = function()
     local evidence = {probe = "valid"}
-    test.suite.requireCapability("runtime.synthetic", true, evidence)
+    test.suite.requirecapability("runtime.synthetic", true, evidence)
     evidence.callback = function() end
 end}
 ]]

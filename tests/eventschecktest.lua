@@ -249,7 +249,7 @@ function M.aParameterBorrowSuspendsThroughAHandledCallOnly()
     -- this frame, which is why a parameter borrow counts as an obligation.
     clean(
         [[
-local time = require("nupp.time")
+local time = require("coroutine")
 
 local record Damage
     amount: number

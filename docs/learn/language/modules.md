@@ -201,15 +201,15 @@ directly:
 ```nupp
 module app.read
 
-export function view(borrows text: string): nupp.mem.span.ByteSpan borrows (text)
-    return nupp.mem.span.fromString(text)
+export function view(borrows text: string): binary.span.ByteSpan borrows (text)
+    return binary.span.fromstring(text)
 end
 ```
 
 The compiler resolves the longest registered module prefix. The remaining
 segments must be exported members; a miss is diagnosed rather than falling back
 to `any`. The facility is generic, so dependency roots such as
-`tecs.world.query.each(...)` work the same way as `nupp`. See [](nupp.mem.span)
+`tecs.world.query.each(...)` work the same way as `nupp`. See [](binary.span)
 for the module the example names.
 
 A lexical binding wins:
@@ -228,8 +228,8 @@ selected module becomes one hidden direct import in the containing Lua chunk,
 and repeated source accesses reuse it:
 
 ```lua
-local __nuppModule = require("nupp.mem.span")
-return __nuppModule.fromCarray(pointer, count)
+local __nuppModule = require("binary.span")
+return __nuppModule.fromcarray(pointer, count)
 ```
 
 There is no per-call loader, proxy, metatable guard, or injected helper. A

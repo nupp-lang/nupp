@@ -4,8 +4,8 @@
 -- its length error and replaces only the handwritten range guard with the standard
 -- witness. The benchmark driver supplies the handwritten direct form so this file
 -- remains ordinary checked Nupp.
-local span = require("nupp.mem.span")
-local indexed = require("nupp.mem.indexed")
+local span = require("binary.span")
+local indexed = require("binary.span")
 
 local kernel = {}
 
@@ -71,7 +71,7 @@ end
 -- part of the timed kernel.
 @relax("frames")
 function kernel.stringChecksum(text: string): number
-    const bytes = span.fromString(text)
+    const bytes = span.fromstring(text)
     const rows = indexed.range(1, #bytes, bytes)
     local total = 0
     for index = rows.first, rows.last do
@@ -106,8 +106,8 @@ function kernel.rootGcCopy(
     borrows velocities: kernel.Velocity[?],
     count: integer
 ): nil
-    const output = span.writeCarray(positions, count)
-    const input = span.fromCarray(velocities, count)
+    const output = span.writecarray(positions, count)
+    const input = span.fromcarray(velocities, count)
     for index = 1, #output do
         if index % 67 == 0 then
             collectgarbage()

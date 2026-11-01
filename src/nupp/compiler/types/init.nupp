@@ -1239,7 +1239,7 @@ types.never = prim("never")
 -- The member that says a union may grow. Nothing inhabits it and it fits nowhere but
 -- itself, so a union carrying it can never be shown to be covered: a switch over one
 -- keeps needing its `else`, and the union does not fit the closed union of the members
--- actually written. `types.nonExhaustive()` is the only way to obtain it, since no
+-- actually written. `types.nonexhaustive()` is the only way to obtain it, since no
 -- name resolves to it.
 types.open = prim("open")
 types.nil_ = prim("nil")

@@ -266,7 +266,7 @@ type cache.State = {
 }
 
 local function jsonArray<T>(takes items: {T}): {T} preserves items
-    return json.asArray(items)
+    return json.asarray(items)
 end
 
 --- The stamp a module's checked record and built artifact are reused under: the code
@@ -378,7 +378,7 @@ local function loadState(path: string): cache.State
     if not text then
         return emptyState()
     end
-    local state, invalid = json.decodeValue(text, json.NULL)
+    local state, invalid = json.decodevalue(text, json.NULL)
     if invalid ~= nil then
         return emptyState()
     end
@@ -387,7 +387,7 @@ local function loadState(path: string): cache.State
 end
 
 local function saveState(path: string, state: cache.State): boolean?, string?
-    return writeFile(path, json.encodeValue(state) .. "\n")
+    return writeFile(path, json.encodevalue(state) .. "\n")
 end
 
 cache.jsonArray = jsonArray

@@ -123,8 +123,8 @@ local cases = test.suite.cases(
     end,
     function(name)
         local capability = runner.nativeCapability()
-        test.suite.requireCapability("compiler.llvm", capability.compilerVersion ~= nil, capability)
-        test.suite.requireCapability("cpu." .. capability.tier, capability.available, capability)
+        test.suite.requirecapability("compiler.llvm", capability.compilerVersion ~= nil, capability)
+        test.suite.requirecapability("cpu." .. capability.tier, capability.available, capability)
         local key = fixtureKey(name, capability)
         local _, report, reused = test.suite.fixture(key, function(directory)
             directory = absolute(directory)

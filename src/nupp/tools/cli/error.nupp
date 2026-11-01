@@ -1,5 +1,7 @@
 module nupp.tools.cli.error
 
+const terminal = require("io.terminal")
+
 local errors = {}
 
 --- Wraps prose without breaking long words such as option names and paths.
@@ -41,9 +43,9 @@ end
 --- command record is constructed.
 function errors.forCommand(name: string): function(string?): integer
     return function(message: string?): integer
-        local style = io.style(io.stderr)
+        local style = terminal.style(io.stderr)
         io.stderr:write(
-            io.severity(
+            terminal.severity(
                 style,
                 "error"
             )(

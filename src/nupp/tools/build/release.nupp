@@ -68,7 +68,7 @@ local function decode(path: string): any?, string?
     if not text then
         return nil, "cannot read " .. path .. ": " .. tostring(readErr)
     end
-    local value, invalid = json.decodeValue(text, json.NULL)
+    local value, invalid = json.decodevalue(text, json.NULL)
     if invalid ~= nil then
         return nil, "cannot decode " .. path .. ": " .. invalid
     end
@@ -85,7 +85,7 @@ local function pretty(value: any, depth: integer, seen: {[table]: boolean}): str
     local kind = type(value)
     @allow("exhaustiveness")
     if kind ~= "table" then
-        return json.encodeValue(value)
+        return json.encodevalue(value)
     end
     local entries = value as {[any]: any}
     if seen[entries] then
@@ -96,7 +96,7 @@ local function pretty(value: any, depth: integer, seen: {[table]: boolean}): str
     local nested = ("  "):rep(depth + 1)
     local parts: {string} = {}
     local opening, closing
-    if json.isArray(entries) then
+    if json.isarray(entries) then
         opening, closing = "[", "]"
         for index = 1, #entries do
             parts[index] = nested .. pretty(entries[index], depth + 1, seen)
@@ -112,7 +112,7 @@ local function pretty(value: any, depth: integer, seen: {[table]: boolean}): str
         end
         table.sort(keys)
         for index, key in ipairs(keys) do
-            parts[index] = nested .. json.encodeValue(key) .. ": " .. pretty(entries[key], depth + 1, seen)
+            parts[index] = nested .. json.encodevalue(key) .. ": " .. pretty(entries[key], depth + 1, seen)
         end
     end
     seen[entries] = nil
@@ -220,7 +220,7 @@ function release.record(
         catalogRelease = catalogRelease,
         executableSuffix = platform.executableSuffix(selectedPlatform),
         hostAbi = packaging.hostAbiVersion,
-        hostFeatures = json.asArray(copyArray(HOST_FEATURES)),
+        hostFeatures = json.asarray(copyArray(HOST_FEATURES)),
         noticeArtifact = fs.basename(noticePath),
         platform = selectedPlatform,
         sha256 = hash.sha256(bytes),
@@ -259,7 +259,7 @@ function release.kitRecord(
         artifact = fs.basename(archivePath),
         catalogRelease = catalogRelease,
         hostAbi = packaging.hostAbiVersion,
-        hostFeatures = json.asArray(copyArray(HOST_FEATURES)),
+        hostFeatures = json.asarray(copyArray(HOST_FEATURES)),
         platform = selectedPlatform,
         sha256 = hash.sha256(bytes),
         size = #bytes,
@@ -328,8 +328,8 @@ function release.kitCatalog(
     return writeJson(output, {
         catalogRelease = catalogRelease,
         hostAbi = packaging.hostAbiVersion,
-        kits = json.asObject(kits),
-        stubs = json.asObject({}),
+        kits = json.asobject(kits),
+        stubs = json.asobject({}),
     })
 end
 
@@ -395,8 +395,8 @@ function release.catalog(
     return writeJson(output, {
         catalogRelease = catalogRelease,
         hostAbi = packaging.hostAbiVersion,
-        kits = json.asObject(kits),
-        stubs = json.asObject(records),
+        kits = json.asobject(kits),
+        stubs = json.asobject(records),
     })
 end
 

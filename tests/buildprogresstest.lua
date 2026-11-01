@@ -1,3 +1,5 @@
+const terminal = require("io.terminal")
+
 local testAssert = require("assert")
 -- What a build says about itself while it runs and when it finishes.
 --
@@ -350,7 +352,7 @@ end
 function M.aColoredSummaryPaintsSuccessAndBuildCounts()
     local path = os.tmpname()
     local stream = assert(io.open(path, "wb"))
-    io.withColorMode("always", function()
+    terminal.withcolormode("always", function()
         local report = progress.new("always", stream)
         report:counted(2, 3)
         report:finish("built", "app")

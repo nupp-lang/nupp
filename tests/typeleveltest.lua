@@ -693,7 +693,7 @@ function M.stringFormatDerivesArgumentsFromLiteralFormats()
     clean(
         table.concat(
             {
-                "@derive(types.Debug)",
+                "@derive(types.debug)",
                 "local record User name: string end",
                 "local user = new User(name = 'Ada')",
                 "local name = 'Ada'",
@@ -777,7 +777,7 @@ function M.formatArgumentsIsReusableByUserFormattingWrappers()
     clean(
         table.concat(
             {
-                "local function format<F is string>(fmt: F, ...: unpackof types.formatArguments(F)): string",
+                "local function format<F is string>(fmt: F, ...: unpackof types.formatarguments(F)): string",
                 "   return string.format(fmt, ...)",
                 "end",
                 "local value = format('%s=%d', 'count', 3)",
@@ -789,7 +789,7 @@ function M.formatArgumentsIsReusableByUserFormattingWrappers()
     oneDiagnostic(
         table.concat(
             {
-                "local function format<F is string>(fmt: F, ...: unpackof types.formatArguments(F)): string",
+                "local function format<F is string>(fmt: F, ...: unpackof types.formatarguments(F)): string",
                 "   return string.format(fmt, ...)",
                 "end",
                 "local value = format('%d', 'wrong')",
@@ -803,7 +803,7 @@ function M.formatArgumentsIsReusableByUserFormattingWrappers()
     oneDiagnostic(
         table.concat(
             {
-                "local function format<F is string>(fmt: F, ...: unpackof types.formatArguments(F)): string",
+                "local function format<F is string>(fmt: F, ...: unpackof types.formatarguments(F)): string",
                 "   return string.format(fmt, ...)",
                 "end",
                 "local value = format('%?', {})",
@@ -1969,7 +1969,7 @@ function M.comptimeComparesNominalDeclarationFamilies()
                 "   value: T",
                 "end",
                 "@comptime local function Same(A: type, B: type): type",
-                "   return types.literal(types.sameNominal(A, B))",
+                "   return types.literal(types.samenominal(A, B))",
                 "end",
                 "@comptime local function Borrowed(T: type): type",
                 "   return types.borrowed(T)",
@@ -1987,11 +1987,14 @@ function M.comptimeComparesNominalDeclarationFamilies()
 end
 
 function M.lowercaseFormatargumentsKeepsItsExistingCheckedSignature()
-    local namespace = env.globals.types.t.byname
-    testAssert.equal(types.tostring(namespace.formatarguments), types.tostring(namespace.formatArguments))
-    testAssert.equal(namespace.formatarguments.comptimeOnly, true)
-    testAssert.equal(namespace.formatArguments.comptimeOnly, true)
-    testAssert.equal(namespace.formatarguments.retPack.head[1], namespace.formatArguments.retPack.head[1])
+    local member = env.globals.types.t.byname.formatarguments
+    testAssert.equal(member.tag, "func")
+    testAssert.equal(#member.params, 1)
+    testAssert.equal(types.tostring(member.params[1]), "type")
+    testAssert.equal(member.comptimeOnly, true)
+    testAssert.equal(#member.retPack.head, 1)
+    testAssert.equal(types.tostring(member.retPack.head[1]), "typepack")
+    testAssert.equal(env.globals.types.t.byname.formatArguments, nil, "the old public name is absent")
 end
 
 function M.lowercaseBuilderNamesPreserveTypeIdentityDuringBootstrap()
@@ -2002,18 +2005,18 @@ local record Cell<T>
 end
 @comptime local function Checked(T: type, Other: type): type
     const nominal = types.samenominal
-    if nominal(T, Other) ~= types.sameNominal(T, Other) then
+    if nominal(T, Other) ~= types.samenominal(T, Other) then
         return types.error("lowercase nominal identity changed")
     end
     const key = types.literal("value")
     const shape = types.shape({{name = "value", read = types.string, write = types.string}})
-    if types.readat(shape, key) ~= types.readAt(shape, key) then
+    if types.readat(shape, key) ~= types.readat(shape, key) then
         return types.error("lowercase read projection changed")
     end
-    if types.writeat(shape, key) ~= types.writeAt(shape, key) then
+    if types.writeat(shape, key) ~= types.writeat(shape, key) then
         return types.error("lowercase write projection changed")
     end
-    if #types.readkeys(shape) ~= #types.readKeys(shape) or #types.writekeys(shape) ~= #types.writeKeys(shape) then
+    if #types.readkeys(shape) ~= #types.readkeys(shape) or #types.writekeys(shape) ~= #types.writekeys(shape) then
         return types.error("lowercase key projection changed")
     end
     return T
@@ -2039,7 +2042,7 @@ function M.comptimeTypeCachesPreserveNominalIdentity()
                 "   return types.literal(A == B)",
                 "end",
                 "@comptime local function Same(A: type, B: type): type",
-                "   return types.literal(types.sameNominal(A, B))",
+                "   return types.literal(types.samenominal(A, B))",
                 "end",
                 "local record Shared value: string end",
                 "local exact: Exact(Shared, Shared) = true",
@@ -2422,7 +2425,7 @@ function M.simdHorizontalContractsPreserveTheirNestedIntrinsicIdentity()
             {
                 'local simd = require("simd")',
                 "local horizontal = simd.horizontal",
-                "local ordered = horizontal.orderedSum",
+                "local ordered = horizontal.orderedsum",
                 "local value: simd.Vector<float, simd.Fixed<8>> = nil as any",
                 "local result: float = ordered(value)",
                 "return result",
@@ -2436,7 +2439,7 @@ function M.simdHorizontalContractsPreserveTheirNestedIntrinsicIdentity()
                 {
                     'local simd = require("simd")',
                     "local value: simd.Vector<uint32, simd.Fixed<8>> = nil as any",
-                    "return simd.horizontal.orderedSum(value)",
+                    "return simd.horizontal.orderedsum(value)",
                 },
                 "\n"
             )
@@ -2450,7 +2453,7 @@ function M.exactReducerLifecycleAndTypesAreChecked()
 local simd = require("simd")
 @aot
 local function total(seed: uint32): uint32
-    local fold = simd.reducer.wrappingSum(nupp.mem.array.uint32, seed)
+    local fold = simd.reducer.wrappingsum(nupp.mem.array.uint32, seed)
     for i = 1, 4 do
         fold:add(seed)
     end
@@ -2465,7 +2468,7 @@ return total
     clean(
         [[
 local simd = require("simd")
-local minimum: simd.IntegerArgMin<uint64> = simd.reducer.integerArgMin(nupp.mem.array.uint64)
+local minimum: simd.IntegerArgMin<uint64> = simd.reducer.integerargmin(nupp.mem.array.uint64)
 local flag: boolean = simd.reducer.any():value()
 local count: uint64 = simd.reducer.count():value()
 return minimum, flag, count
@@ -2477,7 +2480,7 @@ function M.floatingReducerStateIsPrivateToTheSimdModule()
     testAssert.equal(
         codes([[
 local simd = require("simd")
-local sum = simd.reducer.orderedSum(0.0)
+local sum = simd.reducer.orderedsum(0.0)
 local total = sum.total
 ]]),
         "NUPP2209"
@@ -2486,7 +2489,7 @@ local total = sum.total
         codes(
             [[
 local simd = require("simd")
-local sum = simd.reducer.compensatedSum(0.0)
+local sum = simd.reducer.compensatedsum(0.0)
 sum.compensation = 1.0
 return sum:value()
 ]]
@@ -2526,17 +2529,17 @@ local simd = require("simd")
 local function finish<T>(reducer: simd.Reducer<T>): T
     return reducer:value()
 end
-local product: simd.Reducer<number> = simd.reducer.orderedProduct(1.0)
-local pairwise = simd.reducer.pairwiseProduct(1.0)
-local algebraic = simd.reducer.algebraicProduct(1.0)
-local dot: simd.Reducer<number> = simd.reducer.pairwiseDot(0.0)
+local product: simd.Reducer<number> = simd.reducer.orderedproduct(1.0)
+local pairwise = simd.reducer.pairwiseproduct(1.0)
+local algebraic = simd.reducer.algebraicproduct(1.0)
+local dot: simd.Reducer<number> = simd.reducer.pairwisedot(0.0)
 local count: simd.Reducer<uint64> = simd.reducer.count()
 local any: simd.Reducer<boolean> = simd.reducer.any()
-local position: simd.Reducer<integer> = simd.reducer.numberArgMin()
-local least: simd.Reducer<number> = simd.reducer.propagatingMin(0.0)
+local position: simd.Reducer<integer> = simd.reducer.numberargmin()
+local least: simd.Reducer<number> = simd.reducer.propagatingmin(0.0)
 pairwise:add(2.0)
 algebraic:add(2.0)
-local ordered = simd.reducer.orderedProduct(1.0)
+local ordered = simd.reducer.orderedproduct(1.0)
 ordered:add(3.0)
 return finish(product), finish(pairwise), finish(algebraic), finish(ordered), finish(dot), finish(count),
     finish(any), finish(position), finish(least)
@@ -2546,7 +2549,7 @@ return finish(product), finish(pairwise), finish(algebraic), finish(ordered), fi
         codes(
             [[
 local simd = require("simd")
-local product = simd.reducer.orderedProduct(1.0)
+local product = simd.reducer.orderedproduct(1.0)
 product:multiply(2.0)
 return product:value()
 ]]
@@ -2562,11 +2565,11 @@ function M.integerReducersAreSelectedByTheirElementType()
         [[
 local array = require("nupp.mem.array")
 local simd = require("simd")
-local sum: simd.WrappingSum<int32> = simd.reducer.wrappingSum<int32>(array.int32, 0)
-local product: simd.Reducer<uint64> = simd.reducer.wrappingProduct(array.uint64, 1ULL)
-local bits: simd.AndBits<uint32> = simd.reducer.andBits(array.uint32, math.u32.wrap(7))
-local least: simd.IntegerMin<int64> = simd.reducer.integerMin(array.int64, 0LL)
-local position: simd.IntegerArgMax<uint32> = simd.reducer.integerArgMax(array.uint32)
+local sum: simd.WrappingSum<int32> = simd.reducer.wrappingsum<int32>(array.int32, 0)
+local product: simd.Reducer<uint64> = simd.reducer.wrappingproduct(array.uint64, 1ULL)
+local bits: simd.AndBits<uint32> = simd.reducer.andbits(array.uint32, math.u32.wrap(7))
+local least: simd.IntegerMin<int64> = simd.reducer.integermin(array.int64, 0LL)
+local position: simd.IntegerArgMax<uint32> = simd.reducer.integerargmax(array.uint32)
 return sum, product, bits, least, position
 ]]
     )
@@ -2575,7 +2578,7 @@ return sum, product, bits, least, position
             [[
 local array = require("nupp.mem.array")
 local simd = require("simd")
-return simd.reducer.wrappingSum<uint32>(array.int32, 0)
+return simd.reducer.wrappingsum<uint32>(array.int32, 0)
 ]]
         )
             :match("NUPP%d+"),
@@ -2586,7 +2589,7 @@ return simd.reducer.wrappingSum<uint32>(array.int32, 0)
             [[
 local array = require("nupp.mem.array")
 local simd = require("simd")
-return simd.reducer.xorBits(array.float, 0)
+return simd.reducer.xorbits(array.float, 0)
 ]]
         )
             :match("NUPP%d+"),
@@ -2613,7 +2616,7 @@ function M.reducerLifecyclesAreCheckedWithoutTargetLowering()
                 'local simd = require("simd")',
                 "@aot",
                 "local function total(): number",
-                "   local sum = simd.reducer.orderedSum(0.0)",
+                "   local sum = simd.reducer.orderedsum(0.0)",
                 "   for i = 1, 4 do",
                 "      sum:add(i)",
                 "   end",
@@ -2631,7 +2634,7 @@ function M.reducerLifecyclesAreCheckedWithoutTargetLowering()
                 'local simd = require("simd")',
                 "@aot",
                 "local function total(): number",
-                "   local sum = simd.reducer.orderedSum(0.0)",
+                "   local sum = simd.reducer.orderedsum(0.0)",
                 "   local copy = sum",
                 "   for i = 1, 4 do",
                 "      copy:add(i)",

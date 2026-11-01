@@ -3,7 +3,7 @@
 module nupp.runtime.provider.nativetime
 
 --[[
-Native implementation of [](nupp.time.spi).
+Native implementation of [](coroutine.spi).
 
 `now` reports monotonic milliseconds and `wallTime` reports Unix milliseconds.
 Relative sleeps and absolute deadlines must be finite and non-negative. Waiting
@@ -15,12 +15,12 @@ The timer readiness source runs at order 20, ahead of I/O. At most 4,096 timer
 registrations may be pending; cancellation releases a registration without
 waiting for its deadline. State and callbacks are local to one Lua state.
 
-The [](nupp.time) facade retains these functions during module loading. Native
-clock support and [](nupp.suspension) must be available before it resolves.
+The [](coroutine) facade retains these functions during module loading. Native
+clock support and [](coroutine.suspension) must be available before it resolves.
 ]]
 
 local native = require("nupp.runtime.native")
-local suspension = require("nupp.suspension")
+local suspension = require("coroutine.suspension")
 
 native.ffi.cdef(
     dedent[[

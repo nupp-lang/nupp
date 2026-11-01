@@ -18,10 +18,10 @@ end -- the array is released here
 ```
 
 The array owns its storage and releases it at the end of the scope that holds
-it. Reading and writing it are the [](nupp.mem.span) operations, so every index
+it. Reading and writing it are the [](binary.span) operations, so every index
 is checked against the count the array carries.
 ]]
-const {type Span, type Writable, type ByteSpan} = require("nupp.mem.span")
+const {type Span, type Writable, type ByteSpan} = require("binary.span")
 local array = {}
 
 -- Element witnesses name a representation without loading its allocator.
@@ -60,17 +60,17 @@ record array.Array<T>
 end
 
 function array.Array.read<T>(borrows self: array.Array<T>): Span<T> borrows (self)
-    return require("nupp.mem.span").fromCarray(self.pointer, self.count)
+    return require("binary.span").fromcarray(self.pointer, self.count)
 end
 
 function array.Array.write<T>(exclusive self: array.Array<T>): Writable<T> borrows (self)
-    return require("nupp.mem.span").writeCarray(self.pointer, self.count)
+    return require("binary.span").writecarray(self.pointer, self.count)
 end
 
 --- Allocates zeroed storage with the struct witness's physical layout.
 --- @raises string when count is not a nonnegative integer or exceeds the
 ---     target's storage limit
-function array.newArray<T>(takes witness: T, count: integer): array.Array<T>
+function array.newarray<T>(takes witness: T, count: integer): array.Array<T>
     local storage = require("nupp.runtime.storage")
     local raw = @unsafe own.release(witness)
     local element = storage.descriptor(raw)
@@ -94,11 +94,11 @@ record array.Bytes
     @readonly count: integer
 
     function read(borrows self): ByteSpan borrows (self)
-        return require("nupp.mem.span").fromCarray(self.pointer, self.count)
+        return require("binary.span").fromcarray(self.pointer, self.count)
     end
 
     function write(exclusive self): Writable<uint8> borrows (self)
-        return require("nupp.mem.span").writeCarray(self.pointer, self.count)
+        return require("binary.span").writecarray(self.pointer, self.count)
     end
 end
 

@@ -1,14 +1,14 @@
 -- events: addressed synchronous delivery over pooled and arena-backed storage.
 local arena = require("nupp.mem.arena")
 local events = require("events")
-const {type Pool, newPool} = require("nupp.util")
+const {type Pool, newpool as newPool} = require("nupp.util")
 local test = require("assert")
 
 local M = {}
 
 local type Bus = events.MessageBus<integer>
 
-@derive(events.Event)
+@derive(events.event)
 local record Damage
     amount: number
     source: integer
@@ -19,7 +19,7 @@ end
 -- emission initialized anything.
 local healConstructions = 0
 
-@derive(events.Event)
+@derive(events.event)
 @event(name = "combat.Heal")
 local record Heal
     amount: number
@@ -32,7 +32,7 @@ end
 
 -- A constructor that leaves `tag` alone when it is not given, so a field a
 -- previous emission wrote is visible if the storage was not cleared.
-@derive(events.Event)
+@derive(events.event)
 local record Sparse
     count: integer
     tag: string?
@@ -45,7 +45,7 @@ local record Sparse
     end
 end
 
-@derive(events.Event)
+@derive(events.event)
 local struct Contact
     a: number
     b: number
@@ -100,7 +100,7 @@ local record Rows is events.Allocator<Contact>
 end
 
 local function newBus(): Bus
-    return events.newMessageBus()
+    return events.newmessagebus()
 end
 
 -- Bytes allocated while `body` ran, with the collector stopped: the count
@@ -161,8 +161,8 @@ end
 function M.idsAreAssignedOnceAndNamesComeFromTheDeclarationOrTheAnnotation(): nil
     local damageId = events.id(Damage)
     test.equal(events.id(Damage), damageId, "an id is stable once assigned")
-    test.notEqual(events.id(Heal), damageId, "distinct events have distinct ids")
-    test.notEqual(events.id(Contact), events.id(Heal))
+    test.notequal(events.id(Heal), damageId, "distinct events have distinct ids")
+    test.notequal(events.id(Contact), events.id(Heal))
     test.equal(events.name(Damage), "Damage")
     test.equal(events.name(Heal), "combat.Heal", "@event(name = ...) overrides the declaration's name")
     test.equal(events.name(Contact), "Contact")
@@ -891,7 +891,7 @@ function M.nestedEmissionOfTheSameTypeUsesDistinctStorage(): nil
         peakLive = bus.observers.count > 0 and counting.live or 0
     end)
     bus:emit(1, Damage, amount = 1, source = 1)
-    test.notEqual(innerIdentity, outerIdentity, "the nested lease is a different instance")
+    test.notequal(innerIdentity, outerIdentity, "the nested lease is a different instance")
     test.equal(innerSeen, 50)
     test.equal(outerAfter, 1, "the outer event was neither overwritten nor cleared by the nested one")
     test.equal(peakLive, 2, "both leases were live while the nested delivery ran")
@@ -926,7 +926,7 @@ end
 
 function M.structRowsReadAsZeroWhenLeasedAndAreDeliveredAsStructReferences(): nil
     local bus = newBus()
-    local rows = new Rows(inner = arena.newArena(Contact, 4), acquires = 0, seenA = {}, seenB = {}, seenImpulse = {})
+    local rows = new Rows(inner = arena.newarena(Contact, 4), acquires = 0, seenA = {}, seenB = {}, seenImpulse = {})
     bus:setAllocator(Contact, rows)
     local seen: {string} = {}
     bus:observe(0, Contact, |event| -> do

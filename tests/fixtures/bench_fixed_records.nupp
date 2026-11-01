@@ -12,11 +12,11 @@ end
 local listing = option("--cases-out")
 local file = assert(io.open(listing or option("--out"), "wb"))
 if listing then
-    file:write(json.encodeValue({name = "fixed"}), "\n", json.encodeValue({name = "trend"}), "\n")
+    file:write(json.encodevalue({name = "fixed"}), "\n", json.encodevalue({name = "trend"}), "\n")
 else
     local name = option("--case")
     file:write(
-        json.encodeValue({
+        json.encodevalue({
             executionProfile = {optLevel = 1, disabled = ""},
             cases = {
                 {

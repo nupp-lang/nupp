@@ -1,6 +1,6 @@
 # Worker benchmark
 
-This benchmark is the performance contract for `nupp.workers`. It separates
+This benchmark is the performance contract for `coroutine.workers`. It separates
 pool startup, warm scalar task latency, copied payload throughput, prepared
 record restoration, the same record through the dynamic fallback, and
 CPU-parallel scaling so improving one cannot conceal a regression in another.

@@ -185,8 +185,9 @@ function M.generate(types, mode, width)
         end
     end
     local source = {
-        [[local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+        [[
+local array = require("nupp.mem.array")
+local span = require("binary.span")
 local simd = require("simd")
 ]]
     }

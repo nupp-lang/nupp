@@ -7,7 +7,7 @@ local M = {}
 
 function M.historicalMutationsAreKilled()
     local requested = os.getenv("NUPP_FLEET_EQUIVALENCE") == "1"
-    test.suite.requireCapability("fleet.simd-equivalence", requested, {requested = requested})
+    test.suite.requirecapability("fleet.simd-equivalence", requested, {requested = requested})
     local _, ledger = obligations.load()
     local report = equivalence.run(ledger)
     assert(report.ok, equivalence.encode(report))

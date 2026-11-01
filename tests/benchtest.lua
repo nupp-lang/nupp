@@ -21,7 +21,7 @@ local optimize = require("nupp.compiler.lua.optimize")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
 local json = require("testjson")
-local files = require("nupp.io.files")
+local files = require("io.files")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
@@ -1001,10 +1001,10 @@ function M.aBaselineWithASchemaThisVersionCannotReadIsRefused()
     local bench = require("debug.bench")
     testAssert.equal(bench.SCHEMA, 4, "records are written at schema 4")
     for _, schema in ipairs({2, 3, 4}) do
-        local document, refused = bench.decodeBaseline(('{"schema":%d,"cases":[]}'):format(schema), "b.json")
+        local document, refused = bench.decodebaseline(('{"schema":%d,"cases":[]}'):format(schema), "b.json")
         assert(document ~= nil and refused == nil, "schema " .. schema .. " reads as a baseline")
     end
-    local _, older = bench.decodeBaseline('{"schema":2,"cases":[]}', "b.json", 3)
+    local _, older = bench.decodebaseline('{"schema":2,"cases":[]}', "b.json", 3)
     assert(older ~= nil and older:find("has schema 2", 1, true) ~= nil, "a reader's oldest schema holds")
     for text, expected in pairs({
         ['{"schema":5,"cases":[]}'] = "nupp: baseline b.json has schema 5; this bench reads schema 4, and 2 through 3",
@@ -1013,7 +1013,7 @@ function M.aBaselineWithASchemaThisVersionCannotReadIsRefused()
         ['[1, 2]'] = "nupp: baseline b.json is not a bench record",
         ["not json"] = "is not a bench record",
     }) do
-        local document, refused = bench.decodeBaseline(text, "b.json")
+        local document, refused = bench.decodebaseline(text, "b.json")
         testAssert.equal(document, nil, text .. " was read as a baseline")
         assert(refused ~= nil and refused:find(expected, 1, true) ~= nil, tostring(refused))
     end

@@ -52,9 +52,9 @@ end
 return function()
     local codec = require("serde.json")
     local proof = {
-        eager = prove(codec.decodeValue, "decode", "eagerDecoder"),
+        eager = prove(codec.decodevalue, "decode", "eagerDecoder"),
         pull = prove(codec.pull, "pull", "pullDecoder"),
-        serde = prove(codec.decodeValue, "decodeSerde", "serdeDecoder"),
+        serde = prove(codec.decodevalue, "decodeSerde", "serdeDecoder"),
     }
     for _, kernel in ipairs({{"scanner", "classify"}, {"indexer", "index"}, {"parser", "parse"}}) do
         local entry = require("simd_json." .. kernel[1])[kernel[2]]

@@ -31,16 +31,10 @@ export type FieldCodecBlueprint = types.reflect.FieldCodecBlueprint
 export type FieldCodec<T> = types.reflect.FieldCodec<T>
 
 --- Creates a key for a lazily derived descriptor value.
-export const extensionKey: function<T>(build: function(host: any): T): ExtensionKey<T> = api.extensionKey
+export const extensionkey: function<T>(build: function(host: any): T): ExtensionKey<T> = api.extensionKey
 
 --- Reads the descriptor carried by a first-class type witness.
 export const runtime: function<T>(typeObject: Type<T>): Info = api.runtime
 
 --- Reads a reachable nominal witness, or nil for an unresolved declaration.
-export const runtimeType: function(info: Info, index: integer): Type<unknown>? = api.runtimeType
-
---- @internal
-export const extensionkey: function<T>(build: function(host: any): T): ExtensionKey<T> = api.extensionkey
-
---- @internal
-export const runtimetype: function(info: Info, index: integer): Type<unknown>? = api.runtimetype
+export const runtimetype: function(info: Info, index: integer): Type<unknown>? = api.runtimeType

@@ -21,16 +21,16 @@ does not cover, the byte loop below it finishes, and the last one or two bytes
 get their padding after that.
 ]]
 
-const io = require("nupp.io")
+const io = require("io")
 local array = require("nupp.mem.array")
 local simd = require("simd")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 local base64simd = {}
 
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
-const ALPHABET_BYTES = span.fromString(ALPHABET)
+const ALPHABET_BYTES = span.fromstring(ALPHABET)
 
 --- Encodes `source` into `output`, which must hold `4 * ceil(#source / 3)`
 --- bytes, and answers how many bytes it wrote. `alphabet` is the sixty-four
@@ -136,10 +136,10 @@ end
 --- @export
 function base64simd.encode(value: string): string
     local bound = encodedLength(value)
-    local buffer = io.newBuffer(bound)
+    local buffer = io.newbuffer(bound)
     local lease = buffer:reserveWrite(0, bound)
     local target = lease:span()
-    local written = encode(target, span.fromString(value), ALPHABET_BYTES)
+    local written = encode(target, span.fromstring(value), ALPHABET_BYTES)
     own.drop(target)
     lease:commit(written)
 
@@ -157,7 +157,7 @@ end
 --- @export
 function base64simd.allocOnly(value: string): string
     local bound = encodedLength(value)
-    local buffer = io.newBuffer(bound)
+    local buffer = io.newbuffer(bound)
     local lease = buffer:reserveWrite(0, math.max(bound, 1))
     local target = lease:span()
     target[1] = #value % 256

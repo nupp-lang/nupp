@@ -2,7 +2,7 @@
 -- Q/K/V projections, scores, polynomial softmax, and value mixing are queued
 -- without an intermediate CPU boundary; one allocation supplies six dense views.
 local ffi = require("ffi")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local gemm = require("gemm")
 local transformer = require("transformer")
 local gpu = require("gpu")
@@ -49,28 +49,28 @@ local v = ffi.new("float[?]", elements)
 local scores = ffi.new("float[?]", tokens * tokens)
 local probabilities = ffi.new("float[?]", tokens * tokens)
 local expected = ffi.new("float[?]", elements)
-local inputSpan = span.fromCarray(input, elements)
-gemm.cpu(span.writeCarray(q, elements), inputSpan, span.fromCarray(queryWeights, width * width), width, width)
-gemm.cpu(span.writeCarray(k, elements), inputSpan, span.fromCarray(keyWeights, width * width), width, width)
-gemm.cpu(span.writeCarray(v, elements), inputSpan, span.fromCarray(valueWeights, width * width), width, width)
+local inputSpan = span.fromcarray(input, elements)
+gemm.cpu(span.writecarray(q, elements), inputSpan, span.fromcarray(queryWeights, width * width), width, width)
+gemm.cpu(span.writecarray(k, elements), inputSpan, span.fromcarray(keyWeights, width * width), width, width)
+gemm.cpu(span.writecarray(v, elements), inputSpan, span.fromcarray(valueWeights, width * width), width, width)
 local scale = f32(1.0 / math.sqrt(width))
 transformer.scoresCpu(
-    span.writeCarray(scores, tokens * tokens),
-    span.fromCarray(q, elements),
-    span.fromCarray(k, elements),
+    span.writecarray(scores, tokens * tokens),
+    span.fromcarray(q, elements),
+    span.fromcarray(k, elements),
     tokens,
     width,
     scale
 )
 transformer.softmaxCpu(
-    span.writeCarray(probabilities, tokens * tokens),
-    span.fromCarray(scores, tokens * tokens),
+    span.writecarray(probabilities, tokens * tokens),
+    span.fromcarray(scores, tokens * tokens),
     tokens
 )
 transformer.mixCpu(
-    span.writeCarray(expected, elements),
-    span.fromCarray(probabilities, tokens * tokens),
-    span.fromCarray(v, elements),
+    span.writecarray(expected, elements),
+    span.fromcarray(probabilities, tokens * tokens),
+    span.fromcarray(v, elements),
     tokens,
     width
 )
@@ -112,9 +112,9 @@ assert(
 )
 
 context:upload(inputBuffer, inputSpan)
-context:upload(qWeightsBuffer, span.fromCarray(queryWeights, width * width))
-context:upload(kWeightsBuffer, span.fromCarray(keyWeights, width * width))
-context:upload(vWeightsBuffer, span.fromCarray(valueWeights, width * width))
+context:upload(qWeightsBuffer, span.fromcarray(queryWeights, width * width))
+context:upload(kWeightsBuffer, span.fromcarray(keyWeights, width * width))
+context:upload(vWeightsBuffer, span.fromcarray(valueWeights, width * width))
 context:synchronize()
 
 local gemmKernel = gemm.gemm:compile(context)
@@ -151,16 +151,16 @@ local gpuScores = ffi.new("float[?]", elements)
 local gpuProbabilities = ffi.new("float[?]", elements)
 context:enqueueDownload(outputView)
 context:synchronize()
-context:readDownloaded(outputView, span.writeCarray(output, elements))
+context:readDownloaded(outputView, span.writecarray(output, elements))
 context:enqueueDownload(qView)
 context:synchronize()
-context:readDownloaded(qView, span.writeCarray(projected, elements))
+context:readDownloaded(qView, span.writecarray(projected, elements))
 context:enqueueDownload(scoresView)
 context:synchronize()
-context:readDownloaded(scoresView, span.writeCarray(gpuScores, elements))
+context:readDownloaded(scoresView, span.writecarray(gpuScores, elements))
 context:enqueueDownload(probabilitiesView)
 context:synchronize()
-context:readDownloaded(probabilitiesView, span.writeCarray(gpuProbabilities, elements))
+context:readDownloaded(probabilitiesView, span.writecarray(gpuProbabilities, elements))
 for index = 0, elements - 1 do
     assert(projected[index] == q[index], ("Q view mismatch at %d"):format(index))
     assert(

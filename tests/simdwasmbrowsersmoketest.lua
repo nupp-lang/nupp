@@ -55,15 +55,15 @@ end
 
 function M.countedRuntimeRoutesReachChromium()
     local requested = os.getenv("NUPP_FLEET_BROWSER_SMOKE") == "1"
-    test.suite.requireCapability("fleet.browser-smoke", requested, {requested = requested})
+    test.suite.requirecapability("fleet.browser-smoke", requested, {requested = requested})
     local node = command("node")
-    test.suite.requireCapability("runtime.node", node ~= nil, {command = node})
+    test.suite.requirecapability("runtime.node", node ~= nil, {command = node})
     local codegen, problem = runner.codegen()
-    test.suite.requireCapability("compiler.wasm", codegen ~= nil, {command = "nupp", output = problem})
+    test.suite.requirecapability("compiler.wasm", codegen ~= nil, {command = "nupp", output = problem})
     local playwright = ROOT .. "/editors/playground/node_modules/playwright/index.mjs"
-    test.suite.requireCapability("runtime.playwright", exists(playwright), {path = playwright})
+    test.suite.requirecapability("runtime.playwright", exists(playwright), {path = playwright})
     local guest = browserGuest()
-    test.suite.requireCapability("runtime.luajit-browser-guest", exists(guest .. "/guest-manifest.json"), {
+    test.suite.requirecapability("runtime.luajit-browser-guest", exists(guest .. "/guest-manifest.json"), {
         path = guest
     })
     local key = fixtureKey(guest, codegen)

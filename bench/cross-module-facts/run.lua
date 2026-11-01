@@ -118,7 +118,7 @@ do
                 write(OUTPUT .. "/" .. LABEL .. "-" .. case.name .. "-" .. variant .. ".lua", code)
             end
         end
-        write(OUTPUT .. "/" .. LABEL .. ".json", json.encodeValue(results))
+        write(OUTPUT .. "/" .. LABEL .. ".json", json.encodevalue(results))
         os.execute("rm -rf '" .. dir .. "'")
     end
 
@@ -142,7 +142,7 @@ do
             f:close()
         end
 
-        local prelude = "local span = require('nupp.mem.span')\n"
+        local prelude = "local span = require(\"binary.span\")\n"
         local helper = [[
 local function sum(borrows values: span.Span<uint8>): number
     local total = 0
@@ -155,14 +155,14 @@ end
         for _, variant in ipairs({"direct", "local", "imported"}) do
             local source = prelude .. (
                 variant == "local" and helper or "local D = require('xmviews')\n"
-            ) .. "local function run(text: string): number const values = span.fromString(text) return " .. (
+            ) .. "local function run(text: string): number const values = span.fromstring(text) return " .. (
                 variant == "local" and "sum" or "D.sum"
             ) .. "(values) end\nreturn run"
             if variant == "direct" then
                 source = prelude
                     .. [[
 local function run(text: string): number
-    const values = span.fromString(text)
+    const values = span.fromstring(text)
     local total = 0
     for index = 1, #values do total = total + values[index] end
     return total
@@ -204,7 +204,7 @@ return run]]
             result[#result + 1] = {variant = variant, bytes = #code, runtimeMs = times, remarks = remarks}
             write(OUTPUT .. "/" .. LABEL .. "-view-" .. variant .. ".lua", code)
         end
-        write(OUTPUT .. "/" .. LABEL .. "-view.json", json.encodeValue(result))
+        write(OUTPUT .. "/" .. LABEL .. "-view.json", json.encodevalue(result))
         os.execute("rm -rf '" .. dir .. "'")
     end
 

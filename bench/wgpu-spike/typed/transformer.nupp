@@ -1,4 +1,4 @@
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot(target = "gpu")
 local function scores(

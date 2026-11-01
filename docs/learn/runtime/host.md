@@ -31,7 +31,7 @@ local decodeImage = host.bind<DecodeImage>("app.image.decode")
 local id, width, height = decodeImage(url = "sprites.png")
 ```
 
-A call suspends through [](nupp.suspension) until the host answers, so it
+A call suspends through [](coroutine.suspension) until the host answers, so it
 composes with [task scopes](concurrency/task-scopes.md), deadlines and
 cancellation. A host failure is raised in the caller with the host's message,
 and a kind no host answers is refused by name. `host.call(kind, ...)` is the
@@ -49,19 +49,19 @@ most 64 KiB; anything else is bytes. Tables and functions are refused, naming
 the argument's position. Structured data is encoded into bytes by the library
 that owns it, for example with [](serde).
 
-Bytes are a [](nupp.mem.span) of bytes. A span is a borrow, so it crosses through
+Bytes are a [](binary.span) of bytes. A span is a borrow, so it crosses through
 a bound kind whose signature says so; `call` and `post` take `any`, which a
 borrow cannot cross:
 
 ```nupp:fragment
 local host = nupp.host
-local span = nupp.mem.span
+local span = binary.span
 
 local type Digest = function(borrows bytes: span.ByteSpan): (integer, span.ByteSpan)
 local digest = host.bind<Digest>("app.digest")
 
 const text = "hello"
-local length, echoed = digest(bytes = span.fromString(text))
+local length, echoed = digest(bytes = span.fromstring(text))
 ```
 
 A byte result arrives as a span the caller owns. Bytes sent to the host may be
@@ -80,7 +80,7 @@ results where no task is waiting. It must not suspend, so it releases through
 local host = nupp.host
 
 local type ReleaseImage = function(id: integer): nil
-local releaseImage = host.bindPost<ReleaseImage>("app.image.release")
+local releaseImage = host.bindpost<ReleaseImage>("app.image.release")
 
 local type DecodeImage = function(url: string): (integer, integer, integer)
 local decodeImage = host.bind<DecodeImage>("app.image.decode",
@@ -93,7 +93,7 @@ its caller gave up is the host's to release, not `late`'s.
 
 ## Streams
 
-A stream carries messages one way, without answers. `send` and `bindSend`
+A stream carries messages one way, without answers. `send` and `bindsend`
 append to an outbound stream that ships with the frame it was sent in.
 `route` delivers a kind's inbound messages as [](events) on a bus the
 program owns, each message's values filling the event's fields in declaration
@@ -102,20 +102,20 @@ order:
 ```nupp:fragment
 local host = nupp.host
 local events = require("events")
-local span = nupp.mem.span
+local span = binary.span
 
-@derive(events.Event)
+@derive(events.event)
 local struct PointerMove
     x: number
     y: number
 end
 
-local input: events.MessageBus<integer> = events.newMessageBus()
+local input: events.MessageBus<integer> = events.newmessagebus()
 input:observe(1, PointerMove, |move| -> print(move.x, move.y), "cursor")
 local route = host.route("app.pointer.move", PointerMove, input, 1, "latest")
 
 local type Packet = function(borrows packet: span.ByteSpan): nil
-local sendPacket = host.bindSend<Packet>("app.render.packet", "latest")
+local sendPacket = host.bindsend<Packet>("app.render.packet", "latest")
 ```
 
 Messages arrive at a turn boundary and an event nothing observes is never

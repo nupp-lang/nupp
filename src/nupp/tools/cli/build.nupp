@@ -8,7 +8,7 @@ require; naming none builds the manifest's default target. The manifest options
 and the file options describe different jobs, so asking for both is refused
 rather than resolved.
 ]]
-const files = require("nupp.io.files")
+const files = require("io.files")
 
 local usageError = require("nupp.tools.cli.error").forCommand("build")
 local cliModule = require("arg")
@@ -288,7 +288,7 @@ local function run(options: any): integer
     -- rather than several steps later, where the manifest is out of reach and all that
     -- is left to report is that a directory did not read as a module.
     for _, path in ipairs(paths) do
-        if not files.isFile(path) and configuredTarget(path) then
+        if not files.isfile(path) and configuredTarget(path) then
             return usageError(
                 ("%s names a build target rather than a source file; build it with --target %s"):format(path, path)
             )
@@ -539,7 +539,7 @@ end
 ---     nupp build -O2 --remarks
 ---     nupp build -o build/generated src/main.nupp
 @cli("build")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Build
     --- Build a named manifest target.
     @cli(value = "NAME")

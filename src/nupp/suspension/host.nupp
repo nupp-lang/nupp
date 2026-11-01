@@ -1,16 +1,18 @@
+@!internal
+
 module nupp.suspension.host
 
 --[[
 Deciding what runs while something waits.
 
-[](nupp.suspension) is what a library parks through. This is the other side: what
+[](coroutine.suspension) is what a library parks through. This is the other side: what
 a host installs to answer those parks, and what a scheduler needs to drive them.
 The two are separate because the two jobs are. A library never installs a handler,
 and a host never subscribes to a readiness source, so neither has to read past the
 other's operations to find its own.
 
 ```nupp:fragment
-local host = require("nupp.suspension.host")
+local host = require("coroutine.suspension.host")
 
 local function application(): nil
     with installation = host.install(frameHandler) do
@@ -20,7 +22,7 @@ end
 ```
 
 `install` puts a handler on the current coroutine for the extent of the `with`.
-Driving the readiness pumps while it waits is [](nupp.suspension)'s `poll`: the
+Driving the readiness pumps while it waits is [](coroutine.suspension)'s `poll`: the
 pumps are registered through that module and drained through it, by a scheduler
 here or by an embedding host that never installs a handler at all. `create`
 makes a coroutine that inherits the handler, so work started inside a handled

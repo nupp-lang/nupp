@@ -65,10 +65,10 @@ end
 function M.httpResponseBodiesRetainOwnedIoSignatures()
     local found = errors(
         [[
-local contracts = require("nupp.io.http.spi")
-local io = require("nupp.io")
+local contracts = require("io.http.spi")
+local io = require("io")
 local function copy(borrows response: contracts.Response): nil
-local destination = io.newBuffer()
+local destination = io.newbuffer()
 response.body:readInto(destination, 0, 8)
 local lease = destination:reserveWrite(0, 8)
 local output = lease:span()
@@ -128,7 +128,7 @@ print(checked, canonical)
         graph.changeDocument(typePath, declaration .. "\n")
         checked(graph)
     end)
-    require("nupp.io.files").remove(dir, true)
+    require("io.files").remove(dir, true)
     assert(ok, problem)
 end
 
@@ -174,7 +174,7 @@ return Reader
         end
         assert(count == 2, "same-named declaration nominals keep distinct method slots")
     end)
-    require("nupp.io.files").remove(dir, true)
+    require("io.files").remove(dir, true)
     assert(ok, problem)
 end
 
@@ -258,7 +258,7 @@ return marked.text
         end
         assert(found, "restored providers keep their nominal return type")
     end)
-    require("nupp.io.files").remove(dir, true)
+    require("io.files").remove(dir, true)
     if not ok then
         error(problem, 0)
     end

@@ -180,7 +180,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
     -- makes a non-exhaustive union a written decision rather than an inferred one.
     installIntrinsic(state, library, "nonExhaustive", function(at, args)
         if args[1] ~= nil then
-            return nil, failure("NUPP2415", "types.nonExhaustive takes no arguments")
+            return nil, failure("NUPP2415", "types.nonexhaustive takes no arguments")
         end
 
         return make(
@@ -784,7 +784,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
 
     installIntrinsic(state, library, "sameNominal", function(_, args)
         if not entry(state, args[1], "Type") or not entry(state, args[2], "Type") then
-            return nil, failure("NUPP2415", "types.sameNominal needs two type handles")
+            return nil, failure("NUPP2415", "types.samenominal needs two type handles")
         end
 
         local function nominal(value)

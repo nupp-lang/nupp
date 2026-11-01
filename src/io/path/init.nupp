@@ -7,10 +7,10 @@ filesystem name or takes one apart, rather than when it reads the bytes behind
 one.
 
 ```nupp:playground
-const path = io.path
+const path = require("io.path")
 
-local source = path.newPath("src", "app", "..", "main.nupp"):normalize()
-assert(source:toString() == "src" .. path.separator() .. "main.nupp")
+local source = path.newpath("src", "app", "..", "main.nupp"):normalize()
+assert(source:toString() == "src" .. path.sep() .. "main.nupp")
 assert(source:fileName() == "main.nupp")
 ```
 
@@ -19,25 +19,25 @@ text is. `tostring(path)` and `path:toString()` return that same text.
 
 ## Building a path
 
-`path.newPath(first, parts...)` joins its components using the current platform's
+`path.newpath(first, parts...)` joins its components using the current platform's
 rules. `join` appends more to a path already built, and both accept a string or
-another path. `Path` has no public constructor; creation goes through `newPath`,
+another path. `Path` has no public constructor; creation goes through `newpath`,
 which interns recent paths in a bounded LRU cache.
 
 ```nupp
-const path = io.path
+const path = require("io.path")
 
-local native = path.newPath("out"):join("lib", "native")
+local native = path.newpath("out"):join("lib", "native")
 assert(native:fileName() == "native")
 ```
 
-`currentDirectory` and `separator` are functions on the module beside the
+`currentdirectory` and `sep` are functions on the module beside the
 record, because neither builds a path out of components:
 
 ```nupp
-const path = io.path
+const path = require("io.path")
 
-local current, reason = path.currentDirectory()
+local current, reason = path.currentdirectory()
 assert(current, reason)
 local log = current:join("var", "app.log"):withExtension("jsonl")
 assert(log:extension() == "jsonl")
@@ -49,9 +49,9 @@ assert(log:extension() == "jsonl")
 filesystem, so it returns even for a path that does not exist:
 
 ```nupp
-const path = io.path
+const path = require("io.path")
 
-assert(path.newPath("src", "app", "..", "main.nupp"):normalize():stem() == "main")
+assert(path.newpath("src", "app", "..", "main.nupp"):normalize():stem() == "main")
 ```
 
 The operations that consult the process or filesystem can fail, as can a
@@ -68,9 +68,9 @@ with a reason when it does.
   that stays where the base already is.
 
 ```nupp
-const path = io.path
+const path = require("io.path")
 
-local real, reason = path.newPath("."):canonicalize()
+local real, reason = path.newpath("."):canonicalize()
 assert(real, reason)
 assert(real:isAbsolute())
 ```
@@ -82,9 +82,9 @@ the final component, that component without its extension, and the extension
 without its dot:
 
 ```nupp
-const path = io.path
+const path = require("io.path")
 
-local source = path.newPath("src", "main.nupp")
+local source = path.newpath("src", "main.nupp")
 assert(source:fileName() == "main.nupp")
 assert(source:stem() == "main")
 assert(source:extension() == "nupp")
@@ -97,19 +97,19 @@ into a file name is reported where it was written rather than carried into the
 path it would have produced:
 
 ```nupp
-const path = io.path
+const path = require("io.path")
 
-local report = path.newPath("out", "report.tmp"):withExtension("json")
+local report = path.newpath("out", "report.tmp"):withExtension("json")
 assert(report:fileName() == "report.json")
 ```
 
 `isAbsolute` and `isRelative` classify a path without accessing the filesystem.
 
 ::: seealso
-- [](nupp.io.files) for reading, writing and listing what a path names
+- [](io.files) for reading, writing and listing what a path names
 - [](io.uri) for network and resource identity, which is URI text rather
   than a filesystem name
-- [](nupp.io) for the byte buffers, readers and writers a file's contents move
+- [](io) for the byte buffers, readers and writers a file's contents move
   through
 :::
 ]]
@@ -361,7 +361,7 @@ raw = function(text: string): Path
 end
 
 -- Joins one leading component with `count` more, using the platform's rules. Shared by
--- `newPath` and by `join`, which differ only in where the first component comes from.
+-- `newpath` and by `join`, which differ only in where the first component comes from.
 joined = function(first: string | Path, count: integer, ...: string | Path): string
     local carried = textOf(first)
     for index = 1, count do
@@ -398,13 +398,13 @@ end
 ---
 --- ```nupp
 --- const path = io.path
---- local source = path.newPath("src", "main.nupp")
+--- local source = path.newpath("src", "main.nupp")
 --- ```
 --- @param first the first path component
 --- @param ... the remaining path components
 --- @return the joined path
 --- @export
-export function newPath(first: string | Path, ...: string | Path): Path
+export function newpath(first: string | Path, ...: string | Path): Path
     return raw(joined(first, select("#", ...), ...))
 end
 
@@ -412,7 +412,7 @@ end
 --- @return the current directory, or nil on failure
 --- @return a failure reason, when unsuccessful
 --- @export
-export function currentDirectory(): (Path?, string?)
+export function currentdirectory(): (Path?, string?)
     local text, reason = environment.currentDirectory()
     if text == nil then
         return nil, reason
@@ -424,6 +424,6 @@ end
 --- Returns the current platform's primary path separator.
 --- @return the path separator
 --- @export
-export function separator(): string
+export function sep(): string
     return SEPARATOR
 end

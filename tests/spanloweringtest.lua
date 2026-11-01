@@ -27,8 +27,8 @@ local function compile(src, options)
 end
 
 local HEADER = [[
-local span = require("nupp.mem.span")
-local indexed = require("nupp.mem.indexed")
+local span = require("binary.span")
+local indexed = require("binary.span")
 local struct Cell
     value: int32
 end
@@ -223,7 +223,7 @@ function M.nonescapingSharedCarrayRootsUseTheSourceAsTheirAnchor()
         HEADER
         .. [[
 local function work(borrows storage: Cell[?], count: integer): int32
-    const values = span.fromCarray(storage, count)
+    const values = span.fromcarray(storage, count)
     local total = 0 as int32
     for index = 1, #values do
         total += values[index].value
@@ -250,7 +250,7 @@ function M.nonescapingWritableCarrayRootsRetainValidationAndDirectStores()
         HEADER
         .. [[
 local function work(exclusive storage: Cell[?], count: integer): nil
-    const values = span.writeCarray(storage, count)
+    const values = span.writecarray(storage, count)
     for index = 1, #values do
         values[index].value = 7
     end
@@ -269,7 +269,7 @@ function M.anEscapingCarrayRootKeepsItsSafeWrapper()
         HEADER
         .. [[
 local function work(borrows storage: Cell[?], count: integer): span.Span<Cell> borrows (storage)
-    const values = span.fromCarray(storage, count)
+    const values = span.fromcarray(storage, count)
     return values
 end
 return work
@@ -284,7 +284,7 @@ function M.fixedAndStringRootsUseTheirStaticAdapters()
         HEADER
         .. [[
 local function work(borrows storage: Cell[4]): int32
-    const values = span.fromFixedCarray(storage, 4)
+    const values = span.fromfixedcarray(storage, 4)
     local total = 0 as int32
     for index = 1, #values do
         total += values[index].value
@@ -300,9 +300,9 @@ return work
 
     local bytes = compile(
         [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local function work(borrows source: string): integer
-    const values = span.fromString(source)
+    const values = span.fromstring(source)
     local total = 0
     for index = 1, #values do
         total += values[index]
@@ -325,10 +325,10 @@ end
 function M.aRootEscapingFromANestedFunctionKeepsItsSafeWrapper()
     local escaping, remarks = compile(
         [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local probe = {}
 const TEXT = "abc"
-const BYTES = span.fromString(TEXT)
+const BYTES = span.fromstring(TEXT)
 local function first(borrows bytes: span.Span<uint8>): integer
     local held = bytes
     return held[1]
@@ -339,7 +339,7 @@ end
 return probe
 ]]
     )
-    assert(escaping:find("constBYTES=span.fromString(", 1, true), escaping)
+    assert(escaping:find("constBYTES=span.fromstring(", 1, true), escaping)
     assert(escaping:find("returnfirst(BYTES)", 1, true), escaping)
     local declined = false
     for _, entry in ipairs(remarks) do
@@ -351,10 +351,10 @@ return probe
 
     local transported = compile(
         [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local probe = {}
 const TEXT = "abc"
-const BYTES = span.fromString(TEXT)
+const BYTES = span.fromstring(TEXT)
 local function first(borrows bytes: span.Span<uint8>): integer
     return bytes[1]
 end
@@ -435,7 +435,7 @@ function M.virtualRootsKeepArbitraryIndexesChecked()
         HEADER
         .. [[
 local function work(borrows storage: Cell[?], count: integer, index: integer): int32
-    const values = span.fromCarray(storage, count)
+    const values = span.fromcarray(storage, count)
     return values[index].value
 end
 return work
@@ -449,7 +449,7 @@ return work
         HEADER
         .. [[
 local function work(exclusive storage: Cell[?], count: integer, index: integer): nil
-    const values = span.writeCarray(storage, count)
+    const values = span.writecarray(storage, count)
     values[index].value += 1
     own.drop(values)
 end
@@ -464,10 +464,10 @@ end
 function M.virtualRootValidationAndBoundsRunAtTheAuthoredAccess()
     local _, _, raw = compile(
         [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local Runtime = {}
 function Runtime.read(borrows storage: int32[?], count: integer, index: integer): int32
-    const values = span.fromCarray(storage, count)
+    const values = span.fromcarray(storage, count)
     return values[index]
 end
 return Runtime
@@ -488,7 +488,7 @@ function M.rootArgumentsAreCapturedOnceBeforeValidation()
         HEADER
         .. [[
 local function work(borrows storage: Cell[?], count: integer): integer
-    const values = span.fromCarray(storage, count)
+    const values = span.fromcarray(storage, count)
     count = 0
     return #values
 end
@@ -505,7 +505,7 @@ function M.virtualRootsComposeThroughNestedSlicesAndSharedViews()
         HEADER
         .. [[
 local function work(exclusive storage: Cell[?], count: integer): int32
-    const root = span.writeCarray(storage, count)
+    const root = span.writecarray(storage, count)
     const window = root:slice(2, count - 1)
     const input = window:shared()
     local total = 0 as int32
@@ -531,7 +531,7 @@ function M.virtualWritableRootsNeedNoRepresentationCleanup()
         HEADER
         .. [[
 local function work(exclusive storage: Cell[?], count: integer): nil
-    const values = span.writeCarray(storage, count)
+    const values = span.writecarray(storage, count)
     for index = 1, #values do
         values[index].value = 1
     end
@@ -549,7 +549,7 @@ function M.withBindingsUseTheSameVirtualWritableRoot()
         HEADER
         .. [[
 local function work(exclusive storage: Cell[?], count: integer): nil
-    with values = span.writeCarray(storage, count) do
+    with values = span.writecarray(storage, count) do
         for index = 1, #values do
             values[index].value = 4
         end
@@ -603,7 +603,7 @@ local function acquire(
     count: integer
 ): span.Span<Cell> borrows (storage)
     calls += 1
-    return span.fromCarray(storage, count)
+    return span.fromcarray(storage, count)
 end
 local function work(borrows storage: Cell[?], count: integer): int32
     const values = acquire(storage, count)
@@ -643,7 +643,7 @@ local function sum(borrows values: span.Span<Cell>): int32
     return total
 end
 local function work(borrows storage: Cell[?], count: integer): int32
-    const values = span.fromCarray(storage, count)
+    const values = span.fromcarray(storage, count)
     return sum(values)
 end
 return work
@@ -665,7 +665,7 @@ local function fill(exclusive values: span.WriteSpan<Cell>): nil
     end
 end
 local function work(exclusive storage: Cell[?], count: integer): nil
-    const values = span.writeCarray(storage, count)
+    const values = span.writecarray(storage, count)
     fill(values)
     own.drop(values)
 end
@@ -686,7 +686,7 @@ local function acquire(
     borrows storage: Cell[?],
     count: integer
 ): span.Span<Cell> borrows (storage)
-    return span.fromCarray(storage, count)
+    return span.fromcarray(storage, count)
 end
 return acquire
 ]]
@@ -704,7 +704,7 @@ local function acquire(
     if recurse then
         return acquire(storage, count, false)
     end
-    return span.fromCarray(storage, count)
+    return span.fromcarray(storage, count)
 end
 local function work(borrows storage: Cell[?], count: integer): span.Span<Cell> borrows (storage)
     return acquire(storage, count, true)
@@ -731,12 +731,12 @@ local function acquireA(
         if nestedRecurse then
             return acquireA(nestedStorage, nestedCount, false)
         end
-        return span.fromCarray(nestedStorage, nestedCount)
+        return span.fromcarray(nestedStorage, nestedCount)
     end
     if recurse then
         return acquireB(storage, count, false)
     end
-    return span.fromCarray(storage, count)
+    return span.fromcarray(storage, count)
 end
 local function work(borrows storage: Cell[?], count: integer): span.Span<Cell> borrows (storage)
     return acquireA(storage, count, true)
@@ -752,8 +752,8 @@ end
 function M.effectfulDenseAcquisitionKeepsDirtyTrackingBeforeDirectStores()
     local compact, _, raw = compile(
         [[
-local span = require("nupp.mem.span")
-local indexed = require("nupp.mem.indexed")
+local span = require("binary.span")
+local indexed = require("binary.span")
 local R3 = {}
 local dirtyX = 0
 local dirtyY = 0
@@ -762,7 +762,7 @@ local function get(
     borrows storage: float[?],
     count: integer
 ): span.Span<float> borrows (storage)
-    return span.fromCarray(storage, count)
+    return span.fromcarray(storage, count)
 end
 
 local function getMut(
@@ -775,7 +775,7 @@ local function getMut(
     elseif component == 2 then
         dirtyY += 1
     end
-    return span.writeCarray(storage, count)
+    return span.writecarray(storage, count)
 end
 
 function R3.readOnly(borrows storage: float[?], count: integer): number
@@ -829,7 +829,7 @@ end
 function M.fixedSpansUseTheCommonAdapter()
     local code = compile(
         [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local struct Cell
     value: uint8
 end
@@ -858,7 +858,7 @@ end
 function M.aLookalikeIndexedTypeCannotEnterTheTrustedRange()
     local _, diagnostics = checked(
         [[
-local indexed = require("nupp.mem.indexed")
+local indexed = require("binary.span")
 local record Fake
     @readonly count: integer
 end
@@ -882,56 +882,56 @@ end
 -- wrapper methods at -O0, and leave the storage as it was.
 function M.nanAndFractionalIndexesAreRefused()
     local source = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local Probe = {}
 function Probe.writeTail(exclusive storage: int32[?], index: integer): nil
-    const values = span.writeCarray(storage, 4)
+    const values = span.writecarray(storage, 4)
     const tail = values:slice(3, 4)
     tail[index] = 99
     own.drop(tail)
     own.drop(values)
 end
 function Probe.writeSlice(exclusive storage: int32[?], index: integer): nil
-    const values = span.writeCarray(storage, 4)
+    const values = span.writecarray(storage, 4)
     const part = values:slice(index, 4)
     part[1] = 99
     own.drop(part)
     own.drop(values)
 end
 function Probe.split(exclusive storage: int32[?], index: integer): nil
-    const values = span.writeCarray(storage, 4)
+    const values = span.writecarray(storage, 4)
     const parts = values:splitAt(index)
     parts.right[1] = 99
     own.drop(values)
 end
 function Probe.readTail(borrows storage: int32[?], index: integer): int32
-    const values = span.fromCarray(storage, 4)
+    const values = span.fromcarray(storage, 4)
     const tail = values:slice(3, 4)
     return tail[index]
 end
 function Probe.sliceFirst(borrows storage: int32[?], index: integer): integer
-    const values = span.fromCarray(storage, 4)
+    const values = span.fromcarray(storage, 4)
     return #values:slice(index, 4)
 end
 function Probe.sliceLast(borrows storage: int32[?], index: integer): integer
-    const values = span.fromCarray(storage, 4)
+    const values = span.fromcarray(storage, 4)
     return #values:slice(1, index)
 end
 function Probe.count(borrows storage: int32[?], index: integer): integer
-    const values = span.fromCarray(storage, index)
+    const values = span.fromcarray(storage, index)
     return #values
 end
 function Probe.fixedRead(borrows storage: int32[4], index: integer): int32
-    const values = span.fromFixedCarray(storage, 4)
+    const values = span.fromfixedcarray(storage, 4)
     return values[index]
 end
 function Probe.fixedWrite(exclusive storage: int32[4], index: integer): nil
-    const values = span.writeFixedCarray(storage, 4)
+    const values = span.writefixedcarray(storage, 4)
     values[index] = 99
     own.drop(values)
 end
 function Probe.fixedSlice(borrows storage: int32[4], index: integer): int32
-    const values = span.fromFixedCarray(storage, 4)
+    const values = span.fromfixedcarray(storage, 4)
     return values:slice(index, 4)[1]
 end
 return Probe
@@ -978,16 +978,16 @@ end
 function M.importedBorrowedHelpersUseTheExistingScalarViewAbi()
     local code, remarks, raw = compile(
         [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local D = require("tests.fixtures.crossmodulefacts")
 local function work(text: string): number
-    const values = span.fromString(text)
+    const values = span.fromstring(text)
     return D.sum(values)
 end
 return work
 ]]
     )
-    assert(not code:find("values=span.fromString(", 1, true), "the imported boundary does not materialize: " .. code)
+    assert(not code:find("values=span.fromstring(", 1, true), "the imported boundary does not materialize: " .. code)
     assert(code:find("localfunction__nupp_view_", 1, true), "the borrowed helper has a private body: " .. code)
     local found = false
     for _, entry in ipairs(remarks) do
@@ -1004,10 +1004,10 @@ end
 function M.importedAccessBoundsStayCheckedWithoutCallerEvidence()
     local code = compile(
         [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local D = require("tests.fixtures.crossmodulefacts")
 local function work(text: string, index: integer): integer
-    const values = span.fromString(text)
+    const values = span.fromstring(text)
     return D.get(values, index)
 end
 return work
@@ -1039,7 +1039,8 @@ function M.privateViewBodiesRejectEscapingTablesAndViewReassignment()
         "return values == other"
     }) do
         local result = checked(
-            [[local span = require("nupp.mem.span")
+            [[
+local span = require("binary.span")
 local function work(borrows values: span.Span<uint8>, borrows other: span.Span<uint8>): any
 ]]
             .. operation
@@ -1060,10 +1061,10 @@ function M.importedPrivateViewsPreserveCheckedFailures()
     local ok, problem = pcall(function()
         package.loaded["tests.fixtures.crossmodulefacts"] = assert(loadstring(providerCode))()
         local source = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local D = require("tests.fixtures.crossmodulefacts")
 local function work(text: string, index: integer): integer
-    const values = span.fromString(text)
+    const values = span.fromstring(text)
     return D.get(values, index)
 end
 return work
@@ -1099,7 +1100,7 @@ function M.privateArtifactsRejectWideAndMultilineLiterals()
         for _, view in ipairs({false, true}) do
             local parameter = view and "borrows values: span.Span<uint8>" or "value: number"
             local result = checked(
-                'local span = require("nupp.mem.span")\nlocal function work('
+                'local span = require("binary.span")\nlocal function work('
                 .. parameter
                 .. "): "
                 .. case.result

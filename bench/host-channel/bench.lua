@@ -7,8 +7,8 @@
 -- whatever the channel costs there is taken from the frame's game work.
 
 local host = require("nupp.host")
-local span = require("nupp.mem.span")
-local time = require("nupp.time")
+local span = require("binary.span")
+local time = require("coroutine")
 local ffi = require("ffi")
 
 local workloads = {}
@@ -89,9 +89,9 @@ function workloads.frames(options)
     local packetBytes = options.packetBytes or 0
     local assetEvery = options.assetEvery or 0
     local stub = options.stub == true
-    local post = host.bindPost("bench.packet")
+    local post = host.bindpost("bench.packet")
     local packetText = bytes(packetBytes)
-    local packet = span.fromString(packetText)
+    local packet = span.fromstring(packetText)
     local wall, cpu = {}, {}
     for frame = 1, frames + 10 do
         local started, startedCpu = os.monotonic(), os.clock()
@@ -135,7 +135,7 @@ function workloads.streamFrames(options)
     local packetBytes = options.packetBytes or 0
     local assetEvery = options.assetEvery or 0
     local stub = options.stub == true
-    local bus = events.newMessageBus()
+    local bus = events.newmessagebus()
     local received = 0
     bus:observe(
         1,
@@ -148,10 +148,10 @@ function workloads.streamFrames(options)
     local route = not stub
         and host.route("bench.move", hostevents.PointerMove, bus, 1, options.inputPolicy or "dropOldest", 256)
         or nil
-    local tick = host.bindSend("bench.frame", "latest")
-    local post = host.bindSend("bench.packet", "latest")
+    local tick = host.bindsend("bench.frame", "latest")
+    local post = host.bindsend("bench.packet", "latest")
     local packetText = bytes(packetBytes)
-    local packet = span.fromString(packetText)
+    local packet = span.fromstring(packetText)
     local wall, cpu = {}, {}
     for frame = 1, frames + 10 do
         local started, startedCpu = os.monotonic(), os.clock()
@@ -202,7 +202,7 @@ function workloads.channelFrames(options)
     local eventCount = options.events or 17
     local packetBytes = options.packetBytes or 0
     local assetEvery = options.assetEvery or 0
-    local bus = events.newMessageBus()
+    local bus = events.newmessagebus()
     local received = 0
     bus:observe(
         1,
@@ -214,9 +214,9 @@ function workloads.channelFrames(options)
     )
     local route = host.route("bench.move", hostevents.PointerMove, bus, 1, options.inputPolicy or "dropOldest", 256)
     local nextFrame = host.bind("bench.tick")
-    local post = host.bindSend("bench.packet", "latest")
+    local post = host.bindsend("bench.packet", "latest")
     local packetText = bytes(packetBytes)
-    local packet = span.fromString(packetText)
+    local packet = span.fromstring(packetText)
     local wall, cpu = {}, {}
     for frame = 1, frames + 10 do
         local started, startedCpu = os.monotonic(), os.clock()
@@ -255,7 +255,7 @@ function workloads.bulk(options)
     local repeats = options.repeats or 5
     local upload, download = {}, {}
     local text = bytes(size)
-    local view = span.fromString(text)
+    local view = span.fromstring(text)
     local length = host.bind("test.len")
     for index = 1, repeats do
         local started = os.monotonic()
@@ -317,7 +317,7 @@ function workloads.audio(options)
     local channels = 2
     local stalls = options.stalls or {}
     local rate = host.call("bench.audioRate")
-    local send = host.bindSend("bench.audio", "block", 64)
+    local send = host.bindsend("bench.audio", "block", 64)
     local nextFrame = host.bind("bench.tick")
     local capacity = math.ceil(rate * 0.2)
     local buffer = ffi.new("float[?]", capacity * channels)
@@ -350,7 +350,7 @@ function workloads.audio(options)
                 buffer[frame * 2 + 1] = sample
             end
             local text = ffi.string(buffer, frames * channels * 4)
-            send(span.fromString(text))
+            send(span.fromstring(text))
         end
     end
     local underruns, queued, played = host.call("bench.audioStats")

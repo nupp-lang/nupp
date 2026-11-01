@@ -12,11 +12,11 @@ its provider state. Allocation, encoding, and cleanup use retained module method
 context operations perform no provider resolution.
 ]]
 
-const span = require("nupp.mem.span")
+const span = require("binary.span")
 const storage = require("nupp.runtime.storage")
 const hex = require("serde.hex")
 const provider = require("binary.hash.digest.spi")
-const {type Writer} = require("nupp.io")
+const {type Writer} = require("io")
 
 export interface Digest is Writer
     --- Consumes an unfinished context and releases provider state without suspension.
@@ -76,7 +76,7 @@ local record Context is Digest
         if type(bytes) ~= "string" then
             error("nupp: Digest:write bytes must be a string", 2)
         end
-        local view = span.fromString(bytes)
+        local view = span.fromstring(bytes)
         self.state:update(view)
 
         return true, nil
@@ -110,7 +110,7 @@ local record Context is Digest
         local size = self.size
         with owner = new StateOwner(state = self.state) do
             local bytes = storage.allocateBytes(size)
-            local output = span.writeCarray(bytes, size)
+            local output = span.writecarray(bytes, size)
             owner.state:finish(output)
             own.drop(output)
             return storage.string(bytes, size)
@@ -121,7 +121,7 @@ local record Context is Digest
         local size = self.size
         with owner = new StateOwner(state = self.state) do
             local bytes = storage.allocateBytes(size)
-            local output = span.writeCarray(bytes, size)
+            local output = span.writecarray(bytes, size)
             owner.state:finish(output)
             own.drop(output)
             return hex.encode(storage.string(bytes, size))

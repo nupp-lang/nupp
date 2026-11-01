@@ -239,7 +239,7 @@ return direct, cast, constructed
             if not instruction then
                 break
             end
-            local opcode = trace.opcodeName(instruction % 256)
+            local opcode = trace.opcodename(instruction % 256)
             assert(opcode ~= "CALLT" and opcode ~= "CALLMT", "a new return retains its frame: " .. opcode)
             pc = pc + 1
         end
@@ -1291,7 +1291,7 @@ function M.explicitTypeArgumentsErase()
     )
     testAssert.equal(
         printed(
-            "local ffi = require('ffi')\nlocal span = nupp.mem.span\nlocal s = ffi.new('uint8_t[?]', 4) as any\n"
+            "local ffi = require('ffi')\nlocal span = binary.span\nlocal s = ffi.new('uint8_t[?]', 4) as any\n"
             .. "local v = span.fromCarray<uint8>(s, 4)\nprint(#v)"
         ),
         "4"

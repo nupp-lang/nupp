@@ -3,7 +3,7 @@
 -- to the harness.
 const assert2 = require("assert")
 
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local soa = require("nupp.mem.soa")
 local array = require("nupp.mem.array")
 local simd = require("simd")

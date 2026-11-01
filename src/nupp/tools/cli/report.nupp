@@ -103,7 +103,7 @@ local function withArrayEmpties(value: unknown, seen: {[unknown]: any}?): unknow
         copied[key] = withArrayEmpties(item, seen)
     end
     if next(copied) == nil then
-        return json.asArray(copied)
+        return json.asarray(copied)
     end
 
     return copied
@@ -164,10 +164,10 @@ end
 
 local function stableEncode(value: unknown, visiting: {[unknown]: boolean}?): string
     if type(value) == "string" then
-        return json.encodeValue(validUtf8(value))
+        return json.encodevalue(validUtf8(value))
     end
     if type(value) ~= "table" then
-        return json.encodeValue(value)
+        return json.encodevalue(value)
     end
     visiting = visiting or {}
     if visiting[value] then
@@ -175,7 +175,7 @@ local function stableEncode(value: unknown, visiting: {[unknown]: boolean}?): st
     end
     visiting[value] = true
     local parts: {string} = {}
-    if json.isArray(value) then
+    if json.isarray(value) then
         for index, item in ipairs(value as {unknown}) do
             parts[index] = stableEncode(item, visiting)
         end
@@ -194,7 +194,7 @@ local function stableEncode(value: unknown, visiting: {[unknown]: boolean}?): st
     for index, key in ipairs(keys) do
         parts[
             index
-        ] = json.encodeValue(validUtf8(key)) .. ":" .. stableEncode((value as {[string]: unknown})[key], visiting)
+        ] = json.encodevalue(validUtf8(key)) .. ":" .. stableEncode((value as {[string]: unknown})[key], visiting)
     end
     visiting[value] = nil
 

@@ -190,7 +190,7 @@ function M.providersUseTheCanonicalScopeContract()
     local parsed = parser.parse(
         [[
 const spi = package
-const contracts = require("nupp.workers.spi")
+const contracts = require("coroutine.workers.spi")
 const provider: contracts.Provider = assert(spi.providers(contracts.Provider)())
 local function open(): contracts.Scope
     return provider.openScope()
@@ -207,7 +207,7 @@ end
 
 function M.laneFailuresKeepTheirStackAndCancellationIdentity()
     local effects = require("nupp.runtime.browser.effects")
-    local cancellation = require("nupp.suspension.cancellation")
+    local cancellation = require("coroutine.suspension.cancellation")
     local base64 = require("serde.base64")
     local moduleName = "browser-worker-failure-fixture"
     local providerName = "nupp.runtime.browser.workers"

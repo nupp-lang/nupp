@@ -136,5 +136,5 @@ and [Wasm AOT applications](wasm.md).
 - [jit-trace-checking.md](../jit-trace-checking.md) for deciding whether LuaJIT
   can compile the loop you were about to annotate
 - [performance.md](../index.md) for the rewrites applied to ordinary Nupp
-- [](nupp.mem.span) for the span types a kernel takes
+- [](binary.span) for the span types a kernel takes
 :::

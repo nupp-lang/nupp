@@ -4,7 +4,7 @@
 -- reaching the nonblocking `poll` and `offer` operations the implementation uses for
 -- `communicate`.  If either public surface drifts, this module stops compiling before
 -- its one runtime assertion can run.
-const {type Buffer} = require("nupp.io")
+const {type Buffer} = require("io")
 
 local process = require("nupp.io.process")
 

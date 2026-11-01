@@ -396,7 +396,7 @@ local BUILTINS = {
         targets = {"record", "struct"},
         builtin = true,
         qualifiedNames = true,
-        doc = "Runs a closed comptime recipe, e.g. `types.Debug`, that adds checked members or data without exposing source or AST macros.",
+        doc = "Runs a closed comptime recipe, e.g. `types.debug`, that adds checked members or data without exposing source or AST macros.",
         docsPath = "docs/api.md#annotation-derive",
     },
     {
@@ -420,7 +420,7 @@ local BUILTINS = {
         arguments = "typed",
         targets = {"record", "struct"},
         builtin = true,
-        doc = "Names the event a declaration deriving `events.Event` registers as.",
+        doc = "Names the event a declaration deriving `events.event` registers as.",
         docsPath = "docs/reference/derives.md#event",
     },
     {

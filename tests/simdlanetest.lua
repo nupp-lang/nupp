@@ -16,7 +16,7 @@ local M = {}
 
 local PRELUDE = [[
 local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 ]]
 
@@ -133,7 +133,7 @@ local function total(borrows values: span.Span<number>): number
     for at, active in s:over(#values) do
         acc = acc + s:load(values, at, active)
     end
-    return simd.horizontal.algebraicSum(acc)
+    return simd.horizontal.algebraicsum(acc)
 end
 return function(n: integer, where: integer): (uint32, uint32, number)
     const bytes = array.bytes(n)

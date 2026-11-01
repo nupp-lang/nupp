@@ -21,9 +21,9 @@ operate on the retained context without further service resolution.
 ]]
 
 local native = require("nupp.runtime.native")
-local suspension = require("nupp.suspension")
+local suspension = require("coroutine.suspension")
 local layoutFacts = require("nupp.gpu.layoutfacts").layoutFacts
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local ffi = native.ffi
 local C = native.C
 native.ffi.cdef[[
@@ -327,10 +327,10 @@ local function costMetadata(context: any, handle: any, kernel: boolean, metadata
     end
     local json = require("serde.json")
     if kernel then
-        metadata.readonlyNames = json.asArray(metadata.readonlyNames or {})
-        metadata.writableNames = json.asArray(metadata.writableNames or {})
+        metadata.readonlyNames = json.asarray(metadata.readonlyNames or {})
+        metadata.writableNames = json.asarray(metadata.writableNames or {})
     end
-    local encoded = json.encodeValue(metadata)
+    local encoded = json.encodevalue(metadata)
     native.succeeded(C.nuppNativeGpuCostMetadata(context, handle, kernel and 1 or 0, encoded, #encoded), 2)
 end
 

@@ -22,7 +22,7 @@ Providers must honor the supplied layout, buffer-slot counts, uniform byte size,
 and workgroup requirements before dispatch. The service facade retains open at
 module initialization; resource methods operate on the resulting context.
 ]]
-local {type Span, type WriteSpan} = require("nupp.mem.span")
+local {type Span, type WriteSpan} = require("binary.span")
 local {type Layout as TensorLayout} = require("gpu.layout")
 local {type Scalar} = require("nupp.mem.array")
 local gpu = {}

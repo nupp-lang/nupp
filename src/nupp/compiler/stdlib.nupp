@@ -41,7 +41,7 @@ __nuppMathRuntime.install(_G.math)
 ]=]
 )
 
--- The keyed codec a materialized `types.reflect.fieldCodec` calls, and the
+-- The keyed codec a materialized `types.reflect.fieldcodec` calls, and the
 -- registry behind `reflect()`, are both an ordinary checked module. What stays
 -- here is which of the two a program's feature set asked for.
 local FIELDCODEC = compact([=[

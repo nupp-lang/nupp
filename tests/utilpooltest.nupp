@@ -1,5 +1,5 @@
 -- nupp.util.Pool: record instances leased from a free list, cleared on release.
-const {type Pool, newPool} = require("nupp.util")
+const {type Pool, newpool as newPool} = require("nupp.util")
 local test = require("assert")
 
 local M = {}

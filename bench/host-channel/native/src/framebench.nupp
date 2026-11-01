@@ -14,19 +14,19 @@ host answers from its loop, under `nupp.host.pump`.
 local host = require("nupp.host")
 local events = require("events")
 local pump = require("nupp.host.pump")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local hostevents = require("hostevents")
 
 local packetText: string = ""
 local consumed: integer = 0
 local pending: {number} = {}
-local bus: events.MessageBus<integer> = events.newMessageBus()
+local bus: events.MessageBus<integer> = events.newmessagebus()
 local route: host.Route? = nil
-local session = pump.newPump()
+local session = pump.newpump()
 
 local type Send = function(borrows packet: span.ByteSpan): nil
 local type Tick = function(): number
-local sendPacket = host.bindSend<Send>("bench.packet", "latest")
+local sendPacket = host.bindsend<Send>("bench.packet", "latest")
 local nextFrame = host.bind<Tick>("bench.tick")
 
 --- Prepares a packet of `packetBytes` and, for the channel modes, its routes.
@@ -85,7 +85,7 @@ end
 --- N2: the frame, after a poll delivered its input; the packet goes out on a stream.
 export function frame(): nil
     const text = packetText
-    sendPacket(span.fromString(text))
+    sendPacket(span.fromstring(text))
 end
 
 --- N3: starts the frame loop under the pump; it parks on each frame's call.
@@ -94,7 +94,7 @@ export function startLoop(): string
         while true do
             nextFrame()
             const text = packetText
-            sendPacket(span.fromString(text))
+            sendPacket(span.fromstring(text))
         end
     end)
 end

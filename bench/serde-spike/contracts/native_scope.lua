@@ -23,7 +23,7 @@ for _, value in ipairs({
     {"list", {"null"}, extra = true},
     {"pointer", 1},
 }) do
-    assert(not pcall(native.decodeDocument, adapter, frame(value)))
+    assert(not pcall(native.decodedocument, adapter, frame(value)))
 end
 local original = _G.require
 local selected = false

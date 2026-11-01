@@ -21,7 +21,7 @@ the contract `indexer_reference` states in the plain form.
 
 local array = require("nupp.mem.array")
 local simd = require("simd")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 local indexer = {}
 
@@ -91,7 +91,7 @@ local function index(borrows source: span.Span<uint8>, exclusive tape: span.Writ
         end
 
         while events ~= 0 do
-            local lane: uint32 = math.u64.trailingZeros(events)
+            local lane: uint32 = math.u64.trailingzeros(events)
             events = events & (events - 1)
             local position: uint32 = at + lane
             if position < #source then

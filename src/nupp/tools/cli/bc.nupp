@@ -20,6 +20,10 @@ the bytecode finds it without running anything, which is what makes it usable as
 a gate -- no quiet machine, no threshold, and the same answer every time.
 ]]
 
+const terminal2 = require("io.terminal")
+
+const terminal = require("io.terminal")
+
 local usageError = require("nupp.tools.cli.error").forCommand("bc")
 local report = require("nupp.tools.cli.report")
 local listing = require("nupp.tools.bytecodelisting")
@@ -92,7 +96,7 @@ local function width(options: any): integer?
         return math.floor(options.width)
     end
 
-    return io.colorEnabled(io.stdout) and io.columns(io.stdout) or nil
+    return terminal2.colorenabled(io.stdout) and terminal.columns(io.stdout) or nil
 end
 
 --- The listing's colors, wired from the terminal highlighter.
@@ -107,7 +111,7 @@ end
 --- print a list of commands.
 local function palette(source: string): listing.Palette
     local paint = require("nupp.tools.terminalhighlight")
-    local colors = paint.palette(io.colorEnabled(io.stdout))
+    local colors = paint.palette(terminal2.colorenabled(io.stdout))
     local rows = paint.rows(source)
 
     return {
@@ -286,7 +290,7 @@ end
 ---     nupp bc --check src/hot-loop.nupp
 ---     nupp bc --json src/main.nupp
 @cli("bc")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Bytecode
     --- Select the report representation.
     @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})

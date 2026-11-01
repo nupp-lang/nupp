@@ -31,7 +31,7 @@ local function readDescriptor(record, dependencyName): {capabilities.Entry}?, st
     if not text then
         return nil, "dependency " .. dependencyName .. " has no nupp/capabilities.json"
     end
-    local document = json.decodeValue(text, json.NULL)
+    local document = json.decodevalue(text, json.NULL)
     if type(document) ~= "table" then
         return nil, path .. " is not valid JSON"
     end
@@ -43,7 +43,7 @@ local function readDescriptor(record, dependencyName): {capabilities.Entry}?, st
     if document.schema ~= 2 then
         return nil, path .. ".schema must be 2"
     end
-    if type(document.capabilities) ~= "table" or not json.isArray(document.capabilities) then
+    if type(document.capabilities) ~= "table" or not json.isarray(document.capabilities) then
         return nil, path .. ".capabilities must be an array"
     end
     local entries = {}

@@ -164,7 +164,7 @@ for every 32-bit integer and establishes nothing: the conversion it is an
 argument to is what establishes. Nothing narrows on the way in, so an operand
 the source never established is still refused.
 
-`math.u32.fromI32`, `math.i32.fromU32` and `math.u32.toI32` are
+`math.u32.fromi32`, `math.i32.fromu32` and `math.u32.toi32` are
 the exceptions, and are the ones to reach for between the two views of the same
 thirty-two bits. They take the width they convert from rather than a binary64,
 so nothing is promoted and nothing comes back: the emitted cast reinterprets
@@ -231,7 +231,7 @@ kernel therefore declares one reducer for its vector loop and its scalar
 continuation together:
 
 ```nupp:fragment
-local total = simd.reducer.orderedSum(0.0)
+local total = simd.reducer.orderedsum(0.0)
 do
     while cursor + species.lanes <= #values do
         total:add(species:load(values, cursor + 1), species:mask(true))
@@ -255,7 +255,7 @@ vector contributions in a lane-wise accumulator and fold it in when the region
 ends, so a scalar written inside such a region associates with the accumulated
 lanes rather than between them -- an association the contract already admits.
 
-An arg extremum (`propagatingArgMin`, `numberArgMax`, `integerArgMin` and the
+An arg extremum (`propagatingargmin`, `numberargmax`, `integerargmin` and the
 rest) returns the first one-based logical position of its extreme, and positions
 count every lane offered to it. Lane `i` of a masked vector contribution has
 position `base + i`, where `base` advances by the species' lane count for every
@@ -265,7 +265,7 @@ earliest position. The predicate reducers `any`, `all` and `count` take a mask
 of the lanes they test beside the mask of the lanes that are active.
 
 A floating-point reducer accumulates in the element its constructor names.
-`orderedSum(initial)` is binary64; `orderedSum(array.float, initial)` is
+`orderedsum(initial)` is binary64; `orderedsum(array.float, initial)` is
 binary32 under every contract, rounding after every operation as `math.f32`
 does: an ordered binary32 sum rounds after every lane, a pairwise one at every
 node of the tree, a compensated one keeps its total and its compensation in
@@ -273,8 +273,8 @@ binary32, a dot rounds each product before adding it (or fuses the two under the
 algebraic contract), and the extrema round nothing. The initial value is rounded
 to the element. `value()` returns that element, so a `float` kernel finishes in
 `float` without a conversion it did not write. The integer horizontals,
-`simd.horizontal.wrappingSum`, `wrappingProduct`, `andBits`, `orBits`,
-`xorBits`, `integerMin` and `integerMax`, fold a vector's lanes in the lane's
+`simd.horizontal.wrappingsum`, `wrappingproduct`, `andbits`, `orbits`,
+`xorbits`, `integermin` and `integermax`, fold a vector's lanes in the lane's
 own width: a byte vector's sum wraps at a byte and leaves the vector as a byte
 lane does, sign- or zero-extended to its 32-bit carrier.
 
@@ -382,7 +382,7 @@ initializers, assignments, arguments, return values, and loop conditions, when:
   predicate it never evaluated.
 
 ```nupp
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 local struct Code
     value: int32

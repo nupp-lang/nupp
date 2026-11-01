@@ -5,8 +5,8 @@ local testAssert = require("assert")
 -- platform, and this one checks that the platform means what the state machine
 -- assumes. Everything here is loopback and an ephemeral port, so nothing depends
 -- on a fixed port being free or on anything outside this machine.
-local net = require("nupp.io.net")
-local io_ = require("nupp.io")
+local net = require("io.net")
+local io_ = require("io")
 local test = require("assert")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -176,7 +176,7 @@ end
 
 function M.aDatagramCrossesWithItsPeer()
     local a, b = datagrams()
-    local buffer = io_.newBuffer(2048)
+    local buffer = io_.newbuffer(2048)
     assert(a:sendTo({host = "127.0.0.1", port = b:port()}, "ping"), "a sends")
     local message = assert(b:receiveFrom(buffer, 2048))
     testAssert.equal(message.length, 4, "b receives the whole datagram")
@@ -192,7 +192,7 @@ function M.aDatagramLargerThanTheStorageIsReportedTruncated()
     -- Against a real socket, because this is the one a protocol must not get
     -- wrong: parsing the first part of a larger message nobody sent.
     local a, b = datagrams()
-    local buffer = io_.newBuffer(2048)
+    local buffer = io_.newbuffer(2048)
     assert(a:sendTo({host = "127.0.0.1", port = b:port()}, ("x"):rep(600)), "a sends 600 bytes")
     local message = assert(b:receiveFrom(buffer, 100))
     testAssert.equal(message.length, 100, "b takes what it offered room for")
@@ -204,7 +204,7 @@ end
 
 function M.anEmptyDatagramArrivesAsAMessage()
     local a, b = datagrams()
-    local buffer = io_.newBuffer(2048)
+    local buffer = io_.newbuffer(2048)
     assert(a:sendTo({host = "127.0.0.1", port = b:port()}, ""), "a sends an empty datagram")
     local message = assert(b:receiveFrom(buffer, 2048))
     testAssert.equal(message.length, 0, "which arrives as zero bytes")
@@ -219,7 +219,7 @@ function M.datagramsKeepTheirBoundaries()
     -- The property that makes this a message transport rather than a stream one:
     -- three sends are three receives, never one run of bytes.
     local a, b = datagrams()
-    local buffer = io_.newBuffer(2048)
+    local buffer = io_.newbuffer(2048)
     for index = 1, 3 do
         assert(a:sendTo({host = "127.0.0.1", port = b:port()}, ("m%d"):format(index)), "each send is its own datagram")
     end
@@ -469,7 +469,7 @@ function M.linesComeOffAConnectionThroughTheSharedReader()
     )
     assert(client:shutdownWrite(), "and ends its sending half")
 
-    local lines = io_.newLines(served:asReader())
+    local lines = io_.newlines(served:asReader())
     testAssert.equal(assert(lines:read()), "first", "CRLF ends a line and is not part of it")
     testAssert.equal(assert(lines:read()), "second", "and so does a bare LF")
     testAssert.equal(assert(lines:read()), "third without a terminator", "and what is left at the end is still a line")
@@ -486,7 +486,7 @@ function M.anOverlongLineIsRefusedRatherThanBuffered()
     -- peer takes the process down.
     local listener, client, served = pair()
     assert(client:write(("x"):rep(4096)), "the client sends a very long line")
-    local lines = io_.newLines(served:asReader(), 64)
+    local lines = io_.newlines(served:asReader(), 64)
     local line, why = lines:read()
     testAssert.equal(line, nil, "the read is refused")
     assert(why ~= nil and why:find("longer than the limit", 1, true) ~= nil, "and says the line was too long")
@@ -502,7 +502,7 @@ function M.anOverlongLineIsRefusedEvenWhenItsTerminatorArrivesWithIt()
     -- otherwise walk straight past it.
     local listener, client, served = pair()
     assert(client:write(("x"):rep(100) .. "\n"), "a 100-byte line arrives whole")
-    local lines = io_.newLines(served:asReader(), 64)
+    local lines = io_.newlines(served:asReader(), 64)
     local line, why = lines:read()
     testAssert.equal(line, nil, "and is still refused against a 64-byte limit")
     assert(
@@ -618,7 +618,7 @@ function M.aLineOfExactlyTheLimitIsAccepted()
     -- length.
     local listener, client, served = pair()
     assert(client:write(("y"):rep(64) .. "\r\n"), "a 64-byte line ends with CRLF")
-    local lines = io_.newLines(served:asReader(), 64)
+    local lines = io_.newlines(served:asReader(), 64)
     testAssert.equal(assert(lines:read()), ("y"):rep(64), "and is accepted at a 64-byte limit")
     lines:close()
     served:close()
@@ -651,7 +651,7 @@ function M.aLimitLengthLineSplitBeforeItsLineFeedIsStillAccepted()
     -- half of a terminator, so it must not count against the limit before the
     -- next chunk says which it was: a line's acceptance cannot depend on where
     -- its bytes happened to fall.
-    local lines = io_.newLines(chunkedReader({"abcde\r", "\n"}), 5)
+    local lines = io_.newlines(chunkedReader({"abcde\r", "\n"}), 5)
     testAssert.equal(assert(lines:read()), "abcde", "the line is accepted at a 5-byte limit")
     testAssert.equal(lines:read(), nil, "and then the stream ends")
     lines:close()
@@ -661,7 +661,7 @@ function M.aTrailingCarriageReturnCountsAgainstTheLimitAtTheEnd()
     -- At the end of the stream a carriage return with no line feed after it is
     -- line content, so the byte of grace granted while more could still arrive
     -- is taken back once nothing more can.
-    local lines = io_.newLines(chunkedReader({"abcde\r"}), 5)
+    local lines = io_.newlines(chunkedReader({"abcde\r"}), 5)
     local line, why = lines:read()
     testAssert.equal(line, nil, "a 6-byte unterminated tail is refused at a 5-byte limit")
     assert(why ~= nil and why:find("longer than the limit", 1, true) ~= nil, "for being longer than the limit")
@@ -671,7 +671,7 @@ end
 function M.aCarriageReturnWithinTheLimitIsContentAtTheEnd()
     -- The bytes after the last terminator are a line, carriage return included:
     -- with nothing following it, it terminated nothing.
-    local lines = io_.newLines(chunkedReader({"abcd\r"}), 5)
+    local lines = io_.newlines(chunkedReader({"abcd\r"}), 5)
     testAssert.equal(assert(lines:read()), "abcd\r", "an unterminated tail keeps its carriage return")
     testAssert.equal(lines:read(), nil, "and then the stream ends")
     lines:close()
@@ -749,7 +749,7 @@ function M.aLinkLocalPeerCanBeAnswered()
     end
     local a = assert(net.bind({host = "::", port = 0}))
     local b = assert(net.bind({host = "::", port = 0}))
-    local buffer = io_.newBuffer(64)
+    local buffer = io_.newbuffer(64)
     assert(a:sendTo({host = zoned, port = b:port()}, "ping"), "a sends to its own link-local address")
     local message = assert(b:receiveFrom(buffer, 64))
     testAssert.equal(buffer:getString(0, message.length), "ping", "b receives it")
@@ -768,8 +768,8 @@ function M.aHostSleepingOnTheReadinessGenerationIsWokenByTheNetwork()
     -- sources, and when nothing moved, wait from the snapshot. A wait that ran to its
     -- timeout means the network never advanced the generation the host sleeps on.
     local ffi = require("ffi")
-    local suspension = require("nupp.suspension")
-    local suspensionHost = require("nupp.suspension.host")
+    local suspension = require("coroutine.suspension")
+    local suspensionHost = require("coroutine.suspension.host")
     local C = require("nupp.runtime.native").C
     local seen, found = ffi.new("uint64_t[1]"), ffi.new("uint64_t[1]")
     local sleeps = 0

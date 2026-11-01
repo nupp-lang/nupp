@@ -71,7 +71,7 @@ function M.directFieldsAndWholeRowsKeepValueSemantics()
     local value, code = runs(
         PRELUDE
         .. [[
-local particles = soa.allocate(ffi.typeof<Particle>(), 4)
+local particles = soa.alloc(ffi.typeof<Particle>(), 4)
 with rows = particles:write() do
     for index = 1, #rows do
         rows[index].x = index
@@ -170,14 +170,14 @@ function M.aCommonRangeRelatesSoAAndContiguousViews()
     local value, code = runs(
         PRELUDE
         .. [[
-local indexed = require("nupp.mem.indexed")
-local span = require("nupp.mem.span")
+local indexed = require("binary.span")
+local span = require("binary.span")
 const storage = carray(Particle, 3)
 storage[0].x = 2
 storage[1].x = 4
 storage[2].x = 6
-const source = span.fromCarray(storage, 3)
-local particles = soa.allocate(ffi.typeof<Particle>(), 3)
+const source = span.fromcarray(storage, 3)
+local particles = soa.alloc(ffi.typeof<Particle>(), 3)
 do
     local rows = particles:write()
     const output = rows
@@ -201,7 +201,7 @@ function M.nonRaisingWithOverDirectFieldsNeedsNoProtectedBody()
     local value, _, parsed = runs(
         PRELUDE
         .. [[
-local particles = soa.allocate(ffi.typeof<Particle>(), 2)
+local particles = soa.alloc(ffi.typeof<Particle>(), 2)
 with rows = particles:write() do
     for index = 1, #rows do
         rows[index].x = index
@@ -236,7 +236,7 @@ function M.compoundAssignmentEvaluatesTheIndexOnce()
     local value = runs(
         PRELUDE
         .. [[
-local particles = soa.allocate(ffi.typeof<Particle>(), 1)
+local particles = soa.alloc(ffi.typeof<Particle>(), 1)
 local calls = 0
 local function nextIndex(): integer
     calls += 1
@@ -285,8 +285,8 @@ function M.aStructKeepsItsAoSLayoutBesideSoAStorage()
         PRELUDE
         .. [[
 local heap = require("nupp.mem.heap")
-local aos = heap.allocate(ffi.typeof<Particle>(), 1)
-local columns = soa.allocate(ffi.typeof<Particle>(), 1)
+local aos = heap.alloc(ffi.typeof<Particle>(), 1)
+local columns = soa.alloc(ffi.typeof<Particle>(), 1)
 do
     local rows = aos:write()
     rows[1] = new Particle(1, 2, 3, 4)
@@ -364,8 +364,8 @@ function M.fieldProjectionIsTypedAndSiblingColumnsCanBeWritten()
     local value = runs(
         PRELUDE
         .. [[
-local span = require("nupp.mem.span")
-local particles = soa.allocate(ffi.typeof<Particle>(), 2)
+local span = require("binary.span")
+local particles = soa.alloc(ffi.typeof<Particle>(), 2)
 do
     local rows = particles:write()
     local xs: span.Writable<float> = rows.x
@@ -388,7 +388,7 @@ function M.fieldTokensCarrySemanticColumnInspectionFacts()
     local _, errors, _, parsed = compile(
         PRELUDE
         .. [[
-local particles = soa.allocate(ffi.typeof<Particle>(), 1)
+local particles = soa.alloc(ffi.typeof<Particle>(), 1)
 local rows = particles:read()
 local direct = rows[1].x
 local projected = rows["dy"]
@@ -415,7 +415,7 @@ local ffi = require("ffi")
 local struct Collision
     slice: float
 end
-local values = soa.allocate(ffi.typeof<Collision>(), 1)
+local values = soa.alloc(ffi.typeof<Collision>(), 1)
 do
     local rows = values:write()
     local column = rows["slice"]
@@ -471,7 +471,7 @@ function M.writableSlicesKeepOffsetsAndBorrowBarriers()
     local value = runs(
         PRELUDE
         .. [[
-local particles = soa.allocate(ffi.typeof<Particle>(), 3)
+local particles = soa.alloc(ffi.typeof<Particle>(), 3)
 do
     local rows = particles:write()
     local middle = rows:slice(2, 2)
@@ -493,7 +493,7 @@ function M.nonescapingSoaSlicesUseScalarOffsets()
     local value, code = runs(
         PRELUDE
         .. [[
-local particles = soa.allocate(ffi.typeof<Particle>(), 4)
+local particles = soa.alloc(ffi.typeof<Particle>(), 4)
 do
     local rows = particles:write()
     const middle = rows:slice(2, 3)
@@ -515,7 +515,7 @@ function M.nonescapingFieldProjectionsUseTheSelectedColumn()
     local value, code = runs(
         PRELUDE
         .. [[
-local particles = soa.allocate(ffi.typeof<Particle>(), 3)
+local particles = soa.alloc(ffi.typeof<Particle>(), 3)
 do
     local rows = particles:write()
     const xs = rows.x
@@ -545,8 +545,8 @@ function M.fieldWiseCopyMovesRowsWithoutMaterializingThem()
     local value = runs(
         PRELUDE
         .. [[
-local source = soa.allocate(ffi.typeof<Particle>(), 3)
-local target = soa.allocate(ffi.typeof<Particle>(), 4)
+local source = soa.alloc(ffi.typeof<Particle>(), 3)
+local target = soa.alloc(ffi.typeof<Particle>(), 4)
 do
     local rows = source:write()
     rows[1] = new Particle(1, 2, 3, 4)
@@ -571,7 +571,7 @@ function M.fieldProjectionRequiresAResolvedStoredField()
         codes(
             PRELUDE
             .. [[
-local particles = soa.allocate(ffi.typeof<Particle>(), 1)
+local particles = soa.alloc(ffi.typeof<Particle>(), 1)
 local name = "x"
 local xs = particles:read()[name]
 print(xs ~= nil)
@@ -585,7 +585,7 @@ print(xs ~= nil)
         codes(
             PRELUDE
             .. [[
-local particles = soa.allocate(ffi.typeof<Particle>(), 1)
+local particles = soa.alloc(ffi.typeof<Particle>(), 1)
 const name = "x"
 local xs = particles:read()[name]
 print(xs ~= nil)
@@ -599,7 +599,7 @@ print(xs ~= nil)
         codes(
             PRELUDE
             .. [[
-local particles = soa.allocate(ffi.typeof<Particle>(), 1)
+local particles = soa.alloc(ffi.typeof<Particle>(), 1)
 local xs = particles:read()["missing"]
 print(xs ~= nil)
 ]]
@@ -612,7 +612,7 @@ print(xs ~= nil)
         codes(
             PRELUDE
             .. [[
-local particles = soa.allocate(ffi.typeof<Particle>(), 1)
+local particles = soa.alloc(ffi.typeof<Particle>(), 1)
 local xs = particles:read().missing
 print(xs ~= nil)
 ]]
@@ -625,7 +625,7 @@ print(xs ~= nil)
         codes(
             PRELUDE
             .. [[
-local particles = soa.allocate(ffi.typeof<Particle>(), 1)
+local particles = soa.alloc(ffi.typeof<Particle>(), 1)
 local xs = particles:read():field("x")
 print(xs ~= nil)
 ]]
@@ -640,24 +640,24 @@ function M.zeroCountsAndBoundsAreChecked()
         PRELUDE
         .. [[
 local layout = soa.layoutof(ffi.typeof<Particle>())
-local empty = soa.allocate(ffi.typeof<Particle>(), 0)
+local empty = soa.alloc(ffi.typeof<Particle>(), 0)
 local zero = layout:forCount(0)
 local okRead = pcall(function() return empty:read()[1] end)
-local one = soa.allocate(ffi.typeof<Particle>(), 1)
+local one = soa.alloc(ffi.typeof<Particle>(), 1)
 local okDirect = pcall(function()
     local rows = one:write()
     rows[2].x = 1
     own.drop(rows)
 end)
 local okNegative = pcall(function()
-    local invalid = soa.allocate(ffi.typeof<Particle>(), -1)
+    local invalid = soa.alloc(ffi.typeof<Particle>(), -1)
     invalid:close()
 end)
 local okFractionalLayout = pcall(function()
     layout:forCount(1.5 as any)
 end)
 local okFractionalAllocation = pcall(function()
-    local invalid = soa.allocate(ffi.typeof<Particle>(), 1.5 as any)
+    local invalid = soa.alloc(ffi.typeof<Particle>(), 1.5 as any)
     invalid:close()
 end)
 local okOverflow = false
@@ -688,8 +688,8 @@ function M.nanAndFractionalRowIndexesAreRefused()
     local value = runs(
         PRELUDE
         .. [[
-local particles = soa.allocate(ffi.typeof<Particle>(), 4)
-local source = soa.allocate(ffi.typeof<Particle>(), 4)
+local particles = soa.alloc(ffi.typeof<Particle>(), 4)
+local source = soa.alloc(ffi.typeof<Particle>(), 4)
 do
     local rows = particles:write()
     rows[1].x = 1
@@ -749,7 +749,7 @@ function M.sharedRowsRejectWrites()
         codes(
             PRELUDE
             .. [[
-local particles = soa.allocate(ffi.typeof<Particle>(), 1)
+local particles = soa.alloc(ffi.typeof<Particle>(), 1)
 local rows = particles:read()
 rows[1].x = 2
 ]]
@@ -762,7 +762,7 @@ rows[1].x = 2
         codes(
             PRELUDE
             .. [[
-local particles = soa.allocate(ffi.typeof<Particle>(), 1)
+local particles = soa.alloc(ffi.typeof<Particle>(), 1)
 local rows = particles:read()
 rows[1] = new Particle(1, 2, 3, 4)
 ]]
@@ -778,7 +778,7 @@ function M.nonStructElementsAreRejectedAtTheCall()
             [[
 local soa = require("nupp.mem.soa")
 local ffi = require("ffi")
-local rows = soa.allocate(ffi.typeof<int32>(), 4)
+local rows = soa.alloc(ffi.typeof<int32>(), 4)
 ]]
         ),
         "NUPP2403",

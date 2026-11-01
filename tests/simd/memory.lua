@@ -4,7 +4,7 @@ local M = {}
 local function sourceFor(ty, lanes)
     local source = {
         (
-            'local array = require("nupp.mem.array")\nlocal span = require("nupp.mem.span")\nlocal simd = require("simd")\nlocal u32 = math.u32\nlocal struct Pair\n    first: %s\n    second: %s\nend\n'
+            'local array = require("nupp.mem.array")\nlocal span = require("binary.span")\nlocal simd = require("simd")\nlocal u32 = math.u32\nlocal struct Pair\n    first: %s\n    second: %s\nend\n'
         ):format(ty, ty)
     }
     local probes, fields, indexed, interleaved, exports = {}, {}, {}, {}, {}
@@ -164,8 +164,8 @@ local function checkIndexed(probe: IndexedProbe, modes: integer): number
 end
 
 local function checkFields(probe: FieldProbe): number
-    local input = array.newArray(new Pair(), 64)
-    local output = array.newArray(new Pair(), 64)
+    local input = array.newarray(new Pair(), 64)
+    local output = array.newarray(new Pair(), 64)
     do
         local writable = input:write()
         for i = 1, 64 do writable[u32.wrap(i)] = new Pair(i, 64 - i) end

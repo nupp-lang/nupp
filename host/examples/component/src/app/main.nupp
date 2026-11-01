@@ -6,6 +6,6 @@ local log = require("log")
 
 log.info("answering")
 assert2(game.answer(41) == 42)
-print(json.encodeValue({answer = 42}))
+print(json.encodevalue({answer = 42}))
 
 return true

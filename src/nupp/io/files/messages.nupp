@@ -1,3 +1,5 @@
+@!internal
+
 module nupp.io.files.messages
 
 local paths = require("io.path")

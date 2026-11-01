@@ -9,37 +9,38 @@ local out = here .. "build/const-monomorph-ceiling/"
 package.path = out .. "fallback/?.lua;" .. out .. "fallback/?/init.lua;" .. package.path
 
 local ordinary = require("const-monomorph-ceiling")
-local spans = require("nupp.mem.span")
+local spans = require("binary.span")
 
 local function input(count)
     local values = ffi.new("double[?]", math.max(count, 1))
     for index = 0, count - 1 do
         values[index] = (index % 251) * 0.03125 - 3.0
     end
+
     return values
 end
 
 local function runDynamicBody(output, source, count)
-    local writer = spans.writeCarray(output, count)
+    local writer = spans.writecarray(output, count)
     ordinary.general(writer, source, 1, count, 4)
     writer:drop()
 end
 
 local function runFixedBody(output, source, count)
-    local writer = spans.writeCarray(output, count)
+    local writer = spans.writecarray(output, count)
     ordinary.rounds4(writer, source, 1, count)
     writer:drop()
 end
 
 local function runUnrolledBody(output, source, count)
-    local writer = spans.writeCarray(output, count)
+    local writer = spans.writecarray(output, count)
     ordinary.rounds4Unrolled(writer, source, 1, count)
     writer:drop()
 end
 
 for _, count in ipairs({0, 1, 3, 4, 5, 7, 8, 33, 1000}) do
     local sourceArray = input(count)
-    local source = spans.fromCarray(sourceArray, count)
+    local source = spans.fromcarray(sourceArray, count)
     local dynamic = ffi.new("double[?]", math.max(count, 1))
     local fixed = ffi.new("double[?]", math.max(count, 1))
     local unrolled = ffi.new("double[?]", math.max(count, 1))
@@ -68,13 +69,19 @@ end
 
 local count = tonumber(os.getenv("CONST_MONOMORPH_COUNT") or 1048576)
 local sourceArray = input(count)
-local source = spans.fromCarray(sourceArray, count)
+local source = spans.fromcarray(sourceArray, count)
 local output = ffi.new("double[?]", count)
 local shape = arg[1] == "--sample" and arg[2] or nil
 local bodies = {
-    dynamic = function() runDynamicBody(output, source, count) end,
-    fixed = function() runFixedBody(output, source, count) end,
-    unrolled = function() runUnrolledBody(output, source, count) end,
+    dynamic = function()
+        runDynamicBody(output, source, count)
+    end,
+    fixed = function()
+        runFixedBody(output, source, count)
+    end,
+    unrolled = function()
+        runUnrolledBody(output, source, count)
+    end,
 }
 
 if shape then

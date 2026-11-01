@@ -13,7 +13,7 @@ three explanations.
 ```nupp
 local trace = nupp.profile.trace
 
-local reason = assert(trace.forOpcode("FNEW"))
+local reason = assert(trace.foropcode("FNEW"))
 print(reason.id, reason.repair)
 ```
 
@@ -215,9 +215,9 @@ end
 
 --- Returns the record for a bytecode LuaJIT has no recorder for.
 ---
---- @param opcode the bytecode's name, as `opcodeName` renders it
+--- @param opcode the bytecode's name, as `opcodename` renders it
 --- @return the record, or nil when that bytecode records
-function trace.forOpcode(opcode: string): trace.Reason?
+function trace.foropcode(opcode: string): trace.Reason?
     return byOpcode[opcode]
 end
 
@@ -228,7 +228,7 @@ end
 ---
 --- @param source the static finding's name
 --- @return the record, or nil when the finding has no runtime counterpart
-function trace.forSource(source: string): trace.Reason?
+function trace.forsource(source: string): trace.Reason?
     return bySource[source]
 end
 
@@ -236,7 +236,7 @@ end
 ---
 --- @param opcode the number the VM reported
 --- @return the trimmed name
-function trace.opcodeName(opcode: integer): string
+function trace.opcodename(opcode: integer): string
     local start = opcode * 6 + 1
     return (vmdef.bcnames:sub(start, start + 5):gsub("%s+$", ""))
 end
@@ -261,7 +261,7 @@ function trace.runtime(errorCode: integer?, errorArg: number | string | nil): tr
         return byId["jit/runtime-unknown"], "error " .. tostring(errorCode)
     end
     if format:find("NYI: bytecode", 1, true) and type(errorArg) == "number" then
-        local opcode = trace.opcodeName(errorArg as integer)
+        local opcode = trace.opcodename(errorArg as integer)
         return byOpcode[opcode] or byId["jit/runtime-unknown"], "NYI: bytecode " .. opcode
     end
     local record = byRuntime[format] or byId["jit/runtime-unknown"]

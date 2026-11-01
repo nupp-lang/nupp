@@ -40,7 +40,7 @@ end
 local NUPP = HERE .. "/../bin/nupp"
 
 local KERNEL = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 local struct Sample
     value: float
@@ -106,7 +106,7 @@ return {
 ]]
 
 local CORRECTED_KERNEL = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 local struct Sample
     a: float
@@ -148,12 +148,12 @@ return {corrected = corrected, Sample = Sample, Result = Result}
 ]]
 
 local SIMD_KERNEL = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 local array = require("nupp.mem.array")
 
 local function drain(bits: uint64): (uint32, uint32)
-    return math.u32.wrap(math.u64.trailingZeros(bits)), math.u32.wrap(math.u64.popcount(bits & (bits - 1ULL)))
+    return math.u32.wrap(math.u64.trailingzeros(bits)), math.u32.wrap(math.u64.popcount(bits & (bits - 1ULL)))
 end
 
 @aot
@@ -161,7 +161,7 @@ local function maskOps(low: uint32, high: uint32): (uint64, uint64, uint32, uint
     local lowWord: uint64 = low as uint64
     local highWord: uint64 = high as uint64
     local raw = (highWord << 32ULL) | lowWord
-    local prefixed = math.u64.prefixXor(raw)
+    local prefixed = math.u64.prefixxor(raw)
     local first, left = drain(prefixed)
     return prefixed & 0xffffffffULL, prefixed >> 32ULL, first, left
 end
@@ -264,9 +264,9 @@ end
 @aot
 local function stream(source: string, tape: string, nullValue: any): (any, uint32, uint32)
     local state = valueBuilder.new(nullValue)
-    valueBuilder.openObject(state, math.u32.wrap(2))
+    valueBuilder.openobject(state, math.u32.wrap(2))
     valueBuilder.key(state, source, math.u32.wrap(0), math.u32.wrap(4), false)
-    valueBuilder.numberSlice(state, source, math.u32.wrap(4), math.u32.wrap(2))
+    valueBuilder.numberslice(state, source, math.u32.wrap(4), math.u32.wrap(2))
     valueBuilder.key(state, source, math.u32.wrap(6), math.u32.wrap(4), false)
     valueBuilder.boolean(state, true)
     valueBuilder.close(state)
@@ -277,40 +277,40 @@ end
 @aot
 local function slicedNumber(source: string, start: uint32, length: uint32, nullValue: any): any
     local state = valueBuilder.new(nullValue)
-    valueBuilder.numberSlice(state, source, start, length)
+    valueBuilder.numberslice(state, source, start, length)
     return valueBuilder.finish(state)
 end
 
 @aot
 local function slicedInteger(source: string, start: uint32, length: uint32, nullValue: any): any
     local state = valueBuilder.new(nullValue)
-    valueBuilder.integerSlice(state, source, start, length)
+    valueBuilder.integerslice(state, source, start, length)
     return valueBuilder.finish(state)
 end
 
 @aot
 local function primitives(source: string, nullValue: any): (any, uint32)
-    local scratch = valueBuilder.newWordScratch(math.u32.wrap(3))
+    local scratch = valueBuilder.newwordscratch(math.u32.wrap(3))
     local bits: uint64 = 0x400000005ULL
     local next: uint32 = 0
     while bits ~= 0ULL do
-        valueBuilder.setScratchWord(scratch, next, math.u32.add(math.u32.wrap(10), math.u32.wrap(math.u64.trailingZeros(bits))))
+        valueBuilder.setscratchword(scratch, next, math.u32.add(math.u32.wrap(10), math.u32.wrap(math.u64.trailingzeros(bits))))
         next = next + 1
         bits = bits & (bits - 1ULL)
     end
-    local stringScratch = valueBuilder.newWordScratch(math.u32.wrap(3))
-    valueBuilder.setScratchWord(stringScratch, math.u32.wrap(0), math.u32.wrap(100))
-    valueBuilder.setScratchWord(stringScratch, math.u32.wrap(1), math.u32.wrap(2147483755))
-    valueBuilder.setScratchWord(stringScratch, math.u32.wrap(2), math.u32.wrap(110))
+    local stringScratch = valueBuilder.newwordscratch(math.u32.wrap(3))
+    valueBuilder.setscratchword(stringScratch, math.u32.wrap(0), math.u32.wrap(100))
+    valueBuilder.setscratchword(stringScratch, math.u32.wrap(1), math.u32.wrap(2147483755))
+    valueBuilder.setscratchword(stringScratch, math.u32.wrap(2), math.u32.wrap(110))
     local stringNext: uint32 = 3
     local state = valueBuilder.new(nullValue)
-    valueBuilder.openArray(state, math.u32.add(next, math.u32.wrap(4)))
-    valueBuilder.number(state, valueBuilder.scratchWord(scratch, math.u32.wrap(0)) * 1.0)
-    valueBuilder.number(state, valueBuilder.scratchWord(scratch, math.u32.wrap(1)) * 1.0)
-    valueBuilder.number(state, valueBuilder.scratchWord(scratch, math.u32.wrap(2)) * 1.0)
-    valueBuilder.number(state, valueBuilder.scratchWord(stringScratch, math.u32.wrap(0)) * 1.0)
-    valueBuilder.number(state, valueBuilder.scratchWord(stringScratch, math.u32.wrap(1)) * 1.0)
-    valueBuilder.number(state, valueBuilder.scratchWord(stringScratch, math.u32.wrap(2)) * 1.0)
+    valueBuilder.openarray(state, math.u32.add(next, math.u32.wrap(4)))
+    valueBuilder.number(state, valueBuilder.scratchword(scratch, math.u32.wrap(0)) * 1.0)
+    valueBuilder.number(state, valueBuilder.scratchword(scratch, math.u32.wrap(1)) * 1.0)
+    valueBuilder.number(state, valueBuilder.scratchword(scratch, math.u32.wrap(2)) * 1.0)
+    valueBuilder.number(state, valueBuilder.scratchword(stringScratch, math.u32.wrap(0)) * 1.0)
+    valueBuilder.number(state, valueBuilder.scratchword(stringScratch, math.u32.wrap(1)) * 1.0)
+    valueBuilder.number(state, valueBuilder.scratchword(stringScratch, math.u32.wrap(2)) * 1.0)
     valueBuilder.number(state, stringNext * 1.0)
     valueBuilder.close(state)
     return valueBuilder.finish(state), next
@@ -322,10 +322,10 @@ end
 --- body used to stop agreeing with the same source on the interpreter.
 @aot
 local function wrapped(value: integer, nullValue: any): any
-    local state = valueBuilder.newSized(nullValue, math.u32.wrap(2), math.u32.wrap(8))
+    local state = valueBuilder.newsized(nullValue, math.u32.wrap(2), math.u32.wrap(8))
     local signedValue = math.i32.wrap(value)
     local unsignedValue = math.u32.wrap(value)
-    valueBuilder.openArray(state, math.u32.wrap(2))
+    valueBuilder.openarray(state, math.u32.wrap(2))
     valueBuilder.number(state, signedValue + 0.0)
     valueBuilder.number(state, unsignedValue + 0.0)
     valueBuilder.close(state)
@@ -338,15 +338,15 @@ end
 --- the refusal survives that, and reaches the same answer as the interpreter.
 @aot
 local function fixedScratch(probe: uint32, nullValue: any): any
-    local buffer = valueBuilder.newFixedWordScratch(8)
-    local state = valueBuilder.newSized(nullValue, math.u32.wrap(2), math.u32.wrap(8))
-    valueBuilder.setScratchWord(buffer, math.u32.wrap(3), math.u32.wrap(77))
-    valueBuilder.openArray(state, math.u32.wrap(3))
+    local buffer = valueBuilder.newfixedwordscratch(8)
+    local state = valueBuilder.newsized(nullValue, math.u32.wrap(2), math.u32.wrap(8))
+    valueBuilder.setscratchword(buffer, math.u32.wrap(3), math.u32.wrap(77))
+    valueBuilder.openarray(state, math.u32.wrap(3))
     -- Written, never written, and whatever the caller asks for -- which may be
     -- outside the buffer, and then this call is the last thing that happens.
-    valueBuilder.number(state, valueBuilder.scratchWord(buffer, math.u32.wrap(3)) * 1.0)
-    valueBuilder.number(state, valueBuilder.scratchWord(buffer, math.u32.wrap(6)) * 1.0)
-    valueBuilder.number(state, valueBuilder.scratchWord(buffer, probe) * 1.0)
+    valueBuilder.number(state, valueBuilder.scratchword(buffer, math.u32.wrap(3)) * 1.0)
+    valueBuilder.number(state, valueBuilder.scratchword(buffer, math.u32.wrap(6)) * 1.0)
+    valueBuilder.number(state, valueBuilder.scratchword(buffer, probe) * 1.0)
     valueBuilder.close(state)
 
     return valueBuilder.finish(state)
@@ -356,15 +356,15 @@ end
 --- any order rather than only at the end, and refusing an index outside it.
 @aot
 local function fixedByteScratch(probe: uint32, nullValue: any): any
-    local buffer = valueBuilder.newFixedByteScratch(8)
-    local state = valueBuilder.newSized(nullValue, math.u32.wrap(2), math.u32.wrap(8))
+    local buffer = valueBuilder.newfixedbytescratch(8)
+    local state = valueBuilder.newsized(nullValue, math.u32.wrap(2), math.u32.wrap(8))
     -- Index five with nothing written below it, which an appending buffer would
     -- refuse and this one is for.
-    valueBuilder.setScratchByte(buffer, math.u32.wrap(5), math.u32.wrap(200))
-    valueBuilder.openArray(state, math.u32.wrap(3))
-    valueBuilder.number(state, valueBuilder.scratchByte(buffer, math.u32.wrap(5)) * 1.0)
-    valueBuilder.number(state, valueBuilder.scratchByte(buffer, math.u32.wrap(2)) * 1.0)
-    valueBuilder.number(state, valueBuilder.scratchByte(buffer, probe) * 1.0)
+    valueBuilder.setscratchbyte(buffer, math.u32.wrap(5), math.u32.wrap(200))
+    valueBuilder.openarray(state, math.u32.wrap(3))
+    valueBuilder.number(state, valueBuilder.scratchbyte(buffer, math.u32.wrap(5)) * 1.0)
+    valueBuilder.number(state, valueBuilder.scratchbyte(buffer, math.u32.wrap(2)) * 1.0)
+    valueBuilder.number(state, valueBuilder.scratchbyte(buffer, probe) * 1.0)
     valueBuilder.close(state)
 
     return valueBuilder.finish(state)
@@ -378,18 +378,18 @@ end
 --- belongs to.
 @aot
 local function reusedScratchName(probe: uint32, nullValue: any): any
-    local state = valueBuilder.newSized(nullValue, math.u32.wrap(2), math.u32.wrap(8))
+    local state = valueBuilder.newsized(nullValue, math.u32.wrap(2), math.u32.wrap(8))
 
     do
-        local buffer = valueBuilder.newFixedWordScratch(4096)
-        valueBuilder.setScratchWord(buffer, math.u32.wrap(0), math.u32.wrap(1))
+        local buffer = valueBuilder.newfixedwordscratch(4096)
+        valueBuilder.setscratchword(buffer, math.u32.wrap(0), math.u32.wrap(1))
     end
 
     do
-        local buffer = valueBuilder.newWordScratch(math.u32.wrap(4))
-        valueBuilder.setScratchWord(buffer, math.u32.wrap(0), math.u32.wrap(7))
-        valueBuilder.openArray(state, math.u32.wrap(1))
-        valueBuilder.number(state, valueBuilder.scratchWord(buffer, probe) * 1.0)
+        local buffer = valueBuilder.newwordscratch(math.u32.wrap(4))
+        valueBuilder.setscratchword(buffer, math.u32.wrap(0), math.u32.wrap(7))
+        valueBuilder.openarray(state, math.u32.wrap(1))
+        valueBuilder.number(state, valueBuilder.scratchword(buffer, probe) * 1.0)
         valueBuilder.close(state)
     end
 
@@ -424,8 +424,8 @@ end
 --- read one byte at a time, so the two have to agree on every length.
 @aot
 local function punctuation(source: string, nullValue: any): (any, uint32, uint32)
-    local count = valueBuilder.length(source)
-    local state = valueBuilder.newSized(nullValue, math.u32.wrap(2), count)
+    local count = valueBuilder.len(source)
+    local state = valueBuilder.newsized(nullValue, math.u32.wrap(2), count)
     local cursor: uint32 = 0
     local found: uint32 = 0
     if species = simd.vectors(array.uint8) then
@@ -440,13 +440,13 @@ local function punctuation(source: string, nullValue: any): (any, uint32, uint32
     local scalar: uint32 = 0
     local at: uint32 = 0
     while at < count do
-        local byte: uint32 = valueBuilder.byteAt(source, at)
+        local byte: uint32 = valueBuilder.byteat(source, at)
         if byte >= 32 and byte < 48 then
             scalar = scalar + 1
         end
         at = at + 1
     end
-    valueBuilder.openArray(state, math.u32.wrap(1))
+    valueBuilder.openarray(state, math.u32.wrap(1))
     valueBuilder.number(state, count * 1.0)
     valueBuilder.close(state)
 
@@ -470,7 +470,7 @@ return {
 ]]
 
 local ALIASED_KERNEL = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 local struct Sample
     value: uint32
@@ -611,7 +611,7 @@ export const answer = answer
 
 @aot
 local function literalCounts(): (uint32, uint32, uint32, uint64, uint64, uint64, uint64, uint64)
-    return math.u64.popcount(68719476735), math.u64.trailingZeros(4294967296), math.u64.leadingZeros(0), math.u64.prefixXor(5), math.u64.andBits(68719476735ULL, 4294967296ULL), math.u64.sub(0ULL, 1ULL), math.u64.rotateLeft(1ULL, 63), math.u64.rotateRight(1ULL, 1)
+    return math.u64.popcount(68719476735), math.u64.trailingzeros(4294967296), math.u64.leadingzeros(0), math.u64.prefixxor(5), math.u64.andbits(68719476735ULL, 4294967296ULL), math.u64.sub(0ULL, 1ULL), math.u64.rotateleft(1ULL, 63), math.u64.rotateright(1ULL, 1)
 end
 export const literalCounts = literalCounts
 
@@ -658,7 +658,7 @@ return {
         [[
 module gpucheck
 
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot(target = "gpu")
 local function copy(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
@@ -689,8 +689,8 @@ local trulyUnused = 42
 
 @aot
 local function entry(index: uint32, nullValue: any): any
-    local state = valueBuilder.newSized(nullValue, math.u32.wrap(2), math.u32.wrap(8))
-    valueBuilder.openArray(state, math.u32.wrap(1))
+    local state = valueBuilder.newsized(nullValue, math.u32.wrap(2), math.u32.wrap(8))
+    valueBuilder.openarray(state, math.u32.wrap(1))
     valueBuilder.number(state, valueBuilder.byte(READ_ONLY_IN_THE_BODY, index) * 1.0)
     valueBuilder.close(state)
 
@@ -729,7 +729,7 @@ end
 local HALF_KERNEL = [[
 module halfkernel
 
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function roundTrip(
@@ -739,9 +739,9 @@ local function roundTrip(
 ): nil
     assert(#output == #packed and #output == #input, "length mismatch")
     for i = 1, #output do
-        local value = math.f32.fromF16Bits(input[i])
+        local value = math.f32.fromf16bits(input[i])
         output[i] = value
-        packed[i] = math.f32.toF16Bits(value)
+        packed[i] = math.f32.tof16bits(value)
     end
 end
 
@@ -808,14 +808,14 @@ end
 local LENGTH_ONLY = [[
 module lengthonly
 
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function lengthOnly(borrows values: span.Span<number>): number
     return #values
 end
 
-export = {lengthOnly = lengthOnly, fromCarray = span.fromCarray}
+export = {lengthOnly = lengthOnly, fromCarray = span.fromcarray}
 ]]
 
 local function lengthOnlyProject()
@@ -1291,7 +1291,7 @@ function M.gpuCountedLoopUnsupportedBoundsAndStepsHaveJsonPositions()
             file:write(
                 [[
 module gpucheck
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 @aot(target = "gpu")
 local function kernel(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>, limit: uint32): nil
     assert(#output == #input)
@@ -1385,7 +1385,7 @@ function M.gpuDispatchesPastOneDimensionsWorkgroupLimit()
         [[
 module gpucheck
 
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local gpu = require("gpu")
 
 @aot(target = "gpu")
@@ -1424,7 +1424,7 @@ export const tiled = tiled
 io.stdout:setvbuf("no")
 local ffi = require("ffi")
 local gpu = require("gpu")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local gpucheck = require("gpucheck")
 local opened, context = pcall(gpu.open)
 if not opened then
@@ -1437,11 +1437,11 @@ local function run(kernel, count, added)
     for index = 0, count - 1 do values[index] = index end
     local input = context:buffer(require("nupp.mem.array").uint32, count)
     local output = context:buffer(require("nupp.mem.array").uint32, count)
-    context:upload(input, span.fromCarray(values, count))
+    context:upload(input, span.fromcarray(values, count))
     kernel:compile(context):bind(output, input):dispatch()
     context:synchronize()
     ffi.fill(values, count * 4)
-    context:download(output, span.fromCarray(values, count))
+    context:download(output, span.fromcarray(values, count))
     local wrong = 0
     for index = 0, count - 1 do
         if values[index] ~= index + added then wrong = wrong + 1 end
@@ -1455,16 +1455,16 @@ run(gpucheck.tiled, 65537 * 256, 2)
 -- A synchronize parks rather than blocking the thread, so a sibling task runs while
 -- the device works on a dispatch this large.
 do
-    local tasks = require("nupp.tasks")
-    local time = require("nupp.time")
+    local tasks = require("coroutine")
+    local time = require("coroutine")
     local count = 16776961
     local values = ffi.new("uint32_t[?]", count)
     local input = context:buffer(require("nupp.mem.array").uint32, count)
     local output = context:buffer(require("nupp.mem.array").uint32, count)
-    context:upload(input, span.fromCarray(values, count))
+    context:upload(input, span.fromcarray(values, count))
     local binding = gpucheck.increment:compile(context):bind(output, input)
     local waiting, finished, ran = false, false, 0
-    local scope = tasks.open()
+    local scope = tasks.scope()
     scope:spawn(function()
         binding:dispatch()
         waiting = true
@@ -1526,7 +1526,7 @@ function M.gpuWorkgroupsRunTheGroupsTheirCpuDefinitionRuns()
         [[
 module gpucheck
 
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local gpu = require("gpu")
 
 @aot(target = "gpu")
@@ -1553,7 +1553,7 @@ export const tiledCpu = tiledCpu
         .. [[
 local ffi = require("ffi")
 local gpu = require("gpu")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local gpucheck = require("gpucheck")
 local opened, context = pcall(gpu.open)
@@ -1568,16 +1568,16 @@ for _, count in ipairs({10, 8, 3}) do
     for index = 0, count - 1 do values[index] = index end
     local cpu = ffi.new("uint32_t[?]", count)
     for index = 0, count - 1 do cpu[index] = UNTOUCHED end
-    gpucheck.tiledCpu(span.writeCarray(cpu, count), span.fromCarray(values, count))
+    gpucheck.tiledCpu(span.writecarray(cpu, count), span.fromcarray(values, count))
     local device = ffi.new("uint32_t[?]", count)
     for index = 0, count - 1 do device[index] = UNTOUCHED end
     local input = context:buffer(array.uint32, count)
     local output = context:buffer(array.uint32, count)
-    context:upload(input, span.fromCarray(values, count))
-    context:upload(output, span.fromCarray(device, count))
+    context:upload(input, span.fromcarray(values, count))
+    context:upload(output, span.fromcarray(device, count))
     gpucheck.tiled:compile(context):bind(output, input):dispatch()
     context:synchronize()
-    context:download(output, span.writeCarray(device, count))
+    context:download(output, span.writecarray(device, count))
     local cells = {}
     for index = 0, count - 1 do
         cells[#cells + 1] = ("%d/%d"):format(tonumber(cpu[index]), tonumber(device[index]))
@@ -1608,7 +1608,7 @@ function M.gpuOverlayIsCheckedFromTheSameTypedShaderSchema()
     local source = [[
 module gpuoverlay
 
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 local struct Input value: float end
 local struct Output value: float end
@@ -1826,7 +1826,7 @@ function M.constGenericSelectsValueStreamModePerVariant()
                 "    arrayShapeMarker: any?,",
                 "    serdeMarkers: any?",
                 "): any",
-                "    local count = _valueBuilder.length(source)",
+                "    local count = _valueBuilder.len(source)",
                 "    local depth: uint32 = 16",
                 "    local values = switch variant as integer do",
                 "        case 0 -> _jsonBuilder.newPull(",
@@ -1839,7 +1839,7 @@ function M.constGenericSelectsValueStreamModePerVariant()
                 "            arrayShapeMarker,",
                 "            serdeMarkers",
                 "        )",
-                "        else -> _valueBuilder.newSized(nullValue, depth, count, arrayMarker, objectMarker)",
+                "        else -> _valueBuilder.newsized(nullValue, depth, count, arrayMarker, objectMarker)",
                 "    end",
                 "    if variant as integer == 0 then",
                 "        _valueBuilder.null(values)",
@@ -2358,7 +2358,7 @@ end
 -- every element width, indexed memory, and a rearrangement. Each is a shape a
 -- Windows worker has died on.
 local WIDE_SIMD = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -2537,7 +2537,7 @@ function M.aStatementfulLoopConditionBuildsAsScalarControlFlow()
     local source = assert(io.open(dir .. "/src/conditional.nupp", "wb"))
     source:write(
         [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function run(exclusive out: span.WriteSpan<number>): nil
@@ -2937,7 +2937,7 @@ local valueBuilder = require("serde.valuebuilder")
 local {type Buffer} = require("nupp.text")
 @aot
 local function measured<const Bump: integer>(borrows source: string | Buffer, bump: Bump): uint32
-    return math.u32.add(valueBuilder.length(source), math.u32.wrap(bump as integer))
+    return math.u32.add(valueBuilder.len(source), math.u32.wrap(bump as integer))
 end
 local function apply(borrows source: string | Buffer): uint32
     return measured(source, 1)
@@ -3359,12 +3359,12 @@ function M.aKernelThatOnlyReadsALengthStillBuilds()
 
     local script = [[
       local ffi = require("ffi")
-      local spans = require("nupp.mem.span")
+      local spans = require("binary.span")
       local mod = require("lengthonly")
       local answers = {}
       for _, count in ipairs({0, 1, 7, 64}) do
          local buffer = ffi.new("double[?]", count > 0 and count or 1)
-         answers[#answers + 1] = tostring(mod.lengthOnly(spans.fromCarray(buffer, count)))
+         answers[#answers + 1] = tostring(mod.lengthOnly(spans.fromcarray(buffer, count)))
       end
       print(table.concat(answers, " "))
    ]]
@@ -3397,7 +3397,7 @@ function M.scalarLogicalOperatorsReturnValuesAndPreserveEffects()
         source:write(
             [[
 module logical
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 @aot
@@ -3488,9 +3488,9 @@ export = {logical = logical, guarded = guarded, stringValue = stringValue, rever
         local script = [[
             local m = require("logical")
             local ffi = require("ffi")
-            local span = require("nupp.mem.span")
+            local span = require("binary.span")
             local values = ffi.new("uint32_t[2]", 2147483649, 42)
-            local input = span.fromCarray(values, 2)
+            local input = span.fromcarray(values, 2)
             print(m.logical(true, 7, 9))
             print(m.logical(false, 7, 9))
             print(m.logical(true, 0, 9))
@@ -3501,7 +3501,7 @@ export = {logical = logical, guarded = guarded, stringValue = stringValue, rever
             print(m.reverseGuarded(input, 0), m.reverseGuarded(input, 1), m.reverseGuarded(input, 2), m.reverseGuarded(input, 4294967295))
             print(m.scalarMask(true), m.scalarMask(false))
             local backing = ffi.new("uint32_t[4]", 1, 1, 1, 1)
-            print(m.movedCursor(span.fromCarray(backing, 4)))
+            print(m.movedCursor(span.fromcarray(backing, 4)))
             print(m.helperSpecies(), m.overflowingRoom(input))
             print(m.logicalResults(true), m.logicalResults(false))
         ]]
@@ -3529,7 +3529,7 @@ function M.provenSimdCursorsKeepWrappedIndicesOnLargeSpans()
     local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
     handle:write(
         [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 local array = require("nupp.mem.array")
 local struct Pair
@@ -3652,7 +3652,7 @@ function M.displacedCursorAccessesRunCheckFreeAndAgreeWithTheOracle()
     local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
     handle:write(
         [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 @aot
 local function triples(exclusive output: span.WriteSpan<uint8>, borrows source: span.Span<uint8>): uint32
     local at: uint32 = 0
@@ -3743,7 +3743,7 @@ function M.aFactorGuardCarriesCursorRoomInCompiledCode()
     local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
     handle:write(
         [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 @aot
 local function box3(exclusive grey: span.WriteSpan<uint8>, borrows rgb: span.Span<uint8>): nil
     assert(#rgb == 3 * #grey)
@@ -3821,7 +3821,7 @@ return {
         source:write(
             [[
 module carry
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function signed(borrows input: span.Span<uint8>, factor: int32, seed: int32): int32
@@ -3841,10 +3841,10 @@ export const signed = signed
         test.equal(code, 0, ("the aot=%s carry fixture at %s builds: %s"):format(policy, dir, out))
         local script = [[
             local carry = require("carry")
-            local span = require("nupp.mem.span")
+            local span = require("binary.span")
             local out = {}
             for _, case in ipairs({{16777216, 0}, {1, 2147483600}, {-3, -2147483640}}) do
-                out[#out + 1] = tostring(carry.signed(span.fromString("\200\100\050\255"), case[1], case[2]))
+                out[#out + 1] = tostring(carry.signed(span.fromstring("\200\100\050\255"), case[1], case[2]))
             end
             print(table.concat(out, " "))
         ]]
@@ -4040,14 +4040,14 @@ function M.binary16StorageConversionsAgreeInCompiledCode()
     test.equal(code, 0, out)
     local script = [[
       local ffi = require("ffi")
-      local spans = require("nupp.mem.span")
+      local spans = require("binary.span")
       local half = require("halfkernel")
       local values = {0x0000, 0x8000, 0x0001, 0x03ff, 0x0400, 0x3c00, 0xc000, 0x7c00, 0xfc00, 0x7e01}
       local input = ffi.new("uint16_t[?]", #values)
       local output = ffi.new("float[?]", #values)
       local packed = ffi.new("uint16_t[?]", #values)
       for index, value in ipairs(values) do input[index - 1] = value end
-      half.run(spans.writeCarray(output, #values), spans.writeCarray(packed, #values), spans.fromCarray(input, #values))
+      half.run(spans.writecarray(output, #values), spans.writecarray(packed, #values), spans.fromcarray(input, #values))
       local holder = ffi.new("union { float f; uint32_t u; }[1]")
       local seen = {}
       for index = 0, #values - 1 do
@@ -4682,7 +4682,7 @@ local {type Buffer} = require("nupp.text")
 --- Counts the bytes of a string or a buffer, plus a const bump.
 @aot
 local function measure<const Bump: integer>(borrows source: string | Buffer, bump: Bump): uint32
-    return math.u32.add(valueBuilder.length(source), math.u32.wrap(bump as integer))
+    return math.u32.add(valueBuilder.len(source), math.u32.wrap(bump as integer))
 end
 
 --- The byte count of a string.
@@ -4692,7 +4692,7 @@ end
 
 --- The byte count of a freshly filled buffer, plus one.
 local function measureBuffer(contents: string): uint32
-    local buffer = text.newBuffer()
+    local buffer = text.newbuffer()
     buffer:put(contents)
     return measure(buffer, 1)
 end
@@ -5000,7 +5000,7 @@ end
 function M.exactLoopReducersAgreeAcrossLuaScalarAndVectorExecution()
     local ffi = require("ffi")
     local cases, exports = {}, {}
-    local source = {'local span = require("nupp.mem.span")', 'local simd = require("simd")'}
+    local source = {'local span = require("binary.span")', 'local simd = require("simd")'}
 
     local function add(name, element, ctype, construction, method, result, resultC, predicate, first, corpora)
         local constructor = construction:gsub("TYPE", element)
@@ -5166,11 +5166,11 @@ end
     -- The AOT-off body executes the Lua reducers over the same physical inputs;
     -- neither scalar-source nor lane native code participates in its arithmetic.
     local reference = assert(loadfile(ordinary .. "/build/native/kernel.lua"))()
-    local spans = require("nupp.mem.span")
+    local spans = require("binary.span")
 
     local function expectedPosition(name, ctype, values, seed, expected)
         local input = ffi.new(ctype .. "[?]", #values, values)
-        test.equal(reference[name](spans.fromCarray(input, #values), seed), expected)
+        test.equal(reference[name](spans.fromcarray(input, #values), seed), expected)
     end
 
     expectedPosition(
@@ -5222,7 +5222,7 @@ end
                     seed = tonumber(seed)
                 end
                 for count = 0, 39 do
-                    local expected = reference[case.name](spans.fromCarray(input, count), seed)
+                    local expected = reference[case.name](spans.fromcarray(input, count), seed)
                     if case.name:match("^pairwise_") then
                         -- Literal adjacent-pair levels are independent of the
                         -- online partial stack shared by Lua and scalar C.
@@ -5312,7 +5312,7 @@ function M.numericSimdConversionsMatchLuaJitAndIndependentScalarResults()
     local cases, modules = {}, {}
     for _, from in ipairs(types) do
         local source = {
-            'local span = require("nupp.mem.span")',
+            'local span = require("binary.span")',
             'local array = require("nupp.mem.array")',
             'local simd = require("simd")',
         }
@@ -5453,7 +5453,7 @@ function M.indexedSimdMemoryMatchesAnIndependentScalarReference()
     local handle = assert(io.open(dir .. "/src/kernel.nupp", "wb"))
     handle:write(
         [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 @aot
@@ -5534,7 +5534,7 @@ function M.speciesIsOneLaneUnderAotOffAndVectorsIsNil()
     -- tests it takes the scalar continuation it wrote for that answer, and
     -- one that asserts it raises, with the message it gave.
     local body = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -5613,7 +5613,7 @@ end
 --- Two `@aot` functions over one struct, which is what used to produce a
 --- binding that declared its layout constant twice and did not compile.
 local TWO = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 local struct Point
     x: float
@@ -5709,7 +5709,7 @@ function M.countedLoopsPreserveBoundAndInductionSemantics()
 -- a different integer/float mode for negative zero after warmup.
 jit.off()
 local ffi = require("ffi")
-local spans = require("nupp.mem.span")
+local spans = require("binary.span")
 local m = require("kernel")
 local compiled = rawget(_G, "__nuppAotCompiled") or {}
 for _, name in ipairs({"signed", "general", "unsigned", "indexed", "vector", "scalarVector", "vectorWide", "literal", "negativeZero", "uniformAssigned", "unsignedVector", "signedVector", "signedReadonly", "regions", "liveness"}) do
@@ -5775,28 +5775,28 @@ local zeroReciprocal
 for cursor = -0.0, 0 do zeroReciprocal = 1 / cursor; break end
 equal(m.negativeZero(), zeroReciprocal, "runtime-specific integer-loop zero normalization")
 local input = ffi.new("uint32_t[3]", 2,3,5)
-equal(m.indexed(spans.fromCarray(input,3)),20,"nested span proof")
+equal(m.indexed(spans.fromcarray(input,3)),20,"nested span proof")
 for count = 0, 19 do
     local first,last,out = ffi.new("int32_t[?]",math.max(count,1)),ffi.new("int32_t[?]",math.max(count,1)),ffi.new("double[?]",math.max(count,1))
     for i=0,count-1 do local r=ranges[i %% #ranges+1]; first[i],last[i]=r[1],r[2] end
     for _,name in ipairs({"vector","scalarVector"}) do
-        m[name](spans.writeCarray(out,count),spans.fromCarray(first,count),spans.fromCarray(last,count))
+        m[name](spans.writecarray(out,count),spans.fromcarray(first,count),spans.fromcarray(last,count))
         for i=0,count-1 do
             local n,sum = oracle(tonumber(first[i]),tonumber(last[i]),3)
             equal(tonumber(out[i]),sum+n*1000+math.max(0,n-1)*110+math.max(0,n-2)*100,name)
         end
     end
     local signedOut=ffi.new("uint32_t[?]",math.max(count,1))
-    m.signedVector(spans.writeCarray(signedOut,count),spans.fromCarray(first,count),spans.fromCarray(last,count))
+    m.signedVector(spans.writecarray(signedOut,count),spans.fromcarray(first,count),spans.fromcarray(last,count))
     for i=0,count-1 do local n=oracle(tonumber(first[i]),tonumber(last[i]));equal(tonumber(signedOut[i]),n,"signed vector counter") end
-    m.uniformAssigned(spans.writeCarray(out,count),spans.fromCarray(first,count),1,2)
+    m.uniformAssigned(spans.writecarray(out,count),spans.fromcarray(first,count),1,2)
     for i=0,count-1 do equal(tonumber(out[i]),first[i]>0 and 2*4294967296 or 3,"uniform assigned") end
     local ufirst,ulast,uout=ffi.new("uint32_t[?]",math.max(count,1)),ffi.new("uint32_t[?]",math.max(count,1)),ffi.new("uint32_t[?]",math.max(count,1))
     for i=0,count-1 do ufirst[i],ulast[i]=4294967293+i%%3,4294967295 end
-    m.unsignedVector(spans.writeCarray(uout,count),spans.fromCarray(ufirst,count),spans.fromCarray(ulast,count))
+    m.unsignedVector(spans.writecarray(uout,count),spans.fromcarray(ufirst,count),spans.fromcarray(ulast,count))
     for i=0,count-1 do equal(tonumber(uout[i]),3-i%%3,"unsigned vector") end
     for i=0,count-1 do signedOut[i]=i%%5 end
-    m.regions(spans.writeCarray(signedOut,count),2)
+    m.regions(spans.writecarray(signedOut,count),2)
     for i=0,count-1 do
         local expected=0
         for j=i%%5,3 do expected=expected+1;if expected==2 then break end end
@@ -5807,13 +5807,13 @@ for count = 0, 19 do
     end
     for mode=0,4 do
         for i=0,count-1 do out[i]=i%%2 end
-        m.liveness(spans.writeCarray(out,count),2,mode)
+        m.liveness(spans.writecarray(out,count),2,mode)
         local expected=({100,3,7,3,6})[mode+1]
         for i=0,count-1 do equal(tonumber(out[i]),expected,"loop condition and backedge liveness mode " .. mode) end
     end
     local lo,hi = ffi.new("double[?]",math.max(count,1)),ffi.new("double[?]",math.max(count,1))
     for i=0,count-1 do local r=wide[i %% #wide+1];lo[i],hi[i]=r[1],r[2] end
-    m.vectorWide(spans.writeCarray(out,count),spans.fromCarray(lo,count),spans.fromCarray(hi,count))
+    m.vectorWide(spans.writecarray(out,count),spans.fromcarray(lo,count),spans.fromcarray(hi,count))
     for i=0,count-1 do local n,_,v=oracle(tonumber(lo[i]),tonumber(hi[i]),4);equal(tonumber(out[i]),v==0 and 1/v or n+v,"wide vector") end
 end
 for name, fn in pairs(m) do
@@ -5907,7 +5907,7 @@ function M.theDispatchedModuleAnswersWhatTheInterpretedOneDoes()
       local NUPP = %q
       local spans = (function()
          package.path = NUPP .. ";" .. package.path
-         return require("nupp.mem.span")
+         return require("binary.span")
       end)()
       local count = 4096
       local function run(which)
@@ -5926,7 +5926,7 @@ function M.theDispatchedModuleAnswersWhatTheInterpretedOneDoes()
             src[i].weight = (i %% 53) * 0.125 - 2
          end
          local dst = ffi.new("struct { float value; float weight; }[?]", count)
-         mod.scale(spans.writeCarray(dst, count), spans.fromCarray(src, count), 1, count, 1.75)
+         mod.scale(spans.writecarray(dst, count), spans.fromcarray(src, count), 1, count, 1.75)
          local seen = {}
          for i = 0, count - 1 do
             seen[#seen + 1] = dst[i].value
@@ -5977,13 +5977,13 @@ function M.theLibraryTravelsWithWhatWasBuilt()
             [[
       local ffi = require("ffi")
       package.path = %q .. "/?.lua;" .. %q .. ";" .. package.path
-      local spans = require("nupp.mem.span")
+      local spans = require("binary.span")
       local mod = require("kernel")
       local count = 64
       local src = ffi.new("struct { float value; float weight; }[?]", count)
       for i = 0, count - 1 do src[i].value = i * 0.5 src[i].weight = i * 0.25 end
       local dst = ffi.new("struct { float value; float weight; }[?]", count)
-      mod.scale(spans.writeCarray(dst, count), spans.fromCarray(src, count), 1, count, 3.0)
+      mod.scale(spans.writecarray(dst, count), spans.fromcarray(src, count), 1, count, 3.0)
       print("VALUE " .. tostring(dst[7].value))
    ]]
         ):format(moved, NATIVE_HERE .. "/../build/?.lua")
@@ -6143,7 +6143,7 @@ return {
     local main = assert(io.open(dir .. "/src/main.nupp", "wb"))
     main:write(
         [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local kernel = require("kernel")
 
 const count: integer = 8
@@ -6155,7 +6155,7 @@ for i = 1, count do
     one.weight = i * 0.25
 end
 
-kernel.scale(span.writeCarray(target, count), span.fromCarray(source, count), 1, count, 3.0)
+kernel.scale(span.writecarray(target, count), span.fromcarray(source, count), 1, count, 3.0)
 print("VALUE " .. tostring(target[6].value))
 ]]
     )
@@ -6309,7 +6309,7 @@ function M.rearrangementsPreserveEveryLaneBitInNativeAndScalarCode()
         {"uint64", "uint64_t"},
     }) do
         local source = {
-            'local span = require("nupp.mem.span")',
+            'local span = require("binary.span")',
             'local array = require("nupp.mem.array")',
             'local simd = require("simd")',
         }
@@ -6428,7 +6428,7 @@ return {total = reached.total}
 ]]
 
 local SCOPED_REACHED = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function total(borrows values: span.Span<uint8>): number
@@ -6444,7 +6444,7 @@ return {total = total}
 ]]
 
 local SCOPED_UNREACHED = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 local struct Sample
     value: float
@@ -6528,7 +6528,7 @@ function M.aTargetLowersWhatItBundlesAndNothingElse()
 end
 
 local GENERIC_VOCABULARY_KERNEL = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -6596,10 +6596,10 @@ end
 @aot
 local function sums(borrows input: span.Span<number>, seed: number): (number, number, number, number)
     local s = assert(simd.species(array.number, 4))
-    local ordered = simd.reducer.orderedSum(seed)
-    local pairwise = simd.reducer.pairwiseSum(seed)
-    local compensated = simd.reducer.compensatedSum(seed)
-    local algebraic = simd.reducer.algebraicSum(seed)
+    local ordered = simd.reducer.orderedsum(seed)
+    local pairwise = simd.reducer.pairwisesum(seed)
+    local compensated = simd.reducer.compensatedsum(seed)
+    local algebraic = simd.reducer.algebraicsum(seed)
     do
         local cursor: uint32 = 0
         while cursor + s.lanes <= #input do
@@ -6626,8 +6626,8 @@ end
 @aot
 local function extremes(borrows input: span.Span<number>): (number, number, number)
     local s = assert(simd.species(array.number, 4))
-    local low = simd.reducer.propagatingMin(math.huge)
-    local high = simd.reducer.propagatingMax(-math.huge)
+    local low = simd.reducer.propagatingmin(math.huge)
+    local high = simd.reducer.propagatingmax(-math.huge)
     do
         local cursor: uint32 = 0
         while cursor < #input do
@@ -6644,7 +6644,7 @@ end
 @aot
 local function dot(borrows input: span.Span<number>, seed: number): number
     local s = assert(simd.species(array.number, 4))
-    local fold = simd.reducer.orderedDot(seed)
+    local fold = simd.reducer.ordereddot(seed)
     do
         local cursor: uint32 = 0
         while cursor + s.lanes <= #input do
@@ -6662,9 +6662,9 @@ end
 @aot
 local function exact(borrows input: span.Span<int32>, seed: int32): (int32, int32, int32)
     local s = assert(simd.species(array.int32, 4))
-    local sum = simd.reducer.wrappingSum(array.int32, seed)
-    local bits = simd.reducer.xorBits(array.int32, seed)
-    local least = simd.reducer.integerMin(array.int32, seed)
+    local sum = simd.reducer.wrappingsum(array.int32, seed)
+    local bits = simd.reducer.xorbits(array.int32, seed)
+    local least = simd.reducer.integermin(array.int32, seed)
     do
         local cursor: uint32 = 0
         while cursor + s.lanes <= #input do
@@ -6690,9 +6690,9 @@ end
 @aot
 local function mixed(borrows input: span.Span<number>, seed: number): (number, number, number, uint64)
     local s = assert(simd.species(array.number, 4))
-    local ordered = simd.reducer.orderedSum(seed)
-    local pairwise = simd.reducer.pairwiseSum(seed)
-    local where = simd.reducer.numberArgMax()
+    local ordered = simd.reducer.orderedsum(seed)
+    local pairwise = simd.reducer.pairwisesum(seed)
+    local where = simd.reducer.numberargmax()
     local counted = simd.reducer.count()
     ordered:add(seed)
     pairwise:add(seed)
@@ -6727,11 +6727,11 @@ end
 @aot
 local function narrow(borrows input: span.Span<float>, seed: float): (float, float, float, float, number)
     local s = assert(simd.species(array.float, 4))
-    local ordered = simd.reducer.orderedSum(array.float, seed)
-    local dotted = simd.reducer.pairwiseDot(array.float, seed)
-    local compensated = simd.reducer.compensatedSum(array.float, seed)
-    local low = simd.reducer.propagatingMin(array.float, math.huge)
-    local at = simd.reducer.numberArgMin(array.float)
+    local ordered = simd.reducer.orderedsum(array.float, seed)
+    local dotted = simd.reducer.pairwisedot(array.float, seed)
+    local compensated = simd.reducer.compensatedsum(array.float, seed)
+    local low = simd.reducer.propagatingmin(array.float, math.huge)
+    local at = simd.reducer.numberargmin(array.float)
     do
         local cursor: uint32 = 0
         while cursor < #input do
@@ -6753,9 +6753,9 @@ end
 local function integerHorizontals(borrows input: span.Span<int32>): (int32, int32, int32, int32, int32, int32, int32)
     local s = assert(simd.species(array.int32, 4))
     local v = s:load(input, 1, s:tail(#input))
-    return simd.horizontal.wrappingSum(v), simd.horizontal.wrappingProduct(v), simd.horizontal.andBits(v),
-        simd.horizontal.orBits(v), simd.horizontal.xorBits(v), simd.horizontal.integerMin(v),
-        simd.horizontal.integerMax(v)
+    return simd.horizontal.wrappingsum(v), simd.horizontal.wrappingproduct(v), simd.horizontal.andbits(v),
+        simd.horizontal.orbits(v), simd.horizontal.xorbits(v), simd.horizontal.integermin(v),
+        simd.horizontal.integermax(v)
 end
 
 return {
@@ -6774,7 +6774,7 @@ return {
 ]]
 
 local STRIP_MINED_KERNEL = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 local array = require("nupp.mem.array")
 
@@ -6806,7 +6806,7 @@ end
 @aot
 local function stripTotal(borrows values: span.Span<number>): number
     local species = simd.species(array.number)
-    local sum = simd.reducer.orderedSum(0.0)
+    local sum = simd.reducer.orderedsum(0.0)
     for at, active in species:over(#values) do
         sum:add(species:load(values, at, active), active)
     end
@@ -6883,7 +6883,7 @@ end
 --- register held in sixteen bits, and a prefix sum carrying its last lane
 --- without naming how many lanes the species has.
 local WIDTH_COUPLED_KERNEL = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -7166,10 +7166,10 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
     local samples = ffi.new("double[13]", {1, 1e16, -1e16, 3, 0.5, -2.25, 1e-3, 7, 1e16, -1e16, 11, 0.125, -4})
     for count = 0, 13 do
         for _, seed in ipairs({0, 1.5}) do
-            local ordered = simd.reducer.orderedSum(seed)
-            local pairwise = simd.reducer.pairwiseSum(seed)
-            local compensated = simd.reducer.compensatedSum(seed)
-            local dot = simd.reducer.orderedDot(seed)
+            local ordered = simd.reducer.orderedsum(seed)
+            local pairwise = simd.reducer.pairwisesum(seed)
+            local compensated = simd.reducer.compensatedsum(seed)
+            local dot = simd.reducer.ordereddot(seed)
             for i = 0, count - 1 do
                 ordered:add(samples[i])
                 pairwise:add(samples[i])
@@ -7227,9 +7227,9 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
     -- the one-lane form of the vector's mask.
     for count = 0, 13 do
         for _, seed in ipairs({0, 1.5}) do
-            local ordered = simd.reducer.orderedSum(seed)
-            local pairwise = simd.reducer.pairwiseSum(seed)
-            local where = simd.reducer.numberArgMax()
+            local ordered = simd.reducer.orderedsum(seed)
+            local pairwise = simd.reducer.pairwisesum(seed)
+            local where = simd.reducer.numberargmax()
             local counted = simd.reducer.count()
             ordered:add(seed)
             pairwise:add(seed)
@@ -7264,11 +7264,11 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
     local floats = ffi.new("float[13]", {0.1, 1e8, -1e8, 3, 0.5, -2.25, 1e-3, 0.2, 1e8, -1e8, 11, 0.125, -4})
     for count = 0, 13 do
         for _, seed in ipairs({0, 0.1}) do
-            local ordered = simd.reducer.orderedSum(array.float, seed)
-            local dotted = simd.reducer.pairwiseDot(array.float, seed)
-            local compensated = simd.reducer.compensatedSum(array.float, seed)
-            local low = simd.reducer.propagatingMin(array.float, math.huge)
-            local at = simd.reducer.numberArgMin(array.float)
+            local ordered = simd.reducer.orderedsum(array.float, seed)
+            local dotted = simd.reducer.pairwisedot(array.float, seed)
+            local compensated = simd.reducer.compensatedsum(array.float, seed)
+            local low = simd.reducer.propagatingmin(array.float, math.huge)
+            local at = simd.reducer.numberargmin(array.float)
             for i = 0, count - 1 do
                 local x = tonumber(floats[i])
                 ordered:add(x)
@@ -7299,7 +7299,7 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
         for i = 0, 3 do
             local x = i < count and lanes[i] or 0
             sum, product = i32.add(sum, x), i32.mul(product, x)
-            allBits, anyBits, oddBits = i32.andBits(allBits, x), i32.orBits(anyBits, x), i32.xorBits(oddBits, x)
+            allBits, anyBits, oddBits = i32.andbits(allBits, x), i32.orbits(anyBits, x), i32.xorbits(oddBits, x)
             least = least == nil and x or math.min(least, x)
             most = most == nil and x or math.max(most, x)
         end
@@ -7321,9 +7321,9 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
     local integers = ffi.new("int32_t[13]", {5, -7, 2147483647, -2147483648, 3, 3, 12, -1, 0, 99, -99, 41, 7})
     for count = 0, 13 do
         for _, seed in ipairs({0, -3, 2147483647}) do
-            local sum = simd.reducer.wrappingSum(array.int32, seed)
-            local bits = simd.reducer.xorBits(array.int32, seed)
-            local least = simd.reducer.integerMin(array.int32, seed)
+            local sum = simd.reducer.wrappingsum(array.int32, seed)
+            local bits = simd.reducer.xorbits(array.int32, seed)
+            local least = simd.reducer.integermin(array.int32, seed)
             for i = 0, count - 1 do
                 sum:add(integers[i])
                 bits:add(integers[i])
@@ -7349,7 +7349,7 @@ require("jit").off(M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecu
 -- half of a product. Each kernel is called through its lane symbol and its
 -- forced-scalar twin over one corpus, and both are held to Lua's answer.
 local LANE_VOCABULARY_KERNEL = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -7637,7 +7637,7 @@ require("jit").off(M.laneArithmeticAgreesAcrossLuaScalarAndLaneExecution, true)
 -- calling both symbols over one corpus is what holds the vector forms to their
 -- references and both to Lua.
 local CROSS_LANE_KERNEL = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -7659,10 +7659,10 @@ end
 local function horizontals(borrows input: span.Span<number>): (number, number, number, number)
     local s = assert(simd.species(array.number, 4))
     local v = s:load(input, 1)
-    return simd.horizontal.orderedSum(v),
-        simd.horizontal.pairwiseSum(v),
-        simd.horizontal.orderedProduct(v),
-        simd.horizontal.orderedDot(v, v)
+    return simd.horizontal.orderedsum(v),
+        simd.horizontal.pairwisesum(v),
+        simd.horizontal.orderedproduct(v),
+        simd.horizontal.ordereddot(v, v)
 end
 
 @aot
@@ -7670,7 +7670,7 @@ local function extrema(borrows input: span.Span<number>): (number, number)
     local s = assert(simd.species(array.number, 4))
     local v = s:load(input, 1)
 
-    return simd.horizontal.propagatingMin(v), simd.horizontal.numberMax(v)
+    return simd.horizontal.propagatingmin(v), simd.horizontal.numbermax(v)
 end
 
 return {crossLane = crossLane, horizontals = horizontals, extrema = extrema}
@@ -7913,7 +7913,7 @@ end
 
 function M.homogeneousFieldPairsPreserveNativeValuesAndTails()
     local dir = project("require")
-    local source = {'local span = require("nupp.mem.span")'}
+    local source = {'local span = require("binary.span")'}
     local variants = {
         {"Float", "float", "float", "vld2q_f32"},
         {"Double", "number", "double", "vld2q_f64"},
@@ -8023,7 +8023,7 @@ function M.explicitFieldLoadsReadTheirOwnElementAtEveryTail()
         },
     }
     local source = {
-        'local span = require("nupp.mem.span")',
+        'local span = require("binary.span")',
         'local array = require("nupp.mem.array")',
         'local simd = require("simd")',
     }

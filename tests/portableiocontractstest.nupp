@@ -1,7 +1,7 @@
 const assert2 = require("assert")
 
-local standard = require("nupp.io")
-local http = require("nupp.io.http")
+local standard = require("io")
+local http = require("io.http")
 local tests = {}
 
 local record Upload is http.Reader
@@ -33,7 +33,7 @@ function tests.lightweightUploadsKeepTheirNarrowContract(): nil
 end
 
 function tests.ordinaryReadersSatisfyTheUploadSubset(): nil
-    assert2(consume(standard.newStringReader("abcdef")) == "abcdef")
+    assert2(consume(standard.newstringreader("abcdef")) == "abcdef")
 end
 
 local record Queue is standard.ByteQueue
@@ -56,7 +56,7 @@ end
 
 function tests.byteQueuesAreStructuralSources(): nil
     local queue = new Queue(bytes = "abcdef")
-    local reader = standard.newQueueReader(queue)
+    local reader = standard.newqueuereader(queue)
     assert2(reader:read(3) == "abc")
     assert2(#queue.bytes == 3)
     assert2(reader:read(3) == "def")
@@ -65,7 +65,7 @@ end
 
 function tests.scalarReadersAcceptStructuralQueues(): nil
     local queue = new Queue(bytes = "\1\2\3\4")
-    local reader = standard.newScalarReader(queue)
+    local reader = standard.newscalarreader(queue)
     assert2(reader:remaining() == 4)
     assert2(reader:readUint32() == 67305985)
     assert2(reader:remaining() == 0)
@@ -74,8 +74,8 @@ end
 
 function tests.structuralQueuesReadIntoBuffersAndWritableSpans(): nil
     local queue = new Queue(bytes = "abcdef")
-    local reader = standard.newQueueReader(queue)
-    local destination = standard.newBuffer(8)
+    local reader = standard.newqueuereader(queue)
+    local destination = standard.newbuffer(8)
     assert2(reader:readInto(destination, 0, 3) == 3)
     local lease = destination:reserveWrite(3, 3)
     do
@@ -89,8 +89,8 @@ function tests.structuralQueuesReadIntoBuffersAndWritableSpans(): nil
 end
 
 function tests.stringReadersFillWritableSpans(): nil
-    local reader = standard.newStringReader("abc")
-    local destination = standard.newBuffer(3)
+    local reader = standard.newstringreader("abc")
+    local destination = standard.newbuffer(3)
     local lease = destination:reserveWrite(0, 3)
     do
         local output = lease:span()
@@ -102,7 +102,7 @@ function tests.stringReadersFillWritableSpans(): nil
 end
 
 function tests.linesKeepTerminatorsAndFinalFragments(): nil
-    local lines = standard.newLines(standard.newStringReader("one\r\ntwo\nlast"))
+    local lines = standard.newlines(standard.newstringreader("one\r\ntwo\nlast"))
     assert2(lines:read() == "one")
     assert2(lines:read() == "two")
     assert2(lines:read() == "last")

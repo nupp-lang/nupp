@@ -96,4 +96,4 @@ if ok then
     report.traces, report.machineCodeBytes = traces, machine
 end
 assert(#escaped > 0)
-print(json.encodeValue(report))
+print(json.encodevalue(report))

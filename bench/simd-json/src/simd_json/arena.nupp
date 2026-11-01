@@ -4,7 +4,7 @@ local ffi = require("ffi")
 local indexer = require("simd_json.indexer")
 local parser = require("simd_json.parser")
 local fused = require("simd_json.fused")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 local arena = {}
 
@@ -97,8 +97,8 @@ function arena.parse(source: string): Document
     local length: integer = #source
     local capacity: integer = math.max(length, 1)
     local tapeStorage = ffi.new("uint32_t[?]", capacity) as uint32[?]
-    local tapeWrite = span.writeCarray(tapeStorage, length)
-    local tapeCount, indexStatus, indexPosition = indexer.index(span.fromString(source), tapeWrite)
+    local tapeWrite = span.writecarray(tapeStorage, length)
+    local tapeCount, indexStatus, indexPosition = indexer.index(span.fromstring(source), tapeWrite)
     own.drop(tapeWrite)
     if indexStatus ~= indexer.OK then
         fail(indexPosition, "indexing", indexStatus, 2)
@@ -108,12 +108,12 @@ function arena.parse(source: string): Document
     local nodes = ffi.new(NodeArray, arenaCapacity) as parser.Node[?]
     local links = ffi.new("uint32_t[?]", arenaCapacity) as uint32[?]
     local frames = ffi.new(FrameArray, arenaCapacity) as parser.Frame[?]
-    local nodeWrite = span.writeCarray(nodes, arenaCapacity)
-    local linkWrite = span.writeCarray(links, arenaCapacity)
-    local frameWrite = span.writeCarray(frames, arenaCapacity)
+    local nodeWrite = span.writecarray(nodes, arenaCapacity)
+    local linkWrite = span.writecarray(links, arenaCapacity)
+    local frameWrite = span.writecarray(frames, arenaCapacity)
     local root, status, errorByte, nodeCount = parser.parse(
-        span.fromString(source),
-        span.fromCarray(tapeStorage, tapeCount as integer),
+        span.fromstring(source),
+        span.fromcarray(tapeStorage, tapeCount as integer),
         nodeWrite,
         linkWrite,
         frameWrite

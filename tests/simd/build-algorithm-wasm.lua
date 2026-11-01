@@ -88,7 +88,7 @@ elseif name == "simd-json" then
         "src/tape.nupp",
         [[
 local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local indexer = require("simd_json.indexer")
 local u32 = math.u32
 local function indexed(source: string, capacity: integer): ({number}, number, number)
@@ -96,7 +96,7 @@ local function indexed(source: string, capacity: integer): ({number}, number, nu
     local count, status, position = u32.wrap(0), u32.wrap(0), u32.wrap(0)
     do
         local writable = storage:write()
-        count, status, position = indexer.index(span.fromString(source), writable)
+        count, status, position = indexer.index(span.fromstring(source), writable)
     end
     local positions: {number} = {}
     local readable = storage:read()

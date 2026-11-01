@@ -413,7 +413,7 @@ end
 ---     nupp ownership-audit --regions src/native.nupp
 ---     nupp ownership-audit --json src/native.nupp
 @cli("ownership-audit")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record OwnershipAudit
     --- Include automatic cleanup regions.
     regions: boolean = false

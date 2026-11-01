@@ -54,13 +54,13 @@ local si: int32 = math.i32.mul(0x7fffffff, 2)
 local ui: uint32 = math.u32.add(0xffffffff, 1)
 local quotient: uint32 = math.u32.div(17, 5)
 local remainder: uint32 = math.u32.mod(17, 5)
-local shifted: uint32 = math.u32.shiftRightLogical(0x80000000, 31)
-local compared: boolean = math.u32.lessThan(0xffffffff, 0)
+local shifted: uint32 = math.u32.shiftrightlogical(0x80000000, 31)
+local compared: boolean = math.u32.lessthan(0xffffffff, 0)
 local rounded: float = math.f32.fma(1.0, 2.0, 3.0)
 local exponential: float = math.f32.exp(-1.0)
-local floatBits: uint32 = math.f32.toBits(rounded)
-local halfBits: uint32 = math.f32.toF16Bits(rounded)
-local widened: float = math.f32.fromF16Bits(halfBits)
+local floatBits: uint32 = math.f32.tobits(rounded)
+local halfBits: uint32 = math.f32.tof16bits(rounded)
+local widened: float = math.f32.fromf16bits(halfBits)
 return si, ui, quotient, remainder, shifted, compared, rounded, exponential, floatBits, halfBits, widened
 ]]
     local result = parser.parse(source, "fixed-width.nupp")
@@ -156,7 +156,7 @@ return Bad, bad
 
     checkedTree(
         [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local struct Bytes
     signed: int8
     unsigned: uint16
@@ -1037,7 +1037,7 @@ end
 function M.aNarrowUnsignedLoadAccumulatesIntoASignedWidthInsideAot()
     local body = table.concat(
         {
-            'local span = require("nupp.mem.span")',
+            'local span = require("binary.span")',
             "@aot",
             "local function sum(borrows input: span.Span<uint8>, factor: int32): int32",
             "   local carry: int32 = 0",

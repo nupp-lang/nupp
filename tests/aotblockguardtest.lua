@@ -21,12 +21,12 @@ function M.blockSpanGuardsRejectBeforeExecutingTheBody()
         dir .. "/src/guarded.nupp",
         [[
 module guarded
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 @aot
 local function dot(borrows left: span.Span<number>, borrows right: span.Span<number>): number
     assert(#left == #right)
-    local result = simd.reducer.orderedDot(0.0)
+    local result = simd.reducer.ordereddot(0.0)
     for i = 1, #left do result:add(left[i], right[i]) end
     return result:value()
 end
@@ -49,20 +49,20 @@ export = {dot = dot, fill = fill}
 package.path = "build/native/?.lua;" .. package.path
 local m = require("guarded")
 local ffi = require("ffi")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 if arg[1] == "require" then
     for name, fn in pairs(m) do assert(__nuppAotCompiled[fn], name .. " is interpreted") end
 end
 local a, b, out = ffi.new("double[5]", {1, 2, 3, 4, 5}), ffi.new("double[5]", {2, 3, 4, 5, 6}), ffi.new("double[5]")
-local left, right = span.fromCarray(a, 5), span.fromCarray(b, 5)
+local left, right = span.fromcarray(a, 5), span.fromcarray(b, 5)
 assert(m.dot(left, right) == 70)
-assert(m.dot(span.fromCarray(a, 0), span.fromCarray(b, 0)) == 0)
-assert(not pcall(m.dot, left, span.fromCarray(b, 4)))
-assert(not pcall(m.dot, span.fromCarray(a, 4), right))
+assert(m.dot(span.fromcarray(a, 0), span.fromcarray(b, 0)) == 0)
+assert(not pcall(m.dot, left, span.fromcarray(b, 4)))
+assert(not pcall(m.dot, span.fromcarray(a, 4), right))
 out[0] = -99
-assert(not pcall(m.fill, span.writeCarray(out, 4), right))
+assert(not pcall(m.fill, span.writecarray(out, 4), right))
 assert(out[0] == -99, "body executed before the guard")
-assert(m.fill(span.writeCarray(out, 5), right) == 20 and out[0] == 2)
+assert(m.fill(span.writecarray(out, 5), right) == 20 and out[0] == 2)
 print("block guards match")
 ]]
     )
@@ -99,7 +99,7 @@ function M.factorGuardsRejectAtTheCallBoundary()
         dir .. "/src/factored.nupp",
         [[
 module factored
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 @aot
 local function box3(exclusive grey: span.WriteSpan<uint8>, borrows rgb: span.Span<uint8>): nil
     assert(#rgb == 3 * #grey)
@@ -129,24 +129,24 @@ export = {box3 = box3, padded = padded}
 package.path = "build/native/?.lua;" .. package.path
 local m = require("factored")
 local ffi = require("ffi")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 if arg[1] == "require" then
     for name, fn in pairs(m) do assert(__nuppAotCompiled[fn], name .. " is interpreted") end
 end
 local rgb = ffi.new("uint8_t[6]", {1, 2, 3, 4, 5, 6})
 local grey = ffi.new("uint8_t[2]")
-m.box3(span.writeCarray(grey, 2), span.fromCarray(rgb, 6))
+m.box3(span.writecarray(grey, 2), span.fromcarray(rgb, 6))
 assert(grey[0] == 6 and grey[1] == 9, "the window sums three bytes from each cursor")
 grey[0] = 77
-assert(not pcall(m.box3, span.writeCarray(grey, 2), span.fromCarray(rgb, 5)), "five is not three times two")
-assert(not pcall(m.box3, span.writeCarray(grey, 1), span.fromCarray(rgb, 6)), "nor six three times one")
+assert(not pcall(m.box3, span.writecarray(grey, 2), span.fromcarray(rgb, 5)), "five is not three times two")
+assert(not pcall(m.box3, span.writecarray(grey, 1), span.fromcarray(rgb, 6)), "nor six three times one")
 assert(grey[0] == 77, "body executed before the guard")
-m.box3(span.writeCarray(grey, 0), span.fromCarray(rgb, 0))
+m.box3(span.writecarray(grey, 0), span.fromcarray(rgb, 0))
 local input = ffi.new("uint8_t[2]", {5, 6})
 local output = ffi.new("uint8_t[10]")
-assert(m.padded(span.writeCarray(output, 10), span.fromCarray(input, 2)) == 2)
+assert(m.padded(span.writecarray(output, 10), span.fromcarray(input, 2)) == 2)
 assert(output[0] == 5 and output[1] == 6 and output[5] == 9 and output[6] == 9, "writes land where the factor allows")
-assert(not pcall(m.padded, span.writeCarray(output, 9), span.fromCarray(input, 2)), "nine is below 4 * 2 + 2")
+assert(not pcall(m.padded, span.writecarray(output, 9), span.fromcarray(input, 2)), "nine is below 4 * 2 + 2")
 print("factor guards match")
 ]]
     )

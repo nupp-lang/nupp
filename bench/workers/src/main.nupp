@@ -1,6 +1,6 @@
 const jobs = require("jobs")
 const ffi = require("ffi")
-const tasks = require("nupp.tasks")
+const tasks = require("coroutine")
 
 ffi.cdef[[uint64_t nuppNativeMonotonicNs(void);]]
 const C = ffi.C
@@ -39,7 +39,7 @@ local rows: {Row} = {}
 local sink = 0.0
 
 local coldStarted = now()
-with scope = tasks.open() do
+with scope = tasks.scope() do
     sink = sink + scope:fork(0, jobs.identity):await()
 end
 const coldMs = now() - coldStarted
@@ -50,7 +50,7 @@ print(("cold scheduler     %9.2f ms       %9s  first fork"):format(coldMs, "-"))
 local latencySamples: {number} = {}
 for sample = 1, SAMPLES + 2 do
     local started = now()
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         for index = 1, LATENCY_TASKS do
             sink = sink + scope:fork(index, jobs.identity):await()
         end
@@ -73,7 +73,7 @@ local text = ("abcdefgh"):rep(512)
 local textSamples: {number} = {}
 for sample = 1, SAMPLES + 2 do
     local started = now()
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         for _ = 1, PAYLOAD_TASKS do
             sink = sink + #scope:fork(text, jobs.echoText):await()
         end
@@ -96,7 +96,7 @@ local payload = new jobs.Payload(id = 7, label = "payload", bytes = text)
 local recordSamples: {number} = {}
 for sample = 1, SAMPLES + 2 do
     local started = now()
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         for _ = 1, PAYLOAD_TASKS do
             const returned = scope:fork(payload, jobs.echoPayload):await()
             sink = sink + returned.id + #returned.bytes
@@ -119,7 +119,7 @@ rows[
 local anyRecordSamples: {number} = {}
 for sample = 1, SAMPLES + 2 do
     local started = now()
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         for _ = 1, PAYLOAD_TASKS do
             const returned = scope:fork(payload, jobs.echoDynamic):await()
             sink = sink + returned.id + #returned.bytes
@@ -143,7 +143,7 @@ local plainTable = {id = 7, label = "payload", bytes = text}
 local dynamicRecordSamples: {number} = {}
 for sample = 1, SAMPLES + 2 do
     local started = now()
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         for _ = 1, PAYLOAD_TASKS do
             const returned = scope:fork(plainTable, jobs.echoDynamic):await()
             sink = sink + returned.id + #returned.bytes
@@ -164,7 +164,7 @@ rows[
 }
 
 local sparse = new jobs.Sparse(id = 7, label = "payload", bytes = text)
-with scope = tasks.open() do
+with scope = tasks.scope() do
     const bare = scope:fork(sparse, jobs.echoSparse):await()
     if bare.note ~= nil or bare.id ~= 7 or #bare.bytes ~= #text then
         error("an optional-field record round trip corrupted its fields")
@@ -177,7 +177,7 @@ end
 local sparseSamples: {number} = {}
 for sample = 1, SAMPLES + 2 do
     local started = now()
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         for _ = 1, PAYLOAD_TASKS do
             const returned = scope:fork(sparse, jobs.echoSparse):await()
             sink = sink + returned.id + #returned.bytes
@@ -209,7 +209,7 @@ end
 if corpus:slice(0, corpus:length()) ~= corpus then
     error("region extent equality failed")
 end
-with scope = tasks.open() do
+with scope = tasks.scope() do
     const counted = scope:fork(corpus, 0, corpus:length(), jobs.countRange):await()
     if counted ~= expectedLines then
         error("a region crossing miscounted: " .. tostring(counted))
@@ -219,7 +219,7 @@ end
 local bigTextSamples: {number} = {}
 for sample = 1, SAMPLES + 2 do
     local started = now()
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         for _ = 1, PAYLOAD_TASKS do
             sink = sink + #scope:fork(lined, jobs.echoText):await()
         end
@@ -241,7 +241,7 @@ rows[
 local regionSamples: {number} = {}
 for sample = 1, SAMPLES + 2 do
     local started = now()
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         for _ = 1, PAYLOAD_TASKS do
             sink = sink + scope:fork(corpus, jobs.regionSize):await()
         end
@@ -264,7 +264,7 @@ const SCAN_TASKS = 30
 local regionScanSamples: {number} = {}
 for sample = 1, SAMPLES + 2 do
     local started = now()
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         for _ = 1, SCAN_TASKS do
             sink = sink + scope:fork(corpus, 0, corpus:length(), jobs.countRange):await()
         end
@@ -286,7 +286,7 @@ rows[
 local textScanSamples: {number} = {}
 for sample = 1, SAMPLES + 2 do
     local started = now()
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         for _ = 1, SCAN_TASKS do
             sink = sink + scope:fork(lined, jobs.countText):await()
         end
@@ -307,8 +307,8 @@ rows[
 
 const heap = require("nupp.mem.heap")
 
-local small = heap.allocate(ffi.typeof<uint8>(), 4096)
-with scope = tasks.open() do
+local small = heap.alloc(ffi.typeof<uint8>(), 4096)
+with scope = tasks.scope() do
     small = scope:fork(small, 7, jobs.bump):await()
 end
 do
@@ -321,7 +321,7 @@ end
 local smallMoveSamples: {number} = {}
 for sample = 1, SAMPLES + 2 do
     local started = now()
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         for _ = 1, PAYLOAD_TASKS do
             small = scope:fork(small, jobs.bounce):await()
         end
@@ -343,11 +343,11 @@ rows[
 
 const MOVE_TASKS = 30
 const FRAME_BYTES = 8 * 1048576
-local frame = heap.allocate(ffi.typeof<uint8>(), FRAME_BYTES)
+local frame = heap.alloc(ffi.typeof<uint8>(), FRAME_BYTES)
 local movedSamples: {number} = {}
 for sample = 1, SAMPLES + 2 do
     local started = now()
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         for _ = 1, MOVE_TASKS do
             frame = scope:fork(frame, jobs.bounce):await()
         end
@@ -374,7 +374,7 @@ local big = ("abcdefgh"):rep(FRAME_BYTES // 8)
 local bigMoveSamples: {number} = {}
 for sample = 1, SAMPLES + 2 do
     local started = now()
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         for _ = 1, MOVE_TASKS do
             sink = sink + #scope:fork(big, jobs.echoText):await()
         end
@@ -406,13 +406,13 @@ end
 -- One job per child: each child forks its job and waits for it, and the children
 -- wait together, so every lane is busy at once.
 local function burnOnALane(): nil
-    with lane = tasks.open() do
+    with lane = tasks.scope() do
         sink = sink + lane:fork(iterations, jobs.burn):await()
     end
 end
 
 -- Compile the hot worker loop in every lane before measuring it.
-with scope = tasks.open() do
+with scope = tasks.scope() do
     for _ = 1, lanes do
         scope:spawn(burnOnALane)
     end
@@ -428,7 +428,7 @@ for _ = 1, SAMPLES do
     serialSamples[#serialSamples + 1] = now() - serialStarted
 
     local parallelStarted = now()
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         for _ = 1, lanes do
             scope:spawn(burnOnALane)
         end

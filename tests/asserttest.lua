@@ -52,13 +52,13 @@ function M.comparesStructuresAndReportsTheFirstPath()
     local actual = {false, {code = "NUPP2002"}, flag = true, [false] = "boolean"}
     local expected = {false, {code = "NUPP2114"}, flag = true, [false] = "boolean"}
     local err = test.raises(function()
-        test.deepEqual(actual, expected)
+        test.deepequal(actual, expected)
     end)
     test.matches(err, 'at value%[2%]%.code: want "NUPP2114", got "NUPP2002"')
 
     for _ = 1, 50 do
         local ordered = test.raises(function()
-            test.deepEqual({[false] = 1, [2] = 1, value = 1}, {[false] = 2, [2] = 2, value = 2})
+            test.deepequal({[false] = 1, [2] = 1, value = 1}, {[false] = 2, [2] = 2, value = 2})
         end)
         test.matches(ordered, "at value%[false%]")
     end
@@ -69,11 +69,11 @@ function M.comparesCyclesByBisimulationAndIgnoresAliasing()
     actual.self = actual
     local expected = {name = "root"}
     expected.self = expected
-    test.deepEqual(actual, expected)
+    test.deepequal(actual, expected)
 
     local shared = {value = 1}
     local actualAliases = {left = shared, right = shared}
-    test.equal(test.deepEqual(actualAliases, {left = {value = 1}, right = {value = 1}}), actualAliases)
+    test.equal(test.deepequal(actualAliases, {left = {value = 1}, right = {value = 1}}), actualAliases)
 end
 
 function M.honorsMetatablesAndTheirEquality()
@@ -82,9 +82,9 @@ function M.honorsMetatablesAndTheirEquality()
             return left.id == right.id
         end
     }
-    test.deepEqual(setmetatable({id = 1, detail = "left"}, mt), setmetatable({id = 1, detail = "right"}, mt))
+    test.deepequal(setmetatable({id = 1, detail = "left"}, mt), setmetatable({id = 1, detail = "right"}, mt))
     local err = test.raises(function()
-        test.deepEqual(setmetatable({}, {}), setmetatable({}, {}))
+        test.deepequal(setmetatable({}, {}), setmetatable({}, {}))
     end)
     test.matches(err, "value%.<metatable>")
 end
@@ -92,21 +92,21 @@ end
 function M.usesNativeLeafEqualityAndRefusesUnorderedKeys()
     local nan = 0 / 0
     local nanError = test.raises(function()
-        test.deepEqual({value = nan}, {value = nan})
+        test.deepequal({value = nan}, {value = nan})
     end)
     test.matches(nanError, "value%.value")
 
     local ffi = require("ffi")
     local pointer = ffi.new("int[1]")
-    test.deepEqual({pointer = pointer}, {pointer = pointer})
+    test.deepequal({pointer = pointer}, {pointer = pointer})
     local pointerError = test.raises(function()
-        test.deepEqual({pointer = ffi.new("int[1]")}, {pointer = ffi.new("int[1]")})
+        test.deepequal({pointer = ffi.new("int[1]")}, {pointer = ffi.new("int[1]")})
     end)
     test.matches(pointerError, "value%.pointer")
 
     local key = {}
     local keyError = test.raises(function()
-        test.deepEqual({[key] = 1}, {[key] = 1})
+        test.deepequal({[key] = 1}, {[key] = 1})
     end)
     test.matches(keyError, "boolean, number, or string key")
 end
@@ -124,8 +124,8 @@ function M.identifiesSkippedTests()
         test.suite.skip("needs a network connection")
     end)
     test(not ok)
-    test(test.suite.isSkip(skip))
-    test.equal(test.suite.skipReason(skip), "needs a network connection")
+    test(test.suite.isskip(skip))
+    test.equal(test.suite.skipreason(skip), "needs a network connection")
 end
 
 function M.theCallableIsTheGlobalAndRequiredModule()
@@ -180,29 +180,29 @@ function M.preservesErrorObjectsAndEvaluatesEveryArgument()
         return {n = select("#", ...), ...}
     end
 
-    test.deepEqual(collect(test("value", nil, false, nil)), {n = 4, "value", nil, false})
+    test.deepequal(collect(test("value", nil, false, nil)), {n = 4, "value", nil, false})
 end
 
 function M.suiteHelpersKeepTheirOriginalInternalBindings()
     local suite = test.suite
-    local isSkip, isNotExecuted, metric = suite.isSkip, suite.isNotExecuted, suite.metric
+    local isSkip, isNotExecuted, metric = suite.isskip, suite.isnotexecuted, suite.metric
     local ok, problem = pcall(function()
         local _, skipped = pcall(suite.skip, "skip marker")
-        local _, unavailable = pcall(suite.notExecuted, "unavailable marker")
-        suite.isSkip = function()
+        local _, unavailable = pcall(suite.notexecuted, "unavailable marker")
+        suite.isskip = function()
             return false
         end
-        suite.isNotExecuted = function()
+        suite.isnotexecuted = function()
             return false
         end
         suite.metric = function()
             error("the public binding was replaced")
         end
-        test.equal(suite.skipReason(skipped), "skip marker")
-        test.equal(suite.notExecutedReason(unavailable), "unavailable marker")
+        test.equal(suite.skipreason(skipped), "skip marker")
+        test.equal(suite.notexecutedreason(unavailable), "unavailable marker")
         suite.work("assert.original-work-binding", 1)
     end)
-    suite.isSkip, suite.isNotExecuted, suite.metric = isSkip, isNotExecuted, metric
+    suite.isskip, suite.isnotexecuted, suite.metric = isSkip, isNotExecuted, metric
     if not ok then
         error(problem, 0)
     end

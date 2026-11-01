@@ -31,7 +31,7 @@ the two paths compute their file sets differently, which is exactly what the
 test comparing them is supposed to be able to catch. A shallow clone has no
 untracked files for the two definitions to disagree about anyway.
 ]]
-const files2 = require("nupp.io.files")
+const files2 = require("io.files")
 
 local bundled = require("nupp.compiler.bundledlist")
 local fs = require("nupp.compiler.fs")

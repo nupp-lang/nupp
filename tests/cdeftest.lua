@@ -75,7 +75,7 @@ end
 function M.countedPointersBuildOneCheckedWrapperOverThePhysicalBinding()
     local source = table.concat(
         {
-            "local spans = require('nupp.mem.span')",
+            "local spans = require(\"binary.span\")",
             "cdef struct CountedPosition",
             "   x: float",
             "end",
@@ -90,8 +90,8 @@ function M.countedPointersBuildOneCheckedWrapperOverThePhysicalBinding()
             ")",
             "local p = ffi.new<CountedPosition[4]>()",
             "local v = ffi.new<CountedVelocity[4]>()",
-            "local writable = spans.writeCarray(p, 4)",
-            "local readable = spans.fromCarray(v, 4)",
+            "local writable = spans.writecarray(p, 4)",
+            "local readable = spans.fromcarray(v, 4)",
             "counted_integrate(writable, readable, 0.5 as float)",
             "own.drop(writable)",
         },
@@ -126,7 +126,7 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
 
     local declaration = table.concat(
         {
-            "local spans = require('nupp.mem.span')",
+            "local spans = require(\"binary.span\")",
             "cdef function counted_pointer_reset() from\"" .. library .. "\"",
             "cdef function counted_pointer_call_count(): uint64 from\"" .. library .. "\"",
             "cdef function counted_pointer_transform(",
@@ -148,46 +148,46 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
             "for i = 0, 5 do input[i] = (i + 1) as int32 end",
             "counted_pointer_reset()",
             "do",
-            "   local writer = spans.writeCarray(output, 6)",
+            "   local writer = spans.writecarray(output, 6)",
             "   do",
             "      local parts = writer:splitAt(1)",
-            "      local readable = spans.fromCarray(input, 6):slice(2, 6)",
+            "      local readable = spans.fromcarray(input, 6):slice(2, 6)",
             "      counted_pointer_transform(parts.right, readable)",
             "   end",
             "   own.drop(writer)",
             "end",
             "local offsetFirst: int32, offsetLast: int32",
             "do",
-            "   local transformed = spans.fromCarray(output, 6)",
+            "   local transformed = spans.fromcarray(output, 6)",
             "   offsetFirst, offsetLast = transformed[2], transformed[6]",
             "end",
             "local transformCalls = counted_pointer_call_count()",
             "counted_pointer_reset()",
             "do",
-            "   local emptyOutput = spans.writeCarray(output, 0)",
-            "   local emptyInput = spans.fromCarray(input, 0)",
+            "   local emptyOutput = spans.writecarray(output, 0)",
+            "   local emptyInput = spans.fromcarray(input, 0)",
             "   counted_pointer_transform(emptyOutput, emptyInput)",
             "   own.drop(emptyOutput)",
             "end",
             "local zeroCalls = counted_pointer_call_count()",
             "counted_pointer_reset()",
             "do",
-            "   local independentOutput = spans.writeCarray(output, 3)",
-            "   local independentInput = spans.fromCarray(input, 5)",
+            "   local independentOutput = spans.writecarray(output, 3)",
+            "   local independentInput = spans.fromcarray(input, 5)",
             "   counted_pointer_independent(independentOutput, independentInput)",
             "   own.drop(independentOutput)",
             "end",
             "local outputCount: int32, inputCount: int32, inputFirst: int32",
             "do",
-            "   local independent = spans.fromCarray(output, 3)",
+            "   local independent = spans.fromcarray(output, 3)",
             "   outputCount, inputCount, inputFirst = independent[1], independent[2], independent[3]",
             "end",
             "local sharedStorage = ffi.new<int32[2]>()",
             "local sharedOutput = ffi.new<int32[2]>()",
             "sharedStorage[0], sharedStorage[1] = 7 as int32, 8 as int32",
             "do",
-            "   local sourceWriter = spans.writeCarray(sharedStorage, 2)",
-            "   local destinationWriter = spans.writeCarray(sharedOutput, 2)",
+            "   local sourceWriter = spans.writecarray(sharedStorage, 2)",
+            "   local destinationWriter = spans.writecarray(sharedOutput, 2)",
             "   do",
             "      local sourceReader = sourceWriter:shared()",
             "      counted_pointer_transform(destinationWriter, sourceReader)",
@@ -195,7 +195,7 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
             "   own.drop(destinationWriter)",
             "   own.drop(sourceWriter)",
             "end",
-            "local sharedRead = spans.fromCarray(sharedOutput, 2)",
+            "local sharedRead = spans.fromcarray(sharedOutput, 2)",
             "return offsetFirst, offsetLast, transformCalls, zeroCalls,",
             "   outputCount, inputCount, inputFirst, sharedRead[1], sharedRead[2]",
         },
@@ -218,12 +218,12 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
     testAssert.equal(tonumber(sharedLast), 18, "shared downgrade preserves its full range")
 
     local transform = run(declaration .. "\nreturn counted_pointer_transform")
-    local spans = require("nupp.mem.span")
+    local spans = require("binary.span")
     local ffi = require("ffi")
     local output = ffi.new("int32_t[1]")
     local input = ffi.new("int32_t[2]")
-    local shortOutput = spans.writeCarray(output, 1)
-    local longInput = spans.fromCarray(input, 2)
+    local shortOutput = spans.writecarray(output, 1)
+    local longInput = spans.fromcarray(input, 2)
     local reset = ffi.load(library).counted_pointer_reset
     local callCount = ffi.load(library).counted_pointer_call_count
     reset()

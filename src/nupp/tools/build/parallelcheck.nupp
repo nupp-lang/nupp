@@ -133,8 +133,8 @@ function parallelcheck.run(input: any): (any?, string?)
     end
 
     report:at(input.build and "parallel build" or "parallel check")
-    local tasks = require("nupp.tasks")
-    local suspension = require("nupp.suspension")
+    local tasks = require("coroutine")
+    local suspension = require("coroutine.suspension")
     local process = require("nupp.compiler.process")
     local moduleobject = require("nupp.tools.build.moduleobject")
     local compilerRoot = envMod.compilerRoot()
@@ -170,7 +170,7 @@ function parallelcheck.run(input: any): (any?, string?)
         -- LuaJIT delivers SIGINT as this error at the interrupted instruction.
         -- Protected worker scopes must not turn Ctrl-C into a successful serial
         -- retry after the user asked the whole command to stop.
-        if tasks.isCancelled(reason) or tostring(reason):match("interrupted!$") ~= nil then
+        if tasks.iscancelled(reason) or tostring(reason):match("interrupted!$") ~= nil then
             error(reason, 0)
         end
         report:parallelCounted({
@@ -297,7 +297,7 @@ function parallelcheck.run(input: any): (any?, string?)
     end
 
     local scanned, scanProblem = pcall(function(): nil
-        with scope = tasks.open(jobCount) do
+        with scope = tasks.scope(jobCount) do
             for worker = 1, jobCount do
                 scope:spawn(worker, scanWorker)
             end
@@ -579,7 +579,7 @@ function parallelcheck.run(input: any): (any?, string?)
             end
             local request = requestFor(worker, component)
             local answered, answer = pcall(requestWorker, worker, request)
-            if not answered and (tasks.isCancelled(answer) or tostring(answer):match("interrupted!$") ~= nil) then
+            if not answered and (tasks.iscancelled(answer) or tostring(answer):match("interrupted!$") ~= nil) then
                 error(answer, 0)
             end
             if not answered then
@@ -598,7 +598,7 @@ function parallelcheck.run(input: any): (any?, string?)
     end
 
     local ran, problem = pcall(function(): nil
-        with scope = tasks.open(jobCount) do
+        with scope = tasks.scope(jobCount) do
             for worker = 1, jobCount do
                 scope:spawn(worker, runWorker)
             end

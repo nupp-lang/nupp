@@ -12,7 +12,7 @@ local function fixture(files, body)
         assert(fs.writeFile(fs.join(dir, name), source))
     end
     local ok, why = pcall(body, dir)
-    assert(require("nupp.io.files").remove(dir, true))
+    assert(require("io.files").remove(dir, true))
     assert(ok, why)
 end
 
@@ -654,7 +654,8 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
             interface = "nupp.random.spi.Provider",
             native = "nupp.runtime.provider.nativecrypto",
             browser = "nupp.runtime.browser.crypto",
-            member = "randomBytes"
+            member = "randomBytes",
+            exported = "randombytes"
         },
         {
             module = "nupp.suspension",
@@ -671,7 +672,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
             native = "nupp.runtime.provider.nativebuffer",
             browser = "nupp.runtime.provider.tablebuffer",
             member = "new",
-            exported = "newBuffer",
+            exported = "newbuffer",
             vm = true
         },
         {

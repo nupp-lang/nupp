@@ -753,7 +753,7 @@ end
 const __nuppBuffer = require("nupp.text")
 
 function m.join(items)
-    local __nuppBuf_1 = __nuppBuffer.newBuffer()
+    local __nuppBuf_1 = __nuppBuffer.newbuffer()
     for _, item in ipairs(items) do
         __nuppBuf_1:put(item, ",")
     end
@@ -779,7 +779,7 @@ the string again, so such a loop keeps its concatenation.
 
 ### `OPT-6`, indexed views
 
-[](nupp.mem.indexed.range) validates an inclusive range for trusted Span or SoA
+[](binary.span.range) validates an inclusive range for trusted Span or SoA
 views. Matching accesses in the numeric loop become non-raising at every level,
 including in `@noraise` code. At `-O1`, they also become direct FFI accesses:
 

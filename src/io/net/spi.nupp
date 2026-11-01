@@ -1,0 +1,27 @@
+module io.net.spi
+
+--[[
+`io.net.spi` defines the network transport contract.
+
+```nupp
+local contract = require("io.net.spi")
+local type Provider = contract.Provider
+```
+
+
+Importing this declaration opens no sockets. The facade retains the provider
+table and supplies it as the explicit receiver for every operation. Provider
+handles are opaque; shared Address values come from [](io.net.Address).
+
+Listener acceptance, connection completion, and stream I/O are readiness probes.
+They must not run a private blocking loop. `run(timeoutMs)` pumps the provider's
+reactor, and the public facade exposes pumping as `io.net.pump`. Keep handle
+ownership separate for listeners, connect requests, streams, and datagrams.
+
+Pending and EOF conventions differ by operation and are documented below. Report
+failures through the declared error result rather than disguising them as
+pending work. A TLS provider wrapping these streams must understand their handle
+representation; selection cannot make unrelated transport handles interoperable.
+]]
+local source1 = require("nupp.io.net.spi")
+export type Provider = source1.Provider

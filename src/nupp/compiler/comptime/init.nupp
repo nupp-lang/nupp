@@ -483,8 +483,8 @@ local function buildEnvironment(state)
     if type(assertion) == "table" then
         env.assert = {
             equal = assertion.equal,
-            notEqual = assertion.notEqual,
-            deepEqual = assertion.deepEqual,
+            notEqual = assertion.notequal,
+            deepEqual = assertion.deepequal,
             matches = assertion.matches,
         }
         state.callableValues[env.assert] = function(...)

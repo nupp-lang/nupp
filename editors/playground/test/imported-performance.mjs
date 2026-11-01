@@ -106,7 +106,7 @@ for (const engine of (process.env.NUPP_TEST_BROWSERS || 'chromium,firefox,webkit
               summary.push(summarize(kind + '-edit', values, firstRequestMs));
               if (kind === 'check') summary.push(summarize('hover', hovers));
             }
-            const invalidCalls = ['json.decode(false)', 'hex.encode(false)', 'text.newBuffer(false)', 'utf8.truncate(false, 24)', 'path.newPath(false)', 'uri.newURI(false)'];
+            const invalidCalls = ['json.decode(false)', 'hex.encode(false)', 'text.newbuffer(false)', 'utf8.truncate(false, 24)', 'path.newpath(false)', 'uri.newuri(false)'];
             const importedTypeChecks = [];
             for (const call of invalidCalls) {
               phase = `imported argument validation: ${call}`;

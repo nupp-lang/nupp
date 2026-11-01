@@ -138,7 +138,7 @@ local simd = require("simd")
 @aot
 local function total(flag: boolean): number
     local species = assert(simd.species(array.number, 2))
-    local fold = simd.reducer.pairwiseSum(0.0)
+    local fold = simd.reducer.pairwisesum(0.0)
 ]]
     local suffix = [[
     return fold:value()
@@ -178,7 +178,7 @@ return total
         prefix
         .. [[
     if flag then
-        local nested = simd.reducer.pairwiseSum(0.0)
+        local nested = simd.reducer.pairwisesum(0.0)
         do
             nested:add(species:splat(1.0), species:tail(2))
         end
@@ -201,7 +201,7 @@ local simd = require("simd")
 @aot
 local function total(flag: boolean): number
     local species = assert(simd.species(array.number, 2))
-    local fold = simd.reducer.orderedSum(0.0)
+    local fold = simd.reducer.orderedsum(0.0)
 ]]
     local suffix = [[
     return fold:value()
@@ -265,10 +265,10 @@ local function fold(): (number, number)
     reports(
         prefix
         .. [[
-    local wide: int32 = simd.horizontal.wrappingSum(integers:splat(1))
-    local narrow: uint32 = simd.horizontal.xorBits(bytes:splat(1))
-    local least: int32 = simd.horizontal.integerMin(integers:splat(1))
-    local total: float = simd.horizontal.orderedSum(floats:splat(1.0))
+    local wide: int32 = simd.horizontal.wrappingsum(integers:splat(1))
+    local narrow: uint32 = simd.horizontal.xorbits(bytes:splat(1))
+    local least: int32 = simd.horizontal.integermin(integers:splat(1))
+    local total: float = simd.horizontal.orderedsum(floats:splat(1.0))
     return wide + narrow, least + total
 end
 
@@ -280,7 +280,7 @@ return fold
     reports(
         prefix
         .. [[
-    return simd.horizontal.wrappingSum(floats:splat(1.0)), simd.horizontal.orderedSum(integers:splat(1))
+    return simd.horizontal.wrappingsum(floats:splat(1.0)), simd.horizontal.orderedsum(integers:splat(1))
 end
 
 return fold
@@ -332,7 +332,7 @@ function M.ordinaryLoopShapesCompile()
     -- functions.
     reports(
         [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function map(
@@ -405,7 +405,7 @@ end
 function M.gpuIsAnExecutionTargetRatherThanALaneWidth()
     reports(
         [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot(target = "gpu")
 local function map(
@@ -438,7 +438,7 @@ end
 function M.gpuTargetBindsACompilerGeneratedTypedObject()
     reportsGpu(
         [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local gpu = require("gpu")
 local array = require("nupp.mem.array")
 
@@ -466,7 +466,7 @@ return true
 
     reportsGpu(
         [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local gpu = require("gpu")
 
 local struct Input value: float end
@@ -499,7 +499,7 @@ end
 
 function M.gpuResourcesAreClosableChildrenOfTheirContext()
     local header = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local gpu = require("gpu")
 local array = require("nupp.mem.array")
 
@@ -665,7 +665,7 @@ end
 function M.gpuTargetWithoutRequiredLinkingRemainsAnOrdinaryFunction()
     reports(
         [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot(target = "gpu")
 local function copy(
@@ -747,7 +747,7 @@ function M.spanMethodCallsAreAdmitted()
     -- pass that knows the receiver's type.
     reports(
         [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function total(values: span.Span<float>): number
@@ -767,7 +767,7 @@ return {total = total}
 
     reports(
         [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function double(exclusive values: span.WriteSpan<float>): nil

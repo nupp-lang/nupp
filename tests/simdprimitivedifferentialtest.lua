@@ -157,8 +157,8 @@ local generatedCases = test.suite.cases(
     end,
     function(row)
         local capability = runner.nativeCapability()
-        test.suite.requireCapability("compiler.llvm", capability.compilerVersion ~= nil, capability)
-        test.suite.requireCapability("cpu." .. capability.tier, capability.available, capability)
+        test.suite.requirecapability("compiler.llvm", capability.compilerVersion ~= nil, capability)
+        test.suite.requirecapability("cpu." .. capability.tier, capability.available, capability)
         local generated = row.pack == "species" and packs.species() or packs.semantics()
         local key = fixtureKey(row.pack, generated, capability)
         local _, report, reused = test.suite.fixture(key, function(directory)
@@ -384,9 +384,10 @@ function M.unsupportedPrimitiveDomainsHavePositionedRefusals()
     }
     for _, case in ipairs(cases) do
         local filename = "simd-domain-" .. case[1] .. ".nupp"
-        local source = [[local simd = require("simd")
+        local source = [[
+local simd = require("simd")
 local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 @aot
 local function refused(borrows input: span.Span<float>): number
     ]]

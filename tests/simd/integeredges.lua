@@ -203,8 +203,9 @@ function M.generate(options)
                 local module = 'simd_integeredges_' .. ty .. '_' .. at
                 local names, exports, calls, selectedLanes = {}, {}, {}, {}
                 local source = {
-                    [[local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+                    [[
+local array = require("nupp.mem.array")
+local span = require("binary.span")
 local simd = require("simd")
 local u32 = math.u32
 ]],

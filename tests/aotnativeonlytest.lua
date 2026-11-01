@@ -85,7 +85,7 @@ export = {twice = twice, positive = positive, loads = loads}
 local MAIN = [[
 module main
 local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 local vec = require("vec")
 local twice = vec.twice
@@ -110,11 +110,11 @@ local CHECK = [[
 package.path = "build/native/?.lua;" .. package.path
 local m = require("main")
 local ffi = require("ffi")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local compiled = rawget(_G, "__nuppAotCompiled") or {}
 local input = ffi.new("float[6]", {1, -2, 3, -4, 5, 6})
 local output = ffi.new("float[6]")
-m.quadruple(span.writeCarray(output, 6), span.fromCarray(input, 6))
+m.quadruple(span.writecarray(output, 6), span.fromcarray(input, 6))
 local answers = {}
 for i = 0, 5 do answers[#answers + 1] = tostring(output[i]) end
 assert(table.concat(answers, " ") == "4 0 12 0 20 24", table.concat(answers, " "))
@@ -156,7 +156,7 @@ end
 
 local FLOATS = [[
 module floats
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 --- One binary32 product.
 @aot
@@ -181,10 +181,10 @@ local FLOAT_CHECK = [[
 package.path = "build/native/?.lua;" .. package.path
 local m = require("floats")
 local ffi = require("ffi")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local input = ffi.new("float[4]", {1, 2, 3, 4})
 local output = ffi.new("float[4]")
-m.apply(span.writeCarray(output, 4), span.fromCarray(input, 4), 10)
+m.apply(span.writecarray(output, 4), span.fromcarray(input, 4), 10)
 local answers = {}
 for i = 0, 3 do answers[#answers + 1] = tostring(output[i]) end
 print(table.concat(answers, " "))
@@ -204,7 +204,7 @@ end
 local AGGREGATE = [[
 module complex
 local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 
 --- A vector of complex numbers, as two vectors.
@@ -255,12 +255,12 @@ local AGGREGATE_CHECK = [[
 package.path = "build/native/?.lua;" .. package.path
 local m = require("complex")
 local ffi = require("ffi")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local compiled = rawget(_G, "__nuppAotCompiled") or {}
 local cre = ffi.new("float[6]", {0, 1, -1, 0.25, 2, -0.5})
 local cim = ffi.new("float[6]", {0, 1, 0, 0.25, 0, 0.5})
 local out = ffi.new("float[6]")
-m.escaped(span.writeCarray(out, 6), span.fromCarray(cre, 6), span.fromCarray(cim, 6))
+m.escaped(span.writecarray(out, 6), span.fromcarray(cre, 6), span.fromcarray(cim, 6))
 local answers = {}
 for i = 0, 5 do answers[#answers + 1] = tostring(out[i]) end
 assert(table.concat(answers, " ") == "1 0 1 1 0 1", table.concat(answers, " "))

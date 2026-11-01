@@ -9,17 +9,17 @@ end
 
 @aot
 local function accumulate2(seed: uint32): uint32
-    local values = valuebuilder.newFixedWordScratch(4)
+    local values = valuebuilder.newfixedwordscratch(4)
     for row = 1, 2 do
         for column = 1, 2 do
             local index = indexOf(row, column, 2)
-            valuebuilder.setScratchWord(values, index, math.u32.add(seed, index))
+            valuebuilder.setscratchword(values, index, math.u32.add(seed, index))
         end
     end
     local total = math.u32.wrap(0)
     for row = 1, 2 do
         for column = 1, 2 do
-            total = math.u32.add(total, valuebuilder.scratchWord(values, indexOf(row, column, 2)))
+            total = math.u32.add(total, valuebuilder.scratchword(values, indexOf(row, column, 2)))
         end
     end
 
@@ -28,17 +28,17 @@ end
 
 @aot
 local function accumulate4(seed: uint32): uint32
-    local values = valuebuilder.newFixedWordScratch(16)
+    local values = valuebuilder.newfixedwordscratch(16)
     for row = 1, 4 do
         for column = 1, 4 do
             local index = indexOf(row, column, 4)
-            valuebuilder.setScratchWord(values, index, math.u32.add(seed, index))
+            valuebuilder.setscratchword(values, index, math.u32.add(seed, index))
         end
     end
     local total = math.u32.wrap(0)
     for row = 1, 4 do
         for column = 1, 4 do
-            total = math.u32.add(total, valuebuilder.scratchWord(values, indexOf(row, column, 4)))
+            total = math.u32.add(total, valuebuilder.scratchword(values, indexOf(row, column, 4)))
         end
     end
 
@@ -47,17 +47,17 @@ end
 
 @aot
 local function accumulate16(seed: uint32): uint32
-    local values = valuebuilder.newFixedWordScratch(256)
+    local values = valuebuilder.newfixedwordscratch(256)
     for row = 1, 16 do
         for column = 1, 16 do
             local index = indexOf(row, column, 16)
-            valuebuilder.setScratchWord(values, index, math.u32.add(seed, index))
+            valuebuilder.setscratchword(values, index, math.u32.add(seed, index))
         end
     end
     local total = math.u32.wrap(0)
     for row = 1, 16 do
         for column = 1, 16 do
-            total = math.u32.add(total, valuebuilder.scratchWord(values, indexOf(row, column, 16)))
+            total = math.u32.add(total, valuebuilder.scratchword(values, indexOf(row, column, 16)))
         end
     end
 

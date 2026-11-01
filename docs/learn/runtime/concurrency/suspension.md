@@ -9,7 +9,7 @@ type. The same call blocks in a command-line program and parks its coroutine
 where a host installed a [suspension handler](#hosts-supply-scheduling-policy):
 
 ```nupp:playground
-local process = nupp.io.process
+local process = io.process
 
 local child = assert(process.spawn({args = {"cc", "--version"}}))
 local result = assert(child:communicate())
@@ -19,7 +19,7 @@ child:close()
 
 ::: note Only suspension-aware calls can park
 An arbitrary blocking Lua or C function still blocks the operating-system
-thread. A library opts into suspension through `nupp.suspension`; the runtime
+thread. A library opts into suspension through `coroutine.suspension`; the runtime
 does not intercept other calls.
 :::
 
@@ -35,7 +35,7 @@ does not intercept other calls.
 
 The library describes the wait. The handler owns scheduling policy, and the
 caller's result remains `process.Result` on every path. See [Child
-processes](nupp.io) for the operation itself.
+processes](io) for the operation itself.
 
 ## Hosts supply scheduling policy
 
@@ -52,7 +52,7 @@ park without accepting a scheduler parameter:
 
 ```nupp:fragment [main.nupp]
 local frame = require("scheduler")
-local process = nupp.io.process
+local process = io.process
 
 local function printCompilerVersion(): nil
     local child = assert(process.spawn({args = {"cc", "--version"}}))
@@ -61,7 +61,7 @@ local function printCompilerVersion(): nil
 end
 
 local function application(): nil
-    with installation = nupp.suspension.host.install(frame.handler) do
+    with installation = coroutine.suspension.host.install(frame.handler) do
         printCompilerVersion()
     end
 end
@@ -75,11 +75,11 @@ scope. Most application code only consumes a handler this way. Framework authors
 and scheduler integrations implement one, as [Writing a frame
 handler](#writing-a-frame-handler) shows.
 
-Installing is `nupp.suspension.host`, and parking is `nupp.suspension`. The two
-jobs belong to different people: a library makes itself waitable and never
-installs a handler, while a host decides what runs meanwhile and never
-subscribes to a readiness source. Keeping them apart means neither reads past
-the other's operations to find its own.
+Installing is `coroutine.suspension.host`, and parking is
+`coroutine.suspension`. The two jobs belong to different people: a library makes
+itself waitable and never installs a handler, while a host decides what runs
+meanwhile and never subscribes to a readiness source. Keeping them apart means
+neither reads past the other's operations to find its own.
 
 ::: deepdive
 Suspension is one effect with handlers rather than general algebraic effects,
@@ -114,7 +114,7 @@ Waiting does not introduce `async function`, `await`, or a future return type.
 An ordinary wrapper returns the value produced after the wait:
 
 ```nupp
-local process = nupp.io.process
+local process = io.process
 
 local function compilerVersion(): string
     local child = assert(process.spawn({args = {"cc", "--version"}}))
@@ -235,14 +235,14 @@ practice:
 
 ```nupp:fragment
 local frame = require("scheduler")
-local suspension = nupp.suspension
+local suspension = coroutine.suspension
 
 local function childWork(): nil
     assert(suspension.handled())
 end
 
 local function application(): nil
-    with installation = nupp.suspension.host.install(frame.handler) do
+    with installation = coroutine.suspension.host.install(frame.handler) do
         local task = suspension.create(childWork)
         local ok, problem = coroutine.resume(task)
         if not ok then
@@ -318,7 +318,7 @@ A suspension-aware library calls `suspension.suspend` with a subscription. This
 example completes after its readiness source has been polled twice:
 
 ```nupp
-local suspension = nupp.suspension
+local suspension = coroutine.suspension
 
 local function after(polls: integer, value: string): string
     return suspension.suspend("counter", function(resume: function(string), context: suspension.Context): function()
@@ -361,8 +361,8 @@ This scheduler keeps a queue of runnable coroutines. Its event loop calls `tick`
 once per frame to poll readiness sources and resume the tasks they woke.
 
 ```nupp [scheduler.nupp]
-local suspension = nupp.suspension
-local host = nupp.suspension.host
+local suspension = coroutine.suspension
+local host = coroutine.suspension.host
 
 local runnable: {thread} = {}
 
@@ -468,7 +468,7 @@ them, and `goto` may reach a label outside:
 local frame = require("scheduler")
 
 local function choose(): integer
-    with installation = nupp.suspension.host.install(frame.handler) do
+    with installation = coroutine.suspension.host.install(frame.handler) do
         return 1
     end
 end
@@ -487,7 +487,7 @@ handler installation and the lexical state before the label:
 local frame = require("scheduler")
 
 goto inside
-with installation = nupp.suspension.host.install(frame.handler) do
+with installation = coroutine.suspension.host.install(frame.handler) do
     ::inside::
 end
 ```
@@ -548,6 +548,6 @@ so affine files, locks, and native allocations do not become stranded.
 
 ::: seealso
 - [workers.md](workers.md) for CPU parallelism on native threads
-- [](nupp.io) for the library these examples wait on
+- [](io) for the library these examples wait on
 - [ownership.md](../ownership/index.md) for the cleanup a cancelled park unwinds
 :::

@@ -471,12 +471,13 @@ thread, or independent LuaJIT states with no shared handles.
 
 `nupp_runtime_poll` is the pump for a host that owns the event loop. Each call
 makes one non-blocking pass over the readiness sources the state's modules have
-registered with `nupp.suspension` -- the network, HTTP, process, file-transfer,
-GPU and timer sources -- and returns. It never waits, so call it from the loop, once per
-frame or whenever the host's own readiness fires. A failure a source raises
-returns `NUPP_STATUS_RUNTIME`. Polling drives readiness; it does not install a
-scheduler or resume a coroutine nobody is waiting on, and a host-provided
-suspension handler still decides what runs while a call is parked.
+registered with `coroutine.suspension` -- the network, HTTP, process,
+file-transfer, GPU and timer sources -- and returns. It never waits, so call it
+from the loop, once per frame or whenever the host's own readiness fires. A
+failure a source raises returns `NUPP_STATUS_RUNTIME`. Polling drives readiness;
+it does not install a scheduler or resume a coroutine nobody is waiting on, and
+a host-provided suspension handler still decides what runs while a call is
+parked.
 
 ```c
 while (running) {
@@ -546,7 +547,7 @@ under [](nupp.host.pump), which parks instead, and poll the pump from the loop:
 ```nupp:fragment
 local pump = nupp.host.pump
 
-local session = pump.newPump()
+local session = pump.newpump()
 
 export function frame(dt: number): pump.State
     if session:parked() then

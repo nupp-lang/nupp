@@ -131,8 +131,9 @@ function M.generate(options)
         for at = 1, #options.lanes, batch do
             local name = "simd_widen_" .. from .. "_" .. at
             local source = {
-                [[local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+                [[
+local array = require("nupp.mem.array")
+local span = require("binary.span")
 local simd = require("simd")
 local u32 = math.u32
 ]]

@@ -38,7 +38,7 @@ return {include = {"src"}, build = {kind = "component", outDir = "build",
         directory .. "/src/fixture.nupp",
         [[
 module fixture
-local files = require("nupp.io.files")
+local files = require("io.files")
 export function read(path: string): string
     local lines = assert(files.lines(path, 1048576))
     local text = ""
@@ -79,7 +79,7 @@ assert(fixture.read("lines.txt") == string.rep("x", 70000) .. "\n\nlast\n")
     test.equal(status, 0, output)
     test.equal(ran, 0, runOutput)
     assert(
-        bytes:find('package.preload["nupp.io.files"]', 1, true),
+        bytes:find('package.preload["io.files"]', 1, true),
         "the component carries the file implementation it checked"
     )
 end

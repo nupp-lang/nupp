@@ -1,6 +1,6 @@
 # UTF-8 validation, four ways
 
-What `utf8.isValid` is worth written four different ways, on one
+What `utf8.isvalid` is worth written four different ways, on one
 machine in one run: the Keiser-Lemire lookup validator written on the general
 `simd` algebra, the same scalar ladder compiled by `@aot` and left to
 LuaJIT, the ordinary Nupp that ships.

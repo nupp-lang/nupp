@@ -192,7 +192,7 @@ local COMPONENTS = {"scheme", "authority", "username", "password", "host", "port
 function M.parsingAnswersTheRecordedComponents()
     local module = ready()
     for _, row in ipairs(PARSED) do
-        local value, reason = module.newURI(row[1])
+        local value, reason = module.newuri(row[1])
         assert(value, row[1] .. ": " .. tostring(reason))
         test.equal(value:toString(), row[2], row[1] .. " normalizes")
         for _, name in ipairs(COMPONENTS) do
@@ -221,7 +221,7 @@ function M.malformedTextAnswersAReason()
         ["1http://x"] = "relative URL without a base",
         ["http:"] = "empty host",
     }) do
-        local value, why = module.newURI(text)
+        local value, why = module.newuri(text)
         test.equal(value, nil, "[" .. text .. "] does not parse")
         test.equal(why, reason, "[" .. text .. "] says why")
     end
@@ -229,7 +229,7 @@ end
 
 function M.derivingReplacesOneComponentAtATime()
     local module = ready()
-    local base = assert(module.newURI("https://user:pass@example.com:8443/api/v1?q=1#top"))
+    local base = assert(module.newuri("https://user:pass@example.com:8443/api/v1?q=1#top"))
 
     test.equal(base:withScheme("http"):toString(), "http://user:pass@example.com:8443/api/v1?q=1#top")
     test.equal(base:withUserInfo(nil):toString(), "https://example.com:8443/api/v1?q=1#top")
@@ -263,8 +263,8 @@ end
 -- One separator between the two, whichever of them wrote it.
 function M.concatenatingAPathAddsOneSeparator()
     local module = ready()
-    local plain = assert(module.newURI("https://api.example.com/v1"))
-    local slashed = assert(module.newURI("https://api.example.com/v1/"))
+    local plain = assert(module.newuri("https://api.example.com/v1"))
+    local slashed = assert(module.newuri("https://api.example.com/v1/"))
     test.equal(plain:concatPath("users"):path(), "/v1/users")
     test.equal(plain:concatPath("/users"):path(), "/v1/users")
     test.equal(slashed:concatPath("users"):path(), "/v1/users")
@@ -274,7 +274,7 @@ end
 
 function M.removingAHostRemovesItsAuthority()
     local module = ready()
-    local value = assert(module.newURI("custom://user:pass@example.com:8080/path"))
+    local value = assert(module.newuri("custom://user:pass@example.com:8080/path"))
     local without = value:withHost(nil)
     test.equal(without:toString(), "custom:/path")
     test.equal(without:authority(), nil)
@@ -304,7 +304,7 @@ function M.composingRefusesComponentsThatShiftBoundaries()
         },
     }
     for _, row in ipairs(refused) do
-        local value, why = module.newURI(row[1])
+        local value, why = module.newuri(row[1])
         test.equal(value, nil, row[2] .. ": refused")
         assert(tostring(why):find(row[2], 1, true), row[2] .. ": the reason says which rule, got " .. tostring(why))
     end
@@ -317,7 +317,7 @@ function M.composingRefusesComponentsThatShiftBoundaries()
         {{scheme = "mailto", path = "someone@example.com"}, "mailto:someone@example.com"},
     }
     for _, row in ipairs(accepted) do
-        local value, why = module.newURI(row[1])
+        local value, why = module.newuri(row[1])
         assert(value, row[2] .. ": " .. tostring(why))
         test.equal(value:toString(), row[2], row[2] .. " composes")
     end
@@ -325,7 +325,7 @@ end
 
 function M.resolvingFollowsTheReferenceRules()
     local module = ready()
-    local page = assert(module.newURI("https://example.com/docs/guide/index.html"))
+    local page = assert(module.newuri("https://example.com/docs/guide/index.html"))
     local expected = {
         {"../images/avatar.png", "https://example.com/docs/images/avatar.png"},
         {"/root.png", "https://example.com/root.png"},
@@ -353,7 +353,7 @@ end
 -- special-scheme URI normalizes to.
 function M.resolvingFollowsRfc3986Examples()
     local module = ready()
-    local base = assert(module.newURI("http://a/b/c/d;p?q"))
+    local base = assert(module.newuri("http://a/b/c/d;p?q"))
     local expected = {
         {"g:h", "g:h"},
         {"g", "http://a/b/c/g"},
@@ -414,7 +414,7 @@ end
 -- replacement moved the authority.
 function M.derivingRefusesTextThatIsNotTheComponent()
     local module = ready()
-    local base = assert(module.newURI("https://example.com/x"))
+    local base = assert(module.newuri("https://example.com/x"))
     for _, scheme in ipairs({"http://evil/", "a:b", "", "1http", "ht tp", "http/"}) do
         test.raises(
             function()
@@ -435,7 +435,7 @@ function M.derivingRefusesTextThatIsNotTheComponent()
     test.equal(base:withScheme("HTTP"):toString(), "http://example.com/x")
     -- A scheme change that would move text into the authority is refused
     -- rather than letting the new parse find a host the old URI did not have.
-    local mail = assert(module.newURI("mailto:evil.example"))
+    local mail = assert(module.newuri("mailto:evil.example"))
     test.raises(
         function()
             mail:withScheme("http")
@@ -448,13 +448,13 @@ end
 -- what reroutes a request through a configured address.
 function M.rerootingKeepsThePathQueryAndFragment()
     local module = ready()
-    local request = assert(module.newURI("https://service.example/v1/items?a=1#f"))
+    local request = assert(module.newuri("https://service.example/v1/items?a=1#f"))
     test.equal(
-        request:withEndpoint(assert(module.newURI("http://127.0.0.1:8080/prefix"))):toString(),
+        request:withEndpoint(assert(module.newuri("http://127.0.0.1:8080/prefix"))):toString(),
         "http://127.0.0.1:8080/prefix/v1/items?a=1#f"
     )
     test.equal(
-        request:withEndpoint(assert(module.newURI("http://127.0.0.1:8080/"))):toString(),
+        request:withEndpoint(assert(module.newuri("http://127.0.0.1:8080/"))):toString(),
         "http://127.0.0.1:8080/v1/items?a=1#f"
     )
 end
@@ -498,13 +498,13 @@ function M.encodedDotSegmentsAreRemovedByEveryParser()
         {"https://ex.com/a\\%2e%2e\\secret", "/secret"},
     }
     for _, row in ipairs(rows) do
-        local native = assert(module.newURI(row[1]))
+        local native = assert(module.newuri(row[1]))
         test.equal(native:path(), row[2], row[1] .. " native path")
         local parts, reason = portable.parse(row[1])
         assert(parts, tostring(reason))
         test.equal(parts.path, row[2], row[1] .. " portable path")
     end
-    local page = assert(module.newURI("https://ex.com/public/index.html"))
+    local page = assert(module.newuri("https://ex.com/public/index.html"))
     test.equal(assert(page:resolve("%2e%2e/secret")):path(), "/secret")
     test.equal(assert(page:resolve("..\\..\\secret")):path(), "/secret")
 end
@@ -774,7 +774,7 @@ local function hostHrefs(texts, bases)
     local json = require("serde.json")
     local path = root .. "/corpus.json"
     local file = assert(io.open(path, "wb"))
-    file:write(json.encodeValue({texts = texts, bases = bases or json.EMPTY_ARRAY}))
+    file:write(json.encodevalue({texts = texts, bases = bases or json.EMPTY_ARRAY}))
     file:close()
     local script = [[
 const {texts, bases} = JSON.parse(require('fs').readFileSync(process.argv[2], 'utf8'));
@@ -789,7 +789,7 @@ process.stdout.write(JSON.stringify(texts.map((text, index) => {
     local node = assert(io.popen("node '" .. scriptPath .. "' '" .. path .. "'"))
     local answer = node:read("*a")
     node:close()
-    local hrefs = json.decodeValue(answer, json.NULL)
+    local hrefs = json.decodevalue(answer, json.NULL)
     for index = 1, #texts do
         if hrefs[index] == json.NULL then
             hrefs[index] = false
@@ -865,7 +865,7 @@ function M.seededReferencesResolveAsTheHostDoes()
     end
     local hrefs = hostHrefs(texts, baseTexts)
     for index, text in ipairs(texts) do
-        local base = assert(module.newURI(baseTexts[index]))
+        local base = assert(module.newuri(baseTexts[index]))
         local resolved = base:resolve(text)
         local parts = portable.parse(text, assert(portable.parse(baseTexts[index])))
         local label = ("%q against %s"):format(text, baseTexts[index])

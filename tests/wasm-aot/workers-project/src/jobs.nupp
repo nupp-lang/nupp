@@ -8,8 +8,8 @@ end
 -- Ordinary exported functions. Nothing here names a worker: submitting one is what
 -- runs it on a lane, and calling it runs it in whichever state made the call.
 
-local tasks = require("nupp.tasks")
-local time = require("nupp.time")
+local tasks = require("coroutine")
+local time = require("coroutine")
 
 export record Reading
     label: string
@@ -71,7 +71,7 @@ end
 --- Submitting this raises where it runs: a worker task cannot fork onto another lane.
 export function nested(shards: integer): integer
     local answer: integer = 0
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         answer = scope:fork(|| -> shards):await()
     end
 

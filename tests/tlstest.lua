@@ -4,8 +4,8 @@ local testAssert = require("assert")
 -- Real connections check whether a handshake completes, a certificate is
 -- verified, and an unverifiable peer is refused. Two narrow fake-provider cases
 -- check the facade's bounds without pretending to implement TLS.
-local net = require("nupp.io.net")
-local tls = require("nupp.io.tls")
+local net = require("io.net")
+local tls = require("io.tls")
 
 local function slurp(path)
     local f = assert(io.open(path, "rb"), "cannot open " .. path)
@@ -56,7 +56,7 @@ local function shake(client, server)
         if (clientDone or clientWhy) and (serverDone or serverWhy) then
             break
         end
-        require("nupp.io.net").pump(2)
+        require("io.net").pump(2)
     end
 
     return clientDone, clientWhy, serverDone, serverWhy
@@ -396,7 +396,7 @@ function M.closeNotifyReadsAsTheEnd()
 
     client:close()
     for _ = 1, 200 do
-        require("nupp.io.net").pump(2)
+        require("io.net").pump(2)
     end
     testAssert.equal(assert(server:read(64)), "", "the peer's close_notify reads as the end")
     assert(server:isEnded(), "and the session says so")
@@ -455,7 +455,7 @@ function M.aPeerCloseDuringHandshakeBecomesAFailure()
         if done == nil then
             break
         end
-        require("nupp.io.net").pump(2)
+        require("io.net").pump(2)
     end
     testAssert.equal(done, nil, "transport closure fails the pending handshake")
     assert(why ~= nil, "the failed handshake reports its terminal reason")

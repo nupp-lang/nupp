@@ -323,7 +323,7 @@ end
 ---     nupp check --json
 ---     nupp check --target app
 @cli("check")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Check
     --- Enforce the stock Lua 5.1 source subset without compatibility lowering.
     @cli(value = "PROFILE", choices = {"lua51"})

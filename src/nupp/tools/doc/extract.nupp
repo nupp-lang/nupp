@@ -75,7 +75,7 @@ record extract.Member
     --- The compiler-only value kind, when this member exists only during comptime.
     comptimeKind: string?
 
-    --- What it was annotated with, as written, such as `@derive(types.Debug)`.
+    --- What it was annotated with, as written, such as `@derive(types.debug)`.
     annotations: {string}?
 
     --- Whether an annotation's value member may be omitted or names a type.
@@ -248,7 +248,7 @@ end
 -- A cleanup whose own declaration documentation leaves out has no business appearing in
 -- a signature documentation publishes. The prelude's `__nuppDestroyReader` is the
 -- clearest case: it is the library's terminal, a reader neither calls it nor writes it
--- down, and printing it in every `nupp.io` signature says otherwise.
+-- down, and printing it in every `io` signature says otherwise.
 --
 -- Dropping the argument would be worse than printing it, because `affine(T)` is not
 -- `affine(T, cleanup)` with the cleanup left off. It is a different type:
@@ -799,7 +799,7 @@ end
 --
 -- Tried first as a full path from a top-level declaration, which is how a field outside
 -- the record it names has to spell it. Failing that, as a bare reference to a type
--- nested somewhere in this file, as `files: Files.Library` inside `record nupp.io`,
+-- nested somewhere in this file, as `files: Files.Library` inside `record io`,
 -- which answers to its own simple name the same as any other nested reference does
 -- inside the body it sits in, so resolving it has to search every record's own nested
 -- types too, not just the top-level ones a full path starts from.

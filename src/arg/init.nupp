@@ -1,7 +1,7 @@
 module arg
 
 --[[
-Command-line arguments, from raw tokens up to a whole application.
+`arg` turns command-line arguments into typed options and commands.
 
 The usual way in is a record: the types decide the conversion, the doc comments
 become the help text.
@@ -9,7 +9,7 @@ become the help text.
 ```nupp
 local cli = require("arg")
 
-@derive(cli.Arguments)
+@derive(cli.arguments)
 local record Options
     --- Print more detail.
     @cli(short = "v")
@@ -29,13 +29,13 @@ const options, problem = Options.fromCLI(arg)
 assert(options ~= nil, problem and problem.message)
 ```
 
-`@derive(cli.Command)` goes further and adds metadata, help, and shell
+`@derive(cli.command)` goes further and adds metadata, help, and shell
 completion, with a parent naming its children in `subcommands` so the tree reads
 from the top down. Underneath both, `optParser` and `getopt` are the
 syntax-only foundation: a token stream with no types attached, for when the
 shape of the command line is not a record.
 
-Terminal styling and aligned tables are available through `io`.
+Terminal styling and aligned tables are available through `io.terminal`.
 
 See
 [command-line-applications.md](docs/learn/projects/command-line-applications.md).
@@ -118,13 +118,13 @@ cliModule.argument = parser.argument
 cliModule.terminator = parser.terminator
 
 --- Creates an incremental syntax-only option parser.
-cliModule.optParser = parser.optParser
+cliModule.optparser = parser.optParser
 
 --- Iterates syntax-only option tokens.
 cliModule.getopt = parser.getopt
 
 --- Returns the descriptor generated for a command type.
-function cliModule.command<T is table>(subject: Type<T>): table?, string?
+function cliModule.descriptor<T is table>(subject: Type<T>): table?, string?
     return require("nupp.cli.internal.application").command(subject)
 end
 
@@ -555,7 +555,7 @@ local function recipe(info: types.derive.Info, command: boolean): any
         end
         local complete = annotationArgument(field.annotations, "complete")
         if complete ~= nil then
-            local provider = types.derive.annotationType(complete)
+            local provider = types.derive.annotationtype(complete)
             spec.completerMember = "__cliCompleter" .. index
             completers[index] = provider
         end
@@ -709,13 +709,13 @@ end
 
 --- Derives typed argv decoding for a record.
 @comptime
-function cliModule.Arguments(info: types.derive.Info): types.derive.Result<cliModule.ArgumentRecord>
+function cliModule.arguments(info: types.derive.Info): types.derive.Result<cliModule.ArgumentRecord>
     return recipe(info, false)
 end
 
 --- Derives typed argv decoding and a self-describing executable command.
 @comptime
-function cliModule.Command(info: types.derive.Info): types.derive.Result<cliModule.Runnable>
+function cliModule.command(info: types.derive.Info): types.derive.Result<cliModule.Runnable>
     return recipe(info, true)
 end
 

@@ -134,7 +134,7 @@ content-validated compiler caches and the test runner's last suite timings;
 generated outputs remain local to each worktree.
 
 The native code a build stages for a project is the compiler's rather than the
-project's -- both the providers behind [](nupp.io.files) and its siblings, and
+project's -- both the providers behind [](io.files) and its siblings, and
 the executable a binary target is stamped into -- which is why it is cached with
 the rest rather than under each project's output directory. Without that, every
 project reaching a native facility would compile that facility from nothing.

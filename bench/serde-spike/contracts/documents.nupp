@@ -19,17 +19,17 @@ end
 local family: table = {}
 local atom = new Custom(family = family, payload = "custom")
 local codec, profile = {}, {}
-local key = util.newKey<string>()
-local builder = contexts.contextBuilder(codec, profile)
+local key = util.newkey<string>()
+local builder = contexts.contextbuilder(codec, profile)
 builder:set(key, "retained")
 local context = builder:freeze()
-local original = documents.withContext(
+local original = documents.withcontext(
     documents.tuple({
         documents.null(),
         documents.integer(new core.Integer(decimal = "18446744073709551615", width = 64, signed = false)),
         documents.decimal(new core.Decimal(coefficient = "-0", exponent = -2)),
         documents.float(new core.Float(value = 1.5, width = 32)),
-        documents.bigInteger("123456789012345678901234567890"),
+        documents.biginteger("123456789012345678901234567890"),
         documents.bytes("\0\255blob"),
         documents.timestamp(new core.Timestamp(seconds = "-1", nanos = 500000000)),
         documents.union("ok", documents.boolean(true)),

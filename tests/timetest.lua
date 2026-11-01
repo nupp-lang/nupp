@@ -6,10 +6,10 @@ local testAssert = require("assert")
 -- the lower bound the contract actually promises -- at least this long -- and, where
 -- concurrency is the point, an upper bound loose enough that only serialization
 -- could break it.
-local time = require("nupp.time")
-local suspension = require("nupp.suspension")
-local suspensionHost = require("nupp.suspension.host")
-local tasks = require("nupp.tasks")
+local time = require("coroutine")
+local suspension = require("coroutine.suspension")
+local suspensionHost = require("coroutine.suspension.host")
+local tasks = require("coroutine")
 local native = require("nupp.compiler.native")
 
 local M = {}
@@ -58,12 +58,12 @@ end
 
 function M.sleepUntilTakesTheDeadlineItIsGiven()
     local started = os.monotonic()
-    time.sleepUntil(started + 25)
+    time.sleepuntil(started + 25)
     assert(os.monotonic() - started >= 25, "sleepUntil returned early")
 
     -- A deadline already past is not an error and not a park.
     local again = os.monotonic()
-    time.sleepUntil(again - 1000)
+    time.sleepuntil(again - 1000)
     assert(os.monotonic() - again < 5, "a passed deadline still waited")
 end
 
@@ -71,11 +71,11 @@ function M.invalidDurationsAndDeadlinesAreRefused()
     local notANumber = 0 / 0
     for _, operation in ipairs({
         {name = "sleep", call = time.sleep},
-        {name = "sleepUntil", call = time.sleepUntil},
+        {name = "sleepUntil", call = time.sleepuntil},
         {
             name = "wakeAt",
             call = function(deadline)
-                return time.wakeAt(deadline, function()
+                return time.wakeat(deadline, function()
                 end)
             end,
         },
@@ -144,7 +144,7 @@ end
 
 function M.wakeAtCallbacksAndCancellationAreExactlyOnce()
     local cancelledCalls = 0
-    local cancel = time.wakeAt(os.monotonic(), function()
+    local cancel = time.wakeat(os.monotonic(), function()
         cancelledCalls = cancelledCalls + 1
     end)
     cancel()
@@ -154,7 +154,7 @@ function M.wakeAtCallbacksAndCancellationAreExactlyOnce()
 
     local calls = 0
     local completed
-    local cancelCompleted = time.wakeAt(os.monotonic(), function(ok)
+    local cancelCompleted = time.wakeat(os.monotonic(), function(ok)
         calls = calls + 1
         completed = ok
     end)
@@ -170,7 +170,7 @@ function M.independentCoroutinesDoNotInheritEachOthersTaskDeadlines()
     -- parked with a scope open must not make a second coroutine inherit its deadline.
     local function withOpenScope(deadline)
         return suspension.create(function()
-            local scope = tasks.open(nil, deadline)
+            local scope = tasks.scope(nil, deadline)
             coroutine.yield(tasks.deadline())
             scope:close()
         end)

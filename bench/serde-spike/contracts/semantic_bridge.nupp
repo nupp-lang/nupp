@@ -9,7 +9,7 @@ local schema = model.newModel()
 local packetBinding, indexedBinding, documentBinding = model.binding(
     schema
 ), model.indexed(schema), model.documentBinding(schema)
-local context = contexts.contextBuilder({}, {}):freeze()
+local context = contexts.contextbuilder({}, {}):freeze()
 local packet = new model.Packet(
     id = "outer",
     created = new core.Timestamp(seconds = "-1", nanos = 1),

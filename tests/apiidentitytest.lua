@@ -306,7 +306,7 @@ export function render(value: any): string return "ready" end
             local _, errors = compile(
                 [[
 local api = require("types")
-local Debug = api.Debug
+local Debug = api.debug
 @derive(Debug)
 local record Point label: string end
 local value: types.Debug = new Point(label = "one")

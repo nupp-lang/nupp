@@ -15,7 +15,7 @@ local function fail(path: string, expected: string): nil
 end
 
 local function witness(info: types.reflect.Info, index: integer): any
-    return (assert2(reflect.runtimeType(info, index), "runtime declaration is not available"))
+    return (assert2(reflect.runtimetype(info, index), "runtime declaration is not available"))
 end
 
 local function checkValue(info: types.reflect.Info, index: integer, value: any, path: string, seen: any): boolean
@@ -383,7 +383,7 @@ export record Access<T is own.Copyable>
         if cached ~= nil then
             return cached
         end
-        local target = assert2(reflect.runtimeType(self.info, index), "nested declaration is not available")
+        local target = assert2(reflect.runtimetype(self.info, index), "nested declaration is not available")
         local result = create<unknown>(target, self.info, index)
         self.nestedCache[index] = result
 

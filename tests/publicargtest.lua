@@ -23,8 +23,8 @@ function M.theArgumentLibraryKeepsTheActualRawArgv()
     for key, value in ipairs(argv) do
         traversed[key] = value
     end
-    test.deepEqual(after, before)
-    test.deepEqual(traversed, sequential)
+    test.deepequal(after, before)
+    test.deepequal(traversed, sequential)
     for _, name in ipairs({"parse", "schema", "optParser", "getopt", "application", "command"}) do
         test.equal(rawget(argv, name), nil, name)
         test.equal(type(argv[name]), "function", name)

@@ -157,7 +157,7 @@ local record Unknown is core.UnknownReader, own.Closeable
 
     function captureValue<D>(exclusive self, adapter: core.DocumentAdapter<D>): D
         self:live()
-        local value = documents.withContext(
+        local value = documents.withcontext(
             documents.atom(new Opaque(family = family, field = self.entry.field, bytes = self.entry.bytes)),
             self.source
         )
@@ -165,7 +165,7 @@ local record Unknown is core.UnknownReader, own.Closeable
         local result = adapter:readContents(reader)
         local complete, problem = pcall(reader.finish, reader)
         if not complete then
-            error(publication.discardFailed(adapter, result, problem), 0)
+            error(publication.discardfailed(adapter, result, problem), 0)
         end
         self.used = true
 
@@ -211,7 +211,7 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
     function readString(exclusive self, member: M): string
         self:consume(member, "string")
         assert2(type(self.value) == "string", "invalid string carrier")
-        assert2(utf8.isValid(self.value as string), "invalid UTF-8 string")
+        assert2(utf8.isvalid(self.value as string), "invalid UTF-8 string")
         return self.value as string
     end
 
@@ -402,7 +402,7 @@ local record Output<M is core.Member> is core.Writer<M>
     end
 
     function writeString(exclusive self, member: M, value: string): nil
-        assert2(utf8.isValid(value), "invalid UTF-8 string")
+        assert2(utf8.isvalid(value), "invalid UTF-8 string")
         self:put(member, "string", value)
     end
 
@@ -569,11 +569,11 @@ local record Decode<T> is core.Consumer<T, nil, T>
     @readonly bytes: string
     function apply<M is core.Member>(self, adapter: core.Adapter<T, M>, borrows state: nil): T
         local selected = self.scope:resolve(adapter, "read")
-        local source = contexts.contextBuilder(family, self.scope.policy as table):freeze()
+        local source = contexts.contextbuilder(family, self.scope.policy as table):freeze()
         local reader = input(selected, self.bytes, source)
         local value = adapter:read(reader)
         if not reader.used then
-            error(publication.discardFailed(self.binding, value, "binary binding did not consume its root"), 0)
+            error(publication.discardfailed(self.binding, value, "binary binding did not consume its root"), 0)
         end
 
         return value

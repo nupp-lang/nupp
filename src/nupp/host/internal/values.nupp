@@ -11,7 +11,7 @@ embedding host refuse exactly the same things with exactly the same message.
 ]]
 
 local ffi = require("ffi")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local utf8 = require("utf8")
 
 local values = {}
@@ -71,7 +71,7 @@ function values.classify(kind: string, position: integer, value: any): (string, 
         if #value > values.MAX_STRING_BYTES then
             refuse(kind, position, "is a string longer than 64 KiB; send it as bytes")
         end
-        if not utf8.isValid(value) then
+        if not utf8.isvalid(value) then
             refuse(kind, position, "is a string that is not UTF-8; send binary data as bytes")
         end
         return "string", value, nil

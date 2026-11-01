@@ -8,6 +8,10 @@ what would be enforced in this tree. A lint whose level a project moved says so
 beside its summary, since the difference is the thing worth noticing.
 ]]
 
+const terminal2 = require("io.terminal")
+
+const terminal = require("io.terminal")
+
 local cliModule = require("arg")
 local report = require("nupp.tools.cli.report")
 
@@ -54,10 +58,10 @@ local LEVEL_SEVERITY = {error = "error", warning = "warning", note = "note",}
 
 --- A level that is not a severity is one that reports nothing, and is painted faint
 --- rather than in a color that would claim it does.
-local function levelPaint(style: io.Style, level: string): function(string): string
+local function levelPaint(style: terminal.Style, level: string): function(string): string
     local severity = LEVEL_SEVERITY[level]
 
-    return severity ~= nil and io.severity(style, severity) or style.faint
+    return severity ~= nil and terminal.severity(style, severity) or style.faint
 end
 
 local function run(options: any): integer
@@ -82,7 +86,7 @@ local function run(options: any): integer
         config = loaded
     end
     local lintConfig = config and config.lints or nil
-    local style = io.style(io.stdout)
+    local style = terminal.style(io.stdout)
     local rows: {any} = {}
     for _, lint in ipairs(lints.all) do
         local level = lints.level(lint, lintConfig)
@@ -105,7 +109,7 @@ local function run(options: any): integer
         report.write({ok = true, lints = rows})
         return 0
     end
-    local cells: {{io.Cell}} = {}
+    local cells: {{terminal.Cell}} = {}
     for _, row in ipairs(rows) do
         -- The default a project moved a lint off is an aside on the summary rather
         -- than a column, because it is absent from nearly every row.
@@ -113,18 +117,18 @@ local function run(options: any): integer
         if row.moved then
             note = (" (default %s)"):format(row.default)
         end
-        local summary = io.cell(row.summary)
+        local summary = terminal.cell(row.summary)
         summary.note = note
         cells[
             #cells + 1
         ] = {
-            io.paintedCell(row.name, style.strong),
-            io.paintedCell(row.category, style.faint),
-            io.paintedCell(row.level, levelPaint(style, row.level)),
+            terminal2.paintedcell(row.name, style.strong),
+            terminal2.paintedcell(row.category, style.faint),
+            terminal2.paintedcell(row.level, levelPaint(style, row.level)),
             summary,
         }
     end
-    io.writeTable(
+    terminal2.writetable(
         io.stdout,
         {
             columns = {
@@ -135,7 +139,7 @@ local function run(options: any): integer
             },
             rows = cells,
             style = style,
-        } as io.TableOptions
+        } as terminal.TableOptions
     )
 
     return 0
@@ -150,7 +154,7 @@ end
 ---     nupp lints
 ---     nupp lints --json
 @cli("lints")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Lints
     --- Select the report representation.
     @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})

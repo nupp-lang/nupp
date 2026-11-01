@@ -68,7 +68,7 @@ export const value: table = rawget(_G, "os") as table
         testAssert.equal(result.result.effects["runtime.clocks"], nil, "no clock effect " .. index)
     end
     testAssert.equal(inc.env.builtinExtensions.os, osType, "the canonical extension type is reused")
-    assert(require("nupp.io.files").remove(directory, true))
+    assert(require("io.files").remove(directory, true))
 end
 
 function M.memoizationAndInvalidation()
@@ -326,7 +326,7 @@ function M.changingADeriveProviderReplansItsClaim()
     end
 
     local model = table.concat(
-        {"module model", "@derive(types.Debug)", "export record Config", "   value: string", "end",},
+        {"module model", "@derive(types.debug)", "export record Config", "   value: string", "end",},
         "\n"
     )
     write(modelPath, model)
@@ -345,7 +345,7 @@ function M.changingADeriveProviderReplansItsClaim()
     local inc = incremental.new(dir, {cache = false})
     testAssert.equal(#inc.checkFile(mainPath).diags, 0, "the first provider claim checks")
 
-    inc.changeDocument(modelPath, model:gsub("@derive%(types.Debug%)", ""))
+    inc.changeDocument(modelPath, model:gsub("@derive%(types.debug%)", ""))
     local changed = inc.checkFile(mainPath)
     testAssert.equal(
         changed.diags[1] and changed.diags[1].code,
@@ -387,11 +387,11 @@ function M.countedPointerLogicalSignaturesCrossModuleSummaries()
         table.concat(
             {
                 "local native = require('native')",
-                "local spans = require('nupp.mem.span')",
+                "local spans = require(\"binary.span\")",
                 "local output = ffi.new<int32[4]>()",
                 "local input = ffi.new<int32[4]>()",
-                "local writer = spans.writeCarray(output, 4)",
-                "local reader = spans.fromCarray(input, 4)",
+                "local writer = spans.writecarray(output, 4)",
+                "local reader = spans.fromcarray(input, 4)",
                 "native.copy(writer, reader)",
                 "own.drop(writer)",
             },
@@ -439,7 +439,7 @@ function M.deriveRecipesMemoizeAndPublishBehaviorChanges()
     local dep = table.concat(
         {
             "local dep = {}",
-            "@derive(types.Debug)",
+            "@derive(types.debug)",
             "record dep.Config",
             "   entries: {[string]: string} = {}",
             "end",
@@ -1409,14 +1409,14 @@ function M.stagingACarriedModuleChecksNothingAgain()
             {
                 "const {type Observers} = require('events')",
                 "local events = require('events')",
-                "local files = require('nupp.io.files')",
+                "local files = require(\"io.files\")",
                 "local m = {}",
                 "record m.Holder",
                 "   observers: Observers<integer>",
                 "end",
                 "function m.build(path: string): m.Holder",
                 "   print(files.exists(path))",
-                "   return new m.Holder(observers = events.newObservers())",
+                "   return new m.Holder(observers = events.newobservers())",
                 "end",
                 "return m",
             },

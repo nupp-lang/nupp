@@ -4,6 +4,8 @@ module main
 -- source of discovery, planning, reporting, and the serial fallback used by its
 -- own tests. Keeping that policy in one place prevents the two entry points from
 -- drifting.
+const terminal = require("io.terminal")
+
 rawset(_G, "__NUPP_TEST_WORKER_HOST", true)
 arg[0] = "tests/run.lua"
 
@@ -12,7 +14,7 @@ arg[0] = "tests/run.lua"
 -- worker state and every suite observes the same assertion implementation.
 package.loaded["assert"] = require("assert")
 require("arg")
-local _ = io.style
+local _ = terminal.style
 
 -- File-loaded suites share these host facilities in the parent and worker states.
 require("nupp.random")
@@ -28,13 +30,13 @@ require("serde.json")
 require("io.path")
 require("io.uri")
 require("nupp.text")
-require("nupp.time")
-require("nupp.io.net")
+require("coroutine")
+require("io.net")
 require("nupp.io.process")
-require("nupp.io.tls")
-require("nupp.io.http")
+require("io.tls")
+require("io.http")
 require("gpu")
-require("nupp.workers")
+require("coroutine.workers")
 
 const run = assert(loadfile(arg[0]))
 run()

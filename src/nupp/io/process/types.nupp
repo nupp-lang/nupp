@@ -17,7 +17,7 @@ type process.Options = {
     --- it is resolved through `PATH` by the platform, not by this module.
     args: {string},
 
-    --- The child's working directory, as anything [](nupp.io.files) accepts, or nil
+    --- The child's working directory, as anything [](io.files) accepts, or nil
     --- to inherit this one.
     cwd: Path?,
 

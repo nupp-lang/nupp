@@ -9,7 +9,7 @@ assert(
     "build bench/gpu-costs with aot=require before measuring; the GPU binding is missing"
 )
 local ffi = require("ffi")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local gpu = require("gpu")
 local bench = require("debug.bench")
 
@@ -23,9 +23,9 @@ local function host(invocation)
         input[index] = index * 97 + 11
     end
     local state = {count = count, input = input, output = output, expected = expected}
-    state.source = span.fromCarray(input, count)
-    state.destination = span.writeCarray(output, count)
-    kernels.cpu(span.writeCarray(expected, count), state.source)
+    state.source = span.fromcarray(input, count)
+    state.destination = span.writecarray(output, count)
+    kernels.cpu(span.writecarray(expected, count), state.source)
 
     return state
 end

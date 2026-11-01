@@ -41,7 +41,7 @@ function M.digestFinalizationConsumesButChecksumReadsDoNot()
         local _, diagnostics = diagsOf(
             table.concat(
                 {
-                    "local rolling = binary.hash.digest.newDigest('sha256')",
+                    "local rolling = binary.hash.digest.newdigest('sha256')",
                     "local result = rolling:" .. finalizer,
                     "rolling:write('too late')",
                 },
@@ -59,7 +59,7 @@ function M.digestFinalizationConsumesButChecksumReadsDoNot()
     assertClean(
         table.concat(
             {
-                "local sum = binary.hash.checksum.newChecksum('crc32c')",
+                "local sum = binary.hash.checksum.newchecksum('crc32c')",
                 "local before = sum:value()",
                 "sum:write('still open')",
                 "local after = sum:value()",
@@ -73,15 +73,15 @@ end
 -- `own.Closeable` whose `close` answers nothing, so `own.drop` is the one early
 -- terminal and no second public `drop` stands beside it.
 local FORMER_DROP_OWNERS = {
-    "local owner = nupp.io.newBuffer('bytes')",
-    "local source = nupp.io.newBuffer('bytes')\nlocal owner = source:view()",
-    "local owner = nupp.io.newScalarReader('abcd')",
-    "local owner = nupp.io.newScalarWriter()",
-    "local owner = nupp.io.newLines(nupp.io.newStringReader('one'))",
-    "local owner = assert(nupp.io.files.open('input.bin'))",
-    "local owner = assert(nupp.io.files.createTemporaryFile())",
-    "local owner = nupp.mem.heap.allocate(ffi.typeof<int32>(), 4)",
-    "local struct Row\n    x: int32\nend\nlocal owner = nupp.mem.soa.allocate(ffi.typeof<Row>(), 4)",
+    "local owner = io.newbuffer('bytes')",
+    "local source = io.newbuffer('bytes')\nlocal owner = source:view()",
+    "local owner = io.newscalarreader('abcd')",
+    "local owner = io.newscalarwriter()",
+    "local owner = io.newlines(io.newstringreader('one'))",
+    "local owner = assert(io.files.open('input.bin'))",
+    "local owner = assert(io.files.createtemporaryfile())",
+    "local owner = nupp.mem.heap.alloc(ffi.typeof<int32>(), 4)",
+    "local struct Row\n    x: int32\nend\nlocal owner = nupp.mem.soa.alloc(ffi.typeof<Row>(), 4)",
 }
 
 function M.everyStandardOwnerClosesThroughOwnDropAlone()
@@ -99,7 +99,7 @@ end
 function M.twoLiveReadersOverOneCursorAreRefused()
     local source = table.concat(
         {
-            "local stream = assert(nupp.io.net.connect({host = '127.0.0.1', port = 9}))",
+            "local stream = assert(io.net.connect({host = '127.0.0.1', port = 9}))",
             "local view = stream:asReader()",
             "local first = stream:read(1)",
             "print(view:read(1), first)",
@@ -111,7 +111,7 @@ function M.twoLiveReadersOverOneCursorAreRefused()
     assertClean(
         table.concat(
             {
-                "local stream = assert(nupp.io.net.connect({host = '127.0.0.1', port = 9}))",
+                "local stream = assert(io.net.connect({host = '127.0.0.1', port = 9}))",
                 "do",
                 "    local view = stream:asReader()",
                 "    print(view:read(1))",
@@ -124,28 +124,28 @@ function M.twoLiveReadersOverOneCursorAreRefused()
 end
 
 function M.aLineReaderReadTakesNoArguments()
-    local source = "local lines = nupp.io.newLines(nupp.io.newStringReader('a'))\nprint(lines:read(1))"
+    local source = "local lines = io.newlines(io.newstringreader('a'))\nprint(lines:read(1))"
     local got = diagsOf(source)
     assert(got:find("NUPP", 1, true), "Lines:read takes nothing but the reader: " .. got)
-    assertClean("local lines = nupp.io.newLines(nupp.io.newStringReader('a'))\nprint(lines:read())")
+    assertClean("local lines = io.newlines(io.newstringreader('a'))\nprint(lines:read())")
 end
 
 -- An invalid argument raises with the prefix every other standard module uses.
 function M.memAndUtilRefusalsCarryTheLibraryPrefix()
     local ffi = require("ffi")
-    local spans = require("nupp.mem.span")
+    local spans = require("binary.span")
     for label, refused in pairs({
         heap = function()
-            require("nupp.mem.heap").allocate(ffi.typeof("int32_t"), -1)
+            require("nupp.mem.heap").alloc(ffi.typeof("int32_t"), -1)
         end,
         bytes = function()
             require("nupp.mem.array").bytes(-1)
         end,
         span = function()
-            spans.fromCarray(ffi.new("int32_t[1]"), -1)
+            spans.fromcarray(ffi.new("int32_t[1]"), -1)
         end,
         indexed = function()
-            require("nupp.mem.indexed").range(0, 1)
+            require("binary.span").range(0, 1)
         end,
     }) do
         local ok, reason = pcall(refused)
@@ -155,19 +155,19 @@ function M.memAndUtilRefusalsCarryTheLibraryPrefix()
 end
 
 function M.formerResultClosesAnswerNothing()
-    local io = require("nupp.io")
-    local buffer = io.newBuffer("abc")
+    local io = require("io")
+    local buffer = io.newbuffer("abc")
     testAssert.equal(select("#", buffer:view():close()), 0, "ByteView:close answers nothing")
-    testAssert.equal(select("#", io.newScalarReader("abcd"):close()), 0, "ScalarReader:close answers nothing")
-    testAssert.equal(select("#", io.newScalarWriter():close()), 0, "ScalarWriter:close answers nothing")
-    testAssert.equal(select("#", io.newScalarWriter(buffer):close()), 0, "a borrowing ScalarWriter answers nothing")
+    testAssert.equal(select("#", io.newscalarreader("abcd"):close()), 0, "ScalarReader:close answers nothing")
+    testAssert.equal(select("#", io.newscalarwriter():close()), 0, "ScalarWriter:close answers nothing")
+    testAssert.equal(select("#", io.newscalarwriter(buffer):close()), 0, "a borrowing ScalarWriter answers nothing")
     testAssert.equal(buffer:isReleased(), false, "a borrowing scalar writer leaves its buffer open")
     testAssert.equal(select("#", buffer:close()), 0, "Buffer:close answers nothing")
     testAssert.equal(select("#", buffer:close()), 0, "a second close is safe")
 end
 
 function M.closedBufferReleasesItsAllocationWhileMetadataSurvives()
-    local buffer = require("nupp.io").newBuffer(string.rep("x", 1048576))
+    local buffer = require("io").newbuffer(string.rep("x", 1048576))
     local allocation = setmetatable({buffer._data}, {__mode = "v"})
     buffer:close()
     collectgarbage("collect")
@@ -288,12 +288,12 @@ end
 
 function M.wasmViewsLowerThroughTheOpaqueCheckedSurface()
     local source = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local struct Sample
    value: float
 end
-local values = array.newArray(new Sample(), 2)
+local values = array.newarray(new Sample(), 2)
 local writable = values:write()
 writable[1] = new Sample(3)
 own.drop(writable)
@@ -323,7 +323,7 @@ function M.poolIsOrdinaryTablesOnEveryHost()
             "local record Event",
             "    id: integer",
             "end",
-            "local events = pool.newPool(Event, 4)",
+            "local events = pool.newpool(Event, 4)",
             "local event = events:acquire()",
             "event.id = 1",
             "events:release(event)",
@@ -342,7 +342,7 @@ function M.arenaLowersThroughTheStorageContract()
             "local struct Sample",
             "   value: float",
             "end",
-            "local samples = arena.newArena(Sample, 8)",
+            "local samples = arena.newarena(Sample, 8)",
             "local sample = samples:acquire()",
             "sample.value = 3",
             "samples:release(sample)",
@@ -368,7 +368,7 @@ function M.aComputedRequireArgumentIsChecked()
         (
             diagsOf(
                 table.concat(
-                    {"local registry = require('serde.json')", "return require(registry.encodeValue('module.name'))",},
+                    {"local registry = require('serde.json')", "return require(registry.encodevalue('module.name'))",},
                     "\n"
                 )
             )
@@ -410,7 +410,7 @@ function M.digestUsesPortableBitops()
         table.concat(
             {
                 "local digest = require('binary.hash.digest')",
-                "local rolling = digest.newDigest('sha256')",
+                "local rolling = digest.newdigest('sha256')",
                 "rolling:write('message')",
                 "return rolling:hexDigest()",
             },
@@ -423,7 +423,7 @@ function M.oneShotHmacUsesOrdinaryCode()
     local source = table.concat(
         {
             "local mac = require('binary.hash.mac')",
-            "return mac.hexDigest('hmac-sha256', 'key', 'message'), #mac.digest('hmac-sha256', 'key', 'message')",
+            "return mac.hexdigest('hmac-sha256', 'key', 'message'), #mac.digest('hmac-sha256', 'key', 'message')",
         },
         "\n"
     )
@@ -449,7 +449,7 @@ function M.browserHttpProviderHasAPortableDependencyClosure()
 end
 
 function M.httpBodyHelpersRejectMalformedRuntimeInputs()
-    local http = require("nupp.io.http")
+    local http = require("io.http")
 
     for _, invalid in ipairs({
         false,
@@ -612,10 +612,10 @@ function M.browserHttpRejectsMalformedSharedInputsBeforeEffects()
         assert(not ok and tostring(problem):find(expected, 1, true), tostring(problem))
     end
 
-    rejected({url = assert(uri.newURI("file:///tmp/result"))}, "must use http or https")
-    rejected({url = assert(uri.newURI("https://example.com/")), method = "GET\nX"}, "valid token")
-    rejected({url = assert(uri.newURI("https://example.com/")), headers = {ok = false}}, "valid string")
-    rejected({url = assert(uri.newURI("https://example.com/")), timeoutMs = 1.5}, "integer")
+    rejected({url = assert(uri.newuri("file:///tmp/result"))}, "must use http or https")
+    rejected({url = assert(uri.newuri("https://example.com/")), method = "GET\nX"}, "valid token")
+    rejected({url = assert(uri.newuri("https://example.com/")), headers = {ok = false}}, "valid string")
+    rejected({url = assert(uri.newuri("https://example.com/")), timeoutMs = 1.5}, "integer")
 end
 
 function M.nativeHttpDispatchDrainsAfterAWakerRaises()
@@ -774,7 +774,7 @@ function M.nativeHttpProviderRejectsMalformedBoundaries()
 
     local client = provider.newClient()
     local request = setmetatable(
-        {url = assert(require("io.uri").newURI("https://example.com/"))},
+        {url = assert(require("io.uri").newuri("https://example.com/"))},
         require("nupp.io.http.messages").Request
     )
     head.status = 99
@@ -855,9 +855,9 @@ function M.filesystemNamesAreFilesPathsEverywhere()
     assertClean(
         table.concat(
             {
-                "const files = require('nupp.io.files')",
-                "const http = require('nupp.io.http')",
-                "const net = require('nupp.io.net')",
+                "const files = require(\"io.files\")",
+                "const http = require(\"io.http\")",
+                "const net = require(\"io.net\")",
                 "const paths = require('io.path')",
                 "const process = require('nupp.io.process')",
                 "local function send(where: files.Path): nil",
@@ -868,8 +868,8 @@ function M.filesystemNamesAreFilesPathsEverywhere()
                 "    print(body, listener, stream, child)",
                 "end",
                 "send('/tmp/x')",
-                "send(paths.newPath('/tmp/x'))",
-                "send((assert(files.dataPath())))",
+                "send(paths.newpath('/tmp/x'))",
+                "send((assert(files.datapath())))",
             },
             "\n"
         )
@@ -883,24 +883,24 @@ function M.optionBagsArePlainTables()
     assertClean(
         table.concat(
             {
-                "const http = require('nupp.io.http')",
+                "const http = require(\"io.http\")",
                 "local options: http.Options = {timeoutMs = 5000, maxConnections = 2}",
-                "do local client = http.newClient(options) end",
-                "do local client = http.newClient({userAgent = 'nupp/1'}) end",
+                "do local client = http.newclient(options) end",
+                "do local client = http.newclient({userAgent = 'nupp/1'}) end",
             },
             "\n"
         )
     )
     testAssert.equal(
-        (diagsOf(table.concat({"const http = require('nupp.io.http')", "local options = new http.Options()",}, "\n"))),
+        (diagsOf(table.concat({"const http = require(\"io.http\")", "local options = new http.Options()",}, "\n"))),
         "NUPP2004:2",
         "http.Options is not a record to construct"
     )
     assertClean(
         table.concat(
             {
-                "const net = require('nupp.io.net')",
-                "const tls = require('nupp.io.tls')",
+                "const net = require(\"io.net\")",
+                "const tls = require(\"io.tls\")",
                 "local stream = assert(net.connect({host = 'example.com', port = 443}))",
                 "local session = tls.client(stream)",
                 "print(session)",
@@ -1143,7 +1143,7 @@ function M.browserHttpRejectsMalformedHostValuesAndReleasesBodies()
     local ok, problem = pcall(function()
         local browser = require("providerstate").browserHttp(memory)
         local request = setmetatable(
-            {url = assert(require("io.uri").newURI("https://example.com/"))},
+            {url = assert(require("io.uri").newuri("https://example.com/"))},
             require("nupp.io.http.messages").Request
         )
         local client = browser.newClient({maxBytes = 4})
@@ -1245,9 +1245,9 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
         }
         local request = setmetatable(
             {
-                url = assert(require("io.uri").newURI("https://example.com/")),
+                url = assert(require("io.uri").newuri("https://example.com/")),
                 headers = {["x-test"] = "request", ["content-type"] = "request/type"},
-                body = require("nupp.io.http").reader(source, 6, "body/type"),
+                body = require("io.http").reader(source, 6, "body/type"),
             },
             require("nupp.io.http.messages").Request
         )
@@ -1265,7 +1265,7 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
         local headers = response:headers()
         headers["x-test"] = "changed"
         testAssert.equal(response:headers()["x-test"], "one, two", "headers returns a fresh mapping")
-        local destination = require("nupp.io").newBuffer()
+        local destination = require("io").newbuffer()
         testAssert.equal(response.body:readInto(destination, 0, 2), 2)
         testAssert.equal(destination:getString(), "ab")
         testAssert.equal(response.body:read(3), "c", "the returned response owns a live ordinary reader")
@@ -1450,7 +1450,7 @@ function M.browserGpuProtectsCancelledResourcesAndTransferLeases()
     local browser = require("providerstate").browserGpu(host, memory)
     local context = browser.open()
     local ffi = require("ffi")
-    local spans = require("nupp.mem.span")
+    local spans = require("binary.span")
     element = require("nupp.mem.array").uint32
     local input = context:buffer(element, 1)
     local output = context:buffer(element, 1)
@@ -1458,7 +1458,7 @@ function M.browserGpuProtectsCancelledResourcesAndTransferLeases()
     local destination = ffi.new("uint32_t[1]")
 
     failure = "runtime-upload"
-    local uploaded, uploadProblem = pcall(context.upload, context, input, spans.fromCarray(source, 1))
+    local uploaded, uploadProblem = pcall(context.upload, context, input, spans.fromcarray(source, 1))
     assert(not uploaded and uploadProblem == "fixture runtime-upload", tostring(uploadProblem))
     assert(next(leases) == nil, "a failed upload must release its transfer lease")
 
@@ -1467,7 +1467,7 @@ function M.browserGpuProtectsCancelledResourcesAndTransferLeases()
         context.readDownloaded,
         context,
         output,
-        spans.writeCarray(destination, 1)
+        spans.writecarray(destination, 1)
     )
     assert(not downloaded and downloadProblem == "fixture runtime-read-download", tostring(downloadProblem))
     assert(next(leases) == nil, "a failed download must release its transfer lease")
@@ -1889,9 +1889,9 @@ function M.nativeFeaturesAreResolvedEffects()
     local process = effectsOf("local process = require('nupp.io.process')")
     assert(process["runtime.process"], "the process module records its facade dependency")
     assert(not process["native.process"], "provider choice follows target catalog resolution")
-    local workers = effectsOf("local workers = require('nupp.workers')")
+    local workers = effectsOf("local workers = require(\"coroutine.workers\")")
     assert(workers["runtime.workers"], "the workers module records its facade dependency")
-    local http = effectsOf("local http = require('nupp.io.http')")
+    local http = effectsOf("local http = require(\"io.http\")")
     assert(http["runtime.http"], "the HTTP module records its facade dependency")
 
     assert(native.feature("runtime.int64").runtimeModule == nil, "wide integers have no runtime module")
@@ -1915,15 +1915,15 @@ function M.nativeFeaturesAreResolvedEffects()
     assert(not shadowedRequire["native.lpeg"], "a local require is not the native module loader")
 
     local expected = {
-        ["serde.json.encodeValue({answer = 42})"] = "native.json",
+        ["serde.json.encodevalue({answer = 42})"] = "native.json",
         ["serde.json.pull('{}', {answer = true})"] = "native.json",
-        ["utf8.length('hello')"] = "runtime.data_utf8",
-        ["nupp.io.newBuffer('hello')"] = "stdlib.io",
+        ["utf8.len('hello')"] = "runtime.data_utf8",
+        ["io.newbuffer('hello')"] = "stdlib.io",
         ["math.lerp(10, 20, 0.25)"] = "stdlib.math",
-        ["math.vec2.length(3, 4)"] = "stdlib.math",
-        ["math.quat.length(0, 0, 0, 1)"] = "stdlib.math",
-        ["io.path.separator()"] = "runtime.path",
-        ["io.uri.newURI('https://example.com')"] = "runtime.uri",
+        ["math.vec2.len(3, 4)"] = "stdlib.math",
+        ["math.quat.len(0, 0, 0, 1)"] = "stdlib.math",
+        ["io.path.sep()"] = "runtime.path",
+        ["io.uri.newuri('https://example.com')"] = "runtime.uri",
         ["os.uuid7()"] = "runtime.uuid",
         ["os.info()"] = "runtime.system",
         ["nupp.host.attached()"] = "runtime.host",
@@ -1942,11 +1942,11 @@ function M.nativeFeaturesAreResolvedEffects()
         table.concat(
             {
                 "const {Path} = require('io.path')",
-                "local source: io.path.Path = io.path.newPath('src', 'main.nupp')",
+                "local source: io.path.Path = io.path.newpath('src', 'main.nupp')",
                 "local components: io.uri.Components = nil as any",
                 "local URIOf: function(",
                 "    value: string | io.uri.Components",
-                "): (io.uri.URI?, string?) = io.uri.newURI",
+                "): (io.uri.URI?, string?) = io.uri.newuri",
                 "local address: io.uri.URI? = URIOf(components)",
                 "print(source, address)",
             },
@@ -1958,7 +1958,7 @@ function M.nativeFeaturesAreResolvedEffects()
     assert(aliased["runtime.system"], "requiring a facility records its feature")
     assert(not aliased["runtime.uuid"], "separate facilities do not share effects")
 
-    local namespaceOnly = effectsOf("local store = types.newStore")
+    local namespaceOnly = effectsOf("local store = types.newstore")
     assert(next(namespaceOnly) == nil, "reaching a namespace alone has no effect")
 
     -- A require read only for its types is erased, so it selects no feature. It used
@@ -1975,7 +1975,7 @@ function M.nativeFeaturesAreResolvedEffects()
         )
     )
     assert(next(typeOnly) == nil, "a type-only import selects no feature")
-    local mixed = effectsOf("const {type Path, separator} = require('io.path')\nprint(separator)")
+    local mixed = effectsOf("const {type Path, sep as separator} = require('io.path')\nprint(separator)")
     assert(mixed["runtime.path"], "a pattern that also selects a value still uses the module")
 end
 
@@ -1998,8 +1998,8 @@ function M.processViewsSatisfyTheSharedContracts()
                 "local child = nil as process.Process",
                 "local input = child.stdin as process.Writer",
                 "local output = child.stdout as process.Reader",
-                "local function useReader(borrows value: nupp.io.Reader) value:read(1) end",
-                "local function useWriter(borrows value: nupp.io.Writer) value:write('x') end",
+                "local function useReader(borrows value: io.Reader) value:read(1) end",
+                "local function useWriter(borrows value: io.Writer) value:write('x') end",
                 "local reader = output:asReader()",
                 "local writer = input:asWriter()",
                 "useReader(reader)",
@@ -2016,7 +2016,7 @@ function M.processViewsSatisfyTheSharedContracts()
                         "local process = require('nupp.io.process')",
                         "local child = nil as process.Process",
                         "local output = child.stdout as process.Reader",
-                        "local leaked: nupp.io.Reader? = nil",
+                        "local leaked: io.Reader? = nil",
                         "leaked = output:asReader()",
                     },
                     "\n"
@@ -2081,10 +2081,10 @@ function M.digestAndMacSurfacesAreBundledOutsideThisCheckout()
         {
             "local digest = require('binary.hash.digest')",
             "local mac = require('binary.hash.mac')",
-            "local rolling = digest.newDigest('sha256')",
+            "local rolling = digest.newdigest('sha256')",
             "rolling:write('message')",
             "assert(#rolling:digest() == 32)",
-            "assert(#mac.hexDigest('hmac-sha256', 'key', 'message') == 64)",
+            "assert(#mac.hexdigest('hmac-sha256', 'key', 'message') == 64)",
         },
         "\n"
     )
@@ -2140,8 +2140,8 @@ function M.compilerProvidedPureLibraries()
         loadstring(
             bootstrap
             .. [[
-      local io = require("nupp.io")
-      local buffer = io.newBuffer("hello")
+      local io = require("io")
+      local buffer = io.newbuffer("hello")
       local writer = buffer:newWriter()
       assert(writer:write("world"))
       assert(buffer:getString() == "world")
@@ -2157,7 +2157,7 @@ function M.compilerProvidedPureLibraries()
       assert(math.abs(x - 0.6) < 0.000001 and math.abs(y - 0.8) < 0.000001)
       local dx, dy = math.vec2.sub(5, 7, 2, 3)
       assert(dx == 3 and dy == 4)
-      local qx, qy, qz, qw = math.quat.fromAxisAngle(0, 0, 2, math.pi / 2)
+      local qx, qy, qz, qw = math.quat.fromaxisangle(0, 0, 2, math.pi / 2)
       assert(math.abs(qz - math.sqrt(0.5)) < 0.000001 and math.abs(qw - math.sqrt(0.5)) < 0.000001)
       assert(qx == 0 and qy == 0)
       assert(math.lerp(10, 20, 0) == 10)
@@ -2169,7 +2169,7 @@ function M.compilerProvidedPureLibraries()
       local hash = require("binary.hash")
       assert(hash.fnv1a64("hello") == "a430d84680aabd0b")
       assert(checksum.value("crc32", "123456789") == 3421780262ULL)
-      assert(digest.hexDigest("sha256", "abc") ==
+      assert(digest.hexdigest("sha256", "abc") ==
          "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
       local uuid4 = os.uuid4()
       local uuid7 = os.uuid7()
@@ -2227,8 +2227,8 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
     assertClean(
         table.concat(
             {
-                "const files = require('nupp.io.files')",
-                "local function drain(exclusive source: nupp.io.Reader, exclusive sink: nupp.io.Writer): (integer?, string?)",
+                "const files = require(\"io.files\")",
+                "local function drain(exclusive source: io.Reader, exclusive sink: io.Writer): (integer?, string?)",
                 "    return source:transferTo(sink)",
                 "end",
                 "do",
@@ -2247,10 +2247,10 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
     assertClean(
         table.concat(
             {
-                "local buffer = nupp.io.newBuffer()",
-                "local reader = nupp.io.newStringReader('abc')",
+                "local buffer = io.newbuffer()",
+                "local reader = io.newstringreader('abc')",
                 "local moved: integer? = reader:readInto(buffer)",
-                "const files = require('nupp.io.files')",
+                "const files = require(\"io.files\")",
                 "local info = files.info('x')",
                 "local size: integer? = info and info.size",
             },
@@ -2258,22 +2258,19 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
         )
     )
 
-    testAssert.equal(
-        (diagsOf("const files = require('nupp.io.files')\nlocal n: number = files.read('x')")),
-        "NUPP2001:2"
-    )
+    testAssert.equal((diagsOf("const files = require(\"io.files\")\nlocal n: number = files.read('x')")), "NUPP2001:2")
     assertClean(
-        "const files = require('nupp.io.files')\nlocal paths: {io.path.Path} = assert(files.glob('src/**/*.nupp'))"
+        "const files = require(\"io.files\")\nlocal paths: {io.path.Path} = assert(files.glob('src/**/*.nupp'))"
     )
     testAssert.equal(
-        (diagsOf("const files = require('nupp.io.files')\nfiles.glob(io.path.newPath('src'))")),
+        (diagsOf("const files = require(\"io.files\")\nfiles.glob(io.path.newpath('src'))")),
         "NUPP2006:2",
         "a glob takes a pattern, not a path"
     )
-    assertClean("const files = require('nupp.io.files')\nlocal link: boolean = files.isSymlink('x')")
-    testAssert.equal((diagsOf("const files = require('nupp.io.files')\nfiles.info(42)")), "NUPP2006:2")
-    testAssert.equal((diagsOf("const files = require('nupp.io.files')\nfiles.open('x')")), "NUPP2605:2")
-    testAssert.equal((diagsOf("const files = require('nupp.io.files')\nfiles.createTemporaryFile()")), "NUPP2605:2")
+    assertClean("const files = require(\"io.files\")\nlocal link: boolean = files.issymlink('x')")
+    testAssert.equal((diagsOf("const files = require(\"io.files\")\nfiles.info(42)")), "NUPP2006:2")
+    testAssert.equal((diagsOf("const files = require(\"io.files\")\nfiles.open('x')")), "NUPP2605:2")
+    testAssert.equal((diagsOf("const files = require(\"io.files\")\nfiles.createtemporaryfile()")), "NUPP2605:2")
 end
 
 function M.luaFilesAndPublicResourcesUseAffineConstructors()
@@ -2303,15 +2300,15 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
     assertClean(
         table.concat(
             {
-                "const http = require('nupp.io.http')",
-                "const io = require('nupp.io')",
+                "const http = require(\"io.http\")",
+                "const io = require(\"io\")",
                 "const uri = require('io.uri')",
                 "const process = require('nupp.io.process')",
-                "do local client = http.newClient() end",
+                "do local client = http.newclient() end",
                 "do",
                 "    local request = new http.Request(",
-                "        url = assert(uri.newURI('https://example.com')),",
-                "        body = http.reader(io.newStringReader('body'), 4, nil)",
+                "        url = assert(uri.newuri('https://example.com')),",
+                "        body = http.reader(io.newstringreader('body'), 4, nil)",
                 "    )",
                 "end",
                 "do local child = assert(process.spawn({args = {'true'}})) end",
@@ -2320,7 +2317,7 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
         )
     )
     testAssert.equal(
-        (diagsOf(table.concat({"const http = require('nupp.io.http')", "http.client()",}, "\n"))),
+        (diagsOf(table.concat({"const http = require(\"io.http\")", "http.client()",}, "\n"))),
         "NUPP2004:2"
     )
     testAssert.equal(
@@ -2336,7 +2333,7 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
         table.concat(
             {
                 "const path = require('io.path')",
-                "local source: path.Path = path.newPath('src', 'main.nupp')",
+                "local source: path.Path = path.newpath('src', 'main.nupp')",
                 "print(source)",
             },
             "\n"
@@ -2348,22 +2345,22 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
     )
 
     local path = require("io.path")
-    local first = path.newPath("cache", "first")
-    assert(rawequal(first, path.newPath("cache", "first")), "path.newPath interns equal path text")
+    local first = path.newpath("cache", "first")
+    assert(rawequal(first, path.newpath("cache", "first")), "path.newpath interns equal path text")
     assert(path.Path.__nuppCtor1 == nil, "Path exposes no generated constructor")
     for index = 1, 1024 do
-        path.newPath("cache", tostring(index))
+        path.newpath("cache", tostring(index))
     end
     assert(
-        not rawequal(first, path.newPath("cache", "first")),
-        "path.newPath evicts the least recently used path after 1024 entries"
+        not rawequal(first, path.newpath("cache", "first")),
+        "path.newpath evicts the least recently used path after 1024 entries"
     )
 
     assertClean(
         table.concat(
             {
                 "const uri = require('io.uri')",
-                "local endpoint: uri.URI = assert(uri.newURI('https://example.com/api'))",
+                "local endpoint: uri.URI = assert(uri.newuri('https://example.com/api'))",
                 "print(endpoint)",
             },
             "\n"
@@ -2375,30 +2372,30 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
     )
 
     local uri = require("io.uri")
-    local firstURI = assert(uri.newURI("https://example.com/cache/first"))
+    local firstURI = assert(uri.newuri("https://example.com/cache/first"))
     assert(
-        rawequal(firstURI, assert(uri.newURI("https://example.com/cache/first"))),
-        "uri.newURI interns equal normalized URI text"
+        rawequal(firstURI, assert(uri.newuri("https://example.com/cache/first"))),
+        "uri.newuri interns equal normalized URI text"
     )
     assert(uri.URI.__nuppCtor1 == nil, "URI exposes no generated constructor")
-    local base = assert(uri.newURI("https://example.com/base"))
+    local base = assert(uri.newuri("https://example.com/base"))
     assert(
-        rawequal(base:withPath("/derived"), assert(uri.newURI("https://example.com/derived"))),
-        "URI-producing operations share the uri.newURI cache"
+        rawequal(base:withPath("/derived"), assert(uri.newuri("https://example.com/derived"))),
+        "URI-producing operations share the uri.newuri cache"
     )
     for index = 1, 1024 do
-        assert(uri.newURI("https://example.com/cache/" .. tostring(index)))
+        assert(uri.newuri("https://example.com/cache/" .. tostring(index)))
     end
     assert(
-        not rawequal(firstURI, assert(uri.newURI("https://example.com/cache/first"))),
-        "uri.newURI evicts the least recently used URI after 1024 entries"
+        not rawequal(firstURI, assert(uri.newuri("https://example.com/cache/first"))),
+        "uri.newuri evicts the least recently used URI after 1024 entries"
     )
-    local validatedSentinel = assert(uri.newURI("https://example.com/cache/validated-sentinel"))
+    local validatedSentinel = assert(uri.newuri("https://example.com/cache/validated-sentinel"))
     for index = 1, 1024 do
         assert(uri.validate("https://example.com/validated/" .. tostring(index)))
     end
     assert(
-        rawequal(validatedSentinel, assert(uri.newURI("https://example.com/cache/validated-sentinel"))),
+        rawequal(validatedSentinel, assert(uri.newuri("https://example.com/cache/validated-sentinel"))),
         "uri.validate does not retain parsed URIs or disturb the cache"
     )
 end
@@ -2407,16 +2404,16 @@ function M.bufferAppendsInAmortizedConstantTime()
     local chunk = assert(
         loadstring(
             [[
-      local io = require("nupp.io")
-      local buffer = io.newBuffer()
+      local io = require("io")
+      local buffer = io.newbuffer()
       local writer = buffer:newWriter()
       local piece = string.rep("x", 64)
       for _ = 1, 100000 do assert(writer:write(piece)) end
-      assert(buffer:length() == 6400000, "every write landed")
-      assert(buffer:capacity() >= buffer:length(), "capacity covers the length")
+      assert(buffer:len() == 6400000, "every write landed")
+      assert(buffer:capacity() >= buffer:len(), "capacity covers the length")
       assert(buffer:getString(6399936, 64) == piece, "the last write is intact")
       buffer:clear()
-      assert(buffer:length() == 0 and buffer:capacity() >= 6400000,
+      assert(buffer:len() == 0 and buffer:capacity() >= 6400000,
          "clearing keeps the reserved bytes")
       buffer:setString("tail", 6)
       assert(buffer:getString() == string.char(0):rep(6) .. "tail",
@@ -2436,11 +2433,11 @@ function M.theUtf8ModuleNeedsNoNativeModule()
     local ok, problem = pcall(function()
         local utf8 = require("utf8")
         assert(package.loaded["lua-utf8"] == nil, "requiring the module opened no rock")
-        assert(utf8.length("A\226\130\172") == 2)
-        assert(utf8.isValid("A\226\130\172"))
-        assert(not utf8.isValid("\255"))
+        assert(utf8.len("A\226\130\172") == 2)
+        assert(utf8.isvalid("A\226\130\172"))
+        assert(not utf8.isvalid("\255"))
         assert(utf8.encode(8364) == "\226\130\172")
-        local codepoint, nextAt = utf8.decodeAt("A\226\130\172", 2)
+        local codepoint, nextAt = utf8.decodeat("A\226\130\172", 2)
         assert(codepoint == 8364 and nextAt == 5, "decodes the second codepoint")
         assert(utf8.truncate("A\226\130\172", 3) == "A", "never cuts through a codepoint")
     end)
@@ -2464,22 +2461,22 @@ function M.theJsonModuleLoadsItsNuppProviderOnRequire()
     local ok, problem = pcall(function()
         local json = require("serde.json")
         assert(package.loaded[JSON_PROVIDER] ~= nil, "requiring the module loaded the provider contract")
-        assert(json.encodeValue({answer = 42}):find('"answer":42', 1, true))
-        assert(json.encodeValue(json.EMPTY_ARRAY) == "[]")
-        assert(json.encodeValue(json.EMPTY_OBJECT) == "{}")
-        assert(json.encodeValue(json.asArray({})) == "[]")
-        assert(json.decodeValue("[1,null,2]")[2] == 2)
-        assert(json.decodeValue("null", json.NULL) == json.NULL)
+        assert(json.encodevalue({answer = 42}):find('"answer":42', 1, true))
+        assert(json.encodevalue(json.EMPTY_ARRAY) == "[]")
+        assert(json.encodevalue(json.EMPTY_OBJECT) == "{}")
+        assert(json.encodevalue(json.asarray({})) == "[]")
+        assert(json.decodevalue("[1,null,2]")[2] == 2)
+        assert(json.decodevalue("null", json.NULL) == json.NULL)
         local buffer = require("string.buffer").new()
-        local name = json.encodedString('quoted"key')
-        assert(name == json.encodedString('quoted"key'), "encoded keys are interned")
-        local writer = json.newWriter(buffer)
+        local name = json.encodedstring('quoted"key')
+        assert(name == json.encodedstring('quoted"key'), "encoded keys are interned")
+        local writer = json.newwriter(buffer)
         writer:startObject():key(name):write(json.verified("4.20e1")):endObject()
         writer:close()
         assert(buffer:tostring() == [[{"quoted\"key":4.20e1}]])
 
         local partial = require("string.buffer").new()
-        local streaming = json.newWriter(partial)
+        local streaming = json.newwriter(partial)
         streaming:startArray():write(1)
         streaming:flush()
         assert(partial:tostring() == "[1", "flush publishes an incomplete batch")
@@ -2488,25 +2485,25 @@ function M.theJsonModuleLoadsItsNuppProviderOnRequire()
         assert(partial:tostring() == "[1,2]", "close publishes the completed root")
         assert(not pcall(streaming.write, streaming, 3), "a closed writer stays stale")
 
-        local incomplete = json.newWriter(require("string.buffer").new())
+        local incomplete = json.newwriter(require("string.buffer").new())
         incomplete:startObject()
         assert(not pcall(incomplete.close, incomplete), "close rejects an incomplete root")
         assert(not pcall(incomplete.endObject, incomplete), "a failed consuming close still leaves a terminal writer")
 
-        local replacement = json.newWriter(require("string.buffer").new())
+        local replacement = json.newwriter(require("string.buffer").new())
         replacement:write(true)
         replacement:close()
         assert(not pcall(streaming.write, streaming, false), "a stale identity cannot reach pooled backing state")
         local invalid = '"\255"'
         assert(
             not pcall(function()
-                json.verifiedString(invalid)
+                json.verifiedstring(invalid)
             end),
             "a verified key must contain valid UTF-8"
         )
         assert(
             not pcall(function()
-                json.verifiedString("42")
+                json.verifiedstring("42")
             end),
             "a verified key must be a JSON string"
         )
@@ -2544,13 +2541,13 @@ function M.utf8EncodingCoversEveryBoundary()
     for _, case in ipairs(boundaries) do
         testAssert.equal(utf8.encode(case[1]), case[2], ("the encoding of U+%04X"):format(case[1]))
         if case[1] < 0xD800 or case[1] > 0xDFFF then
-            local codepoint, nextAt = utf8.decodeAt(case[2], 1)
+            local codepoint, nextAt = utf8.decodeat(case[2], 1)
             testAssert.equal(codepoint, case[1], ("decoding U+%04X"):format(case[1]))
             testAssert.equal(nextAt, #case[2] + 1, ("the width of U+%04X"):format(case[1]))
         end
     end
-    testAssert.equal(utf8.isValid(utf8.encode(0xD800)), false, "an encoded surrogate half is not valid UTF-8")
-    testAssert.equal(utf8.decodeAt(utf8.encode(0x1F600), 1), 0x1F600, "a four-byte scalar decodes back")
+    testAssert.equal(utf8.isvalid(utf8.encode(0xD800)), false, "an encoded surrogate half is not valid UTF-8")
+    testAssert.equal(utf8.decodeat(utf8.encode(0x1F600), 1), 0x1F600, "a four-byte scalar decodes back")
     for _, outside in ipairs({-1, 0x110000, 0.5}) do
         assert(not pcall(utf8.encode, outside), tostring(outside) .. " is not a codepoint")
     end
@@ -2572,7 +2569,7 @@ function M.utf8WalkingPreservesEveryByteBoundary()
         local forward = {}
         local at = 1
         while true do
-            local codepoint, nextAt = utf8.decodeAt(value, at)
+            local codepoint, nextAt = utf8.decodeat(value, at)
             if codepoint == nil then
                 testAssert.equal(nextAt, #value + 1, "forward end offset")
                 break
@@ -2581,41 +2578,41 @@ function M.utf8WalkingPreservesEveryByteBoundary()
             forward[#forward + 1] = {codepoint, at, nextAt}
             at = nextAt
         end
-        testAssert.equal(utf8.length(value), #forward, "length matches a forward walk")
+        testAssert.equal(utf8.len(value), #forward, "length matches a forward walk")
 
         at = #value + 1
         for index = #forward, 1, -1 do
-            local codepoint, startAt = utf8.decodeBefore(value, at)
+            local codepoint, startAt = utf8.decodebefore(value, at)
             testAssert.equal(codepoint, forward[index][1], "reverse codepoint")
             testAssert.equal(startAt, forward[index][2], "reverse start offset")
             at = startAt
         end
-        local codepoint, startAt = utf8.decodeBefore(value, at)
+        local codepoint, startAt = utf8.decodebefore(value, at)
         testAssert.equal(codepoint, nil, "reverse start sentinel")
         testAssert.equal(startAt, 1, "reverse start offset")
     end
 
     for _, badOffset in ipairs({0, 2, 1.5}) do
-        assert(not pcall(utf8.decodeAt, "", badOffset), "decodeAt rejects an invalid empty-string offset")
-        assert(not pcall(utf8.decodeBefore, "", badOffset), "decodeBefore rejects an invalid empty-string offset")
+        assert(not pcall(utf8.decodeat, "", badOffset), "decodeAt rejects an invalid empty-string offset")
+        assert(not pcall(utf8.decodebefore, "", badOffset), "decodeBefore rejects an invalid empty-string offset")
     end
 end
 
 function M.utf8ByteViewsAndBudgetsMatchStrings()
     local utf8 = require("utf8")
-    local buffer = require("nupp.io").newBuffer("A\xe2\x82\xacZ")
+    local buffer = require("io").newbuffer("A\xe2\x82\xacZ")
     local view = buffer:view()
-    testAssert.equal(utf8.length(view), 3, "byte-view length")
-    testAssert.equal(utf8.isValid(view), true, "byte-view validation")
-    testAssert.equal(utf8.validPrefixLength(view, 4), 4, "byte-view prefix")
+    testAssert.equal(utf8.len(view), 3, "byte-view length")
+    testAssert.equal(utf8.isvalid(view), true, "byte-view validation")
+    testAssert.equal(utf8.validprefixlength(view, 4), 4, "byte-view prefix")
     view:close()
     buffer:close()
 
-    testAssert.equal(utf8.validPrefixLength("A", -1), 0, "a negative budget is empty")
-    testAssert.equal(utf8.validPrefixLength("A", 0), 0, "a zero budget is empty")
-    testAssert.equal(utf8.validPrefixLength("A", 2), 1, "a large budget stops at the end")
-    assert(not pcall(utf8.validPrefixLength, "AB", 1.5), "a prefix budget must be an integer")
-    assert(not pcall(utf8.validPrefixLength, "AB", math.huge), "an infinite prefix budget is not an integer")
+    testAssert.equal(utf8.validprefixlength("A", -1), 0, "a negative budget is empty")
+    testAssert.equal(utf8.validprefixlength("A", 0), 0, "a zero budget is empty")
+    testAssert.equal(utf8.validprefixlength("A", 2), 1, "a large budget stops at the end")
+    assert(not pcall(utf8.validprefixlength, "AB", 1.5), "a prefix budget must be an integer")
+    assert(not pcall(utf8.validprefixlength, "AB", math.huge), "an infinite prefix budget is not an integer")
     assert(not pcall(utf8.truncate, "AB", 1.5), "a truncate budget must be an integer")
 end
 
@@ -2668,15 +2665,15 @@ function M.utf8ValidationCoversEveryShape()
     for _, case in ipairs(UTF8_SHAPES) do
         local value, valid = case[1], case[2]
         local what = case[3] or ("%q"):format(value)
-        testAssert.equal(utf8.isValid(value), valid, "validating " .. what)
+        testAssert.equal(utf8.isvalid(value), valid, "validating " .. what)
         -- The longest valid prefix within every budget the value admits.
         for budget = 0, #value do
-            local length = utf8.validPrefixLength(value, budget)
+            local length = utf8.validprefixlength(value, budget)
             assert(length <= budget, "a prefix of " .. what .. " overran its budget")
-            assert(utf8.isValid(value:sub(1, length)), ("prefix %d of %s is not valid"):format(length, what))
+            assert(utf8.isvalid(value:sub(1, length)), ("prefix %d of %s is not valid"):format(length, what))
             if length < budget then
                 assert(
-                    not utf8.isValid(value:sub(1, length + 1)),
+                    not utf8.isvalid(value:sub(1, length + 1)),
                     ("prefix %d of %s was not maximal"):format(length, what)
                 )
             end
@@ -3031,14 +3028,14 @@ function M.stringBufferPointersBecomeCheckedSpans()
         table.concat(
             {
                 "local buffer = require('string.buffer')",
-                "local spans = require('nupp.mem.span')",
+                "local spans = require(\"binary.span\")",
                 "local b = buffer.new()",
                 "local available: integer = 0",
                 "do",
                 "   local ptr, reserved = b:reserve(64)",
                 "   available = reserved",
                 "   do",
-                "      local writable = spans.writeCarray(ptr, reserved as integer)",
+                "      local writable = spans.writecarray(ptr, reserved as integer)",
                 "      writable[1] = 65",
                 "      own.drop(writable)",
                 "   end",
@@ -3048,7 +3045,7 @@ function M.stringBufferPointersBecomeCheckedSpans()
                 "do",
                 "   local base, readable = b:ref()",
                 "   len = readable",
-                "   local view = spans.fromCarray(base, readable as integer)",
+                "   local view = spans.fromcarray(base, readable as integer)",
                 "   local first: integer = view[1]",
                 "end",
                 "b:skip(len)",
@@ -3140,9 +3137,10 @@ end
 
 function M.publicResourceAliasesKeepConstructionAndPrivacy()
     assertClean(
-        [[const http = require("nupp.io.http")
+        [[
+const http = require("io.http")
 const uri = require("io.uri")
-local request = new http.Request(url = assert(uri.newURI("https://example.com/")))
+local request = new http.Request(url = assert(uri.newuri("https://example.com/")))
 request:close()
 ]]
     )
@@ -3174,11 +3172,11 @@ function M.applicationResourcesHideLifecycleAndTransportMachinery()
         {"nupp.io.process", "Writer", "release"},
         {"nupp.io.process", "Process", "teardown"},
         {"nupp.io.process", "Process", "destroy"},
-        {"nupp.io.http", "Body", "release"},
-        {"nupp.io.http", "Body", "_transfer"},
-        {"nupp.io.http", "Response", "_packed"},
-        {"nupp.io.http", "Client", "_native"},
-        {"nupp.io.http", "Client", "_retainSource"},
+        {"io.http", "Body", "release"},
+        {"io.http", "Body", "_transfer"},
+        {"io.http", "Response", "_packed"},
+        {"io.http", "Client", "_native"},
+        {"io.http", "Client", "_retainSource"},
         {"gpu", "Buffer<uint32>", "_handle"},
         {"gpu", "Shared<uint32>", "_values"},
         {"gpu", "Phases", "_size"},
@@ -3198,9 +3196,9 @@ function M.applicationResourcesHideLifecycleAndTransportMachinery()
     -- A worker scope is not public at all: `fork` on a task scope is the only way to a
     -- lane, so the facade names no scope type for application source to reach into.
     local unnamed = diagsOf(
-        'const workers = require("nupp.workers")\nlocal function expose(borrows value: workers.Scope): nil\nend\n'
+        'const workers = require("coroutine.workers")\nlocal function expose(borrows value: workers.Scope): nil\nend\n'
     )
-    assert(unnamed:find("NUPP2101", 1, true), "nupp.workers must not name a scope type: " .. unnamed)
+    assert(unnamed:find("NUPP2101", 1, true), "coroutine.workers must not name a scope type: " .. unnamed)
 end
 
 -- What a suspension provider keeps on the shared records is its own, so it carries the
@@ -3210,20 +3208,20 @@ function M.suspensionRecordsHideProviderState()
     -- neither spelling resolves: not the field, and not the underscored name a
     -- provider happens to store it under.
     for _, example in ipairs({
-        {"nupp.suspension", "Source", "sequence"},
-        {"nupp.suspension", "Source", "poller"},
-        {"nupp.suspension", "Source", "waiter"},
-        {"nupp.suspension", "Source", "released"},
-        {"nupp.suspension", "Context", "handler"},
-        {"nupp.suspension", "Context", "associated"},
-        {"nupp.suspension.host", "Waiting", "state"},
-        {"nupp.suspension.host", "Waiting", "context"},
-        {"nupp.suspension.host", "Installed", "co"},
-        {"nupp.suspension.host", "Installed", "previous"},
-        {"nupp.suspension.host", "Installed", "restored"},
-        {"nupp.suspension.host", "Installed", "released"},
-        {"nupp.suspension.host", "Installed", "parks"},
-        {"nupp.suspension.host", "Installed", "transparent"},
+        {"coroutine.suspension", "Source", "sequence"},
+        {"coroutine.suspension", "Source", "poller"},
+        {"coroutine.suspension", "Source", "waiter"},
+        {"coroutine.suspension", "Source", "released"},
+        {"coroutine.suspension", "Context", "handler"},
+        {"coroutine.suspension", "Context", "associated"},
+        {"coroutine.suspension.host", "Waiting", "state"},
+        {"coroutine.suspension.host", "Waiting", "context"},
+        {"coroutine.suspension.host", "Installed", "co"},
+        {"coroutine.suspension.host", "Installed", "previous"},
+        {"coroutine.suspension.host", "Installed", "restored"},
+        {"coroutine.suspension.host", "Installed", "released"},
+        {"coroutine.suspension.host", "Installed", "parks"},
+        {"coroutine.suspension.host", "Installed", "transparent"},
     }) do
         local module, record, field = example[1], example[2], example[3]
         for _, spelling in ipairs({field, "_" .. field}) do
@@ -3249,11 +3247,12 @@ end
 
 function M.ioFacadeKeepsRichContractsAndPrivateState()
     assertClean(
-        [[const io = require("nupp.io")
+        [[
+const io = require("io")
 local function copy(borrows source: io.Reader, exclusive target: io.Buffer): nil
     source:readInto(target, 0, 16)
 end
-local function write(exclusive target: io.Writer, borrows source: nupp.mem.span.ByteSpan): nil
+local function write(exclusive target: io.Writer, borrows source: binary.span.ByteSpan): nil
     target:writeSpan(source)
 end
 ]]
@@ -3261,7 +3260,7 @@ end
     for _, example in ipairs({{"ScalarReader", "_pending"}, {"ScalarWriter", "_buffer"}}) do
         local diagnostics = diagsOf(
             (
-                'const io = require("nupp.io")\nlocal function leak(borrows value: io.%s): nil\nlocal state = value.%s\nend'
+                'const io = require("io")\nlocal function leak(borrows value: io.%s): nil\nlocal state = value.%s\nend'
             ):format(example[1], example[2])
         )
         assert(

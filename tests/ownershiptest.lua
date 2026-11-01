@@ -1264,7 +1264,7 @@ function M.coroutineChildrenCannotCaptureAParentBorrow()
             table.concat(
                 {
                     RESOURCE,
-                    "local suspension = require('nupp.suspension')",
+                    "local suspension = require(\"coroutine.suspension\")",
                     "local value = resource_new()",
                     "do",
                     "   local view = borrow(value)",
@@ -1421,7 +1421,7 @@ function M.managedGroupsUseOrdinaryLibraryCalls()
         {
             RESOURCE,
             "do",
-            "   local group = own.managedGroup()",
+            "   local group = own.managedgroup()",
             "   local handle = group:adopt(own.manage(resource_new()))",
             "   local value = handle:with(function(borrows item) return item.value end)",
             "   print(value)",
@@ -1464,7 +1464,7 @@ function M.managedGroupsCanTransferARegistrationBackOutExactlyOnce()
             {
                 RESOURCE,
                 "do",
-                "   local group = own.managedGroup()",
+                "   local group = own.managedgroup()",
                 "   local handle = group:adopt(own.manage(resource_new()))",
                 "   local returned = group:remove(handle)",
                 "   own.drop(returned)",
@@ -1518,7 +1518,7 @@ function M.managedCellsEnforceCustodyAtRuntime()
             "local handle = owner:alias()",
             "local stale = handle",
             "local erased: any = handle",
-            "local recoveredAlias, recoveryProblem = own.recoverAlias(erased)",
+            "local recoveredAlias, recoveryProblem = own.recoveralias(erased)",
             "assert(recoveryProblem == nil)",
             "if not recoveredAlias then error('recovery failed') end",
             "local recovered, policyProblem = recoveredAlias:downcast<affine(FileState, closeFile)>()",
@@ -1705,7 +1705,7 @@ function M.aliasRecoveryChecksTheStoredCapabilityPolicy()
             "end",
             "local owner = own.manage(new File())",
             "local erased: any = owner:alias()",
-            "local recovered, problem = own.recoverAlias(erased)",
+            "local recovered, problem = own.recoveralias(erased)",
             "assert(recovered ~= nil and problem == nil)",
             "local file, fileProblem = recovered:downcast<File>()",
             "assert(file ~= nil and fileProblem == nil)",
@@ -1770,15 +1770,15 @@ function M.spansCarryBoundsRootsAndAnAffineWriteExtent()
     assertClean(
         table.concat(
             {
-                "local spans = require('nupp.mem.span')",
+                "local spans = require(\"binary.span\")",
                 "local text = 'bytes'",
-                "local whole = spans.fromString(text)",
+                "local whole = spans.fromstring(text)",
                 "local part = whole:slice(2, 4)",
                 "local byte: uint32 = part[1]",
                 "print(byte)",
                 "local storage: uint8[?] = ffi.new('uint8_t[4]') as any",
                 "do",
-                "   local writable = spans.writeCarray(storage, 4)",
+                "   local writable = spans.writecarray(storage, 4)",
                 "   writable[1] = 65",
                 "   own.drop(writable)",
                 "end",
@@ -1792,13 +1792,13 @@ function M.spansPreserveTheCArrayElementType()
     assertClean(
         table.concat(
             {
-                "local spans = require('nupp.mem.span')",
+                "local spans = require(\"binary.span\")",
                 "local storage = ffi.new<int32[4]>()",
                 "do",
-                "   local view = spans.fromCarray(storage, 4)",
+                "   local view = spans.fromcarray(storage, 4)",
                 "   local value: int32 = view[1]",
                 "end",
-                "local writable = spans.writeCarray(storage, 4)",
+                "local writable = spans.writecarray(storage, 4)",
                 "writable[2] = 42 as int32",
                 "own.drop(writable)",
             },
@@ -1811,12 +1811,12 @@ function M.spansExportANameableGenericWithoutTheirRepresentation()
     assertClean(
         table.concat(
             {
-                "local spans = require('nupp.mem.span')",
+                "local spans = require(\"binary.span\")",
                 "local function first(borrows view: spans.Span<int32>): int32",
                 "   return view[1]",
                 "end",
                 "local storage = ffi.new<int32[4]>()",
-                "local view = spans.fromCarray(storage, 4)",
+                "local view = spans.fromcarray(storage, 4)",
                 "local value: int32 = first(view)",
                 "print(value)",
             },
@@ -1828,9 +1828,9 @@ function M.spansExportANameableGenericWithoutTheirRepresentation()
         codes(
             table.concat(
                 {
-                    "local spans = require('nupp.mem.span')",
+                    "local spans = require(\"binary.span\")",
                     "local storage = ffi.new<int32[4]>()",
-                    "local view = spans.fromCarray(storage, 4)",
+                    "local view = spans.fromcarray(storage, 4)",
                     "print(view.pointer)",
                 },
                 "\n"
@@ -1843,7 +1843,7 @@ function M.spansExportANameableGenericWithoutTheirRepresentation()
     testAssert.equal(
         codes(
             table.concat(
-                {"local spans = require('nupp.mem.span')", "local made = new spans.Span()", "print(made)",},
+                {"local spans = require(\"binary.span\")", "local made = new spans.Span()", "print(made)",},
                 "\n"
             )
         ),
@@ -1856,7 +1856,7 @@ function M.fixedSpansRefineDynamicSpansWithoutLengthChecks()
     assertClean(
         table.concat(
             {
-                "local spans = require('nupp.mem.span')",
+                "local spans = require(\"binary.span\")",
                 "local function exact(borrows view: spans.FixedSpan<int32, 4>): integer",
                 "   return #view as integer",
                 "end",
@@ -1865,10 +1865,10 @@ function M.fixedSpansRefineDynamicSpansWithoutLengthChecks()
                 "end",
                 "local storage = ffi.new<int32[4]>()",
                 "do",
-                "   local view = spans.fromFixedCarray(storage, 4)",
+                "   local view = spans.fromfixedcarray(storage, 4)",
                 "   print(exact(view), dynamic(view), view[1])",
                 "end",
-                "local writable = spans.writeFixedCarray(storage, 4)",
+                "local writable = spans.writefixedcarray(storage, 4)",
                 "do",
                 "   local shared = writable:shared()",
                 "   print(exact(shared))",
@@ -1884,9 +1884,9 @@ function M.fixedSpansRefineDynamicSpansWithoutLengthChecks()
         codes(
             table.concat(
                 {
-                    "local spans = require('nupp.mem.span')",
+                    "local spans = require(\"binary.span\")",
                     "local storage = ffi.new<int32[4]>()",
-                    "local view = spans.fromFixedCarray(storage, 3)",
+                    "local view = spans.fromfixedcarray(storage, 3)",
                     "print(#view)",
                 },
                 "\n"
@@ -1899,7 +1899,7 @@ function M.fixedSpansRefineDynamicSpansWithoutLengthChecks()
     testAssert.equal(
         codes(
             table.concat(
-                {"local spans = require('nupp.mem.span')", "local record Forged is spans.Span<int32>", "end",},
+                {"local spans = require(\"binary.span\")", "local record Forged is spans.Span<int32>", "end",},
                 "\n"
             )
         ),
@@ -1920,7 +1920,7 @@ function M.spanRefsExposeOnlyTheCapabilityTheirViewOwns()
         table.concat(
             {
                 cdecls,
-                "local spans = require('nupp.mem.span')",
+                "local spans = require(\"binary.span\")",
                 "local storage = ffi.new<int32[4]>()",
                 "do",
                 "   local view = spans.fromCarray(storage, 4):slice(2, 3)",
@@ -1946,7 +1946,7 @@ function M.spanRefsExposeOnlyTheCapabilityTheirViewOwns()
             table.concat(
                 {
                     cdecls,
-                    "local spans = require('nupp.mem.span')",
+                    "local spans = require(\"binary.span\")",
                     "local storage = ffi.new<int32[4]>()",
                     "local view = spans.fromCarray(storage, 4)",
                     "local pointer, count = view:ref()",
@@ -1965,9 +1965,9 @@ function M.writeSpanDowngradesAndRefsHoldItsExclusiveBarrier()
         codes(
             table.concat(
                 {
-                    "local spans = require('nupp.mem.span')",
+                    "local spans = require(\"binary.span\")",
                     "local storage = ffi.new<int32[4]>()",
-                    "local writable = spans.writeCarray(storage, 4)",
+                    "local writable = spans.writecarray(storage, 4)",
                     "local pointer, count = writable:ref()",
                     "own.drop(writable)",
                     "print(pointer ~= nil, count)",
@@ -1983,9 +1983,9 @@ function M.writeSpanDowngradesAndRefsHoldItsExclusiveBarrier()
         codes(
             table.concat(
                 {
-                    "local spans = require('nupp.mem.span')",
+                    "local spans = require(\"binary.span\")",
                     "local storage = ffi.new<int32[4]>()",
-                    "local writable = spans.writeCarray(storage, 4)",
+                    "local writable = spans.writecarray(storage, 4)",
                     "local shared = writable:shared()",
                     "writable[1] = 1 as int32",
                     "print(shared[1])",
@@ -2003,9 +2003,9 @@ function M.writableSlicesAreAffineChildrenOfTheirWriter()
     assertClean(
         table.concat(
             {
-                "local spans = require('nupp.mem.span')",
+                "local spans = require(\"binary.span\")",
                 "local storage = ffi.new<int32[6]>()",
-                "local writable = spans.writeCarray(storage, 6)",
+                "local writable = spans.writecarray(storage, 6)",
                 "do",
                 "   local middle = writable:slice(2, 4)",
                 "   middle[1] = 11 as int32",
@@ -2030,9 +2030,9 @@ function M.writableSlicesAreAffineChildrenOfTheirWriter()
         codes(
             table.concat(
                 {
-                    "local spans = require('nupp.mem.span')",
+                    "local spans = require(\"binary.span\")",
                     "local storage = ffi.new<int32[4]>()",
-                    "local writable = spans.writeCarray(storage, 4)",
+                    "local writable = spans.writecarray(storage, 4)",
                     "local child = writable:slice(2, 3)",
                     "writable[1] = 1 as int32",
                     "print(#child)",
@@ -2047,9 +2047,9 @@ function M.writableSlicesAreAffineChildrenOfTheirWriter()
     assertClean(
         table.concat(
             {
-                "local spans = require('nupp.mem.span')",
+                "local spans = require(\"binary.span\")",
                 "local storage = ffi.new<int32[4]>()",
-                "local writable = spans.writeFixedCarray(storage, 4)",
+                "local writable = spans.writefixedcarray(storage, 4)",
                 "local child: spans.Writable<int32> = writable:slice(2, 3)",
                 "child[1] = 7 as int32",
                 "own.drop(child)",
@@ -2064,12 +2064,12 @@ function M.commonSpanRangesBorrowEveryInputWithoutBoxingOrConsumption()
     assertClean(
         table.concat(
             {
-                "local spans = require('nupp.mem.span')",
-                "local indexed = require('nupp.mem.indexed')",
+                "local spans = require(\"binary.span\")",
+                "local indexed = require(\"binary.span\")",
                 "local inputStorage = ffi.new<int32[4]>()",
                 "local outputStorage = ffi.new<int32[4]>()",
-                "const input = spans.fromFixedCarray(inputStorage, 4)",
-                "const output = spans.writeFixedCarray(outputStorage, 4)",
+                "const input = spans.fromfixedcarray(inputStorage, 4)",
+                "const output = spans.writefixedcarray(outputStorage, 4)",
                 "local indices = indexed.range(1, 4, input, output)",
                 "for index = indices.first, indices.last do",
                 "   output[index] = input[index]",
@@ -2083,10 +2083,10 @@ function M.commonSpanRangesBorrowEveryInputWithoutBoxingOrConsumption()
     assertClean(
         table.concat(
             {
-                "local spans = require('nupp.mem.span')",
-                "local indexed = require('nupp.mem.indexed')",
+                "local spans = require(\"binary.span\")",
+                "local indexed = require(\"binary.span\")",
                 "local storage = ffi.new<int32[1]>()",
-                "const view = spans.fromCarray(storage, 1)",
+                "const view = spans.fromcarray(storage, 1)",
                 "local empty = indexed.range(1, 0, view)",
                 "print(empty.first, empty.last)",
             },
@@ -2098,7 +2098,7 @@ function M.commonSpanRangesBorrowEveryInputWithoutBoxingOrConsumption()
         codes(
             table.concat(
                 {
-                    "local indexed = require('nupp.mem.indexed')",
+                    "local indexed = require(\"binary.span\")",
                     "const fake = {count = 4}",
                     "local indices = indexed.range(1, 4, fake)",
                     "print(indices.first)",
@@ -2116,7 +2116,7 @@ function M.heapArraysAreOwnedAndBecomeCheckedSpans()
         table.concat(
             {
                 "local heap = require('nupp.mem.heap')",
-                "local values = heap.allocate(ffi.typeof<int32>(), 1000000)",
+                "local values = heap.alloc(ffi.typeof<int32>(), 1000000)",
                 "print(values.count)",
                 "do",
                 "   local writable = values:write()",
@@ -2137,7 +2137,7 @@ function M.heapArraysAreOwnedAndBecomeCheckedSpans()
             table.concat(
                 {
                     "local heap = require('nupp.mem.heap')",
-                    "local values = heap.allocate(ffi.typeof<int32>(), 4)",
+                    "local values = heap.alloc(ffi.typeof<int32>(), 4)",
                     "local readable = values:read()",
                     "local writable = values:write()",
                     "print(#readable, #writable)",
@@ -2154,7 +2154,7 @@ function M.heapArraysAreOwnedAndBecomeCheckedSpans()
             table.concat(
                 {
                     "local heap = require('nupp.mem.heap')",
-                    "local values = heap.allocate(ffi.typeof<int32>(), 4)",
+                    "local values = heap.alloc(ffi.typeof<int32>(), 4)",
                     "local writable = values:write()",
                     "local readable = values:read()",
                     "print(#readable, #writable)",
@@ -2171,7 +2171,7 @@ function M.heapArraysAreOwnedAndBecomeCheckedSpans()
             table.concat(
                 {
                     "local heap = require('nupp.mem.heap')",
-                    "local values = heap.allocate(ffi.typeof<int32>(), 4)",
+                    "local values = heap.alloc(ffi.typeof<int32>(), 4)",
                     "print(values.pointer)",
                 },
                 "\n"
@@ -2187,7 +2187,7 @@ function M.heapArraysPreserveCountsAndCleanUpAtRuntime()
         {
             "local heap = require('nupp.mem.heap')",
             "local function exercise(count: integer): (integer, int32)",
-            "   local values = heap.allocate(ffi.typeof<int32>(), count)",
+            "   local values = heap.alloc(ffi.typeof<int32>(), count)",
             "   if count > 0 then",
             "      local writable = values:write()",
             "      writable[count] = 73 as int32",
@@ -2201,19 +2201,19 @@ function M.heapArraysPreserveCountsAndCleanUpAtRuntime()
             "local zero = exercise(0)",
             "local one, value = exercise(1)",
             "local negative = pcall(function()",
-            "   local values = heap.allocate(ffi.typeof<int32>(), -1)",
+            "   local values = heap.alloc(ffi.typeof<int32>(), -1)",
             "   values:close()",
             "end)",
             "local overflow = pcall(function()",
-            "   local values = heap.allocate(ffi.typeof<int32>(), 9007199254740991 as integer)",
+            "   local values = heap.alloc(ffi.typeof<int32>(), 9007199254740991 as integer)",
             "   values:close()",
             "end)",
             "local fractional = pcall(function()",
-            "   local values = heap.allocate(ffi.typeof<int32>(), 1.5 as any)",
+            "   local values = heap.alloc(ffi.typeof<int32>(), 1.5 as any)",
             "   values:close()",
             "end)",
             "local unwound = pcall(function()",
-            "   local values = heap.allocate(ffi.typeof<int32>(), 2)",
+            "   local values = heap.alloc(ffi.typeof<int32>(), 2)",
             "   local writable = values:write()",
             "   writable[1] = 1 as int32",
             "   error('unwind')",
@@ -2241,13 +2241,13 @@ end
 function M.writeSpansProveSiblingPartitionsAndRejectOverlap()
     local prelude = table.concat(
         {
-            "local spans = require('nupp.mem.span')",
+            "local spans = require(\"binary.span\")",
             "local function pair(exclusive a: spans.WriteSpan<int32>, exclusive b: spans.WriteSpan<int32>): nil",
             "   if #a > 0 then a[1] = 1 as int32 end",
             "   if #b > 0 then b[1] = 2 as int32 end",
             "end",
             "local storage = ffi.new<int32[8]>()",
-            "local writable = spans.writeCarray(storage, 8)",
+            "local writable = spans.writecarray(storage, 8)",
             "local split = writable:splitAt(4)",
         },
         "\n"
@@ -2284,9 +2284,9 @@ function M.writeSpansProveSiblingPartitionsAndRejectOverlap()
     assertClean(
         table.concat(
             {
-                "local spans = require('nupp.mem.span')",
+                "local spans = require(\"binary.span\")",
                 "local storage = ffi.new<int32[2]>()",
-                "local writable = spans.writeCarray(storage, 2)",
+                "local writable = spans.writecarray(storage, 2)",
                 "do",
                 "   local split = writable:splitAt(1)",
                 "   split.left[1] = 1 as int32",
@@ -2302,7 +2302,7 @@ end
 function M.exclusiveParametersCanBeForwardedWithoutAStoredBorrow()
     local prelude = table.concat(
         {
-            "local spans = require('nupp.mem.span')",
+            "local spans = require(\"binary.span\")",
             "local function inner(exclusive values: spans.WriteSpan<int32>): nil end",
             "local function outer(exclusive values: spans.WriteSpan<int32>): nil",
             "   inner(values)",
@@ -2315,7 +2315,7 @@ function M.exclusiveParametersCanBeForwardedWithoutAStoredBorrow()
     assertClean(
         table.concat(
             {
-                "local spans = require('nupp.mem.span')",
+                "local spans = require(\"binary.span\")",
                 "local function inner(exclusive values: spans.WriteSpan<int32>): nil end",
                 "local function outer(exclusive values: spans.WriteSpan<int32>): nil",
                 "   local element = values[1]",
@@ -2330,7 +2330,7 @@ function M.exclusiveParametersCanBeForwardedWithoutAStoredBorrow()
     assertClean(
         table.concat(
             {
-                "local spans = require('nupp.mem.span')",
+                "local spans = require(\"binary.span\")",
                 "local function inspect(borrows values: spans.WriteSpan<int32>): nil end",
                 "local function outer(exclusive values: spans.WriteSpan<int32>): nil",
                 "   local element = values[1]",
@@ -2348,10 +2348,10 @@ function M.writeSpanPartitionsKeepCountsOffsetsAndBoundsAtRuntime()
         {
             "local heap = require('nupp.mem.heap')",
             "local function exercise(mid: integer): (integer, integer, int32, int32)",
-            "   local values = heap.allocate(ffi.typeof<int32>(), 4)",
+            "   local values = heap.alloc(ffi.typeof<int32>(), 4)",
             "   local leftCount: integer = -1 as integer",
             "   local rightCount: integer = -1 as integer",
-            -- heap.allocate does not promise zeroed memory, and the assertions below
+            -- heap.alloc does not promise zeroed memory, and the assertions below
             -- read an element no split ever writes, so without this they see whatever
             -- was there.
             "   do",
@@ -2417,7 +2417,7 @@ function M.tecsShapedColumnsPartitionIntoCheckedNativeKernelInputs()
                 "cdef function update_transforms(",
                 "   borrows values: Transform2D* countedBy(count), count: uint64",
                 ")",
-                "local column = heap.allocate(ffi.typeof<Transform2D>(), 1024)",
+                "local column = heap.alloc(ffi.typeof<Transform2D>(), 1024)",
                 "do",
                 "   local writable = column:write()",
                 "   do",
@@ -4324,7 +4324,7 @@ function M.aHandledSuspensionThroughAHelperIsAllowed()
         RESOURCE .. table.concat(
             {
                 "",
-                'local suspension = require("nupp.suspension")',
+                'local suspension = require("coroutine.suspension")',
                 "local function pause()",
                 "   suspension.suspend('test', function(resume: function(any), _: any): (function()?)",
                 "      resume(true)",
@@ -4605,7 +4605,7 @@ function M.attemptAllRunsEveryStepAfterAFailure()
             "   calls = calls .. ',release'",
             "end",
             "local function finish(takes value: Resource): nil",
-            "   own.attemptAll(value, stop, release)",
+            "   own.attemptall(value, stop, release)",
             "end",
             "local function open(): affine(Resource, finish)",
             "   return new Resource(id = 1)",
@@ -4644,7 +4644,7 @@ function M.onlyTheFinalAttemptAllOperationMayTakeTheValue()
     -- `first` consuming its own parameter is NUPP2603 in its empty body; the
     -- ordering rule is the second diagnostic.
     testAssert.equal(
-        codes(declaration .. table.concat({"", "   own.attemptAll(value, first, second)", "end",}, "\n")),
+        codes(declaration .. table.concat({"", "   own.attemptall(value, first, second)", "end",}, "\n")),
         "NUPP2615"
     )
     assertClean(
@@ -4656,7 +4656,7 @@ function M.onlyTheFinalAttemptAllOperationMayTakeTheValue()
                 "   @unsafe do local _raw = @unsafe own.release(value) end",
                 "end",
                 "local function finish(takes value: Resource): nil",
-                "   own.attemptAll(value, first, second)",
+                "   own.attemptall(value, first, second)",
                 "end",
                 "return finish",
             },
@@ -5277,7 +5277,7 @@ function M.remainingOwnershipHelpersAnswerToTheirQualifiedSpelling()
                 "   local raw = @unsafe own.release(value)",
                 "   local owner = @unsafe own.adopt<affine(voidptr, free)>(raw)",
                 "   do",
-                "      local view = own.borrowFrom(raw, owner)",
+                "      local view = own.borrowfrom(raw, owner)",
                 "   end",
                 "   own.drop(owner)",
                 "end",
@@ -5842,7 +5842,7 @@ function M.raceDropsATakingLoserThatWasNeverEntered()
     local source = CLOSURE_RESOURCE .. table.concat(
         {
             "",
-            "local tasks = require('nupp.tasks')",
+            "local tasks = require(\"coroutine\")",
             "local entered = 0",
             "local first = openClosureResource(1)",
             "local second = openClosureResource(2)",
@@ -5877,7 +5877,7 @@ function M.raceAcceptsBorrowedClosuresWithoutRetainingThem()
         CLOSURE_RESOURCE .. table.concat(
             {
                 "",
-                "local tasks = require('nupp.tasks')",
+                "local tasks = require(\"coroutine\")",
                 "local resource = openClosureResource(7)",
                 "local answer = tasks.race({",
                 "   function(): integer borrows (resource)",
@@ -5899,14 +5899,14 @@ function M.aTaskScopeClosesThroughItsWithAndThroughDrop()
     local order = runGenerated(
         table.concat(
             {
-                "local tasks = require('nupp.tasks')",
+                "local tasks = require(\"coroutine\")",
                 "local order: {string} = {}",
-                "with scope = tasks.open() do",
+                "with scope = tasks.scope() do",
                 "   scope:spawn(function(): nil order[#order + 1] = 'child' end)",
                 "end",
                 "order[#order + 1] = 'after block'",
                 "do",
-                "   local scope = tasks.open()",
+                "   local scope = tasks.scope()",
                 "   scope:spawn(function(): nil order[#order + 1] = 'early child' end)",
                 "   own.drop(scope)",
                 "   order[#order + 1] = 'after drop'",
@@ -5924,10 +5924,10 @@ end
 -- runtime; `tasks.deadline()` is the absolute instant it becomes.
 function M.aTaskScopeTakesItsTimeoutInMilliseconds()
     assertClean(
-        "local tasks = require('nupp.tasks')\nwith scope = tasks.open(limit = 2, timeoutMs = 5) do\n   print(scope)\nend"
+        "local tasks = require(\"coroutine\")\nwith scope = tasks.scope(limit = 2, timeoutMs = 5) do\n   print(scope)\nend"
     )
     local refused = codes(
-        "local tasks = require('nupp.tasks')\nlocal scope = tasks.open(deadline = 5)\nnupp.drop(scope)"
+        "local tasks = require(\"coroutine\")\nlocal scope = tasks.scope(deadline = 5)\nnupp.drop(scope)"
     )
     assert(refused:find("NUPP2125", 1, true) == 1, "the old name is not an argument: " .. refused)
 end
@@ -5961,7 +5961,7 @@ function M.gatherCallsEveryTakingBranchOnce()
     local source = CLOSURE_RESOURCE .. table.concat(
         {
             "",
-            "local tasks = require('nupp.tasks')",
+            "local tasks = require(\"coroutine\")",
             "local first = openClosureResource(1)",
             "local second = openClosureResource(2)",
             "local values = tasks.gather({",
@@ -5993,7 +5993,7 @@ function M.gatherAcceptsBorrowedClosuresWithoutRetainingThem()
         CLOSURE_RESOURCE .. table.concat(
             {
                 "",
-                "local tasks = require('nupp.tasks')",
+                "local tasks = require(\"coroutine\")",
                 "local resource = openClosureResource(7)",
                 "local values = tasks.gather({",
                 "   function(): integer borrows (resource)",
@@ -6340,7 +6340,7 @@ return run()
     local chunk = assert(loadstring(code))
     setfenv(chunk, globals)
     testAssert.equal(chunk(), 7)
-    assert(not code:find('require("nupp.suspension")', 1, true), code)
+    assert(not code:find('require("coroutine.suspension")', 1, true), code)
 end
 
 function M.inlineTerminalsRegisterTheirRuntimeOwner()
@@ -6606,7 +6606,7 @@ function M.taskHandlesRemainRootedInTheirScope()
             table.concat(
                 {
                     "local escaped: any = nil",
-                    "with scope = nupp.tasks.open() do",
+                    "with scope = coroutine.scope() do",
                     "   escaped = scope:spawn(function(): integer return 1 end)",
                     "end",
                     "print(escaped)",
@@ -6622,7 +6622,7 @@ function M.taskHandleAggregatesCarryTheirScopeProvenance()
     assertClean(
         table.concat(
             {
-                "with scope = nupp.tasks.open() do",
+                "with scope = coroutine.scope() do",
                 "   local handles = {scope:spawn(function(): integer return 1 end)}",
                 "   handles[2] = scope:spawn(function(): integer return 2 end)",
                 "   for _, handle in ipairs(handles) do print(handle:await()) end",
@@ -6636,7 +6636,7 @@ function M.taskHandleAggregatesCarryTheirScopeProvenance()
         table.concat(
             {
                 "local kept: any = nil",
-                "with scope = nupp.tasks.open() do",
+                "with scope = coroutine.scope() do",
                 "   kept = {scope:spawn(function(): integer return 1 end)}",
                 "end",
                 "return kept",
@@ -6656,7 +6656,7 @@ function M.returningTaskSpawnsRefuseBorrowedAffineCaptures()
                     "   function close(takes self): nil end",
                     "end",
                     "local resource = new Resource()",
-                    "with scope = nupp.tasks.open() do",
+                    "with scope = coroutine.scope() do",
                     "   local callback = function(): nil borrows (resource)",
                     "      print(resource ~= nil)",
                     "   end",
@@ -6679,7 +6679,7 @@ function M.aChildBodyMayBorrowTheScopeThatStartsIt()
         table.concat(
             {
                 "local seen = 0",
-                "with scope = nupp.tasks.open(limit = 4) do",
+                "with scope = coroutine.scope(limit = 4) do",
                 "   for index = 1, 3 do",
                 "      scope:spawn(function(): nil",
                 "         scope:spawn(function(): nil seen = seen + index end)",
@@ -6700,8 +6700,8 @@ function M.aChildBodyMayBorrowTheScopeThatStartsIt()
         codes(
             table.concat(
                 {
-                    "with outer = nupp.tasks.open() do",
-                    "   with inner = nupp.tasks.open() do",
+                    "with outer = coroutine.scope() do",
+                    "   with inner = coroutine.scope() do",
                     "      outer:spawn(function(): nil",
                     "         inner:spawn(function(): nil end)",
                     "      end)",
@@ -6722,7 +6722,7 @@ function M.aChildBodyMayBorrowTheScopeThatStartsIt()
                     "   function close(takes self): nil end",
                     "end",
                     "with resource = new Resource() do",
-                    "   with scope = nupp.tasks.open() do",
+                    "   with scope = coroutine.scope() do",
                     "      scope:spawn(function(): nil",
                     "         scope:cancel(tostring(resource ~= nil))",
                     "      end)",
@@ -7113,7 +7113,7 @@ function M.cancellingAQueuedTaskDropsItsTransferredCaptures()
             "local record Resource is own.Closeable",
             "   function close(takes self): nil drops = drops + 1 end",
             "end",
-            "with scope = nupp.tasks.open() do",
+            "with scope = coroutine.scope() do",
             "   local resource = new Resource()",
             "   local child = scope:spawn(function(): nil takes (resource)",
             "      resource:close()",
@@ -8104,9 +8104,9 @@ function M.aSharedArgumentMayReadThroughItsExclusiveView()
     assertClean(
         table.concat(
             {
-                "local spans = require('nupp.mem.span')",
+                "local spans = require(\"binary.span\")",
                 "local storage = ffi.new<int32[4]>()",
-                "local writable = spans.writeCarray(storage, 4)",
+                "local writable = spans.writecarray(storage, 4)",
                 "do",
                 "   local pointer, count = writable:ref()",
                 "   print(pointer ~= nil, count)",
@@ -8120,9 +8120,9 @@ function M.aSharedArgumentMayReadThroughItsExclusiveView()
         codes(
             table.concat(
                 {
-                    "local spans = require('nupp.mem.span')",
+                    "local spans = require(\"binary.span\")",
                     "local storage = ffi.new<int32[4]>()",
-                    "local writable = spans.writeCarray(storage, 4)",
+                    "local writable = spans.writecarray(storage, 4)",
                     "local pointer = writable:ref()",
                     "print(writable ~= nil)",
                     "print(pointer ~= nil)",
@@ -8309,11 +8309,11 @@ function M.aChildSpanCannotOutliveItsWriter()
         codes(
             table.concat(
                 {
-                    "local spans = require('nupp.mem.span')",
+                    "local spans = require(\"binary.span\")",
                     "local storage = ffi.new<int32[4]>()",
                     "local child: spans.Writable<int32>",
                     "do",
-                    "   local writable = spans.writeCarray(storage, 4)",
+                    "   local writable = spans.writecarray(storage, 4)",
                     "   child = writable:slice(2, 3)",
                     "end",
                     "child[1] = 1 as int32",
@@ -8546,7 +8546,7 @@ local struct Particle
 end
 cdef function update(exclusive x: float*, exclusive y: float*)
 cdef function one(exclusive x: float*)
-local particles = soa.allocate(ffi.typeof<Particle>(), 2)
+local particles = soa.alloc(ffi.typeof<Particle>(), 2)
 local rows = particles:write()
 local xs = rows.x
 local ys = rows.y

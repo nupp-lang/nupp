@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local gpu = require("gpu")
 local generated = require("fastmath")
 
@@ -15,7 +15,7 @@ local context = gpu.open()
 local inputBuffer = context:buffer(require("nupp.mem.array").float, count)
 local exactBuffer = context:buffer(require("nupp.mem.array").float, count)
 local nativeBuffer = context:buffer(require("nupp.mem.array").float, count)
-context:upload(inputBuffer, span.fromCarray(input, count))
+context:upload(inputBuffer, span.fromcarray(input, count))
 local exact = generated.exact:compile(context):bind(exactBuffer, inputBuffer)
 local native = generated.native:compile(context):bind(nativeBuffer, inputBuffer)
 
@@ -44,8 +44,8 @@ local actual = ffi.new("float[?]", count)
 context:enqueueDownload(exactBuffer)
 context:enqueueDownload(nativeBuffer)
 context:synchronize()
-context:readDownloaded(exactBuffer, span.writeCarray(expected, count))
-context:readDownloaded(nativeBuffer, span.writeCarray(actual, count))
+context:readDownloaded(exactBuffer, span.writecarray(expected, count))
+context:readDownloaded(nativeBuffer, span.writecarray(actual, count))
 local maximumRelative = 0.0
 for index = 0, count - 1 do
     local relative = math.abs(

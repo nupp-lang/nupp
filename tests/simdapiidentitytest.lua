@@ -70,7 +70,7 @@ end
 
 local SCALE = [[
 local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local lanes = require(%q)
 @aot
 local function scale(exclusive values: span.WriteSpan<float>, factor: float): nil
@@ -113,7 +113,7 @@ end
 
 local WORKGROUP = [[
 local gpu = require(%q)
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 @aot(target = "gpu")
 local function increment(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil
     local groups = math.u32.div(math.u32.wrap(#input), math.u32.wrap(4))
@@ -231,8 +231,8 @@ local array = require("nupp.mem.array")
 local simd = require("simd")
 @aot
 local function fold(): number
-    local floating = simd.reducer.orderedSum(0.0)
-    local exact = simd.reducer.wrappingSum(array.int32, 0)
+    local floating = simd.reducer.orderedsum(0.0)
+    local exact = simd.reducer.wrappingsum(array.int32, 0)
     do
         floating:add(1.5)
         exact:add(2)
@@ -243,8 +243,8 @@ end
 local function horizontal(): (int32, integer)
     local integers = assert(simd.species(array.int32, 4))
     local floats = assert(simd.species(array.float, 4))
-    local total: int32 = simd.horizontal.wrappingSum(integers:splat(3))
-    local at: integer = simd.horizontal.propagatingArgMax(floats:splat(2.0))
+    local total: int32 = simd.horizontal.wrappingsum(integers:splat(3))
+    local at: integer = simd.horizontal.propagatingargmax(floats:splat(2.0))
     return total, at
 end
 ]]
@@ -275,7 +275,7 @@ local simd = require("simd")
 @aot
 local function invalid(): number
     local floats = assert(simd.species(array.float, 4))
-    return simd.horizontal.wrappingSum(floats:splat(1.0))
+    return simd.horizontal.wrappingsum(floats:splat(1.0))
 end
 ]]
     for _, lowercase in ipairs({false, true}) do
@@ -285,7 +285,7 @@ end
         test.equal(diagnostics[1].code, "NUPP2006")
     end
     local runtime = require("simd")
-    test.equal(runtime.lane.fromstorage, runtime.lane.fromStorage, "bootstrap entry must reuse the runtime function")
+    test.equal(runtime.lane.fromstorage, runtime.lane.fromstorage, "bootstrap entry must reuse the runtime function")
     local _, diagnostics = checkedSimd(
         [[
 local simd = {horizontal = {wrappingsum = function(value: number): number return value + 1 end}}

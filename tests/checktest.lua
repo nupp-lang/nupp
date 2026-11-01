@@ -2259,7 +2259,7 @@ function M.aNamespaceAliasKeepsTypesAndIntrinsics()
     local env = require("nupp.compiler.project.env").new(here .. "/..")
     local spanSource = table.concat(
         {
-            "local span = nupp.mem.span",
+            "local span = binary.span",
             "local function copy(output: span.WriteSpan<number>, input: span.Span<number>): nil",
             "    for index = 1, #output do output[index] = input[index] end",
             "end",
@@ -2273,7 +2273,7 @@ function M.aNamespaceAliasKeepsTypesAndIntrinsics()
             "local i32 = math.i32",
             "local math32 = math",
             "local function mask(a: int32, b: int32): (int32, int32, int32)",
-            "    return i32.andBits(a, b), math.i32.andBits(a, b), math32.i32.andBits(a, b)",
+            "    return i32.andbits(a, b), math.i32.andbits(a, b), math32.i32.andbits(a, b)",
             "end",
             "return mask",
         },

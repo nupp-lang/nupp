@@ -98,7 +98,7 @@ local integerOperations = {
 
 local prelude = [[
 local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 local u32 = math.u32
 

@@ -2,8 +2,9 @@
 -- the target VM's ordinary loop, never from a second emulation of that loop.
 local M = {}
 function M.generate()
-    local source = [=[local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+    local source = [=[
+local array = require("nupp.mem.array")
+local span = require("binary.span")
 local simd = require("simd")
 local u32 = math.u32
 

@@ -8,9 +8,9 @@ text and loaded at run time; requiring what they use here is what bundles it.
 local json = require("serde.json")
 local sources = require("sources")
 local _host = require("nupp.host")
-local _span = require("nupp.mem.span")
-local _tasks = require("nupp.tasks")
-local _time = require("nupp.time")
+local _span = require("binary.span")
+local _tasks = require("coroutine")
+local _time = require("coroutine")
 local _events = require("events")
 local _hostevents = require("hostevents")
 local _clock = os.monotonic
@@ -20,10 +20,10 @@ local _clock = os.monotonic
 local selection: any = rawget(_G, "__hostChannelProgram")
 if selection == nil then
     local file, name, options = _host.call("bench.program")
-    selection = {file = file, name = name, options = json.decodeValue(options)}
+    selection = {file = file, name = name, options = json.decodevalue(options)}
 end
 local load: any = rawget(_G, "loadstring")
 local programs: any = (load(sources[selection.file], "@" .. selection.file))()
 local ok, value = pcall(programs[selection.name], selection.options)
 
-return json.encodeValue(ok and {ok = true, value = value} or {ok = false, error = tostring(value)})
+return json.encodevalue(ok and {ok = true, value = value} or {ok = false, error = tostring(value)})

@@ -4,8 +4,8 @@ local testAssert = require("assert")
 -- The ready path is what the baselines said to protect, so it is what most of this
 -- checks: a subscription that completes during the call must not build a park, must not
 -- consult a handler, and must answer straight through.
-local suspension = require("nupp.suspension")
-local suspensionHost = require("nupp.suspension.host")
+local suspension = require("coroutine.suspension")
+local suspensionHost = require("coroutine.suspension.host")
 
 -- The lexical owner scope, written out here because the tests are Lua.
 local function handled(handler, body, ...)
@@ -562,7 +562,7 @@ end
 -- thirty-five minutes instead of two and a half, and only when the shards
 -- happened to pack those two suites into one process.
 function M.reportsAWaitNothingCanCompleteEvenAfterATimerHasRun()
-    require("nupp.time").sleep(1)
+    require("coroutine").sleep(1)
 
     local ok, err = pcall(suspension.suspend, "waiting", function()
         return function()

@@ -4,6 +4,6 @@
 -- the public declarations sealed into generic defaults.
 --
 -- Nothing is left here. It held the affine terminals for the prelude's io resources,
--- and those moved into nupp.io with the rest of io. The unit stays because the
+-- and those moved into io with the rest of io. The unit stays because the
 -- mechanism is the only way a prelude declaration can own a runtime identity, and the
 -- next declaration that needs one will want it.

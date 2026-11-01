@@ -5,9 +5,9 @@ local test = require("assert")
 local native = require("nupp.compiler.native")
 local stdlib = require("nupp.compiler.stdlib")
 local nativeStage = require("nupp.tools.build.native")
-local suspension = require("nupp.suspension")
-local suspensionHost = require("nupp.suspension.host")
-local tasks = require("nupp.tasks")
+local suspension = require("coroutine.suspension")
+local suspensionHost = require("coroutine.suspension.host")
+local tasks = require("coroutine")
 
 local M = {}
 
@@ -20,7 +20,7 @@ local function startProcess(options)
 end
 
 local function newHttpClient(options)
-    return http.newClient(options)
+    return http.newclient(options)
 end
 
 local function temporaryRoot()
@@ -96,9 +96,9 @@ function M.beforeAll()
     preloadProvider("nupp.runtime.native", "NUPP_NATIVE_LIBRARY", libraryPath)
     assert(loadstring(stdlib.bootstrap(effects)))()
     process = require("nupp.io.process")
-    http = require("nupp.io.http")
-    buffers = require("nupp.io")
-    files = require("nupp.io.files")
+    http = require("io.http")
+    buffers = require("io")
+    files = require("io.files")
     port, unavailable = startServer()
 end
 
@@ -122,13 +122,13 @@ local function ready()
 end
 
 local function endpoint(path)
-    return assert(require("io.uri").newURI("http://127.0.0.1:" .. port .. path))
+    return assert(require("io.uri").newuri("http://127.0.0.1:" .. port .. path))
 end
 
 local function readAll(body, chunkSize)
-    local destination = buffers.newBuffer()
+    local destination = buffers.newbuffer()
     while true do
-        local count, reason = body:readInto(destination, destination:length(), chunkSize)
+        local count, reason = body:readInto(destination, destination:len(), chunkSize)
         assert(count, reason)
         if count == 0 then
             break
@@ -164,8 +164,8 @@ end
 function M.buffersViewsAndFilesKeepTheirConcreteUploadPaths()
     local client = ready()
     local payload = string.rep("concrete-", 8192)
-    local buffer = buffers.newBuffer(payload)
-    for _, body in ipairs({buffer, buffer:view(0, buffer:length())}) do
+    local buffer = buffers.newbuffer(payload)
+    for _, body in ipairs({buffer, buffer:view(0, buffer:len())}) do
         local response, reason = client:send({url = endpoint("/echo"), method = "POST", body = body,})
         assert(response, reason)
         local echoed = readAll(response.body, 32768)
@@ -358,7 +358,7 @@ end
 function M.genericReadersAndLargeDownloadsStayProgressive()
     local client = ready()
     local payload = string.rep("reader-", 8192)
-    local reader = buffers.newStringReader(payload)
+    local reader = buffers.newstringreader(payload)
     local response, reason = client:send({
         url = endpoint("/echo"),
         method = "POST",
@@ -377,15 +377,15 @@ function M.genericReadersAndLargeDownloadsStayProgressive()
     test.equal(#repeated, 2)
     test.equal(repeated[1], "one")
     test.equal(repeated[2], "two")
-    local downloaded = buffers.newBuffer(4 * 1024 * 1024)
+    local downloaded = buffers.newbuffer(4 * 1024 * 1024)
     local writer = downloaded:newWriter()
     local copied, copyReason = response.body:transferTo(writer)
     assert(copied, copyReason)
     test.equal(copied, 4 * 1024 * 1024)
     writer:close()
-    test.equal(downloaded:length(), 4 * 1024 * 1024)
+    test.equal(downloaded:len(), 4 * 1024 * 1024)
     test.equal(downloaded:getString(0, 16), "0123456789abcdef")
-    test.equal(downloaded:getString(downloaded:length() - 16, 16), "0123456789abcdef")
+    test.equal(downloaded:getString(downloaded:len() - 16, 16), "0123456789abcdef")
     response:close()
     downloaded:close()
     test.equal(client:pending(), 0)
@@ -676,7 +676,7 @@ end
 
 function M.thePublicModuleAndNativeProviderHaveSeparateFeatureDependencies()
     ready():close()
-    test.equal(native.forModule("nupp.io.http"), "runtime.http")
+    test.equal(native.forModule("io.http"), "runtime.http")
     local feature = assert(native.feature("native.http"))
     test.equal(feature.providerFeature, "http")
     test.equal(feature.runtimeModule, "nupp.runtime.provider.nativehttp")

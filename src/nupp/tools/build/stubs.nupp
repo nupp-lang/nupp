@@ -67,7 +67,7 @@ end
 
 local function decodeCatalogText(text: string, where: string): any?, string?
     local json = require("serde.json")
-    local value, invalid = json.decodeValue(text, json.NULL)
+    local value, invalid = json.decodevalue(text, json.NULL)
     if invalid ~= nil then
         return nil, "cannot decode stub catalog " .. where .. ": " .. invalid
     end

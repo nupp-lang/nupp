@@ -57,7 +57,7 @@ local function sha256(path)
 end
 
 local reference = read(project .. "/result.json")
-local simd = json.decodeValue(reference, json.NULL)
+local simd = json.decodevalue(reference, json.NULL)
 assert(simd.ok and simd.nativeCalls and simd.symbols, "run the SIMD corpus before preparing its reference")
 run("mkdir -p " .. quote(output))
 run("cp -R " .. quote(project .. "/src") .. " " .. quote(project .. "/nupp.lua") .. " " .. quote(output))
@@ -75,8 +75,8 @@ run(
 )
 
 -- The rebuilt units are the SIMD ones by source; their names carry the switch.
-local original = json.decodeValue(read(project .. "/dist/aot/units.json"), json.NULL)
-local rebuilt = json.decodeValue(read(output .. "/dist/aot/units.json"), json.NULL)
+local original = json.decodevalue(read(project .. "/dist/aot/units.json"), json.NULL)
+local rebuilt = json.decodevalue(read(output .. "/dist/aot/units.json"), json.NULL)
 local bySource = {}
 for _, unit in ipairs(original.units) do
     bySource[unit.source] = unit
@@ -105,6 +105,6 @@ local selection = {
     units = units,
 }
 local file = assert(io.open(output .. "/scalar-selection.json", "wb"))
-file:write(json.encodeValue(selection), "\n")
+file:write(json.encodevalue(selection), "\n")
 file:close()
 print(("Prepared %d reference Wasm units in %s"):format(#units, output))

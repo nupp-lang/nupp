@@ -58,4 +58,4 @@ for index = 1, 65536 do
         report.machineCodeBytes = report.machineCodeBytes + #(util.tracemc(index) or "")
     end
 end
-print(json.encodeValue(report))
+print(json.encodevalue(report))

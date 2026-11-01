@@ -1,8 +1,8 @@
 const assert2 = require("assert")
 
-const io2 = require("nupp.io")
+const io2 = require("io")
 
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local base64 = require("serde.base64")
 local valuebuilder = require("serde.valuebuilder")
@@ -13,15 +13,15 @@ end
 
 @aot
 local function copyString(source: string, nullValue: any): any
-    local length = valuebuilder.length(source)
+    local length = valuebuilder.len(source)
     local builder = valuebuilder.new(nullValue)
-    local scratch = valuebuilder.newByteScratch(length)
+    local scratch = valuebuilder.newbytescratch(length)
     local index: uint32 = u32(0)
     while index < length do
-        valuebuilder.setScratchByte(scratch, index, valuebuilder.byte(source, index))
+        valuebuilder.setscratchbyte(scratch, index, valuebuilder.byte(source, index))
         index = math.u32.add(index, u32(1))
     end
-    valuebuilder.stringScratch(builder, scratch, u32(0), length)
+    valuebuilder.stringscratch(builder, scratch, u32(0), length)
 
     return valuebuilder.finish(builder)
 end
@@ -63,14 +63,14 @@ local function scale(
     end
 end
 
-local input = array.newArray(new Sample(), 3)
+local input = array.newarray(new Sample(), 3)
 local inputRows = input:write()
 inputRows[1] = new Sample(2, 10, 1)
 inputRows[2] = new Sample(3, 20, 4)
 inputRows[3] = new Sample(5, 30, 7)
 own.drop(inputRows)
 
-local output = array.newArray(new Sample(), 3)
+local output = array.newarray(new Sample(), 3)
 do
     local writable = output:write()
     scale(writable, input:read(), 2, true)
@@ -114,7 +114,7 @@ end
 
 @aot
 local function rotateWide(value: uint64, count: integer): (uint64, uint64)
-    return math.u64.rotateLeft(value, count), math.u64.rotateRight(value, count)
+    return math.u64.rotateleft(value, count), math.u64.rotateright(value, count)
 end
 
 local wideInput = array.scalar(array.uint64, 2)
@@ -152,12 +152,12 @@ local function copyBytes(exclusive destination: span.WriteSpan<uint8>, borrows s
     end
 end
 
-local byteBuffer = io2.newBuffer(4)
+local byteBuffer = io2.newbuffer(4)
 local byteLease = byteBuffer:reserveWrite(0, 4)
 do
     local bytes = byteLease:span()
     const original = "a\0b\255"
-    const source = span.fromString(original)
+    const source = span.fromstring(original)
     copyBytes(bytes, source)
     own.drop(bytes)
 end

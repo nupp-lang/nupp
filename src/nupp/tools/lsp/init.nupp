@@ -1146,7 +1146,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     handlers["textDocument/completion"] = function(id, params)
         local _, doc = documentAt(params)
         if not doc or not doc.result or not params.position then
-            respond(id, json.asArray({}))
+            respond(id, json.asarray({}))
             return
         end
         local offset = offsetAtPosition(doc.text, params.position) or 1
@@ -1220,7 +1220,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     handlers["textDocument/references"] = function(id, params)
         local _, doc, tok, offset = symbolAt(params)
         if not tok then
-            respond(id, json.asArray({}));
+            respond(id, json.asarray({}));
             return
         end
         local includeDeclaration = params.context and params.context.includeDeclaration or false
@@ -1544,13 +1544,13 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         local uri, doc = documentAt(params)
         local range = params and params.range
         if not doc or not doc.result or not range then
-            respond(id, json.asArray({}))
+            respond(id, json.asarray({}))
             return
         end
         local from = offsetAtPosition(doc.text, range.start)
         local to = offsetAtPosition(doc.text, range["end"]) or from
         if not from then
-            respond(id, json.asArray({}))
+            respond(id, json.asarray({}))
             return
         end
 
@@ -1602,7 +1602,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     handlers["textDocument/semanticTokens/full"] = function(id, params)
         local uri, doc = documentAt(params)
         if not doc or not doc.result then
-            respond(id, {data = json.asArray({})})
+            respond(id, {data = json.asarray({})})
             return
         end
         local data = encodeSemanticEntries(semanticEntries(doc))
@@ -1612,7 +1612,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     handlers["textDocument/semanticTokens/full/delta"] = function(id, params)
         local uri, doc = documentAt(params)
         if not doc or not doc.result then
-            respond(id, {data = json.asArray({})})
+            respond(id, {data = json.asarray({})})
             return
         end
         local data = encodeSemanticEntries(semanticEntries(doc))
@@ -1631,7 +1631,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         local _, doc = documentAt(params)
         local range = params and params.range
         if not doc or not doc.result or not range then
-            respond(id, {data = json.asArray({})})
+            respond(id, {data = json.asarray({})})
             return
         end
         local within = {}
@@ -1700,7 +1700,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
 
     local function respondWithEdits(id, edits, keep)
         if not edits then
-            respond(id, json.asArray({}));
+            respond(id, json.asarray({}));
             return
         end
         local out = wire.array({})
@@ -1715,7 +1715,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     handlers["textDocument/formatting"] = function(id, params)
         local uri, doc = documentAt(params)
         if not doc then
-            respond(id, json.asArray({}));
+            respond(id, json.asarray({}));
             return
         end
         respondWithEdits(id, formattingEdits(uri, doc))
@@ -1725,7 +1725,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         local uri, doc = documentAt(params)
         local range = params and params.range
         if not doc or not range then
-            respond(id, json.asArray({}));
+            respond(id, json.asarray({}));
             return
         end
         -- The formatter is a whole-document formatter, which is what makes its output
@@ -1743,7 +1743,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     handlers["textDocument/documentSymbol"] = function(id, params)
         local _, doc = documentAt(params)
         if not doc or not doc.result then
-            respond(id, json.asArray({}))
+            respond(id, json.asarray({}))
             return
         end
         respond(id, documentSymbols(doc.result, doc.text))
@@ -1826,7 +1826,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     handlers["textDocument/documentHighlight"] = function(id, params)
         local _, doc, tok, offset = symbolAt(params)
         if not tok then
-            respond(id, json.asArray({}));
+            respond(id, json.asarray({}));
             return
         end
         local highlights = wire.array({})
@@ -1849,7 +1849,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     handlers["textDocument/foldingRange"] = function(id, params)
         local _, doc = documentAt(params)
         if not doc or not doc.result then
-            respond(id, json.asArray({}))
+            respond(id, json.asarray({}))
             return
         end
         local ranges, seen = wire.array({}), {}
@@ -1876,7 +1876,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     handlers["textDocument/selectionRange"] = function(id, params)
         local _, doc = documentAt(params)
         if not doc or not doc.result or not params.positions then
-            respond(id, json.asArray({}))
+            respond(id, json.asarray({}))
             return
         end
         local out = wire.array({})
@@ -1916,7 +1916,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             inc.closeDocument(uriToPath(uri))
         end)
         refreshOpenDocuments(nil)
-        notify("textDocument/publishDiagnostics", {uri = uri, diagnostics = json.asArray({}),})
+        notify("textDocument/publishDiagnostics", {uri = uri, diagnostics = json.asarray({}),})
     end
 
     -- An editor session works out the same project index every command-line run does,
@@ -2074,7 +2074,7 @@ function lsp.run(rootDir: string?): integer
     io.stdout:setvbuf("no")
 
     local function send(msg)
-        local body = json.encodeValue(msg)
+        local body = json.encodevalue(msg)
         io.stdout:write("Content-Length: " .. #body .. "\r\n\r\n" .. body)
     end
 

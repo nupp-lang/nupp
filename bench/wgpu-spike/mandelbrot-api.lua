@@ -1,6 +1,6 @@
 -- Exercise gpu at the same point-array boundary as simd-mandelbrot.
 local ffi = require("ffi")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local generated = require("mandelbrot")
 local gpu = require("gpu")
 
@@ -52,7 +52,7 @@ local escapeBuffer = context:buffer(ffi.typeof("KsEscape"), count)
 local kernel = generated.mandelbrot:compile(context)
 local invocation = kernel:bind(escapeBuffer, pointBuffer)
 
-context:upload(pointBuffer, span.fromCarray(points, count))
+context:upload(pointBuffer, span.fromcarray(points, count))
 context:synchronize()
 
 local function dispatch()
@@ -73,7 +73,7 @@ local elapsed = (now() - started) / passes
 
 context:enqueueDownload(escapeBuffer)
 context:synchronize()
-context:readDownloaded(escapeBuffer, span.writeCarray(output, count))
+context:readDownloaded(escapeBuffer, span.writecarray(output, count))
 
 local expected = read(expectedPath)
 assert(#expected == ffi.sizeof("KsEscape") * count, "unexpected SIMD result size")

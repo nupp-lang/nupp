@@ -6,7 +6,7 @@ local indexer = require("simd_json.indexer")
 local parser = require("simd_json.parser")
 local scanner = require("simd_json.scanner")
 local simdjsonBench = require("simdjson_bench")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local valueBuilder = require("serde.valuebuilder")
 
 require("production_json_test").run()
@@ -120,8 +120,8 @@ end
 local function indexed(source, capacity)
     capacity = capacity == nil and #source or capacity
     local storage = ffi.new("uint32_t[?]", math.max(capacity, 1))
-    local writable = span.writeCarray(storage, capacity)
-    local count, status, position = indexer.index(span.fromString(source), writable)
+    local writable = span.writecarray(storage, capacity)
+    local count, status, position = indexer.index(span.fromstring(source), writable)
     writable:drop()
     local positions = {}
     for offset = 0, tonumber(count) - 1 do
@@ -149,12 +149,12 @@ local function parsed(source, nodeCapacity, linkCapacity, frameCapacity)
     local nodes = ffi.new(NodeArray, math.max(nodeCapacity, 1))
     local links = ffi.new("uint32_t[?]", math.max(linkCapacity, 1))
     local frames = ffi.new(FrameArray, math.max(frameCapacity, 1))
-    local nodeWrite = span.writeCarray(nodes, nodeCapacity)
-    local linkWrite = span.writeCarray(links, linkCapacity)
-    local frameWrite = span.writeCarray(frames, frameCapacity)
+    local nodeWrite = span.writecarray(nodes, nodeCapacity)
+    local linkWrite = span.writecarray(links, linkCapacity)
+    local frameWrite = span.writecarray(frames, frameCapacity)
     local root, status, position, nodeCount = parser.parse(
-        span.fromString(source),
-        span.fromCarray(tapeStorage, #tapePositions),
+        span.fromstring(source),
+        span.fromcarray(tapeStorage, #tapePositions),
         nodeWrite,
         linkWrite,
         frameWrite
@@ -218,30 +218,30 @@ do
     -- These fallbacks run as ordinary Lua. Fixed widths are compile-time facts,
     -- so their already-in-range arguments do not need the compiler-only
     -- `math.u32` surface installed in this direct-Lua test process.
-    local scratch = valueBuilder.newWordScratch(2)
-    valueBuilder.setScratchWord(scratch, 0, 0xDEADBEEF)
-    check(valueBuilder.scratchWord(scratch, 0) == 0xDEADBEEF, "ordinary word scratch lost a value")
-    check(not pcall(valueBuilder.scratchWord, scratch, 2), "ordinary word scratch accepted an out-of-bounds read")
+    local scratch = valueBuilder.newwordscratch(2)
+    valueBuilder.setscratchword(scratch, 0, 0xDEADBEEF)
+    check(valueBuilder.scratchword(scratch, 0) == 0xDEADBEEF, "ordinary word scratch lost a value")
+    check(not pcall(valueBuilder.scratchword, scratch, 2), "ordinary word scratch accepted an out-of-bounds read")
 
-    local byteScratch = valueBuilder.newByteScratch(2)
-    valueBuilder.setScratchByte(byteScratch, 0, 65)
-    valueBuilder.setScratchByte(byteScratch, 1, 66)
-    check(valueBuilder.scratchByte(byteScratch, 1) == 66, "ordinary byte scratch lost a value")
+    local byteScratch = valueBuilder.newbytescratch(2)
+    valueBuilder.setscratchbyte(byteScratch, 0, 65)
+    valueBuilder.setscratchbyte(byteScratch, 1, 66)
+    check(valueBuilder.scratchbyte(byteScratch, 1) == 66, "ordinary byte scratch lost a value")
     local byteStream = valueBuilder.new(json.null)
-    valueBuilder.openArray(byteStream, 1)
-    valueBuilder.stringScratch(byteStream, byteScratch, 0, 2)
+    valueBuilder.openarray(byteStream, 1)
+    valueBuilder.stringscratch(byteStream, byteScratch, 0, 2)
     valueBuilder.close(byteStream)
     check(valueBuilder.finish(byteStream)[1] == "AB", "byte scratch did not publish a normal string")
-    valueBuilder.resetByteScratch(byteScratch)
-    valueBuilder.setScratchByte(byteScratch, 0, 67)
-    check(valueBuilder.scratchByte(byteScratch, 0) == 67, "ordinary byte scratch did not reset")
+    valueBuilder.resetbytescratch(byteScratch)
+    valueBuilder.setscratchbyte(byteScratch, 0, 67)
+    check(valueBuilder.scratchbyte(byteScratch, 0) == 67, "ordinary byte scratch did not reset")
 end
 
 do
     local stream = valueBuilder.new(json.null)
-    valueBuilder.openObject(stream, 2)
+    valueBuilder.openobject(stream, 2)
     valueBuilder.key(stream, "alpha", 0, 5, false)
-    valueBuilder.openArray(stream, 2)
+    valueBuilder.openarray(stream, 2)
     valueBuilder.number(stream, 1)
     valueBuilder.null(stream)
     valueBuilder.close(stream)
@@ -560,8 +560,8 @@ do
     local source = '"\\{}[],: \n\001x'
     local expected = {1, 2, 4, 4, 4, 4, 4, 4, 8, 8, 16, 0}
     local storage = ffi.new("uint8_t[?]", #source)
-    local writable = span.writeCarray(storage, #source)
-    scanner.classify(writable, span.fromString(source))
+    local writable = span.writecarray(storage, #source)
+    scanner.classify(writable, span.fromstring(source))
     writable:drop()
     for index, flag in ipairs(expected) do
         check(storage[index - 1] == flag, "wrong classifier flag at " .. index)
@@ -579,8 +579,8 @@ do
         scanner.UTF8_INVALID,
     }
     local storage = ffi.new("uint8_t[?]", #source)
-    local writable = span.writeCarray(storage, #source)
-    scanner.classify(writable, span.fromString(source))
+    local writable = span.writecarray(storage, #source)
+    scanner.classify(writable, span.fromstring(source))
     writable:drop()
     for index, flag in ipairs(expected) do
         check(storage[index - 1] == flag, "wrong UTF-8 class at " .. index)
@@ -614,12 +614,12 @@ if ffi.os ~= "Windows" then
                 first[index] = index % 7 == 0 and 34 or 97
             end
             local outputStorage = ffi.new("uint8_t[?]", length > 0 and length or 1)
-            local input = span.fromCarray(first, length)
-            local output = span.writeCarray(outputStorage, length)
+            local input = span.fromcarray(first, length)
+            local output = span.writecarray(outputStorage, length)
             scanner.classify(output, input)
             output:drop()
             local tapeStorage = ffi.new("uint32_t[?]", length > 0 and length or 1)
-            local tape = span.writeCarray(tapeStorage, length)
+            local tape = span.writecarray(tapeStorage, length)
             local _, status = indexer.index(input, tape)
             tape:drop()
             check(status == 0, "guarded indexer length " .. length)

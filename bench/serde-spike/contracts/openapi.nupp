@@ -10,7 +10,7 @@ local value = new api.Value(
     name = "Ada",
     secret = "secret",
     identifier = "42",
-    payload = new api.Choice(alternative = "integer", value = documents.numberToken("17")),
+    payload = new api.Choice(alternative = "integer", value = documents.numbertoken("17")),
     additional = {}
 )
 assert(request:encode(binding, value) == '{"name":"Ada","secret":"secret","payload":17}')

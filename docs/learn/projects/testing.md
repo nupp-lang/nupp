@@ -148,10 +148,10 @@ return M
 `assert` is a callable table and a shipped module. Calling it returns every
 argument when the first is truthy and keeps Lua's error behavior otherwise.
 
-`test.equal`, `test.notEqual`, `test.matches`, and `test.raises` include the
+`test.equal`, `test.notequal`, `test.matches`, and `test.raises` include the
 relevant values in failures. Long and multiline values use a block layout,
 and large values are truncated to keep the failure readable.
-`test.deepEqual(actual, expected)` compares table fields recursively and names
+`test.deepequal(actual, expected)` compares table fields recursively and names
 the first differing path. Its table keys are booleans, numbers, or strings;
 other leaves use native equality. `test.suite.skip("reason")` records a skipped test.
 
@@ -250,13 +250,13 @@ A case reports unavailable hardware or software as not executed. The result is
 distinct from a pass, an authored skip, and a failure:
 
 ```lua
-test.suite.requireCapability("cpu.avx2", hasAvx2, { probe = probeOutput })
+test.suite.requirecapability("cpu.avx2", hasAvx2, { probe = probeOutput })
 ```
 
-The third argument records the evidence used by the test. `test.suite.notExecuted`
+The third argument records the evidence used by the test. `test.suite.notexecuted`
 is available when the capability check does not fit a Boolean probe. The text
 runner prints `N`, and JSON reports `status: "not-executed"`. A
-`requireCapability` result also carries its evidence. Not executed is a
+`requirecapability` result also carries its evidence. Not executed is a
 successful run outcome, but it does not emit passing facts or satisfy a
 coverage obligation.
 

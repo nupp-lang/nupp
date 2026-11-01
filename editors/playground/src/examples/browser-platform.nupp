@@ -2,15 +2,15 @@
 -- one suspension boundary to the application Worker and its browser APIs.
 
 local random = require("nupp.random")
-local time = require("nupp.time")
+local time = require("coroutine")
 local mac = require("binary.hash.mac")
 local digests = require("binary.hash.digest")
 
 time.sleep(10)
 local key = os.uuid4()
-local digest = digests.hexDigest("sha256", random.randomBytes(32))
+local digest = digests.hexdigest("sha256", random.randombytes(32))
 print(key, digest)
-print(mac.hexDigest("hmac-sha256", "key", "browser message"))
+print(mac.hexdigest("hmac-sha256", "key", "browser message"))
 
--- try breaking it: pass a negative count to randomBytes and read the checked
+-- try breaking it: pass a negative count to randombytes and read the checked
 -- provider error

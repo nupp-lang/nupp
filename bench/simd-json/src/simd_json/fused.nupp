@@ -3,6 +3,6 @@
 -- what it hands back.
 const json = require("serde.json")
 
-local fused: {decode: function(source: string, nullValue: unknown): unknown} = {decode = json.decodeValue}
+local fused: {decode: function(source: string, nullValue: unknown): unknown} = {decode = json.decodevalue}
 
 return fused

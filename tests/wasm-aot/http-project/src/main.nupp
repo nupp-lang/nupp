@@ -1,13 +1,13 @@
 const assert2 = require("assert")
 
-local http = require("nupp.io.http")
+local http = require("io.http")
 local json = require("serde.json")
 local uri = require("io.uri")
-local io = require("nupp.io")
+local io = require("io")
 
-local client = http.newClient()
+local client = http.newclient()
 local request = new http.Request(
-    url = assert2(uri.newURI("http://127.0.0.1:8791/http-response.json")),
+    url = assert2(uri.newuri("http://127.0.0.1:8791/http-response.json")),
     headers = {accept = "application/json"} as {[string]: string},
     maxBytes = 4096
 )
@@ -15,7 +15,7 @@ local response, sendProblem = client:send(request)
 if response == nil then
     error(sendProblem or "browser HTTP request failed")
 end
-local received = io.newBuffer()
+local received = io.newbuffer()
 assert2(response.body:readInto(received, 0, 5) == 5)
 local lease = received:reserveWrite(5, 5)
 do
@@ -24,13 +24,13 @@ do
     own.drop(output)
 end
 lease:commit(5)
-local remainder = io.newBuffer()
+local remainder = io.newbuffer()
 local writer = remainder:newWriter()
 assert2(response.body:transferTo(writer) ~= nil)
 writer:close()
 assert2(response.body:read(1) == "")
 local body = received:getString() .. remainder:getString()
-local result = json.encodeValue({status = response.status, contentType = response:header("content-type"), body = body,})
+local result = json.encodevalue({status = response.status, contentType = response:header("content-type"), body = body,})
 response:close()
 request:close()
 client:close()

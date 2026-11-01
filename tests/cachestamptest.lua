@@ -128,7 +128,7 @@ function M.keptGraphsFollowPublicRootDependenciesWithoutReadingOtherOutputs()
     assert(private ~= public, "the public module lost its private dependency")
     editFixture(dir, "nupp/runtime/unrelated.lua", 'return "changed unrelated private"')
     assert(fixtureStamp(dir, cacheDir) == private, "a narrow stamp included an unrelated private module")
-    assert(require("nupp.io.files").remove(dir, true))
+    assert(require("io.files").remove(dir, true))
 end
 
 function M.publicDynamicNamespacesAndLaterLiteralImportsBothInvalidate()
@@ -151,7 +151,7 @@ return require("helpers.after")
     assert(after ~= first, "a computed import hid a later public literal dependency")
     editFixture(dir, "extensions/providers/two.lua", 'return "two"')
     assert(fixtureStamp(dir, cacheDir) ~= after, "a declared public namespace did not include its new provider")
-    assert(require("nupp.io.files").remove(dir, true))
+    assert(require("io.files").remove(dir, true))
 end
 
 function M.publicDependenciesUseTheResolvedModuleFile()
@@ -171,7 +171,7 @@ function M.publicDependenciesUseTheResolvedModuleFile()
     assert(flat ~= first, "the resolved public module was not stamped")
     assert(os.remove(dir .. "/library.lua"))
     assert(fixtureStamp(dir, cacheDir) ~= flat, "the init fallback did not replace the removed flat module")
-    assert(require("nupp.io.files").remove(dir, true))
+    assert(require("io.files").remove(dir, true))
 end
 
 function M.damagedBuildStateIsAnEmptyCacheRatherThanAnException()
@@ -264,7 +264,7 @@ return {["example.spi.Provider"] = {"nupp.fixture"}}
     changed:write('return {name = "second"}')
     changed:close()
     local after = stamp()
-    assert(require("nupp.io.files").remove(dir, true))
+    assert(require("io.files").remove(dir, true))
     assert(before ~= after, "the subsystem stamp did not cover its implementation")
 end
 
@@ -349,7 +349,7 @@ function M.aKeptGraphIsNotReusedAcrossAnEditBesideTheCompiler()
     file:write("return 2\n")
     file:close()
     local after = stamp()
-    assert(require("nupp.io.files").remove(dir, true))
+    assert(require("io.files").remove(dir, true))
     assert(before ~= after, "the kept graph answered for a runtime module that had changed")
 end
 
@@ -391,7 +391,7 @@ function M.aMalformedModuleGraphIsRecomputed()
     assert(ok and type(answer) == "string", tostring(answer))
     local repaired = store.openValue(cacheDir .. "/modulegraph.buf", stamp).value
     assert(repaired.files["nupp.compiler.project.fingerprint"], "the malformed graph was not replaced")
-    assert(require("nupp.io.files").remove(dir, true))
+    assert(require("io.files").remove(dir, true))
 end
 
 -- Most single flipped bytes in an encoded store still decode, and a hit is never

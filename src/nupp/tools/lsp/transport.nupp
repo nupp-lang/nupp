@@ -92,7 +92,7 @@ function transport.new(): transport.Transport
         end
         local body = buffered:sub(bodyAt, bodyAt + length - 1)
         buffered = buffered:sub(bodyAt + length)
-        local message, invalid = json.decodeValue(body, json.NULL)
+        local message, invalid = json.decodevalue(body, json.NULL)
         if invalid ~= nil then
             return malformed(-32700, "frame body is not JSON")
         end

@@ -619,7 +619,7 @@ end
 ---     nupp aot --emit wgsl --function transform src/gpu.nupp
 ---     nupp aot --format json src/kernel.nupp
 @cli("aot")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Aot
     --- Artifact to print: ir, llvm, spirv, wgsl, asm, or binding.
     @cli(value = "ARTIFACT", choices = {"ir", "llvm", "spirv", "wgsl", "asm", "binding"})

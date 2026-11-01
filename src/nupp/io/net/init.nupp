@@ -1,11 +1,13 @@
+@!internal
+
 module nupp.io.net
 
 --[[
-`nupp.io.net` is the network as bytes: a listener, the connections it accepts,
+`io.net` is the network as bytes: a listener, the connections it accepts,
 and connections this process opens itself.
 
 ```nupp
-local listener = assert(nupp.io.net.listen({host = "127.0.0.1", port = 0}))
+local listener = assert(io.net.listen({host = "127.0.0.1", port = 0}))
 local stream = assert(listener:accept())
 print(assert(stream:read(5)))
 stream:close()
@@ -13,7 +15,7 @@ listener:close()
 ```
 
 A connection reads and writes through the `Reader` and `Writer` contracts on
-[](nupp.io), so a parser written against byte I/O reads a socket without knowing
+[](io), so a parser written against byte I/O reads a socket without knowing
 it has one. A read returns bytes, suspends while none have arrived, or returns
 empty because the peer closed its sending half; empty is only ever the end.
 
@@ -32,8 +34,8 @@ const {type Writer} = require("nupp.io")
 const {type Buffer} = require("nupp.io")
 const {type Path} = require("nupp.io.files")
 
-local suspension = require("nupp.suspension")
-local span = require("nupp.mem.span")
+local suspension = require("coroutine.suspension")
+local span = require("binary.span")
 local physical = require("nupp.runtime.storage")
 local spanStringValue: function(borrows source: const uint8[?], count: integer): string = physical.string as any
 
@@ -75,7 +77,7 @@ type net.ListenOptions = {
     port: integer?,
 
     --- A filesystem name to bind instead, for a Unix domain socket, as anything
-    --- [](nupp.io.files) accepts.
+    --- [](io.files) accepts.
     ---
     --- The name is not removed when the listener closes. A caller that binds a
     --- path owns that path, and unlinking a file this process may not have
@@ -104,7 +106,7 @@ type net.ConnectOptions = {
     port: integer?,
 
     --- A filesystem name to reach instead, for a Unix domain socket, as anything
-    --- [](nupp.io.files) accepts. Nothing is resolved for one, so a connect to a
+    --- [](io.files) accepts. Nothing is resolved for one, so a connect to a
     --- path starts at the handshake.
     path: Path?,
 
@@ -391,7 +393,7 @@ record net.DirectionView is Reader, Writer
         if chunk == nil then
             return nil, why
         end
-        const input = span.fromString(chunk)
+        const input = span.fromstring(chunk)
         for index = 1, #chunk do
             destination[index] = input[index]
         end
@@ -413,7 +415,7 @@ record net.DirectionView is Reader, Writer
         end
         const landed = #chunk as integer
         if landed > 0 then
-            const input = span.fromString(chunk)
+            const input = span.fromstring(chunk)
             const lease = destination:reserveWrite(offset or 0, landed)
             do
                 const output = lease:span()
@@ -645,7 +647,7 @@ record net.Stream is Reader, Writer
         if chunk == nil then
             return nil, why
         end
-        const input = span.fromString(chunk)
+        const input = span.fromstring(chunk)
         for index = 1, #chunk do
             destination[index] = input[index]
         end
@@ -674,7 +676,7 @@ record net.Stream is Reader, Writer
         end
         const landed = #chunk as integer
         if landed > 0 then
-            const input = span.fromString(chunk)
+            const input = span.fromstring(chunk)
             const lease = destination:reserveWrite(offset or 0, landed)
             do
                 const output = lease:span()
@@ -1008,7 +1010,7 @@ record net.Datagram is own.Closeable
         end
         const landed = #(bytes or "") as integer
         if landed > 0 then
-            const input = span.fromString(bytes or "")
+            const input = span.fromstring(bytes or "")
             const lease = destination:reserveWrite(0, landed)
             do
                 const output = lease:span()

@@ -27,8 +27,9 @@ function M.generate(options)
             local storage = 'uint' .. widths[ty]
             local name = 'simd_transpose_' .. ty .. '_' .. at
             local source = {
-                [[local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+                [[
+local array = require("nupp.mem.array")
+local span = require("binary.span")
 local simd = require("simd")
 local u32 = math.u32
 ]]

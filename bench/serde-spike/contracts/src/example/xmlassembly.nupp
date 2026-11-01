@@ -149,7 +149,7 @@ end
 local function escaped(value: string): string
     local utf8 = require("utf8")
     assert2(
-        utf8.isValid(value) and not value:find("[%z\1-\8\11\12\14-\31]") and not value:find("\239\191[\190\191]"),
+        utf8.isvalid(value) and not value:find("[%z\1-\8\11\12\14-\31]") and not value:find("\239\191[\190\191]"),
         "invalid XML text"
     )
 

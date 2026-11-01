@@ -20,7 +20,7 @@ A kit is found, in order:
 Nothing is fetched until a build links for that platform.
 ]]
 
-local files = require("nupp.io.files")
+local files = require("io.files")
 local fs = require("nupp.compiler.fs")
 local hash = require("nupp.compiler.hash")
 local packaging = require("nupp.tools.build.package")
@@ -47,7 +47,7 @@ local function manifest(directory: string): any?
         return nil
     end
     local json = require("serde.json")
-    local value = json.decodeValue(text as string, json.NULL)
+    local value = json.decodevalue(text as string, json.NULL)
     if type(value) ~= "table" then
         return nil
     end

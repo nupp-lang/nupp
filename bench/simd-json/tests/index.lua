@@ -14,7 +14,7 @@
 -- `--time` adds a timing run over the indexer and the reference.
 local math = arg[1] == "--time" and _G.math or assert(loadfile("../../tests/simd/corpusmath.lua"))()
 local ffi = require("ffi")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local indexer = require("simd_json.indexer")
 local reference = require("simd_json.indexer_reference")
 
@@ -22,8 +22,8 @@ local checks = 0
 
 local function indexed(source, capacity)
     local storage = ffi.new("uint32_t[?]", math.max(capacity, 1))
-    local writable = span.writeCarray(storage, capacity)
-    local count, status, position = indexer.index(span.fromString(source), writable)
+    local writable = span.writecarray(storage, capacity)
+    local count, status, position = indexer.index(span.fromstring(source), writable)
     writable:drop()
     local positions = {}
     for offset = 0, tonumber(count) - 1 do
@@ -268,8 +268,8 @@ if arg[1] == "--time" then
     for _, size in ipairs({64, 1024, 65536, 1048576}) do
         local source = record:rep(math.ceil(size / #record)):sub(1, size)
         local storage = ffi.new("uint32_t[?]", size)
-        local input = span.fromString(source)
-        local writable = span.writeCarray(storage, size)
+        local input = span.fromstring(source)
+        local writable = span.writecarray(storage, size)
         local vec = measure(
             function()
                 indexer.index(input, writable)

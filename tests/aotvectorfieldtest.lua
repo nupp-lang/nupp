@@ -63,7 +63,7 @@ end
 
 local PARTICLES = [[
 module particles
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 
 --- A storage struct: a scalar beside a four-lane vector and a three-lane one,
@@ -103,7 +103,7 @@ local function fold(exclusive pairs: span.WriteSpan<Pair>): number
     for i = 1, #pairs do
         local p = pairs[i]
         pairs[i].a = p.a + p.b
-        total = total + simd.horizontal.orderedSum(p.b)
+        total = total + simd.horizontal.orderedsum(p.b)
     end
     return total
 end
@@ -115,7 +115,7 @@ local CHECK = [[
 package.path = "build/native/?.lua;" .. package.path
 local m = require("particles")
 local ffi = require("ffi")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local compiled = rawget(_G, "__nuppAotCompiled") or {}
 local rows = ffi.new(ffi.typeof("$[?]", m.Particle), 3)
 for i = 0, 2 do
@@ -123,7 +123,7 @@ for i = 0, 2 do
     rows[i].velocity = {i + 1, i + 2, i + 3, i + 4}
     rows[i].color = {1, 2, 3}
 end
-local total = m.advance(span.writeCarray(rows, 3), 0.5)
+local total = m.advance(span.writecarray(rows, 3), 0.5)
 local parts = {}
 for i = 0, 2 do
     for lane = 0, 3 do parts[#parts + 1] = tostring(rows[i].velocity[lane]) end
@@ -136,7 +136,7 @@ pairs[0].a = {1, 2, 3, 4}
 pairs[0].b = {10, 20, 30, 40}
 pairs[1].a = {5, 6, 7, 8}
 pairs[1].b = {0.5, 0.5, 0.5, 0.5}
-local folded = m.fold(span.writeCarray(pairs, 2))
+local folded = m.fold(span.writecarray(pairs, 2))
 parts[#parts + 1] = "|"
 for i = 0, 1 do
     for lane = 0, 3 do parts[#parts + 1] = tostring(pairs[i].a[lane]) end

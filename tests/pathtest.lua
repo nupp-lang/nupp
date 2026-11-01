@@ -82,44 +82,44 @@ local MESSY = "alpha/./beta/../file.tar.gz"
 
 function M.normalizingResolvesWhatItCanWithoutTheFilesystem()
     local module = ready()
-    test.equal(module.newPath(MESSY):normalize():toString(), "alpha/file.tar.gz")
+    test.equal(module.newpath(MESSY):normalize():toString(), "alpha/file.tar.gz")
     -- Nothing left means the path described where it already was.
-    test.equal(module.newPath("a/.."):normalize():toString(), ".")
+    test.equal(module.newpath("a/.."):normalize():toString(), ".")
     -- A relative path that starts by going up has nowhere to put the answer.
-    test.equal(module.newPath("../../a"):normalize():toString(), "../../a")
+    test.equal(module.newpath("../../a"):normalize():toString(), "../../a")
     -- One at the root has nothing to cancel.
-    test.equal(module.newPath("/../a"):normalize():toString(), "/a")
+    test.equal(module.newpath("/../a"):normalize():toString(), "/a")
 end
 
 function M.readingAPartSlicesRatherThanRebuilds()
     local module = ready()
-    local messy = module.newPath(MESSY)
+    local messy = module.newpath(MESSY)
     -- The `./` survives, because this is a question about this path.
     test.equal(messy:parent():toString(), "alpha/./beta/..")
     test.equal(messy:fileName(), "file.tar.gz")
     test.equal(messy:stem(), "file.tar")
     test.equal(messy:extension(), "gz")
 
-    test.equal(module.newPath("/"):parent(), nil, "a root has no parent")
-    test.equal(module.newPath("foo"):parent():toString(), "")
-    test.equal(module.newPath("/foo"):parent():toString(), "/")
+    test.equal(module.newpath("/"):parent(), nil, "a root has no parent")
+    test.equal(module.newpath("foo"):parent():toString(), "")
+    test.equal(module.newpath("/foo"):parent():toString(), "/")
     -- A leading dot is a name, not an extension.
-    test.equal(module.newPath(".bashrc"):stem(), ".bashrc")
-    test.equal(module.newPath(".bashrc"):extension(), nil)
-    test.equal(module.newPath("a."):extension(), "")
-    test.equal(module.newPath("noext"):extension(), nil)
+    test.equal(module.newpath(".bashrc"):stem(), ".bashrc")
+    test.equal(module.newpath(".bashrc"):extension(), nil)
+    test.equal(module.newpath("a."):extension(), "")
+    test.equal(module.newpath("noext"):extension(), nil)
     -- `..` is not something a caller could rename.
-    test.equal(module.newPath("a/.."):fileName(), nil)
+    test.equal(module.newpath("a/.."):fileName(), nil)
 end
 
 function M.derivingReplacesTheNameOrTheExtension()
     local module = ready()
-    local messy = module.newPath(MESSY)
+    local messy = module.newpath(MESSY)
     test.equal(messy:withFileName("other.txt"):toString(), "alpha/./beta/../other.txt")
     test.equal(messy:withExtension("bz2"):toString(), "alpha/./beta/../file.tar.bz2")
     test.equal(messy:withExtension(""):toString(), "alpha/./beta/../file.tar")
     -- With no file name there is nothing to drop, so the name is added.
-    test.equal(module.newPath("a/.."):withFileName("c"):toString(), "a/../c")
+    test.equal(module.newpath("a/.."):withFileName("c"):toString(), "a/../c")
 end
 
 -- A replacement name or extension is one component. Text carrying a
@@ -169,7 +169,7 @@ function M.derivingRefusesTextThatIsNotOneComponent()
     test.equal(pathtext.with("out/report.tmp", "a\\b:c", false, false), "out/a\\b:c")
 
     local module = ready()
-    local report = module.newPath("out", "report.tmp")
+    local report = module.newpath("out", "report.tmp")
     test.raises(
         function()
             report:withFileName("../../etc/passwd")
@@ -189,41 +189,41 @@ end
 -- and a relative one against an absolute base is not.
 function M.relatingNeedsBothPathsAnchoredTheSameWay()
     local module = ready()
-    test.equal(module.newPath("/a/b/c"):relativeTo("/a/d"):toString(), "../b/c")
-    test.equal(module.newPath("/a/b"):relativeTo("a/b"):toString(), "/a/b")
-    test.equal(module.newPath("a/b"):relativeTo("/a/b"), nil)
+    test.equal(module.newpath("/a/b/c"):relativeTo("/a/d"):toString(), "../b/c")
+    test.equal(module.newpath("/a/b"):relativeTo("a/b"):toString(), "/a/b")
+    test.equal(module.newpath("a/b"):relativeTo("/a/b"), nil)
 end
 
 -- A path expressed against itself is where the base already is, and `.` is
 -- how a path spells that: `""` names nothing a filesystem call accepts.
 function M.relatingAPathToItselfAnswersDot()
     local module = ready()
-    test.equal(module.newPath("/a/b"):relativeTo("/a/b"):toString(), ".")
-    test.equal(module.newPath("a/b"):relativeTo("a/b"):toString(), ".")
+    test.equal(module.newpath("/a/b"):relativeTo("/a/b"):toString(), ".")
+    test.equal(module.newpath("a/b"):relativeTo("a/b"):toString(), ".")
     -- Nor does a trailing separator or a `.` component move the answer.
-    test.equal(module.newPath("a/b/"):relativeTo("a/b"):toString(), ".")
-    test.equal(module.newPath("a/./b"):relativeTo("a/b"):toString(), ".")
+    test.equal(module.newpath("a/b/"):relativeTo("a/b"):toString(), ".")
+    test.equal(module.newpath("a/./b"):relativeTo("a/b"):toString(), ".")
 end
 
 function M.joiningLetsAnAbsolutePartReplaceWhatCameBefore()
     local module = ready()
-    test.equal(module.newPath("src", "main.nupp"):toString(), "src/main.nupp")
-    test.equal(module.newPath("/a", "/b"):toString(), "/b")
-    assert(module.newPath("/a"):isAbsolute())
-    assert(not module.newPath("a"):isAbsolute())
+    test.equal(module.newpath("src", "main.nupp"):toString(), "src/main.nupp")
+    test.equal(module.newpath("/a", "/b"):toString(), "/b")
+    assert(module.newpath("/a"):isAbsolute())
+    assert(not module.newpath("a"):isAbsolute())
 end
 
 function M.filesystemQuestionsUseTheGenericProvider()
     local module = ready()
-    local current = assert(module.currentDirectory())
+    local current = assert(module.currentdirectory())
     assert(current:isAbsolute())
-    test.equal(assert(module.newPath("."):absolute()):toString(), current:toString())
+    test.equal(assert(module.newpath("."):absolute()):toString(), current:toString())
     test.equal(
-        assert(module.newPath("alpha//./beta/.."):absolute()):toString(),
+        assert(module.newpath("alpha//./beta/.."):absolute()):toString(),
         current:join("alpha/beta/.."):toString()
     )
 
-    local canonical = assert(module.newPath(root):canonicalize())
+    local canonical = assert(module.newpath(root):canonicalize())
     assert(canonical:isAbsolute())
     test.equal(assert(canonical:canonicalize()):toString(), canonical:toString())
 end
@@ -318,9 +318,9 @@ function M.absolutizingADriveRelativePathRequiresTheCurrentDrive()
     package.loaded["nupp.io.path.provider"] = loadedProvider
     assert(ok, windowsPath)
 
-    test.equal(assert(windowsPath.newPath("c:work"):absolute()):toString(), "C:/base/work")
-    test.equal(assert(windowsPath.newPath("C:"):absolute()):toString(), "C:/base")
-    local answer, reason = windowsPath.newPath("D:work"):absolute()
+    test.equal(assert(windowsPath.newpath("c:work"):absolute()):toString(), "C:/base/work")
+    test.equal(assert(windowsPath.newpath("C:"):absolute()):toString(), "C:/base")
+    local answer, reason = windowsPath.newpath("D:work"):absolute()
     test.equal(answer, nil)
     test.matches(reason, "another drive")
 end

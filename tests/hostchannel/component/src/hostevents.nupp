@@ -8,14 +8,14 @@ for a pointer and a keyboard.
 local events = require("events")
 
 --- A pointer moved to `x`, `y`.
-@derive(events.Event)
+@derive(events.event)
 export record PointerMove
     x: number
     y: number
 end
 
 --- A key went down or up.
-@derive(events.Event)
+@derive(events.event)
 export record KeyPress
     key: string
     down: boolean

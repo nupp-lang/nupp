@@ -22,14 +22,14 @@ retained context state without service lookups.
 ]]
 
 local response = require("nupp.runtime.browser.response")
-local cancellation = require("nupp.suspension.cancellation")
+local cancellation = require("coroutine.suspension.cancellation")
 local effects = require("nupp.runtime.browser.effects")
 local requestNosuspend = effects.request as @nosuspend function(string, any, function(any): nil): function()
 local memory = require("nupp.runtime.browser.memory") as any
 local storage = require("nupp.runtime.storage")
 local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
-local {type Span, type WriteSpan} = require("nupp.mem.span")
+local span = require("binary.span")
+local {type Span, type WriteSpan} = require("binary.span")
 local shared = require("nupp.gpu.types")
 local api = require("nupp.gpu.api")
 local operations = require("nupp.gpu.operations")

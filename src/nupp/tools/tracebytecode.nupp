@@ -281,7 +281,7 @@ local function classify(instructions: {any}): {any}
         if owner then
             ins.inLoop = true
             ins.loopHeader = owner.header
-            local reason = trace.forOpcode(ins.op)
+            local reason = trace.foropcode(ins.op)
             if reason then
                 local must = true
                 for _, latch in ipairs(owner.latches) do

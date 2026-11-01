@@ -292,7 +292,7 @@ end
 -- A register-resident scalar loop: sixteen bytes read once, then arithmetic
 -- over locals that touches no memory.
 local COMPUTE = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 local struct Point
     re: float
@@ -354,7 +354,7 @@ function M.gpuTargetEmitsShaderAndTypedHostBinding()
         [
             "gpu.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot(target = "gpu")
 local function doubled(
@@ -418,7 +418,7 @@ function M.gpuIntegerSignednessUsesBitcastAndJsonBindingIsUtf8()
         [
             "gpu.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 @aot(target = "gpu")
 local function convert(
     exclusive output: span.WriteSpan<uint32>,
@@ -427,10 +427,10 @@ local function convert(
 ): nil
     if #output ~= #input then error("length mismatch", 2) end
     for i = 1, #output do
-        local bits = math.u32.fromI32(input[i])
-        output[i] = math.u32.xorBits(
-            math.u32.shiftLeft(bits, count),
-            math.u32.shiftRightLogical(bits, count)
+        local bits = math.u32.fromi32(input[i])
+        output[i] = math.u32.xorbits(
+            math.u32.shiftleft(bits, count),
+            math.u32.shiftrightlogical(bits, count)
         )
     end
 end
@@ -483,7 +483,7 @@ function M.gpuRepeatKeepsItsTrailingTestAndBodyScope()
         [
             "gpu.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot(target = "gpu")
 local function shrink(
@@ -545,7 +545,7 @@ function M.gpuTargetEmitsWebGpuIntegerArtifact()
         [
             "gpu.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot(target = "gpu")
 local function xorMask(
@@ -555,7 +555,7 @@ local function xorMask(
 ): nil
     assert(#output == #input, "length mismatch")
     for i = 1, #output do
-        output[i] = math.u32.xorBits(input[i], mask)
+        output[i] = math.u32.xorbits(input[i], mask)
     end
 end
 return xorMask
@@ -587,7 +587,7 @@ return xorMask
         [
             "gpu.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot(target = "gpu")
 local function doubled(
@@ -613,7 +613,7 @@ function M.webGpuNamesCannotCollideWithSourceOrKeywords()
         [
             "gpu.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot(target = "gpu")
 local function reservedNames(
@@ -659,7 +659,7 @@ function M.gpuShadersRebuildTheIndexOfAFoldedDispatch()
         [
             "gpu.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot(target = "gpu")
 local function increment(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil
@@ -709,7 +709,7 @@ function M.gpuBindingNamesCannotCollideWithSourceParameters()
         [
             "gpu.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot(target = "gpu")
 local function bindingNames(
@@ -755,7 +755,7 @@ function M.gpuBindingDeclaresEachRecordBeforeItIsNamed()
         [
             "gpu.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot(target = "gpu")
 local function addMask(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>, mask: uint32): nil
@@ -805,7 +805,7 @@ return {
         [
             "run.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local gpu = require("gpu")
 
@@ -874,7 +874,7 @@ function M.gpuTargetHonoursPerFunctionFpContraction()
         [
             "relaxed.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @relax("fp-contract")
 @aot(target = "gpu")
@@ -906,7 +906,7 @@ function M.aotUsesNativeTranscendentalsOnlyWhenGranted()
         [
             "native-exp.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @relax("fp-transcendentals")
 @aot(target = "gpu")
@@ -955,7 +955,7 @@ function M.gpuTargetRefusesNarrowStorage()
         [
             "half.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function roundTripCpu(
@@ -965,9 +965,9 @@ local function roundTripCpu(
 ): nil
     assert(#output == #packed and #output == #input, "length mismatch")
     for i = 1, #output do
-        local value = math.f32.fromF16Bits(input[i])
+        local value = math.f32.fromf16bits(input[i])
         output[i] = value
-        packed[i] = math.f32.toF16Bits(value)
+        packed[i] = math.f32.tof16bits(value)
     end
 end
 
@@ -979,9 +979,9 @@ local function roundTripBf16Cpu(
 ): nil
     assert(#output == #packed and #output == #input, "length mismatch")
     for i = 1, #output do
-        local value = math.f32.fromBF16Bits(input[i])
+        local value = math.f32.frombf16bits(input[i])
         output[i] = value
-        packed[i] = math.f32.toBF16Bits(value)
+        packed[i] = math.f32.tobf16bits(value)
     end
 end
 return {roundTripCpu = roundTripCpu, roundTripBf16Cpu = roundTripBf16Cpu}
@@ -989,7 +989,7 @@ return {roundTripCpu = roundTripCpu, roundTripBf16Cpu = roundTripBf16Cpu}
         [
             "halfgpu.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot(target = "gpu")
 local function roundTrip(
@@ -998,7 +998,7 @@ local function roundTrip(
 ): nil
     assert(#output == #input, "length mismatch")
     for i = 1, #output do
-        output[i] = math.f32.fromF16Bits(input[i])
+        output[i] = math.f32.fromf16bits(input[i])
     end
 end
 return {roundTrip = roundTrip}
@@ -1006,7 +1006,7 @@ return {roundTrip = roundTrip}
         [
             "signedgpu.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 local struct Pixel
     level: int8
@@ -1050,7 +1050,7 @@ function M.gpuTargetUsesTheIrPolynomialExponential()
         [
             "exp.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot(target = "gpu")
 local function exponential(
@@ -1109,7 +1109,7 @@ function M.gpuTargetTakesManyBuffersAndProvedCursors()
         [
             "gemm.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot(target = "gpu")
 local function gemm(
@@ -1155,7 +1155,7 @@ function M.cpuTargetTakesPartialGuardsAndProvedCursors()
         [
             "gather.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function gather(
@@ -1199,7 +1199,7 @@ function M.cpuCursorUsesTheSharedCountOfGuardedSpans()
         [
             "shared-count.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function copyFirst(
@@ -1234,7 +1234,7 @@ function M.gpuTargetExposesItsLoopIndexAndUnsignedDivision()
         [
             "coordinates.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot(target = "gpu")
 local function coordinates(
@@ -1322,7 +1322,7 @@ function M.gpuTargetEmitsStructuredWorkgroupPhasesAndFixedTreeReduction()
             "reduce.nupp"
         ] = [[
 local gpu = require("gpu")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot(target = "gpu")
 local function reduce(
@@ -1375,7 +1375,7 @@ function M.gpuTargetSkipsBarriersForScratchFreeWorkgroups()
             "map.nupp"
         ] = [[
 local gpu = require("gpu")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot(target = "gpu")
 local function map(
@@ -1409,7 +1409,7 @@ function M.gpuTargetLoadsReadonlyStructOnce()
             "fields.nupp"
         ] = [[
 local gpu = require("gpu")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 local struct Pair
     left: float
@@ -1458,7 +1458,7 @@ function M.gpuTargetEmitsDeterministicInclusiveScan()
             "scan.nupp"
         ] = [[
 local gpu = require("gpu")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot(target = "gpu")
 local function scan(exclusive output: span.WriteSpan<uint32>): nil
@@ -1498,7 +1498,7 @@ function M.gpuTargetRefusesNonDisjointWorkgroupScratchWrites()
             "bad-phase.nupp"
         ] = [[
 local gpu = require("gpu")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot(target = "gpu")
 local function bad(exclusive output: span.WriteSpan<float>): nil
@@ -1526,7 +1526,7 @@ function M.gpuTargetRefusesSamePhaseCrossLaneScratchRace()
             "racy-phase.nupp"
         ] = [[
 local gpu = require("gpu")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot(target = "gpu")
 local function racy(exclusive output: span.WriteSpan<float>): nil
@@ -1563,7 +1563,7 @@ function M.gpuTargetRefusesDispatchIndexingAnUnguardedSpan()
         [
             "fill.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot(target = "gpu")
 local function fill(
@@ -1586,7 +1586,7 @@ end
 -- Nothing relates their lengths, and before this was refused here it reached the IR
 -- verifier and came back as a Lua traceback with no source position in it.
 local UNPROVED_SPAN = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function fill(
@@ -1607,7 +1607,7 @@ return {fill = fill}
 -- and "invalid store root" -- rather than being refused against the line that wrote
 -- them.
 local UNCOUNTED_LOAD = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function readIt(borrows values: span.Span<number>): number
@@ -1622,7 +1622,7 @@ return {readIt = readIt}
 ]]
 
 local UNCOUNTED_STORE = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function writeIt(exclusive out: span.WriteSpan<number>): nil
@@ -1638,7 +1638,7 @@ return {writeIt = writeIt}
 -- already refused; the write was not checked at all, so this one reached the
 -- verifier even though the loop had a perfectly good bound -- just not this span's.
 local UNPROVED_STORE = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function crossWrite(
@@ -1656,7 +1656,7 @@ return {crossWrite = crossWrite}
 -- Two compiled entries, one calling the other. The callee is scalar in and scalar
 -- out, which is what this IR can carry across a call.
 local ENTRY_CALL = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function scale(value: number, factor: number): number
@@ -1682,7 +1682,7 @@ return {apply = apply, scale = scale}
 -- The same shape with almost no arithmetic: two fields in, two fields out, one multiply
 -- and add each. Not marked, so it compiles scalar and nothing has to decide that.
 local STREAMING = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 local struct Position
     x: float
@@ -1721,7 +1721,7 @@ return {advance = advance, Position = Position, Velocity = Velocity,}
 ]]
 
 local GENERIC_EXPLICIT_SIMD = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -1786,7 +1786,7 @@ local function assertOracle(llvm, symbol, where)
 end
 
 local BYTE_CLASSIFIER = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function classify(
@@ -1812,7 +1812,7 @@ return {classify = classify}
 -- A non-JSON variable-rate block kernel. Its output cursor advances only under
 -- the count check that authorizes the following one-based span store.
 local DELIMITERS = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function delimiters(
@@ -1837,7 +1837,7 @@ return {delimiters = delimiters}
 ]]
 
 local MUTATED_WHILE_CURSOR = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function afterIncrement(borrows source: span.Span<uint8>): uint32
@@ -1854,7 +1854,7 @@ return {afterIncrement = afterIncrement}
 ]]
 
 local SCOPED_SIMD = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 local array = require("nupp.mem.array")
 
@@ -2068,7 +2068,7 @@ function M.aRangeGuardDoesNotNeedALengthGuard()
         [
             "rows.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function rowSums(
@@ -2099,7 +2099,7 @@ function M.transitiveLengthAndRangeFactsReachLowering()
         [
             "transitive.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function copy(
@@ -2158,7 +2158,7 @@ end
 
 function M.aGuardCannotDiscardAnEvaluatedArgument()
     local source = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local function message(): string return "length mismatch" end
 @aot
 local function copy(
@@ -2179,7 +2179,7 @@ end
 
 function M.aShadowedGuardNameEstablishesNoAotFact()
     local source = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local function assert(ok: boolean, message: string): boolean return true end
 @aot
 local function copy(
@@ -2245,7 +2245,7 @@ function M.aGpuKernelMayOnlyRelateSpanLengths()
         [
             "compute.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 local struct Cell value: float end
 
@@ -2276,7 +2276,7 @@ function M.aGpuBindingChecksEveryWrittenSpanRelation()
         [
             "compute.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot(target = "gpu")
 local function fill(
@@ -2344,12 +2344,12 @@ end
 
 function M.exactReducersKeepNativeWidthAndLogicalPositionsAtEveryTier()
     local source = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 @aot
 local function folds(borrows input: span.Span<uint64>, seed: uint64): (uint64, integer, uint64, boolean)
-    local sum = simd.reducer.wrappingSum(nupp.mem.array.uint64, 4294967296ULL)
-    local arg = simd.reducer.integerArgMax(nupp.mem.array.uint64)
+    local sum = simd.reducer.wrappingsum(nupp.mem.array.uint64, 4294967296ULL)
+    local arg = simd.reducer.integerargmax(nupp.mem.array.uint64)
     local count = simd.reducer.count()
     local all = simd.reducer.all()
     for i = 3, #input do
@@ -2500,7 +2500,7 @@ end
 
 function M.narrowIntegerVectorsRetainPhysicalLaneWidth()
     local source = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -2547,7 +2547,7 @@ end
 --- as it always was.
 function M.byteVectorsTakeBitwiseOperatorsWithScalarOperands()
     local source = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -2617,7 +2617,7 @@ end
 
 function M.structuralVectorOperationsHaveScalarReferenceSemantics()
     local source = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -2677,7 +2677,7 @@ return {transform = transform}
 end
 
 local CONVERT_SIMD = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 @aot
@@ -2741,7 +2741,7 @@ function M.preferredSimdConversionsPreserveLanesAndReinterpretWithoutArithmetic(
 end
 
 local INDEXED_SIMD = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 @aot
@@ -2849,12 +2849,12 @@ local function horizontal(): (number, number, number)
     local species = assert(simd.species(array.float, 8))
     local left = species:iota(1.0, 1.0)
     local right = species:splat(2.0)
-    local ordered: float = simd.horizontal.orderedSum(left)
-    local pairwise: float = simd.horizontal.pairwiseSum(left)
-    local algebraic: float = simd.horizontal.algebraicSum(left)
-    local product: float = simd.horizontal.orderedProduct(left)
-    local pairwiseDot: float = simd.horizontal.pairwiseDot(left, right)
-    local algebraicDot: float = simd.horizontal.algebraicDot(left, right)
+    local ordered: float = simd.horizontal.orderedsum(left)
+    local pairwise: float = simd.horizontal.pairwisesum(left)
+    local algebraic: float = simd.horizontal.algebraicsum(left)
+    local product: float = simd.horizontal.orderedproduct(left)
+    local pairwiseDot: float = simd.horizontal.pairwisedot(left, right)
+    local algebraicDot: float = simd.horizontal.algebraicdot(left, right)
     return ordered + product, pairwise + pairwiseDot, algebraic + algebraicDot
 end
 
@@ -2898,19 +2898,19 @@ local simd = require("simd")
 @aot
 local function ordered(left: float, right: float): float
     local species = assert(simd.species(array.float, 8))
-    return simd.horizontal.orderedDot(species:splat(left), species:splat(right))
+    return simd.horizontal.ordereddot(species:splat(left), species:splat(right))
 end
 
 @aot
 local function pairwise(left: float, right: float): float
     local species = assert(simd.species(array.float, 8))
-    return simd.horizontal.pairwiseDot(species:splat(left), species:splat(right))
+    return simd.horizontal.pairwisedot(species:splat(left), species:splat(right))
 end
 
 @aot
 local function algebraic(left: float, right: float): float
     local species = assert(simd.species(array.float, 8))
-    return simd.horizontal.algebraicDot(species:splat(left), species:splat(right))
+    return simd.horizontal.algebraicdot(species:splat(left), species:splat(right))
 end
 
 return {ordered = ordered, pairwise = pairwise, algebraic = algebraic}
@@ -2981,14 +2981,14 @@ end
 
 function M.compositeLaneExtractionKeepsNativeVectorsWhole()
     local source = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
 @aot
 local function sum(borrows input: span.Span<int32>): int32
     local species = assert(simd.species(array.int32, 17))
-    local fold = simd.reducer.wrappingSum(array.int32, 0)
+    local fold = simd.reducer.wrappingsum(array.int32, 0)
     do
         local active = species:tail(#input)
         local value = species:load(input, 1, active)
@@ -3153,10 +3153,10 @@ local simd = require("simd")
 local function extrema(): (number, number, number, number)
     local species = assert(simd.species(array.float, 8))
     local values = species:iota(3.0, -1.0)
-    local smallest: float = simd.horizontal.propagatingMin(values)
-    local largest: float = simd.horizontal.propagatingMax(values)
-    local lowAt = simd.horizontal.propagatingArgMin(values)
-    local highAt = simd.horizontal.numberArgMax(values)
+    local smallest: float = simd.horizontal.propagatingmin(values)
+    local largest: float = simd.horizontal.propagatingmax(values)
+    local lowAt = simd.horizontal.propagatingargmin(values)
+    local highAt = simd.horizontal.numberargmax(values)
     return smallest, largest, lowAt, highAt
 end
 
@@ -3166,7 +3166,7 @@ local function ignoringMissing(): (number, number)
     local values = species:iota(3.0, -1.0)
     local other = species:splat(0.5)
 
-    return simd.horizontal.numberMin(values:numberMin(other)), simd.horizontal.numberArgMin(values)
+    return simd.horizontal.numbermin(values:numberMin(other)), simd.horizontal.numberargmin(values)
 end
 
 @aot
@@ -3174,7 +3174,7 @@ local function counted(): (number, number)
     local species = assert(simd.species(array.int32, 8))
     local values = species:iota(3, -1)
     local clamped = values:propagatingMin(species:splat(1)):propagatingMax(species:splat(-1))
-    return simd.horizontal.propagatingMin(clamped), simd.horizontal.propagatingArgMax(clamped)
+    return simd.horizontal.propagatingmin(clamped), simd.horizontal.propagatingargmax(clamped)
 end
 
 return {extrema = extrema, counted = counted, ignoringMissing = ignoringMissing}
@@ -3235,7 +3235,7 @@ local simd = require("simd")
 @aot
 local function total(): number
     local species = assert(simd.species(array.int32, 8))
-    return simd.horizontal.orderedSum(species:iota(1, 1))
+    return simd.horizontal.orderedsum(species:iota(1, 1))
 end
 
 return {total = total}
@@ -3249,12 +3249,12 @@ end
 
 function M.compensatedReducerCarriesTheRoundingErrorEachAdditionDiscards()
     local source = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 
 @aot
 local function total(borrows values: span.Span<number>): number
-    local exact = simd.reducer.compensatedSum(0.0)
+    local exact = simd.reducer.compensatedsum(0.0)
     for i = 1, #values do
         exact:add(values[i])
     end
@@ -3306,7 +3306,7 @@ end
 
 function M.provedFixedVectorsCopyOnlyTheirLogicalLanes()
     local source = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -3378,7 +3378,7 @@ local function sumX(borrows rows: soa.Span<Row>): float
         local active = species:tail(#rows - cursor)
         total = total + species:load(rows, cursor + 1, "x", active)
     end
-    return simd.horizontal.algebraicSum(total)
+    return simd.horizontal.algebraicsum(total)
 end
 
 return {sumX = sumX}
@@ -3459,7 +3459,7 @@ end
 -- at the species' vector for both.
 function M.genericHelpersPreserveSpeciesInTheKernelAndItsOracle()
     local source = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -3499,7 +3499,7 @@ end
 
 function M.explicitLaneAndBitmaskOperationsKeepOneBasedLaneIdentity()
     local source = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -3511,7 +3511,7 @@ local function inspect(borrows input: span.Span<float>): (float, uint32, integer
     local bits = (values > 0.0):bits()
     local first: integer = 0
     if bits ~= 0 then
-        first = math.u64.trailingZeros(bits) + 1
+        first = math.u64.trailingzeros(bits) + 1
     end
     return values:extract(2), math.u64.popcount(bits), first
 end
@@ -3547,7 +3547,7 @@ end
 
 function M.uint64MaskBitsReplaceTheFixedSixtyFourBitHelperSurface()
     local source = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -3560,10 +3560,10 @@ local function inspect(borrows input: span.Span<float>): (uint32, integer, boole
     local allBits = species:tail(species.lanes):bits()
     local shift: uint64 = 1
     local selected = (~((positive | large) & positive) << shift) & allBits
-    local parity = math.u64.prefixXor(selected) & allBits
+    local parity = math.u64.prefixxor(selected) & allBits
     local first: integer = 0
     if parity ~= 0 then
-        first = math.u64.trailingZeros(parity) + 1
+        first = math.u64.trailingzeros(parity) + 1
     end
     return math.u64.popcount(parity), first, parity ~= 0, parity == allBits
 end
@@ -3676,7 +3676,7 @@ function M.aSingleFixedWidthResultIsEstablishedByItsWrapper()
                 "local valuebuilder = require(\"serde.valuebuilder\")",
                 "@aot",
                 "local function count(bytes: string): uint32",
-                "    local limit: uint32 = valuebuilder.length(bytes)",
+                "    local limit: uint32 = valuebuilder.len(bytes)",
                 "    local at: uint32 = math.u32.wrap(0)",
                 "    while at < limit do",
                 "        at = math.u32.add(at, math.u32.wrap(1))",
@@ -3849,23 +3849,23 @@ end
 
 @aot
 local function once(source: string, nullValue: any): any
-    local builder = valuebuilder.newSized(nullValue, u32(2), u32(16))
-    local scratch = valuebuilder.newByteScratch(u32(16))
-    valuebuilder.setScratchByte(scratch, u32(0), valuebuilder.byte(source, u32(0)))
-    valuebuilder.stringScratch(builder, scratch, u32(0), u32(1))
+    local builder = valuebuilder.newsized(nullValue, u32(2), u32(16))
+    local scratch = valuebuilder.newbytescratch(u32(16))
+    valuebuilder.setscratchbyte(scratch, u32(0), valuebuilder.byte(source, u32(0)))
+    valuebuilder.stringscratch(builder, scratch, u32(0), u32(1))
     return valuebuilder.finish(builder)
 end
 
 @aot
 local function twice(source: string, nullValue: any): any
-    local builder = valuebuilder.newSized(nullValue, u32(4), u32(16))
-    local scratch = valuebuilder.newByteScratch(u32(16))
-    valuebuilder.openArray(builder, u32(2))
-    valuebuilder.setScratchByte(scratch, u32(0), valuebuilder.byte(source, u32(0)))
-    valuebuilder.stringScratch(builder, scratch, u32(0), u32(1))
-    valuebuilder.resetByteScratch(scratch)
-    valuebuilder.setScratchByte(scratch, u32(0), valuebuilder.byte(source, u32(1)))
-    valuebuilder.stringScratch(builder, scratch, u32(0), u32(1))
+    local builder = valuebuilder.newsized(nullValue, u32(4), u32(16))
+    local scratch = valuebuilder.newbytescratch(u32(16))
+    valuebuilder.openarray(builder, u32(2))
+    valuebuilder.setscratchbyte(scratch, u32(0), valuebuilder.byte(source, u32(0)))
+    valuebuilder.stringscratch(builder, scratch, u32(0), u32(1))
+    valuebuilder.resetbytescratch(scratch)
+    valuebuilder.setscratchbyte(scratch, u32(0), valuebuilder.byte(source, u32(1)))
+    valuebuilder.stringscratch(builder, scratch, u32(0), u32(1))
     valuebuilder.close(builder)
     return valuebuilder.finish(builder)
 end
@@ -3976,7 +3976,7 @@ function M.anUnestablishedOperandIsStillRefused()
         [
             "scale.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function scale(borrows input: span.Span<float>, exclusive out: span.WriteSpan<float>, k: number): nil
@@ -4061,8 +4061,8 @@ local simd = require("simd")
 @aot
 local function quotes(source: string, nullValue: any): (any, uint32, uint32)
     local rooted = "not the parameter"
-    local count = builder.length(source)
-    local state = builder.newSized(nullValue, count, count)
+    local count = builder.len(source)
+    local state = builder.newsized(nullValue, count, count)
     local found: uint32 = 0
     if species = simd.vectors(array.uint8) then
         local bytes = builder.bytes(rooted)
@@ -4091,8 +4091,8 @@ local builder = require("serde.valuebuilder")
 
 @aot
 local function quotes(source: string, nullValue: any): (any, uint32, uint32)
-    local count = builder.length(source)
-    local state = builder.newSized(nullValue, count, count)
+    local count = builder.len(source)
+    local state = builder.newsized(nullValue, count, count)
     local bytes = builder.bytes(source)
     local kept = bytes
     builder.null(state)
@@ -4123,8 +4123,8 @@ local {type Buffer} = require("nupp.text")
 
 @aot
 local function quotes(borrows source: string | Buffer, nullValue: any): (any, uint32, uint32)
-    local count = builder.length(source)
-    local state = builder.newSized(nullValue, count, count)
+    local count = builder.len(source)
+    local state = builder.newsized(nullValue, count, count)
     local cursor: uint32 = 0
     local found: uint32 = 0
     local loose: uint32 = 0
@@ -4175,7 +4175,7 @@ end
 -- comparisons are then dispatched is the code generator's to decide.
 function M.fixedWidthSwitchesCompareAtTheSelectorsWidth()
     local source = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 local struct Signed
     value: int32
@@ -4250,7 +4250,7 @@ function M.binary64SwitchesKeepComparisonBranches()
         [
             "switch.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 local struct Value
     value: int32
@@ -4312,7 +4312,7 @@ end
 
 -- Two scalar functions over one struct and two arithmetic widths.
 local TWO = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 local struct Sample
     value: float
@@ -4429,7 +4429,7 @@ function M.aCountedLoopRefusesAValueOnlyTheVmCanHold()
         [
             "loop.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function scale(exclusive out: span.WriteSpan<float>, borrows input: span.Span<float>): nil
@@ -4558,31 +4558,31 @@ function M.valueStreamsFuseRootedByteReadsAndLuaConstruction()
         ] = [[
 local builder = {}
 function builder.new(nullValue: any): any return {} end
-function builder.newSized(nullValue: any, depth: uint32, bytes: uint32): any return {} end
+function builder.newsized(nullValue: any, depth: uint32, bytes: uint32): any return {} end
 function builder.byte(bytes: string, offset: uint32): uint32 return offset end
-function builder.byteAt(bytes: string, offset: uint32): uint32 return offset end
+function builder.byteat(bytes: string, offset: uint32): uint32 return offset end
 function builder.word(bytes: string, index: uint32): uint32 return index end
-function builder.newWordScratch(capacity: uint32): any return {} end
-function builder.scratchWord(scratch: any, index: uint32): uint32 return index end
-function builder.setScratchWord(scratch: any, index: uint32, value: uint32): nil end
-function builder.newByteScratch(capacity: uint32): any return {} end
-function builder.scratchByte(scratch: any, index: uint32): uint32 return index end
-function builder.setScratchByte(scratch: any, index: uint32, value: uint32): nil end
-function builder.resetByteScratch(scratch: any): nil end
-function builder.length(bytes: string): uint32 return math.u32.wrap(#bytes) end
+function builder.newwordscratch(capacity: uint32): any return {} end
+function builder.scratchword(scratch: any, index: uint32): uint32 return index end
+function builder.setscratchword(scratch: any, index: uint32, value: uint32): nil end
+function builder.newbytescratch(capacity: uint32): any return {} end
+function builder.scratchbyte(scratch: any, index: uint32): uint32 return index end
+function builder.setscratchbyte(scratch: any, index: uint32, value: uint32): nil end
+function builder.resetbytescratch(scratch: any): nil end
+function builder.len(bytes: string): uint32 return math.u32.wrap(#bytes) end
 function builder.depth(state: any): uint32 return math.u32.wrap(0) end
 function builder.kind(state: any): uint32 return math.u32.wrap(0) end
 function builder.count(state: any): uint32 return math.u32.wrap(0) end
 function builder.state(state: any): uint32 return math.u32.wrap(0) end
-function builder.openArray(state: any, capacity: uint32): nil end
-function builder.openObject(state: any, capacity: uint32): nil end
+function builder.openarray(state: any, capacity: uint32): nil end
+function builder.openobject(state: any, capacity: uint32): nil end
 function builder.key(state: any, source: string, start: uint32, length: uint32, escaped: boolean): nil end
 function builder.string(state: any, source: string, start: uint32, length: uint32, escaped: boolean): nil end
-function builder.stringScratch(state: any, scratch: any, start: uint32, length: uint32): nil end
-function builder.keyScratch(state: any, scratch: any, start: uint32, length: uint32): nil end
+function builder.stringscratch(state: any, scratch: any, start: uint32, length: uint32): nil end
+function builder.keyscratch(state: any, scratch: any, start: uint32, length: uint32): nil end
 function builder.number(state: any, value: number): nil end
-function builder.numberSlice(state: any, source: string, start: uint32, length: uint32): nil end
-function builder.integerSlice(state: any, source: string, start: uint32, length: uint32): nil end
+function builder.numberslice(state: any, source: string, start: uint32, length: uint32): nil end
+function builder.integerslice(state: any, source: string, start: uint32, length: uint32): nil end
 function builder.integer64(state: any, magnitude: uint64, negative: boolean): nil end
 function builder.decimal64(state: any, source: string, start: uint32, length: uint32, magnitude: uint64, exponent: int32, negative: boolean, exact: boolean): nil end
 function builder.boolean(state: any, value: boolean): nil end
@@ -4597,25 +4597,25 @@ return builder
 local builder = require("serde.valuebuilder")
 @aot
 local function decode(source: string, tape: string, nullValue: any): (any, uint32, uint32)
-    local count = builder.length(source)
+    local count = builder.len(source)
     local cursor: uint32 = 0
     local direct: uint32 = 0
     if cursor < count then
-        direct = builder.byteAt(source, cursor)
+        direct = builder.byteat(source, cursor)
     end
-    local state = builder.newSized(nullValue, count, count)
+    local state = builder.newsized(nullValue, count, count)
     local packedState = builder.state(state)
-    local scratch = builder.newWordScratch(count)
-    local byteScratch = builder.newByteScratch(count)
-    builder.setScratchWord(scratch, math.u32.wrap(0), count)
-    builder.setScratchByte(byteScratch, math.u32.wrap(0), math.u32.wrap(65))
-    builder.openObject(state, math.u32.wrap(1))
+    local scratch = builder.newwordscratch(count)
+    local byteScratch = builder.newbytescratch(count)
+    builder.setscratchword(scratch, math.u32.wrap(0), count)
+    builder.setscratchbyte(byteScratch, math.u32.wrap(0), math.u32.wrap(65))
+    builder.openobject(state, math.u32.wrap(1))
     builder.key(state, source, math.u32.wrap(0), count, false)
-    builder.openArray(state, math.u32.wrap(2))
-    builder.stringScratch(state, byteScratch, math.u32.wrap(0), math.u32.wrap(1))
+    builder.openarray(state, math.u32.wrap(2))
+    builder.stringscratch(state, byteScratch, math.u32.wrap(0), math.u32.wrap(1))
     builder.number(state, 1)
-    builder.numberSlice(state, source, math.u32.wrap(0), count)
-    builder.integerSlice(state, source, math.u32.wrap(0), count)
+    builder.numberslice(state, source, math.u32.wrap(0), count)
+    builder.integerslice(state, source, math.u32.wrap(0), count)
     local magnitude: uint64 = count as uint64
     magnitude = magnitude * (10 as uint64) + (1 as uint64)
     builder.integer64(state, magnitude, false)
@@ -4623,7 +4623,7 @@ local function decode(source: string, tape: string, nullValue: any): (any, uint3
     builder.close(state)
     builder.close(state)
     return builder.finish(state), builder.byte(source, math.u32.wrap(0)), math.u32.add(
-        builder.scratchWord(scratch, math.u32.wrap(0)),
+        builder.scratchword(scratch, math.u32.wrap(0)),
         math.u32.add(direct, packedState)
     )
 end
@@ -4693,7 +4693,7 @@ function M.valueStreamBuilderModesAreAotConstants()
             "serde/valuebuilder.nupp"
         ] = [[
 local builder = {}
-function builder.newSized(nullValue: any, depth: uint32, bytes: uint32): any return {} end
+function builder.newsized(nullValue: any, depth: uint32, bytes: uint32): any return {} end
 function builder.number(state: any, value: number): nil end
 function builder.finish(state: any): any return nil end
 return builder
@@ -4714,7 +4714,7 @@ local stream = require("nupp.codec.json.internal.builder")
 
 @aot
 local function eager(nullValue: any): any
-    local state = builder.newSized(nullValue, math.u32.wrap(1), math.u32.wrap(1))
+    local state = builder.newsized(nullValue, math.u32.wrap(1), math.u32.wrap(1))
     builder.number(state, 1)
     return builder.finish(state)
 end
@@ -4765,7 +4765,7 @@ function M.uncheckedRootedByteReadsAreRejected()
             "serde/valuebuilder.nupp"
         ] = [[
 local builder = {}
-function builder.byteAt(bytes: string, offset: uint32): uint32 return offset end
+function builder.byteat(bytes: string, offset: uint32): uint32 return offset end
 return builder
 ]],
         [
@@ -4774,7 +4774,7 @@ return builder
 local builder = require("serde.valuebuilder")
 @aot
 local function read(source: string, offset: uint32): uint32
-    return builder.byteAt(source, offset)
+    return builder.byteat(source, offset)
 end
 return {read = read}
 ]],
@@ -4804,8 +4804,8 @@ const QUOTED = 'a"b'
 
 @aot
 local function entry(index: uint32, nullValue: any): any
-    local state = valueBuilder.newSized(nullValue, math.u32.wrap(2), math.u32.wrap(8))
-    valueBuilder.openArray(state, math.u32.wrap(2))
+    local state = valueBuilder.newsized(nullValue, math.u32.wrap(2), math.u32.wrap(8))
+    valueBuilder.openarray(state, math.u32.wrap(2))
     valueBuilder.number(state, valueBuilder.byte(CLASSES, index) * 1.0)
     valueBuilder.number(state, valueBuilder.byte(QUOTED, index) * 1.0)
     valueBuilder.close(state)
@@ -4840,7 +4840,7 @@ function M.assignedCountedIndicesDoNotKeepTheirSpanProof()
         [
             "changed.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 @aot
 local function acc(borrows input: span.Span<uint32>): number
     local total = 0
@@ -5003,13 +5003,13 @@ local builder = require("serde.valuebuilder")
 @aot
 local function decode(source: string): uint32
     do
-        local n = builder.length(source)
+        local n = builder.len(source)
     end
     local n: uint32 = math.u32.wrap(100)
     local cursor: uint32 = math.u32.wrap(50)
     local direct: uint32 = math.u32.wrap(0)
     if cursor < n then
-        direct = builder.byteAt(source, cursor)
+        direct = builder.byteat(source, cursor)
     end
     return direct
 end
@@ -5035,7 +5035,7 @@ function M.aNestedLoopInAMapEntryIsProvedByItsOwnBound()
     -- used to be checked against the map's guarded spans and refused with a
     -- guard that compared `weights` with itself.
     local body = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function rows(
@@ -5165,7 +5165,7 @@ function M.aLoopBodyReassigningACursorRetiresTheEnclosingProof()
     -- left it. Both the lowerer and the verifier used to carry the enclosing
     -- proof into every iteration.
     local body = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function decode(borrows source: span.Span<uint8>): uint32
@@ -5209,7 +5209,7 @@ function M.aNestedLoopMovingACursorRetiresTheEnclosingProof()
         [
             "annotated.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function scan(borrows bytes: span.Span<number>, exclusive out: span.WriteSpan<number>): number
@@ -5244,7 +5244,7 @@ end
 
 function M.pairedRearrangementsAndTransposeKeepNativeResultsAtEveryTier()
     local source = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 @aot
@@ -5326,7 +5326,7 @@ return {bad = bad}
 end
 
 local CONDITIONAL_SCAN = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -5447,7 +5447,7 @@ function M.aProvenVectorAccessIsOneCopyAndAnIntegerCompare()
         [
             "map.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -5536,7 +5536,7 @@ function M.aProofNeedsTheGuardAndTheCursorItLeft()
         [
             "unproven.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -5606,7 +5606,7 @@ function M.aGuardProvesASpanTheEntryGuardsHoldNoShorter()
         [
             "related.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -5670,7 +5670,7 @@ return {equal = equal, longer = longer, shorter = shorter}
         [
             "tail.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function tail(exclusive output: span.WriteSpan<number>, borrows input: span.Span<number>): nil
@@ -5701,7 +5701,7 @@ function M.aGuardedCursorLoopIsVersionedWhereItsCursorCannotWrap()
         [
             "wide.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -5773,7 +5773,7 @@ function M.anIntegerCompareFeedingAnyIsOneReductionAndAFlagStaysAFlag()
         [
             "scan.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -5825,7 +5825,7 @@ function M.aByteLookupOverFourTablesIsOneTableInstruction()
         [
             "lookup.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -5870,7 +5870,7 @@ function M.anInterleavedLoadIsOneLd3AndTheStoreOneSt4()
         [
             "records.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -5946,7 +5946,7 @@ return {widen = widen}
         [
             "misplaced.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -5972,7 +5972,7 @@ function M.anUnrolledLoopChecksItsBoundOncePerGroup()
         [
             "unrolled.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -6038,7 +6038,7 @@ function M.aLoopCarriedMaskStaysInItsRegister()
         [
             "halve.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -6093,7 +6093,7 @@ function M.aBaselineMaskAcrossRegistersIsNeverRepacked()
         [
             "refine.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -6146,7 +6146,7 @@ function M.aSpeciesBindingIsTheOnlyPlaceItsSpeciesLives()
         [
             "outside.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -6164,7 +6164,7 @@ return {lanes = lanes}
         [
             "other.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 local function limit(): integer?
     return nil
@@ -6184,7 +6184,7 @@ return {first = first}
         [
             "witness.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 
 @aot
@@ -6273,7 +6273,7 @@ function M.anAssertedSpeciesIsTheSpeciesWhereThereAreVectorsAndOneLaneWhereThere
         [
             "optional.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -6286,7 +6286,7 @@ local function total(borrows values: span.Span<float>): number
         sum = sum + wide:load(values, cursor + 1)
         cursor = cursor + wide.lanes
     end
-    return simd.horizontal.orderedSum(sum)
+    return simd.horizontal.orderedsum(sum)
 end
 
 return {total = total}
@@ -6294,7 +6294,7 @@ return {total = total}
         [
             "required.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 
@@ -6308,7 +6308,7 @@ local function total(borrows values: span.Span<float>): number
         sum = sum + wide:load(values, cursor + 1)
         cursor = cursor + wide.lanes
     end
-    return simd.horizontal.orderedSum(sum) + simd.horizontal.orderedSum(eight:splat(1.0))
+    return simd.horizontal.orderedsum(sum) + simd.horizontal.orderedsum(eight:splat(1.0))
 end
 
 return {total = total}
@@ -6363,7 +6363,7 @@ function M.anAndProvesItsRightSpanReadOnlyByTheShapeItPromises()
     -- side just tested. Any other left, a different span, or a different
     -- offset is not that proof.
     local body = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function scan(borrows cps: span.Span<uint32>, borrows other: span.Span<uint32>): integer
@@ -6437,7 +6437,7 @@ function M.siblingFieldLoadsBecomeOneDeinterleavingLoad()
         [
             "fields.nupp"
         ] = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 

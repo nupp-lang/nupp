@@ -6,7 +6,7 @@ local M = {}
 
 local function finishNumber(source, start, length)
     local builder = valuebuilder.new({})
-    valuebuilder.numberSlice(builder, source, start, length)
+    valuebuilder.numberslice(builder, source, start, length)
     return valuebuilder.finish(builder)
 end
 
@@ -88,34 +88,34 @@ function M.integerSlicesRejectOtherNumberForms()
         test.raises(
             function()
                 local builder = valuebuilder.new({})
-                valuebuilder.integerSlice(builder, token, u32(0), u32(#token))
+                valuebuilder.integerslice(builder, token, u32(0), u32(#token))
             end,
             "integer is invalid"
         )
     end
     local builder = valuebuilder.new({})
-    valuebuilder.integerSlice(builder, "-12345678901234567890", u32(0), u32(21))
+    valuebuilder.integerslice(builder, "-12345678901234567890", u32(0), u32(21))
     assert(valuebuilder.finish(builder) < -1e19)
 end
 
 function M.nestedValuesAndScratchStayIndependent()
-    local builder = valuebuilder.newSized({}, u32(3), u32(8))
-    local scratch = valuebuilder.newByteScratch(u32(8))
-    valuebuilder.setScratchBytes4(scratch, u32(0), u32(0x64636261))
-    valuebuilder.openObject(builder, u32(1))
-    valuebuilder.keyScratch(builder, scratch, u32(1), u32(2))
-    valuebuilder.openArray(builder, u32(2))
-    valuebuilder.stringScratch(builder, scratch, u32(0), u32(4))
+    local builder = valuebuilder.newsized({}, u32(3), u32(8))
+    local scratch = valuebuilder.newbytescratch(u32(8))
+    valuebuilder.setscratchbytes4(scratch, u32(0), u32(0x64636261))
+    valuebuilder.openobject(builder, u32(1))
+    valuebuilder.keyscratch(builder, scratch, u32(1), u32(2))
+    valuebuilder.openarray(builder, u32(2))
+    valuebuilder.stringscratch(builder, scratch, u32(0), u32(4))
     valuebuilder.boolean(builder, true)
     valuebuilder.close(builder)
     valuebuilder.close(builder)
     local result = valuebuilder.finish(builder)
     assert(result.bc[1] == "abcd" and result.bc[2] == true)
 
-    valuebuilder.resetByteScratch(scratch)
+    valuebuilder.resetbytescratch(scratch)
     test.raises(
         function()
-            valuebuilder.scratchByte(scratch, u32(0))
+            valuebuilder.scratchbyte(scratch, u32(0))
         end,
         "read is out of bounds"
     )

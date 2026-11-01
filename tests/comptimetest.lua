@@ -148,7 +148,7 @@ local record Item
     value: integer
 end
 const old: types.reflect.FieldCodec<Item> = comptime do
-    return types.reflect.fieldCodec(types.reflect(Item))
+    return types.reflect.fieldcodec(types.reflect(Item))
 end
 const current: types.reflect.FieldCodec<Item> = comptime do
     return types.reflect.fieldcodec(types.reflect(Item))
@@ -918,8 +918,8 @@ return comptime do
     local verify = assert
     local first, gap, third, tail = verify(true, nil, false, nil)
     verify.equal(first, true)
-    verify.notEqual(third, true)
-    verify.deepEqual({first, third}, {true, false})
+    verify.notequal(third, true)
+    verify.deepequal({first, third}, {true, false})
     return {
         kind = type(assert), aliasKind = type(verify), same = verify == assert,
         first = first, gap = gap == nil, third = third, tail = tail == nil,

@@ -1,6 +1,6 @@
 -- Untimed shader conformance against Lua's numeric-for semantics.
 local ffi = require("ffi")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local gpu = require("gpu")
 local generated = require("counted")
 local context = gpu.open()
@@ -12,7 +12,7 @@ for index = 0, size - 1 do
 end
 local read = context:buffer(require("nupp.mem.array").uint32, size)
 local write = context:buffer(require("nupp.mem.array").uint32, size)
-context:upload(read, span.fromCarray(input, size))
+context:upload(read, span.fromcarray(input, size))
 local cases = {{1, 4}, {0, 0}, {3, 2}, {-2, 1}, {2147483645, 2147483647}, {-2147483648, -2147483646}}
 local checked = 0
 
@@ -25,7 +25,7 @@ local function check(kernel, first, last, expected)
     end
     context:enqueueDownload(write)
     context:synchronize()
-    context:readDownloaded(write, span.writeCarray(output, size))
+    context:readDownloaded(write, span.writecarray(output, size))
     for index = 0, size - 1 do
         assert(
             output[index] == input[index] + expected,

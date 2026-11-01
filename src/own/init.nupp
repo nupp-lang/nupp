@@ -26,7 +26,7 @@ export type Alias<T> = own.Alias<T>
 local runtime = rawget(_G, "nupp") as any
 
 --- Recovers an erased alias after checking its managed-cell brand.
-export const recoverAlias: function(value: any): ((alias(unknown), nil) | (nil, AliasError)) = runtime.__recoverAlias
+export const recoveralias: function(value: any): ((alias(unknown), nil) | (nil, AliasError)) = runtime.__recoverAlias
 
 --- Creates a group that closes remaining resources in reverse adoption order.
-export const managedGroup: function(): ManagedGroup = runtime.__managedGroup
+export const managedgroup: function(): ManagedGroup = runtime.__managedGroup

@@ -5,8 +5,8 @@ module types
 Compiler-only builders run inside `@comptime` functions.
 
 ```nupp
-const theme: types.Key<string> = types.newKey("app.theme")
-const store = types.newStore()
+const theme: types.Key<string> = types.newkey("app.theme")
+const store = types.newstore()
 store:set(theme, "dark")
 assert(store:get(theme) == "dark")
 ```
@@ -30,10 +30,10 @@ export const Key = store.Key
 export type Store = store.Store
 
 --- Registers a new key, optionally under a name.
-export const newKey = store.newKey
+export const newkey = store.newKey
 
 --- Creates an empty store.
-export const newStore = store.newStore
+export const newstore = store.newStore
 
 @comptime
 local function option(items, annotationName: string, name: string): any
@@ -143,7 +143,7 @@ end
 --- @param info the declaration the provider inspects
 --- @return the checked forwarding recipe
 @comptime
-export function Debug(info: types.derive.Info): types.derive.Result<types.Debug>
+export function debug(info: types.derive.Info): types.derive.Result<types.Debug>
     if info.kind ~= "record" and info.kind ~= "struct" then
         return types.derive.error("Debug can be derived only for records or structs", info.reference, "NUPP2803")
     end

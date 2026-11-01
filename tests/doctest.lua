@@ -213,7 +213,7 @@ function M.aFencedExampleKeepsAnAnnotationRatherThanReadingItAsATag()
             "--- Renders a value.",
             "---",
             "--- ```nupp",
-            "--- @derive(types.Debug)",
+            "--- @derive(types.debug)",
             "--- local record Point",
             "---     x: integer",
             "--- end",
@@ -230,7 +230,7 @@ function M.aFencedExampleKeepsAnAnnotationRatherThanReadingItAsATag()
     local render = module.items[1]
     assert(render and render.name == "render", "declaration missing")
     assert(
-        render.doc.text:find("@derive(types.Debug)", 1, true),
+        render.doc.text:find("@derive(types.debug)", 1, true),
         "the annotation stays in the example: " .. render.doc.text
     )
     assert(render.doc.tags.derive == nil, "and never became a tag")
@@ -1109,7 +1109,7 @@ function M.standardTypesPageCombinesBuildersAndRuntimeExports()
     for _, name in ipairs({
         "types.string",
         "types.optional",
-        "types.newStore",
+        "types.newstore",
         "types.derive.implement",
         "types.reflect.runtime"
     }) do
@@ -1280,7 +1280,7 @@ end
 function M.standardIOApiHasCompleteDocumentation()
     local modules = {
         [
-            "src/nupp/io/init.nupp"
+            "src/nupp/io.nupp"
         ] = {
             types = {
                 Buffer = true,
@@ -1294,10 +1294,10 @@ function M.standardIOApiHasCompleteDocumentation()
         },
         [
             "src/io/path/init.nupp"
-        ] = {types = {Path = true,}, functions = {newPath = true, currentDirectory = true, separator = true,},},
+        ] = {types = {Path = true,}, functions = {newpath = true, currentdirectory = true, sep = true,},},
         [
             "src/io/uri/init.nupp"
-        ] = {types = {URI = true, Components = true,}, functions = {newURI = true, validate = true, isURI = true,},},
+        ] = {types = {URI = true, Components = true,}, functions = {newuri = true, validate = true, isuri = true,},},
         [
             "src/nupp/io/files/init.nupp"
         ] = {
@@ -1336,38 +1336,38 @@ function M.standardIOApiHasCompleteDocumentation()
         end
     end
 
-    -- Paths are interned by `newPath`; direct construction is intentionally
+    -- Paths are interned by `newpath`; direct construction is intentionally
     -- unavailable.
     local path = assert(readFile(HERE .. "/../src/io/path/init.nupp"))
     local module = assert(doc.extract(path, "src/io/path/init.nupp", "io.path"))
     local factory
     for _, item in ipairs(module.items) do
-        if item.name == "newPath" then
+        if item.name == "newpath" then
             factory = item
         end
     end
-    assert(factory, "io.path did not document newPath")
-    assert(factory.doc.text:find("#### Examples", 1, true), "path.newPath has no examples")
+    assert(factory, "io.path did not document newpath")
+    assert(factory.doc.text:find("#### Examples", 1, true), "path.newpath has no examples")
     assert(
-        factory.doc.text:find('path.newPath("src", "main.nupp")', 1, true),
-        "path.newPath has no component-joining example"
+        factory.doc.text:find('path.newpath("src", "main.nupp")', 1, true),
+        "path.newpath has no component-joining example"
     )
 
-    -- URIs are likewise interned by `newURI`; their exported record is a value type,
+    -- URIs are likewise interned by `newuri`; their exported record is a value type,
     -- not a public construction surface.
     local uri = assert(readFile(HERE .. "/../src/io/uri/init.nupp"))
     local uriModule = assert(doc.extract(uri, "src/io/uri/init.nupp", "io.uri"))
     local uriFactory
     for _, item in ipairs(uriModule.items) do
-        if item.name == "newURI" then
+        if item.name == "newuri" then
             uriFactory = item
         end
     end
-    assert(uriFactory, "io.uri did not document newURI")
-    assert(uriFactory.doc.text:find("#### Examples", 1, true), "uri.newURI has no examples")
+    assert(uriFactory, "io.uri did not document newuri")
+    assert(uriFactory.doc.text:find("#### Examples", 1, true), "uri.newuri has no examples")
     assert(
-        uriFactory.doc.text:find('uri.newURI("https://example.com/a?b=1")', 1, true),
-        "uri.newURI has no parsing example"
+        uriFactory.doc.text:find('uri.newuri("https://example.com/a?b=1")', 1, true),
+        "uri.newuri has no parsing example"
     )
 end
 
@@ -1418,7 +1418,7 @@ function M.standardReflectApiKeepsItsGraphAndMaterializerTogether()
             examples[member.name] = nil
         end
         if member.name == "fieldCodec" then
-            assert(member.comptimeKind == "function", "types.reflect.fieldCodec must document its comptime-only phase")
+            assert(member.comptimeKind == "function", "types.reflect.fieldcodec must document its comptime-only phase")
         end
     end
     for name in pairs(expected) do
@@ -2194,7 +2194,7 @@ function M.scintilluaLexerUnderstandsCurrentNuppSyntax()
                     "local function preserve(scoped callback: function(): nil, takes value: affine(voidptr)): voidptr preserves value return value end",
                     "local compiled = comptime do return {answer = 42} end",
                     "@nosuspend do end",
-                    "with installation = nupp.suspension.host.install(cancel) do cancel() end",
+                    "with installation = coroutine.suspension.host.install(cancel) do cancel() end",
                     "local sealed interface Token end",
                     "interface Matcher",
                     "    associated type Result = R",

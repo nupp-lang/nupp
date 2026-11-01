@@ -34,7 +34,7 @@ local function agree(value, what)
     end
     -- The reference is held to the shipped validator on the same corpus, so a
     -- transition table typo cannot hide behind two implementations agreeing.
-    if shipped.isValid(value) ~= (want == #value) then
+    if shipped.isvalid(value) ~= (want == #value) then
         error(("reference disagrees with utf8 on %s (%q)"):format(what, value), 0)
     end
     checks = checks + 1

@@ -112,7 +112,7 @@ local function fnewAbortPayload()
     end
     local opcode
     for code = 0, #vmdef.bcnames / 6 - 1 do
-        if registry.opcodeName(code) == "FNEW" then
+        if registry.opcodename(code) == "FNEW" then
             opcode = code;
             break
         end

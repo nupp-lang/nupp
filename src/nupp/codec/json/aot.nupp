@@ -27,7 +27,7 @@ const {type Buffer} = require("nupp.text")
 local eagerDecoder = require("nupp.codec.json.internal.decoder.eager")
 local pullDecoder = require("nupp.codec.json.internal.decode")
 local serdeDecoder = require("nupp.codec.json.internal.decoder.serde")
-local newBuffer = require("nupp.text").newBuffer
+local newBuffer = require("nupp.text").newbuffer
 local bit = require("bit")
 local contracts = require("serde.json.spi")
 
@@ -918,7 +918,7 @@ end
 local checked: contracts.Provider = {
     arrayOf = json.arrayOf,
     -- `asArray` and `asObject` are asserted where every other member is checked.
-    -- The contract owns what it marks, because `serde.json.asArray` promises
+    -- The contract owns what it marks, because `serde.json.asarray` promises
     -- its caller the same table back. No provider can state that and still read
     -- the table: `pairs` takes neither an owner nor a borrow, so a body that
     -- validates keys cannot also carry the owning signature. Both providers

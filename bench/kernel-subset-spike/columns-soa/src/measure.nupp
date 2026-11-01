@@ -1,6 +1,6 @@
 local ffi = require("ffi")
 local soa = require("nupp.mem.soa")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local kernel = require("kernel")
 
 local struct Entity
@@ -11,7 +11,7 @@ local struct Entity
 end
 
 local function run(count: integer, steps: integer, scalar: boolean, dt: float): (number, number)
-    local entities = soa.allocate(ffi.typeof<Entity>(), count)
+    local entities = soa.alloc(ffi.typeof<Entity>(), count)
     local elapsed = 0.0
     local checksum = 0.0
     with rows = entities:write() do

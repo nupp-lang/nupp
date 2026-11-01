@@ -33,81 +33,78 @@ local function compile(source)
 end
 
 function M.bindsAbsoluteModuleCalls()
-    local output = formatted('return nupp.io.files.read("a"), nupp.io.files.read("b")\n')
-    assert(output:find('const files = require("nupp.io.files")', 1, true), output)
+    local output = formatted('return io.files.read("a"), io.files.read("b")\n')
+    assert(output:find('const files = require("io.files")', 1, true), output)
     assert(output:find('return files.read("a"), files.read("b")', 1, true), output)
 end
 
 function M.typeOnlyImportsRemainErased()
-    local source = 'local function count(value: nupp.mem.span.Span<uint8>): integer\nreturn #value\nend\nreturn count\n'
+    local source = 'local function count(value: binary.span.Span<uint8>): integer\nreturn #value\nend\nreturn count\n'
     local output = formatted(source)
-    assert(output:find('const {type Span} = require("nupp.mem.span")', 1, true), output)
+    assert(output:find('const {type Span} = require("binary.span")', 1, true), output)
     assert(output:find('value: Span<uint8>', 1, true), output)
     local before, after = compile(source), compile(output)
-    assert(not before:find('require("nupp.mem.span")', 1, true), before)
-    assert(not after:find('require("nupp.mem.span")', 1, true), after)
+    assert(not before:find('require("binary.span")', 1, true), before)
+    assert(not after:find('require("binary.span")', 1, true), after)
 end
 
 function M.turnsAnExistingModuleAliasIntoItsImport()
-    local output = formatted('local files = nupp.io.files\nreturn files.read("a"), nupp.io.files.read("b")\n')
-    assert(output == 'local files = require("nupp.io.files")\nreturn files.read("a"), files.read("b")\n', output)
+    local output = formatted('local files = io.files\nreturn files.read("a"), io.files.read("b")\n')
+    assert(output == 'local files = require("io.files")\nreturn files.read("a"), files.read("b")\n', output)
 end
 
 function M.avoidsCapturingNamesInAnyScope()
     local output = formatted(
-        'local files = 1\nlocal function read(files2)\nreturn nupp.io.files.read("a"), files2\nend\nreturn read, files\n'
+        'local files = 1\nlocal function read(files2)\nreturn io.files.read("a"), files2\nend\nreturn read, files\n'
     )
-    assert(output:find('const files3 = require("nupp.io.files")', 1, true), output)
+    assert(output:find('const files3 = require("io.files")', 1, true), output)
     assert(output:find('return files3.read("a"), files2', 1, true), output)
 end
 
 function M.respectsShadowedPackageRoots()
     local output = formatted(
-        'local function fake(nupp)\nreturn nupp.io.files.read("a")\nend\nreturn nupp.io.files.read("b"), fake\n'
+        'local function fake(nupp)\nreturn nupp.io.files.read("a")\nend\nreturn io.files.read("b"), fake\n'
     )
-    assert(output:find('return nupp.io.files.read("a")', 1, true), output)
+    assert(output:find('return io.files.read("a")', 1, true), output)
     assert(output:find('return files.read("b"), fake', 1, true), output)
 end
 
 function M.avoidsTheLeafNameOfAQualifiedDeclaration()
-    local output = formatted('local process = {}\ninterface process.Reader is nupp.io.Reader\nend\nreturn process\n')
-    assert(output:find('const {type Reader as Reader2} = require("nupp.io")', 1, true), output)
+    local output = formatted('local process = {}\ninterface process.Reader is io.Reader\nend\nreturn process\n')
+    assert(output:find('const {type Reader as Reader2} = require("io")', 1, true), output)
     assert(output:find('interface process.Reader is Reader2', 1, true), output)
     compile(output)
 end
 
 function M.leavesIntrinsicsAndExplicitRequirePlacement()
     local output = formatted(
-        'local function size()\nreturn nupp.sizeof(int32), require("nupp.io.files").read("a")\nend\nreturn size\n'
+        'local function size()\nreturn nupp.sizeof(int32), require("io.files").read("a")\nend\nreturn size\n'
     )
     assert(not output:find('const files', 1, true), output)
     assert(output:find('nupp.sizeof(int32)', 1, true), output)
-    assert(output:find('require("nupp.io.files").read', 1, true), output)
+    assert(output:find('require("io.files").read', 1, true), output)
 end
 
 function M.preservesCommentsAndStrings()
-    local output = formatted('-- nupp.io.files.read\nreturn "nupp.io.files.read", nupp.io.files.read("a")\n')
+    local output = formatted('-- nupp.io.files.read\nreturn "nupp.io.files.read", io.files.read("a")\n')
     assert(output:find('-- nupp.io.files.read', 1, true), output)
     assert(output:find('"nupp.io.files.read", files.read', 1, true), output)
-    local inside = formatted('return nupp.io -- keep this\n.files.read("a")\n')
+    local inside = formatted('return io.files.read("a")\n')
     assert(inside:find('-- keep this', 1, true), inside)
     assert(not inside:find('const files', 1, true), inside)
 end
 
 function M.importsFollowModuleHeaderAndPreserveDocblocks()
     local output = formatted(
-        'module app.reader -- module comment\n\n--- Read a file.\nexport function read(): string?\nreturn nupp.io.files.read("a")\nend\n'
+        'module app.reader -- module comment\n\n--- Read a file.\nexport function read(): string?\nreturn io.files.read("a")\nend\n'
     )
-    assert(
-        output:find('module app.reader -- module comment\n\nconst files = require("nupp.io.files")', 1, true),
-        output
-    )
+    assert(output:find('module app.reader -- module comment\n\nconst files = require("io.files")', 1, true), output)
     assert(output:find('--- Read a file.\nexport function read', 1, true), output)
 end
 
 function M.keepsModuleDocumentationAheadOfImports()
     local output = formatted(
-        'module format\n\n--[[A documented module.]]\nexport function read(): (string?, string?)\nreturn nupp.io.files.read("a")\nend\n'
+        'module format\n\n--[[A documented module.]]\nexport function read(): (string?, string?)\nreturn io.files.read("a")\nend\n'
     )
     assert(output:find('--[[A documented module.]]\nconst files', 1, true), output)
     local documented = require("nupp.tools.doc.extract").extract(output, "format.nupp", "format")
@@ -115,40 +112,38 @@ function M.keepsModuleDocumentationAheadOfImports()
 end
 
 function M.doesNotRewritePlainLuaOrDisabledFiles()
-    local source = 'return nupp.io.files.read("a")\n'
+    local source = 'return io.files.read("a")\n'
     assert(fmt.format(source, "example.lua") == source)
     local disabled = '@!nofmt\n' .. source
     assert(fmt.format(disabled, "example.nupp") == disabled)
 end
 
 function M.reusesAnUnshadowedModuleBinding()
-    local output = formatted(
-        'local files = require("nupp.io.files")\nreturn nupp.io.files.read("a"), files.exists("b")\n'
-    )
+    local output = formatted('local files = require("io.files")\nreturn io.files.read("a"), files.exists("b")\n')
     assert(not output:find('const files', 1, true), output)
     assert(output:find('return files.read("a"), files.exists("b")', 1, true), output)
 end
 
 function M.keepsInnerAnnotationsBeforeImports()
-    local output = formatted('@!internal\nreturn nupp.io.files.read("a")\n')
+    local output = formatted('@!internal\nreturn io.files.read("a")\n')
     assert(output:find('@!internal\nconst files', 1, true), output)
 end
 
 function M.convertsAnExistingTypeAliasWithoutAddingAnotherAlias()
     local output = formatted(
-        'local type Bytes = nupp.mem.span.Span\nlocal function count(values: Bytes<uint8>): integer\nreturn #values\nend\nreturn count\n'
+        'local type Bytes = binary.span.Span\nlocal function count(values: Bytes<uint8>): integer\nreturn #values\nend\nreturn count\n'
     )
-    assert(output:find('const {type Span as Bytes} = require("nupp.mem.span")', 1, true), output)
+    assert(output:find('const {type Span as Bytes} = require("binary.span")', 1, true), output)
     assert(not output:find('local type Bytes', 1, true), output)
 end
 
 function M.constructsTheSameRecordThroughADeclarationImport()
-    local source = 'local function make(): nupp.io.files.TemporaryOptions\nreturn new nupp.io.files.TemporaryOptions(prefix = "fmt-test")\nend\nreturn make()\n'
+    local source = 'local function make(): io.files.TemporaryOptions\nreturn new io.files.TemporaryOptions(prefix = "fmt-test")\nend\nreturn make()\n'
     local output = formatted(source)
     assert(output:find('const {TemporaryOptions}', 1, true), output)
     assert(output:find('const {type TemporaryOptions}', 1, true), output)
-    local baseline = 'local files = require("nupp.io.files")\n' .. source:gsub(
-        "nupp%.io%.files%.TemporaryOptions",
+    local baseline = 'local files = require("io.files")\n' .. source:gsub(
+        "io%.files%.TemporaryOptions",
         "files.TemporaryOptions"
     )
     local original = assert(loadstring(compile(baseline)))()
@@ -158,17 +153,15 @@ function M.constructsTheSameRecordThroughADeclarationImport()
 end
 
 function M.formatsIsolatedSignaturesWithoutImportsWhenRequested()
-    local source = 'local value: nupp.mem.span.Span<uint8>\n'
+    local source = 'local value: binary.span.Span<uint8>\n'
     local output, errors = fmt.format(source, "signature.nupp", {bindImports = false})
     assert(#errors == 0)
     assert(output == source, output)
 end
 
 function M.preservesCodeOnTheModuleHeadersLine()
-    local output = formatted(
-        'module app; export function read(): (string?, string?) return nupp.io.files.read("a") end\n'
-    )
-    assert(output:find('const files = require("nupp.io.files")', 1, true), output)
+    local output = formatted('module app; export function read(): (string?, string?) return io.files.read("a") end\n')
+    assert(output:find('const files = require("io.files")', 1, true), output)
     assert(output:find('return files.read("a")', 1, true), output)
 end
 
@@ -191,8 +184,8 @@ return kind
     assert(not output:find('require("types.derive")', 1, true), output)
     assert(assert(loadstring(compile(output)))() == "array")
 
-    local mixed = formatted((source:gsub("return kind\n$", 'return nupp.io.files.exists("a"), kind\n')))
-    assert(mixed:find('const files2 = require("nupp.io.files")', 1, true), mixed)
+    local mixed = formatted((source:gsub("return kind\n$", 'return io.files.exists("a"), kind\n')))
+    assert(mixed:find('const files2 = require("io.files")', 1, true), mixed)
     assert(not mixed:find('require("types")', 1, true), mixed)
     assert(mixed:find("types.array(files)", 1, true), mixed)
 end
@@ -200,21 +193,21 @@ end
 function M.ambientDeclarationsKeepTheirQualifiedNamespaces()
     local env = envMod.new(".")
     local formatter = fmt.new({environment = env})
-    local source = '@comptime local function read(): string return nupp.io.files.read("a") end\n'
+    local source = '@comptime local function read(): string return io.files.read("a") end\n'
     local declared, errors = formatter:format(source, "prelude.d.nupp")
     assert(#errors == 0, errors[1] and errors[1].msg)
     assert(not declared:find("require", 1, true), declared)
-    assert(declared:find("nupp.io.files.read", 1, true), declared)
+    assert(declared:find("io.files.read", 1, true), declared)
     local ordinary, problems = formatter:format(source, "ordinary.nupp")
     assert(#problems == 0, problems[1] and problems[1].msg)
     assert(not ordinary:find("require", 1, true), ordinary)
-    assert(ordinary:find("nupp.io.files.read", 1, true), ordinary)
+    assert(ordinary:find("io.files.read", 1, true), ordinary)
     local runtime = formatted((source:gsub("@comptime ", "")))
-    assert(runtime:find('require("nupp.io.files")', 1, true), runtime)
-    local explicit = 'const files = require("nupp.io.files")\nlocal read: function(string): string = files.read\n'
+    assert(runtime:find('require("io.files")', 1, true), runtime)
+    local explicit = 'const files = require("io.files")\nlocal read: function(string): string = files.read\n'
     local authored, issues = formatter:format(explicit, "external.d.nupp")
     assert(#issues == 0, issues[1] and issues[1].msg)
-    assert(authored:find('require("nupp.io.files")', 1, true), authored)
+    assert(authored:find('require("io.files")', 1, true), authored)
 end
 
 return M

@@ -116,11 +116,11 @@ local function decodeFields(
     nullValue: any
 ): any
     local builder = valuebuilder.new(nullValue)
-    valuebuilder.openArray(builder, count)
+    valuebuilder.openarray(builder, count)
     local cursor: uint32 = 0
-    local length = valuebuilder.length(source)
+    local length = valuebuilder.len(source)
     while cursor < length do
-        valuebuilder.integerSlice(builder, source, cursor, width)
+        valuebuilder.integerslice(builder, source, cursor, width)
         cursor = math.u32.add(cursor, width)
     end
     valuebuilder.close(builder)
@@ -134,9 +134,9 @@ advances the cursor. An ordinary binary64 number reaching one of these is
 refused rather than promoted, because the offsets address the parser's own bytes
 and a fractional one is not an offset.
 
-`string`, `key`, and `numberSlice` take zero-based ranges of a rooted string, so
+`string`, `key`, and `numberslice` take zero-based ranges of a rooted string, so
 generated code copies or converts directly into the final Lua value without an
-intermediate substring. `byte`, `word`, and `length` let the same AOT entry
+intermediate substring. `byte`, `word`, and `len` let the same AOT entry
 parse rooted byte strings, where `word` reads a native-endian uint32 at a
 zero-based word index. `depth`, `kind`, and `count` expose only the current
 construction-frame metadata an iterative parser needs.
@@ -149,15 +149,15 @@ storage that could leak across a Lua allocation failure.
 
 ## Bounded scratch storage
 
-`newSized(nullValue, maxDepth, stringCapacity)` replaces the default 1,024-frame
+`newsized(nullValue, maxDepth, stringCapacity)` replaces the default 1,024-frame
 bound with authored frame storage and reserves a bound for transformed strings.
 The first 16 frames stay inline, and deeper streams lazily spill to dynamically
 allocated, Lua-rooted storage. The byte storage is allocated lazily on the first
 escaped string and reused; publication still performs exactly one copy into a
 normal Lua string.
 
-`newByteScratch`, `scratchByte`, `setScratchByte`, and `resetByteScratch` give
-the same bounded storage to other codecs, while `stringScratch` and `keyScratch`
+`newbytescratch`, `scratchbyte`, `setscratchbyte`, and `resetbytescratch` give
+the same bounded storage to other codecs, while `stringscratch` and `keyscratch`
 publish a checked initialized range directly. A string assembled byte by byte
 and published once looks like this:
 
@@ -168,9 +168,9 @@ local valuebuilder = serde.valuebuilder
 @aot
 local function shout(source: string, capacity: uint32, nullValue: any): any
     local depth: uint32 = 4
-    local builder = valuebuilder.newSized(nullValue, depth, capacity)
-    local scratch = valuebuilder.newByteScratch(capacity)
-    local length = valuebuilder.length(source)
+    local builder = valuebuilder.newsized(nullValue, depth, capacity)
+    local scratch = valuebuilder.newbytescratch(capacity)
+    local length = valuebuilder.len(source)
     local index: uint32 = 0
     local zero: uint32 = 0
     while index < length do
@@ -178,16 +178,16 @@ local function shout(source: string, capacity: uint32, nullValue: any): any
         if byte >= 97 and byte <= 122 then
             byte = math.u32.sub(byte, 32)
         end
-        valuebuilder.setScratchByte(scratch, index, byte)
+        valuebuilder.setscratchbyte(scratch, index, byte)
         index = math.u32.add(index, 1)
     end
-    valuebuilder.stringScratch(builder, scratch, zero, length)
+    valuebuilder.stringscratch(builder, scratch, zero, length)
 
     return valuebuilder.finish(builder)
 end
 ```
 
-`integerSlice` is the integer-token counterpart of `numberSlice`: short integers
+`integerslice` is the integer-token counterpart of `numberslice`: short integers
 accumulate directly in native code, and longer tokens retain the checked
 binary64 conversion fallback.
 

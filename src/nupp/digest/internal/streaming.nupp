@@ -28,7 +28,7 @@ Public callers use [](binary.hash.digest) or [](binary.hash.mac); these snapshot
 engines are private implementation details of their consuming provider contexts.
 ]]
 
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local hash = {}
 
 --- A mutable incremental digest. Final reads snapshot the current state.
@@ -123,15 +123,15 @@ local function add(a: int32, b: int32): int32
 end
 
 local function xor(a: int32, b: int32): int32
-    return math.i32.xorBits(a, b)
+    return math.i32.xorbits(a, b)
 end
 
 local function logicalRight(value: int32, count: integer): int32
-    return math.i32.fromU32(math.u32.shiftRightLogical(math.u32.fromI32(value), count))
+    return math.i32.fromu32(math.u32.shiftrightlogical(math.u32.fromi32(value), count))
 end
 
 local function rotateRight(value: int32, count: integer): int32
-    return math.i32.rotateRight(value, count)
+    return math.i32.rotateright(value, count)
 end
 
 local function smallSigmaZero(word: int32): int32
@@ -151,11 +151,11 @@ local function bigSigmaOne(word: int32): int32
 end
 
 local function choose(e: int32, f: int32, g: int32): int32
-    return xor(math.i32.andBits(e, f), math.i32.andBits(math.i32.notBits(e), g))
+    return xor(math.i32.andbits(e, f), math.i32.andbits(math.i32.notbits(e), g))
 end
 
 local function majority(a: int32, b: int32, c: int32): int32
-    return xor(xor(math.i32.andBits(a, b), math.i32.andBits(a, c)), math.i32.andBits(b, c))
+    return xor(xor(math.i32.andbits(a, b), math.i32.andbits(a, c)), math.i32.andbits(b, c))
 end
 
 local function wordAt(words: {int32}, index: integer): int32
@@ -304,8 +304,8 @@ local function finalState(source: Sha256): Sha256
     local state = copy(source)
     local byteLengthLow = unsignedWordAt(state.length, 1)
     local byteLengthHigh = unsignedWordAt(state.length, 2)
-    local high = math.u32.orBits(math.u32.shiftLeft(byteLengthHigh, 3), math.u32.shiftRightLogical(byteLengthLow, 29))
-    local low = math.u32.shiftLeft(byteLengthLow, 3)
+    local high = math.u32.orbits(math.u32.shiftleft(byteLengthHigh, 3), math.u32.shiftrightlogical(byteLengthLow, 29))
+    local low = math.u32.shiftleft(byteLengthLow, 3)
     local tail = state.tail .. "\128"
     tail = tail .. string.rep("\0", (56 - #tail % 64) % 64) .. lengthBytes(high, low)
     for offset = 1, #tail, 64 do
@@ -320,7 +320,7 @@ local function rawDigest(source: Sha256): string
 
     local bytes: {string} = {}
     for index = 1, 8 do
-        local value = math.u32.fromI32(wordAt(state.state, index)) as number
+        local value = math.u32.fromi32(wordAt(state.state, index)) as number
         for shift = 24, 0, -8 do
             bytes[#bytes + 1] = string.char(math.floor(value / 2 ^ shift) % 256)
         end
@@ -349,7 +349,7 @@ end
 function Sha256.writeDigest(self: Sha256, exclusive destination: span.ByteWriteSpan): nil
     local state = finalState(self)
     for index = 1, 8 do
-        local value = math.u32.fromI32(wordAt(state.state, index)) as number
+        local value = math.u32.fromi32(wordAt(state.state, index)) as number
         for byte = 0, 3 do
             destination[(index - 1) * 4 + byte + 1] = math.floor(value / 2 ^ (24 - byte * 8)) % 256
         end
@@ -364,7 +364,7 @@ local function xorPad(key: string, pad: integer): string
     local bytes: {string} = {}
     local mask = math.u32.wrap(pad)
     for index = 1, 64 do
-        bytes[index] = string.char(math.u32.xorBits(math.u32.wrap(key:byte(index)), mask) as integer)
+        bytes[index] = string.char(math.u32.xorbits(math.u32.wrap(key:byte(index)), mask) as integer)
     end
 
     return table.concat(bytes)

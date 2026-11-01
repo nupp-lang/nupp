@@ -1904,8 +1904,8 @@ checked.
 See the `nupp.mem.span` module reference for the complete span contracts.
 ]=],
         example = [=[
-local span = require("nupp.mem.span")
-local indexed = require("nupp.mem.indexed")
+local span = require("binary.span")
+local indexed = require("binary.span")
 local m = {}
 
 local struct Value
@@ -2375,8 +2375,8 @@ cancellation, and the protocol a waiting library subscribes through, and
         example = [=[
 local m = {}
 
-local http = require("nupp.io.http")
-local tasks = require("nupp.tasks")
+local http = require("io.http")
+local tasks = require("coroutine")
 local uri = require("io.uri")
 
 function m.statuses(urls: {string}): {integer}

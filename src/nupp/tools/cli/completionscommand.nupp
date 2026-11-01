@@ -12,7 +12,7 @@ local cliModule = require("arg")
 ---     nupp completions zsh
 ---     nupp completions fish
 @cli("completions")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Completions
     --- Shell whose completion script to print.
     @cli(positional = "SHELL")

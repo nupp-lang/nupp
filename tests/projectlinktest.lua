@@ -770,7 +770,7 @@ local function exportedSignatureDoesNotFreezeAnAliasItNames()
             ] = [[
 module holder
 
-const tasks = require("nupp.tasks")
+const tasks = require("coroutine")
 
 export type Handle = tasks.Task<function(): integer>
 
@@ -874,10 +874,10 @@ local function workerTaskChecksLikeAnOrdinaryFunctionCall()
 module main
 
 const jobs = require("jobs.hash")
-const tasks = require("nupp.tasks")
+const tasks = require("coroutine")
 
 export function good(contents: string): uint64
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         const task = scope:fork({name = "level1", bytes = contents}, jobs.hash)
 
         return task:await().hash
@@ -905,22 +905,22 @@ local function workerTaskReportsArgumentAndResultMistakes()
 module main
 
 const jobs = require("jobs.hash")
-const tasks = require("nupp.tasks")
+const tasks = require("coroutine")
 
 export function misspelled(): nil
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         print(scope:fork(jobs.missing))
     end
 end
 
 export function wrongArgument(): nil
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         print(scope:fork({name = "level1"}, jobs.hash))
     end
 end
 
 export function wrongResult(): nil
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         const task = scope:fork({name = "a", bytes = "b"}, jobs.hash)
         print(task:await().nope)
     end
@@ -953,10 +953,10 @@ local function workerTaskPreservesCompleteResultPacks()
 module main
 
 const jobs = require("jobs.hash")
-const tasks = require("nupp.tasks")
+const tasks = require("coroutine")
 
 export function good(contents: string): boolean
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         const task = scope:fork({name = "level1", bytes = contents}, 0, jobs.pair)
         local answer, verified = task:await()
         local name: string = answer.name
@@ -1044,10 +1044,10 @@ local function workerTaskAcceptsWhatACopyCanReproduce()
 module main
 
 const jobs = require("jobs.copy")
-const tasks = require("nupp.tasks")
+const tasks = require("coroutine")
 
 export function run(): nil
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         print(scope:fork("a", 1, jobs.scalars):await())
         print(scope:fork({name = "a", size = 1}, jobs.shaped):await())
         print(scope:fork({x = 1, y = 2} as jobs.Point, jobs.record_):await())
@@ -1076,22 +1076,22 @@ local function workerTaskRefusesASignatureNoCopyCanCross()
 module main
 
 const jobs = require("jobs.copy")
-const tasks = require("nupp.tasks")
+const tasks = require("coroutine")
 
 export function nested(): nil
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         print(scope:fork({name = "a", hook = || -> nil}, jobs.hooked))
     end
 end
 
 export function thread_(): nil
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         print(scope:fork(coroutine.create(|| -> nil), jobs.threaded))
     end
 end
 
 export function result(): nil
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         print(scope:fork("a", jobs.returnsFunction))
     end
 end
@@ -1125,10 +1125,10 @@ local function taskScopeCarriesAutomaticCleanup()
             ] = [[
 module main
 
-const tasks = require("nupp.tasks")
+const tasks = require("coroutine")
 
 export function opened(): nil
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         print(scope)
     end
 end

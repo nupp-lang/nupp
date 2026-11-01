@@ -101,7 +101,7 @@ local record Position
 end
 
 const PositionCodec: types.reflect.FieldCodec<Position> = comptime do
-    return types.reflect.fieldCodec(types.reflect(Position))
+    return types.reflect.fieldcodec(types.reflect(Position))
 end
 
 print(PositionCodec)
@@ -117,7 +117,7 @@ local record Position
 end
 
 const codec = comptime do
-    return types.reflect.fieldCodec(types.reflect(Position))
+    return types.reflect.fieldcodec(types.reflect(Position))
 end
 
 print(codec)
@@ -127,7 +127,7 @@ print(codec)
 error: NUPP2414: an opaque comptime value needs a directly declared materialization boundary
 ```
 
-`types.reflect.fieldCodec` is the provider shown here. See [Field
+`types.reflect.fieldcodec` is the provider shown here. See [Field
 codecs](reflection.md#field-codecs) for the descriptor it reads and the codec it
 produces.
 

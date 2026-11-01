@@ -1,6 +1,6 @@
 module quantgemv
 
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 -- GPU kernels need 32-bit storage, so the GPU forms read the same bytes as
 -- little-endian uint32 words: weight k is byte k % 4 of word k / 4.
@@ -23,11 +23,11 @@ local function q8(
             local inputCursor = column
             if wordCursor < #weights then
                 local shift = math.u32.mul(math.u32.mod(weightIndex, math.u32.wrap(4)), math.u32.wrap(8))
-                local byte = math.u32.andBits(
-                    math.u32.shiftRightLogical(weights[wordCursor + 1], shift),
+                local byte = math.u32.andbits(
+                    math.u32.shiftrightlogical(weights[wordCursor + 1], shift),
                     math.u32.wrap(255)
                 )
-                local signed = math.i32.fromU32(byte)
+                local signed = math.i32.fromu32(byte)
                 if byte >= math.u32.wrap(128) then
                     signed = math.i32.sub(signed, math.i32.wrap(256))
                 end
@@ -92,11 +92,11 @@ local function q4(
             local inputCursor = column
             if wordCursor < #weights then
                 local shift = math.u32.mul(math.u32.mod(weightIndex, math.u32.wrap(8)), math.u32.wrap(4))
-                local nibble = math.u32.andBits(
-                    math.u32.shiftRightLogical(weights[wordCursor + 1], shift),
+                local nibble = math.u32.andbits(
+                    math.u32.shiftrightlogical(weights[wordCursor + 1], shift),
                     math.u32.wrap(15)
                 )
-                local signed = math.i32.fromU32(nibble)
+                local signed = math.i32.fromu32(nibble)
                 if nibble >= math.u32.wrap(8) then
                     signed = math.i32.sub(signed, math.i32.wrap(16))
                 end
@@ -133,10 +133,10 @@ local function q4Cpu(
                 local high = math.u32.mod(column, math.u32.wrap(2)) == math.u32.wrap(1)
                 local bits = math.u32.wrap(weights[weightCursor + 1])
                 if high then
-                    bits = math.u32.shiftRightLogical(bits, 4)
+                    bits = math.u32.shiftrightlogical(bits, 4)
                 end
-                local nibble = math.u32.andBits(bits, math.u32.wrap(15))
-                local signed = math.i32.fromU32(nibble)
+                local nibble = math.u32.andbits(bits, math.u32.wrap(15))
+                local signed = math.i32.fromu32(nibble)
                 if nibble >= math.u32.wrap(8) then
                     signed = math.i32.sub(signed, math.i32.wrap(16))
                 end

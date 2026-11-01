@@ -35,7 +35,7 @@ end
 ---     nupp rock pack
 ---     nupp rock test
 @cli(name = "rock", group = true)
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Rock
 end
 
@@ -48,7 +48,7 @@ end
 ---     nupp rock pack
 ---     nupp rock pack mylib-1.0.0-1.rockspec
 @cli("pack")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Pack
     --- Rockspec to package.
     @cli(positional = "ROCKSPEC")
@@ -68,7 +68,7 @@ end
 ---     nupp rock test
 ---     nupp rock test mylib-1.0.0-1.rockspec
 @cli("test")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Test
     --- Rockspec to test.
     @cli(positional = "ROCKSPEC")

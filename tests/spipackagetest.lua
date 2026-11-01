@@ -29,7 +29,7 @@ local function tempProject(files)
 end
 
 local function remove(dir)
-    assert(require("nupp.io.files").remove(dir, true))
+    assert(require("io.files").remove(dir, true))
 end
 
 function M.capabilityDescriptorsRejectUnknownAndDuplicateEntries()
@@ -67,9 +67,9 @@ end
 function M.namedManifestTargetsCarryTheSelectedHostAndVm()
     local source = [[
 local text = require("nupp.text")
-local time = require("nupp.time")
+local time = require("coroutine")
 local representation = require("nupp.mem.representation")
-return {newBuffer = text.newBuffer, now = os.monotonic, storage = representation.storage}
+return {newBuffer = text.newbuffer, now = os.monotonic, storage = representation.storage}
 ]]
     local dir = tempProject({
         [
@@ -386,7 +386,7 @@ return {
             "src/main.nupp"
         ] = [[
 local mac = require("binary.hash.mac")
-local rolling = mac.newMac("hmac-sha256", "key")
+local rolling = mac.newmac("hmac-sha256", "key")
 assert(rolling:digestSize() == 32)
 rolling:write("The quick brown fox ")
 rolling:write("jumps over the lazy dog")

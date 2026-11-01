@@ -33,7 +33,7 @@ assert2(
     end)
 )
 assert2(debug.render(binding, value) == expected)
-local buffer = text.newBuffer()
+local buffer = text.newbuffer()
 buffer:put("prefix:")
 debug.write(binding, value, buffer)
 assert2(buffer:tostring() == "prefix:" .. expected)

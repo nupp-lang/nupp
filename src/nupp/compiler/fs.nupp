@@ -8,12 +8,12 @@ existing path's filesystem identity, while `absolute` also answers for a missing
 path. Writes stage content beside the destination before replacing it, so an
 interrupted build does not expose a half-written module.
 
-Directory operations go through [](nupp.io.files), so the compiler requires
+Directory operations go through [](io.files), so the compiler requires
 its native filesystem provider. Whole-file reads and writes stay on `io.open`
 because the provider's transfer lane would add a worker handoff to every small
 compiler file.
 ]]
-const files2 = require("nupp.io.files")
+const files2 = require("io.files")
 const path2 = require("io.path")
 
 local fs = {}
@@ -25,7 +25,7 @@ local workingDirectory: string? = nil
 
 local function currentDirectory(): string
     if workingDirectory == nil then
-        local cwd = path2.currentDirectory()
+        local cwd = path2.currentdirectory()
         workingDirectory = cwd and cwd:toString() or "."
     end
 
@@ -147,7 +147,7 @@ end
 local function canonical(path: string): string
     local fallback = absolute(path)
     local ok, resolved = pcall(function(): string?
-        local real = path2.newPath(fallback):canonicalize()
+        local real = path2.newpath(fallback):canonicalize()
 
         return real and real:toString() or nil
     end)
@@ -169,7 +169,7 @@ local function readFile(path: string): string?, string?
         -- Either way, say what happened rather than the raw OS error: a caller that
         -- reports it printed a permissions complaint where the path belonged, saying
         -- neither what it tried to read nor the actual reason.
-        if files2.isDirectory(path) then
+        if files2.isdirectory(path) then
             return nil, path .. " is a directory"
         end
 
@@ -178,7 +178,7 @@ local function readFile(path: string): string?, string?
     local text = f:read("*a")
     f:close()
     if not text then
-        if files2.isDirectory(path) then
+        if files2.isdirectory(path) then
             return nil, path .. " is a directory"
         end
 
@@ -205,7 +205,7 @@ local function mkdir(path: string): boolean
         return true
     end
 
-    return (files2.createDirectory(path))
+    return (files2.createdirectory(path))
 end
 
 --- What distinguishes this process's staging files from another's.

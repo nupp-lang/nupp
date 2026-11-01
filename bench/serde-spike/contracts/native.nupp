@@ -51,7 +51,7 @@ local document = documents.tuple({
     documents.bytes("\0\255blob"),
     documents.decimal(new core.Decimal(coefficient = "-0", exponent = -5)),
     documents.float(new core.Float(value = 1.5, width = 32)),
-    documents.bigInteger("123456789012345678901234567890"),
+    documents.biginteger("123456789012345678901234567890"),
     documents.timestamp(new core.Timestamp(seconds = "-1", nanos = 123456789)),
     documents.boundary(documents.null()),
     documents.union("choice", documents.boolean(false)),
@@ -60,7 +60,7 @@ local document = documents.tuple({
     })
 })
 local adapter = documents.adapter()
-local dynamic = native.decodeDocument(adapter, native.encodeDocument(adapter, document))
+local dynamic = native.decodedocument(adapter, native.encodedocument(adapter, document))
 assert(dynamic.kind == "tuple" and dynamic:size() == 10 and dynamic:at(1).kind == "null")
 assert(dynamic:at(2):integer().decimal == "-9223372036854775808" and dynamic:at(3):bytes() == "\0\255blob")
 assert(dynamic:at(4):decimal().coefficient == "-0" and dynamic:at(4):decimal().exponent == -5)
@@ -74,18 +74,18 @@ local record Atom is core.Atom
         return new Atom(family = self.family)
     end
 end
-assert(not pcall(native.encodeDocument, adapter, documents.atom(new Atom())))
+assert(not pcall(native.encodedocument, adapter, documents.atom(new Atom())))
 
-local key: util.Key<Save> = util.newKey()
-local localKey: util.Key<string> = util.newKey()
-local registry = persistence.storeRegistry()
+local key: util.Key<Save> = util.newkey()
+local localKey: util.Key<string> = util.newkey()
+local registry = persistence.storeregistry()
 registry:register("game", key, binding, 1)
-local store = util.newStore()
+local store = util.newstore()
 store:set(key, saved)
 store:set(localKey, "transient")
 local snapshot = registry:save(store)
 assert(#snapshot.entries == 1 and snapshot.entries[1].name == "game")
-local stateBinding = persistence.storeBinding()
+local stateBinding = persistence.storebinding()
 local snapshotBytes = native.encode(stateBinding, snapshot)
 local loaded = registry:load(native.decode(stateBinding, snapshotBytes), "reject")
 assert(assert(loaded:get(key)).score == saved.score and loaded:get(localKey) == nil)
@@ -119,7 +119,7 @@ local record Upgrade is persistence.Migration
         })
     end
 end
-local versionTwo = persistence.storeRegistry()
+local versionTwo = persistence.storeregistry()
 versionTwo:register("game", key, binding, 2, new Upgrade())
 assert(assert(versionTwo:load(snapshot, "reject"):get(key)).name == "game upgraded")
 local wrongVersion = new persistence.StoreSnapshot(
@@ -132,7 +132,7 @@ local nonfinite = documents.list({
     documents.float(new core.Float(value = -math.huge, width = 32)),
     documents.float(new core.Float(value = 0 / 0, width = 64))
 })
-local preserved = native.decodeDocument(adapter, native.encodeDocument(adapter, nonfinite))
+local preserved = native.decodedocument(adapter, native.encodedocument(adapter, nonfinite))
 assert(preserved:at(1):float().value == math.huge and preserved:at(2):float().value == -math.huge)
 assert(preserved:at(3):float().value ~= preserved:at(3):float().value)
 

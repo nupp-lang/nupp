@@ -3,7 +3,7 @@ module events
 --[[
 `events` delivers synchronous events to observers at an address.
 
-An event is a `record` or a fixed-layout `struct` marked `@derive(events.Event)`.
+An event is a `record` or a fixed-layout `struct` marked `@derive(events.event)`.
 Emitting one by type constructs it into storage the source already owns, and
 only when something at that address is observing; delivering an instance the
 caller built allocates nothing. Observers receive the event as a call-scoped
@@ -12,14 +12,14 @@ borrow they may write to but not keep.
 ```nupp
 local events = require("events")
 
-@derive(events.Event)
+@derive(events.event)
 local record Damage
     amount: number
     source: integer
     kind: string = "physical"
 end
 
-local bus: events.MessageBus<integer> = events.newMessageBus()
+local bus: events.MessageBus<integer> = events.newmessagebus()
 bus:observe(7, Damage, |event| -> print(event.amount, event.kind), "log")
 bus:emit(7, Damage, amount = 10, source = 3)
 ```
@@ -34,7 +34,7 @@ Observer state belongs to a source: `MessageBus<A>` is one, and any record with
 an `observers` field implements [](events.Source) and dispatches through
 the same functions. Record events draw from a [](nupp.util.Pool) and struct
 events from a [](nupp.mem.arena), each created the first time an event type is
-emitted through a source; `setAllocator` installs one the caller owns instead.
+emitted through a source; `setallocator` installs one the caller owns instead.
 ]]
 const derive2 = require("types.derive")
 const types2 = require("types")
@@ -49,7 +49,7 @@ local events = {}
 -- Declarations
 ----------------------------------------------------------------------------
 
---- What a declaration becomes by deriving `events.Event`.
+--- What a declaration becomes by deriving `events.event`.
 ---
 --- The bound an event type parameter carries, so a source refuses a record
 --- that never derived the event contract before anything runs.
@@ -102,7 +102,7 @@ end
 --- @param info the declaration being derived
 --- @return the recipe claiming `events.Emittable`
 @comptime
-function events.Event(info: types.derive.Info): types.derive.Result<events.Emittable>
+function events.event(info: types.derive.Info): types.derive.Result<events.Emittable>
     if info.kind ~= "record" and info.kind ~= "struct" then
         return derive2.error("events.Event admits a record or a fixed-layout struct", info.reference)
     end
@@ -154,7 +154,7 @@ local nextId: integer = 1
 local INFO_KEY = "__nuppEventInfo"
 
 --- The registry entry for an event type, made on first use.
---- @raises string when the type did not derive `events.Event`
+--- @raises string when the type did not derive `events.event`
 local function infoOf(witness: any): Info
     local known = infos[witness]
     if known ~= nil then
@@ -206,7 +206,7 @@ end
 --- a persistent or wire identity.
 --- @param event the event declaration
 --- @return its identity
---- @raises string when the type did not derive `events.Event`
+--- @raises string when the type did not derive `events.event`
 function events.id<E is events.Emittable>(event: Type<E>): integer
     return infoOf(event).id
 end
@@ -214,7 +214,7 @@ end
 --- The name an event type registered under.
 --- @param event the event declaration
 --- @return the declared or `@event`-given name
---- @raises string when the type did not derive `events.Event`
+--- @raises string when the type did not derive `events.event`
 function events.name<E is events.Emittable>(event: Type<E>): string
     return infoOf(event).name
 end
@@ -260,7 +260,7 @@ end
 
 --- Empty observer state for a new source.
 --- @return the state, with nothing registered
-function events.newObservers<A>(): events.Observers<A>
+function events.newobservers<A>(): events.Observers<A>
     return new events.Observers(
         byAddress = {} as {[A]: {[integer]: any}},
         count = 0,
@@ -495,7 +495,7 @@ end
 
 --- Registers an observer of an event type at an address.
 ---
---- Observers run in registration order. A name lets `stopObserving` remove this
+--- Observers run in registration order. A name lets `stopobserving` remove this
 --- registration by name; a name already registered at the same address and
 --- event is an error, since the second could never be removed alone.
 --- @param source the bus or world that owns the observer registry and event
@@ -504,7 +504,7 @@ end
 --- @param event the event declaration
 --- @param callback what runs when one is delivered
 --- @param id an optional name for removal
---- @raises string when the type did not derive `events.Event`, or the name is
+--- @raises string when the type did not derive `events.event`, or the name is
 ---     taken
 function events.observe<A, S is events.Source<A>, E is events.Emittable>(
     exclusive source: S,
@@ -526,9 +526,9 @@ end
 --- @param event the event declaration
 --- @param callback what runs, once
 --- @param id an optional name for removal
---- @raises string when the type did not derive `events.Event`, or the name is
+--- @raises string when the type did not derive `events.event`, or the name is
 ---     taken
-function events.observeOnce<A, S is events.Source<A>, E is events.Emittable>(
+function events.observeonce<A, S is events.Source<A>, E is events.Emittable>(
     exclusive source: S,
     borrows address: A,
     event: Type<E>,
@@ -551,7 +551,7 @@ end
 --- @param event the event declaration
 --- @param callbackOrId the callback registered, or the name it was given
 --- @return whether anything was removed
-function events.stopObserving<A, S is events.Source<A>, E is events.Emittable>(
+function events.stopobserving<A, S is events.Source<A>, E is events.Emittable>(
     exclusive source: S,
     borrows address: A,
     event: Type<E>,
@@ -603,7 +603,7 @@ end
 --- @param address the address to ask about
 --- @param event the event declaration
 --- @return whether a delivery there would reach an observer
-function events.hasObservers<A, S is events.Source<A>, E is events.Emittable>(
+function events.hasobservers<A, S is events.Source<A>, E is events.Emittable>(
     borrows source: S,
     borrows address: A,
     event: Type<E>
@@ -640,7 +640,7 @@ end
 --- observes the world itself.
 --- @param source the bus or world
 --- @param address the address to clear
-function events.clearAddress<A, S is events.Source<A>>(exclusive source: S, borrows address: A): nil
+function events.clearaddress<A, S is events.Source<A>>(exclusive source: S, borrows address: A): nil
     local observers = source.observers as any
     local map = observers.byAddress[address]
     if map == nil then
@@ -666,7 +666,7 @@ function events.reset<A, S is events.Source<A>>(exclusive source: S): nil
         addresses[#addresses + 1] = address
     end
     for index = 1, #addresses do
-        events.clearAddress(source, addresses[index] as A)
+        events.clearaddress(source, addresses[index] as A)
     end
 end
 
@@ -683,7 +683,7 @@ end
 --- @param event the event declaration
 --- @param allocator storage of the event's representation
 --- @raises string when a delivery of that event is active
-function events.setAllocator<A, S is events.Source<A>, E is events.Emittable>(
+function events.setallocator<A, S is events.Source<A>, E is events.Emittable>(
     exclusive source: S,
     event: Type<E>,
     allocator: events.Allocator<E>
@@ -704,7 +704,7 @@ local function allocatorFor(observers: any, info: Info): any
     end
     local made: any
     if info.representation == "struct" then
-        made = arena.newArena(info.witness, 256)
+        made = arena.newarena(info.witness, 256)
         local owned = observers.ownedArenas
         owned[#owned + 1] = made
     else
@@ -876,7 +876,7 @@ record events.MessageBus<A> is events.Source<A>
     ): nil
 
     --- Registers an observer consumed on first delivery; see
-    --- [](events.observeOnce).
+    --- [](events.observeonce).
     observeOnce: function<E is events.Emittable>(
         exclusive self: MessageBus<A>,
         address: A,
@@ -885,7 +885,7 @@ record events.MessageBus<A> is events.Source<A>
         id: string?
     ): nil
 
-    --- Removes registrations; see [](events.stopObserving).
+    --- Removes registrations; see [](events.stopobserving).
     stopObserving: function<E is events.Emittable>(
         exclusive self: MessageBus<A>,
         address: A,
@@ -894,7 +894,7 @@ record events.MessageBus<A> is events.Source<A>
     ): boolean
 
     --- Whether anything observes an event here; see
-    --- [](events.hasObservers).
+    --- [](events.hasobservers).
     hasObservers: function<E is events.Emittable>(self: MessageBus<A>, address: A, event: Type<E>): boolean
 
     --- Constructs and delivers an event; see [](events.emit).
@@ -914,13 +914,13 @@ record events.MessageBus<A> is events.Source<A>
     ): nil
 
     --- Removes every registration at an address; see
-    --- [](events.clearAddress).
+    --- [](events.clearaddress).
     clearAddress: function(exclusive self: MessageBus<A>, address: A): nil
 
     --- Removes every registration; see [](events.reset).
     reset: function(exclusive self: MessageBus<A>): nil
 
-    --- Installs storage for an event type; see [](events.setAllocator).
+    --- Installs storage for an event type; see [](events.setallocator).
     setAllocator: function<E is events.Emittable>(
         exclusive self: MessageBus<A>,
         event: Type<E>,
@@ -945,7 +945,7 @@ function events.MessageBus.observeOnce<A, E is events.Emittable>(
     callback: events.Observer<E>,
     id: string?
 ): nil
-    events.observeOnce(self, address, event, callback, id)
+    events.observeonce(self, address, event, callback, id)
 end
 
 function events.MessageBus.stopObserving<A, E is events.Emittable>(
@@ -954,7 +954,7 @@ function events.MessageBus.stopObserving<A, E is events.Emittable>(
     event: Type<E>,
     callbackOrId: events.Observer<E> | string
 ): boolean
-    return events.stopObserving(self, address, event, callbackOrId)
+    return events.stopobserving(self, address, event, callbackOrId)
 end
 
 function events.MessageBus.hasObservers<A, E is events.Emittable>(
@@ -962,7 +962,7 @@ function events.MessageBus.hasObservers<A, E is events.Emittable>(
     address: A,
     event: Type<E>
 ): boolean
-    return events.hasObservers(self, address, event)
+    return events.hasobservers(self, address, event)
 end
 
 function events.MessageBus.emit<A, E is events.Emittable>(
@@ -984,7 +984,7 @@ function events.MessageBus.deliver<A, E is events.Emittable>(
 end
 
 function events.MessageBus.clearAddress<A>(exclusive self: events.MessageBus<A>, address: A): nil
-    events.clearAddress(self, address)
+    events.clearaddress(self, address)
 end
 
 function events.MessageBus.reset<A>(exclusive self: events.MessageBus<A>): nil
@@ -996,16 +996,16 @@ function events.MessageBus.setAllocator<A, E is events.Emittable>(
     event: Type<E>,
     allocator: events.Allocator<E>
 ): nil
-    events.setAllocator(self, event, allocator)
+    events.setallocator(self, event, allocator)
 end
 
 --- A bus with no observers.
 ---
 --- The address type is whatever the binding asks for:
---- `local bus: events.MessageBus<integer> = events.newMessageBus()`.
+--- `local bus: events.MessageBus<integer> = events.newmessagebus()`.
 --- @return the bus
-function events.newMessageBus<A>(): events.MessageBus<A>
-    local observers: events.Observers<A> = events.newObservers()
+function events.newmessagebus<A>(): events.MessageBus<A>
+    local observers: events.Observers<A> = events.newobservers()
     return new events.MessageBus(observers = observers)
 end
 

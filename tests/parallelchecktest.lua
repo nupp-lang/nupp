@@ -6,7 +6,7 @@ local modules = require("nupp.tools.build.modules")
 local process = require("nupp.compiler.process")
 local stable = require("nupp.compiler.stable")
 local store = require("nupp.compiler.project.store")
-local time = require("nupp.time")
+local time = require("coroutine")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -333,7 +333,7 @@ end
 function M.lateRuntimeLinkingUpdatesAnExistingRecord()
     local context = runtimeLinkFixture("build/cache/runtime-source/assert/init.nupp", true)
     modules.linkPackagedRuntime("assert", context)
-    testAssert.deepEqual(context.records.assert, {
+    testAssert.deepequal(context.records.assert, {
         interfaceHash = "checked",
         runtimeModules = {"dependency"},
         compilerRuntime = true
@@ -381,7 +381,7 @@ function M.parallelChecksMatchSerialRecordsAndDiagnosticsAcrossSchedules()
         testAssert.equal(report.timing.parallel.retries, 0, "healthy workers are not retried")
     end
 
-    assert(require("nupp.io.files").remove(directory, true))
+    assert(require("io.files").remove(directory, true))
 end
 
 -- Checking a module whose effects need a feature runtime stages that runtime's
@@ -396,8 +396,8 @@ function M.recordsNamingStagedStandardModulesAreReused()
     write(
         directory .. "/src/clock.nupp",
         [[
-local files = require("nupp.io.files")
-local time = require("nupp.time")
+local files = require("io.files")
+local time = require("coroutine")
 
 local function stamp(path: string): number
     if files.exists(path) then
@@ -415,8 +415,8 @@ return {stamp = stamp}
             (
                 [[
 local clock = require("clock")
-local files = require("nupp.io.files")
-local time = require("nupp.time")
+local files = require("io.files")
+local time = require("coroutine")
 
 local function value(path: string): number
     local exists = files.exists(path) and 1 or 0
@@ -441,7 +441,7 @@ return {value = value, described = described}
     testAssert.equal(report.timing.parallel.rechecked, 0, "worker records survive validation")
     testAssert.equal(state, serialState, "parallel check records")
 
-    assert(require("nupp.io.files").remove(directory, true))
+    assert(require("io.files").remove(directory, true))
 end
 
 -- Staging a runtime's carried source checks the modules that name it again, from
@@ -458,20 +458,20 @@ function M.aStandardGenericFillsAFieldInEitherSchedule()
         [[
 const {type Observers} = require("events")
 local events = require("events")
-local files = require("nupp.io.files")
+local files = require("io.files")
 
 local record World
     observers: Observers<integer>
 end
 
 local function newWorld(): World
-    local world = new World(observers = events.newObservers())
-    world.observers = events.newObservers()
+    local world = new World(observers = events.newobservers())
+    world.observers = events.newobservers()
     return world
 end
 
 local function fresh(): Observers<integer>
-    return events.newObservers()
+    return events.newobservers()
 end
 
 local function count(path: string): integer
@@ -487,7 +487,7 @@ return {count = count}
             (
                 [[
 local world = require("world")
-local files = require("nupp.io.files")
+local files = require("io.files")
 
 local function value(path: string): integer
     return world.count(path) + (files.exists(path) and %d or 0)
@@ -506,7 +506,7 @@ return {value = value}
     testAssert.equal(code, 0, "parallel exit status")
     testAssert.equal(stable(report.diagnostics), stable(serialReport.diagnostics), "parallel diagnostics")
 
-    assert(require("nupp.io.files").remove(directory, true))
+    assert(require("io.files").remove(directory, true))
 end
 
 -- Checking an `@annotation` declaration registers it with the environment rather
@@ -565,7 +565,7 @@ return {make = make}
     local warmCode, warmOutput = process.capture({NUPP, "check", "--json"}, {cwd = directory})
     testAssert.equal(warmCode, 0, "the warm check reuses clean records: " .. warmOutput)
 
-    assert(require("nupp.io.files").remove(directory, true))
+    assert(require("io.files").remove(directory, true))
 end
 
 -- A build generates in the worker that checked, so what a parallel build writes has
@@ -585,7 +585,7 @@ function M.parallelBuildsWriteWhatSerialBuildsWrite()
         testAssert.equal(state, serialState, level .. " build state")
     end
 
-    assert(require("nupp.io.files").remove(directory, true))
+    assert(require("io.files").remove(directory, true))
 end
 
 -- Const specialization is planned across every module of a build at once. A
@@ -622,7 +622,7 @@ return {four = four}
     testAssert.equal(checkCode, 0, "const-generic check")
     testAssert.equal(checkReport.timing.parallel.mode, "parallel", "a check plans no specialization")
 
-    assert(require("nupp.io.files").remove(directory, true))
+    assert(require("io.files").remove(directory, true))
 end
 
 function M.workerAndInterfaceFailuresFallBackWithoutPublishingPartialState()
@@ -656,7 +656,7 @@ function M.workerAndInterfaceFailuresFallBackWithoutPublishingPartialState()
     testAssert.equal(report.timing.parallel.retries, 1, "the stopped worker was retried once")
     testAssert.equal(state, serialState, "restarted worker records")
 
-    assert(require("nupp.io.files").remove(directory, true))
+    assert(require("io.files").remove(directory, true))
 end
 
 function M.anInterruptedCheckLeavesNoWorkers()
@@ -737,7 +737,7 @@ function M.anInterruptedCheckLeavesNoWorkers()
         assert(ffi.C.kill(pid, 0) ~= 0, "parallel worker survived its interrupted parent: " .. tostring(pid))
     end
 
-    assert(require("nupp.io.files").remove(directory, true))
+    assert(require("io.files").remove(directory, true))
 end
 
 return M

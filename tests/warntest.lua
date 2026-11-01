@@ -58,8 +58,8 @@ function M.usesTheApplicationSinkIndependentlyOfItsLevelFilter()
     local log = require("log")
     local warning = require("warn")
     local messages = {}
-    local previousLevel = log.setLevel("off")
-    local previousSink = log.setSink(function(level, module, line, message)
+    local previousLevel = log.setlevel("off")
+    local previousSink = log.setsink(function(level, module, line, message)
         messages[#messages + 1] = {level, module, line, message}
     end)
     local ok, reason = pcall(function()
@@ -75,8 +75,8 @@ function M.usesTheApplicationSinkIndependentlyOfItsLevelFilter()
         test.equal(#messages, 1)
     end)
     warning("@on")
-    log.setSink(previousSink)
-    log.setLevel(previousLevel)
+    log.setsink(previousSink)
+    log.setlevel(previousLevel)
     assert(ok, reason)
 end
 

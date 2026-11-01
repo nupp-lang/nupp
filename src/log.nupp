@@ -85,15 +85,15 @@ slower. The module shows as `?`, and the arguments are evaluated:
 | `log.info(format, id)` | no | the format is not a literal |
 | `local f = log.info` | no | a value, not a call |
 | `x = log.info("hi")` | no | not statement position |
-| `local nupp = ...` | no | not the compiler-provided `nupp` |
+| `local log = ...` | no | a local shadow of the compiler-provided `log` |
 | `logger:info("id %d", id)` | no | a named logger, not the path |
 
 ## Levels
 
-`level` reads the threshold and `setLevel` moves it:
+`level` reads the threshold and `setlevel` moves it:
 
 ```nupp
-log.setLevel("debug") -- returns the previous one
+log.setlevel("debug") -- returns the previous one
 log.level() -- "debug"
 ```
 
@@ -108,7 +108,7 @@ be narrowed to one of the five before it can be passed.
 ```nupp
 local wanted = os.getenv("LOG_LEVEL")
 if wanted == "debug" or wanted == "info" or wanted == "warn" then
-    log.setLevel(wanted)
+    log.setlevel(wanted)
 end
 ```
 
@@ -127,20 +127,20 @@ end
 
 ### Module levels
 
-`setModuleLevel` overrides the threshold for one exact module name. Modules
+`setmodulelevel` overrides the threshold for one exact module name. Modules
 without an override inherit the global threshold, including after it changes:
 
 ```nupp
-log.setLevel("warn")
-log.setModuleLevel("game.physics", "debug")
+log.setlevel("warn")
+log.setmodulelevel("game.physics", "debug")
 ```
 
-The override reaches existing and future module views. `moduleLevel` reads the
+The override reaches existing and future module views. `modulelevel` reads the
 effective threshold, and passing `"inherit"` removes the override:
 
 ```nupp
-log.moduleLevel("game.physics") -- "debug"
-log.setModuleLevel("game.physics", "inherit") -- restore the global threshold
+log.modulelevel("game.physics") -- "debug"
+log.setmodulelevel("game.physics", "inherit") -- restore the global threshold
 ```
 
 Names are exact: configuring `game.physics` does not also configure
@@ -154,12 +154,12 @@ over completely. It receives the parts, not a rendered line, and pays for no
 formatting it would discard:
 
 ```nupp:fragment
-log.setSink(function(level: integer, module: string, line: integer, message: string): nil
+log.setsink(function(level: integer, module: string, line: integer, message: string): nil
     sdl.logMessage(CATEGORY, PRIORITY[level], ("%s:%d %s"):format(module, line, message))
 end)
 ```
 
-`level` is `1` error, `2` warn, `3` info, `4` debug; `log.levelName` turns
+`level` is `1` error, `2` warn, `3` info, `4` debug; `log.levelname` turns
 one back into its name. `line` is `0` for a line the compiler could not
 attribute, which is every line from a named logger.
 
@@ -168,10 +168,10 @@ where it goes:
 
 ```nupp
 local sink = assert(io.open("game.log", "a"))
-log.setSink(sink)
+log.setsink(sink)
 ```
 
-`io.open` returns `LuaFile?`, and `setSink` takes a target rather than a maybe,
+`io.open` returns `LuaFile?`, and `setsink` takes a target rather than a maybe,
 so the `assert` is what turns one into the other. The target is taken: the log
 owns it from then on, and `sink()` reads which one is in force.
 
@@ -179,13 +179,13 @@ A file-like target renders through the formatter, which is replaceable on its
 own:
 
 ```nupp
-log.setFormatter(function(level: integer, module: string, line: integer, message: string, stamp: string): string
-    return ("%s[%s] %s"):format(stamp, log.levelName(level), message)
+log.setformatter(function(level: integer, module: string, line: integer, message: string, stamp: string): string
+    return ("%s[%s] %s"):format(stamp, log.levelname(level), message)
 end)
 ```
 
 Both setters return the value they replaced, so a host can restore what it
-found, and `setFormatter(nil)` returns to the built-in rendering.
+found, and `setformatter(nil)` returns to the built-in rendering.
 
 ## Timestamps
 
@@ -195,9 +195,9 @@ something pushed to sinks, so a host that stamps its own lines never pays for
 one.
 
 ```nupp
-log.setTimestampFormat("%H:%M:%S ") -- returns the previous format
-log.setTimestampFormat("") -- off
-log.timestampFormat() -- ""
+log.settimestampformat("%H:%M:%S ") -- returns the previous format
+log.settimestampformat("") -- off
+log.timestampformat() -- ""
 ```
 
 ::: deepdive Reading the second through the FFI
@@ -607,7 +607,7 @@ end
 --- @param level the new threshold
 --- @return the threshold this call replaced
 --- @raises string when level is unknown
-function log.setLevel(level: log.Level): log.Level
+function log.setlevel(level: log.Level): log.Level
     local previous = (NAMES[threshold] or "off") as log.Level
     admit(named(level))
     restamp()
@@ -629,7 +629,7 @@ end
 --- @param name the exact module or logger name
 --- @return the level in force for that name
 --- @raises string when name is not a string
-function log.moduleLevel(name: string): log.Level
+function log.modulelevel(name: string): log.Level
     return (NAMES[overrides[moduleName(name)] or threshold] or "off") as log.Level
 end
 
@@ -644,8 +644,8 @@ end
 --- @param level the new threshold, or `"inherit"`
 --- @return the effective threshold this call replaced
 --- @raises string when name is not a string or level is unknown
-function log.setModuleLevel(name: string, level: log.LevelOverride): log.Level
-    local previous = log.moduleLevel(moduleName(name))
+function log.setmodulelevel(name: string, level: log.LevelOverride): log.Level
+    local previous = log.modulelevel(moduleName(name))
     if level == "inherit" then
         overrides[name] = nil
         setOn(onFor(name), threshold)
@@ -684,7 +684,7 @@ end
 --- @param next a sink function, or a file to write rendered lines to
 --- @return the destination this call replaced
 --- @raises string when next is neither a sink function nor a file
-function log.setSink(takes next: log.Target): log.Target
+function log.setsink(takes next: log.Target): log.Target
     -- The log holds the target for the rest of the process and never closes it, so
     -- taking it ends the caller's obligation here.
     local taken: any = @unsafe own.release(next)
@@ -715,7 +715,7 @@ end
 --- @param next the formatter, or nil to return to the built-in rendering
 --- @return the formatter this call replaced
 --- @raises string when next is neither a function nor nil
-function log.setFormatter(next: log.Formatter?): log.Formatter?
+function log.setformatter(next: log.Formatter?): log.Formatter?
     if next ~= nil and type(next) ~= "function" then
         error("nupp: log formatter must be a function", 2)
     end
@@ -735,7 +735,7 @@ end
 --- The timestamp format in force.
 ---
 --- @return the `os.date` format, or "" when stamping is off
-function log.timestampFormat(): string
+function log.timestampformat(): string
     return dateFormat
 end
 
@@ -744,7 +744,7 @@ end
 --- @param next the `os.date` format
 --- @return the format this call replaced
 --- @raises string when next is not a string
-function log.setTimestampFormat(next: string): string
+function log.settimestampformat(next: string): string
     if type(next) ~= "string" then
         error("nupp: log timestamp format must be a string", 2)
     end
@@ -759,7 +759,7 @@ end
 ---
 --- @param severity the numeric level a sink received
 --- @return the level's name
-function log.levelName(severity: log.Severity): log.Level
+function log.levelname(severity: log.Severity): log.Level
     return (NAMES[severity] or "off") as log.Level
 end
 

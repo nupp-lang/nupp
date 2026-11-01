@@ -284,7 +284,7 @@ function M.aStoredPreludeIsNotRestoredOverAnotherIdentity()
         )
 
         local source = "local function createKey(): types.reflect.ExtensionKey<string>\n"
-            .. "    return types.reflect.extensionKey(function(host: any): string return \"value\" end)\n"
+            .. "    return types.reflect.extensionkey(function(host: any): string return \"value\" end)\n"
             .. "end\n"
             .. "return createKey\n"
         local parsed = require("nupp.compiler.syntax.parser").parse(source, "prelude-identity.nupp")

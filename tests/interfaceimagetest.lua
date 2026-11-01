@@ -503,7 +503,7 @@ function M.keepsTransportStateOutOfThePublicDescriptor()
     end
 
     local source = [[
-@derive(types.Debug)
+@derive(types.debug)
 local record Model
     value: integer
 end

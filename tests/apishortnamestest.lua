@@ -33,16 +33,15 @@ end
 function M.shortMathNamesKeepTheExistingFunctionsAndContracts()
     local namespace = {}
     mathRuntime.install(namespace)
-    test.equal(namespace.vec2.len, namespace.vec2.length)
-    test.equal(namespace.vec2.dist, namespace.vec2.distance)
-    test.equal(namespace.quat.len, namespace.quat.length)
-    test.equal(namespace.quat.mul, namespace.quat.multiply)
+    test.equal(namespace.vec2.length, nil)
+    test.equal(namespace.vec2.distance, nil)
+    test.equal(namespace.quat.length, nil)
+    test.equal(namespace.quat.multiply, nil)
     test.equal(namespace.vec2.len(3, 4), 5)
     test.equal(namespace.vec2.dist(1, 2, 4, 6), 5)
     test.equal(namespace.quat.len(0, 0, 0, 1), 1)
     local a = {namespace.quat.mul(1, 0, 0, 0, 0, 1, 0, 0)}
-    local b = {namespace.quat.multiply(1, 0, 0, 0, 0, 1, 0, 0)}
-    test.deepEqual(a, b)
+    test.deepequal(a, {0, 0, 1, 0})
     checked(
         [[
 local length: number = math.vec2.len(3, 4)
@@ -83,10 +82,10 @@ local BUILDER = [[
 local builder = require("serde.valuebuilder")
 @aot
 local function decode(source: string, nullValue: any): any
-    local count: uint32 = builder.length(source)
-    local state = builder.newSized(nullValue, count, count)
-    builder.openArray(state, math.u32.wrap(1))
-    builder.numberSlice(state, source, math.u32.wrap(0), count)
+    local count: uint32 = builder.len(source)
+    local state = builder.newsized(nullValue, count, count)
+    builder.openarray(state, math.u32.wrap(1))
+    builder.numberslice(state, source, math.u32.wrap(0), count)
     builder.close(state)
     return builder.finish(state)
 end

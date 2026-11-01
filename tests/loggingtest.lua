@@ -61,7 +61,7 @@ function M.formatDirectivesAreCheckedAtTheCallSite()
     testAssert.equal(
         codesOf(
             table.concat(
-                {"@derive(types.Debug)", "local record Value end", "log.debug('value=%?', new Value())",},
+                {"@derive(types.debug)", "local record Value end", "log.debug('value=%?', new Value())",},
                 "\n"
             )
         ),
@@ -77,13 +77,13 @@ function M.formatDirectivesAreCheckedAtTheCallSite()
 end
 
 function M.levelNamesAreCheckedAtTheCallSite()
-    testAssert.equal(codesOf("log.setLevel('debug')"), "", "a known level is clean")
-    testAssert.equal(codesOf("log.setModuleLevel('game.physics', 'debug')"), "", "a module level is checked")
-    testAssert.equal(codesOf("log.setModuleLevel('game.physics', 'inherit')"), "", "an override can be removed")
+    testAssert.equal(codesOf("log.setlevel('debug')"), "", "a known level is clean")
+    testAssert.equal(codesOf("log.setmodulelevel('game.physics', 'debug')"), "", "a module level is checked")
+    testAssert.equal(codesOf("log.setmodulelevel('game.physics', 'inherit')"), "", "an override can be removed")
     testAssert.equal(codesOf("log.enabled('warn')"), "", "enabled takes the same names")
-    assert(codesOf("log.setLevel('verbose')"):find("NUPP2006") ~= nil, "an unknown level is not one of the level names")
+    assert(codesOf("log.setlevel('verbose')"):find("NUPP2006") ~= nil, "an unknown level is not one of the level names")
     assert(
-        codesOf("log.setModuleLevel('game.physics', 'verbose')"):find("NUPP2006") ~= nil,
+        codesOf("log.setmodulelevel('game.physics', 'verbose')"):find("NUPP2006") ~= nil,
         "an unknown module level is refused"
     )
 end
@@ -122,7 +122,7 @@ end
 
 function M.aDebugDirectiveLowersInsideTheLevelGuard()
     local code = compile(
-        table.concat({"@derive(types.Debug)", "local record Value end", "log.debug('value=%?', new Value())",}, "\n"),
+        table.concat({"@derive(types.debug)", "local record Value end", "log.debug('value=%?', new Value())",}, "\n"),
         "amb"
     )
     local guard = assert(code:find("if __nupp", 1, true), "the enabled guard is present")
@@ -138,7 +138,7 @@ function M.debugDirectivesRunThroughDirectAndMethodFormattingCalls()
     local code = compile(
         table.concat(
             {
-                "@derive(types.Debug)",
+                "@derive(types.debug)",
                 "local record Value",
                 "   name: string",
                 "end",
@@ -195,7 +195,7 @@ function M.whatIsNotLoweredStaysAnOrdinaryCall()
 
     local valueCall = compile(
         table.concat(
-            {"@derive(types.Debug)", "local record Value end", "local ignored = log.debug('value=%?', new Value())",},
+            {"@derive(types.debug)", "local record Value end", "local ignored = log.debug('value=%?', new Value())",},
             "\n"
         ),
         "amb"
@@ -240,8 +240,8 @@ end
 function M.aLoweredSiteDoesNotEvaluateAFilteredArgument()
     local log = runtime()
     local lines, sink = recorder()
-    log.setSink(sink)
-    log.setLevel("warn")
+    log.setsink(sink)
+    log.setlevel("warn")
 
     local calls = 0
 
@@ -257,7 +257,7 @@ function M.aLoweredSiteDoesNotEvaluateAFilteredArgument()
     testAssert.equal(calls, 0, "a filtered site evaluates none of its arguments")
     testAssert.equal(#lines, 0, "and reaches no sink")
 
-    log.setLevel("debug")
+    log.setlevel("debug")
     if log.on[4] then
         log.emit(4, "amb", 7, string.format("%d", expensive()))
     end
@@ -271,8 +271,8 @@ end
 function M.aNamedLoggerDefersDebugFormattingUntilTheLevelIsEnabled()
     local log = runtime()
     local lines, sink = recorder()
-    log.setSink(sink)
-    log.setLevel("warn")
+    log.setsink(sink)
+    log.setlevel("warn")
 
     local calls = 0
     local value = {
@@ -285,7 +285,7 @@ function M.aNamedLoggerDefersDebugFormattingUntilTheLevelIsEnabled()
     logger:debug("value=%?", value)
     testAssert.equal(calls, 0, "a disabled named logger does not call debug")
 
-    log.setLevel("debug")
+    log.setlevel("debug")
     logger:debug("value=%?", value)
     testAssert.equal(calls, 1, "an enabled named logger calls debug once")
     testAssert.equal(lines[1].message, "value=rendered", "the debug value reaches the sink")
@@ -294,31 +294,31 @@ end
 function M.aLevelAdmitsItselfAndEverythingAboveIt()
     local log = runtime()
     local _, sink = recorder()
-    log.setSink(sink)
+    log.setsink(sink)
 
-    log.setLevel("warn")
+    log.setlevel("warn")
     assert(log.enabled("error"), "warn admits error")
     assert(log.enabled("warn"), "warn admits itself")
     assert(not log.enabled("info"), "warn excludes info")
     assert(not log.enabled("debug"), "warn excludes debug")
 
-    log.setLevel("off")
+    log.setlevel("off")
     for _, name in ipairs({"error", "warn", "info", "debug"}) do
         assert(not log.enabled(name), "off admits nothing: " .. name)
     end
 
-    log.setLevel("debug")
+    log.setlevel("debug")
     assert(log.enabled("debug"), "debug admits everything")
 end
 
 function M.settersAnswerWhatTheyReplaced()
     local log = runtime()
-    log.setLevel("warn")
-    testAssert.equal(log.setLevel("info"), "warn", "the level setter answers the previous level")
+    log.setlevel("warn")
+    testAssert.equal(log.setlevel("info"), "warn", "the level setter answers the previous level")
     testAssert.equal(log.level(), "info", "and reading does not change it")
 
     local _, sink = recorder()
-    local previousSink = log.setSink(sink)
+    local previousSink = log.setsink(sink)
     assert(previousSink ~= nil, "the sink setter answers the previous target")
     testAssert.equal(log.sink(), sink, "and reading answers the current one")
 
@@ -329,32 +329,32 @@ function M.settersAnswerWhatTheyReplaced()
         return ""
     end
     testAssert.equal(
-        log.setFormatter(formatter),
+        log.setformatter(formatter),
         formatterBefore,
         "the formatter setter answers the previous formatter"
     )
     testAssert.equal(log.formatter(), formatter, "and the new one is in force")
 
-    local previousFormat = log.setTimestampFormat("%H ")
+    local previousFormat = log.settimestampformat("%H ")
     assert(previousFormat ~= nil, "the timestamp format setter answers the previous one")
-    testAssert.equal(log.timestampFormat(), "%H ", "and the new one is in force")
+    testAssert.equal(log.timestampformat(), "%H ", "and the new one is in force")
 end
 
 function M.anUnknownLevelRaisesWhereItIsNotALiteral()
     local log = runtime()
-    assert(not pcall(log.setLevel, "verbose"), "an unknown level is refused")
-    assert(not pcall(log.setModuleLevel, "test.scoped.invalid", "verbose"), "including for a module")
-    assert(not pcall(log.setModuleLevel, 3, "debug"), "a module name must be a string")
+    assert(not pcall(log.setlevel, "verbose"), "an unknown level is refused")
+    assert(not pcall(log.setmodulelevel, "test.scoped.invalid", "verbose"), "including for a module")
+    assert(not pcall(log.setmodulelevel, 3, "debug"), "a module name must be a string")
     assert(not pcall(log.enabled, "verbose"), "including when only asked about")
-    assert(not pcall(log.setSink, 3), "a target that is neither function nor file is refused")
-    assert(not pcall(log.setSink, {}), "a table without a writer is not file-like")
-    assert(not pcall(log.setFormatter, "text"), "a formatter that is not a function is refused")
+    assert(not pcall(log.setsink, 3), "a target that is neither function nor file is refused")
+    assert(not pcall(log.setsink, {}), "a table without a writer is not file-like")
+    assert(not pcall(log.setformatter, "text"), "a formatter that is not a function is refused")
     assert(not pcall(log.named, 3), "a name that is not a string is refused")
 end
 
 function M.theTimestampIsCachedToTheSecond()
     local log = runtime()
-    log.setTimestampFormat("%Y-%m-%d %H:%M:%S ")
+    log.settimestampformat("%Y-%m-%d %H:%M:%S ")
     -- Take the pair just after the clock ticks, so the two reads have a whole
     -- second ahead of them rather than whatever is left of the one they landed
     -- in. Asked at an arbitrary instant they straddle a tick sooner or later,
@@ -367,10 +367,10 @@ function M.theTimestampIsCachedToTheSecond()
     testAssert.equal(log.timestamp(), first, "two reads in one second answer one string")
     assert(#first > 0, "and it is not empty")
 
-    log.setTimestampFormat("")
+    log.settimestampformat("")
     testAssert.equal(log.timestamp(), "", "an empty format turns timestamps off")
 
-    log.setTimestampFormat("%H:%M:%S ")
+    log.settimestampformat("%H:%M:%S ")
     assert(log.timestamp() ~= first, "changing the format drops the cached value")
 end
 
@@ -383,16 +383,16 @@ function M.aFileLikeTargetRendersThroughTheFormatter()
             return true
         end
     }
-    log.setTimestampFormat("")
-    log.setLevel("debug")
-    log.setSink(file)
+    log.settimestampformat("")
+    log.setlevel("debug")
+    log.setsink(file)
 
     log.emit(1, "amb", 12, "boom")
     assert(written[1]:find("error", 1, true) ~= nil, "the default rendering names the level")
     assert(written[1]:find("amb:12", 1, true) ~= nil, "and locates the site")
     assert(written[1]:find("boom", 1, true) ~= nil, "and carries the message")
 
-    log.setFormatter(function(level, module, line, message, stamp)
+    log.setformatter(function(level, module, line, message, stamp)
         return ("<%d|%s|%d|%s|%s>"):format(level, module, line, message, stamp)
     end)
     log.emit(2, "amb", 13, "again")
@@ -402,11 +402,11 @@ end
 function M.aSinkFunctionBypassesFormattingEntirely()
     local log = runtime()
     local lines, sink = recorder()
-    log.setLevel("debug")
-    log.setFormatter(function()
+    log.setlevel("debug")
+    log.setformatter(function()
         error("a sink function must not be formatted for")
     end)
-    log.setSink(sink)
+    log.setsink(sink)
 
     log.emit(3, "amb", 4, "message")
     testAssert.equal(#lines, 1, "the sink received the line")
@@ -416,8 +416,8 @@ end
 function M.aNamedLoggerCarriesItsNameAndNoLine()
     local log = runtime()
     local lines, sink = recorder()
-    log.setSink(sink)
-    log.setLevel("debug")
+    log.setsink(sink)
+    log.setlevel("debug")
 
     local physics = log.named("physics")
     testAssert.equal(log.named("physics"), physics, "a repeated name answers the same logger")
@@ -432,80 +432,80 @@ end
 function M.changingTheLevelRestampsExistingLoggers()
     local log = runtime()
     local lines, sink = recorder()
-    log.setSink(sink)
-    log.setLevel("debug")
+    log.setsink(sink)
+    log.setlevel("debug")
 
     local physics = log.named("physics")
     physics:debug("first")
     testAssert.equal(#lines, 1, "debug is admitted")
 
-    log.setLevel("error")
+    log.setlevel("error")
     physics:debug("second")
     testAssert.equal(#lines, 1, "a logger made before the change is restamped")
 
-    log.setLevel("debug")
+    log.setlevel("debug")
     physics:debug("third")
     testAssert.equal(#lines, 2, "and restamped back")
 end
 
 function M.aModuleLevelOverridesOnlyThatExactModule()
     local log = runtime()
-    log.setLevel("warn")
+    log.setlevel("warn")
 
     local physics = log.forModule("test.scoped.physics")
     local collision = log.forModule("test.scoped.physics.collision")
     local render = log.forModule("test.scoped.render")
     testAssert.equal(log.forModule("test.scoped.physics"), physics, "a module view is cached")
 
-    testAssert.equal(log.setModuleLevel("test.scoped.physics", "debug"), "warn", "setting answers the inherited level")
+    testAssert.equal(log.setmodulelevel("test.scoped.physics", "debug"), "warn", "setting answers the inherited level")
     assert(physics.on[4], "the selected module admits debug")
     assert(not collision.on[4], "a child module does not inherit an exact override")
     assert(not render.on[4], "an unrelated module keeps the global level")
-    testAssert.equal(log.moduleLevel("test.scoped.physics"), "debug", "the effective override can be read")
+    testAssert.equal(log.modulelevel("test.scoped.physics"), "debug", "the effective override can be read")
 
-    log.setLevel("error")
+    log.setlevel("error")
     assert(physics.on[4], "a global change leaves the override in place")
     assert(collision.on[1] and not collision.on[2], "an inheriting module follows the global change")
 
     testAssert.equal(
-        log.setModuleLevel("test.scoped.physics", "inherit"),
+        log.setmodulelevel("test.scoped.physics", "inherit"),
         "debug",
         "inherit answers the replaced override"
     )
-    testAssert.equal(log.moduleLevel("test.scoped.physics"), "error", "inherit restores the effective global level")
+    testAssert.equal(log.modulelevel("test.scoped.physics"), "error", "inherit restores the effective global level")
     assert(physics.on[1] and not physics.on[2], "the existing view resumes inheritance")
 
-    log.setModuleLevel("test.scoped.physics", "off")
+    log.setmodulelevel("test.scoped.physics", "off")
     assert(not physics.on[1], "off is retained as a real override")
-    log.setModuleLevel("test.scoped.physics", "inherit")
+    log.setmodulelevel("test.scoped.physics", "inherit")
 end
 
 function M.aModuleLevelConfiguredBeforeTheViewIsCreatedIsApplied()
     local log = runtime()
-    log.setLevel("warn")
+    log.setlevel("warn")
 
-    log.setModuleLevel("test.scoped.future", "info")
+    log.setmodulelevel("test.scoped.future", "info")
     local future = log.forModule("test.scoped.future")
     assert(future.on[3], "a future view receives its override")
     assert(not future.on[4], "the override still filters lower severities")
 
-    log.setModuleLevel("test.scoped.future", "inherit")
+    log.setmodulelevel("test.scoped.future", "inherit")
 end
 
 function M.aNamedLoggerUsesTheLevelForItsName()
     local log = runtime()
     local lines, sink = recorder()
-    log.setSink(sink)
-    log.setLevel("warn")
+    log.setsink(sink)
+    log.setlevel("warn")
 
     local name = "test.scoped.named"
     local logger = log.named(name)
-    log.setModuleLevel(name, "debug")
+    log.setmodulelevel(name, "debug")
     assert(logger:enabled("debug"), "the named logger sees its override")
     logger:debug("selected")
     testAssert.equal(#lines, 1, "the override admits the named logger")
 
-    log.setModuleLevel(name, "inherit")
+    log.setmodulelevel(name, "inherit")
     assert(not logger:enabled("debug"), "the named logger resumes inheritance")
     logger:debug("filtered")
     testAssert.equal(#lines, 1, "the inherited global level filters it again")
@@ -514,9 +514,9 @@ end
 function M.levelNamesRoundTrip()
     local log = runtime()
     for index, name in ipairs({"error", "warn", "info", "debug"}) do
-        testAssert.equal(log.levelName(index), name, "severity " .. index .. " names itself")
+        testAssert.equal(log.levelname(index), name, "severity " .. index .. " names itself")
     end
-    testAssert.equal(log.levelName(0), "off", "and zero is off")
+    testAssert.equal(log.levelname(0), "off", "and zero is off")
 end
 
 function M.theLoggingViewLandsOnlyInModulesThatLog()
@@ -533,30 +533,30 @@ end
 -- used to hand the path the view, so `log.level()` called nil (ER-009).
 function M.everyPathCallRunsFromAModule()
     local log = runtime()
-    local saved = {sink = log.sink(), formatter = log.formatter(), stamp = log.timestampFormat()}
-    log.setLevel("warn")
+    local saved = {sink = log.sink(), formatter = log.formatter(), stamp = log.timestampformat()}
+    log.setlevel("warn")
     local code = compile(
         table.concat(
             {
                 "return function(sink: log.Sink): {any}",
                 "    local answers: {any} = {}",
-                "    answers[#answers + 1] = log.setLevel('debug')",
+                "    answers[#answers + 1] = log.setlevel('debug')",
                 "    answers[#answers + 1] = log.level()",
-                "    answers[#answers + 1] = log.setModuleLevel('amb.other', 'error')",
-                "    answers[#answers + 1] = log.moduleLevel('amb.other')",
-                "    answers[#answers + 1] = log.setModuleLevel('amb.other', 'inherit')",
+                "    answers[#answers + 1] = log.setmodulelevel('amb.other', 'error')",
+                "    answers[#answers + 1] = log.modulelevel('amb.other')",
+                "    answers[#answers + 1] = log.setmodulelevel('amb.other', 'inherit')",
                 "    answers[#answers + 1] = log.enabled('info')",
-                "    answers[#answers + 1] = log.setTimestampFormat('')",
-                "    answers[#answers + 1] = log.timestampFormat()",
+                "    answers[#answers + 1] = log.settimestampformat('')",
+                "    answers[#answers + 1] = log.timestampformat()",
                 "    answers[#answers + 1] = log.timestamp()",
-                "    log.setFormatter(function(level: integer, module: string, line: integer, message: string, stamp: string): string",
+                "    log.setformatter(function(level: integer, module: string, line: integer, message: string, stamp: string): string",
                 "        return message",
                 "    end)",
                 "    answers[#answers + 1] = log.formatter() ~= nil",
-                "    log.setFormatter(nil)",
-                "    log.setSink(sink)",
+                "    log.setformatter(nil)",
+                "    log.setsink(sink)",
                 "    answers[#answers + 1] = log.sink() == sink",
-                "    answers[#answers + 1] = log.levelName(3)",
+                "    answers[#answers + 1] = log.levelname(3)",
                 "    log.named('amb.named'):info('named %d', 1)",
                 "    log.info('lowered %d', 2)",
                 "    return answers",
@@ -570,10 +570,10 @@ function M.everyPathCallRunsFromAModule()
     local chunk, why = loadstring(code, "@path-calls")
     assert(chunk ~= nil, why)
     local answers = chunk()(sink)
-    log.setSink(saved.sink)
-    log.setFormatter(saved.formatter)
-    log.setTimestampFormat(saved.stamp)
-    log.setLevel("warn")
+    log.setsink(saved.sink)
+    log.setformatter(saved.formatter)
+    log.settimestampformat(saved.stamp)
+    log.setlevel("warn")
     local want = {"warn", "debug", "debug", "error", "error", true, saved.stamp, "", "", true, true, "info",}
     for index, value in ipairs(want) do
         testAssert.equal(answers[index], value, "path call " .. index)

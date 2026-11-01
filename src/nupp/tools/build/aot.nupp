@@ -1497,7 +1497,7 @@ function aot.readUnitsManifest(path: string): (any?, string?)
     if not text then
         return nil, tostring(readErr)
     end
-    local document, decodeErr = json.decodeValue(text as string)
+    local document, decodeErr = json.decodevalue(text as string)
     if type(document) ~= "table" then
         return nil, path .. " is not a units manifest: " .. tostring(decodeErr or "not a JSON object")
     end
@@ -1520,11 +1520,11 @@ end
 --- @raises string when an object has a non-string key
 local function sortedJson(value: any): string
     if type(value) ~= "table" or value == json.EMPTY_ARRAY or value == json.EMPTY_OBJECT or value == json.NULL then
-        return json.encodeValue(value)
+        return json.encodevalue(value)
     end
     local entries = value as {[any]: any}
     local parts: {string} = {}
-    if json.isArray(entries) then
+    if json.isarray(entries) then
         for index = 1, #entries do
             parts[index] = sortedJson(entries[index])
         end
@@ -1540,7 +1540,7 @@ local function sortedJson(value: any): string
     end
     table.sort(keys)
     for index, key in ipairs(keys) do
-        parts[index] = json.encodeValue(key) .. ":" .. sortedJson(entries[key])
+        parts[index] = json.encodevalue(key) .. ":" .. sortedJson(entries[key])
     end
 
     return "{" .. table.concat(parts, ",") .. "}"
@@ -1566,7 +1566,7 @@ function aot.writeUnitsManifest(outDir: string, triple: string, emitted: {aot.Em
         ] = {
             source = one.output:gsub("^" .. prefix:gsub("%p", "%%%0"), ""),
             tier = one.tier,
-            cflags = json.asArray(flags),
+            cflags = json.asarray(flags),
             detector = one.role == "feature-detector",
             role = one.role,
             wasm = one.wasm and (one.wasm as string):gsub("^" .. prefix:gsub("%p", "%%%0"), "") or nil,
@@ -1578,7 +1578,7 @@ function aot.writeUnitsManifest(outDir: string, triple: string, emitted: {aot.Em
     local document = sortedJson({
         schemaVersion = aot.UNITS_SCHEMA_VERSION,
         target = triple,
-        units = json.asArray(units),
+        units = json.asarray(units),
     }) .. "\n"
     local output = outDir .. "/aot/units.json"
     if fs.readFile(output) ~= document then
@@ -1652,7 +1652,7 @@ function aot.writeLinkManifest(
     for _, key in ipairs(builderOrder) do
         builders[
             #builders + 1
-        ] = {key = key, entry = builderEntries[key], symbols = json.asArray(builderSymbols[key] as {string}),}
+        ] = {key = key, entry = builderEntries[key], symbols = json.asarray(builderSymbols[key] as {string}),}
     end
     local document = sortedJson({
         schemaVersion = 1,
@@ -1661,10 +1661,10 @@ function aot.writeLinkManifest(
         os = profile.os,
         archive = library ~= nil and (library as string):gsub("^" .. outDir:gsub("%p", "%%%0") .. "/", "") or nil,
         fingerprint = {symbol = archive.symbol, value = archive.fingerprint,},
-        symbols = {probe = archive.symbol, kernels = json.asArray(kernels), registrars = json.asArray(registrars),},
-        builders = json.asArray(builders),
-        retain = {forceLoad = json.asArray(profile.forceLoad), export = json.asArray(profile.export),},
-        tiers = json.asArray(tiers),
+        symbols = {probe = archive.symbol, kernels = json.asarray(kernels), registrars = json.asarray(registrars),},
+        builders = json.asarray(builders),
+        retain = {forceLoad = json.asarray(profile.forceLoad), export = json.asarray(profile.export),},
+        tiers = json.asarray(tiers),
     }) .. "\n"
     local output = outDir .. "/aot/link.json"
     if fs.readFile(output) ~= document then

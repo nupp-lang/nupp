@@ -27,7 +27,7 @@ function M.finalMathCallsKeepTheExistingNumericContracts()
 local family = math.u32
 local add = family.add
 local wrapped: uint32 = add(family.wrap(-1), 1)
-local bits: uint32 = math.f32.toBits(math.f32.narrow(1))
+local bits: uint32 = math.f32.tobits(math.f32.narrow(1))
 return wrapped, bits, math.lerp(10, 20, 0.25)
 ]]
     )

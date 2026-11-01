@@ -9,7 +9,7 @@ specification. Native targets emit SPIR-V for the Rust WGPU provider, while
 browser targets emit WGSL from the same checked operation sequence.
 
 ```nupp
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot(target = "gpu")
 local function scale(
@@ -112,7 +112,7 @@ The controller allocates bounded scratch and divides execution into immediate
 
 ```nupp
 local gpu = require("gpu")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot(target = "gpu")
 local function reduce(
@@ -181,7 +181,7 @@ GPU kernels need 32-bit storage: a span or struct field of `int8`, `uint8`,
 SPIR-V front end, which every native backend goes through, refuses 8-bit
 storage buffers and cannot validate 16-bit ones. Keep a binary16 or bfloat16
 value in the low half of a `uint32` element and convert it with
-`fromF16Bits`/`fromBF16Bits`, accumulating in explicit binary32. A host-side
+`fromf16bits`/`frombf16bits`, accumulating in explicit binary32. A host-side
 buffer may still hold narrow elements: the device moves whole 32-bit words, so
 a narrow buffer whose bytes end partway through one is padded to it, and an
 upload, download or binding may end partway through a word only where it ends
@@ -189,12 +189,12 @@ the buffer.
 
 ## Browser GPU kernels
 
-A browser target combines `host = "browser"` and `aot = "require-wasm"`. GPU kernels use `nupp.mem.span.Span` and
-`nupp.mem.span.WriteSpan`; the Worker transfers bounded copies between guest
-storage and WebGPU buffers:
+A browser target combines `host = "browser"` and `aot = "require-wasm"`. GPU
+kernels use `binary.span.Span` and `binary.span.WriteSpan`; the Worker transfers
+bounded copies between guest storage and WebGPU buffers:
 
 ```nupp
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = nupp.mem.array
 
 @aot(target = "gpu")

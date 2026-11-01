@@ -37,10 +37,10 @@ local bench = {}
 --- an overlong form, a surrogate half, and a value past the maximum.
 @aot
 local function scanAot(source: string): uint32
-    local limit: uint32 = valuebuilder.length(source)
+    local limit: uint32 = valuebuilder.len(source)
     local at: uint32 = u32(0)
     while at < limit do
-        local lead: uint32 = valuebuilder.byteAt(source, at)
+        local lead: uint32 = valuebuilder.byteat(source, at)
         if lead < 128 then
             at = add(at, u32(1))
         else

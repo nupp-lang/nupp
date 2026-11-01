@@ -11,7 +11,7 @@ of this module, and callers pass an argv and never build a command line.
 const assert2 = require("assert")
 
 const {type Process as NativeProcess} = require("nupp.io.process")
-const {type Error as IoError} = require("nupp.io")
+const {type Error as IoError} = require("io")
 
 local process = {}
 

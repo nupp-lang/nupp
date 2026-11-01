@@ -315,7 +315,7 @@ local function run(options: any): integer
 
     if values.gpuCosts ~= nil then
         local directory = require("nupp.compiler.fs").dirname(values.gpuCosts)
-        local made, makeErr = require("nupp.io.files").createDirectory(directory)
+        local made, makeErr = require("io.files").createdirectory(directory)
         if not made then
             io.stderr:write(errors.message(makeErr) .. "\n")
             return 1
@@ -477,7 +477,7 @@ end
 ---     nupp run --profile --profile-interval-ms 2 --profile-out hot.txt src/main.nupp
 ---     nupp run --jit-aborts=jit-aborts.csv src/main.nupp
 @cli(name = "run", stopAtFirstArgument = true)
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Run
     --- Optimization level.
     @cli(

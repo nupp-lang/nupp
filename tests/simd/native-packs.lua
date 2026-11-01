@@ -17,7 +17,7 @@ M.lanes[#M.lanes + 1] = "preferred"
 local function speciesModule(element, lanes)
     local source = {
         'local array = require("nupp.mem.array")',
-        'local span = require("nupp.mem.span")',
+        'local span = require("binary.span")',
         'local simd = require("simd")',
         'local u32 = math.u32',
     }

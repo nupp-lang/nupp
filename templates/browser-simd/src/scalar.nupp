@@ -1,4 +1,4 @@
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local array = require("nupp.mem.array")
 local json = require("serde.json")
 
@@ -20,15 +20,15 @@ local function scale(exclusive output: span.WriteSpan<Sample>, borrows input: sp
     end
 end
 
-local input = array.newArray(new Sample(), 4096)
+local input = array.newarray(new Sample(), 4096)
 local writable = input:write()
 for index = 1, #writable do
     writable[index] = new Sample(index, index * 2, index * 3)
 end
 own.drop(writable)
 
-local output = array.newArray(new Sample(), 4096)
+local output = array.newarray(new Sample(), 4096)
 scale(output:write(), input:read(), 2)
 local rows = output:read()
 
-return json.encodeValue({project = "${name}", tier = "scalar", first = rows[1].value, last = rows[#rows].weight,})
+return json.encodevalue({project = "${name}", tier = "scalar", first = rows[1].value, last = rows[#rows].weight,})

@@ -47,7 +47,7 @@ end
 
 function M.isReachedThroughTheDataFacility()
     for _, vector in ipairs(VECTORS) do
-        check.equal(data.hexDigest("sha256", vector[1]), vector[2])
+        check.equal(data.hexdigest("sha256", vector[1]), vector[2])
     end
 end
 

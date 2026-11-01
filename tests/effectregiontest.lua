@@ -130,11 +130,11 @@ function M.aCheckedRangeDischargesMatchingSpanBoundsOnly()
     local found = refusals(
         table.concat(
             {
-                "local span = require('nupp.mem.span')",
-                "local indexed = require('nupp.mem.indexed')",
+                "local span = require(\"binary.span\")",
+                "local indexed = require(\"binary.span\")",
                 "local struct Value n: integer end",
                 "const storage = carray(Value, 4)",
-                "const values = span.fromCarray(storage, 4)",
+                "const values = span.fromcarray(storage, 4)",
                 "const rows = indexed.range(1, 4, values)",
                 "for i = rows.first, rows.last do",
                 "   @noalloc do local value = values[i] end",
@@ -153,11 +153,11 @@ function M.rangeProofsRequireStableSpanIdentities()
     local found = refusals(
         table.concat(
             {
-                "local span = require('nupp.mem.span')",
-                "local indexed = require('nupp.mem.indexed')",
+                "local span = require(\"binary.span\")",
+                "local indexed = require(\"binary.span\")",
                 "local struct Value n: integer end",
                 "const storage = carray(Value, 2)",
-                "local values = span.fromCarray(storage, 2)",
+                "local values = span.fromcarray(storage, 2)",
                 "const rows = indexed.range(1, 2, values)",
                 "for i = rows.first, rows.last do",
                 "   @noraise do local value = values[i] end",
@@ -173,11 +173,11 @@ function M.rangeProofsDoNotEnterNestedFunctions()
     local found = refusals(
         table.concat(
             {
-                "local span = require('nupp.mem.span')",
-                "local indexed = require('nupp.mem.indexed')",
+                "local span = require(\"binary.span\")",
+                "local indexed = require(\"binary.span\")",
                 "local struct Value n: integer end",
                 "const storage = carray(Value, 2)",
-                "const values = span.fromCarray(storage, 2)",
+                "const values = span.fromcarray(storage, 2)",
                 "const rows = indexed.range(1, 2, values)",
                 "for i = rows.first, rows.last do",
                 "   local callback = function(): nil",
@@ -398,7 +398,7 @@ function M.importedRegionAndReturnPathsUseArgumentPositions()
 end
 
 local RELATIONAL_PROVIDER = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local M = {}
 function M.get(borrows values: span.Span<uint8>, index: integer): integer
     return values[index]
@@ -417,9 +417,9 @@ end
 return M
 ]]
 local RELATIONAL_CALLER = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local D = require("dep")
-const values = span.fromString("abc")
+const values = span.fromstring("abc")
 ]]
 
 local function relationRefusals(body, transform)
@@ -631,9 +631,9 @@ end
 
 function M.forgedArgumentMappingsDoNotEstablishBounds()
     local source = [[
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local D = require("tests.fixtures.crossmodulefacts")
-const values = span.fromString("abc")
+const values = span.fromstring("abc")
 for index = 1, #values do
     @noraise do local value = D.get(values, 99) end
 end

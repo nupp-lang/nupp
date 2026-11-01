@@ -55,7 +55,7 @@ local function kernel(index)
         [[
 module k%d
 
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function scale%d(exclusive out: span.WriteSpan<float>, borrows input: span.Span<float>, factor: number): nil
@@ -117,7 +117,7 @@ local function build(dir, env)
     )
     local out = pipe:read("*a")
     pipe:close()
-    local report, invalid = json.decodeValue(out)
+    local report, invalid = json.decodevalue(out)
     local ok = invalid == nil
     assert(ok and type(report) == "table", "no JSON report from the build:\n" .. out)
     assert(report.ok, "the build failed:\n" .. out)
@@ -214,7 +214,7 @@ function M.rebuildsOnlyWhatChanged()
     test.equal(coldFacts.linked, true, "a cold build links")
     -- LLVM compiles and lld links in process.
     test.equal(coldFacts.externalCommands, 0, "a cold build runs no external command")
-    local remarks = json.decodeValue(assert(read(dir .. "/build/remarks.json")))
+    local remarks = json.decodevalue(assert(read(dir .. "/build/remarks.json")))
     local aotNotes = 0
     for _, note in ipairs(remarks.remarks or {}) do
         if note.code == "AOT-LOOP" then

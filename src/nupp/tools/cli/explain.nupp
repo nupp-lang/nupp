@@ -8,6 +8,8 @@ rule behind it, a program that breaks the rule, and the same program corrected.
 The catalog is `nupp.tools.explain`; nothing here knows any of the content.
 ]]
 
+const terminal = require("io.terminal")
+
 local cliError = require("nupp.tools.cli.error")
 local usageError = cliError.forCommand("explain")
 local cliModule = require("arg")
@@ -135,14 +137,14 @@ local function run(options: any): integer
         })
         return 0
     end
-    local style = io.style(io.stdout)
+    local style = terminal.style(io.stdout)
     local out: {string} = {style.strong(display.code) .. "  " .. display.summary, "",}
     for _, line in ipairs(cliError.wrap(display.rule, 79)) do
         out[#out + 1] = line
     end
     if display.repair then
         out[#out + 1] = ""
-        out[#out + 1] = io.severity(style, "help")("Repair: ") .. display.repair
+        out[#out + 1] = terminal.severity(style, "help")("Repair: ") .. display.repair
     end
 
     --- The example, indented, without the trailing blank its final newline would
@@ -158,10 +160,10 @@ local function run(options: any): integer
 
     local wrong, right = display.wrong, display.right
     if wrong then
-        quote(io.severity(style, "error")("Reports it:"), wrong)
+        quote(terminal.severity(style, "error")("Reports it:"), wrong)
     end
     if right then
-        quote(io.severity(style, "help")("Does not:"), right)
+        quote(terminal.severity(style, "help")("Does not:"), right)
     end
     if display.aot then
         out[#out + 1] = ""
@@ -195,7 +197,7 @@ end
 ---     nupp explain --list
 ---     nupp explain NUPP2004 --json
 @cli("explain")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Explain
     --- List the codes with dedicated explanations.
     list: boolean = false

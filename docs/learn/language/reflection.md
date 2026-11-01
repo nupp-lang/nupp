@@ -62,12 +62,12 @@ instance does not request the descriptor.
 ### Extensions
 
 `info:extension(key)` is the cache boundary for work derived from a descriptor.
-`types.reflect.extensionKey` creates a typed key with a provider; the first call builds
-it against that descriptor, and every later call with the same key returns what
-was built. Key identity is assigned a dense process-local slot rather than a
-name, so two extensions that happen to describe the same thing stay separate
-without making object keys the host's cache representation. Slot numbers are not
-persistent identifiers.
+`types.reflect.extensionkey` creates a typed key with a provider; the first call
+builds it against that descriptor, and every later call with the same key
+returns what was built. Key identity is assigned a dense process-local slot
+rather than a name, so two extensions that happen to describe the same thing
+stay separate without making object keys the host's cache representation. Slot
+numbers are not persistent identifiers.
 
 The state of a build in progress is kept as well as the finished one. An
 extension whose `build` reflects its way back to the descriptor it is being
@@ -152,7 +152,7 @@ local record Position
 end
 
 const PositionCodec: types.reflect.FieldCodec<Position> = comptime do
-    return types.reflect.fieldCodec(types.reflect(Position))
+    return types.reflect.fieldcodec(types.reflect(Position))
 end
 
 local function encode(position: Position): {[string]: any}
@@ -188,7 +188,7 @@ descriptor fingerprint and invalidates results derived from it.
 
 ### Field codecs
 
-`types.reflect.fieldCodec` is a materialization boundary. It produces a
+`types.reflect.fieldcodec` is a materialization boundary. It produces a
 `types.reflect.FieldCodec<R>` for the same nominal record `R` and copies exactly
 that record's declared present fields with `rawget`. Encoding and decoding are
 shallow; decoding selects the same fields from a keyed table and restores the

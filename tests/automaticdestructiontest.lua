@@ -256,7 +256,7 @@ end
 
 local WITH_SPAN = [[
 local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 @aot
 local function fill(exclusive values: span.WriteSpan<float>): nil
     for i = 1, #values do values[i] = 3.0 end
@@ -663,7 +663,7 @@ function M.managedGroupAdoptionTransfersAutomaticResponsibility()
             {
                 "",
                 "do",
-                "   local group = own.managedGroup()",
+                "   local group = own.managedgroup()",
                 "   local value = open_resource('q')",
                 "   local handle = group:adopt(own.manage(value))",
                 "   local name = handle:with(function(borrows item) return item.name end)",

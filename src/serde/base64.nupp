@@ -44,19 +44,19 @@ local function add(a: uint32, b: uint32): uint32
 end
 
 local function shr(value: uint32, count: uint32): uint32
-    return math.u32.shiftRightLogical(value, count)
+    return math.u32.shiftrightlogical(value, count)
 end
 
 local function shl(value: uint32, count: uint32): uint32
-    return math.u32.shiftLeft(value, count)
+    return math.u32.shiftleft(value, count)
 end
 
 local function andBits(a: uint32, b: uint32): uint32
-    return math.u32.andBits(a, b)
+    return math.u32.andbits(a, b)
 end
 
 local function orBits(a: uint32, b: uint32): uint32
-    return math.u32.orBits(a, b)
+    return math.u32.orbits(a, b)
 end
 
 -- One native-endian word as the big-endian view the encoding is stated in.
@@ -72,12 +72,12 @@ end
 --- @raises string when the builder cannot allocate or publish
 @aot
 local function encodeAot(source: string, nullValue: any): any
-    local length = valuebuilder.length(source)
+    local length = valuebuilder.len(source)
     -- Four output bytes per three input, about `1.34n`. There is no division
     -- among the admitted uint32 intrinsics and `1.5n + 4` covers every `n`.
     local bound = add(add(length, shr(length, u32(1))), u32(4))
-    local builder = valuebuilder.newSized(nullValue, u32(2), bound)
-    local scratch = valuebuilder.newByteScratch(bound)
+    local builder = valuebuilder.newsized(nullValue, u32(2), bound)
+    local scratch = valuebuilder.newbytescratch(bound)
 
     local at: uint32 = u32(0)
     local out: uint32 = u32(0)
@@ -92,7 +92,7 @@ local function encodeAot(source: string, nullValue: any): any
         local g2 = orBits(shl(andBits(w1, u32(65535)), u32(8)), shr(w2, u32(24)))
         local g3 = andBits(w2, u32(16777215))
 
-        valuebuilder.setScratchBytes4(
+        valuebuilder.setscratchbytes4(
             scratch,
             out,
             orBits(
@@ -106,7 +106,7 @@ local function encodeAot(source: string, nullValue: any): any
                 )
             )
         )
-        valuebuilder.setScratchBytes4(
+        valuebuilder.setscratchbytes4(
             scratch,
             add(out, u32(4)),
             orBits(
@@ -120,7 +120,7 @@ local function encodeAot(source: string, nullValue: any): any
                 )
             )
         )
-        valuebuilder.setScratchBytes4(
+        valuebuilder.setscratchbytes4(
             scratch,
             add(out, u32(8)),
             orBits(
@@ -134,7 +134,7 @@ local function encodeAot(source: string, nullValue: any): any
                 )
             )
         )
-        valuebuilder.setScratchBytes4(
+        valuebuilder.setscratchbytes4(
             scratch,
             add(out, u32(12)),
             orBits(
@@ -157,18 +157,18 @@ local function encodeAot(source: string, nullValue: any): any
         local b0 = valuebuilder.byte(source, at)
         local b1 = valuebuilder.byte(source, add(at, u32(1)))
         local b2 = valuebuilder.byte(source, add(at, u32(2)))
-        valuebuilder.setScratchByte(scratch, out, valuebuilder.byte(ALPHABET, shr(b0, u32(2))))
-        valuebuilder.setScratchByte(
+        valuebuilder.setscratchbyte(scratch, out, valuebuilder.byte(ALPHABET, shr(b0, u32(2))))
+        valuebuilder.setscratchbyte(
             scratch,
             add(out, u32(1)),
             valuebuilder.byte(ALPHABET, orBits(shl(andBits(b0, u32(3)), u32(4)), shr(b1, u32(4))))
         )
-        valuebuilder.setScratchByte(
+        valuebuilder.setscratchbyte(
             scratch,
             add(out, u32(2)),
             valuebuilder.byte(ALPHABET, orBits(shl(andBits(b1, u32(15)), u32(2)), shr(b2, u32(6))))
         )
-        valuebuilder.setScratchByte(scratch, add(out, u32(3)), valuebuilder.byte(ALPHABET, andBits(b2, u32(63))))
+        valuebuilder.setscratchbyte(scratch, add(out, u32(3)), valuebuilder.byte(ALPHABET, andBits(b2, u32(63))))
         at = add(at, u32(3))
         out = add(out, u32(4))
     end
@@ -176,34 +176,34 @@ local function encodeAot(source: string, nullValue: any): any
     local rest = math.u32.sub(length, at)
     if rest == 1 then
         local c0 = valuebuilder.byte(source, at)
-        valuebuilder.setScratchByte(scratch, out, valuebuilder.byte(ALPHABET, shr(c0, u32(2))))
-        valuebuilder.setScratchByte(
+        valuebuilder.setscratchbyte(scratch, out, valuebuilder.byte(ALPHABET, shr(c0, u32(2))))
+        valuebuilder.setscratchbyte(
             scratch,
             add(out, u32(1)),
             valuebuilder.byte(ALPHABET, shl(andBits(c0, u32(3)), u32(4)))
         )
-        valuebuilder.setScratchByte(scratch, add(out, u32(2)), u32(61))
-        valuebuilder.setScratchByte(scratch, add(out, u32(3)), u32(61))
+        valuebuilder.setscratchbyte(scratch, add(out, u32(2)), u32(61))
+        valuebuilder.setscratchbyte(scratch, add(out, u32(3)), u32(61))
         out = add(out, u32(4))
     elseif rest == 2 then
         local d0 = valuebuilder.byte(source, at)
         local d1 = valuebuilder.byte(source, add(at, u32(1)))
-        valuebuilder.setScratchByte(scratch, out, valuebuilder.byte(ALPHABET, shr(d0, u32(2))))
-        valuebuilder.setScratchByte(
+        valuebuilder.setscratchbyte(scratch, out, valuebuilder.byte(ALPHABET, shr(d0, u32(2))))
+        valuebuilder.setscratchbyte(
             scratch,
             add(out, u32(1)),
             valuebuilder.byte(ALPHABET, orBits(shl(andBits(d0, u32(3)), u32(4)), shr(d1, u32(4))))
         )
-        valuebuilder.setScratchByte(
+        valuebuilder.setscratchbyte(
             scratch,
             add(out, u32(2)),
             valuebuilder.byte(ALPHABET, shl(andBits(d1, u32(15)), u32(2)))
         )
-        valuebuilder.setScratchByte(scratch, add(out, u32(3)), u32(61))
+        valuebuilder.setscratchbyte(scratch, add(out, u32(3)), u32(61))
         out = add(out, u32(4))
     end
 
-    valuebuilder.stringScratch(builder, scratch, u32(0), out)
+    valuebuilder.stringscratch(builder, scratch, u32(0), out)
 
     return valuebuilder.finish(builder)
 end
@@ -214,9 +214,9 @@ end
 --- twice, so invalidity leaves through the value and `base64.decode` raises.
 @aot
 local function decodeAot(text: string, nullValue: any): any
-    local length = valuebuilder.length(text)
-    local builder = valuebuilder.newSized(nullValue, u32(2), add(length, u32(4)))
-    local scratch = valuebuilder.newByteScratch(add(length, u32(4)))
+    local length = valuebuilder.len(text)
+    local builder = valuebuilder.newsized(nullValue, u32(2), add(length, u32(4)))
+    local scratch = valuebuilder.newbytescratch(add(length, u32(4)))
 
     local padding: uint32 = u32(0)
     if length > 0 then
@@ -244,9 +244,9 @@ local function decodeAot(text: string, nullValue: any): any
         local d = valuebuilder.byte(INVERSE, valuebuilder.byte(text, add(at, u32(3))))
         bad = orBits(bad, orBits(orBits(a, b), orBits(c, d)))
         local value = orBits(orBits(shl(a, u32(18)), shl(b, u32(12))), orBits(shl(c, u32(6)), d))
-        valuebuilder.setScratchByte(scratch, out, andBits(shr(value, u32(16)), u32(255)))
-        valuebuilder.setScratchByte(scratch, add(out, u32(1)), andBits(shr(value, u32(8)), u32(255)))
-        valuebuilder.setScratchByte(scratch, add(out, u32(2)), andBits(value, u32(255)))
+        valuebuilder.setscratchbyte(scratch, out, andBits(shr(value, u32(16)), u32(255)))
+        valuebuilder.setscratchbyte(scratch, add(out, u32(1)), andBits(shr(value, u32(8)), u32(255)))
+        valuebuilder.setscratchbyte(scratch, add(out, u32(2)), andBits(value, u32(255)))
         at = add(at, u32(4))
         out = add(out, u32(3))
     end
@@ -267,10 +267,10 @@ local function decodeAot(text: string, nullValue: any): any
         end
         bad = orBits(bad, orBits(orBits(a, b), c))
         local value = orBits(orBits(shl(a, u32(18)), shl(b, u32(12))), shl(c, u32(6)))
-        valuebuilder.setScratchByte(scratch, out, andBits(shr(value, u32(16)), u32(255)))
+        valuebuilder.setscratchbyte(scratch, out, andBits(shr(value, u32(16)), u32(255)))
         out = add(out, u32(1))
         if padding == 1 then
-            valuebuilder.setScratchByte(scratch, out, andBits(shr(value, u32(8)), u32(255)))
+            valuebuilder.setscratchbyte(scratch, out, andBits(shr(value, u32(8)), u32(255)))
             out = add(out, u32(1))
         end
     end
@@ -278,7 +278,7 @@ local function decodeAot(text: string, nullValue: any): any
     if bad > 63 then
         valuebuilder.null(builder)
     else
-        valuebuilder.stringScratch(builder, scratch, u32(0), out)
+        valuebuilder.stringscratch(builder, scratch, u32(0), out)
     end
 
     return valuebuilder.finish(builder)

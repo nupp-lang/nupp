@@ -3,7 +3,7 @@ module tier1eval
 -- Tier 1: give an isolated agent one diagnostic example and grade the repair
 -- only by what the compiler reports afterwards.
 
-local files = require("nupp.io.files")
+local files = require("io.files")
 local harness = require("harness")
 local json = require("serde.json")
 
@@ -43,7 +43,7 @@ function tier1.loadTask(nupp: string, code: string): any
     if done.returncode ~= 0 then
         error("nupp explain " .. code .. " failed: " .. (done.stderr:match("^%s*(.-)%s*$") or ""), 2)
     end
-    local ok, entry = pcall(json.decodeValue, done.stdout, json.NULL)
+    local ok, entry = pcall(json.decodevalue, done.stdout, json.NULL)
     if not ok then
         error("nupp explain " .. code .. " wrote invalid JSON: " .. tostring(entry), 2)
     end
@@ -60,7 +60,7 @@ end
 function tier1.makeWorkspace(root: string, nupp: string, entry: any): string
     local workspace = harness.join(root, "workspace")
     local bin = harness.join(workspace, "bin")
-    local made, reason = files.createDirectory(bin)
+    local made, reason = files.createdirectory(bin)
     if not made then
         error("cannot create tier-1 workspace: " .. tostring(reason), 2)
     end
@@ -82,7 +82,7 @@ function tier1.check(nupp: string, workspace: string, entry: any): {any}
     local verb = code:match("^NUPP3") and "build" or "check"
     local argv = {nupp, verb, "--json"}
     local done = harness.run(argv, workspace)
-    local ok, answer = pcall(json.decodeValue, done.stdout, json.NULL)
+    local ok, answer = pcall(json.decodevalue, done.stdout, json.NULL)
     if not ok then
         error(("%s --json wrote no JSON: %s / %s"):format(verb, done.stdout:sub(1, 200), done.stderr:sub(1, 200)), 2)
     end
@@ -131,8 +131,8 @@ function tier1.grade(before: {any}, after: {any}, entry: any, source: string): a
         errorsRemaining = errors,
         passed = targetGone and errors == 0,
         suspiciousShrink = #repaired < #original * 0.5,
-        diagnosticsBefore = json.asArray(diagnosticCodes(before)),
-        diagnosticsAfter = json.asArray(diagnosticCodes(after)),
+        diagnosticsBefore = json.asarray(diagnosticCodes(before)),
+        diagnosticsAfter = json.asarray(diagnosticCodes(after)),
     }
 end
 
@@ -146,7 +146,7 @@ function tier1.evaluate(
     timeoutSeconds: number?
 ): any
     local entry = tier1.loadTask(nupp, code)
-    local made, makeErr = files.createDirectory(out)
+    local made, makeErr = files.createdirectory(out)
     if not made then
         error("cannot create evaluation output directory: " .. tostring(makeErr), 2)
     end
@@ -169,7 +169,7 @@ function tier1.evaluate(
             error(
                 tostring(
                     entry.code
-                ) .. " is not reported by its own example; got " .. json.encodeValue(json.asArray(found)),
+                ) .. " is not reported by its own example; got " .. json.encodevalue(json.asarray(found)),
                 0
             )
         end

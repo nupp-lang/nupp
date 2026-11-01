@@ -68,7 +68,7 @@ assert(not package.loaded["nupp.cli.internal.decode"])
 assert(not package.loaded["nupp.cli.internal.application"])
 assert(not package.loaded["nupp.cli.internal.terminal"])
 assert(not package.loaded["nupp.derive"])
-local parser = cli.optParser({"--flag"})
+local parser = cli.optparser({"--flag"})
 assert(parser:next() == cli.longOption)
 assert(parser:key() == "flag")
 ]]

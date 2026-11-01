@@ -1048,7 +1048,7 @@ local function nativeCarrier(info: types.reflect.Info, index: integer, syntax: a
         end
         return true
     elseif kind == "record" then
-        return syntax.access == "record" and syntax.typeObject == reflect.runtimeType(info, index)
+        return syntax.access == "record" and syntax.typeObject == reflect.runtimetype(info, index)
     elseif kind == "string" or kind == "boolean" then
         return syntax.kind == kind
     elseif kind == "number" then
@@ -1119,7 +1119,7 @@ local function directRecord<T>(selected: access.Access<unknown>, recipe: lowerin
         field.defaultValue = stored.defaultValue
     end
     recipe.syntax.access = "record"
-    recipe.syntax.typeObject = assert2(reflect.runtimeType(selected.info, selected.typeIndex))
+    recipe.syntax.typeObject = assert2(reflect.runtimetype(selected.info, selected.typeIndex))
     recipe.syntax.factory = nil
 end
 

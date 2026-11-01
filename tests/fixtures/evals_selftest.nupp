@@ -1,3 +1,5 @@
+const assert2 = require("assert")
+
 local harness = require("harness")
 local tier1 = require("tier1eval")
 local batch = require("batcheval")
@@ -42,7 +44,7 @@ local taskRoot = harness.temporaryDirectory("nupp-eval-tier1-selftest-")
 local catalogEntry = tier1.loadTask(compiler, "NUPP2001")
 local workspace = tier1.makeWorkspace(taskRoot, compiler, catalogEntry)
 local actualBefore = tier1.check(compiler, workspace, catalogEntry)
-assert(#actualBefore > 0 and actualBefore[1].code == "NUPP2001", "the catalogue example reports its code")
+assert2(#actualBefore > 0 and actualBefore[1].code == "NUPP2001", "the catalogue example reports its code")
 harness.write(harness.join(workspace, "sample.nupp"), catalogEntry.right)
 local actualAfter = tier1.check(compiler, workspace, catalogEntry)
 equal(#actualAfter, 0, "the catalogue repair checks cleanly")
@@ -56,17 +58,17 @@ for _, code in ipairs(runnable) do
         break
     end
 end
-assert(hasBindingTask, "the concurrent corpus scan keeps runnable diagnostics")
+assert2(hasBindingTask, "the concurrent corpus scan keeps runnable diagnostics")
 
 local entry = {code = "NUPP2001", wrong = "local answer: string = 1\n",}
 local before = {{code = "NUPP2001", severity = "error",},}
 local clean = tier1.grade(before, {}, entry, "local answer: string = 'one'\n")
-assert(clean.passed, "a clean alternative repair passes")
-assert(clean.targetCodeGone, "the target code is gone")
+assert2(clean.passed, "a clean alternative repair passes")
+assert2(clean.targetCodeGone, "the target code is gone")
 equal(clean.errorsRemaining, 0, "no errors remain")
 local broken = tier1.grade(before, {{code = "NUPP9999", severity = "error",},}, entry, "")
-assert(not broken.passed, "another compiler error still fails")
-assert(broken.suspiciousShrink, "a gutted source is marked for review")
+assert2(not broken.passed, "another compiler error still fails")
+assert2(broken.suspiciousShrink, "a gutted source is marked for review")
 
 local summary = batch.summarize({
     {
@@ -101,24 +103,24 @@ equal(#suites, 1, "one suite selected")
 equal(suites[1], "tests/checktest.lua", "suite path")
 equal(#rest, 3, "non-suites remain at the parent")
 local prompt = tier2.prompt({"checktest", "projecttest"})
-assert(prompt:find("checktest, projecttest", 1, true), "prompt names all suites")
-assert(prompt:find("./bin/nupp test checktest", 1, true), "prompt names the first command")
+assert2(prompt:find("checktest, projecttest", 1, true), "prompt names all suites")
+assert2(prompt:find("./bin/nupp test checktest", 1, true), "prompt names the first command")
 
 local diffRoot = harness.temporaryDirectory("nupp-eval-selftest-")
 harness.write(harness.join(diffRoot, "before", "src", "sample.nupp"), "return 1\n")
 harness.write(harness.join(diffRoot, "after", "src", "sample.nupp"), "return 2\n")
 local diff = tier2.directoryDiff(diffRoot)
 harness.remove(diffRoot)
-assert(diff:find("diff --git a/src/sample.nupp b/src/sample.nupp", 1, true), "diff paths are stable")
-assert(diff:find("-return 1", 1, true), "diff contains the prior source")
-assert(diff:find("+return 2", 1, true), "diff contains the repaired source")
+assert2(diff:find("diff --git a/src/sample.nupp b/src/sample.nupp", 1, true), "diff paths are stable")
+assert2(diff:find("-return 1", 1, true), "diff contains the prior source")
+assert2(diff:find("+return 2", 1, true), "diff contains the repaired source")
 
 local jsonRoot = harness.temporaryDirectory("nupp-eval-json-selftest-")
 local jsonPath = harness.join(jsonRoot, "record.json")
-harness.writeJson(jsonPath, {z = 2, a = json.asArray({1, 2}),})
+harness.writeJson(jsonPath, {z = 2, a = json.asarray({1, 2}),})
 local encoded = harness.read(jsonPath)
 harness.remove(jsonRoot)
-assert(encoded:find('^%{\n  "a": %['), "records are readable JSON")
-assert(encoded:find('\n  "z": 2\n%}\n$'), "record keys are stable")
+assert2(encoded:find('^%{\n  "a": %['), "records are readable JSON")
+assert2(encoded:find('\n  "z": 2\n%}\n$'), "record keys are stable")
 
 print("evaluation harness self-test passed")

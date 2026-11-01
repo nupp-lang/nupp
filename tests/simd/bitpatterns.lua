@@ -25,8 +25,9 @@ local operations = {
     {"selectScalarRight", "selected:select(a, b:extract(1))", "chosen[i] and a[i] or b[1]"},
     {"maskedStore", "s:load(scratch, 65)", "chosen[i] and a[i] or b[i]"},
 }
-local prelude = [[local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+local prelude = [[
+local array = require("nupp.mem.array")
+local span = require("binary.span")
 local simd = require("simd")
 local u32 = math.u32
 ]]

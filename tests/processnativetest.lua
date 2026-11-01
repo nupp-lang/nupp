@@ -72,7 +72,7 @@ function M.beforeAll()
     preloadProvider(libraryPath)
     assert(loadstring(stdlib.bootstrap({["native.process"] = true, ["stdlib.io"] = true,})))()
     process = require("nupp.io.process")
-    buffers = require("nupp.io")
+    buffers = require("io")
 end
 
 function M.afterAll()
@@ -137,7 +137,7 @@ function M.sharedViewsUseTheRealStreamsAndDeliverEof()
     assert(writer:write("adapter"))
     writer:close()
 
-    local destination = buffers.newBuffer()
+    local destination = buffers.newbuffer()
     local sink = destination:newWriter()
     local copied = assert(reader:transferTo(sink))
     sink:close()
@@ -188,7 +188,7 @@ end
 function M.aProcessWriterTakesCheckedSpans()
     ready()
     local child = assert(startProcess({args = shell("cat > /dev/null")}))
-    local source = buffers.newBuffer("checked bytes")
+    local source = buffers.newbuffer("checked bytes")
     local wrote, reason = child.stdin:writeSpan(source:readSpan())
     assert(wrote, reason)
     test.equal(wrote, 13)
@@ -199,7 +199,7 @@ end
 
 function M.communicateAcceptsBuffersAndEnforcesItsCombinedLimit()
     ready()
-    local input = buffers.newBuffer("buffer input")
+    local input = buffers.newbuffer("buffer input")
     local child = assert(startProcess({args = shell("cat"), stderr = "null"}))
     local result, reason = child:communicate({input = input})
     assert(result, reason)
@@ -220,7 +220,7 @@ function M.environmentAndWorkingDirectoryKeepTheirTecsMeaning()
     local child = assert(
         startProcess({
             args = shell("printf '%s|%s' \"$PWD\" \"$NUPP_PROCESS_MARKER\""),
-            cwd = require("io.path").newPath("/"),
+            cwd = require("io.path").newpath("/"),
             clearEnv = true,
             env = {NUPP_PROCESS_MARKER = "present"},
             stderr = "null",

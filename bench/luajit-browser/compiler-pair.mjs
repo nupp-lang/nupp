@@ -143,7 +143,7 @@ try {
                   if (kind === 'check') summary.push(summarize('hover', hovers));
                 }
                 const importedTypeChecks = [];
-                for (const call of ['json.decode(false)', 'hex.encode(false)', 'text.newBuffer(false)', 'utf8.truncate(false, 24)', 'path.newPath(false)', 'uri.newURI(false)']) {
+                for (const call of ['json.decode(false)', 'hex.encode(false)', 'text.newbuffer(false)', 'utf8.truncate(false, 24)', 'path.newpath(false)', 'uri.newuri(false)']) {
                   phase = `invalid imported API: ${call}`;
                   const response = await request({kind: 'check', source: source.replace('return report,', `${call}\nreturn report,`)});
                   const diagnostics = response.diagnostics.filter(item => item.severity === 'error');

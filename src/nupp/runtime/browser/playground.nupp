@@ -58,7 +58,7 @@ local platformLibraries = {
         return os.info
     end,
     function()
-        return require("nupp.time")
+        return require("coroutine")
     end,
     function()
         return require("nupp.random")
@@ -79,16 +79,16 @@ local platformLibraries = {
         return require("nupp.util")
     end,
     function()
-        return require("nupp.io.http")
+        return require("io.http")
     end,
     function()
         return require("gpu")
     end,
     function()
-        return require("nupp.tasks")
+        return require("coroutine")
     end,
     function()
-        return require("nupp.workers")
+        return require("coroutine.workers")
     end,
 }
 
@@ -97,13 +97,13 @@ local outputBytes = 0
 local OUTPUT_LIMIT = 1048576
 
 local function printable(value: string): string
-    if utf8.isValid(value) then
+    if utf8.isvalid(value) then
         return value
     end
     local pieces: {string} = {}
     local at: integer = 1
     while at <= #value do
-        local codepoint, nextAt = utf8.decodeAt(value, at)
+        local codepoint, nextAt = utf8.decodeat(value, at)
         pieces[#pieces + 1] = utf8.encode(codepoint as integer)
         at = nextAt
     end

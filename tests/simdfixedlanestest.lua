@@ -21,7 +21,7 @@ local M = {}
 
 local PRELUDE = [[
 local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 ]]
 
@@ -132,7 +132,7 @@ return function(): {number}
 end
 ]]
     )
-    testAssert.deepEqual(run(), {
+    testAssert.deepequal(run(), {
         244, -- 250 + 250 wraps in a byte lane
         2, -- lanes one and two hit
         1,
@@ -205,7 +205,7 @@ end
 return probe
 ]]
     )
-    testAssert.deepEqual(run(), {
+    testAssert.deepequal(run(), {
         4, -- reverse
         9,
         1, -- insert leaves the other lanes
@@ -250,12 +250,12 @@ function M.reducersTakeFixedVectorContributionsLaneByLane()
 @aot
 local function fold(borrows values: span.Span<number>, borrows counts: span.Span<int32>): {number}
     local s = simd.species(array.number, 4)
-    local sum = simd.reducer.orderedSum(0.0)
-    local pairwise = simd.reducer.pairwiseSum(0.0)
+    local sum = simd.reducer.orderedsum(0.0)
+    local pairwise = simd.reducer.pairwisesum(0.0)
     local big = simd.reducer.count()
-    local least = simd.reducer.propagatingArgMin()
-    local most = simd.reducer.numberArgMax()
-    local dot = simd.reducer.orderedDot(0.0)
+    local least = simd.reducer.propagatingargmin()
+    local most = simd.reducer.numberargmax()
+    local dot = simd.reducer.ordereddot(0.0)
     for at, active in s:over(#values) do
         local v = s:load(values, at, active)
         sum:add(v, active)
@@ -266,8 +266,8 @@ local function fold(borrows values: span.Span<number>, borrows counts: span.Span
         dot:add(v, v, active)
     end
     local i = simd.species(array.int32, 4)
-    local wrapping = simd.reducer.wrappingSum(array.int32, 0)
-    local smallest = simd.reducer.integerMin(array.int32, 100)
+    local wrapping = simd.reducer.wrappingsum(array.int32, 0)
+    local smallest = simd.reducer.integermin(array.int32, 100)
     for at, active in i:over(#counts) do
         local c = i:load(counts, at, active)
         wrapping:add(c, active)
@@ -303,7 +303,7 @@ end
 ]]
     )
     local squares = 25 + 9 + 81 + 1 + 49 + 4 + 64 + 36 + 16 + 100
-    testAssert.deepEqual(run(), {
+    testAssert.deepequal(run(), {
         55,
         55,
         5, -- 9, 7, 8, 6 and 10 exceed five; the inactive tail lanes do not count
@@ -326,30 +326,30 @@ local function fold(): {number}
     local i = simd.species(array.int32, 4)
     local w = i:splat(-3):insert(1, 7):insert(3, 5)
     local out: {number} = {}
-    out[#out + 1] = simd.horizontal.orderedSum(v)
-    out[#out + 1] = simd.horizontal.pairwiseSum(v)
-    out[#out + 1] = simd.horizontal.algebraicSum(v)
-    out[#out + 1] = simd.horizontal.orderedProduct(v)
-    out[#out + 1] = simd.horizontal.orderedDot(v, v)
-    out[#out + 1] = simd.horizontal.pairwiseDot(v, v)
-    out[#out + 1] = simd.horizontal.algebraicDot(v, v)
-    out[#out + 1] = simd.horizontal.propagatingMin(v)
-    out[#out + 1] = simd.horizontal.numberMax(v)
-    out[#out + 1] = simd.horizontal.propagatingArgMax(v)
-    out[#out + 1] = simd.horizontal.numberArgMin(v)
-    out[#out + 1] = simd.horizontal.integerMin(w)
-    out[#out + 1] = simd.horizontal.integerMax(w)
-    out[#out + 1] = simd.horizontal.andBits(w)
-    out[#out + 1] = simd.horizontal.orBits(w)
-    out[#out + 1] = simd.horizontal.xorBits(w)
-    out[#out + 1] = simd.horizontal.wrappingSum(w)
-    out[#out + 1] = simd.horizontal.wrappingProduct(w)
+    out[#out + 1] = simd.horizontal.orderedsum(v)
+    out[#out + 1] = simd.horizontal.pairwisesum(v)
+    out[#out + 1] = simd.horizontal.algebraicsum(v)
+    out[#out + 1] = simd.horizontal.orderedproduct(v)
+    out[#out + 1] = simd.horizontal.ordereddot(v, v)
+    out[#out + 1] = simd.horizontal.pairwisedot(v, v)
+    out[#out + 1] = simd.horizontal.algebraicdot(v, v)
+    out[#out + 1] = simd.horizontal.propagatingmin(v)
+    out[#out + 1] = simd.horizontal.numbermax(v)
+    out[#out + 1] = simd.horizontal.propagatingargmax(v)
+    out[#out + 1] = simd.horizontal.numberargmin(v)
+    out[#out + 1] = simd.horizontal.integermin(w)
+    out[#out + 1] = simd.horizontal.integermax(w)
+    out[#out + 1] = simd.horizontal.andbits(w)
+    out[#out + 1] = simd.horizontal.orbits(w)
+    out[#out + 1] = simd.horizontal.xorbits(w)
+    out[#out + 1] = simd.horizontal.wrappingsum(w)
+    out[#out + 1] = simd.horizontal.wrappingproduct(w)
     return out
 end
 return fold
 ]]
     )
-    testAssert.deepEqual(run(), {
+    testAssert.deepequal(run(), {
         12,
         12,
         12,
@@ -389,13 +389,13 @@ local function tile(): {number}
     out[#out + 1] = c2:extract(3)
     out[#out + 1] = c4:extract(1)
     out[#out + 1] = c4:extract(4)
-    out[#out + 1] = simd.horizontal.wrappingSum(c3)
+    out[#out + 1] = simd.horizontal.wrappingsum(c3)
     return out
 end
 return tile
 ]]
     )
-    testAssert.deepEqual(run(), {11, 41, 32, 14, 44, 13 + 23 + 33 + 43})
+    testAssert.deepequal(run(), {11, 41, 32, 14, 44, 13 + 23 + 33 + 43})
 end
 
 function M.memoryMethodsMoveWholeChunks()
@@ -468,7 +468,7 @@ end
 ]]
     )
     local answers, written = run()
-    testAssert.deepEqual(answers, {
+    testAssert.deepequal(answers, {
         7, -- loadPairs deals 1 3 5 7 | 2 4 6 8
         2,
         12, -- loadTriples deals 1 4 7 10 | 2 5 8 11 | 3 6 9 12
@@ -487,7 +487,7 @@ end
         4, -- load under tail(2) from offset three reads 3 4 and zeroes
         0,
     })
-    testAssert.deepEqual(written, {
+    testAssert.deepequal(written, {
         2,
         1,
         4,
@@ -515,7 +515,7 @@ end
 return function(): ({number}, {number})
     local s = simd.species(array.float, 4)
     local t = simd.species(array.float, 3)
-    const particles = array.newArray(new Particle(), 2)
+    const particles = array.newarray(new Particle(), 2)
     with w = particles:write() do
         w[1] = new Particle(1.5, s:splat(2.0), t:iota(7.0, 1.0))
         w[2].pos = s:iota(1.0, 1.0)
@@ -528,7 +528,7 @@ return function(): ({number}, {number})
     answers[#answers + 1] = r[1].tail:extract(3)
     answers[#answers + 1] = r[2].pos:extract(4)
     answers[#answers + 1] = r[2].mass
-    answers[#answers + 1] = simd.horizontal.orderedSum(r[2].pos)
+    answers[#answers + 1] = simd.horizontal.orderedsum(r[2].pos)
     answers[#answers + 1] = (r[1].pos + r[2].pos):extract(1)
     local layout = layoutof(Particle)
     local measured: {number} = {layout.size, layout.alignment}
@@ -542,7 +542,7 @@ end
 ]]
     )
     local answers, measured = run()
-    testAssert.deepEqual(answers, {
+    testAssert.deepequal(answers, {
         2, -- a field built from a splat
         9, -- 7 8 9 in the three-lane field
         40, -- written twice: an iota, then that field times ten
@@ -550,7 +550,7 @@ end
         100,
         12, -- two stored fields read into vectors and added
     })
-    testAssert.deepEqual(measured, {
+    testAssert.deepequal(measured, {
         48,
         16, -- the struct
         0,
@@ -616,7 +616,7 @@ end
 local FIXED = [[
 module fixed
 local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 
 --- Every lane of a four-lane species in one kernel: a loop-carried vector,
@@ -625,7 +625,7 @@ local simd = require("simd")
 @aot
 local function smooth(exclusive out: span.WriteSpan<float>, borrows input: span.Span<float>): number
     local s = simd.species(array.float, 4)
-    local total = simd.reducer.orderedSum(array.float, 0.0)
+    local total = simd.reducer.orderedsum(array.float, 0.0)
     local previous = s:splat(0.0)
     for at, active in s:over(#input) do
         local v = s:load(input, at, active)
@@ -635,7 +635,7 @@ local function smooth(exclusive out: span.WriteSpan<float>, borrows input: span.
         total:add(v, active)
         previous = v
     end
-    return total:value() + simd.horizontal.orderedSum(previous)
+    return total:value() + simd.horizontal.orderedsum(previous)
 end
 
 export = {smooth = smooth}
@@ -645,11 +645,11 @@ local FIXED_CHECK = [[
 package.path = "build/native/?.lua;" .. package.path
 local m = require("fixed")
 local ffi = require("ffi")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local compiled = rawget(_G, "__nuppAotCompiled") or {}
 local input = ffi.new("float[7]", {1, 2, 3, 4, 5, 6, 7})
 local out = ffi.new("float[7]")
-local total = m.smooth(span.writeCarray(out, 7), span.fromCarray(input, 7))
+local total = m.smooth(span.writecarray(out, 7), span.fromcarray(input, 7))
 local answers = {}
 for i = 0, 6 do answers[#answers + 1] = tostring(out[i]) end
 if arg[1] == "require" then

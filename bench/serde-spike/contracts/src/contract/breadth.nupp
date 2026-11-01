@@ -30,7 +30,7 @@ local function bindingCases(name, binding, input, policy)
     local value = codec:decode(binding, input)
     local canonical = codec:encode(binding, value)
     assert2(codec:encode(binding, codec:decode(binding, canonical)) == canonical)
-    local buffer = text.newBuffer()
+    local buffer = text.newbuffer()
     task(name .. "/encode", function()
         return codec:encode(binding, value)
     end)
@@ -43,13 +43,13 @@ local function bindingCases(name, binding, input, policy)
         return #buffer
     end)
     task(name .. "/fresh-buffer", function()
-        local fresh = text.newBuffer()
+        local fresh = text.newbuffer()
         codec:encodeInto(binding, value, fresh)
         return fresh
     end)
     task(name .. "/embedded", function()
         buffer:reset()
-        local sink = syntax.newWriter(buffer)
+        local sink = syntax.newwriter(buffer)
         sink:startArray()
         codec:writeValue(binding, value, sink)
         sink:endArray()
@@ -69,7 +69,7 @@ local value, codec = bindingCases("recursive/nominal", nominal, source, epoch)
 bindingCases("recursive/indexed", indexed, source, epoch)
 bindingCases("recursive/document", document, source, epoch)
 local logical = bridge.from(nominal, value)
-local view, viewAdapter = views.view(nominal, value), views.viewAdapter(nominal)
+local view, viewAdapter = views.view(nominal, value), views.viewadapter(nominal)
 task("document/typed-view-create", function()
     return views.view(nominal, value)
 end)
@@ -213,7 +213,7 @@ local hook = serde.binding(
 bindingCases("hook/timestamp", hook, '{"createdAt":"1970-01-01T00:00:02Z"}')
 local documentAdapter = docs.adapter()
 local rich = docs.tuple({
-    docs.bigInteger("123456789012345678901234567890"),
+    docs.biginteger("123456789012345678901234567890"),
     docs.decimal(new core.Decimal(coefficient = "12345678901234567890", exponent = -9)),
     docs.bytes(string.rep("blob", 16384))
 })
@@ -228,10 +228,10 @@ end)
 bindingCases(
     "large-string",
     serde.binding(Strings),
-    '{"id":"7","active":true,"name":' .. syntax.encodeValue(string.rep('large " payload ', 4096)) .. '}'
+    '{"id":"7","active":true,"name":' .. syntax.encodevalue(string.rep('large " payload ', 4096)) .. '}'
 )
 local richContents = documentAdapter:contents()
-local richBuffer = text.newBuffer()
+local richBuffer = text.newbuffer()
 local richCanonical = richCodec:encode(richContents, rich)
 richCodec:encodeInto(richContents, rich, richBuffer)
 assert2(richBuffer:tostring() == richCanonical)
@@ -241,13 +241,13 @@ task("rich/blob-buffer", function()
     return #richBuffer
 end)
 task("rich/blob-fresh-buffer", function()
-    local fresh = text.newBuffer()
+    local fresh = text.newbuffer()
     richCodec:encodeInto(richContents, rich, fresh)
     return fresh
 end)
 task("rich/blob-embedded", function()
     richBuffer:reset()
-    local sink = syntax.newWriter(richBuffer)
+    local sink = syntax.newwriter(richBuffer)
     sink:startArray()
     richCodec:writeValue(richContents, rich, sink)
     sink:endArray()

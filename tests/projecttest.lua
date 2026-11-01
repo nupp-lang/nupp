@@ -116,7 +116,7 @@ end
 -- answered. The tree is named absolutely and the working directory is somewhere
 -- else, so no part of the answer can come from where the process was started.
 local function answerFrom(tree, cwd)
-    local here = assert(require("io.path").currentDirectory()):toString()
+    local here = assert(require("io.path").currentdirectory()):toString()
     here = here:gsub("^/([A-Za-z])(/)", "%1:%2")
     local script = (
         "package.path = %q .. %q .. package.path " .. "print('VALUE ' .. tostring(require('main')))"
@@ -412,7 +412,7 @@ function M.theToolFingerprintDoesNotDependOnHowTheCompilerWasFound()
         return code == 0 and out:match("[^\r\n]+") or nil
     end
 
-    local here = assert(require("io.path").currentDirectory()):toString()
+    local here = assert(require("io.path").currentdirectory()):toString()
     here = here:gsub("^/([A-Za-z])(/)", "%1:%2")
     local relative = fingerprintUnder("")
     assert(relative and relative ~= "", "the relative run produced a digest")
@@ -513,7 +513,7 @@ local record Message
     text: string
 end
 const Codec: types.reflect.FieldCodec<Message> = comptime do
-    return types.reflect.fieldCodec(types.reflect(Message))
+    return types.reflect.fieldcodec(types.reflect(Message))
 end
 
 return Codec:encode(new Message(text = "ok")).text as string
@@ -582,7 +582,7 @@ return models
         [[
 local models = require("witnessmodels")
 local info = types.reflect.runtime(models.Parent)
-local child = types.reflect.runtimeType(info, info.fields[1].type as integer)
+local child = types.reflect.runtimetype(info, info.fields[1].type as integer)
 local value = models.make()
 return child == getmetatable(value.child) and value.child.value == 7
 ]]
@@ -627,7 +627,7 @@ collectgarbage("collect")
 collectgarbage("collect")
 local parents = require("parentmodels")
 local info = types.reflect.runtime(parents.Parent)
-return types.reflect.runtimeType(info, info.fields[1].type as integer) == children.Child
+return types.reflect.runtimetype(info, info.fields[1].type as integer) == children.Child
 ]],
     })
     testAssert.equal(project.build(dir, {}), 0)
@@ -645,7 +645,7 @@ return {include = {"src"}, build = {outDir = "out", entries = {"main"}}}
         ] = [[
 local models = require("models")
 const UserCodec: types.reflect.FieldCodec<models.User> = comptime do
-    return types.reflect.fieldCodec(types.reflect(models.User))
+    return types.reflect.fieldcodec(types.reflect(models.User))
 end
 return UserCodec.fingerprint
 ]],
@@ -1044,11 +1044,11 @@ function M.browserHostsCannotSelectNativeDistributionPlatforms()
         "a check rejects the resolved host before applying a native layout"
     )
 
-    local root = assert(require("io.path").currentDirectory()):toString()
+    local root = assert(require("io.path").currentdirectory()):toString()
     local status, output = process.capture({root .. "/bin/nupp", "build", "--host", "browser"}, {cwd = dir})
     testAssert.equal(status, 1, "the command-line host override is also rejected\n" .. output)
     assert(output:find('platforms selects native binary hosts', 1, true), output)
-    assert(not require("nupp.io.files").isDirectory(dir .. "/out"), "rejection writes no build output")
+    assert(not require("io.files").isdirectory(dir .. "/out"), "rejection writes no build output")
     remove(dir)
 end
 
@@ -2347,7 +2347,7 @@ return {
             "src/main.nupp"
         ] = [[
 local random = require("nupp.random")
-local time = require("nupp.time")
+local time = require("coroutine")
 return random, time
 ]],
     })
@@ -2903,8 +2903,8 @@ function M.standaloneBinaryLinksRustFilesystemIntoItsOwnHost()
         [
             "src/main.nupp"
         ] = [[
-const files = require("nupp.io.files")
-assert(files.isFile("Cargo.toml"))
+const files = require("io.files")
+assert(files.isfile("Cargo.toml"))
 local contents = assert(files.read("Cargo.toml"))
 assert(contents:find("[workspace]", 1, true))
 print("rust-files-ok")
@@ -3245,7 +3245,7 @@ function M.anAotEntryCallsAnotherEntryOfItsFile()
             "src/main.nupp"
         ] = [[
 local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 @aot
 local function curve(x: number): number

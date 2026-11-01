@@ -209,7 +209,7 @@ function M.managedCellsKeepPolicyAndUseThePatchedCleanupSlot()
     local function source(multiplier)
         return table.concat(
             {
-                "local managedGroup = own.managedGroup",
+                "local managedGroup = own.managedgroup",
                 "local cleaned: integer = 0",
                 "local record Item value: integer end",
                 "local function closeItem(takes item: Item): nil",
@@ -244,7 +244,7 @@ function M.liveDynamicPoliciesRejectAnIncompatiblePatchTransactionally()
     local function source(openName)
         return table.concat(
             {
-                "local managedGroup = own.managedGroup",
+                "local managedGroup = own.managedgroup",
                 "local M = {}",
                 "local cleaned: integer = 0",
                 "local record Item value: integer end",

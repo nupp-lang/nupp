@@ -59,7 +59,7 @@ local record Position
 end
 
 const PositionCodec: types.reflect.FieldCodec<Position> = comptime do
-    return types.reflect.fieldCodec(types.reflect(Position))
+    return types.reflect.fieldcodec(types.reflect(Position))
 end
 
 local encoded = PositionCodec:encode(new Position(x = 10, y = 20))
@@ -100,7 +100,7 @@ local record Point
     y: number
 end
 @comptime local function keyed(info: types.reflect.Info): types.reflect.FieldCodecBlueprint
-    return types.reflect.fieldCodec(info)
+    return types.reflect.fieldcodec(info)
 end
 const Codec: types.reflect.FieldCodec<Point> = comptime do
     return keyed(types.reflect(Point))
@@ -276,7 +276,7 @@ function M.rejectsAReflectedTypeAndRuntimeTargetMismatch()
 local record Position x: number end
 local record Velocity x: number end
 const Bad: types.reflect.FieldCodec<Velocity> = comptime do
-    return types.reflect.fieldCodec(types.reflect(Position))
+    return types.reflect.fieldcodec(types.reflect(Position))
 end
 ]]
     )
@@ -291,7 +291,7 @@ record left.Item value: string end
 local right = {}
 record right.Item value: string end
 const Bad: types.reflect.FieldCodec<right.Item> = comptime do
-    return types.reflect.fieldCodec(types.reflect(left.Item))
+    return types.reflect.fieldcodec(types.reflect(left.Item))
 end
 return Bad
 ]]
@@ -304,7 +304,7 @@ function M.requiresATypePositionForReflection()
         [[
 local value = 1
 const Bad: types.reflect.FieldCodec<any> = comptime do
-    return types.reflect.fieldCodec(types.reflect(value))
+    return types.reflect.fieldcodec(types.reflect(value))
 end
 ]]
     )

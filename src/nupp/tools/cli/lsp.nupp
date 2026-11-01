@@ -64,7 +64,7 @@ local type ArtifactValue = {
 ----------------------------------------------------------------------------
 
 local function jsonArray<T is table>(takes items: T): T preserves items
-    return json.asArray(items)
+    return json.asarray(items)
 end
 
 local normalizePath = fs.normalize
@@ -582,7 +582,7 @@ end
 
 local function jsonOutput(value)
     value.ok = true
-    io.write(json.encodeValue(value) .. "\n")
+    io.write(json.encodevalue(value) .. "\n")
 end
 
 -- An argument the command cannot use, as opposed to a file or position it could not
@@ -1283,7 +1283,7 @@ end
 ---     nupp lsp references --include-declaration src/main.nupp 12 8
 ---     nupp lsp artifact --kind lua -O2 src/main.nupp
 @cli(name = "lsp", group = true)
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Lsp
 end
 
@@ -1294,7 +1294,7 @@ end
 ---     nupp lsp serve
 ---     nupp lsp serve ./examples/greeter
 @cli("serve")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Serve
     --- Project root.
     @cli(positional = "ROOT")
@@ -1312,7 +1312,7 @@ end
 ---     nupp lsp inspect src/main.nupp 12 8
 ---     nupp lsp inspect --json src/main.nupp 12 8
 @cli("inspect")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Inspect
     --- Project root.
     @cli(value = "DIR")
@@ -1349,7 +1349,7 @@ end
 ---     nupp lsp definition src/main.nupp 12 8
 ---     nupp lsp definition --json src/main.nupp 12 8
 @cli("definition")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Definition
     --- Project root.
     @cli(value = "DIR")
@@ -1386,7 +1386,7 @@ end
 ---     nupp lsp implementation src/services.nupp 24 18
 ---     nupp lsp implementation --json src/services.nupp 24 18
 @cli("implementation")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Implementation
     --- Project root.
     @cli(value = "DIR")
@@ -1423,7 +1423,7 @@ end
 ---     nupp lsp references src/main.nupp 12 8
 ---     nupp lsp references --include-declaration src/main.nupp 12 8
 @cli("references")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record References
     --- Project root.
     @cli(value = "DIR")
@@ -1464,7 +1464,7 @@ end
 ---     nupp lsp symbols --file src/main.nupp parse
 ---     nupp lsp symbols --json
 @cli("symbols")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Symbols
     --- Project root.
     @cli(value = "DIR")
@@ -1497,7 +1497,7 @@ end
 ---     nupp lsp rename src/main.nupp 12 8 newName
 ---     nupp lsp rename --write src/main.nupp 12 8 newName
 @cli("rename")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Rename
     --- Project root.
     @cli(value = "DIR")
@@ -1542,7 +1542,7 @@ end
 ---     nupp lsp actions src/main.nupp 12 8
 ---     nupp lsp actions --only quickfix src/main.nupp 12 8
 @cli("actions")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Actions
     --- Project root.
     @cli(value = "DIR")
@@ -1583,7 +1583,7 @@ end
 ---     nupp lsp trace-check src/main.nupp 12 8
 ---     nupp lsp trace-check --json src/main.nupp 12 8
 @cli("trace-check")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record TraceCheck
     --- Project root.
     @cli(value = "DIR")
@@ -1620,7 +1620,7 @@ end
 ---     nupp lsp artifacts src/main.nupp 12 8
 ---     nupp lsp artifacts --json src/main.nupp 12 8
 @cli("artifacts")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Artifacts
     --- Project root.
     @cli(value = "DIR")
@@ -1657,7 +1657,7 @@ end
 ---     nupp lsp artifact --kind lua -O2 src/main.nupp
 ---     nupp lsp artifact --kind bytecode --json src/main.nupp
 @cli("artifact")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Artifact
     --- Project root.
     @cli(value = "DIR")

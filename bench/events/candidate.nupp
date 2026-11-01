@@ -7,14 +7,14 @@
 local events = require("events")
 
 --- A scalar event: the one-field record most rows emit.
-@derive(events.Event)
+@derive(events.event)
 local record Tick
     value: number
 end
 
 --- A wider record with defaults, for the row that measures construction into
 --- pooled storage.
-@derive(events.Event)
+@derive(events.event)
 local record Damage
     amount: number
     source: integer
@@ -24,7 +24,7 @@ local record Damage
 end
 
 --- A fixed-layout event, arena backed.
-@derive(events.Event)
+@derive(events.event)
 local struct Contact
     a: number
     b: number
@@ -32,7 +32,7 @@ local struct Contact
 end
 
 --- What a nested delivery emits from inside a Tick observer.
-@derive(events.Event)
+@derive(events.event)
 local record Follow
     value: number
 end
@@ -47,7 +47,7 @@ end
 local candidate = {}
 
 function candidate.make(name: string): Scenario
-    local bus: events.MessageBus<integer> = events.newMessageBus()
+    local bus: events.MessageBus<integer> = events.newmessagebus()
     local checksum: number = 0
     local calls: integer = 0
 

@@ -30,14 +30,9 @@ local M = {}
 
 --- The per-function counts `nupp aot --emit asm` prints for one target and tier.
 local function counts(target, tier, name)
-    local command = ("cd '%s' && '%s' aot --triple %s --features %s --emit asm --function %s %s 2>&1"):format(
-        ROOT,
-        NUPP,
-        target,
-        tier,
-        name,
-        KERNELS
-    )
+    local command = (
+        "cd '%s' && '%s' aot --triple %s --features %s --emit asm --function %s %s 2>&1"
+    ):format(ROOT, NUPP, target, tier, name, KERNELS)
     local pipe = assert(io.popen(command))
     local out = pipe:read("*a")
     pipe:close()
@@ -102,18 +97,14 @@ function M.theBenchmarkKernelsStayWithinTheirNativeCodeBudgets()
             failures[#failures + 1] = ("%s makes %d calls; a hot kernel makes none"):format(where, entry.calls)
         end
         if entry.instructions > budget.instructions then
-            failures[#failures + 1] = ("%s is %d instructions, over its budget of %d"):format(
-                where,
-                entry.instructions,
-                budget.instructions
-            )
+            failures[
+                #failures + 1
+            ] = ("%s is %d instructions, over its budget of %d"):format(where, entry.instructions, budget.instructions)
         end
         if entry.stack > budget.stack then
-            failures[#failures + 1] = ("%s touches %d stack slots, over its budget of %d"):format(
-                where,
-                entry.stack,
-                budget.stack
-            )
+            failures[
+                #failures + 1
+            ] = ("%s touches %d stack slots, over its budget of %d"):format(where, entry.stack, budget.stack)
         end
     end
     assert(#failures == 0, table.concat(failures, "\n"))
@@ -129,44 +120,52 @@ function M.aWasmKernelModuleStaysSmall()
     local dir = os.tmpname()
     os.remove(dir)
     assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+
     local function write(path, text)
         local handle = assert(io.open(dir .. "/" .. path, "wb"))
         handle:write(text)
         handle:close()
     end
+
     write(
         "nupp.lua",
         'return {include = {"src"}, build = {targets = {native = {\n'
-            .. '   kind = "modules", entries = {"k"}, outDir = "build/native",\n'
-            .. '   aot = "require-wasm", host = "browser",\n}}}}\n'
+        .. '   kind = "modules", entries = {"k"}, outDir = "build/native",\n'
+        .. '   aot = "require-wasm", host = "browser",\n}}}}\n'
     )
-    write("src/k.nupp", table.concat({
-        "module k",
-        "",
-        'local span = require("nupp.mem.span")',
-        "",
-        "@aot",
-        "local function scale(exclusive out: span.WriteSpan<float>, borrows input: span.Span<float>, factor: number): nil",
-        "    if #out ~= #input then",
-        '        error("length mismatch", 2)',
-        "    end",
-        "    for i = 1, #out do",
-        "        out[i] = input[i] * factor + 1.0",
-        "    end",
-        "end",
-        "",
-        "@aot",
-        "local function total(borrows input: span.Span<uint8>): number",
-        "    local sum = 0.0",
-        "    for i = 1, #input do",
-        "        sum = sum + input[i]",
-        "    end",
-        "    return sum",
-        "end",
-        "",
-        "export = {scale = scale, total = total}",
-        "",
-    }, "\n"))
+    write(
+        "src/k.nupp",
+        table.concat(
+            {
+                "module k",
+                "",
+                'local span = require("binary.span")',
+                "",
+                "@aot",
+                "local function scale(exclusive out: span.WriteSpan<float>, borrows input: span.Span<float>, factor: number): nil",
+                "    if #out ~= #input then",
+                '        error("length mismatch", 2)',
+                "    end",
+                "    for i = 1, #out do",
+                "        out[i] = input[i] * factor + 1.0",
+                "    end",
+                "end",
+                "",
+                "@aot",
+                "local function total(borrows input: span.Span<uint8>): number",
+                "    local sum = 0.0",
+                "    for i = 1, #input do",
+                "        sum = sum + input[i]",
+                "    end",
+                "    return sum",
+                "end",
+                "",
+                "export = {scale = scale, total = total}",
+                "",
+            },
+            "\n"
+        )
+    )
     local pipe = assert(io.popen(("cd '%s' && '%s' build --target native 2>&1"):format(dir, NUPP)))
     local out = pipe:read("*a")
     pipe:close()

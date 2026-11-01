@@ -934,7 +934,7 @@ local original = rawget(_G, "assert") as BuiltinAssert
 local helper = require("assert")
 local value = {
     equal = helper.equal,
-    suite = {skip = helper.suite.skip, isSkip = helper.suite.isSkip, skipReason = helper.suite.skipReason},
+    suite = {skip = helper.suite.skip, isSkip = helper.suite.isskip, skipReason = helper.suite.skipreason},
 } as Callable
 
 export = setmetatable(value, {__call = function<A...>(_self: Callable, ...: A...): A...
@@ -967,7 +967,7 @@ export const result = true
                     return {n = select("#", ...), ...}
                 end
 
-                testAssert.deepEqual(collect(callable("truthy", nil, 42, nil)), {n = 4, "truthy", nil, 42})
+                testAssert.deepequal(collect(callable("truthy", nil, 42, nil)), {n = 4, "truthy", nil, 42})
                 local _, originalDefault = pcall(assert, false)
                 local _, wrappedDefault = pcall(callable, false)
                 testAssert.equal(wrappedDefault, originalDefault)
@@ -989,7 +989,7 @@ export const result = true
                 end)
                 testAssert.equal(succeeded, false)
                 testAssert.matches(failure, "failure")
-                testAssert.deepEqual(evaluated, {1, 2, 3}, "all arguments run once before failure")
+                testAssert.deepequal(evaluated, {1, 2, 3}, "all arguments run once before failure")
             end)
             removeLoader()
             package.loaded.callableprobe = nil
@@ -1050,7 +1050,7 @@ export const result = true
                 for index, value in ipairs(argv) do
                     sequential[index] = value
                 end
-                testAssert.deepEqual(sequential, {"one", "two"})
+                testAssert.deepequal(sequential, {"one", "two"})
                 local json = require("testjson")
                 testAssert.equal(json.encode(argv), json.encode({"one", "two"}), "methods stay out of serialization")
                 argv[0], argv[-1] = "program", "launcher"
@@ -1058,7 +1058,7 @@ export const result = true
                 for key, value in pairs(argv) do
                     raw[key] = value
                 end
-                testAssert.deepEqual(raw, {[0] = "program", [-1] = "launcher", "one", "two"})
+                testAssert.deepequal(raw, {[0] = "program", [-1] = "launcher", "one", "two"})
                 testAssert.equal(#argv, 2)
             end)
             removeLoader()
@@ -1132,7 +1132,7 @@ export const result = true
                 for key, value in pairs(api) do
                     raw[key] = value
                 end
-                testAssert.deepEqual(raw, {"one", "two"})
+                testAssert.deepequal(raw, {"one", "two"})
                 local json = require("testjson")
                 testAssert.equal(json.encode(api), json.encode({"one", "two"}))
             end)

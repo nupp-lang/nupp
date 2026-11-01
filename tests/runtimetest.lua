@@ -427,13 +427,13 @@ function M.cliRunLoadsCrossModuleDeriveDependencies()
                 "main.nupp"
             ] = [[
 local models = require("runtime_derive_models")
-@derive(types.Debug)
+@derive(types.debug)
 local record Outer inner: models.Inner end
 local value = new Outer(inner = new models.Inner())
 print(value:debug())
-local out = require("nupp.text").newBuffer()
-local writer = serde.json.newWriter(out)
-require("serde.json").writeValue(serde.binding(Outer), value, writer)
+local out = require("nupp.text").newbuffer()
+local writer = serde.json.newwriter(out)
+require("serde.json").writevalue(serde.binding(Outer), value, writer)
 writer:close()
 print(out:tostring())
 ]],
@@ -441,7 +441,7 @@ print(out:tostring())
                 "src/runtime_derive_models.nupp"
             ] = [[
 local models = {}
-@derive(types.Debug)
+@derive(types.debug)
 record models.Inner value: integer = 0 end
 return models
 ]],

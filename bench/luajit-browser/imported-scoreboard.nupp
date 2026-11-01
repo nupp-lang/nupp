@@ -29,13 +29,13 @@ local function scorePlayers(players: {Player}, round: integer): Snapshot
         end
     end
     table.sort(names)
-    local payload = json.encodeValue({round = round, players = names, total = total})
+    local payload = json.encodevalue({round = round, players = names, total = total})
 
     return {round = round, names = names, total = total, payload = payload}
 end
 
 local function describe(snapshot: Snapshot): string
-    local out = text.newBuffer()
+    local out = text.newbuffer()
     out:put("round=", tostring(snapshot.round), "\n")
     out:put("players=", table.concat(snapshot.names, ", "), "\n")
     out:put("total=", tostring(snapshot.total), "\n")
@@ -45,8 +45,8 @@ local function describe(snapshot: Snapshot): string
 end
 
 local function destination(round: integer): (string, string)
-    local localFile = path.newPath("scores", "round-" .. tostring(round)):withExtension("json")
-    local endpoint = assert2(uri.newURI("https://game.example/scores/"))
+    local localFile = path.newpath("scores", "round-" .. tostring(round)):withExtension("json")
+    local endpoint = assert2(uri.newuri("https://game.example/scores/"))
     local remoteFile = assert2(endpoint:resolve(assert2(localFile:fileName())))
     return localFile:toString(), remoteFile:toString()
 end
@@ -65,5 +65,5 @@ local report = describe(snapshot)
 local wire = hex.encode("scoreboard-edit-5")
 assert2(hex.decode(wire) == "scoreboard-edit-5")
 assert2(snapshot.total == 210)
-assert2(utf8.length(snapshot.names[1]) == 3)
+assert2(utf8.len(snapshot.names[1]) == 3)
 return report, localFile, remoteFile, wire

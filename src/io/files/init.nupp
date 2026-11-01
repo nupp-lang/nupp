@@ -1,0 +1,73 @@
+module io.files
+
+--[[
+Portable filesystem access accepts native paths on native hosts and
+application-owned paths on browser hosts. Set an application identity before
+resolving the portable configuration, data, or cache directory.
+
+```nupp
+local files = require("io.files")
+files.setapplicationidentity("example", "notes")
+
+local data = assert(files.datapath())
+assert(files.write(data:join("notes.txt"), "hello"))
+```
+
+Native programs may also pass ordinary strings or [](io.path.Path)
+values. Browser programs refuse raw path text and use the opaque
+`ApplicationPath` values returned by `configurationpath`, `datapath`, or
+`cachepath`.
+
+Browser application data lives in the Origin Private File System. It remains
+evictable unless `requestpersistentstorage` succeeds. Capability flags describe
+the operations whose native semantics have no browser equivalent.
+]]
+local source1 = require("nupp.io.files")
+export type ApplicationPath = source1.ApplicationPath
+export type Capabilities = source1.Capabilities
+export type Entry = source1.Entry
+export type File = source1.File
+export type Info = source1.Info
+export type Kind = source1.Kind
+export type Mode = source1.Mode
+export type Origin = source1.Origin
+export type Path = source1.Path
+export type TemporaryOptions = source1.TemporaryOptions
+export type TemporaryPath = source1.TemporaryPath
+export type UserFolder = source1.UserFolder
+export const Capabilities = source1.Capabilities
+export const Entry = source1.Entry
+export const Info = source1.Info
+export const TemporaryOptions = source1.TemporaryOptions
+export const append = source1.append
+export const applicationidentity = source1.applicationIdentity
+export const cachepath = source1.cachePath
+export const capabilities = source1.capabilities
+export const configurationpath = source1.configurationPath
+export const copy = source1.copy
+export const createdirectory = source1.createDirectory
+export const createsymlink = source1.createSymlink
+export const createtemporarydirectory = source1.createTemporaryDirectory
+export const createtemporaryfile = source1.createTemporaryFile
+export const datapath = source1.dataPath
+export const executabledirectory = source1.executableDirectory
+export const exists = source1.exists
+export const glob = source1.glob
+export const info = source1.info
+export const isdirectory = source1.isDirectory
+export const isfile = source1.isFile
+export const issymlink = source1.isSymlink
+export const lines = source1.lines
+export const list = source1.list
+export const open = source1.open
+export const pendingtransfers = source1.pendingTransfers
+export const read = source1.read
+export const readlink = source1.readLink
+export const remove = source1.remove
+export const rename = source1.rename
+export const requestpersistentstorage = source1.requestPersistentStorage
+export const setapplicationidentity = source1.setApplicationIdentity
+export const setreadonly = source1.setReadOnly
+export const userfolder = source1.userFolder
+export const write = source1.write
+export const writeatomic = source1.writeAtomic

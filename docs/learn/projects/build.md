@@ -239,7 +239,7 @@ or retain the library at all. The global [`nupp`
 standard-library namespace](../runtime/data/standard-library.md) itself is always
 created by generated code.
 
-Nested members use the same exact resolution. `serde.json.encodeValue(value)`
+Nested members use the same exact resolution. `serde.json.encodevalue(value)`
 selects JSON support, while an alias such as `local json = serde.json`
 followed by `json.encodeValue(value)` selects the same feature without also selecting
 UUID or UTF-8.

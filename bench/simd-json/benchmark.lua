@@ -8,7 +8,7 @@ local parser = require("simd_json.parser")
 local scanner = require("simd_json.scanner")
 local simdjsonBench = require("simdjson_bench")
 local nuppJson = require("serde.json")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 io.stdout:setvbuf("no")
 
@@ -61,7 +61,7 @@ local payloads = {
         pullShape = simdjsonBench.arrayOf({
             id = true
         }),
-        nuppPullShape = nuppJson.arrayOf({
+        nuppPullShape = nuppJson.arrayof({
             id = true
         })
     },
@@ -70,28 +70,28 @@ local payloads = {
         source = strings("ordinary-ascii-value-", 5000),
         short = false,
         pullShape = simdjsonBench.arrayOf(false),
-        nuppPullShape = nuppJson.arrayOf(false)
+        nuppPullShape = nuppJson.arrayof(false)
     },
     {
         name = "unicode",
         source = strings("κόσμος-日本語-🙂-", 3500),
         short = false,
         pullShape = simdjsonBench.arrayOf(false),
-        nuppPullShape = nuppJson.arrayOf(false)
+        nuppPullShape = nuppJson.arrayof(false)
     },
     {
         name = "escaped",
         source = strings("quote-\"-slash-\\-line-\n-", 4000),
         short = false,
         pullShape = simdjsonBench.arrayOf(false),
-        nuppPullShape = nuppJson.arrayOf(false)
+        nuppPullShape = nuppJson.arrayof(false)
     },
     {
         name = "numbers",
         source = numbers(),
         short = false,
         pullShape = simdjsonBench.arrayOf(false),
-        nuppPullShape = nuppJson.arrayOf(false)
+        nuppPullShape = nuppJson.arrayof(false)
     },
     {
         name = "unique-keys",
@@ -230,22 +230,22 @@ end
 
 for payloadIndex, payload in ipairs(payloads) do
     local source = payload.source
-    local input = span.fromString(source)
+    local input = span.fromstring(source)
     local outputStorage = ffi.new("uint8_t[?]", #source > 0 and #source or 1)
-    local output = span.writeCarray(outputStorage, #source)
+    local output = span.writecarray(outputStorage, #source)
     local tapeStorage = ffi.new("uint32_t[?]", #source > 0 and #source or 1)
-    local tape = span.writeCarray(tapeStorage, #source)
+    local tape = span.writecarray(tapeStorage, #source)
     local indexed, indexError = indexer.index(input, tape)
     assert(indexError == 0 and indexed <= #source)
-    local tapeRead = span.fromCarray(tapeStorage, tonumber(indexed))
+    local tapeRead = span.fromcarray(tapeStorage, tonumber(indexed))
     local NodeArray = ffi.typeof("$[?]", parser.Node)
     local FrameArray = ffi.typeof("$[?]", parser.Frame)
     local nodes = ffi.new(NodeArray, math.max(#source, 1))
     local links = ffi.new("uint32_t[?]", math.max(#source, 1))
     local frames = ffi.new(FrameArray, math.max(#source, 1))
-    local nodeWrite = span.writeCarray(nodes, #source)
-    local linkWrite = span.writeCarray(links, #source)
-    local frameWrite = span.writeCarray(frames, #source)
+    local nodeWrite = span.writecarray(nodes, #source)
+    local linkWrite = span.writecarray(links, #source)
+    local frameWrite = span.writecarray(frames, #source)
     local document = arena.parse(source)
     local simdjsonParser = simdjsonBench.new(source)
     local simdjsonValue = simdjsonBench.decode(source, json.null)

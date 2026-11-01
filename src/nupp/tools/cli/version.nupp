@@ -62,7 +62,7 @@ end
 ---     nupp --version
 ---     nupp version --json
 @cli("version")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Version
     --- Select the report representation.
     @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})

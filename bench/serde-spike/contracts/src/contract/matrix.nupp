@@ -1,3 +1,5 @@
+const assert2 = require("assert")
+
 local serde = require("serde")
 local json = require("serde.json")
 local text = require("nupp.text")
@@ -61,8 +63,8 @@ local function add(name, target, input)
     local operation = operationFor(target)
     local value = operation.decode(input)
     local canonical = operation.encode(value)
-    assert(operation.encode(operation.decode(canonical)) == canonical)
-    local buffer = text.newBuffer()
+    assert2(operation.encode(operation.decode(canonical)) == canonical)
+    local buffer = text.newbuffer()
     cases[#cases + 1] = {
         name = name,
         input = input,
@@ -97,6 +99,6 @@ add("exact", Exact, '{"signed":-9223372036854775808,"unsigned":18446744073709551
 add(
     "large-string",
     Small,
-    '{"id":7,"active":true,"name":' .. json.encodeValue(string.rep('large \" payload ', 4096)) .. '}'
+    '{"id":7,"active":true,"name":' .. json.encodevalue(string.rep('large \" payload ', 4096)) .. '}'
 )
 return cases

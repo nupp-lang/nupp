@@ -437,14 +437,14 @@ A helper's indexed accesses can be proved safe from its caller's flow facts.
 The proof works during checking, including at `-O0`, without inlining:
 
 ```nupp
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 local function get(borrows values: span.Span<uint8>, index: integer): integer
     return values[index]
 end
 
 local function total(text: string): number
-    const values = span.fromString(text)
+    const values = span.fromstring(text)
     local result = 0
     for index = 1, #values do
         @noraise do

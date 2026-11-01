@@ -6,8 +6,8 @@ local testAssert = require("assert")
 -- the test supplies the platform and the module supplies the behaviour.
 local process = require("nupp.io.process")
 local processTypes = require("nupp.io.process.types")
-local suspension = require("nupp.suspension")
-local suspensionHost = require("nupp.suspension.host")
+local suspension = require("coroutine.suspension")
+local suspensionHost = require("coroutine.suspension.host")
 
 local function spawnOn(provider, options)
     local instance = require("providerstate").load("process", provider)
@@ -1394,7 +1394,7 @@ function M.aWaitInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
     -- driver, which sleeps in a source's wait between quiet passes. A process wait
     -- that registered no wait left the driver nothing to sleep in, so it polled the
     -- child flat out, a whole core, for as long as the child ran.
-    local tasks = require("nupp.tasks")
+    local tasks = require("coroutine")
     local backend = fakeBackend({out = {}, err = {}, exitAfter = 6, code = 0})
     local sleeps = 0
     function backend:waitReady(_interest, _timeoutMs)
@@ -1403,7 +1403,7 @@ function M.aWaitInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
     end
 
     local child = spawnOn(backend, {args = {"quiet"}})
-    local scope = tasks.open()
+    local scope = tasks.scope()
     local waited = scope:spawn(function()
         return child:wait()
     end)
@@ -1415,10 +1415,10 @@ function M.aWaitInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
 end
 
 function M.aReadInsideATaskScopeKeepsTheChunkThatWokeIt()
-    local tasks = require("nupp.tasks")
+    local tasks = require("coroutine")
     local backend = fakeBackend({out = {"first", "second"}, err = {}, outDelay = 2, exitAfter = 8, code = 0})
     local child = spawnOn(backend, {args = {"slow"}})
-    local scope = tasks.open()
+    local scope = tasks.scope()
     local read = scope:spawn(function()
         return child.stdout:read(65536)
     end)
@@ -1431,7 +1431,7 @@ end
 function M.drainingInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
     -- The drain loop parks for one pass at a time. A pass that moved nothing used to
     -- resume it at once, so under the built-in driver the loop polled flat out.
-    local tasks = require("nupp.tasks")
+    local tasks = require("coroutine")
     local backend = fakeBackend({out = {"one", "two"}, err = {}, outDelay = 3, exitAfter = 12, code = 0})
     local sleeps = 0
     function backend:waitReady(_interest, _timeoutMs)
@@ -1440,7 +1440,7 @@ function M.drainingInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
     end
 
     local child = spawnOn(backend, {args = {"slow"}})
-    local scope = tasks.open()
+    local scope = tasks.scope()
     local drained = scope:spawn(function()
         return assert(child:communicate())
     end)

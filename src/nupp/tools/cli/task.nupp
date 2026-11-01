@@ -16,6 +16,10 @@ they are appended to the task's own argv and belong to whatever ends up
 running.
 ]]
 
+const terminal2 = require("io.terminal")
+
+const terminal = require("io.terminal")
+
 local usageError = require("nupp.tools.cli.error").forCommand("task")
 local cliModule = require("arg")
 
@@ -175,7 +179,7 @@ local function list(name: string?, format: string?): integer
         io.write(project.encode(document) .. "\n")
         return 0
     end
-    local style = io.style(io.stdout)
+    local style = terminal.style(io.stdout)
     if name then
         local out: {string} = {}
         writeTask(out, style, info)
@@ -187,7 +191,7 @@ local function list(name: string?, format: string?): integer
     end
     -- `kind` earns its column: the listing is build targets and configured actions
     -- together, and which one a name is decides what running it does.
-    local rows: {{io.Cell}} = {}
+    local rows: {{terminal.Cell}} = {}
     local kindColors: {
         [string]: function(string): string
     } = {
@@ -201,27 +205,27 @@ local function list(name: string?, format: string?): integer
         task = style.gray,
     }
     for _, task in ipairs(info.tasks) do
-        local name: io.Cell
+        local name: terminal.Cell
         if task.default then
-            name = io.annotatedCell(task.name, " (default)", style.strong)
+            name = terminal2.annotatedcell(task.name, " (default)", style.strong)
         else
-            name = io.paintedCell(task.name, style.strong)
+            name = terminal2.paintedcell(task.name, style.strong)
         end
         rows[
             #rows + 1
         ] = {
             name,
-            io.paintedCell(tostring(task.kind or ""), kindColors[task.kind or ""] or style.faint),
-            io.cell(task.description or ""),
+            terminal2.paintedcell(tostring(task.kind or ""), kindColors[task.kind or ""] or style.faint),
+            terminal.cell(task.description or ""),
         }
     end
-    io.writeTable(
+    terminal2.writetable(
         io.stdout,
         {
             columns = {{heading = "task"}, {heading = "kind"}, {heading = "description"}},
             rows = rows,
             style = style,
-        } as io.TableOptions
+        } as terminal.TableOptions
     )
 
     return 0
@@ -240,7 +244,7 @@ end
 ---     nupp task --list app
 ---     nupp task serve --port 8080
 @cli(name = "task", stopAtFirstArgument = true)
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Task
     --- List project tasks, or inspect NAME.
     @cli(short = "l")

@@ -45,7 +45,7 @@ end
 
 --- A runtime-sized heterogeneous owner group.
 ---
---- `managedGroup` adopts independently managed cells and closes every remaining
+--- `managedgroup` adopts independently managed cells and closes every remaining
 --- resource in reverse adoption order. It is ordinary library code over aliases;
 --- the compiler does not give the group special ownership privileges.
 interface own.ManagedGroup is own.Closeable
@@ -215,7 +215,7 @@ local types: {
     --- as inside a generator.
     --- @return the open member
     --- @raises string when given any argument
-    @readonly nonExhaustive: @comptime function(): type,
+    @readonly nonexhaustive: @comptime function(): type,
 
     --- `base` narrowed to the values from `min` through `max`, both included.
     ---
@@ -389,7 +389,7 @@ local types: {
     --- compiler-lowered formatting APIs.
     --- @param format the format-string type to inspect
     --- @return the argument pack consumed by its directives
-    @readonly formatArguments: @comptime function(format: type): typepack,
+    @readonly formatarguments: @comptime function(format: type): typepack,
 
     --- A function type from its parameter and result packs. Spelled with a
     --- trailing underscore because `function` is a keyword.
@@ -475,7 +475,7 @@ local types: {
     ---
     --- Aliases and ownership wrappers are transparent. Structural types and two
     --- different nominal declarations answer false even when their shapes match.
-    @readonly sameNominal: @comptime function(left: type, right: type): boolean,
+    @readonly samenominal: @comptime function(left: type, right: type): boolean,
 
     --- The parameters a record or struct is constructed with, as a pack whose
     --- slots carry their names.
@@ -512,14 +512,14 @@ local types: {
     --- @param value the shape or indexer to inspect
     --- @return one handle per readable key
     --- @raises string when the handle is neither a shape nor an indexer
-    @readonly readKeys: @comptime function(value: type): {type},
+    @readonly readkeys: @comptime function(value: type): {type},
 
     --- Every key a type can be written at: one string literal per writable field,
     --- plus the indexer's write key when it has one.
     --- @param value the shape or indexer to inspect
     --- @return one handle per writable key
     --- @raises string when the handle is neither a shape nor an indexer
-    @readonly writeKeys: @comptime function(value: type): {type},
+    @readonly writekeys: @comptime function(value: type): {type},
 
     --- The type read at a key: the named field when the key is a string literal
     --- naming a readable one, and otherwise the indexer's read value.
@@ -528,7 +528,7 @@ local types: {
     --- @return the value type at that key
     --- @raises string when the type has no read capability there, reported as
     ---     NUPP2420
-    @readonly readAt: @comptime function(value: type, key: type): type,
+    @readonly readat: @comptime function(value: type, key: type): type,
 
     --- The type written at a key: the named field when the key is a string
     --- literal naming a writable one, and otherwise the indexer's write value.
@@ -537,34 +537,6 @@ local types: {
     --- @return the value type at that key
     --- @raises string when the type has no write capability there, reported as
     ---     NUPP2420
-    @readonly writeAt: @comptime function(value: type, key: type): type,
-
-    --- Accepts the lowercase builder name before compiler-source adoption.
-    --- @internal
-    @readonly nonexhaustive: @comptime function(): type,
-
-    --- Accepts the lowercase builder name before compiler-source adoption.
-    --- @internal
-    @readonly formatarguments: @comptime function(format: type): typepack,
-
-    --- Accepts the lowercase builder name before compiler-source adoption.
-    --- @internal
-    @readonly samenominal: @comptime function(left: type, right: type): boolean,
-
-    --- Accepts the lowercase builder name before compiler-source adoption.
-    --- @internal
-    @readonly readkeys: @comptime function(value: type): {type},
-
-    --- Accepts the lowercase builder name before compiler-source adoption.
-    --- @internal
-    @readonly writekeys: @comptime function(value: type): {type},
-
-    --- Accepts the lowercase builder name before compiler-source adoption.
-    --- @internal
-    @readonly readat: @comptime function(value: type, key: type): type,
-
-    --- Accepts the lowercase builder name before compiler-source adoption.
-    --- @internal
     @readonly writeat: @comptime function(value: type, key: type): type,
 
     --- Rejects this type application deliberately, with an authored message.
@@ -591,10 +563,10 @@ local own: {
     manage: function<T>(takes owner: T): managed(T),
 
     --- Recovers an erased alias from an untyped boundary after checking its brand.
-    recoverAlias: function(value: any): ((alias(unknown), nil) | (nil, own.AliasError)),
+    recoveralias: function(value: any): ((alias(unknown), nil) | (nil, own.AliasError)),
 
     --- Creates a runtime-sized group of independently managed resources.
-    managedGroup: function(): own.ManagedGroup
+    managedgroup: function(): own.ManagedGroup
 }
 
 ----------------------------------------------------------------------------
@@ -786,7 +758,7 @@ end
 --- #### Derive the shipped providers
 ---
 --- ```nupp
---- @derive(types.Debug)
+--- @derive(types.debug)
 --- local record Settings
 ---     host: string = "localhost"
 ---     port: integer = 8080
@@ -868,7 +840,7 @@ record types.derive
     end
 
     --- The checked shape of `@event`, written on a declaration deriving
-    --- `events.Event`.
+    --- `events.event`.
     interface EventOptions
         --- The name the event registers under. The declaration's own name when
         --- omitted; written when the name is an external surface something pins.
@@ -1128,9 +1100,6 @@ record types.derive
     ---
     --- @param argument a reflected annotation argument whose kind is `type`
     --- @return the referenced type handle
-    annotationType: function(argument: types.reflect.AnnotationArgument): any
-
-    --- @internal
     annotationtype: function(argument: types.reflect.AnnotationArgument): any
 
     --- Passes a named record's first-class `Type<T>` witness to the runtime helper.
@@ -1163,7 +1132,7 @@ end
 --- Semantic type reflection and reflection-driven field codecs.
 ---
 --- Call the namespace with a concrete type inside `comptime` to obtain an immutable,
---- target-independent descriptor. `fieldCodec` materializes the stored fields of a
+--- target-independent descriptor. `fieldcodec` materializes the stored fields of a
 --- reflected record into a keyed runtime codec.
 ---
 --- The root's common facts are projected onto `Info`, so the usual inspection does
@@ -1461,7 +1430,7 @@ record types.reflect
     --- end
     ---
     --- const PositionCodec: types.reflect.FieldCodec<Position> = comptime do
-    ---     return types.reflect.fieldCodec(types.reflect(Position))
+    ---     return types.reflect.fieldcodec(types.reflect(Position))
     --- end
     ---
     --- local encoded = PositionCodec:encode(new Position(x = 3, y = 4))
@@ -1479,9 +1448,6 @@ record types.reflect
     --- A descriptor, schema, or binding builds a key's value once, then returns
     --- the same value from its private cache. Key identities and their slot
     --- numbers are process-local and must not be persisted.
-    extensionKey: function<T>(build: function(host: any): T): ExtensionKey<T>
-
-    --- @internal
     extensionkey: function<T>(build: function(host: any): T): ExtensionKey<T>
 
     --- Reads the semantic description carried by a first-class type witness.
@@ -1490,9 +1456,6 @@ record types.reflect
 
     --- Reads an available nominal witness reachable through stored fields or
     --- constructor parameters. An unresolved forward declaration returns nil.
-    runtimeType: function(info: Info, index: integer): Type<unknown>?
-
-    --- @internal
     runtimetype: function(info: Info, index: integer): Type<unknown>?
 
     --- Reflects a concrete type for use inside a `comptime` block.
@@ -1529,7 +1492,7 @@ record types.reflect
     --- @comptime local function keyed(
     ---     info: types.reflect.Info
     --- ): types.reflect.FieldCodecBlueprint
-    ---     return types.reflect.fieldCodec(info)
+    ---     return types.reflect.fieldcodec(info)
     --- end
     ---
     --- const MessageCodec: types.reflect.FieldCodec<Message> = comptime do
@@ -1539,10 +1502,6 @@ record types.reflect
     --- local encoded = MessageCodec:encode(new Message(id = 1, text = "hello"))
     --- assert(encoded.id == 1 and encoded.text == "hello")
     --- ```
-    fieldCodec: @comptime function(info: Info): FieldCodecBlueprint
-
-    --- Accepts the lowercase builder name before compiler-source adoption.
-    --- @internal
     fieldcodec: @comptime function(info: Info): FieldCodecBlueprint
 end
 
@@ -1613,15 +1572,12 @@ record nupp.Vec2Library
     --- @param x the vector's x component
     --- @param y the vector's y component
     --- @return the squared magnitude
-    lengthSquared: function(x: number, y: number): number
+    lengthsquared: function(x: number, y: number): number
 
     --- Computes a vector's magnitude.
     --- @param x the vector's x component
     --- @param y the vector's y component
     --- @return the magnitude
-    length: function(x: number, y: number): number
-
-    --- @internal
     len: function(x: number, y: number): number
 
     --- Computes the squared distance between two points without a square root.
@@ -1630,7 +1586,7 @@ record nupp.Vec2Library
     --- @param bx the second point's x coordinate
     --- @param by the second point's y coordinate
     --- @return the squared distance
-    distanceSquared: function(ax: number, ay: number, bx: number, by: number): number
+    distancesquared: function(ax: number, ay: number, bx: number, by: number): number
 
     --- Computes the distance between two points.
     --- @param ax the first point's x coordinate
@@ -1638,9 +1594,6 @@ record nupp.Vec2Library
     --- @param bx the second point's x coordinate
     --- @param by the second point's y coordinate
     --- @return the distance
-    distance: function(ax: number, ay: number, bx: number, by: number): number
-
-    --- @internal
     dist: function(ax: number, ay: number, bx: number, by: number): number
 
     --- Returns a unit vector in the same direction, or `(0, 0)` for zero.
@@ -1668,7 +1621,7 @@ record nupp.Vec2Library
     --- @param distance the maximum step; nonpositive values leave the start unchanged
     --- @return the resulting x component
     --- @return the resulting y component
-    moveTowards: function(ax: number, ay: number, bx: number, by: number, distance: number): (number, number)
+    movetowards: function(ax: number, ay: number, bx: number, by: number, distance: number): (number, number)
 
     --- Rotates a vector around the origin.
     --- @param x the vector's x component
@@ -1690,7 +1643,7 @@ record nupp.Vec2Library
     --- @param bx the second vector's x component
     --- @param by the second vector's y component
     --- @return the angle from zero through pi, or zero for a zero vector
-    angleBetween: function(ax: number, ay: number, bx: number, by: number): number
+    anglebetween: function(ax: number, ay: number, bx: number, by: number): number
 
     --- Computes the smallest signed angle from the first vector to the second.
     --- @param ax the first vector's x component
@@ -1698,7 +1651,7 @@ record nupp.Vec2Library
     --- @param bx the second vector's x component
     --- @param by the second vector's y component
     --- @return the angle in `[-pi, pi)`, or zero for a zero vector
-    signedAngleBetween: function(ax: number, ay: number, bx: number, by: number): number
+    signedanglebetween: function(ax: number, ay: number, bx: number, by: number): number
 
     --- Projects a vector onto another vector.
     --- @param x the vector's x component
@@ -1717,26 +1670,6 @@ record nupp.Vec2Library
     --- @return the reflected x component, or the input x for a zero normal
     --- @return the reflected y component, or the input y for a zero normal
     reflect: function(x: number, y: number, normalX: number, normalY: number): (number, number)
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
-    lengthsquared: function(x: number, y: number): number
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
-    distancesquared: function(ax: number, ay: number, bx: number, by: number): number
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
-    movetowards: function(ax: number, ay: number, bx: number, by: number, distance: number): (number, number)
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
-    anglebetween: function(ax: number, ay: number, bx: number, by: number): number
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
-    signedanglebetween: function(ax: number, ay: number, bx: number, by: number): number
 end
 
 --- Three-dimensional rotation operations on `(x, y, z, w)` number quadruples.
@@ -1837,7 +1770,7 @@ record nupp.QuatLibrary
     --- @param z the rotation's z component
     --- @param w the rotation's w component
     --- @return the squared length
-    lengthSquared: function(x: number, y: number, z: number, w: number): number
+    lengthsquared: function(x: number, y: number, z: number, w: number): number
 
     --- Returns the length, which is one for a unit rotation.
     --- @param x the rotation's x component
@@ -1845,9 +1778,6 @@ record nupp.QuatLibrary
     --- @param z the rotation's z component
     --- @param w the rotation's w component
     --- @return the length
-    length: function(x: number, y: number, z: number, w: number): number
-
-    --- @internal
     len: function(x: number, y: number, z: number, w: number): number
 
     --- Returns a unit rotation in the same direction, or the identity for zero.
@@ -1892,7 +1822,7 @@ record nupp.QuatLibrary
     --- Composes two rotations, applying the second one first.
     ---
     --- The order matches column-major matrix multiplication, so the matrix of
-    --- `multiply(a, b)` is the matrix of `a` times the matrix of `b`.
+    --- `mul(a, b)` is the matrix of `a` times the matrix of `b`.
     --- @param ax the second-applied rotation's x component
     --- @param ay the second-applied rotation's y component
     --- @param az the second-applied rotation's z component
@@ -1905,18 +1835,6 @@ record nupp.QuatLibrary
     --- @return the composition's y component
     --- @return the composition's z component
     --- @return the composition's w component
-    multiply: function(
-        ax: number,
-        ay: number,
-        az: number,
-        aw: number,
-        bx: number,
-        by: number,
-        bz: number,
-        bw: number
-    ): (number, number, number, number)
-
-    --- @internal
     mul: function(
         ax: number,
         ay: number,
@@ -1963,7 +1881,7 @@ record nupp.QuatLibrary
     --- @return the rotation's y component, or zero for a zero axis
     --- @return the rotation's z component, or zero for a zero axis
     --- @return the rotation's w component, or one for a zero axis
-    fromAxisAngle: function(x: number, y: number, z: number, radians: number): (number, number, number, number)
+    fromaxisangle: function(x: number, y: number, z: number, radians: number): (number, number, number, number)
 
     --- Recovers the axis and angle of a unit rotation.
     ---
@@ -1978,7 +1896,7 @@ record nupp.QuatLibrary
     --- @return the axis's z component, or zero for the identity
     --- @return the turn about the axis in radians, zero for positive identity or `2pi`
     ---     for negative identity
-    toAxisAngle: function(x: number, y: number, z: number, w: number): (number, number, number, number)
+    toaxisangle: function(x: number, y: number, z: number, w: number): (number, number, number, number)
 
     --- Returns the shortest rotation carrying a direction onto another.
     ---
@@ -1994,7 +1912,7 @@ record nupp.QuatLibrary
     --- @return the rotation's y component, or zero for a zero direction
     --- @return the rotation's z component, or zero for a zero direction
     --- @return the rotation's w component, or one for a zero direction
-    fromTo: function(
+    fromto: function(
         ax: number,
         ay: number,
         az: number,
@@ -2069,7 +1987,7 @@ record nupp.QuatLibrary
     --- Returns a unit rotation's three-by-three matrix in column-major order.
     ---
     --- Answered rather than written, for the caller folding a rotation into something
-    --- larger. `toMatrix` is the form for storage.
+    --- larger. `tomatrix` is the form for storage.
     --- @param x the rotation's x component
     --- @param y the rotation's y component
     --- @param z the rotation's z component
@@ -2103,33 +2021,6 @@ record nupp.QuatLibrary
     --- @param out the destination the sixteen numbers are written to
     --- @param offset the index the first number is written at
     --- @return The operation returns no value.
-    toMatrix: function(x: number, y: number, z: number, w: number, out: {number}, offset: integer): nil
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
-    lengthsquared: function(x: number, y: number, z: number, w: number): number
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
-    fromaxisangle: function(x: number, y: number, z: number, radians: number): (number, number, number, number)
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
-    toaxisangle: function(x: number, y: number, z: number, w: number): (number, number, number, number)
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
-    fromto: function(
-        ax: number,
-        ay: number,
-        az: number,
-        bx: number,
-        by: number,
-        bz: number
-    ): (number, number, number, number)
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     tomatrix: function(x: number, y: number, z: number, w: number, out: {number}, offset: integer): nil
 end
 
@@ -2142,65 +2033,17 @@ record nupp.I32MathLibrary
     add: @nosuspend function(a: int32, b: int32): int32
     sub: @nosuspend function(a: int32, b: int32): int32
     mul: @nosuspend function(a: int32, b: int32): int32
-    andBits: @nosuspend function(a: int32, b: int32): int32
-    orBits: @nosuspend function(a: int32, b: int32): int32
-    xorBits: @nosuspend function(a: int32, b: int32): int32
-    notBits: @nosuspend function(a: int32): int32
-    shiftLeft: @nosuspend function(a: int32, count: integer): int32
-    shiftRightArithmetic: @nosuspend function(a: int32, count: integer): int32
-    rotateLeft: @nosuspend function(a: int32, count: integer): int32
-    rotateRight: @nosuspend function(a: int32, count: integer): int32
-    lessThan: @nosuspend function(a: int32, b: int32): boolean
-    lessOrEqual: @nosuspend function(a: int32, b: int32): boolean
-    fromU32: @nosuspend function(a: uint32): int32
-    toU32: @nosuspend function(a: int32): uint32
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     andbits: @nosuspend function(a: int32, b: int32): int32
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     orbits: @nosuspend function(a: int32, b: int32): int32
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     xorbits: @nosuspend function(a: int32, b: int32): int32
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     notbits: @nosuspend function(a: int32): int32
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     shiftleft: @nosuspend function(a: int32, count: integer): int32
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     shiftrightarithmetic: @nosuspend function(a: int32, count: integer): int32
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     rotateleft: @nosuspend function(a: int32, count: integer): int32
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     rotateright: @nosuspend function(a: int32, count: integer): int32
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     lessthan: @nosuspend function(a: int32, b: int32): boolean
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     lessorequal: @nosuspend function(a: int32, b: int32): boolean
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     fromu32: @nosuspend function(a: uint32): int32
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     tou32: @nosuspend function(a: int32): uint32
 end
 
@@ -2218,113 +2061,33 @@ record nupp.U32MathLibrary
     --- Unsigned remainder, or zero when the divisor is zero.
     mod: @nosuspend function(a: uint32, b: uint32): uint32
 
-    andBits: @nosuspend function(a: uint32, b: uint32): uint32
-    orBits: @nosuspend function(a: uint32, b: uint32): uint32
-    xorBits: @nosuspend function(a: uint32, b: uint32): uint32
-    notBits: @nosuspend function(a: uint32): uint32
-    shiftLeft: @nosuspend function(a: uint32, count: integer): uint32
-    shiftRightLogical: @nosuspend function(a: uint32, count: integer): uint32
-    rotateLeft: @nosuspend function(a: uint32, count: integer): uint32
-    rotateRight: @nosuspend function(a: uint32, count: integer): uint32
-    lessThan: @nosuspend function(a: uint32, b: uint32): boolean
-    lessOrEqual: @nosuspend function(a: uint32, b: uint32): boolean
-    fromI32: @nosuspend function(a: int32): uint32
-    toI32: @nosuspend function(a: uint32): int32
-    popcount: @nosuspend function(a: uint32): uint32
-    trailingZeros: @nosuspend function(a: uint32): uint32
-    leadingZeros: @nosuspend function(a: uint32): uint32
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     andbits: @nosuspend function(a: uint32, b: uint32): uint32
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     orbits: @nosuspend function(a: uint32, b: uint32): uint32
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     xorbits: @nosuspend function(a: uint32, b: uint32): uint32
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     notbits: @nosuspend function(a: uint32): uint32
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     shiftleft: @nosuspend function(a: uint32, count: integer): uint32
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     shiftrightlogical: @nosuspend function(a: uint32, count: integer): uint32
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     rotateleft: @nosuspend function(a: uint32, count: integer): uint32
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     rotateright: @nosuspend function(a: uint32, count: integer): uint32
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     lessthan: @nosuspend function(a: uint32, b: uint32): boolean
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     lessorequal: @nosuspend function(a: uint32, b: uint32): boolean
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     fromi32: @nosuspend function(a: int32): uint32
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     toi32: @nosuspend function(a: uint32): int32
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
+    popcount: @nosuspend function(a: uint32): uint32
     trailingzeros: @nosuspend function(a: uint32): uint32
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     leadingzeros: @nosuspend function(a: uint32): uint32
 end
 
 --- Unsigned 64-bit rotations, bit counts and prefix parity.
 --- @internal
 record nupp.U64MathLibrary
-    andBits: @nosuspend function(a: uint64, b: uint64): uint64
-    sub: @nosuspend function(a: uint64, b: uint64): uint64
-    rotateLeft: @nosuspend function(a: uint64, count: integer): uint64
-    rotateRight: @nosuspend function(a: uint64, count: integer): uint64
-    popcount: @nosuspend function(a: uint64): uint32
-    trailingZeros: @nosuspend function(a: uint64): uint32
-    leadingZeros: @nosuspend function(a: uint64): uint32
-    prefixXor: @nosuspend function(a: uint64): uint64
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     andbits: @nosuspend function(a: uint64, b: uint64): uint64
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
+    sub: @nosuspend function(a: uint64, b: uint64): uint64
     rotateleft: @nosuspend function(a: uint64, count: integer): uint64
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     rotateright: @nosuspend function(a: uint64, count: integer): uint64
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
+    popcount: @nosuspend function(a: uint64): uint32
     trailingzeros: @nosuspend function(a: uint64): uint32
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     leadingzeros: @nosuspend function(a: uint64): uint32
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     prefixxor: @nosuspend function(a: uint64): uint64
 end
 
@@ -2347,43 +2110,19 @@ record nupp.F32MathLibrary
     --- The specified binary32 operation sequence is shared by CPU and GPU AOT.
     exp: @nosuspend function(value: float): float
 
-    fromBits: @nosuspend function(bits: uint32): float
-    toBits: @nosuspend function(value: float): uint32
-
-    --- Widens IEEE binary16 storage bits to binary32, canonicalizing NaN.
-    fromF16Bits: @nosuspend function(bits: uint32): float
-
-    --- Rounds binary32 to IEEE binary16 storage bits, ties to even.
-    toF16Bits: @nosuspend function(value: float): uint32
-
-    --- Widens the low sixteen IEEE bfloat16 storage bits to binary32.
-    fromBF16Bits: @nosuspend function(bits: uint32): float
-
-    --- Rounds binary32 to IEEE bfloat16 storage bits, ties to even.
-    toBF16Bits: @nosuspend function(value: float): uint32
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     frombits: @nosuspend function(bits: uint32): float
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     tobits: @nosuspend function(value: float): uint32
 
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
+    --- Widens IEEE binary16 storage bits to binary32, canonicalizing NaN.
     fromf16bits: @nosuspend function(bits: uint32): float
 
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
+    --- Rounds binary32 to IEEE binary16 storage bits, ties to even.
     tof16bits: @nosuspend function(value: float): uint32
 
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
+    --- Widens the low sixteen IEEE bfloat16 storage bits to binary32.
     frombf16bits: @nosuspend function(bits: uint32): float
 
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
+    --- Rounds binary32 to IEEE bfloat16 storage bits, ties to even.
     tobf16bits: @nosuspend function(value: float): uint32
 end
 
@@ -2426,19 +2165,11 @@ record nupp.MathLibrary
     --- Wraps an angle to the equivalent value in `[-pi, pi)`.
     --- @param radians the angle in radians
     --- @return the wrapped angle
-    wrapAngle: function(radians: number): number
+    wrapangle: function(radians: number): number
 
     --- Computes the shortest signed rotation from one angle to another.
     --- @param from the starting angle in radians
     --- @param to the target angle in radians
     --- @return the signed rotation in `[-pi, pi)`
-    deltaAngle: function(from: number, to: number): number
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
-    wrapangle: function(radians: number): number
-
-    --- Accepts the lowercase namespace function before source adoption.
-    --- @internal
     deltaangle: function(from: number, to: number): number
 end

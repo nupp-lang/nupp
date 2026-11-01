@@ -4,7 +4,7 @@ order: 150
 
 # Worker tasks
 
-`nupp.workers` runs sendable functions in parallel on a shared,
+`coroutine.workers` runs sendable functions in parallel on a shared,
 bounded scheduler whose lanes are native threads with isolated LuaJIT states.
 A lane is reached through `fork` on an [application task scope](task-scopes.md),
 which owns the worker children it starts. Arguments and results cross as copies,
@@ -23,10 +23,10 @@ end
 module main
 
 const jobs = require("jobs")
-const tasks = nupp.tasks
+const tasks = coroutine
 
 export function hashes(left: string, right: string): (string, string)
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         const first = scope:fork(left, jobs.hash)
         const second = scope:fork(right, jobs.hash)
 
@@ -58,7 +58,7 @@ return {
 }
 ```
 
-A `lua51` bundle with a compatible `nupp.workers.spi.Provider` provider runs them too.
+A `lua51` bundle with a compatible `coroutine.workers.spi.Provider` provider runs them too.
 That is [the browser backend](#browser-lanes) today, where a lane is a Web
 Worker rather than a thread.
 :::
@@ -133,9 +133,9 @@ end
 Waiting inside the loop that forks would fork one task, wait for it, and fork the
 next: still correct, and exactly as parallel as calling the function. A handle
 rarely needs a type annotation, because `const task = scope:fork(bytes,
-jobs.hash)` infers one. Where one is written, it is `nupp.tasks.Task<F>`, named
+jobs.hash)` infers one. Where one is written, it is `coroutine.Task<F>`, named
 by the submitted function's type: the handle is derived from the signature
-alone, so it is `nupp.tasks.Task<function(string): string>` even though [`fork`
+alone, so it is `coroutine.Task<function(string): string>` even though [`fork`
 requires an `@sendable` function](#functions-that-can-be-submitted).
 
 ### Work in the caller
@@ -223,13 +223,13 @@ boundary or risking that a lane waits on itself.
 ```nupp
 module jobs.index
 
-const tasks = nupp.tasks
+const tasks = coroutine
 
 -- Submitting this raises where it forks: a worker task cannot open another
 -- worker scope.
 export function countAll(shards: {{string}}): integer
     local total: integer = 0
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         for _, paths in ipairs(shards) do
             total = total + scope:fork(|| -> #paths):await()
         end
@@ -524,7 +524,7 @@ interruption point, so leaving a scope waits for a task that is already running.
 A bounded function can cooperate by calling `tasks.checkpoint()`:
 
 ```nupp:fragment
-const tasks = nupp.tasks
+const tasks = coroutine
 
 export function search(limit: integer): integer
     for index = 1, limit do
@@ -554,17 +554,17 @@ across process failure, and jobs that outlive the caller belong to a broker or
 
 ## Browser lanes
 
-The [browser implementation](../../performance/ahead-of-time/wasm.md#browser-platform-services)
-satisfies `nupp.workers.spi.Provider`, so everything above is written the same way there.
-A lane is a module Web Worker holding its own LuaJIT guest, booted from the
-same verified application package the page loaded; the packaging step ships the
-lane entry point beside the content-addressed runtime. A lane checks that the
-manifest it fetches has the digest of the one the page verified, so a deploy
-between page load and a lane's start fails that lane's tasks with "the
-application manifest changed after the page loaded it" rather than pairing two
-builds. Nothing is shared between
-lanes, so no Wasm threads, no `SharedArrayBuffer`, and no cross-origin isolation
-headers are involved.
+The [browser
+implementation](../../performance/ahead-of-time/wasm.md#browser-platform-services)
+satisfies `coroutine.workers.spi.Provider`, so everything above is written the
+same way there. A lane is a module Web Worker holding its own LuaJIT guest,
+booted from the same verified application package the page loaded; the packaging
+step ships the lane entry point beside the content-addressed runtime. A lane
+checks that the manifest it fetches has the digest of the one the page verified,
+so a deploy between page load and a lane's start fails that lane's tasks with
+"the application manifest changed after the page loaded it" rather than pairing
+two builds. Nothing is shared between lanes, so no Wasm threads, no
+`SharedArrayBuffer`, and no cross-origin isolation headers are involved.
 
 The page's pool is bounded by both the package's lane limit and
 `navigator.hardwareConcurrency`, and `os.info().parallelism`
@@ -587,5 +587,5 @@ buffer](#moving-owned-buffers) cannot transfer its native pointer ownership into
 another guest, so every ownership mode keeps the copy refusal.
 
 Everything else is the same: a scope is fail-fast, a scope deadline reaches a
-lane, and `nupp.tasks.checkpoint()` is where a running lane observes that its
+lane, and `coroutine.checkpoint()` is where a running lane observes that its
 cancellation was requested.

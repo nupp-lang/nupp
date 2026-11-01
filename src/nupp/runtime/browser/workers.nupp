@@ -8,7 +8,7 @@ Browser structured-worker implementation used as a built-in module fallback.
 Each lane is a module Web Worker with its own LuaJIT guest, initialized from
 the application's verified payload. The host pool exchanges copied messages;
 parallel work requires neither Wasm threads nor shared memory. Sendable function
-metadata, scopes, and task results follow [](nupp.workers.spi).
+metadata, scopes, and task results follow [](coroutine.workers.spi).
 
 Replies become visible when the current state parks. `isDone` reflects the last
 received reply, queued cancellation settles at a park, and a running task observes
@@ -25,11 +25,11 @@ const _DYNAMIC_REQUIRES = "@requires-dynamically nothing"
 local base64 = require("serde.base64")
 local browserEffects = require("nupp.runtime.browser.effects")
 local codec = require("nupp.runtime.browser.workercodec")
-local suspension = require("nupp.suspension")
-local cancellation = require("nupp.suspension.cancellation")
+local suspension = require("coroutine.suspension")
+local cancellation = require("coroutine.suspension.cancellation")
 local workers = {}
 
-local contracts = require("nupp.workers.spi")
+local contracts = require("coroutine.workers.spi")
 local type Callable = function(...: any): any
 type workers.Submittable = contracts.Submittable
 type workers.Task<F is Callable> = contracts.Task<F>
@@ -154,7 +154,7 @@ local MAX_UNSETTLED: integer = 1024
 local MAX_UNSETTLED_BYTES: integer = 268435456
 
 -- How many replies a closing scope asks for before it waits on the first of them.
--- The same number of child activations `nupp.tasks` consumes in one host turn.
+-- The same number of child activations `coroutine` consumes in one host turn.
 local DRAIN_WINDOW: integer = 64
 
 local unsettled: {[integer]: any} = {}
@@ -544,7 +544,7 @@ end
 local spawnSurface: function<F is workers.Submittable>(
     borrows self: workers.Scope,
     F,
-    ...: unpackof contracts.Submitted(F)
+    ...: unpackof contracts.submitted(F)
 ): workers.Task<F>
 @unsafe do
     spawnSurface = spawnImpl as any

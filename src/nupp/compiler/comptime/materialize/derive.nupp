@@ -139,7 +139,7 @@ function deriveProvider.installEvaluator(state: any, env: any, opaque: any, prov
         local subject = type(index) == "number" and state.deriveAnnotationTypes and state.deriveAnnotationTypes[index]
             or nil
         if args.n ~= 1 or not subject then
-            return nil, failure("NUPP2810", "derive.annotationType needs one @ref annotation argument")
+            return nil, failure("NUPP2810", "derive.annotationtype needs one @ref annotation argument")
         end
 
         return subject

@@ -9,10 +9,10 @@ local testAssert = require("assert")
 -- The scheduling assertions are about ordering and ownership rather than timing.
 -- Where a duration appears it is a bound loose enough that only a serialized or
 -- deadlocked implementation could exceed it.
-local tasks = require("nupp.tasks")
-local time = require("nupp.time")
-local suspension = require("nupp.suspension")
-local suspensionHost = require("nupp.suspension.host")
+local tasks = require("coroutine")
+local time = require("coroutine")
+local suspension = require("coroutine.suspension")
+local suspensionHost = require("coroutine.suspension.host")
 
 local M = {}
 
@@ -23,10 +23,10 @@ local function raises(body)
     return problem
 end
 
--- What `with scope = nupp.tasks.open(...) do ... end` lowers to: the body runs with
+-- What `with scope = coroutine.scope(...) do ... end` lowers to: the body runs with
 -- the scope, and the scope is settled on every exit, the body's failure first.
 local function scoped(options, body)
-    local scope = tasks.open(options and options.limit, options and options.deadline)
+    local scope = tasks.scope(options and options.limit, options and options.deadline)
     local ok, problem = pcall(body, scope)
     local settled, settleProblem = pcall(scope.close, scope)
     if not ok then
@@ -206,7 +206,7 @@ function M.cancellingBeforeAChildStartsNeverRunsItsBody()
         local problem = raises(function()
             child:await()
         end)
-        assert(tasks.isCancelled(problem), "await did not raise a cancellation")
+        assert(tasks.iscancelled(problem), "await did not raise a cancellation")
         assert(
             tostring(problem):find("not wanted", 1, true) ~= nil,
             "the reason was not carried: " .. tostring(problem)
@@ -221,7 +221,7 @@ function M.cancellingAParkedChildUnwindsIt()
             local ok, caught = pcall(function()
                 time.sleep(2000)
             end)
-            unwound = not ok and tasks.isCancelled(caught)
+            unwound = not ok and tasks.iscancelled(caught)
             if not ok then
                 error(caught, 0)
             end
@@ -233,7 +233,7 @@ function M.cancellingAParkedChildUnwindsIt()
         local problem = raises(function()
             child:await()
         end)
-        assert(tasks.isCancelled(problem), "await did not answer with the cancellation")
+        assert(tasks.iscancelled(problem), "await did not answer with the cancellation")
         assert(unwound, "the parked child did not unwind through its cleanup")
         testAssert.equal(child:status(), "cancelled", "the settled status")
     end)
@@ -260,7 +260,7 @@ function M.checkpointIsWhatReachesAChildThatNeverParks()
         local problem = raises(function()
             child:await()
         end)
-        assert(tasks.isCancelled(problem), "the compute loop did not answer the cancellation")
+        assert(tasks.iscancelled(problem), "the compute loop did not answer the cancellation")
         assert(iterations > 0, "the loop never ran")
         assert(iterations < 1000, "the loop kept going past its first checkpoint")
     end)
@@ -285,7 +285,7 @@ function M.cancelIsTheScopesOwnDecisionAndTheExitStaysQuiet()
             local problem = raises(function()
                 child:await()
             end)
-            assert(tasks.isCancelled(problem), "a child did not answer the scope's cancellation")
+            assert(tasks.iscancelled(problem), "a child did not answer the scope's cancellation")
             assert(
                 tostring(problem):find("one is enough", 1, true) ~= nil,
                 "the reason was not carried: " .. tostring(problem)
@@ -297,7 +297,7 @@ function M.cancelIsTheScopesOwnDecisionAndTheExitStaysQuiet()
             ran = true
         end)
         assert(
-            tasks.isCancelled(
+            tasks.iscancelled(
                 raises(function()
                     late:await()
                 end)
@@ -446,7 +446,7 @@ function M.aScopeWithADeadlineCancelsWhatOutlivesIt()
             child:await()
         end)
     end)
-    assert(tasks.isCancelled(problem), "the deadline did not cancel: " .. tostring(problem))
+    assert(tasks.iscancelled(problem), "the deadline did not cancel: " .. tostring(problem))
     assert(os.monotonic() - started < 1000, "the scope waited for work its deadline had ended")
 end
 
@@ -459,7 +459,7 @@ function M.aDeadlineUnwindsEveryParkedChildThroughItsCleanup()
 
     local function child()
         local ok, caught = pcall(time.sleep, 2000)
-        if not ok and tasks.isCancelled(caught) then
+        if not ok and tasks.iscancelled(caught) then
             unwound = unwound + 1
         end
         -- A cleanup that parks again is still driven to its end.
@@ -477,7 +477,7 @@ function M.aDeadlineUnwindsEveryParkedChildThroughItsCleanup()
             scope:spawn(child)
         end)
     end)
-    assert(tasks.isCancelled(problem), "the deadline was not raised at the block's exit: " .. tostring(problem))
+    assert(tasks.iscancelled(problem), "the deadline was not raised at the block's exit: " .. tostring(problem))
     testAssert.equal(unwound, 2, "a parked child did not observe the cancellation")
     testAssert.equal(closes, 2, "a child's cleanup was skipped")
     assert(os.monotonic() - started < 1000, "settling waited for work the deadline had ended")
@@ -492,7 +492,7 @@ function M.aDeadlineUnwindsEveryParkedChildThroughItsCleanup()
             task:await()
         end)
     end)
-    assert(tasks.isCancelled(problem), "the deadline did not reach the block's wait: " .. tostring(problem))
+    assert(tasks.iscancelled(problem), "the deadline did not reach the block's wait: " .. tostring(problem))
     testAssert.equal(unwound, 2, "a child parked under an awaiting block did not observe the cancellation")
     testAssert.equal(closes, 2, "a child's cleanup was skipped under an awaiting block")
 end
@@ -506,7 +506,7 @@ function M.aDeadlineCancelsTheBlocksOwnWait()
             time.sleep(4000)
         end)
     end)
-    assert(tasks.isCancelled(problem), "the block's wait was not cancelled: " .. tostring(problem))
+    assert(tasks.iscancelled(problem), "the block's wait was not cancelled: " .. tostring(problem))
     assert(os.monotonic() - started < 1000, "the block slept past its deadline")
 end
 
@@ -567,7 +567,7 @@ end
 function M.aBadLimitOrDeadlineIsRefused()
     for _, bad in ipairs({-1, math.huge}) do
         local problem = raises(function()
-            tasks.open(nil, bad)
+            tasks.scope(nil, bad)
         end)
         assert(
             tostring(problem):find("finite non-negative", 1, true) ~= nil,
@@ -576,7 +576,7 @@ function M.aBadLimitOrDeadlineIsRefused()
     end
     for _, bad in ipairs({0, -3, 1.5}) do
         local problem = raises(function()
-            tasks.open(bad)
+            tasks.scope(bad)
         end)
         assert(
             tostring(problem):find("positive integer", 1, true) ~= nil,
@@ -586,7 +586,7 @@ function M.aBadLimitOrDeadlineIsRefused()
 end
 
 function M.aSettledScopeRefusesNewChildren()
-    local scope = tasks.open()
+    local scope = tasks.scope()
     scope:close()
     -- Idempotent: a scope closed early, as `own.drop` does, settles once when its
     -- block ends.
@@ -1097,7 +1097,7 @@ function M.nestedFamilyCallsPreserveAnOuterBarrier()
                     2,
                     tasks.gather({
                         function()
-                            saw = suspension.canSuspend()
+                            saw = suspension.cansuspend()
                             return suspension.suspend("barred branch", function()
                                 return function()
                                     cancelled = true
@@ -1163,7 +1163,7 @@ function M.cancellingATaskReachesTheScopeItIsDraining()
         end)
         local ok, problem = pcall(handle.await, handle)
         testAssert.equal(ok, false, "the cancelled task answered")
-        assert(tasks.isCancelled(problem), "the task raised " .. tostring(problem))
+        assert(tasks.iscancelled(problem), "the task raised " .. tostring(problem))
         status = handle:status()
     end)
     testAssert.equal(status, "cancelled", "the task settled")
@@ -1199,7 +1199,7 @@ end
 
 function M.aSettleThatRaisesGivesBackTheFrame()
     local before = suspension.handled()
-    local scope = tasks.open()
+    local scope = tasks.scope()
     scope:spawn(function()
         suspension.suspend("never answered", function()
             return function()
@@ -1389,7 +1389,7 @@ function M.runCancelsChildrenWhenTheBodyFails()
         tasks.run(function(scope)
             scope:spawn(function()
                 local ok, caught = pcall(time.sleep, 5000)
-                unwound = not ok and tasks.isCancelled(caught)
+                unwound = not ok and tasks.iscancelled(caught)
                 if not ok then
                     error(caught, 0)
                 end
@@ -1455,7 +1455,7 @@ function M.runRaisesItsDeadline()
             time.sleep(5000)
         end)
     end)
-    assert(tasks.isCancelled(problem), "the deadline did not cancel: " .. tostring(problem))
+    assert(tasks.iscancelled(problem), "the deadline did not cancel: " .. tostring(problem))
     assert(os.monotonic() - started < 1000, "the deadline was not kept")
 end
 

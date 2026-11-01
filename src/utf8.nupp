@@ -2,17 +2,17 @@ module utf8
 
 --[[
 `utf8` reads Unicode scalars out of strings and
-[](nupp.io.ByteView) values. Reach for it to count, decode,
+[](io.ByteView) values. Reach for it to count, decode,
 validate or truncate text whose bytes came from somewhere else.
 
 ```nupp
 const utf8 = utf8
 
-assert(utf8.length("A€") == 2)
+assert(utf8.len("A€") == 2)
 assert(utf8.encode(0x20ac) == "€")
 ```
 
-`length` counts scalars, replacing each malformed byte with one replacement
+`len` counts scalars, replacing each malformed byte with one replacement
 scalar rather than refusing the string. `encode` goes the other way, from one
 codepoint value to its bytes.
 
@@ -20,23 +20,23 @@ codepoint value to its bytes.
 
 Offsets here are 1-based, so they compose with Lua string positions and with
 `string.sub` on the same text. This is the opposite of the zero-based offsets a
-[buffer](nupp.io#buffers) uses, because those are offsets into storage rather
+[buffer](io#buffers) uses, because those are offsets into storage rather
 than positions in text.
 
 ## Decoding a scalar
 
-`decodeAt` decodes forward from an offset and returns the scalar with the offset
-after it. `decodeBefore` decodes the scalar ending before an offset and returns
+`decodeat` decodes forward from an offset and returns the scalar with the offset
+after it. `decodebefore` decodes the scalar ending before an offset and returns
 it with the offset it starts at, so the two walk in opposite directions over the
 same positions:
 
 ```nupp
 const utf8 = utf8
 
-local codepoint, nextByte = utf8.decodeAt("A€", 2)
+local codepoint, nextByte = utf8.decodeat("A€", 2)
 assert(codepoint == 0x20ac and nextByte == 5)
 
-codepoint, nextByte = utf8.decodeBefore("A€", nextByte)
+codepoint, nextByte = utf8.decodebefore("A€", nextByte)
 assert(codepoint == 0x20ac and nextByte == 2)
 ```
 
@@ -49,7 +49,7 @@ const utf8 = utf8
 
 local at: integer = 1
 while true do
-    local codepoint, nextAt = utf8.decodeAt(text, at)
+    local codepoint, nextAt = utf8.decodeat(text, at)
     if codepoint == nil then break end
     at = nextAt
 end
@@ -59,21 +59,21 @@ One past the end is an accepted offset; anything further raises.
 
 ## Validating and truncating
 
-Validation is explicit, because decoding never refuses. `isValid` checks a
+Validation is explicit, because decoding never refuses. `isvalid` checks a
 complete byte sequence:
 
 ```nupp
 const utf8 = utf8
 
-assert(utf8.isValid("café"))
-assert(not utf8.isValid("\xff"))
+assert(utf8.isvalid("café"))
+assert(not utf8.isvalid("\xff"))
 ```
 
 Overlong forms, surrogate halves and codepoints above the maximum are
 malformed even though their lead bytes are well formed, so they are rejected
 on the value rather than on the shape.
 
-`validPrefixLength(value, maxBytes)` returns the length of the largest valid
+`validprefixlength(value, maxBytes)` returns the length of the largest valid
 prefix no longer than a byte budget, which is what keeps a fixed-width field
 from splitting a scalar in half. `truncate` applies that to a string and copies
 the prefix:
@@ -81,7 +81,7 @@ the prefix:
 ```nupp
 const utf8 = utf8
 
-assert(utf8.validPrefixLength("A€B", 4) == 4)
+assert(utf8.validprefixlength("A€B", 4) == 4)
 assert(utf8.truncate("A€B", 4) == "A€")
 ```
 
@@ -89,11 +89,11 @@ assert(utf8.truncate("A€B", 4) == "A€")
 accept a string or a byte view.
 
 ::: seealso
-- [](nupp.io#byte-views) for the byte views these operations accept
+- [](io#byte-views) for the byte views these operations accept
 - [](serde.json) for JSON encoding and decoding
 :::
 ]]
-const {type ByteView} = require("nupp.io")
+const {type ByteView} = require("io")
 
 -- `string.byte` by name rather than as a method. Written `source:byte(at)` the
 -- name is looked up on the string metatable before every call; a loop long enough
@@ -231,12 +231,12 @@ local utf8 = {}
 --- ```nupp
 --- const utf8 = utf8
 ---
---- assert(utf8.length("A€") == 2)
+--- assert(utf8.len("A€") == 2)
 --- ```
 ---
 --- @param value the bytes to measure
 --- @return the codepoint count
-function utf8.length(borrows value: string | ByteView): integer
+function utf8.len(borrows value: string | ByteView): integer
     local source = bytes(value)
     local count: integer = 0
     local at: integer = 1
@@ -259,7 +259,7 @@ end
 ---
 --- local at: integer = 1
 --- while true do
----     local codepoint, nextAt = utf8.decodeAt(text, at)
+---     local codepoint, nextAt = utf8.decodeat(text, at)
 ---     if codepoint == nil then break end
 ---     at = nextAt
 --- end
@@ -270,7 +270,7 @@ end
 --- @return the codepoint, or nil at the end of the value
 --- @return the byte the next codepoint starts at
 --- @raises string when byteOffset is not an integer, or is outside the value
-function utf8.decodeAt(borrows value: string | ByteView, byteOffset: integer): (integer?, integer)
+function utf8.decodeat(borrows value: string | ByteView, byteOffset: integer): (integer?, integer)
     local source = bytes(value)
 
     return decode(source, offset(source, byteOffset, true))
@@ -278,16 +278,16 @@ end
 
 --- Reads the codepoint ending just before a byte offset, and where it starts.
 ---
---- `decodeAt` and `decodeBefore` walk the same positions in opposite
+--- `decodeat` and `decodebefore` walk the same positions in opposite
 --- directions, so decoding forward and then back lands where it started:
 ---
 --- ```nupp
 --- const utf8 = utf8
 ---
---- local codepoint, nextByte = utf8.decodeAt("A€", 2)
+--- local codepoint, nextByte = utf8.decodeat("A€", 2)
 --- assert(codepoint == 0x20ac and nextByte == 5)
 ---
---- codepoint, nextByte = utf8.decodeBefore("A€", nextByte)
+--- codepoint, nextByte = utf8.decodebefore("A€", nextByte)
 --- assert(codepoint == 0x20ac and nextByte == 2)
 --- ```
 ---
@@ -296,7 +296,7 @@ end
 --- @return the codepoint, or nil at the start of the value
 --- @return the byte that codepoint starts at
 --- @raises string when byteOffset is not an integer, or is outside the value
-function utf8.decodeBefore(borrows value: string | ByteView, byteOffset: integer): (integer?, integer)
+function utf8.decodebefore(borrows value: string | ByteView, byteOffset: integer): (integer?, integer)
     local source = bytes(value)
     local at = offset(source, byteOffset, true)
     if at == 1 then
@@ -326,7 +326,7 @@ end
 ---
 --- Surrogate halves encode rather than raise, the way a lone half decodes to the
 --- replacement rather than stopping a walk: what refuses them is
---- [](utf8.isValid), on the bytes, and encoding one is how a caller
+--- [](utf8.isvalid), on the bytes, and encoding one is how a caller
 --- reproducing damaged text writes it back out.
 ---
 --- @param codepoint the codepoint to encode
@@ -363,13 +363,13 @@ end
 --- ```nupp
 --- const utf8 = utf8
 ---
---- assert(utf8.isValid("café"))
---- assert(not utf8.isValid("\xff"))
+--- assert(utf8.isvalid("café"))
+--- assert(not utf8.isvalid("\xff"))
 --- ```
 ---
 --- @param value the bytes to test
 --- @return whether every sequence is well formed
-function utf8.isValid(borrows value: string | ByteView): boolean
+function utf8.isvalid(borrows value: string | ByteView): boolean
     local source = bytes(value)
 
     return scan(source, #source) == #source
@@ -382,14 +382,14 @@ end
 ---
 --- -- "A€B" is 5 bytes; the 4-byte budget stops just short of "B" rather
 --- -- than splitting "€" in half.
---- assert(utf8.validPrefixLength("A€B", 4) == 4)
+--- assert(utf8.validprefixlength("A€B", 4) == 4)
 --- ```
 ---
 --- @param value the bytes to measure
 --- @param maxBytes the most bytes the prefix may use
 --- @return the prefix length, in bytes
 --- @raises string when maxBytes is not an integer
-function utf8.validPrefixLength(borrows value: string | ByteView, maxBytes: integer): integer
+function utf8.validprefixlength(borrows value: string | ByteView, maxBytes: integer): integer
     local source = bytes(value)
     if maxBytes ~= math.floor(maxBytes) or maxBytes == math.huge or maxBytes == -math.huge then
         error("nupp: UTF-8 byte limit must be an integer", 2)
@@ -411,7 +411,7 @@ end
 --- @return the cut text
 --- @raises string when maxBytes is not an integer
 function utf8.truncate(text: string, maxBytes: integer): string
-    return text:sub(1, utf8.validPrefixLength(text, maxBytes))
+    return text:sub(1, utf8.validprefixlength(text, maxBytes))
 end
 
 export = utf8

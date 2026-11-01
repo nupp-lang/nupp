@@ -617,7 +617,7 @@ end
 ---
 --- ```nupp:fragment
 --- do
----     local cursor = io.newScalarReader(header)
+---     local cursor = io.newscalarreader(header)
 ---     local magic = cursor:readUint32()
 ---     local count = cursor:readUint16()
 --- end
@@ -638,10 +638,10 @@ export const newScalarReader: function(source: string | ByteQueue): affine(Scala
 --- `ScalarWriter:buffer` hands back.
 ---
 --- ```nupp
---- local io = require("nupp.io")
+--- local io = require("io")
 ---
 --- do
----     local cursor = io.newScalarWriter()
+---     local cursor = io.newscalarwriter()
 ---     cursor:writeUint32(0x4d495355):writeUint16(2)
 ---     local bytes = cursor:buffer()
 ---     assert(bytes ~= nil and bytes:getString() ~= "")

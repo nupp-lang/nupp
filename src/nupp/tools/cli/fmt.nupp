@@ -293,7 +293,7 @@ end
 ---     nupp fmt --write src/main.nupp
 ---     nupp fmt --width 100 src/main.nupp
 @cli("fmt")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Fmt
     --- Rewrite files in place instead of writing to stdout.
     @cli(short = "w")

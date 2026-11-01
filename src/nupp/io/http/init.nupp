@@ -1,17 +1,19 @@
+@!internal
+
 module nupp.io.http
 
 --[[
-`nupp.io.http` sends HTTP requests through the selected host implementation
+`io.http` sends HTTP requests through the selected host implementation
 without blocking the caller's frame. Reach for it when a program needs a client
 that works the same in a CLI, a scheduler and a game host.
 
 ```nupp
-local http = nupp.io.http
+local http = io.http
 local uri = io.uri
 
-local client = http.newClient()
+local client = http.newclient()
 local response = assert(client:send(new http.Request(
-    url = assert(uri.newURI("https://example.com/"))
+    url = assert(uri.newuri("https://example.com/"))
 )))
 print(response.status)
 response:close()
@@ -19,7 +21,7 @@ client:close()
 ```
 
 Calls suspend through
-[`nupp.suspension`](docs/learn/runtime/concurrency/suspension.md): a CLI blocks
+[`coroutine.suspension`](docs/learn/runtime/concurrency/suspension.md): a CLI blocks
 on the provider's condvar, while a scheduler or frame host only drives the
 nonblocking source.
 
@@ -49,13 +51,13 @@ coroutine of its own, and the one waiting on the network is what lets the next
 one send:
 
 ```nupp
-local http = nupp.io.http
-local tasks = nupp.tasks
+local http = io.http
+local tasks = coroutine
 local uri = io.uri
 
 local function storeStatus(client: alias(http.Client), codes: {integer}, index: integer, url: string): nil
     local status = client:with(function(borrows open: http.Client): integer
-        local response = assert(open:send(new http.Request(url = assert(uri.newURI(url)))))
+        local response = assert(open:send(new http.Request(url = assert(uri.newuri(url)))))
         local code = response.status
         response:close()
 
@@ -64,9 +66,9 @@ local function storeStatus(client: alias(http.Client), codes: {integer}, index: 
     codes[index] = assert(status)
 end
 
-local client = own.manage(http.newClient())
+local client = own.manage(http.newclient())
 local codes: {integer} = {}
-with scope = tasks.open() do
+with scope = tasks.scope() do
     scope:spawn(client:alias(), codes, 1, "https://example.com/", storeStatus)
     scope:spawn(client:alias(), codes, 2, "https://example.org/", storeStatus)
 end
@@ -193,7 +195,7 @@ end
 --- The path must name a regular file when the request is sent. A device, FIFO or
 --- directory has no length to send, and the native transport refuses it.
 ---
---- @param path the file to send, as anything [](nupp.io.files) accepts
+--- @param path the file to send, as anything [](io.files) accepts
 --- @param contentType the `content-type` to send, unless the request names one
 --- @return the request body
 --- @raises string when path is neither a string nor a path, or contentType is not a

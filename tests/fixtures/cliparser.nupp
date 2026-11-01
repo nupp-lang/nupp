@@ -1,5 +1,7 @@
 module tests.fixtures.cliparser
 
+const terminal = require("io.terminal")
+
 local cliModule = require("arg")
 
 local function assertRaises(body: function(): nil): nil
@@ -7,7 +9,7 @@ local function assertRaises(body: function(): nil): nil
     assert(not ok)
 end
 
-local parser = cliModule.optParser({"-v", "--output=result.txt", "main.nupp", "--", "--literal"}, {
+local parser = cliModule.optparser({"-v", "--output=result.txt", "main.nupp", "--", "--literal"}, {
     arity = {v = cliModule.none, output = cliModule.required},
 })
 assertRaises(function(): nil
@@ -45,7 +47,7 @@ end)
 assert(parser:original()[1] == "-v")
 assert(#parser:remaining() == 0)
 
-local hiddenTerminator = cliModule.optParser({"first", "--", "--second"}, {exposeTerminator = false})
+local hiddenTerminator = cliModule.optparser({"first", "--", "--second"}, {exposeTerminator = false})
 assert(hiddenTerminator:next() == cliModule.argument and hiddenTerminator:raw() == "first")
 assert(hiddenTerminator:next() == cliModule.argument and hiddenTerminator:raw() == "--second")
 
@@ -56,7 +58,7 @@ for kind, current in cliModule.getopt({"--flag", "value"}) do
 end
 assert(#iterated == 2 and iterated[2] == "value")
 
-local values = cliModule.optParser({"--unknown", "file", "--output", "next"}, {arity = {output = cliModule.required},})
+local values = cliModule.optparser({"--unknown", "file", "--output", "next"}, {arity = {output = cliModule.required},})
 local unknown = assert(values:next())
 assert(unknown == cliModule.longOption and values:key() == "unknown" and values:value() == nil)
 assert(values:next() == cliModule.argument and values:raw() == "file")
@@ -64,7 +66,7 @@ local output = assert(values:next())
 assert(output == cliModule.longOption and values:key() == "output")
 assert(values:value() == "next" and not values:attached())
 
-local missing = cliModule.optParser({"--output"}, {arity = {output = cliModule.required}})
+local missing = cliModule.optparser({"--output"}, {arity = {output = cliModule.required}})
 local missingToken, problem = missing:next()
 assert(missingToken == nil)
 assert(problem ~= nil and problem.kind == "missingValue")
@@ -78,12 +80,12 @@ assertRaises(function(): nil
     iterMissing()
 end)
 
-local attached = cliModule.optParser({"-Zno-opt"}, {arity = {['Zno-opt'] = cliModule.attachedOnly}})
+local attached = cliModule.optparser({"-Zno-opt"}, {arity = {['Zno-opt'] = cliModule.attachedOnly}})
 local attachedToken, attachedProblem = attached:next()
 assert(attachedToken == nil)
 assert(attachedProblem ~= nil and attachedProblem.kind == "needsAttachedValue")
 
-local stopped = cliModule.optParser({"-O2", "program.nupp", "--flag"}, {
+local stopped = cliModule.optparser({"-O2", "program.nupp", "--flag"}, {
     patterns = {{pattern = "^%-O(%d)$", key = "O"}},
     stopAtFirstArgument = true,
 })
@@ -95,7 +97,7 @@ local literal = assert(stopped:next())
 assert(literal == cliModule.argument and stopped:raw() == "--flag")
 
 --- Options accepted by a checked command.
-@derive(cliModule.Arguments)
+@derive(cliModule.arguments)
 local record CheckArgs
     --- Show each file as it is checked.
     @cli(short = "v")
@@ -141,7 +143,7 @@ assert(cachedSchema.byName == nil)
 
 --- Print greeting commands.
 @cli(name = "greet", group = true)
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Greet
 end
 
@@ -157,7 +159,7 @@ end
 ---
 --- The command has no separately configured help text.
 @cli(name = "hello", aliases = {"hi"})
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Hello
     --- Greeting representation.
     mode: "text" | "json" = "text"
@@ -174,7 +176,7 @@ end
 assert(Hello.cliName() == "hello")
 assert(Hello.cliAliases()[1] == "hi")
 assert(Hello.cliSummary() == "Print one greeting.")
-assert(assert(cliModule.command(Hello)).completers[2] == Names)
+assert(assert(cliModule.descriptor(Hello)).completers[2] == Names)
 local greeting, greetingProblem = Hello.fromCLI({"Ada"})
 assert(greeting ~= nil, greetingProblem and greetingProblem.message)
 assert(greeting:run() == 7)
@@ -250,7 +252,7 @@ assert(duplicate ~= nil and duplicate.kind == "duplicateOption")
 local _, unknownOption = CheckArgs.fromCLI({"--unknown"})
 assert(unknownOption ~= nil and unknownOption.kind == "unknownOption")
 
-@derive(cliModule.Arguments)
+@derive(cliModule.arguments)
 local record PatternArgs
     --- Optimization level.
     @cli(name = "O", long = false, pattern = "^%-O([0-2])$", display = "-O0, -O1, -O2", choices = {"0", "1", "2"})
@@ -262,7 +264,7 @@ local _, syntheticPatternName = PatternArgs.fromCLI({"--O", "2"})
 assert(syntheticPatternName ~= nil and syntheticPatternName.kind == "unknownOption")
 
 @cli(preserveUnknown = true)
-@derive(cliModule.Arguments)
+@derive(cliModule.arguments)
 local record Forwarded
     --- Optional attached profiling interval.
     @cli(arity = "optionalAttached", constant = "")
@@ -280,7 +282,7 @@ assert(forwarded.arguments[1] == "--other" and forwarded.arguments[3] == "suite"
 local bareProfile = assert(Forwarded.fromCLI({"--profile"}))
 assert(bareProfile.profile == "")
 
-@derive(cliModule.Arguments)
+@derive(cliModule.arguments)
 local record Sets
     --- Tags to enable.
     tags: {[string]: boolean} = {}
@@ -289,7 +291,7 @@ end
 local tags = assert(Sets.fromCLI({"--tags", "fast", "--tags", "portable", "--tags", "fast"}))
 assert(tags.tags.fast and tags.tags.portable)
 
-@derive(cliModule.Arguments)
+@derive(cliModule.arguments)
 local record OptionalChoices
     --- Optional execution mode.
     @cli(positional = "MODE", choices = {"fast", "thorough"})
@@ -309,14 +311,14 @@ assert(choicesSkipped.mode == nil and choicesSkipped.format == nil and choicesSk
 local secondChoice = assert(OptionalChoices.fromCLI({"json", "main.nupp"}))
 assert(secondChoice.mode == nil and secondChoice.format == "json" and secondChoice.file == "main.nupp")
 
-io.withColorMode("always", function()
-    local style = io.style(io.stdout)
-    assert(io.colorEnabled(io.stdout))
+terminal.withcolormode("always", function()
+    local style = terminal.style(io.stdout)
+    assert(terminal.colorenabled(io.stdout))
     assert(style.red("problem") == "\27[1;31mproblem\27[0m")
 end)
-io.withColorMode("never", function()
-    local style = io.style(io.stdout)
-    assert(not io.colorEnabled(io.stdout))
+terminal.withcolormode("never", function()
+    local style = terminal.style(io.stdout)
+    assert(not terminal.colorenabled(io.stdout))
     assert(style.red("problem") == "problem" and style.strong("heading") == "heading")
 end)
 

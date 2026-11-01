@@ -4,7 +4,7 @@ module harness
 -- evaluations. The tiers own their tasks and graders; this module owns how an
 -- agent is run and how its work is recorded.
 
-local files = require("nupp.io.files")
+local files = require("io.files")
 local paths = require("io.path")
 local process = require("nupp.io.process")
 
@@ -49,7 +49,7 @@ local function rounded(value: number, places: integer): number
 end
 
 function harness.absolute(path: string): string
-    local answer, reason = paths.newPath(path):absolute()
+    local answer, reason = paths.newpath(path):absolute()
     if answer == nil then
         error(reason or "cannot make path absolute: " .. path, 2)
     end
@@ -58,11 +58,11 @@ function harness.absolute(path: string): string
 end
 
 function harness.join(first: string, ...: string): string
-    return paths.newPath(first):join(...):toString()
+    return paths.newpath(first):join(...):toString()
 end
 
 function harness.parent(path: string): string
-    local parent = paths.newPath(path):parent()
+    local parent = paths.newpath(path):parent()
     if parent == nil then
         return "."
     end
@@ -71,7 +71,7 @@ function harness.parent(path: string): string
 end
 
 function harness.write(path: string, text: string): nil
-    local made, makeErr = files.createDirectory(harness.parent(path))
+    local made, makeErr = files.createdirectory(harness.parent(path))
     if not made then
         error("cannot create " .. harness.parent(path) .. ": " .. tostring(makeErr), 2)
     end
@@ -102,7 +102,7 @@ end
 --- Creates a unique directory which the caller removes explicitly.
 --- @raises string when the platform cannot create or retain the directory
 function harness.temporaryDirectory(prefix: string): string
-    local temporary, reason = files.createTemporaryDirectory(new files.TemporaryOptions(prefix = prefix))
+    local temporary, reason = files.createtemporarydirectory(new files.TemporaryOptions(prefix = prefix))
     if temporary == nil then
         error("cannot create a temporary directory: " .. tostring(reason), 2)
     end
@@ -117,7 +117,7 @@ function harness.temporaryDirectory(prefix: string): string
 end
 
 function harness.copyTree(from: string, to: string): nil
-    local made, makeErr = files.createDirectory(to)
+    local made, makeErr = files.createdirectory(to)
     if not made then
         error("cannot create " .. to .. ": " .. tostring(makeErr), 2)
     end
@@ -131,11 +131,11 @@ function harness.copyTree(from: string, to: string): nil
         if entry.kind == "directory" then
             harness.copyTree(source, destination)
         elseif entry.kind == "symlink" then
-            local target, readErr = files.readLink(source)
+            local target, readErr = files.readlink(source)
             if target == nil then
                 error("cannot read link " .. source .. ": " .. tostring(readErr), 2)
             end
-            local linked, linkErr = files.createSymlink(target, destination)
+            local linked, linkErr = files.createsymlink(target, destination)
             if not linked then
                 error("cannot create link " .. destination .. ": " .. tostring(linkErr), 2)
             end
@@ -220,7 +220,7 @@ local function decodeEvents(output: string): {any}
     for line in output:gmatch("[^\r\n]+") do
         line = line:match("^%s*(.-)%s*$") or ""
         if line ~= "" then
-            local ok, value = pcall(json.decodeValue, line, json.NULL)
+            local ok, value = pcall(json.decodevalue, line, json.NULL)
             if ok then
                 events[#events + 1] = value
             end
@@ -239,7 +239,7 @@ local function pretty(value: any, depth: integer, seen: {[table]: boolean}): str
     local kind = type(value)
     @allow("exhaustiveness")
     if kind ~= "table" then
-        return json.encodeValue(value)
+        return json.encodevalue(value)
     end
     local entries = value as {[any]: any}
     if seen[entries] then
@@ -250,7 +250,7 @@ local function pretty(value: any, depth: integer, seen: {[table]: boolean}): str
     local nested = ("  "):rep(depth + 1)
     local parts: {string} = {}
     local opening, closing
-    if json.isArray(entries) then
+    if json.isarray(entries) then
         opening, closing = "[", "]"
         for index = 1, #entries do
             parts[index] = nested .. pretty(entries[index], depth + 1, seen)
@@ -266,7 +266,7 @@ local function pretty(value: any, depth: integer, seen: {[table]: boolean}): str
         end
         table.sort(keys)
         for index, key in ipairs(keys) do
-            parts[index] = nested .. json.encodeValue(key) .. ": " .. pretty(entries[key], depth + 1, seen)
+            parts[index] = nested .. json.encodevalue(key) .. ": " .. pretty(entries[key], depth + 1, seen)
         end
     end
     seen[entries] = nil
@@ -321,7 +321,7 @@ function harness.runAgent(
     local events = decodeEvents(done.stdout)
     local transcriptLines: {string} = {}
     for index, event in ipairs(events) do
-        transcriptLines[index] = json.encodeValue(event) .. "\n"
+        transcriptLines[index] = json.encodevalue(event) .. "\n"
     end
     harness.write(transcript, table.concat(transcriptLines))
     if #events == 0 then
@@ -390,7 +390,7 @@ function harness.agentRecord(result: any, events: {any}, model: string?): any
         outputTokens = optional(usage.output_tokens),
         isError = optional(result.is_error),
         timedOut = result.timedOut == true,
-        toolCalls = json.asObject(counts),
+        toolCalls = json.asobject(counts),
         toolCallTotal = total,
         nuppInvocations = nuppRuns,
     }

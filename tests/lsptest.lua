@@ -4222,7 +4222,7 @@ end
 function M.rangeFormattingKeepsQualifiedReferencesBound()
     local projectDir = makeDir()
     local uri = fileUri(projectDir .. "/imports.nupp")
-    local source = '-- imports stay outside the selection\n\nreturn nupp.io.files.read(  "a"  )\n'
+    local source = '-- imports stay outside the selection\n\nreturn io.files.read(  "a"  )\n'
     local out = runSession(
         {
             {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -4249,7 +4249,7 @@ function M.rangeFormattingKeepsQualifiedReferencesBound()
     os.execute("rm -rf '" .. projectDir .. "'")
     local edits = responseWithId(out, 10).result
     assert(#edits == 1, "range receives its layout edit")
-    assert(edits[1].newText == 'return nupp.io.files.read("a")\n', "reference keeps its module path")
+    assert(edits[1].newText == 'return io.files.read("a")\n', "reference keeps its module path")
 end
 
 function M.formattingHonorsAManifestThatTurnsMethodParensOff()
@@ -4624,8 +4624,9 @@ function M.generatedMembersHaveEditorIdentityAndProvenance()
     local providerSource = providerFile:read("*a")
     providerFile:close()
     writeFile(projectDir .. "/deriveeditor.nupp", providerSource)
-    local source = [[local provider = require("deriveeditor")
-@derive(types.Debug, provider.derive)
+    local source = [[
+local provider = require("deriveeditor")
+@derive(types.debug, provider.derive)
 local record Model
     value: integer = 0
 end
@@ -5388,7 +5389,7 @@ function M.artifactIdentityCarriesTheOptimizationLevel()
     os.execute("rm -rf '" .. projectDir .. "'")
     test.equal(plain.metadata.optLevel, 0)
     test.equal(optimized.metadata.optLevel, 1)
-    test.notEqual(plain.id, optimized.id)
+    test.notequal(plain.id, optimized.id)
 end
 
 function M.anUnknownOptimizationLevelIsRefused()

@@ -168,7 +168,7 @@ function layout.broadcast(borrows value: layout.Layout, shape: {integer}): layou
     return result
 end
 
-function layout.asStrided(
+function layout.asstrided(
     borrows value: layout.Layout,
     shape: {integer},
     strides: {integer},

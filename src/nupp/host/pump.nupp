@@ -16,7 +16,7 @@ that pass.
 ```nupp:fragment
 local pump = nupp.host.pump
 
-local session = pump.newPump()
+local session = pump.newpump()
 
 export function frame(dt: number): pump.State
     if session:parked() then
@@ -35,10 +35,10 @@ a [cancellation](docs/learn/runtime/concurrency/suspension.md) inside it, so its
 cleanup runs before the application shuts down.
 ]]
 
-local suspension = require("nupp.suspension")
-local suspensionHost = require("nupp.suspension.host")
-local suspensionContract = require("nupp.suspension.spi")
-local cancellation = require("nupp.suspension.cancellation")
+local suspension = require("coroutine.suspension")
+local suspensionHost = require("coroutine.suspension.host")
+local suspensionContract = require("coroutine.suspension.spi")
+local cancellation = require("coroutine.suspension.cancellation")
 
 --- What a `start` or `poll` left the operation doing.
 export type State = "parked" | "continue" | "stopped"
@@ -144,7 +144,7 @@ end
 
 --- Creates an idle pump.
 --- @export
-export function newPump(): Pump
+export function newpump(): Pump
     local pump = new Pump(handler = nil as any, active = nil, result = nil, failure = nil)
     pump.handler = new suspensionContract.Handler(
         park = function(_: suspensionContract.Handler, waiting: suspensionContract.Waiting, _: function(): nil): nil
