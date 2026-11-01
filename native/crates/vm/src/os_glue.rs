@@ -162,6 +162,41 @@ pub unsafe extern "C" fn nupp_os_write_output(base: *const u8, bytes: u64) -> i6
     }
 }
 
+/// Copies the environment variable named by the `name_bytes` bytes at `name`
+/// into `out`, at most `room` bytes: the value's whole length, or -1 when it
+/// is unset.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_os_environment(
+    name: *const u8,
+    name_bytes: u64,
+    out: *mut u8,
+    room: u64,
+) -> i64 {
+    if name.is_null() {
+        return -1;
+    }
+    let key = unsafe { std::slice::from_raw_parts(name, name_bytes as usize) };
+    let Some(value) = environment_value(key) else {
+        return -1;
+    };
+    if !out.is_null() {
+        let count = value.len().min(room as usize);
+        unsafe { std::ptr::copy_nonoverlapping(value.as_ptr(), out, count) };
+    }
+    value.len() as i64
+}
+
+#[cfg(unix)]
+fn environment_value(key: &[u8]) -> Option<Vec<u8>> {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    std::env::var_os(std::ffi::OsStr::from_bytes(key)).map(OsStringExt::into_vec)
+}
+
+#[cfg(not(unix))]
+fn environment_value(key: &[u8]) -> Option<Vec<u8>> {
+    std::env::var(std::str::from_utf8(key).ok()?).ok().map(String::into_bytes)
+}
+
 /// The address of an operating-system edge by its symbol, for a runner that
 /// links native code into this process rather than against the runtime.
 pub fn symbol(name: &str) -> Option<*const u8> {
@@ -173,6 +208,7 @@ pub fn symbol(name: &str) -> Option<*const u8> {
         "nupp_os_monotonic_nanos" => nupp_os_monotonic_nanos as *const u8,
         "nupp_os_read_input" => nupp_os_read_input as *const u8,
         "nupp_os_write_output" => nupp_os_write_output as *const u8,
+        "nupp_os_environment" => nupp_os_environment as *const u8,
         _ => return None,
     })
 }

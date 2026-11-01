@@ -1,4 +1,5 @@
-//! OS memory primitives only; no runtime object or frame policy.
+//! OS memory primitives and the environment; no runtime object or frame
+//! policy.
 use std::ffi::c_void;
 
 unsafe extern "C" {
@@ -148,4 +149,24 @@ unsafe fn flush(address: *mut u8, size: usize) {
     }
     #[cfg(not(any(target_os = "macos", all(target_os = "linux", target_arch = "aarch64"))))]
     let _ = (address, size);
+}
+
+/// Copies the environment variable named by the `name_bytes` bytes at `name`
+/// into `out`, at most `room` bytes: the value's whole length, or -1 when it
+/// is unset. The guest's `os.getenv`.
+pub unsafe extern "C" fn environment(name: u64, name_bytes: u64, out: u64, room: u64) -> u64 {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    if name == 0 {
+        return u64::MAX;
+    }
+    let key = unsafe { std::slice::from_raw_parts(name as *const u8, name_bytes as usize) };
+    let Some(value) = std::env::var_os(std::ffi::OsStr::from_bytes(key)).map(OsStringExt::into_vec)
+    else {
+        return u64::MAX;
+    };
+    if out != 0 {
+        let count = value.len().min(room as usize);
+        unsafe { std::ptr::copy_nonoverlapping(value.as_ptr(), out as *mut u8, count) };
+    }
+    value.len() as u64
 }

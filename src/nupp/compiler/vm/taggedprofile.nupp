@@ -784,12 +784,13 @@ function tagged.forVersion(version: integer): any
             local library = graph.coreLibraryCall(node)
             if library == "tostring" or library == "table.concat" then
                 return libraryCall(ctx, node, library == "tostring" and 1 or 3, node.args.exprs or {})
-            end
-            if library == "tonumber" then
+            elseif library == "tonumber" then
                 need(#(node.args.exprs or {}) == 1, "tonumber takes one value; a base is not yet admitted")
                 return libraryCall(ctx, node, 9, node.args.exprs)
-            end
-            if graph.coreLibraryCall(node) == "math.floor" then
+            elseif library == "os.getenv" then
+                need(#(node.args.exprs or {}) == 1, "os.getenv takes one name")
+                return libraryCall(ctx, node, 10, node.args.exprs)
+            elseif library == "math.floor" then
                 need(#(node.args.exprs or {}) == 1, "math.floor takes one number")
                 local operand = ctx.expression(node.args.exprs[1], "tagged")
                 if operand == nil then

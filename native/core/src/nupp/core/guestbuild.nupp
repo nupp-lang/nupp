@@ -44,8 +44,8 @@ local CASES: {[string]: {
     numericModZero = {fixture = "catalog-numeric-modzero", version = 6},
     numericOverflow = {fixture = "catalog-numeric-overflow", version = 6},
     numericControl = {fixture = "catalog-numeric-control", version = 6},
-    workloadLoops = {fixture = "catalog-workload-loops", version = 6},
-    workloadFib = {fixture = "catalog-workload-fib", version = 7},
+    workloadLoops = {fixture = "catalog-workload-loops", version = 8},
+    workloadFib = {fixture = "catalog-workload-fib", version = 8},
     callsNumeric = {fixture = "catalog-calls-numeric", version = 7},
     tablesBasic = {fixture = "catalog-tables-basic", version = 8},
     workloadClosures = {fixture = "catalog-workload-closures", version = 8},
@@ -54,7 +54,8 @@ local CASES: {[string]: {
     workloadStrings = {fixture = "catalog-workload-strings", version = 8},
     stringsBasic = {fixture = "catalog-strings-basic", version = 8},
     integersWide = {fixture = "catalog-integers-wide", version = 8},
-    numbersText = {fixture = "catalog-numbers-text", version = 8}
+    numbersText = {fixture = "catalog-numbers-text", version = 8},
+    environmentRead = {fixture = "catalog-environment", version = 8}
 }
 
 -- The handlers a profile version dispatches, in table order.

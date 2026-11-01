@@ -1,5 +1,5 @@
 -- Reference Lua 5.5 twin of catalog-workload-closures.nupp, without its types.
-local scale = 1
+local scale = tonumber(os.getenv("BENCH_SCALE") or "1") or 1
 
 local function closures()
     local function map(xs, f)

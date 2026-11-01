@@ -532,6 +532,7 @@ fn allocator_os_signature(name: &str, call_conv: CallConv) -> Option<Signature> 
         "nupp_os_advise_pages" => (3, false),
         "nupp_os_page_size" | "nupp_os_monotonic_nanos" => (0, true),
         "nupp_os_read_input" | "nupp_os_write_output" => (2, true),
+        "nupp_os_environment" => (4, true),
         _ => return None,
     };
     let mut signature = Signature::new(call_conv);

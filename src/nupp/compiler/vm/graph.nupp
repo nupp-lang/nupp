@@ -1464,6 +1464,7 @@ local coreLibrary: {
     ["math.floor"] = true,
     tostring = true,
     tonumber = true,
+    ["os.getenv"] = true,
     ["table.concat"] = true,
     ["string.format"] = true,
     ["string.gmatch"] = true
