@@ -5078,6 +5078,90 @@ end
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.indexedProviderAliasesKeepTheirDeclaredFunctionContracts()
+    local dir = tempProject({
+        [
+            "src/api/init.nupp"
+        ] = [[
+module api
+const contract = require("api.contract")
+const implementation = require("api.internal.selected")
+export type Resource = contract.Resource
+export function direct(): contract.Resource
+    error("documentation fixture")
+end
+export const retain: contract.Provider.["retain"] = implementation.retain
+export const create: contract.Provider.["create"] = implementation.create
+export const describe: contract.Provider.["describe"] = implementation.describe
+export const available: implementation.Available = implementation.available
+export const unknown: contract.Provider.["missing"] = implementation.unknown
+]],
+        [
+            "src/api/contract.nupp"
+        ] = [[
+module api.contract
+const source = require("api.internal.contract")
+export type Provider = source.Provider
+export type Resource = source.Resource
+]],
+        [
+            "src/api/internal/selected.nupp"
+        ] = [[
+module api.internal.selected
+export type Available = function(): boolean
+]],
+        [
+            "src/api/internal/contract.nupp"
+        ] = [[
+module api.internal.contract
+export record Resource
+    close: @nosuspend function(takes self: Resource): nil
+end
+export type Create = function<A..., R...>(body: function(A...): R...): thread
+export type Describe = @comptime function<T>(value: T): type
+export interface Provider
+    --- Keeps the borrowed resource through the callback.
+    @readonly retain: @nosuspend function<T>(borrows resource: Resource, body: function(Resource): T): T
+    @readonly create: Create
+    @readonly describe: Describe
+end
+]],
+    })
+    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "json", output = "api.json"}) == 0)
+    local model = assert(require("testjson").decode(readFile(dir .. "/api.json")))
+    local items = {}
+    for _, module in ipairs(model.modules) do
+        for _, item in ipairs(module.items) do
+            items[item.path] = item
+        end
+    end
+    local direct = assert(items["api.direct"])
+    assert(direct.kind == "function" and direct.signature == "function direct(): contract.Resource", direct.signature)
+    local retain = assert(items["api.retain"])
+    assert(retain.kind == "function", retain.kind)
+    assert(retain.signature:find("@nosuspend function<T>", 1, true), retain.signature)
+    assert(retain.params[1].mode == "borrows", "the provider's borrow mode was lost")
+    assert(retain.params[1].type == "Resource", retain.params[1].type)
+    assert(retain.params[2].type == "function(Resource): T", retain.params[2].type)
+    assert(retain.returns[1].type == "T", retain.returns[1].type)
+    assert(retain.typeargs[1].name == "T", "the provider's generic binder was lost")
+    assert(retain.doc.text:find("borrowed resource", 1, true), retain.doc.text)
+    local create = assert(items["api.create"])
+    assert(create.kind == "function" and #create.typeargs == 2, create.signature)
+    assert(create.params[1].type == "function(A...): R...", create.params[1].type)
+    assert(create.returns[1].type == "thread", create.returns[1].type)
+    local describe = assert(items["api.describe"])
+    assert(describe.kind == "function" and describe.comptimeKind == "function", describe.signature)
+    assert(describe.typeargs[1].name == "T" and describe.returns[1].type == "type", describe.signature)
+    local available = assert(items["api.available"])
+    assert(available.kind == "function" and available.returns[1].type == "boolean", available.signature)
+    assert(available.signature == "const available: function(): boolean", available.signature)
+    local unknown = assert(items["api.unknown"])
+    assert(unknown.kind == "variable", "an unresolved contract field acquired a callable signature")
+    assert(unknown.signature == 'const unknown: contract.Provider.["missing"]', unknown.signature)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.gpuDocumentsApplicationOperationsAndHidesGeneratedBindings()
     local source = readFile(HERE .. "/../src/gpu/init.nupp")
     local module = assert(doc.extract(source, "src/gpu/init.nupp", "gpu"))

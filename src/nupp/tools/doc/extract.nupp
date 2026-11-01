@@ -69,6 +69,7 @@ record extract.Member
     isAlias: boolean?
 
     generics: string?
+    typeargs: {extract.TypeArg}?
     members: {Member}?
 
     --- The compiler-only value kind, when this member exists only during comptime.
@@ -1065,6 +1066,12 @@ local function buildMembers(
                 local details = typeFunctionDetails(fieldFunction, fieldInfo)
                 member.params, member.returns = details.params, details.returns
                 member.isFunction = true
+                member.typeargs = {}
+                for _, generic in ipairs(fieldFunction.generics and fieldFunction.generics.names or {}) do
+                    member.typeargs[
+                        #member.typeargs + 1
+                    ] = {name = generic.text, text = fieldInfo.typeargs[generic.text] or ""}
+                end
                 local ownerModule, nominal = basePath:match("^(.*)%.([^.]+)$")
                 if ownerModule and surfaces.rotates(ownerModule, nominal, entry.name.text) then
                     member.type = rotatedTypeText(entry.type)
@@ -1343,7 +1350,9 @@ declarationItem = function(
         name = name,
         kind = kind,
         signature = signature,
-        aliasSource = stat.kind == "localStmt" and stat.exprs and stat.exprs[1] and syntax(stat.exprs[1]) or nil,
+        aliasSource = stat.kind == "typeAlias" and syntax(stat.value)
+        or stat.kind == "localStmt" and stat.exprs and stat.exprs[1] and syntax(stat.exprs[1])
+        or nil,
         doc = info,
         path = itemPath,
         module = itemModule,
@@ -1375,7 +1384,12 @@ declarationItem = function(
         end
         item.annotation = {arguments = "typed", targets = targets}
     end
-    local declaredFunction = stat.kind == "localStmt" and typeFunction(stat.types and stat.types[1]) or nil
+    local declaredFunction = stat.kind == "localStmt" and typeFunction(stat.types and stat.types[1])
+        or stat.kind == "typeAlias" and typeFunction(stat.value)
+        or nil
+    if stat.kind == "typeAlias" then
+        item.comptimeKind = item.comptimeKind or comptimeKind(stat.value)
+    end
     local generics = stat.generics
         or (stat.body and stat.body.generics)
         or (declaredFunction and declaredFunction.generics)
