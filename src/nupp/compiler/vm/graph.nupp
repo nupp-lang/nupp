@@ -1373,12 +1373,19 @@ end
 
 local function invokeContract(contract: any): nil
     if contract.dynamic then
-        nativeContract(contract, {dynamic = true, call = true, callSignature = true, effects = true})
+        nativeContract(contract, {dynamic = true, call = true, callSignature = true, effects = true, protected = true})
         local call, called = contract.call, contract.callSignature
+        -- pcall(f, ...): the callee is the first argument, and the rest are its
+        -- arguments.
+        local protected = contract.protected == true
+        local offset = protected and 1 or 0
         assert(
             type(call) == "table"
             and call.kind == "call"
-            and call.calleeType == called
+            and (
+                protected and call.args and call.args.exprs[1] and call.args.exprs[1].inferredType == called
+                or not protected and call.calleeType == called
+            )
             and not call.scalarIntrinsic
             and not call.ownershipIntrinsic
             and not call.runtimeLoader,
@@ -1387,14 +1394,17 @@ local function invokeContract(contract: any): nil
         invokeSignature(called)
         assert(call.args and call.args.kind == "args", "invoke requires explicit positional arguments")
         dense(call.args.exprs)
+        local given = #call.args.exprs - offset
         assert(
-            #call.args.exprs == #called.params
-            or called.vararg and #call.args.exprs > #called.params
-            or #call.args.exprs > 0 and call.args.exprs[#call.args.exprs].kind == "vararg",
+            given == #called.params
+            or called.vararg and given > #called.params
+            or given > 0 and call.args.exprs[#call.args.exprs].kind == "vararg",
             "invoke checked call arity differs"
         )
-        for _, argument in ipairs(call.args.exprs) do
-            invokeScalar(argument.inferredType)
+        for index, argument in ipairs(call.args.exprs) do
+            if index > offset and argument.kind ~= "vararg" then
+                invokeScalar(argument.inferredType)
+            end
         end
         assert(
             contract.effects.mayCollect == true
@@ -1521,6 +1531,8 @@ local coreLibrary: {
     tonumber = true,
     select = true,
     ["os.getenv"] = true,
+    pcall = true,
+    error = true,
     ["table.concat"] = true,
     ["string.format"] = true,
     ["string.gmatch"] = true,
@@ -1571,6 +1583,21 @@ function graph.dynamicInvokeContract(call: any): any
         dynamic = true,
         call = call,
         callSignature = call.calleeType,
+        effects = {mayCollect = true, mayRaise = true, mayPark = false, pure = false}
+    }
+    invokeContract(contract)
+
+    return contract
+end
+
+-- The contract of `pcall(f, ...)`'s call of f, through f's checked type.
+function graph.protectedInvokeContract(call: any): any
+    local callee = call.args and call.args.exprs and call.args.exprs[1]
+    local contract = {
+        dynamic = true,
+        protected = true,
+        call = call,
+        callSignature = callee and callee.inferredType,
         effects = {mayCollect = true, mayRaise = true, mayPark = false, pure = false}
     }
     invokeContract(contract)
@@ -2202,6 +2229,10 @@ function graph.verify(g: any): nil
         end
         if term.contract.call.kind == "methodCall" then
             count += 1
+        end
+        -- pcall's first argument is the callee.
+        if term.contract.protected then
+            count -= 1
         end
 
         return count

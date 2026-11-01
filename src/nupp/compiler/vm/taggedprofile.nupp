@@ -184,7 +184,17 @@ function tagged.valueLiteral(ctx: any, node: any, expected: string?): integer
 end
 
 function tagged.constant(ctx: any, node: any, expected: string?): integer
-    error("tagged graph: unresolved lexical or external value", 0)
+    local token = cst.firstToken(node)
+    error(
+        "tagged graph: unresolved lexical or external value: " .. tostring(
+            node.kind
+        ) .. (
+            node.name and node.name.text and " ." .. node.name.text or ""
+        ) .. (
+            node.obj and " on " .. tostring(node.obj.inferredType and node.obj.inferredType.tag) or ""
+        ) .. " at line " .. tostring(token and token.line),
+        0
+    )
 end
 
 function tagged.unary(ctx: any, node: any, expected: string?): integer
@@ -394,6 +404,38 @@ local function invoke(ctx: any, node: any, keepResult: boolean, dynamic: boolean
     end
 
     return ctx.invoke(node, value, args, contract, keepResult, pack)
+end
+
+-- pcall(f, ...): f called as a protected call, its results after true, or
+-- false and the error. With `count`, it keeps that many results.
+local function invokeProtected(ctx: any, node: any, keepResult: boolean, count: integer?): any
+    local p = catalog(ctx)
+    local site = need(p.callByNode[node], "pcall lacks checked callsite")
+    need(site.protected and site.owner == ctx.fn.id, "pcall callsite belongs to another owner")
+    local exprs = node.args.exprs or {}
+    need(#exprs >= 1, "pcall takes a function")
+    local contract = graph.protectedInvokeContract(node)
+    local callee = ctx.expression(exprs[1], "tagged")
+    if callee == nil then
+        return nil
+    end
+    local held = ctx.hold(callee)
+    local rest, kinds = {}, {}
+    for index = 2, #exprs do
+        need(exprs[index].kind ~= "vararg", "pcall cannot spread `...` yet")
+        rest[#rest + 1], kinds[#kinds + 1] = exprs[index], "tagged"
+    end
+    local args = ctx.operands(rest, kinds)
+    local value = ctx.readHeld(held)
+    ctx.release(held)
+    if args == nil then
+        return nil
+    end
+    if count then
+        return ctx.invokeMany(node, value, args, contract, count)
+    end
+
+    return ctx.invoke(node, value, args, contract, keepResult)
 end
 
 -- A record method call, `c:m(...)`: the method is loaded from the table the
@@ -705,29 +747,38 @@ function tagged.forVersion(version: integer): any
         end
         profile.fieldRead = function(ctx: any, node: any, expected: string?): integer
             local slot = recordSlot(recordOrigin(node.obj.inferredType), node.name and node.name.text)
-            if slot == nil then
+            -- A field of a plain table is its string key.
+            local tag = typeKind(node.obj.inferredType)
+            local plain = slot == nil
+                and (tag == "table" or tag == "map" or tag == "array" or tag == "shape")
+                and node.name ~= nil
+            if slot == nil and not plain then
                 return tagged.constant(ctx, node, expected)
             end
             local object = ctx.expression(node.obj, "tagged")
             if object == nil then
                 return nil as any
             end
-            local key = ctx.emit(node, "K", {pool(ctx, "int64", tostring(slot))}, "tagged")
+            local key = plain and ctx.emit(node, "K", {pool(ctx, "str", node.name.text)}, "tagged")
+                or ctx.emit(node, "K", {pool(ctx, "int64", tostring(slot))}, "tagged")
 
             return ctx.emit(node, "GetIdx", {object, key}, "tagged") as integer
         end
         profile.assignmentTarget = function(ctx: any, node: any, rhs: any): any
             if node.kind == "dotIndex" then
-                local slot = need(
-                    recordSlot(recordOrigin(node.obj.inferredType), node.name and node.name.text),
-                    "only record field assignment is admitted"
-                )
+                local slot = recordSlot(recordOrigin(node.obj.inferredType), node.name and node.name.text)
+                local tag = typeKind(node.obj.inferredType)
+                local plain = slot == nil
+                    and (tag == "table" or tag == "map" or tag == "array" or tag == "shape")
+                    and node.name ~= nil
+                need(slot ~= nil or plain, "only record and table field assignment is admitted")
                 local object = ctx.expression(node.obj, "tagged")
                 if object == nil then
                     return {receiver = 0, kind = "tagged"}
                 end
                 local held = ctx.hold(object)
-                local key = ctx.emit(node, "K", {pool(ctx, "int64", tostring(slot))}, "tagged")
+                local key = plain and ctx.emit(node, "K", {pool(ctx, "str", node.name.text)}, "tagged")
+                    or ctx.emit(node, "K", {pool(ctx, "int64", tostring(slot))}, "tagged")
                 object = ctx.readHeld(held)
                 ctx.release(held)
                 return {receiver = object, index = key, kind = "tagged"}
@@ -857,6 +908,11 @@ function tagged.forVersion(version: integer): any
         profile.kind = function(t: any): string
             return "tagged"
         end
+        -- `e as T` is a static cast: the value is the operand's.
+        profile.cast = function(ctx: any, node: any, expected: string?): integer
+            need(expected == nil or expected == "tagged", "cast requires tagged destination")
+            return ctx.expression(node.expr, "tagged") as integer
+        end
         -- `...` in a single-value context: the pack's first value.
         profile.vararg = function(ctx: any, node: any, expected: string?): integer
             need(expected == nil or expected == "tagged", "`...` requires tagged destination")
@@ -909,6 +965,9 @@ function tagged.forVersion(version: integer): any
             local site = catalog(ctx).callByNode[node]
             if node.kind == "methodCall" and site and site.method then
                 return invokeMethod(ctx, node, true, count)
+            end
+            if graph.coreLibraryCall(node) == "pcall" then
+                return invokeProtected(ctx, node, true, count)
             end
             need(node.kind == "call" and node.runtimeLoader ~= "require", "only plain calls spread their results")
             need(graph.coreLibraryCall(node) == nil, "library calls answer one result")
@@ -1007,6 +1066,14 @@ function tagged.forVersion(version: integer): any
             elseif library == "tonumber" then
                 need(#(node.args.exprs or {}) == 1, "tonumber takes one value; a base is not yet admitted")
                 return libraryCall(ctx, node, 9, node.args.exprs)
+            elseif library == "pcall" then
+                return invokeProtected(ctx, node, true) as integer
+            elseif library == "error" then
+                -- error(value [, level]): the level only shapes the message Lua
+                -- builds, which the core does not yet add.
+                local count = #(node.args.exprs or {})
+                need(count >= 1 and count <= 2, "error takes a value and an optional level")
+                return libraryCall(ctx, node, 22, {node.args.exprs[1]})
             elseif library == "select" then
                 -- select over the pack: "#" reads its count at key 0.
                 local args = node.args.exprs or {}
@@ -1075,6 +1142,10 @@ function tagged.forVersion(version: integer): any
                 tagged.statementCall(ctx, node)
             elseif node.kind == "methodCall" and site and site.method then
                 invokeMethod(ctx, node, false)
+            elseif graph.coreLibraryCall(node) == "pcall" then
+                invokeProtected(ctx, node, false)
+            elseif graph.coreLibraryCall(node) == "error" then
+                profile.call(ctx, node, nil)
             else
                 invoke(ctx, node, false, true)
             end

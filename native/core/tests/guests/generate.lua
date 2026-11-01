@@ -197,6 +197,14 @@ function generate.program(seed, size)
             elseif a ~= b then
                 emit(a .. ", " .. b .. " = " .. b .. ", (" .. a .. " + " .. expression(1) .. ") % 1000003")
             end
+        elseif roll == 9 and pick(3) == 1 and depth < 3 then
+            -- A protected call that raises for some inputs.
+            local a, b = target(), target()
+            emit("if pcall(guard, " .. expression(1) .. ") then")
+            emit("    " .. a .. " = (" .. a .. " + 3) % 1000003")
+            emit("else")
+            emit("    " .. b .. " = (" .. b .. " + 5) % 1000003")
+            emit("end")
         elseif roll == 9 then
             -- A record method, for its value or as a statement.
             if pick(2) == 1 then
@@ -265,6 +273,12 @@ function generate.program(seed, size)
     emit(
         "    return (a + select(\"#\", ...) * 7 + (... or 0) + (select(\"#\", ...) > 0 and select(-1, ...) or 0) * 3) % 65521"
     )
+    emit("end")
+    emit("local function guard(n: integer): integer", "local function guard(n)")
+    emit("    if n % 7 == 3 then")
+    emit("        error(\"guarded\")")
+    emit("    end")
+    emit("    return n")
     emit("end")
     emit("local function fwd(...: integer): integer", "local function fwd(...)")
     emit("    return many(1, ...)")

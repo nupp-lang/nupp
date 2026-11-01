@@ -18,12 +18,16 @@ const tables = require("nupp.runtime.core.coretables")
 const strings = require("nupp.runtime.core.corestrings")
 const ints = require("nupp.runtime.core.coreintegers")
 const catalog = require("nupp.runtime.core.guestcatalog")
+const frames = require("nupp.runtime.core.frames")
+const access = require("nupp.runtime.core.frameaccess")
 
 -- The scope comes first, so a Services address is also its scope's address.
 export struct Services
     scope: servicescope.ServiceScope
     heap: uint64
     arena: uint64
+    -- The value error() raised that no protected call has taken yet, or 0.
+    raised: uint64
 end
 
 const LEDGER: uint64 = 256ULL
@@ -93,6 +97,7 @@ export function open(
         h.stress = stress ~= 0ULL
         native.store64(services, native.fieldOffset<Services>("heap"), native.address(h))
         native.store64(services, native.fieldOffset<Services>("arena"), native.address(a))
+        native.store64(services, native.fieldOffset<Services>("raised"), 0ULL)
     end
 
     return 1ULL
@@ -251,5 +256,66 @@ export function integer(ctx: voidptr, bits: uint64): uint64
         local value = ints.make(h, bits)
         tables.drain(h)
         return value
+    end
+end
+
+-- error(value): the value is kept for the protected call it unwinds to, and
+-- the entry fails as any guest error does.
+export function raise(ctx: voidptr, value: uint64): nil
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        native.store64(services, native.fieldOffset<Services>("raised"), value)
+    end
+    error("error raised by the guest")
+end
+
+-- The message an error carries when nothing named one: "runtime error".
+local function runtimeError(ctx: voidptr): uint64
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = native.pointer(guestHeap(ctx)) as heap.Heap*
+        local builder = state as strings.Builder*
+        if strings.appendWord(h, builder, 0x20656d69746e7572ULL, 8ULL) ~= 0ULL
+            or strings.appendWord(h, builder, 0x726f727265ULL, 5ULL) ~= 0ULL
+        then
+            strings.release(builder)
+            return values.NIL
+        end
+        local s = strings.finish(h, builder)
+        tables.drain(h)
+        return values.TAG_OBJ | s
+    end
+end
+
+-- After a guest error stops the handlers: unwinds it to the nearest protected
+-- call (frames.recover) and answers the pc to resume at, or 0 when the stop
+-- was not a guest error (a refusal, budget or cancellation is not one) or no
+-- protected call is on the stack. The error's value is what error() raised,
+-- else a runtime error message.
+export function recoverEntry(ctx: voidptr): uint64
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        local status = native.load64(ctx, context.STATUS)
+        local scope = native.offset(services, native.fieldOffset<Services>("scope"))
+        local raisedInScope = native.load64(scope, native.fieldOffset<servicescope.ServiceScope>("error")) ~= 0ULL
+        if not (status == context.GUEST_ERROR_STATUS or status == 0ULL and raisedInScope) then
+            return 0ULL
+        end
+        local value = native.load64(services, native.fieldOffset<Services>("raised"))
+        if value == 0ULL then
+            value = runtimeError(ctx)
+        end
+        local state = native.loadPointer(ctx, context.STATE)
+        local parent = frames.recover(state, value)
+        if parent == 0ULL then
+            return 0ULL
+        end
+        native.store64(ctx, context.STATUS, 0ULL)
+        native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("error"), 0ULL)
+        native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("errorOwner"), 0ULL)
+        native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("errorSite"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("raised"), 0ULL)
+        access.refresh(state, native.pointer(parent), ctx)
+        return access.pc(state, native.pointer(parent))
     end
 end

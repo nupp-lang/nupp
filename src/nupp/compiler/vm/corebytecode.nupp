@@ -41,6 +41,7 @@ local recipes: any = {
         {"v", "use", 5, 1}
     },
     RetV = {{"v", "use", 1, 1}, {"n", "use", 2, 1}, {"v", "use", 3, 1}},
+    PCall = {{"fn", "use", 8, 8}, {"v", "use", 1, 1}, {"v", "def", 2, 1}, {"n", "use", 3, 1}, {"n", "use", 4, 1}},
     Jmp = {{"j", "use", 4, 4}},
     JmpIf = {{"v", "use", 1, 1}, {"j", "use", 4, 4}}
 }
@@ -73,6 +74,7 @@ local policies: any = {
     RetN = {"stop", ""},
     CallV = {"next", ""},
     RetV = {"stop", ""},
+    PCall = {"next", ""},
     Jmp = {"jump", ""},
     JmpIf = {"branch", ""}
 }
@@ -82,7 +84,7 @@ for index, name in ipairs(opcodes.names()) do
 end
 -- Core-only opcodes take ids above the frozen VM's table. Each is final-core
 -- behavior with no frozen VM counterpart.
-local coreOnly: any = {MathFloor = 250, LibCall = 251, RetN = 252, CallV = 253, RetV = 254}
+local coreOnly: any = {MathFloor = 250, LibCall = 251, RetN = 252, CallV = 253, RetV = 254, PCall = 255}
 for name, id in pairs(coreOnly) do
     assert(id > #opcodes.names() and id < 256, "core-only opcode id")
     ids[name] = id
@@ -181,6 +183,11 @@ function bytecode.encode(instruction: any): string
             -- The pack is staged after the fixed arguments, in 63 slots.
             assert(instruction[5] <= 63 and instruction[6] >= 1 and instruction[6] <= 16, "fixed CallV required")
             assert(instruction[4] + 64 < 250, "encoded CallV window capacity")
+            yield nil
+        end
+        case "PCall" -> do
+            assert(instruction[5] <= 63 and instruction[6] >= 1 and instruction[6] <= 16, "fixed PCall required")
+            assert(instruction[4] + math.max(instruction[5], instruction[6], 1) < 250, "encoded PCall window capacity")
             yield nil
         end
         case "RetV" -> do

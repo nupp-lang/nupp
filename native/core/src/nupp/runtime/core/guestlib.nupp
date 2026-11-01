@@ -37,6 +37,7 @@ export const FIND: uint64 = 18ULL
 export const MATCH: uint64 = 19ULL
 export const SELECT: uint64 = 20ULL
 export const PACK_COPY: uint64 = 21ULL
+export const ERROR: uint64 = 22ULL
 
 local function integerValue(value: uint64): int64
     local payload = value & values.PAYLOAD
@@ -869,6 +870,9 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         return select(a, b)
     elseif id == PACK_COPY then
         return packCopy(ctx, a)
+    elseif id == ERROR then
+        guestscope.raise(ctx, a)
+        return values.NIL
     end
     error("unknown core library call")
 

@@ -506,8 +506,22 @@ function program.describe(modules: {any}, entryModule: string): any
             -- inference. Its marker is a dependency, not a fabricated binding.
             p.intrinsics[#p.intrinsics + 1] = {id = #p.intrinsics, owner = owner.id, node = node, operation = intrinsic}
         end
-        if node.kind == "call" and node.obj.kind == "name" and not loader and not intrinsic and not loopForms[node] then
-            local item = {id = #p.calls, owner = owner.id, node = node, definition = node.obj.token.definition}
+        -- pcall is a library form whose name is never read, but it calls its
+        -- first argument, so it is a callsite all the same.
+        local protected = node.kind == "call" and graph.coreLibraryCall(node) == "pcall"
+        if node.kind == "call"
+            and node.obj.kind == "name"
+            and not loader
+            and not intrinsic
+            and (not loopForms[node] or protected)
+        then
+            local item = {
+                id = #p.calls,
+                owner = owner.id,
+                node = node,
+                definition = node.obj.token.definition,
+                protected = protected or nil
+            }
             p.calls[#p.calls + 1], p.callByNode[node] = item, item
         end
         -- A record method call reaches its method through the table the
@@ -815,7 +829,10 @@ function program.verify(p: any): boolean
                 p.callByNode[node] == item and node.obj.token.definition == item.definition,
                 "callsite declaration identity mismatch"
             )
-            need(referenceOwners[node.obj.token] == item.owner, "callsite does not belong to its checked owner")
+            need(
+                item.protected or referenceOwners[node.obj.token] == item.owner,
+                "callsite does not belong to its checked owner"
+            )
         end
     end
     for node, item in pairs(p.callByNode) do

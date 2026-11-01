@@ -425,6 +425,9 @@ function verify.resultKind(g: any, signature: any, output: any): string
                 for _, id in ipairs(term.results) do
                     assign(id, "value")
                 end
+            elseif term.result ~= nil and contract.protected then
+                -- A protected call answers true or false before any result.
+                assign(term.result, "value")
             elseif term.result ~= nil then
                 assign(term.result, target.result)
             end
@@ -752,7 +755,11 @@ function verify.catalog(p: any): any
         need(signatures[index - 1], "unused signature record")
     end
     for index, contract in ipairs(p.contracts) do
-        fields(contract, "id owner block callsite target signature effect")
+        fields(contract, "id owner block callsite target signature effect protected")
+        need(
+            contract.protected == nil or contract.protected == true and p.schema.version >= 8,
+            "protected call outside its profile"
+        )
         need(contract.id == index - 1 and used[index - 1], "unused or unordered contract")
         integer(contract.callsite, 1048575)
         need(not sites[contract.callsite], "reused callsite identity")

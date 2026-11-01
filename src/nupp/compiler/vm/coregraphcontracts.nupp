@@ -356,16 +356,16 @@ function contracts.normalize(compiled: any, version: integer?): any
                     need(target.kind == "function", "initializer is not callable")
                 end
                 local id = #output.contracts
-                output.contracts[
-                    id + 1
-                ] = {
+                output.contracts[id + 1] = {
                     id = id,
                     owner = record.id,
                     block = block.id,
                     callsite = integer(site.id, 1048576),
                     target = target.id,
                     signature = target.signature,
-                    effect = 1
+                    effect = 1,
+                    -- pcall(f, ...): the callee runs as a protected call.
+                    protected = source.protected == true or nil
                 }
                 block.term.contract = id
                 record.effect = 1

@@ -384,7 +384,10 @@ local function derive(g: any, catalog: any): any
                 end
                 local wanted: integer = term.results and #term.results or 1
                 local at: integer
-                if term.spread then
+                if contract.protected then
+                    need(not term.spread, "pcall cannot spread `...` yet")
+                    at = emit({"PCall", contract.target, callBase, callBase, #term.args, wanted}, position)
+                elseif term.spread then
                     at = emit(
                         {"CallV", contract.target, callBase, callBase, #term.args, wanted, physical(term.spread)},
                         position
