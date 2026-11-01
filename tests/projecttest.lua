@@ -163,6 +163,10 @@ function M.moduleSourceChecksReuseOnlyMatchingSourceAndContext()
     )
     local strict = compilerEnv.checkModuleSource(env, path, source, {strict = false})
     assert(strict ~= first, "changed strictness must not reuse the earlier check")
+    local declared = compilerEnv.checkModuleSource(env, path, source, {strict = false, declarationFile = true})
+    assert(declared ~= strict, "a declaration check must not reuse an implementation check")
+    local implemented = compilerEnv.checkModuleSource(env, path, source, {strict = false})
+    assert(implemented ~= declared, "an implementation check must not reuse declaration mode")
     local compatible, compatDiagnostics = compilerEnv.checkModuleSource(env, path, source, {
         strict = false,
         compat = "lua51"
@@ -182,6 +186,67 @@ function M.moduleSourceChecksReuseOnlyMatchingSourceAndContext()
     local changed, changedDiagnostics = compilerEnv.checkModuleSource(env, path, source .. "export const other = 2\n")
     assert(changed ~= strict and #changedDiagnostics == 0, "changed source gets its own completed check")
     os.execute("rm -rf " .. string.format("%q", dir))
+end
+
+function M.bundledSourcesShareTheirPendingAndCompletedExports()
+    local dir = tempProject({["nupp.lua"] = 'return {include = {"."}}\n'})
+    local env = compilerEnv.new(dir, {cache = false})
+    local loaded = assert(env.bundled.types, "the types facade checks through its bundled dependency cycle")
+    assert(loaded == env.loadedPaths.types, "the bundled cache and lifecycle share one completed record")
+    assert(not loaded.inProgress and loaded.exports.types.Key and loaded.exports.types.Debug)
+    local reflection = assert(env.bundled["nupp.compiler.runtime.reflect"])
+    assert(
+        reflection == env.loadedPaths["nupp.compiler.runtime.reflect"],
+        "recursive reflection retains one export graph"
+    )
+    assert(not reflection.inProgress and reflection.source and reflection.resource)
+    testAssert.equal(loaded.resource, "/types/init.nupp")
+    testAssert.equal(loaded.declarationOnly, false)
+    local declared = assert(env.bundled.bit)
+    assert(declared.declarationOnly and not declared.inProgress, "declaration modules retain their checking mode")
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
+function M.warmingBundledMetadataPreservesProjectModulePrecedence()
+    local dir = tempProject({
+        ["nupp.lua"] = 'return {include = {"."}}\n',
+        ["bit.nupp"] = 'module bit\nexport const projectOnly = "project"\n',
+    })
+    local env = compilerEnv.new(dir, {cache = false})
+    local bundled = assert(env.bundled.bit)
+    assert(env.loaded.bit == nil, "reading bundled metadata does not select it over project source")
+    local resolved = assert(env.resolveModule(env, "bit"))
+    local selected = assert(env.loaded.bit)
+    assert(selected ~= bundled and selected.path == dir .. "/bit.nupp")
+    assert(selected.type == resolved and selected.exports.values.projectOnly)
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
+function M.malformedBundledDeclarationsAreRefusedInBothProfiles()
+    local parser = require("nupp.compiler.syntax.parser")
+    local dir = tempProject({["nupp.lua"] = 'return {include = {"."}}\n'})
+    local environments = {
+        compilerEnv.new(dir, {
+            cache = false
+        }),
+        compilerEnv.new(dir, {
+            cache = false,
+            compat = "lua51"
+        }),
+    }
+    local original = parser.parse
+    parser.parse = function(source, filename, ...)
+        return original(filename == "bit" and "local =" or source, filename, ...)
+    end
+    local ok, reason = pcall(function()
+        for _, env in ipairs(environments) do
+            testAssert.equal(env.bundled.bit, false, "syntax errors cannot become unknown-but-accepted modules")
+            assert(env.loaded.bit == nil and env.loadedPaths.bit == nil, "a refused bundle leaves no selected record")
+        end
+    end)
+    parser.parse = original
+    os.execute("rm -rf " .. string.format("%q", dir))
+    assert(ok, reason)
 end
 
 function M.moduleSourceCheckFailuresReleaseTheirPendingEntry()
