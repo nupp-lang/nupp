@@ -142,10 +142,10 @@ export function load(ast: documents.Document): Model
                 end
             end
         elseif shape.kind == "list" then
-            add(shape, "member", assert(field.value:get("member"), "missing list member"))
+            add(shape, "member", (assert(field.value:get("member"), "missing list member")))
         elseif shape.kind == "map" then
-            add(shape, "key", assert(field.value:get("key"), "missing map key"))
-            add(shape, "value", assert(field.value:get("value"), "missing map value"))
+            add(shape, "key", (assert(field.value:get("key"), "missing map key")))
+            add(shape, "value", (assert(field.value:get("value"), "missing map value")))
         end
     end
 
