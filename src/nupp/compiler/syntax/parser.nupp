@@ -1698,12 +1698,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     and baseTok
                     and (
                         FFI_INTRINSIC[member.text] and baseTok.text == "ffi"
-                        or member.text == "adopt" and baseTok.text == "nupp"
+                        or member.text == "adopt" and (baseTok.text == "nupp" or baseTok.text == "own")
                     )
                 then
                     add(n, advance()).generic = true
                     local argument = add(n, parseType())
-                    if member.text == "adopt" and baseTok.text == "nupp" then
+                    if member.text == "adopt" and (baseTok.text == "nupp" or baseTok.text == "own") then
                         n.ownershipTypeArg = argument
                     else
                         n.ffiTypeArg = argument
@@ -1797,6 +1797,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 if args then
                     local n = new cst.Call(kind = "call")
                     n.obj = add(n, e)
+                    if e.kind == "dotIndex" and e.ownershipTypeArg then
+                        n.typeArgs = {e.ownershipTypeArg}
+                    end
                     n.args = add(n, args)
                     e = n
                 else
