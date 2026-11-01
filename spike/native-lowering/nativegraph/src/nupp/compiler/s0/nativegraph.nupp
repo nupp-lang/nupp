@@ -43,7 +43,7 @@ local machineKinds: {
 }
 
 local function machineKind(kind: any): string
-    return assert(machineKinds[kind], "S0 graph: unsupported exact kind")
+    return (assert(machineKinds[kind], "S0 graph: unsupported exact kind"))
 end
 
 record sink.Result
@@ -115,7 +115,7 @@ local function contextLayout(scope: any): any
             end
         end
 
-        return assert(found, "S0 graph: missing context constant " .. name)
+        return (assert(found, "S0 graph: missing context constant " .. name))
     end
 
     local bytes, offset = constant("SIZE"), constant("DISPATCH_TABLE")
@@ -1048,7 +1048,7 @@ function sink.verifyLinkInputs(roots: {any}, functions: {[string]: any}): any
                 imports[code][symbol] = codeImport(saved, symbol)
             else
                 local target = assert(functions[symbol], "core link unresolved function")
-                codeTarget(saved, symbol, assert(verified[target], "S0 graph: unchecked link target"))
+                codeTarget(saved, symbol, (assert(verified[target], "S0 graph: unchecked link target")))
             end
         end
     end

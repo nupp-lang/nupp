@@ -306,13 +306,13 @@ function oracle.run(
                         value = (x < 0 or 1.0 / x < 0) and -0.0 or 0.0
                     end
                 else
-                    value = nupp.math.f32.fma(nupp.math.f32.narrow(x), nupp.math.f32.narrow(y), nupp.math.f32.narrow(z))
+                    value = math.f32.fma(math.f32.narrow(x), math.f32.narrow(y), math.f32.narrow(z))
                 end
                 if kind == ir.F32 and op == 35 then
-                    value = nupp.math.f32.div(nupp.math.f32.narrow(x), nupp.math.f32.narrow(y))
+                    value = math.f32.div(math.f32.narrow(x), math.f32.narrow(y))
                 end
                 if kind == ir.F32 and op == 38 then
-                    value = nupp.math.f32.sqrt(nupp.math.f32.narrow(x))
+                    value = math.f32.sqrt(math.f32.narrow(x))
                 end
                 result = oracle.encode(value, kind)
             end
