@@ -590,6 +590,61 @@ function M.assertPreservesAndNarrowsAnOptionalOwner()
     )
 end
 
+function M.assertForwardsOwnersInItsCompleteResultPack()
+    local declaration = table.concat({RESOURCE, "local function through<A...>(...: A...): A... return ... end",}, "\n")
+    assertClean(
+        table.concat(
+            {
+                declaration,
+                "local first = resource_new()",
+                "local last = resource_new()",
+                "local present, gap, tail = assert(first, nil, last)",
+                "local empty: nil = gap",
+                "nupp.drop(present)",
+                "nupp.drop(tail)",
+            },
+            "\n"
+        )
+    )
+    assertClean(
+        table.concat(
+            {
+                declaration,
+                "local first = resource_new()",
+                "local last = resource_new()",
+                "local present, gap, tail = assert(through(first, nil, last))",
+                "local empty: nil = gap",
+                "nupp.drop(present)",
+                "nupp.drop(tail)",
+            },
+            "\n"
+        )
+    )
+    assertClean(
+        table.concat(
+            {
+                declaration,
+                "local requireTruthy = assert",
+                "local first = resource_new()",
+                "local last = resource_new()",
+                "local present, gap, tail = requireTruthy(first, nil, last)",
+                "local empty: nil = gap",
+                "nupp.drop(present)",
+                "nupp.drop(tail)",
+            },
+            "\n"
+        )
+    )
+    testAssert.matches(
+        codes(
+            declaration
+            .. "\nlocal value = resource_new()\nlocal result = assert(value)\nprint(value)\nnupp.drop(result)"
+        ),
+        "NUPP2601",
+        "forwarding moves the owner exactly once"
+    )
+end
+
 function M.optionalAliasesKeepExplicitCleanupOwnership()
     assertClean(
         table.concat(
@@ -3845,7 +3900,10 @@ function M.ownershipCallsReplaceAdoptReleaseAndDropSyntax()
         )
     )
     testAssert.equal(
-        codes(RESOURCE .. "\nlocal raw = resource_create()\nlocal value = nupp.adopt<affine(resource*, resource_free)>(raw)"),
+        codes(
+            RESOURCE
+            .. "\nlocal raw = resource_create()\nlocal value = nupp.adopt<affine(resource*, resource_free)>(raw)"
+        ),
         "NUPP2604"
     )
 end
@@ -8816,27 +8874,31 @@ function M.ownershipIntrinsicsCannotBeStoredAsValues()
     end
 end
 
-
 -- An alias for a generic interface names the same type the interface does, in a
 -- borrowed parameter as anywhere else. The alias's arguments used to be resolved
 -- under that parameter's loan, so a Closeable binder lost its cleanup through the
 -- alias, and a method written against the alias no longer fit the contract the
 -- interface itself spelled.
 function M.anAliasAppliedInAParameterKeepsItsArgumentsOwnership()
-    assertClean(table.concat({
-        "local interface Sink<S>",
-        "    apply: function(self, exclusive state: S): nil",
-        "end",
-        "local type Alias<S> = Sink<S>",
-        "local interface Uses",
-        "    run: function<S is nupp.Closeable>(self, sink: Sink<S>): nil",
-        "end",
-        "local record Impl is Uses",
-        "    function run<S is nupp.Closeable>(self, sink: Alias<S>): nil",
-        "    end",
-        "end",
-        "print(new Impl())",
-    }, "\n"))
+    assertClean(
+        table.concat(
+            {
+                "local interface Sink<S>",
+                "    apply: function(self, exclusive state: S): nil",
+                "end",
+                "local type Alias<S> = Sink<S>",
+                "local interface Uses",
+                "    run: function<S is nupp.Closeable>(self, sink: Sink<S>): nil",
+                "end",
+                "local record Impl is Uses",
+                "    function run<S is nupp.Closeable>(self, sink: Alias<S>): nil",
+                "    end",
+                "end",
+                "print(new Impl())",
+            },
+            "\n"
+        )
+    )
 end
 
 return M

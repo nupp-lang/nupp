@@ -863,4 +863,166 @@ end
     )
 end
 
+-- Builtin-root adoption needs an ordinary Nupp callable table, including a
+-- generic input/result pack. Keep the current global and library untouched.
+function M.aCallableModuleForwardsTheBuiltinAssertContract()
+    withProject(
+        {
+            [
+                "src/callableprobe.nupp"
+            ] = [[
+module callableprobe
+
+local interface Callable
+    equal: function(any, any, string?): any
+    suite: {
+        skip: function(string): never,
+        isSkip: function(any): boolean,
+        skipReason: function(any): string?,
+    }
+    metamethod __call: function<A...>(self, A...): A...
+end
+
+local type BuiltinAssert = function<A...>(A...): A...
+local original = rawget(_G, "assert") as BuiltinAssert
+local helper = require("nupp.test")
+local value = {
+    equal = helper.equal,
+    suite = {skip = helper.skip, isSkip = helper.isSkip, skipReason = helper.skipReason},
+} as Callable
+
+export = setmetatable(value, {__call = function<A...>(_self: Callable, ...: A...): A...
+    return original(...)
+end})
+]],
+            [
+                "src/callableconsumer.nupp"
+            ] = [[
+module callableconsumer
+
+local callable = require("callableprobe")
+local first: string, second: nil, third: integer = callable("truthy", nil, 42)
+callable.equal(first, "truthy")
+assert(second == nil)
+assert(third == 42)
+export const result = true
+]],
+        },
+        function(dir)
+            local env = projectEnv(dir)
+            local removeLoader = runtime.install(env, compile)
+            local ok, problem = pcall(function()
+                local callable = require("callableprobe")
+                testAssert.equal(type(callable), "table")
+                testAssert.equal(callable.equal, testAssert.equal, "the existing helper keeps its identity")
+                testAssert.equal(require("callableconsumer").result, true)
+
+                local function collect(...)
+                    return {n = select("#", ...), ...}
+                end
+
+                testAssert.deepEqual(collect(callable("truthy", nil, 42, nil)), {n = 4, "truthy", nil, 42})
+                local _, originalDefault = pcall(assert, false)
+                local _, wrappedDefault = pcall(callable, false)
+                testAssert.equal(wrappedDefault, originalDefault)
+                for _, message in ipairs({"failure", 17, false, {reason = "error object"}}) do
+                    local originalOk, originalError = pcall(assert, false, message)
+                    local wrappedOk, wrappedError = pcall(callable, false, message)
+                    testAssert.equal(wrappedOk, originalOk)
+                    testAssert.equal(wrappedError, originalError, "the builtin owns error routing")
+                end
+                local evaluated = {}
+
+                local function argument(value)
+                    evaluated[#evaluated + 1] = #evaluated + 1
+                    return value
+                end
+
+                local succeeded, failure = pcall(function()
+                    callable(argument(false), argument("failure"), argument(42))
+                end)
+                testAssert.equal(succeeded, false)
+                testAssert.matches(failure, "failure")
+                testAssert.deepEqual(evaluated, {1, 2, 3}, "all arguments run once before failure")
+            end)
+            removeLoader()
+            package.loaded.callableprobe = nil
+            package.loaded.callableconsumer = nil
+            if not ok then
+                error(problem, 0)
+            end
+        end
+    )
+end
+
+function M.anArrayModuleKeepsMethodsInItsMetatable()
+    withProject(
+        {
+            [
+                "src/argvprobe.nupp"
+            ] = [[
+module argvprobe
+
+export type TokenKind = string
+local methods = {parse = function(value: string): string return value end}
+record methods.Candidate
+    value: string
+end
+export type Candidate = methods.Candidate
+local type Methods = {parse: function(string): string, Candidate: Type<methods.Candidate>}
+local argv = {"one", "two"} as {string} & Methods
+
+export = setmetatable(argv, {__index = methods})
+]],
+            [
+                "src/argvconsumer.nupp"
+            ] = [[
+module argvconsumer
+
+local argv = require("argvprobe")
+const {type TokenKind, type Candidate} = require("argvprobe")
+local chosen: Candidate = new argv.Candidate(value = "choice")
+assert(chosen.value == "choice")
+local count: integer = #argv
+local word: TokenKind = argv.parse(argv[1])
+assert(count == 2)
+assert(word == "one")
+export const result = true
+]],
+        },
+        function(dir)
+            local env = projectEnv(dir)
+            local removeLoader = runtime.install(env, compile)
+            local ok, problem = pcall(function()
+                local argv = require("argvprobe")
+                testAssert.equal(require("argvprobe"), argv, "the exported array has one module identity")
+                testAssert.equal(require("argvconsumer").result, true)
+                testAssert.equal(rawget(argv, "parse"), nil)
+                testAssert.equal(argv.parse, getmetatable(argv).__index.parse)
+                testAssert.equal(#argv, 2)
+                local sequential = {}
+                for index, value in ipairs(argv) do
+                    sequential[index] = value
+                end
+                testAssert.deepEqual(sequential, {"one", "two"})
+                local json = require("testjson")
+                testAssert.equal(json.encode(argv), json.encode({"one", "two"}), "methods stay out of serialization")
+                argv[0], argv[-1] = "program", "launcher"
+                local raw = {}
+                for key, value in pairs(argv) do
+                    raw[key] = value
+                end
+                testAssert.deepEqual(raw, {[0] = "program", [-1] = "launcher", "one", "two"})
+                testAssert.equal(#argv, 2)
+            end)
+            removeLoader()
+            package.loaded.argvprobe = nil
+            package.loaded.argvconsumer = nil
+            if not ok then
+                error(problem, 0)
+            end
+        end
+    )
+end
+
 return M
