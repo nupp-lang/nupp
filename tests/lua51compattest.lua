@@ -241,6 +241,47 @@ local function inProject(callback)
     assert(ok, problem)
 end
 
+function M.synthesizedModuleBindingsUseOrdinaryLuaSyntax()
+    inProject(function(root, write)
+        write("nupp.lua", 'return {include={"."}}')
+        local source = "local first, gap, last = assert(7, nil, 9); return first, gap, last"
+        local filename = root .. "/main.nupp"
+        local projectEnv = envMod.new(root, {cache = false})
+        local result = parser.parse(source, filename)
+        local diags = check.check(result, filename, projectEnv, {compat = "lua51"})
+        assert(errors(diags) == "", errors(diags))
+        local assertion = projectEnv.bundled.assert
+        assert(assertion and assertion.declared, "the final assertion facade was checked")
+        local code, generated = gen.generate(result, filename)
+        assert(errors(generated) == "", errors(generated))
+        assert(
+            code:find('local __nuppModule = require("assert")', 1, true),
+            "the synthesized dependency uses plain Lua"
+        )
+        local ordinary = parser.parse(source, filename)
+        local ordinaryDiags = check.check(ordinary, filename, projectEnv, {})
+        assert(errors(ordinaryDiags) == "", errors(ordinaryDiags))
+        assert(code == gen.generate(ordinary, filename), "compatibility must not select alternate module bindings")
+        local first, gap, last = assert(loadstring(code))()
+        assert(first == 7 and gap == nil and last == 9, "the assertion retains the complete input pack")
+    end)
+end
+
+function M.publicAssertionFacadeRemainsOutsideStock51()
+    inProject(function(root, write)
+        write("nupp.lua", 'return {compat="lua51",include={"."}}')
+        write("main.nupp", 'local assertions = require("assert"); assertions.equal(1, 1)')
+        local options = {diagnostics = {}, produced = {}}
+        assert(require("nupp.tools.build.project").build(root, options) == 1)
+        local message = errors(options.diagnostics)
+        assert(message:find("NUPP3014", 1, true) or message:find("NUPP3015", 1, true), message)
+        assert(
+            not message:find("NUPP3016", 1, true),
+            "the refusal concerns runtime requirements, not synthesized syntax"
+        )
+    end)
+end
+
 function M.explicitPureLuaBitLibraryRemainsAnOrdinaryDependency()
     inProject(function(root, write)
         local fs = require("nupp.compiler.fs")

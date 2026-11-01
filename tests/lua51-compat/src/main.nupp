@@ -1,4 +1,5 @@
 local values = require("values")
+local assert = _G.assert
 local closed = {}
 
 local record Guard

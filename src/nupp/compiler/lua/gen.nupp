@@ -10434,7 +10434,7 @@ function gen.generate(
         -- The logging view is not the module table: a site indexes a per-module view
         -- that `forModule` answers, so it is bound above rather than required here.
         if moduleName ~= "nupp.log#view" and moduleName ~= "log#view" then
-            code = ("const %s = require(%q); "):format(compilerModules[moduleName], moduleName) .. code
+            code = ("local %s = require(%q); "):format(compilerModules[moduleName], moduleName) .. code
         end
     end
     if runtimeBootstrap ~= "" then

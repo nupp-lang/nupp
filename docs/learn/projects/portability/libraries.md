@@ -31,6 +31,15 @@ namespace tables or code loaders through containers or unchecked callbacks is
 rejected because their use can no longer be verified. Registry, upvalue and
 local-variable reflection likewise cannot certify runtime dependencies.
 
+Use `_G.assert` for stock assertions. The public `assert` facade includes
+test-suite state and reflection outside this profile.
+
+```nupp
+local assert = _G.assert
+local value = assert("ready")
+return value
+```
+
 Runtime `const`, compound assignment,
 bit operators, `continue`, jumps, short functions, safe navigation, extended
 literals, FFI, native `bit`, `string.buffer`, exact-width representations and VM
