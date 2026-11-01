@@ -49,6 +49,40 @@ local isFatal, printErrors = diagnosticMod.isFatal, diagnosticMod.report
 
 local modules = {}
 
+type modules.RuntimeSourceLink = {
+    inc: Inc,
+    selfContained: boolean,
+    checked: {[string]: boolean},
+    linked: {[string]: boolean},
+    packaged: {[string]: boolean},
+    records: {[string]: any},
+    stage: function(name: string): string?
+}
+
+-- Select a carried source for the payload using the same state as record production.
+function modules.linkPackagedRuntime(name: string, context: modules.RuntimeSourceLink): nil
+    local existing = context.inc.modulePath(name)
+    if not context.selfContained
+        or (
+            existing ~= nil
+            and not envMod.isDependencyTypePath(context.inc.env, existing)
+            and not envMod.isRuntimeSourcePath(context.inc.env, existing)
+            and not context.checked[name]
+        )
+    then
+        return
+    end
+    local path = context.checked[name] and existing or context.stage(name)
+    if path ~= nil and not path:match("%.d%.nupp$") then
+        context.linked[name] = true
+        context.packaged[name] = true
+        local record = context.records[name]
+        if record ~= nil then
+            record.compilerRuntime = true
+        end
+    end
+end
+
 local function hiddenDirectory(name: string): boolean
     return name:sub(1, 1) == "."
 end
@@ -1202,6 +1236,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     local linkingRuntimeSource: {[string]: boolean} = {}
     local linkedRuntimeSource: {[string]: boolean} = {}
     local packagedRuntimeModules: {[string]: boolean} = {}
+    local records: {[string]: any} = {}
     local packagedCheckSources: {[string]: boolean} = {}
     local stagingPackagedChecks: {[string]: boolean} = {}
     -- A check reuses on the same terms a build does. It used to be excluded, and had to
@@ -1305,7 +1340,10 @@ local function buildModules(root: string, outDir: string, config: Config, target
             return inc.modulePath(name)
         end
         local existing = inc.modulePath(name)
-        if existing ~= nil and not envMod.isDependencyTypePath(inc.env, existing) then
+        if existing ~= nil
+            and not envMod.isDependencyTypePath(inc.env, existing)
+            and not envMod.isRuntimeSourcePath(inc.env, existing)
+        then
             return nil
         end
         stagingPackagedChecks[name] = true
@@ -1325,22 +1363,18 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- actually requires. Select one source at a time: generation provides the runtime
     -- closure, while `moduleDependencies` also contains erased type-only imports and
     -- would make those imports executable by accident.
+    local runtimeLink: modules.RuntimeSourceLink = {
+        inc = inc,
+        selfContained = selfContainedTarget,
+        checked = packagedCheckSources,
+        linked = linkedModules,
+        packaged = packagedRuntimeModules,
+        records = records,
+        stage = stagePackagedChecks
+    }
+
     local function linkPackagedRuntime(name: string): nil
-        local existing = inc.modulePath(name)
-        if not selfContainedTarget
-            or (
-                existing ~= nil
-                and not envMod.isDependencyTypePath(inc.env, existing)
-                and not packagedCheckSources[name]
-            )
-        then
-            return
-        end
-        local path = packagedCheckSources[name] and existing or stagePackagedChecks(name)
-        if path ~= nil and not path:match("%.d%.nupp$") then
-            linkedModules[name] = true
-            packagedRuntimeModules[name] = true
-        end
+        modules.linkPackagedRuntime(name, runtimeLink)
     end
 
     -- Compiler-provided feature runtimes are not reached by a source `require`:
@@ -1622,7 +1656,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     end
     local emptySpecializationHash = contentDigest("")
 
-    local records, reused, codeFor, paths = {}, {}, {}, {}
+    local reused, codeFor, paths = {}, {}, {}
     local order: {string} = {}
     local queued, cursor = {}, 1
     -- What the queue holds now is the whole source set; dependencies discovered later

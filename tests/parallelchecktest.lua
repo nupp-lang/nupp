@@ -1,9 +1,8 @@
 local testAssert = require("assert")
-local cache = require("nupp.tools.build.cache")
-local fingerprint = require("nupp.compiler.project.fingerprint")
 local fs = require("nupp.compiler.fs")
 local json = require("testjson")
 local parallelcheck = require("nupp.tools.build.parallelcheck")
+local modules = require("nupp.tools.build.modules")
 local process = require("nupp.compiler.process")
 local stable = require("nupp.compiler.stable")
 local store = require("nupp.compiler.project.store")
@@ -17,6 +16,28 @@ if not HERE:match("^/") then
 end
 local ROOT = assert(HERE:match("^(.*)/[^/]+$"), "tests directory has no parent")
 local NUPP = ROOT .. "/bin/nupp"
+
+local producerStamp
+
+local function checkProducerStamp()
+    if producerStamp then
+        return producerStamp
+    end
+    -- The CLI and test runner can carry different runtime closures. Read with
+    -- the writer's fingerprint rather than the test process's module tree.
+    local source = (
+        "package.path = %q .. package.path; "
+        .. "local fingerprint = require('nupp.compiler.project.fingerprint'); "
+        .. "local cache = require('nupp.tools.build.cache'); "
+        .. "io.write(cache.moduleCompilerFingerprint(nil, fingerprint.contentDigest(true)))"
+    ):format(ROOT .. "/build/?.lua;")
+    local code, output = process.capture({"luajit", "-e", source})
+    testAssert.equal(code, 0, "the CLI generation's fingerprint could not be read: " .. output)
+    assert(output:match("^%x+$"), "the CLI generation returned an invalid fingerprint: " .. output)
+    producerStamp = "checks/1\0" .. output
+
+    return producerStamp
+end
 
 local function write(path, text)
     local directory = path:match("^(.*)/[^/]+$")
@@ -190,9 +211,7 @@ local function tempProject(withErrors)
 end
 
 local function checkState(directory)
-    local contentCache = fingerprint.sharedCacheDir(directory .. "/build/cache")
-    local moduleHash = cache.moduleCompilerFingerprint(contentCache, fingerprint.contentDigest(true))
-    local saved = store.openValue(directory .. "/build/cache/checks.buf", "checks/1\0" .. moduleHash).value
+    local saved = store.openValue(directory .. "/build/cache/checks.buf", checkProducerStamp()).value
     assert(saved, "the check did not persist its state")
 
     return stable(saved)
@@ -282,6 +301,57 @@ local function coldBuild(directory, environment, extra)
 end
 
 local M = {}
+
+local function runtimeLinkFixture(path, checked)
+    return {
+        inc = {
+            env = {runtimeSourceRoots = {"build/cache/runtime-source"}},
+            modulePath = function()
+                return path
+            end
+        },
+        selfContained = true,
+        checked = checked and {assert = true} or {},
+        linked = {},
+        packaged = {},
+        records = {assert = {interfaceHash = "checked", runtimeModules = {"dependency"}}},
+        stage = function(name)
+            testAssert.equal(name, "assert")
+            return path
+        end,
+    }
+end
+
+function M.recursivelyStagedRuntimeSourcesRemainCompilerOwned()
+    local context = runtimeLinkFixture("build/cache/runtime-source/assert/init.nupp", false)
+    modules.linkPackagedRuntime("assert", context)
+    testAssert.equal(context.packaged.assert, true, "recursively carried source belongs to the compiler")
+    testAssert.equal(context.linked.assert, true)
+    testAssert.equal(context.records.assert.compilerRuntime, true)
+end
+
+function M.lateRuntimeLinkingUpdatesAnExistingRecord()
+    local context = runtimeLinkFixture("build/cache/runtime-source/assert/init.nupp", true)
+    modules.linkPackagedRuntime("assert", context)
+    testAssert.deepEqual(context.records.assert, {
+        interfaceHash = "checked",
+        runtimeModules = {"dependency"},
+        compilerRuntime = true
+    })
+end
+
+function M.authoredSourcesAreNotClaimedAsCompilerRuntime()
+    for _, path in ipairs({"src/assert.nupp", "build/cache/runtime-source-other/assert/init.nupp"}) do
+        local context = runtimeLinkFixture(path, false)
+        context.stage = function()
+            error("an authored source must not be staged")
+        end
+        modules.linkPackagedRuntime("assert", context)
+        testAssert.equal(context.packaged.assert, nil)
+        testAssert.equal(context.linked.assert, nil)
+        testAssert.equal(context.records.assert.compilerRuntime, nil)
+    end
+end
 
 function M.workerPolicyKeepsSmallChecksSerialAndCapsAutomaticParallelism()
     testAssert.equal(parallelcheck.plan(63, 1048576, 8, nil).workers, 1, "module floor")
