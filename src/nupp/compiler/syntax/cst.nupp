@@ -282,6 +282,9 @@ interface cst.Hints
     --- ambient one; lowering additionally needs statement position.
     logIntrinsic: integer?
 
+    --- The source module whose logger this call uses.
+    logModule: string?
+
     --- A literal Nupp format containing `%?`, rewritten to Lua `%s` together with the
     --- argument positions whose values need their `debug` method called.
     formatIntrinsic: any
@@ -1998,6 +2001,9 @@ record cst.Args is cst.Hints
     --- The first argument when a compiler intrinsic parses it in a type position.
     typeArg: cst.Node?
 
+    -- The ordinary expression alternative when the intrinsic root is shadowed.
+    ordinaryTypeArg: cst.Node?
+
     --- The table of `f{...}`.
     table: cst.Node?
 
@@ -2871,6 +2877,10 @@ local OWNERSHIP_INTRINSICS: {
     drop = true,
 }
 
+function cst.ownershipIntrinsicMember(member: string): boolean
+    return OWNERSHIP_INTRINSICS[member] == true
+end
+
 --- The ownership intrinsic a callee is written as, before anything asks what
 --- the names in it resolve to. Returns nil for a callee of any other shape.
 ---
@@ -2904,7 +2914,7 @@ function cst.ownershipIntrinsicSpelling(callee: cst.Node?): string?, boolean?
     end
     local baseToken = base.token
 
-    return baseToken and baseToken.text == "nupp" and member or nil, true
+    return baseToken and (baseToken.text == "nupp" or baseToken.text == "own") and member or nil, true
 end
 
 local COMPTIME_TYPE_INTRINSICS: {[string]: boolean} = {reflect = true, sizeof = true, alignof = true, offsetof = true,}
@@ -2924,6 +2934,9 @@ function cst.comptimeTypeIntrinsicSpelling(callee: cst.Node?): string?, boolean?
     local base = callee.obj
     local member = callee.name and callee.name.text or ""
     local baseToken = base and base.kind == "name" and base.token or nil
+    if baseToken and baseToken.text == "types" and member == "reflect" then
+        return member, true
+    end
     if not baseToken or baseToken.text ~= "nupp" or not COMPTIME_TYPE_INTRINSICS[member] then
         return nil
     end

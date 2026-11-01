@@ -126,6 +126,9 @@ function providers.installEvaluator(state: any, env: any)
     deriveprovider.installEvaluator(state, env, newOpaque, provenance, function(handle)
         return state.opaque[handle]
     end)
+    env.types = env.nupp.types
+    env.types.reflect = env.nupp.reflect
+    env.types.derive = env.nupp.derive
 end
 
 function providers.materializeDeriveInfo(state: any, input: any): any

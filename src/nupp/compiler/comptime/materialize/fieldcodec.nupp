@@ -2,6 +2,7 @@ module nupp.compiler.comptime.materialize.fieldcodec
 
 -- Materializes keyed record-field projection from `nupp.reflect.Info`.
 
+local apiidentity = require("nupp.compiler.apiidentity")
 local hash = require("nupp.compiler.hash")
 local reflection = require("nupp.compiler.reflection")
 
@@ -41,6 +42,7 @@ function fieldcodec.installEvaluator(state: any, env: any, newOpaque: any, prove
     library.fieldCodec = token
     env.nupp = env.nupp or {}
     env.nupp.reflect = library
+    state.reflectionIntrinsic = library
 end
 
 function fieldcodec.finalize(state: any, value: any): any, fieldcodec.Failure?
@@ -139,7 +141,7 @@ function fieldcodec.lower(envelope: any, expected: any, env: any): any, fieldcod
     if envelope.fingerprint ~= hash.sha256("nupp.fieldcodec\0v2\0" .. canonical) then
         return nil, failure("NUPP2415", "field-codec blueprint fingerprint does not match")
     end
-    local namespace = env and env.globalTypes and env.globalTypes["nupp.reflect"]
+    local namespace = env and env.globalTypes and apiidentity.lookup(env.globalTypes, "types.reflect")
     local codec = namespace and namespace.nestedTypes and namespace.nestedTypes.FieldCodec
     local target = expected and expected.typeArgs and expected.typeArgs[1]
     if not codec

@@ -1233,6 +1233,7 @@ function expr.install(c: state.Checker): nil
                     local moduleType = c.env.resolveModule(c.env, nameText)
                     if moduleType then
                         node.qualifiedModule = nameText
+                        node.requiredModule = nameText
                         node.qualifiedMembers = {}
                         node.immutablePath = true
                         c.markToken(
@@ -1245,11 +1246,17 @@ function expr.install(c: state.Checker): nil
                     end
                 end
             end
+            local builtin = c.env and c.env.globals and c.env.globals[nameText]
+            if entry and builtin and entry.definition == builtin.definition then
+                (node as any).namespacePath = nameText
+            end
             -- Preserve a resolved module identity through ordinary local aliases.
             -- Comptime provider and runtime-helper handles use that identity rather
             -- than making the alias spelling part of their ABI.
             if entry and entry.requiredModule then
                 node.requiredModule = entry.requiredModule
+                node.qualifiedModule = entry.requiredModule
+                node.qualifiedMembers = {}
             end
             local capturedType = nil
             if entry
