@@ -140,6 +140,50 @@ end
 
 -- This walk discovers semantic owners, not instructions. Only ordered CST
 -- children are visited: named fields alias them and checker metadata has cycles.
+-- A `:` method's receiver is implicit: the checker binds `self` without a
+-- declaring token, so its references carry no definition. The core gives it
+-- one, as a synthetic first parameter, and points every `self` in the body
+-- at it, except inside nested methods, which have their own receiver.
+local function implicitSelf(node: any, body: any): any
+    if body.coreSelfParam ~= nil or not (node.kind == "funcStmt" and node.name.method) then
+        return body.coreSelfParam
+    end
+    local token: any = {
+        kind = "name",
+        text = "self",
+        line = node.name.method.line,
+        col = node.name.method.col,
+        offset = node.name.method.offset,
+        trivia = {}
+    }
+    local definition: any = {lexical = true, token = token, functionDepth = 0, constant = true, implicitSelf = true}
+    token.definition = definition
+    local mark: function(any): nil
+    mark = function(item: any): nil
+        if type(item) ~= "table" then
+            return
+        end
+        if cst.isToken(item) then
+            if item.text == "self" and item.definition == nil then
+                item.definition = definition
+            end
+            return
+        end
+        if item ~= body and (item.kind == "funcStmt" and item.name.method or item.kind == "inlineMethod") then
+            return
+        end
+        for _, child in ipairs(item) do
+            mark(child)
+        end
+    end
+    mark(body)
+    body.coreSelfParam = {kind = "param", name = token, implicitSelf = true}
+
+    return body.coreSelfParam
+end
+
+program.parameters = graph.parameters
+
 function program.describe(modules: {any}, entryModule: string): any
     local p: any = {
         modules = {},
@@ -244,10 +288,15 @@ function program.describe(modules: {any}, entryModule: string): any
                 constants = {},
                 captureByDefinition = {}
             }
-            for index, parameter in ipairs(body.params) do
+            local receiver = implicitSelf(node, body)
+            if receiver then
+                binding(receiver.name, child)
+            end
+            local params = program.parameters(body)
+            for index, parameter in ipairs(params) do
                 -- An anonymous `...` last is a hidden parameter holding the pack
                 -- of extra arguments (a table with its count at key 0).
-                if parameter.vararg and not parameter.name and index == #body.params then
+                if parameter.vararg and not parameter.name and index == #params then
                     child.variadic = true
                     child.paramKinds[index] = "value"
                     -- It binds like a value parameter, keyed by its node.
@@ -459,6 +508,33 @@ function program.describe(modules: {any}, entryModule: string): any
         end
         if node.kind == "call" and node.obj.kind == "name" and not loader and not intrinsic and not loopForms[node] then
             local item = {id = #p.calls, owner = owner.id, node = node, definition = node.obj.token.definition}
+            p.calls[#p.calls + 1], p.callByNode[node] = item, item
+        end
+        -- A record method call reaches its method through the table the
+        -- record's name holds, so the caller references that binding: a
+        -- synthetic token per call, which capture analysis then transports.
+        local method = node.kind == "methodCall" and node.name and node.name.definition
+        local target = method and p.functionsByDefinition[method]
+        if target and target.node.kind == "funcStmt" and target.node.name.method then
+            local base = target.node.name.base
+            local classToken: any = {
+                kind = "name",
+                text = base.text,
+                line = node.name.line,
+                col = node.name.col,
+                offset = node.name.offset,
+                trivia = {},
+                definition = base.definition
+            }
+            reference(classToken, owner)
+            local item = {
+                id = #p.calls,
+                owner = owner.id,
+                node = node,
+                definition = method,
+                method = true,
+                classToken = classToken
+            }
             p.calls[#p.calls + 1], p.callByNode[node] = item, item
         end
         -- A parenthesized literal is registered at the literal itself, which is
@@ -721,15 +797,26 @@ function program.verify(p: any): boolean
     for index, item in ipairs(p.calls) do
         local node = item.node
         need(item.id == index - 1 and p.owners[item.owner + 1], "invalid callsite owner")
-        need(
-            node.kind == "call" and node.obj.kind == "name" and not node.runtimeLoader and not node.ownershipIntrinsic,
-            "callsite lacks ordinary checked call identity"
-        )
-        need(
-            p.callByNode[node] == item and node.obj.token.definition == item.definition,
-            "callsite declaration identity mismatch"
-        )
-        need(referenceOwners[node.obj.token] == item.owner, "callsite does not belong to its checked owner")
+        if item.method then
+            need(
+                node.kind == "methodCall" and p.callByNode[node] == item and node.name.definition == item.definition,
+                "method callsite identity mismatch"
+            )
+            need(referenceOwners[item.classToken] == item.owner, "method callsite does not belong to its checked owner")
+        else
+            need(
+                node.kind == "call"
+                and node.obj.kind == "name"
+                and not node.runtimeLoader
+                and not node.ownershipIntrinsic,
+                "callsite lacks ordinary checked call identity"
+            )
+            need(
+                p.callByNode[node] == item and node.obj.token.definition == item.definition,
+                "callsite declaration identity mismatch"
+            )
+            need(referenceOwners[node.obj.token] == item.owner, "callsite does not belong to its checked owner")
+        end
     end
     for node, item in pairs(p.callByNode) do
         need(item.node == node and p.calls[item.id + 1] == item, "stale callsite map")
@@ -815,7 +902,7 @@ function program.verifyGraphs(p: any, graphs: {any}): nil
         need(type(g) == "table", "incomplete graph table")
         local owner = p.owners[index]
         need(g.native == nil, "core guest program cannot admit a native graph")
-        local nparams = owner.kind == "module" and 0 or #owner.body.params
+        local nparams = owner.kind == "module" and 0 or #graph.parameters(owner.body)
         need(g.nparams == nparams, "graph parameter count differs from checked owner")
         need(g.programOwner == owner.id, "graph owner identity mismatch")
         need(

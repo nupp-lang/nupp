@@ -197,6 +197,13 @@ function generate.program(seed, size)
             elseif a ~= b then
                 emit(a .. ", " .. b .. " = " .. b .. ", (" .. a .. " + " .. expression(1) .. ") % 1000003")
             end
+        elseif roll == 9 then
+            -- A record method, for its value or as a statement.
+            if pick(2) == 1 then
+                emit(target() .. " = acc:add(" .. expression(1) .. ")")
+            else
+                emit("acc:add(" .. expression(1) .. ")")
+            end
         elseif roll == 11 and pick(2) == 1 then
             -- A generic function, its type parameter erased on the core.
             emit(target() .. " = choose(" .. condition() .. ", " .. expression(1) .. ", " .. expression(1) .. ")")
@@ -239,6 +246,14 @@ function generate.program(seed, size)
         end
     end
 
+    emit("local record Acc", "local Acc = {}")
+    lines[#lines + 1] = "    value: integer"
+    lines[#lines + 1] = "end"
+    emit("function Acc:add(n: integer): integer", "function Acc:add(n)")
+    emit("    self.value = (self.value + n) % 1000003")
+    emit("    return self.value")
+    emit("end")
+    emit("local acc = new Acc(value = 0)", "local acc = setmetatable({value = 0}, {__index = Acc})")
     emit("local t: {[integer]: integer} = {}", "local t = {}")
     emit("local c: integer = 0", "local c = 0")
     emit("local s: string = \"\"", "local s = \"\"")
@@ -280,6 +295,7 @@ function generate.program(seed, size)
         sum[#sum + 1] = name
     end
     sum[#sum + 1] = "c"
+    sum[#sum + 1] = "acc.value"
     sum[#sum + 1] = "#s"
     for k = 0, 15, 5 do
         sum[#sum + 1] = "(t[" .. k .. "] or 0)"

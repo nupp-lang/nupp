@@ -469,6 +469,20 @@ local function resultOffset(t: any): integer
     return t.result ~= nil and 1 or 0
 end
 
+-- A body's parameters as the core binds them: a method's implicit receiver
+-- (attached by programgraph) first.
+function graph.parameters(body: any): {any}
+    local params = {}
+    if body.coreSelfParam then
+        params[1] = body.coreSelfParam
+    end
+    for _, parameter in ipairs(body.params or {}) do
+        params[#params + 1] = parameter
+    end
+
+    return params
+end
+
 local function nativeContract(value: any, fields: any): nil
     assert(type(value) == "table", "native operation requires a contract")
     for name in pairs(value) do
@@ -1283,8 +1297,8 @@ invokeScalar = function(t: any): nil
         -- Tables and functions pass as values; core graph contracts admit
         -- them from profile v8.
         or t.tag == "array" or t.tag == "map" or t.tag == "table" or t.tag == "func"
-        -- A plain type parameter erases to a value.
-        or t.tag == "typevar"),
+        -- A plain type parameter erases to a value, and a record is a table.
+        or t.tag == "typevar" or t.tag == "nominal" and t.declKind == "record"),
         "invoke requires a checked scalar type, got " .. tostring(t and t.tag)
     )
 end
@@ -1435,13 +1449,16 @@ local function invokeContract(contract: any): nil
         and not definition.scalarIntrinsic,
         "invoke checked declaration identity differs"
     )
+    -- A method call names its method by definition and passes its receiver
+    -- first.
+    local method = type(call) == "table" and call.kind == "methodCall"
     assert(
         type(call) == "table"
-        and call.kind == "call"
-        and call.obj
-        and call.obj.kind == "name"
-        and call.obj.token.definition == definition
-        and call.calleeType == contract.callSignature
+        and (
+            call.kind == "call" and call.obj and call.obj.kind == "name" and call.obj.token.definition == definition
+            or method and call.name and call.name.definition == definition
+        )
+        and (call.calleeType or call.signatureType) == contract.callSignature
         and not call.cdefCall
         and not call.scalarIntrinsic
         and not call.ownershipIntrinsic
@@ -1462,6 +1479,7 @@ local function invokeContract(contract: any): nil
     end
     assert(call.args and call.args.kind == "args", "invoke requires explicit positional arguments")
     dense(call.args.exprs)
+    -- A method's function type leaves out its receiver, on both sides.
     assert(
         #call.args.exprs == #called.params
         or called.vararg and #call.args.exprs > #called.params
@@ -1567,7 +1585,7 @@ function graph.invokeContract(owner: any, call: any): any
         definition = owner.definition,
         signature = owner.signature,
         call = call,
-        callSignature = call.calleeType,
+        callSignature = call.calleeType or call.signatureType,
         summary = owner.body.effectSummary,
         effects = {mayCollect = true, mayRaise = true, mayPark = false, pure = false}
     }
@@ -2176,10 +2194,14 @@ end
 function graph.verify(g: any): nil
     verifyGraph(g, function(term: any, index: integer): integer
         invokeContract(term.contract)
-        -- A spread `...` last is the term's pack, not one of its arguments.
+        -- A spread `...` last is the term's pack, not one of its arguments; a
+        -- method call's receiver is its first one.
         local count: integer = #term.contract.call.args.exprs
         if term.spread then
             count -= 1
+        end
+        if term.contract.call.kind == "methodCall" then
+            count += 1
         end
 
         return count

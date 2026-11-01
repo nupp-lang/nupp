@@ -1,6 +1,7 @@
 module nupp.compiler.vm.taggedprofile
 
 local graph = require("nupp.compiler.vm.graph")
+local cst = require("nupp.compiler.syntax.cst")
 local tagged = {booleanKind = "tagged"}
 
 local function need(ok: any, message: string): any
@@ -34,7 +35,10 @@ end
 
 function tagged.initialize(fn: any, options: any): any
     need(options.program and options.program.owners[fn.id + 1] == fn, "checked function owner required")
-    need(fn.node.kind == "localFuncStmt" or fn.node.kind == "funcExpr", "unsupported function declaration form")
+    need(
+        fn.node.kind == "localFuncStmt" or fn.node.kind == "funcExpr" or fn.node.kind == "funcStmt",
+        "unsupported function declaration form"
+    )
     local body = fn.body
     need(
         not body.varargParam and not body.yieldPack and not body.resumePack,
@@ -50,16 +54,17 @@ function tagged.initialize(fn: any, options: any): any
         "open results are unsupported"
     )
     ordinaryCaptures(fn)
-    for index, parameter in ipairs(body.params) do
+    local params = graph.parameters(body)
+    for index, parameter in ipairs(params) do
         -- An anonymous `...` last is the hidden pack parameter.
-        local pack = parameter.vararg and not parameter.name and index == #body.params
+        local pack = parameter.vararg and not parameter.name and index == #params
         need(
             (parameter.name and not parameter.vararg or pack) and not parameter.modeTok and not parameter.constTok,
             "parameter ownership or variadic lowering is unsupported"
         )
     end
 
-    return graph.new(#body.params)
+    return graph.new(#params)
 end
 
 function tagged.valueKind(g: any, id: integer): string
@@ -323,7 +328,10 @@ end
 
 function tagged.closure(ctx: any, node: any, expected: string?): integer
     need(expected == nil or expected == "tagged", "closure requires tagged destination")
-    need(node.kind == "localFuncStmt" or node.kind == "funcExpr", "unsupported function declaration form")
+    need(
+        node.kind == "localFuncStmt" or node.kind == "funcExpr" or node.kind == "funcStmt",
+        "unsupported function declaration form"
+    )
     local target = need(catalog(ctx).byBody[node.body], "closure lacks checked owner")
     need(target.node == node and target.parent == ctx.fn.id, "closure owner identity mismatch")
     ordinaryCaptures(target)
@@ -386,6 +394,41 @@ local function invoke(ctx: any, node: any, keepResult: boolean, dynamic: boolean
     end
 
     return ctx.invoke(node, value, args, contract, keepResult, pack)
+end
+
+-- A record method call, `c:m(...)`: the method is loaded from the table the
+-- record's name holds and called with the receiver first. With `count`, it
+-- keeps that many results and answers them as a list.
+local function invokeMethod(ctx: any, node: any, keepResult: boolean, count: integer?): any
+    local p = catalog(ctx)
+    local site = need(p.callByNode[node], "method call lacks checked callsite")
+    need(site.method and site.owner == ctx.fn.id, "method callsite belongs to another owner")
+    local target = need(p.functionsByDefinition[site.definition], "method call lacks its checked method")
+    local contract = graph.invokeContract(target, node)
+    local class = ctx.expression({kind = "name", token = site.classToken, site.classToken}, "tagged")
+    if class == nil then
+        return nil
+    end
+    local heldClass = ctx.hold(class)
+    local key = ctx.emit(node, "K", {pool(ctx, "str", node.name.text)}, "tagged")
+    local callee = ctx.hold(ctx.emit(node, "GetIdx", {ctx.readHeld(heldClass), key}, "tagged"))
+    ctx.release(heldClass)
+    local exprs, kinds = {node.obj}, {"tagged"}
+    for _, argument in ipairs(node.args.exprs or {}) do
+        need(argument.kind ~= "vararg", "a method call cannot spread `...` yet")
+        exprs[#exprs + 1], kinds[#kinds + 1] = argument, "tagged"
+    end
+    local args = ctx.operands(exprs, kinds)
+    local value = ctx.readHeld(callee)
+    ctx.release(callee)
+    if args == nil then
+        return nil
+    end
+    if count then
+        return ctx.invokeMany(node, value, args, contract, count)
+    end
+
+    return ctx.invoke(node, value, args, contract, keepResult)
 end
 
 function tagged.call(ctx: any, node: any, expected: string?): integer
@@ -820,6 +863,38 @@ function tagged.forVersion(version: integer): any
             local key = ctx.emit(node, "K", {pool(ctx, "int64", "1")}, "tagged")
             return ctx.emit(node, "GetIdx", {ctx.varargPack(), key}, "tagged") as integer
         end
+        -- `function T.f(...)` and `function T:m(...)`: the closure stored into the
+        -- table T names, as Lua does. One level of name only.
+        -- The table a record's methods are stored in, when its name is bound.
+        profile.recordValue = function(ctx: any, stat: any): integer?
+            if catalog(ctx).byDefinition[stat.name.definition] == nil then
+                return nil
+            end
+            return ctx.emit(stat, "NewTable", {}, "tagged") as integer
+        end
+        profile.functionStatement = function(ctx: any, stat: any): nil
+            local name = stat.name
+            local fields = {}
+            for _, part in ipairs(name) do
+                if part ~= name.base and cst.isToken(part) and part.kind == "name" then
+                    fields[#fields + 1] = part.text
+                end
+            end
+            need(#fields == 1, "a function statement names one field of a table")
+            local owner = ctx.expression(
+                {kind = "name", token = name.base, inferredType = name.base.inferredType, name.base},
+                "tagged"
+            )
+            if owner == nil then
+                return
+            end
+            local held = ctx.hold(owner)
+            local closure = ctx.hold(tagged.closure(ctx, stat))
+            local key = ctx.emit(stat, "K", {pool(ctx, "str", fields[1])}, "tagged")
+            ctx.emit(stat, "SetIdx", {ctx.readHeld(held), key, ctx.readHeld(closure)}, nil)
+            ctx.release(closure)
+            ctx.release(held)
+        end
         -- `count` results of a call, for `local a, b = f()` and its kin.
         profile.callResults = function(ctx: any, node: any, count: integer): {integer}?
             -- `local a, b = ...` reads the pack in order; past its end is nil.
@@ -830,6 +905,10 @@ function tagged.forVersion(version: integer): any
                     values[index] = ctx.emit(node, "GetIdx", {ctx.varargPack(), key}, "tagged")
                 end
                 return values
+            end
+            local site = catalog(ctx).callByNode[node]
+            if node.kind == "methodCall" and site and site.method then
+                return invokeMethod(ctx, node, true, count)
             end
             need(node.kind == "call" and node.runtimeLoader ~= "require", "only plain calls spread their results")
             need(graph.coreLibraryCall(node) == nil, "library calls answer one result")
@@ -966,6 +1045,10 @@ function tagged.forVersion(version: integer): any
         -- s:format(...) on a checked string.
         profile.methodCall = function(ctx: any, node: any, expected: string?): integer
             need(expected == nil or expected == "tagged", "method call requires tagged destination")
+            local site = catalog(ctx).callByNode[node]
+            if site and site.method then
+                return invokeMethod(ctx, node, true) as integer
+            end
             local library = graph.coreLibraryCall(node)
             need(
                 library == "string.format" or stringSpec(library) ~= nil,
@@ -987,8 +1070,11 @@ function tagged.forVersion(version: integer): any
             return libraryCall(ctx, node, spec[1], arguments)
         end
         profile.statementCall = function(ctx: any, node: any): nil
+            local site = catalog(ctx).callByNode[node]
             if node.runtimeLoader == "require" then
                 tagged.statementCall(ctx, node)
+            elseif node.kind == "methodCall" and site and site.method then
+                invokeMethod(ctx, node, false)
             else
                 invoke(ctx, node, false, true)
             end

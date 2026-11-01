@@ -62,6 +62,7 @@ local function scalar(value: any, numeric: boolean, dynamic: boolean?): string
         and (
             value.tag == "string"
             or value.tag == "typevar"
+            or value.tag == "nominal" and value.declKind == "record"
             or value.tag == "array"
             or value.tag == "map"
             or value.tag == "table"
@@ -177,7 +178,14 @@ local function checkedSignature(owner: any, numeric: boolean, dynamic: boolean):
         "unknown callable effects"
     )
 
-    return typeSignature(signature, numeric, dynamic)
+    local result = typeSignature(signature, numeric, dynamic)
+    -- A method's receiver is its first parameter on the core, though its
+    -- function type leaves it out.
+    if owner.body.coreSelfParam then
+        table.insert(result.params, 1, "value")
+    end
+
+    return result
 end
 
 local function intern(signatures: any, index: any, signature: any): integer
