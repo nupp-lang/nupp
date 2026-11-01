@@ -41,7 +41,7 @@ copy_tree() {
 copy_if_absent() {
     SOURCE=$1
     DESTINATION=$2
-    if [ -e "$SOURCE" ] && [ ! -e "$DESTINATION" ]; then
+    if [ -e "$SOURCE" ] && [ ! -e "$DESTINATION" ] && [ ! -L "$DESTINATION" ]; then
         mkdir -p "$(dirname "$DESTINATION")"
         copy_tree "$SOURCE" "$DESTINATION"
     fi
@@ -72,8 +72,20 @@ ORIGIN_SOURCE_CHANGES=$(git -C "$ROOT" status --porcelain --untracked-files=norm
 if [ "$ORIGIN_HEAD" = "$TASK_HEAD" ] && [ -f "$ORIGIN_STAMP" ] \
     && [ -f "$ORIGIN_BUILT" ] && [ -z "$NEWER_SOURCE" ] \
     && [ -z "$ORIGIN_SOURCE_CHANGES" ]; then
-    copy_if_absent "$ROOT/build/nupp" "$TASK_ROOT/build/nupp"
-    copy_if_absent "$ROOT/build/nupp.lua" "$TASK_ROOT/build/nupp.lua"
+    for SOURCE_ROOT in "$ROOT"/src/*; do
+        SOURCE_NAME=${SOURCE_ROOT##*/}
+        if [ -d "$SOURCE_ROOT" ]; then
+            copy_if_absent "$ROOT/build/$SOURCE_NAME" "$TASK_ROOT/build/$SOURCE_NAME"
+            copy_if_absent "$ROOT/build/$SOURCE_NAME.lua" "$TASK_ROOT/build/$SOURCE_NAME.lua"
+        else
+            case "$SOURCE_NAME" in
+                *.nupp) MODULE_NAME=${SOURCE_NAME%.nupp} ;;
+                *.lua) MODULE_NAME=${SOURCE_NAME%.lua} ;;
+                *) continue ;;
+            esac
+            copy_if_absent "$ROOT/build/$MODULE_NAME.lua" "$TASK_ROOT/build/$MODULE_NAME.lua"
+        fi
+    done
     copy_if_absent "$ROOT/build/lib" "$TASK_ROOT/build/lib"
     copy_if_absent "$ROOT/build/.nupp-state.json" "$TASK_ROOT/build/.nupp-state.json"
     copy_if_absent "$ORIGIN_STAMP" "$TASK_ROOT/build/.nupp-complete"
