@@ -476,7 +476,7 @@ end
 --- ```nupp
 --- local document = require("serde.document")
 --- local native = require("serde.native")
---- local value = document.list({document.numberToken("1e400"), document.bytes("\0\1")})
+--- local value = document.list({document.numbertoken("1e400"), document.bytes("\0\1")})
 --- local restored = native.decodedocument(document.adapter(), native.encodedocument(document.adapter(), value))
 --- assert(restored:at(1):numberToken() == "1e400" and restored:at(2):bytes() == "\0\1")
 --- ```

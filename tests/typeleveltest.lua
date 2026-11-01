@@ -2534,7 +2534,9 @@ function M.everyFloatingReducerNamesItsType()
         "AlgebraicDot",
     }) do
         local constructor = name:sub(1, 1):lower() .. name:sub(2)
-        lines[#lines + 1] = ("local %s: simd.%s<number> = simd.reducer.%s(0.0)"):format(constructor, name, constructor)
+        lines[
+            #lines + 1
+        ] = ("local %s: simd.%s<number> = simd.reducer.%s(0.0)"):format(constructor, name, constructor:lower())
     end
     lines[#lines + 1] = "return orderedSum, algebraicDot"
     clean(table.concat(lines, "\n"))

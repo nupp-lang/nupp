@@ -1418,6 +1418,7 @@ export const tiled = tiled
         .. [[
 -- Unbuffered, so a run that dies in the driver still says how far it got.
 io.stdout:setvbuf("no")
+require("nupp.runtime.standardcoroutine")
 local ffi = require("ffi")
 local gpu = require("gpu")
 local span = require("binary.span")
@@ -5027,7 +5028,7 @@ end
                 ty[1] .. "_" .. op[1]:lower(),
                 ty[2],
                 ty[3],
-                "local fold = simd.reducer." .. op[1] .. "(nupp.mem.array." .. ty[2] .. ", seed)",
+                "local fold = simd.reducer." .. op[1]:lower() .. "(nupp.mem.array." .. ty[2] .. ", seed)",
                 op[2],
                 ty[2],
                 ty[3],
@@ -5039,7 +5040,7 @@ end
                 ty[1] .. "_" .. extreme:lower(),
                 ty[2],
                 ty[3],
-                "local fold = simd.reducer.integer" .. extreme .. "(nupp.mem.array." .. ty[2] .. ", seed)",
+                "local fold = simd.reducer.integer" .. extreme:lower() .. "(nupp.mem.array." .. ty[2] .. ", seed)",
                 "add",
                 ty[2],
                 ty[3]
@@ -5048,7 +5049,7 @@ end
                 ty[1] .. "_arg" .. extreme:lower(),
                 ty[2],
                 ty[3],
-                "local fold = simd.reducer.integerArg" .. extreme .. "(nupp.mem.array." .. ty[2] .. ")",
+                "local fold = simd.reducer.integerarg" .. extreme:lower() .. "(nupp.mem.array." .. ty[2] .. ")",
                 "add",
                 "integer",
                 "double",
@@ -5064,7 +5065,7 @@ end
                 policy .. "_" .. extreme:lower(),
                 "number",
                 "double",
-                "local fold = simd.reducer." .. policy .. extreme .. "(" .. (arg and "" or "seed") .. ")",
+                "local fold = simd.reducer." .. policy .. extreme:lower() .. "(" .. (arg and "" or "seed") .. ")",
                 "add",
                 arg and "integer" or "number",
                 "double",
@@ -5110,7 +5111,7 @@ end
             order[1],
             "number",
             "double",
-            "local fold = simd.reducer." .. order[2] .. "(seed)",
+            "local fold = simd.reducer." .. order[2]:lower() .. "(seed)",
             order[3],
             "number",
             "double",
@@ -5125,7 +5126,7 @@ end
             "algebraic_" .. operation:lower(),
             "number",
             "double",
-            "local fold = simd.reducer.algebraic" .. operation .. "(seed)",
+            "local fold = simd.reducer.algebraic" .. operation:lower() .. "(seed)",
             "add",
             "number",
             "double",

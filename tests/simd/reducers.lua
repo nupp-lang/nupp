@@ -123,7 +123,7 @@ local function %s(exclusive output: span.WriteSpan<%s>, exclusive positions: spa
                         #source + 1
                     ] = (
                         "    results:store(output, %d, results:splat(simd.horizontal.%s(a%s)), resultMask)\n"
-                    ):format(at, operation, operation:find("Dot", 1, true) and ", b" or "")
+                    ):format(at, operation:lower(), operation:find("Dot", 1, true) and ", b" or "")
                 end
             end
             for index, operation in ipairs(EXTREMES) do
@@ -131,7 +131,7 @@ local function %s(exclusive output: span.WriteSpan<%s>, exclusive positions: spa
                     #source + 1
                 ] = (
                     "    results:store(output, %d, results:splat(simd.horizontal.%s(a)), resultMask)\n    indices:store(positions, %d, indices:splat(simd.horizontal.%s(a)), indexMask)\n"
-                ):format(at + index, operation, index, ARGS[index])
+                ):format(at + index, operation:lower(), index, ARGS[index]:lower())
             end
             if not floating then
                 for index, operation in ipairs(INTEGER) do
@@ -139,7 +139,7 @@ local function %s(exclusive output: span.WriteSpan<%s>, exclusive positions: spa
                         #source + 1
                     ] = (
                         "    results:store(output, %d, results:splat(simd.horizontal.%s(a)), resultMask)\n"
-                    ):format(4 + index, operation)
+                    ):format(4 + index, operation:lower())
                 end
             end
             source[#source + 1] = "    return species.lanes\nend\n"
@@ -173,7 +173,7 @@ end
             local reference = INTEGER_REFERENCE[ty]
             local bitwise = {}
             for _, name in ipairs({"andBits", "orBits", "xorBits"}) do
-                local operand = (ty == "int64" or ty == "uint64") and BIT_OPERATORS[name] or name
+                local operand = (ty == "int64" or ty == "uint64") and BIT_OPERATORS[name] or name:lower()
                 bitwise[
                     #bitwise + 1
                 ] = (

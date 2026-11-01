@@ -1348,7 +1348,7 @@ end
 function M.theCliHeaderExampleChecksOutsideTheRepository()
     local header = assert(io.open(HERE .. "/../src/arg/init.nupp", "rb")):read("*a")
     local example = assert(header:match("```nupp\n(.-)```"), "the module header carries an example")
-    assert(example:find("@derive(cli.Arguments)", 1, true), "the example derives through its local require")
+    assert(example:find("@derive(cli.arguments)", 1, true), "the example derives through its local require")
     local dir = os.tmpname()
     os.remove(dir)
     assert(os.execute("mkdir -p '" .. dir .. "'") == 0)

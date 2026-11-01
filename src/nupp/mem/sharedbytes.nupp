@@ -39,6 +39,7 @@ assert(builder:freeze():toString() == "ABCDE!")
 ]]
 
 local span = require("binary.span")
+local spanImplementation = require("nupp.mem.span")
 
 local type Native = {
     fromString: @nosuspend function(string): (any?, integer?),
@@ -66,11 +67,11 @@ local native = nativeModule as Native
 local ffi = require("ffi")
 
 local foreignByteSpan = rawget(
-    span as table,
+    spanImplementation as table,
     "__foreignByteSpan"
 ) as @nosuspend function(any, any, integer, integer): span.ByteSpan
 local foreignSpan = rawget(
-    span as table,
+    spanImplementation as table,
     "__foreignSpan"
 ) as function<T>(any, borrows pointer: voidptr, integer, integer, ctype<T>): span.Span<T>
 

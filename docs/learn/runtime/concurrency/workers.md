@@ -432,7 +432,7 @@ module jobs
 
 const heap = nupp.mem.heap
 
-export function fill(takes frame: heap.Array<uint8>, seed: integer): affine(heap.Array<uint8>, heap.destroyArray)
+export function fill(takes frame: heap.Array<uint8>, seed: integer): affine(heap.Array<uint8>, heap.destroyarray)
     local writable = frame:write()
     for index = 1, #writable do
         writable[index] = (seed + index) % 256
@@ -444,7 +444,7 @@ end
 ```
 
 ```nupp:fragment
-local frame = heap.allocate(ffi.typeof<uint8>(), 8 * 1048576)
+local frame = heap.alloc(ffi.typeof<uint8>(), 8 * 1048576)
 with scope = tasks.scope() do
     for generation = 1, 60 do
         frame = scope:fork(frame, generation, jobs.fill):await()

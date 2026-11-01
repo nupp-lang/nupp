@@ -73,7 +73,13 @@ to the turn.
 ]]
 
 local source1 = require("nupp.tasks")
-local source2 = require("nupp.time")
+local clockContract = require("nupp.time.spi")
+local selectedTime = require("nupp.runtime.timeprovider").provider
+
+local function missingClock(...: any): never
+    error("nupp.time: no clock provider is available", 2)
+end
+
 export type Cancellation = source1.Cancellation
 export type Scope = source1.Scope
 export type Status = source1.Status
@@ -87,9 +93,10 @@ export const iscancelled = source1.isCancelled
 export const scope = source1.open
 export const race = source1.race
 export const run = source1.run
-export const sleep = source2.sleep
-export const sleepuntil = source2.sleepUntil
-export const wakeat = source2.wakeAt
+export const sleep: clockContract.Provider.["sleep"] = selectedTime and selectedTime.sleep or missingClock
+export const sleepuntil: clockContract.Provider.["sleepUntil"] = selectedTime and selectedTime.sleepUntil
+    or missingClock
+export const wakeat: clockContract.Provider.["wakeAt"] = selectedTime and selectedTime.wakeAt or missingClock
 
 --- @internal
 export const value: table = do

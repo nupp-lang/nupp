@@ -1708,8 +1708,8 @@ local function buildModules(root: string, outDir: string, config: Config, target
             return false
         end
         local bundled = require("nupp.compiler.bundled")
-        local modulePath = name:gsub("^nupp%.", ""):gsub("%.", "/") .. ".lua"
-        local text = readFile(join(bundled.moduleDir(), "../" .. modulePath))
+        local modulePath = name:gsub("%.", "/") .. ".lua"
+        local text = readFile(join(bundled.moduleDir(), "../../" .. modulePath))
             or bundled.source("/" .. name:gsub("%.", "/") .. ".lua")
         local carried = rawget(_G, "__nuppCompilerModuleArtifacts")
         local carriedRecord = carried and carried[name]

@@ -130,13 +130,13 @@ function M.preservesTheHostTableThroughAliasesAndRequire()
         local source = [[
 local original = io
 local imported = require("io")
-return original == io, original == imported, imported.columns(), original.stdout == imported.stdout
+return original == io, original == imported, imported.newbuffer("ready").label, original.stdout == imported.stdout
 ]]
         local code = compile(source, "extension-consumer.nupp", env)
-        local global, imported, columns, stdout = assert(loadstring(code))()
+        local global, imported, label, stdout = assert(loadstring(code))()
         test.eq(global, true)
         test.eq(imported, true)
-        test.eq(columns, 73)
+        test.eq(label, "ready")
         test.eq(stdout, true)
         test.eq(package.loaded.io, io)
         test.eq(require("nupp.runtime.standardio").value, io)
@@ -401,9 +401,9 @@ function M.incrementalRequiredAliasesShareHoistedTypesAndInvalidate()
 
         local function checked(path)
             local result = inc.checkFile(path)
-            test.equal(result.syntax, nil)
+            test.eq(result.syntax, nil)
             for _, diagnostic in ipairs(result.diags) do
-                test.equal(diagnostic.severity == "error", false, diagnostic.msg)
+                test.eq(diagnostic.severity == "error", false, diagnostic.msg)
             end
 
             return result
@@ -422,7 +422,7 @@ function M.incrementalRequiredAliasesShareHoistedTypesAndInvalidate()
             )
             local result = checked(path)
             local exports = inc.q:get("moduleExports", "nupp.runtime.standardio")
-            test.equal(result.result.moduleExports.types.Selected, exports.types.Buffer)
+            test.eq(result.result.moduleExports.types.Selected, exports.types.Buffer)
         end
         local old = checked(paths[1]).result.moduleExports.types.Selected
         local implementation = env.rootDir .. "/src/nupp/runtime/standardio.nupp"
@@ -439,13 +439,13 @@ export const value: table = rawget(_G, "io") as table
         for _, path in ipairs(paths) do
             local result = checked(path)
             local exports = inc.q:get("moduleExports", "nupp.runtime.standardio")
-            test.equal(result.result.moduleExports.types.Selected, exports.types.Buffer)
-            test.equal(result.result.moduleExports.types.Selected == old, false)
+            test.eq(result.result.moduleExports.types.Selected, exports.types.Buffer)
+            test.eq(result.result.moduleExports.types.Selected == old, false)
             local reached = {}
             for _, dependency in ipairs(inc.moduleDependencies(path)) do
                 reached[dependency] = true
             end
-            test.equal(reached["nupp.runtime.standardio"], true)
+            test.eq(reached["nupp.runtime.standardio"], true)
         end
         inc.changeDocument(
             implementation,
@@ -460,7 +460,7 @@ export const value: table = rawget(_G, "io") as table
             for _, diagnostic in ipairs(inc.checkFile(path).diags) do
                 failed = failed or diagnostic.code == "NUPP2101"
             end
-            test.equal(failed, true, "removed extension types invalidate every required alias")
+            test.eq(failed, true, "removed extension types invalidate every required alias")
         end
     end)
 end
@@ -497,22 +497,22 @@ export const value: table = rawget(_G, "io") as table
 ]]
         )
         local result = inc.checkFile(path)
-        test.equal(result.syntax, nil)
+        test.eq(result.syntax, nil)
         for _, diagnostic in ipairs(result.diags) do
-            test.equal(diagnostic.severity == "error", false, diagnostic.msg)
+            test.eq(diagnostic.severity == "error", false, diagnostic.msg)
         end
         local exports = inc.q:get("moduleExports", "nupp.runtime.standardio")
-        test.equal(inc.q:get("moduleExports", "io"), exports)
-        test.equal(inc.moduleSemantic("io").exports, exports)
-        test.equal(result.result.moduleExports.types.Selected, exports.types.Buffer)
-        test.equal(result.result.moduleExports.types.Nested, exports.types.Buffer.nestedTypes.Nested)
+        test.eq(inc.q:get("moduleExports", "io"), exports)
+        test.eq(inc.moduleSemantic("io").exports, exports)
+        test.eq(result.result.moduleExports.types.Selected, exports.types.Buffer)
+        test.eq(result.result.moduleExports.types.Nested, exports.types.Buffer.nestedTypes.Nested)
         inc.changeDocument(implementation, "return {}")
-        test.equal(require("nupp.compiler.builtinextensions").implementation(inc.env, "io"), nil)
+        test.eq(require("nupp.compiler.builtinextensions").implementation(inc.env, "io"), nil)
         local refused = false
         for _, diagnostic in ipairs(inc.checkFile(path).diags) do
             refused = refused or diagnostic.code == "NUPP2101"
         end
-        test.equal(refused, true, "a headerless lookalike must not retain extension type exports")
+        test.eq(refused, true, "a headerless lookalike must not retain extension type exports")
     end)
 end
 

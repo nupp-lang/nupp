@@ -140,7 +140,7 @@ function suite.work(name: string, count: integer): nil end
 function suite.fixture(key: string, produce: function(string): any): (string, any, boolean) end
 
 function private.hidden(): nil end
-local callable = {equal = equal, notEqual = notEqual, deepEqual = deepEqual, matches = matches, raises = raises}
+local callable = {eq = equal, ne = notEqual, deepeq = deepEqual, matches = matches, raises = raises}
 callable.suite = suite
 export = setmetatable(callable, {__call = original})
 ]]
@@ -148,9 +148,9 @@ export = setmetatable(callable, {__call = original})
     assert(module, errors and errors[1] and errors[1].msg)
     assert(#module.items == 17, "a callable module lost helpers or exposed private declarations")
     local expected = {
-        equal = "local function equal(actual: any, expected: any, message: string?): any",
-        notEqual = "local function notEqual(actual: any, unwanted: any, message: string?): any",
-        deepEqual = "local function deepEqual(actual: any, expected: any, message: string?): any",
+        eq = "local function eq(actual: any, expected: any, message: string?): any",
+        ne = "local function ne(actual: any, unwanted: any, message: string?): any",
+        deepeq = "local function deepeq(actual: any, expected: any, message: string?): any",
         matches = "local function matches(value: any, pattern: string, message: string?): string",
         raises = "local function raises(fn: function(...: any): any, pattern: string?): any",
         ["suite.skip"] = "function suite.skip(reason: string): never",
@@ -177,7 +177,7 @@ export = setmetatable(callable, {__call = original})
         assert(item.doc.text ~= "", item.name .. " lost its documentation")
         assert(#item.params > 0, item.name .. " lost its parameter details")
         assert(#item.returns > 0, item.name .. " lost its result details")
-        if item.name == "equal" then
+        if item.name == "eq" then
             assert(item.params[1].text == "the value to compare")
             assert(item.returns[1].text == "the actual value")
             assert(#item.raises == 1 and item.raises[1].type == "string")
@@ -185,6 +185,37 @@ export = setmetatable(callable, {__call = original})
         expected[item.name] = nil
     end
     assert(next(expected) == nil, "a callable helper or nested suite member is missing")
+end
+
+function M.callableTableAliasesUsePublicKeysWithoutChangingTheirContracts()
+    local source = [[
+module operations
+local type Callable = {map: function(any): any}
+--- Returns the input value.
+--- @param value the original value
+--- @return the same value
+--- @raises string when a value is refused
+local function _translate<T>(borrows value: T, label: "_translate"): T
+    return value
+end
+local callable = {map = _translate, again = _translate, ["bracket"] = _translate} as Callable
+export = setmetatable(callable, {__call = original})
+]]
+    local module = assert(doc.extract(source, "src/operations.nupp", "operations"))
+    assert(#module.items == 3, "public aliases replace the private implementation name")
+    local names = {}
+    for _, item in ipairs(module.items) do
+        names[item.name] = true
+        assert(item.path == "operations." .. item.name, item.path)
+        assert(
+            item.signature == 'local function ' .. item.name .. '<T>(borrows value: T, label: "_translate"): T',
+            item.signature
+        )
+        assert(item.typeargs[1].name == "T" and item.params[1].mode == "borrows")
+        assert(item.params[1].text == "the original value" and item.returns[1].text == "the same value")
+        assert(item.raises[1].type == "string" and item.doc.text == "Returns the input value.")
+    end
+    assert(names.map and names.again and names.bracket and not names._translate)
 end
 
 function M.functionDocumentationKeepsCoroutineProtocolsBeforeResults()
@@ -1173,37 +1204,37 @@ function M.standardJsonApiHasCompleteDocumentation()
         EncodedString = true,
         JSONEncodable = true,
         Writer = true,
-        decodeValue = true,
+        decodevalue = true,
         pull = true,
-        arrayOf = true,
-        asArray = true,
-        asObject = true,
-        isArray = true,
-        encodeValue = true,
+        arrayof = true,
+        asarray = true,
+        asobject = true,
+        isarray = true,
+        encodevalue = true,
         encoded = true,
-        encodedString = true,
-        numberToken = true,
+        encodedstring = true,
+        numbertoken = true,
         verified = true,
-        verifiedString = true,
-        newWriter = true,
+        verifiedstring = true,
+        newwriter = true,
         NULL = true,
         EMPTY_ARRAY = true,
         EMPTY_OBJECT = true,
     }
     local callable = {
-        decodeValue = true,
+        decodevalue = true,
         pull = true,
-        arrayOf = true,
-        asArray = true,
-        asObject = true,
-        isArray = true,
-        encodeValue = true,
+        arrayof = true,
+        asarray = true,
+        asobject = true,
+        isarray = true,
+        encodevalue = true,
         encoded = true,
-        encodedString = true,
-        numberToken = true,
+        encodedstring = true,
+        numbertoken = true,
         verified = true,
-        verifiedString = true,
-        newWriter = true,
+        verifiedstring = true,
+        newwriter = true,
     }
     local writer
     for _, item in ipairs(module.items) do
@@ -1395,7 +1426,7 @@ function M.standardReflectApiKeepsItsGraphAndMaterializerTogether()
         Info = true,
         FieldCodecBlueprint = true,
         FieldCodec = true,
-        fieldCodec = true,
+        fieldcodec = true,
     }
     local examples = {
         AnnotationArgument = true,
@@ -1404,7 +1435,7 @@ function M.standardReflectApiKeepsItsGraphAndMaterializerTogether()
         SoAInfo = true,
         Info = true,
         FieldCodec = true,
-        fieldCodec = true,
+        fieldcodec = true,
     }
     local _, moduleExamples = reflect.doc.text:gsub("```nupp", "")
     assert(moduleExamples >= 2, "types.reflect needs root and graph examples")
@@ -1417,7 +1448,7 @@ function M.standardReflectApiKeepsItsGraphAndMaterializerTogether()
             assert(member.text:find("```nupp", 1, true), "types.reflect." .. member.name .. " has no source example")
             examples[member.name] = nil
         end
-        if member.name == "fieldCodec" then
+        if member.name == "fieldcodec" then
             assert(member.comptimeKind == "function", "types.reflect.fieldcodec must document its comptime-only phase")
         end
     end
@@ -1454,7 +1485,7 @@ function M.standardLibraryBackingRecordsStayInternal()
     )
     assert(module, errors and errors[1] and errors[1].msg)
 
-    local expected = {["math.vec2"] = "add", ["math.quat"] = "multiply",}
+    local expected = {["math.vec2"] = "add", ["math.quat"] = "mul",}
     for _, child in ipairs(extra or {}) do
         local member = expected[child.name]
         if member then
@@ -1583,6 +1614,7 @@ function M.hostExtensionPagesKeepTheirContractsAndClockLinks()
     for _, name in ipairs({
         "nupp/runtime/standardio.nupp",
         "nupp/runtime/standardos.nupp",
+        "io/terminal.nupp",
         "nupp/cli/internal/terminal.nupp",
         "nupp/cli/internal/table.nupp",
     }) do
@@ -1599,35 +1631,43 @@ function M.hostExtensionPagesKeepTheirContractsAndClockLinks()
         modules[module.name] = module
     end
     local publicIO, publicOS = assert(modules.io, "io has no public page"), assert(modules.os, "os has no public page")
-    local ioItems, osItems = {}, {}
+    local ioItems, osItems, terminalItems = {}, {}, {}
     for _, item in ipairs(publicIO.items) do
         ioItems[item.name] = item
     end
     for _, item in ipairs(publicOS.items) do
         osItems[item.name] = item
     end
+    for _, item in ipairs(assert(modules["io.terminal"], "terminal has no public page").items) do
+        terminalItems[item.name] = item
+    end
     for _, name in ipairs({"ColorMode", "Style", "Cell", "TableOptions", "Alignment", "Column"}) do
-        assert(ioItems[name], "the terminal type is missing: " .. name)
+        assert(terminalItems[name], "the terminal type is missing: " .. name)
     end
     for _, name in ipairs({
         "style",
         "table",
-        "writeTable",
+        "writetable",
         "cell",
-        "paintedCell",
-        "annotatedCell",
+        "paintedcell",
+        "annotatedcell",
         "severity",
-        "setColorMode",
-        "withColorMode",
-        "colorEnabled",
-        "isTerminal",
+        "setcolormode",
+        "withcolormode",
+        "colorenabled",
+        "isterminal",
         "columns"
     }) do
-        assert(ioItems[name], "the terminal member is missing: " .. name)
-        assert(not ioItems[name].signature:find("terminal.", 1, true), ioItems[name].signature)
+        assert(terminalItems[name], "the terminal member is missing: " .. name)
+        assert(
+            terminalItems[name].signature:find("function io.terminal.", 1, true)
+            and not terminalItems[name].signature:find("terminalTypes.", 1, true)
+            and not terminalItems[name].signature:find("tables.", 1, true),
+            terminalItems[name].signature
+        )
     end
     assert(
-        #ioItems.Style.members > 0 and #ioItems.TableOptions.members > 0,
+        #terminalItems.Style.members > 0 and #terminalItems.TableOptions.members > 0,
         "public type aliases retain their source contract members"
     )
     assert(not ioItems.value and not osItems.value, "private host-table values do not become public API")
@@ -1750,7 +1790,7 @@ end
 function M.standardManagedGroupApiHasCompleteDocumentation()
     local source = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp")
     assert(source:find("interface own.ManagedGroup", 1, true), "the root ownership surface lost ManagedGroup")
-    assert(source:find("managedGroup: function", 1, true), "the root ownership surface lost its ManagedGroup factory")
+    assert(source:find("managedgroup: function", 1, true), "the root ownership surface lost its ManagedGroup factory")
 end
 
 function M.documentsACdefOnlyWhereItReachesAReader()
@@ -4298,7 +4338,7 @@ function M.exportedTablesUseCanonicalPublicNamesInEveryOutput()
         {
             path = "src/debug/bench.nupp",
             name = "debug.bench",
-            member = "decodeBaseline",
+            member = "decodebaseline",
             hidden = "bench.decodeBaseline"
         },
     }
@@ -5344,8 +5384,14 @@ end
 
 function M.ioPublicPageKeepsStorageAndScalarContracts()
     local files = {}
-    for _, path in ipairs({"init.nupp", "internal/bytes.nupp", "internal/scalars.nupp", "internal/lines.nupp"}) do
-        files["src/nupp/io/" .. path] = readFile(HERE .. "/../src/nupp/io/" .. path)
+    for _, path in ipairs({
+        "nupp/runtime/standardio.nupp",
+        "nupp/io.nupp",
+        "nupp/io/internal/bytes.nupp",
+        "nupp/io/internal/scalars.nupp",
+        "nupp/io/internal/lines.nupp"
+    }) do
+        files["src/" .. path] = readFile(HERE .. "/../src/" .. path)
     end
     local dir = tempProject(files)
     assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "markdown", output = "api.md"}) == 0)
@@ -5356,8 +5402,8 @@ function M.ioPublicPageKeepsStorageAndScalarContracts()
         "reserveWrite",
         "readInto",
         "readUint32",
-        "newScalarWriter",
-        "newLines"
+        "newscalarwriter",
+        "newlines"
     }) do
         assert(text:find(public, 1, true), "I/O documentation lost " .. public)
     end

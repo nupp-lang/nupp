@@ -47,7 +47,7 @@ local function loopCases(types)
                 add(
                     ty,
                     code .. '_' .. op[1],
-                    'simd.reducer.' .. op[1] .. '(nupp.mem.array.' .. ty .. ', seed)',
+                    'simd.reducer.' .. op[1]:lower() .. '(nupp.mem.array.' .. ty .. ', seed)',
                     op[2],
                     ty,
                     nil,
@@ -58,7 +58,7 @@ local function loopCases(types)
                 add(
                     ty,
                     code .. '_' .. extreme,
-                    'simd.reducer.integer' .. extreme .. '(nupp.mem.array.' .. ty .. ', seed)',
+                    'simd.reducer.integer' .. extreme:lower() .. '(nupp.mem.array.' .. ty .. ', seed)',
                     'add',
                     ty,
                     nil,
@@ -67,7 +67,7 @@ local function loopCases(types)
                 add(
                     ty,
                     code .. '_arg' .. extreme,
-                    'simd.reducer.integerArg' .. extreme .. '(nupp.mem.array.' .. ty .. ')',
+                    'simd.reducer.integerarg' .. extreme:lower() .. '(nupp.mem.array.' .. ty .. ')',
                     'add',
                     'integer',
                     nil,
@@ -85,11 +85,11 @@ local function loopCases(types)
             local witness = ty == 'float' and 'nupp.mem.array.float' or nil
 
             local function seeded(name)
-                return 'simd.reducer.' .. name .. '(' .. (witness and witness .. ', ' or '') .. 'seed)'
+                return 'simd.reducer.' .. name:lower() .. '(' .. (witness and witness .. ', ' or '') .. 'seed)'
             end
 
             local function seedless(name)
-                return 'simd.reducer.' .. name .. '(' .. (witness or '') .. ')'
+                return 'simd.reducer.' .. name:lower() .. '(' .. (witness or '') .. ')'
             end
 
             for _, policy in ipairs({'propagating', 'number'}) do

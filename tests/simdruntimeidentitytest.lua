@@ -101,7 +101,7 @@ function M.generatedHelpersUseTheConstructorsOwnModuleInstance()
                     test.eq(name == "abs" or name == "sqrt", true)
                     return construct(name == "sqrt" and math.sqrt(value(item)) or math.abs(value(item)))
                 end,
-                fromStorage = function(element, lanes, item)
+                fromstorage = function(element, lanes, item)
                     calls = calls + 1
                     test.eq(element, "float")
                     test.eq(lanes, 4)

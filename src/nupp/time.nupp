@@ -3,11 +3,11 @@
 module nupp.time
 
 --[[
-`nupp.time` schedules cooperative waits and wakeups. Deadlines use the
+`coroutine` schedules cooperative waits and wakeups. Deadlines use the
 `os.monotonic` clock.
 
 ```nupp
-const time = nupp.time
+const time = coroutine
 time.sleep(50)
 ```
 ]]

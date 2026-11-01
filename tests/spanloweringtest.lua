@@ -233,7 +233,7 @@ end
 return work
 ]]
     )
-    assert(not code:find(".fromCarray(", 1, true), code)
+    assert(not code:find(".fromcarray(", 1, true), code)
     assert(code:find("._rootCount(count,", 1, true), code)
     assert(code:find("+index-1].value", 1, true), code)
     local found = false
@@ -259,7 +259,7 @@ end
 return work
 ]]
     )
-    assert(not code:find(".writeCarray(", 1, true), code)
+    assert(not code:find(".writecarray(", 1, true), code)
     assert(code:find("._rootCount(count,", 1, true), code)
     assert(code:find("[0+index-1].value=7", 1, true), code)
 end
@@ -275,7 +275,7 @@ end
 return work
 ]]
     )
-    assert(code:find(".fromCarray(storage,count)", 1, true), code)
+    assert(code:find(".fromcarray(storage,count)", 1, true), code)
     assert(not code:find("._rootCount(", 1, true), code)
 end
 
@@ -294,7 +294,7 @@ end
 return work
 ]]
     )
-    assert(not fixed:find(".fromFixedCarray(", 1, true), fixed)
+    assert(not fixed:find(".fromfixedcarray(", 1, true), fixed)
     assert(fixed:find("constvalues=4", 1, true), fixed)
     assert(fixed:find("[0+index-1].value", 1, true), fixed)
 
@@ -312,7 +312,7 @@ end
 return work
 ]]
     )
-    assert(not bytes:find(".fromString(", 1, true), bytes)
+    assert(not bytes:find(".fromstring(", 1, true), bytes)
     assert(bytes:find("constvalues=#__nuppT", 1, true), bytes)
     assert(bytes:find('__nuppFfi.cast("constuint8_t*",__nuppT', 1, true), bytes)
     assert(bytes:find(")[0+index-1]", 1, true), bytes)
@@ -441,7 +441,7 @@ end
 return work
 ]]
     )
-    assert(not shared:find(".fromCarray(", 1, true), shared)
+    assert(not shared:find(".fromcarray(", 1, true), shared)
     assert(shared:find("._checkedIndex(values,index,", 1, true), shared)
     assert(shared:find('"spanindexoutofbounds"', 1, true), shared)
 
@@ -456,7 +456,7 @@ end
 return work
 ]]
     )
-    assert(not writable:find(".writeCarray(", 1, true), writable)
+    assert(not writable:find(".writecarray(", 1, true), writable)
     assert(writable:find("._checkedIndex(values,__nuppT", 1, true), writable)
     assert(writable:find('"writespanindexoutofbounds"', 1, true), writable)
 end
@@ -519,7 +519,7 @@ end
 return work
 ]]
     )
-    assert(not code:find(".writeCarray(", 1, true), code)
+    assert(not code:find(".writecarray(", 1, true), code)
     assert(not code:find(":slice(", 1, true), code)
     assert(not code:find(":shared(", 1, true), code)
     assert(code:find("[0+__nuppT", 1, true), code)
@@ -558,7 +558,7 @@ end
 return work
 ]]
     )
-    assert(not code:find(".writeCarray(", 1, true), code)
+    assert(not code:find(".writecarray(", 1, true), code)
     assert(not code:find("xpcall", code:find("localfunctionwork", 1, true), true), code)
     assert(code:find("[0+index-1].value=4", 1, true), code)
 end
@@ -616,7 +616,7 @@ end
 return work
 ]]
     )
-    assert(not code:find(".fromCarray(", 1, true), code)
+    assert(not code:find(".fromcarray(", 1, true), code)
     assert(code:find("calls+=1", 1, true), code)
     assert(code:find("returnstorage,0,__nuppModule._rootCount(count,", 1, true), code)
     assert(code:find("const__nuppT", 1, true), code)
@@ -649,7 +649,7 @@ end
 return work
 ]]
     )
-    assert(not code:find(".fromCarray(", 1, true), code)
+    assert(not code:find(".fromcarray(", 1, true), code)
     assert(not code:find("values:get(", 1, true), code)
     assert(code:find("localfunctionsum(__nuppT", 1, true), code)
     assert(code:find("returnsum(__nuppT", 1, true), code)
@@ -672,7 +672,7 @@ end
 return work
 ]]
     )
-    assert(not writable:find(".writeCarray(", 1, true), writable)
+    assert(not writable:find(".writecarray(", 1, true), writable)
     assert(not writable:find("values:getMut(", 1, true), writable)
     assert(writable:find("localfunctionfill(__nuppT", 1, true), writable)
     assert(writable:find("+index-1].value=11", 1, true), writable)
@@ -691,7 +691,7 @@ end
 return acquire
 ]]
     )
-    assert(captured:find(".fromCarray(storage,count)", 1, true), captured)
+    assert(captured:find(".fromcarray(storage,count)", 1, true), captured)
 
     local recursive = compile(
         HEADER
@@ -712,7 +712,7 @@ end
 return work
 ]]
     )
-    assert(recursive:find(".fromCarray(storage,count)", 1, true), recursive)
+    assert(recursive:find(".fromcarray(storage,count)", 1, true), recursive)
     assert(not recursive:find("returnstorage,0,", 1, true), recursive)
 
     local mutual = compile(
@@ -744,8 +744,8 @@ end
 return work
 ]]
     )
-    assert(mutual:find(".fromCarray(storage,count)", 1, true), mutual)
-    assert(mutual:find(".fromCarray(nestedStorage,nestedCount)", 1, true), mutual)
+    assert(mutual:find(".fromcarray(storage,count)", 1, true), mutual)
+    assert(mutual:find(".fromcarray(nestedStorage,nestedCount)", 1, true), mutual)
     assert(not mutual:find("returnstorage,0,", 1, true), mutual)
 end
 
@@ -807,8 +807,8 @@ end
 return R3
 ]]
     )
-    assert(not compact:find(".writeCarray(", 1, true), compact)
-    assert(not compact:find(".fromCarray(", 1, true), compact)
+    assert(not compact:find(".writecarray(", 1, true), compact)
+    assert(not compact:find(".fromcarray(", 1, true), compact)
     local dirty = assert(compact:find("dirtyX+=1", 1, true))
     local stores = assert(compact:find("forindex=rows.first,rows.lastdo", 1, true))
     assert(dirty < stores, compact)

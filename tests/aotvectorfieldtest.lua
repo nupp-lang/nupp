@@ -178,7 +178,7 @@ function M.aStoredVectorFieldAgreesBetweenLuaAndNative()
         if policy == "off" then
             local lua = assert(read(dir .. "/build/native/particles.lua"))
             assert(
-                lua:find('lane.fromStorage("float",4,', 1, true),
+                lua:find('lane.fromstorage("float",4,', 1, true),
                 "a Lua read goes through the lane runtime:\n" .. lua
             )
         end

@@ -378,15 +378,15 @@ end
 
 function M.binary32BitsZerosAndNaNsAreCanonical()
     local f = library().f32
-    testAssert.eq(f.toBits(f.fromBits(0)), 0, "+0")
-    testAssert.eq(f.toBits(f.fromBits(0x80000000)), 0x80000000, "-0")
-    testAssert.eq(f.toBits(f.fromBits(0x7f800000)), 0x7f800000, "+infinity")
-    testAssert.eq(f.toBits(f.fromBits(0xff800000)), 0xff800000, "-infinity")
+    testAssert.eq(f.tobits(f.frombits(0)), 0, "+0")
+    testAssert.eq(f.tobits(f.frombits(0x80000000)), 0x80000000, "-0")
+    testAssert.eq(f.tobits(f.frombits(0x7f800000)), 0x7f800000, "+infinity")
+    testAssert.eq(f.tobits(f.frombits(0xff800000)), 0xff800000, "-infinity")
     for _, bits in ipairs({0x7f800001, 0x7fc01234, 0xff800001, 0xffffffff}) do
-        testAssert.eq(f.toBits(f.fromBits(bits)), 0x7fc00000, "canonical NaN")
+        testAssert.eq(f.tobits(f.frombits(bits)), 0x7fc00000, "canonical NaN")
     end
-    testAssert.eq(f.toBits(f.min(f.fromBits(0), f.fromBits(0x80000000))), 0x80000000, "min chooses negative zero")
-    testAssert.eq(f.toBits(f.max(f.fromBits(0), f.fromBits(0x80000000))), 0, "max chooses positive zero")
+    testAssert.eq(f.tobits(f.min(f.frombits(0), f.frombits(0x80000000))), 0x80000000, "min chooses negative zero")
+    testAssert.eq(f.tobits(f.max(f.frombits(0), f.frombits(0x80000000))), 0, "max chooses positive zero")
 end
 
 local function withFloatOracle(fn)
@@ -474,7 +474,7 @@ function M.binary32OperationsMatchAnIndependentCOracle()
         }
 
         local function number(bits)
-            return f.fromBits(bits)
+            return f.frombits(bits)
         end
 
         local function expected(name, ...)
@@ -482,11 +482,11 @@ function M.binary32OperationsMatchAnIndependentCOracle()
         end
 
         for _, a in ipairs(edges) do
-            testAssert.eq(f.toBits(f.sqrt(number(a))), expected("oracle_sqrt", a), ("sqrt %08x"):format(a))
+            testAssert.eq(f.tobits(f.sqrt(number(a))), expected("oracle_sqrt", a), ("sqrt %08x"):format(a))
             for _, b in ipairs(edges) do
                 for _, operation in ipairs({"add", "sub", "mul", "div"}) do
                     testAssert.eq(
-                        f.toBits(f[operation](number(a), number(b))),
+                        f.tobits(f[operation](number(a), number(b))),
                         expected("oracle_" .. operation, a, b),
                         ("%s %08x %08x"):format(operation, a, b)
                     )
@@ -502,7 +502,7 @@ function M.binary32OperationsMatchAnIndependentCOracle()
             -(1 + 2 ^ -24),
             -(1 + 2 ^ -24 + 2 ^ -54),
         }) do
-            testAssert.eq(f.toBits(f.round(value)), expected("oracle_round", value), "input halfway rounding")
+            testAssert.eq(f.tobits(f.round(value)), expected("oracle_round", value), "input halfway rounding")
         end
         math.randomseed(0x32f00d)
 
@@ -513,7 +513,7 @@ function M.binary32OperationsMatchAnIndependentCOracle()
         for _ = 1, 50000 do
             local a, b, c = randomBits(), randomBits(), randomBits()
             testAssert.eq(
-                f.toBits(f.fma(number(a), number(b), number(c))),
+                f.tobits(f.fma(number(a), number(b), number(c))),
                 expected("oracle_fma", a, b, c),
                 ("fma %08x %08x %08x"):format(a, b, c)
             )
@@ -529,9 +529,9 @@ function M.binary32HolderIsStableWithTheJitOnAndOff()
         local out = {}
         for iteration = 1, 1000 do
             for index, bits in ipairs(inputs) do
-                local a = f.fromBits(bits)
-                local b = f.fromBits(inputs[#inputs - index + 1])
-                out[index] = f.toBits(f.fma(a, b, a))
+                local a = f.frombits(bits)
+                local b = f.frombits(inputs[#inputs - index + 1])
+                out[index] = f.tobits(f.fma(a, b, a))
             end
         end
 
@@ -670,7 +670,7 @@ function M.binary16StorageConversionsAreBitDefined()
         [0x7e01] = 0x7fc00000,
     }
     for half, single in pairs(decode) do
-        testAssert.eq(f32.toBits(f32.fromF16Bits(half)), single, ("decode 0x%04x"):format(half))
+        testAssert.eq(f32.tobits(f32.fromf16bits(half)), single, ("decode 0x%04x"):format(half))
     end
 
     local encode = {
@@ -689,7 +689,7 @@ function M.binary16StorageConversionsAreBitDefined()
         [0xffc12345] = 0x7e00,
     }
     for single, half in pairs(encode) do
-        testAssert.eq(f32.toF16Bits(f32.fromBits(single)), half, ("encode 0x%08x"):format(single))
+        testAssert.eq(f32.tof16bits(f32.frombits(single)), half, ("encode 0x%08x"):format(single))
     end
 end
 
@@ -705,7 +705,7 @@ function M.bfloat16StorageConversionsAreBitDefined()
         [0x7fc1] = 0x7fc00000,
     }
     for short, single in pairs(decode) do
-        testAssert.eq(f32.toBits(f32.fromBF16Bits(short)), single, ("decode 0x%04x"):format(short))
+        testAssert.eq(f32.tobits(f32.frombf16bits(short)), single, ("decode 0x%04x"):format(short))
     end
 
     local encode = {
@@ -720,15 +720,15 @@ function M.bfloat16StorageConversionsAreBitDefined()
         [0xffc12345] = 0x7fc0,
     }
     for single, short in pairs(encode) do
-        testAssert.eq(f32.toBF16Bits(f32.fromBits(single)), short, ("encode 0x%08x"):format(single))
+        testAssert.eq(f32.tobf16bits(f32.frombits(single)), short, ("encode 0x%08x"):format(single))
     end
 end
 
 function M.binary32ExponentialIsPolynomialAndBounded()
     local f32 = library().f32
-    testAssert.eq(f32.toBits(f32.exp(0.0)), 0x3f800000, "exp zero")
-    testAssert.eq(f32.toBits(f32.exp(f32.fromBits(0x7fc12345))), 0x7fc00000, "exp NaN")
-    testAssert.eq(f32.toBits(f32.exp(-math.huge)), 0x00000000, "negative saturation")
+    testAssert.eq(f32.tobits(f32.exp(0.0)), 0x3f800000, "exp zero")
+    testAssert.eq(f32.tobits(f32.exp(f32.frombits(0x7fc12345))), 0x7fc00000, "exp NaN")
+    testAssert.eq(f32.tobits(f32.exp(-math.huge)), 0x00000000, "negative saturation")
     local samples = {-20.0, -10.0, -1.0, 1.0, 10.0, 80.0, 88.0}
     for _, value in ipairs(samples) do
         local got = f32.exp(value)
@@ -751,22 +751,22 @@ end
 
 function M.shiftCountsAreMaskedAndSignednessIsExplicit()
     local m = library()
-    testAssert.eq(m.u32.shiftLeft(1, 32), 1)
-    testAssert.eq(m.u32.shiftLeft(1, 33), 2)
-    testAssert.eq(m.u32.shiftRightLogical(0x80000000, 31), 1)
-    testAssert.eq(m.i32.shiftRightArithmetic(0x80000000, 31), -1)
-    testAssert.eq(m.u32.rotateLeft(0x80000001, 1), 3)
-    testAssert.eq(m.i32.rotateRight(1, 1), -2147483648)
+    testAssert.eq(m.u32.shiftleft(1, 32), 1)
+    testAssert.eq(m.u32.shiftleft(1, 33), 2)
+    testAssert.eq(m.u32.shiftrightlogical(0x80000000, 31), 1)
+    testAssert.eq(m.i32.shiftrightarithmetic(0x80000000, 31), -1)
+    testAssert.eq(m.u32.rotateleft(0x80000001, 1), 3)
+    testAssert.eq(m.i32.rotateright(1, 1), -2147483648)
 end
 
 function M.comparisonsAndConversionsUseTheNamedWidth()
     local m = library()
-    assert(m.i32.lessThan(0xffffffff, 0), "signed -1 is below zero")
-    assert(not m.u32.lessThan(0xffffffff, 0), "unsigned max is above zero")
-    testAssert.eq(m.i32.fromU32(4294967295), -1)
-    testAssert.eq(m.i32.toU32(-1), 4294967295)
-    testAssert.eq(m.u32.fromI32(-2147483648), 2147483648)
-    testAssert.eq(m.u32.toI32(2147483648), -2147483648)
+    assert(m.i32.lessthan(0xffffffff, 0), "signed -1 is below zero")
+    assert(not m.u32.lessthan(0xffffffff, 0), "unsigned max is above zero")
+    testAssert.eq(m.i32.fromu32(4294967295), -1)
+    testAssert.eq(m.i32.tou32(-1), 4294967295)
+    testAssert.eq(m.u32.fromi32(-2147483648), 2147483648)
+    testAssert.eq(m.u32.toi32(2147483648), -2147483648)
 end
 
 function M.unsignedBitCountsDefineZeroAndLaneOrderCases()
@@ -774,29 +774,29 @@ function M.unsignedBitCountsDefineZeroAndLaneOrderCases()
     testAssert.eq(m.u32.popcount(0), 0)
     testAssert.eq(m.u32.popcount(0xffffffff), 32)
     testAssert.eq(m.u32.popcount(0x80000005), 3)
-    testAssert.eq(m.u32.trailingZeros(0), 32)
-    testAssert.eq(m.u32.trailingZeros(0x80000000), 31)
-    testAssert.eq(m.u32.trailingZeros(0x28), 3)
-    testAssert.eq(m.u32.leadingZeros(0), 32)
-    testAssert.eq(m.u32.leadingZeros(1), 31)
-    testAssert.eq(m.u32.leadingZeros(0x40000000), 1)
+    testAssert.eq(m.u32.trailingzeros(0), 32)
+    testAssert.eq(m.u32.trailingzeros(0x80000000), 31)
+    testAssert.eq(m.u32.trailingzeros(0x28), 3)
+    testAssert.eq(m.u32.leadingzeros(0), 32)
+    testAssert.eq(m.u32.leadingzeros(1), 31)
+    testAssert.eq(m.u32.leadingzeros(0x40000000), 1)
 end
 
 function M.unsignedWideBitCountsAndPrefixParityCoverEveryBit()
     local u64 = library().u64
     local zero = ffi.new("uint64_t", 0)
     local wide = 0x8000000000000005ULL
-    testAssert.eq(tostring(u64.andBits(wide, 0x8000000000000000ULL)), "9223372036854775808ULL")
+    testAssert.eq(tostring(u64.andbits(wide, 0x8000000000000000ULL)), "9223372036854775808ULL")
     testAssert.eq(tostring(u64.sub(zero, 1ULL)), "18446744073709551615ULL")
     testAssert.eq(tostring(u64.sub(wide, wide)), "0ULL")
     testAssert.eq(u64.popcount(zero), 0)
     testAssert.eq(u64.popcount(wide), 3)
-    testAssert.eq(u64.trailingZeros(zero), 64)
-    testAssert.eq(u64.trailingZeros(0x100000000ULL), 32)
-    testAssert.eq(u64.leadingZeros(zero), 64)
-    testAssert.eq(u64.leadingZeros(wide), 0)
-    testAssert.eq(tostring(u64.prefixXor(ffi.new("uint64_t", 5))), "3ULL")
-    testAssert.eq(tostring(u64.prefixXor(ffi.new("uint64_t", 1))), "18446744073709551615ULL")
+    testAssert.eq(u64.trailingzeros(zero), 64)
+    testAssert.eq(u64.trailingzeros(0x100000000ULL), 32)
+    testAssert.eq(u64.leadingzeros(zero), 64)
+    testAssert.eq(u64.leadingzeros(wide), 0)
+    testAssert.eq(tostring(u64.prefixxor(ffi.new("uint64_t", 5))), "3ULL")
+    testAssert.eq(tostring(u64.prefixxor(ffi.new("uint64_t", 1))), "18446744073709551615ULL")
 end
 
 function M.boxedSixtyFourBitTypesStandApartFromLuaNumbers()

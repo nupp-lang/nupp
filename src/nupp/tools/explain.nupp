@@ -139,8 +139,8 @@ local ENTRIES: {any} = {
         rule = "A private field is representation available only while checking the "
         .. "canonical module that declares its record. Expose a public method when "
         .. "another module needs an operation without revealing that representation.",
-        wrong = "local h = require('nupp.mem.heap')\nlocal a = h.allocate(ffi.typeof<int32>(), 1)\nreturn a.pointer\n",
-        right = "local h = require('nupp.mem.heap')\nlocal a = h.allocate(ffi.typeof<int32>(), 1)\nreturn a:read()[1]\n",
+        wrong = "local h = require('nupp.mem.heap')\nlocal a = h.alloc(ffi.typeof<int32>(), 1)\nreturn a.pointer\n",
+        right = "local h = require('nupp.mem.heap')\nlocal a = h.alloc(ffi.typeof<int32>(), 1)\nreturn a:read()[1]\n",
         related = {"NUPP2004", "NUPP2202"},
         docs = "docs/learn/language/types/records-and-structs.md#private-fields",
     },
@@ -770,7 +770,7 @@ local ENTRIES: {any} = {
         rule = "A switch is an expression and must produce a value whenever its "
         .. "selector returns. Cover every member of a finite checked type, or add else "
         .. "when the remaining set is open. A union declared with "
-        .. "`types.nonExhaustive()` is always open, so it always needs else.",
+        .. "`types.nonexhaustive()` is always open, so it always needs else.",
         wrong = "local type Mode = 'read' | 'write'\nlocal mode: Mode = 'read'\n"
         .. "local value = switch mode do case 'read' -> 1 end\nreturn value\n",
         right = "local type Mode = 'read' | 'write'\nlocal mode: Mode = 'read'\n"
@@ -1118,14 +1118,14 @@ local ENTRIES: {any} = {
         .. "by own.manage. Recovery from any separately validates the runtime brand.",
         wrong = "local record Plain\nend\n"
         .. "local erased: any = {}\n"
-        .. "local recovered = own.recoverAlias(erased)\n"
+        .. "local recovered = own.recoveralias(erased)\n"
         .. "local plain = recovered and recovered:downcast<Plain>()\n",
         right = "local record File is own.Closeable\n"
         .. "    function flush(exclusive self): nil\nend\n"
         .. "    function close(takes self): nil\nend\nend\n"
         .. "local owner = own.manage(new File())\n"
         .. "local erased: any = owner:alias()\n"
-        .. "local recovered = own.recoverAlias(erased)\n"
+        .. "local recovered = own.recoveralias(erased)\n"
         .. "local file = recovered and recovered:downcast<File>()\n",
         related = {"NUPP2611", "NUPP2614"},
         docs = "docs/learn/runtime/ownership/borrowing.md#dynamic-boundaries-and-managed-cells",
@@ -2269,8 +2269,8 @@ ENTRIES[
     code = "NUPP2414",
     summary = "An opaque comptime result did not reach a materialization boundary",
     rule = "A sealed provider -- reflection's field-codec builder among them -- may return a description with no literal spelling. It materializes only when the comptime block directly initializes a declaration whose annotated type the provider owns; an inferred binding, or an opaque value nested inside an ordinary table, gives it nowhere to materialize into.",
-    wrong = "local record Position\n    x: number\n    y: number\nend\n\nconst codec = comptime do\n    return types.reflect.fieldCodec(types.reflect(Position))\nend\n\nprint(codec)\n",
-    right = "local record Position\n    x: number\n    y: number\nend\n\nconst codec: types.reflect.FieldCodec<Position> = comptime do\n    return types.reflect.fieldCodec(types.reflect(Position))\nend\n\nprint(codec)\n",
+    wrong = "local record Position\n    x: number\n    y: number\nend\n\nconst codec = comptime do\n    return types.reflect.fieldcodec(types.reflect(Position))\nend\n\nprint(codec)\n",
+    right = "local record Position\n    x: number\n    y: number\nend\n\nconst codec: types.reflect.FieldCodec<Position> = comptime do\n    return types.reflect.fieldcodec(types.reflect(Position))\nend\n\nprint(codec)\n",
     related = {"NUPP2415", "NUPP2416"},
     docs = "docs/learn/language/reflection.md#comptime-reflection",
 }
@@ -2304,9 +2304,9 @@ ENTRIES[
 ] = {
     code = "NUPP2418",
     summary = "types.reflect was applied to something other than a resolvable type",
-    rule = "types.reflect(T) resolves T in type position; it does not accept an expression that merely holds a runtime value, or one that fails to name a type at all. types.reflect.fieldCodec further requires that descriptor to describe a record, since only a record has present declared fields for the codec to copy.",
-    wrong = "local value = 1\nconst Bad: types.reflect.FieldCodec<any> = comptime do\n    return types.reflect.fieldCodec(types.reflect(value))\nend\nreturn Bad, value\n",
-    right = "local record Item\n    value: integer\nend\nconst Good: types.reflect.FieldCodec<Item> = comptime do\n    return types.reflect.fieldCodec(types.reflect(Item))\nend\nreturn Good\n",
+    rule = "types.reflect(T) resolves T in type position; it does not accept an expression that merely holds a runtime value, or one that fails to name a type at all. types.reflect.fieldcodec further requires that descriptor to describe a record, since only a record has present declared fields for the codec to copy.",
+    wrong = "local value = 1\nconst Bad: types.reflect.FieldCodec<any> = comptime do\n    return types.reflect.fieldcodec(types.reflect(value))\nend\nreturn Bad, value\n",
+    right = "local record Item\n    value: integer\nend\nconst Good: types.reflect.FieldCodec<Item> = comptime do\n    return types.reflect.fieldcodec(types.reflect(Item))\nend\nreturn Good\n",
     related = {"NUPP2415", "NUPP2416"},
     docs = "docs/reference/diagnostics.md#nupp2418",
 }

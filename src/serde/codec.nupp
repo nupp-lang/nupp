@@ -113,7 +113,7 @@ export const ContextBuilder = contexts.Builder
 --- ```nupp
 --- local codec = require("serde.codec")
 --- local source: types.Key<string> = types.newkey()
---- local builder = codec.contextBuilder({}, {}, nil)
+--- local builder = codec.contextbuilder({}, {}, nil)
 --- builder:set(source, "upload.json")
 --- assert(builder:freeze():get(source) == "upload.json")
 --- ```
