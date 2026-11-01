@@ -71,6 +71,9 @@ for _, operation in ipairs({
 end
 
 function scalar.forPath(path: string): string?
+    if path:sub(1, 5) == "math." then
+        return PATHS["nupp." .. path]
+    end
     return PATHS[path]
 end
 
