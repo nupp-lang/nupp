@@ -1410,6 +1410,156 @@ export function RetN(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
     return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
 end
 
+-- CallK with a variadic pack spread after the fixed arguments (core-only):
+-- its values are staged after them, within a window of 63 arguments.
+export function CallV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
+    if ops.charge(ctx, frame, pc) ~= 1ULL then
+        return native.fail()
+    end
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local calleeSlot = program.readByte(pc, 1)
+    local base, nargs = program.readByte(pc, 2), program.readByte(pc, 3)
+    local wanted = program.readByte(pc, 4)
+    local hint = program.readWord(pc, 8)
+    if calleeSlot ~= base then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if native.word(calleeSlot) >= native.load64(frame, native.fieldOffset<frames.Frame>("valueCount")) then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if nargs > 63 then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if wanted < 1 or native.word(wanted) > frames.MAX_RESULTS then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local packSlot = program.readByte(pc, 5)
+    if native.word(base) + 64ULL > native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+        or native.word(packSlot) >= native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local pack = slots.readValue(frame, regs, packSlot) & values.PAYLOAD
+    local extra = wide.bitsOf(tables.get(pack, values.TAG_INTEGER))
+    if native.word(nargs) + extra > 63ULL then
+        ops.fail(ctx, frame, pc, ops.RESOURCE)
+        return native.fail()
+    end
+    local k: uint64 = 0ULL
+    while k < extra do
+        slots.writeValue(
+            frame,
+            regs,
+            base + nargs + 1 + native.index(k),
+            tables.get(pack, values.TAG_INTEGER | (k + 1ULL))
+        )
+        k = k + 1ULL
+    end
+    local total = native.word(nargs) + extra
+    local callee = slots.readValue(frame, regs, calleeSlot)
+    local s = native.pointer(ops.state(ctx))
+    local resumePC = ops.resume(ctx, frame, pc)
+    ops.checkpoint(ctx, frame, pc)
+    local child = ops.prepare(ctx, frame, pc, callee, native.word(base), total, native.word(wanted), hint)
+    if child == 0ULL then
+        ops.failure(ctx, ops.RESOURCE)
+        return native.fail()
+    end
+    if wanted > 1 and frames.wantResults(s, native.pointer(child), native.word(wanted)) ~= 1ULL then
+        ops.failure(ctx, ops.INVALID)
+        return native.fail()
+    end
+    if ops.packVarargs(ctx, frame, native.pointer(child), native.word(base), total) ~= 1ULL then
+        ops.failure(ctx, ops.INVALID)
+        return native.fail()
+    end
+    local published = frames.publish(s, frame, native.pointer(child), resumePC)
+    if published ~= 1ULL then
+        -- A prepared child is retained on failure. The closed entry always
+        -- calls complete, which aborts preparation before deepest-first unwind.
+        ops.failure(ctx, ops.INVALID)
+        return native.fail()
+    end
+    local current = native.pointer(access.active(s))
+    local currentValues = native.pointer(access.values(s, current))
+    local currentIntegers = native.pointer(access.integers(s, current))
+    local currentFloats = native.pointer(access.floats(s, current))
+    local currentPC = native.pointer(access.pc(s, current))
+    access.refresh(s, current, ctx)
+
+    return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+end
+
+-- RetN with a variadic pack after the `count` staged results (core-only): the
+-- pack's values are staged after them, up to sixteen results in all.
+export function RetV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local src = program.readByte(pc, 1)
+    local fixed = program.readByte(pc, 2)
+    local packSlot = program.readByte(pc, 3)
+    if native.word(fixed) > frames.MAX_RESULTS
+        or native.word(src) + frames.MAX_RESULTS > native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+        or native.word(packSlot) >= native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local pack = slots.readValue(frame, regs, packSlot) & values.PAYLOAD
+    local extra = wide.bitsOf(tables.get(pack, values.TAG_INTEGER))
+    local count = native.word(fixed)
+    local k: uint64 = 0ULL
+    while k < extra and count < frames.MAX_RESULTS do
+        slots.writeValue(frame, regs, src + native.index(count), tables.get(pack, values.TAG_INTEGER | (k + 1ULL)))
+        count = count + 1ULL
+        k = k + 1ULL
+    end
+    local value = values.NIL
+    if count > 0ULL then
+        value = slots.readValue(frame, regs, src)
+    end
+    if ops.result(ctx, frame, pc, value) ~= 1ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local s = native.pointer(ops.state(ctx))
+    ops.checkpoint(ctx, frame, pc)
+    if ops.root(ctx, frame) == 1ULL then
+        if value & values.TAG_MASK == values.TAG_OBJ then
+            ops.fail(ctx, frame, pc, ops.RESOURCE)
+            return native.fail()
+        end
+        if ops.finish(ctx, frame, value) ~= 1ULL then
+            ops.failure(ctx, ops.INVALID)
+            return native.fail()
+        end
+        return native.fail()
+    end
+    local returned = frames.returnValues(s, frame, native.offset(regs, native.index(native.word(src) * 8ULL)), count)
+    if returned ~= 1ULL then
+        ops.failure(ctx, ops.INVALID)
+        return native.fail()
+    end
+    local current = native.pointer(access.active(s))
+    local currentValues = native.pointer(access.values(s, current))
+    local currentIntegers = native.pointer(access.integers(s, current))
+    local currentFloats = native.pointer(access.floats(s, current))
+    local currentPC = native.pointer(access.pc(s, current))
+    access.refresh(s, current, ctx)
+
+    return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+end
+
 export function Jmp(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
     if ops.current(ctx, frame, pc) == 0ULL then
         ops.fail(ctx, frame, pc, ops.INVALID)

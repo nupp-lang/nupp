@@ -1,0 +1,44 @@
+module nupp.core.catalogcallsspread
+
+-- Spreading a variadic pack: into a call after fixed arguments or alone,
+-- and into a return after fixed values or alone, with fewer values than the
+-- caller wants.
+local function sum(...: integer): integer
+    local total: integer = 0
+    for _, v in ipairs({...}) do
+        total = total + v
+    end
+
+    return total + select("#", ...) * 1000
+end
+
+local function forward(...: integer): integer
+    return sum(...)
+end
+
+local function prefix(first: integer, ...: integer): integer
+    return sum(first * 10, ...)
+end
+
+local function all(...: integer): (integer, integer, integer)
+    return ...
+end
+
+local function firstTwo(a: integer, ...: integer): (integer, integer)
+    return a, ...
+end
+
+local x, y, z = all(4, 5, 6)
+local p, q = firstTwo(7)
+local r, s = firstTwo(8, 9, 10)
+local u, v, w = all(1)
+export = forward(
+    1,
+    2,
+    3
+) + prefix(
+    1,
+    2
+) * 100000 + (
+    x + y * 10 + z * 100
+) * 10000000 + (p + (q or 0) * 10 + r * 100 + s * 1000) + (u + (v or 50) + (w or 60)) * 1000000000

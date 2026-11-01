@@ -183,9 +183,9 @@ function verify.copyGraph(g: any, version: integer?, fromSource: boolean?): any
         plain(term)
         local kind = term.kind
         if kind == "invoke" then
-            fields(term, "kind callee args contract result results edges pos")
+            fields(term, "kind callee args contract result results spread edges pos")
         elseif kind == "return" then
-            fields(term, "kind value values edges pos")
+            fields(term, "kind value values spread edges pos")
         elseif kind == "branch" then
             fields(term, "kind value edges pos")
         else
@@ -193,7 +193,7 @@ function verify.copyGraph(g: any, version: integer?, fromSource: boolean?): any
             fields(term, "kind edges pos")
         end
         local t: any = {kind = kind, edges = {}}
-        for _, key in ipairs({"value", "callee", "result", "pos"}) do
+        for _, key in ipairs({"value", "callee", "result", "spread", "pos"}) do
             if term[key] ~= nil then
                 t[key] = integer(term[key], 4294967295)
             end
@@ -510,12 +510,13 @@ function verify.resultKind(g: any, signature: any, output: any): string
         if term.kind == "return" then
             -- The copied term still distinguishes absent return from NIL SSA.
             local kind = term.value and need(kinds[term.value], "unresolved return") or "nil"
-            -- Several results are dynamic values.
-            if term.values ~= nil then
+            -- Several results, or a spread pack, are dynamic values.
+            if term.values ~= nil or term.spread ~= nil then
                 need(dynamic, "several results need dynamic values")
-                for _, id in ipairs(term.values) do
+                for _, id in ipairs(term.values or {}) do
                     need(kinds[id] ~= nil, "unresolved return")
                 end
+                need(term.spread == nil or kinds[term.spread] ~= nil, "unresolved spread pack")
                 kind = "value"
             end
             need(
@@ -541,7 +542,11 @@ function verify.resultKind(g: any, signature: any, output: any): string
             )
             -- A variadic callee takes its fixed arguments and any number more.
             local fixed = target.variadic and #target.params - 1 or #target.params
-            need(#term.args == fixed or target.variadic and #term.args > fixed, "call arity differs")
+            need(
+                #term.args == fixed or target.variadic and #term.args > fixed or term.spread ~= nil,
+                "call arity differs"
+            )
+            need(term.spread == nil or kinds[term.spread] ~= nil, "unresolved spread pack")
             for at, id in ipairs(term.args) do
                 need(at > fixed or fits(kinds[id], target.params[at]), "call scalar argument differs")
             end
@@ -735,7 +740,10 @@ function verify.catalog(p: any): any
                 end
                 local called = reference(contract.signature, p.signatures)
                 local fixed = called.variadic and #called.params - 1 or #called.params
-                need(#term.args == fixed or called.variadic and #term.args > fixed, "invoke operand count differs")
+                need(
+                    #term.args == fixed or called.variadic and #term.args > fixed or term.spread ~= nil,
+                    "invoke operand count differs"
+                )
                 arities[index][bi] = #term.args
             end
         end

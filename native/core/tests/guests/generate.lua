@@ -158,12 +158,24 @@ function generate.program(seed, size)
             depth = depth - 1
             emit("end")
         elseif roll == 8 and pick(2) == 1 then
-            -- A variadic call with zero to two extra arguments.
+            -- A variadic call with zero to two extra arguments, directly, through
+            -- a forwarder that spreads them, or spread back out of a return.
             local extras = {}
             for index = 1, pick(3) - 1 do
                 extras[index] = ", " .. expression(1)
             end
-            emit(target() .. " = many(" .. expression(1) .. table.concat(extras) .. ")")
+            local how = pick(3)
+            local a, b = target(), target()
+            if how == 3 and a ~= b then
+                emit(
+                    a .. ", " .. b .. " = pass(" .. expression(
+                        1
+                    ) .. ", " .. expression(1) .. table.concat(extras) .. ")"
+                )
+            else
+                local name = how == 2 and "fwd" or "many"
+                emit(a .. " = " .. name .. "(" .. expression(1) .. table.concat(extras) .. ")")
+            end
         elseif roll == 8 then
             emit(target() .. " = f(" .. expression(1) .. ", " .. expression(1) .. ")")
         elseif roll == 9 and pick(2) == 1 then
@@ -238,6 +250,12 @@ function generate.program(seed, size)
     emit(
         "    return (a + select(\"#\", ...) * 7 + (... or 0) + (select(\"#\", ...) > 0 and select(-1, ...) or 0) * 3) % 65521"
     )
+    emit("end")
+    emit("local function fwd(...: integer): integer", "local function fwd(...)")
+    emit("    return many(1, ...)")
+    emit("end")
+    emit("local function pass(...: integer): (integer, integer)", "local function pass(...)")
+    emit("    return ...")
     emit("end")
     emit("local function choose<T>(c: boolean, a: T, b: T): T", "local function choose(c, a, b)")
     emit("    if c then")

@@ -247,7 +247,8 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
             argumentCount = call.argumentCount,
             argumentBase = call.argumentBase,
             wanted = call.wanted,
-            resultSlot = call.resultSlot
+            resultSlot = call.resultSlot,
+            spread = call.spread and 1 or 0
         })
     end
     for index, offset in ipairs(dispatch) do

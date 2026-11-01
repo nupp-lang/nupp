@@ -814,7 +814,15 @@ function frontend.compile(fn: any, options: any, profile: any): any
         removeBinding(rootEntry.live)
     end
 
-    ctx.invoke = function(node: any, calleeValue: integer, args: any, contract: any, keepResult: boolean): integer?
+    -- `spread` is a variadic pack whose values follow the fixed arguments.
+    ctx.invoke = function(
+        node: any,
+        calleeValue: integer,
+        args: any,
+        contract: any,
+        keepResult: boolean,
+        spread: integer?
+    ): integer?
         need(g.native == nil and g.types[calleeValue] == "v", "guest invoke requires a tagged callee")
         local parent = need(block, "invoke after terminator")
         local continuation = branch(keepResult and "tagged" or nil)
@@ -824,6 +832,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
             args = args,
             contract = contract,
             result = continuation.result,
+            spread = spread,
             edges = {continuation.edge},
             pos = position(node)
         }
@@ -833,7 +842,14 @@ function frontend.compile(fn: any, options: any, profile: any): any
         return continuation.result
     end
     -- A call keeping `count` results, as `local a, b = f()` does.
-    ctx.invokeMany = function(node: any, calleeValue: integer, args: any, contract: any, count: integer): {integer}
+    ctx.invokeMany = function(
+        node: any,
+        calleeValue: integer,
+        args: any,
+        contract: any,
+        count: integer,
+        spread: integer?
+    ): {integer}
         need(g.native == nil and g.types[calleeValue] == "v", "guest invoke requires a tagged callee")
         need(count >= 1 and count <= 16, "a call keeps one to sixteen results")
         local parent = need(block, "invoke after terminator")
@@ -845,6 +861,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
             contract = contract,
             result = continuation.result,
             results = continuation.results,
+            spread = spread,
             edges = {continuation.edge},
             pos = position(node)
         }

@@ -1374,7 +1374,9 @@ local function invokeContract(contract: any): nil
         assert(call.args and call.args.kind == "args", "invoke requires explicit positional arguments")
         dense(call.args.exprs)
         assert(
-            #call.args.exprs == #called.params or called.vararg and #call.args.exprs > #called.params,
+            #call.args.exprs == #called.params
+            or called.vararg and #call.args.exprs > #called.params
+            or #call.args.exprs > 0 and call.args.exprs[#call.args.exprs].kind == "vararg",
             "invoke checked call arity differs"
         )
         for _, argument in ipairs(call.args.exprs) do
@@ -1461,13 +1463,19 @@ local function invokeContract(contract: any): nil
     assert(call.args and call.args.kind == "args", "invoke requires explicit positional arguments")
     dense(call.args.exprs)
     assert(
-        #call.args.exprs == #called.params or called.vararg and #call.args.exprs > #called.params,
+        #call.args.exprs == #called.params
+        or called.vararg and #call.args.exprs > #called.params
+        or #call.args.exprs > 0 and call.args.exprs[#call.args.exprs].kind == "vararg",
         "invoke checked call arity differs"
     )
-    for _, argument in ipairs(call.args.exprs) do
-        invokeScalar(argument.inferredType)
+    for index, argument in ipairs(call.args.exprs) do
+        -- A `...` last spreads its pack; its values are checked by the callee.
+        local spread = argument.kind == "vararg" and index == #call.args.exprs
+        if not spread then
+            invokeScalar(argument.inferredType)
+        end
         assert(
-            argument.kind ~= "vararg" and argument.kind ~= "namedArg" and argument.kind ~= "pluckArg",
+            (argument.kind ~= "vararg" or spread) and argument.kind ~= "namedArg" and argument.kind ~= "pluckArg",
             "invoke argument expansion is unsupported"
         )
     end
@@ -1908,6 +1916,7 @@ local function verifyGraph(g: any, invokeArity: any): nil
                 contract = true,
                 result = true,
                 results = true,
+                spread = true,
                 edges = true,
                 pos = true
             })
@@ -1915,6 +1924,10 @@ local function verifyGraph(g: any, invokeArity: any): nil
             dense(t.args)
             assert(#t.args == arity, "invoke must retain every evaluated argument")
             assert(usable(t.callee) and types[t.callee] == "v", "invoke callee must be usable tagged SSA")
+            assert(
+                t.spread == nil or usable(t.spread) and types[t.spread] == "v",
+                "invoke spread must be usable tagged SSA"
+            )
             for _, value in ipairs(t.args) do
                 assert(usable(value) and types[value] == "v", "invoke argument must be usable tagged SSA")
             end
@@ -2078,6 +2091,9 @@ local function verifyGraph(g: any, invokeArity: any): nil
                     error("graph return values", 0)
                 end
             end
+            if t.spread ~= nil and not (usable(t.spread) and types[t.spread] == "v") then
+                error("graph return spread", 0)
+            end
         elseif kind == "park" then
             if not (usable(t.value) and (types[t.value] == "f" or types[t.value] == "v")) then
                 error("graph park value", 0)
@@ -2160,7 +2176,13 @@ end
 function graph.verify(g: any): nil
     verifyGraph(g, function(term: any, index: integer): integer
         invokeContract(term.contract)
-        return #term.contract.call.args.exprs
+        -- A spread `...` last is the term's pack, not one of its arguments.
+        local count: integer = #term.contract.call.args.exprs
+        if term.spread then
+            count -= 1
+        end
+
+        return count
     end)
     if g.native then
         nativeos.verifyStores(g);
@@ -2224,6 +2246,9 @@ function graph.prune(g: any): nil
         end
         for _, value in ipairs(b.term.values or {}) do
             used[value] = true
+        end
+        if b.term.spread then
+            used[b.term.spread] = true
         end
         if b.term.kind == "invoke" then
             used[b.term.callee] = true
@@ -2332,6 +2357,7 @@ function graph.prune(g: any): nil
         for i = 1, #(t.values or {}) do
             t.values[i] = assert(remap[t.values[i]])
         end
+        t.spread = t.spread and assert(remap[t.spread]) or nil
         local offset = resultOffset(t)
         if t.kind == "invoke" then
             t.callee = assert(remap[t.callee])

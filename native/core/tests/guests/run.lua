@@ -87,7 +87,8 @@ local CASES = {
     {"tablesFloatKeys", 0x7FFF0000065C2564},
     {"stringsLibrary", 0x7FFF0000547F9CA7},
     {"callsGeneric", 0x7FFF00000C2F4BF7},
-    {"callsVariadic", 0x7FFF01026AA11247}
+    {"callsVariadic", 0x7FFF01026AA11247},
+    {"callsSpread", 0x7FFF001B69EC548D}
 }
 -- Heap-using cases that also run with a whole collection at every
 -- allocation. records and strings allocate per iteration, which makes their
@@ -127,7 +128,8 @@ local NUMERIC = {
     tablesFloatKeys = "catalog-tables-floatkeys",
     stringsLibrary = "catalog-strings-library",
     callsGeneric = "catalog-calls-generic",
-    callsVariadic = "catalog-calls-variadic"
+    callsVariadic = "catalog-calls-variadic",
+    callsSpread = "catalog-calls-spread"
 }
 local FIXTURES = {
     "catalog-boolean",

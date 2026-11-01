@@ -321,6 +321,8 @@ export function prepare(
     if native.load64(call, native.fieldOffset<catalog.Callsite>("target")) ~= hint
         or native.load64(call, native.fieldOffset<catalog.Callsite>("argumentBase")) ~= base
         or native.load64(call, native.fieldOffset<catalog.Callsite>("argumentCount")) ~= nargs
+        and native.load64(call, native.fieldOffset<catalog.Callsite>("spread")) ~= 1ULL
+        or native.load64(call, native.fieldOffset<catalog.Callsite>("argumentCount")) > nargs
         or native.load64(call, native.fieldOffset<catalog.Callsite>("wanted")) ~= wanted
         or native.load64(call, native.fieldOffset<catalog.Callsite>("resultSlot")) ~= base + 1ULL
         or native.load64(call, native.fieldOffset<catalog.Callsite>("resumePC")) ~= index + 1ULL

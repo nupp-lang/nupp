@@ -108,6 +108,7 @@ end
 -- A core library call (guestlib): its arguments staged as values.
 local function libraryCall(ctx: any, node: any, id: integer, arguments: any): integer
     need(#arguments >= 1 and #arguments <= 4, "core library calls take one to four arguments")
+    need(arguments[#arguments].kind ~= "vararg", "a library call cannot spread `...` yet")
     local kinds = {}
     for index = 1, #arguments do
         kinds[index] = "tagged"
@@ -367,18 +368,24 @@ local function invoke(ctx: any, node: any, keepResult: boolean, dynamic: boolean
     -- Evaluate that callee before any argument, and retain its snapshot across
     -- every nested call. Runtime FunctionInfo authentication remains pending.
     local callee = ctx.hold(ctx.expression(node.obj, "tagged"))
-    local kinds = {}
-    for index = 1, #node.args.exprs do
-        kinds[index] = "tagged"
+    -- A `...` last spreads its whole pack after the fixed arguments.
+    local exprs = node.args.exprs
+    local spreads = #exprs > 0 and exprs[#exprs].kind == "vararg"
+    local fixed, kinds = {}, {}
+    for index, expr in ipairs(exprs) do
+        if index < #exprs or not spreads then
+            fixed[#fixed + 1], kinds[#kinds + 1] = expr, "tagged"
+        end
     end
-    local args = ctx.operands(node.args.exprs, kinds)
+    local args = ctx.operands(fixed, kinds)
     local value = ctx.readHeld(callee)
     ctx.release(callee)
+    local pack = spreads and ctx.varargPack() or nil
     if count then
-        return ctx.invokeMany(node, value, args, contract, count)
+        return ctx.invokeMany(node, value, args, contract, count, pack)
     end
 
-    return ctx.invoke(node, value, args, contract, keepResult)
+    return ctx.invoke(node, value, args, contract, keepResult, pack)
 end
 
 function tagged.call(ctx: any, node: any, expected: string?): integer
@@ -839,8 +846,31 @@ function tagged.forVersion(version: integer): any
                 ctx.block = nil
                 return
             end
-            local declared: integer = ctx.fn.signature and #ctx.fn.signature.rets or 1
             local last = stat.exprs[#stat.exprs]
+            -- `return a, ...` gives the fixed values, then the whole pack.
+            if last.kind == "vararg" then
+                local fixed, kinds = {}, {}
+                for index = 1, #stat.exprs - 1 do
+                    fixed[index], kinds[index] = stat.exprs[index], "tagged"
+                end
+                need(#fixed <= 16, "a return gives at most sixteen results")
+                local values = ctx.operands(fixed, kinds)
+                if values == nil then
+                    return
+                end
+                local pack = ctx.varargPack()
+                ctx.block.term = {
+                    kind = "return",
+                    value = values[1] or pack,
+                    values = #values > 0 and values or nil,
+                    spread = pack,
+                    edges = {},
+                    pos = ctx.position(stat)
+                }
+                ctx.block = nil
+                return
+            end
+            local declared: integer = ctx.fn.signature and #ctx.fn.signature.rets or 1
             local spread: integer? = last.kind == "call"
                 and last.runtimeLoader ~= "require"
                 and graph.coreLibraryCall(last) == nil

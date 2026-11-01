@@ -80,6 +80,9 @@ export struct Callsite
     argumentBase: uint64
     wanted: uint64
     resultSlot: uint64
+    -- 1 when the call spreads a variadic pack after its fixed arguments, in a
+    -- window of 63 argument slots.
+    spread: uint64
 end
 
 export struct Catalog
@@ -403,6 +406,9 @@ local function valid(data: voidptr, bytes: uint64): uint64
                 or wanted == 0ULL
                 or wanted > results
                 or wanted > nv - base - 1ULL
+                or native.load64(site, native.fieldOffset<Callsite>("spread")) > 1ULL
+                or native.load64(site, native.fieldOffset<Callsite>("spread")) == 1ULL
+                and (version < 8ULL or base + 64ULL > nv)
                 or native.load64(site, native.fieldOffset<Callsite>("resultSlot")) ~= base + 1ULL
             then
                 return 0ULL
@@ -420,12 +426,14 @@ local function valid(data: voidptr, bytes: uint64): uint64
                 return 0ULL
             end
             local cs = native.offset(data, native.index(signatures + calleeSignature * native.sizeOf<Signature>()))
+            -- A spread call's count is known only when it runs; prepare checks it.
             local fixed = native.load64(cs, native.fieldOffset<Signature>("parameterCount"))
+            local spread = native.load64(site, native.fieldOffset<Callsite>("spread")) == 1ULL
             if native.load64(cs, native.fieldOffset<Signature>("variadic")) == 1ULL then
-                if nargs + 1ULL < fixed then
+                if nargs + 1ULL < fixed and not spread then
                     return 0ULL
                 end
-            elseif fixed ~= nargs then
+            elseif fixed ~= nargs and not spread then
                 return 0ULL
             end
             previousPC = pc

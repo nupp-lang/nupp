@@ -82,6 +82,7 @@ local function assignSlots(g: any): (any, integer)
         for _, value in ipairs(term.values or {}) do
             use(value, count + 1)
         end
+        use(term.spread, count + 1)
         use(term.callee, count + 1)
         for _, value in ipairs(term.args or {}) do
             use(value, count + 1)
@@ -161,12 +162,20 @@ local function derive(g: any, catalog: any): any
         if block.term.kind == "invoke" then
             need(#block.term.args <= 63, "fixed CallK argument capacity")
             maximumArguments = math.max(maximumArguments, #block.term.args) as integer
-            -- Several results land after the callee slot.
+            -- Several results land after the callee slot; a spread call stages
+            -- its pack there too, in 63 argument slots.
             maximumArguments = math.max(maximumArguments, #(block.term.results or {})) as integer
+            if block.term.spread then
+                maximumArguments = math.max(maximumArguments, 64) as integer
+            end
         elseif block.term.kind == "return" then
             need(block.term.value ~= nil, "absent return is not executable")
-            -- Several results are staged from the call base for RetN.
+            -- Several results are staged from the call base for RetN; RetV
+            -- stages up to sixteen.
             maximumArguments = math.max(maximumArguments, #(block.term.values or {})) as integer
+            if block.term.spread then
+                maximumArguments = math.max(maximumArguments, 16) as integer
+            end
         end
     end
     need(g.nparams <= 63, "fixed parameter capacity")
@@ -338,7 +347,12 @@ local function derive(g: any, catalog: any): any
         local term, position = block.term, block.term.pos or 0
         local _ = switch term.kind do
             case "return" -> do
-                if term.values and #term.values > 1 then
+                if term.spread then
+                    for index, value in ipairs(term.values or {}) do
+                        emit({"Move", callBase + index - 1, physical(value)}, position)
+                    end
+                    emit({"RetV", callBase, #(term.values or {}), physical(term.spread)}, position)
+                elseif term.values and #term.values > 1 then
                     for index, value in ipairs(term.values) do
                         emit({"Move", callBase + index - 1, physical(value)}, position)
                     end
@@ -368,8 +382,16 @@ local function derive(g: any, catalog: any): any
                 for index, argument in ipairs(term.args) do
                     emit({"Move", callBase + index, physical(argument)}, position)
                 end
-                local wanted = term.results and #term.results or 1
-                local at = emit({"CallK", contract.target, callBase, callBase, #term.args, wanted}, position)
+                local wanted: integer = term.results and #term.results or 1
+                local at: integer
+                if term.spread then
+                    at = emit(
+                        {"CallV", contract.target, callBase, callBase, #term.args, wanted, physical(term.spread)},
+                        position
+                    )
+                else
+                    at = emit({"CallK", contract.target, callBase, callBase, #term.args, wanted}, position)
+                end
                 calls[
                     #calls + 1
                 ] = {
@@ -382,6 +404,7 @@ local function derive(g: any, catalog: any): any
                     argumentCount = #term.args,
                     resultSlot = callBase + 1,
                     wanted = wanted,
+                    spread = term.spread ~= nil,
                     discarded = term.result == nil,
                     inLoop = inLoop[block.id] == true
                 }
