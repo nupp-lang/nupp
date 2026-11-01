@@ -8,6 +8,7 @@ those effects, rather than asking authors to mirror native-library switches in
 their manifests.
 ]]
 
+local apiidentity = require("nupp.compiler.apiidentity")
 local native = {}
 
 --- A compiler-recognized runtime feature: what it is called, where its implementation
@@ -717,6 +718,7 @@ for effect, feature in pairs(FEATURES) do
     end
     for _, path in ipairs(feature.globals or {}) do
         byGlobal[path] = effect
+        byGlobal[apiidentity.canonical(path)] = effect
     end
     if feature.module then
         byModule[feature.module] = effect

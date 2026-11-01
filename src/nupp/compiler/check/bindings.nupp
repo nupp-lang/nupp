@@ -12,6 +12,7 @@ A write is also the thing that invalidates a narrowing, and, when the target is
 the module's own table, what publishes a member of it.
 ]]
 
+local apiidentity = require("nupp.compiler.apiidentity")
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")
 local narrowing = require("nupp.compiler.types.narrowing")
@@ -1612,16 +1613,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
         -- rebound.
         if called.kind == "call" then
             local callee, args = called.obj, called.args
-            local globalAssert = c.env and c.env.globals and c.env.globals.assert
-            if callee
-                and callee.kind == "name"
-                and callee.token
-                and callee.token.text == "assert"
-                and globalAssert
-                and callee.token.definition == globalAssert.definition
-                and args
-                and args.kind == "args"
-            then
+            if apiidentity.expression(c, callee) == "assert" and args and args.kind == "args" then
                 local exprs = args.exprs or {}
                 if exprs[1] then
                     applyFacts(facts.analyzeCond(exprs[1]).t)

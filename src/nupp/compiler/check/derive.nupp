@@ -4,6 +4,7 @@ module nupp.compiler.check.derive
 Declaration derives use one closed provider and recipe pipeline.
 ]]
 
+local apiidentity = require("nupp.compiler.apiidentity")
 local T = require("nupp.compiler.types")
 local cst = require("nupp.compiler.syntax.cst")
 local relations = require("nupp.compiler.types.relations")
@@ -93,7 +94,7 @@ local function providerFilePaths(program)
         if type(node) ~= "table" or cst.isToken(node) then
             return
         end
-        if node.kind == "call" and dotted(node.obj) == "nupp.derive.file" then
+        if node.kind == "call" and apiidentity.canonical(dotted(node.obj) or "") == "types.derive.file" then
             local args = node.args and node.args.exprs or {}
             local first = args[1]
             local token = first and first.kind == "string" and first.token or nil
@@ -173,7 +174,8 @@ function derive.install(c: state.Checker): derive.Ops
     end
 
     local function resolveProvider(arg)
-        local path = expressionPath(arg and arg.expr)
+        local spelling = expressionPath(arg and arg.expr)
+        local path = apiidentity.sourceExpression(c, arg and arg.expr) or spelling
         if not path or not path:find(".", 1, true) then
             return nil
         end
@@ -209,7 +211,7 @@ function derive.install(c: state.Checker): derive.Ops
                     standardSurface.requireModule(c, moduleName, at)
                 end
 
-                return nil, moduleName, path
+                return nil, moduleName, spelling or path
             end
             exports = c.env.resolveModuleExports(c.env, moduleName)
         end
@@ -221,10 +223,10 @@ function derive.install(c: state.Checker): derive.Ops
             if token then
                 c.markToken(token, provider.definition, provider.signature, "function")
             end
-            return provider, moduleName, path
+            return provider, moduleName, spelling or path
         end
 
-        return nil, moduleName, path
+        return nil, moduleName, spelling or path
     end
 
     local function claim(stat, n)

@@ -1408,6 +1408,8 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     end
 
     --- A call's arguments: parenthesized, a string, or a table.
+    local probingIntrinsicExpression = false
+
     local function parseCallargs(typeFirst: boolean?): Node?
         local kind = cur().kind
         if kind == "(" then
@@ -1417,9 +1419,35 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             if cur().kind ~= ")" then
                 repeat
                     local argument
-                    if typeFirst and #n.exprs == 0 then
+                    if typeFirst and #n.exprs == 0 and not probingIntrinsicExpression then
+                        -- Keep the expression interpretation until the checker resolves
+                        -- the root. A local table may use an intrinsic member's name.
+                        local start, errorCount = i, #errors
+                        local savedNoMethod, savedNoArrow = noMethod, noArrow
+                        local savedClose, savedHalf = genericCloseHalfAt, genericCloseHalf
+                        probingIntrinsicExpression = true
+                        local ordinary = resetNoMethod(parseExp)
+                        probingIntrinsicExpression = false
+                        local ordinaryEnd = i
+                        local ordinaryValid = #errors == errorCount and (cur().kind == "," or cur().kind == ")")
+                        i = start
+                        noMethod, noArrow = savedNoMethod, savedNoArrow
+                        genericCloseHalfAt, genericCloseHalf = savedClose, savedHalf
+                        while #errors > errorCount do
+                            errors[#errors] = nil
+                        end
                         argument = parseType()
-                        n.typeArg = argument
+                        if ordinaryValid and (#errors > errorCount or i ~= ordinaryEnd) then
+                            while #errors > errorCount do
+                                errors[#errors] = nil
+                            end
+                            i = ordinaryEnd
+                            genericCloseHalfAt, genericCloseHalf = savedClose, savedHalf
+                            argument = ordinary
+                        else
+                            n.typeArg = argument
+                            n.ordinaryTypeArg = ordinaryValid and ordinary or nil
+                        end
                     elseif pluckGroupAhead("{", "}") or pluckGroupAhead("(", ")") then
                         local pluck = new cst.PluckArg(kind = "pluckArg", names = {})
                         local oldSpelling = cur().kind == "("

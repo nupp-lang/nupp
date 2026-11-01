@@ -1923,15 +1923,21 @@ function declare.install(
             if n.declKind == "interface" and stat.sealedTok then
                 n.sealedModule = n.moduleName or c.filename
             end
-            if c.filename == "nupp:prelude.d.nupp" and n.name == "Affine" and n.declKind == "interface" then
+            if (c.filename == "nupp:prelude.d.nupp" or c.result.moduleName == "own")
+                and n.name == "Affine"
+                and n.declKind == "interface"
+            then
                 n.intrinsicAffine = true
             end
-            if c.filename == "nupp:prelude.d.nupp" and n.name == "Copyable" and n.declKind == "interface" then
+            if (c.filename == "nupp:prelude.d.nupp" or c.result.moduleName == "own")
+                and n.name == "Copyable"
+                and n.declKind == "interface"
+            then
                 n.intrinsicCopyable = true
             end
-            if c.result.moduleName == "nupp.prelude" and n.name == "Managed" then
+            if (c.result.moduleName == "nupp.prelude" or c.result.moduleName == "own") and n.name == "Managed" then
                 n.managedCell = true
-            elseif c.result.moduleName == "nupp.prelude" and n.name == "Alias" then
+            elseif (c.result.moduleName == "nupp.prelude" or c.result.moduleName == "own") and n.name == "Alias" then
                 n.managedAlias = true
             end
             -- Predeclared before anything resolves, so a member may name one wherever

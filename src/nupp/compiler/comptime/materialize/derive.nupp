@@ -338,6 +338,7 @@ function deriveProvider.installEvaluator(state: any, env: any, opaque: any, prov
 
     env.nupp = env.nupp or {}
     env.nupp.derive = library
+    state.deriveHelperIntrinsic = library.helper
 end
 
 function deriveProvider.materializeInfo(state: any, input: any, opaque: any, provenance: any): any

@@ -23,6 +23,7 @@ const {type Target} = require("nupp.compiler.analysis")
 const {type Target as Target2} = require("nupp.compiler.tracesource")
 const {type Checker as Checker2} = require("nupp.compiler.tracesource")
 
+local apiidentity = require("nupp.compiler.apiidentity")
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")
 local consteval = require("nupp.compiler.types.consteval")
@@ -174,7 +175,9 @@ local function reifiableField(t: Type, isCdef: boolean?): boolean
     -- which the declaration records and every storage use refuses.
     if t.tag == "nominal" then
         local origin = (t as any).origin or t
-        if origin.moduleName == "nupp.simd" and (origin.name == "Vector" or origin.name == "Mask") then
+        if apiidentity.canonical(origin.moduleName or "") == "simd"
+            and (origin.name == "Vector" or origin.name == "Mask")
+        then
             return true
         end
     end

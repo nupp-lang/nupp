@@ -13,6 +13,7 @@ A method call is the same thing with the receiver threaded in as the first
 argument, which is all `:` means.
 ]]
 
+local apiidentity = require("nupp.compiler.apiidentity")
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")
 local generics = require("nupp.compiler.types.generics")
@@ -77,7 +78,12 @@ local function floatingVector(t: Type): boolean
     end
     local nominal = t as T.Nominal
     local origin = (nominal.origin or nominal) as T.Nominal
-    if origin.name ~= "Vector" or (origin.moduleName ~= "nupp.simd" and origin.sealedModule ~= "nupp.simd") then
+    if origin.name ~= "Vector"
+        or (
+            apiidentity.canonical(origin.moduleName or "") ~= "simd"
+            and apiidentity.canonical(origin.sealedModule or "") ~= "simd"
+        )
+    then
         return false
     end
     local element = nominal.typeArgs and (nominal.typeArgs as {Type})[1] or nil
@@ -132,6 +138,11 @@ end
 -- while `nupp` still means the compiler's own table: resolving it to the entry the
 -- globals hold is what says no local has taken that name either.
 local function ownershipIntrinsic(c, callee)
+    local identity = apiidentity.expression(c, callee)
+    local member = identity and identity:match("^own%.([%w_]+)$")
+    if member and cst.ownershipIntrinsicMember(member) then
+        return member
+    end
     local name, qualified = cst.ownershipIntrinsicSpelling(callee)
     if not name then
         return nil
@@ -139,9 +150,8 @@ local function ownershipIntrinsic(c, callee)
     if not qualified then
         return not c.lookupEntry(name) and name or nil
     end
-    local globals = c.env and c.env.globals
 
-    return globals and c.lookupEntry("nupp") == globals["nupp"] and name or nil
+    return nil
 end
 
 --- The severity a logging call site carries, as the runtime numbers them.
@@ -154,31 +164,13 @@ local LOG_SEVERITY: {[string]: integer} = {error = 1, warn = 2, info = 3, debug 
 -- reported the ordinary way and the member access records the feature effect. All this
 -- decides is whether generation may lower the site rather than call it.
 local function logIntrinsic(c, callee): integer?
-    if not callee or callee.kind ~= "dotIndex" or not callee.name then
+    if not callee or callee.kind ~= "dotIndex" then
         return nil
     end
-    local severity = LOG_SEVERITY[callee.name.text]
-    if not severity then
-        return nil
-    end
-    -- `nupp.log` is an ordinary declared module now, reached by a qualified path rather
-    -- than as a field of the ambient table. The spelling a site must have is unchanged,
-    -- so what identifies the intrinsic is still the shape of the path and an unshadowed
-    -- `nupp` root: the export the path resolves to is not recorded yet when the call is
-    -- checked, and keying on it would silently stop every site from lowering.
-    local path = callee.obj
-    if not path or path.kind ~= "dotIndex" or not path.name or path.name.text ~= "log" then
-        return nil
-    end
-    local root = path.obj
-    local token = root and root.kind == "name" and root.token or nil
-    if not token or token.text ~= "nupp" then
-        return nil
-    end
-    local global = c.env and c.env.globals and c.env.globals.nupp
-    local resolved = c.lookupEntry(token.text)
+    local identity = apiidentity.expression(c, callee)
+    local member = identity and identity:match("^log%.([%w_]+)$")
 
-    return global and resolved and resolved.definition == global.definition and severity or nil
+    return member and LOG_SEVERITY[member] or nil
 end
 
 -- Whether this is the prelude's `string.format`, rather than a field on a local table
@@ -569,7 +561,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
     end
 
     local function managedGeneric(name: string, payload: Type): Type
-        local declared = c.lookupType("nupp." .. name)
+        local declared = c.lookupType("own." .. name) or c.lookupType("nupp." .. name)
         if declared and declared.tag == "nominal" and declared.typeParams and declared.typeParams[1] then
             local core = (declared.origin or declared) as T.Nominal
             if name == "Managed" then
@@ -742,7 +734,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             argStr = callArgs.str
             argTable = callArgs.table
         end
-        local deriveIntrinsic = callee and cst.textOf(callee):gsub("%s+", ""):match("^nupp%.derive%.[%w_]+$")
+        local calleeIdentity = apiidentity.expression(c, callee)
+        local deriveIntrinsic = calleeIdentity and calleeIdentity:match("^types%.derive%.[%w_]+$")
         if deriveIntrinsic and (c.comptimeFunctionDepth or 0) == 0 then
             c.diag("NUPP2809", node, "nupp.derive builders are available only inside a comptime provider")
             return T.any
@@ -775,6 +768,23 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
         end
         local comptimeIntrinsic, intrinsicQualified = cst.comptimeTypeIntrinsicSpelling(callee)
+        if comptimeIntrinsic == "reflect" then
+            comptimeIntrinsic, intrinsicQualified = nil, false
+        end
+        if calleeIdentity == "types.reflect" then
+            comptimeIntrinsic, intrinsicQualified = "reflect", true
+        end
+        if not comptimeIntrinsic and callArgs and callArgs.typeArg and callArgs.ordinaryTypeArg then
+            local original = callArgs.typeArg
+            local ordinary = callArgs.ordinaryTypeArg
+            callArgs.typeArg = nil
+            argExprs[1] = ordinary
+            for position, child in ipairs(callArgs) do
+                if child == original then
+                    callArgs[position] = ordinary
+                end
+            end
+        end
         local layoutIntrinsic = intrinsicQualified and comptimeIntrinsic ~= "reflect" and comptimeIntrinsic or nil
         if layoutIntrinsic and not argStr and not argTable then
             if (c.comptimeDepth or 0) == 0 then
@@ -852,8 +862,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 c.diag("NUPP2418", node, "nupp.reflect is available only inside a comptime block")
                 return T.any
             end
-            local globals = c.env and c.env.globals
-            local stable = globals and c.lookupEntry("nupp") == globals.nupp
+            local stable = calleeIdentity == "types.reflect"
             local typeArgument = callArgs and callArgs.typeArg or argExprs[1]
             local key, reflected = concreteTypePath(typeArgument, callArgs and callArgs.typeArg ~= nil)
             if not stable or not reflected then
@@ -864,7 +873,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
             local descriptor = reflection.describe(reflected, key)
             node.reflectedType, node.reflectedTypeKey = descriptor, key
-            local reflectTypes = c.env and c.env.globalTypes and c.env.globalTypes["nupp.reflect"]
+            local reflectTypes = c.env and c.env.globalTypes and apiidentity.lookup(c.env.globalTypes, "types.reflect")
             local typeInfo = reflectTypes and reflectTypes.nestedTypes and reflectTypes.nestedTypes.Info
 
             return typeInfo or T.any
@@ -881,6 +890,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             -- than repeat it here, those spellings keep their call.
             if positionalOnly(argExprs) and format and format.kind == "string" then
                 node.logIntrinsic = severity
+                local sourceIdentity = apiidentity.sourceExpression(c, callee)
+                node.logModule = sourceIdentity and sourceIdentity:match("^(.*)%.[^.]+$") or "nupp.log"
                 node.logFormatIntrinsic = debugFormatPlan(literalString(format) or "")
             end
         end
@@ -1660,7 +1671,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         local first, rets, pack = c.inferCall(node, calleeT, node.args, knownAts)
         forwardProtocol(node)
         if selectedExport
-            and selectedExport.module == "nupp.simd"
+            and apiidentity.canonical(selectedExport.module) == "simd"
             and selectedExport.member:match("^horizontal%.") ~= nil
         then
             local vector = argExprs[1] and rawType(c.infer(argExprs[1])) or nil
@@ -1674,7 +1685,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
             local element = origin
                 and origin.name == "Vector"
-                and (origin.moduleName == "nupp.simd" or origin.sealedModule == "nupp.simd")
+                and (
+                    apiidentity.canonical(origin.moduleName or "") == "simd"
+                    or apiidentity.canonical(origin.sealedModule or "") == "simd"
+                )
                 and nominal
                 and nominal.typeArgs
                 and nominal.typeArgs[1]
@@ -1717,17 +1731,31 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 c.diag("NUPP2006", argExprs[1], "explicit SIMD horizontal arithmetic requires a floating-point vector")
             end
         end
-        local globalsForAssert = c.env and c.env.globals
-        local stableAssert = calleeName == "assert"
-            and globalsForAssert
-            and c.lookupEntry("assert") == globalsForAssert.assert
+        local stableAssert = apiidentity.expression(c, callee) == "assert"
         if stableAssert then
             local input = node.argumentPack and T.packAt(node.argumentPack, 1) or T.any
             local truthy = narrowing.truthiness(input)
             if input ~= T.any then
+                local function asserted(source: T.Pack): T.Pack
+                    if source.alternatives then
+                        local alternatives: {T.Pack} = {}
+                        for _, alternative in ipairs(source.alternatives) do
+                            alternatives[#alternatives + 1] = asserted(alternative)
+                        end
+                        return T.packUnion(alternatives)
+                    end
+                    local head: {Type} = {}
+                    for position, value in ipairs(source.head) do
+                        head[position] = value
+                    end
+                    head[1] = narrowing.truthiness(T.packAt(source, 1) or T.nil_) or T.never
+
+                    return T.pack(head, source.tail, source.modes, source.names)
+                end
+
                 first = truthy or T.never
-                rets = {first}
-                pack = T.pack(rets)
+                pack = asserted(node.argumentPack or T.pack({input}))
+                rets = pack.head
                 local dynamicNode: any = node
                 dynamicNode.assertNever = first == T.never
             end
@@ -1762,8 +1790,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         local globalEntry = calleeName ~= "" and c.env and c.env.globals and c.env.globals[calleeName] or nil
         local stableGlobal = globalEntry and calleeEntry and globalEntry.definition == calleeEntry.definition
         node.resolvedGlobal = stableGlobal and calleeName or nil
-        if stableGlobal and (calleeName == "assert" or calleeName == "error") then
-            node.aotGuardBuiltin = calleeName
+        if stableAssert then
+            node.aotGuardBuiltin = "assert"
+        elseif stableGlobal and calleeName == "error" then
+            node.aotGuardBuiltin = "error"
         end
         if stableGlobal and calleeName == "select" and node.argumentPack then
             local source = node.argumentPack
@@ -2323,7 +2353,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
             if nominal ~= nil
                 and origin ~= nil
-                and (origin.moduleName or (nominal as T.Nominal).moduleName or origin.sealedModule) == "nupp.simd"
+                and apiidentity.canonical(
+                    origin.moduleName or (nominal as T.Nominal).moduleName or origin.sealedModule or ""
+                ) == "simd"
                 and origin.name == "Vector"
                 and member.text == "extract"
                 and (nominal as T.Nominal).typeArgs
@@ -2363,7 +2395,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             local owner = rawType(ot)
             -- Rechecking a call discards its previous overload selection.
             node.overloadMember = nil
-            local aliasDeclaration = c.lookupType("nupp.Alias")
+            local aliasDeclaration = c.lookupType("own.Alias") or c.lookupType("nupp.Alias")
             local aliasOrigin = aliasDeclaration
                 and aliasDeclaration.tag == "nominal"
                 and ((aliasDeclaration.origin or aliasDeclaration) as T.Nominal)

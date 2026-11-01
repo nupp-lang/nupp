@@ -12,6 +12,7 @@ The safe forms `a?.b` and `a?.[k]` differ only in what a nil receiver means -- a
 answer of nil rather than a diagnostic -- so they are the same handler.
 ]]
 
+local apiidentity = require("nupp.compiler.apiidentity")
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")
 local generics = require("nupp.compiler.types.generics")
@@ -400,6 +401,38 @@ function index.install(c: state.Checker): state.ExprHandlers
         end
         local memberName = member.text
         node.fixedWidthUntrusted = nil
+        local identity = apiidentity.expression(c, node)
+        local namespace, intrinsicMember = nil, nil
+        if identity then
+            namespace, intrinsicMember = identity:match("^(types%.derive)%.([%w_]+)$")
+        end
+        if not namespace and identity then
+            namespace, intrinsicMember = identity:match("^(types%.reflect)%.([%w_]+)$")
+        end
+        if not namespace and identity then
+            namespace, intrinsicMember = identity:match("^(types)%.([%w_]+)$")
+        end
+        if namespace and intrinsicMember then
+            local intrinsicNamespace = apiidentity.lookup(c.env.globalTypes, namespace)
+            if namespace == "types" then
+                local builtin = c.env.globals.types
+                local old = c.env.globals.nupp
+                intrinsicNamespace = builtin and builtin.t or old and old.t.byname and old.t.byname.types
+            end
+            local intrinsicType, definition = nil, nil
+            if intrinsicNamespace then
+                intrinsicType, definition = c.fieldType(intrinsicNamespace, intrinsicMember as string)
+            end
+            if intrinsicType and (namespace == "types.derive" or compilerOnlyValue(intrinsicType)) then
+                c.infer(target)
+                local dynamicNode: any = node
+                dynamicNode.namespacePath = apiidentity.sourceExpression(c, node)
+                node.immutablePath = true
+                node.resolvedType = intrinsicType
+                c.markToken(member, definition, intrinsicType, definition and definition.kind or "property")
+                return intrinsicType
+            end
+        end
         local projected = qualifiedModule(node)
         if projected then
             return projected
@@ -467,6 +500,9 @@ function index.install(c: state.Checker): state.ExprHandlers
                 local shadowed = globalRoot and localRoot and localRoot.definition ~= globalRoot.definition
                 if not shadowed then
                     c.infer(target)
+                    if apiidentity.path(c, key) then
+                        (node as any).namespacePath = key
+                    end
                     c.markToken(
                         member,
                         declared.definition,
@@ -486,7 +522,7 @@ function index.install(c: state.Checker): state.ExprHandlers
                 root = root.obj
             end
             local token = root and root.kind == "name" and root.token or nil
-            local builtin = c.env and c.env.globals and c.env.globals.nupp or nil
+            local builtin = token and c.env and c.env.globals and c.env.globals[token.text] or nil
             -- A local bound to a namespace path stands for that path, so
             -- `local i32 = nupp.math.i32` leaves `i32.andBits` the intrinsic it names.
             local canonical = nil
