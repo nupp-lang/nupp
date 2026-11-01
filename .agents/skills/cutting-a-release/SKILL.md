@@ -1,6 +1,6 @@
 ---
 name: cutting-a-release
-description: How to cut, publish and recover a Nupp release, and how to move the stage-zero pin in `scripts/toolchain.pins` afterwards. Use this whenever the work involves tagging, publishing, version numbers, `nupp --version`, the release workflow, a failed or stuck release run, GitHub release assets, `STAGE0_IMAGE_TAG`/`STAGE0_IMAGE_SHA256`, or letting the compiler's own sources use a language feature they currently cannot. Reach for it even when the request sounds small, like "tag v0.1.0", "why did the release fail", "bump the bootstrap pin", or "publish a build" -- the ordering constraints here are not guessable and each wrong attempt burns a version number permanently.
+description: How to cut, publish and recover a Nupp release, and how to move native bootstrap pins in `scripts/bootstrap-seeds.json` afterwards. Use this whenever the work involves tagging, publishing, version numbers, `nupp --version`, the release workflow, a failed or stuck release run, GitHub release assets, `scripts/bootstrap-seeds.json`, or letting the compiler's own sources use a language feature they currently cannot. Reach for it even when the request sounds small, like "tag v0.1.0", "why did the release fail", "bump the bootstrap pin", or "publish a build" -- the ordering constraints here are not guessable and each wrong attempt burns a version number permanently.
 ---
 
 # Cutting a Nupp release
@@ -74,42 +74,34 @@ below.
 
 ## Moving the stage-zero pin
 
-The compiler is written in Nupp, so a checkout's first build is done by a
-release's root CLI image: the one named by `STAGE0_IMAGE_TAG` in
-`scripts/toolchain.pins`, fetched and verified against `STAGE0_IMAGE_SHA256`, run
-on a runtime built from the checkout to lower its sources into a VM compiler.
+A checkout bootstraps from the published runtime and compiler image paired in
+`scripts/bootstrap-seeds.json`. Each entry under `hosts` names one archive URL
+and its `sha256`, plus `runtimeSha256` and `imageSha256` for its members:
 
-The consequence is two standing rules. `src/`, the standard library, the
-runtime and `nupp.lua` **may only use language features and manifest keys the
-pinned image already understands**, and the runtime **must keep loading the
-pinned image's format** and every provider symbol it names. A feature you land
-today cannot be used by the compiler's own sources until an image carrying it is
-published and the pin moves to it. `nupp fixpoint` catches a violation, because
-its first stage is lowered by that image; `rustabitest` checks the format and the
-provider symbols.
-
-So when a feature needs to reach the compiler's sources, or a format change
-needs the old decoder gone, the sequence is: land it, publish an image, then
-move the pin. Publishing for no reason other than to move the pin is expected
-and fine.
-
-To move it, take the values from the release:
-
-```bash
-gh release download v0.1.0 --pattern 'nupp-stage0-*.image.gz' --dir /tmp/stage0
-gzip -dc /tmp/stage0/nupp-stage0-v0.1.0.image.gz | shasum -a 256
+```sh
+./scripts/toolchain stage0-seed
+./bin/nupp fixpoint
 ```
 
-Set `STAGE0_IMAGE_TAG` and `STAGE0_IMAGE_SHA256`; `STAGE0_IMAGE_URL` names the
-asset by tag and rarely changes. The pinned digest is of the **decompressed**
-image, not the archive. Two gzips write different bytes for identical input, so
-pinning the archive would pin whichever gzip cut the release; the digest of the
-image itself is reproducible from the tag by anyone who runs `nupp fixpoint
---emit-stage0` there. The stage-zero job also prints this value.
+Compiler sources, the standard library and `nupp.lua` may use only language
+features and manifest keys that the pinned image understands. Keep the pinned
+runtime compatible with that image's format and provider symbols.
 
-Then run `./bin/nupp fixpoint` before committing the bump. It lowers three
-stages starting from the newly pinned image, which is the only thing that proves
-the new pin can still build the tree.
+Publish the accepting compiler image before adopting new features in compiler
+sources. Repackage it with each host's existing pinned runtime through
+`.github/workflows/refresh-native-bootstrap-seed.yml`, then verify the published
+archives and their members. Update every affected host entry's URL and three
+digests in `scripts/bootstrap-seeds.json`; retain each `runtimeSha256` when the
+runtime is unchanged. Publishing a standalone `.image.gz` does not move this pin.
+
+The `STAGE0_IMAGE_*` entries in `scripts/toolchain.pins` are legacy sentinels;
+they do not select the active cold-bootstrap pair. Do not replace the package
+manifest with those entries or rebuild a runtime just to change the image.
+
+Run the source-only `./bin/nupp fixpoint` from the actual published pair before
+committing the pin. It lowers three compiler stages and compares their outputs.
+Use `--emit-stage0` only when producing an image for publication. Running the
+source-only acceptance check does not produce or publish a release asset.
 
 ## Experimental pre-releases
 
@@ -138,34 +130,6 @@ gh release create v0.0.15-vm.1 build/stage0/nupp-stage0-v0.0.15-vm.1.image.gz \
 
 Then move the branch's pin to it as above. Never tag `main` or change
 `version.VERSION` for one.
-
-## Experimental pre-releases
-
-A branch that needs a pin `main` does not have yet -- a feature its own
-sources want before `main` ships it -- publishes it as a pre-release, so the
-last release from `main` stays the one users and `main` see. Three things keep
-it from becoming the latest release or costing a second CI run:
-
-- **A tag outside `vX.Y.Z`.** The release workflow runs on exactly that pattern
-  and publishes an ordinary release, so a pre-release tag carries a suffix, such
-  as `v0.0.15-vm.1`. The compiler matrix and the measurements skip `v*-*` tags,
-  because the branch push already tested the commit.
-- **`--prerelease --latest=false`**, so the release page and `gh release
-  download` without a tag keep naming the last release from `main`.
-- **A commit already pushed to the branch**, composed locally the way the
-  stage-zero job does:
-
-```bash
-./bin/nupp fixpoint --emit-stage0 build/stage0/nupp-stage0-v0.0.15-vm.1.lua
-gzip -9 -n build/stage0/nupp-stage0-v0.0.15-vm.1.lua
-gh release create v0.0.15-vm.1 build/stage0/nupp-stage0-v0.0.15-vm.1.lua.gz \
-    --target "$(git rev-parse <commit>)" --prerelease --latest=false \
-    --title 'v0.0.15-vm.1 (experimental)' --notes '...'
-```
-
-`--target` needs the full hash; `gh release create` makes the tag. Then move the
-branch's pin to it as above. Never tag `main` or change `version.VERSION` for
-one.
 
 ## The guards, so a failure is recognizable
 
