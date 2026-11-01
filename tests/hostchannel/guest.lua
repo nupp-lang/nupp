@@ -35,13 +35,16 @@ local function base64(bytes)
     for index = 1, length, 3 do
         local a, b, c = bytes:byte(index, index + 2)
         local word = bit.bor(bit.lshift(a, 16), bit.lshift(b or 0, 8), c or 0)
-        out[#out + 1] = string.char(
+        out[
+            #out + 1
+        ] = string.char(
             ALPHABET:byte(bit.rshift(word, 18) + 1),
             ALPHABET:byte(bit.band(bit.rshift(word, 12), 63) + 1),
             b and ALPHABET:byte(bit.band(bit.rshift(word, 6), 63) + 1) or 61,
             c and ALPHABET:byte(bit.band(word, 63) + 1) or 61
         )
     end
+
     return table.concat(out)
 end
 
@@ -63,6 +66,7 @@ local function unbase64(text)
             out[#out + 1] = string.char(bit.rshift(word, 16), bit.band(bit.rshift(word, 8), 255), bit.band(word, 255))
         end
     end
+
     return table.concat(out)
 end
 
@@ -80,6 +84,7 @@ function guestMemory.lease(pointer, count, writable)
     assert(pointer ~= nil and (count == 0 or ffi.cast("void *", pointer) ~= nil), "null guest transfer pointer")
     nextLease = nextLease + 1
     leases[nextLease] = {pointer = pointer, bytes = count, writable = writable == true}
+
     return nextLease
 end
 
@@ -112,6 +117,7 @@ local function exportLeases(frame)
     end
     exported[0] = #exported
     frame._leases = exported
+
     return table.concat(pieces)
 end
 
@@ -138,6 +144,7 @@ local function importLeases(response, payload)
 end
 
 local frames = 0
+
 local function send(message)
     io.stdout:write(message, "\n")
     io.stdout:flush()
@@ -153,6 +160,7 @@ local function exchange(frame)
     local message = decode(line)
     local response = message.response
     importLeases(response, unbase64(message.payload or ""))
+
     return response
 end
 
@@ -168,6 +176,7 @@ _G.__nuppBrowser = {
 -- The compiler fixes a target's host when it builds the runtime, and the tests'
 -- runtime is a native build; a browser build would carry this.
 package.loaded["nupp.runtime.target"] = {dialect = "luajit", host = "browser"}
+local _os = require("nupp.runtime.standardos").value
 
 local scenarios = dofile(scenarioFile)
 local body = coroutine.create(function()
