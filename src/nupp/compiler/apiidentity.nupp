@@ -155,6 +155,16 @@ function apiidentity.sourcePath(c: any, written: string): string?
     if entry and builtin and entry.definition == builtin.definition then
         return written
     end
+    -- Environment-free fragment checks still resolve compiler type constructors.
+    -- A lexical declaration always takes precedence over this intrinsic surface.
+    if not entry
+        and not c.env
+        and c.opts
+        and c.opts.strict == false
+        and (written:match("^nupp%.types%.") or written:match("^types%."))
+    then
+        return written
+    end
     if not entry and PUBLIC_ROOTS[root] and c.env then
         local shipped = c.env.bundled and c.env.bundled[root]
         if shipped and shipped.declared == true then

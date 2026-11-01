@@ -22,6 +22,7 @@ description of one.
 ]]
 
 local cst = require("nupp.compiler.syntax.cst")
+local apiidentity = require("nupp.compiler.apiidentity")
 local T = require("nupp.compiler.types")
 local materializeProviders = require("nupp.compiler.comptime.materialize.providers")
 local reflection = require("nupp.compiler.reflection")
@@ -133,6 +134,70 @@ function comptime.typeFunctionProgram(helper: any, helpers: any): any
     return {identity = hash.sha256(table.concat(parts, "\0")), helper = helper, helpers = reachable,}
 end
 
+-- A helper closes over compiler namespaces by their checked identities. Keep that
+-- closure in the source already carried by worker requests and interface images.
+local function closedHelperSource(node: any, filename: string?): (string, string, boolean)
+    local first, last = cst.firstToken(node), cst.lastToken(node)
+    local source, canonical = {}, {}
+    local changed = false
+
+    local function appendToken(token)
+        source[#source + 1] = cst.textOf(token)
+        canonical[#canonical + 1] = token.kind .. ":" .. tostring(#token.text) .. ":" .. token.text
+    end
+
+    local function walk(value)
+        if cst.isToken(value) then
+            appendToken(value)
+            return
+        end
+        if value.kind == "name" and value.token then
+            local token = value.token
+            local bound = token.definition
+            local declaration = bound and bound.token
+            local localBinding = bound
+                and bound.filename == filename
+                and declaration
+                and first
+                and last
+                and declaration.offset >= first.offset
+                and declaration.offset <= last.offset
+            local exact = value.exactCallExport or bound and bound.exactCallExport
+            local module = value.requiredModule or exact and exact.module
+            local runtimeImport = module
+                and module ~= "types"
+                and module ~= "types.reflect"
+                and module ~= "types.derive"
+            local path = not localBinding
+                and not runtimeImport
+                and (value.namespacePath or bound and bound.namespacePath or exact and exact.identity or module)
+                or nil
+            path = path and apiidentity.canonical(path) or nil
+            if path and (path == "types" or path:sub(1, 6) == "types.") and path ~= token.text then
+                local text = cst.textOf(token)
+                source[#source + 1] = text:sub(1, #text - #token.text) .. path
+                local initial = true
+                for part in path:gmatch("[^.]+") do
+                    if not initial then
+                        canonical[#canonical + 1] = ".:1:."
+                    end
+                    canonical[#canonical + 1] = "name:" .. tostring(#part) .. ":" .. part
+                    initial = false
+                end
+                changed = true
+                return
+            end
+        end
+        for _, child in ipairs(value) do
+            walk(child)
+        end
+    end
+
+    walk(node)
+
+    return table.concat(source), table.concat(canonical, "\0"), changed
+end
+
 function comptime.sealTypeFunction(helper: any, helpers: any, signature: any, definition: any): any
     if helper and helper.sealedTypeFunction then
         return helper
@@ -140,11 +205,16 @@ function comptime.sealTypeFunction(helper: any, helpers: any, signature: any, de
     local program = comptime.typeFunctionProgram(helper, helpers)
     local mainName = helper and (helper.comptimeName or helper.name and helper.name.text) or ""
     local serialized = {}
+    local closed = {}
+    local changed = false
 
     local function add(name, node)
         local token = node and node.name
         if token then
-            local source = cst.textOf(node)
+            local owner = node.comptimeDefinition or definition
+            local source, canonical, captured = closedHelperSource(node, owner and owner.filename)
+            closed[name] = canonical
+            changed = changed or captured
             if node.kind == "funcStmt" then
                 local replaced
                 source, replaced = source:gsub("comptime%s+function%s+[%w_%.]+", "local function " .. name, 1)
@@ -166,9 +236,24 @@ function comptime.sealTypeFunction(helper: any, helpers: any, signature: any, de
         add(name, dependency)
     end
 
+    local identity = program.identity
+    if changed then
+        local names = {}
+        local parts = {"nupp.type-function\0v1", closed[mainName]}
+        for name in pairs(program.helpers or {}) do
+            names[#names + 1] = name
+        end
+        table.sort(names)
+        for _, name in ipairs(names) do
+            parts[#parts + 1] = name
+            parts[#parts + 1] = closed[name]
+        end
+        identity = hash.sha256(table.concat(parts, "\0"))
+    end
+
     return {
         sealedTypeFunction = true,
-        identity = program.identity,
+        identity = identity,
         main = mainName,
         serializedHelpers = serialized,
         signature = signature,
