@@ -25,6 +25,7 @@ const {type Target} = require("nupp.tools.build.manifest")
 local stringsMod = require("nupp.tools.doc.strings")
 local filesMod = require("nupp.tools.doc.files")
 local extractMod = require("nupp.tools.doc.extract")
+local lexerMod = require("nupp.compiler.syntax.lexer")
 local markdownMod = require("nupp.tools.doc.markdown")
 local highlightMod = require("nupp.tools.doc.highlight")
 local htmlMod = require("nupp.tools.doc.html")
@@ -506,127 +507,8 @@ local function loadModules(root, config, settings, requested)
         return out
     end
 
-    -- Every word a documentation signature may write before the name it declares:
-    -- visibility, the compile-time and interface modifiers, and the introducer
-    -- itself. A declared name is the first word after them, which is what makes it
-    -- findable without reparsing the signature.
-    local declarationWords: {[string]: boolean} = {}
-    for _, word in ipairs({
-        "affine",
-        "cdef",
-        "comptime",
-        "const",
-        "function",
-        "global",
-        "interface",
-        "local",
-        "record",
-        "sealed",
-        "struct",
-        "type",
-    }) do
-        declarationWords[word] = true
-    end
-
-    -- Rename the declaration a signature opens with, and nothing else in it. A
-    -- declaring module may spell that name qualified, as a declaration file's
-    -- `record gpu.Buffer` does, or bare, as `const PreviousTransform2DComponent:
-    -- components.FFIComponent<PreviousTransform2D>` does. The qualified spelling is
-    -- rewritten wherever it appears, because every mention of it names this same
-    -- declaration; the bare spelling is rewritten only where it is declared, because
-    -- everything else a signature mentions bare is some other declaration -- here a
-    -- record the alias does not publish and whose own name must survive.
-    local function renamed(signature: string, member: string, name: string, qualified: string): string
-        local escaped = qualified:gsub("([^%w_])", "%%%1")
-        local rewritten = signature:gsub("%f[%w_]" .. escaped .. "%f[^%w_]", name)
-        local at = 1
-        while true do
-            local space, word = rewritten:match("^(%s*)([%w_]+)", at)
-            if not space or not word then
-                return rewritten
-            end
-            local start = at + #space
-            if word == member then
-                return rewritten:sub(1, start - 1) .. name .. rewritten:sub(start + #word)
-            end
-            if not declarationWords[word] then
-                return rewritten
-            end
-            at = start + #word
-        end
-    end
-
-    local function projected(item: any, module: any, seen: any): any
-        local aliasText = item.aliasSource and "= " .. item.aliasSource or item.signature
-        local alias, member = aliasText:match("=%s*([%w_]+)%.([%w_]+)%s*$")
-        if not alias then
-            alias, member = aliasText:match("=%s*([%w_]+)%.([%w_]+)%b<>%s*$")
-        end
-        if not alias then
-            -- A name plucked straight out of a require stands for one the other
-            -- module exports, so it expands the same way a qualified one does.
-            local plucked = aliasText:match("=%s*([%w_]+)%s*$") or aliasText:match("=%s*([%w_]+)%b<>%s*$")
-            alias = plucked and module.importedMembers and module.importedMembers[plucked] and plucked or nil
-            member = alias and module.importedMembers[alias] or nil
-        end
-        local origin = alias and module.imports and byName[module.imports[alias]] or nil
-        if not origin or seen[item] then
-            return item
-        end
-        seen[item] = true
-        for _, candidate in ipairs(origin.items) do
-            if candidate.name == member
-                or (origin.moduleLocal and candidate.name == origin.moduleLocal .. "." .. member)
-            then
-                local expanded = copy(projected(candidate, origin, seen))
-                expanded.name, expanded.path, expanded.module, expanded.line = item.name, item.path, item.module, item.line
-                expanded.signature = renamed(expanded.signature, member, item.name, candidate.path)
-                if item.doc.text ~= "" then
-                    expanded.doc = item.doc
-                end
-
-                -- A member spells the declaration it belongs to as often as the header
-                -- does -- `slice: function(borrows self: declared.Range):
-                -- declared.Range` is the whole of what a reader copies -- so the rename
-                -- reaches every type the member writes, not only the line above them.
-                local function renameMembers(members: any): nil
-                    for _, field in ipairs(members or {}) do
-                        field.type = field.type and renamed(field.type, member, item.name, candidate.path) or field.type
-                        for _, param in ipairs(field.params or {}) do
-                            param.type = param.type and renamed(param.type, member, item.name, candidate.path)
-                                or param.type
-                        end
-                        for _, value in ipairs(field.returns or {}) do
-                            value.type = value.type and renamed(value.type, member, item.name, candidate.path)
-                                or value.type
-                        end
-                        renameMembers(field.members)
-                    end
-                end
-
-                renameMembers(expanded.members)
-                for _, field in ipairs(expanded.members or {}) do
-                    field.path = item.path .. "." .. field.name
-                end
-                return expanded
-            end
-        end
-
-        return item
-    end
-
-    for _, module in ipairs(modules) do
-        local projectedItems, published = {}, {}
-        for _, item in ipairs(module.items) do
-            local expanded = projected(item, module, {})
-            local key = expanded.path .. "\0" .. expanded.kind .. "\0" .. expanded.signature
-            if not published[key] then
-                projectedItems[#projectedItems + 1] = expanded
-                published[key] = true
-            end
-        end
-        module.items = projectedItems
-    end
+    -- Keep the visibility decision shared with namespace projection below. Only a
+    -- real public alias supplies a display name for an implementation declaration.
     -- Which modules the site will not show. Asked twice: once to decide whether a
     -- namespace re-export has a page of its own to point at, and once to drop them.
     local internalTrees: {string} = {}
@@ -653,6 +535,291 @@ local function loadModules(root, config, settings, requested)
         end
 
         return false
+    end
+
+    local byPath = {}
+    local declaringModule = {}
+    for _, module in ipairs(modules) do
+        for _, item in ipairs(module.items) do
+            byPath[item.path] = item
+            declaringModule[item] = module
+        end
+    end
+
+    local function aliasTarget(item: any, module: any): any
+        local aliasText = item.aliasSource and "= " .. item.aliasSource or item.signature
+        local alias, member = aliasText:match("=%s*([%w_]+)%.([%w_]+)%s*$")
+        if not alias then
+            alias, member = aliasText:match("=%s*([%w_]+)%.([%w_]+)%b<>%s*$")
+        end
+        if not alias then
+            local plucked = aliasText:match("=%s*([%w_]+)%s*$") or aliasText:match("=%s*([%w_]+)%b<>%s*$")
+            alias = plucked and module.importedMembers and module.importedMembers[plucked] and plucked or nil
+            member = alias and module.importedMembers[alias] or nil
+        end
+        local origin = alias and module.imports and byName[module.imports[alias]] or nil
+        if origin then
+            return byPath[origin.name .. "." .. member]
+        end
+
+        return nil
+    end
+
+    local function original(item: any, seen: any): any
+        if seen[item] then
+            return item
+        end
+        seen[item] = true
+        local target = aliasTarget(item, declaringModule[item])
+
+        return target and original(target, seen) or item
+    end
+
+    -- Resolve every public alias before projecting any of them. A sibling can refer
+    -- to a declaration whose alias appears later, or reaches it through another
+    -- private module. Prefer a name on the page being rendered, then a deterministic
+    -- public path; never invent a public module for a private import prefix.
+    local publicNames = {}
+    for _, module in ipairs(modules) do
+        if not hiddenModule(module) then
+            for _, item in ipairs(module.items) do
+                local source = original(item, {})
+                local names = publicNames[source] or {}
+                names[#names + 1] = item
+                publicNames[source] = names
+            end
+        end
+    end
+
+    local function byPublicPath(left, right)
+        return left.path < right.path
+    end
+
+    for _, names in pairs(publicNames) do
+        table.sort(names, byPublicPath)
+    end
+
+    local function publicName(source: any, module: any): string?
+        local names = publicNames[original(source, {})]
+        for _, item in ipairs(names or {}) do
+            if declaringModule[item] == module then
+                return item.name
+            end
+        end
+
+        return names and names[1].path or nil
+    end
+
+    local function reference(path: string, context: any): any
+        local first, rest = path:match("^([%w_]+)%.(.*)$")
+        first = first or path
+        local imported = context.imports and context.imports[first]
+        if imported then
+            local member = context.importedMembers and context.importedMembers[first]
+            return byPath[imported .. "." .. (member or rest or "")]
+        end
+        if first == context.moduleLocal and rest then
+            return byPath[context.name .. "." .. rest]
+        end
+
+        return byPath[context.name .. "." .. path] or byPath[path]
+    end
+
+    -- Rewrite name tokens, not strings or comments. The origin's import table
+    -- resolves private sibling and plucked names; the public export graph chooses
+    -- their display names. Generic binders and named fields remain local names.
+    local function references(
+        text: string,
+        context: any,
+        module: any,
+        binders: any,
+        declarationOffset: integer?
+    ): string
+        local tokens = lexerMod.lex(text)
+        local scopes = {}
+        for index, token in ipairs(tokens) do
+            if token.text == "function" and tokens[index + 1] and tokens[index + 1].text == "<" then
+                local names, depth = {}, 1
+                local at: integer = index + 2
+                local binder = true
+                while tokens[at] and depth > 0 do
+                    local value = tokens[at]
+                    if depth == 1 and binder and value.kind == "name" then
+                        names[value.text] = true
+                        binder = false
+                    end
+                    if value.text == "<" then
+                        depth = depth + 1
+                    elseif value.text == ">" then
+                        depth = depth - 1
+                    elseif depth == 1 and value.text == "," then
+                        binder = true
+                    end
+                    at = at + 1
+                end
+                local last: integer = at
+                depth = 0
+                while tokens[last] do
+                    local value = tokens[last].text
+                    if depth == 0 and (value == "," or value == "}" or value == ")" or value == "]") then
+                        break
+                    end
+                    if value == "(" or value == "{" or value == "[" or value == "<" then
+                        depth = depth + 1
+                    elseif value == ")" or value == "}" or value == "]" or value == ">" then
+                        depth = depth - 1
+                    end
+                    last = last + 1
+                end
+                scopes[#scopes + 1] = {first = index, last = last, names = names}
+            end
+        end
+        local parts, at = {}, 1
+        local index: integer = 1
+        while index <= #tokens do
+            local token = tokens[index]
+            if token.kind == "name" then
+                local last: integer = index
+                local path = token.text
+                while tokens[last + 1]
+                    and tokens[last + 1].text == "."
+                    and tokens[last + 2]
+                    and tokens[last + 2].kind == "name" do
+                    last = last + 2
+                    path = path .. "." .. tokens[last].text
+                end
+                local nextToken = tokens[last + 1]
+                local shadowed = binders[token.text] or token.offset == declarationOffset
+                for _, scope in ipairs(scopes) do
+                    shadowed = shadowed or (index >= scope.first and index < scope.last and scope.names[token.text])
+                end
+                local source = not shadowed and not (nextToken and nextToken.text == ":") and reference(path, context)
+                    or nil
+                local name = source and publicName(source, module) or nil
+                if name then
+                    parts[#parts + 1] = text:sub(at, token.offset - 1)
+                    parts[#parts + 1] = name
+                    at = tokens[last].offset + #tokens[last].text
+                end
+                index = last + 1
+            else
+                index = index + 1
+            end
+        end
+        parts[#parts + 1] = text:sub(at)
+
+        return table.concat(parts)
+    end
+
+    local declarationWords = {
+        affine = true,
+        cdef = true,
+        comptime = true,
+        const = true,
+        ["function"] = true,
+        global = true,
+        interface = true,
+        ["local"] = true,
+        record = true,
+        sealed = true,
+        struct = true,
+        ["type"] = true,
+    }
+
+    local function renamed(signature: string, member: string, name: string): string, integer?
+        local tokens = lexerMod.lex(signature)
+        local index: integer = 1
+        while index <= #tokens do
+            local token = tokens[index]
+            if token.text == "@" then
+                index = index + 2
+                if tokens[index] and tokens[index].text == "(" then
+                    local depth = 1
+                    index = index + 1
+                    while tokens[index] and depth > 0 do
+                        local text = tokens[index].text
+                        depth = depth + (text == "(" and 1 or text == ")" and -1 or 0)
+                        index = index + 1
+                    end
+                end
+            elseif declarationWords[token.text] then
+                index = index + 1
+            else
+                local last: integer = index
+                while tokens[last + 1] and tokens[last + 1].text == "." and tokens[last + 2] do
+                    last = last + 2
+                end
+                if tokens[last].text == member then
+                    return signature:sub(
+                        1,
+                        token.offset - 1
+                    ) .. name .. signature:sub(tokens[last].offset + #tokens[last].text), token.offset
+                end
+                return signature, token.offset
+            end
+        end
+
+        return signature
+    end
+
+    local function projected(item: any, module: any): any
+        local candidate = original(item, {})
+        if candidate == item then
+            return item
+        end
+        local context = declaringModule[candidate]
+        local expanded = copy(candidate)
+        expanded.name, expanded.path, expanded.module, expanded.line = item.name, item.path, item.module, item.line
+        local binders = {}
+        for _, generic in ipairs(candidate.typeargs or {}) do
+            binders[generic.name] = true
+        end
+        -- Rename the declaration before resolving its references so a public name
+        -- cannot be mistaken for an unrelated declaration in the origin module.
+        local signature, declarationOffset = renamed(expanded.signature, candidate.name:match("([%w_]+)$"), item.name)
+        expanded.signature = references(signature, context, module, binders, declarationOffset)
+        local documented, seen = item, {}
+        while documented and not seen[documented] do
+            seen[documented] = true
+            if documented.doc.text ~= "" then
+                expanded.doc = copy(documented.doc)
+                break
+            end
+            documented = aliasTarget(documented, declaringModule[documented])
+        end
+
+        local function fields(value: any, path: string): nil
+            value.type = value.type and references(value.type, context, module, binders, nil) or nil
+            for _, key in ipairs({"params", "returns", "raises"}) do
+                for _, field in ipairs(value[key] or {}) do
+                    field.type = references(field.type, context, module, binders, nil)
+                end
+            end
+            for _, field in ipairs(value.members or {}) do
+                field.path = path .. "." .. field.name
+                fields(field, field.path)
+            end
+        end
+
+        fields(expanded, item.path)
+        for _, raised in ipairs(expanded.doc.raises or {}) do
+            raised.type = references(raised.type, context, module, binders, nil)
+        end
+
+        return expanded
+    end
+
+    for _, module in ipairs(modules) do
+        local projectedItems, published = {}, {}
+        for _, item in ipairs(module.items) do
+            local expanded = projected(item, module)
+            local key = expanded.path .. "\0" .. expanded.kind .. "\0" .. expanded.signature
+            if not published[key] then
+                projectedItems[#projectedItems + 1] = expanded
+                published[key] = true
+            end
+        end
+        module.items = projectedItems
     end
 
     -- The module a namespace re-export publishes, holding the values that reach a

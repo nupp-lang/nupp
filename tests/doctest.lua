@@ -4980,6 +4980,104 @@ return declared
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.publicAliasSignaturesUseTheirExportedTypeProvenance()
+    local dir = tempProject({
+        [
+            "src/package/init.nupp"
+        ] = [[
+module package
+const model = require("package.internal.model")
+const {type Reader} = require("package.internal.messages")
+export type Stream<T> = Reader<T>
+export type Envelope = model.Request
+export type Other = model.Envelope
+export const read = model.read
+export const submitted = model.Submitted
+]],
+        [
+            "src/client.nupp"
+        ] = [[
+module client
+const model = require("package.internal.model")
+export const fetch = model.read
+]],
+        [
+            "src/package/internal/model.nupp"
+        ] = [[
+module package.internal.model
+const messages = require("package.internal.messages")
+const {type Reader} = require("package.internal.messages")
+export record Envelope
+    value: string
+end
+export record Request
+    reader: messages.Reader<string>
+    nested: {read: function<Reader>(value: Reader): Reader, source: Reader<string>}
+    label: "package.internal.messages.Reader"
+    generic: function<Reader>(value: Reader): Reader
+    plucked: Reader<string>
+    hidden: Hidden
+end
+record Hidden
+    token: integer
+end
+export function read(request: Request): messages.Reader<string>
+    error("documentation fixture")
+end
+@comptime export function Submitted<F>(value: F): typepack
+    error("documentation fixture")
+end
+]],
+        [
+            "src/package/internal/messages.nupp"
+        ] = [[
+module package.internal.messages
+export record Reader<T>
+    value: T
+    next: Reader<T>?
+end
+]],
+    })
+    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "json", output = "api.json"}) == 0)
+    local model = assert(require("testjson").decode(readFile(dir .. "/api.json")))
+    local items = {}
+    for _, module in ipairs(model.modules) do
+        assert(not module.name:find("internal", 1, true), "private source became a public module")
+        for _, item in ipairs(module.items) do
+            items[item.path] = item
+        end
+    end
+    local request, stream = assert(items["package.Envelope"]), assert(items["package.Stream"])
+    local fields = {}
+    for _, field in ipairs(request.members) do
+        fields[field.name] = field
+    end
+    assert(fields.reader.type == "Stream<string>", fields.reader.type)
+    assert(request.signature == "record Envelope", request.signature)
+    assert(fields.generic.type == "function<Reader>(value: Reader): Reader", fields.generic.type)
+    assert(fields.plucked.type == "Stream<string>", fields.plucked.type)
+    assert(fields.hidden.type == "Hidden", "an unexported type was invented")
+    assert(fields.nested.type:find("function<Reader>(value: Reader): Reader", 1, true), fields.nested.type)
+    assert(fields.nested.type:find("source: Stream<string>", 1, true), fields.nested.type)
+    assert(fields.label.type == '"package.internal.messages.Reader"', "a string literal was rewritten")
+    assert(stream.signature == "record Stream<T>", stream.signature)
+    assert(stream.members[1].type == "T", "the generic binder was rewritten")
+    assert(stream.members[2].type == "Stream<T>?", stream.members[2].type)
+    assert(stream.members[2].path == "package.Stream.next", stream.members[2].path)
+    local read = assert(items["package.read"])
+    assert(read.params[1].type == "Envelope", read.params[1].type)
+    assert(read.returns[1].type == "Stream<string>", read.returns[1].type)
+    assert(read.signature == "function read(request: Envelope): Stream<string>", read.signature)
+    local fetch = assert(items["client.fetch"])
+    assert(fetch.params[1].type == "package.Envelope", fetch.params[1].type)
+    assert(fetch.returns[1].type == "package.Stream<string>", fetch.returns[1].type)
+    local submitted = assert(items["package.submitted"])
+    assert(submitted.signature == "@comptime function submitted<F>(value: F): typepack", submitted.signature)
+    assert(submitted.comptimeKind == "function", "projection lost the compile-time phase")
+    assert(submitted.annotations[1] == "@comptime", "projection lost the annotation")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.gpuDocumentsApplicationOperationsAndHidesGeneratedBindings()
     local source = readFile(HERE .. "/../src/gpu/init.nupp")
     local module = assert(doc.extract(source, "src/gpu/init.nupp", "gpu"))
