@@ -3124,7 +3124,7 @@ return {
 }
 ]],
         ["src/main.nupp"] = "return true\n",
-        ["test.sh"] = "printf yes > test-ran\n",
+        ["test.sh"] = "test \"$NUPP_TEST_BUILD\" = out || exit 1\nprintf yes > test-ran\n",
     })
     testAssert.equal(project.test(dir), 0)
     testAssert.equal(read(dir .. "/test-ran"), "yes")

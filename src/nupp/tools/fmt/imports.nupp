@@ -24,13 +24,16 @@ local type Use = {
 local defaultEnvironment: any = nil
 local defaultKey: string? = nil
 
-local function walk(node: any, visit: function(any): nil): nil
-    if not node or cst.isToken(node) then
+local function walk(node: any, visit: function(any): nil, skipComptime: boolean?): nil
+    if not node
+        or cst.isToken(node)
+        or skipComptime and (node.comptimeTok or node.comptimeFunction or node.kind == "comptimeExpr")
+    then
         return
     end
     visit(node)
     for _, child in ipairs(node) do
-        walk(child, visit)
+        walk(child, visit, skipComptime)
     end
 end
 
@@ -158,136 +161,141 @@ function imports.new(environment: any?, enabled: boolean?): any
                 shadowedRequire = true
             end
         end
-        walk(checked.root, function(node: any): nil
-            -- A written module binding already has its name and placement.
-            if not shadowedRequire
+        -- Erased code can use compiler capabilities without loading runtime modules.
+        walk(
+            checked.root,
+            function(node: any): nil
+                -- A written module binding already has its name and placement.
+                if not shadowedRequire
                 and node.kind == "localStmt"
                 and not node.pattern
                 and #node.names == 1
                 and node.exprs
                 and #node.exprs == 1
-            then
-                local value = node.exprs[1]
-                if value.qualifiedModule and #(value.qualifiedMembers or {}) == 0 then
-                    local first, last = cst.firstToken(value), cst.lastToken(value)
-                    local moduleName = value.qualifiedModule
-                    if first
+                then
+                    local value = node.exprs[1]
+                    if value.qualifiedModule and #(value.qualifiedMembers or {}) == 0 then
+                        local first, last = cst.firstToken(value), cst.lastToken(value)
+                        local moduleName = value.qualifiedModule
+                        if first
                         and last
                         and source:sub(first.offset, last.offset + #last.text - 1):gsub("%s", "") == moduleName then
-                        covered[first.offset] = true
-                        uses[
-                            #uses + 1
-                        ] = {
-                            moduleName = moduleName,
-                            first = first.offset,
-                            last = last.offset + #last.text - 1,
-                            text = "require(" .. string.format("%q", moduleName) .. ")",
-                        }
-                        return
+                            covered[first.offset] = true
+                            uses[
+                                #uses + 1
+                            ] = {
+                                moduleName = moduleName,
+                                first = first.offset,
+                                last = last.offset + #last.text - 1,
+                                text = "require(" .. string.format("%q", moduleName) .. ")",
+                            }
+                            return
+                        end
                     end
                 end
-            end
-            -- A simple local type alias is already a binding. Keep its name,
-            -- position and documentation and express the import directly.
-            if node.kind == "typeAlias"
+                -- A simple local type alias is already a binding. Keep its name,
+                -- position and documentation and express the import directly.
+                if node.kind == "typeAlias"
                 and not shadowedRequire
                 and node.visibility == "local"
                 and not node.generics
                 and not node.comptimeOnly
                 and not node.annotations
-            then
-                local value = node.value
-                if value and value.kind == "tname" and value.qualifiedTypeModule and not value.typeArgs then
-                    local path = names(value)
-                    local first, last = cst.firstToken(node), cst.lastToken(node)
-                    if not first or not last then
-                        return
-                    end
-                    local member = value.qualifiedTypeName
-                    local moduleName = value.qualifiedTypeModule
-                    local valueFirst, valueLast = path[1], path[#path]
-                    local written = source:sub(valueFirst.offset, valueLast.offset + #valueLast.text - 1)
-                    local safe = spelling(path) == moduleName .. "." .. member
+                then
+                    local value = node.value
+                    if value and value.kind == "tname" and value.qualifiedTypeModule and not value.typeArgs then
+                        local path = names(value)
+                        local first, last = cst.firstToken(node), cst.lastToken(node)
+                        if not first or not last then
+                            return
+                        end
+                        local member = value.qualifiedTypeName
+                        local moduleName = value.qualifiedTypeModule
+                        local valueFirst, valueLast = path[1], path[#path]
+                        local written = source:sub(valueFirst.offset, valueLast.offset + #valueLast.text - 1)
+                        local safe = spelling(path) == moduleName .. "." .. member
                         and written:gsub("%s", "") == spelling(path)
-                    if safe then
-                        for _, token in ipairs(parsed.tokens) do
-                            if token.offset >= first.offset then
-                                break
-                            end
-                            if token.text == node.name.text then
-                                safe = false
-                                break
+                        if safe then
+                            for _, token in ipairs(parsed.tokens) do
+                                if token.offset >= first.offset then
+                                    break
+                                end
+                                if token.text == node.name.text then
+                                    safe = false
+                                    break
+                                end
                             end
                         end
-                    end
-                    if safe and not source:sub(first.offset, last.offset + #last.text - 1):find("--", 1, true) then
-                        covered[path[1].offset] = true
-                        uses[
-                            #uses + 1
-                        ] = {
-                            first = first.offset,
-                            last = last.offset + #last.text - 1,
-                            text = typeImport(moduleName, member, node.name.text),
-                        }
-                        return
+                        if safe and not source:sub(first.offset, last.offset + #last.text - 1):find("--", 1, true) then
+                            covered[path[1].offset] = true
+                            uses[
+                                #uses + 1
+                            ] = {
+                                first = first.offset,
+                                last = last.offset + #last.text - 1,
+                                text = typeImport(moduleName, member, node.name.text),
+                            }
+                            return
+                        end
                     end
                 end
-            end
-            local moduleName, member, count
-            local runtime = false
-            local path = names(node)
-            if node.qualifiedModule then
-                moduleName = node.qualifiedModule
-                local suffix = node.qualifiedMembers or {}
-                count = #path - #suffix
-                if suffix[1] then
-                    local exports = env.resolveModuleExports(env, moduleName)
-                    local value = exports and exports.values and exports.values[suffix[1]]
-                    local declared = exports and exports.types and exports.types[suffix[1]]
-                    if value
+                local moduleName, member, count
+                local runtime = false
+                local path = names(node)
+                if node.qualifiedModule then
+                    moduleName = node.qualifiedModule
+                    local suffix = node.qualifiedMembers or {}
+                    count = #path - #suffix
+                    if suffix[1] then
+                        local exports = env.resolveModuleExports(env, moduleName)
+                        local value = exports and exports.values and exports.values[suffix[1]]
+                        local declared = exports and exports.types and exports.types[suffix[1]]
+                        if value
                         and (
                             value.tag == "typeobject"
                             or value == declared and value.tag == "nominal" and value.declKind == "struct"
                         )
-                    then
-                        member = suffix[1]
-                        count = count + 1
-                        runtime = true
+                        then
+                            member = suffix[1]
+                            count = count + 1
+                            runtime = true
+                        end
+                    end
+                elseif node.qualifiedTypeModule then
+                    moduleName = node.qualifiedTypeModule
+                    member = node.qualifiedTypeName
+                    count = #path
+                    -- Existing lexical module/type aliases already name their imports.
+                    if spelling(path) ~= moduleName .. "." .. member then
+                        return
                     end
                 end
-            elseif node.qualifiedTypeModule then
-                moduleName = node.qualifiedTypeModule
-                member = node.qualifiedTypeName
-                count = #path
-                -- Existing lexical module/type aliases already name their imports.
-                if spelling(path) ~= moduleName .. "." .. member then
+                if not moduleName or not count or count < 1 or not path[count] then
                     return
                 end
-            end
-            if not moduleName or not count or count < 1 or not path[count] then
-                return
-            end
-            local first, last = path[1], path[count]
-            if covered[first.offset] then
-                return
-            end
-            -- A comment between name components belongs to the authored path.
-            -- Leave it where it was written rather than deleting or relocating it.
-            local segment = source:sub(first.offset, last.offset + #last.text - 1)
-            if segment:find("--", 1, true) or segment:gsub("%s", "") ~= spelling(path, count) then
-                return
-            end
-            covered[first.offset] = true
-            uses[
-                #uses + 1
-            ] = {
-                moduleName = moduleName,
-                member = member,
-                runtime = runtime,
-                first = first.offset as integer,
-                last = (last.offset + #last.text - 1) as integer,
-            }
-        end)
+                local first, last = path[1], path[count]
+                if covered[first.offset] then
+                    return
+                end
+                -- A comment between name components belongs to the authored path.
+                -- Leave it where it was written rather than deleting or relocating it.
+                local segment = source:sub(first.offset, last.offset + #last.text - 1)
+                if segment:find("--", 1, true) or segment:gsub("%s", "") ~= spelling(path, count) then
+                    return
+                end
+                covered[first.offset] = true
+                uses[
+                    #uses + 1
+                ] = {
+                    moduleName = moduleName,
+                    member = member,
+                    runtime = runtime,
+                    first = first.offset as integer,
+                    last = (last.offset + #last.text - 1) as integer,
+                }
+            end,
+            true
+        )
         if #uses == 0 then
             return source
         end

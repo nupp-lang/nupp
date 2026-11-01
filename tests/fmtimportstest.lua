@@ -175,6 +175,31 @@ function M.preservesCodeOnTheModuleHeadersLine()
     assert(output:find('return files.read("a")', 1, true), output)
 end
 
+function M.compileTimeCapabilitiesDoNotIntroduceRuntimeImports()
+    local source = [[
+@comptime local function Items(Element: type): type
+    local files = Element
+    return types.array(files)
+end
+@comptime local function Refuse(info: types.derive.Info): types.derive.Result<any>
+    return types.derive.error("unsupported declaration", info.reference)
+end
+local kind = comptime do
+    return types.kind(Items(types.string))
+end
+return kind
+]]
+    local output = formatted(source)
+    assert(not output:find('require("types")', 1, true), output)
+    assert(not output:find('require("types.derive")', 1, true), output)
+    assert(assert(loadstring(compile(output)))() == "array")
+
+    local mixed = formatted((source:gsub("return kind\n$", 'return nupp.io.files.exists("a"), kind\n')))
+    assert(mixed:find('const files2 = require("nupp.io.files")', 1, true), mixed)
+    assert(not mixed:find('require("types")', 1, true), mixed)
+    assert(mixed:find("types.array(files)", 1, true), mixed)
+end
+
 function M.ambientDeclarationsKeepTheirQualifiedNamespaces()
     local env = envMod.new(".")
     local formatter = fmt.new({environment = env})
@@ -185,7 +210,10 @@ function M.ambientDeclarationsKeepTheirQualifiedNamespaces()
     assert(declared:find("nupp.io.files.read", 1, true), declared)
     local ordinary, problems = formatter:format(source, "ordinary.nupp")
     assert(#problems == 0, problems[1] and problems[1].msg)
-    assert(ordinary:find('require("nupp.io.files")', 1, true), ordinary)
+    assert(not ordinary:find("require", 1, true), ordinary)
+    assert(ordinary:find("nupp.io.files.read", 1, true), ordinary)
+    local runtime = formatted((source:gsub("@comptime ", "")))
+    assert(runtime:find('require("nupp.io.files")', 1, true), runtime)
     local explicit = 'const files = require("nupp.io.files")\nlocal read: function(string): string = files.read\n'
     local authored, issues = formatter:format(explicit, "external.d.nupp")
     assert(#issues == 0, issues[1] and issues[1].msg)

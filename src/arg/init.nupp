@@ -40,9 +40,6 @@ Terminal styling and aligned tables are available through `io`.
 See
 [command-line-applications.md](docs/learn/projects/command-line-applications.md).
 ]]
-const types2 = require("types")
-const derive = require("types.derive")
-
 local cliModule = {}
 const {type Entry} = require("nupp.derive")
 
@@ -196,7 +193,7 @@ end
 
 @comptime
 local function detail(T: type): any
-    local described = types2.describe(T)
+    local described = types.describe(T)
     if described.sourceKind then
         local normalized = {}
         for key, value in pairs(described) do
@@ -377,12 +374,12 @@ end
 
 @comptime
 local function DecodeErrorType(): type
-    local text = types2.string
-    local maybeText = types2.optional(text)
-    return types2.shape({
+    local text = types.string
+    local maybeText = types.optional(text)
+    return types.shape({
         {name = "kind", read = text},
         {name = "message", read = text},
-        {name = "index", read = types2.optional(types2.integer)},
+        {name = "index", read = types.optional(types.integer)},
         {name = "raw", read = maybeText},
         {name = "option", read = maybeText},
         {name = "field", read = maybeText},
@@ -393,9 +390,9 @@ end
 @comptime
 local function recipe(info: types.derive.Info, command: boolean): any
     if info.kind ~= "record" then
-        return derive.error("CLI arguments can be derived only for records", info.reference)
+        return types.derive.error("CLI arguments can be derived only for records", info.reference)
     elseif info.hasConstructor then
-        return derive.error("CLI argument records cannot declare a constructor", info.reference)
+        return types.derive.error("CLI argument records cannot declare a constructor", info.reference)
     end
 
     local fields, positionals = {}, {}
@@ -405,7 +402,7 @@ local function recipe(info: types.derive.Info, command: boolean): any
     for index, field in ipairs(info.fields) do
         local spec = valueSpec(field.readType)
         if spec == nil then
-            return derive.error("field type is not supported by CLI arguments", field.reference)
+            return types.derive.error("field type is not supported by CLI arguments", field.reference)
         end
 
         local configuredName = option(field.annotations, "name") as string?
@@ -416,11 +413,11 @@ local function recipe(info: types.derive.Info, command: boolean): any
         local positional = option(field.annotations, "positional") as string?
         local remainder = option(field.annotations, "remainder") as boolean? == true
         if positional ~= nil and remainder then
-            return derive.error("a CLI field cannot be both positional and remainder", field.reference)
+            return types.derive.error("a CLI field cannot be both positional and remainder", field.reference)
         elseif remainder and not spec.repeated then
-            return derive.error("a CLI remainder field must be an array", field.reference)
+            return types.derive.error("a CLI remainder field must be an array", field.reference)
         elseif remainder and index ~= #info.fields then
-            return derive.error("a CLI remainder must be the final field", field.reference)
+            return types.derive.error("a CLI remainder must be the final field", field.reference)
         end
 
         local role = remainder and "remainder" or positional ~= nil and "positional" or "option"
@@ -434,20 +431,20 @@ local function recipe(info: types.derive.Info, command: boolean): any
         local pattern = option(field.annotations, "pattern") as string?
         if role ~= "option" then
             if configuredName ~= nil or short ~= nil or aliases ~= nil or constantAliases ~= nil or pattern ~= nil then
-                return derive.error(
+                return types.derive.error(
                     "CLI option names and patterns cannot be put on a positional field",
                     field.reference
                 )
             end
         elseif pattern ~= nil then
             if pattern == "" then
-                return derive.error("a CLI pattern cannot be empty", field.reference)
+                return types.derive.error("a CLI pattern cannot be empty", field.reference)
             elseif option(field.annotations, "display") == nil or option(field.annotations, "display") == "" then
-                return derive.error("a CLI pattern needs a stable display form", field.reference)
+                return types.derive.error("a CLI pattern needs a stable display form", field.reference)
             elseif short ~= nil or aliases ~= nil or constantAliases ~= nil then
-                return derive.error("a CLI pattern cannot also declare option aliases", field.reference)
+                return types.derive.error("a CLI pattern cannot also declare option aliases", field.reference)
             elseif not optionName(longName) then
-                return derive.error("a CLI pattern needs a non-empty internal name", field.reference)
+                return types.derive.error("a CLI pattern needs a non-empty internal name", field.reference)
             end
         else
             if hasLong then
@@ -472,18 +469,18 @@ local function recipe(info: types.derive.Info, command: boolean): any
                 end
             end
             if #names == 0 then
-                return derive.error("a CLI option needs a long or short name", field.reference)
+                return types.derive.error("a CLI option needs a long or short name", field.reference)
             end
             for _, name in ipairs(names) do
                 if not optionName(name) then
-                    return derive.error(
+                    return types.derive.error(
                         "CLI option names must be non-empty and omit '-', '=', and whitespace",
                         field.reference
                     )
                 end
                 for _, used in ipairs(usedNames) do
                     if used == name then
-                        return derive.error("CLI name " .. name .. " is duplicated", field.reference)
+                        return types.derive.error("CLI name " .. name .. " is duplicated", field.reference)
                     end
                 end
                 usedNames[#usedNames + 1] = name
@@ -521,7 +518,10 @@ local function recipe(info: types.derive.Info, command: boolean): any
         spec.arity = spec.conversion == "boolean" and "none" or "required"
         local configuredArity = option(field.annotations, "arity") as cliModule.ValueArity?
         if role ~= "option" and (configuredArity ~= nil or configuredConstant ~= nil) then
-            return derive.error("CLI option arity and constants cannot be put on a positional field", field.reference)
+            return types.derive.error(
+                "CLI option arity and constants cannot be put on a positional field",
+                field.reference
+            )
         end
         if configuredArity ~= nil then
             spec.arity = configuredArity
@@ -529,12 +529,12 @@ local function recipe(info: types.derive.Info, command: boolean): any
         local choices = option(field.annotations, "choices") as {string}?
         if choices ~= nil then
             if spec.conversion ~= "string" and spec.conversion ~= "choice" then
-                return derive.error("CLI choices require a string field", field.reference)
+                return types.derive.error("CLI choices require a string field", field.reference)
             end
             if spec.conversion == "choice" then
                 for _, choice in ipairs(choices) do
                     if not contains(spec.choices, choice) then
-                        return derive.error("a CLI choice is outside the field's literal type", field.reference)
+                        return types.derive.error("a CLI choice is outside the field's literal type", field.reference)
                     end
                 end
             end
@@ -542,31 +542,31 @@ local function recipe(info: types.derive.Info, command: boolean): any
             spec.conversion = "choice"
         end
         if role ~= "option" and spec.conversion == "boolean" then
-            return derive.error("a boolean CLI field cannot be positional", field.reference)
+            return types.derive.error("a boolean CLI field cannot be positional", field.reference)
         elseif spec.conversion == "boolean" and spec.arity ~= "none" then
-            return derive.error("a boolean CLI field cannot consume a value", field.reference)
+            return types.derive.error("a boolean CLI field cannot consume a value", field.reference)
         elseif spec.conversion ~= "boolean" and spec.arity == "none" and spec.constant == nil then
-            return derive.error("a no-value CLI field needs a constant", field.reference)
+            return types.derive.error("a no-value CLI field needs a constant", field.reference)
         elseif spec.arity == "optionalAttached" and spec.constant == nil then
-            return derive.error("an optional attached CLI value needs a bare constant", field.reference)
+            return types.derive.error("an optional attached CLI value needs a bare constant", field.reference)
         elseif spec.constant ~= nil and not acceptsConstant(spec, spec.constant) then
-            return derive.error("a CLI constant does not inhabit the field type", field.reference)
+            return types.derive.error("a CLI constant does not inhabit the field type", field.reference)
         end
         for _, constantValue in pairs(constants) do
             if not acceptsConstant(spec, constantValue) then
-                return derive.error("a CLI constant alias does not inhabit the field type", field.reference)
+                return types.derive.error("a CLI constant alias does not inhabit the field type", field.reference)
             end
         end
         local complete = annotationArgument(field.annotations, "complete")
         if complete ~= nil then
-            local provider = derive.annotationType(complete)
+            local provider = types.derive.annotationType(complete)
             spec.completerMember = "__cliCompleter" .. index
             completers[index] = provider
         end
         fields[index] = spec
         if spec.role == "positional" or spec.role == "remainder" then
             if spec.repeated and index ~= #info.fields then
-                return derive.error("a repeated CLI positional must be the final field", field.reference)
+                return types.derive.error("a repeated CLI positional must be the final field", field.reference)
             end
             positionals[#positionals + 1] = spec
             if spec.role == "remainder" then
@@ -575,36 +575,38 @@ local function recipe(info: types.derive.Info, command: boolean): any
         end
     end
 
-    local argv = types2.array(types2.string)
+    local argv = types.array(types.string)
     local statics: any = {
-        fromCLI = derive.member{
-            signature = types2.function_(
-                types2.pack({
+        fromCLI = types.derive.member{
+            signature = types.function_(
+                types.pack({
                     argv
                 }),
-                types2.pack({
-                    types2.optional(info.ownerType),
-                    types2.optional(DecodeErrorType())
+                types.pack({
+                    types.optional(info.ownerType),
+                    types.optional(DecodeErrorType())
                 })
             ),
             parameters = {"argv"},
-            forward = derive.forward{
-                helper = derive.helper(cliModule, "derivedFromCLI"),
-                arguments = {derive.argument("argv"), derive.entry()},
+            forward = types.derive.forward{
+                helper = types.derive.helper(cliModule, "derivedFromCLI"),
+                arguments = {types.derive.argument("argv"), types.derive.entry()},
             },
         }
     }
     for index, provider in pairs(completers) do
-        statics["__cliCompleter" .. index] = derive.member{
-            signature = types2.function_(
-                types2.pack({}),
-                types2.pack({
-                    types2.any
+        statics[
+            "__cliCompleter" .. index
+        ] = types.derive.member{
+            signature = types.function_(
+                types.pack({}),
+                types.pack({
+                    types.any
                 })
             ),
-            forward = derive.forward{
-                helper = derive.helper(cliModule, "derivedCompleter"),
-                arguments = {derive.witness(provider)},
+            forward = types.derive.forward{
+                helper = types.derive.helper(cliModule, "derivedCompleter"),
+                arguments = {types.derive.witness(provider)},
             },
         }
     end
@@ -612,7 +614,7 @@ local function recipe(info: types.derive.Info, command: boolean): any
     local methods: any = nil
     local preserveUnknown = option(info.annotations, "preserveUnknown") as boolean? == true
     if preserveUnknown and remainderField == nil then
-        return derive.error("preserveUnknown needs a final CLI remainder field", info.reference)
+        return types.derive.error("preserveUnknown needs a final CLI remainder field", info.reference)
     end
     local data: any = {
         fields = fields,
@@ -629,7 +631,7 @@ local function recipe(info: types.derive.Info, command: boolean): any
             commandName = configuredName
         end
         if not optionName(commandName) then
-            return derive.error(
+            return types.derive.error(
                 "a CLI command name must be non-empty and omit '-', '=', and whitespace",
                 info.reference
             )
@@ -642,50 +644,50 @@ local function recipe(info: types.derive.Info, command: boolean): any
         local commandNames = {commandName}
         for _, alias in ipairs(aliases) do
             if not optionName(alias) then
-                return derive.error(
+                return types.derive.error(
                     "CLI command aliases must be non-empty and omit '-', '=', and whitespace",
                     info.reference
                 )
             elseif contains(commandNames, alias) then
-                return derive.error("CLI command alias " .. alias .. " is duplicated", info.reference)
+                return types.derive.error("CLI command alias " .. alias .. " is duplicated", info.reference)
             end
             commandNames[#commandNames + 1] = alias
         end
         local summary = firstParagraph(info.documentation)
-        statics.cliName = derive.member{
-            signature = types2.function_(
-                types2.pack({}),
-                types2.pack({
-                    types2.string
+        statics.cliName = types.derive.member{
+            signature = types.function_(
+                types.pack({}),
+                types.pack({
+                    types.string
                 })
             ),
-            forward = derive.forward{
-                helper = derive.helper(cliModule, "derivedText"),
-                arguments = {derive.constant(commandName)},
+            forward = types.derive.forward{
+                helper = types.derive.helper(cliModule, "derivedText"),
+                arguments = {types.derive.constant(commandName)},
             },
         }
-        statics.cliAliases = derive.member{
-            signature = types2.function_(
-                types2.pack({}),
-                types2.pack({
+        statics.cliAliases = types.derive.member{
+            signature = types.function_(
+                types.pack({}),
+                types.pack({
                     argv
                 })
             ),
-            forward = derive.forward{
-                helper = derive.helper(cliModule, "derivedStrings"),
-                arguments = {derive.constant(aliases)},
+            forward = types.derive.forward{
+                helper = types.derive.helper(cliModule, "derivedStrings"),
+                arguments = {types.derive.constant(aliases)},
             },
         }
-        statics.cliSummary = derive.member{
-            signature = types2.function_(
-                types2.pack({}),
-                types2.pack({
-                    types2.string
+        statics.cliSummary = types.derive.member{
+            signature = types.function_(
+                types.pack({}),
+                types.pack({
+                    types.string
                 })
             ),
-            forward = derive.forward{
-                helper = derive.helper(cliModule, "derivedText"),
-                arguments = {derive.constant(summary)},
+            forward = types.derive.forward{
+                helper = types.derive.helper(cliModule, "derivedText"),
+                arguments = {types.derive.constant(summary)},
             },
         }
         data.command = {
@@ -698,15 +700,15 @@ local function recipe(info: types.derive.Info, command: boolean): any
         }
         if data.command.group then
             methods = {
-                run = derive.forward{
-                    helper = derive.helper(cliModule, "derivedGroupRun"),
-                    arguments = {derive.receiver()},
+                run = types.derive.forward{
+                    helper = types.derive.helper(cliModule, "derivedGroupRun"),
+                    arguments = {types.derive.receiver()},
                 }
             }
         end
     end
 
-    return derive.implement{statics = statics, methods = methods, data = {cli = data}, initializer = true}
+    return types.derive.implement{statics = statics, methods = methods, data = {cli = data}, initializer = true}
 end
 
 --- Derives typed argv decoding for a record.

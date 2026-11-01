@@ -44,7 +44,15 @@ export function run(
         return getenv(name)
     end
 
-    arg = {[0] = "tests/run.lua", "--json", argument, "--color=" .. colorMode}
+    -- The public arg module shares the raw argv table with the process root.
+    -- Refill that table so imported aliases keep observing the same arguments.
+    for index in pairs<integer, string>(arg) do
+        rawset(arg, index, nil)
+    end
+    arg[0] = "tests/run.lua"
+    arg[1] = "--json"
+    arg[2] = argument
+    arg[3] = "--color=" .. colorMode
     if verbose then
         arg[#arg + 1] = "--verbose"
     end

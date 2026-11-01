@@ -149,10 +149,17 @@ function M.directArgRootKeepsOneRawArrayInstance()
             rawset(_G, "arg", argv)
             package.loaded.arg = nil
             local implementation = compile(source, path, env)
-            package.preload.arg = assert(loadstring(implementation))
+            local loadArg = assert(loadstring(implementation))
+            local loads = 0
+            package.preload.arg = function(...)
+                loads = loads + 1
+                return loadArg(...)
+            end
             local code = compile(
                 [[
+require("arg")
 local current = arg
+require("arg")
 local imported = require("arg")
 return current == imported, current.parse("kept"), #current
 ]],
@@ -163,6 +170,7 @@ return current == imported, current.parse("kept"), #current
             test.equal(same, true)
             test.equal(parsed, "kept")
             test.equal(count, 1)
+            test.equal(loads, 1, "standalone and value requires share one initialization")
             test.equal(rawget(argv, "parse"), nil)
             test.equal(argv[-1], "nupp")
             test.equal(package.loaded.arg, argv)

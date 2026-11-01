@@ -810,6 +810,77 @@ end}
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
+function M.workerJobsRefillTheCanonicalArgvBetweenRuns()
+    local job = require("job")
+    local argv = require("arg")
+    local originalArg = arg
+    local originalMeta = getmetatable(argv)
+    local originalValues = {}
+    for key, value in pairs(argv) do
+        originalValues[key] = value
+    end
+    local originalLoadfile = loadfile
+    local originalExecute, originalPopen, originalGetenv = os.execute, io.popen, os.getenv
+    local names = {
+        "__NUPP_TEST_EMBEDDED",
+        "__NUPP_TEST_PROGRESS_FD",
+        "__NUPP_TEST_LANE_CACHE",
+        "__NUPP_TEST_SUITE_CATALOG",
+    }
+    local originals = {}
+    for _, name in ipairs(names) do
+        originals[name] = rawget(_G, name)
+    end
+    local ok, problem = xpcall(
+        function()
+            local paths = {}
+            loadfile = function(path)
+                paths[#paths + 1] = path
+                return function()
+                    return {argument = argv[2], verbose = argv[4]}
+                end
+            end
+            rawset(argv, -17, "old interpreter token")
+            rawset(argv, 50, "old job token")
+            rawset(argv, "oldJob", "old metadata")
+
+            local first = job.run("--queue=first", "first-cache", nil, true, "never", "first-catalog")
+            test.equal(first.argument, "--queue=first")
+            test.equal(first.verbose, "--verbose")
+            test.equal(argv[-17], nil)
+            test.equal(argv[50], nil)
+            test.equal(rawget(argv, "oldJob"), nil)
+
+            local second = job.run("--queue=second", "second-cache", nil, false, "always", "second-catalog")
+            test.equal(second.argument, "--queue=second")
+            test.equal(second.verbose, nil, "the prior job's optional token was removed")
+            test.equal(argv[0], "tests/run.lua")
+            test.equal(argv[1], "--json")
+            test.equal(argv[3], "--color=always")
+            test.equal(paths[1], "tests/run.lua")
+            test.equal(paths[2], "tests/run.lua")
+            test.equal(arg, originalArg, "worker jobs retain the raw argv object")
+            test.equal(require("arg"), argv, "imports retain the same initialized module")
+            test.equal(getmetatable(argv), originalMeta, "the CLI facade remains installed")
+        end,
+        debug.traceback
+    )
+
+    loadfile = originalLoadfile
+    arg = originalArg
+    os.execute, io.popen, os.getenv = originalExecute, originalPopen, originalGetenv
+    for key in pairs(argv) do
+        rawset(argv, key, nil)
+    end
+    for key, value in pairs(originalValues) do
+        rawset(argv, key, value)
+    end
+    for _, name in ipairs(names) do
+        rawset(_G, name, originals[name])
+    end
+    test(ok, problem)
+end
+
 function M.shellingFailureStaysInsideItsTestOnAProcessWorker()
     local dir = os.tmpname()
     os.remove(dir)

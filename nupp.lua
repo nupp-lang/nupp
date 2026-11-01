@@ -557,7 +557,7 @@ return {
         },
     },
 
-    test = {build = "testRunner", argv = {"build/nupp-test"}, env = {NUPP_TEST_BUILD = "build"},},
+    test = {build = "testRunner", argv = {"build/nupp-test"}},
 
     tasks = {
         runtime = {

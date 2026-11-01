@@ -108,7 +108,7 @@ function M.primitiveLoadingDoesNotPullInHigherLayers()
     runtimePipe:close()
     local probe = (
         [[
-package.path = %q .. package.path
+package.path = %q
 local cli = require("arg")
 assert(package.loaded["arg.internal.optparser"])
 assert(not package.loaded["arg.internal.decode"])
@@ -119,7 +119,7 @@ local parser = cli.optParser({"--flag"})
 assert(parser:next() == cli.longOption)
 assert(parser:key() == "flag")
 ]]
-    ):format(ROOT .. "/build/?.lua;")
+    ):format(package.path)
     local status, output = process.capture({runtime, "-e", probe})
     assert(status == 0, output)
 end
