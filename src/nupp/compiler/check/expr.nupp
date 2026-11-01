@@ -37,6 +37,7 @@ local materializeIR = require("nupp.compiler.comptime.materialize.ir") as {
 local stable = require("nupp.compiler.stable")
 local fixedWidth = require("nupp.compiler.types.fixedwidth")
 local runtimeSurface = require("nupp.compiler.runtimesurface")
+local builtinExtensions = require("nupp.compiler.builtinextensions")
 local predicate = require("nupp.compiler.types.predicate")
 
 local expr = {}
@@ -1210,6 +1211,7 @@ function expr.install(c: state.Checker): nil
             end
             local nameText = nameTok.text
             local entry = c.lookupEntry(nameText)
+            local extendedBuiltin = builtinExtensions.read(c, node, nameText, entry)
             if not entry
                 and c.result.declaredModuleName
                 and c.moduleExports
@@ -1368,7 +1370,7 @@ function expr.install(c: state.Checker): nil
             c.markToken(
                 nameTok,
                 entry and entry.definition,
-                entry and entry.t or T.any,
+                extendedBuiltin or entry and entry.t or T.any,
                 entry and entry.definition and entry.definition.kind or "variable"
             )
             local runtimeRoot = runtimeSurface.resolvedRoot(c, nameTok) or entry and entry.runtimeSurfaceRoot
@@ -1412,7 +1414,9 @@ function expr.install(c: state.Checker): nil
                 entry.unassigned = nil
             end
             c.fixedWidth.copyBinding(node, entry)
-            return capturedType or (entry and entry.t or T.any) -- an unknown name is any in plain Lua
+            return capturedType
+                or extendedBuiltin
+                or (entry and entry.t or T.any) -- an unknown name is any in plain Lua
         elseif kind == "paren" then
             local inner = node.expr
             local out = inner and c.infer(inner) or T.any

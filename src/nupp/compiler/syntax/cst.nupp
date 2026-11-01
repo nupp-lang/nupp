@@ -285,6 +285,11 @@ interface cst.Hints
     --- The source module whose logger this call uses.
     logModule: string?
 
+    --- An existing host table projected through its checked extension module.
+    standardRoot: string?
+
+    skipBuiltinExtension: boolean?
+
     --- A literal Nupp format containing `%?`, rewritten to Lua `%s` together with the
     --- argument positions whose values need their `debug` method called.
     formatIntrinsic: any

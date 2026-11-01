@@ -24,6 +24,7 @@ local native = require("nupp.compiler.native")
 local indexedViews = require("nupp.compiler.types.indexedviews")
 local members = require("nupp.compiler.types.members")
 local runtimeSurface = require("nupp.compiler.runtimesurface")
+local builtinExtensions = require("nupp.compiler.builtinextensions")
 local standardSurface = require("nupp.compiler.standardsurface")
 local narrowing = require("nupp.compiler.types.narrowing")
 
@@ -512,6 +513,15 @@ function index.install(c: state.Checker): state.ExprHandlers
                     return declared.t
                 end
             end
+        end
+        -- Ordinary builtin members need no extension module. Taking the whole
+        -- table, or selecting a new member, initializes the shared table once.
+        if target.kind == "name"
+            and target.token
+            and builtinExtensions.has(target.token.text)
+            and not builtinExtensions.member(target.token.text, memberName)
+        then
+            (target as any).skipBuiltinExtension = true
         end
         local trackedObject = c.infer(target)
         runtimeSurface.requireIdentity(c, runtimeSurface.tracked(c, target), memberName, member)

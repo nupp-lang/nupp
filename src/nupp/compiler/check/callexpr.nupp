@@ -14,6 +14,7 @@ argument, which is all `:` means.
 ]]
 
 local apiidentity = require("nupp.compiler.apiidentity")
+local builtinExtensions = require("nupp.compiler.builtinextensions")
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")
 local generics = require("nupp.compiler.types.generics")
@@ -1300,6 +1301,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                             c.recordEffect(accelerated)
                         end
                         (node as any).compilerFeatureEffects = carried
+                    end
+                    local extended = #argExprs == 1 and builtinExtensions.require(c, node, modname)
+                    if extended then
+                        return extended
                     end
                     local mt = c.env.resolveModule(c.env, modname)
                     if mt then

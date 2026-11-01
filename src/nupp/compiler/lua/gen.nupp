@@ -2193,6 +2193,8 @@ function gen.generate(
     -- load.
     local pluck = {
         compat = result.compat,
+        typeKinds = TYPE_KINDS,
+        declarationKinds = DECL_KINDS,
         witnessPlan = require("nupp.compiler.lua.typewitness").collect(result.root, result.moduleExports),
         witnessDescriptions = {},
         plans = {},
@@ -6845,7 +6847,7 @@ function gen.generate(
             return
         end
 
-        if TYPE_KINDS[kind] or DECL_KINDS[kind] then
+        if pluck.typeKinds[kind] or pluck.declarationKinds[kind] then
             -- Types erase, but a closed affine terminal is an ordinary declaration
             -- reference and must publish that function under its declaration identity.
             -- The assignment is metadata only; the affine value itself stays fully
@@ -9556,7 +9558,7 @@ function gen.generate(
             end)
             return
 
-        elseif (kind == "dotIndex" or kind == "name") and x.qualifiedModule then
+        elseif (kind == "dotIndex" or kind == "name" or kind == "call" and x.standardRoot) and x.qualifiedModule then
             e(compilerModuleName(x.qualifiedModule), sourceLine(x))
             for _, member in ipairs(x.qualifiedMembers or {}) do
                 e("." .. member)
