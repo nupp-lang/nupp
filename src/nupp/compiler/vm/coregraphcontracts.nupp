@@ -71,6 +71,13 @@ local function scalar(value: any, numeric: boolean, dynamic: boolean?): string
     then
         return "value"
     end
+    -- An optional or other union is dynamic too, each member admissible.
+    if dynamic and value.tag == "union" and #(value.members or {}) > 0 then
+        for _, member in ipairs(value.members) do
+            scalar(member, numeric, dynamic)
+        end
+        return "value"
+    end
     need(
         value.tag == "boolean"
         or value.tag == "nil"
@@ -356,16 +363,16 @@ function contracts.normalize(compiled: any, version: integer?): any
                     need(target.kind == "function", "initializer is not callable")
                 end
                 local id = #output.contracts
-                output.contracts[
-                    id + 1
-                ] = {
+                output.contracts[id + 1] = {
                     id = id,
                     owner = record.id,
                     block = block.id,
                     callsite = integer(site.id, 1048576),
                     target = target.id,
                     signature = target.signature,
-                    effect = 1
+                    effect = 1,
+                    -- pcall(f, ...): the callee runs as a protected call.
+                    protected = source.protected == true or nil
                 }
                 block.term.contract = id
                 record.effect = 1

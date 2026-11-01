@@ -112,6 +112,7 @@ function generate.program(seed, size)
     local closures = 0
     local arrays = 0
     local traversals = 0
+    local searches = 0
     statement = function()
         local roll = pick(14)
         if roll <= 3 or #variables < 2 then
@@ -197,6 +198,14 @@ function generate.program(seed, size)
             elseif a ~= b then
                 emit(a .. ", " .. b .. " = " .. b .. ", (" .. a .. " + " .. expression(1) .. ") % 1000003")
             end
+        elseif roll == 9 and pick(3) == 1 and depth < 3 then
+            -- A protected call that raises for some inputs.
+            local a, b = target(), target()
+            emit("if pcall(guard, " .. expression(1) .. ") then")
+            emit("    " .. a .. " = (" .. a .. " + 3) % 1000003")
+            emit("else")
+            emit("    " .. b .. " = (" .. b .. " + 5) % 1000003")
+            emit("end")
         elseif roll == 9 then
             -- A record method, for its value or as a statement.
             if pick(2) == 1 then
@@ -209,6 +218,60 @@ function generate.program(seed, size)
             emit(target() .. " = choose(" .. condition() .. ", " .. expression(1) .. ", " .. expression(1) .. ")")
         elseif roll == 11 then
             emit(target() .. " = bump(" .. expression(1) .. ")")
+        elseif roll == 13 and pick(3) == 1 then
+            -- Every result of a string library call, or of a function
+            -- returning one, over the text built so far.
+            searches = searches + 1
+            local a, b, c = "q" .. searches .. "a", "q" .. searches .. "b", "q" .. searches .. "c"
+            local how = pick(8)
+            local into = target()
+            if how == 1 then
+                emit("local " .. a .. ", " .. b .. " = s:find(\"%d+\")")
+                emit(into .. " = (" .. into .. " + (" .. a .. " or 0) + (" .. b .. " or 0) * 3) % 1000003")
+            elseif how == 2 then
+                emit("local " .. a .. ", " .. b .. " = string.match(s, \"(%d)(%d+)\")")
+                emit(into .. " = (" .. into .. " + #(" .. a .. " or \"\") * 5 + #(" .. b .. " or \"\")) % 1000003")
+            elseif how == 3 then
+                emit("local " .. a .. ", " .. b .. ", " .. c .. " = s:byte(" .. pick(3) .. ", " .. pick(4) .. ")")
+                emit(
+                    into
+                    .. " = ("
+                    .. into
+                    .. " + ("
+                    .. a
+                    .. " or 0) + ("
+                    .. b
+                    .. " or 1) * 3 + ("
+                    .. c
+                    .. " or 2) * 7) % 1000003"
+                )
+            elseif how == 4 then
+                emit("local " .. a .. ", " .. b .. ", " .. c .. " = s:find(\"(%d)(,)\", " .. pick(3) .. ")")
+                emit(
+                    into
+                    .. " = ("
+                    .. into
+                    .. " + ("
+                    .. a
+                    .. " or 0) + ("
+                    .. b
+                    .. " or 0) * 3 + #("
+                    .. c
+                    .. " or \"\")) % 1000003"
+                )
+            elseif how == 6 then
+                -- gsub with a string replacement, its captures swapped.
+                emit("local " .. a .. ", " .. b .. " = s:gsub(\"(%d)(%d)\", \"%2%1\", " .. pick(3) .. ")")
+                emit(into .. " = (" .. into .. " + #" .. a .. " * 3 + " .. b .. ") % 1000003")
+                emit("s = " .. a)
+            elseif how == 7 then
+                -- gsub with a table replacement, digits it lacks kept.
+                emit("local " .. a .. " = string.gsub(s, \"%d\", digits)")
+                emit(into .. " = (" .. into .. " + #" .. a .. ") % 1000003")
+            else
+                emit("local " .. a .. ", " .. b .. " = span(s)")
+                emit(into .. " = (" .. into .. " + (" .. a .. " or 0) * 11 + (" .. b .. " or 0)) % 1000003")
+            end
         elseif roll == 13 then
             -- // and math.floor answer number in Nupp's types, so they feed text.
             local d = literals[pick(#literals - 2) + 1]
@@ -266,11 +329,24 @@ function generate.program(seed, size)
         "    return (a + select(\"#\", ...) * 7 + (... or 0) + (select(\"#\", ...) > 0 and select(-1, ...) or 0) * 3) % 65521"
     )
     emit("end")
+    emit("local function guard(n: integer): integer", "local function guard(n)")
+    emit("    if n % 7 == 3 then")
+    emit("        error(\"guarded\")")
+    emit("    end")
+    emit("    return n")
+    emit("end")
     emit("local function fwd(...: integer): integer", "local function fwd(...)")
     emit("    return many(1, ...)")
     emit("end")
     emit("local function pass(...: integer): (integer, integer)", "local function pass(...)")
     emit("    return ...")
+    emit("end")
+    emit(
+        "local digits: {[string]: string} = {[\"1\"] = \"one\", [\"7\"] = \"\"}",
+        "local digits = {[\"1\"] = \"one\", [\"7\"] = \"\"}"
+    )
+    emit("local function span(x: string): (integer?, integer?)", "local function span(x)")
+    emit("    return x:find(\",\", 2, true)")
     emit("end")
     emit("local function choose<T>(c: boolean, a: T, b: T): T", "local function choose(c, a, b)")
     emit("    if c then")

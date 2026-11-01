@@ -1,0 +1,81 @@
+module nupp.core.catalogcallsprotected
+
+-- pcall and error: a protected call answers true and its results, or false
+-- and the error, whether the error is raised directly, deep in a call chain,
+-- as a table or a number, by the runtime (arithmetic on nil), or again from a
+-- nested protected call; execution continues normally afterwards.
+local function risky(n: integer): integer
+    if n > 5 then
+        error("too big")
+    end
+    return n * 2
+end
+
+local function deep(n: integer): integer
+    return risky(n) + 1
+end
+
+local function pair(n: integer): (integer, integer)
+    return n, n * 10
+end
+
+local function nested(n: integer): integer
+    local ok = pcall(risky, n)
+    if not ok then
+        return -1
+    end
+
+    return risky(n)
+end
+
+local function rethrow(n: integer): integer
+    local ok, e = pcall(risky, n)
+    if not ok then
+        error(e)
+    end
+
+    return 0
+end
+
+local score = 0
+local ok1, v1 = pcall(risky, 3)
+if ok1 and v1 == 6 then
+    score = score + 1
+end
+local ok2, v2 = pcall(deep, 9)
+if not ok2 and string.find(tostring(v2), "too big", 1, true) ~= nil then
+    score = score + 10
+end
+local ok3, a, b = pcall(pair, 4)
+if ok3 and a == 4 and b == 40 then
+    score = score + 100
+end
+if nested(8) == -1 and nested(2) == 4 then
+    score = score + 1000
+end
+local ok5, v5 = pcall(rethrow, 7)
+if not ok5 and string.find(tostring(v5), "too big", 1, true) ~= nil then
+    score = score + 10000
+end
+local ok6, v6 = pcall(function(): integer
+    error({code = 42})
+    return 0
+end)
+if not ok6 and (v6 as {code: integer}).code == 42 then
+    score = score + 100000
+end
+local ok7, v7 = pcall(function(): integer
+    error(7)
+    return 0
+end)
+if not ok7 and v7 == 7 then
+    score = score + 1000000
+end
+local t: {[integer]: integer} = {}
+local ok8 = pcall(function(): integer
+    return (t[1] as integer) + 1
+end)
+if not ok8 then
+    score = score + 10000000
+end
+export = score + deep(2) * 100000000

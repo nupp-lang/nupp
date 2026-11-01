@@ -406,8 +406,9 @@ export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     if result == values.NIL then
         result = wideResult(ctx, ADD, left, right)
     end
+    -- Arithmetic on a non-number is a guest error, as Lua raises one.
     if result == values.TRUE then
-        ops.fail(ctx, frame, pc, ops.INVALID)
+        ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
     if result == values.NIL then
@@ -452,8 +453,9 @@ export function Sub(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     if result == values.NIL then
         result = wideResult(ctx, SUB, left, right)
     end
+    -- Arithmetic on a non-number is a guest error, as Lua raises one.
     if result == values.TRUE then
-        ops.fail(ctx, frame, pc, ops.INVALID)
+        ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
     if result == values.NIL then
@@ -498,8 +500,9 @@ export function Mul(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     if result == values.NIL then
         result = wideResult(ctx, MUL, left, right)
     end
+    -- Arithmetic on a non-number is a guest error, as Lua raises one.
     if result == values.TRUE then
-        ops.fail(ctx, frame, pc, ops.INVALID)
+        ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
     if result == values.NIL then
@@ -544,8 +547,9 @@ export function Mod(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     if result == values.NIL then
         result = wideResult(ctx, MOD, left, right)
     end
+    -- Arithmetic on a non-number is a guest error, as Lua raises one.
     if result == values.TRUE then
-        ops.fail(ctx, frame, pc, ops.INVALID)
+        ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
     if result == values.NIL then
@@ -591,7 +595,7 @@ export function Lt(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
         result = wideOrder(false, left, right)
     end
     if result > 1ULL then
-        ops.fail(ctx, frame, pc, ops.INVALID)
+        ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
     slots.writeValue(frame, regs, dst, native.chooseWord(result == 1ULL, values.TRUE, values.FALSE))
@@ -629,7 +633,7 @@ export function Le(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
         result = wideOrder(true, left, right)
     end
     if result > 1ULL then
-        ops.fail(ctx, frame, pc, ops.INVALID)
+        ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
     slots.writeValue(frame, regs, dst, native.chooseWord(result == 1ULL, values.TRUE, values.FALSE))
@@ -1547,6 +1551,75 @@ export function RetV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
     end
     local returned = frames.returnValues(s, frame, native.offset(regs, native.index(native.word(src) * 8ULL)), count)
     if returned ~= 1ULL then
+        ops.failure(ctx, ops.INVALID)
+        return native.fail()
+    end
+    local current = native.pointer(access.active(s))
+    local currentValues = native.pointer(access.values(s, current))
+    local currentIntegers = native.pointer(access.integers(s, current))
+    local currentFloats = native.pointer(access.floats(s, current))
+    local currentPC = native.pointer(access.pc(s, current))
+    access.refresh(s, current, ctx)
+
+    return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+end
+
+-- pcall(f, ...) (core-only): CallK whose child is a protected call. Its caller
+-- gets true before its results, or false and the error when an error unwinds
+-- to it (guestscope.recoverEntry).
+export function PCall(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
+    if ops.charge(ctx, frame, pc) ~= 1ULL then
+        return native.fail()
+    end
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local calleeSlot = program.readByte(pc, 1)
+    local base, nargs = program.readByte(pc, 2), program.readByte(pc, 3)
+    local wanted = program.readByte(pc, 4)
+    local hint = program.readWord(pc, 8)
+    if calleeSlot ~= base then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if native.word(calleeSlot) >= native.load64(frame, native.fieldOffset<frames.Frame>("valueCount")) then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if nargs > 63 then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if wanted < 1 or native.word(wanted) > frames.MAX_RESULTS then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local callee = slots.readValue(frame, regs, calleeSlot)
+    local s = native.pointer(ops.state(ctx))
+    local resumePC = ops.resume(ctx, frame, pc)
+    ops.checkpoint(ctx, frame, pc)
+    local child = ops.prepare(ctx, frame, pc, callee, native.word(base), native.word(nargs), native.word(wanted), hint)
+    if child == 0ULL then
+        ops.failure(ctx, ops.RESOURCE)
+        return native.fail()
+    end
+    if wanted > 1 and frames.wantResults(s, native.pointer(child), native.word(wanted)) ~= 1ULL then
+        ops.failure(ctx, ops.INVALID)
+        return native.fail()
+    end
+    if frames.protect(s, native.pointer(child)) ~= 1ULL then
+        ops.failure(ctx, ops.INVALID)
+        return native.fail()
+    end
+    if ops.packVarargs(ctx, frame, native.pointer(child), native.word(base), native.word(nargs)) ~= 1ULL then
+        ops.failure(ctx, ops.INVALID)
+        return native.fail()
+    end
+    local published = frames.publish(s, frame, native.pointer(child), resumePC)
+    if published ~= 1ULL then
+        -- A prepared child is retained on failure. The closed entry always
+        -- calls complete, which aborts preparation before deepest-first unwind.
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end

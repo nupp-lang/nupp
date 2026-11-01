@@ -37,6 +37,14 @@ export const FIND: uint64 = 18ULL
 export const MATCH: uint64 = 19ULL
 export const SELECT: uint64 = 20ULL
 export const PACK_COPY: uint64 = 21ULL
+export const ERROR: uint64 = 22ULL
+-- The pack-answering forms, for a call whose every result is wanted: each
+-- answers a variadic pack {[0] = n, ...} the compiler reads in order.
+export const FIND_ALL: uint64 = 23ULL
+export const MATCH_ALL: uint64 = 24ULL
+export const BYTE_ALL: uint64 = 25ULL
+export const GSUB: uint64 = 26ULL
+export const GSUB_ALL: uint64 = 27ULL
 
 local function integerValue(value: uint64): int64
     local payload = value & values.PAYLOAD
@@ -601,17 +609,59 @@ local function sub(ctx: voidptr, value: uint64, a: uint64, b: uint64): uint64
     end
 end
 
--- string.byte(s [, i]): one byte as an integer, nil outside the string.
-local function byte(value: uint64, a: uint64): uint64
+-- Stores the `index`-th value of a pack under construction.
+local function packPut(h: heap.Heap*, pack: uint64, index: uint64, value: uint64): nil
+    if value ~= values.NIL and tables.set(h, pack, values.TAG_INTEGER | index, value) == tables.NO_MEMORY then
+        error("not enough memory")
+    end
+end
+
+-- A finished pack of `n` values; with no pack, `single` is the answer.
+local function packed(h: heap.Heap*, pack: uint64, n: uint64, single: uint64): uint64
+    if pack == 0ULL then
+        return single
+    end
+    if tables.set(h, pack, values.TAG_INTEGER, values.TAG_INTEGER | n) == tables.NO_MEMORY then
+        error("not enough memory")
+    end
+    tables.drain(h)
+
+    return values.TAG_OBJ | pack
+end
+
+-- string.byte(s [, i [, j]]): the bytes i..j as integers. Alone, the first
+-- of them, nil when there is none; with `all`, every one in a pack.
+local function bytes(ctx: voidptr, value: uint64, a: uint64, b: uint64, all: boolean): uint64
     @unsafe do
+        local pack: uint64 = 0ULL
+        if all then
+            pack = guestscope.newTable(ctx)
+        end
+        local h = guestHeap(ctx)
         local s = stringArgument(value)
         local length = native.index(strings.length(s))
         local i = startPosition(integerArgument(a, 1, 2ULL), length)
-        if i > length then
-            return values.NIL
+        local j = endPosition(integerArgument(b, i, 3ULL), length)
+        if i > j then
+            return packed(h, pack, 0ULL, values.NIL)
         end
-        return values.TAG_INTEGER
+        local first = values.TAG_INTEGER
             | native.word(native.load8(native.pointer(strings.bytes(s)), native.index(native.word(i - 1))))
+        if pack == 0ULL then
+            return first
+        end
+        local k = i
+        while k <= j do
+            packPut(
+                h,
+                pack,
+                native.word(k - i + 1),
+                values.TAG_INTEGER
+                | native.word(native.load8(native.pointer(strings.bytes(s)), native.index(native.word(k - 1))))
+            )
+            k = k + 1
+        end
+        return packed(h, pack, native.word(j - i + 1), first)
     end
 end
 
@@ -700,19 +750,43 @@ local function plainPattern(p: uint64): boolean
     end
 end
 
+-- Capture `i` of a match: its text, or its position for `()`.
+local function capture(h: heap.Heap*, ms: patterns.MatchState*, subject: uint64, i: uint64): uint64
+    local start = patterns.captureStart(ms, i)
+    local size = patterns.captureSize(ms, i)
+    if size == patterns.POSITION then
+        return values.TAG_INTEGER | (start - subject + 1ULL)
+    end
+
+    return values.TAG_OBJ | strings.make(h, start, size)
+end
+
 -- string.find (start position) and string.match (first capture, or the whole
 -- match) from `init`; nil when nothing matches. In a single-value context
--- these are Lua's answers.
-local function search(ctx: voidptr, value: uint64, pv: uint64, a: uint64, plainFlag: uint64, matching: boolean): uint64
+-- these are Lua's answers. With `all`, every result in a pack: find's start,
+-- end and captures, match's captures or the whole match, or one nil.
+local function search(
+    ctx: voidptr,
+    value: uint64,
+    pv: uint64,
+    a: uint64,
+    plainFlag: uint64,
+    matching: boolean,
+    all: boolean
+): uint64
     local ms0 = new patterns.MatchState(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
     @unsafe do
+        local pack: uint64 = 0ULL
+        if all then
+            pack = guestscope.newTable(ctx)
+        end
         local h = guestHeap(ctx)
         local s = stringArgument(value)
         local p = stringArgument(pv)
         local length = native.index(strings.length(s))
         local init = startPosition(integerArgument(a, 1, 3ULL), length)
         if init > length + 1 then
-            return values.NIL
+            return packed(h, pack, 1ULL, values.NIL)
         end
         local subject = strings.bytes(s)
         local pattern = strings.bytes(p)
@@ -732,11 +806,16 @@ local function search(ctx: voidptr, value: uint64, pv: uint64, a: uint64, plainF
                     k = k + 1ULL
                 end
                 if k == strings.length(p) then
-                    return values.TAG_INTEGER | (at - subject + 1ULL)
+                    local start = values.TAG_INTEGER | (at - subject + 1ULL)
+                    if pack ~= 0ULL then
+                        packPut(h, pack, 1ULL, start)
+                        packPut(h, pack, 2ULL, values.TAG_INTEGER | (at - subject + strings.length(p)))
+                    end
+                    return packed(h, pack, 2ULL, start)
                 end
                 at = at + 1ULL
             end
-            return values.NIL
+            return packed(h, pack, 1ULL, values.NIL)
         end
         local anchor = strings.length(p) > 0ULL and native.word(native.load8(native.pointer(pattern), 0)) == 94ULL
         if anchor then
@@ -750,21 +829,32 @@ local function search(ctx: voidptr, value: uint64, pv: uint64, a: uint64, plainF
         local at = subject + native.word(init - 1)
         local finish = subject + strings.length(s)
         local answer = values.NIL
+        local n: uint64 = 1ULL
         while at <= finish do
             local e = patterns.match(h, ms, at, pattern)
             if e ~= 0ULL then
-                if not matching then
+                if pack ~= 0ULL then
+                    n = 0ULL
+                    if not matching then
+                        packPut(h, pack, 1ULL, values.TAG_INTEGER | (at - subject + 1ULL))
+                        packPut(h, pack, 2ULL, values.TAG_INTEGER | (e - subject))
+                        n = 2ULL
+                    elseif patterns.level(ms) == 0ULL then
+                        packPut(h, pack, 1ULL, values.TAG_OBJ | strings.make(h, at, e - at))
+                        n = 1ULL
+                    end
+                    local i: uint64 = 0ULL
+                    while i < patterns.level(ms) do
+                        n = n + 1ULL
+                        packPut(h, pack, n, capture(h, ms, subject, i))
+                        i = i + 1ULL
+                    end
+                elseif not matching then
                     answer = values.TAG_INTEGER | (at - subject + 1ULL)
                 elseif patterns.level(ms) == 0ULL then
                     answer = values.TAG_OBJ | strings.make(h, at, e - at)
                 else
-                    local start = patterns.captureStart(ms, 0ULL)
-                    local size = patterns.captureSize(ms, 0ULL)
-                    if size == patterns.POSITION then
-                        answer = values.TAG_INTEGER | (start - subject + 1ULL)
-                    else
-                        answer = values.TAG_OBJ | strings.make(h, start, size)
-                    end
+                    answer = capture(h, ms, subject, 0ULL)
                 end
                 break
             end
@@ -776,7 +866,186 @@ local function search(ctx: voidptr, value: uint64, pv: uint64, a: uint64, plainF
         patterns.release(ms)
         tables.drain(h)
 
-        return answer
+        return packed(h, pack, n, answer)
+    end
+end
+
+-- The heap kind of an object value, or 0 for an immediate.
+local function objectKind(value: uint64): uint64
+    if value & values.TAG_MASK ~= values.TAG_OBJ then
+        return 0ULL
+    end
+    @unsafe do
+        return native.word(
+            native.load8(native.pointer(value & values.PAYLOAD), native.fieldOffset<heap.Header>("kind"))
+        )
+    end
+end
+
+-- Capture `l` of a match of [at, e) as a replacement names it: the whole
+-- match when the pattern has no captures and `l` is 0.
+local function replacementCapture(
+    h: heap.Heap*,
+    ms: patterns.MatchState*,
+    subject: uint64,
+    l: uint64,
+    at: uint64,
+    e: uint64
+): uint64
+    if l >= patterns.level(ms) then
+        if l ~= 0ULL then
+            error("invalid capture index in replacement string")
+        end
+        @unsafe do
+            return values.TAG_OBJ | strings.make(h, at, e - at)
+        end
+    end
+    if patterns.captureSize(ms, l) == patterns.UNFINISHED then
+        error("unfinished capture")
+    end
+
+    return capture(h, ms, subject, l)
+end
+
+-- Appends gsub's replacement for a match of [at, e): a string's bytes with
+-- %0 the whole match, %1 to %9 a capture and %% a percent sign; for a
+-- table, its value at the first capture, the match itself when that is
+-- false or nil. Answers 1 when backing is refused.
+local function appendReplacement(
+    h: heap.Heap*,
+    b: strings.Builder*,
+    ms: patterns.MatchState*,
+    subject: uint64,
+    replValue: uint64,
+    at: uint64,
+    e: uint64
+): uint64
+    @unsafe do
+        if objectKind(replValue) == heap.KIND_TABLE then
+            local key = replacementCapture(h, ms, subject, 0ULL, at, e)
+            local value = tables.lookup(h, replValue & values.PAYLOAD, key)
+            if value == values.NIL or value == values.FALSE then
+                return strings.append(h, b, at, e - at)
+            end
+            if strings.header(value) == 0ULL and not ints.isInteger(value) and value & values.QNAN == values.QNAN then
+                error("invalid replacement value (a table)")
+            end
+            return appendText(h, b, value)
+        end
+        local repl = strings.header(replValue)
+        local r = strings.bytes(repl)
+        local n = strings.length(repl)
+        local i: uint64 = 0ULL
+        while i < n do
+            local c = native.word(native.load8(native.pointer(r), native.index(i)))
+            if c ~= 37ULL then
+                if strings.appendWord(h, b, c, 1ULL) ~= 0ULL then
+                    return 1ULL
+                end
+            else
+                i = i + 1ULL
+                local d: uint64 = 0ULL
+                if i < n then
+                    d = native.word(native.load8(native.pointer(r), native.index(i)))
+                end
+                if d == 37ULL then
+                    if strings.appendWord(h, b, 37ULL, 1ULL) ~= 0ULL then
+                        return 1ULL
+                    end
+                elseif d == 48ULL then
+                    if strings.append(h, b, at, e - at) ~= 0ULL then
+                        return 1ULL
+                    end
+                elseif d >= 49ULL and d <= 57ULL then
+                    if appendText(h, b, replacementCapture(h, ms, subject, d - 49ULL, at, e)) ~= 0ULL then
+                        return 1ULL
+                    end
+                else
+                    error("invalid use of '%' in replacement string")
+                end
+            end
+            i = i + 1ULL
+        end
+        return 0ULL
+    end
+end
+
+-- string.gsub(s, pattern, repl [, n]) with a string, number or table
+-- replacement: the new string, and with `all` a pack of it and the count.
+local function gsub(ctx: voidptr, value: uint64, pv: uint64, replValue: uint64, maxValue: uint64, all: boolean): uint64
+    local ms0 = new patterns.MatchState(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local pack: uint64 = 0ULL
+        if all then
+            pack = guestscope.newTable(ctx)
+        end
+        local h = guestHeap(ctx)
+        local s = stringArgument(value)
+        local p = stringArgument(pv)
+        -- A number replacement is its text; a table is read per match.
+        local repl = replValue
+        local kind = objectKind(replValue)
+        if strings.header(replValue) ~= 0ULL or ints.isInteger(replValue) or replValue & values.QNAN ~= values.QNAN then
+            repl = tostring(ctx, replValue)
+        elseif kind == heap.KIND_TABLE then
+            repl = replValue
+        elseif kind == heap.KIND_CLOSURE then
+            error("gsub with a function replacement is not yet supported by the core")
+        else
+            error("bad argument #3 to 'gsub' (string/function/table expected)")
+        end
+        local length = native.index(strings.length(s))
+        local limit = integerArgument(maxValue, length + 1, 4ULL)
+        local subject = strings.bytes(s)
+        local pattern = strings.bytes(p)
+        local pEnd = pattern + strings.length(p)
+        local anchor = strings.length(p) > 0ULL and native.word(native.load8(native.pointer(pattern), 0)) == 94ULL
+        if anchor then
+            pattern = pattern + 1ULL
+        end
+        local ms = ms0 as patterns.MatchState*
+        local builder = state as strings.Builder*
+        if patterns.prepare(h, ms, subject, strings.length(s), pEnd) ~= 0ULL then
+            patterns.release(ms)
+            error("not enough memory")
+        end
+        local src = subject
+        local finish = subject + strings.length(s)
+        local last: uint64 = 0ULL
+        local n: int64 = 0
+        local refused: uint64 = 0ULL
+        while n < limit do
+            local e = patterns.match(h, ms, src, pattern)
+            if e ~= 0ULL and e ~= last then
+                n = n + 1
+                refused = refused | appendReplacement(h, builder, ms, subject, repl, src, e)
+                src = e
+                last = e
+            elseif src < finish then
+                refused = refused | strings.append(h, builder, src, 1ULL)
+                src = src + 1ULL
+            else
+                break
+            end
+            if anchor then
+                break
+            end
+        end
+        refused = refused | strings.append(h, builder, src, finish - src)
+        patterns.release(ms)
+        if refused ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
+        local result = values.TAG_OBJ | strings.finish(h, builder)
+        if pack ~= 0ULL then
+            packPut(h, pack, 1ULL, result)
+            packPut(h, pack, 2ULL, values.TAG_INTEGER | native.word(n))
+        end
+        tables.drain(h)
+
+        return packed(h, pack, 2ULL, result)
     end
 end
 
@@ -850,7 +1119,9 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
     elseif id == SUB then
         return sub(ctx, a, b, c)
     elseif id == BYTE then
-        return byte(a, b)
+        return bytes(ctx, a, b, c, false)
+    elseif id == BYTE_ALL then
+        return bytes(ctx, a, b, c, true)
     elseif id == CHAR then
         return char(ctx, a)
     elseif id == REP then
@@ -862,13 +1133,24 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
     elseif id == LEN then
         return values.TAG_INTEGER | strings.length(stringArgument(a))
     elseif id == FIND then
-        return search(ctx, a, b, c, d, false)
+        return search(ctx, a, b, c, d, false, false)
     elseif id == MATCH then
-        return search(ctx, a, b, c, values.NIL, true)
+        return search(ctx, a, b, c, values.NIL, true, false)
+    elseif id == FIND_ALL then
+        return search(ctx, a, b, c, d, false, true)
+    elseif id == MATCH_ALL then
+        return search(ctx, a, b, c, values.NIL, true, true)
+    elseif id == GSUB then
+        return gsub(ctx, a, b, c, d, false)
+    elseif id == GSUB_ALL then
+        return gsub(ctx, a, b, c, d, true)
     elseif id == SELECT then
         return select(a, b)
     elseif id == PACK_COPY then
         return packCopy(ctx, a)
+    elseif id == ERROR then
+        guestscope.raise(ctx, a)
+        return values.NIL
     end
     error("unknown core library call")
 
