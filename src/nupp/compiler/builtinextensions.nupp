@@ -7,6 +7,8 @@ local members = require("nupp.compiler.types.members")
 local extensions = {}
 
 local ROOTS = {
+    assert = {module = "assert", direct = true},
+    arg = {module = "arg", direct = true},
     io = {
         module = "nupp.runtime.standardio",
         members = {
@@ -36,7 +38,7 @@ end
 
 function extensions.member(root: string, name: string): boolean
     local specification = ROOTS[root]
-    return specification ~= nil and specification.members[name] == true
+    return specification ~= nil and (specification.direct == true or specification.members[name] == true)
 end
 
 -- Compile an extension at most once per environment, outside the prelude and
@@ -59,30 +61,47 @@ function extensions.type(c: any, root: string): any
     pending[root] = false
     local extension = env.resolveModule and env.resolveModule(env, specification.module)
     local original = env.globals and env.globals[root]
-    if not extension or not original or original.t.tag ~= "shape" then
+    if not extension or not original or not specification.direct and original.t.tag ~= "shape" then
         return nil
     end
     local fields, seen = {}, {}
-    for _, field in ipairs(original.t.fields) do
+    for _, field in ipairs(not specification.direct and original.t.fields or {}) do
         fields[#fields + 1] = field
         seen[field.name] = true
     end
     for _, field in ipairs(members.view(extension).ordered) do
-        if specification.members[field.name] and not seen[field.name] then
+        if not specification.direct and specification.members[field.name] and not seen[field.name] then
             fields[#fields + 1] = {name = field.name, read = field.readType, write = field.writeType}
         end
     end
-    local merged = T.shape(
-        fields,
-        {
-            readKey = original.t.indexReadKey,
-            readValue = original.t.indexReadValue,
-            writeKey = original.t.indexWriteKey,
-            writeValue = original.t.indexWriteValue,
-        },
-        original.t.fresh,
-        original.t.closed
-    )
+    local merged = specification.direct and extension
+        or T.shape(
+            fields,
+            {
+                readKey = original.t.indexReadKey,
+                readValue = original.t.indexReadValue,
+                writeKey = original.t.indexWriteKey,
+                writeValue = original.t.indexWriteValue,
+            },
+            original.t.fresh,
+            original.t.closed
+        )
+    -- Prelude views may be shared by other environments. Each extension owns
+    -- only this environment's maps while retaining the declaration objects.
+    if not env.ownsBuiltinExtensionMaps then
+        local globals, types, definitions = {}, {}, {}
+        for key, value in pairs(env.globals) do
+            globals[key] = value
+        end
+        for key, value in pairs(env.globalTypes) do
+            types[key] = value
+        end
+        for key, value in pairs(env.globalTypeDefs) do
+            definitions[key] = value
+        end
+        env.globals, env.globalTypes, env.globalTypeDefs = globals, types, definitions
+        env.ownsBuiltinExtensionMaps = true
+    end
     local entry = {}
     for key, value in pairs(original) do
         entry[key] = value
@@ -107,7 +126,10 @@ end
 local function project(node: any, root: string): nil
     node.standardRoot = root
     node.qualifiedModule = ROOTS[root].module
-    node.qualifiedMembers = {"value"}
+    node.qualifiedMembers = ROOTS[root].direct and {} or {"value"}
+    if ROOTS[root].direct then
+        node.requiredModule = root
+    end
     node.namespacePath = root
 end
 

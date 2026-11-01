@@ -1,4 +1,4 @@
-local test = require("assert")
+local test = require("nupp.test")
 local compile = require("nupp.compiler.aot.compile")
 local lower = require("nupp.compiler.aot.lower")
 local text = require("nupp.compiler.aot.text")

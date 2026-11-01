@@ -547,25 +547,30 @@ end
 --- generator routes operators and methods on the first two through the
 --- one-lane runtime, since where a body runs as Lua a vector is a number and
 --- a mask a boolean.
-local function simdFamilyOf(t: any): (string?, string?)
+local function simdFamilyOf(t: any): (string?, string?, string?)
     if t == nil then
-        return nil, nil
+        return nil, nil, nil
     end
-    if t.tag == "const" then
+    while t ~= nil and (t.tag == "const" or t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned") do
         t = t.inner
     end
+    while t ~= nil and t.tag == "genericAlias" do
+        t = t.body
+    end
     if t == nil or t.tag ~= "nominal" then
-        return nil, nil
+        return nil, nil, nil
     end
     local origin = t.origin or t
-    if apiidentity.canonical(origin.moduleName or "") ~= "simd"
-        and apiidentity.canonical(origin.sealedModule or "") ~= "simd"
-    then
-        return nil, nil
+    local moduleName = origin.moduleName
+    if apiidentity.canonical(moduleName or "") ~= "simd" then
+        moduleName = origin.sealedModule
+    end
+    if apiidentity.canonical(moduleName or "") ~= "simd" then
+        return nil, nil, nil
     end
     local name = origin.name
     if name ~= "Vector" and name ~= "Mask" and name ~= "Species" then
-        return nil, nil
+        return nil, nil, nil
     end
     local element = (t.typeArgs or {})[1]
     local elementName = element ~= nil and tostring(element.tag) or "number"
@@ -573,16 +578,16 @@ local function simdFamilyOf(t: any): (string?, string?)
         elementName = tostring(element.base.tag)
     end
 
-    return name, elementName
+    return name, elementName, moduleName
 end
 
 --- The element and lane count of a `Fixed<N>` vector field read out of a
 --- storage struct, or nil for any other member access. As Lua such a field is
 --- the struct's C array, which the lane runtime reads into the N-lane form; a
 --- write needs nothing, since the FFI copies an N-lane table into the array.
-local function storageVectorField(x: any): (string?, integer?)
+local function storageVectorField(x: any): (string?, integer?, string?)
     if x.kind ~= "dotIndex" or x.name == nil or x.obj == nil or x.assignmentTarget == true then
-        return nil, nil
+        return nil, nil, nil
     end
     local objectType = x.obj.inferredType
     while objectType ~= nil
@@ -596,14 +601,17 @@ local function storageVectorField(x: any): (string?, integer?)
         objectType = objectType.tag == "ptr" and objectType.elem or objectType.inner
     end
     if objectType == nil or objectType.tag ~= "nominal" or objectType.declKind ~= "struct" then
-        return nil, nil
+        return nil, nil, nil
     end
     local origin = objectType.origin or objectType
     if origin.nativeOnly == true then
-        return nil, nil
+        return nil, nil, nil
     end
 
-    return require("nupp.compiler.targetlayout").storageVector(x.inferredType)
+    local element, lanes = require("nupp.compiler.targetlayout").storageVector(x.inferredType)
+    local _, _, moduleName = simdFamilyOf(x.inferredType)
+
+    return element, lanes, moduleName
 end
 
 --- Lowers a checked parse to LuaJIT source, with the diagnostics lowering produced.
@@ -5884,12 +5892,17 @@ function gen.generate(
             -- answers the operator with the element's wrapping, which `+` on
             -- two numbers would not.
             local operand = kind == "unop" and x.operand or x.lhs
-            local family, element = emitDepth.simdFamilyOf(operand and operand.inferredType)
+            local family, element, moduleName = emitDepth.simdFamilyOf(operand and operand.inferredType)
             local tag = family == "Mask" and "mask" or element or "number"
             e(
                 (
                     "%s.lane.%s(%q,%q,"
-                ):format(compilerModuleName("nupp.simd"), kind == "unop" and "unary" or "binary", x.op.text, tag),
+                ):format(
+                    compilerModuleName(moduleName or "nupp.simd"),
+                    kind == "unop" and "unary" or "binary",
+                    x.op.text,
+                    tag
+                ),
                 x.op.line
             )
             if kind == "unop" then
@@ -5905,9 +5918,11 @@ function gen.generate(
         if kind == "call" and x.simdMath and x.args and x.args.exprs and #x.args.exprs == 1 then
             -- `math.sqrt(v)` on a vector: as Lua the lane runtime applies the
             -- operation and wraps the answer to the element.
-            local _, element = emitDepth.simdFamilyOf(x.args.exprs[1].inferredType)
+            local _, element, moduleName = emitDepth.simdFamilyOf(x.args.exprs[1].inferredType)
             e(
-                ("%s.lane.method(%q,%q,"):format(compilerModuleName("nupp.simd"), x.simdMath, element or "number"),
+                (
+                    "%s.lane.method(%q,%q,"
+                ):format(compilerModuleName(moduleName or "nupp.simd"), x.simdMath, element or "number"),
                 sourceLine(x)
             )
             emit(x.args.exprs[1])
@@ -5915,7 +5930,7 @@ function gen.generate(
             return
         end
         if kind == "methodCall" and x.obj and x.name and not x.safeObj and not x.safeMethod then
-            local family, element = emitDepth.simdFamilyOf(x.obj.inferredType)
+            local family, element, moduleName = emitDepth.simdFamilyOf(x.obj.inferredType)
             local args = x.args and x.args.exprs or {}
             local method = x.name.text
             if family == "Vector" or family == "Mask" then
@@ -5923,7 +5938,7 @@ function gen.generate(
                     (
                         "%s.lane.method(%q,%q,"
                     ):format(
-                        compilerModuleName("nupp.simd"),
+                        compilerModuleName(moduleName or "nupp.simd"),
                         method,
                         family == "Mask" and "mask" or element or "number"
                     ),
@@ -5994,11 +6009,13 @@ function gen.generate(
         if kind == "dotIndex" and not emitDepth.storageVectorReading[x] then
             -- A `Fixed<N>` vector field of a storage struct: the C array the
             -- struct holds, read into the N-lane form the lane runtime works on.
-            local element, lanes = emitDepth.storageVectorField(x)
+            local element, lanes, moduleName = emitDepth.storageVectorField(x)
             if element ~= nil then
                 emitDepth.storageVectorReading[x] = true
                 e(
-                    ("%s.lane.fromStorage(%q,%d,"):format(compilerModuleName("nupp.simd"), element, lanes as integer),
+                    (
+                        "%s.lane.fromStorage(%q,%d,"
+                    ):format(compilerModuleName(moduleName or "nupp.simd"), element, lanes as integer),
                     sourceLine(x)
                 )
                 emit(x)

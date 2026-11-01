@@ -224,7 +224,6 @@ local RESOURCES = {
         source = "src/nupp/runtime/provider/nativebuffer.nupp",
         output = "nupp/compiler/nupp/runtime/provider/nativebuffer.nupp"
     },
-    {source = "src/nupp/runtime/int64.nupp", output = "nupp/compiler/nupp/runtime/int64.nupp"},
     {source = "src/nupp/runtime/bitops.nupp", output = "nupp/compiler/nupp/runtime/bitops.nupp"},
     {source = "src/nupp/gpu/api.nupp", output = "nupp/compiler/nupp/gpu/api.nupp"},
     {source = "src/nupp/gpu/types.nupp", output = "nupp/compiler/nupp/gpu/types.nupp"},
@@ -379,10 +378,6 @@ local RESOURCES = {
     {
         source = "src/nupp/runtime/provider/tablestruct.nupp",
         output = "nupp/compiler/nupp/runtime/provider/tablestruct.nupp",
-    },
-    {
-        source = "src/nupp/runtime/provider/scalarsimd.nupp",
-        output = "nupp/compiler/nupp/runtime/provider/scalarsimd.nupp",
     },
     {source = "src/nupp/mem/array.nupp", output = "nupp/compiler/nupp/mem/array.nupp"},
     {source = "src/nupp/util/internal/pool.nupp", output = "nupp/compiler/nupp/util/internal/pool.nupp"},
