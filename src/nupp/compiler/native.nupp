@@ -359,7 +359,7 @@ local FEATURES: {[string]: native.Feature} = {
         "stdlib.fieldcodec"
     ] = {
         name = "fieldcodec",
-        globals = {"types.reflect.fieldCodec"},
+        globals = {"types.reflect.fieldCodec", "types.reflect.fieldcodec"},
         runtimeModule = "nupp.compiler.runtime.reflect",
         portableRuntime = true,
     },

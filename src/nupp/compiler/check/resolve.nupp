@@ -937,7 +937,7 @@ function resolve.install(c: state.Checker): nil
                 end
                 node.resolvedType = result
                 return result
-            elseif identity == "types.nonExhaustive" then
+            elseif identity == "types.nonExhaustive" or identity == "types.nonexhaustive" then
                 -- The one type that has no name to resolve. Calling for it is what puts
                 -- the open member in a union, so a reader sees the decision where the
                 -- alternatives are written.

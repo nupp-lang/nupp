@@ -539,6 +539,34 @@ local types: {
     ---     NUPP2420
     @readonly writeAt: @comptime function(value: type, key: type): type,
 
+    --- Accepts the lowercase builder name before compiler-source adoption.
+    --- @internal
+    @readonly nonexhaustive: @comptime function(): type,
+
+    --- Accepts the lowercase builder name before compiler-source adoption.
+    --- @internal
+    @readonly formatarguments: @comptime function(format: type): typepack,
+
+    --- Accepts the lowercase builder name before compiler-source adoption.
+    --- @internal
+    @readonly samenominal: @comptime function(left: type, right: type): boolean,
+
+    --- Accepts the lowercase builder name before compiler-source adoption.
+    --- @internal
+    @readonly readkeys: @comptime function(value: type): {type},
+
+    --- Accepts the lowercase builder name before compiler-source adoption.
+    --- @internal
+    @readonly writekeys: @comptime function(value: type): {type},
+
+    --- Accepts the lowercase builder name before compiler-source adoption.
+    --- @internal
+    @readonly readat: @comptime function(value: type, key: type): type,
+
+    --- Accepts the lowercase builder name before compiler-source adoption.
+    --- @internal
+    @readonly writeat: @comptime function(value: type, key: type): type,
+
     --- Rejects this type application deliberately, with an authored message.
     ---
     --- Distinct from an evaluator crash or a timeout: the message is
@@ -1503,6 +1531,10 @@ record types.reflect
     --- assert(encoded.id == 1 and encoded.text == "hello")
     --- ```
     fieldCodec: @comptime function(info: Info): FieldCodecBlueprint
+
+    --- Accepts the lowercase builder name before compiler-source adoption.
+    --- @internal
+    fieldcodec: @comptime function(info: Info): FieldCodecBlueprint
 end
 
 ----------------------------------------------------------------------------

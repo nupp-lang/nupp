@@ -1986,6 +1986,50 @@ function M.comptimeComparesNominalDeclarationFamilies()
     )
 end
 
+function M.lowercaseFormatargumentsKeepsItsExistingCheckedSignature()
+    local namespace = env.globals.types.t.byname
+    testAssert.equal(types.tostring(namespace.formatarguments), types.tostring(namespace.formatArguments))
+    testAssert.equal(namespace.formatarguments.comptimeOnly, true)
+    testAssert.equal(namespace.formatArguments.comptimeOnly, true)
+    testAssert.equal(namespace.formatarguments.retPack.head[1], namespace.formatArguments.retPack.head[1])
+end
+
+function M.lowercaseBuilderNamesPreserveTypeIdentityDuringBootstrap()
+    clean(
+        [[
+local record Cell<T>
+    value: T
+end
+@comptime local function Checked(T: type, Other: type): type
+    const nominal = types.samenominal
+    if nominal(T, Other) ~= types.sameNominal(T, Other) then
+        return types.error("lowercase nominal identity changed")
+    end
+    const key = types.literal("value")
+    const shape = types.shape({{name = "value", read = types.string, write = types.string}})
+    if types.readat(shape, key) ~= types.readAt(shape, key) then
+        return types.error("lowercase read projection changed")
+    end
+    if types.writeat(shape, key) ~= types.writeAt(shape, key) then
+        return types.error("lowercase write projection changed")
+    end
+    if #types.readkeys(shape) ~= #types.readKeys(shape) or #types.writekeys(shape) ~= #types.writeKeys(shape) then
+        return types.error("lowercase key projection changed")
+    end
+    return T
+end
+local cell: Checked(Cell<string>, Cell<number>) = new Cell(value = "same")
+local type Open = "ready" | types.nonexhaustive()
+local state: Open = "ready"
+local text = switch state do
+    case "ready" -> "ready"
+    else -> "other"
+end
+return cell, text
+]]
+    )
+end
+
 function M.comptimeTypeCachesPreserveNominalIdentity()
     clean(
         table.concat(
