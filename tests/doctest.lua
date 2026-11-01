@@ -86,6 +86,107 @@ function M.extractsStructuredDocsFromTheParserCST()
     assert(point.members[1].text == "Horizontal coordinate.")
 end
 
+function M.callableModulesDocumentHelpersAndPublishedSuiteMembers()
+    local source = [[
+module assert
+local suite = {}
+local private = {}
+
+--- Requires equal values.
+--- @param actual the value to compare
+--- @param expected the required value
+--- @return the actual value
+--- @raises string when values differ
+--- @export
+local function equal(actual: any, expected: any, message: string?): any
+    return actual
+end
+--- Requires different values.
+--- @export
+local function notEqual(actual: any, unwanted: any, message: string?): any end
+--- Requires structurally equal values.
+--- @export
+local function deepEqual(actual: any, expected: any, message: string?): any end
+--- Requires a matching string.
+--- @export
+local function matches(value: any, pattern: string, message: string?): string end
+--- Requires an error.
+--- @export
+local function raises(fn: function(...: any): any, pattern: string?): any end
+
+--- Skips the current case.
+function suite.skip(reason: string): never end
+--- Recognizes a skipped case.
+function suite.isSkip(value: any): boolean end
+--- Returns the skip reason.
+function suite.skipReason(value: any): string? end
+--- Builds named cases.
+function suite.cases(rows: {any}, name: function(any, integer): string, run: function(any, integer): any): any end
+--- Records an unexecuted case.
+function suite.notExecuted(reason: string): never end
+--- Recognizes an unexecuted case.
+function suite.isNotExecuted(value: any): boolean end
+--- Returns the unexecuted reason.
+function suite.notExecutedReason(value: any): string? end
+--- Requires a capability.
+function suite.requireCapability(name: string, available: boolean, evidence: any?): nil end
+--- Records a fact.
+function suite.fact(name: string, value: any): nil end
+--- Records a metric.
+function suite.metric(name: string, value: number, unit: string?): nil end
+--- Records completed work.
+function suite.work(name: string, count: integer): nil end
+--- Resolves a fixture.
+function suite.fixture(key: string, produce: function(string): any): (string, any, boolean) end
+
+function private.hidden(): nil end
+local callable = {equal = equal, notEqual = notEqual, deepEqual = deepEqual, matches = matches, raises = raises}
+callable.suite = suite
+export = setmetatable(callable, {__call = original})
+]]
+    local module, errors = doc.extract(source, "src/assert/init.nupp", "assert")
+    assert(module, errors and errors[1] and errors[1].msg)
+    assert(#module.items == 17, "a callable module lost helpers or exposed private declarations")
+    local expected = {
+        equal = "local function equal(actual: any, expected: any, message: string?): any",
+        notEqual = "local function notEqual(actual: any, unwanted: any, message: string?): any",
+        deepEqual = "local function deepEqual(actual: any, expected: any, message: string?): any",
+        matches = "local function matches(value: any, pattern: string, message: string?): string",
+        raises = "local function raises(fn: function(...: any): any, pattern: string?): any",
+        ["suite.skip"] = "function suite.skip(reason: string): never",
+        ["suite.isSkip"] = "function suite.isSkip(value: any): boolean",
+        ["suite.skipReason"] = "function suite.skipReason(value: any): string?",
+        [
+            "suite.cases"
+        ] = "function suite.cases(rows: {any}, name: function(any, integer): string, run: function(any, integer): any): any",
+        ["suite.notExecuted"] = "function suite.notExecuted(reason: string): never",
+        ["suite.isNotExecuted"] = "function suite.isNotExecuted(value: any): boolean",
+        ["suite.notExecutedReason"] = "function suite.notExecutedReason(value: any): string?",
+        [
+            "suite.requireCapability"
+        ] = "function suite.requireCapability(name: string, available: boolean, evidence: any?): nil",
+        ["suite.fact"] = "function suite.fact(name: string, value: any): nil",
+        ["suite.metric"] = "function suite.metric(name: string, value: number, unit: string?): nil",
+        ["suite.work"] = "function suite.work(name: string, count: integer): nil",
+        ["suite.fixture"] = "function suite.fixture(key: string, produce: function(string): any): string, any, boolean",
+    }
+    for _, item in ipairs(module.items) do
+        assert(item.kind == "function", item.name .. " lost its function signature")
+        assert(item.signature == expected[item.name], item.signature)
+        assert(item.path == "assert." .. item.name, item.path)
+        assert(item.doc.text ~= "", item.name .. " lost its documentation")
+        assert(#item.params > 0, item.name .. " lost its parameter details")
+        assert(#item.returns > 0, item.name .. " lost its result details")
+        if item.name == "equal" then
+            assert(item.params[1].text == "the value to compare")
+            assert(item.returns[1].text == "the actual value")
+            assert(#item.raises == 1 and item.raises[1].type == "string")
+        end
+        expected[item.name] = nil
+    end
+    assert(next(expected) == nil, "a callable helper or nested suite member is missing")
+end
+
 -- An example is the one place a doc comment writes a line that looks like a tag and
 -- is not one, so a fence has to suspend tag parsing rather than eat the annotation
 -- the example exists to show.
