@@ -83,6 +83,28 @@ local function firstUse(c: any, root: string): boolean
     return true
 end
 
+-- Select a declared implementation without loading it or mutating builtin maps.
+function extensions.implementation(env: any, root: string): string?
+    local specification = ROOTS[root]
+    if not specification or not env or env.bootstrapping then
+        return nil
+    end
+    local index = env.ensureProjectIndex and env.ensureProjectIndex(env)
+    local declared = index and index.declaredModules[specification.module]
+    if not declared then
+        local path = env.findModulePath and env.findModulePath(env, specification.module)
+        if path and not (env.isStagedBundledSource and env.isStagedBundledSource(env, specification.module, path)) then
+            return nil
+        end
+        local bundled = env.bundled and env.bundled[specification.module]
+        if not bundled or bundled.declared ~= true then
+            return nil
+        end
+    end
+
+    return specification.module
+end
+
 -- Compile an extension at most once per environment, outside the prelude and
 -- outside its own dependency cycle. Missing modules are normal in the accepting
 -- seed, before their source adoption.
@@ -110,18 +132,8 @@ function extensions.type(c: any, root: string): any
     end
     pending[root] = false
     -- An implicit Lua helper can share a builtin's name without implementing it.
-    -- Only a declared implementation may supply the global root's type.
-    local index = env.ensureProjectIndex and env.ensureProjectIndex(env)
-    local declared = index and index.declaredModules[specification.module]
-    if not declared then
-        local path = env.findModulePath and env.findModulePath(env, specification.module)
-        if path and not (env.isStagedBundledSource and env.isStagedBundledSource(env, specification.module, path)) then
-            return nil
-        end
-        local bundled = env.bundled and env.bundled[specification.module]
-        if not bundled or bundled.declared ~= true then
-            return nil
-        end
+    if not extensions.implementation(env, root) then
+        return nil
     end
     local extension = env.resolveModule and env.resolveModule(env, specification.module)
     local original = env.globals and env.globals[root]

@@ -385,6 +385,137 @@ export function identity(value: Buffer): Buffer return value end
     end)
 end
 
+function M.incrementalRequiredAliasesShareHoistedTypesAndInvalidate()
+    withExtension(function(env)
+        local inc = require("nupp.compiler.project.incremental").new(env.rootDir, {
+            config = {include = {"src"}},
+            cache = false
+        })
+        inc.importModules({
+            io = {
+                interface = {type = inc.env.globals.io.t},
+                exports = {types = {}, typeDefs = {}, values = {}, valueDefs = {}}
+            }
+        })
+        local paths = {}
+
+        local function checked(path)
+            local result = inc.checkFile(path)
+            test.equal(result.syntax, nil)
+            for _, diagnostic in ipairs(result.diags) do
+                test.equal(diagnostic.severity == "error", false, diagnostic.msg)
+            end
+
+            return result
+        end
+
+        for index, alias in ipairs({"io", "streams"}) do
+            local path = env.rootDir .. "/src/alias" .. index .. ".nupp"
+            paths[index] = path
+            inc.openDocument(
+                path,
+                (
+                    "module alias%d\nconst %s = require(\"io\")\n"
+                    .. "export function identity(value: %s.Buffer): %s.Buffer return value end\n"
+                    .. "export type Selected = %s.Buffer\n"
+                ):format(index, alias, alias, alias, alias)
+            )
+            local result = checked(path)
+            local exports = inc.q:get("moduleExports", "nupp.runtime.standardio")
+            test.equal(result.result.moduleExports.types.Selected, exports.types.Buffer)
+        end
+        local old = checked(paths[1]).result.moduleExports.types.Selected
+        local implementation = env.rootDir .. "/src/nupp/runtime/standardio.nupp"
+        inc.changeDocument(
+            implementation,
+            [[
+@!internal
+module nupp.runtime.standardio
+export type Buffer = {count: integer}
+export function newbuffer(value: string): Buffer return {count = #value} end
+export const value: table = rawget(_G, "io") as table
+]]
+        )
+        for _, path in ipairs(paths) do
+            local result = checked(path)
+            local exports = inc.q:get("moduleExports", "nupp.runtime.standardio")
+            test.equal(result.result.moduleExports.types.Selected, exports.types.Buffer)
+            test.equal(result.result.moduleExports.types.Selected == old, false)
+            local reached = {}
+            for _, dependency in ipairs(inc.moduleDependencies(path)) do
+                reached[dependency] = true
+            end
+            test.equal(reached["nupp.runtime.standardio"], true)
+        end
+        inc.changeDocument(
+            implementation,
+            [[
+@!internal
+module nupp.runtime.standardio
+export const value: table = rawget(_G, "io") as table
+]]
+        )
+        for _, path in ipairs(paths) do
+            local failed = false
+            for _, diagnostic in ipairs(inc.checkFile(path).diags) do
+                failed = failed or diagnostic.code == "NUPP2101"
+            end
+            test.equal(failed, true, "removed extension types invalidate every required alias")
+        end
+    end)
+end
+
+function M.incrementalBuiltinExportCyclesKeepPendingNominalIdentity()
+    withExtension(function(env)
+        local inc = require("nupp.compiler.project.incremental").new(env.rootDir, {
+            config = {include = {"src"}},
+            cache = false
+        })
+        local path = env.rootDir .. "/src/dependent.nupp"
+        local implementation = env.rootDir .. "/src/nupp/runtime/standardio.nupp"
+        inc.openDocument(
+            path,
+            [[
+module dependent
+const streams = require("io")
+export function identity(value: streams.Buffer.Nested): streams.Buffer.Nested return value end
+export type Selected = streams.Buffer
+export type Nested = streams.Buffer.Nested
+]]
+        )
+        inc.changeDocument(
+            implementation,
+            [[
+@!internal
+module nupp.runtime.standardio
+export record Buffer
+    record Nested count: integer end
+    label: string
+end
+local dependent = require("dependent")
+export const value: table = rawget(_G, "io") as table
+]]
+        )
+        local result = inc.checkFile(path)
+        test.equal(result.syntax, nil)
+        for _, diagnostic in ipairs(result.diags) do
+            test.equal(diagnostic.severity == "error", false, diagnostic.msg)
+        end
+        local exports = inc.q:get("moduleExports", "nupp.runtime.standardio")
+        test.equal(inc.q:get("moduleExports", "io"), exports)
+        test.equal(inc.moduleSemantic("io").exports, exports)
+        test.equal(result.result.moduleExports.types.Selected, exports.types.Buffer)
+        test.equal(result.result.moduleExports.types.Nested, exports.types.Buffer.nestedTypes.Nested)
+        inc.changeDocument(implementation, "return {}")
+        test.equal(require("nupp.compiler.builtinextensions").implementation(inc.env, "io"), nil)
+        local refused = false
+        for _, diagnostic in ipairs(inc.checkFile(path).diags) do
+            refused = refused or diagnostic.code == "NUPP2101"
+        end
+        test.equal(refused, true, "a headerless lookalike must not retain extension type exports")
+    end)
+end
+
 function M.lexicalTypeNamespacesWinOverExtensionTypes()
     withExtension(function(env)
         local code = compile(

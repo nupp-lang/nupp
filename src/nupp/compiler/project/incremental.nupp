@@ -22,6 +22,7 @@ local parser = require("nupp.compiler.syntax.parser")
 local cst = require("nupp.compiler.syntax.cst")
 local check = require("nupp.compiler.check")
 local envMod = require("nupp.compiler.project.env")
+local builtinExtensions = require("nupp.compiler.builtinextensions")
 local storeMod = require("nupp.compiler.project.store")
 local T = require("nupp.compiler.types")
 
@@ -935,6 +936,16 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     q:define(
         "moduleExports",
         function(self, name)
+            local implementation = builtinExtensions.implementation(env, name)
+            if implementation and implementation ~= name then
+                local projected = self:get("moduleExports", implementation)
+                if projected then
+                    return projected
+                end
+                local path = modulePath(self, implementation)
+                local active = path and activeModules[path]
+                return active and active.declared and active.exports or nil
+            end
             local imported = self:get("importedModule", name)
             if imported then
                 return imported.exports
