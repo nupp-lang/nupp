@@ -1,0 +1,45 @@
+module nupp.core.catalogcallsgeneric
+
+-- Generic functions on the core: plain type parameters erase to dynamic
+-- values, across higher-order calls and several results.
+local function identity<T>(x: T): T
+    return x
+end
+
+local function map<T, U>(xs: {T}, f: function(T): U): {U}
+    local out: {U} = {}
+    for i, v in ipairs(xs) do
+        out[i] = f(v)
+    end
+
+    return out
+end
+
+local function swap<A, B>(a: A, b: B): (B, A)
+    return b, a
+end
+
+local function count<T>(xs: {T}, keep: function(T): boolean): integer
+    local n: integer = 0
+    for _, v in ipairs(xs) do
+        if keep(v) then
+            n = n + 1
+        end
+    end
+
+    return n
+end
+
+local lengths = map({"a", "bcd", "ef"}, function(s: string): integer
+    return #s
+end)
+local doubled = map({1, 2, 3}, function(n: integer): integer
+    return n * 2
+end)
+local x, y = swap("text", 42)
+local big = count(doubled, function(n: integer): boolean
+    return n > 2
+end)
+export = identity(
+    lengths[1] + lengths[2] * 10 + lengths[3] * 100
+) + doubled[3] * 1000 + x * 10000 + #y * 1000000 + big * 100000000

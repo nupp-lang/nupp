@@ -186,3 +186,30 @@ export function intFloatEqual(i: uint64, fbits: uint64): boolean
 
     return native.toInt(f) == native.index(i)
 end
+
+-- True when float bits hold an integral value in int64's range, which Lua
+-- uses as the integer key it equals.
+export function integralFloat(fbits: uint64): boolean
+    local f = native.fromBits(fbits)
+    return native.floor(f) == f and inIntegerRange(fbits)
+end
+
+-- The int64 bits of an integral float in range (see integralFloat).
+export function floatToBits(fbits: uint64): uint64
+    return native.word(native.toInt(native.fromBits(fbits)))
+end
+
+-- The canonical value of int64 `bits` if it exists, without creating one: an
+-- immediate, an interned box, or 0 when no such box is alive.
+export function find(h: heap.Heap*, bits: uint64): uint64
+    if bits + 0x0000800000000000ULL < 0x0001000000000000ULL then
+        return values.TAG_INTEGER | (bits & values.PAYLOAD)
+    end
+    @unsafe do
+        local found = weakindex.weakIntegerLookup(h, bits, 0ULL, h.phase, h.stats.cycles)
+        if found == 0ULL then
+            return 0ULL
+        end
+        return values.TAG_OBJ | found
+    end
+end

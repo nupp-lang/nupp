@@ -369,10 +369,6 @@ function M.closedPacksAndScalarSignaturesAreRequired()
             "one to sixteen checked scalar results"
         },
         {"local function target(value: any): integer return 1 end; return target(1)", "checked scalar type"},
-        {
-            "local function target<T>(value: T): T return value end; return target(1)",
-            "generic or ownership contract is unsupported"
-        },
     }) do
         local owner, call = checked(case[1], true)
         refuses(
@@ -385,6 +381,13 @@ function M.closedPacksAndScalarSignaturesAreRequired()
     local owner, call = checked("local function target(): nil return nil end; return target()")
     local contract = graph.invokeContract(owner, call)
     assert(#contract.signature.rets == 1 and contract.signature.rets[1].tag == "nil")
+end
+
+-- A plain type parameter erases: its values pass as dynamic values.
+function M.plainGenericsEraseInInvokeContracts()
+    local owner, call = checked("local function target<T>(value: T): T return value end; return target(1)", true)
+    local contract = graph.invokeContract(owner, call)
+    assert(#contract.signature.rets == 1 and contract.signature.rets[1].tag == "typevar")
 end
 
 function M.nativeGraphsAndFrozenConsumersExplicitlyRefuse()

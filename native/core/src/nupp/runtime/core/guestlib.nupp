@@ -26,6 +26,15 @@ export const FLOOR_DIVIDE: uint64 = 7ULL
 export const NEXT_STEP: uint64 = 8ULL
 export const TONUMBER: uint64 = 9ULL
 export const GETENV: uint64 = 10ULL
+export const SUB: uint64 = 11ULL
+export const BYTE: uint64 = 12ULL
+export const CHAR: uint64 = 13ULL
+export const REP: uint64 = 14ULL
+export const UPPER: uint64 = 15ULL
+export const LOWER: uint64 = 16ULL
+export const LEN: uint64 = 17ULL
+export const FIND: uint64 = 18ULL
+export const MATCH: uint64 = 19ULL
 
 local function integerValue(value: uint64): int64
     local payload = value & values.PAYLOAD
@@ -264,7 +273,7 @@ local function gmatchNext(ctx: voidptr, stateValue: uint64): uint64
     end
 end
 
--- a .. b over strings and integers; floats raise until float text exists.
+-- a .. b over strings and numbers.
 local function concat2(ctx: voidptr, a: uint64, b: uint64): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
@@ -519,6 +528,256 @@ local function getenv(ctx: voidptr, name: uint64): uint64
     end
 end
 
+-- An integer argument as Lua reads one: an integer, or a float with an exact
+-- integer value; `absent` when the argument is nil.
+local function integerArgument(value: uint64, absent: int64, name: uint64): int64
+    if value == values.NIL then
+        return absent
+    end
+    if ints.isInteger(value) then
+        return native.index(ints.bitsOf(value))
+    end
+    if value & values.QNAN ~= values.QNAN and ints.integralFloat(value) then
+        return native.index(ints.floatToBits(value))
+    end
+    if value & values.QNAN ~= values.QNAN then
+        error("bad argument to string function (number has no integer representation)")
+    end
+    error("bad argument to string function (number expected)")
+
+    return absent
+end
+
+-- The string header of an argument, raising when it is not a string.
+local function stringArgument(value: uint64): uint64
+    local s = strings.header(value)
+    if s == 0ULL then
+        error("bad argument to string function (string expected)")
+    end
+
+    return s
+end
+
+-- Lua's posrelatI: a start position, negative counting from the end.
+local function startPosition(i: int64, length: int64): int64
+    if i > 0 then
+        return i
+    elseif i == 0 then
+        return 1
+    elseif i < 0 - length then
+        return 1
+    end
+
+    return length + i + 1
+end
+
+-- Lua's getendpos: an end position clamped to the string.
+local function endPosition(j: int64, length: int64): int64
+    if j > length then
+        return length
+    elseif j >= 0 then
+        return j
+    elseif j < 0 - length then
+        return 0
+    end
+
+    return length + j + 1
+end
+
+-- string.sub(s, i [, j]).
+local function sub(ctx: voidptr, value: uint64, a: uint64, b: uint64): uint64
+    @unsafe do
+        local s = stringArgument(value)
+        local length = native.index(strings.length(s))
+        local i = startPosition(integerArgument(a, 1, 2ULL), length)
+        local j = endPosition(integerArgument(b, -1, 3ULL), length)
+        if i > j then
+            return values.TAG_OBJ | guestscope.makeString(ctx, strings.bytes(s), 0ULL)
+        end
+        return values.TAG_OBJ
+            | guestscope.makeString(ctx, strings.bytes(s) + native.word(i - 1), native.word(j - i + 1))
+    end
+end
+
+-- string.byte(s [, i]): one byte as an integer, nil outside the string.
+local function byte(value: uint64, a: uint64): uint64
+    @unsafe do
+        local s = stringArgument(value)
+        local length = native.index(strings.length(s))
+        local i = startPosition(integerArgument(a, 1, 2ULL), length)
+        if i > length then
+            return values.NIL
+        end
+        return values.TAG_INTEGER
+            | native.word(native.load8(native.pointer(strings.bytes(s)), native.index(native.word(i - 1))))
+    end
+end
+
+-- string.char(n): one byte, 0 to 255.
+local function char(ctx: voidptr, a: uint64): uint64
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local n = integerArgument(a, -1, 1ULL)
+        if n < 0 or n > 255 then
+            error("bad argument #1 to 'char' (value out of range)")
+        end
+        local h = guestHeap(ctx)
+        local builder = state as strings.Builder*
+        if strings.appendWord(h, builder, native.word(n), 1ULL) ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
+        return values.TAG_OBJ | strings.finish(h, builder)
+    end
+end
+
+-- string.rep(s, n): n copies, empty for n <= 0.
+local function rep(ctx: voidptr, value: uint64, a: uint64): uint64
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local s = stringArgument(value)
+        local n = integerArgument(a, 0, 2ULL)
+        local h = guestHeap(ctx)
+        local builder = state as strings.Builder*
+        if n > 0 and native.word(n) * strings.length(s) > 0x40000000ULL then
+            error("resulting string too large")
+        end
+        local i: int64 = 0
+        while i < n do
+            if strings.appendString(h, builder, s) ~= 0ULL then
+                strings.release(builder)
+                error("not enough memory")
+            end
+            i = i + 1
+        end
+        return values.TAG_OBJ | strings.finish(h, builder)
+    end
+end
+
+-- string.upper and string.lower over ASCII, as the C locale maps them.
+local function casing(ctx: voidptr, value: uint64, upper: boolean): uint64
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local s = stringArgument(value)
+        local h = guestHeap(ctx)
+        local builder = state as strings.Builder*
+        if strings.appendString(h, builder, s) ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
+        local i: uint64 = 0ULL
+        while i < builder.length do
+            local c = native.word(native.load8(native.pointer(builder.base), native.index(i)))
+            if upper and c >= 97ULL and c <= 122ULL then
+                native.store8(native.pointer(builder.base), native.index(i), c - 32ULL)
+            elseif not upper and c >= 65ULL and c <= 90ULL then
+                native.store8(native.pointer(builder.base), native.index(i), c + 32ULL)
+            end
+            i = i + 1ULL
+        end
+        return values.TAG_OBJ | strings.finish(h, builder)
+    end
+end
+
+-- True when a pattern has none of Lua's special characters, so find can
+-- search for it as plain text.
+local function plainPattern(p: uint64): boolean
+    @unsafe do
+        local i: uint64 = 0ULL
+        while i < strings.length(p) do
+            local c = native.word(native.load8(native.pointer(strings.bytes(p)), native.index(i)))
+            if c == 94ULL or c == 36ULL or c == 42ULL or c == 43ULL or c == 63ULL or c == 46ULL then
+                return false
+            end
+            if c == 40ULL or c == 91ULL or c == 37ULL or c == 45ULL then
+                return false
+            end
+            i = i + 1ULL
+        end
+        return true
+    end
+end
+
+-- string.find (start position) and string.match (first capture, or the whole
+-- match) from `init`; nil when nothing matches. In a single-value context
+-- these are Lua's answers.
+local function search(ctx: voidptr, value: uint64, pv: uint64, a: uint64, plainFlag: uint64, matching: boolean): uint64
+    local ms0 = new patterns.MatchState(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = guestHeap(ctx)
+        local s = stringArgument(value)
+        local p = stringArgument(pv)
+        local length = native.index(strings.length(s))
+        local init = startPosition(integerArgument(a, 1, 3ULL), length)
+        if init > length + 1 then
+            return values.NIL
+        end
+        local subject = strings.bytes(s)
+        local pattern = strings.bytes(p)
+        local pEnd = pattern + strings.length(p)
+        local plain = plainFlag ~= values.NIL and plainFlag ~= values.FALSE
+        if not matching and (plain or plainPattern(p)) then
+            -- A plain search: the first position the pattern's bytes occur.
+            local at = subject + native.word(init - 1)
+            local finish = subject + strings.length(s)
+            while at + strings.length(p) <= finish do
+                local k: uint64 = 0ULL
+                while k < strings.length(p)
+                    and native.load8(
+                        native.pointer(at),
+                        native.index(k)
+                    ) == native.load8(native.pointer(pattern), native.index(k)) do
+                    k = k + 1ULL
+                end
+                if k == strings.length(p) then
+                    return values.TAG_INTEGER | (at - subject + 1ULL)
+                end
+                at = at + 1ULL
+            end
+            return values.NIL
+        end
+        local anchor = strings.length(p) > 0ULL and native.word(native.load8(native.pointer(pattern), 0)) == 94ULL
+        if anchor then
+            pattern = pattern + 1ULL
+        end
+        local ms = ms0 as patterns.MatchState*
+        if patterns.prepare(h, ms, subject, strings.length(s), pEnd) ~= 0ULL then
+            patterns.release(ms)
+            error("not enough memory")
+        end
+        local at = subject + native.word(init - 1)
+        local finish = subject + strings.length(s)
+        local answer = values.NIL
+        while at <= finish do
+            local e = patterns.match(h, ms, at, pattern)
+            if e ~= 0ULL then
+                if not matching then
+                    answer = values.TAG_INTEGER | (at - subject + 1ULL)
+                elseif patterns.level(ms) == 0ULL then
+                    answer = values.TAG_OBJ | strings.make(h, at, e - at)
+                else
+                    local start = patterns.captureStart(ms, 0ULL)
+                    local size = patterns.captureSize(ms, 0ULL)
+                    if size == patterns.POSITION then
+                        answer = values.TAG_INTEGER | (start - subject + 1ULL)
+                    else
+                        answer = values.TAG_OBJ | strings.make(h, start, size)
+                    end
+                end
+                break
+            end
+            if anchor then
+                break
+            end
+            at = at + 1ULL
+        end
+        patterns.release(ms)
+        tables.drain(h)
+
+        return answer
+    end
+end
+
 -- Library call `id` with `count` arguments; answers the result value.
 export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint64, c: uint64, d: uint64): uint64
     if id == TOSTRING then
@@ -541,6 +800,24 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         return tonumber(ctx, a)
     elseif id == GETENV then
         return getenv(ctx, a)
+    elseif id == SUB then
+        return sub(ctx, a, b, c)
+    elseif id == BYTE then
+        return byte(a, b)
+    elseif id == CHAR then
+        return char(ctx, a)
+    elseif id == REP then
+        return rep(ctx, a, b)
+    elseif id == UPPER then
+        return casing(ctx, a, true)
+    elseif id == LOWER then
+        return casing(ctx, a, false)
+    elseif id == LEN then
+        return values.TAG_INTEGER | strings.length(stringArgument(a))
+    elseif id == FIND then
+        return search(ctx, a, b, c, d, false)
+    elseif id == MATCH then
+        return search(ctx, a, b, c, values.NIL, true)
     end
     error("unknown core library call")
 

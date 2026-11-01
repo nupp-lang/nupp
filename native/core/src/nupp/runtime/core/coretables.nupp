@@ -14,6 +14,7 @@ const collector = require("nupp.runtime.vm.collector")
 const values = require("nupp.runtime.vm.values")
 const arrays = require("nupp.runtime.vm.valuearray")
 const hashes = require("nupp.runtime.vm.objecttable")
+const ints = require("nupp.runtime.core.coreintegers")
 
 export const OK: uint64 = 0ULL
 export const BAD_KEY: uint64 = 1ULL
@@ -40,16 +41,28 @@ local function mirror(o: heap.Header*): nil
     end
 end
 
--- 1 for keys a table can hold, 0 for nil, NaN and floats.
+-- 1 for keys a table can hold, 0 for nil and NaN.
 local function admissible(key: uint64): uint64
     if key == values.NIL or key == values.QNAN then
         return 0ULL
     end
-    if key & values.QNAN ~= values.QNAN then
-        return 0ULL
-    end
 
     return 1ULL
+end
+
+-- A key as Lua stores it: an integral float is the integer it equals (so
+-- 2.0 and -0.0 key as 2 and 0), boxed when wide. Without `create`, a wide
+-- integer that has no box is answered as 0: no table can hold it.
+local function normalized(h: heap.Heap*, key: uint64, create: boolean): uint64
+    if key & values.QNAN ~= values.QNAN and ints.integralFloat(key) then
+        local bits = ints.floatToBits(key)
+        if create then
+            return ints.make(h, bits)
+        end
+        return ints.find(h, bits)
+    end
+
+    return key
 end
 
 -- The array index (from 1) of an integer key, or 0.
@@ -106,8 +119,20 @@ export function get(table: uint64, key: uint64): uint64
     end
 end
 
+-- The value at a key as Lua reads one, a float key normalized first; nil for
+-- nil and NaN keys.
+export function lookup(h: heap.Heap*, table: uint64, key: uint64): uint64
+    local k = normalized(h, key, false)
+    if k == 0ULL or admissible(k) == 0ULL then
+        return values.NIL
+    end
+
+    return get(table, k)
+end
+
 -- Stores `value` at `key`; nil removes. Answers OK, BAD_KEY or NO_MEMORY.
-export function set(h: heap.Heap*, table: uint64, key: uint64, value: uint64): uint64
+export function set(h: heap.Heap*, table: uint64, raw: uint64, value: uint64): uint64
+    local key = normalized(h, raw, true)
     if admissible(key) == 0ULL then
         return BAD_KEY
     end

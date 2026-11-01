@@ -178,6 +178,9 @@ function generate.program(seed, size)
             elseif a ~= b then
                 emit(a .. ", " .. b .. " = " .. b .. ", (" .. a .. " + " .. expression(1) .. ") % 1000003")
             end
+        elseif roll == 11 and pick(2) == 1 then
+            -- A generic function, its type parameter erased on the core.
+            emit(target() .. " = choose(" .. condition() .. ", " .. expression(1) .. ", " .. expression(1) .. ")")
         elseif roll == 11 then
             emit(target() .. " = bump(" .. expression(1) .. ")")
         elseif roll == 13 then
@@ -189,9 +192,14 @@ function generate.program(seed, size)
                 "math.floor((" .. expression(1) .. " % 100000) / " .. d .. ")",
                 -- Float text: Lua 5.5's 15- or 17-digit form.
                 "(" .. expression(1) .. " / " .. d .. ")",
-                "(-(" .. expression(1) .. ") / 7)"
+                "(-(" .. expression(1) .. ") / 7)",
+                -- The string library over the text built so far.
+                "(s:find(\"1\", 1, true) or 0)",
+                "#s:sub(2, -2)",
+                "(s:byte(-2) or 0)",
+                "#(s:match(\"%d+\") or \"\")"
             }
-            emit("s = s .. tostring(" .. forms[pick(5)] .. ") .. \",\"")
+            emit("s = s .. tostring(" .. forms[pick(9)] .. ") .. \",\"")
         elseif roll == 14 and depth == 0 then
             arrays = arrays + 1
             local name = "u" .. arrays
@@ -218,6 +226,12 @@ function generate.program(seed, size)
     emit("local function bump(n: integer): integer", "local function bump(n)")
     emit("    c = (c + n) % 1000003")
     emit("    return c")
+    emit("end")
+    emit("local function choose<T>(c: boolean, a: T, b: T): T", "local function choose(c, a, b)")
+    emit("    if c then")
+    emit("        return a")
+    emit("    end")
+    emit("    return b")
     emit("end")
     emit("local function two(a: integer, b: integer): (integer, integer)", "local function two(a, b)")
     emit("    return (a + b) % 65521, (a * 3 - b) % 65521")

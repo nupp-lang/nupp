@@ -714,6 +714,10 @@ function verify.catalog(p: any): any
                 -- the call's signature when it runs.
                 local dynamic = contract.target == p.schema.absent
                 need(not dynamic or p.schema.version >= 8, "dynamic call outside its profile")
+                -- A dynamic call's signature is its own use: no owner need share it.
+                if dynamic then
+                    signatures[contract.signature] = true
+                end
                 if not dynamic then
                     local target = reference(contract.target, p.catalog)
                     need(

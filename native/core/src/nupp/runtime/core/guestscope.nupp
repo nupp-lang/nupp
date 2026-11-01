@@ -187,6 +187,13 @@ export function newTable(ctx: voidptr): uint64
     end
 end
 
+-- Reads through coretables.lookup on the entry's heap.
+export function tableGet(ctx: voidptr, table: uint64, key: uint64): uint64
+    @unsafe do
+        return tables.lookup(native.pointer(guestHeap(ctx)) as heap.Heap*, table, key)
+    end
+end
+
 -- Stores through coretables.set on the entry's heap; answers its status.
 export function tableSet(ctx: voidptr, table: uint64, key: uint64, value: uint64): uint64
     @unsafe do
