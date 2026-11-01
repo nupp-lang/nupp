@@ -2878,8 +2878,10 @@ local OWNERSHIP_INTRINSICS: {
     drop = true,
 }
 
-function cst.ownershipIntrinsicMember(member: string): boolean
-    return OWNERSHIP_INTRINSICS[member] == true
+local QUALIFIED_OWNERSHIP_NAMES: {[string]: string} = {attemptall = "attemptAll", borrowfrom = "borrowFrom",}
+
+function cst.ownershipIntrinsicName(member: string): string?
+    return OWNERSHIP_INTRINSICS[member] and member or QUALIFIED_OWNERSHIP_NAMES[member]
 end
 
 --- The ownership intrinsic a callee is written as, before anything asks what
@@ -2910,12 +2912,13 @@ function cst.ownershipIntrinsicSpelling(callee: cst.Node?): string?, boolean?
     end
     local base = callee.obj
     local member = callee.name and callee.name.text or ""
-    if not base or base.kind ~= "name" or not OWNERSHIP_INTRINSICS[member] then
+    local intrinsic = cst.ownershipIntrinsicName(member)
+    if not base or base.kind ~= "name" or not intrinsic then
         return nil
     end
     local baseToken = base.token
 
-    return baseToken and baseToken.text == "own" and member or nil, true
+    return baseToken and baseToken.text == "own" and intrinsic or nil, true
 end
 
 local COMPTIME_TYPE_INTRINSICS: {[string]: boolean} = {sizeof = true, alignof = true, offsetof = true,}

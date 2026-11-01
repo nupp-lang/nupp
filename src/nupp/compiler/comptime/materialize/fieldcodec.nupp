@@ -40,6 +40,7 @@ function fieldcodec.installEvaluator(state: any, env: any, newOpaque: any, prove
         )
     end
     library.fieldCodec = token
+    library.fieldcodec = token
     env.nupp = env.nupp or {}
     env.types.reflect = library
     state.reflectionIntrinsic = library

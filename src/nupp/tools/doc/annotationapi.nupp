@@ -1,0 +1,116 @@
+module nupp.tools.doc.annotationapi
+
+-- Annotation declarations use the compiler registry and the ordinary API item model.
+local registryMod = require("nupp.compiler.annotations")
+local fileDirectives = require("nupp.compiler.syntax.filedirectives")
+local docblock = require("nupp.compiler.syntax.docblock")
+local prose = require("nupp.tools.doc.annotationprose")
+local extractMod = require("nupp.tools.doc.extract")
+const {type Item} = require("nupp.tools.doc.extract")
+
+local annotationapi = {}
+
+-- Hydration only needs type constructors. These describe the same schemas without
+-- loading a checker or allocating semantic types for a parse-only documentation run.
+local function textType(text: string): table
+    return {text = text}
+end
+
+local TYPE_TEXT: registryMod.TypeAPI = {
+    any = textType("any"),
+    nil_ = textType("nil"),
+    string = textType("string"),
+    boolean = textType("boolean"),
+    integer = textType("integer"),
+    array = function(element: any): table
+        return textType("{" .. element.text .. "}")
+    end,
+    map = function(key: any, value: any): table
+        return textType("{[" .. key.text .. "]: " .. value.text .. "}")
+    end,
+    union = function(values: {any}): table
+        local parts = {}
+        for _, value in ipairs(values) do
+            parts[#parts + 1] = value.text
+        end
+
+        return textType(table.concat(parts, " | "))
+    end,
+    literal = function(value: string | number | boolean, _base: table?): table
+        return textType(type(value) == "string" and string.format("%q", value) or tostring(value))
+    end,
+}
+
+local function item(name: string, definition: any, directive: boolean?): Item
+    local path = "annotation-" .. name:gsub("^!", "file-")
+    local targets = directive and {"file"} or definition.targets
+    local policy = directive and "none" or definition.arguments
+    local description = prose[name]
+    local details = description and not description:match("^See ") and {description}
+        or {definition.doc or "", "", description or ""}
+    if not prose[name] and definition.guidePath then
+        details[#details + 1] = "See the [language contract](" .. definition.guidePath .. ")."
+    end
+    details[#details + 1] = ""
+    details[#details + 1] = "Targets: `" .. table.concat(targets, "`, `") .. "`."
+    details[#details + 1] = "Argument policy: `" .. policy .. "`."
+    if definition.singleValue then
+        details[#details + 1] = "The single positional value supplies `" .. definition.singleValue .. "`."
+    end
+    local value: Item = {
+        name = "@" .. name,
+        kind = "annotation",
+        signature = "@" .. name .. (policy ~= "none" and "(...)" or ""),
+        path = path,
+        line = 1,
+        doc = docblock.parse(details),
+        members = {},
+        params = {},
+        returns = {},
+        raises = {},
+        typeargs = {},
+        annotation = {
+            arguments = policy,
+            targets = targets,
+            singleValue = definition.singleValue,
+            fileDirective = directive
+        }
+    }
+    for _, memberName in ipairs(definition.memberOrder or {}) do
+        local member = definition.members[memberName]
+        value.members[
+            #value.members + 1
+        ] = new extractMod.Member(
+            name = memberName,
+            type = member.reference and (member.optional and "type?" or "type") or member.type.text,
+            text = member.doc or "",
+            path = path .. "." .. memberName,
+            params = {},
+            returns = {},
+            raises = {},
+            annotationMember = {optional = member.optional == true, reference = member.reference == true}
+        )
+    end
+
+    return value
+end
+
+--- Projects registered annotations and file directives as API declarations.
+function annotationapi.items(): {Item}
+    local registry = registryMod.new()
+    registryMod.hydrateBuiltins(registry, TYPE_TEXT)
+    local items: {Item} = {}
+    for name, definition in pairs(registry.byname) do
+        items[#items + 1] = item(name, definition)
+    end
+    for name, definition in pairs(fileDirectives) do
+        items[#items + 1] = item("!" .. name, definition, true)
+    end
+    table.sort(items, function(left: Item, right: Item): boolean
+        return left.name < right.name
+    end)
+
+    return items
+end
+
+export = annotationapi

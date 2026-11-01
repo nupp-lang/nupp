@@ -653,6 +653,30 @@ function M.mutableArraysPreserveTheirElementType()
     )
 end
 
+function M.tableMovePreservesElementAndDestinationMutabilityContracts()
+    local here = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
+    local env = require("nupp.compiler.project.env").new(here .. "/..")
+    local source = [[
+local source: {integer} = {1, 2, 3}
+local destination: {integer} = {}
+local first: {integer} = table.move(source, 1, 2, 2)
+local second: {integer} = table.move(source, 1, 2, 1, nil)
+local view: const {integer} = source
+local third: {integer} = table.move(view, 1, 2, 1, destination)
+return first, second, third
+]]
+    testAssert.equal(checkedDiags(source, env), "")
+    for _, invalid in ipairs({
+        "local values: const {integer} = {1, 2}\ntable.move(values, 1, 2, 1)",
+        "local source: {integer} = {1}\nlocal target: const {integer} = {}\ntable.move(source, 1, 1, 1, target)",
+        "local source: {string} = {'x'}\nlocal target: {integer} = {}\ntable.move(source, 1, 1, 1, target)",
+        "local source: {integer} = {1}\ntable.move(source, 1.5, 1, 1)",
+    }) do
+        local codes = checkedDiags(invalid, env)
+        assert(codes ~= "", "an invalid move checked cleanly: " .. invalid)
+    end
+end
+
 function M.directRecordConstructionRequiresFields()
     local decl = "local record Item\nname: string\ncount: integer = 0\nnote: string?\nend\n"
     testAssert.equal(diagsOf(decl .. "local item = new Item()\nreturn item"), "NUPP2208:6")

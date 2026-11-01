@@ -264,7 +264,7 @@ copy into the caller's span. These records expose the existing two-copy path
 and synchronization costs before any residency optimization is attempted.
 
 ::: seealso
-- [annotations.md](../../../reference/annotations.md#built-in-annotations)
+- [`@aot`](../../../api.md#annotation-aot)
   for the exact `@aot` arguments
 - [](gpu) for the generated binding and resident-buffer API
 - [](gpu.layout) for layout functions

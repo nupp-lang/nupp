@@ -143,6 +143,7 @@ local function installIntrinsic(state, library, name, implementation)
     local token = {}
     state.intrinsics[token] = implementation
     library[name] = token
+    library[name:lower()] = token
 end
 
 ----------------------------------------------------------------------------

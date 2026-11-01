@@ -539,6 +539,34 @@ local types: {
     ---     NUPP2420
     @readonly writeAt: @comptime function(value: type, key: type): type,
 
+    --- Accepts the lowercase builder name before compiler-source adoption.
+    --- @internal
+    @readonly nonexhaustive: @comptime function(): type,
+
+    --- Accepts the lowercase builder name before compiler-source adoption.
+    --- @internal
+    @readonly formatarguments: @comptime function(format: type): typepack,
+
+    --- Accepts the lowercase builder name before compiler-source adoption.
+    --- @internal
+    @readonly samenominal: @comptime function(left: type, right: type): boolean,
+
+    --- Accepts the lowercase builder name before compiler-source adoption.
+    --- @internal
+    @readonly readkeys: @comptime function(value: type): {type},
+
+    --- Accepts the lowercase builder name before compiler-source adoption.
+    --- @internal
+    @readonly writekeys: @comptime function(value: type): {type},
+
+    --- Accepts the lowercase builder name before compiler-source adoption.
+    --- @internal
+    @readonly readat: @comptime function(value: type, key: type): type,
+
+    --- Accepts the lowercase builder name before compiler-source adoption.
+    --- @internal
+    @readonly writeat: @comptime function(value: type, key: type): type,
+
     --- Rejects this type application deliberately, with an authored message.
     ---
     --- Distinct from an evaluator crash or a timeout: the message is
@@ -1102,6 +1130,9 @@ record types.derive
     --- @return the referenced type handle
     annotationType: function(argument: types.reflect.AnnotationArgument): any
 
+    --- @internal
+    annotationtype: function(argument: types.reflect.AnnotationArgument): any
+
     --- Passes a named record's first-class `Type<T>` witness to the runtime helper.
     ---
     --- @param subject a transported nominal type handle
@@ -1450,6 +1481,9 @@ record types.reflect
     --- numbers are process-local and must not be persisted.
     extensionKey: function<T>(build: function(host: any): T): ExtensionKey<T>
 
+    --- @internal
+    extensionkey: function<T>(build: function(host: any): T): ExtensionKey<T>
+
     --- Reads the semantic description carried by a first-class type witness.
     --- Generic consumers use the same descriptor as concrete callers.
     runtime: function<T>(typeObject: Type<T>): Info
@@ -1457,6 +1491,9 @@ record types.reflect
     --- Reads an available nominal witness reachable through stored fields or
     --- constructor parameters. An unresolved forward declaration returns nil.
     runtimeType: function(info: Info, index: integer): Type<unknown>?
+
+    --- @internal
+    runtimetype: function(info: Info, index: integer): Type<unknown>?
 
     --- Reflects a concrete type for use inside a `comptime` block.
     ---
@@ -1503,6 +1540,10 @@ record types.reflect
     --- assert(encoded.id == 1 and encoded.text == "hello")
     --- ```
     fieldCodec: @comptime function(info: Info): FieldCodecBlueprint
+
+    --- Accepts the lowercase builder name before compiler-source adoption.
+    --- @internal
+    fieldcodec: @comptime function(info: Info): FieldCodecBlueprint
 end
 
 ----------------------------------------------------------------------------
@@ -1580,6 +1621,9 @@ record nupp.Vec2Library
     --- @return the magnitude
     length: function(x: number, y: number): number
 
+    --- @internal
+    len: function(x: number, y: number): number
+
     --- Computes the squared distance between two points without a square root.
     --- @param ax the first point's x coordinate
     --- @param ay the first point's y coordinate
@@ -1595,6 +1639,9 @@ record nupp.Vec2Library
     --- @param by the second point's y coordinate
     --- @return the distance
     distance: function(ax: number, ay: number, bx: number, by: number): number
+
+    --- @internal
+    dist: function(ax: number, ay: number, bx: number, by: number): number
 
     --- Returns a unit vector in the same direction, or `(0, 0)` for zero.
     --- @param x the vector's x component
@@ -1670,6 +1717,26 @@ record nupp.Vec2Library
     --- @return the reflected x component, or the input x for a zero normal
     --- @return the reflected y component, or the input y for a zero normal
     reflect: function(x: number, y: number, normalX: number, normalY: number): (number, number)
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    lengthsquared: function(x: number, y: number): number
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    distancesquared: function(ax: number, ay: number, bx: number, by: number): number
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    movetowards: function(ax: number, ay: number, bx: number, by: number, distance: number): (number, number)
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    anglebetween: function(ax: number, ay: number, bx: number, by: number): number
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    signedanglebetween: function(ax: number, ay: number, bx: number, by: number): number
 end
 
 --- Three-dimensional rotation operations on `(x, y, z, w)` number quadruples.
@@ -1780,6 +1847,9 @@ record nupp.QuatLibrary
     --- @return the length
     length: function(x: number, y: number, z: number, w: number): number
 
+    --- @internal
+    len: function(x: number, y: number, z: number, w: number): number
+
     --- Returns a unit rotation in the same direction, or the identity for zero.
     ---
     --- The sign is left alone: `q` and `-q` are the same rotation, and which one
@@ -1836,6 +1906,18 @@ record nupp.QuatLibrary
     --- @return the composition's z component
     --- @return the composition's w component
     multiply: function(
+        ax: number,
+        ay: number,
+        az: number,
+        aw: number,
+        bx: number,
+        by: number,
+        bz: number,
+        bw: number
+    ): (number, number, number, number)
+
+    --- @internal
+    mul: function(
         ax: number,
         ay: number,
         az: number,
@@ -2022,6 +2104,33 @@ record nupp.QuatLibrary
     --- @param offset the index the first number is written at
     --- @return The operation returns no value.
     toMatrix: function(x: number, y: number, z: number, w: number, out: {number}, offset: integer): nil
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    lengthsquared: function(x: number, y: number, z: number, w: number): number
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    fromaxisangle: function(x: number, y: number, z: number, radians: number): (number, number, number, number)
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    toaxisangle: function(x: number, y: number, z: number, w: number): (number, number, number, number)
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    fromto: function(
+        ax: number,
+        ay: number,
+        az: number,
+        bx: number,
+        by: number,
+        bz: number
+    ): (number, number, number, number)
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    tomatrix: function(x: number, y: number, z: number, w: number, out: {number}, offset: integer): nil
 end
 
 --- Scalar angle helpers and two-dimensional vector operations.
@@ -2038,6 +2147,54 @@ record nupp.I32MathLibrary
 
     --- Reinterprets the thirty-two bits of an `int32` as a `uint32`.
     toU32: @nosuspend function(a: int32): uint32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    andbits: @nosuspend function(a: int32, b: int32): int32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    orbits: @nosuspend function(a: int32, b: int32): int32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    xorbits: @nosuspend function(a: int32, b: int32): int32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    notbits: @nosuspend function(a: int32): int32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    shiftleft: @nosuspend function(a: int32, count: integer): int32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    shiftrightarithmetic: @nosuspend function(a: int32, count: integer): int32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    rotateleft: @nosuspend function(a: int32, count: integer): int32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    rotateright: @nosuspend function(a: int32, count: integer): int32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    lessthan: @nosuspend function(a: int32, b: int32): boolean
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    lessorequal: @nosuspend function(a: int32, b: int32): boolean
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    fromu32: @nosuspend function(a: uint32): int32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    tou32: @nosuspend function(a: int32): uint32
 end
 
 --- The unsigned 32-bit conversions, rotations, bit counts and zero-safe
@@ -2064,6 +2221,62 @@ record nupp.U32MathLibrary
     popcount: @nosuspend function(a: uint32): uint32
     trailingZeros: @nosuspend function(a: uint32): uint32
     leadingZeros: @nosuspend function(a: uint32): uint32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    andbits: @nosuspend function(a: uint32, b: uint32): uint32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    orbits: @nosuspend function(a: uint32, b: uint32): uint32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    xorbits: @nosuspend function(a: uint32, b: uint32): uint32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    notbits: @nosuspend function(a: uint32): uint32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    shiftleft: @nosuspend function(a: uint32, count: integer): uint32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    shiftrightlogical: @nosuspend function(a: uint32, count: integer): uint32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    rotateleft: @nosuspend function(a: uint32, count: integer): uint32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    rotateright: @nosuspend function(a: uint32, count: integer): uint32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    lessthan: @nosuspend function(a: uint32, b: uint32): boolean
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    lessorequal: @nosuspend function(a: uint32, b: uint32): boolean
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    fromi32: @nosuspend function(a: int32): uint32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    toi32: @nosuspend function(a: uint32): int32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    trailingzeros: @nosuspend function(a: uint32): uint32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    leadingzeros: @nosuspend function(a: uint32): uint32
 end
 
 --- Unsigned 64-bit rotations, bit counts and prefix parity.
@@ -2075,6 +2288,30 @@ record nupp.U64MathLibrary
     trailingZeros: @nosuspend function(a: uint64): uint32
     leadingZeros: @nosuspend function(a: uint64): uint32
     prefixXor: @nosuspend function(a: uint64): uint64
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    andbits: @nosuspend function(a: uint64, b: uint64): uint64
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    rotateleft: @nosuspend function(a: uint64, count: integer): uint64
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    rotateright: @nosuspend function(a: uint64, count: integer): uint64
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    trailingzeros: @nosuspend function(a: uint64): uint32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    leadingzeros: @nosuspend function(a: uint64): uint32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    prefixxor: @nosuspend function(a: uint64): uint64
 end
 
 --- Explicit IEEE-754 binary32 arithmetic. Every input and output is rounded to
@@ -2110,6 +2347,30 @@ record nupp.F32MathLibrary
 
     --- Rounds binary32 to IEEE bfloat16 storage bits, ties to even.
     toBF16Bits: @nosuspend function(value: float32): uint32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    frombits: @nosuspend function(bits: uint32): float32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    tobits: @nosuspend function(value: float32): uint32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    fromf16bits: @nosuspend function(bits: uint32): float32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    tof16bits: @nosuspend function(value: float32): uint32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    frombf16bits: @nosuspend function(bits: uint32): float32
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    tobf16bits: @nosuspend function(value: float32): uint32
 end
 
 --- Scalar, fixed-width, and vector operations on the standard `math` table.
@@ -2158,4 +2419,12 @@ record nupp.MathLibrary
     --- @param to the target angle in radians
     --- @return the signed rotation in `[-pi, pi)`
     deltaAngle: function(from: number, to: number): number
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    wrapangle: function(radians: number): number
+
+    --- Accepts the lowercase namespace function before source adoption.
+    --- @internal
+    deltaangle: function(from: number, to: number): number
 end

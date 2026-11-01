@@ -3451,6 +3451,17 @@ function reference.pointerSections(pointer: string, root: string?): {{
     local path, anchor = pointer:match("^([^#]*)#?(.*)$")
     path, anchor = path or pointer, anchor or ""
     local chapter = reference.chapters[1]
+    if path == "docs/api.md" and (anchor == "annotations" or anchor:match("^annotation%-")) then
+        local items = require("nupp.tools.doc.annotationapi").items()
+        for _, item in ipairs(items) do
+            if item.path == anchor or anchor == "annotations" then
+                local body = require("nupp.tools.doc.markdown").itemBody(item)
+                local section = new reference.Section(title = item.name, body = body, codes = {}, origin = path)
+                found[#found + 1] = {section = section, chapter = chapter}
+            end
+        end
+        return found
+    end
     local code = anchor:upper()
     if path == "docs/reference/diagnostics.md" and code:match("^NUPP%d+$") then
         local entry = explain.lookup(code)

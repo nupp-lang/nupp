@@ -14,6 +14,14 @@ local ROOTS = {
     io = {
         module = "nupp.runtime.standardio",
         members = {
+            Error = true,
+            newbuffer = true,
+            newlines = true,
+            newqueuereader = true,
+            newscalarreader = true,
+            newscalarwriter = true,
+            newstringreader = true,
+            readall = true,
             style = true,
             table = true,
             writeTable = true,
@@ -26,6 +34,20 @@ local ROOTS = {
             colorEnabled = true,
             isTerminal = true,
             columns = true,
+        }
+    },
+    coroutine = {
+        module = "nupp.runtime.standardcoroutine",
+        members = {
+            Cancellation = true,
+            Scope = true,
+            scope = true,
+            checkpoint = true,
+            deadline = true,
+            iscancelled = true,
+            sleep = true,
+            sleepuntil = true,
+            wakeat = true,
         }
     },
     os = {

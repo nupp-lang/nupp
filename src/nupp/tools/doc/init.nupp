@@ -218,9 +218,15 @@ function doc.markdown(
     modules: {extractMod.Module},
     title: string?,
     all: {extractMod.Module}?,
-    overview: string?
+    overview: string?,
+    annotationItems: {extractMod.Item}?
 ): string
-    return markdownMod.render(modules, title, all, overview)
+    local text = markdownMod.render(modules, title, all, overview)
+    if annotationItems and #annotationItems > 0 then
+        text = text .. "\n# Annotations\n\n" .. markdownMod.items(annotationItems, 2)
+    end
+
+    return text
 end
 
 --- JSON with object keys in sorted order, so one model is one document:
@@ -258,7 +264,7 @@ end
 --- Renders the parse-only documentation model for external generators. The envelope
 --- carries a version so consumers can reject a shape they do not understand rather
 --- than silently misreading it.
-function doc.json(modules: {extractMod.Module}): string
+function doc.json(modules: {extractMod.Module}, annotationItems: {extractMod.Item}?): string
     local function array(items, convert)
         local out = json.asArray({})
         for _, item in ipairs(items or {}) do
@@ -300,6 +306,8 @@ function doc.json(modules: {extractMod.Module}): string
             isMetamethod = value.isMetamethod,
             isType = value.isType,
             comptimeKind = value.comptimeKind,
+            lua = value.lua,
+            annotationMember = value.annotationMember,
             members = value.members and array(value.members, member) or nil,
             annotations = annotations(value.annotations),
         }
@@ -312,7 +320,9 @@ function doc.json(modules: {extractMod.Module}): string
             name = value.name,
             kind = value.kind,
             comptimeKind = value.comptimeKind,
+            lua = value.lua,
             signature = value.signature,
+            annotation = value.annotation,
             path = value.path,
             module = value.module,
             line = value.line,
@@ -350,7 +360,7 @@ function doc.json(modules: {extractMod.Module}): string
         }
     end)
 
-    return sortedJson({schemaVersion = 3, modules = model}) .. "\n"
+    return sortedJson({schemaVersion = 3, modules = model, annotations = array(annotationItems, item)}) .. "\n"
 end
 
 ----------------------------------------------------------------------------
@@ -524,8 +534,9 @@ local function loadModules(root, config, settings, requested)
     -- declaration; the bare spelling is rewritten only where it is declared, because
     -- everything else a signature mentions bare is some other declaration -- here a
     -- record the alias does not publish and whose own name must survive.
-    local function renamed(signature: string, member: string, name: string): string
-        local rewritten = signature:gsub("([%w_]+)%." .. member .. "%f[^%w_]", name)
+    local function renamed(signature: string, member: string, name: string, qualified: string): string
+        local escaped = qualified:gsub("([^%w_])", "%%%1")
+        local rewritten = signature:gsub("%f[%w_]" .. escaped .. "%f[^%w_]", name)
         local at = 1
         while true do
             local space, word = rewritten:match("^(%s*)([%w_]+)", at)
@@ -567,7 +578,7 @@ local function loadModules(root, config, settings, requested)
             then
                 local expanded = copy(projected(candidate, origin, seen))
                 expanded.name, expanded.path, expanded.module, expanded.line = item.name, item.path, item.module, item.line
-                expanded.signature = renamed(expanded.signature, member, item.name)
+                expanded.signature = renamed(expanded.signature, member, item.name, candidate.path)
                 if item.doc.text ~= "" then
                     expanded.doc = item.doc
                 end
@@ -578,12 +589,14 @@ local function loadModules(root, config, settings, requested)
                 -- reaches every type the member writes, not only the line above them.
                 local function renameMembers(members: any): nil
                     for _, field in ipairs(members or {}) do
-                        field.type = field.type and renamed(field.type, member, item.name) or field.type
+                        field.type = field.type and renamed(field.type, member, item.name, candidate.path) or field.type
                         for _, param in ipairs(field.params or {}) do
-                            param.type = param.type and renamed(param.type, member, item.name) or param.type
+                            param.type = param.type and renamed(param.type, member, item.name, candidate.path)
+                                or param.type
                         end
                         for _, value in ipairs(field.returns or {}) do
-                            value.type = value.type and renamed(value.type, member, item.name) or value.type
+                            value.type = value.type and renamed(value.type, member, item.name, candidate.path)
+                                or value.type
                         end
                         renameMembers(field.members)
                     end
@@ -1096,7 +1109,7 @@ local function configuredPages(root, settings, title, standardLibrary: stdlibMod
         standardLibrary,
         "standard library index",
         true,
-        "LuaJIT",
+        "API reference",
         standardLibrary and standardLibrary.navigation or nil
     )
     if not added then
@@ -1673,7 +1686,10 @@ function doc.build(root: string?, config: Config2, settings: Target?, opts: tabl
     filesMod.collect(written)
     local code: integer, message: string? = 0, nil
     if format == "markdown" then
-        local ok, err = writeFile(output, doc.markdown(modules, title, nil, nil))
+        local ok, err = writeFile(
+            output,
+            doc.markdown(modules, title, nil, nil, standardLibrary and standardLibrary.annotationItems)
+        )
         if not ok then
             code, message = 1, tostring(err)
         end
@@ -1685,13 +1701,16 @@ function doc.build(root: string?, config: Config2, settings: Target?, opts: tabl
     elseif format == "both" then
         local ok, err = renderSite(root, output, modules, title, settings, standardLibrary)
         if ok then
-            ok, err = writeFile(join(output, "api.md"), doc.markdown(modules, title, nil, nil))
+            ok, err = writeFile(
+                join(output, "api.md"),
+                doc.markdown(modules, title, nil, nil, standardLibrary and standardLibrary.annotationItems)
+            )
         end
         if not ok then
             code, message = 1, tostring(err)
         end
     elseif format == "json" then
-        local ok, err = writeFile(output, doc.json(modules))
+        local ok, err = writeFile(output, doc.json(modules, standardLibrary and standardLibrary.annotationItems))
         if not ok then
             code, message = 1, tostring(err)
         end

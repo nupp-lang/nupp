@@ -167,23 +167,15 @@ function aot.install(c: state.Checker): aot.Ops
                 end
                 local exact = exactCall(current as cst.Call)
                 local identity = exact ~= nil and apiidentity.canonical(exact.identity) or nil
-                local order: string?
-                local operation: string?
                 if identity ~= nil then
-                    local contract = reducerContracts.CONSTRUCTORS[identity]
+                    local key = identity:lower()
+                    local contract = reducerContracts.CONSTRUCTORS[key] or reducerContracts.FLOATING[key]
                     if contract ~= nil then
                         return contract.order, "add", contract.operation == "dot" and 2 or 1
                     end
-                    order, operation = identity:match("^simd%.reducer%.(%a+)(%u%l+)$")
-                end
-                if order ~= "ordered" and order ~= "pairwise" and order ~= "algebraic" and order ~= "compensated" then
-                    return nil, nil, nil
-                end
-                if operation ~= "Sum" and operation ~= "Product" and operation ~= "Dot" then
-                    return nil, nil, nil
                 end
 
-                return order, "add", operation == "Dot" and 2 or 1
+                return nil, nil, nil
             end
 
             local function diagnose(current: any, message: string): nil

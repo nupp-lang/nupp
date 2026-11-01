@@ -118,6 +118,46 @@ end
 
 local M = {}
 
+function M.lowercaseBuilderPathsRespectLocalBindings()
+    local nominal, open = run(
+        [[
+local types = {
+    samenominal = function(left: integer, right: integer): boolean return left ~= right end,
+    nonexhaustive = function(): integer return 17 end,
+}
+local nominal: boolean = types.samenominal(1, 2)
+local open: integer = types.nonexhaustive()
+return nominal, open
+]]
+    )
+    testAssert.equal(nominal, true)
+    testAssert.equal(open, 17)
+end
+
+function M.lowercaseFieldcodecKeepsTheExistingMaterializationContract()
+    local left, right = run(
+        [[
+local record Item
+    value: integer
+end
+const old: types.reflect.FieldCodec<Item> = comptime do
+    return types.reflect.fieldCodec(types.reflect(Item))
+end
+const current: types.reflect.FieldCodec<Item> = comptime do
+    return types.reflect.fieldcodec(types.reflect(Item))
+end
+local value = new Item(value = 23)
+local left: integer = old:encode(value).value
+local decoded, reason = current:decode(current:encode(value))
+if decoded == nil then error(reason) end
+local right: integer = decoded.value
+return left, right
+]]
+    )
+    testAssert.equal(left, 23)
+    testAssert.equal(right, 23)
+end
+
 function M.internsStructurallyDistinctTypesApart()
     local value = evaluateTypeBlueprint(
         [[

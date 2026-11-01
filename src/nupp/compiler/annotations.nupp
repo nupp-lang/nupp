@@ -275,7 +275,7 @@ local BUILTINS = {
         builtin = true,
         targets = {"type"},
         doc = "Requires a callable type reproducible in another isolated Lua state.",
-        docsPath = "docs/reference/annotations.md#built-in-annotations",
+        docsPath = "docs/api.md#annotations",
     },
     {
         name = "comptime",
@@ -283,7 +283,7 @@ local BUILTINS = {
         builtin = true,
         targets = {"type", "function", "type-declaration"},
         doc = "Restricts a callable or type declaration to compile-time use.",
-        docsPath = "docs/reference/annotations.md#built-in-annotations",
+        docsPath = "docs/api.md#annotations",
     },
     {
         name = "noalloc",
@@ -331,42 +331,42 @@ local BUILTINS = {
         builtin = true,
         targets = {"expression", "block", "conditional", "loop", "local-binding", "assignment", "call"},
         doc = "Authorizes unsafe operations in one statement or operand; nested function bodies authorize their own operations.",
-        docsPath = "docs/reference/annotations.md#unsafe-operations",
+        docsPath = "docs/learn/language/annotations.md#unsafe-operations",
     },
     {
         name = "annotation",
         arguments = "definition",
         targets = {"record", "struct"},
         doc = "Declares a record or struct as an annotation definition; `targets` says where applications may attach.",
-        docsPath = "docs/reference/annotations.md#defining-an-annotation",
+        docsPath = "docs/learn/language/annotations.md#defining-an-annotation",
     },
     {
         name = "annotationValue",
         arguments = "none",
         targets = {"field"},
         doc = "Marks one annotation-definition field as the single positional value, so `@name(value)` and `@name(field = value)` mean the same thing.",
-        docsPath = "docs/reference/annotations.md#single-value-applications",
+        docsPath = "docs/learn/language/annotations.md#single-value-applications",
     },
     {
         name = "ref",
         arguments = "none",
         targets = {"field"},
         doc = "Marks an annotation-definition field whose value is a type reference rather than a literal constant.",
-        docsPath = "docs/reference/annotations.md#type-reference-members",
+        docsPath = "docs/learn/language/annotations.md#type-reference-members",
     },
     {
         name = "allow",
         arguments = "warnings",
         targets = {"statement"},
         doc = "Suppresses the named lints, by name or code, for the statement it decorates. Does not suppress a type error.",
-        docsPath = "docs/reference/annotations.md#allow",
+        docsPath = "docs/api.md#annotation-allow",
     },
     {
         name = "override",
         arguments = "none",
         targets = {"function"},
         doc = "Marks a method that replaces an inherited interface method; required on child-interface overrides and on implementations replacing a default, and an error when no matching method exists.",
-        docsPath = "docs/reference/annotations.md#override",
+        docsPath = "docs/api.md#annotation-override",
     },
     {
         name = "partition",
@@ -374,7 +374,7 @@ local BUILTINS = {
         targets = {"field"},
         builtin = true,
         doc = "An audited ownership assertion: the method's first result carries two sibling-disjoint regions in the named fields, on a sealed interface only.",
-        docsPath = "docs/reference/annotations.md#partition",
+        docsPath = "docs/api.md#annotation-partition",
     },
     {
         name = "effects",
@@ -388,7 +388,7 @@ local BUILTINS = {
         arguments = "names",
         targets = {"function"},
         doc = "Names guarantees a function may give up, of eight: function-identity, load-order, error-site, frames, gc-timing, table-order, and the numeric fp-contract and fp-transcendentals. Permits a rewrite that would otherwise change observable behavior.",
-        docsPath = "docs/reference/annotations.md#relaxing-observable-guarantees",
+        docsPath = "docs/api.md#annotation-relax",
     },
     {
         name = "derive",
@@ -397,7 +397,7 @@ local BUILTINS = {
         builtin = true,
         qualifiedNames = true,
         doc = "Runs a closed comptime recipe, e.g. `types.Debug`, that adds checked members or data without exposing source or AST macros.",
-        docsPath = "docs/reference/annotations.md#derive",
+        docsPath = "docs/api.md#annotation-derive",
     },
     {
         name = "cli",
@@ -429,7 +429,7 @@ local BUILTINS = {
         targets = {"declaration", "field", "c-declaration"},
         builtin = true,
         doc = "Marks an API for migration while keeping it callable. Hover shows the reason and replacement, and a use reports the suppressible `deprecated` lint.",
-        docsPath = "docs/reference/annotations.md#deprecated",
+        docsPath = "docs/api.md#annotation-deprecated",
     },
     {
         name = "syntax",
@@ -437,7 +437,7 @@ local BUILTINS = {
         targets = {"local-binding"},
         builtin = true,
         doc = "Names the embedded language of a local/const long-string initializer, e.g. `@syntax(\"json\")`, for editor syntax highlighting.",
-        docsPath = "docs/reference/annotations.md#syntax",
+        docsPath = "docs/api.md#annotation-syntax",
     },
     {
         name = "aot",
@@ -445,7 +445,7 @@ local BUILTINS = {
         targets = {"function"},
         builtin = true,
         doc = "Reserves a required whole-function ahead-of-time compilation contract. A build's `aot` policy decides what happens with it: off (default) or require, which compiles `@aot(target = \"gpu\")` kernels.",
-        docsPath = "docs/reference/annotations.md#aot",
+        docsPath = "docs/api.md#annotation-aot",
     },
 }
 
@@ -467,7 +467,9 @@ function annotations.new(withBuiltins: boolean?): annotations.Registry
     )
     if withBuiltins ~= false then
         for _, spec in ipairs(BUILTINS) do
-            assert(registry:define(spec))
+            local definition = assert(registry:define(spec))
+            definition.guidePath = not spec.docsPath:match("^docs/api%.md") and spec.docsPath or nil
+            definition.docsPath = "docs/api.md#annotation-" .. definition.name
         end
     end
 
@@ -496,7 +498,7 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
     end
 
     local cli = registry:get("cli")
-    local cliDocs = "docs/learn/projects/command-line-applications.md#derive-typed-arguments"
+    local cliDocs = "docs/api.md#annotation-cli"
 
     local function cliMember(name, t, reference)
         local value = member(name, optional(t), true, nil, cliDocs)
@@ -568,7 +570,7 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
             ),
             true,
             "Selects the execution family: `\"cpu\"` (the default) or `\"gpu\"`.",
-            "docs/reference/annotations.md#aot"
+            "docs/api.md#annotation-aot"
         ),
     }
     aot.memberOrder = {"target"}
@@ -580,13 +582,13 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
             optional(typesApi.string),
             true,
             "The name the event registers under; the declaration's own name when omitted.",
-            "docs/reference/derives.md#event"
+            "docs/api.md#annotation-event"
         ),
     }
     event.memberOrder = {"name"}
 
     local debug = registry:get("debug")
-    local debugDocs = "docs/reference/derives.md#debug"
+    local debugDocs = "docs/api.md#annotation-debug"
     debug.members = {
         skip = member(
             "skip",
@@ -606,7 +608,7 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
     debug.memberOrder = {"skip", "redact"}
 
     local deprecated = registry:get("deprecated")
-    local deprecatedDocs = "docs/reference/annotations.md#deprecated"
+    local deprecatedDocs = "docs/api.md#annotation-deprecated"
     deprecated.members = {
         reason = member(
             "reason",
@@ -633,7 +635,7 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
             typesApi.string,
             false,
             "The embedded language name, e.g. `\"json\"`, used for editor syntax highlighting.",
-            "docs/reference/annotations.md#syntax"
+            "docs/api.md#annotation-syntax"
         ),
     }
     syntax.memberOrder = {"value"}

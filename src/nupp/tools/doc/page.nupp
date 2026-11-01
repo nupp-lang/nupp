@@ -127,23 +127,12 @@ local function moduleTree(modules, pages)
         node.href = moduleFile(module.name)
     end
 
-    local function entries(node, items, target)
-        for _, item in ipairs(items or {}) do
-            local entry = child(node, item.name)
-            if not entry.module then
-                entry.href = target .. "#" .. item.path
-            end
-            entries(entry, item.items or item.members, target)
-        end
-    end
-
     for _, candidate in ipairs(pages or {}) do
         if candidate.navigation then
             local catalog = candidate.navigation
             local target = urlsMod.routeFile(candidate.path)
             for _, library in ipairs(catalog.libraries) do
                 local node = qualified(library.name)
-                node.builtin = true
                 node.href = moduleFile(library.name)
             end
 
@@ -154,32 +143,17 @@ local function moduleTree(modules, pages)
                 local node = child(root, key, name)
                 node.category = true
                 node.href = target .. "#" .. anchor
-                entries(node, items, target)
-                for _, item in ipairs(items) do
-                    if item.module then
-                        node.children[item.name].href = moduleFile(item.module) .. "#" .. item.path
-                    end
-                end
             end
 
             category("@globals", "Globals", "globals", catalog.globals)
             category("@intrinsic-types", "Intrinsic types", "types", catalog.types)
             category("@reflection", "Layout reflection", "reflection", catalog.reflection)
-            for _, item in ipairs(catalog.globals) do
-                local node = root.children[item.name]
-                if node and node.module then
-                    node.builtin = true
-                    local entry = root.children["@globals"].children[item.name]
-                    entry.href = moduleFile(node.module.name) .. "#" .. item.path
-                end
-            end
+            category("@annotations", "Annotations", "annotations", catalog.annotations or {})
+
         end
     end
 
     local function finish(node)
-        if node.builtin and node.module then
-            entries(node, node.module.items, moduleFile(node.module.name))
-        end
         table.sort(node.order, function(left, right)
             local a, b = node.children[left], node.children[right]
             if a.category ~= b.category then
@@ -360,30 +334,26 @@ local function sidebar(modules, current, prefix, pages, currentPath)
             end
         end
     end
+    local apiLabel = "API reference"
+    for _, candidate in ipairs(pages or {}) do
+        if candidate.navigation then
+            local active = candidate.path == currentPath and ' aria-current="page"' or ""
+            apiLabel = '<a' .. active .. ' href="' .. pageLink(prefix, candidate.path) .. '">API reference</a>'
+            break
+        end
+    end
     out[
         #out + 1
     ] = '<li class="nuppdoc-sidebar-section"><details'
         .. apiOpen
-        .. '><summary>API reference</summary>'
-        .. '<ul class="nuppdoc-module-tree">'
+        .. '><summary>'
+        .. apiLabel
+        .. '</summary><ul class="nuppdoc-module-tree">'
         .. moduleTreeHtml(
             moduleTree(modules, pages),
             current,
             prefix
         )
-    -- The aggregate index remains reachable beside the merged library entries,
-    -- including declarations a reader searches across with the browser's find.
-    for _, candidate in ipairs(pages or {}) do
-        if candidate.api then
-            local active = candidate.path == currentPath and ' aria-current="page"' or ""
-            out[
-                #out + 1
-            ] = '<li><a' .. active .. ' href="' .. pageLink(
-                prefix,
-                candidate.path
-            ) .. '">' .. htmlEscape(candidate.navigationTitle or candidate.title) .. "</a></li>"
-        end
-    end
     out[#out + 1] = "</ul></details></li></ul></aside>"
 
     return table.concat(out)
@@ -659,6 +629,13 @@ function page.render(
     layout: string?
 ): string
     local prefix = relativePrefix(file)
+    local apiIndex = prefix .. (modules[1] and moduleFile(modules[1].name) or "index.html")
+    for _, candidate in ipairs(pages or {}) do
+        if candidate.navigation then
+            apiIndex = pageLink(prefix, candidate.path)
+            break
+        end
+    end
     local home = layout == "home"
     local shellClass = home and "nuppdoc-shell nuppdoc-home-shell" or "nuppdoc-shell"
     local contentClass = home and "nuppdoc-content nuppdoc-home-content" or "nuppdoc-content"
@@ -745,7 +722,8 @@ function page.render(
         .. '<div class="nuppdoc-top-nav"><a href="'
         .. prefix
         .. 'getting-started/index.html">Getting started</a><a href="'
-        .. 'https://nupp.org/modules/nupp/index.html">API</a></div><div class="nuppdoc-actions">'
+        .. apiIndex
+        .. '">API</a></div><div class="nuppdoc-actions">'
         .. table.concat(
             actions
         ) .. search .. mobileOutlineAction .. '</div></nav></header>' .. (

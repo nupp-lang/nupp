@@ -578,7 +578,7 @@ end
 function M.standardLibraryRootsSharePrivateImplementationOnlyWithEachOther()
     withProject({["src/app/main.nupp"] = "module app.main\n"}, function(dir)
         local env = projectEnv(dir)
-        for _, consumer in ipairs({"nupp.tools.consumer", "serde.json", "binary.hash.digest"}) do
+        for _, consumer in ipairs({"nupp.tools.consumer", "serde.json", "binary.hash.digest", "coroutine.workers"}) do
             for _, implementation in ipairs({
                 "nupp.runtime.packages",
                 "nupp.serde.internal.value",
@@ -1147,6 +1147,82 @@ local record Value end
             assert(diagnosticContaining(diags, "not an exported comptime derive provider"), diags[1] and diags[1].msg)
         end)
     end
+end
+
+function M.mergedSpanFacadeKeepsTrustedRangeProofsAndRefusals()
+    withProject(
+        {
+            [
+                "src/binary/span.nupp"
+            ] = [[
+module binary.span
+local spans = require("nupp.mem.span")
+local indexed = require("nupp.mem.indexed")
+export type Span<T> = spans.Span<T>
+export type WriteSpan<T> = spans.WriteSpan<T>
+export type Range = indexed.Range
+export const range = indexed.range
+export const writecarray = spans.writeCarray
+]],
+            [
+                "src/main.nupp"
+            ] = [[
+module main
+local span = require("binary.span")
+export struct Cell value: int32 end
+export function work(exclusive output: span.WriteSpan<Cell>): nil
+    const values = output
+    const rows = span.range(1, #values, values)
+    for index = rows.first, rows.last do
+        values[index].value += 1
+    end
+end
+export function fill(exclusive storage: Cell[?], count: integer): nil
+    const values = span.writecarray(storage, count)
+    for index = 1, #values do
+        values[index].value = 7
+    end
+    own.drop(values)
+end
+]],
+        },
+        function(dir)
+            local env = projectEnv(dir)
+            local filename = dir .. "/src/main.nupp"
+            local parsed = parser.parse(readFile(filename), filename)
+            local diagnostics = check.check(parsed, filename, env)
+            testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+            require("nupp.compiler.lua.optimize").run(parsed, {level = 1})
+            local code, generated = gen.generate(parsed, filename)
+            testAssert.equal(#generated, 0)
+            assert(
+                code:gsub("%s+", ""):find(".pointer[", 1, true),
+                "the merged facade retains the range's indexed-view proof: " .. code
+            )
+            local compact = code:gsub("%s+", "")
+            assert(not compact:find(".writecarray(", 1, true), "the final factory retains root virtualization")
+            assert(compact:find("._rootCount(count,", 1, true), "the virtual root retains constructor validation")
+            assert(compact:find("[0+index-1].value=7", 1, true), "the final factory retains direct stores")
+            local invalid = parser.parse(
+                [[
+local span = require("binary.span")
+const rows = span.range(1, 1, {})
+]],
+                "invalid-span-consumer.nupp"
+            )
+            local refused = check.check(invalid, "invalid-span-consumer.nupp", env)
+            assert(diagnosticContaining(refused, "requires a standard Span or SoA view"))
+            local shadow = parser.parse(
+                [[
+local span = {range = function(first: integer, last: integer, value: table): integer return first end}
+const rows = span.range(1, 1, {})
+]],
+                "shadow-span-consumer.nupp"
+            )
+            local ordinary = check.check(shadow, "shadow-span-consumer.nupp", env)
+            testAssert.equal(#ordinary, 0, ordinary[1] and ordinary[1].msg)
+        end
+    )
 end
 
 return M

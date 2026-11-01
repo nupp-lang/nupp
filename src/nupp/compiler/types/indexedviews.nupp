@@ -98,25 +98,34 @@ function indexed.spanElement(t: Type): Type?
     return nominal.typeArgs and nominal.typeArgs[1] or nil
 end
 
+local SPAN_PRODUCERS: {
+    [string]: 'carray' | 'fixed-carray' | 'string'
+} = {
+    fromCarray = "carray",
+    writeCarray = "carray",
+    fromcarray = "carray",
+    writecarray = "carray",
+    fromFixedCarray = "fixed-carray",
+    writeFixedCarray = "fixed-carray",
+    fromfixedcarray = "fixed-carray",
+    writefixedcarray = "fixed-carray",
+    fromString = "string",
+    fromstring = "string",
+}
+
 --- Describes a sealed standard module function which creates a root view.
 --- The call checker supplies the already-resolved export identity. A matching
 --- source name alone is deliberately insufficient.
 function indexed.exportProducer(moduleName: string, member: string, result: Type): indexed.Producer?
-    if moduleName ~= "nupp.mem.span" then
+    if moduleName ~= "nupp.mem.span" and moduleName ~= "binary.span" then
         return nil
     end
     local descriptor = describe(result)
     if not descriptor then
         return nil
     end
-    local kind: 'carray' | 'fixed-carray' | 'string' | 'heap' | 'soa'
-    if member == "fromCarray" or member == "writeCarray" then
-        kind = "carray"
-    elseif member == "fromFixedCarray" or member == "writeFixedCarray" then
-        kind = "fixed-carray"
-    elseif member == "fromString" then
-        kind = "string"
-    else
+    local kind = SPAN_PRODUCERS[member]
+    if not kind then
         return nil
     end
 

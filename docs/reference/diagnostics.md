@@ -132,7 +132,7 @@ that page:
 | --- | --- | --- |
 | Affine types | [affine-types.md](../learn/runtime/ownership/affine-types.md) | `NUPP2606` |
 | Ahead-of-time compilation | [ahead-of-time.md](../learn/performance/ahead-of-time/index.md) | `NUPP2902`, `NUPP2903`, `NUPP2909` through `NUPP2911`; `NUPP2905` through `NUPP2908` are retired |
-| Annotations | [annotations.md](annotations.md) | `NUPP2108`, `NUPP2112`, `NUPP2113`, `NUPP2119`, `NUPP2902`, `NUPP2903` |
+| Annotations | [../learn/language/annotations.md](../learn/language/annotations.md) | `NUPP2108`, `NUPP2112`, `NUPP2113`, `NUPP2119`, `NUPP2902`, `NUPP2903` |
 | Associated types | [associated-types.md](../learn/language/types/associated-types.md) | `NUPP2127`, `NUPP2128`, `NUPP2129`, `NUPP2134`, `NUPP2135`, `NUPP2511` |
 | C interop | [c-interop.md](../learn/runtime/c-interop/index.md) | `NUPP2201`, `NUPP2402`, `NUPP2403`, `NUPP2904` |
 | Checked spans | [](nupp.mem.span) | `NUPP2001`, `NUPP2004`, `NUPP2602`, `NUPP2604` |

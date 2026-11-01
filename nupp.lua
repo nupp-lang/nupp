@@ -537,7 +537,7 @@ return {
                 -- is the one the site never shows. It sits in the API reference
                 -- beside `nupp`, because a reader looking a name up does not know
                 -- which of the two libraries declared it until they have found it.
-                stdlib = {path = "modules/luajit", title = "LuaJIT standard library",},
+                stdlib = {path = "api", title = "API reference",},
                 -- The site is the docs tree: a page is published by being written
                 -- to `docs/`, at the route its path gives, under the title its
                 -- heading gives. What a path cannot say, a page says in its own
