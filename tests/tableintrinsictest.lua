@@ -73,6 +73,23 @@ return destination, result == destination, empty == destination and destination[
     testAssert.matches(tostring(problem), "number expected")
 end
 
+function M.tableMoveKeepsAdjacentInt64EndpointKeys()
+    local same, first, last = run(
+        [[
+local first: integer = 0x7ffffffffffffffe
+local last: integer = 0x7fffffffffffffff
+local source: {integer} = {}
+source[first], source[last] = 17, 29
+local destination: {integer} = {}
+local result = table.move(source, first, last, first, destination)
+return result == destination, destination[first], destination[last]
+]]
+    )
+    testAssert.equal(same, true)
+    testAssert.equal(first, 17)
+    testAssert.equal(last, 29)
+end
+
 function M.tableNewAndClearRun()
     local src = table.concat(
         {

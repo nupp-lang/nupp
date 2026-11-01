@@ -1192,17 +1192,60 @@ end
             local parsed = parser.parse(readFile(filename), filename)
             local diagnostics = check.check(parsed, filename, env)
             testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
-            require("nupp.compiler.lua.optimize").run(parsed, {level = 1})
-            local code, generated = gen.generate(parsed, filename)
-            testAssert.equal(#generated, 0)
-            assert(
-                code:gsub("%s+", ""):find(".pointer[", 1, true),
-                "the merged facade retains the range's indexed-view proof: " .. code
-            )
-            local compact = code:gsub("%s+", "")
-            assert(not compact:find(".writecarray(", 1, true), "the final factory retains root virtualization")
-            assert(compact:find("._rootCount(count,", 1, true), "the virtual root retains constructor validation")
-            assert(compact:find("[0+index-1].value=7", 1, true), "the final factory retains direct stores")
+            local rangeProof, factoryProof = false, false
+            local seen = {}
+
+            local function inspect(node)
+                if type(node) ~= "table" or seen[node] then
+                    return
+                end
+                seen[node] = true
+                rangeProof = rangeProof or node.indexedRangeCall ~= nil
+                factoryProof = factoryProof or node.indexedViewProducer ~= nil
+                for _, child in ipairs(node) do
+                    inspect(child)
+                end
+            end
+
+            inspect(parsed.root)
+            assert(rangeProof, "the merged facade retains the trusted indexed range")
+            assert(factoryProof, "the final factory retains its checked view producer")
+            local facadePath = dir .. "/src/binary/span.nupp"
+            local facade = parser.parse(readFile(facadePath), facadePath)
+            local facadeErrors = check.check(facade, facadePath, env)
+            testAssert.equal(#facadeErrors, 0, facadeErrors[1] and facadeErrors[1].msg)
+            local loadImage = assert(rawget(_G, "__nupp_load_image"))
+            local oldSpan, preloadSpan = package.loaded["binary.span"], package.preload["binary.span"]
+            local oldMain, preloadMain = package.loaded.main, package.preload.main
+            local ok, problem = pcall(function()
+                program.installSourceModules()
+                package.loaded["binary.span"] = nil
+                package.preload["binary.span"] = assert(loadImage(program.image(facade, "binary.span", facadePath)))
+                package.loaded.main = nil
+                package.preload.main = assert(loadImage(program.image(parsed, "main", filename)))
+                local callerPath = dir .. "/src/consumer.nupp"
+                local caller = parser.parse(
+                    [[
+local main = require("main")
+local span = require("binary.span")
+const storage = carray(main.Cell, 2)
+main.fill(storage, 2)
+const values = span.writecarray(storage, 2)
+main.work(values)
+local result = values[1].value + values[2].value
+own.drop(values)
+return result
+]],
+                    callerPath
+                )
+                testAssert.equal(#caller.errors, 0)
+                local callerErrors = check.check(caller, callerPath, env)
+                testAssert.equal(#callerErrors, 0, callerErrors[1] and callerErrors[1].msg)
+                testAssert.equal(program.run(caller, "span-facade-caller", callerPath), 16)
+            end)
+            package.loaded["binary.span"], package.preload["binary.span"] = oldSpan, preloadSpan
+            package.loaded.main, package.preload.main = oldMain, preloadMain
+            assert(ok, problem)
             local invalid = parser.parse(
                 [[
 local span = require("binary.span")

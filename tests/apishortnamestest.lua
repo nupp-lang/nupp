@@ -2,9 +2,9 @@ local test = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local checker = require("fragment")
 local envMod = require("nupp.compiler.project.env")
-local generator = require("nupp.compiler.lua.gen")
-local compile = require("nupp.compiler.aot.compile")
-local text = require("nupp.compiler.aot.text")
+local program = require("program")
+local compile = require("nupp.tools.cli.compile")
+local loadImage = assert(rawget(_G, "__nupp_load_image"))
 local mathRuntime = require("nupp.compiler.runtime.math")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local ROOT = HERE .. "/.."
@@ -15,10 +15,11 @@ local function futureModule(name, path, transform)
     local file = assert(io.open(ROOT .. "/" .. path, "rb"))
     local source = file:read("*a")
     file:close()
-    local _, diagnostics = envMod.checkModuleSource(env, ROOT .. "/" .. path, transform(source), {moduleName = name})
+    local transformed = transform(source)
+    local _, diagnostics = envMod.checkModuleSource(env, ROOT .. "/" .. path, transformed, {moduleName = name})
     test.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
 
-    return env
+    return env, transformed
 end
 
 local function checked(source, env)
@@ -73,10 +74,9 @@ local rows = owner:read()
 return rows[1].x
 ]]
     local parsed = checked(source, env)
-    local code, diagnostics = generator.generate(parsed, "short-names.nupp")
-    test.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
-    assert(code:find("._allocate", 1, true), code)
-    test.equal(assert(loadstring(code, "@short-names.nupp"))(), 17)
+    local image = program.image(parsed, "short-names", "short-names.nupp")
+    assert(image:find("_allocate", 1, true), "the VM retains the existing private allocation operation")
+    test.equal(program.run(parsed, "short-names", "short-names.nupp"), 17)
 end
 
 local BUILDER = [[
@@ -92,25 +92,46 @@ local function decode(source: string, nullValue: any): any
 end
 ]]
 
-function M.lowercaseBuilderFunctionsAndLenKeepNativeOperations()
+function M.lowercaseBuilderFunctionsAndLenKeepRuntimeValues()
     local before
     for _, future in ipairs({false, true}) do
-        local env = future and futureModule("serde.valuebuilder", "src/serde/valuebuilder.nupp", function(source)
-            return (source:gsub("export const ([%w_]+)", function(name)
-                return "export const " .. (name == "length" and "len" or name:lower())
-            end))
-        end) or envMod.new(ROOT)
+        local env, implementation
+        if future then
+            env, implementation = futureModule("serde.valuebuilder", "src/serde/valuebuilder.nupp", function(source)
+                return (source:gsub("export const ([%w_]+)", function(name)
+                    return "export const " .. (name == "length" and "len" or name:lower())
+                end))
+            end)
+        else
+            env = envMod.new(ROOT)
+        end
         local source = future and BUILDER:gsub("builder%.([%w_]+)", function(name)
             return "builder." .. (name == "length" and "len" or name:lower())
         end) or BUILDER
-        local parsed = checked(source, env)
-        local programs, diagnostics = compile.lower(source, "short-names.nupp", parsed)
-        test.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].message)
-        test.equal(#programs, 1)
-        local actual = text.programs(programs)
-        assert(actual:find("lua.length(", 1, true), actual)
+        local parsed = checked(source .. '\nreturn decode("7", {})', env)
+        local loaded, preload = package.loaded["serde.valuebuilder"], package.preload["serde.valuebuilder"]
+        local ok, actual = pcall(function()
+            if implementation then
+                local image = assert(
+                    compile.image(
+                        ROOT .. "/src/serde/valuebuilder.nupp",
+                        env,
+                        "serde.valuebuilder",
+                        nil,
+                        implementation
+                    )
+                )
+                package.loaded["serde.valuebuilder"] = nil
+                package.preload["serde.valuebuilder"] = assert(loadImage(image))
+            end
+
+            return program.run(parsed, "short-names", "short-names.nupp")
+        end)
+        package.loaded["serde.valuebuilder"], package.preload["serde.valuebuilder"] = loaded, preload
+        assert(ok, actual)
+        test.deepEqual(actual, {7})
         if before then
-            test.equal(actual, before, "public builder names changed native operations")
+            test.deepEqual(actual, before, "public names changed the retained VM implementation's results")
         end
         before = actual
     end
@@ -124,9 +145,7 @@ local math = {quat = {mul = function(): number return 5 end}}
 return soa.alloc() + builder.len() + math.quat.mul()
 ]]
     local parsed = checked(source, envMod.new(ROOT))
-    local code, diagnostics = generator.generate(parsed, "short-names.nupp")
-    test.equal(#diagnostics, 0)
-    test.equal(assert(loadstring(code, "@short-names.nupp"))(), 10)
+    test.equal(program.run(parsed, "short-names", "short-names.nupp"), 10)
 end
 
 return M
