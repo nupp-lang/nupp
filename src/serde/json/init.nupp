@@ -587,7 +587,7 @@ end
 ---     name: string
 --- end
 --- local buffer = nupp.text.newBuffer()
---- local writer = serde.json.newWriter(buffer)
+--- local writer = json.newWriter(buffer)
 --- writer:startArray()
 --- json.writeValue(serde.binding(Tag), new Tag(name = "x"), writer)
 --- writer:endArray()
