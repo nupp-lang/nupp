@@ -72,7 +72,7 @@ function M.namedCoroutineFunctionTypeWorksOnBodylessCallableField()
         checked(
             [[
 local type Feed = thread<(number), (boolean), (number), (string)>
-local type Producer = function(number): string yields(number) resumes(boolean)
+local type Producer = function(number) yields(number) resumes(boolean): string
 local interface Worker
     run: Producer
 end

@@ -187,6 +187,23 @@ export = setmetatable(callable, {__call = original})
     assert(next(expected) == nil, "a callable helper or nested suite member is missing")
 end
 
+function M.functionDocumentationKeepsCoroutineProtocolsBeforeResults()
+    local source = [[
+--- Produces a value and receives its continuation flag.
+function produce(start: number) yields(number, string) resumes(boolean): string
+    return 'done'
+end
+]]
+    local module, errors = doc.extract(source, "src/producer.nupp", "producer")
+    assert(module, errors and errors[1] and errors[1].msg)
+    local produce = module.items[1]
+    assert(
+        produce.signature == "function produce(start: number) yields (number, string) resumes (boolean): string",
+        produce.signature
+    )
+    assert(produce.returns[1].type == "string", "protocol packs changed the result contract")
+end
+
 -- An example is the one place a doc comment writes a line that looks like a tag and
 -- is not one, so a fence has to suspend tag parsing rather than eat the annotation
 -- the example exists to show.
@@ -1889,8 +1906,8 @@ function M.highlightsCurrentNuppSyntaxWithTheParser()
                 "   end",
                 "   satisfies |self| -> self.ready",
                 "end",
-                "local function worker(): const unknown & Serializable",
-                "   yields (number) resumes (boolean)",
+                "local function worker()",
+                "   yields (number) resumes (boolean): const unknown & Serializable",
                 "   return new Factory()",
                 "end",
             },
@@ -1983,8 +2000,8 @@ function M.scintilluaLexerUnderstandsCurrentNuppSyntax()
                     "local type Events<T> = {@readonly [K in keyof T as `${K}Changed`]: @nosuspend function(value: T.[K]): nil}",
                     "local type Writable<T> = {@writeonly [K in writekeyof T]: writeof T.[K]}",
                     "local type First<T> = T.[1]",
-                    "local function worker<P..., const Format: string>(...: unpackof Arguments<Format>): unpackof Results<Format>",
-                    "   yields (number) resumes (boolean)",
+                    "local function worker<P..., const Format: string>(...: unpackof Arguments<Format>)",
+                    "   yields (number) resumes (boolean): unpackof Results<Format>",
                     "   return new Factory(count = 1_000)",
                     "end",
                     "local function preserve(scoped callback: function(): nil, takes value: affine(voidptr)): voidptr preserves value return value end",

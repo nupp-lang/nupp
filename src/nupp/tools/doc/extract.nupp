@@ -522,6 +522,9 @@ local function functionSignature(stat, name)
         end
     end
     local result = prefix .. shownName .. genericText(body) .. "(" .. table.concat(params, ", ") .. ")"
+    if body and body.yieldPack then
+        result = result .. " yields " .. syntax(body.yieldPack) .. " resumes " .. syntax(body.resumePack)
+    end
     if #returns > 0 then
         result = result .. ": " .. table.concat(returns, ", ")
     end

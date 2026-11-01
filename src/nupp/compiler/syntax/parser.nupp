@@ -701,7 +701,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return (packArgs or explicitPack) and parseTypePack(false) or parseType()
     end
 
-    -- Both clause orders share the same checked packs during the seed transition.
+    -- Coroutine protocol clauses follow the function parameter list.
     local function parseProtocolClauses(n: any, allowBareList: boolean?): nil
         if cur().kind ~= "name" or cur().text ~= "yields" then
             return
@@ -717,6 +717,60 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             add(n, advance()).typeKeyword = true
             n.resumePack = add(n, parseTypePack(allowBareList))
         end
+    end
+
+    local function refuseTrailingProtocol(n: any, allowBareList: boolean?, resultColon: Token?): nil
+        if cur().kind ~= "name" or cur().text ~= "yields" then
+            return
+        end
+        local depth, hasResumes = 0, false
+        for at = i + 1, #tokens do
+            local token = tokens[at]
+            if depth == 0 and token.kind == "name" and token.text == "resumes" then
+                hasResumes = true
+                break
+            elseif token.kind == "(" or token.kind == "[" or token.kind == "{" then
+                depth = depth + 1
+            elseif token.kind == ")" or token.kind == "]" or token.kind == "}" then
+                depth = depth - 1
+            elseif depth == 0 and token.kind ~= "name" and token.kind ~= "," and token.kind ~= "..." then
+                break
+            end
+            if depth < 0 then
+                break
+            end
+        end
+        if not hasResumes then
+            return
+        end
+        local first = cur()
+        local duplicate = n.yieldPack ~= nil
+        parseProtocolClauses(n, allowBareList)
+        local last = cst.lastToken(n.resumePack or n.yieldPack)
+        local fixes = nil
+        if not duplicate and resultColon and last then
+            local length = last.offset + #last.text - first.offset
+            fixes = {
+                {
+                    title = "move the coroutine protocol before the result type",
+                    edits = {
+                        {
+                            offset = resultColon.offset,
+                            length = 0,
+                            newText = " " .. source:sub(first.offset, first.offset + length - 1) .. " "
+                        },
+                        {offset = first.offset, length = length, newText = ""},
+                    },
+                }
+            }
+        end
+        errAt(
+            first,
+            "coroutine protocol clauses must precede the result type",
+            "NUPP1005",
+            "place 'yields ... resumes ...' after the parameter list and before ':'",
+            fixes
+        )
     end
 
     --- A type without its postfixes.
@@ -1093,8 +1147,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             end
             add(n, expect(")", "to close function type parameters"))
             parseProtocolClauses(n, false)
+            local resultColon: Token? = nil
             if cur().kind == ":" then
-                annotationColon(n, "before return type")
+                resultColon = annotationColon(n, "before return type")
                 -- `function(...): R & function(...)` is a callable intersection. A
                 -- return type that itself intersects with a function remains available
                 -- by parenthesizing it.
@@ -1113,7 +1168,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             if cur().kind == "name" and cur().text == "borrows" and tokens[i + 1] and tokens[i + 1].kind == "(" then
                 n.captureBorrows = add(n, parseCaptureClause())
             end
-            parseProtocolClauses(n, false)
+            refuseTrailingProtocol(n, false, resultColon)
             return n
         elseif kind == "istringOpen" then
             return parseIstring()
@@ -2596,9 +2651,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         end
         add(n, expect(")", "to close parameter list"))
         parseProtocolClauses(n, true)
+        local resultColon: Token? = nil
         if cur().kind == ":" then
             -- Statement-position return annotation: unparenthesized list [CS-7].
-            annotationColon(n, "before return types")
+            resultColon = annotationColon(n, "before return types")
             n.captureBorrowsCandidate = attachReturnPack(n, parseTypePack(true))
         end
         while cur().kind == "name"
@@ -2618,7 +2674,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 n.captureBorrows = add(n, clause)
             end
         end
-        parseProtocolClauses(n, true)
+        refuseTrailingProtocol(n, true, resultColon)
         n.body = add(n, parseFunctionBlock())
         add(n, expect("end", "to close function"))
 

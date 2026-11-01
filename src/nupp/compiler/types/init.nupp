@@ -4116,7 +4116,7 @@ function types.tostring(t: types.Type): string
         -- differ only in whether another state can reconstruct the value.
         local sendable = t.sendable and "sendable " or ""
 
-        return sendable .. "function" .. generic .. "(" .. table.concat(ps, ", ") .. ")" .. ret .. protocol
+        return sendable .. "function" .. generic .. "(" .. table.concat(ps, ", ") .. ")" .. protocol .. ret
     elseif tag == "protocolThread" then
         return "thread<" .. types.tostringPack(
             t.startPack

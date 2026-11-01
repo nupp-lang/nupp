@@ -44,11 +44,8 @@ local vector = table.concat({"local record Vec3", "   x: number", "   y: number"
 
 local M = {}
 
-function M.protocolClauseOrderKeepsCoroutineExecution()
-    for _, signature in ipairs({
-        "yields(number) resumes(boolean): string",
-        ": string yields(number) resumes(boolean)",
-    }) do
+function M.finalProtocolOrderKeepsCoroutineExecution()
+    for _, signature in ipairs({"yields(number) resumes(boolean): string",}) do
         local answer = run(
             (
                 [[

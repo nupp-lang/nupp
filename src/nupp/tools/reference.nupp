@@ -207,7 +207,8 @@ parentheses.
 
 Coroutine protocol clauses precede the result type in declarations and function
 types: `function(start: number) yields(number) resumes(boolean): string`.
-They retain the same yielded and resumed value packs.
+`yields` declares the values a suspension produces; `resumes` declares the
+values supplied when execution continues.
 
 In a `.nupp` file, an exported function whose signature mentions `any`
 anywhere is treated as unannotated and reported: `any` is the absence of a type, not a type. A function that returns

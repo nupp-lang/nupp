@@ -92,9 +92,9 @@ local handle: ctype<voidptr>
 local frozen: const {string}
 --            ^^^^^ storage.modifier.const.nupp
 
-local function worker(): string & Serializable
---                              ^ keyword.operator.nupp
-   yields (number) resumes (boolean)
+local function worker()
+   yields (number) resumes (boolean): string & Serializable
+--                                           ^ keyword.operator.nupp
    return "done"
 end
 
