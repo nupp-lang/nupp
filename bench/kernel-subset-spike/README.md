@@ -37,7 +37,7 @@ NUPP_NATIVE_MODE=emit-llvm bench/kernel-subset-spike/mandelbrot.sh columns
 - `columns.nupp` is the same update over two-field structs, loading fields
   across consecutive structs.
 - `columns-soa` runs the update over `nupp.mem.soa` column storage and times an
-  explicit `nupp.simd` body against its scalar continuation:
+  explicit `simd` body against its scalar continuation:
   `bench/kernel-subset-spike/columns-soa/run.sh`.
 - `mandelbrot.nupp` is a compute-bound escape-time kernel carrying
   `@relax("fp-contract")`.

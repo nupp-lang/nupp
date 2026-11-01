@@ -1340,8 +1340,8 @@ function M.stagingACarriedModuleChecksNothingAgain()
     file:write(
         table.concat(
             {
-                "const {type Observers} = require('nupp.events')",
-                "local events = require('nupp.events')",
+                "const {type Observers} = require('events')",
+                "local events = require('events')",
                 "local files = require('nupp.io.files')",
                 "local m = {}",
                 "record m.Holder",
@@ -1384,12 +1384,12 @@ function M.stagingACarriedModuleChecksNothingAgain()
 
     -- Nor is a staged copy whose text is not what the compiler carries: it answers for
     -- the name, and what requires the name is checked against it.
-    local events = assert(require("nupp.compiler.bundled").source("/nupp/events.nupp"))
+    local events = assert(require("nupp.compiler.bundled").source("/events.nupp"))
     os.execute("mkdir -p '" .. staged .. "/nupp'")
-    local changed = assert(io.open(staged .. "/nupp/events.nupp", "wb"))
+    local changed = assert(io.open(staged .. "/events.nupp", "wb"))
     changed:write(events .. "\n-- edited\n")
     changed:close()
-    inc.stageCarriedDocument("nupp.events", staged .. "/nupp/events.nupp", events .. "\n-- edited\n")
+    inc.stageCarriedDocument("events", staged .. "/events.nupp", events .. "\n-- edited\n")
     testAssert.equal(#inc.checkFile(mainPath).diags, 0, "the edited copy still checks")
     assert(inc.q.stats.checkModule > checks, "a copy that differs is checked, and so is what requires it")
 

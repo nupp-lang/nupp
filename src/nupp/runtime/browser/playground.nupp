@@ -47,7 +47,7 @@ local platformLibraries = {
         return require("nupp.io.http")
     end,
     function()
-        return require("nupp.gpu")
+        return require("gpu")
     end,
     function()
         return require("nupp.tasks")

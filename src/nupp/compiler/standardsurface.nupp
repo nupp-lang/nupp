@@ -103,11 +103,11 @@ local MODULES: {[string]: {
     ["nupp.cli.internal.decode"] = {kind = "common"},
     ["nupp.cli.internal.terminal"] = {kind = "common"},
     ["nupp.cli.internal.application"] = {kind = "common"},
-    ["nupp.gpu"] = facility("runtime", "runtime.gpu"),
+    ["gpu"] = facility("runtime", "runtime.gpu"),
     ["nupp.gpu.internal"] = {kind = "common"},
     ["nupp.digest.internal.streaming"] = facility("runtime", "runtime.bitops"),
     ["nupp.gpu.layoutfacts"] = {kind = "common"},
-    ["nupp.gpu.layout"] = {kind = "common"},
+    ["gpu.layout"] = {kind = "common"},
     ["nupp.runtime.hotreload"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.runtime.storage"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.io"] = {kind = "unavailable", capability = "cstorage"},
@@ -151,7 +151,7 @@ local MODULES: {[string]: {
     -- is.
     ["debug.bench"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.random"] = facility("host", "runtime.crypto"),
-    ["nupp.simd"] = {kind = "common"},
+    ["simd"] = {kind = "common"},
     ["nupp.suspension"] = {kind = "common"},
     ["nupp.suspension.host"] = {kind = "common"},
     ["nupp.suspension.selected"] = {kind = "common"},
@@ -161,7 +161,7 @@ local MODULES: {[string]: {
     ["nupp.mem.array"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.util.internal.pool"] = {kind = "common"},
     ["nupp.mem.arena"] = {kind = "unavailable", capability = "cstorage"},
-    ["nupp.events"] = {kind = "unavailable", capability = "cstorage"},
+    ["events"] = {kind = "unavailable", capability = "cstorage"},
 }
 
 local BROWSER_IMPLEMENTATIONS = {

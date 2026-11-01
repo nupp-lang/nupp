@@ -336,7 +336,7 @@ end
 
 --- Views the rooted bytes as a byte span, which is what the vector loads read.
 ---
---- The general `nupp.simd` algebra loads from a `Span<uint8>`, and a
+--- The general `simd` algebra loads from a `Span<uint8>`, and a
 --- value-building AOT entry has no way to be handed one: its parameters cross
 --- the Lua stack, where a pointer and a count are not values. This returns the
 --- span over the bytes the entry already roots, so `species:load` reads the

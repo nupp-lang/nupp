@@ -2573,6 +2573,43 @@ function M.aModuleAliasConstDocumentsTheNamespaceItPublishes()
     assert(aliasedType and aliasedType.kind == "type", "the exported type alias is missing")
 end
 
+function M.privateExportTablesDoNotPublishTypesOnMatchingPublicRoots()
+    local byName = aliasModel({
+        [
+            "src/widget/init.nupp"
+        ] = [[
+module widget
+local model = require("widget.internal.model")
+--- A visible value.
+export type Value = model.Value
+]],
+        [
+            "src/widget/internal/model.nupp"
+        ] = [[
+@!internal
+module widget.internal.model
+local widget = {}
+--- A value shared with the public facade.
+record widget.Value
+    --- The stored number.
+    count: integer
+end
+--- A provider-only handle.
+record widget.Hidden
+    --- The private integration hook.
+    integration: function(): nil
+end
+export = widget
+]],
+    })
+    local module = assert(byName.widget, "the public facade is missing")
+    assert(not byName["widget.internal.model"], "the private implementation has a public page")
+    assert(#module.items == 1, "a matching local table published private declarations")
+    local value = module.items[1]
+    assert(value.name == "Value" and value.path == "widget.Value", "the explicit alias is missing")
+    assert(#value.members == 1 and value.members[1].name == "count", "the explicit alias lost its contract")
+end
+
 -- An aliased module the site already shows keeps its one page. The declaration says
 -- what it holds by naming it, which the symbol index links, rather than by being
 -- copied.
@@ -4205,8 +4242,8 @@ return declared
 end
 
 function M.gpuDocumentsApplicationOperationsAndHidesGeneratedBindings()
-    local source = readFile(HERE .. "/../src/nupp/gpu/init.nupp")
-    local module = assert(doc.extract(source, "src/nupp/gpu/init.nupp", "nupp.gpu"))
+    local source = readFile(HERE .. "/../src/gpu/init.nupp")
+    local module = assert(doc.extract(source, "src/gpu/init.nupp", "gpu"))
     local foundOpen, foundContext = false, false
     for _, item in ipairs(module.items) do
         if item.name == "gpu.open" or item.name == "open" then
@@ -4240,7 +4277,8 @@ function M.gpuPublicPageExpandsItsExplicitAliases()
         "layout.nupp",
         "layoutfacts.nupp"
     }) do
-        files["src/nupp/gpu/" .. path] = readFile(HERE .. "/../src/nupp/gpu/" .. path)
+        local base = (path == "init.nupp" or path == "layout.nupp") and "src/gpu/" or "src/nupp/gpu/"
+        files[base .. path] = readFile(HERE .. "/../" .. base .. path)
     end
     local dir = tempProject(files)
     assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "markdown", output = "api.md"}) == 0)

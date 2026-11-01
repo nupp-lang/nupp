@@ -116,7 +116,7 @@ benchmark baseline; they are no longer the large-document decode path.
 
 ## The structural indexer
 
-`simd_json.indexer` uses the general `nupp.simd` algebra and can also build
+`simd_json.indexer` uses the general `simd` algebra and can also build
 on its own. It finds every byte the
 index has to look at -- quotes, backslashes, control bytes, the six
 structural characters and anything non-ASCII -- with vector comparisons

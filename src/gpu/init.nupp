@@ -1,7 +1,7 @@
-module nupp.gpu
+module gpu
 
 --[[
-`nupp.gpu` manages resident compute buffers over the selected GPU provider.
+`gpu` manages resident compute buffers over the selected GPU provider.
 
 The context owns every buffer, compiled kernel and binding made from it. Each
 is closeable and borrows the context, so checked code cannot close the device
@@ -11,7 +11,7 @@ downloads only enqueue commands; `synchronize()` is the explicit CPU boundary.
 raises when none can.
 
 ```nupp:fragment
-local gpu = nupp.gpu
+local gpu = require("gpu")
 local array = nupp.mem.array
 local kernels = require("kernels")
 
@@ -47,9 +47,9 @@ local target = require("nupp.runtime.target")
 
 local api = require("nupp.gpu.api")
 local implementation = require("nupp.gpu.types")
-local contract = require("nupp.gpu.spi")
+local contract = require("gpu.spi")
 local provider: contract.Provider = do
-    const chosen = spi.select(spi.providers<contract.Provider>("nupp.gpu.spi.Provider"))
+    const chosen = spi.select(spi.providers<contract.Provider>("gpu.spi.Provider"))
     if chosen ~= nil then
         yield chosen
     end
@@ -59,7 +59,7 @@ local provider: contract.Provider = do
     yield _G.require("nupp.runtime.browser.webgpu.internal") as contract.Provider
 end
 local operations = require("nupp.gpu.operations")
-local tensorlayout = require("nupp.gpu.layout")
+local tensorlayout = require("gpu.layout")
 
 export type Layout = tensorlayout.Layout
 export const Layout = tensorlayout.Layout

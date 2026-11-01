@@ -2005,7 +2005,7 @@ guard is a compile-time refusal rather than an unchecked native access. Reified
 span structs may store `number` fields as physical C `double` values, which is
 what makes them usable as pointer-free parser and codec arenas.
 
-An algorithm that runs in vector lanes imports `nupp.simd` inside a block
+An algorithm that runs in vector lanes imports `simd` inside a block
 kernel and writes the species loop, masks, and tail explicitly; a loop without
 those operations is scalar. Its vector and mask
 values cannot escape the kernel and have no boxed Lua representation.
@@ -2036,7 +2036,7 @@ explicit, so several generated bindings can share resident buffers without an
 intermediate CPU copy. `Context:tensor(element, shape)` attaches a validated
 one- through four-dimensional dense row-major shape to an allocation.
 `buffer:layout()` returns an element-independent layout.
-The `nupp.gpu.layout` module (imported as `layout`) owns the
+The `gpu.layout` module (imported as `layout`) owns the
 `layout.subview`,
 `layout.transpose`, `layout.broadcast`, and `layout.asStrided`
 operations, which check shapes, strides,
@@ -2096,7 +2096,7 @@ return m
 declaration-augmentation phase rather than a text macro, so it cannot add
 imports, top-level declarations, modules, or independently nameable types. The
 bundled Debug provider is `nupp.derive.Debug`;
-`nupp.events.Event` marks a record or struct as an event
+`events.Event` marks a record or struct as an event
 the same way; and a package exports its own as a `@comptime function` returning
 `nupp.derive.Result<T>`. A provider may also ask for the declaration's
 initializer, its constructor body or field list as a function run against

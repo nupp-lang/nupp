@@ -3,9 +3,9 @@ module nupp.gpu.operations
 
 local api = require("nupp.gpu.api")
 local types = require("nupp.gpu.types")
-local tensorlayout = require("nupp.gpu.layout")
+local tensorlayout = require("gpu.layout")
 local layoutFacts = require("nupp.gpu.layoutfacts").layoutFacts
-local {type Layout as TensorLayout} = require("nupp.gpu.layout")
+local {type Layout as TensorLayout} = require("gpu.layout")
 local array = require("nupp.mem.array")
 local gpu = {}
 

@@ -1,5 +1,5 @@
-local gpu = require("nupp.gpu")
-local layout = require("nupp.gpu.layout")
+local gpu = require("gpu")
+local layout = require("gpu.layout")
 
 local M = {}
 

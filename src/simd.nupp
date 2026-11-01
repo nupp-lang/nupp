@@ -1,7 +1,7 @@
-module nupp.simd
+module simd
 
 --[[
-Explicit SIMD support.
+`simd` runs explicit vector operations over typed spans.
 
 `simd.species` returns a species for an element: as wide as the running code's
 vector registers, and one lane wide where there are none, so a kernel is written
@@ -11,7 +11,7 @@ mask:
 ```nupp
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 @aot
 local function countQuotes(borrows source: span.Span<uint8>): uint32

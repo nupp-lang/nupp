@@ -125,7 +125,7 @@ function M.exactReducerVerifierPreservesItsInputAndResultContracts()
     local program = lowered(
         [[
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 @aot
 local function total(borrows input: span.Span<uint32>, seed: uint32): uint32
     local fold = simd.reducer.wrappingSum(nupp.mem.array.uint32, seed)
@@ -159,7 +159,7 @@ function M.floatReducerVerifierHoldsEveryOperandToBinary32()
         [[
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 @aot
 local function total(borrows input: span.Span<float>, seed: float): float
     local fold = simd.reducer.orderedDot(array.float, seed)
@@ -203,7 +203,7 @@ function M.integerHorizontalsAreRecheckedAgainstTheirLanes()
     local program = lowered(
         [[
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 @aot
 local function fold(value: int32): int32
     local species = assert(simd.species(array.int32, 4))
@@ -256,7 +256,7 @@ return {fold = fold}
     local floating = lowered(
         [[
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 @aot
 local function fold(value: float): float
     local species = assert(simd.species(array.float, 4))
@@ -280,7 +280,7 @@ function M.simdConversionRechecksWidthsAndLaneCounts()
         [[
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 @aot
 local function cast(exclusive out: span.WriteSpan<int32>, borrows input: span.Span<number>): nil
     local source = assert(simd.species(array.number, 3))
@@ -315,7 +315,7 @@ function M.scatterRechecksUniquenessAndAddressing()
         [[
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 @aot
 local function write(exclusive out: span.WriteSpan<float>): nil
     local data = assert(simd.species(array.float, 8))
@@ -360,7 +360,7 @@ function M.aGuardedBlockCannotKeepCrossSpanLoadsWithoutItsRelations()
     local program = lowered(
         [[
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 @aot
 local function orderedDot(borrows left: span.Span<number>, borrows right: span.Span<number>): number
     assert(#left == #right, "length mismatch")
@@ -648,7 +648,7 @@ end
 local VECTOR_MAP = [[
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 @aot
 local function add(exclusive output: span.WriteSpan<uint8>, borrows input: span.Span<uint8>): nil
     local s = assert(simd.species(array.uint8))
@@ -665,7 +665,7 @@ function M.derivedVectorOffsetsRequireEnoughExactRoom()
     local source = [[
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 @aot
 local function copy(borrows input: span.Span<uint8>, exclusive output: span.WriteSpan<uint8>): nil
     local s = assert(simd.species(array.uint8))
@@ -874,7 +874,7 @@ end
 function M.rearrangementsRecheckOperandShapesAndOutputSelection()
     local source = [[
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 @aot
 local function rearrange(): number
     local s = assert(simd.species(array.float, 2))
@@ -1236,7 +1236,7 @@ function M.aLaneWiseCallTakesOnlyLocalsOfItsSpecies()
         [[
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 local function bump(value: number): number
     return value * 2.0 + 1.0
 end
@@ -1297,7 +1297,7 @@ function M.laneArithmeticRechecksItsElementAndArity()
         [[
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 @aot
 local function lanes(exclusive out: span.WriteSpan<number>, borrows input: span.Span<number>, borrows counts: span.Span<int32>, exclusive bits: span.WriteSpan<int32>): nil
     local s = assert(simd.species(array.number, 4))
@@ -1359,7 +1359,7 @@ function M.aMaskConversionKeepsTheLaneCount()
         [[
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 @aot
 local function masks(exclusive out: span.WriteSpan<int32>, borrows input: span.Span<number>): nil
     local s = assert(simd.species(array.number, 4))
@@ -1398,7 +1398,7 @@ function M.aFieldAccessNamesAFieldOfItsElement()
         [[
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 local struct Pair
     x: float
     n: int32
@@ -1441,7 +1441,7 @@ end
 local REGION = [[
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 @aot
 local function total(borrows input: span.Span<number>, seed: number): number
     local s = assert(simd.species(array.number, 4))
@@ -1519,7 +1519,7 @@ end
 function M.laneIndicesAreRecheckedAgainstLogicalSpecies()
     local source = [[
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 @aot
 local function lanes(value: number): (number, number)
     local species = assert(simd.species(array.number, 4))
@@ -1608,7 +1608,7 @@ end
 function M.aLaneIndexWrittenAgainstTheSpeciesLaneCountFoldsWithTheTier()
     local source = [[
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 @aot
 local function lanes(value: number): (number, number)
     local species = assert(simd.species(array.number))
@@ -1777,7 +1777,7 @@ end
 local CROSS_LANE = [[
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 @aot
 local function crossLane(borrows input: span.Span<number>): number
     local s = assert(simd.species(array.number, 4))

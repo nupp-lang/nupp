@@ -33,7 +33,7 @@ require("nupp.io.net")
 require("nupp.io.process")
 require("nupp.io.tls")
 require("nupp.io.http")
-require("nupp.gpu")
+require("gpu")
 require("nupp.workers")
 
 const run = assert(loadfile(arg[0]))

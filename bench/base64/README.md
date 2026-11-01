@@ -1,7 +1,7 @@
 # base64
 
 A spike. It exists to put a number on one question: what would the SIMD
-operations a base64 codec needs actually be worth, given that `nupp.simd` has
+operations a base64 codec needs actually be worth, given that `simd` has
 none of them.
 
 Nothing here is on a hot path. `nupp.runtime.browser.base64` is the only base64
@@ -40,7 +40,7 @@ rest. Only the last factor, about 5.7x, was ever about instructions.
 The vectorized kernel exists now, in [`../base64simd`](../base64simd). It was
 first written on a byte-specific vocabulary -- strided loads, a sixty-four
 entry table, an interleaving store -- that landed with it; it is now written
-on the general `nupp.simd` algebra instead, with `swizzle` over a pair of
+on the general `simd` algebra instead, with `swizzle` over a pair of
 vectors and `interleave` doing that work, and it is held to an independent
 scalar reference by `../base64simd/run.sh`. What it is worth against
 hand-written C, and what the move to the general algebra cost, is in [the

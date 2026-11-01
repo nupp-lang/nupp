@@ -3147,7 +3147,7 @@ request:close()
 ]]
     )
     local diagnostics = diagsOf(
-        [[const gpu = require("nupp.gpu")
+        [[const gpu = require("gpu")
 local function expose(borrows context: gpu.Context): nil
     local hook = context.compileGenerated
 end
@@ -3179,9 +3179,9 @@ function M.applicationResourcesHideLifecycleAndTransportMachinery()
         {"nupp.io.http", "Response", "_packed"},
         {"nupp.io.http", "Client", "_native"},
         {"nupp.io.http", "Client", "_retainSource"},
-        {"nupp.gpu", "Buffer<uint32>", "_handle"},
-        {"nupp.gpu", "Shared<uint32>", "_values"},
-        {"nupp.gpu", "Phases", "_size"},
+        {"gpu", "Buffer<uint32>", "_handle"},
+        {"gpu", "Shared<uint32>", "_values"},
+        {"gpu", "Phases", "_size"},
     }) do
         local diagnostics = diagsOf(
             (
@@ -3241,8 +3241,8 @@ function M.suspensionRecordsHideProviderState()
 end
 
 function M.tensorLayoutAlgebraDoesNotSelectAGpu()
-    assertClean("local layout = require('nupp.gpu.layout')", {host = "browser"})
-    testAssert.equal(native.forModule("nupp.gpu.layout"), "runtime.gpu_layout", "layout algebra is a portable module")
+    assertClean("local layout = require('gpu.layout')", {host = "browser"})
+    testAssert.equal(native.forModule("gpu.layout"), "runtime.gpu_layout", "layout algebra is a portable module")
     local selected = native.expand({["runtime.gpu_layout"] = true})
     assert(not selected["native.gpu"], "layout algebra must not select a device provider")
 end

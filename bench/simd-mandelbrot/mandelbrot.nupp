@@ -4,7 +4,7 @@
 local span = require("nupp.mem.span")
 local soa = require("nupp.mem.soa")
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 local struct Point
     re: float

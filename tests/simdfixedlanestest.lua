@@ -22,7 +22,7 @@ local M = {}
 local PRELUDE = [[
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 ]]
 
 local function compile(src)
@@ -601,7 +601,9 @@ local function buildAndRun(dir, entries, policy)
     )
     local logPath = dir .. "/build.log"
     local status = os.execute(
-        ("cd %q && rm -rf build && %q build --target native > %q 2>&1"):format(dir, HERE .. "/../bin/nupp", logPath)
+        (
+            "cd %q && rm -rf build && %q build --target native > %q 2>&1"
+        ):format(dir, os.getenv("NUPP_TEST_BIN") or HERE .. "/../bin/nupp", logPath)
     )
     testAssert.equal(status, 0, policy .. " build at " .. dir .. ": " .. read(logPath))
     local pipe = assert(io.popen(("cd %q && luajit check.lua %s 2>&1"):format(dir, policy)))
@@ -615,7 +617,7 @@ local FIXED = [[
 module fixed
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 --- Every lane of a four-lane species in one kernel: a loop-carried vector,
 --- an align across chunks, a prefix scan, a select, a reducer and a

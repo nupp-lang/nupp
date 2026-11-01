@@ -5,7 +5,7 @@ LuaJIT browser migration tracked by #59 is outside this matrix; the existing
 Wasm SIMD128 backend is included.
 
 `measure.py` compares scalar-source C at `-O3`, the same C with vectorization
-disabled, and authored `nupp.simd`. Results record the revision they measured.
+disabled, and authored `simd`. Results record the revision they measured.
 
 ## Performance protocol (frozen before timing)
 

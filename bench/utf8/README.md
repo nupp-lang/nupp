@@ -2,7 +2,7 @@
 
 What `utf8.isValid` is worth written four different ways, on one
 machine in one run: the Keiser-Lemire lookup validator written on the general
-`nupp.simd` algebra, the same scalar ladder compiled by `@aot` and left to
+`simd` algebra, the same scalar ladder compiled by `@aot` and left to
 LuaJIT, the ordinary Nupp that ships.
 
 ```sh
@@ -33,7 +33,7 @@ are Lua; measured 2026-09-17.
 
 In MB/s, the SIMD column before and after it was rewritten from the byte-only
 API (`simd.preferredU8`, sixty-four-byte padded blocks) onto the general
-`nupp.simd` algebra (a `uint8` species, `swizzle`, `align`, loads straight from
+`simd` algebra (a `uint8` species, `swizzle`, `align`, loads straight from
 the string), same machine, same run, one process per number:
 
 | corpus                 | byte API | general algebra |

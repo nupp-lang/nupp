@@ -205,7 +205,7 @@ function M.generate(options)
                 local source = {
                     [[local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 local u32 = math.u32
 ]],
                     edgeOracles(ty),

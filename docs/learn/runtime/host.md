@@ -95,13 +95,13 @@ its caller gave up is the host's to release, not `late`'s.
 
 A stream carries messages one way, without answers. `send` and `bindSend`
 append to an outbound stream that ships with the frame it was sent in.
-`route` delivers a kind's inbound messages as [](nupp.events) on a bus the
+`route` delivers a kind's inbound messages as [](events) on a bus the
 program owns, each message's values filling the event's fields in declaration
 order:
 
 ```nupp:fragment
 local host = nupp.host
-local events = nupp.events
+local events = require("events")
 local span = nupp.mem.span
 
 @derive(events.Event)

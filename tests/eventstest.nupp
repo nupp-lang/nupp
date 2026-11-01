@@ -1,6 +1,6 @@
--- nupp.events: addressed synchronous delivery over pooled and arena-backed storage.
+-- events: addressed synchronous delivery over pooled and arena-backed storage.
 local arena = require("nupp.mem.arena")
-local events = require("nupp.events")
+local events = require("events")
 const {type Pool, newPool} = require("nupp.util")
 local test = require("assert")
 

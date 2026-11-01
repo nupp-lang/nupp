@@ -10,8 +10,7 @@ local sources = require("sources")
 local _host = require("nupp.host")
 local _span = require("nupp.mem.span")
 local _tasks = require("nupp.tasks")
-
-local _events = require("nupp.events")
+local _events = require("events")
 local _hostevents = require("hostevents")
 
 -- The page names the program in an initialization chunk; a page that starts the

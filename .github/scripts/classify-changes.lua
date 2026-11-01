@@ -47,8 +47,8 @@ local rules = {
     -- its suite and its fixpoint, so they select what compiler source does.
     {"^src/nupp/tools/", {"compiler"}},
     {"^src/nupp/compiler/", {"compiler"}},
-    {"^src/nupp/simd%.nupp$", {"library", "aot", "browser", "simd"}},
-    {"^src/nupp/simd/", {"library", "aot", "browser", "simd"}},
+    {"^src/simd%.nupp$", {"library", "aot", "browser", "simd"}},
+    {"^src/simd/", {"library", "aot", "browser", "simd"}},
     -- The generated conformance programs allocate and view their lanes through
     -- these modules on both native and Wasm routes.
     {"^src/nupp/mem/array%.nupp$", {"library", "simd"}},
@@ -71,6 +71,8 @@ local rules = {
     {"^src/nupp/gpu/", {"library", "gpu"}},
     {"^src/debug/bench%.nupp$", {"library", "measurement"}},
     {"^src/nupp/bench/internal/", {"library", "measurement"}},
+    {"^src/gpu/", {"library", "gpu"}},
+    {"^src/events%.nupp$", {"library"}},
     {"^src/nupp/runtime/", {"library", "browser", "native"}},
     {"^src/nupp/io/", {"library", "native"}},
     -- The host facility's browser and native providers both implement it.

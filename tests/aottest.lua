@@ -133,7 +133,7 @@ end
 function M.reducerRegionsFollowEveryNestedDoBlock()
     local prefix = [[
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 @aot
 local function total(flag: boolean): number
@@ -196,7 +196,7 @@ end
 function M.scalarAndMaskedContributionsMixInOneReducer()
     local prefix = [[
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 @aot
 local function total(flag: boolean): number
@@ -254,7 +254,7 @@ end
 function M.horizontalsAreTypedByTheirContract()
     local prefix = [[
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 @aot
 local function fold(): (number, number)
@@ -439,7 +439,7 @@ function M.gpuTargetBindsACompilerGeneratedTypedObject()
     reportsGpu(
         [[
 local span = require("nupp.mem.span")
-local gpu = require("nupp.gpu")
+local gpu = require("gpu")
 local array = require("nupp.mem.array")
 
 @aot(target = "gpu")
@@ -467,7 +467,7 @@ return true
     reportsGpu(
         [[
 local span = require("nupp.mem.span")
-local gpu = require("nupp.gpu")
+local gpu = require("gpu")
 
 local struct Input value: float end
 local struct Output value: float end
@@ -500,7 +500,7 @@ end
 function M.gpuResourcesAreClosableChildrenOfTheirContext()
     local header = [[
 local span = require("nupp.mem.span")
-local gpu = require("nupp.gpu")
+local gpu = require("gpu")
 local array = require("nupp.mem.array")
 
 @aot(target = "gpu")
@@ -578,7 +578,7 @@ end
 function M.gpuBuffersExposeCheckedTensorLayouts()
     reportsGpu(
         [[
-local gpu = require("nupp.gpu")
+local gpu = require("gpu")
 local array = require("nupp.mem.array")
 
 local context = gpu.open()
@@ -586,7 +586,7 @@ local tensor = context:tensor(array.float, {4, 8})
 local bytes: gpu.Buffer<int8>? = nil
 local row = tensor:subview({2, 0}, {1, 8})
 local tensorLayout: gpu.Layout = tensor:layout()
-local layout = require("nupp.gpu.layout")
+local layout = require("gpu.layout")
 local columns = tensor:view(layout.transpose(tensorLayout, {2, 1}))
 local repeated = row:view(layout.broadcast(row:layout(), {4, 8}))
 local gapped = tensor:subview({0, 0}, {4, 4})
@@ -605,7 +605,7 @@ return true
     )
     reportsGpu(
         [[
-local gpu = require("nupp.gpu")
+local gpu = require("gpu")
 local array = require("nupp.mem.array")
 
 local context = gpu.open()
@@ -618,7 +618,7 @@ return true
     )
     reportsGpu(
         [[
-local gpu = require("nupp.gpu")
+local gpu = require("gpu")
 local array = require("nupp.mem.array")
 
 local struct Pair
@@ -645,7 +645,7 @@ return true
     )
     reportsGpu(
         [[
-local gpu = require("nupp.gpu")
+local gpu = require("gpu")
 local array = require("nupp.mem.array")
 
 local function wordCount(borrows buffer: gpu.Buffer<uint32>): integer

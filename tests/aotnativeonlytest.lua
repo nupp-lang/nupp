@@ -62,7 +62,7 @@ end
 local VEC = [[
 module vec
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 --- Doubles every lane.
 @aot
@@ -86,7 +86,7 @@ local MAIN = [[
 module main
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 local vec = require("vec")
 local twice = vec.twice
 
@@ -205,7 +205,7 @@ local AGGREGATE = [[
 module complex
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 --- A vector of complex numbers, as two vectors.
 local struct Pair

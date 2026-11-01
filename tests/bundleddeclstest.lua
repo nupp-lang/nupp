@@ -43,7 +43,7 @@ local BUNDLED = {
     "nupp.mem.array",
     "nupp.util.internal.pool",
     "nupp.mem.arena",
-    "nupp.events",
+    "events",
     "nupp.profile.zone",
     "nupp.profile",
 }

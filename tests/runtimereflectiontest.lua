@@ -31,7 +31,7 @@ local M = {}
 function M.constructionKeepsStoredCallbacksAndOmitsMethods()
     local result = run(
         [[
-local events = require("nupp.events")
+local events = require("events")
 @derive(events.Event)
 local record Action
     callback: function(): integer

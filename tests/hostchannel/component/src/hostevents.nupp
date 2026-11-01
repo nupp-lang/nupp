@@ -5,7 +5,7 @@ The events the host channel's stream scenario routes: what a host would push
 for a pointer and a keyboard.
 ]]
 
-local events = require("nupp.events")
+local events = require("events")
 
 --- A pointer moved to `x`, `y`.
 @derive(events.Event)

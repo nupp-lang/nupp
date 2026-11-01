@@ -27,6 +27,7 @@ local function read(path)
     end
     local text = file:read("*a")
     file:close()
+
     return text
 end
 
@@ -37,6 +38,7 @@ local function project(files)
     for name, text in pairs(files) do
         write(dir .. "/" .. name, text)
     end
+
     return dir
 end
 
@@ -55,13 +57,14 @@ local function buildAndRun(dir, entries, policy)
     local pipe = assert(io.popen(("cd %q && luajit check.lua %s 2>&1"):format(dir, policy)))
     local result = pipe:read("*a")
     pipe:close()
+
     return (result:gsub("%s+$", "")), read(logPath)
 end
 
 local PARTICLES = [[
 module particles
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 --- A storage struct: a scalar beside a four-lane vector and a three-lane one,
 --- which the layout model pads to sixteen bytes each.
@@ -150,15 +153,18 @@ end
 print(table.concat(parts, " "))
 ]]
 
-local EXPECTED = table.concat({
-    -- velocity * 1.5 and color reversed, per row
-    "1.5 3 4.5 6 3 2 1",
-    "3 4.5 6 7.5 3 2 1",
-    "4.5 6 7.5 9 3 2 1",
-    "| 4.5", -- 0.5 + 1.5 + 2.5
-    "| 11 22 33 44 5.5 6.5 7.5 8.5 102", -- a + b, and the lane sums of b: 100 + 2
-    "| 48/16 16,32 0 48", -- the model's layout, an aligned allocation and stride
-}, " ")
+local EXPECTED = table.concat(
+    {
+        -- velocity * 1.5 and color reversed, per row
+        "1.5 3 4.5 6 3 2 1",
+        "3 4.5 6 7.5 3 2 1",
+        "4.5 6 7.5 9 3 2 1",
+        "| 4.5", -- 0.5 + 1.5 + 2.5
+        "| 11 22 33 44 5.5 6.5 7.5 8.5 102", -- a + b, and the lane sums of b: 100 + 2
+        "| 48/16 16,32 0 48", -- the model's layout, an aligned allocation and stride
+    },
+    " "
+)
 
 -- The same source answers the same whether the kernel runs natively over the
 -- struct's bytes or as ordinary Lua over the FFI struct, and the layout both
@@ -171,7 +177,10 @@ function M.aStoredVectorFieldAgreesBetweenLuaAndNative()
         test.equal(result, EXPECTED, policy .. " at " .. dir .. "\n" .. tostring(log))
         if policy == "off" then
             local lua = assert(read(dir .. "/build/native/particles.lua"))
-            assert(lua:find('lane.fromStorage("float",4,', 1, true), "a Lua read goes through the lane runtime:\n" .. lua)
+            assert(
+                lua:find('lane.fromStorage("float",4,', 1, true),
+                "a Lua read goes through the lane runtime:\n" .. lua
+            )
         end
     end
     local llvm = assert(read(dir .. "/build/native/aot/src/particles.neon.ll"), "the NEON unit is emitted")
@@ -180,17 +189,29 @@ function M.aStoredVectorFieldAgreesBetweenLuaAndNative()
         "the struct is spelled with the model's padding:\n" .. llvm
     )
     assert(llvm:find("%struct.KsPair = type { [4 x float], [4 x float] }", 1, true), llvm)
-    assert(llvm:find("load <4 x float>, ptr %", 1, true) and llvm:find(", align 16", 1, true), "vector loads at the model's alignment:\n" .. llvm)
+    assert(
+        llvm:find("load <4 x float>, ptr %", 1, true) and llvm:find(", align 16", 1, true),
+        "vector loads at the model's alignment:\n" .. llvm
+    )
     assert(llvm:find("load <3 x float>, ptr %", 1, true), llvm)
     assert(llvm:find("store <4 x float> %", 1, true), llvm)
-    assert(llvm:find("_layout_Particle_align()", 1, true) and llvm:find("_layout_Particle_align_velocity()", 1, true), llvm)
+    assert(
+        llvm:find("_layout_Particle_align()", 1, true) and llvm:find("_layout_Particle_align_velocity()", 1, true),
+        llvm
+    )
     local generated = assert(read(dir .. "/build/native/particles.lua"))
     assert(
         generated:find("float velocity[4] __attribute__((aligned(16)));", 1, true),
         "the Lua struct declares the field aligned:\n" .. generated
     )
-    assert(generated:find("layout alignment mismatch", 1, true), "the wrapper checks the struct's alignment:\n" .. generated)
-    assert(generated:find("field alignment mismatch", 1, true), "the wrapper checks each field's alignment:\n" .. generated)
+    assert(
+        generated:find("layout alignment mismatch", 1, true),
+        "the wrapper checks the struct's alignment:\n" .. generated
+    )
+    assert(
+        generated:find("field alignment mismatch", 1, true),
+        "the wrapper checks each field's alignment:\n" .. generated
+    )
     M.dir = dir
 end
 
@@ -215,7 +236,10 @@ function M.anAlignmentOnlyMismatchFailsTheLoadTimeCheck()
     local pipe = assert(io.popen(("cd %q && luajit check.lua require 2>&1"):format(dir)))
     local result = pipe:read("*a")
     pipe:close()
-    assert(result:find("native struct layout alignment mismatch", 1, true), "the alignment check refuses the module:\n" .. result)
+    assert(
+        result:find("native struct layout alignment mismatch", 1, true),
+        "the alignment check refuses the module:\n" .. result
+    )
     write(path, generated)
 end
 

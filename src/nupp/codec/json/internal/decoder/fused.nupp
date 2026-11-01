@@ -64,7 +64,7 @@ returns zeros, which is what a scan that has seen nothing needs.
 local _valueBuilder = require("serde.valuebuilder")
 local _jsonBuilder = require("nupp.codec.json.internal.builder")
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 local {type Buffer} = require("nupp.text")
 
 local fused = {}

@@ -1,6 +1,6 @@
 -- The Teal router side of bench/events: the same scenarios as candidate.nupp,
 -- over the tecs.events MessageBus, table pool and FFI event arena that
--- `nupp.events` replaces.
+-- `events` replaces.
 --
 -- The Teal bus delivers an instance the caller already holds. Emission by
 -- type, with pooled record storage or an arena row, lived in the Teal world
@@ -63,11 +63,13 @@ function router.make(name)
     local ffiSliceId = GLOBAL_FFI_EVENTS:acquireSlice()
     local checksum = 0
     local calls = 0
+
     local function read()
         local sum, count = checksum, calls
         checksum, calls = 0, 0
         return sum, count
     end
+
     local function tick(event)
         calls = calls + 1
         checksum = checksum + event.value

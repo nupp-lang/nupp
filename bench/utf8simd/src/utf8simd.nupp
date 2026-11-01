@@ -1,7 +1,7 @@
 module utf8simd
 
 --[[
-UTF-8 validation a vector at a time, written on the general `nupp.simd`
+UTF-8 validation a vector at a time, written on the general `simd`
 algebra: a byte species, three sixteen-entry nibble tables that are ordinary
 vectors looked up with `swizzle`, and `align` to bring the previous vector's
 last bytes in front of the current one.
@@ -24,7 +24,7 @@ vector, which is also how the tail after the last whole vector is finished.
 ]]
 
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 local span = require("nupp.mem.span")
 
 local utf8simd = {}

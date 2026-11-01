@@ -1,6 +1,6 @@
 # Mandelbrot scalar and explicit SIMD benchmark
 
-This benchmark compares complete scalar and authored `nupp.simd` functions over
+This benchmark compares complete scalar and authored `simd` functions over
 the same binary32 point batch. Every result record is checked exactly before
 timing; grid construction and the checksum are outside the timed entries.
 

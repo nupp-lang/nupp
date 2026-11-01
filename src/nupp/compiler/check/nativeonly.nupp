@@ -36,7 +36,7 @@ type nativeonly.Ops = {
     sweep: function(root: any)
 }
 
---- Whether `t` is a `nupp.simd` vector or mask, through ownership wrappers and
+--- Whether `t` is a `simd` vector or mask, through ownership wrappers and
 --- aliases.
 local function vectorOrMask(t: any?): boolean
     if t == nil then

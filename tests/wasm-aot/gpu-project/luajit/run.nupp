@@ -17,7 +17,7 @@ do
     nupp.drop(rows)
 end
 local output = array.scalar(array.uint32, 2)
-local gpu = require("nupp.gpu")
+local gpu = require("gpu")
 with context = gpu.open() do
     with gpuInput = context:buffer(array.uint32, 2), gpuOutput = context:buffer(array.uint32, 2) do
         with kernel = addMask:compile(context) do

@@ -17,7 +17,7 @@ local M = {}
 local PRELUDE = [[
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 ]]
 
 local function compile(src)

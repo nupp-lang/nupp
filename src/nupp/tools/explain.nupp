@@ -1654,7 +1654,7 @@ ENTRIES[
 -- the same on every machine that runs the test.
 -- A preferred species reads one vector; LANE names the lane taken out of it.
 local SIMD_LANE = "local array = require(\"nupp.mem.array\")\nlocal span = require(\"nupp.mem.span\")\n"
-    .. "local simd = require(\"nupp.simd\")\n\n@aot\n"
+    .. "local simd = require(\"simd\")\n\n@aot\n"
     .. "local function lane(borrows input: span.Span<float>): number\n"
     .. "    if species = simd.vectors(array.float) then\n        if species.lanes <= #input then\n"
     .. "            return species:load(input, 1):extract(LANE)\n        end\n    end\n    return 0.0\nend\n\n"
@@ -1758,14 +1758,14 @@ ENTRIES[
     .. "are admitted, because the native call resolves through them without reading "
     .. "a Lua value. Move the call into an `@aot` function, or give the entry a "
     .. "span and scalar signature.",
-    wrong = "local array = require(\"nupp.mem.array\")\nlocal simd = require(\"nupp.simd\")\n\n@aot\n"
+    wrong = "local array = require(\"nupp.mem.array\")\nlocal simd = require(\"simd\")\n\n@aot\n"
     .. "local function twice(value: simd.Vector<float, simd.Preferred>): simd.Vector<float, simd.Preferred>\n"
     .. "    return value + value\nend\n\n"
     .. "local function fromLua(): simd.Vector<float, simd.Preferred>\n"
     .. "    local species = simd.species(array.float)\n    return twice(species:splat(1.0))\nend\n\n"
     .. "return {twice = twice, fromLua = fromLua}\n",
     right = "local array = require(\"nupp.mem.array\")\nlocal span = require(\"nupp.mem.span\")\n"
-    .. "local simd = require(\"nupp.simd\")\n\n@aot\n"
+    .. "local simd = require(\"simd\")\n\n@aot\n"
     .. "local function twice(value: simd.Vector<float, simd.Preferred>): simd.Vector<float, simd.Preferred>\n"
     .. "    return value + value\nend\n\n@aot\n"
     .. "local function apply(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil\n"
@@ -1787,11 +1787,11 @@ ENTRIES[
     .. "value the register file holds, as the vectors in it are. It has no field "
     .. "stores, in native code or as ordinary Lua, so the two never disagree "
     .. "about who sees a write. Construct a new aggregate with the field changed.",
-    wrong = "local simd = require(\"nupp.simd\")\n\nlocal struct Pair\n"
+    wrong = "local simd = require(\"simd\")\n\nlocal struct Pair\n"
     .. "    re: simd.Vector<float, simd.Preferred>\n    im: simd.Vector<float, simd.Preferred>\nend\n\n@aot\n"
     .. "local function conjugate(z: Pair): Pair\n    z.im = -z.im\n    return z\nend\n\n"
     .. "return {conjugate = conjugate, Pair = Pair}\n",
-    right = "local simd = require(\"nupp.simd\")\n\nlocal struct Pair\n"
+    right = "local simd = require(\"simd\")\n\nlocal struct Pair\n"
     .. "    re: simd.Vector<float, simd.Preferred>\n    im: simd.Vector<float, simd.Preferred>\nend\n\n@aot\n"
     .. "local function conjugate(z: Pair): Pair\n    return new Pair(z.re, -z.im)\nend\n\n"
     .. "return {conjugate = conjugate, Pair = Pair}\n",

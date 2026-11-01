@@ -63,7 +63,7 @@ An entry may return several numeric or boolean results through its private aggre
 
 ## Explicit SIMD
 
-When vector execution matters, use `nupp.simd` inside a block kernel. See
+When vector execution matters, use `simd` inside a block kernel. See
 [simd-programming.md](simd-programming.md) for species, masks, and vector
 operations. `simd.species` always returns a species, the preferred one one lane
 wide where the tier has no vectors, and `species:over` strip-mines a span so the

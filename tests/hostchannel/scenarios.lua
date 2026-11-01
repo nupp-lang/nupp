@@ -296,7 +296,7 @@ end
 -- whatever their kinds.
 function scenarios.streams()
     local hostevents = require("hostevents")
-    local events = require("nupp.events")
+    local events = require("events")
     local bus = events.newMessageBus()
     local moves, keys, order = {}, {}, {}
     bus:observe(
@@ -351,7 +351,7 @@ end
 -- and the rest of the pass is delivered in order.
 function scenarios.streamObserverFails()
     local hostevents = require("hostevents")
-    local events = require("nupp.events")
+    local events = require("events")
     local bus = events.newMessageBus()
     local order = {}
     bus:observe(

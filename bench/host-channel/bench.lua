@@ -129,7 +129,7 @@ end
 -- `time.sleep(0)` is the frame boundary, the one round trip a frame costs.
 function workloads.streamFrames(options)
     local hostevents = require("hostevents")
-    local events = require("nupp.events")
+    local events = require("events")
     local frames = options.frames or 300
     local eventCount = options.events or 17
     local packetBytes = options.packetBytes or 0
@@ -197,7 +197,7 @@ end
 -- frame's pointer events beside its answer, and the packet goes out on a stream.
 function workloads.channelFrames(options)
     local hostevents = require("hostevents")
-    local events = require("nupp.events")
+    local events = require("events")
     local frames = options.frames or 300
     local eventCount = options.events or 17
     local packetBytes = options.packetBytes or 0

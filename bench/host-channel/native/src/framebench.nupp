@@ -12,7 +12,7 @@ host answers from its loop, under `nupp.host.pump`.
 ]]
 
 local host = require("nupp.host")
-local events = require("nupp.events")
+local events = require("events")
 local pump = require("nupp.host.pump")
 local span = require("nupp.mem.span")
 local hostevents = require("hostevents")

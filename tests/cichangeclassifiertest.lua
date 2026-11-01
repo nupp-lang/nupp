@@ -85,8 +85,8 @@ end
 
 function M.localFleetInputsRemainAnExplicitSimdSurface()
     for _, path in ipairs({
-        "src/nupp/simd.nupp",
-        "src/nupp/simd/horizontal.nupp",
+        "src/simd.nupp",
+        "src/simd/horizontal.nupp",
         "src/nupp/mem/array.nupp",
         "src/nupp/mem/span.nupp",
         "src/nupp/mem/soa.nupp",
@@ -180,7 +180,7 @@ function M.wasmOnlyFixturesSelectTheJobThatRunsThem()
     })
     selects("src/nupp/compiler/aot/compile.nupp", {"browser-wasm"})
     selects("src/nupp/tools/build/aot.nupp", {"browser-wasm"})
-    selects("src/nupp/simd.nupp", {"browser-wasm"})
+    selects("src/simd.nupp", {"browser-wasm"})
 end
 
 -- The one job narrow enough to be worth narrowing, so the boundary is worth an
@@ -192,6 +192,7 @@ end
 
 function M.gpuChangeSelectsBothAdapters()
     selects("src/nupp/gpu/kernel.nupp", {"gpu-linux", "gpu-windows", "fast-checks", "linux-integration"})
+    selects("src/gpu/kernel.nupp", {"gpu-linux", "gpu-windows", "fast-checks", "linux-integration"})
 end
 
 function M.nativeChangeSelectsEveryPlatform()

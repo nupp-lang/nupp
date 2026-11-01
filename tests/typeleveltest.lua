@@ -2040,7 +2040,7 @@ function M.simdSpeciesIdentityIsInvariantAndComparisonsReturnMasks()
         table.concat(
             {
                 'local array = require("nupp.mem.array")',
-                'local simd = require("nupp.simd")',
+                'local simd = require("simd")',
                 "local species = assert(simd.species(array.float))",
                 "local fixed = assert(simd.species(array.float, 8))",
                 "local left: simd.Vector<float, simd.Preferred> = nil as any",
@@ -2056,7 +2056,7 @@ function M.simdSpeciesIdentityIsInvariantAndComparisonsReturnMasks()
         codes(
             table.concat(
                 {
-                    'local simd = require("nupp.simd")',
+                    'local simd = require("simd")',
                     "local function wrong(value: simd.Vector<number, simd.Fixed<4>>): simd.Vector<number, simd.Fixed<8>>",
                     "   return value",
                     "end",
@@ -2071,7 +2071,7 @@ function M.simdSpeciesIdentityIsInvariantAndComparisonsReturnMasks()
         codes(
             table.concat(
                 {
-                    'local simd = require("nupp.simd")',
+                    'local simd = require("simd")',
                     "local left: simd.Vector<float, simd.Preferred> = nil as any",
                     "local right: simd.Vector<float, simd.Preferred> = nil as any",
                     "return left & right",
@@ -2085,7 +2085,7 @@ end
 
 function M.simdMaskEqualityReturnsLaneMasksAndRejectsOrdering()
     local prefix = [[
-local simd = require("nupp.simd")
+local simd = require("simd")
 local left: simd.Mask<uint8, simd.Fixed<3>> = nil as any
 local right: simd.Mask<uint8, simd.Fixed<3>> = nil as any
 ]]
@@ -2113,7 +2113,7 @@ function M.narrowStorageWidthsAreValidOnlyInsideCompilerOwnedSimdFamilies()
         table.concat(
             {
                 'local array = require("nupp.mem.array")',
-                'local simd = require("nupp.simd")',
+                'local simd = require("simd")',
                 "local species = assert(simd.species(array.uint8))",
                 "local vector: simd.Vector<uint8, simd.Preferred> = nil as any",
                 "local mask: simd.Mask<uint8, simd.Preferred> = vector == vector",
@@ -2134,7 +2134,7 @@ function M.simdHorizontalContractsPreserveTheirNestedIntrinsicIdentity()
     clean(
         table.concat(
             {
-                'local simd = require("nupp.simd")',
+                'local simd = require("simd")',
                 "local horizontal = simd.horizontal",
                 "local ordered = horizontal.orderedSum",
                 "local value: simd.Vector<float, simd.Fixed<8>> = nil as any",
@@ -2148,7 +2148,7 @@ function M.simdHorizontalContractsPreserveTheirNestedIntrinsicIdentity()
         codes(
             table.concat(
                 {
-                    'local simd = require("nupp.simd")',
+                    'local simd = require("simd")',
                     "local value: simd.Vector<uint32, simd.Fixed<8>> = nil as any",
                     "return simd.horizontal.orderedSum(value)",
                 },
@@ -2161,7 +2161,7 @@ end
 
 function M.exactReducerLifecycleAndTypesAreChecked()
     local source = [[
-local simd = require("nupp.simd")
+local simd = require("simd")
 @aot
 local function total(seed: uint32): uint32
     local fold = simd.reducer.wrappingSum(nupp.mem.array.uint32, seed)
@@ -2178,7 +2178,7 @@ return total
     testAssert.equal(codes(source:gsub("fold:add%(seed%)", "fold:add(true)")), "NUPP2006")
     clean(
         [[
-local simd = require("nupp.simd")
+local simd = require("simd")
 local minimum: simd.IntegerArgMin<uint64> = simd.reducer.integerArgMin(nupp.mem.array.uint64)
 local flag: boolean = simd.reducer.any():value()
 local count: uint64 = simd.reducer.count():value()
@@ -2190,7 +2190,7 @@ end
 function M.floatingReducerStateIsPrivateToTheSimdModule()
     testAssert.equal(
         codes([[
-local simd = require("nupp.simd")
+local simd = require("simd")
 local sum = simd.reducer.orderedSum(0.0)
 local total = sum.total
 ]]),
@@ -2199,7 +2199,7 @@ local total = sum.total
     testAssert.equal(
         codes(
             [[
-local simd = require("nupp.simd")
+local simd = require("simd")
 local sum = simd.reducer.compensatedSum(0.0)
 sum.compensation = 1.0
 return sum:value()
@@ -2211,7 +2211,7 @@ end
 
 -- Every reducer a constructor answers is a type the caller can write down.
 function M.everyFloatingReducerNamesItsType()
-    local lines = {'local simd = require("nupp.simd")'}
+    local lines = {'local simd = require("simd")'}
     for _, name in ipairs({
         "OrderedSum",
         "PairwiseSum",
@@ -2236,7 +2236,7 @@ end
 function M.everyReducerContributesThroughAddAndIsAReducer()
     clean(
         [[
-local simd = require("nupp.simd")
+local simd = require("simd")
 local function finish<T>(reducer: simd.Reducer<T>): T
     return reducer:value()
 end
@@ -2259,7 +2259,7 @@ return finish(product), finish(pairwise), finish(algebraic), finish(ordered), fi
     testAssert.equal(
         codes(
             [[
-local simd = require("nupp.simd")
+local simd = require("simd")
 local product = simd.reducer.orderedProduct(1.0)
 product:multiply(2.0)
 return product:value()
@@ -2275,7 +2275,7 @@ function M.integerReducersAreSelectedByTheirElementType()
     clean(
         [[
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 local sum: simd.WrappingSum<int32> = simd.reducer.wrappingSum<int32>(array.int32, 0)
 local product: simd.Reducer<uint64> = simd.reducer.wrappingProduct(array.uint64, 1ULL)
 local bits: simd.AndBits<uint32> = simd.reducer.andBits(array.uint32, math.u32.wrap(7))
@@ -2288,7 +2288,7 @@ return sum, product, bits, least, position
         codes(
             [[
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 return simd.reducer.wrappingSum<uint32>(array.int32, 0)
 ]]
         )
@@ -2299,7 +2299,7 @@ return simd.reducer.wrappingSum<uint32>(array.int32, 0)
         codes(
             [[
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 return simd.reducer.xorBits(array.float, 0)
 ]]
         )
@@ -2311,7 +2311,7 @@ end
 -- The ordering policy leads the name, as it does in `orderedSum`.
 function M.theOrderedPrefixSumNamesItsPolicyFirst()
     local source = [[
-local simd = require("nupp.simd")
+local simd = require("simd")
 local value: simd.Vector<float, simd.Fixed<4>> = nil as any
 local prefix: simd.Vector<float, simd.Fixed<4>> = value:NAME()
 return prefix
@@ -2324,7 +2324,7 @@ function M.reducerLifecyclesAreCheckedWithoutTargetLowering()
     clean(
         table.concat(
             {
-                'local simd = require("nupp.simd")',
+                'local simd = require("simd")',
                 "@aot",
                 "local function total(): number",
                 "   local sum = simd.reducer.orderedSum(0.0)",
@@ -2342,7 +2342,7 @@ function M.reducerLifecyclesAreCheckedWithoutTargetLowering()
     local found = diagnostics(
         table.concat(
             {
-                'local simd = require("nupp.simd")',
+                'local simd = require("simd")',
                 "@aot",
                 "local function total(): number",
                 "   local sum = simd.reducer.orderedSum(0.0)",

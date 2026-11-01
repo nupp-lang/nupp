@@ -54,7 +54,7 @@ end
 local PRELUDE = [[
 local soa = require("nupp.mem.soa")
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 local ffi = require("ffi")
 
 local struct Particle

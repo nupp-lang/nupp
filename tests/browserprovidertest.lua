@@ -517,7 +517,7 @@ end
 
 function M.aWritableViewThatRepeatsAnElementIsRefused()
     local context, element, kernel = gpuContext()
-    local layout = require("nupp.gpu.layout")
+    local layout = require("gpu.layout")
     local output = context:buffer(element, 4)
     local binding = context:bindKernel(kernel, 4)
     -- Every element of the view is the allocation's first: four threads would race to
@@ -535,7 +535,7 @@ end
 
 function M.oneAllocationCannotBeBoundForReadingAndWriting()
     local context, element, kernel = gpuContext()
-    local layout = require("nupp.gpu.layout")
+    local layout = require("gpu.layout")
     local shared = context:buffer(element, 8)
     local other = context:buffer(element, 8)
 

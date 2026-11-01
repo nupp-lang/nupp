@@ -1,6 +1,6 @@
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 @aot
 local function advance(

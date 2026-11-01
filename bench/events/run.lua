@@ -1,4 +1,4 @@
--- bench/events: nupp.events against the Teal router it replaces.
+-- bench/events: events against the Teal router it replaces.
 --
 -- Every scenario is built twice, once from the compiled candidate and once
 -- from the reference under bench/events/reference, and each side does the
@@ -18,14 +18,17 @@
 -- invokes this with the pinned LuaJIT.
 local root = assert(arg[1], "build directory required")
 local here = arg[0]:match("^(.*)/[^/]*$") or "."
-package.path = table.concat({
-    root .. "/?.lua",
-    root .. "/?/init.lua",
-    root .. "/src/?.lua",
-    root .. "/src/?/init.lua",
-    here .. "/reference/?.lua",
-    package.path,
-}, ";")
+package.path = table.concat(
+    {
+        root .. "/?.lua",
+        root .. "/?/init.lua",
+        root .. "/src/?.lua",
+        root .. "/src/?/init.lua",
+        here .. "/reference/?.lua",
+        package.path,
+    },
+    ";"
+)
 
 local candidate = require("bench.events.candidate")
 local reference = require("router")
@@ -153,40 +156,29 @@ local function check(name, left, right)
     for index = 1, #left do
         assert(
             left[index].checksum == right[index].checksum,
-            ("%s: checksum differs between candidate (%s) and reference (%s)"):format(
-                name,
-                tostring(left[index].checksum),
-                tostring(right[index].checksum)
-            )
+            (
+                "%s: checksum differs between candidate (%s) and reference (%s)"
+            ):format(name, tostring(left[index].checksum), tostring(right[index].checksum))
         )
         assert(
             left[index].calls == right[index].calls,
-            ("%s: callback count differs between candidate (%d) and reference (%d)"):format(
-                name,
-                left[index].calls,
-                right[index].calls
-            )
+            (
+                "%s: callback count differs between candidate (%d) and reference (%d)"
+            ):format(name, left[index].calls, right[index].calls)
         )
     end
 end
 
 local jit = require("jit")
-print(("%s, %s operations per run, batches of %s, %d interleaved runs per side"):format(
-    jit.version,
-    tostring(OPERATIONS),
-    tostring(BATCH),
-    RUNS
-))
+print(
+    (
+        "%s, %s operations per run, batches of %s, %d interleaved runs per side"
+    ):format(jit.version, tostring(OPERATIONS), tostring(BATCH), RUNS)
+)
 print()
-print(("%-16s %-10s %12s %10s %10s %10s %7s"):format(
-    "scenario",
-    "side",
-    "ops/s",
-    "p50 ns",
-    "p95 ns",
-    "KiB/10k",
-    "calls"
-))
+print(
+    ("%-16s %-10s %12s %10s %10s %10s %7s"):format("scenario", "side", "ops/s", "p50 ns", "p95 ns", "KiB/10k", "calls")
+)
 
 local sides = {{name = "candidate", module = candidate}, {name = "reference", module = reference}}
 local report = {}
@@ -204,15 +196,19 @@ for _, name in ipairs(SCENARIOS) do
     local rows = {summarize(samples[1]), summarize(samples[2])}
     for which = 1, 2 do
         local row = rows[which]
-        print(("%-16s %-10s %12.0f %10.1f %10.1f %10.2f %7d"):format(
-            which == 1 and name or "",
-            sides[which].name,
-            row.throughput,
-            row.p50 * 1e9,
-            row.p95 * 1e9,
-            row.kib,
-            row.calls
-        ))
+        print(
+            (
+                "%-16s %-10s %12.0f %10.1f %10.1f %10.2f %7d"
+            ):format(
+                which == 1 and name or "",
+                sides[which].name,
+                row.throughput,
+                row.p50 * 1e9,
+                row.p95 * 1e9,
+                row.kib,
+                row.calls
+            )
+        )
     end
     print(("%-16s %-10s %11.2fx"):format("", "ratio", rows[1].throughput / rows[2].throughput))
     report[#report + 1] = {name = name, candidate = rows[1], reference = rows[2]}
@@ -221,16 +217,24 @@ end
 if arg[2] == "--json" then
     local parts = {}
     for _, entry in ipairs(report) do
-        parts[#parts + 1] = ('{"scenario":"%s","candidate":%s,"reference":%s}'):format(
+        parts[
+            #parts + 1
+        ] = (
+            '{"scenario":"%s","candidate":%s,"reference":%s}'
+        ):format(
             entry.name,
-            ('{"throughput":%.0f,"p50ns":%.1f,"p95ns":%.1f,"kib":%.2f,"calls":%d}'):format(
+            (
+                '{"throughput":%.0f,"p50ns":%.1f,"p95ns":%.1f,"kib":%.2f,"calls":%d}'
+            ):format(
                 entry.candidate.throughput,
                 entry.candidate.p50 * 1e9,
                 entry.candidate.p95 * 1e9,
                 entry.candidate.kib,
                 entry.candidate.calls
             ),
-            ('{"throughput":%.0f,"p50ns":%.1f,"p95ns":%.1f,"kib":%.2f,"calls":%d}'):format(
+            (
+                '{"throughput":%.0f,"p50ns":%.1f,"p95ns":%.1f,"kib":%.2f,"calls":%d}'
+            ):format(
                 entry.reference.throughput,
                 entry.reference.p50 * 1e9,
                 entry.reference.p95 * 1e9,

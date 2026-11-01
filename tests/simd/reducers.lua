@@ -92,7 +92,7 @@ function M.generate(options)
         local names, source = {}, {
             'local array = require("nupp.mem.array")',
             'local span = require("nupp.mem.span")',
-            'local simd = require("nupp.simd")',
+            'local simd = require("simd")',
         }
         local valueCount = floating and 13 or 4 + #INTEGER
         for _, width in ipairs(widths) do

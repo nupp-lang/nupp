@@ -28,7 +28,7 @@ function M.mapAndExplicitWidthsShareOneTranslationUnit()
         dir .. "/src/mixed.nupp",
         [[
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 local array = require("nupp.mem.array")
 @aot
 local function map(exclusive output: span.WriteSpan<number>, borrows input: span.Span<number>): nil

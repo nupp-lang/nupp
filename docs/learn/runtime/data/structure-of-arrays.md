@@ -270,7 +270,7 @@ exit copy no row payloads.
 
 ```nupp:fragment
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 @aot
 local function advance(exclusive rows: soa.WriteToken & soa.WriteSpan<Particle>, dt: float): nil

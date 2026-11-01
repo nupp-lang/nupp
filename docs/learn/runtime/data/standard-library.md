@@ -94,8 +94,8 @@ intrinsic namespaces and the declared modules:
 - [`nupp.mem.soa`](structure-of-arrays.md) stores every top-level field of a
   reified struct in its own column.
 - [](nupp.mem.arena) leases zero-filled struct rows from pages that never move.
-- [](nupp.gpu) owns resident buffers, generated kernel dispatches, and
-  tensor views. [](nupp.gpu.layout) owns the checked layout algebra.
+- [](gpu) owns resident buffers, generated kernel dispatches, and
+  tensor views. [](gpu.layout) owns the checked layout algebra.
 - [](nupp.random) provides cryptographically secure random bytes and owns
   deterministic pseudo-random sequences with explicit, serializable state.
 - [](nupp.suspension), [](nupp.tasks), and [](nupp.workers) provide waiting,

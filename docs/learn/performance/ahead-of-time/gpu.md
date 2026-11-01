@@ -42,7 +42,7 @@ specification. The application allocates buffers, compiles the specification,
 binds buffers in parameter order, and dispatches scalar uniforms separately:
 
 ```nupp:fragment
-local gpu = require("nupp.gpu")
+local gpu = require("gpu")
 local kernels = require("kernels")
 local array = nupp.mem.array
 
@@ -111,7 +111,7 @@ The controller allocates bounded scratch and divides execution into immediate
 `phases:run` callbacks:
 
 ```nupp
-local gpu = require("nupp.gpu")
+local gpu = require("gpu")
 local span = require("nupp.mem.span")
 
 @aot(target = "gpu")
@@ -158,7 +158,7 @@ artifact; unordered and atomic reductions are not part of this contract.
 ## Tensor layouts and fixed-width storage
 
 `Context:tensor(element, shape)` allocates dense row-major storage. The
-`nupp.gpu.layout` module (imported as `layout`) builds one with
+`gpu.layout` module (imported as `layout`) builds one with
 `layout.new(shape, strides, offset?)` and provides `layout.subview`,
 `layout.transpose`, `layout.broadcast`, and `layout.asStrided` to transform
 checked layout values without allocating. A layout provides `dimensions()`,
@@ -255,6 +255,6 @@ host before dispatch.
   for the exact `@aot` arguments
 - [build-and-artifacts.md](build-and-artifacts.md) for AOT target policies and
   artifact caching
-- [](nupp.gpu) for the generated binding and resident-buffer API
-- [](nupp.gpu.layout) for layout functions
+- [](gpu) for the generated binding and resident-buffer API
+- [](gpu.layout) for layout functions
 :::

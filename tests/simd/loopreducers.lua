@@ -187,7 +187,7 @@ function M.generate(types, mode, width)
     local source = {
         [[local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 ]]
     }
     if floatingCases then

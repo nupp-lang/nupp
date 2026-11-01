@@ -386,8 +386,8 @@ function M.aStandardGenericFillsAFieldInEitherSchedule()
     write(
         directory .. "/src/world.nupp",
         [[
-const {type Observers} = require("nupp.events")
-local events = require("nupp.events")
+const {type Observers} = require("events")
+local events = require("events")
 local files = require("nupp.io.files")
 
 local record World

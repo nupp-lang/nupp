@@ -22,7 +22,7 @@ function M.blockSpanGuardsRejectBeforeExecutingTheBody()
         [[
 module guarded
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 @aot
 local function dot(borrows left: span.Span<number>, borrows right: span.Span<number>): number
     assert(#left == #right)

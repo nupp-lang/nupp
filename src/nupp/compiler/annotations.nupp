@@ -420,7 +420,7 @@ local BUILTINS = {
         arguments = "typed",
         targets = {"record", "struct"},
         builtin = true,
-        doc = "Names the event a declaration deriving `nupp.events.Event` registers as.",
+        doc = "Names the event a declaration deriving `events.Event` registers as.",
         docsPath = "docs/reference/derives.md#event",
     },
     {

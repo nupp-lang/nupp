@@ -1,5 +1,5 @@
 --[[
-Structural indexing on the general `nupp.simd` algebra.
+Structural indexing on the general `simd` algebra.
 
 One vector of bytes at a time, every byte the indexer has to look at --
 a quote, a backslash, a control byte, one of the six structural characters
@@ -20,7 +20,7 @@ the contract `indexer_reference` states in the plain form.
 ]]
 
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 local span = require("nupp.mem.span")
 
 local indexer = {}

@@ -990,7 +990,7 @@ local SELECTING_FACADES = {
     {"nupp.codec.json.provider", "serde.json.spi.Provider"},
     {"binary.compress", "binary.compress.spi.Provider"},
     {"binary.hash.digest", "binary.hash.digest.spi.Provider"},
-    {"nupp.gpu", "nupp.gpu.spi.Provider"},
+    {"gpu", "gpu.spi.Provider"},
     {"nupp.host", "nupp.host.spi.Provider"},
     {"nupp.io.files", "nupp.io.files.spi.Provider"},
     {"nupp.io.http", "nupp.io.http.spi.Provider"},

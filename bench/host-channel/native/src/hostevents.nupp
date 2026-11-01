@@ -1,6 +1,6 @@
 module hostevents
 
-local events = require("nupp.events")
+local events = require("events")
 
 --- A pointer moved to `x`, `y`.
 @derive(events.Event)

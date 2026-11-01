@@ -18,7 +18,7 @@ Keep it in step with the decoder when the scan changes there.
 ]]
 
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 local span = require("nupp.mem.span")
 
 --- One sixteen-entry nibble table, as the decoder builds it.

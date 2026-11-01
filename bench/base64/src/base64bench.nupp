@@ -5,7 +5,7 @@ Base64 encoding, scalar, as an `@aot` entry.
 
 This is the baseline half of a spike. The vectorized codecs in the literature
 turn twelve input bytes into sixteen output bytes with a byte shuffle and one
-bit-field extraction, and `nupp.simd` can express neither: its vocabulary
+bit-field extraction, and `simd` can express neither: its vocabulary
 consumes bytes and produces masks, so a kernel that has to *write* sixteen
 bytes has nowhere to put them. What the missing operations would be worth is
 the distance between this entry and the vectorized C beside it, and that is

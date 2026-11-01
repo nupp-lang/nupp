@@ -32,7 +32,7 @@ Pure numeric and span bodies keep the small `kernel` ABI, and a body that
 constructs fresh Lua values uses the separate `lua-builder` ABI. GPU entries
 replace the function with a checked `compile`, `bind`, and `dispatch` surface.
 Nothing in the source names an ABI. A loop that runs in CPU vector lanes states
-its species, masks, and tail through `nupp.simd`.
+its species, masks, and tail through `simd`.
 
 ## Const-specialized families
 
@@ -122,7 +122,7 @@ annotation that changes the answer, and it says so per function.
 
 ### How does a loop run in vector lanes?
 
-By saying so with `nupp.simd`: a species, its vector loads and stores, masks,
+By saying so with `simd`: a species, its vector loads and stores, masks,
 and a tail. A loop without those operations is scalar. See
 [simd-programming.md](simd-programming.md) for the model and vector operations.
 

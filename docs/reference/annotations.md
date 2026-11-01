@@ -333,7 +333,7 @@ any of their names.
 | `@derive` | qualified comptime providers | record, struct |
 | `@cli` | command and field options for the `arg` derives | record, field |
 | `@debug` | `skip` or `redact` | field in a derived record |
-| `@event` | the registered event name | record, struct deriving `nupp.events.Event` |
+| `@event` | the registered event name | record, struct deriving `events.Event` |
 | `@deprecated` | optional reason and replacement | declaration, field, c-declaration |
 | `@syntax` | one syntax name | local binding |
 | `@jit` | none | function |
@@ -532,7 +532,7 @@ branch condition or a call no intrinsic admits, reports `NUPP2905` through
 `off`, so it reports these where the build would, and a target under `off`,
 which never lowers, reports none of them.
 
-Code that runs in vector lanes uses `nupp.simd`. See
+Code that runs in vector lanes uses `simd`. See
 [simd-programming.md](../learn/performance/ahead-of-time/simd-programming.md) for the
 vector loop and scalar continuation patterns, and
 [build-and-artifacts.md](../learn/performance/ahead-of-time/build-and-artifacts.md)
@@ -592,7 +592,7 @@ buffers without an intermediate CPU copy.
 
 `Context:tensor(element, shape)` allocates dense row-major storage.
 `buffer:layout()` returns an element-independent layout.
-The `nupp.gpu.layout` module (imported as `layout`) owns the
+The `gpu.layout` module (imported as `layout`) owns the
 `layout.subview`,
 `layout.transpose`, `layout.broadcast`, and `layout.asStrided`
 operations, which are allocation-free;

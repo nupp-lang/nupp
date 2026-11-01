@@ -206,7 +206,7 @@ record modules.Session
     stageBundled: function(string, boolean?): string?
 
     --- Stages the compiler-carried native GPU runtime -- the layout, the native
-    --- binding, its provider and the `nupp.gpu` facade -- for a source that
+    --- binding, its provider and the `gpu` facade -- for a source that
     --- declares a GPU target under `aot = "require"`.
     stageGpuRuntime: function(): nil
 
@@ -806,11 +806,11 @@ local function openSession(
 
     local function stageGpuRuntime(): nil
         stageBundled("nupp.gpu.internal")
-        stageBundled("nupp.gpu.layout")
+        stageBundled("gpu.layout")
         if target.host ~= "browser" then
             stageBundled("nupp.runtime.native")
         end
-        stageBundled("nupp.gpu")
+        stageBundled("gpu")
     end
 
     return new modules.Session(

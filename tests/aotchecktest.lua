@@ -33,7 +33,7 @@ local REFUSED = {
         "aggregatespan.nupp"
     ] = [[
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 local struct Pair
     re: simd.Vector<float, simd.Preferred>
@@ -54,7 +54,7 @@ return {first = first, Pair = Pair}
     ] = [[
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 local struct Particle
     mass: float
@@ -75,7 +75,7 @@ return {first = first, Particle = Particle}
         "vectorsoa.nupp"
     ] = [[
 local soa = require("nupp.mem.soa")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 local struct Particle
     mass: float
@@ -98,7 +98,7 @@ return {masses = masses, Particle = Particle}
         "speciesresult.nupp"
     ] = [[
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 @aot
 local function chosen(): simd.Species<float, simd.Preferred>
@@ -156,7 +156,7 @@ return {shifted = shifted}
     ] = [[
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 @aot
 local function lane(borrows input: span.Span<float>): number
@@ -266,7 +266,7 @@ local ADMITTED = {
         "vectorfield.nupp"
     ] = [[
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 local struct Particle
     mass: float
@@ -292,7 +292,7 @@ return {damp = damp, Particle = Particle}
     ] = [[
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 @aot
 local function twice(value: simd.Vector<float, simd.Preferred>): simd.Vector<float, simd.Preferred>
@@ -351,7 +351,7 @@ return {halve = halve}
     ] = [[
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 local struct Pair
     re: simd.Vector<float, simd.Preferred>
@@ -401,7 +401,7 @@ local _ = pair
     ] = [[
 local array = nupp.mem.array
 local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 @aot
 local function countQuotes(borrows source: span.Span<uint8>): uint32
@@ -840,7 +840,7 @@ return {
             [
                 "vec.nupp"
             ] = [[
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 @aot
 local function twice(value: simd.Vector<float, simd.Preferred>): simd.Vector<float, simd.Preferred>
@@ -853,7 +853,7 @@ return {twice = twice}
                 "uses.nupp"
             ] = [[
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 local vec = require("vec")
 local twice = vec.twice
 
@@ -908,7 +908,7 @@ return {
                 "pair.nupp"
             ] = [[
 local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
+local simd = require("simd")
 
 local struct Pair
     re: simd.Vector<float, simd.Preferred>

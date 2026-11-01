@@ -1,6 +1,6 @@
 local ffi = require("ffi")
 local span = require("nupp.mem.span")
-local gpu = require("nupp.gpu")
+local gpu = require("gpu")
 local generated = require("quantgemv")
 
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
@@ -15,23 +15,40 @@ local zeroPoint = 0
 local input = ffi.new("float[?]", width)
 local weights8 = ffi.new("int8_t[?]", rows * width)
 local weights4 = ffi.new("uint8_t[?]", rows * width / 2)
-for column = 0, width - 1 do input[column] = (column % 31 - 15) / 16 end
+for column = 0, width - 1 do
+    input[column] = (column % 31 - 15) / 16
+end
 for index = 0, rows * width - 1 do
     local value8 = index % 255 - 127
     weights8[index] = value8
     local value4 = index % 16 - 8
     local packed = math.floor(index / 2)
     local nibble = value4 < 0 and value4 + 16 or value4
-    if index % 2 == 0 then weights4[packed] = nibble
-    else weights4[packed] = weights4[packed] + nibble * 16 end
+    if index % 2 == 0 then
+        weights4[packed] = nibble
+    else
+        weights4[packed] = weights4[packed] + nibble * 16
+    end
 end
 
 local expected8 = ffi.new("float[?]", rows)
 local expected4 = ffi.new("float[?]", rows)
-generated.int8Cpu(span.writeCarray(expected8, rows), span.fromCarray(weights8, rows * width),
-    span.fromCarray(input, width), width, scale, zeroPoint)
-generated.int4Cpu(span.writeCarray(expected4, rows), span.fromCarray(weights4, rows * width / 2),
-    span.fromCarray(input, width), width, scale, zeroPoint)
+generated.int8Cpu(
+    span.writeCarray(expected8, rows),
+    span.fromCarray(weights8, rows * width),
+    span.fromCarray(input, width),
+    width,
+    scale,
+    zeroPoint
+)
+generated.int4Cpu(
+    span.writeCarray(expected4, rows),
+    span.fromCarray(weights4, rows * width / 2),
+    span.fromCarray(input, width),
+    width,
+    scale,
+    zeroPoint
+)
 
 local context = gpu.open()
 local inputBuffer = context:buffer(require("nupp.mem.array").float, width)
@@ -52,11 +69,19 @@ local function measure(binding)
         binding:dispatch(width, scale, zeroPoint)
         context:synchronize()
     end
-    for _ = 1, 3 do dispatch() end
+
+    for _ = 1, 3 do
+        dispatch()
+    end
     local started, passes = now(), 0
-    repeat dispatch(); passes = passes + 1 until now() - started >= 1.0
+    repeat
+        dispatch();
+        passes = passes + 1
+    until now() - started >= 1.0
+
     return (now() - started) / passes
 end
+
 local elapsed8 = measure(int8)
 local elapsed4 = measure(int4)
 
@@ -68,10 +93,18 @@ context:synchronize()
 context:readDownloaded(output8Buffer, span.writeCarray(output8, rows))
 context:readDownloaded(output4Buffer, span.writeCarray(output4, rows))
 for index = 0, rows - 1 do
-    assert(output8[index] == expected8[index], ("int8 GEMV mismatch at %d: got %.9g, want %.9g"):format(
-        index, tonumber(output8[index]), tonumber(expected8[index])))
-    assert(output4[index] == expected4[index], ("int4 GEMV mismatch at %d: got %.9g, want %.9g"):format(
-        index, tonumber(output4[index]), tonumber(expected4[index])))
+    assert(
+        output8[index] == expected8[index],
+        (
+            "int8 GEMV mismatch at %d: got %.9g, want %.9g"
+        ):format(index, tonumber(output8[index]), tonumber(expected8[index]))
+    )
+    assert(
+        output4[index] == expected4[index],
+        (
+            "int4 GEMV mismatch at %d: got %.9g, want %.9g"
+        ):format(index, tonumber(output4[index]), tonumber(expected4[index]))
+    )
 end
 
 local operations = 2 * rows * width

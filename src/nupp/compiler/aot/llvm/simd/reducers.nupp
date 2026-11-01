@@ -1,7 +1,7 @@
 module nupp.compiler.aot.llvm.simd.reducers
 
 --[[
-`nupp.simd.reducer` states: creating one, contributing to it, and reading it.
+`simd.reducer` states: creating one, contributing to it, and reading it.
 
 A contribution means what its contract says, one value at a time in source
 order; a masked vector contribution is its active lanes in ascending order.

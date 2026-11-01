@@ -1,6 +1,6 @@
 module compaction
 
-local gpu = require("nupp.gpu")
+local gpu = require("gpu")
 local span = require("nupp.mem.span")
 
 const BLOCK = 256

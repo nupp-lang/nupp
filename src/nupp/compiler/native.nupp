@@ -288,16 +288,16 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.gpu_layout"
     ] = {
         name = "gpu_layout",
-        modules = {"nupp.gpu.layout"},
-        runtimeModule = "nupp.gpu.layout",
+        modules = {"gpu.layout"},
+        runtimeModule = "gpu.layout",
         portableRuntime = true,
         requires = {"runtime.gpu_layoutfacts"},
     },
     [
         "runtime.gpu_layoutfacts"
     ] = {name = "gpu_layoutfacts", runtimeModule = "nupp.gpu.layoutfacts", portableRuntime = true},
-    ["runtime.gpu_api"] = {name = "gpu_api", runtimeModule = "nupp.gpu", portableRuntime = true},
-    ["runtime.gpu"] = {name = "gpu_runtime", module = "nupp.gpu", runtimeModule = "nupp.gpu", portableRuntime = true},
+    ["runtime.gpu_api"] = {name = "gpu_api", runtimeModule = "gpu", portableRuntime = true},
+    ["runtime.gpu"] = {name = "gpu_runtime", module = "gpu", runtimeModule = "gpu", portableRuntime = true},
     ["native.gpu"] = {
         name = "gpu",
         modules = {"nupp.runtime.provider.nativegpu"},
