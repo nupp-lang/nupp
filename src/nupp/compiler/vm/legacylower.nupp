@@ -21,6 +21,18 @@ lower.graphSink = nil as function(entry: string, functions: {Fn}, header: table)
 lower.pathMapper = nil as(function(path: string): string?)?
 
 const graphemit = require("nupp.compiler.vm.legacyemit")
+const apiidentity = require("nupp.compiler.apiidentity")
+const MATH_EXTENSION_MEMBERS = {
+    lerp = true,
+    wrapAngle = true,
+    deltaAngle = true,
+    i32 = true,
+    u32 = true,
+    u64 = true,
+    f32 = true,
+    vec2 = true,
+    quat = true
+}
 const nodeLine = lowerstate.nodeLine
 const SPILL_AT = lowerstate.SPILL_AT
 
@@ -125,7 +137,9 @@ function lower.emit(
             return nil
         end
         local origin = t.origin or t
-        if origin.moduleName ~= "nupp.simd" and origin.sealedModule ~= "nupp.simd" then
+        if apiidentity.canonical(origin.moduleName or "") ~= "simd"
+            and apiidentity.canonical(origin.sealedModule or "") ~= "simd"
+        then
             return nil
         end
         local family = origin.name
@@ -1591,12 +1605,12 @@ function lower.emit(
             local definition = callee and callee.token and callee.token.definition
             local identity = callee and (callee.exactCallExport or definition and definition.exactCallExport)
             if identity
-                and identity.module == "nupp.simd"
+                and apiidentity.canonical(identity.module) == "simd"
                 and (identity.member == "species" or identity.member == "vectors")
             then
                 ty = simdType(node.inferredType)
                 operation = "species"
-            elseif identity and identity.module == "nupp.simd" and identity.member == "transpose" then
+            elseif identity and apiidentity.canonical(identity.module) == "simd" and identity.member == "transpose" then
                 local targetlayout = require("nupp.compiler.targetlayout")
                 local pack = node.argumentPack
                 assert(pack and not pack.tail and not pack.alternatives, "SIMD transpose needs a fixed row pack")
@@ -3065,16 +3079,29 @@ function lower.emit(
         elseif k == "nil" or k == "nilExpr" then
             f:op("Nil", dst)
         elseif node.namespacePath
-            and (node.namespacePath == "nupp.math" or node.namespacePath:sub(1, 10) == "nupp.math.")
+            and (
+                node.namespacePath == "nupp.math"
+                or node.namespacePath:sub(1, 10) == "nupp.math."
+                or node.namespacePath == "math"
+                or node.namespacePath:sub(1, 5) == "math."
+            )
         then
-            queueModule("nupp.vm.math")
-            f:op("Require", dst, f:const("str", "nupp.vm.math"))
-            for member in node.namespacePath:sub(11):gmatch("[^.]+") do
+            local first = node.namespacePath:sub(1, 5) == "nupp." and 11 or 6
+            local members = node.namespacePath:sub(first)
+            local member = members:match("^[^.]+")
+            local moduleName = (member == nil or MATH_EXTENSION_MEMBERS[member]) and "nupp.vm.math" or "math"
+            if moduleName == "nupp.vm.math" then
+                queueModule(moduleName)
+            end
+            f:op("Require", dst, f:const("str", moduleName))
+            for member in members:gmatch("[^.]+") do
                 local value = f:reg()
                 f:op("GetField", value, dst, f:const("str", member))
                 f:op("Move", dst, value)
             end
-        elseif (k == "name" or k == "dotIndex") and (node.qualifiedModule or node.compilerModule) then
+        elseif (k == "name" or k == "dotIndex" or k == "call" and node.standardRoot)
+            and (node.qualifiedModule or node.compilerModule)
+        then
             -- The checker resolves namespace projections, including shadowing.
             -- A matching file alone is not evidence of a runtime module.
             local name = node.qualifiedModule or node.compilerModule
@@ -4579,7 +4606,7 @@ function lower.emit(
             end
 
             local logModule, forModule, moduleName = f:reg(), f:reg(), f:reg()
-            f:op("Require", logModule, f:const("str", "nupp.log"))
+            f:op("Require", logModule, f:const("str", call.logModule or "nupp.log"))
             f:op("GetField", forModule, logModule, f:const("str", "forModule"))
             f:op("K", moduleName, f:const("str", currentModule or "?"))
             local view = exprAs(

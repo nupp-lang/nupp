@@ -11,6 +11,7 @@ program when it is a direct module member. The generator erases the declaration.
 
 local cst = require("nupp.compiler.syntax.cst")
 local hash = require("nupp.compiler.hash")
+local apiidentity = require("nupp.compiler.apiidentity")
 local T = require("nupp.compiler.types")
 local state = require("nupp.compiler.check.state")
 
@@ -75,7 +76,7 @@ local function check(c: state.Checker, helper: any, checkOrdinary: function(any)
     local sealedProgram = require(
         "nupp.compiler.comptime"
     ).sealTypeFunction(helper, c.comptimeFunctions, helper.comptimeSignature, helper.comptimeDefinition)
-    local deriveNamespace = c.env and c.env.globalTypes and c.env.globalTypes["nupp.derive"]
+    local deriveNamespace = c.env and c.env.globalTypes and apiidentity.lookup(c.env.globalTypes, "types.derive")
     local infoType = deriveNamespace and deriveNamespace.nestedTypes and deriveNamespace.nestedTypes.Info
     local resultType = deriveNamespace and deriveNamespace.nestedTypes and deriveNamespace.nestedTypes.Result
     local signature = helper.comptimeSignature
@@ -138,7 +139,8 @@ local function check(c: state.Checker, helper: any, checkOrdinary: function(any)
                 end
                 if value.kind == "call"
                     and value.obj
-                    and cst.textOf(value.obj):gsub("%s+", "") == "nupp.derive.helper" then
+                    and apiidentity.expression(c, value.obj) == "types.derive.helper"
+                then
                     local arguments = value.args and value.args.exprs or {}
                     local modulePath = arguments[1] and c.pathKey(arguments[1]) or nil
                     local memberText = arguments[2]

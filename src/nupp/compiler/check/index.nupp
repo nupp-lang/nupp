@@ -12,6 +12,7 @@ The safe forms `a?.b` and `a?.[k]` differ only in what a nil receiver means -- a
 answer of nil rather than a diagnostic -- so they are the same handler.
 ]]
 
+local apiidentity = require("nupp.compiler.apiidentity")
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")
 local generics = require("nupp.compiler.types.generics")
@@ -22,6 +23,7 @@ local fixedWidth = require("nupp.compiler.types.fixedwidth")
 local native = require("nupp.compiler.native")
 local indexedViews = require("nupp.compiler.types.indexedviews")
 local members = require("nupp.compiler.types.members")
+local builtinExtensions = require("nupp.compiler.builtinextensions")
 local standardSurface = require("nupp.compiler.standardsurface")
 local narrowing = require("nupp.compiler.types.narrowing")
 
@@ -399,6 +401,54 @@ function index.install(c: state.Checker): state.ExprHandlers
         end
         local memberName = member.text
         node.fixedWidthUntrusted = nil
+        local identity = apiidentity.expression(c, node)
+        local namespace, intrinsicMember = nil, nil
+        if identity then
+            namespace, intrinsicMember = identity:match("^(types%.derive)%.([%w_]+)$")
+        end
+        if not namespace and identity then
+            namespace, intrinsicMember = identity:match("^(types%.reflect)%.([%w_]+)$")
+        end
+        if not namespace and identity then
+            namespace, intrinsicMember = identity:match("^(types)%.([%w_]+)$")
+        end
+        if not namespace and identity == "own.manage" then
+            namespace, intrinsicMember = "own", "manage"
+        end
+        local runtimeModule = (target as any).requiredModule
+        if target.kind == "name" and target.token then
+            local holder = c.lookupEntry(target.token.text)
+            runtimeModule = holder and holder.requiredModule or runtimeModule
+        elseif target.kind == "call" then
+            c.infer(target)
+            runtimeModule = (target as any).requiredModule
+        end
+        if namespace and intrinsicMember and runtimeModule ~= "nupp.derive" then
+            local intrinsicNamespace = apiidentity.lookup(c.env.globalTypes, namespace)
+            if namespace == "types" then
+                local builtin = c.env.globals.types
+                local old = c.env.globals.nupp
+                intrinsicNamespace = builtin and builtin.t or old and old.t.byname and old.t.byname.types
+            elseif namespace == "own" then
+                local builtin = c.env.globals.own or c.env.globals.nupp
+                intrinsicNamespace = builtin and builtin.t
+            end
+            local intrinsicType, definition = nil, nil
+            if intrinsicNamespace then
+                intrinsicType, definition = c.fieldType(intrinsicNamespace, intrinsicMember as string)
+            end
+            if intrinsicType
+                and (namespace == "types.derive" or namespace == "own" or compilerOnlyValue(intrinsicType))
+            then
+                c.infer(target)
+                local dynamicNode: any = node
+                dynamicNode.namespacePath = apiidentity.sourceExpression(c, node)
+                node.immutablePath = true
+                node.resolvedType = intrinsicType
+                c.markToken(member, definition, intrinsicType, definition and definition.kind or "property")
+                return intrinsicType
+            end
+        end
         local projected = qualifiedModule(node)
         if projected then
             return projected
@@ -472,6 +522,9 @@ function index.install(c: state.Checker): state.ExprHandlers
                 local shadowed = globalRoot and localRoot and localRoot.definition ~= globalRoot.definition
                 if not shadowed then
                     c.infer(target)
+                    if apiidentity.path(c, key) then
+                        (node as any).namespacePath = key
+                    end
                     c.markToken(
                         member,
                         declared.definition,
@@ -482,6 +535,15 @@ function index.install(c: state.Checker): state.ExprHandlers
                 end
             end
         end
+        -- Ordinary builtin members need no extension module. Taking the whole
+        -- table, or selecting a new member, initializes the shared table once.
+        if target.kind == "name"
+            and target.token
+            and builtinExtensions.has(target.token.text)
+            and not builtinExtensions.member(target.token.text, memberName)
+        then
+            (target as any).skipBuiltinExtension = true
+        end
         local trackedObject = c.infer(target)
         local intrinsicPath = c.pathKey(node)
         if intrinsicPath then
@@ -490,7 +552,7 @@ function index.install(c: state.Checker): state.ExprHandlers
                 root = root.obj
             end
             local token = root and root.kind == "name" and root.token or nil
-            local builtin = c.env and c.env.globals and c.env.globals.nupp or nil
+            local builtin = token and c.env and c.env.globals and c.env.globals[token.text] or nil
             -- A local bound to a namespace path stands for that path, so `local i32 =
             -- nupp.math.i32` leaves `i32.rotateLeft` the intrinsic it names.
             local canonical = nil

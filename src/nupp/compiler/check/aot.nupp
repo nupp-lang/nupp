@@ -1,5 +1,6 @@
 module nupp.compiler.check.aot
 
+local apiidentity = require("nupp.compiler.apiidentity")
 local reducerContracts = require("nupp.compiler.aot.reducers")
 
 --[[
@@ -165,7 +166,7 @@ function aot.install(c: state.Checker): aot.Ops
                     return nil, nil, nil
                 end
                 local exact = exactCall(current as cst.Call)
-                local identity = exact ~= nil and exact.identity or nil
+                local identity = exact ~= nil and apiidentity.canonical(exact.identity) or nil
                 local order: string?
                 local operation: string?
                 if identity ~= nil then
@@ -173,7 +174,7 @@ function aot.install(c: state.Checker): aot.Ops
                     if contract ~= nil then
                         return contract.order, "add", contract.operation == "dot" and 2 or 1
                     end
-                    order, operation = identity:match("^nupp%.simd%.reducer%.(%a+)(%u%l+)$")
+                    order, operation = identity:match("^simd%.reducer%.(%a+)(%u%l+)$")
                 end
                 if order ~= "ordered" and order ~= "pairwise" and order ~= "algebraic" and order ~= "compensated" then
                     return nil, nil, nil
@@ -312,7 +313,7 @@ function aot.install(c: state.Checker): aot.Ops
                 local call = current as cst.Call
                 local callee = call.obj
                 local exact = exactCall(call)
-                if exact ~= nil and exact.identity == "nupp.gpu.workgroups" then
+                if exact ~= nil and apiidentity.canonical(exact.identity) == "gpu.workgroups" then
                     walk(callee, false)
                     local args = call.args ~= nil and ((call.args as cst.Args).exprs or {}) or {}
                     walk(args[1], false)

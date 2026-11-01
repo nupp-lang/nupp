@@ -276,6 +276,14 @@ interface cst.Hints
     --- ambient one; lowering additionally needs statement position.
     logIntrinsic: integer?
 
+    --- The source module whose logger this call uses.
+    logModule: string?
+
+    --- An existing host table projected through its checked extension module.
+    standardRoot: string?
+
+    skipBuiltinExtension: boolean?
+
     --- A literal Nupp format containing `%?`, rewritten to Lua `%s` together with the
     --- argument positions whose values need their `debug` method called.
     formatIntrinsic: any
@@ -1994,6 +2002,9 @@ record cst.Args is cst.Hints
     --- The first argument when a compiler intrinsic parses it in a type position.
     typeArg: cst.Node?
 
+    -- The ordinary expression alternative when the intrinsic root is shadowed.
+    ordinaryTypeArg: cst.Node?
+
     --- The table of `f{...}`.
     table: cst.Node?
 
@@ -2867,6 +2878,10 @@ local OWNERSHIP_INTRINSICS: {
     drop = true,
 }
 
+function cst.ownershipIntrinsicMember(member: string): boolean
+    return OWNERSHIP_INTRINSICS[member] == true
+end
+
 --- The ownership intrinsic a callee is written as, before anything asks what
 --- the names in it resolve to. Returns nil for a callee of any other shape.
 ---
@@ -2900,7 +2915,7 @@ function cst.ownershipIntrinsicSpelling(callee: cst.Node?): string?, boolean?
     end
     local baseToken = base.token
 
-    return baseToken and baseToken.text == "nupp" and member or nil, true
+    return baseToken and (baseToken.text == "nupp" or baseToken.text == "own") and member or nil, true
 end
 
 local COMPTIME_TYPE_INTRINSICS: {[string]: boolean} = {reflect = true, sizeof = true, alignof = true, offsetof = true,}
@@ -2920,6 +2935,9 @@ function cst.comptimeTypeIntrinsicSpelling(callee: cst.Node?): string?, boolean?
     local base = callee.obj
     local member = callee.name and callee.name.text or ""
     local baseToken = base and base.kind == "name" and base.token or nil
+    if baseToken and baseToken.text == "types" and member == "reflect" then
+        return member, true
+    end
     if not baseToken or baseToken.text ~= "nupp" or not COMPTIME_TYPE_INTRINSICS[member] then
         return nil
     end
@@ -3143,13 +3161,75 @@ function cst.exportAssignment(root: cst.Chunk): cst.ExportStmt?
     return nil
 end
 
+--- Names the method table of an explicit array-backed module export.
+---
+--- Only an annotated array local and a local literal method table connected by
+--- `export = setmetatable(argv, {__index = M})` publish M's namespace. Computed
+--- metatables and extra metamethods keep the ordinary export boundary.
+function cst.arrayExportLocal(root: cst.Chunk): string?
+    local assignment = cst.exportAssignment(root)
+    local value = assignment and assignment.value or nil
+    if not value or value.kind ~= "call" then
+        return nil
+    end
+    local callee = value.obj
+    if not callee or callee.kind ~= "name" or not callee.token or callee.token.text ~= "setmetatable" then
+        return nil
+    end
+    local argsNode = value.args
+    local args = argsNode and argsNode.kind == "args" and argsNode.exprs or {}
+    if #args ~= 2 then
+        return nil
+    end
+    local array, mt = args[1], args[2]
+    if array.kind ~= "name" or not array.token or mt.kind ~= "tableExpr" or #mt.fields ~= 1 then
+        return nil
+    end
+    local field = mt.fields[1]
+    if field.kind ~= "fieldNamed" or not field.name or field.name.text ~= "__index" then
+        return nil
+    end
+    local methods = field.value
+    if not methods or methods.kind ~= "name" or not methods.token or methods.token.text == array.token.text then
+        return nil
+    end
+    local arrayType: cst.Node? = nil
+    local localMethods = false
+    for _, block in ipairs(root.blocks) do
+        if block.kind == "block" then
+            for _, wrapped in ipairs(block.stats) do
+                local stat: cst.Node? = wrapped
+                while stat and stat.kind == "pragmaStmt" do
+                    stat = stat.stat
+                end
+                if stat and stat.kind == "localStmt" then
+                    for index, name in ipairs(stat.names) do
+                        if name.text == "setmetatable" then
+                            return nil
+                        elseif name.text == array.token.text then
+                            arrayType = stat.types[index]
+                        elseif name.text == methods.token.text then
+                            local initializer = stat.exprs and stat.exprs[index] or nil
+                            localMethods = initializer ~= nil and initializer.kind == "tableExpr"
+                        end
+                    end
+                elseif stat and stat.kind == "localFuncStmt" and stat.name and stat.name.text == "setmetatable" then
+                    return nil
+                end
+            end
+        end
+    end
+
+    return arrayType and arrayType.kind == "tarray" and localMethods and methods.token.text or nil
+end
+
 --- The local named by a declared module's `export = value`, including the conventional
 --- `export = setmetatable(M, mt)` form. Like `returnedLocal`, this is intentionally
 --- syntax-only so headers can identify qualified public declarations before checking.
 function cst.exportedLocal(root: cst.Chunk): string?
     local assignment = cst.exportAssignment(root)
 
-    return namedModuleLocal(assignment and assignment.value or nil)
+    return cst.arrayExportLocal(root) or namedModuleLocal(assignment and assignment.value or nil)
 end
 
 --- The effective visibility of a declaration, given the local its file returns. A

@@ -41,9 +41,13 @@ local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__n
 -- is the module that answers the reads it could not lower, filling in the
 -- namespace the base reserved rather than replacing it, because generated code
 -- already addresses that table through a local of its own.
-local MATH = compact([=[
-require("nupp.compiler.runtime.math").install(rawget(__nupp,"math"))
-]=])
+local MATH = compact(
+    [=[
+local __nuppMathRuntime=require("nupp.compiler.runtime.math")
+__nuppMathRuntime.install(rawget(__nupp,"math"))
+__nuppMathRuntime.install(_G.math)
+]=]
+)
 
 -- The keyed codec a materialized `nupp.reflect.fieldCodec` calls, and the
 -- registry behind `reflect()`, are both an ordinary checked module. What stays

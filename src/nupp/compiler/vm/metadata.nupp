@@ -1114,7 +1114,10 @@ function metadata.expand(root, moduleName: string?)
         end
         seen[current] = true
         managed = managed or current.requiresManagedRuntime == true
-        local namespace = (current.kind == "name" or current.kind == "dotIndex") and current.qualifiedModule
+        local namespace = (
+            current.kind == "name" or current.kind == "dotIndex" or current.kind == "call" and current.standardRoot
+        )
+            and current.qualifiedModule
         if namespace and namespace ~= moduleName and not qualified[namespace] then
             qualified[namespace] = true
             qualifiedOrder[#qualifiedOrder + 1] = namespace

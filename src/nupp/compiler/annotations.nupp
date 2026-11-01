@@ -8,6 +8,7 @@ before checking begins. Targets are named as semantic language categories rather
 than CST kind strings, so the registry stays stable when the parser changes.
 ]]
 
+local apiidentity = require("nupp.compiler.apiidentity")
 local annotations = {}
 local pathtext = require("nupp.io.path.pathtext")
 
@@ -685,8 +686,8 @@ function annotations.bindBuiltinDeclarations(
     local schemas: {
         [string]: string
     } = {
-        debug = "nupp.derive.DebugOptions",
-        event = "nupp.derive.EventOptions",
+        debug = "types.derive.DebugOptions",
+        event = "types.derive.EventOptions",
         deprecated = "nupp.__DeprecatedAnnotation",
     }
 
@@ -695,12 +696,17 @@ function annotations.bindBuiltinDeclarations(
         for segment in path:gmatch("[^.]+") do
             segments[#segments + 1] = segment
         end
-        local schema = globalTypes and globalTypes[segments[1] .. "." .. (segments[2] or "")]
-        for index = 3, #segments do
-            schema = schema and schema.nestedTypes and schema.nestedTypes[segments[index]]
+        for count = #segments, 1, -1 do
+            local schema = apiidentity.lookup(globalTypes, table.concat(segments, ".", 1, count))
+            if schema then
+                for index = count + 1, #segments do
+                    schema = schema and schema.nestedTypes and schema.nestedTypes[segments[index]]
+                end
+                return schema
+            end
         end
 
-        return schema
+        return nil
     end
 
     for annotationName, typeName in pairs(schemas) do

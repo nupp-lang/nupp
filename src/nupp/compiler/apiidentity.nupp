@@ -1,0 +1,209 @@
+module nupp.compiler.apiidentity
+
+-- Public identities are independent of the source path carrying their declarations.
+-- Keep the preceding surface accepted until its compiler can bootstrap the move.
+local apiidentity = {}
+
+local ROOTS: {
+    [string]: string
+} = {
+    ["nupp.types"] = "types",
+    ["nupp.reflect"] = "types.reflect",
+    ["nupp.derive"] = "types.derive",
+    ["nupp.simd"] = "simd",
+    ["nupp.events"] = "events",
+    ["nupp.gpu"] = "gpu",
+    ["nupp.math"] = "math",
+    ["nupp.log"] = "log",
+}
+local PUBLIC_ROOTS: {[string]: boolean} = {own = true}
+for _, path in pairs(ROOTS) do
+    local root = path:match("^[^.]+")
+    if root then
+        PUBLIC_ROOTS[root] = true
+    end
+end
+
+local MEMBERS: {
+    [string]: string
+} = {
+    ["nupp.Debug"] = "types.Debug",
+    ["nupp.__Debug"] = "types.Debug",
+    ["nupp.derive.Debug"] = "types.Debug",
+    ["nupp.util.Key"] = "types.Key",
+    ["nupp.util.Store"] = "types.Store",
+    ["nupp.util.newKey"] = "types.newKey",
+    ["nupp.util.newStore"] = "types.newStore",
+}
+local OWN: {
+    [string]: boolean
+} = {
+    Copyable = true,
+    Affine = true,
+    Closeable = true,
+    AliasError = true,
+    ManagedGroup = true,
+    Managed = true,
+    Alias = true,
+    attemptAll = true,
+    borrow = true,
+    borrowFrom = true,
+    partition = true,
+    region = true,
+    pin = true,
+    manage = true,
+    adopt = true,
+    release = true,
+    drop = true,
+    recoverAlias = true,
+    managedGroup = true,
+}
+
+local PRIVATE_MODULES = {
+    "nupp.gpu.api",
+    "nupp.gpu.types",
+    "nupp.gpu.operations",
+    "nupp.gpu.internal",
+    "nupp.gpu.layoutfacts"
+}
+
+function apiidentity.canonical(path: string): string
+    for _, private in ipairs(PRIVATE_MODULES) do
+        if path == private or path:sub(1, #private + 1) == private .. "." then
+            return path
+        end
+    end
+    local mapped = MEMBERS[path]
+    if mapped then
+        return mapped
+    end
+    local member = path:match("^nupp%.([%w_]+)$")
+    if member and OWN[member] then
+        return "own." .. member
+    end
+    for old, current in pairs(ROOTS) do
+        if path == old or path:sub(1, #old + 1) == old .. "." then
+            return current .. path:sub(#old + 1)
+        end
+    end
+
+    return path
+end
+
+function apiidentity.legacy(path: string): string
+    if path:sub(1, 4) == "gpu." then
+        for _, private in ipairs(PRIVATE_MODULES) do
+            local invented = private:sub(6)
+            if path == invented or path:sub(1, #invented + 1) == invented .. "." then
+                return path
+            end
+        end
+    end
+    local member = path:match("^own%.([%w_]+)$")
+    if member and OWN[member] then
+        return "nupp." .. member
+    end
+    if path == "types.Debug" then
+        return "nupp.Debug"
+    end
+    local selectedOld, selectedCurrent = nil, nil
+    for old, current in pairs(ROOTS) do
+        if (path == current or path:sub(1, #current + 1) == current .. ".")
+            and (not selectedCurrent or #current > #selectedCurrent)
+        then
+            selectedOld, selectedCurrent = old, current
+        end
+    end
+    if selectedOld and selectedCurrent then
+        return selectedOld .. path:sub(#selectedCurrent + 1)
+    end
+
+    return path
+end
+
+-- Resolve a nominal once. Both public paths refer to the same declaration object.
+function apiidentity.lookup(types: any, path: string): any
+    if not types then
+        return nil
+    end
+    local canonical = apiidentity.canonical(path)
+
+    return types[canonical] or types[path] or types[apiidentity.legacy(canonical)]
+end
+
+-- A written path has intrinsic meaning only through the binding that owns its root.
+function apiidentity.sourcePath(c: any, written: string): string?
+    local root = written:match("^[^.]+")
+    if not root then
+        return nil
+    end
+    local entry = c.lookupEntry(root)
+    local definition = entry and entry.definition
+    local exact = entry and entry.exactCallExport or definition and definition.exactCallExport
+    local suffix = written:sub(#root + 1)
+    if exact then
+        return exact.identity .. suffix
+    end
+    local namespace = definition and definition.namespacePath
+    if namespace then
+        return namespace .. suffix
+    end
+    if entry and entry.requiredModule then
+        return entry.requiredModule .. suffix
+    end
+    local builtin = c.env and c.env.globals and c.env.globals[root]
+    if entry and builtin and entry.definition == builtin.definition then
+        return written
+    end
+    if not entry and PUBLIC_ROOTS[root] and c.env then
+        local shipped = c.env.bundled and c.env.bundled[root]
+        if shipped and shipped.declared == true then
+            return written
+        end
+        local registry = c.env.ensureProjectIndex and c.env.ensureProjectIndex(c.env)
+        if registry and registry.declaredModules and registry.declaredModules[root] then
+            return written
+        end
+    end
+
+    return nil
+end
+
+function apiidentity.sourceExpression(c: any, node: any): string?
+    if not node then
+        return nil
+    end
+    local definition = node.kind == "name" and node.token and node.token.definition
+    local exact = node.exactCallExport or definition and definition.exactCallExport
+    if exact then
+        return exact.identity
+    end
+    local namespace = node.namespacePath or definition and definition.namespacePath
+    if namespace then
+        return namespace
+    end
+    if node.qualifiedModule then
+        local members = node.qualifiedMembers or {}
+        return node.qualifiedModule .. (#members > 0 and "." .. table.concat(members, ".") or "")
+    end
+    if node.kind == "name" and node.token then
+        return apiidentity.sourcePath(c, node.token.text)
+    elseif node.kind == "dotIndex" and node.name then
+        local base = apiidentity.sourceExpression(c, node.obj)
+        return base and base .. "." .. node.name.text or nil
+    end
+
+    return nil
+end
+
+function apiidentity.path(c: any, written: string): string?
+    local path = apiidentity.sourcePath(c, written)
+    return path and apiidentity.canonical(path) or nil
+end
+
+function apiidentity.expression(c: any, node: any): string?
+    local path = apiidentity.sourceExpression(c, node)
+    return path and apiidentity.canonical(path) or nil
+end
+
+export = apiidentity

@@ -9,6 +9,7 @@ because what matters here is which operands an operator accepts, not how tightly
 it binds.
 ]]
 
+local apiidentity = require("nupp.compiler.apiidentity")
 local operators = {}
 
 --- A set of operator tokens.
@@ -173,7 +174,9 @@ local function simdFamily(t: Type): string?
         return nil
     end
     local origin = (t.origin or t) as T.Nominal
-    if origin.moduleName ~= "nupp.simd" and origin.sealedModule ~= "nupp.simd" then
+    if apiidentity.canonical(origin.moduleName or "") ~= "simd"
+        and apiidentity.canonical(origin.sealedModule or "") ~= "simd"
+    then
         return nil
     end
     local admitted = {Vector = true, Mask = true, Species = true,}

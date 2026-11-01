@@ -1315,7 +1315,12 @@ evalMulti = function(state, node)
     local kind = node.kind
     local values
     local comptimeIntrinsic, intrinsicQualified = cst.comptimeTypeIntrinsicSpelling(node.obj)
-    local deriveHelper = kind == "call" and node.obj and cst.textOf(node.obj):gsub("%s+", "") == "nupp.derive.helper"
+    local simpleCallee = kind == "call" and node.obj and (node.obj.kind == "name" or node.obj.kind == "dotIndex")
+    local intrinsicValue = simpleCallee and evalExpr(state, node.obj) or nil
+    local deriveHelper = intrinsicValue ~= nil and intrinsicValue == state.deriveHelperIntrinsic
+    if intrinsicValue ~= nil and intrinsicValue == state.reflectionIntrinsic then
+        comptimeIntrinsic, intrinsicQualified = "reflect", true
+    end
     if deriveHelper then
         local arguments = node.args and node.args.exprs or {}
         if #arguments ~= 2 or not state.deriveProviderModule then

@@ -586,6 +586,61 @@ function M.assertPreservesAndNarrowsAnOptionalOwner()
     )
 end
 
+function M.assertForwardsOwnersInItsCompleteResultPack()
+    local declaration = table.concat({RESOURCE, "local function through<A...>(...: A...): A... return ... end",}, "\n")
+    assertClean(
+        table.concat(
+            {
+                declaration,
+                "local first = resource_new()",
+                "local last = resource_new()",
+                "local present, gap, tail = assert(first, nil, last)",
+                "local empty: nil = gap",
+                "nupp.drop(present)",
+                "nupp.drop(tail)",
+            },
+            "\n"
+        )
+    )
+    assertClean(
+        table.concat(
+            {
+                declaration,
+                "local first = resource_new()",
+                "local last = resource_new()",
+                "local present, gap, tail = assert(through(first, nil, last))",
+                "local empty: nil = gap",
+                "nupp.drop(present)",
+                "nupp.drop(tail)",
+            },
+            "\n"
+        )
+    )
+    assertClean(
+        table.concat(
+            {
+                declaration,
+                "local requireTruthy = assert",
+                "local first = resource_new()",
+                "local last = resource_new()",
+                "local present, gap, tail = requireTruthy(first, nil, last)",
+                "local empty: nil = gap",
+                "nupp.drop(present)",
+                "nupp.drop(tail)",
+            },
+            "\n"
+        )
+    )
+    testAssert.matches(
+        codes(
+            declaration
+            .. "\nlocal value = resource_new()\nlocal result = assert(value)\nprint(value)\nnupp.drop(result)"
+        ),
+        "NUPP2601",
+        "forwarding moves the owner exactly once"
+    )
+end
+
 function M.optionalAliasesKeepExplicitCleanupOwnership()
     assertClean(
         table.concat(

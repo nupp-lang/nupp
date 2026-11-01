@@ -239,13 +239,20 @@ expansion erase, so the compiled loop is the generic loop written in source.
 
 ## Coroutine protocols
 
-A function declares what it yields and what a resumed yield receives:
+A function declares what it yields and what a resumed yield receives. The
+protocol clauses follow its parameters, before the result type:
 
 ```nupp
-local function worker(start: number): string yields(number, string) resumes(boolean)
+local function worker(start: number) yields(number, string) resumes(boolean): string
     local again: boolean = coroutine.yield(start, "paused")
     return tostring(again)
 end
+```
+
+Function types use the same order:
+
+```nupp
+local type Worker = function(start: number) yields(number, string) resumes(boolean): string
 ```
 
 Ordinary calls carry the callee's known protocol through the caller. An

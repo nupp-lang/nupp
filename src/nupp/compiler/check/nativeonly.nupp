@@ -21,6 +21,7 @@ See
 for native entry boundaries.
 ]]
 
+local apiidentity = require("nupp.compiler.apiidentity")
 local T = require("nupp.compiler.types")
 local cst = require("nupp.compiler.syntax.cst")
 local state = require("nupp.compiler.check.state")
@@ -53,7 +54,8 @@ local function vectorOrMask(t: any?): boolean
         return true
     end
 
-    return origin.moduleName == "nupp.simd" and (origin.name == "Vector" or origin.name == "Mask")
+    return apiidentity.canonical(origin.moduleName or "") == "simd"
+        and (origin.name == "Vector" or origin.name == "Mask")
 end
 
 --- Whether a value of type `t` exists only in native code: a vector, a mask,
