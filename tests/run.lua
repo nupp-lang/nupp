@@ -2558,7 +2558,7 @@ then
         --- one to share with and keeps the warm store this process was started with.
         local function startFanOut(lanes, ownCache, isolated, executionLane)
             if workerHost and ownCache and not isolated then
-                local workers = require("coroutine.workers")
+                local workers = require("nupp.workers")
                 local job = require("job")
                 local running = {}
                 local scope = workers.__scope()
