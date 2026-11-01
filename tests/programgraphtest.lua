@@ -67,7 +67,9 @@ function M.reservesRealInitializersBeforeFunctionOwners()
     )
 end
 
-function M.variadicCatalogRefusesNamelessCheckedParameter()
+-- An anonymous `...` is a hidden last parameter holding the pack of extra
+-- arguments, bound by its parameter node.
+function M.variadicCatalogBindsTheNamelessPackParameter()
     local input = checked("local function first(value: integer, ...: integer): integer return value end\nreturn first")
     local body = input.parsed.root.blocks[1].stats[1].body
     test.equal(#body.params, 2)
@@ -75,12 +77,12 @@ function M.variadicCatalogRefusesNamelessCheckedParameter()
     test.equal(body.params[2].vararg, true)
     test.equal(body.params[2].name, nil)
     test.equal(body.signatureType.vararg, true)
-    refuses(
-        function()
-            program.describe({input}, input.name)
-        end,
-        "program graph: parameter ownership or variadic lowering is unsupported"
-    )
+    local p = program.describe({input}, input.name)
+    local owner = p.owners[2]
+    test.equal(owner.variadic, true)
+    local pack = p.byDefinition[body.params[2]]
+    test.equal(pack ~= nil and pack.pack, true)
+    test.equal(pack.owner, owner.id)
 end
 
 function M.shadowingAndGrandparentCapturesKeepDeclarationIdentity()

@@ -245,8 +245,28 @@ function program.describe(modules: {any}, entryModule: string): any
                 captureByDefinition = {}
             }
             for index, parameter in ipairs(body.params) do
-                need(parameter.name and not parameter.vararg, "parameter ownership or variadic lowering is unsupported")
-                child.paramKinds[index] = kind(parameter.name.inferredType)
+                -- An anonymous `...` last is a hidden parameter holding the pack
+                -- of extra arguments (a table with its count at key 0).
+                if parameter.vararg and not parameter.name and index == #body.params then
+                    child.variadic = true
+                    child.paramKinds[index] = "value"
+                    -- It binds like a value parameter, keyed by its node.
+                    local b: any = {
+                        id = #p.bindings,
+                        definition = parameter,
+                        token = parameter,
+                        owner = child.id,
+                        mode = "value",
+                        pack = true
+                    }
+                    p.bindings[#p.bindings + 1], p.byDefinition[parameter] = b, b
+                else
+                    need(
+                        parameter.name and not parameter.vararg,
+                        "parameter ownership or variadic lowering is unsupported"
+                    )
+                    child.paramKinds[index] = kind(parameter.name.inferredType)
+                end
             end
             child.resultKind = #signature.rets == 1 and kind(signature.rets[1]) or nil
             local declaration = (node.kind == "localFuncStmt" or node.kind == "inlineMethod") and node.name
@@ -587,11 +607,15 @@ function program.verify(p: any): boolean
     local storage = storagePlan(p)
     for index, b in ipairs(p.bindings) do
         need(b.id == index - 1 and p.owners[b.owner + 1], "invalid binding owner")
+        -- A variadic pack has no declaration: its parameter node keys it.
         need(
-            b.definition == b.token.definition and b.definition.token == b.token and p.byDefinition[b.definition] == b,
+            b.pack and b.definition == b.token and b.definition.vararg and p.byDefinition[b.definition] == b
+            or b.definition == b.token.definition
+            and b.definition.token == b.token
+            and p.byDefinition[b.definition] == b,
             "binding identity mismatch"
         )
-        need(b.mode == bindingMode(b.definition), "binding mode mismatch")
+        need(b.mode == (b.pack and "value" or bindingMode(b.definition)), "binding mode mismatch")
         need(b.storage == storage[b.definition], "binding storage mismatch")
     end
     for index, owner in ipairs(p.owners) do

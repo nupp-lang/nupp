@@ -157,6 +157,13 @@ function generate.program(seed, size)
             block(1)
             depth = depth - 1
             emit("end")
+        elseif roll == 8 and pick(2) == 1 then
+            -- A variadic call with zero to two extra arguments.
+            local extras = {}
+            for index = 1, pick(3) - 1 do
+                extras[index] = ", " .. expression(1)
+            end
+            emit(target() .. " = many(" .. expression(1) .. table.concat(extras) .. ")")
         elseif roll == 8 then
             emit(target() .. " = f(" .. expression(1) .. ", " .. expression(1) .. ")")
         elseif roll == 9 and pick(2) == 1 then
@@ -226,6 +233,11 @@ function generate.program(seed, size)
     emit("local function bump(n: integer): integer", "local function bump(n)")
     emit("    c = (c + n) % 1000003")
     emit("    return c")
+    emit("end")
+    emit("local function many(a: integer, ...: integer): integer", "local function many(a, ...)")
+    emit(
+        "    return (a + select(\"#\", ...) * 7 + (... or 0) + (select(\"#\", ...) > 0 and select(-1, ...) or 0) * 3) % 65521"
+    )
     emit("end")
     emit("local function choose<T>(c: boolean, a: T, b: T): T", "local function choose(c, a, b)")
     emit("    if c then")

@@ -64,6 +64,9 @@ export struct Signature
     parameterCount: uint64
     resultKind: uint64
     parameters: uint64
+    -- 1 when the last parameter is a variadic function's pack of extra
+    -- arguments, which calls supply at least parameterCount - 1 of.
+    variadic: uint64
 end
 
 export struct Callsite
@@ -244,7 +247,10 @@ local function valid(data: voidptr, bytes: uint64): uint64
         local signature = native.offset(data, native.index(signatures + i * native.sizeOf<Signature>()))
         local parameters = native.load64(signature, native.fieldOffset<Signature>("parameterCount"))
         local result = native.load64(signature, native.fieldOffset<Signature>("resultKind"))
+        local variadic = native.load64(signature, native.fieldOffset<Signature>("variadic"))
         if parameters > 63ULL
+            or variadic > 1ULL
+            or variadic == 1ULL and (version < 8ULL or parameters == 0ULL)
             or (
                 result ~= BOOLEAN
                 and result ~= NIL
@@ -414,7 +420,12 @@ local function valid(data: voidptr, bytes: uint64): uint64
                 return 0ULL
             end
             local cs = native.offset(data, native.index(signatures + calleeSignature * native.sizeOf<Signature>()))
-            if native.load64(cs, native.fieldOffset<Signature>("parameterCount")) ~= nargs then
+            local fixed = native.load64(cs, native.fieldOffset<Signature>("parameterCount"))
+            if native.load64(cs, native.fieldOffset<Signature>("variadic")) == 1ULL then
+                if nargs + 1ULL < fixed then
+                    return 0ULL
+                end
+            elseif fixed ~= nargs then
                 return 0ULL
             end
             previousPC = pc

@@ -35,6 +35,8 @@ export const LOWER: uint64 = 16ULL
 export const LEN: uint64 = 17ULL
 export const FIND: uint64 = 18ULL
 export const MATCH: uint64 = 19ULL
+export const SELECT: uint64 = 20ULL
+export const PACK_COPY: uint64 = 21ULL
 
 local function integerValue(value: uint64): int64
     local payload = value & values.PAYLOAD
@@ -778,6 +780,51 @@ local function search(ctx: voidptr, value: uint64, pv: uint64, a: uint64, plainF
     end
 end
 
+-- select(i, ...) over a variadic pack {[0] = n, ...}: the i-th value, from
+-- the end when negative; nil past the end.
+local function select(packValue: uint64, index: uint64): uint64
+    @unsafe do
+        local pack = packValue & values.PAYLOAD
+        local n = native.index(ints.bitsOf(tables.get(pack, values.TAG_INTEGER)))
+        local i = integerArgument(index, 0, 1ULL)
+        if i < 0 then
+            i = n + i + 1
+            if i < 1 then
+                error("bad argument #1 to 'select' (index out of range)")
+            end
+        elseif i == 0 then
+            error("bad argument #1 to 'select' (index out of range)")
+        end
+        if i > n then
+            return values.NIL
+        end
+        return tables.get(pack, values.TAG_INTEGER | native.word(i))
+    end
+end
+
+-- {...}: a fresh table holding a variadic pack's values at 1..n.
+local function packCopy(ctx: voidptr, packValue: uint64): uint64
+    @unsafe do
+        local h = guestHeap(ctx)
+        local pack = packValue & values.PAYLOAD
+        local n = ints.bitsOf(tables.get(pack, values.TAG_INTEGER))
+        local t = guestscope.newTable(ctx)
+        local i: uint64 = 1ULL
+        while i <= n do
+            if tables.set(
+                h,
+                t,
+                values.TAG_INTEGER | i,
+                tables.get(pack, values.TAG_INTEGER | i)
+            ) == tables.NO_MEMORY then
+                error("not enough memory")
+            end
+            i = i + 1ULL
+        end
+        return values.TAG_OBJ | t
+    end
+end
+
 -- Library call `id` with `count` arguments; answers the result value.
 export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint64, c: uint64, d: uint64): uint64
     if id == TOSTRING then
@@ -818,6 +865,10 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         return search(ctx, a, b, c, d, false)
     elseif id == MATCH then
         return search(ctx, a, b, c, values.NIL, true)
+    elseif id == SELECT then
+        return select(a, b)
+    elseif id == PACK_COPY then
+        return packCopy(ctx, a)
     end
     error("unknown core library call")
 

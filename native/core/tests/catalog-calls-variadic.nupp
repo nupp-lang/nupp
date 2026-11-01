@@ -1,0 +1,25 @@
+module nupp.core.catalogcallsvariadic
+
+-- Variadic functions: extra arguments arrive in a pack read by `...`,
+-- select, {...} and multi-name locals, through direct calls, calls with no
+-- extras, and calls through a function value.
+local function sum(first: integer, ...: integer): integer
+    local t = {...}
+    local total = first + select("#", ...) * 1000
+    for _, v in ipairs(t) do
+        total = total + v
+    end
+    local a, b = ...
+
+    return total + (a or 0) * 100 + (b or 0) * 10
+end
+
+local function last(...: integer): integer
+    if select("#", ...) == 0 then
+        return -1
+    end
+    return select(-1, ...) + (select(2, ...) or 0) * 10 + ... * 100
+end
+
+local apply: function(integer, ...: integer): integer = sum
+export = sum(1, 2, 3, 4) + sum(5) * 100000 + last(7, 8, 9) * 10000000 + last() + apply(1, 1) * 1000000000

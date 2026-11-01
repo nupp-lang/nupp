@@ -539,9 +539,11 @@ function verify.resultKind(g: any, signature: any, output: any): string
                 and tostring(kinds[term.callee]):match("^function:") ~= nil,
                 "actual callee provenance differs"
             )
-            need(#term.args == #target.params, "call arity differs")
+            -- A variadic callee takes its fixed arguments and any number more.
+            local fixed = target.variadic and #target.params - 1 or #target.params
+            need(#term.args == fixed or target.variadic and #term.args > fixed, "call arity differs")
             for at, id in ipairs(term.args) do
-                need(fits(kinds[id], target.params[at]), "call scalar argument differs")
+                need(at > fixed or fits(kinds[id], target.params[at]), "call scalar argument differs")
             end
         elseif term.kind == "branch" then
             need(
@@ -614,8 +616,13 @@ function verify.catalog(p: any): any
     end
     need(modulesByOwner[p.entry] ~= nil, "entry initializer is not cataloged")
     for index, signature in ipairs(p.signatures) do
-        fields(signature, "id kind params result")
+        fields(signature, "id kind params result variadic")
         need(signature.id == index - 1, "signature order differs")
+        need(
+            signature.variadic == nil
+            or signature.variadic == true and p.schema.version >= 8 and #signature.params >= 1,
+            "variadic signature outside its profile"
+        )
         need(signature.kind == "initializer" or signature.kind == "callable", "unknown signature kind")
         need(
             signature.result == "boolean"
@@ -726,8 +733,10 @@ function verify.catalog(p: any): any
                     )
                     calls[index][#calls[index] + 1] = target.id + 1
                 end
-                arities[index][bi] = #reference(contract.signature, p.signatures).params
-                need(#term.args == arities[index][bi], "invoke operand count differs")
+                local called = reference(contract.signature, p.signatures)
+                local fixed = called.variadic and #called.params - 1 or #called.params
+                need(#term.args == fixed or called.variadic and #term.args > fixed, "invoke operand count differs")
+                arities[index][bi] = #term.args
             end
         end
     end

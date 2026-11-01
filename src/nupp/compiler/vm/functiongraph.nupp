@@ -60,12 +60,22 @@ function frontend.compile(fn: any, options: any, profile: any): any
             need(type(profile[name]) == "function", "cleanup profile lacks " .. name)
         end
     end
+    -- An anonymous `...` has no name; its node keys the hidden pack parameter.
+    local varargKey: any = nil
     for index, parameter in ipairs(moduleOwner and {} or body.params) do
-        local key = parameter.name.definition or parameter.name
+        local key = parameter.name and (parameter.name.definition or parameter.name) or parameter
+        if parameter.vararg and not parameter.name then
+            varargKey = key
+        end
         bindings[key] = index
         bindingOrder[#bindingOrder + 1] = key
     end
     local ctx: any = {g = g, fn = fn, options = options}
+    -- The pack of extra arguments in a variadic function, as it is bound now.
+    ctx.varargPack = function(): integer
+        need(varargKey ~= nil, "`...` outside a variadic function")
+        return need(bindings[varargKey], "variadic pack binding")
+    end
 
     local function context(): nil
         ctx.block, ctx.scope = block, scope
@@ -236,6 +246,8 @@ function frontend.compile(fn: any, options: any, profile: any): any
             return invoke("cast", node, expected)
         elseif node.kind == "dotIndex" then
             return invoke(profile.fieldRead and "fieldRead" or "constant", node, expected)
+        elseif node.kind == "vararg" then
+            return invoke("vararg", node, expected)
         elseif node.kind == "tableExpr" then
             return invoke("tableConstructor", node, expected)
         elseif node.kind == "bracketIndex" then
@@ -460,7 +472,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
         if not profile.callResults or not last or count <= #exprs then
             return nil
         end
-        if last.kind ~= "call" and last.kind ~= "methodCall" then
+        if last.kind ~= "call" and last.kind ~= "methodCall" and last.kind ~= "vararg" then
             return nil
         end
 
@@ -1426,7 +1438,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
     if profile.entryBindings then
         context()
         for index, parameter in ipairs(moduleOwner and {} or body.params) do
-            local key = parameter.name.definition or parameter.name
+            local key = parameter.name and (parameter.name.definition or parameter.name) or parameter
             bindings[key] = initializeBinding(parameter, key, index)
         end
         invoke("entryBindings", fn.node, nil)

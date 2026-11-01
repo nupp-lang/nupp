@@ -1292,14 +1292,22 @@ end
 local function invokeSignature(signature: any): nil
     assert(type(signature) == "table" and signature.tag == "func", "invoke requires a checked function signature")
     assert(
-        not signature.vararg
-        and not signature.foreign
+        not signature.foreign
         and not signature.comptimeOnly
         and not signature.noreturn
         and not signature.yieldPack
         and not signature.resumePack,
         "invoke signature is outside the scalar guest subset"
     )
+    -- A typed `...` is a homogeneous tail; its values pass in a pack.
+    local tail = signature.paramPack and signature.paramPack.tail
+    if signature.vararg then
+        assert(
+            tail and tail.kind == "homogeneous" and tail.mode == nil and not signature.paramPack.alternatives,
+            "invoke signature is outside the scalar guest subset"
+        )
+        invokeScalar(tail.type)
+    end
     -- Plain type parameters erase: their values pass as dynamic values. What
     -- a result preserves of its parameters is a static ownership fact the
     -- collected guest heap has no use for.
@@ -1315,7 +1323,9 @@ local function invokeSignature(signature: any): nil
     )
     for _, pack in ipairs({signature.paramPack, signature.retPack}) do
         assert(
-            type(pack) == "table" and not pack.tail and not pack.alternatives,
+            type(pack) == "table"
+            and (not pack.tail or pack == signature.paramPack and signature.vararg)
+            and not pack.alternatives,
             "invoke requires closed parameter and result packs"
         )
         dense(pack.head)
@@ -1363,7 +1373,10 @@ local function invokeContract(contract: any): nil
         invokeSignature(called)
         assert(call.args and call.args.kind == "args", "invoke requires explicit positional arguments")
         dense(call.args.exprs)
-        assert(#call.args.exprs == #called.params, "invoke checked call arity differs")
+        assert(
+            #call.args.exprs == #called.params or called.vararg and #call.args.exprs > #called.params,
+            "invoke checked call arity differs"
+        )
         for _, argument in ipairs(call.args.exprs) do
             invokeScalar(argument.inferredType)
         end
@@ -1447,7 +1460,10 @@ local function invokeContract(contract: any): nil
     end
     assert(call.args and call.args.kind == "args", "invoke requires explicit positional arguments")
     dense(call.args.exprs)
-    assert(#call.args.exprs == #called.params, "invoke checked call arity differs")
+    assert(
+        #call.args.exprs == #called.params or called.vararg and #call.args.exprs > #called.params,
+        "invoke checked call arity differs"
+    )
     for _, argument in ipairs(call.args.exprs) do
         invokeScalar(argument.inferredType)
         assert(
@@ -1477,6 +1493,7 @@ local coreLibrary: {
     ["math.floor"] = true,
     tostring = true,
     tonumber = true,
+    select = true,
     ["os.getenv"] = true,
     ["table.concat"] = true,
     ["string.format"] = true,

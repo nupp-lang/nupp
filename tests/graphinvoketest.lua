@@ -358,7 +358,7 @@ end
 function M.closedPacksAndScalarSignaturesAreRequired()
     for _, case in ipairs({
         {
-            "local function target(...: integer): integer return 1 end; return target(1)",
+            "local function target(...): integer return 1 end; return target(1)",
             "signature is outside the scalar guest subset"
         },
         {

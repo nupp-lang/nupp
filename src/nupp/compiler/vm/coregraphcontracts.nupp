@@ -86,8 +86,11 @@ local ABSENT = 4294967295
 -- A callable signature record from a checked function type.
 local function typeSignature(signature: any, numeric: boolean, dynamic: boolean): any
     need(signature and signature.tag == "func", "checked function type required")
+    -- From v8 a typed `...` passes its values in a pack, the last parameter.
+    local tail = signature.paramPack and signature.paramPack.tail
+    local variadic = signature.vararg == true
     need(
-        not signature.vararg
+        (not variadic or dynamic and tail and tail.kind == "homogeneous" and tail.mode == nil)
         and not signature.foreign
         and not signature.comptimeOnly
         and not signature.noreturn
@@ -117,7 +120,10 @@ local function typeSignature(signature: any, numeric: boolean, dynamic: boolean)
     )
     local params, result = {}, nil
     for _, pack in ipairs({signature.paramPack, signature.retPack}) do
-        need(pack and not pack.tail and not pack.alternatives, "closed signature pack required")
+        need(
+            pack and (not pack.tail or variadic and pack == signature.paramPack) and not pack.alternatives,
+            "closed signature pack required"
+        )
         dense(pack.head, 240)
         need(dense(pack.modes, 240) == #pack.head, "signature modes differ")
         for at, mode in ipairs(pack.modes) do
@@ -148,6 +154,11 @@ local function typeSignature(signature: any, numeric: boolean, dynamic: boolean)
     if results > 1 then
         result = "value"
     end
+    if variadic then
+        scalar(tail.type, numeric, dynamic)
+        params[#params + 1] = "value"
+        return {kind = "callable", params = params, result = result, variadic = true}
+    end
 
     return {kind = "callable", params = params, result = result}
 end
@@ -170,7 +181,10 @@ local function checkedSignature(owner: any, numeric: boolean, dynamic: boolean):
 end
 
 local function intern(signatures: any, index: any, signature: any): integer
-    local key = signature.kind .. ":" .. table.concat(signature.params, ",") .. "->" .. signature.result
+    local key = signature.kind .. ":" .. table.concat(
+        signature.params,
+        ","
+    ) .. (signature.variadic and "..." or "") .. "->" .. signature.result
     local previous = index[key]
     if previous ~= nil then
         return previous

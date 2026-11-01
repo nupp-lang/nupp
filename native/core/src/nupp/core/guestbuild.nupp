@@ -60,7 +60,8 @@ local CASES: {[string]: {
     callsResults = {fixture = "catalog-calls-results", version = 8},
     tablesFloatKeys = {fixture = "catalog-tables-floatkeys", version = 8},
     stringsLibrary = {fixture = "catalog-strings-library", version = 8},
-    callsGeneric = {fixture = "catalog-calls-generic", version = 8}
+    callsGeneric = {fixture = "catalog-calls-generic", version = 8},
+    callsVariadic = {fixture = "catalog-calls-variadic", version = 8}
 }
 
 -- The handlers a profile version dispatches, in table order.

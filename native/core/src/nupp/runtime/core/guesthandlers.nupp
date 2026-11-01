@@ -1284,6 +1284,10 @@ export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
+    if ops.packVarargs(ctx, frame, native.pointer(child), native.word(base), native.word(nargs)) ~= 1ULL then
+        ops.failure(ctx, ops.INVALID)
+        return native.fail()
+    end
     local published = frames.publish(s, frame, native.pointer(child), resumePC)
     if published ~= 1ULL then
         -- A prepared child is retained on failure. The closed entry always

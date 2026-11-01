@@ -7,6 +7,7 @@ const catalog = require("nupp.runtime.core.guestcatalog")
 const context = require("nupp.runtime.core.context")
 const values = require("nupp.runtime.vm.values")
 const heap = require("nupp.runtime.vm.heap")
+const guestscope = require("nupp.runtime.core.guestscope")
 
 export const INVALID: uint64 = 4ULL
 export const RESOURCE: uint64 = 5ULL
@@ -359,14 +360,23 @@ export function prepare(
         native.loadPointer(c, native.fieldOffset<catalog.Catalog>("signatures")),
         native.index(signatureId * native.sizeOf<catalog.Signature>())
     )
-    if native.load64(signature, native.fieldOffset<catalog.Signature>("parameterCount")) ~= nargs then
+    -- A variadic callee's last parameter is its pack of extra arguments.
+    local declared = native.load64(signature, native.fieldOffset<catalog.Signature>("parameterCount"))
+    local variadic = native.load64(signature, native.fieldOffset<catalog.Signature>("variadic")) == 1ULL
+    local fixed = declared
+    if variadic then
+        fixed = declared - 1ULL
+        if nargs < fixed then
+            return 0ULL
+        end
+    elseif declared ~= nargs then
         return 0ULL
     end
     local data = native.loadPointer(c, native.fieldOffset<catalog.Catalog>("data"))
     local kinds = native.load64(signature, native.fieldOffset<catalog.Signature>("parameters"))
     local window = native.loadPointer(frame, native.fieldOffset<frames.Frame>("values"))
     at = 0ULL
-    while at < nargs do
+    while at < fixed do
         local kind = native.load64(data, native.index(kinds + at * 8ULL))
         if catalog.scalar(kind, native.load64(window, native.index((base + 1ULL + at) * 8ULL))) == 0ULL then
             return 0ULL
@@ -392,6 +402,52 @@ export function prepare(
         base + 1ULL,
         plan
     )
+end
+
+-- After prepare: a variadic callee's pack {[0] = n, ...} of the arguments
+-- past its fixed ones, stored in its last parameter slot before it is filled
+-- so the prepared frame roots it throughout. Answers 1, or 0 on refusal.
+export function packVarargs(ctx: voidptr, frame: voidptr, child: voidptr, base: uint64, nargs: uint64): uint64
+    local c = native.loadPointer(ctx, context.CATALOG)
+    local id = native.load64(child, native.fieldOffset<frames.Frame>("functionId"))
+    if id >= native.load64(c, native.fieldOffset<catalog.Catalog>("count")) then
+        return 0ULL
+    end
+    local record = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("records")),
+        native.index(id * native.sizeOf<catalog.Function>())
+    )
+    local signature = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("signatures")),
+        native.index(
+            native.load64(
+                record,
+                native.fieldOffset<catalog.Function>("signature")
+            ) * native.sizeOf<catalog.Signature>()
+        )
+    )
+    if native.load64(signature, native.fieldOffset<catalog.Signature>("variadic")) ~= 1ULL then
+        return 1ULL
+    end
+    local declared = native.load64(signature, native.fieldOffset<catalog.Signature>("parameterCount"))
+    local fixed = declared - 1ULL
+    if nargs < fixed then
+        return 0ULL
+    end
+    local window = native.loadPointer(frame, native.fieldOffset<frames.Frame>("values"))
+    local pack = guestscope.newTable(ctx)
+    local slots = native.loadPointer(child, native.fieldOffset<frames.Frame>("values"))
+    native.store64(slots, native.index(declared * 8ULL), values.TAG_OBJ | pack)
+    local count = nargs - fixed
+    guestscope.tableSet(ctx, pack, values.TAG_INTEGER, values.TAG_INTEGER | count)
+    local k: uint64 = 0ULL
+    while k < count do
+        local value = native.load64(window, native.index((base + 1ULL + fixed + k) * 8ULL))
+        guestscope.tableSet(ctx, pack, values.TAG_INTEGER | (k + 1ULL), value)
+        k = k + 1ULL
+    end
+
+    return 1ULL
 end
 
 export function result(ctx: voidptr, frame: voidptr, pc: voidptr, value: uint64): uint64

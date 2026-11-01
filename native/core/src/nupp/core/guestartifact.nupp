@@ -227,6 +227,7 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
     for index, signature in ipairs(signatures) do
         fields("Signature", (signatureOffset + (index - 1) * layouts.Signature.size) as integer, {
             parameterCount = #signature.params,
+            variadic = signature.variadic and 1 or 0,
             resultKind = kind(signature.result),
             parameters = parameterOffsets[index]
         })
