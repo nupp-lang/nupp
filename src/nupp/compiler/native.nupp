@@ -405,7 +405,18 @@ local FEATURES: {[string]: native.Feature} = {
         "stdlib.math"
     ] = {
         name = "math",
-        globals = {"nupp.math"},
+        globals = {
+            "nupp.math",
+            "math.lerp",
+            "math.wrapAngle",
+            "math.deltaAngle",
+            "math.i32",
+            "math.u32",
+            "math.u64",
+            "math.f32",
+            "math.vec2",
+            "math.quat",
+        },
         runtimeModule = "nupp.compiler.runtime.math",
         portableRuntime = true,
         requires = {"runtime.bitops"},
