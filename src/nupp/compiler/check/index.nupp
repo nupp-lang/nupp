@@ -413,6 +413,9 @@ function index.install(c: state.Checker): state.ExprHandlers
         if not namespace and identity then
             namespace, intrinsicMember = identity:match("^(types)%.([%w_]+)$")
         end
+        if not namespace and identity == "own.manage" then
+            namespace, intrinsicMember = "own", "manage"
+        end
         local runtimeModule = (target as any).requiredModule
         if target.kind == "name" and target.token then
             local holder = c.lookupEntry(target.token.text)
@@ -427,12 +430,17 @@ function index.install(c: state.Checker): state.ExprHandlers
                 local builtin = c.env.globals.types
                 local old = c.env.globals.nupp
                 intrinsicNamespace = builtin and builtin.t or old and old.t.byname and old.t.byname.types
+            elseif namespace == "own" then
+                local builtin = c.env.globals.own or c.env.globals.nupp
+                intrinsicNamespace = builtin and builtin.t
             end
             local intrinsicType, definition = nil, nil
             if intrinsicNamespace then
                 intrinsicType, definition = c.fieldType(intrinsicNamespace, intrinsicMember as string)
             end
-            if intrinsicType and (namespace == "types.derive" or compilerOnlyValue(intrinsicType)) then
+            if intrinsicType
+                and (namespace == "types.derive" or namespace == "own" or compilerOnlyValue(intrinsicType))
+            then
                 c.infer(target)
                 local dynamicNode: any = node
                 dynamicNode.namespacePath = apiidentity.sourceExpression(c, node)
