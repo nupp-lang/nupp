@@ -320,6 +320,32 @@ return value:debug(), answer, api.answer
     )
 end
 
+function M.mixesImportedOwnershipIntrinsicsAndRuntimeMembers()
+    withProject([[
+module own
+export type Closeable = own.Closeable
+export const answer: integer = 23
+]], function(env)
+        local _, errors, parsed = compile(
+            [[
+local api = require("own")
+local move = api.manage
+local record Resource is api.Closeable
+    function close(takes self): nil end
+end
+local value = new Resource()
+local cell = move(value)
+cell:close()
+return api.answer
+]],
+            env
+        )
+        test.equal(errors, "", errors)
+        local stats = parsed.root.blocks[1].stats
+        test.equal(stats[5].exprs[1].ownershipIntrinsic, "manage")
+    end)
+end
+
 function M.referencedRecipeRefusalsKeepTheirDiagnostic()
     withProject(
         [[
