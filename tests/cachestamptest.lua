@@ -51,6 +51,129 @@ end
 
 local M = {}
 
+local function compiledFingerprintSource()
+    local file = assert(io.open(ROOT .. "/build/nupp/compiler/project/fingerprint.lua", "rb"))
+    local source = file:read("*a")
+    file:close()
+    return source
+end
+
+local function editFixture(dir, path, text)
+    local file = assert(io.open(dir .. "/" .. path, "wb"))
+    file:write(text)
+    file:close()
+end
+
+local function fixtureStamp(dir, cacheDir)
+    local prior = package.loaded["nupp.compiler.project.fingerprint"]
+    local ok, narrow, whole = pcall(function()
+        local isolated = dofile(dir .. "/nupp/compiler/project/fingerprint.lua")
+        return isolated.subsystemFingerprint({"nupp.compiler.entry"}, cacheDir), isolated.graphFingerprint()
+    end)
+    package.loaded["nupp.compiler.project.fingerprint"] = prior
+    assert(ok, narrow)
+
+    return narrow, whole
+end
+
+function M.keptGraphsFollowPublicRootDependenciesWithoutReadingOtherOutputs()
+    local dir = tempProject({
+        ["nupp/compiler/project/fingerprint.lua"] = compiledFingerprintSource(),
+        ["nupp/compiler/entry.lua"] = 'return require("serde.json")',
+        ["nupp/runtime/part.lua"] = 'return "private"',
+        ["nupp/runtime/unrelated.lua"] = 'return "other private"',
+        ["serde/json.lua"] = 'return require("binary.hash")',
+        ["binary/hash.lua"] = 'return require("nupp.runtime.part")',
+        ["application.lua"] = 'return "application"',
+        ["cache/generated.lua"] = 'return "cache"',
+        ["test-runner/generated.lua"] = 'return "test runner"',
+    })
+    local cacheDir = dir .. "/cache"
+    local first, whole = fixtureStamp(dir, cacheDir)
+    assert(exists(cacheDir .. "/modulegraph.buf"), "the dependency graph was persisted")
+    local store = require("nupp.compiler.project.store")
+    local originalOpen, saves = store.openValue, 0
+    local lexer = require("nupp.compiler.syntax.lexer")
+    local originalLex, lexes = lexer.lex, 0
+    lexer.lex = function(...)
+        lexes = lexes + 1
+        return originalLex(...)
+    end
+    store.openValue = function(...)
+        local opened = originalOpen(...)
+        local save = opened.save
+        opened.save = function(...)
+            saves = saves + 1
+            return save(...)
+        end
+
+        return opened
+    end
+    local ok, warm = pcall(fixtureStamp, dir, cacheDir)
+    store.openValue = originalOpen
+    lexer.lex = originalLex
+    assert(ok, warm)
+    assert(warm == first and saves == 0 and lexes == 0, "an unchanged graph was not reused without lexing")
+
+    editFixture(dir, "application.lua", 'return "changed application"')
+    editFixture(dir, "cache/generated.lua", 'return "changed cache"')
+    editFixture(dir, "test-runner/generated.lua", 'return "changed test runner"')
+    local unrelated, unrelatedWhole = fixtureStamp(dir, cacheDir)
+    assert(unrelated == first and unrelatedWhole == whole, "unrelated outputs entered the compiler graph")
+    editFixture(dir, "binary/hash.lua", 'local marker = "changed public"; return require("nupp.runtime.part")')
+    local public = fixtureStamp(dir, cacheDir)
+    assert(public ~= first, "the kept graph ignored a changed transitive public dependency")
+    editFixture(dir, "nupp/runtime/part.lua", 'return "changed private"')
+    local private = fixtureStamp(dir, cacheDir)
+    assert(private ~= public, "the public module lost its private dependency")
+    editFixture(dir, "nupp/runtime/unrelated.lua", 'return "changed unrelated private"')
+    assert(fixtureStamp(dir, cacheDir) == private, "a narrow stamp included an unrelated private module")
+    assert(require("nupp.io.files").remove(dir, true))
+end
+
+function M.publicDynamicNamespacesAndLaterLiteralImportsBothInvalidate()
+    local dir = tempProject({
+        ["nupp/compiler/project/fingerprint.lua"] = compiledFingerprintSource(),
+        [
+            "nupp/compiler/entry.lua"
+        ] = [[
+--@requires-dynamically extensions.providers.*
+local function selected(name) return require(name) end
+return require("helpers.after")
+]],
+        ["extensions/providers/one.lua"] = 'return "one"',
+        ["helpers/after.lua"] = 'return "after"',
+    })
+    local cacheDir = dir .. "/cache"
+    local first = fixtureStamp(dir, cacheDir)
+    editFixture(dir, "helpers/after.lua", 'return "changed after"')
+    local after = fixtureStamp(dir, cacheDir)
+    assert(after ~= first, "a computed import hid a later public literal dependency")
+    editFixture(dir, "extensions/providers/two.lua", 'return "two"')
+    assert(fixtureStamp(dir, cacheDir) ~= after, "a declared public namespace did not include its new provider")
+    assert(require("nupp.io.files").remove(dir, true))
+end
+
+function M.publicDependenciesUseTheResolvedModuleFile()
+    local dir = tempProject({
+        ["nupp/compiler/project/fingerprint.lua"] = compiledFingerprintSource(),
+        ["nupp/compiler/entry.lua"] = 'return require("library")',
+        ["library.lua"] = 'return "flat"',
+        ["library/init.lua"] = 'return "unused init"',
+    })
+    local cacheDir = dir .. "/cache"
+    local first, whole = fixtureStamp(dir, cacheDir)
+    editFixture(dir, "library/init.lua", 'return "changed unused init"')
+    local unused, unusedWhole = fixtureStamp(dir, cacheDir)
+    assert(unused == first and unusedWhole == whole, "the unused init file changed the resolved dependency")
+    editFixture(dir, "library.lua", 'return "changed flat"')
+    local flat = fixtureStamp(dir, cacheDir)
+    assert(flat ~= first, "the resolved public module was not stamped")
+    assert(os.remove(dir .. "/library.lua"))
+    assert(fixtureStamp(dir, cacheDir) ~= flat, "the init fallback did not replace the removed flat module")
+    assert(require("nupp.io.files").remove(dir, true))
+end
+
 function M.damagedBuildStateIsAnEmptyCacheRatherThanAnException()
     local dir = tempProject({})
     local path = dir .. "/state.json"
@@ -257,7 +380,7 @@ function M.aMalformedModuleGraphIsRecomputed()
     local dir = tempProject({["nupp/compiler/project/fingerprint.lua"] = cacheCode})
     local cacheDir = dir .. "/cache"
     local isolated = dofile(dir .. "/nupp/compiler/project/fingerprint.lua")
-    local stamp = "modules/2\0" .. isolated.graphFingerprint()
+    local stamp = "modules/3\0" .. isolated.graphFingerprint()
     local store = require("nupp.compiler.project.store")
     local damaged = store.openValue(cacheDir .. "/modulegraph.buf", stamp)
     damaged.set({files = {}})
