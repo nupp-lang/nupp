@@ -152,13 +152,12 @@ local setmetatable: function<T>(takes t: T, mt: metatable<T>?): T preserves t
 --- @return the metatable, its `__metatable` stand-in, or nil
 local getmetatable: function<T>(v: T): metatable<T>?
 
---- Raises `msg` when `v` is nil or false, and otherwise returns `v`.
+--- Returns every argument when the first is truthy; otherwise raises the second.
 ---
---- @typearg T the asserted type
---- @param v the value to test
---- @param msg the error to raise, "assertion failed!" by default
---- @return `v`, now known not to be nil or false
-local assert: function<T>(takes v: T?, msg: any?): T preserves v
+--- The error is "assertion failed!" when the second argument is omitted.
+---
+--- @return the complete input pack, whose first value is truthy
+local assert: function<A...>(A...): A...
 
 --- Raises `msg` as an error, unwinding to the nearest `pcall`. A string message is
 --- prefixed with a source position chosen by `level`: 1, the default, blames the caller

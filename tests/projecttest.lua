@@ -158,6 +158,122 @@ end
 
 local M = {}
 
+function M.moduleSourceChecksReuseOnlyMatchingSourceAndContext()
+    local dir = tempProject({["nupp.lua"] = 'return {include = {"."}}\n'})
+    local env = compilerEnv.new(dir, {cache = false})
+    local path = dir .. "/sample.nupp"
+    local source = "module sample\nexport const value: integer = 1\n"
+    local first, diagnostics, firstType, firstExports = compilerEnv.checkModuleSource(env, path, source)
+    testAssert.equal(#diagnostics, 0)
+    local again, _, againType, againExports = compilerEnv.checkModuleSource(env, path, source)
+    assert(
+        first == again and firstType == againType and firstExports == againExports,
+        "a source-identical check in one environment owns one parse and export graph"
+    )
+    local strict = compilerEnv.checkModuleSource(env, path, source, {strict = false})
+    assert(strict ~= first, "changed strictness must not reuse the earlier check")
+    local compatible, compatDiagnostics = compilerEnv.checkModuleSource(env, path, source, {
+        strict = false,
+        compat = "lua51"
+    })
+    testAssert.equal(#compatDiagnostics, 1)
+    testAssert.equal(compatDiagnostics[1].code, "NUPP3013", "the changed profile refuses runtime const")
+    assert(compatible ~= strict, "changed compatibility must not reuse the earlier check")
+    local named, namedDiagnostics = compilerEnv.checkModuleSource(env, dir .. "/context.nupp", "return 1\n", {
+        moduleName = "first"
+    })
+    testAssert.equal(#namedDiagnostics, 0)
+    local renamed, renamedDiagnostics = compilerEnv.checkModuleSource(env, dir .. "/context.nupp", "return 1\n", {
+        moduleName = "second"
+    })
+    testAssert.equal(#renamedDiagnostics, 0)
+    assert(renamed ~= named, "changed module ownership must not reuse the earlier check")
+    local changed, changedDiagnostics = compilerEnv.checkModuleSource(env, path, source .. "export const other = 2\n")
+    assert(changed ~= strict and #changedDiagnostics == 0, "changed source gets its own completed check")
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
+function M.moduleSourceCheckFailuresReleaseTheirPendingEntry()
+    local dir = tempProject({["nupp.lua"] = 'return {include = {"."}}\n'})
+    local env = compilerEnv.new(dir, {cache = false})
+    local path = dir .. "/sample.nupp"
+    local source = "module sample\nexport const value: integer = 1\n"
+    local checker = require("nupp.compiler.check")
+    local original = checker.check
+    checker.check = function()
+        error("check failed deliberately", 0)
+    end
+    local ok, problem = pcall(compilerEnv.checkModuleSource, env, path, source, {moduleName = "sample"})
+    checker.check = original
+    assert(not ok and tostring(problem):find("check failed deliberately", 1, true))
+    assert(env.loadedPaths[path] == nil and env.loaded.sample == nil, "a thrown check leaves no pending module")
+    local _, diagnostics = compilerEnv.checkModuleSource(env, path, source, {moduleName = "sample"})
+    testAssert.equal(#diagnostics, 0)
+    assert(env.loaded.sample ~= nil and not env.loaded.sample.inProgress, "the entry can be checked after a failure")
+    local completed = env.loaded.sample
+    checker.check = function()
+        error("replacement failed deliberately", 0)
+    end
+    local replaced = pcall(compilerEnv.checkModuleSource, env, path, source .. "\n", {moduleName = "sample"})
+    checker.check = original
+    assert(
+        not replaced and env.loaded.sample == completed and env.loadedPaths[path] == completed,
+        "a thrown replacement restores the completed record it temporarily owned"
+    )
+    local _, broken = compilerEnv.checkModuleSource(env, path, "module sample\nexport const value: integer = 'bad'\n", {
+        moduleName = "sample"
+    })
+    assert(#broken > 0 and not env.loaded.sample.inProgress, "diagnostic failures complete their module record")
+    local _, recovered = compilerEnv.checkModuleSource(env, path, source, {moduleName = "sample"})
+    testAssert.equal(#recovered, 0, "corrected source can replace the failed check")
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
+function M.imageCompilationKeepsARecursiveEntryInItsPendingModule()
+    local dir = tempProject({
+        ["nupp.lua"] = 'return {include = {"src"}}\n',
+        [
+            "src/example/api.nupp"
+        ] = [[
+module example.api
+local api = {}
+interface api.Runnable
+    run: function(self): integer
+end
+export = api
+]],
+        [
+            "src/example/entry.nupp"
+        ] = [[
+module example.entry
+local api = require("example.api")
+local record Entry is api.Runnable
+    function run(self): integer
+        local root = require("example.root") as {ready: boolean}
+        return root.ready and 0 or 1
+    end
+end
+export = {commandType = Entry}
+]],
+        [
+            "src/example/root.nupp"
+        ] = [[
+module example.root
+local entry = require("example.entry")
+export = {commandType = entry.commandType, ready = true}
+]],
+    })
+    local env = compilerEnv.new(dir, {cache = false})
+    local path = dir .. "/src/example/entry.nupp"
+    local diagnostics = {}
+    local image = require("nupp.tools.cli.compile").image(path, env, "example.entry", diagnostics)
+    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    assert(type(image) == "string" and #image > 0, "the recursive entry compiles to its native image")
+    assert(env.loaded["example.entry"] == env.loadedPaths[path], "the entry keeps one module record")
+    assert(not env.loaded["example.entry"].inProgress, "the entry check completes")
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
 function M.sha256KnownVectors()
     testAssert.equal(hash.sha256(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
     testAssert.equal(hash.sha256("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")

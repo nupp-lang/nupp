@@ -57,8 +57,10 @@ end
 -- A manifest whose default target is a program binary named `app`, stamped in
 -- `build/`, with `fields` spliced into the target.
 local function binaryManifest(fields)
-    return ('return {include = {"."}, build = {default = "app", targets = {app = {\n'
-        .. '   kind = "binary", stub = "nupp", entries = {"main"}, %s\n}}}}\n'):format(fields or "")
+    return (
+        'return {include = {"."}, build = {default = "app", targets = {app = {\n'
+        .. '   kind = "binary", stub = "nupp", entries = {"main"}, %s\n}}}}\n'
+    ):format(fields or "")
 end
 
 -- What a binary named `app` is called on this platform.
@@ -73,7 +75,9 @@ function M.bundleResourcesPreserveEveryByte()
     end
     local payloads = {"\r\n\n\r\r\0" .. table.concat(bytes), "\0\n[[binary]]\255", "before\026after"}
     local files = {
-        ["nupp.lua"] = binaryManifest(
+        [
+            "nupp.lua"
+        ] = binaryManifest(
             'resources = {{source = "1.bin", output = "1.bin"}, {source = "2.bin", output = "2.bin"},'
             .. ' {source = "3.bin", output = "3.bin"}},'
         ),
@@ -743,9 +747,7 @@ end
 return new Model()
 ]],
     })
-    local first = require(
-        "testjson"
-    ).decode(captureJson(("cd '%s' && '%s' build --json"):format(dir, NUPP)))
+    local first = require("testjson").decode(captureJson(("cd '%s' && '%s' build --json"):format(dir, NUPP)))
     assert(first.ok and #first.derives == 1, "cold build reports all derives")
     local byProvider = {}
     for _, observation in ipairs(first.derives) do
@@ -758,9 +760,7 @@ return new Model()
         "build observations expose bounded generation facts"
     )
 
-    local second = require(
-        "testjson"
-    ).decode(captureJson(("cd '%s' && '%s' build --json"):format(dir, NUPP)))
+    local second = require("testjson").decode(captureJson(("cd '%s' && '%s' build --json"):format(dir, NUPP)))
     assert(second.ok and #second.derives == 1, "cached build preserves derive observations")
     for index, observation in ipairs(first.derives) do
         testAssert.equal(

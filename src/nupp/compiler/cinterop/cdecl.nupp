@@ -60,11 +60,11 @@ function cdecl.layout(kind: string, body: string): cdecl.Layout?, string?
 end
 
 function cdecl.float32(value: number): number
-    return assert(request("float32", string.format("%.17g", value)))
+    return (assert(request("float32", string.format("%.17g", value))))
 end
 
 function cdecl.abiTag(): string
-    return assert(request("abi"))
+    return (assert(request("abi")))
 end
 
 function cdecl.inspect(text: string | {string}, prelude: (string | {string})?): cdecl.Inspection?, string?

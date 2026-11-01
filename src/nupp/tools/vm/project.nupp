@@ -96,6 +96,8 @@ function project.resolve(env: table, compilerRoot: string, name: string, soft: b
         -- Reuse the public implementation under a private link name.
         -- Its source identity remains nupp.tasks for checker call rules.
         return compilerRoot .. "/src/nupp/tasks.nupp"
+    elseif name == "simd" then
+        return compilerRoot .. "/native/crates/vm/lib/nupp/vm/simdbinding.nupp"
     elseif name == "nupp.generator" then
         return compilerRoot .. "/native/crates/vm/lib/nupp/generator.nupp"
     elseif name == "nupp.tasks" then

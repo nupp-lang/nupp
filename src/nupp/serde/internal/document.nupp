@@ -180,7 +180,7 @@ export record Document
     --- @raises string when no entry is at the index
     function entry(self, index: integer): MapEntry
         assert(self.kind == "map", "document is not a map")
-        return assert((self.entries as {MapEntry})[index], "document entry out of range")
+        return (assert((self.entries as {MapEntry})[index], "document entry out of range"))
     end
 
     --- Returns the member at a position in a `structure` or `union` document.
@@ -190,7 +190,7 @@ export record Document
     --- @raises string when no member is at the index
     function field(self, index: integer): Entry
         assert(self.kind == "structure" or self.kind == "union", "document has no named members")
-        return assert(self.fields[index], "document member out of range")
+        return (assert(self.fields[index], "document member out of range"))
     end
 
     --- Returns the contents of a `document` boundary.

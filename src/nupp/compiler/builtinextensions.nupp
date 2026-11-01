@@ -1,0 +1,175 @@
+module nupp.compiler.builtinextensions
+
+-- Existing host tables retain their identity. Checked private modules supply
+-- additional members and publish that same table as their internal value.
+local T = require("nupp.compiler.types")
+local members = require("nupp.compiler.types.members")
+local extensions = {}
+
+local ROOTS = {
+    assert = {module = "assert", direct = true},
+    arg = {module = "arg", direct = true},
+    io = {
+        module = "nupp.runtime.standardio",
+        members = {
+            style = true,
+            table = true,
+            writeTable = true,
+            cell = true,
+            paintedCell = true,
+            annotatedCell = true,
+            severity = true,
+            setColorMode = true,
+            withColorMode = true,
+            colorEnabled = true,
+            isTerminal = true,
+            columns = true,
+        }
+    },
+    os = {
+        module = "nupp.runtime.standardos",
+        members = {info = true, uuid4 = true, uuid7 = true, monotonic = true, walltime = true,}
+    },
+}
+
+function extensions.has(root: string): boolean
+    return ROOTS[root] ~= nil
+end
+
+function extensions.member(root: string, name: string): boolean
+    local specification = ROOTS[root]
+    return specification ~= nil and (specification.direct == true or specification.members[name] == true)
+end
+
+-- Compile an extension at most once per environment, outside the prelude and
+-- outside its own dependency cycle. Missing modules are normal in the accepting
+-- seed, before their source adoption.
+function extensions.type(c: any, root: string): any
+    local specification = ROOTS[root]
+    local env = c.env
+    if not specification or not env or env.bootstrapping then
+        return nil
+    end
+    local pending = env.builtinExtensions
+    if not pending then
+        pending = {};
+        env.builtinExtensions = pending
+    end
+    if pending[root] ~= nil then
+        return pending[root] or nil
+    end
+    pending[root] = false
+    -- An implicit Lua helper can share a builtin's name without implementing it.
+    -- Only a declared implementation may supply the global root's type.
+    local index = env.ensureProjectIndex and env.ensureProjectIndex(env)
+    local declared = index and index.declaredModules[specification.module]
+    if not declared then
+        local path = env.findModulePath and env.findModulePath(env, specification.module)
+        if path and not (env.isStagedBundledSource and env.isStagedBundledSource(env, specification.module, path)) then
+            return nil
+        end
+        local bundled = env.bundled and env.bundled[specification.module]
+        if not bundled or bundled.declared ~= true then
+            return nil
+        end
+    end
+    local extension = env.resolveModule and env.resolveModule(env, specification.module)
+    local original = env.globals and env.globals[root]
+    if not extension or not original or not specification.direct and original.t.tag ~= "shape" then
+        return nil
+    end
+    local fields, seen = {}, {}
+    for _, field in ipairs(not specification.direct and original.t.fields or {}) do
+        fields[#fields + 1] = field
+        seen[field.name] = true
+    end
+    for _, field in ipairs(members.view(extension).ordered) do
+        if not specification.direct and specification.members[field.name] and not seen[field.name] then
+            fields[#fields + 1] = {name = field.name, read = field.readType, write = field.writeType}
+        end
+    end
+    local merged = specification.direct and extension
+        or T.shape(
+            fields,
+            {
+                readKey = original.t.indexReadKey,
+                readValue = original.t.indexReadValue,
+                writeKey = original.t.indexWriteKey,
+                writeValue = original.t.indexWriteValue,
+            },
+            original.t.fresh,
+            original.t.closed
+        )
+    -- Prelude views may be shared by other environments. Each extension owns
+    -- only this environment's maps while retaining the declaration objects.
+    if not env.ownsBuiltinExtensionMaps then
+        local globals, types, definitions = {}, {}, {}
+        for key, value in pairs(env.globals) do
+            globals[key] = value
+        end
+        for key, value in pairs(env.globalTypes) do
+            types[key] = value
+        end
+        for key, value in pairs(env.globalTypeDefs) do
+            definitions[key] = value
+        end
+        env.globals, env.globalTypes, env.globalTypeDefs = globals, types, definitions
+        env.ownsBuiltinExtensionMaps = true
+    end
+    local entry = {}
+    for key, value in pairs(original) do
+        entry[key] = value
+    end
+    entry.t = merged
+    env.globals[root] = entry
+    local exports = env.resolveModuleExports and env.resolveModuleExports(env, specification.module)
+    local published = env.builtinExtensionExports or {}
+    env.builtinExtensionExports = published
+    published[root] = exports
+    for name, value in pairs(exports and exports.types or {}) do
+        env.globalTypes[root .. "." .. name] = value
+        if exports.typeDefs then
+            env.globalTypeDefs[root .. "." .. name] = exports.typeDefs[name]
+        end
+    end
+    pending[root] = merged
+
+    return merged
+end
+
+local function project(node: any, root: string): nil
+    node.standardRoot = root
+    node.qualifiedModule = ROOTS[root].module
+    node.qualifiedMembers = ROOTS[root].direct and {} or {"value"}
+    if ROOTS[root].direct then
+        node.requiredModule = root
+    end
+    node.namespacePath = root
+end
+
+function extensions.read(c: any, node: any, root: string, entry: any): any
+    if node.skipBuiltinExtension then
+        return nil
+    end
+    local builtin = c.env and c.env.globals and c.env.globals[root]
+    if not builtin or not entry or entry.definition ~= builtin.definition then
+        return nil
+    end
+    local t = extensions.type(c, root)
+    if t then
+        project(node, root)
+    end
+
+    return t
+end
+
+function extensions.require(c: any, node: any, root: string): any
+    local t = extensions.type(c, root)
+    if t then
+        project(node, root)
+    end
+
+    return t
+end
+
+export = extensions

@@ -162,5 +162,5 @@ export function is(value: any): boolean
 end
 
 export function descriptor(value: ApplicationPath): any
-    return assert(descriptors[value], "nupp.io.files: path is not an ApplicationPath")
+    return (assert(descriptors[value], "nupp.io.files: path is not an ApplicationPath"))
 end

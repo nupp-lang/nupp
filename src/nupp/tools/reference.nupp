@@ -201,6 +201,10 @@ Parameters and results are annotated in the usual place. Several results are
 listed comma-separated; inside a function *type* a multi-result needs
 parentheses.
 
+Coroutine protocol clauses precede the result type in declarations and function
+types: `function(start: number) yields(number) resumes(boolean): string`.
+They retain the same yielded and resumed value packs.
+
 In a `.nupp` file, an exported function whose signature mentions `any`
 anywhere is treated as unannotated and reported: `any` is the absence of a type, not a type. A function that returns
 nothing still needs to say so, as `: nil`.
@@ -225,6 +229,11 @@ end
 
 function m.fail(message: string): never
     error(message)
+end
+
+function m.worker(start: number) yields(number) resumes(boolean): string
+    local again: boolean = coroutine.yield(start)
+    return tostring(again)
 end
 
 return m
@@ -267,9 +276,11 @@ return x, vertical, fixedX
         codes = {"NUPP2004", "NUPP2006", "NUPP2125"},
         body = [=[
 Inside a parenthesized call, `name = value` fills that parameter directly.
-Named arguments follow every positional argument and appear in parameter order.
-They become ordinary positional arguments; an omitted optional slot before a
-later named argument is passed as `nil`.
+Named arguments follow positional arguments and appear in parameter order.
+One final function literal may follow them and fills the final fixed parameter;
+a variable holding a function does not. A variadic tail is refused for this form.
+They become ordinary positional arguments; an omitted optional slot before
+a later named argument is passed as `nil`.
 
 `{name} = value` means `name = value.name` and nothing more, and `{a, b} =
 value` fills several parameters from one operand. Nothing is declared on the
@@ -286,8 +297,9 @@ Bind a call, a computed index, or any other producing expression to a local
 first; that restriction is what lets each path be evaluated once and the reads
 inside a group be unordered. Plucking never introduces a closure or upvalue.
 
-Plucking is a named binding, so positional arguments cannot follow it, and a
-call keeps its several results only as the last argument. It applies to
+Plucking is a named binding, so only a final function literal may follow it as
+a positional argument. A call keeps its several results only as the last
+argument. It applies to
 functions, callable records, methods, constructors, and specialized calls with a
 statically known positional pack. A bounded type parameter plucks through its
 bound, since the read is an ordinary field access.
@@ -312,6 +324,13 @@ local entity = new Entity(position = position)
 draw({x} = position, {y} = position, color = "blue")
 draw({x, y} = entity.position, color = "blue")
 draw(10, {y} = position)
+
+local function invoke(name: string, callback: function(string): nil): nil
+    callback(name)
+end
+invoke(name = "load", function(name: string): nil
+    print(name)
+end)
 
 return position
 ]=]

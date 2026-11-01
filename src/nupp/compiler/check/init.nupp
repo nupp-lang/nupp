@@ -21,6 +21,8 @@ reference for their shape and their families.
 ]]
 const {type Target} = require("nupp.compiler.analysis")
 
+local apiidentity = require("nupp.compiler.apiidentity")
+local builtinExtensions = require("nupp.compiler.builtinextensions")
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")
 local consteval = require("nupp.compiler.types.consteval")
@@ -176,7 +178,9 @@ local function reifiableField(t: Type, isCdef: boolean?): boolean
     -- which the declaration records and every storage use refuses.
     if t.tag == "nominal" then
         local origin = (t as any).origin or t
-        if origin.moduleName == "nupp.simd" and (origin.name == "Vector" or origin.name == "Mask") then
+        if apiidentity.canonical(origin.moduleName or "") == "simd"
+            and (origin.name == "Vector" or origin.name == "Mask")
+        then
             local arguments = (t as any).typeArgs
             local element = arguments and arguments[1]
             if not element then
@@ -725,8 +729,10 @@ local function finalizeBoundary(c: state.Checker)
             end
         end
         if #fields > 0 then
-            -- The table the compiler builds from the exports holds nothing else.
-            c.moduleType = T.shape(fields, nil, nil, true)
+            local members = T.shape(fields, nil, nil, true)
+            -- An array export keeps its numeric contract and obtains named members
+            -- through the one method table its explicit metatable names.
+            c.moduleType = cst.arrayExportLocal(c.result.root) and T.intersection({c.moduleType, members}) or members
         end
         return
     end
@@ -1226,7 +1232,12 @@ function checkMod.check(
     c.aot = aotMod.install(c)
     c.effectRegions = effectregionsMod.install(c)
     c.typeFunctionEvaluator = function(helper, arguments, helpers)
-        local program = comptime.typeFunctionProgram(helper, helpers)
+        local program = comptime.sealTypeFunction(
+            helper,
+            helpers,
+            helper and helper.comptimeSignature,
+            helper and helper.comptimeDefinition
+        )
         local memo = c.typeFunctionMemo[program.identity]
         if not memo then
             memo = {}
@@ -1312,7 +1323,7 @@ function checkMod.check(
                 c.env and c.env.host or nil
             )
         else
-            envelope, evaluationFailure = comptime.evaluateTypeFunctionDirect(helper, arguments, helpers)
+            envelope, evaluationFailure = comptime.evaluateTypeFunctionDirect(program, arguments, helpers)
         end
         if not envelope then
             memo[memoKey] = {failure = evaluationFailure}
@@ -1591,6 +1602,9 @@ function checkMod.check(
     --- The type a name denotes and the declaration that introduced it, resolving a
     --- hoisted alias that is still pending on the way.
     c.lookupType = function(name)
+        local root = name:match("^([^.]+)%.")
+        local extensionRoot = root and builtinExtensions.has(root)
+        local shadowed = false
         local s = c.scope
         while s do
             local t = s.types[name]
@@ -1606,12 +1620,27 @@ function checkMod.check(
                     return resolved, s.typeDefs[name]
                 end
             end
+            if extensionRoot and (s.vars[root] or s.types[root] or s.pending and s.pending[root]) then
+                shadowed = true
+            end
             s = s.parent
         end
+        if extensionRoot and env and env.globals then
+            if shadowed then
+                return nil
+            end
+            local entry = c.lookupEntry(root)
+            local builtin = env.globals[root]
+            if entry and builtin and entry.definition == builtin.definition then
+                builtinExtensions.type(c, root)
+            end
+        end
         if env and env.globalTypes then
-            local t = env.globalTypes[name]
+            local t = apiidentity.lookup(env.globalTypes, name)
             if t then
-                return t, env.globalTypeDefs and env.globalTypeDefs[name] or nil
+                local definitions = env.globalTypeDefs or {}
+                local canonical = apiidentity.canonical(name)
+                return t, definitions[name] or definitions[canonical] or definitions[apiidentity.legacy(canonical)]
             end
         end
         if env and env.resolveProjectType then
@@ -1837,7 +1866,14 @@ function checkMod.check(
     --- struct's ctype constructor, under the same key as its type, so `M.Point{...}`
     --- is recognized as a construction.
     c.bindDeclaredVar = function(stat, t)
-        c.bindVar(c.declKey(stat), t, false, stat.name)
+        local key = c.declKey(stat)
+        local qualifier = c.qualifierOf(stat)
+        local root = qualifier and c.lookupEntry(qualifier)
+        c.bindVar(key, t, false, stat.name)
+        local entry = c.scope.vars[key]
+        if root and entry and entry.definition then
+            entry.definition.qualifiedRootDefinition = root.definition
+        end
     end
 
     ---------------------------------------------------------------------
@@ -2733,7 +2769,9 @@ function checkMod.check(
             local exportedType = c.infer(wrapper.value)
             c.moduleType = exportedType
             c.moduleReturnValue = wrapper.value
-            if exportedLocal
+            if cst.arrayExportLocal(result.root) and exportedType.tag == "array" then
+                c.moduleTypeFromFields = true
+            elseif exportedLocal
                 and exportedType == T.table_
                 and not c.moduleLocalAnnotated
                 and exportedLocal == c.moduleLocal

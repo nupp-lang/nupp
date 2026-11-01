@@ -99,9 +99,10 @@ function imports.new(environment: any?, enabled: boolean?): any
     local session = {}
 
     function session.rewrite(source: string, filename: string?, parsed: any): string
-        -- Signatures embedded in documentation have no file to import into.
-        -- Plain Lua has no qualified-module syntax or erased type selections.
-        if enabled == false or filename and filename:match("%.lua$") then
+        -- Signatures embedded in documentation have no file to import into. Plain Lua
+        -- has no qualified-module syntax or erased type selections. Ambient
+        -- declarations define the globals and must not import their own facades.
+        if enabled == false or filename and (filename:match("%.lua$") or filename:match("%.d%.nupp$")) then
             return source
         end
         local candidates: {string} = {}

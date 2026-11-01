@@ -10,6 +10,7 @@ local G = require("nupp.compiler.vm.graph")
 local maps = require("nupp.compiler.vm.maps")
 local artifact = require("nupp.compiler.gpu.artifact")
 local T = require("nupp.compiler.types")
+local apiidentity = require("nupp.compiler.apiidentity")
 local frontend = {}
 local REFUSED = {}
 local elements = {
@@ -69,7 +70,12 @@ end
 local function nominal(t: any, moduleName: string, name: string): any
     t = raw(t)
     local origin = t and (t.origin or t)
-    return t and t.tag == "nominal" and origin.moduleName == moduleName and origin.name == name and t or nil
+    return t
+        and t.tag == "nominal"
+        and apiidentity.canonical(origin.moduleName or "") == moduleName
+        and origin.name == name
+        and t
+        or nil
 end
 
 local function identity(n: any): any
@@ -78,14 +84,17 @@ local function identity(n: any): any
     end
     local exact = n.exactCallExport
     if exact then
-        return exact.identity
+        return exact.identity and apiidentity.canonical(exact.identity)
     end
     if n.kind == "name" then
         local d = n.token.definition
-        return d and d.exactCallExport and d.exactCallExport.identity
+        return d
+            and d.exactCallExport
+            and d.exactCallExport.identity
+            and apiidentity.canonical(d.exactCallExport.identity)
     elseif n.kind == "dotIndex" and n.obj.kind == "name" then
         local d = n.obj.token.definition
-        return d and d.requiredModule and d.requiredModule .. "." .. n.name.text
+        return d and d.requiredModule and apiidentity.canonical(d.requiredModule .. "." .. n.name.text)
     end
 
     return nil
@@ -567,18 +576,18 @@ function frontend.build(body: any, mapMode: boolean?): any
                 local r = expression(args[1]);
                 need(r.class == "species", "only species assertion as value");
                 return r
-            elseif id == "nupp.simd.species" then
+            elseif id == "simd.species" then
                 need(#args == 1 or #args == 2 and literal(args[2]), "static species")
                 local resolved = raw(n.inferredType)
                 if resolved and resolved.tag == "union" then
                     for _, m in ipairs(resolved.members) do
-                        if nominal(m, "nupp.simd", "Species") then
+                        if nominal(m, "simd", "Species") then
                             resolved = raw(m);
                             break
                         end
                     end
                 end
-                local s = need(nominal(resolved, "nupp.simd", "Species"), "checked species identity")
+                local s = need(nominal(resolved, "simd", "Species"), "checked species identity")
                 local kind = elements[need(raw(s.typeArgs[1]), "species element").tag]
                 need(kind ~= nil, "species kind")
                 local lanes = literal(args[2]) or 16 / widths[kind]
@@ -588,7 +597,7 @@ function frontend.build(body: any, mapMode: boolean?): any
                 need(elements[witness:sub(16)] == kind, "matching storage witness")
                 seenVector = true
                 return shape("species", kind, lanes)
-            elseif id == "nupp.simd.horizontal.algebraicSum" then
+            elseif id == "simd.horizontal.algebraicSum" then
                 need(#args == 1, "horizontal arity")
                 local r = expression(args[1]);
                 need(r.class == "vector" and r.element == 9, "f64 reduction")
@@ -1026,7 +1035,7 @@ function frontend.plans(root: any): (any, any)
         if n.kind == "funcbody" and n ~= body then
             return false
         end
-        if n.kind == "call" and identity(n.obj) == "nupp.simd.species" then
+        if n.kind == "call" and identity(n.obj) == "simd.species" then
             return true
         end
         if not n.text then

@@ -1,6 +1,6 @@
 module nupp.vm.math
 
-local namespace = {}
+local namespace: any = rawget(_G, "math")
 require("nupp.compiler.runtime.math").install(namespace)
 local globals: any = _G
 globals.nupp.math = namespace

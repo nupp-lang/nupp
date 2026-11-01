@@ -1,0 +1,5 @@
+module nupp.vm.simdbinding
+
+local loaded: any = package.loaded
+
+export = loaded["nupp.simd"]

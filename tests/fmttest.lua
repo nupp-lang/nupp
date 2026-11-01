@@ -46,6 +46,22 @@ function M.bareSwitchCaseNamesRoundTrip()
     testAssert.equal(kinds(source), kinds(formatted), "formatting preserves case tokens")
 end
 
+function M.protocolClauseOrdersAndTrailingFunctionsAreIdempotent()
+    for _, source in ipairs({
+        "local type F=function(number)yields(number,string)resumes(boolean):string",
+        "local function f(x:number)yields(number)resumes(boolean):string return 'done' end",
+        "local type F=function(number):string yields(number,string)resumes(boolean)",
+        "local function f(x:number):string yields(number)resumes(boolean) return 'done' end",
+        "invoke(name='load',function(value:string):string return value end)",
+    }) do
+        local formatted = fmt1(source)
+        testAssert.equal(fmt1(formatted), formatted, "formatting is idempotent")
+        testAssert.equal(kinds(formatted), kinds(source), "formatting preserves syntax")
+        local result = require("nupp.compiler.syntax.parser").parse(formatted)
+        testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg)
+    end
+end
+
 function M.switchExpressionIndentation()
     local source = table.concat(
         {

@@ -32,9 +32,11 @@ local ffi = {}
 -- C declaration parsing is a native-only compiler service. Keep the import
 -- dynamic so an in-memory compiler that disables cinterop never packages it.
 local function cHeader(c: state.Checker): any
-    return assert(
-        c.env and c.env.compilerServices and c.env.compilerServices.cheader,
-        "native C-header compiler service is unavailable"
+    return (
+        assert(
+            c.env and c.env.compilerServices and c.env.compilerServices.cheader,
+            "native C-header compiler service is unavailable"
+        )
     )
 end
 

@@ -700,6 +700,24 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return (packArgs or explicitPack) and parseTypePack(false) or parseType()
     end
 
+    -- Both clause orders share the same checked packs during the seed transition.
+    local function parseProtocolClauses(n: any, allowBareList: boolean?): nil
+        if cur().kind ~= "name" or cur().text ~= "yields" then
+            return
+        end
+        if n.yieldPack then
+            errAt(cur(), "a function has only one coroutine protocol")
+        end
+        add(n, advance()).typeKeyword = true
+        n.yieldPack = add(n, parseTypePack(allowBareList))
+        if not (cur().kind == "name" and cur().text == "resumes") then
+            errAt(cur(), "'resumes' must follow a coroutine yield pack")
+        else
+            add(n, advance()).typeKeyword = true
+            n.resumePack = add(n, parseTypePack(allowBareList))
+        end
+    end
+
     --- A type without its postfixes.
     local function parseTypePrimary(): Node
         local kind = cur().kind
@@ -1073,6 +1091,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 until false
             end
             add(n, expect(")", "to close function type parameters"))
+            parseProtocolClauses(n, false)
             if cur().kind == ":" then
                 annotationColon(n, "before return type")
                 -- `function(...): R & function(...)` is a callable intersection. A
@@ -1093,16 +1112,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             if cur().kind == "name" and cur().text == "borrows" and tokens[i + 1] and tokens[i + 1].kind == "(" then
                 n.captureBorrows = add(n, parseCaptureClause())
             end
-            if cur().kind == "name" and cur().text == "yields" then
-                add(n, advance())
-                n.yieldPack = add(n, parseTypePack(false))
-                if not (cur().kind == "name" and cur().text == "resumes") then
-                    errAt(cur(), "'resumes' must follow a coroutine yield pack")
-                else
-                    add(n, advance())
-                    n.resumePack = add(n, parseTypePack(false))
-                end
-            end
+            parseProtocolClauses(n, false)
             return n
         elseif kind == "istringOpen" then
             return parseIstring()
@@ -1397,6 +1407,8 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     end
 
     --- A call's arguments: parenthesized, a string, or a table.
+    local probingIntrinsicExpression = false
+
     local function parseCallargs(typeFirst: boolean?): Node?
         local kind = cur().kind
         if kind == "(" then
@@ -1406,9 +1418,35 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             if cur().kind ~= ")" then
                 repeat
                     local argument
-                    if typeFirst and #n.exprs == 0 then
+                    if typeFirst and #n.exprs == 0 and not probingIntrinsicExpression then
+                        -- Keep the expression interpretation until the checker resolves
+                        -- the root. A local table may use an intrinsic member's name.
+                        local start, errorCount = i, #errors
+                        local savedNoMethod, savedNoArrow = noMethod, noArrow
+                        local savedClose, savedHalf = genericCloseHalfAt, genericCloseHalf
+                        probingIntrinsicExpression = true
+                        local ordinary = resetNoMethod(parseExp)
+                        probingIntrinsicExpression = false
+                        local ordinaryEnd = i
+                        local ordinaryValid = #errors == errorCount and (cur().kind == "," or cur().kind == ")")
+                        i = start
+                        noMethod, noArrow = savedNoMethod, savedNoArrow
+                        genericCloseHalfAt, genericCloseHalf = savedClose, savedHalf
+                        while #errors > errorCount do
+                            errors[#errors] = nil
+                        end
                         argument = parseType()
-                        n.typeArg = argument
+                        if ordinaryValid and (#errors > errorCount or i ~= ordinaryEnd) then
+                            while #errors > errorCount do
+                                errors[#errors] = nil
+                            end
+                            i = ordinaryEnd
+                            genericCloseHalfAt, genericCloseHalf = savedClose, savedHalf
+                            argument = ordinary
+                        else
+                            n.typeArg = argument
+                            n.ordinaryTypeArg = ordinaryValid and ordinary or nil
+                        end
                     elseif pluckGroupAhead("{", "}") or pluckGroupAhead("(", ")") then
                         local pluck = new cst.PluckArg(kind = "pluckArg", names = {})
                         local oldSpelling = cur().kind == "("
@@ -1660,12 +1698,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     and baseTok
                     and (
                         FFI_INTRINSIC[member.text] and baseTok.text == "ffi"
-                        or member.text == "adopt" and baseTok.text == "nupp"
+                        or member.text == "adopt" and (baseTok.text == "nupp" or baseTok.text == "own")
                     )
                 then
                     add(n, advance()).generic = true
                     local argument = add(n, parseType())
-                    if member.text == "adopt" and baseTok.text == "nupp" then
+                    if member.text == "adopt" and (baseTok.text == "nupp" or baseTok.text == "own") then
                         n.ownershipTypeArg = argument
                     else
                         n.ffiTypeArg = argument
@@ -1759,6 +1797,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 if args then
                     local n = new cst.Call(kind = "call")
                     n.obj = add(n, e)
+                    if e.kind == "dotIndex" and e.ownershipTypeArg then
+                        n.typeArgs = {e.ownershipTypeArg}
+                    end
                     n.args = add(n, args)
                     e = n
                 else
@@ -2555,6 +2596,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             until false
         end
         add(n, expect(")", "to close parameter list"))
+        parseProtocolClauses(n, true)
         if cur().kind == ":" then
             -- Statement-position return annotation: unparenthesized list [CS-7].
             annotationColon(n, "before return types")
@@ -2577,16 +2619,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 n.captureBorrows = add(n, clause)
             end
         end
-        if cur().kind == "name" and cur().text == "yields" then
-            add(n, advance())
-            n.yieldPack = add(n, parseTypePack(true))
-            if not (cur().kind == "name" and cur().text == "resumes") then
-                errAt(cur(), "'resumes' must follow a coroutine yield pack")
-            else
-                add(n, advance())
-                n.resumePack = add(n, parseTypePack(true))
-            end
-        end
+        parseProtocolClauses(n, true)
         n.body = add(n, parseFunctionBlock())
         add(n, expect("end", "to close function"))
 

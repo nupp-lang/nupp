@@ -32,7 +32,7 @@ export record Output<M is core.Member> is core.Writer<M>
     function finish(self): documents.Document
         self:live()
         assert(#self.frames == 0, "unfinished document aggregate")
-        return assert(self.result, "binding did not emit a value")
+        return (assert(self.result, "binding did not emit a value"))
     end
 
     function close(takes self): nil

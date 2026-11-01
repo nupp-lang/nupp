@@ -22,6 +22,7 @@ description of one.
 ]]
 
 local cst = require("nupp.compiler.syntax.cst")
+local apiidentity = require("nupp.compiler.apiidentity")
 local T = require("nupp.compiler.types")
 local materializeProviders = require("nupp.compiler.comptime.materialize.providers")
 local reflection = require("nupp.compiler.reflection")
@@ -130,18 +131,102 @@ function comptime.typeFunctionProgram(helper: any, helpers: any): any
     return {identity = hash.sha256(table.concat(parts, "\0")), helper = helper, helpers = reachable,}
 end
 
+-- A helper closes over compiler namespaces by their checked identities. Keep that
+-- closure in the source already carried by worker requests and interface images.
+local function closedHelperSource(node: any, filename: string?): (string, string, boolean)
+    local first, last = cst.firstToken(node), cst.lastToken(node)
+    local source, canonical = {}, {}
+    local changed = false
+
+    local function appendToken(token)
+        source[#source + 1] = cst.textOf(token)
+        canonical[#canonical + 1] = token.kind .. ":" .. tostring(#token.text) .. ":" .. token.text
+    end
+
+    local function walk(value)
+        if cst.isToken(value) then
+            appendToken(value)
+            return
+        end
+        if value.kind == "name" and value.token then
+            local token = value.token
+            local bound = token.definition
+            local declaration = bound and bound.token
+            local localBinding = bound
+                and bound.filename == filename
+                and declaration
+                and first
+                and last
+                and declaration.offset >= first.offset
+                and declaration.offset <= last.offset
+            local exact = value.exactCallExport or bound and bound.exactCallExport
+            local module = value.requiredModule or bound and bound.requiredModule or exact and exact.module
+            local runtimeImport = module
+                and module ~= "types"
+                and module ~= "types.reflect"
+                and module ~= "types.derive"
+            local path = not localBinding
+                and not runtimeImport
+                and (value.namespacePath or bound and bound.namespacePath or exact and exact.identity or module)
+                or nil
+            path = path and apiidentity.canonical(path) or nil
+            if path and (path == "types" or path:sub(1, 6) == "types.") and path ~= token.text then
+                local text = cst.textOf(token)
+                source[#source + 1] = text:sub(1, #text - #token.text) .. path
+                local initial = true
+                for part in path:gmatch("[^.]+") do
+                    if not initial then
+                        canonical[#canonical + 1] = ".:1:."
+                    end
+                    canonical[#canonical + 1] = "name:" .. tostring(#part) .. ":" .. part
+                    initial = false
+                end
+                changed = true
+                return
+            end
+        end
+        for _, child in ipairs(value) do
+            walk(child)
+        end
+    end
+
+    walk(node)
+
+    return table.concat(source), table.concat(canonical, "\0"), changed
+end
+
+local sealedPrograms: {[any]: any} = setmetatable({}, {__mode = "kv"})
+
 function comptime.sealTypeFunction(helper: any, helpers: any, signature: any, definition: any): any
     if helper and helper.sealedTypeFunction then
         return helper
     end
     local program = comptime.typeFunctionProgram(helper, helpers)
+    local cached = helper and sealedPrograms[helper]
+    if cached and cached.identity == program.identity then
+        local same = true
+        for name, dependency in pairs(program.helpers or {}) do
+            if cached.helpers[name] ~= dependency then
+                same = false;
+                break
+            end
+        end
+        if same then
+            return cached.program
+        end
+    end
     local mainName = helper and (helper.comptimeName or helper.name and helper.name.text) or ""
     local serialized = {}
+    local closed = {}
+    local changed = false
 
     local function add(name, node)
         local token = node and node.name
         if token then
-            local source = cst.textOf(node)
+            local owner = node.comptimeDefinition or definition
+            local source, canonical, captured = closedHelperSource(node, owner and owner.filename)
+            closed[name] = canonical
+            changed = changed or captured
             if node.kind == "funcStmt" then
                 local replaced
                 source, replaced = source:gsub("comptime%s+function%s+[%w_%.]+", "local function " .. name, 1)
@@ -163,14 +248,34 @@ function comptime.sealTypeFunction(helper: any, helpers: any, signature: any, de
         add(name, dependency)
     end
 
-    return {
+    local identity = program.identity
+    if changed then
+        local names = {}
+        local parts = {"nupp.type-function\0v1", closed[mainName]}
+        for name in pairs(program.helpers or {}) do
+            names[#names + 1] = name
+        end
+        table.sort(names)
+        for _, name in ipairs(names) do
+            parts[#parts + 1] = name
+            parts[#parts + 1] = closed[name]
+        end
+        identity = hash.sha256(table.concat(parts, "\0"))
+    end
+
+    local sealed = {
         sealedTypeFunction = true,
-        identity = program.identity,
+        identity = identity,
         main = mainName,
         serializedHelpers = serialized,
         signature = signature,
         definition = definition,
     }
+    if helper then
+        sealedPrograms[helper] = {identity = program.identity, helpers = program.helpers, program = sealed}
+    end
+
+    return sealed
 end
 
 ----------------------------------------------------------------------------
@@ -874,6 +979,81 @@ local function callValues(state, node, callee, args)
     return values
 end
 
+local unsealedPrograms: {[any]: any} = setmetatable({}, {__mode = "k"})
+
+local function unsealProgram(helper, chunkPrefix, code, loadMessage, entryMessage)
+    local cached = unsealedPrograms[helper]
+    if cached then
+        return cached.main, cached.helpers, nil
+    end
+    local parsedHelpers = {}
+
+    local function findLocalFunction(value)
+        if type(value) ~= "table" then
+            return nil
+        end
+        if value.kind == "localFuncStmt" then
+            return value
+        end
+        for _, child in ipairs(value) do
+            local found = findLocalFunction(child)
+            if found then
+                return found
+            end
+        end
+
+        return nil
+    end
+
+    for helperName, descriptor in pairs(helper.serializedHelpers or {}) do
+        local parsed = type(descriptor) == "table"
+            and type(descriptor.source) == "string"
+            and require("nupp.compiler.syntax.parser").parse(descriptor.source, chunkPrefix .. helperName)
+            or nil
+        local node = parsed and #(parsed.errors or {}) == 0 and findLocalFunction(parsed.root) or nil
+        if not node or not node.name or node.name.text ~= helperName then
+            return nil, nil, {code = code, message = loadMessage .. helperName,} as comptime.Failure
+        end
+        parsedHelpers[helperName] = {node = node, line = descriptor.line, column = descriptor.column,}
+    end
+    local main = parsedHelpers[helper.main]
+    if not main then
+        return nil, nil, {code = code, message = entryMessage,} as comptime.Failure
+    end
+
+    unsealedPrograms[helper] = {main = main.node, helpers = parsedHelpers}
+
+    return main.node, parsedHelpers, nil
+end
+
+local evaluatorHelpers: {[any]: any} = setmetatable({}, {__mode = "k"})
+
+local function closedEvaluatorHelper(node: any): any
+    local cached = evaluatorHelpers[node]
+    if cached ~= nil then
+        return cached or node
+    end
+    local _, _, changed = closedHelperSource(node, node.comptimeDefinition and node.comptimeDefinition.filename)
+    if not changed then
+        evaluatorHelpers[node] = false
+        return node
+    end
+    local program = comptime.sealTypeFunction(node, {}, node.comptimeSignature, node.comptimeDefinition)
+    local prepared, _, failure = unsealProgram(
+        program,
+        "=comptime-helper-",
+        "NUPP2412",
+        "cannot load closed comptime helper ",
+        "closed helper has no entry"
+    )
+    if not prepared then
+        fail("NUPP2412", node, failure and failure.message or "cannot close comptime helper")
+    end
+    evaluatorHelpers[node] = prepared
+
+    return prepared
+end
+
 --- Installs checked, file-private helper bodies as evaluator-only callables. The token
 --- functions are never invoked by Lua; `callValues` recognizes their identities before
 --- the ordinary allowlisted-call path.
@@ -885,6 +1065,7 @@ local function installComptimeFunctions(state, env, helpers)
     for name, supplied in pairs(helpers or {}) do
         local node = supplied.node or supplied
         if type(name) == "string" and node and node.kind == "localFuncStmt" and node.name and node.body then
+            node = closedEvaluatorHelper(node)
             local token = function()
                 return name
             end
@@ -1315,7 +1496,12 @@ evalMulti = function(state, node)
     local kind = node.kind
     local values
     local comptimeIntrinsic, intrinsicQualified = cst.comptimeTypeIntrinsicSpelling(node.obj)
-    local deriveHelper = kind == "call" and node.obj and cst.textOf(node.obj):gsub("%s+", "") == "nupp.derive.helper"
+    local simpleCallee = kind == "call" and node.obj and (node.obj.kind == "name" or node.obj.kind == "dotIndex")
+    local intrinsicValue = simpleCallee and evalExpr(state, node.obj) or nil
+    local deriveHelper = intrinsicValue ~= nil and intrinsicValue == state.deriveHelperIntrinsic
+    if intrinsicValue ~= nil and intrinsicValue == state.reflectionIntrinsic then
+        comptimeIntrinsic, intrinsicQualified = "reflect", true
+    end
     if deriveHelper then
         local arguments = node.args and node.args.exprs or {}
         if #arguments ~= 2 or not state.deriveProviderModule then
@@ -1838,44 +2024,6 @@ end
 --- Parses a sealed program's serialized helpers back into checked nodes and
 --- selects its entry helper. The caller supplies the chunk-name prefix and the
 --- wording its diagnostics use.
-local function unsealProgram(helper, chunkPrefix, code, loadMessage, entryMessage)
-    local parsedHelpers = {}
-
-    local function findLocalFunction(value)
-        if type(value) ~= "table" then
-            return nil
-        end
-        if value.kind == "localFuncStmt" then
-            return value
-        end
-        for _, child in ipairs(value) do
-            local found = findLocalFunction(child)
-            if found then
-                return found
-            end
-        end
-
-        return nil
-    end
-
-    for helperName, descriptor in pairs(helper.serializedHelpers or {}) do
-        local parsed = type(descriptor) == "table"
-            and type(descriptor.source) == "string"
-            and require("nupp.compiler.syntax.parser").parse(descriptor.source, chunkPrefix .. helperName)
-            or nil
-        local node = parsed and #(parsed.errors or {}) == 0 and findLocalFunction(parsed.root) or nil
-        if not node or not node.name or node.name.text ~= helperName then
-            return nil, nil, {code = code, message = loadMessage .. helperName,} as comptime.Failure
-        end
-        parsedHelpers[helperName] = {node = node, line = descriptor.line, column = descriptor.column,}
-    end
-    local main = parsedHelpers[helper.main]
-    if not main then
-        return nil, nil, {code = code, message = entryMessage,} as comptime.Failure
-    end
-
-    return main.node, parsedHelpers, nil
-end
 
 --- Executes an already-checked private type function with closed arguments.
 --- Type and pack arguments enter through the versioned semantic graph and become

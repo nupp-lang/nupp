@@ -876,4 +876,277 @@ end
     )
 end
 
+-- Builtin-root adoption needs an ordinary Nupp callable table, including a
+-- generic input/result pack. Keep the current global and library untouched.
+function M.aCallableModuleForwardsTheBuiltinAssertContract()
+    withProject(
+        {
+            [
+                "src/callableprobe.nupp"
+            ] = [[
+module callableprobe
+
+local interface Callable
+    equal: function(any, any, string?): any
+    suite: {
+        skip: function(string): never,
+        isSkip: function(any): boolean,
+        skipReason: function(any): string?,
+    }
+    metamethod __call: function<A...>(self, A...): A...
+end
+
+local type BuiltinAssert = function<A...>(A...): A...
+local original = rawget(_G, "assert") as BuiltinAssert
+local helper = require("nupp.test")
+local value = {
+    equal = helper.equal,
+    suite = {skip = helper.skip, isSkip = helper.isSkip, skipReason = helper.skipReason},
+} as Callable
+
+export = setmetatable(value, {__call = function<A...>(_self: Callable, ...: A...): A...
+    return original(...)
+end})
+]],
+            [
+                "src/callableconsumer.nupp"
+            ] = [[
+module callableconsumer
+
+local callable = require("callableprobe")
+local first: string, second: nil, third: integer = callable("truthy", nil, 42)
+callable.equal(first, "truthy")
+assert(second == nil)
+assert(third == 42)
+export const result = true
+]],
+        },
+        function(dir)
+            local env = projectEnv(dir)
+            local removeLoader = runtime.install(env, compile)
+            local ok, problem = pcall(function()
+                local callable = require("callableprobe")
+                testAssert.equal(type(callable), "table")
+                testAssert.equal(callable.equal, testAssert.equal, "the existing helper keeps its identity")
+                testAssert.equal(require("callableconsumer").result, true)
+
+                local function collect(...)
+                    return {n = select("#", ...), ...}
+                end
+
+                testAssert.deepEqual(collect(callable("truthy", nil, 42, nil)), {n = 4, "truthy", nil, 42})
+                local _, originalDefault = pcall(assert, false)
+                local _, wrappedDefault = pcall(callable, false)
+                testAssert.equal(wrappedDefault, originalDefault)
+                for _, message in ipairs({"failure", 17, false, {reason = "error object"}}) do
+                    local originalOk, originalError = pcall(assert, false, message)
+                    local wrappedOk, wrappedError = pcall(callable, false, message)
+                    testAssert.equal(wrappedOk, originalOk)
+                    testAssert.equal(wrappedError, originalError, "the builtin owns error routing")
+                end
+                local evaluated = {}
+
+                local function argument(value)
+                    evaluated[#evaluated + 1] = #evaluated + 1
+                    return value
+                end
+
+                local succeeded, failure = pcall(function()
+                    callable(argument(false), argument("failure"), argument(42))
+                end)
+                testAssert.equal(succeeded, false)
+                testAssert.matches(failure, "failure")
+                testAssert.deepEqual(evaluated, {1, 2, 3}, "all arguments run once before failure")
+            end)
+            removeLoader()
+            package.loaded.callableprobe = nil
+            package.loaded.callableconsumer = nil
+            if not ok then
+                error(problem, 0)
+            end
+        end
+    )
+end
+
+function M.anArrayModuleKeepsMethodsInItsMetatable()
+    withProject(
+        {
+            [
+                "src/argvprobe.nupp"
+            ] = [[
+module argvprobe
+
+export type TokenKind = string
+local methods = {parse = function(value: string): string return value end}
+record methods.Candidate
+    value: string
+end
+export type Candidate = methods.Candidate
+local type Methods = {parse: function(string): string, Candidate: Type<methods.Candidate>}
+local argv = {"one", "two"} as {string} & Methods
+
+export = setmetatable(argv, {__index = methods})
+]],
+            [
+                "src/argvconsumer.nupp"
+            ] = [[
+module argvconsumer
+
+local argv = require("argvprobe")
+const {type TokenKind, type Candidate} = require("argvprobe")
+local chosen: Candidate = new argv.Candidate(value = "choice")
+assert(chosen.value == "choice")
+local count: integer = #argv
+local word: TokenKind = argv.parse(argv[1])
+assert(count == 2)
+assert(word == "one")
+export const result = true
+]],
+        },
+        function(dir)
+            local env = projectEnv(dir)
+            local removeLoader = runtime.install(env, compile)
+            local ok, problem = pcall(function()
+                local argv = require("argvprobe")
+                testAssert.equal(require("argvprobe"), argv, "the exported array has one module identity")
+                testAssert.equal(require("argvconsumer").result, true)
+                testAssert.equal(rawget(argv, "parse"), nil)
+                testAssert.equal(argv.parse, getmetatable(argv).__index.parse)
+                testAssert.equal(#argv, 2)
+                local sequential = {}
+                for index, value in ipairs(argv) do
+                    sequential[index] = value
+                end
+                testAssert.deepEqual(sequential, {"one", "two"})
+                local json = require("testjson")
+                testAssert.equal(json.encode(argv), json.encode({"one", "two"}), "methods stay out of serialization")
+                argv[0], argv[-1] = "program", "launcher"
+                local raw = {}
+                for key, value in pairs(argv) do
+                    raw[key] = value
+                end
+                testAssert.deepEqual(raw, {[0] = "program", [-1] = "launcher", "one", "two"})
+                testAssert.equal(#argv, 2)
+            end)
+            removeLoader()
+            package.loaded.argvprobe = nil
+            package.loaded.argvconsumer = nil
+            if not ok then
+                error(problem, 0)
+            end
+        end
+    )
+end
+
+local ARRAY_PROVIDER = [[
+module arrayprovider
+
+local methods = {}
+interface methods.Named
+    name: function(self): string
+end
+function methods.derivedName(): string return "derived" end
+@comptime function methods.NamedRecord(_info: nupp.derive.Info): nupp.derive.Result<methods.Named>
+    return nupp.derive.implement{methods = {name = nupp.derive.forward{
+        helper = nupp.derive.helper(methods, "derivedName"), arguments = {},
+    }}}
+end
+local argv: {string} = {"one", "two"}
+export = setmetatable(argv, {__index = methods})
+]]
+
+function M.anArrayExportPublishesItsMethodTableProviders()
+    withProject(
+        {
+            ["src/arrayprovider.nupp"] = ARRAY_PROVIDER,
+            [
+                "src/arrayconsumer.nupp"
+            ] = [[
+module arrayconsumer
+local api = require("arrayprovider")
+const {type Named} = require("arrayprovider")
+@derive(api.NamedRecord)
+local record Value
+    text: string
+end
+local value: Named = new Value(text = "value")
+assert(value:name() == "derived")
+local word: string = api[1]
+local count: integer = #api
+assert(word == "one" and count == 2)
+export const result = true
+]],
+        },
+        function(dir)
+            local parsed = parser.parse(ARRAY_PROVIDER, dir .. "/src/arrayprovider.nupp")
+            testAssert.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
+            local found = header.of(dir .. "/src/arrayprovider.nupp", "arrayprovider", parsed)
+            testAssert.equal(found.moduleLocal, "methods")
+            testAssert.equal(found.declarations[1].name, "Named")
+            testAssert.equal(found.declarations[1].visibility, "module")
+            local env = projectEnv(dir)
+            local removeLoader = runtime.install(env, compile)
+            local ok, problem = pcall(function()
+                local api = require("arrayprovider")
+                testAssert.equal(require("arrayprovider"), api)
+                testAssert.equal(require("arrayconsumer").result, true)
+                testAssert.equal(rawget(api, "NamedRecord"), nil, "the derive provider stays erased")
+                testAssert.equal(rawget(api, "derivedName"), nil)
+                testAssert.equal(api.derivedName, getmetatable(api).__index.derivedName)
+                testAssert.equal(api.derivedName(), "derived")
+                testAssert.equal(#api, 2)
+                local raw = {}
+                for key, value in pairs(api) do
+                    raw[key] = value
+                end
+                testAssert.deepEqual(raw, {"one", "two"})
+                local json = require("testjson")
+                testAssert.equal(json.encode(api), json.encode({"one", "two"}))
+            end)
+            removeLoader()
+            package.loaded.arrayprovider, package.loaded.arrayconsumer = nil, nil
+            if not ok then
+                error(problem, 0)
+            end
+        end
+    )
+end
+
+function M.arbitraryMetatablesDoNotPublishAnotherLocalNamespace()
+    for _, change in ipairs({
+        {"local argv: {string}", "local argv"},
+        {"local argv: {string}", "local argv: table"},
+        {
+            "export = setmetatable(argv, {__index = methods})",
+            "local mt = {__index = methods}\nexport = setmetatable(argv, mt)"
+        },
+        {"{__index = methods})", "{__index = methods, __len = function(): integer return 2 end})"},
+        {
+            "local methods = {}",
+            "local setmetatable = function(value: {string}, _mt: table): {string} return value end\nlocal methods = {}"
+        },
+    }) do
+        local first, last = assert(ARRAY_PROVIDER:find(change[1], 1, true))
+        local source = ARRAY_PROVIDER:sub(1, first - 1) .. change[2] .. ARRAY_PROVIDER:sub(last + 1)
+        local parsed = parser.parse(source, "arrayprovider.nupp")
+        testAssert.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
+        local found = header.of("arrayprovider.nupp", "arrayprovider", parsed)
+        testAssert.equal(found.moduleLocal, "argv", change[2])
+        for _, declaration in ipairs(found.declarations) do
+            testAssert.equal(declaration.name == "Named", false, "the private method namespace stays private")
+        end
+        withProject({["src/arrayprovider.nupp"] = source}, function(dir)
+            local parsedConsumer = parser.parse(
+                [[local api = require("arrayprovider")
+@derive(api.NamedRecord)
+local record Value end
+]],
+                dir .. "/src/consumer.nupp"
+            )
+            local diags = check.check(parsedConsumer, dir .. "/src/consumer.nupp", projectEnv(dir))
+            assert(diagnosticContaining(diags, "not an exported comptime derive provider"), diags[1] and diags[1].msg)
+        end)
+    end
+end
+
 return M
