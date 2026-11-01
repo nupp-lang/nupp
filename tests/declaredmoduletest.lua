@@ -1033,9 +1033,9 @@ interface methods.Named
     name: function(self): string
 end
 function methods.derivedName(): string return "derived" end
-@comptime function methods.NamedRecord(_info: nupp.derive.Info): nupp.derive.Result<methods.Named>
-    return nupp.derive.implement{methods = {name = nupp.derive.forward{
-        helper = nupp.derive.helper(methods, "derivedName"), arguments = {},
+@comptime function methods.NamedRecord(_info: types.derive.Info): types.derive.Result<methods.Named>
+    return types.derive.implement{methods = {name = types.derive.forward{
+        helper = types.derive.helper(methods, "derivedName"), arguments = {},
     }}}
 end
 local argv: {string} = {"one", "two"}

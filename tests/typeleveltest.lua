@@ -980,7 +980,7 @@ function M.compilerOnlyNamespaceAliasesKeepRuntimeRefusals()
         "NUPP2421",
         'compiler-only member "string" is available only inside comptime'
     )
-    clean("local types = {string = 'runtime'}\nreturn types.string")
+    clean("local types: {string: string} = {string = 'runtime'}\nreturn types.string")
 end
 
 function M.templateConstructionAndOneSegmentExtractionAreFinite()
