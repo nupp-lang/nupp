@@ -2,7 +2,7 @@ local test = require("assert")
 local identities = require("nupp.compiler.apiidentity")
 local parser = require("nupp.compiler.syntax.parser")
 local checker = require("fragment")
-local generator = require("nupp.compiler.lua.gen")
+local program = require("program")
 local envMod = require("nupp.compiler.project.env")
 local providers = require("nupp.compiler.comptime.materialize.providers")
 local T = require("nupp.compiler.types")
@@ -25,15 +25,14 @@ local function compile(source, env, filename)
             errors[#errors + 1] = diagnostic.code .. ": " .. diagnostic.msg
         end
     end
-    local code = generator.generate(parsed, "api-identity")
 
-    return code, table.concat(errors, "\n"), parsed
+    return source, table.concat(errors, "\n"), parsed
 end
 
 local function run(source)
-    local code, errors = compile(source)
+    local code, errors, parsed = compile(source)
     test.equal(errors, "", errors .. "\n" .. code)
-    return assert(loadstring(code, "@api-identity"))()
+    return program.run(parsed, "api-identity", "api-identity.nupp")
 end
 
 function M.canonicalizesOnlyRegisteredPublicIdentities()
@@ -160,7 +159,7 @@ cell:close()
     local block = parsed.root.blocks[1]
     local cell = block.stats[4]
     test.equal(cell.exprs[1].ownershipIntrinsic, "manage")
-    local code, shadowErrors = compile(
+    local code, shadowErrors, shadowParsed = compile(
         [[
 local own = {manage = function(value: integer): integer return value + 1 end}
 local types = {reflect = function(value: integer): integer return value + 2 end}
@@ -168,7 +167,7 @@ return own.manage(types.reflect(types.reflect(1)) + 1)
 ]]
     )
     test.equal(shadowErrors, "", shadowErrors)
-    test.equal(assert(loadstring(code))(), 7)
+    test.equal(program.run(shadowParsed, "identity-shadow"), 7)
 end
 
 local function runtimeEnv()
@@ -215,7 +214,7 @@ return ROOT.entry()
 end
 
 function M.preservesLazyExplicitModuleRequires()
-    local code, errors = compile(
+    local code, errors, parsed = compile(
         [[
 local function later(): any
     local runtime = require("nupp.derive")
@@ -235,7 +234,7 @@ return 17
         end
         return original(name)
     end
-    local ok, result = pcall(assert(loadstring(code, "@lazy-module")))
+    local ok, result = pcall(program.run, parsed, "lazy-module")
     _G.require = original
     assert(ok, result)
     test.equal(result, 17)
@@ -371,7 +370,7 @@ return value
     test.equal(shadowErrors, "", shadowErrors)
     test.equal(shadow.root.blocks[1].stats[2].exprs[1].ownershipIntrinsic, nil)
     test.equal(#shadow.root.blocks[1].stats[2].exprs[1].typeArgs, 1)
-    test.equal(assert(loadstring(shadowCode, "@adopt-shadow"))(), "ready")
+    test.equal(program.run(shadow, "adopt-shadow"), "ready")
 end
 
 function M.sealsImportedCompilerNamespacesThroughPersistedHelpers()
@@ -703,7 +702,7 @@ return point.value
 ]]
     )
     test.equal(errors, "", errors)
-    local code, shadowErrors = compile(
+    local code, shadowErrors, shadowParsed = compile(
         [[
 local types = {}
 record types.Point value: integer end
@@ -715,7 +714,7 @@ return read()
 ]]
     )
     test.equal(shadowErrors, "", shadowErrors)
-    test.equal(assert(loadstring(code, "@qualified-shadow"))(), 8)
+    test.equal(program.run(shadowParsed, "qualified-shadow"), 8)
 end
 
 function M.referencedRecipeRefusalsKeepTheirDiagnostic()
@@ -831,7 +830,7 @@ export function info(format: string, value: integer?): nil end
             local expectedModule = "log"
             test.equal(stats[#stats].expr.logIntrinsic, 3, source)
             test.equal(stats[#stats].expr.logModule, expectedModule, source)
-            if not code:find('require("' .. expectedModule .. '").forModule', 1, true) then
+            if not program.names(program.image(parsed, "logging-identity"), expectedModule) then
                 missingModules[#missingModules + 1] = expectedModule .. ": " .. source
             end
         end

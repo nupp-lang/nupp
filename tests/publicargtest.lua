@@ -39,14 +39,17 @@ end
 function M.theTypedFacadeKeepsProvidersAliasesAndShadowing()
     local parser = require("nupp.compiler.syntax.parser")
     local checker = require("fragment")
-    local gen = require("nupp.compiler.lua.gen")
+    local program = require("program")
+    local loadImage = assert(rawget(_G, "__nupp_load_image"))
     local environment = require("nupp.compiler.project.env").new(".")
     local runtime = require("nupp.compiler.runtime")
 
-    local function compile(path, env)
-        local file = assert(io.open(path, "rb"))
-        local source = file:read("*a")
-        file:close()
+    local function compile(path, env, name, source)
+        if source == nil then
+            local file = assert(io.open(path, "rb"))
+            source = file:read("*a")
+            file:close()
+        end
         local parsed = parser.parse(source, path)
         if #parsed.errors > 0 then
             return nil, parsed.errors[1].msg
@@ -55,19 +58,21 @@ function M.theTypedFacadeKeepsProvidersAliasesAndShadowing()
         if #diags > 0 then
             return nil, diags[1].msg
         end
-        local code, generated = gen.generate(parsed, path)
-        if #generated > 0 then
-            return nil, generated[1].msg
+        local ok, image = pcall(program.image, parsed, name, path)
+        if not ok then
+            return nil, tostring(image)
         end
 
-        return code
+        return image
     end
 
-    local removeLoader = runtime.install(environment, compile)
+    local removeLoader = runtime.install(environment, compile, nil, nil, function(image)
+        return loadImage(image)
+    end)
     local ok, problem = pcall(function()
         local code, reason = compile("tests/fixtures/argfacade.nupp", environment)
         test(code, reason)
-        assert(loadstring(code, "@tests/fixtures/argfacade.nupp"))()
+        assert(loadImage(code))()
     end)
     removeLoader()
     if not ok then

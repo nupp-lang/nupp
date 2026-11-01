@@ -48,7 +48,9 @@ function M.finalStandardRootsUseTheExistingCompilerSourceLoader()
                     selected.path
                 )
             end
-            test.equal(loaders[#loaders]("application.nonexistent"), nil)
+            local reason = loaders[#loaders]("application.nonexistent")
+            test.equal(type(reason), "string")
+            assert(reason:find("no standard library source for module 'application.nonexistent'", 1, true), reason)
         end
     )
 end
