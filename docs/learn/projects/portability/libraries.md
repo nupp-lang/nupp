@@ -36,7 +36,7 @@ test-suite state and reflection outside this profile.
 
 ```nupp
 local assert = _G.assert
-local value = assert("ready")
+local value: string = assert("ready")
 return value
 ```
 

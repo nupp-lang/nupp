@@ -1118,7 +1118,7 @@ end
 
 function M.sessionTracksPreprocessedHeaderClosure()
     if os.execute("cc --version >/dev/null 2>&1") ~= 0 then
-        return require("assert").skip("cc is unavailable")
+        return require("assert").suite.skip("cc is unavailable")
     end
     local dir = temporaryProject({
         ["nested.h"] = "typedef int hot_nested_value;\n",
@@ -1297,7 +1297,7 @@ end
 
 function M.mappedNativeSymlinkRetargetRequiresRestart()
     if package.config:sub(1, 1) == "\\" then
-        return require("assert").skip("symbolic-link fixture is POSIX-only")
+        return require("assert").suite.skip("symbolic-link fixture is POSIX-only")
     end
     local dir = temporaryProject({
         ["one.bin"] = "identical bytes",
@@ -1322,7 +1322,7 @@ end
 
 function M.headerDependencyClosureGrowsAndShrinksAfterNoChange()
     if os.execute("cc --version >/dev/null 2>&1") ~= 0 then
-        return require("assert").skip("cc is unavailable")
+        return require("assert").suite.skip("cc is unavailable")
     end
     local withInclude = '#include "nested.h"\nint hot_closure(void);\n'
     local dir = temporaryProject({

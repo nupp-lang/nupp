@@ -590,7 +590,7 @@ end
 function M.cliWatchRequiresRestartForMappedNativeReplacement()
     local ffi = require("ffi")
     if ffi.os == "Windows" or os.execute("cc --version >/dev/null 2>&1") ~= 0 then
-        return require("assert").skip("a POSIX C compiler is unavailable")
+        return require("assert").suite.skip("a POSIX C compiler is unavailable")
     end
     withProject(
         {

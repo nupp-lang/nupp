@@ -63,7 +63,7 @@ local function requireCargo()
         probe:close()
     end
     if found == nil or found == "" then
-        require("assert").skip("cargo is unavailable")
+        require("assert").suite.skip("cargo is unavailable")
     end
 end
 

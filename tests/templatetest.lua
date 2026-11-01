@@ -341,7 +341,7 @@ function M.aSymlinkIsReportedRatherThanFollowed()
     end
     if not linked then
         remove(dir)
-        return require("assert").skip("this platform has no unprivileged symbolic link")
+        return require("assert").suite.skip("this platform has no unprivileged symbolic link")
     end
 
     local into = tempDirectory()

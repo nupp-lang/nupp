@@ -443,7 +443,7 @@ end
 
 function M.preprocessorProvenanceIncludesNestedHeaders()
     if os.execute("cc --version >/dev/null 2>&1") ~= 0 then
-        return require("assert").skip("cc is unavailable")
+        return require("assert").suite.skip("cc is unavailable")
     end
     local dir = os.tmpname()
     os.remove(dir)
@@ -467,7 +467,7 @@ end
 
 function M.preprocessorFingerprintIncludesCompilerArguments()
     if os.execute("cc --version >/dev/null 2>&1") ~= 0 then
-        return require("assert").skip("cc is unavailable")
+        return require("assert").suite.skip("cc is unavailable")
     end
     local path = HERE .. "/fixtures/sink.h"
     local plain = assert(cheaderMod.provenance(path, {preprocess = true}))

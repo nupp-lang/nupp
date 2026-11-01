@@ -230,7 +230,7 @@ end
 
 function M.everyReferenceOutputBranchReportsWriteFailure()
     if package.config:sub(1, 1) == "\\" then
-        require("assert").skip("POSIX directory permissions provide this failure seam")
+        require("assert").suite.skip("POSIX directory permissions provide this failure seam")
     end
     local dir = os.tmpname()
     os.remove(dir)

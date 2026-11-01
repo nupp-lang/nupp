@@ -701,7 +701,7 @@ return game
     -- the header and the erased signature are as far as this goes there.
     if jit.os == "Windows" then
         os.execute("rm -rf '" .. dir .. "'")
-        require("assert").skip("a globally loaded shared library is POSIX-only")
+        require("assert").suite.skip("a globally loaded shared library is POSIX-only")
     end
 
     local c = assert(io.open(dir .. "/game.c", "wb"))

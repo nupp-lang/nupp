@@ -689,7 +689,7 @@ end
 
 function M.jitAbortWriteFailureStillReportsTheProgramError()
     if package.config:sub(1, 1) == "\\" then
-        require("assert").skip("POSIX directory permissions provide this failure seam")
+        require("assert").suite.skip("POSIX directory permissions provide this failure seam")
     end
     local dir = tempProject()
     assert(os.execute("mkdir -p '" .. dir .. "/locked'") == 0)
