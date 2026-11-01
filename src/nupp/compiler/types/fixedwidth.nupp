@@ -10,6 +10,7 @@ test used by the checker. It deliberately owns no flow state: establishment is
 a fact about one expression or binding, recorded by the checking run.
 ]]
 
+local apiidentity = require("nupp.compiler.apiidentity")
 local T = require("nupp.compiler.types")
 
 local fixed = {}
@@ -59,8 +60,8 @@ function fixed.storageOnlyValue(t: T.Type?, seen: {[string]: boolean}?): T.Type?
         local origin = (raw.origin or raw) as T.Nominal
         if raw.declKind == "struct"
             or origin.moduleName == "nupp.mem.span"
-            or origin.moduleName == "nupp.simd"
-            or origin.sealedModule == "nupp.simd"
+            or apiidentity.canonical(origin.moduleName or "") == "simd"
+            or apiidentity.canonical(origin.sealedModule or "") == "simd"
         then
             return nil
         end

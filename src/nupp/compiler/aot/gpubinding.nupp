@@ -132,7 +132,7 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
     local runtimeModule = "nupp.gpu"
 
     append(lines, "local " .. runtime .. " = require(\"" .. runtimeModule .. "\")")
-    append(lines, "local " .. implementation .. " = require(\"" .. runtimeModule .. ".internal\")")
+    append(lines, "local " .. implementation .. " = require(\"nupp.gpu.internal\")")
     if not browser then
         append(lines, "local " .. native .. " = require(\"nupp.runtime.native\")")
     end

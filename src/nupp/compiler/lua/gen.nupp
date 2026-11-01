@@ -37,6 +37,7 @@ Code generation reports `NUPP3xxx` when a checked construct cannot be
 represented.
 ]]
 
+local apiidentity = require("nupp.compiler.apiidentity")
 local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")
 local parser = require("nupp.compiler.syntax.parser")
@@ -557,7 +558,9 @@ local function simdFamilyOf(t: any): (string?, string?)
         return nil, nil
     end
     local origin = t.origin or t
-    if origin.moduleName ~= "nupp.simd" and origin.sealedModule ~= "nupp.simd" then
+    if apiidentity.canonical(origin.moduleName or "") ~= "simd"
+        and apiidentity.canonical(origin.sealedModule or "") ~= "simd"
+    then
         return nil, nil
     end
     local name = origin.name

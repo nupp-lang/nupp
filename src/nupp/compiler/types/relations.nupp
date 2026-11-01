@@ -12,6 +12,7 @@ The doctrine is structural for shape and nominal for provenance. It is gradual:
 `any` is compatible in both directions.
 ]]
 
+local apiidentity = require("nupp.compiler.apiidentity")
 local T = require("nupp.compiler.types")
 local members = require("nupp.compiler.types.members")
 local fixedWidth = require("nupp.compiler.types.fixedwidth")
@@ -1314,7 +1315,10 @@ local function check(a: Type, b: Type): boolean, string?
             end
         end
         local origin = a.origin as T.Nominal
-        local intrinsicInvariant = (origin.moduleName == "nupp.simd" or origin.sealedModule == "nupp.simd")
+        local intrinsicInvariant = (
+            apiidentity.canonical(origin.moduleName or "") == "simd"
+            or apiidentity.canonical(origin.sealedModule or "") == "simd"
+        )
             and (
                 origin.name == "Vector"
                 or origin.name == "Mask"
@@ -1447,7 +1451,10 @@ local function check(a: Type, b: Type): boolean, string?
         -- argument. Their public interfaces intentionally carry no runtime
         -- witness, so structural conformance must not erase species identity.
         local bOrigin = (b.origin or b) as T.Nominal
-        local invariant = (bOrigin.moduleName == "nupp.simd" or bOrigin.sealedModule == "nupp.simd")
+        local invariant = (
+            apiidentity.canonical(bOrigin.moduleName or "") == "simd"
+            or apiidentity.canonical(bOrigin.sealedModule or "") == "simd"
+        )
             and (
                 bOrigin.name == "Vector"
                 or bOrigin.name == "Mask"
