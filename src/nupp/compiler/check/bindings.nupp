@@ -625,7 +625,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     boundEntry.definition.scalarIntrinsic = scalarIdentity
                 end
             end
-            -- A local bound to a namespace path, `local i32 = nupp.math.i32`, keeps
+            -- A local bound to a namespace path, `local i32 = math.i32`, keeps
             -- the path its members are spelled under, so intrinsic identities read
             -- through it reach the same entries the full spelling does.
             local initDynamic: any = initNode

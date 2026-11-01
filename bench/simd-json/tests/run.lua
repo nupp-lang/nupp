@@ -217,7 +217,7 @@ end
 do
     -- These fallbacks run as ordinary Lua. Fixed widths are compile-time facts,
     -- so their already-in-range arguments do not need the compiler-only
-    -- `nupp.math.u32` surface installed in this direct-Lua test process.
+    -- `math.u32` surface installed in this direct-Lua test process.
     local scratch = valueBuilder.newWordScratch(2)
     valueBuilder.setScratchWord(scratch, 0, 0xDEADBEEF)
     check(valueBuilder.scratchWord(scratch, 0) == 0xDEADBEEF, "ordinary word scratch lost a value")

@@ -166,42 +166,42 @@ local record Scalars is ScalarReader
         local raw = taken(self, 1)
         local value = physical.decodeUint8(raw)
 
-        return nupp.math.u32.wrap(value as integer)
+        return math.u32.wrap(value as integer)
     end
 
     function readInt8(self): int32
         local raw = taken(self, 1)
         local value = physical.decodeInt8(raw)
 
-        return nupp.math.i32.wrap(value as integer)
+        return math.i32.wrap(value as integer)
     end
 
     function readUint16(self): uint32
         local raw = taken(self, 2)
         local value = physical.decodeUint16(raw)
 
-        return nupp.math.u32.wrap(value as integer)
+        return math.u32.wrap(value as integer)
     end
 
     function readInt16(self): int32
         local raw = taken(self, 2)
         local value = physical.decodeInt16(raw)
 
-        return nupp.math.i32.wrap(value as integer)
+        return math.i32.wrap(value as integer)
     end
 
     function readUint32(self): uint32
         local raw = taken(self, 4)
         local value = physical.decodeUint32(raw)
 
-        return nupp.math.u32.wrap(value as integer)
+        return math.u32.wrap(value as integer)
     end
 
     function readInt32(self): int32
         local raw = taken(self, 4)
         local value = physical.decodeInt32(raw)
 
-        return nupp.math.i32.wrap(value as integer)
+        return math.i32.wrap(value as integer)
     end
 
     function readUint64(self): uint64
@@ -222,7 +222,7 @@ local record Scalars is ScalarReader
         local raw = taken(self, 4)
         local value = physical.decodeFloat32(raw)
 
-        return nupp.math.f32.narrow(value as number)
+        return math.f32.narrow(value as number)
     end
 
     function readFloat64(self): number

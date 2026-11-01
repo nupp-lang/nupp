@@ -1,7 +1,7 @@
 module example.xmlsyntax
 
 local core = require("serde")
-local utf8 = require("nupp.text.utf8")
+local utf8 = require("utf8")
 
 -- This fixture accepts ASCII qualified names and UTF-8 content. It deliberately
 -- refuses DTDs and processing instructions; it never fetches external entities.

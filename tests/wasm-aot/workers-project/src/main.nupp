@@ -80,11 +80,11 @@ end
 -- Leaving the scope waits for a child the body never awaited
 ----------------------------------------------------------------------------
 
-local cleanupStarted = time.now()
+local cleanupStarted = os.monotonic()
 with scope = tasks.open() do
     scope:fork(150, jobs.patient)
 end
-local cleanupElapsed = time.now() - cleanupStarted
+local cleanupElapsed = os.monotonic() - cleanupStarted
 boolean("scopeWaitedForUnawaited", cleanupElapsed >= 100)
 number("scopeCleanupMs", cleanupElapsed)
 
@@ -259,7 +259,7 @@ end
 boolean("taskScopeOwnsWorkers", owned == jobs.checksum("browser-worker", 1))
 
 -- The scope's deadline reaches the lane, and the checkpoint is where it lands.
-local deadlineStarted = time.now()
+local deadlineStarted = os.monotonic()
 
 local function bounded(): nil
     with inner = tasks.open(timeoutMs = 250) do
@@ -274,6 +274,6 @@ text(
     deadlineProblem == nil and "completed"
     or (deadlineProblem:find("was cancelled", 1, true) ~= nil and "cancelled" or "failed")
 )
-number("deadlineMs", time.now() - deadlineStarted)
+number("deadlineMs", os.monotonic() - deadlineStarted)
 
 return "{" .. table.concat(report, ",") .. "}"

@@ -11,17 +11,17 @@ end
 
 function M.workgroupPhasesHaveDeterministicCpuMeaning(): nil
     local results: {float} = {}
-    gpu.workgroups(nupp.math.u32.wrap(2), nupp.math.u32.wrap(4), function(groupIndex: uint32, phases: gpu.Phases)
-        local values = phases:scratch(nupp.math.f32.narrow(0.0), 4)
+    gpu.workgroups(math.u32.wrap(2), math.u32.wrap(4), function(groupIndex: uint32, phases: gpu.Phases)
+        local values = phases:scratch(math.f32.narrow(0.0), 4)
         phases:run(function(localIndex: uint32)
-            local base = nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(4))
-            local value = nupp.math.u32.add(nupp.math.u32.add(base, localIndex), nupp.math.u32.wrap(1))
-            values[localIndex as integer] = nupp.math.f32.narrow(value as number)
+            local base = math.u32.mul(groupIndex, math.u32.wrap(4))
+            local value = math.u32.add(math.u32.add(base, localIndex), math.u32.wrap(1))
+            values[localIndex as integer] = math.f32.narrow(value as number)
         end)
         phases:reduceSum(values)
         phases:run(function(localIndex: uint32)
-            if localIndex == nupp.math.u32.wrap(0) then
-                results[(groupIndex as integer) + 1] = nupp.math.f32.narrow(values[0])
+            if localIndex == math.u32.wrap(0) then
+                results[(groupIndex as integer) + 1] = math.f32.narrow(values[0])
             end
         end)
     end)
@@ -33,15 +33,15 @@ end
 
 function M.inclusiveScanHasDeterministicCpuMeaning(): nil
     local results: {uint32} = {}
-    gpu.workgroups(nupp.math.u32.wrap(1), nupp.math.u32.wrap(8), function(groupIndex: uint32, phases: gpu.Phases)
+    gpu.workgroups(math.u32.wrap(1), math.u32.wrap(8), function(groupIndex: uint32, phases: gpu.Phases)
         local values = phases:scratch(groupIndex, 8)
         local temporary = phases:scratch(groupIndex, 8)
         phases:run(function(localIndex: uint32)
-            values[localIndex as integer] = nupp.math.u32.add(localIndex, nupp.math.u32.wrap(1))
+            values[localIndex as integer] = math.u32.add(localIndex, math.u32.wrap(1))
         end)
         phases:inclusiveScan(values, temporary)
         phases:run(function(localIndex: uint32)
-            results[(localIndex as integer) + 1] = nupp.math.u32.wrap(values[localIndex as integer] as integer)
+            results[(localIndex as integer) + 1] = math.u32.wrap(values[localIndex as integer] as integer)
         end)
     end)
 
@@ -52,17 +52,17 @@ function M.inclusiveScanHasDeterministicCpuMeaning(): nil
 end
 
 function M.sharedScratchChecksZeroBasedBounds(): nil
-    gpu.workgroups(nupp.math.u32.wrap(1), nupp.math.u32.wrap(1), function(groupIndex: uint32, phases: gpu.Phases)
+    gpu.workgroups(math.u32.wrap(1), math.u32.wrap(1), function(groupIndex: uint32, phases: gpu.Phases)
         local values = phases:scratch(groupIndex, 1)
         phases:run(function(localIndex: uint32)
-            values[localIndex as integer] = nupp.math.u32.wrap(7)
+            values[localIndex as integer] = math.u32.wrap(7)
             assert(values[0] == 7)
         end)
     end)
 end
 
 function M.cpuGpuMetadataRejectsFractionalIntegers(): nil
-    gpu.workgroups(nupp.math.u32.wrap(1), nupp.math.u32.wrap(1), function(groupIndex: uint32, phases: gpu.Phases)
+    gpu.workgroups(math.u32.wrap(1), math.u32.wrap(1), function(groupIndex: uint32, phases: gpu.Phases)
         local scratch = phases.scratch as any
         rejects(
             function(): nil

@@ -31,17 +31,34 @@ local INTEGER = {"wrappingSum", "wrappingProduct", "andBits", "orBits", "xorBits
 -- Exact scalar references for the integer horizontals, in the lane's width:
 -- a narrow lane wraps at its own width and comes back sign- or
 -- zero-extended, as the lane leaves the vector.
-local I32 = "nupp.math.i32.%s(nupp.math.i32.wrap(a), nupp.math.i32.wrap(b))"
-local U32 = "nupp.math.u32.%s(nupp.math.u32.wrap(a), nupp.math.u32.wrap(b))"
+local I32 = "math.i32.%s(math.i32.wrap(a), math.i32.wrap(b))"
+local U32 = "math.u32.%s(math.u32.wrap(a), math.u32.wrap(b))"
 local INTEGER_REFERENCE = {
-    int8 = {wrap = "((v + 128) % 256) - 128", add = "wrap(a + b)", mul = "wrap(a * b)", bits = "wrap(" .. I32 .. ")", ones = "-1"},
+    int8 = {
+        wrap = "((v + 128) % 256) - 128",
+        add = "wrap(a + b)",
+        mul = "wrap(a * b)",
+        bits = "wrap(" .. I32 .. ")",
+        ones = "-1"
+    },
     uint8 = {wrap = "v % 256", add = "wrap(a + b)", mul = "wrap(a * b)", bits = U32, ones = "255"},
-    int16 = {wrap = "((v + 32768) % 65536) - 32768", add = "wrap(a + b)", mul = "wrap(a * b)", bits = "wrap(" .. I32 .. ")", ones = "-1"},
+    int16 = {
+        wrap = "((v + 32768) % 65536) - 32768",
+        add = "wrap(a + b)",
+        mul = "wrap(a * b)",
+        bits = "wrap(" .. I32 .. ")",
+        ones = "-1"
+    },
     uint16 = {wrap = "v % 65536", add = "wrap(a + b)", mul = "wrap(a * b)", bits = U32, ones = "65535"},
     int32 = {add = I32:format("add"), mul = I32:format("mul"), bits = I32, ones = "-1"},
     uint32 = {add = U32:format("add"), mul = U32:format("mul"), bits = U32, ones = "4294967295"},
     int64 = {add = "(a + b) as int64", mul = "(a * b) as int64", bits = "(a %s b) as int64", ones = "-1LL"},
-    uint64 = {add = "(a + b) as uint64", mul = "(a * b) as uint64", bits = "(a %s b) as uint64", ones = "18446744073709551615ULL"},
+    uint64 = {
+        add = "(a + b) as uint64",
+        mul = "(a * b) as uint64",
+        bits = "(a %s b) as uint64",
+        ones = "18446744073709551615ULL"
+    },
 }
 local BIT_OPERATORS = {andBits = "&", orBits = "|", xorBits = "~"}
 
@@ -157,13 +174,11 @@ end
             local bitwise = {}
             for _, name in ipairs({"andBits", "orBits", "xorBits"}) do
                 local operand = (ty == "int64" or ty == "uint64") and BIT_OPERATORS[name] or name
-                bitwise[#bitwise + 1] = ("local function %s(a: %s, b: %s): %s\n    return %s\nend"):format(
-                    name,
-                    scalar,
-                    scalar,
-                    scalar,
-                    reference.bits:format(operand)
-                )
+                bitwise[
+                    #bitwise + 1
+                ] = (
+                    "local function %s(a: %s, b: %s): %s\n    return %s\nend"
+                ):format(name, scalar, scalar, scalar, reference.bits:format(operand))
             end
             source[
                 #source + 1
@@ -179,7 +194,9 @@ end
 %s
 ]]
             ):format(
-                reference.wrap and ("local function wrap(v: %s): %s\n    return %s\nend"):format(scalar, scalar, reference.wrap) or "",
+                reference.wrap
+                and ("local function wrap(v: %s): %s\n    return %s\nend"):format(scalar, scalar, reference.wrap)
+                or "",
                 scalar,
                 scalar,
                 scalar,
@@ -225,8 +242,8 @@ local function envelope(actual: number, expected: number, scale: number, count: 
 end
 ]]
             ):format(
-                ty == "float" and "nupp.math.f32.add(nupp.math.f32.narrow(a), nupp.math.f32.narrow(b))" or "a + b",
-                ty == "float" and "nupp.math.f32.mul(nupp.math.f32.narrow(a), nupp.math.f32.narrow(b))" or "a * b",
+                ty == "float" and "math.f32.add(math.f32.narrow(a), math.f32.narrow(b))" or "a + b",
+                ty == "float" and "math.f32.mul(math.f32.narrow(a), math.f32.narrow(b))" or "a * b",
                 ty == "float" and "5.960464477539063e-8" or "1.1102230246251565e-16",
                 ty == "float" and "1.401298464324817e-45" or "5e-324"
             )
@@ -269,7 +286,7 @@ local function run(): number
             local right = other:read()
             local lanes = probe(output, positions, left, right, 0)
             for active = 0, lanes do
-                assert(probe(output, positions, left, right, nupp.math.u32.wrap(active)) == lanes)
+                assert(probe(output, positions, left, right, math.u32.wrap(active)) == lanes)
                 local values: {%s} = {}
                 local products: {number} = {}
                 for i = 1, lanes do
@@ -323,7 +340,8 @@ end
             scalar,
             floating and "                    products[i] = multiply(values[i], i <= active and right[i] or 0)" or "",
             floating and 9 or 0,
-            floating and "" or (
+            floating and ""
+            or (
                 [[                local sum: %s = %s
                 local product: %s = %s
                 local allBits: %s = %s

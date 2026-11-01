@@ -9,7 +9,7 @@ it found -- an array opens here, this byte range is a key, that one is a number
 -- and the module builds the value behind it.
 
 ```nupp
-local u32 = nupp.math.u32
+local u32 = math.u32
 local valuebuilder = require("serde.valuebuilder")
 
 --- Decodes the fixed document `{"id": 41}`.
@@ -30,7 +30,7 @@ end
 Values are reported as the parser reaches them, so there is no intermediate
 representation. Every offset, length, and index here counts from zero, because
 they address the parser's bytes rather than a Lua string. Each is a `uint32`,
-which an `@aot` body establishes with `nupp.math.u32.wrap` rather than by
+which an `@aot` body establishes with `math.u32.wrap` rather than by
 passing a number literal.
 
 The lowering is why the module exists. Inside an `@aot` function these calls
@@ -50,7 +50,7 @@ ordinary call.
 See [ahead-of-time.md](docs/learn/performance/ahead-of-time/index.md) for what
 generated code is allowed to do.
 ]]
-const utf8 = require("nupp.text.utf8")
+const utf8 = require("utf8")
 const {type ByteSpan} = require("nupp.mem.span")
 
 ----------------------------------------------------------------------------
@@ -187,7 +187,7 @@ end
 --- to reserve scratch for transformed strings, when the parser knows better.
 ---
 --- ```nupp
---- local u32 = nupp.math.u32
+--- local u32 = math.u32
 --- local valuebuilder = require("serde.valuebuilder")
 ---
 --- --- Builds `[true, null]` without a source document.
@@ -331,7 +331,7 @@ end
 --- @param bytes the rooted string to measure
 --- @return its length in bytes
 function valuebuilder.length(borrows bytes: any): uint32
-    return nupp.math.u32.wrap(#bytes)
+    return math.u32.wrap(#bytes)
 end
 
 --- Views the rooted bytes as a byte span, which is what the vector loads read.
@@ -384,7 +384,7 @@ function valuebuilder.byte(borrows bytes: any, offset: uint32): uint32
         error("value stream byte is out of bounds", 2)
     end
 
-    return nupp.math.u32.wrap(value)
+    return math.u32.wrap(value)
 end
 
 --- Reads a byte under a dominating `offset < length(bytes)` proof.
@@ -417,7 +417,7 @@ function valuebuilder.word(bytes: string, index: uint32): uint32
         error("value stream word is out of bounds", 2)
     end
 
-    return nupp.math.u32.wrap(readU32(bytes, offset as integer))
+    return math.u32.wrap(readU32(bytes, offset as integer))
 end
 
 ----------------------------------------------------------------------------
@@ -495,14 +495,14 @@ function valuebuilder.scratchWord(scratch: any, index: uint32): uint32
         error("value stream scratch word is invalid", 2)
     end
 
-    return nupp.math.u32.wrap(value as integer)
+    return math.u32.wrap(value as integer)
 end
 
 --- Returns the initialized word count of a local work buffer.
 --- @param scratch a buffer from [](serde.valuebuilder.newWordScratch)
 --- @return the number of initialized words
 function valuebuilder.scratchLength(scratch: any): uint32
-    return nupp.math.u32.wrap(scratch.length as integer)
+    return math.u32.wrap(scratch.length as integer)
 end
 
 --- Writes an existing word or appends the next contiguous word.
@@ -588,7 +588,7 @@ function valuebuilder.scratchByte(scratch: any, index: uint32): uint32
     if index >= scratch.length then
         error("value stream byte scratch read is out of bounds", 2)
     end
-    return nupp.math.u32.wrap(tonumber(scratch.bytes[index + 1]) as integer)
+    return math.u32.wrap(tonumber(scratch.bytes[index + 1]) as integer)
 end
 
 --- Writes an existing byte or appends the next contiguous byte.
@@ -747,7 +747,7 @@ end
 --- @param builder the stream
 --- @return the number of open containers, 0 at the top level
 function valuebuilder.depth(builder: any): uint32
-    return nupp.math.u32.wrap(#builder.stack)
+    return math.u32.wrap(#builder.stack)
 end
 
 ----------------------------------------------------------------------------
@@ -764,7 +764,7 @@ function valuebuilder.kind(builder: any): uint32
         error("value stream has no current container", 2)
     end
 
-    return nupp.math.u32.wrap(frame.kind as integer)
+    return math.u32.wrap(frame.kind as integer)
 end
 
 --- Returns the number of complete values in the current container.
@@ -781,7 +781,7 @@ function valuebuilder.count(builder: any): uint32
         error("value stream has no current container", 2)
     end
 
-    return nupp.math.u32.wrap(frame.count as integer)
+    return math.u32.wrap(frame.count as integer)
 end
 
 --- Returns the current container kind and whether it has a complete value in
@@ -798,14 +798,14 @@ end
 function valuebuilder.state(builder: any): uint32
     local frame = builder.stack[#builder.stack]
     if frame == nil then
-        return nupp.math.u32.wrap(0)
+        return math.u32.wrap(0)
     end
     local state = frame.kind as integer
     if frame.count > 0 then
         state = state + 0x100
     end
 
-    return nupp.math.u32.wrap(state)
+    return math.u32.wrap(state)
 end
 
 --- Sets the next object key from a range of the rooted source.

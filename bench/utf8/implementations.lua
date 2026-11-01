@@ -12,7 +12,7 @@ implementations.aot = require("utf8bench").isValid
 --- declares the same module name as the one above, so it is loaded by path.
 implementations.scalar = assert(loadfile("build/scalar/utf8bench.lua"), "build the utf8-scalar target first")().isValid
 
---- `nupp.text.utf8` as it ships: ordinary Nupp, `string.byte`, binary64 cursor.
+--- `utf8` as it ships: ordinary Nupp, `string.byte`, binary64 cursor.
 implementations.shipped = assert(loadfile("build/aot/nupp/text/utf8.lua"), "build the utf8 target first")().isValid
 
 --- The lookup validator on the general `nupp.simd` algebra, a vector at a
@@ -23,11 +23,6 @@ implementations.simd = assert(loadfile("../utf8simd/build/utf8simd.lua"), "build
 
 implementations.order = {"simd", "aot", "scalar", "shipped"}
 
-implementations.titles = {
-    simd = "Nupp @aot SIMD",
-    aot = "Nupp @aot",
-    scalar = "Nupp @aot on LuaJIT",
-    shipped = "nupp.text.utf8",
-}
+implementations.titles = {simd = "Nupp @aot SIMD", aot = "Nupp @aot", scalar = "Nupp @aot on LuaJIT", shipped = "utf8",}
 
 return implementations

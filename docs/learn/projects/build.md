@@ -231,7 +231,7 @@ option without a target is refused.
 
 Compiler-provided native APIs do not appear in `dependencies`. Their resolved
 uses record effects while Nupp checks the target's complete source set, and the
-build stages the matching providers automatically. For example, [](nupp.io.path)
+build stages the matching providers automatically. For example, [](io.path)
 spells and transforms paths in Nupp, while calls that reach its working-directory
 and canonicalization provider record `native.path` and select the generic filesystem
 feature in `build/lib/nupp_native`; a target with no resolved native use does not build
@@ -253,7 +253,7 @@ The Rust facilities share the versioned `build/lib/nupp_native` sidecar.
 Generated or external C interop builds its own declared native dependencies;
 there is no unversioned compatibility provider beside the Rust provider.
 Each provider is built with the union of its selected features. Pure facilities
-such as buffers, checksums and `nupp.math` emit
+such as buffers, checksums and `math` emit
 their Lua adapters but stage no native artifact. At `-O1` and above the build
 recomputes these effects from the post-folding tree, so a use found only in a
 constant-dead branch or loop is removed with that code.

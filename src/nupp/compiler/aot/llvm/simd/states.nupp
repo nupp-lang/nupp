@@ -16,7 +16,7 @@ reducer contract in `nupp.simd.reducer`, bit for bit:
 
 `F` is the floating element: binary64 for the unsuffixed contracts, and the
 `float` of a contract constructed over the `float` witness, whose every
-operation rounds to binary32 as `nupp.math.f32` does.
+operation rounds to binary32 as `math.f32` does.
 
 Each operation is an `internal alwaysinline` function defined on first use.
 ]]

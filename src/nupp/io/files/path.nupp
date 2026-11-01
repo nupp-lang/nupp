@@ -1,8 +1,8 @@
 @!internal
 module nupp.io.files.path
 
-const utf8 = require("nupp.text.utf8")
-const paths = require("nupp.io.path")
+const utf8 = require("utf8")
+const paths = require("io.path")
 
 --- An opaque portable path beneath an application-owned storage root.
 export sealed interface ApplicationPath

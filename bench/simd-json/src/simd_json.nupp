@@ -1,4 +1,4 @@
-const utf8 = require("nupp.text.utf8")
+const utf8 = require("utf8")
 
 local scanner = require("simd_json.scanner")
 local arena = require("simd_json.arena")
@@ -32,8 +32,7 @@ local function decode(source: string): unknown
         if at < 1 or at > length then
             fail("internal classifier index out of bounds")
         end
-        @unsafe
-        do
+        @unsafe do
             return flagStorage[at - 1]
         end
     end

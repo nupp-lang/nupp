@@ -1,4 +1,4 @@
-module nupp.bench
+module debug.bench
 
 --[[
 Measuring Nupp code from inside an ordinary program.
@@ -7,9 +7,9 @@ A benchmark here is a program, not a case a runner discovered. It links this
 module, runs under `nupp run`, and reports itself:
 
 ```nupp:fragment
-local bench = nupp.bench
+local bench = debug.bench
 
-local function sized(b: nupp.bench.Case): nil
+local function sized(b: debug.bench.Case): nil
     for _ = 1, b.n do
         bench.keep(makePoint())
     end
@@ -33,7 +33,6 @@ merge.
 local json = require("serde.json")
 local profile = require("nupp.profile")
 local statistics = require("nupp.bench.internal.statistics")
-local time = require("nupp.time")
 
 local bench = {}
 
@@ -619,9 +618,9 @@ local function calibrate(name: string, body: function(bench.Case): nil, fixed: i
         -- timed on. Calibrating against `os.clock` processor time would size `n` from
         -- one quantity and then report another, and the two part company for any body
         -- that waits on anything.
-        local started = time.now()
+        local started = os.monotonic()
         body(new bench.Case(name = name, n = n))
-        if time.now() - started >= TARGET_ROUND_MS then
+        if os.monotonic() - started >= TARGET_ROUND_MS then
             if held then
                 return n
             end
@@ -757,9 +756,9 @@ local function measureCase(name: string, body: function(bench.Case): nil, fixedN
     collectgarbage("stop")
     local times: {number} = {}
     for round = 1, ROUNDS do
-        local started = time.now()
+        local started = os.monotonic()
         body(subject)
-        times[round] = time.now() - started
+        times[round] = os.monotonic() - started
     end
     -- Collected before reading again, so what is reported is what the rounds kept
     -- rather than everything they allocated while the collector was off.
@@ -933,12 +932,12 @@ local function callVariant(
     if session then
         session:resume()
     end
-    local started = time.now()
+    local started = os.monotonic()
     local result: any = nil
     for _ = 1, iterations do
         result = variant.run(state, invocation)
     end
-    local elapsed = time.now() - started
+    local elapsed = os.monotonic() - started
     if session then
         session:pause()
     end
@@ -1009,9 +1008,9 @@ local function measureSuite(
     local invocation = new bench.Invocation(name = case.name, data = case.data, parameters = parameters)
     local samples: {number} = {}
     local measured = 0.0
-    local wallStarted = time.now()
+    local wallStarted = os.monotonic()
     while #samples < minSamples or measured < minDuration do
-        if #samples >= maxSamples or time.now() - wallStarted >= maxDuration then
+        if #samples >= maxSamples or os.monotonic() - wallStarted >= maxDuration then
             break
         end
         local elapsed = callVariant(variant, invocation, iterations, session)
@@ -1279,7 +1278,7 @@ function bench.FrameSession:begin(): nil
     if self.sampling then
         self.sampling:resume()
     end
-    self.started = time.now()
+    self.started = os.monotonic()
 end
 
 --- Marks the end of a frame and records it.
@@ -1288,7 +1287,7 @@ end
 --- that waited on presentation, on I/O, or on a sleep spends very little of either and
 --- blows its budget anyway, and missing the budget is the whole measurement.
 function bench.FrameSession:finish(): nil
-    local finished = time.now()
+    local finished = os.monotonic()
     if self.sampling then
         self.sampling:pause()
     end

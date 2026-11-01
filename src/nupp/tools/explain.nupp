@@ -347,7 +347,7 @@ local ENTRIES: {any} = {
         .. "numbers. A fitting literal, a checked refined source, a reified load, "
         .. "or the explicit conversion establishes the claim; an erased `as` does not.",
         wrong = "local input: number = 0.1\nlocal value: float = input as float\nreturn value\n",
-        right = "local input: number = 0.1\nlocal value: float = nupp.math.f32.narrow(input)\nreturn value\n",
+        right = "local input: number = 0.1\nlocal value: float = math.f32.narrow(input)\nreturn value\n",
         related = {"NUPP2001", "NUPP2002", "NUPP2006", "NUPP2012"},
         docs = "docs/learn/language/types/primitives.md#value-refinements",
     },

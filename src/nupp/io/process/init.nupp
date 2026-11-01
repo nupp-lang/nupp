@@ -373,7 +373,7 @@ record process.Writer is Writer2
     --- many went, which is all of them unless the far end went away or a bound
     --- ran out first.
     ---
-    --- `deadline` is a time in the [](nupp.time.now) domain after which no more is
+    --- `deadline` is a time in the [](os.monotonic) domain after which no more is
     --- sent, however the child is keeping up. `stallTimeoutMs` bounds a period with no
     --- progress instead, so a child that keeps taking bytes keeps the write going
     --- until the deadline. Without either, only the child's own deadline and the

@@ -134,7 +134,7 @@ end
 --- The released fixed-width surface, by canonical identity.
 ---
 --- These are ordinary Nupp calls with an exact Lua implementation in
---- `nupp.math`, so admitting them adds no surface: it lets the same source say
+--- `math`, so admitting them adds no surface: it lets the same source say
 --- binary32 instead of binary64 and have the backend believe it. A binary32
 --- operation over binary32 operands computed in binary64 and rounded once is
 --- bit-identical to the native single-precision instruction, because 53 is at
@@ -142,7 +142,7 @@ end
 ---
 --- `min`, `max` and `fma` are not covered by that argument. A differential over
 --- every interesting binary32 value found they disagree with `fminf`, `fmaxf`
---- and `fmaf` in exactly one respect each and nowhere else: `nupp.math.f32`
+--- and `fmaf` in exactly one respect each and nowhere else: `math.f32`
 --- canonicalises every NaN where the instruction propagates a payload, and
 --- `min`/`max` return that canonical NaN where IEEE `minNum` returns the operand
 --- that is not NaN. Both are repaired by a select, so they are admitted with one

@@ -54,7 +54,7 @@ function M.ordinaryMathDoesNotSelectTheExtensionRuntime()
     test.equal(parsed.effects and parsed.effects["stdlib.math"], nil)
 end
 
-function M.acceptingNamesShareOneImplementation()
+function M.onlyTheFinalMathSurfaceIsInstalled()
     local names = {"lerp", "wrapAngle", "deltaAngle", "i32", "u32", "u64", "f32", "vec2", "quat"}
     local saved = {}
     for _, name in ipairs(names) do
@@ -62,9 +62,11 @@ function M.acceptingNamesShareOneImplementation()
     end
     local prior = rawget(_G, "nupp")
     local ok, problem = pcall(function()
+        rawset(_G, "nupp", {})
         assert(loadstring(stdlib.bootstrap({["stdlib.math"] = true})))()
+        test.equal(rawget(nupp, "math"), nil, "the old public math table is not installed")
         for _, name in ipairs(names) do
-            test.equal(math[name], nupp.math[name], name .. " loads one implementation")
+            assert(math[name] ~= nil, name .. " is installed on the math table")
         end
     end)
     rawset(_G, "nupp", prior)

@@ -958,13 +958,13 @@ function M.foldedControlFlowKeepsAllocationAndFeatureAccountsAccurate()
     local source = [[
 local function choose(flag: boolean)
    if false then
-      return {}, nupp.system.availableParallelism()
+      return {}, os.info().parallelism
    elseif flag then
       return true and {value = 1}
    elseif true then
-      return false and {}, nupp.util.uuid4()
+      return false and {}, os.uuid4()
    else
-      return {}, nupp.system.availableParallelism()
+      return {}, os.info().parallelism
    end
 end
 return choose
@@ -1594,14 +1594,14 @@ function M.keepsPrecedenceWhereTheCallStood()
 end
 
 function M.inlinesAHelperThatGeneratesToSomethingElse()
-    -- `nupp.math.u32.wrap` is not a call in the generated line, so this is the case a
+    -- `math.u32.wrap` is not a call in the generated line, so this is the case a
     -- text substitution cannot write: the tree is spliced and `gen` lowers it at the
     -- site it now stands.
     local code = compile(
-        "local function wrapped(v: integer): uint32 return nupp.math.u32.wrap(v) end\n"
+        "local function wrapped(v: integer): uint32 return math.u32.wrap(v) end\n"
         .. "local function m(x: integer): uint32 return wrapped(x) end\nreturn m"
     )
-    assert(code:find("nupp.math.u32.wrap", 1, true) == nil, "the intrinsic did not survive as source: " .. code)
+    assert(code:find("math.u32.wrap", 1, true) == nil, "the intrinsic did not survive as source: " .. code)
     assert(code:find("__nuppBitTobit", 1, true) ~= nil, "it generated as the intrinsic it is, twice: " .. code)
 end
 

@@ -151,7 +151,7 @@ that was the AOT-admitted subset making every fixed-width operation a call:
 about a thousand per block, which is more than LuaJIT's recorder will unroll,
 so `luajit -jv` reported `loop unroll limit reached` and the body ran
 interpreted. Three changes took it to 0.170x. The `i32` and `u32` members lower
-to inline BitOp rather than calling out through the installed `nupp.math`; a
+to inline BitOp rather than calling out through the installed `math`; a
 bitwise operator keeps the width its operands carried, which deleted every
 laundering wrapper this module needed; and the unsigned normalisation is
 `% 2^32` rather than a comparison, which is both branch-free and an expression,
@@ -180,7 +180,7 @@ necessary.
 
 That last one earned its place. The first `int32` draft of the digest passed
 the published vectors on LuaJIT and failed them compiled, because `@aot` lowers
-`nupp.math.i32.wrap` to a C cast from `double`, and a cast of a value at or
+`math.i32.wrap` to a C cast from `double`, and a cast of a value at or
 above 2^31 to `int32_t` is undefined rather than modular. The vectors alone
 would have caught it here; a version of this benchmark that only measured
 would not have. The draft only reached for `wrap` because a bitwise operator

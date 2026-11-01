@@ -164,7 +164,8 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.uuid"
     ] = {
         name = "uuid_runtime",
-        exports = {"nupp.util.uuid4", "nupp.util.uuid7"},
+        globals = {"os.uuid4", "os.uuid7"},
+        exports = {"os.uuid4", "os.uuid7"},
         runtimeModule = "nupp.runtime.uuidprovider",
         portableRuntime = true
     },
@@ -353,7 +354,7 @@ local FEATURES: {[string]: native.Feature} = {
     },
     -- UTF-8 itself, which is Nupp and so asks the host for nothing. The record
     -- exists to attribute the module rather than to select anything.
-    ["runtime.data_utf8"] = {name = "data_utf8", modules = {"nupp.text.utf8"},},
+    ["runtime.data_utf8"] = {name = "data_utf8", modules = {"utf8"},},
     [
         "stdlib.fieldcodec"
     ] = {
@@ -397,7 +398,7 @@ local FEATURES: {[string]: native.Feature} = {
         portableRuntime = true,
         requires = {}
     },
-    -- `portableRuntime` because the run-time half of `nupp.math` names nothing
+    -- `portableRuntime` because the run-time half of `math` names nothing
     -- LuaJIT alone has: its bit operations come from whatever answers
     -- `numeric.bitops` on the target, and its `binary32` conversions are
     -- arithmetic rather than a union. A target the compiler did not build itself
@@ -407,7 +408,7 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {
         name = "math",
         globals = {
-            "nupp.math",
+            "math",
             "math.lerp",
             "math.wrapAngle",
             "math.deltaAngle",
@@ -440,8 +441,8 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.path"
     ] = {
         name = "path_runtime",
-        module = "nupp.io.path",
-        runtimeModule = "nupp.io.path",
+        module = "io.path",
+        runtimeModule = "io.path",
         portableRuntime = true,
         requires = {"runtime.pathtext", "runtime.path_provider"},
     },
@@ -463,8 +464,8 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.uri"
     ] = {
         name = "uri_runtime",
-        module = "nupp.io.uri",
-        runtimeModule = "nupp.io.uri",
+        module = "io.uri",
+        runtimeModule = "io.uri",
         portableRuntime = true,
         requires = {"runtime.uri_whatwg"}
     },
@@ -691,7 +692,22 @@ local FEATURES: {[string]: native.Feature} = {
     },
     [
         "runtime.system"
-    ] = {name = "system_runtime", module = "nupp.system", runtimeModule = "nupp.system", portableRuntime = true},
+    ] = {
+        name = "system_runtime",
+        globals = {"os.info"},
+        module = "nupp.runtime.system",
+        runtimeModule = "nupp.runtime.system",
+        portableRuntime = true
+    },
+    [
+        "runtime.clocks"
+    ] = {
+        name = "clocks_runtime",
+        globals = {"os.monotonic", "os.walltime"},
+        module = "nupp.runtime.clocks",
+        runtimeModule = "nupp.runtime.clocks",
+        portableRuntime = true,
+    },
     [
         "native.system"
     ] = {name = "system", module = "nupp.runtime.provider.nativesystem", requires = {"runtime.native"},},

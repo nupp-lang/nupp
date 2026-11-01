@@ -269,7 +269,7 @@ DEFINITIONS["nupp.sin"] = function(module: builder.Module, attrs: string): strin
     )
 end
 
---- The canonical quiet binary32 NaN `nupp.math.f32` returns.
+--- The canonical quiet binary32 NaN `math.f32` returns.
 local F32_NAN = "0x7FF8000000000000"
 
 DEFINITIONS["nupp.f32.min"] = function(_: builder.Module, attrs: string): string

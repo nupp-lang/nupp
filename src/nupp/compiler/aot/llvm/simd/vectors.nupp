@@ -192,7 +192,7 @@ local function floatFloorDivide(
 end
 
 --- `a * b + c` fused: one rounding per lane, and the canonical NaN for a NaN
---- lane, as `nupp.math.f32.fma` returns.
+--- lane, as `math.f32.fma` returns.
 local function fusedMultiplyAdd(ctx: context.Context, found: species.Species, a: string, b: string, c: string): string
     local v = found.vector
     local shape = lanes.vectorShape(found)
@@ -634,7 +634,7 @@ local function convert(ctx: context.Context, node: scalarIR.Expr): (string, stri
     return context.value(ctx, ("trunc %s %s to %s"):format(from.vector, value, to.vector)), typeName
 end
 
---- The binary32 corrections `nupp.math.f32` defines, lane by lane: min and
+--- The binary32 corrections `math.f32` defines, lane by lane: min and
 --- max are the propagating extremes, fma is fused and NaN-canonical.
 local function corrected(ctx: context.Context, simd: scalarIR.Simd, found: species.Species): string
     local shape = lanes.vectorShape(found)

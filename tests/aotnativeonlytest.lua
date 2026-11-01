@@ -34,6 +34,7 @@ local function project(files)
     for name, text in pairs(files) do
         write(dir .. "/" .. name, text)
     end
+
     return dir
 end
 
@@ -54,6 +55,7 @@ local function buildAndRun(dir, entries, policy)
     local pipe = assert(io.popen(("cd %q && luajit check.lua %s 2>&1"):format(dir, policy)))
     local result = pipe:read("*a");
     pipe:close()
+
     return (result:gsub("%s+$", "")), read(logPath)
 end
 
@@ -159,7 +161,7 @@ local span = require("nupp.mem.span")
 --- One binary32 product.
 @aot
 local function scaleOne(value: float, factor: float): float
-    return nupp.math.f32.mul(value, factor)
+    return math.f32.mul(value, factor)
 end
 
 --- Every element through `scaleOne`, which another entry of this file calls
@@ -282,13 +284,21 @@ function M.nativeOnlyAggregatesAreValuesAcrossEntriesUnderBothPolicies()
     local llvm = read(dir .. "/build/native/aot/src/complex.neon.ll")
     assert(llvm:find("%aggregate.KaPair = type { <4 x float>, <4 x float> }", 1, true), llvm)
     assert(llvm:find("%aggregate.KaOrbit = type { %aggregate.KaPair, <4 x i1> }", 1, true), llvm)
-    assert(llvm:find("define %%aggregate.KaOrbit @ks_%x+_advance__neon%(%%aggregate.KaOrbit %%p_orbit, %%aggregate.KaPair %%p_c%)"), llvm)
+    assert(
+        llvm:find(
+            "define %%aggregate.KaOrbit @ks_%x+_advance__neon%(%%aggregate.KaOrbit %%p_orbit, %%aggregate.KaPair %%p_c%)"
+        ),
+        llvm
+    )
     local generated = read(dir .. "/build/native/complex.lua")
     assert(
         generated:find("__call = function(_, __nuppF1, __nuppF2)", 1, true),
         "as Lua the aggregate is a table built by position:\n" .. generated
     )
-    assert(not generated:find("float re;", 1, true), "no C struct is declared for a native-only aggregate:\n" .. generated)
+    assert(
+        not generated:find("float re;", 1, true),
+        "no C struct is declared for a native-only aggregate:\n" .. generated
+    )
 end
 
 return M

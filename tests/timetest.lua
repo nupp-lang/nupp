@@ -15,10 +15,10 @@ local native = require("nupp.compiler.native")
 local M = {}
 
 function M.monotonicTimeOnlyMovesForward()
-    local first = time.now()
+    local first = os.monotonic()
     local last = first
     for _ = 1, 200 do
-        local reading = time.now()
+        local reading = os.monotonic()
         assert(reading >= last, "monotonic time went backwards")
         last = reading
     end
@@ -26,45 +26,45 @@ function M.monotonicTimeOnlyMovesForward()
 end
 
 function M.wallTimeIsUnixMillisecondsAndNotTheMonotonicReading()
-    local wall = time.wallTime()
+    local wall = os.walltime()
     -- Far enough past 2023 to catch a seconds-for-milliseconds mistake, and below
     -- year 5138 to catch the reverse.
     assert(wall > 1.7e12, "wall time is not Unix milliseconds: " .. tostring(wall))
     assert(wall < 1.0e14, "wall time is too large to be milliseconds: " .. tostring(wall))
     -- The monotonic origin is unspecified, so the two are only required to differ.
     -- Sharing an origin would mean `now` was the wall clock under another name.
-    assert(math.abs(wall - time.now()) > 1.0e9, "the two clocks share an origin")
+    assert(math.abs(wall - os.monotonic()) > 1.0e9, "the two clocks share an origin")
 end
 
 function M.sleepWaitsAtLeastTheRequestedDuration()
-    local started = time.now()
+    local started = os.monotonic()
     time.sleep(25)
-    assert(time.now() - started >= 25, "sleep returned early")
+    assert(os.monotonic() - started >= 25, "sleep returned early")
 end
 
 function M.fractionalSleepKeepsItsSubMillisecondPart()
-    local started = time.now()
+    local started = os.monotonic()
     time.sleep(1.5)
-    assert(time.now() - started >= 1.5, "fractional sleep returned early")
+    assert(os.monotonic() - started >= 1.5, "fractional sleep returned early")
 end
 
 function M.sleepingForNothingDoesNotPark()
     -- Zero is not a yield point. Under the blocking driver a park with no source
     -- registered raises, so if this parked at all it would not merely be slow.
-    local started = time.now()
+    local started = os.monotonic()
     time.sleep(0)
-    assert(time.now() - started < 5, "sleeping for zero parked")
+    assert(os.monotonic() - started < 5, "sleeping for zero parked")
 end
 
 function M.sleepUntilTakesTheDeadlineItIsGiven()
-    local started = time.now()
+    local started = os.monotonic()
     time.sleepUntil(started + 25)
-    assert(time.now() - started >= 25, "sleepUntil returned early")
+    assert(os.monotonic() - started >= 25, "sleepUntil returned early")
 
     -- A deadline already past is not an error and not a park.
-    local again = time.now()
+    local again = os.monotonic()
     time.sleepUntil(again - 1000)
-    assert(time.now() - again < 5, "a passed deadline still waited")
+    assert(os.monotonic() - again < 5, "a passed deadline still waited")
 end
 
 function M.invalidDurationsAndDeadlinesAreRefused()
@@ -93,7 +93,7 @@ end
 
 function M.concurrentSleepsShareOneSourceAndFireInDeadlineOrder()
     local order = {}
-    local started = time.now()
+    local started = os.monotonic()
     tasks.gather({
         function()
             time.sleep(60)
@@ -108,7 +108,7 @@ function M.concurrentSleepsShareOneSourceAndFireInDeadlineOrder()
             order[#order + 1] = 40
         end,
     })
-    local elapsed = time.now() - started
+    local elapsed = os.monotonic() - started
 
     assert(elapsed >= 60, "the longest sleep did not finish")
     -- Serialized, this would be 120. The margin is wide because the point is that
@@ -120,7 +120,7 @@ function M.concurrentSleepsShareOneSourceAndFireInDeadlineOrder()
 end
 
 function M.anAbandonedWaitTakesItsTimerWithIt()
-    local started = time.now()
+    local started = os.monotonic()
     local answer, which = tasks.race({
         function()
             time.sleep(2000)
@@ -133,18 +133,18 @@ function M.anAbandonedWaitTakesItsTimerWithIt()
     })
     testAssert.equal(answer, "fast", "the wrong branch won")
     testAssert.equal(which, 2, "the winner was reported as the wrong branch")
-    assert(time.now() - started < 500, "the race waited for the loser's timer")
+    assert(os.monotonic() - started < 500, "the race waited for the loser's timer")
 
     -- The loser's entry must be gone rather than merely ignored: a stale entry
     -- would resume a subscription nobody is waiting on when its time came.
-    local again = time.now()
+    local again = os.monotonic()
     time.sleep(25)
-    assert(time.now() - again >= 25, "a later sleep was cut short by a dead timer")
+    assert(os.monotonic() - again >= 25, "a later sleep was cut short by a dead timer")
 end
 
 function M.wakeAtCallbacksAndCancellationAreExactlyOnce()
     local cancelledCalls = 0
-    local cancel = time.wakeAt(time.now(), function()
+    local cancel = time.wakeAt(os.monotonic(), function()
         cancelledCalls = cancelledCalls + 1
     end)
     cancel()
@@ -154,7 +154,7 @@ function M.wakeAtCallbacksAndCancellationAreExactlyOnce()
 
     local calls = 0
     local completed
-    local cancelCompleted = time.wakeAt(time.now(), function(ok)
+    local cancelCompleted = time.wakeAt(os.monotonic(), function(ok)
         calls = calls + 1
         completed = ok
     end)
@@ -205,7 +205,7 @@ function M.aSleepInsideAHandlerParksRatherThanBlocking()
         shutdown = function()
         end,
     }
-    local started = time.now()
+    local started = os.monotonic()
     do
         local handling = suspensionHost.install(handler)
         time.sleep(25)
@@ -213,7 +213,7 @@ function M.aSleepInsideAHandlerParksRatherThanBlocking()
     end
 
     testAssert.equal(parked, 1, "the sleep did not reach the installed handler")
-    assert(time.now() - started >= 25, "the parked sleep returned early")
+    assert(os.monotonic() - started >= 25, "the parked sleep returned early")
 end
 
 function M.timeSelectsTheRustBaseProvider()

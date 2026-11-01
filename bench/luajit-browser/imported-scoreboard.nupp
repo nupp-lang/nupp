@@ -1,9 +1,9 @@
 local json = require("serde.json")
 local hex = require("serde.hex")
 local text = require("nupp.text")
-local utf8 = require("nupp.text.utf8")
-local path = require("nupp.io.path")
-local uri = require("nupp.io.uri")
+local utf8 = require("utf8")
+local path = require("io.path")
+local uri = require("io.uri")
 
 local type Player = {
     name: string,

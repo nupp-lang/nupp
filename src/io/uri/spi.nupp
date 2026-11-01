@@ -1,4 +1,4 @@
-module nupp.io.uri.spi
+module io.uri.spi
 
 --[[Implementation interfaces consumed during ordinary module initialization.
 Discover with package.providers; the consumer chooses the unique highest priority.

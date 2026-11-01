@@ -1,5 +1,3 @@
-const system = require("nupp.system")
-
 const jobs = require("jobs")
 const ffi = require("ffi")
 const tasks = require("nupp.tasks")
@@ -45,7 +43,7 @@ with scope = tasks.open() do
     sink = sink + scope:fork(0, jobs.identity):await()
 end
 const coldMs = now() - coldStarted
-const lanes = math.max(1, math.min(system.availableParallelism(), 64)) as integer
+const lanes = math.max(1, math.min(os.info().parallelism, 64)) as integer
 print(("worker benchmark: %d lanes, median of %d samples"):format(lanes, SAMPLES))
 print(("cold scheduler     %9.2f ms       %9s  first fork"):format(coldMs, "-"))
 

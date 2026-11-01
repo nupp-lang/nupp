@@ -490,10 +490,10 @@ function gpu.Binding.dispatchWords(borrows self: gpu.Binding, scalars: {uint32})
             error("nupp: browser GPU binding contains a released buffer", 2)
         end
     end
-    local words: {uint32} = {nupp.math.u32.wrap(self.count)}
+    local words: {uint32} = {math.u32.wrap(self.count)}
     for _, values in ipairs({self._readCounts, self._writeCounts, self._readOffsets, self._writeOffsets, scalars}) do
         for _, value in ipairs(values) do
-            words[#words + 1] = nupp.math.u32.wrap(value as integer)
+            words[#words + 1] = math.u32.wrap(value as integer)
         end
     end
     if #words * 4 ~= self._kernel._uniformBytes then

@@ -1,6 +1,6 @@
 local http = require("nupp.io.http")
 local json = require("serde.json")
-local uri = require("nupp.io.uri")
+local uri = require("io.uri")
 local io = require("nupp.io")
 
 local client = http.newClient()

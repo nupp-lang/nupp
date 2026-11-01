@@ -116,7 +116,7 @@ end
 -- answered. The tree is named absolutely and the working directory is somewhere
 -- else, so no part of the answer can come from where the process was started.
 local function answerFrom(tree, cwd)
-    local here = assert(require("nupp.io.path").currentDirectory()):toString()
+    local here = assert(require("io.path").currentDirectory()):toString()
     here = here:gsub("^/([A-Za-z])(/)", "%1:%2")
     local script = (
         "package.path = %q .. %q .. package.path " .. "print('VALUE ' .. tostring(require('main')))"
@@ -343,7 +343,7 @@ function M.theToolFingerprintDoesNotDependOnHowTheCompilerWasFound()
         return code == 0 and out:match("[^\r\n]+") or nil
     end
 
-    local here = assert(require("nupp.io.path").currentDirectory()):toString()
+    local here = assert(require("io.path").currentDirectory()):toString()
     here = here:gsub("^/([A-Za-z])(/)", "%1:%2")
     local relative = fingerprintUnder("")
     assert(relative and relative ~= "", "the relative run produced a digest")
@@ -971,7 +971,7 @@ function M.browserHostsCannotSelectNativeDistributionPlatforms()
         "a check rejects the resolved host before applying a native layout"
     )
 
-    local root = assert(require("nupp.io.path").currentDirectory()):toString()
+    local root = assert(require("io.path").currentDirectory()):toString()
     local status, output = process.capture({root .. "/bin/nupp", "build", "--host", "browser"}, {cwd = dir})
     testAssert.equal(status, 1, "the command-line host override is also rejected\n" .. output)
     assert(output:find('platforms selects native binary hosts', 1, true), output)

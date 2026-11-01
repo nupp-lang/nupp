@@ -13,7 +13,7 @@ local data = assert(files.dataPath())
 assert(files.write(data:join("notes.txt"), "hello"))
 ```
 
-Native programs may also pass ordinary strings or [](nupp.io.path.Path)
+Native programs may also pass ordinary strings or [](io.path.Path)
 values. Browser programs refuse raw path text and use the opaque
 `ApplicationPath` values returned by `configurationPath`, `dataPath`, or
 `cachePath`.
@@ -26,7 +26,7 @@ the operations whose native semantics have no browser equivalent.
 const spi = require("nupp.runtime.packages")
 const target = require("nupp.runtime.target")
 const io = require("nupp.io")
-const paths = require("nupp.io.path")
+const paths = require("io.path")
 const contracts = require("nupp.io.files.spi")
 const messages = require("nupp.io.files.messages")
 const appPaths = require("nupp.io.files.path")

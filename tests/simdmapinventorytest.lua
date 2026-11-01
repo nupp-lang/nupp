@@ -37,11 +37,7 @@ function M.mathMapCorpusCoversEveryAdmittedIdentityAndVariadicForms()
                 end
             end
             if coverage.element == "float" then
-                for path, arity in pairs({
-                    ["nupp.math.f32.min"] = 2,
-                    ["nupp.math.f32.max"] = 2,
-                    ["nupp.math.f32.fma"] = 3
-                }) do
+                for path, arity in pairs({["math.f32.min"] = 2, ["math.f32.max"] = 2, ["math.f32.fma"] = 3}) do
                     local arities = assert(actual[path], "missing corrected map " .. path)
                     assert(arities[arity]);
                     arities[arity] = nil

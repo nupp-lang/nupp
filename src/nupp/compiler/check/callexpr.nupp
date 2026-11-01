@@ -158,7 +158,7 @@ end
 --- The severity a logging call site carries, as the runtime numbers them.
 local LOG_SEVERITY: {[string]: integer} = {error = 1, warn = 2, info = 3, debug = 4}
 
--- Which severity `nupp.log.<name>` names, or nil for anything else.
+-- Which severity `log.<name>` names, or nil for anything else.
 --
 -- Marking the node rather than answering the call's type is deliberate: the call goes
 -- on to be checked like any other, so the format directives and their arguments are
@@ -241,7 +241,7 @@ local function zoneIntrinsic(c, callee): string?
 end
 
 -- Whether a call is `keep` on a receiver statically known to hold the module
--- `nupp.bench` returns. Recognized on the same terms as zoneIntrinsic above, and for
+-- `debug.bench` returns. Recognized on the same terms as zoneIntrinsic above, and for
 -- the same reason: the sink exists to make a measured value escape, and a call in the
 -- measured loop is the cost it must not add.
 local function keepIntrinsic(c, callee): boolean
@@ -249,7 +249,7 @@ local function keepIntrinsic(c, callee): boolean
         return false
     end
     local benchModule = RECEIVER_INTRINSICS[callee.name.text]
-    if benchModule ~= "nupp.bench" then
+    if benchModule ~= "debug.bench" then
         return false
     end
     local base = callee.obj

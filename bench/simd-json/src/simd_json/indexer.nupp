@@ -91,7 +91,7 @@ local function index(borrows source: span.Span<uint8>, exclusive tape: span.Writ
         end
 
         while events ~= 0 do
-            local lane: uint32 = nupp.math.u64.trailingZeros(events)
+            local lane: uint32 = math.u64.trailingZeros(events)
             events = events & (events - 1)
             local position: uint32 = at + lane
             if position < #source then

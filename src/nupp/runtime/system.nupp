@@ -1,24 +1,7 @@
-module nupp.system
+@!internal
+module nupp.runtime.system
 
---[[
-`nupp.system` reports four fixed ABI facts and estimates available parallelism.
-It retains the facts and selected query when the module loads.
-
-```nupp
-const system = nupp.system
-
-print(system.platform)              -- macos
-print(system.architecture)          -- aarch64
-print(system.endianness)            -- little
-print(system.pointerBits)           -- 64
-print(system.availableParallelism()) -- 10
-```
-
-Under emulation these describe the ABI actually executing, not the one being
-emulated, which is the pair generated code was built against. A browser reports
-the guest instruction set, while its endianness and pointer width remain
-`little` and 32.
-]]
+--[[Retains the current system provider and its executing ABI facts.]]
 
 local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
@@ -58,7 +41,7 @@ export const platform = provider.platform
 export const architecture = provider.architecture
 
 --- Byte order: `little` everywhere Nupp runs today, or `big`.
-export const endianness = provider.endianness
+export const endianness: "little" | "big" = provider.endianness as "little" | "big"
 
 --- Pointer width for the executing ABI, either `32` or `64`.
 ---
@@ -73,7 +56,7 @@ export const pointerBits = provider.pointerBits
 --- no worker pool, so it is a fair default for the `limit` one is opened with.
 ---
 --- ```nupp:fragment
---- with scope = nupp.tasks.open(limit = nupp.system.availableParallelism()) do
+--- with scope = nupp.tasks.open(limit = os.info().parallelism) do
 ---     for _, shard in ipairs(shards) do
 ---         scope:fork(shard, jobs.shard)
 ---     end

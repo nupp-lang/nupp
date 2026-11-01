@@ -264,7 +264,7 @@ end
 --- keyed by its storage witness: none for `number`, binary32 for `float`.
 const ROUNDING: {
     [any]: function(number): number
-} = {[storageWitnesses.number] = keep, [storageWitnesses.float] = nupp.math.f32.narrow,}
+} = {[storageWitnesses.number] = keep, [storageWitnesses.float] = math.f32.narrow,}
 
 --- The rounding and the rounded seed a floating-point reducer was constructed
 --- with: `(initial)` accumulates in `number`, and `(element, initial)` in the
@@ -301,7 +301,7 @@ end
 ---
 --- `T` is the element it accumulates in: `number` is binary64, and `float`
 --- is binary32, each contribution and every operation's result rounded as
---- `nupp.math.f32` rounds them.
+--- `math.f32` rounds them.
 --- @export
 record simd.OrderedSum<T is float | number> is simd.Reducer<T>
     @private total: number
@@ -336,7 +336,7 @@ end
 ---
 --- `T` is the element it accumulates in: `number` is binary64, and `float`
 --- is binary32, each contribution and every operation's result rounded as
---- `nupp.math.f32` rounds them.
+--- `math.f32` rounds them.
 --- @export
 record simd.PairwiseSum<T is float | number> is simd.Reducer<T>
     @private partials: {number?}
@@ -404,7 +404,7 @@ end
 ---
 --- `T` is the element it accumulates in: `number` is binary64, and `float`
 --- is binary32, each contribution and every operation's result rounded as
---- `nupp.math.f32` rounds them.
+--- `math.f32` rounds them.
 --- @export
 record simd.AlgebraicSum<T is float | number> is simd.Reducer<T>
     @private total: number
@@ -454,7 +454,7 @@ end
 ---
 --- `T` is the element it accumulates in: `number` is binary64, and `float`
 --- is binary32, each contribution and every operation's result rounded as
---- `nupp.math.f32` rounds them.
+--- `math.f32` rounds them.
 --- A `float` reducer keeps its total and its compensation in binary32.
 --- @export
 record simd.CompensatedSum<T is float | number> is simd.Reducer<T>
@@ -498,7 +498,7 @@ end
 ---
 --- `T` is the element it accumulates in: `number` is binary64, and `float`
 --- is binary32, each contribution and every operation's result rounded as
---- `nupp.math.f32` rounds them.
+--- `math.f32` rounds them.
 --- @export
 record simd.OrderedProduct<T is float | number> is simd.Reducer<T>
     @private total: number
@@ -533,7 +533,7 @@ end
 ---
 --- `T` is the element it accumulates in: `number` is binary64, and `float`
 --- is binary32, each contribution and every operation's result rounded as
---- `nupp.math.f32` rounds them.
+--- `math.f32` rounds them.
 --- @export
 record simd.PairwiseProduct<T is float | number> is simd.Reducer<T>
     @private partials: {number?}
@@ -598,7 +598,7 @@ end
 ---
 --- `T` is the element it accumulates in: `number` is binary64, and `float`
 --- is binary32, each contribution and every operation's result rounded as
---- `nupp.math.f32` rounds them.
+--- `math.f32` rounds them.
 --- @export
 record simd.AlgebraicProduct<T is float | number> is simd.Reducer<T>
     @private total: number
@@ -633,7 +633,7 @@ end
 ---
 --- `T` is the element it accumulates in: `number` is binary64, and `float`
 --- is binary32, each contribution and every operation's result rounded as
---- `nupp.math.f32` rounds them.
+--- `math.f32` rounds them.
 --- Each product rounds before it is added.
 --- @export
 record simd.OrderedDot<T is float | number> is simd.Reducer<T>
@@ -669,7 +669,7 @@ end
 ---
 --- `T` is the element it accumulates in: `number` is binary64, and `float`
 --- is binary32, each contribution and every operation's result rounded as
---- `nupp.math.f32` rounds them.
+--- `math.f32` rounds them.
 --- Each product rounds before it joins the tree.
 --- @export
 record simd.PairwiseDot<T is float | number> is simd.Reducer<T>
@@ -705,7 +705,7 @@ end
 ---
 --- `T` is the element it accumulates in: `number` is binary64, and `float`
 --- is binary32, each contribution and every operation's result rounded as
---- `nupp.math.f32` rounds them.
+--- `math.f32` rounds them.
 --- Ordinary Lua rounds each product before adding it; native lowering may
 --- fuse the two.
 --- @export
@@ -1062,20 +1062,20 @@ const EXACT: {
     [
         storageWitnesses.int32
     ] = {
-        sum = nupp.math.i32.add,
-        product = nupp.math.i32.mul,
-        andBits = nupp.math.i32.andBits,
-        orBits = nupp.math.i32.orBits,
-        xorBits = nupp.math.i32.xorBits,
+        sum = math.i32.add,
+        product = math.i32.mul,
+        andBits = math.i32.andBits,
+        orBits = math.i32.orBits,
+        xorBits = math.i32.xorBits,
     },
     [
         storageWitnesses.uint32
     ] = {
-        sum = nupp.math.u32.add,
-        product = nupp.math.u32.mul,
-        andBits = nupp.math.u32.andBits,
-        orBits = nupp.math.u32.orBits,
-        xorBits = nupp.math.u32.xorBits,
+        sum = math.u32.add,
+        product = math.u32.mul,
+        andBits = math.u32.andBits,
+        orBits = math.u32.orBits,
+        xorBits = math.u32.xorBits,
     },
     [
         storageWitnesses.int64
@@ -1918,7 +1918,7 @@ sealed interface simd.Vector<T, S>
     --- recoverable from the call.
     ---
     --- `propagatingMin` returns the canonical NaN whenever either operand is
-    --- NaN, which is `nupp.math.f32.min`'s contract and what makes a reduction
+    --- NaN, which is `math.f32.min`'s contract and what makes a reduction
     --- built on it independent of which lane the NaN landed in and of how many
     --- lanes the target chose. `-0` is the smaller zero and `+0` the larger, so
     --- an equal pair of zeros is ordered by sign rather than by position.
@@ -1944,7 +1944,7 @@ sealed interface simd.Vector<T, S>
     --- `self * multiplier + addend` with one rounding per lane: the product is
     --- exact and only the sum rounds, so the two-step form's second rounding,
     --- and its overflow in a product the sum would have brought back, do not
-    --- happen. On a `float` species this is `nupp.math.f32.fma`'s contract, the
+    --- happen. On a `float` species this is `math.f32.fma`'s contract, the
     --- binary64 fused operation on a `number` one, and a NaN lane returns the
     --- canonical NaN either way. A floating species only; an integer product
     --- has nothing to round.
@@ -2131,7 +2131,7 @@ sealed interface simd.Species<T, S>
 
     --- A scalar operation on every lane: a closed-set math operation such as
     --- `math.sqrt` over a floating species, one of the corrected binary32
-    --- operations `nupp.math.f32.fma`, `min` and `max` over a `float` species,
+    --- operations `math.f32.fma`, `min` and `max` over a `float` species,
     --- or a pure helper of this element taking one argument per vector. The
     --- operands must be locals.
     map: function(
@@ -2394,11 +2394,11 @@ local function wrap(element: string, value: any): any
     if element == "number" then
         return value
     elseif element == "float" then
-        return nupp.math.f32.narrow(value as number)
+        return math.f32.narrow(value as number)
     elseif element == "uint32" then
-        return nupp.math.u32.wrap(truncate(value as number) as integer)
+        return math.u32.wrap(truncate(value as number) as integer)
     elseif element == "int32" then
-        return nupp.math.i32.wrap(truncate(value as number) as integer)
+        return math.i32.wrap(truncate(value as number) as integer)
     elseif element == "uint64" then
         return (0ULL + (value as any)) as any
     elseif element == "int64" then
@@ -2418,7 +2418,7 @@ end
 local function pattern(element: string, value: any): uint32
     local modulus = 2 ^ (BITS[element] as number)
 
-    return nupp.math.u32.wrap(((value as number) % modulus) as integer)
+    return math.u32.wrap(((value as number) % modulus) as integer)
 end
 
 local function integerDivide(element: string, a: any, b: any): any
@@ -2470,12 +2470,12 @@ local function bitwise(element: string, op: string, a: any, b: any): any
     -- Narrow lanes fit the 32-bit bit library exactly.
     local right = pattern(element, b)
     if op == "&" then
-        return wrap(element, nupp.math.u32.andBits(left, right))
+        return wrap(element, math.u32.andBits(left, right))
     elseif op == "|" then
-        return wrap(element, nupp.math.u32.orBits(left, right))
+        return wrap(element, math.u32.orBits(left, right))
     end
 
-    return wrap(element, nupp.math.u32.xorBits(left, right))
+    return wrap(element, math.u32.xorBits(left, right))
 end
 
 local function isNaN(value: any): boolean
@@ -2539,7 +2539,7 @@ local function binaryLane(op: string, element: string, a: any, b: any): any
         if BITS[element] == 32 then
             -- The low thirty-two bits of the product, which a double cannot
             -- hold whole, are the same bits whatever the signs.
-            return wrap(element, nupp.math.u32.mul(pattern(element, a), pattern(element, b)))
+            return wrap(element, math.u32.mul(pattern(element, a), pattern(element, b)))
         end
         return wrap(element, (a as any) * (b as any))
     elseif op == "/" then
@@ -2589,7 +2589,7 @@ local function unaryLane(op: string, element: string, a: any): any
     if BITS[element] == 64 then
         return (~(0LL + (a as any))) as any
     elseif BITS[element] == 32 then
-        return wrap(element, nupp.math.u32.notBits(pattern(element, a)))
+        return wrap(element, math.u32.notBits(pattern(element, a)))
     end
 
     return wrap(element, 2 ^ (BITS[element] as number) - 1 - pattern(element, a))
@@ -2662,10 +2662,10 @@ end
 
 local function popcount(element: string, value: any): any
     if BITS[element] == 64 then
-        return nupp.math.u64.popcount((0ULL + (value as any)) as uint64)
+        return math.u64.popcount((0ULL + (value as any)) as uint64)
     end
 
-    return nupp.math.u32.popcount(pattern(element, value))
+    return math.u32.popcount(pattern(element, value))
 end
 
 --- The N-lane vector a stored `Fixed<N>` field holds: `storage` is the field's
@@ -2758,10 +2758,10 @@ local METHODS: {[string]: function(string, any, ...: any): any} = {
     end,
     fma = function(element: string, a: any, b: any, c: any): any
         if element == "float" then
-            return nupp.math.f32.fma(
-                nupp.math.f32.narrow(a as number),
-                nupp.math.f32.narrow(b as number),
-                nupp.math.f32.narrow(c as number)
+            return math.f32.fma(
+                math.f32.narrow(a as number),
+                math.f32.narrow(b as number),
+                math.f32.narrow(c as number)
             )
         end
 
@@ -3129,10 +3129,10 @@ end
 --- @raises string for a 64-bit element, whose bits a Lua number cannot carry
 local function reinterpretLane(element: string, value: any): any
     if element == "float" then
-        return nupp.math.f32.fromBits(pattern("uint32", value))
+        return math.f32.fromBits(pattern("uint32", value))
     elseif BITS[element] == 32 and type(value) == "number" and value % 1 ~= 0 then
         -- A fractional value can only have been a float lane.
-        return wrap(element, nupp.math.f32.toBits(nupp.math.f32.narrow(value as number)))
+        return wrap(element, math.f32.toBits(math.f32.narrow(value as number)))
     elseif element == "number" or BITS[element] == 64 then
         error("a 64-bit reinterpretation is not available as ordinary Lua", 3)
     end
@@ -3563,7 +3563,7 @@ local horizontal = {}
 --- for `number`.
 local function roundingOf(element: string): function(number): number
     if element == "float" then
-        return nupp.math.f32.narrow
+        return math.f32.narrow
     end
 
     return keep

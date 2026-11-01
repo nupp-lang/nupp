@@ -1,7 +1,7 @@
 -- The host channel's workloads, run in the real browser guest by `run.mjs`.
 --
 -- Each program answers `{samples = ..., summary = ...}`. Two clocks are read:
--- `time.now()` is the page's clock, which a frame's whole round trip spends,
+-- `os.monotonic()` is the page's clock, which a frame's whole round trip spends,
 -- and `os.clock()` is the guest process's own CPU time, which a wait for the
 -- page does not spend. The second is the scarce one: it is emulated x86, and
 -- whatever the channel costs there is taken from the frame's game work.
@@ -18,6 +18,7 @@ local function percentile(sorted, fraction)
         return nil
     end
     local index = math.max(1, math.min(#sorted, math.ceil(#sorted * fraction)))
+
     return sorted[index]
 end
 
@@ -29,6 +30,7 @@ local function summarize(samples)
         total = total + value
     end
     table.sort(sorted)
+
     return {
         n = #sorted,
         mean = #sorted > 0 and total / #sorted or nil,
@@ -45,6 +47,7 @@ local function bytes(size)
     for index = 0, size - 1 do
         buffer[index] = index % 251
     end
+
     return ffi.string(buffer, size)
 end
 
@@ -58,18 +61,22 @@ function workloads.latency(options)
         host.call("test.ping", 16)
     end
     for index = 1, batches do
-        local started, startedCpu = time.now(), os.clock()
+        local started, startedCpu = os.monotonic(), os.clock()
         for _ = 1, batch do
             host.call("test.ping", 16)
         end
-        wall[index] = (time.now() - started) / batch
+        wall[index] = (os.monotonic() - started) / batch
         cpu[index] = (os.clock() - startedCpu) * 1000 / batch
     end
     local profile = {}
     for name, seconds in pairs(rawget(_G, "__nuppEffectsProfile") or {}) do
         profile[name] = seconds * 1000 / (batch * batches + 3)
     end
-    return {samples = {wallMs = wall, cpuMs = cpu}, summary = {wallMs = summarize(wall), cpuMs = summarize(cpu), profileMsPerCall = profile}}
+
+    return {
+        samples = {wallMs = wall, cpuMs = cpu},
+        summary = {wallMs = summarize(wall), cpuMs = summarize(cpu), profileMsPerCall = profile}
+    }
 end
 
 -- W5 and its parts: back-to-back frames, each taking the frame's input from the
@@ -87,7 +94,7 @@ function workloads.frames(options)
     local packet = span.fromString(packetText)
     local wall, cpu = {}, {}
     for frame = 1, frames + 10 do
-        local started, startedCpu = time.now(), os.clock()
+        local started, startedCpu = os.monotonic(), os.clock()
         if stub then
             time.sleep(0)
         else
@@ -101,7 +108,7 @@ function workloads.frames(options)
             end
         end
         if frame > 10 then
-            wall[frame - 10] = time.now() - started
+            wall[frame - 10] = os.monotonic() - started
             cpu[frame - 10] = (os.clock() - startedCpu) * 1000
         end
     end
@@ -109,7 +116,11 @@ function workloads.frames(options)
     for name, seconds in pairs(rawget(_G, "__nuppEffectsProfile") or {}) do
         profile[name] = seconds * 1000 / (frames + 10)
     end
-    return {samples = {wallMs = wall, cpuMs = cpu}, summary = {wallMs = summarize(wall), cpuMs = summarize(cpu), profileMsPerFrame = profile}}
+
+    return {
+        samples = {wallMs = wall, cpuMs = cpu},
+        summary = {wallMs = summarize(wall), cpuMs = summarize(cpu), profileMsPerFrame = profile}
+    }
 end
 
 -- W2, W4 and W5 as a game frame would use the channel: the frame's tick and its
@@ -126,17 +137,24 @@ function workloads.streamFrames(options)
     local stub = options.stub == true
     local bus = events.newMessageBus()
     local received = 0
-    bus:observe(1, hostevents.PointerMove, function(_)
-        received = received + 1
-    end, "bench")
-    local route = not stub and host.route("bench.move", hostevents.PointerMove, bus, 1, options.inputPolicy or "dropOldest", 256) or nil
+    bus:observe(
+        1,
+        hostevents.PointerMove,
+        function(_)
+            received = received + 1
+        end,
+        "bench"
+    )
+    local route = not stub
+        and host.route("bench.move", hostevents.PointerMove, bus, 1, options.inputPolicy or "dropOldest", 256)
+        or nil
     local tick = host.bindSend("bench.frame", "latest")
     local post = host.bindSend("bench.packet", "latest")
     local packetText = bytes(packetBytes)
     local packet = span.fromString(packetText)
     local wall, cpu = {}, {}
     for frame = 1, frames + 10 do
-        local started, startedCpu = time.now(), os.clock()
+        local started, startedCpu = os.monotonic(), os.clock()
         if not stub then
             tick(eventCount)
             if packetBytes > 0 then
@@ -148,22 +166,29 @@ function workloads.streamFrames(options)
         end
         time.sleep(0)
         if frame > 10 then
-            wall[frame - 10] = time.now() - started
+            wall[frame - 10] = os.monotonic() - started
             cpu[frame - 10] = (os.clock() - startedCpu) * 1000
         end
     end
     if route ~= nil then
         route:close()
     end
+
     return {
         samples = {wallMs = wall, cpuMs = cpu},
-        summary = {wallMs = summarize(wall), cpuMs = summarize(cpu), eventsReceived = received, profileMsPerFrame = (function()
-            local profile = {}
-            for name, seconds in pairs(rawget(_G, "__nuppEffectsProfile") or {}) do
-                profile[name] = seconds * 1000 / (frames + 10)
-            end
-            return profile
-        end)()},
+        summary = {
+            wallMs = summarize(wall),
+            cpuMs = summarize(cpu),
+            eventsReceived = received,
+            profileMsPerFrame = (function()
+                local profile = {}
+                for name, seconds in pairs(rawget(_G, "__nuppEffectsProfile") or {}) do
+                    profile[name] = seconds * 1000 / (frames + 10)
+                end
+
+                return profile
+            end)()
+        },
     }
 end
 
@@ -179,9 +204,14 @@ function workloads.channelFrames(options)
     local assetEvery = options.assetEvery or 0
     local bus = events.newMessageBus()
     local received = 0
-    bus:observe(1, hostevents.PointerMove, function(_)
-        received = received + 1
-    end, "bench")
+    bus:observe(
+        1,
+        hostevents.PointerMove,
+        function(_)
+            received = received + 1
+        end,
+        "bench"
+    )
     local route = host.route("bench.move", hostevents.PointerMove, bus, 1, options.inputPolicy or "dropOldest", 256)
     local nextFrame = host.bind("bench.tick")
     local post = host.bindSend("bench.packet", "latest")
@@ -189,7 +219,7 @@ function workloads.channelFrames(options)
     local packet = span.fromString(packetText)
     local wall, cpu = {}, {}
     for frame = 1, frames + 10 do
-        local started, startedCpu = time.now(), os.clock()
+        local started, startedCpu = os.monotonic(), os.clock()
         if packetBytes > 0 then
             post(packet)
         end
@@ -198,7 +228,7 @@ function workloads.channelFrames(options)
         end
         nextFrame(eventCount)
         if frame > 10 then
-            wall[frame - 10] = time.now() - started
+            wall[frame - 10] = os.monotonic() - started
             cpu[frame - 10] = (os.clock() - startedCpu) * 1000
         end
     end
@@ -207,9 +237,15 @@ function workloads.channelFrames(options)
     for name, seconds in pairs(rawget(_G, "__nuppEffectsProfile") or {}) do
         profile[name] = seconds * 1000 / (frames + 10)
     end
+
     return {
         samples = {wallMs = wall, cpuMs = cpu},
-        summary = {wallMs = summarize(wall), cpuMs = summarize(cpu), eventsReceived = received, profileMsPerFrame = profile},
+        summary = {
+            wallMs = summarize(wall),
+            cpuMs = summarize(cpu),
+            eventsReceived = received,
+            profileMsPerFrame = profile
+        },
     }
 end
 
@@ -222,15 +258,16 @@ function workloads.bulk(options)
     local view = span.fromString(text)
     local length = host.bind("test.len")
     for index = 1, repeats do
-        local started = time.now()
+        local started = os.monotonic()
         assert(length(view) == size)
-        upload[index] = time.now() - started
-        started = time.now()
+        upload[index] = os.monotonic() - started
+        started = os.monotonic()
         local made = host.call("test.make", size, 3)
         local _, count = made:ref()
         assert(count == size)
-        download[index] = time.now() - started
+        download[index] = os.monotonic() - started
     end
+
     return {
         samples = {uploadMs = upload, downloadMs = download},
         summary = {uploadMs = summarize(upload), downloadMs = summarize(download), bytes = size},
@@ -244,7 +281,9 @@ function workloads.codecCost(options)
     local json = require("nupp.runtime.provider.lunajson")
     local repeats = options.repeats or 2000
     local request = {op = "call", name = "app.input", n = 2, v = {["1"] = 17, ["2"] = "frame"}, id = 12, kind = "host"}
-    local answerText = json.encode({responses = {{id = 12, ok = true, value = {n = 3, v = {["1"] = 1.5, ["2"] = 2.5, ["3"] = "x"}}}}})
+    local answerText = json.encode({
+        responses = {{id = 12, ok = true, value = {n = 3, v = {["1"] = 1.5, ["2"] = 2.5, ["3"] = "x"}}}}
+    })
     local started = os.clock()
     for _ = 1, repeats do
         json.encode(request)
@@ -265,6 +304,7 @@ function workloads.codecCost(options)
         doubles[1] = index
     end
     local binaryMs = (os.clock() - started) * 1000 / repeats
+
     return {samples = {}, summary = {encodeMs = encodeMs, decodeMs = decodeMs, binaryMs = binaryMs}}
 end
 
@@ -282,20 +322,20 @@ function workloads.audio(options)
     local capacity = math.ceil(rate * 0.2)
     local buffer = ffi.new("float[?]", capacity * channels)
     local phase = 0
-    local started = time.now()
+    local started = os.monotonic()
     local last = started
     local owed = 0
     local stalled = {}
-    while time.now() - started < seconds * 1000 do
+    while os.monotonic() - started < seconds * 1000 do
         nextFrame(0)
-        local now = time.now()
+        local now = os.monotonic()
         for index, stall in ipairs(stalls) do
             if not stalled[index] and now - started >= stall.at then
                 stalled[index] = true
                 local stallEnds = os.clock() + stall.ms / 1000
                 while os.clock() < stallEnds do
                 end
-                now = time.now()
+                now = os.monotonic()
             end
         end
         owed = owed + (now - last) * rate / 1000
@@ -314,10 +354,17 @@ function workloads.audio(options)
         end
     end
     local underruns, queued, played = host.call("bench.audioStats")
+
     return {
         samples = {},
-        summary = {underruns = underruns, queuedFrames = queued, playedFrames = played, sampleRate = rate,
-            seconds = seconds, stalls = #stalls},
+        summary = {
+            underruns = underruns,
+            queuedFrames = queued,
+            playedFrames = played,
+            sampleRate = rate,
+            seconds = seconds,
+            stalls = #stalls
+        },
     }
 end
 

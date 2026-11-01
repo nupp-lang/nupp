@@ -1,4 +1,4 @@
--- `nupp.io.path` through the real provider.
+-- `io.path` through the real provider.
 --
 -- One table of answers, recorded from the implementation this replaced. A path
 -- library's whole job is to agree with everybody else about what a piece of text
@@ -57,7 +57,7 @@ function M.beforeAll()
     previous = rawget(_G, "nupp")
     _G.nupp = nil
     assert(loadstring(source))()
-    path = require("nupp.io.path")
+    path = require("io.path")
 end
 
 function M.afterAll()
@@ -130,14 +130,20 @@ function M.derivingRefusesTextThatIsNotOneComponent()
     for _, windows in ipairs({false, true}) do
         local base = windows and "out\\report.tmp" or "out/report.tmp"
         for _, name in ipairs({"../../etc/passwd", "/abs", "a/b", "x\0y", "..", ".", ""}) do
-            test.raises(function()
-                pathtext.with(base, name, false, windows)
-            end, "file name")
+            test.raises(
+                function()
+                    pathtext.with(base, name, false, windows)
+                end,
+                "file name"
+            )
         end
         for _, extension in ipairs({"json/../../x", "/abs", "x\0y"}) do
-            test.raises(function()
-                pathtext.with(base, extension, true, windows)
-            end, "extension")
+            test.raises(
+                function()
+                    pathtext.with(base, extension, true, windows)
+                end,
+                "extension"
+            )
         end
         test.equal(pathtext.with(base, "other.txt", false, windows), windows and "out/other.txt" or "out/other.txt")
         test.equal(pathtext.with(base, "json", true, windows), "out/report.json")
@@ -146,24 +152,36 @@ function M.derivingRefusesTextThatIsNotOneComponent()
     -- Windows reads a backslash as a separator and a colon as a drive or a
     -- stream, so neither is a component there.
     for _, name in ipairs({"..\\x", "C:x", "a:b"}) do
-        test.raises(function()
-            pathtext.with("out\\report.tmp", name, false, true)
-        end, "file name")
+        test.raises(
+            function()
+                pathtext.with("out\\report.tmp", name, false, true)
+            end,
+            "file name"
+        )
     end
-    test.raises(function()
-        pathtext.with("out\\report.tmp", "a\\b", true, true)
-    end, "extension")
+    test.raises(
+        function()
+            pathtext.with("out\\report.tmp", "a\\b", true, true)
+        end,
+        "extension"
+    )
     -- POSIX names may hold both.
     test.equal(pathtext.with("out/report.tmp", "a\\b:c", false, false), "out/a\\b:c")
 
     local module = ready()
     local report = module.newPath("out", "report.tmp")
-    test.raises(function()
-        report:withFileName("../../etc/passwd")
-    end, "file name")
-    test.raises(function()
-        report:withExtension("json/../../x")
-    end, "extension")
+    test.raises(
+        function()
+            report:withFileName("../../etc/passwd")
+        end,
+        "file name"
+    )
+    test.raises(
+        function()
+            report:withExtension("json/../../x")
+        end,
+        "extension"
+    )
 end
 
 -- One anchored and one not do not share a coordinate system. An absolute target
@@ -220,14 +238,14 @@ function M.pathStagesOnlyTheGenericFilesystemSlice()
     test.equal(feature.runtimeModule, "nupp.runtime.provider.nativepath")
     test.equal(table.concat(feature.requires or {}, ","), "runtime.path,runtime.native")
     local runtime = assert(native.feature("runtime.path"))
-    test.equal(runtime.runtimeModule, "nupp.io.path")
+    test.equal(runtime.runtimeModule, "io.path")
     test.equal(runtime.portableRuntime, true)
     local handle = io.open("runtime/native/c/path.c", "rb")
     if handle then
         handle:close()
         error("the removed path provider still exists")
     end
-    local source = assert(io.open("src/nupp/io/path/init.nupp", "rb"))
+    local source = assert(io.open("src/io/path/init.nupp", "rb"))
     local text = source:read("*a")
     source:close()
     assert(not text:find("nupp.runtime.native", 1, true), "the shared path implementation has no provider dependency")
@@ -281,9 +299,9 @@ function M.joiningOntoABareDriveStaysDriveRelative()
 end
 
 function M.absolutizingADriveRelativePathRequiresTheCurrentDrive()
-    local loadedPath = package.loaded["nupp.io.path"]
+    local loadedPath = package.loaded["io.path"]
     local loadedProvider = package.loaded["nupp.io.path.provider"]
-    package.loaded["nupp.io.path"] = nil
+    package.loaded["io.path"] = nil
     package.loaded["nupp.io.path.provider"] = {
         separator = function()
             return "\\"
@@ -295,8 +313,8 @@ function M.absolutizingADriveRelativePathRequiresTheCurrentDrive()
             return value, nil
         end,
     }
-    local ok, windowsPath = pcall(require, "nupp.io.path")
-    package.loaded["nupp.io.path"] = loadedPath
+    local ok, windowsPath = pcall(require, "io.path")
+    package.loaded["io.path"] = loadedPath
     package.loaded["nupp.io.path.provider"] = loadedProvider
     assert(ok, windowsPath)
 

@@ -159,7 +159,7 @@ fallback under ordinary target and host conditions.
 | Interface module | Implementation interface |
 | --- | --- |
 | `nupp.text.spi`, `serde.json.spi`, `nupp.random.spi`, `nupp.time.spi` | `Provider` |
-| `nupp.io.path.spi`, `nupp.io.uri.spi` | `Provider` |
+| `io.path.spi`, `io.uri.spi` | `Provider` |
 | `binary.hash.digest.spi`, `binary.hash.checksum.spi`, `binary.hash.mac.spi` | `Provider` |
 | `binary.compress.spi`, `nupp.system.spi`, `nupp.gpu.spi`, `nupp.host.spi` | `Provider` |
 | `nupp.io.files.spi`, `nupp.io.http.spi`, `nupp.io.net.spi`, `nupp.io.tls.spi`, `nupp.io.process.spi` | `Provider` |

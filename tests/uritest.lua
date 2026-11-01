@@ -1,4 +1,4 @@
--- `nupp.io.uri` through the real provider.
+-- `io.uri` through the real provider.
 --
 -- What is checked here is one table of URIs and one table of derivations, both
 -- recorded from the implementation this replaced. A URI library's whole job is
@@ -58,7 +58,7 @@ function M.beforeAll()
     previous = rawget(_G, "nupp")
     _G.nupp = nil
     assert(loadstring(source))()
-    uri = require("nupp.io.uri")
+    uri = require("io.uri")
 end
 
 function M.afterAll()

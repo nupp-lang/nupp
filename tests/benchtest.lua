@@ -1,10 +1,10 @@
 local testAssert = require("assert")
--- The nupp.bench surface, in three parts that fail independently.
+-- The debug.bench surface, in three parts that fail independently.
 --
 -- The intrinsic: `keep` in statement position on a receiver statically known to be the
--- module nupp.bench returns is generated as a store against the module's own sink field
--- rather than called. A call there is exactly the cost the sink exists to avoid, so a
--- version of this that quietly went back to calling would measure the call.
+-- module debug.bench returns is generated as a store against the module's own sink
+-- field rather than called. A call there is exactly the cost the sink exists to avoid,
+-- so a version of this that quietly went back to calling would measure the call.
 --
 -- The allocation account: what optimize.allocationSites reports is the compiler's
 -- account of its own output, so a constructor a pass removed has to be absent from it.
@@ -82,13 +82,13 @@ function M.everyTopLevelNuppBenchmarkUsesTheHarness()
     testAssert.equal(#paths, 6, "all six top-level Nupp benchmarks are present")
     for _, path in ipairs(paths) do
         assert(path:match("%.bench%.nupp$") ~= nil, path .. " does not use the benchmark discovery convention")
-        assert(read(path):find("nupp.bench", 1, true) ~= nil, path .. " does not use the shared harness")
+        assert(read(path):find("debug.bench", 1, true) ~= nil, path .. " does not use the shared harness")
     end
 end
 
 function M.lowersKeepToAStoreRatherThanACall()
     local code = compile([[
-local bench = require("nupp.bench")
+local bench = require("debug.bench")
 local function body()
     bench.keep({1, 2})
 end
@@ -104,7 +104,7 @@ function M.leavesAnOrdinaryKeepCallAlone()
     -- and the ordinary call is the only correct lowering.
     local code = compile(
         [[
-local bench = require("nupp.bench")
+local bench = require("debug.bench")
 local function body()
     local kept = bench.keep({1, 2})
     return kept
@@ -178,7 +178,7 @@ end
 -- and column meant inserting a comment above unchanged code reported every allocation
 -- below it as newly introduced, failing the gate for a change that allocated nothing.
 function M.movingCodeDoesNotLookLikeANewAllocation()
-    local bench = require("nupp.bench")
+    local bench = require("debug.bench")
     local profile = {optLevel = 1, disabled = ""}
     local before = {
         executionProfile = profile,
@@ -210,7 +210,7 @@ function M.movingCodeDoesNotLookLikeANewAllocation()
 end
 
 function M.uncollectedTraceAbortsNeverLookComparable()
-    local bench = require("nupp.bench")
+    local bench = require("debug.bench")
     local profile = {optLevel = 1, disabled = ""}
     local recorder = {id = "test-recorder"}
     local current = {executionProfile = profile, traceProfile = recorder, cases = {{name = "x", abortSites = nil}},}
@@ -222,7 +222,7 @@ function M.uncollectedTraceAbortsNeverLookComparable()
 end
 
 function M.duplicateBenchmarkNamesAreRejected()
-    local bench = require("nupp.bench")
+    local bench = require("debug.bench")
     bench.case("duplicate-name", function()
     end)
     local ok, err = pcall(function()
@@ -234,7 +234,7 @@ function M.duplicateBenchmarkNamesAreRejected()
 end
 
 function M.formatsHumanResultsAsPerOperationScores()
-    local bench = require("nupp.bench")
+    local bench = require("debug.bench")
     local rendered = bench.format({
         cases = {
             {name = "parse", kind = "case", n = 4, rounds = 7, medianMs = 0.000004, allocatedKb = 0.5,},
@@ -262,7 +262,7 @@ note: 1 fork per benchmark. p25-p99 is within-process spread, NOT a confidence
 end
 
 function M.formatsSuiteAllocationAsBytesPerRepresentedOperation()
-    local bench = require("nupp.bench")
+    local bench = require("debug.bench")
     local rendered = bench.format({
         cases = {
             {
@@ -286,7 +286,7 @@ end
 -- and the note are the whole defence against a reader treating one process's quartiles
 -- as an error bar, so both are asserted rather than left to review.
 function M.singleForkTableRefusesToCallItsSpreadAnInterval()
-    local bench = require("nupp.bench")
+    local bench = require("debug.bench")
     local rendered = bench.format({
         cases = {
             {
@@ -314,7 +314,7 @@ end
 -- The replicated table carries the coverage it attained, and the attained value for ten
 -- forks is the sign test's, not the one that was asked for.
 function M.replicatedTableReportsAttainedCoverage()
-    local bench = require("nupp.bench")
+    local bench = require("debug.bench")
     local rendered = bench.format(
         {
             cases = {
@@ -346,7 +346,7 @@ end
 -- A benchmark whose interval was withheld says so in the column rather than leaving it
 -- blank, because a blank reads as "no change" to anyone skimming.
 function M.withheldIntervalIsNamedInTheTable()
-    local bench = require("nupp.bench")
+    local bench = require("debug.bench")
     local rendered = bench.format(
         {
             cases = {
@@ -370,7 +370,7 @@ function M.withheldIntervalIsNamedInTheTable()
 end
 
 function M.formatsComparativeSuitesWithBaselineRatios()
-    local bench = require("nupp.bench")
+    local bench = require("debug.bench")
     local record = {
         cases = {
             {
@@ -998,7 +998,7 @@ end
 -- baseline is read, and the refusal names the record's schema and the ones this
 -- version reads.
 function M.aBaselineWithASchemaThisVersionCannotReadIsRefused()
-    local bench = require("nupp.bench")
+    local bench = require("debug.bench")
     testAssert.equal(bench.SCHEMA, 4, "records are written at schema 4")
     for _, schema in ipairs({2, 3, 4}) do
         local document, refused = bench.decodeBaseline(('{"schema":%d,"cases":[]}'):format(schema), "b.json")

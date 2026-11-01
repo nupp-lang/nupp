@@ -639,7 +639,7 @@ function gen.generate(
     local capabilityResolution = capabilities.resolve()
     --[[
     The fixed-width scalar members that lower to inline BitOp rather than to a
-    call through the installed `nupp.math`.
+    call through the installed `math`.
 
     Every one of these is a single BitOp primitive, or a `tobit` over one
     ordinary arithmetic expression. LuaJIT records a `bit` primitive as one IR
@@ -5975,7 +5975,7 @@ function gen.generate(
         end
         if (kind == "binop" or kind == "unop") and x.fixedArithmetic then
             -- Established thirty-two bit operands: the operator is the
-            -- `nupp.math` intrinsic the checker named, inlined where the bit
+            -- `math` intrinsic the checker named, inlined where the bit
             -- library is native and called where it is not, exactly as the
             -- spelled-out call would be.
             local form = pluck.scalarInline.forms[x.fixedArithmetic]
@@ -5990,7 +5990,7 @@ function gen.generate(
                 end
             else
                 pluck.needRuntimeEffect("stdlib.math")
-                e("nupp.math." .. x.fixedArithmetic .. "(", x.op.line)
+                e("math." .. x.fixedArithmetic .. "(", x.op.line)
                 if kind == "unop" then
                     emit(x.operand)
                 else

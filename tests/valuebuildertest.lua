@@ -1,7 +1,7 @@
 local valuebuilder = require("serde.valuebuilder")
 local jsonbuilder = require("nupp.codec.json.internal.builder")
 local test = require("assert")
-local u32 = nupp.math.u32.wrap
+local u32 = math.u32.wrap
 local M = {}
 
 local function finishNumber(source, start, length)

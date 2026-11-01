@@ -1,6 +1,6 @@
 module nupp.io.files.messages
 
-local paths = require("nupp.io.path")
+local paths = require("io.path")
 
 export type Kind = "file" | "directory" | "symlink" | "other"
 export type UserFolder = "home" | "documents" | "downloads" | "desktop" | "pictures" | "music" | "videos"
@@ -16,7 +16,7 @@ export record Info
     size: integer
 
     --- Its modification time in milliseconds since the Unix epoch, the unit
-    --- `nupp.time.wallTime` returns in, with whatever fraction the platform
+    --- `os.walltime` returns in, with whatever fraction the platform
     --- records.
     modified: number
 

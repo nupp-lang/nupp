@@ -86,7 +86,7 @@ local function sumBytes(
     for i = 1, #second do
         total = total + second[i]
     end
-    return total, nupp.math.u32.wrap(#first), nupp.math.u32.wrap(#second)
+    return total, math.u32.wrap(#first), math.u32.wrap(#second)
 end
 
 @aot
@@ -135,12 +135,12 @@ local function corrected(
     for i = first, last do
         local result = results[i]
         local sample = samples[i]
-        local a = nupp.math.f32.narrow(sample.a)
-        local b = nupp.math.f32.narrow(sample.b)
-        local c = nupp.math.f32.narrow(sample.c)
-        result.least = nupp.math.f32.min(a, b)
-        result.greatest = nupp.math.f32.max(a, b)
-        result.fused = nupp.math.f32.fma(a, b, c)
+        local a = math.f32.narrow(sample.a)
+        local b = math.f32.narrow(sample.b)
+        local c = math.f32.narrow(sample.c)
+        result.least = math.f32.min(a, b)
+        result.greatest = math.f32.max(a, b)
+        result.fused = math.f32.fma(a, b, c)
     end
 end
 
@@ -153,7 +153,7 @@ local simd = require("nupp.simd")
 local array = require("nupp.mem.array")
 
 local function drain(bits: uint64): (uint32, uint32)
-    return nupp.math.u32.wrap(nupp.math.u64.trailingZeros(bits)), nupp.math.u32.wrap(nupp.math.u64.popcount(bits & (bits - 1ULL)))
+    return math.u32.wrap(math.u64.trailingZeros(bits)), math.u32.wrap(math.u64.popcount(bits & (bits - 1ULL)))
 end
 
 @aot
@@ -161,7 +161,7 @@ local function maskOps(low: uint32, high: uint32): (uint64, uint64, uint32, uint
     local lowWord: uint64 = low as uint64
     local highWord: uint64 = high as uint64
     local raw = (highWord << 32ULL) | lowWord
-    local prefixed = nupp.math.u64.prefixXor(raw)
+    local prefixed = math.u64.prefixXor(raw)
     local first, left = drain(prefixed)
     return prefixed & 0xffffffffULL, prefixed >> 32ULL, first, left
 end
@@ -186,7 +186,7 @@ local function countQuotes(borrows source: span.Span<uint8>): uint32
         local tail = species:tail(#source - cursor)
         local matches = bytes == 34
         local valid = matches & tail
-        found = nupp.math.u32.add(found, valid:count())
+        found = math.u32.add(found, valid:count())
         cursor = cursor + species.lanes
     end
     return found
@@ -264,14 +264,14 @@ end
 @aot
 local function stream(source: string, tape: string, nullValue: any): (any, uint32, uint32)
     local state = valueBuilder.new(nullValue)
-    valueBuilder.openObject(state, nupp.math.u32.wrap(2))
-    valueBuilder.key(state, source, nupp.math.u32.wrap(0), nupp.math.u32.wrap(4), false)
-    valueBuilder.numberSlice(state, source, nupp.math.u32.wrap(4), nupp.math.u32.wrap(2))
-    valueBuilder.key(state, source, nupp.math.u32.wrap(6), nupp.math.u32.wrap(4), false)
+    valueBuilder.openObject(state, math.u32.wrap(2))
+    valueBuilder.key(state, source, math.u32.wrap(0), math.u32.wrap(4), false)
+    valueBuilder.numberSlice(state, source, math.u32.wrap(4), math.u32.wrap(2))
+    valueBuilder.key(state, source, math.u32.wrap(6), math.u32.wrap(4), false)
     valueBuilder.boolean(state, true)
     valueBuilder.close(state)
-    return valueBuilder.finish(state), valueBuilder.byte(source, nupp.math.u32.wrap(4)),
-        valueBuilder.word(tape, nupp.math.u32.wrap(0))
+    return valueBuilder.finish(state), valueBuilder.byte(source, math.u32.wrap(4)),
+        valueBuilder.word(tape, math.u32.wrap(0))
 end
 
 @aot
@@ -290,27 +290,27 @@ end
 
 @aot
 local function primitives(source: string, nullValue: any): (any, uint32)
-    local scratch = valueBuilder.newWordScratch(nupp.math.u32.wrap(3))
+    local scratch = valueBuilder.newWordScratch(math.u32.wrap(3))
     local bits: uint64 = 0x400000005ULL
     local next: uint32 = 0
     while bits ~= 0ULL do
-        valueBuilder.setScratchWord(scratch, next, nupp.math.u32.add(nupp.math.u32.wrap(10), nupp.math.u32.wrap(nupp.math.u64.trailingZeros(bits))))
+        valueBuilder.setScratchWord(scratch, next, math.u32.add(math.u32.wrap(10), math.u32.wrap(math.u64.trailingZeros(bits))))
         next = next + 1
         bits = bits & (bits - 1ULL)
     end
-    local stringScratch = valueBuilder.newWordScratch(nupp.math.u32.wrap(3))
-    valueBuilder.setScratchWord(stringScratch, nupp.math.u32.wrap(0), nupp.math.u32.wrap(100))
-    valueBuilder.setScratchWord(stringScratch, nupp.math.u32.wrap(1), nupp.math.u32.wrap(2147483755))
-    valueBuilder.setScratchWord(stringScratch, nupp.math.u32.wrap(2), nupp.math.u32.wrap(110))
+    local stringScratch = valueBuilder.newWordScratch(math.u32.wrap(3))
+    valueBuilder.setScratchWord(stringScratch, math.u32.wrap(0), math.u32.wrap(100))
+    valueBuilder.setScratchWord(stringScratch, math.u32.wrap(1), math.u32.wrap(2147483755))
+    valueBuilder.setScratchWord(stringScratch, math.u32.wrap(2), math.u32.wrap(110))
     local stringNext: uint32 = 3
     local state = valueBuilder.new(nullValue)
-    valueBuilder.openArray(state, nupp.math.u32.add(next, nupp.math.u32.wrap(4)))
-    valueBuilder.number(state, valueBuilder.scratchWord(scratch, nupp.math.u32.wrap(0)) * 1.0)
-    valueBuilder.number(state, valueBuilder.scratchWord(scratch, nupp.math.u32.wrap(1)) * 1.0)
-    valueBuilder.number(state, valueBuilder.scratchWord(scratch, nupp.math.u32.wrap(2)) * 1.0)
-    valueBuilder.number(state, valueBuilder.scratchWord(stringScratch, nupp.math.u32.wrap(0)) * 1.0)
-    valueBuilder.number(state, valueBuilder.scratchWord(stringScratch, nupp.math.u32.wrap(1)) * 1.0)
-    valueBuilder.number(state, valueBuilder.scratchWord(stringScratch, nupp.math.u32.wrap(2)) * 1.0)
+    valueBuilder.openArray(state, math.u32.add(next, math.u32.wrap(4)))
+    valueBuilder.number(state, valueBuilder.scratchWord(scratch, math.u32.wrap(0)) * 1.0)
+    valueBuilder.number(state, valueBuilder.scratchWord(scratch, math.u32.wrap(1)) * 1.0)
+    valueBuilder.number(state, valueBuilder.scratchWord(scratch, math.u32.wrap(2)) * 1.0)
+    valueBuilder.number(state, valueBuilder.scratchWord(stringScratch, math.u32.wrap(0)) * 1.0)
+    valueBuilder.number(state, valueBuilder.scratchWord(stringScratch, math.u32.wrap(1)) * 1.0)
+    valueBuilder.number(state, valueBuilder.scratchWord(stringScratch, math.u32.wrap(2)) * 1.0)
     valueBuilder.number(state, stringNext * 1.0)
     valueBuilder.close(state)
     return valueBuilder.finish(state), next
@@ -322,10 +322,10 @@ end
 --- body used to stop agreeing with the same source on the interpreter.
 @aot
 local function wrapped(value: integer, nullValue: any): any
-    local state = valueBuilder.newSized(nullValue, nupp.math.u32.wrap(2), nupp.math.u32.wrap(8))
-    local signedValue = nupp.math.i32.wrap(value)
-    local unsignedValue = nupp.math.u32.wrap(value)
-    valueBuilder.openArray(state, nupp.math.u32.wrap(2))
+    local state = valueBuilder.newSized(nullValue, math.u32.wrap(2), math.u32.wrap(8))
+    local signedValue = math.i32.wrap(value)
+    local unsignedValue = math.u32.wrap(value)
+    valueBuilder.openArray(state, math.u32.wrap(2))
     valueBuilder.number(state, signedValue + 0.0)
     valueBuilder.number(state, unsignedValue + 0.0)
     valueBuilder.close(state)
@@ -339,13 +339,13 @@ end
 @aot
 local function fixedScratch(probe: uint32, nullValue: any): any
     local buffer = valueBuilder.newFixedWordScratch(8)
-    local state = valueBuilder.newSized(nullValue, nupp.math.u32.wrap(2), nupp.math.u32.wrap(8))
-    valueBuilder.setScratchWord(buffer, nupp.math.u32.wrap(3), nupp.math.u32.wrap(77))
-    valueBuilder.openArray(state, nupp.math.u32.wrap(3))
+    local state = valueBuilder.newSized(nullValue, math.u32.wrap(2), math.u32.wrap(8))
+    valueBuilder.setScratchWord(buffer, math.u32.wrap(3), math.u32.wrap(77))
+    valueBuilder.openArray(state, math.u32.wrap(3))
     -- Written, never written, and whatever the caller asks for -- which may be
     -- outside the buffer, and then this call is the last thing that happens.
-    valueBuilder.number(state, valueBuilder.scratchWord(buffer, nupp.math.u32.wrap(3)) * 1.0)
-    valueBuilder.number(state, valueBuilder.scratchWord(buffer, nupp.math.u32.wrap(6)) * 1.0)
+    valueBuilder.number(state, valueBuilder.scratchWord(buffer, math.u32.wrap(3)) * 1.0)
+    valueBuilder.number(state, valueBuilder.scratchWord(buffer, math.u32.wrap(6)) * 1.0)
     valueBuilder.number(state, valueBuilder.scratchWord(buffer, probe) * 1.0)
     valueBuilder.close(state)
 
@@ -357,13 +357,13 @@ end
 @aot
 local function fixedByteScratch(probe: uint32, nullValue: any): any
     local buffer = valueBuilder.newFixedByteScratch(8)
-    local state = valueBuilder.newSized(nullValue, nupp.math.u32.wrap(2), nupp.math.u32.wrap(8))
+    local state = valueBuilder.newSized(nullValue, math.u32.wrap(2), math.u32.wrap(8))
     -- Index five with nothing written below it, which an appending buffer would
     -- refuse and this one is for.
-    valueBuilder.setScratchByte(buffer, nupp.math.u32.wrap(5), nupp.math.u32.wrap(200))
-    valueBuilder.openArray(state, nupp.math.u32.wrap(3))
-    valueBuilder.number(state, valueBuilder.scratchByte(buffer, nupp.math.u32.wrap(5)) * 1.0)
-    valueBuilder.number(state, valueBuilder.scratchByte(buffer, nupp.math.u32.wrap(2)) * 1.0)
+    valueBuilder.setScratchByte(buffer, math.u32.wrap(5), math.u32.wrap(200))
+    valueBuilder.openArray(state, math.u32.wrap(3))
+    valueBuilder.number(state, valueBuilder.scratchByte(buffer, math.u32.wrap(5)) * 1.0)
+    valueBuilder.number(state, valueBuilder.scratchByte(buffer, math.u32.wrap(2)) * 1.0)
     valueBuilder.number(state, valueBuilder.scratchByte(buffer, probe) * 1.0)
     valueBuilder.close(state)
 
@@ -378,17 +378,17 @@ end
 --- belongs to.
 @aot
 local function reusedScratchName(probe: uint32, nullValue: any): any
-    local state = valueBuilder.newSized(nullValue, nupp.math.u32.wrap(2), nupp.math.u32.wrap(8))
+    local state = valueBuilder.newSized(nullValue, math.u32.wrap(2), math.u32.wrap(8))
 
     do
         local buffer = valueBuilder.newFixedWordScratch(4096)
-        valueBuilder.setScratchWord(buffer, nupp.math.u32.wrap(0), nupp.math.u32.wrap(1))
+        valueBuilder.setScratchWord(buffer, math.u32.wrap(0), math.u32.wrap(1))
     end
 
     do
-        local buffer = valueBuilder.newWordScratch(nupp.math.u32.wrap(4))
-        valueBuilder.setScratchWord(buffer, nupp.math.u32.wrap(0), nupp.math.u32.wrap(7))
-        valueBuilder.openArray(state, nupp.math.u32.wrap(1))
+        local buffer = valueBuilder.newWordScratch(math.u32.wrap(4))
+        valueBuilder.setScratchWord(buffer, math.u32.wrap(0), math.u32.wrap(7))
+        valueBuilder.openArray(state, math.u32.wrap(1))
         valueBuilder.number(state, valueBuilder.scratchWord(buffer, probe) * 1.0)
         valueBuilder.close(state)
     end
@@ -425,7 +425,7 @@ end
 @aot
 local function punctuation(source: string, nullValue: any): (any, uint32, uint32)
     local count = valueBuilder.length(source)
-    local state = valueBuilder.newSized(nullValue, nupp.math.u32.wrap(2), count)
+    local state = valueBuilder.newSized(nullValue, math.u32.wrap(2), count)
     local cursor: uint32 = 0
     local found: uint32 = 0
     if species = simd.vectors(array.uint8) then
@@ -446,7 +446,7 @@ local function punctuation(source: string, nullValue: any): (any, uint32, uint32
         end
         at = at + 1
     end
-    valueBuilder.openArray(state, nupp.math.u32.wrap(1))
+    valueBuilder.openArray(state, math.u32.wrap(1))
     valueBuilder.number(state, count * 1.0)
     valueBuilder.close(state)
 
@@ -479,10 +479,10 @@ end
 local type Output = span.WriteSpan<Sample>
 local type Input = span.Span<Sample>
 local type Word = uint32
-local add = nupp.math.u32.add
+local add = math.u32.add
 
 local function bump(value: Word): Word
-    return add(value, nupp.math.u32.wrap(1))
+    return add(value, math.u32.wrap(1))
 end
 
 @aot
@@ -611,7 +611,7 @@ export const answer = answer
 
 @aot
 local function literalCounts(): (uint32, uint32, uint32, uint64, uint64, uint64, uint64, uint64)
-    return nupp.math.u64.popcount(68719476735), nupp.math.u64.trailingZeros(4294967296), nupp.math.u64.leadingZeros(0), nupp.math.u64.prefixXor(5), nupp.math.u64.andBits(68719476735ULL, 4294967296ULL), nupp.math.u64.sub(0ULL, 1ULL), nupp.math.u64.rotateLeft(1ULL, 63), nupp.math.u64.rotateRight(1ULL, 1)
+    return math.u64.popcount(68719476735), math.u64.trailingZeros(4294967296), math.u64.leadingZeros(0), math.u64.prefixXor(5), math.u64.andBits(68719476735ULL, 4294967296ULL), math.u64.sub(0ULL, 1ULL), math.u64.rotateLeft(1ULL, 63), math.u64.rotateRight(1ULL, 1)
 end
 export const literalCounts = literalCounts
 
@@ -689,8 +689,8 @@ local trulyUnused = 42
 
 @aot
 local function entry(index: uint32, nullValue: any): any
-    local state = valueBuilder.newSized(nullValue, nupp.math.u32.wrap(2), nupp.math.u32.wrap(8))
-    valueBuilder.openArray(state, nupp.math.u32.wrap(1))
+    local state = valueBuilder.newSized(nullValue, math.u32.wrap(2), math.u32.wrap(8))
+    valueBuilder.openArray(state, math.u32.wrap(1))
     valueBuilder.number(state, valueBuilder.byte(READ_ONLY_IN_THE_BODY, index) * 1.0)
     valueBuilder.close(state)
 
@@ -739,9 +739,9 @@ local function roundTrip(
 ): nil
     assert(#output == #packed and #output == #input, "length mismatch")
     for i = 1, #output do
-        local value = nupp.math.f32.fromF16Bits(input[i])
+        local value = math.f32.fromF16Bits(input[i])
         output[i] = value
-        packed[i] = nupp.math.f32.toF16Bits(value)
+        packed[i] = math.f32.toF16Bits(value)
     end
 end
 
@@ -927,14 +927,14 @@ module mixedcmp
 
 @aot
 local function negativeBelowSmall(x: int32): boolean
-    local negative: int32 = nupp.math.i32.sub(0, x)
-    return negative < nupp.math.u32.wrap(5)
+    local negative: int32 = math.i32.sub(0, x)
+    return negative < math.u32.wrap(5)
 end
 
 @aot
 local function negativeEqualsWrapped(x: int32): boolean
-    local negative: int32 = nupp.math.i32.sub(0, x)
-    return negative == nupp.math.u32.wrap(4294967295)
+    local negative: int32 = math.i32.sub(0, x)
+    return negative == math.u32.wrap(4294967295)
 end
 
 @aot
@@ -945,8 +945,8 @@ end
 
 @aot
 local function foldedNegativeBelowSmall(): boolean
-    local negative: int32 = nupp.math.i32.sub(0, 1)
-    return negative < nupp.math.u32.wrap(5)
+    local negative: int32 = math.i32.sub(0, 1)
+    return negative < math.u32.wrap(5)
 end
 
 export = {
@@ -1300,7 +1300,7 @@ local function kernel(exclusive output: span.WriteSpan<uint32>, borrows input: s
         for cursor = ]]
                 .. bounds
                 .. [[ do
-            value = nupp.math.u32.add(value, 1)
+            value = math.u32.add(value, 1)
         end
         output[index] = value
     end
@@ -1392,19 +1392,19 @@ local gpu = require("nupp.gpu")
 local function increment(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil
     assert(#output == #input)
     for index = 1, #output do
-        output[index] = nupp.math.u32.add(input[index], 1)
+        output[index] = math.u32.add(input[index], 1)
     end
 end
 
 @aot(target = "gpu")
 local function tiled(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil
-    local groups = nupp.math.u32.div(nupp.math.u32.wrap(#input), nupp.math.u32.wrap(256))
+    local groups = math.u32.div(math.u32.wrap(#input), math.u32.wrap(256))
     gpu.workgroups(groups, 256, function(groupIndex: uint32, phases: gpu.Phases)
         phases:run(function(localIndex: uint32)
-            local cursor = nupp.math.u32.add(nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(256)), localIndex)
+            local cursor = math.u32.add(math.u32.mul(groupIndex, math.u32.wrap(256)), localIndex)
             if cursor < #input then
                 if cursor < #output then
-                    output[cursor + 1] = nupp.math.u32.add(input[cursor + 1], 2)
+                    output[cursor + 1] = math.u32.add(input[cursor + 1], 2)
                 end
             end
         end)
@@ -1509,13 +1509,13 @@ end
 function M.gpuWorkgroupsRunTheGroupsTheirCpuDefinitionRuns()
     local dir = gpuProject()
     local body = [[
-    local groups = nupp.math.u32.div(nupp.math.u32.wrap(#input), nupp.math.u32.wrap(4))
+    local groups = math.u32.div(math.u32.wrap(#input), math.u32.wrap(4))
     gpu.workgroups(groups, 4, function(groupIndex: uint32, phases: gpu.Phases)
         phases:run(function(localIndex: uint32)
-            local cursor = nupp.math.u32.add(nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(4)), localIndex)
+            local cursor = math.u32.add(math.u32.mul(groupIndex, math.u32.wrap(4)), localIndex)
             if cursor < #input then
                 if cursor < #output then
-                    output[cursor + 1] = nupp.math.u32.add(input[cursor + 1], 1)
+                    output[cursor + 1] = math.u32.add(input[cursor + 1], 1)
                 end
             end
         end)
@@ -2937,7 +2937,7 @@ local valueBuilder = require("serde.valuebuilder")
 local {type Buffer} = require("nupp.text")
 @aot
 local function measured<const Bump: integer>(borrows source: string | Buffer, bump: Bump): uint32
-    return nupp.math.u32.add(valueBuilder.length(source), nupp.math.u32.wrap(bump as integer))
+    return math.u32.add(valueBuilder.length(source), math.u32.wrap(bump as integer))
 end
 local function apply(borrows source: string | Buffer): uint32
     return measured(source, 1)
@@ -4680,7 +4680,7 @@ local {type Buffer} = require("nupp.text")
 --- Counts the bytes of a string or a buffer, plus a const bump.
 @aot
 local function measure<const Bump: integer>(borrows source: string | Buffer, bump: Bump): uint32
-    return nupp.math.u32.add(valueBuilder.length(source), nupp.math.u32.wrap(bump as integer))
+    return math.u32.add(valueBuilder.length(source), math.u32.wrap(bump as integer))
 end
 
 --- The byte count of a string.
@@ -4827,7 +4827,7 @@ function M.correctedBinary32OperationsMatchTheRuntimeBitForBit()
 
     local output = ffi.new("NuppCorrectedResult[?]", count)
     lib[corrected](output, samples, 1, count, count)
-    local f32 = nupp.math.f32
+    local f32 = math.f32
     for index = 0, count - 1 do
         local sample = samples[index]
         local want = {
@@ -5041,7 +5041,7 @@ end
                 op[2],
                 ty[2],
                 ty[3],
-                ty[1] == "i32" and "nupp.math.i32.wrap(((input[i] as number) / 2.0 * 2.0) as integer)" or nil
+                ty[1] == "i32" and "math.i32.wrap(((input[i] as number) / 2.0 * 2.0) as integer)" or nil
             )
         end
         for _, extreme in ipairs({"Min", "Max"}) do
@@ -6227,9 +6227,9 @@ local shared = {}
 
 @aot
 local function total(count: uint32): number
-    local at: uint32 = nupp.math.u32.wrap(0)
+    local at: uint32 = math.u32.wrap(0)
     while at < count do
-        at = nupp.math.u32.add(at, nupp.math.u32.wrap(1))
+        at = math.u32.add(at, math.u32.wrap(1))
     end
 
     return at
@@ -6237,7 +6237,7 @@ end
 
 --- @export
 function shared.total(count: integer): integer
-    return tonumber(total(nupp.math.u32.wrap(count))) as integer
+    return tonumber(total(math.u32.wrap(count))) as integer
 end
 
 export = shared
@@ -7289,7 +7289,7 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
     end
 
     -- The integer horizontals over one masked vector, against exact folds.
-    local i32 = nupp.math.i32
+    local i32 = math.i32
     local lanes = ffi.new("int32_t[4]", {-7, 2147483647, 3, 12})
     for count = 0, 4 do
         local sum, product, allBits, anyBits, oddBits = 0, 1, -1, 0, 0
@@ -7648,8 +7648,8 @@ local function crossLane(exclusive out: span.WriteSpan<int32>, borrows input: sp
     s:store(out, 9, v:compress(positive):expand(positive))
     s:store(out, 17, v:orderedPrefixSum())
     s:store(out, 25, v:prefixXor())
-    s:store(out, 33, s:splat(nupp.math.i32.wrap(positive:count() as integer)))
-    s:store(out, 41, s:splat(nupp.math.i32.wrap(positive:first() as integer)))
+    s:store(out, 33, s:splat(math.i32.wrap(positive:count() as integer)))
+    s:store(out, 41, s:splat(math.i32.wrap(positive:first() as integer)))
 end
 
 -- Two entries group the forward and reverse reduction probes.
@@ -7814,10 +7814,10 @@ function M.entryOnlyAotTargetsCheckOnlyTheirDependencyClosure()
     for name, code in pairs({
         [
             "unused.nupp"
-        ] = "@aot\nlocal function unused(value: int32): int32\n return nupp.math.i32.add(value, value)\nend\nreturn unused\n",
+        ] = "@aot\nlocal function unused(value: int32): int32\n return math.i32.add(value, value)\nend\nreturn unused\n",
         [
             "transitive.nupp"
-        ] = "@aot\nlocal function needed(value: int32): int32\n return nupp.math.i32.add(value, value)\nend\nreturn needed\n",
+        ] = "@aot\nlocal function needed(value: int32): int32\n return math.i32.add(value, value)\nend\nreturn needed\n",
         ["plain.nupp"] = 'return require("transitive")\n',
     }) do
         local file = assert(io.open(dir .. "/src/" .. name, "wb"))

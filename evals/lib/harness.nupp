@@ -5,9 +5,9 @@ module harness
 -- agent is run and how its work is recorded.
 
 local files = require("nupp.io.files")
-local paths = require("nupp.io.path")
+local paths = require("io.path")
 local process = require("nupp.io.process")
-local time = require("nupp.time")
+
 local json = require("serde.json")
 
 local harness = {}
@@ -316,7 +316,7 @@ function harness.runAgent(
         local separator = package.config:sub(1, 1) == "\\" and ";" or ":"
         env = {PATH = pathPrefix .. separator .. (os.getenv("PATH") or "")}
     end
-    local started = time.now()
+    local started = os.monotonic()
     local done = harness.run(argv, workspace, env, timeoutSeconds)
     local events = decodeEvents(done.stdout)
     local transcriptLines: {string} = {}
@@ -335,7 +335,7 @@ function harness.runAgent(
             break
         end
     end
-    result.wallClockSeconds = rounded((time.now() - started) / 1000, 1)
+    result.wallClockSeconds = rounded((os.monotonic() - started) / 1000, 1)
     result.timedOut = done.timedOut
 
     return {result = result, events = events}

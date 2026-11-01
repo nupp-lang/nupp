@@ -49,30 +49,40 @@ function M.portableAndNativeBuffersAgreeOnRandomSequences()
     local portable = require("nupp.runtime.provider.tablebuffer")
     local native = require("nupp.runtime.provider.nativebuffer")
     local state = 20260928
+
     local function draw(low, high)
         state = bit.bxor(state, bit.lshift(state, 13))
         state = bit.bxor(state, bit.rshift(state, 17))
         state = bit.bxor(state, bit.lshift(state, 5))
         return low + (state % 4294967296) % (high - low + 1)
     end
+
     local function pick(list)
         return list[draw(1, #list)]
     end
+
     local VALUES = {"", "a", "hello", "\0\255", 0, -1, 1.5, 1e100, 2 ^ 53, true}
+
     local function run(buffer, op, args)
-        local result = {pcall(function()
-            return buffer[op](buffer, unpack(args, 1, args.n))
-        end)}
+        local result = {
+            pcall(function()
+                return buffer[op](buffer, unpack(args, 1, args.n))
+            end)
+        }
         if not result[1] then
             return "raised"
         end
         local out = {}
         for index = 2, #result do
             local value = result[index]
-            out[#out + 1] = value == buffer and "self" or type(value) == "string" and ("%q"):format(value) or tostring(value)
+            out[#out + 1] = value == buffer and "self"
+                or type(value) == "string" and ("%q"):format(value)
+                or tostring(value)
         end
+
         return table.concat(out, ",")
     end
+
     for _ = 1, 500 do
         local left, right = portable.new(), native.new()
         local log = {}
@@ -101,8 +111,13 @@ function M.portableAndNativeBuffersAgreeOnRandomSequences()
             end
             log[#log + 1] = op
             local a, b = run(left, op, args), run(right, op, args)
-            assert(a == b and #left == #right, table.concat(log, "; ") .. ": portable " .. a .. " len " .. #left
-                .. ", native " .. b .. " len " .. #right)
+            assert(
+                a == b and #left == #right,
+                table.concat(
+                    log,
+                    "; "
+                ) .. ": portable " .. a .. " len " .. #left .. ", native " .. b .. " len " .. #right
+            )
         end
     end
 end
@@ -132,7 +147,7 @@ function M.uuidOperationsMatchTheContract()
 end
 
 function M.systemFactsMatchTheContract()
-    verify("system", "nupp.system")
+    verify("system", "nupp.runtime.system")
 end
 
 return M

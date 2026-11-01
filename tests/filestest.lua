@@ -116,7 +116,7 @@ function M.infoDescribesAFileAndFailsOnAMissingOne()
     test.equal(info.size, 5)
     test.equal(info.readOnly, false)
     assert(info.modified > 1500000000000, "a modification time is a Unix timestamp in milliseconds")
-    local now = require("nupp.time").wallTime()
+    local now = os.walltime()
     assert(math.abs(now - info.modified) < 1000, "a fresh write's time is the clock's, in the clock's unit")
 
     local missing, reason = files.info(inRoot("info/absent"))
@@ -598,7 +598,7 @@ end
 
 function M.pathsAndFoldersAnswerTheEnvironment()
     local files = ready()
-    test.equal(files.currentDirectory, nil, "the working directory is nupp.io.path's question")
+    test.equal(files.currentDirectory, nil, "the working directory is io.path's question")
     local home = assert(files.userFolder("home"))
     assert(type(home) == "table", "a user folder is a path value")
     assert(files.isDirectory(home), "the home folder is a directory")

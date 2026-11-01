@@ -1,6 +1,6 @@
 # UTF-8 validation, four ways
 
-What `nupp.text.utf8.isValid` is worth written four different ways, on one
+What `utf8.isValid` is worth written four different ways, on one
 machine in one run: the Keiser-Lemire lookup validator written on the general
 `nupp.simd` algebra, the same scalar ladder compiled by `@aot` and left to
 LuaJIT, the ordinary Nupp that ships.
@@ -22,7 +22,7 @@ Nupp implementation. Apple M5 Pro, `aarch64-apple-darwin` with NEON, Apple
 clang 21.0.0 at the compiler's default flags, LuaJIT for the three columns that
 are Lua; measured 2026-09-17.
 
-| corpus                 |  SIMD | `@aot` | `@aot` on LuaJIT | `nupp.text.utf8` |
+| corpus                 |  SIMD | `@aot` | `@aot` on LuaJIT | `utf8` |
 | ---------------------- | ----: | -----: | ---------------: | ---------------: |
 | short ascii (8-24 B)   | 1.59x |  0.58x |            0.14x |            1.00x |
 | short accented (~20 B) | 1.53x |  0.68x |            0.12x |            1.00x |
@@ -62,13 +62,13 @@ buffers.** Validation is a branch a byte with no arithmetic to speak of;
 **Short values are where the answer changed.** The byte API lost on eight to
 twenty-four bytes -- the species, three nibble tables and a padded copy were
 set up to validate twenty bytes -- and that was the finding that kept
-`nupp.text.utf8` ordinary Nupp. On the general algebra the same tables are
+`utf8` ordinary Nupp. On the general algebra the same tables are
 sixteen `insert`s into a zero vector and there is no copy, and the compiled
 validator is now one and a half to two times the shipped one even there. The
 Lua-to-C boundary is what remains of the cost, and the scalar `@aot` column
 says what that boundary is worth on its own.
 
-What still holds `nupp.text.utf8` to ordinary Nupp is the fallback: a target
+What still holds `utf8` to ordinary Nupp is the fallback: a target
 without an AOT policy would get the scalar entry as LuaJIT runs it, which is
 seven to twenty times worse than what ships. The shape a compiled validator
 would take is `serde.json`'s: a seam with the compiled validator behind it

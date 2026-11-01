@@ -13,7 +13,7 @@
 local math = assert(loadfile("../../tests/simd/corpusmath.lua"))()
 local simd = require("utf8simd")
 local reference = require("utf8reference")
-local shipped = require("nupp.text.utf8")
+local shipped = require("utf8")
 
 local proveNative = assert(loadfile("../../tests/simd/nativeproof.lua"))()
 proveNative("utf8simd", function()
@@ -35,7 +35,7 @@ local function agree(value, what)
     -- The reference is held to the shipped validator on the same corpus, so a
     -- transition table typo cannot hide behind two implementations agreeing.
     if shipped.isValid(value) ~= (want == #value) then
-        error(("reference disagrees with nupp.text.utf8 on %s (%q)"):format(what, value), 0)
+        error(("reference disagrees with utf8 on %s (%q)"):format(what, value), 0)
     end
     checks = checks + 1
 end
@@ -158,7 +158,7 @@ for _ = 1, 20000 do
     agree(table.concat(t), "a random string of scalars")
 end
 
-print(("ok - %d UTF-8 differential checks: vector path, scalar reference and nupp.text.utf8 agree"):format(checks))
+print(("ok - %d UTF-8 differential checks: vector path, scalar reference and utf8 agree"):format(checks))
 
 print("SIMD_CHECKS=" .. checks)
 if math.fingerprint then

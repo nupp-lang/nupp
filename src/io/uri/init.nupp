@@ -1,12 +1,12 @@
-module nupp.io.uri
+module io.uri
 
 --[[
-`nupp.io.uri` parses one absolute URI into an immutable value and returns its
+`io.uri` parses one absolute URI into an immutable value and returns its
 components from the parse rather than from a substring. Reach for it when a
 program routes, rewrites or inspects a resource identifier.
 
 ```nupp
-const uri = nupp.io.uri
+const uri = io.uri
 
 local endpoint, reason = uri.newURI("https://user@example.com:8443/api?q=1#top")
 assert(endpoint, reason)
@@ -28,7 +28,7 @@ resolved, a special scheme's host is lowercased and an IPv4 address written as
 non-ASCII text are percent-encoded as UTF-8:
 
 ```nupp
-const uri = nupp.io.uri
+const uri = io.uri
 
 local route = assert(uri.newURI("https://example.com/public/%2e%2e/secret"))
 assert(route:path() == "/secret")
@@ -53,7 +53,7 @@ the URI names none. `username` is empty when there is no user information. Every
 other component is optional and returns nil when the URI does not write it:
 
 ```nupp
-const uri = nupp.io.uri
+const uri = io.uri
 
 local plain = assert(uri.newURI("mailto:someone@example.com"))
 assert(plain:host() == nil)
@@ -72,7 +72,7 @@ an ordinary answer. `uri.validate` asks the same question without retaining an
 object, and `uri.isURI` separates a URI from a string or a record:
 
 ```nupp
-const uri = nupp.io.uri
+const uri = io.uri
 
 local ok, why = uri.validate("http://[")
 assert(not ok and why)
@@ -95,7 +95,7 @@ Supplying a component equal to its current normalized value returns the receiver
 itself rather than reparsing:
 
 ```nupp
-const uri = nupp.io.uri
+const uri = io.uri
 
 local endpoint = assert(uri.newURI("https://user:pass@example.com:8443/api?q=1"))
 local production = endpoint:withUserInfo(nil):withHost("api.example.com")
@@ -114,7 +114,7 @@ that would make the rest of the URI parse with a different host.
 `concatPath` appends path text without interpreting it as a reference:
 
 ```nupp
-const uri = nupp.io.uri
+const uri = io.uri
 
 local api = assert(uri.newURI("https://api.example.com/v1"))
 assert(api:concatPath("users"):path() == "/v1/users")
@@ -133,7 +133,7 @@ and `\` separates segments where `/` does in a special scheme. It returns nil
 and a reason when the reference cannot be resolved:
 
 ```nupp
-const uri = nupp.io.uri
+const uri = io.uri
 
 local page = assert(uri.newURI("https://example.com/docs/guide/index.html"))
 local image, reason = page:resolve("../images/avatar.png")
@@ -143,12 +143,12 @@ assert(image:path() == "/docs/images/avatar.png")
 
 ## Building from components
 
-`uri.newURI` also accepts a `nupp.io.uri.Components` record, built with `new`
+`uri.newURI` also accepts a `io.uri.Components` record, built with `new`
 like any record. The components are assembled into text and then parsed, so one
 grammar decides what is valid:
 
 ```nupp
-const uri = nupp.io.uri
+const uri = io.uri
 
 local status = assert(uri.newURI(new uri.Components(
     scheme = "https",
@@ -165,14 +165,14 @@ and `fragment` are optional strings, and `port` is an optional integer from 0
 through 65535. Every field is URI text rather than a filesystem name.
 
 ::: seealso
-- [](nupp.io.path) for filesystem names, where the platform's separators and
+- [](io.path) for filesystem names, where the platform's separators and
   `..` rules apply instead
 - [standard-library.md](docs/learn/runtime/data/standard-library.md) for how reaching a
   module selects the provider behind it
 :::
 ]]
 
-local contracts = require("nupp.io.uri.spi")
+local contracts = require("io.uri.spi")
 const provider = require("nupp.io.uri.provider")
 const whatwg = require("nupp.io.uri.whatwg")
 
@@ -663,7 +663,7 @@ end
 --- Read a URI's parts:
 ---
 --- ```nupp
---- const uri = nupp.io.uri
+--- const uri = io.uri
 ---
 --- local address = assert(uri.newURI("https://example.com/a?b=1"))
 --- assert(address:host() == "example.com" and address:query() == "b=1")

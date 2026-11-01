@@ -22,15 +22,15 @@ local files = require("nupp.io.files")
 local process = require("nupp.io.process")
 local random = require("nupp.random")
 local statistics = require("nupp.bench.internal.statistics")
-local system = require("nupp.system")
-local time = require("nupp.time")
+local system = os.info()
+
 local type Bench = {
     SCHEMA: integer,
     compare: function(any, any): ({string}, {string}),
     decodeBaseline: function(string, string, integer?): (any, string?),
     format: function(any, any?): string
 }
-local bench = require("nupp.bench") as Bench
+local bench = require("debug.bench") as Bench
 local compare = bench.compare
 local format = bench.format
 
@@ -277,7 +277,7 @@ local function listingWidth(count: integer): integer
         -- No `wait`, so no wave. A slower answer, never a different one.
         return 1
     end
-    local cores = system.availableParallelism()
+    local cores = os.info().parallelism
     if cores < 1 then
         cores = 1
     end
@@ -1128,8 +1128,8 @@ local function hostProfile(merged: {any}): any
 
     return {
         platform = system.platform,
-        architecture = system.architecture,
-        pointerBits = system.pointerBits,
+        architecture = system.arch,
+        pointerBits = system.pointerbits,
         luajitRevision = luajitRevision,
     }
 end
@@ -1408,7 +1408,7 @@ function runner.run(options: runner.Options): integer
     local function refuse(code: string, message: string, file: string?): integer
         if asJson then
             return writeRunDocument(
-                {schema = (require("nupp.bench") as any).SCHEMA, recordedAt = "", benchmarks = json.asArray({})},
+                {schema = (require("debug.bench") as any).SCHEMA, recordedAt = "", benchmarks = json.asArray({})},
                 1,
                 {problem(code, message, file)}
             )
@@ -1526,7 +1526,7 @@ function runner.run(options: runner.Options): integer
         if options.gpuCostsDir == "" then
             return refuse("NUPP0001", "--gpu-costs needs an output directory")
         end
-        gpuCostsDirectory = options.gpuCostsDir .. "/" .. require("nupp.util").uuid4()
+        gpuCostsDirectory = options.gpuCostsDir .. "/" .. os.uuid4()
         local made, madeProblem = files.createDirectory(gpuCostsDirectory)
         if not made then
             return refuse("NUPP0001", "cannot create GPU cost directory: " .. tostring(madeProblem), gpuCostsDirectory)
@@ -1586,7 +1586,7 @@ function runner.run(options: runner.Options): integer
                     .. slug(entry.name):sub(1, 72)
                 )
                 or nil
-            local started = time.now()
+            local started = os.monotonic()
             local record, failure = runCase(
                 executable,
                 entry.path,
@@ -1598,7 +1598,7 @@ function runner.run(options: runner.Options): integer
                 profileZone,
                 gpuCostStem ~= nil and gpuCostStem .. "-candidate.jsonl" or nil
             )
-            local wallSec = (time.now() - started) / 1000.0
+            local wallSec = (os.monotonic() - started) / 1000.0
             if failure then
                 executionFailures[#executionFailures + 1] = failure
             end

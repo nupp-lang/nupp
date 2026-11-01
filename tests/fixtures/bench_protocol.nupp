@@ -1,4 +1,4 @@
-local bench = require("nupp.bench")
+local bench = require("debug.bench")
 
 print("application started")
 

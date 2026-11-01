@@ -585,7 +585,7 @@ function binding.wrapper(program: scalarIR.Program, nativeSymbol: string?): {str
                 -- A `float` field of the block reads as a `number`; narrowing
                 -- it again is exact and establishes the `float` the wrapper
                 -- declares, as the single-result form does below.
-                read = "nupp.math.f32.narrow(" .. read .. ")"
+                read = "math.f32.narrow(" .. read .. ")"
             end
             values[position] = read
         end
@@ -598,7 +598,7 @@ function binding.wrapper(program: scalarIR.Program, nativeSymbol: string?): {str
             -- The entry returns a binary32 result widened to binary64, which
             -- the binding reads as a `number`. Narrowing it again is exact and
             -- establishes the `float` the wrapper declares.
-            call = "nupp.math.f32.narrow(" .. call .. ")"
+            call = "math.f32.narrow(" .. call .. ")"
         end
         lines[#lines + 1] = "        " .. (#resultSourceTypes == 0 and "" or "return ") .. call
     end
@@ -753,13 +753,13 @@ end
 -- The fixed widths need establishing; the rest need the cast their name implies.
 local function established(resultType: string, name: string): string
     if resultType == "uint32" then
-        return "nupp.math.u32.wrap(" .. name .. " as integer)"
+        return "math.u32.wrap(" .. name .. " as integer)"
     elseif resultType == "int32" then
-        return "nupp.math.i32.wrap(" .. name .. " as integer)"
+        return "math.i32.wrap(" .. name .. " as integer)"
     elseif resultType == "boolean" then
         return name .. " as boolean"
     elseif resultType == "float" then
-        return "nupp.math.f32.narrow(" .. name .. " as number)"
+        return "math.f32.narrow(" .. name .. " as number)"
     elseif resultType == "number" or resultType == "integer" then
         return name .. " as " .. resultType
     end

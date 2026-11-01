@@ -6,7 +6,7 @@ module nupp.runtime.browser.playground
 -- output capture without synthesizing Lua source in JavaScript.
 
 local json = require("nupp.runtime.provider.lunajson")
-local utf8 = require("nupp.text.utf8")
+local utf8 = require("utf8")
 -- Carry the public serialization entry points in the application VM.
 local derive = require("nupp.derive")
 local serde = require("serde")
@@ -19,6 +19,9 @@ local rendering = require("serde.debug")
 -- The in-memory compiler resolves these public browser facades. Carry their
 -- checked implementations so imports in user programs reach the same services.
 local platformLibraries = {
+    function()
+        return os.info
+    end,
     function()
         return require("nupp.time")
     end,

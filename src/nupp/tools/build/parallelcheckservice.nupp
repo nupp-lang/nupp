@@ -9,7 +9,6 @@ One frame in is one request and one frame out is its answer, carrying the reques
 id back so the coordinator can tell an answer from a stale one.
 ]]
 
-local clock = require("nupp.time")
 local envMod = require("nupp.compiler.project.env")
 local fingerprint = require("nupp.compiler.project.fingerprint")
 local fs = require("nupp.compiler.fs")
@@ -109,7 +108,7 @@ end
 --- records stay plain data; the component's interface goes back as encoded bytes
 --- another worker decodes into its own checker identity.
 local function checkBatch(request: any): any
-    local batchStarted = clock.now()
+    local batchStarted = os.monotonic()
     if request.init ~= nil then
         workerContext = openContext(request.init)
     end
@@ -131,7 +130,7 @@ local function checkBatch(request: any): any
     local contentDigest = fingerprint.contentDigest(true)
 
     local newlyImported: {[string]: any} = {}
-    local decodeStarted = clock.now()
+    local decodeStarted = os.monotonic()
     for _, import in ipairs(request.imports or {}) do
         local image, problem = protocol.decode(import.bytes or "")
         if image == nil or image.fingerprint ~= import.fingerprint then
@@ -153,7 +152,7 @@ local function checkBatch(request: any): any
         end
     end
     session.inc.importModules(newlyImported)
-    local decodedAt = clock.now()
+    local decodedAt = os.monotonic()
 
     -- A cold worker receives an exact dependency-ready source set, so it produces the
     -- cache records directly rather than re-entering the build driver. They come from
@@ -163,7 +162,7 @@ local function checkBatch(request: any): any
     local codes: {[string]: string} = {}
     local diagnostics: {any} = {}
     local unchecked: {string} = {}
-    local checkStarted = clock.now()
+    local checkStarted = os.monotonic()
     local semanticMs = 0
     local recordMs = 0
     for _, source in ipairs(request.sources or {}) do
@@ -173,10 +172,10 @@ local function checkBatch(request: any): any
         if name == nil or sourceHash == nil then
             unchecked[#unchecked + 1] = path
         else
-            local semanticStarted = clock.now()
+            local semanticStarted = os.monotonic()
             local result = session.inc.checkReadyFile(path)
-            semanticMs = semanticMs + clock.now() - semanticStarted
-            local recordStarted = clock.now()
+            semanticMs = semanticMs + os.monotonic() - semanticStarted
+            local recordStarted = os.monotonic()
             for _, diagnostic in ipairs(result.diags or {}) do
                 diagnostics[#diagnostics + 1] = diagnostic
             end
@@ -207,7 +206,7 @@ local function checkBatch(request: any): any
             if compiled.code ~= nil and compiled.record.artifactHash ~= nil then
                 codes[name] = compiled.code as string
             end
-            recordMs = recordMs + clock.now() - recordStarted
+            recordMs = recordMs + os.monotonic() - recordStarted
         end
     end
     if context.checkedOutside ~= nil then
@@ -217,7 +216,7 @@ local function checkBatch(request: any): any
             diagnostics = diagnostics,
         }
     end
-    local checkedAt = clock.now()
+    local checkedAt = os.monotonic()
 
     local interfaces: {[string]: any} = {}
     local interfaceNames: {string} = {}
@@ -234,7 +233,7 @@ local function checkBatch(request: any): any
         end
     end
     table.sort(interfaceNames)
-    local interfaceAt = clock.now()
+    local interfaceAt = os.monotonic()
     local produced: any? = nil
     local nodes: integer = 0
     if #interfaceNames > 0 then
@@ -273,7 +272,7 @@ local function checkBatch(request: any): any
             names = interfaceNames,
         }
     end
-    local encodedAt = clock.now()
+    local encodedAt = os.monotonic()
 
     local importedCount: integer = 0
     for _ in pairs(newlyImported) do

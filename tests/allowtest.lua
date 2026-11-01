@@ -502,11 +502,11 @@ function M.fixedWidthMigrationFixesAreComplete()
     diagnostics = checkOf(source, strict)
     fixes = diagnostics[1] and diagnostics[1].fixes
     testAssert.equal(fixes and #fixes or 0, 2, "an integer can wrap or widen")
-    testAssert.equal(fixes[1].title, "convert with `nupp.math.i32.wrap`")
+    testAssert.equal(fixes[1].title, "convert with `math.i32.wrap`")
     testAssert.equal(fixes[2].title, "change the type to `integer`")
     rewritten = applyFix(source, fixes[1])
     assert(
-        rewritten:find("nupp.math.i32.wrap(wide)", 1, true),
+        rewritten:find("math.i32.wrap(wide)", 1, true),
         "the conversion encloses the complete initializer: " .. rewritten
     )
     testAssert.equal(diagsOf(rewritten, strict), "", "the conversion establishes the value")

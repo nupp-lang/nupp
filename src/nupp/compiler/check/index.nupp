@@ -552,7 +552,7 @@ function index.install(c: state.Checker): state.ExprHandlers
             local token = root and root.kind == "name" and root.token or nil
             local builtin = token and c.env and c.env.globals and c.env.globals[token.text] or nil
             -- A local bound to a namespace path stands for that path, so
-            -- `local i32 = nupp.math.i32` leaves `i32.andBits` the intrinsic it names.
+            -- `local i32 = math.i32` leaves `i32.andBits` the intrinsic it names.
             local canonical = nil
             if token and builtin and token.definition == builtin.definition then
                 canonical = intrinsicPath

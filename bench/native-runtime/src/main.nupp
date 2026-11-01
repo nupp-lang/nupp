@@ -1,7 +1,7 @@
 const http = require("nupp.io.http")
 const net = require("nupp.io.net")
 const time = require("nupp.time")
-const uri = require("nupp.io.uri")
+const uri = require("io.uri")
 
 const SAMPLES = 9
 const WARMUPS = 2
@@ -74,7 +74,7 @@ local function networkLatency(): number
     assert(served:setNoDelay(true))
     local samples: {number} = {}
     for sample = 1, SAMPLES + WARMUPS do
-        const started = time.now()
+        const started = os.monotonic()
         for _ = 1, NET_LATENCY_ROUNDS do
             assert(client:write("q"))
             readExactly(served, 1)
@@ -82,7 +82,7 @@ local function networkLatency(): number
             readExactly(client, 1)
         end
         if sample > WARMUPS then
-            samples[#samples + 1] = time.now() - started
+            samples[#samples + 1] = os.monotonic() - started
         end
     end
     served:close()
@@ -100,13 +100,13 @@ local function networkThroughput(): number
     const second = ("hgfedcba"):rep(CHUNK_BYTES / 8)
     local samples: {number} = {}
     for sample = 1, SAMPLES + WARMUPS do
-        const started = time.now()
+        const started = os.monotonic()
         for chunk = 1, NET_THROUGHPUT_CHUNKS do
             const payload = chunk % 2 == 0 and first or second
             assert(client:write(payload))
             readExactly(served, #payload as integer)
         end
-        const elapsed = time.now() - started
+        const elapsed = os.monotonic() - started
         if sample > WARMUPS then
             samples[#samples + 1] = CHUNK_BYTES * NET_THROUGHPUT_CHUNKS / elapsed / 1048.576
         end
@@ -141,7 +141,7 @@ local function httpLatency(port: integer): number
     const target = assert(uri.newURI(("http://127.0.0.1:%d/small"):format(port)))
     local samples: {number} = {}
     for sample = 1, SAMPLES + WARMUPS do
-        const started = time.now()
+        const started = os.monotonic()
         for _ = 1, HTTP_LATENCY_REQUESTS do
             local request = new http.Request(url = target)
             local response = assert(client:send(request))
@@ -162,7 +162,7 @@ local function httpLatency(port: integer): number
             response:close()
         end
         if sample > WARMUPS then
-            samples[#samples + 1] = time.now() - started
+            samples[#samples + 1] = os.monotonic() - started
         end
     end
     client:close()
@@ -175,7 +175,7 @@ local function httpThroughput(port: integer): number
     const target = assert(uri.newURI(("http://127.0.0.1:%d/large"):format(port)))
     local samples: {number} = {}
     for sample = 1, SAMPLES + WARMUPS do
-        const started = time.now()
+        const started = os.monotonic()
         for _ = 1, HTTP_THROUGHPUT_REQUESTS do
             local request = new http.Request(url = target)
             local response = assert(client:send(request))
@@ -195,7 +195,7 @@ local function httpThroughput(port: integer): number
             end
             response:close()
         end
-        const elapsed = time.now() - started
+        const elapsed = os.monotonic() - started
         if sample > WARMUPS then
             samples[#samples + 1] = LARGE_HTTP_BYTES * HTTP_THROUGHPUT_REQUESTS / elapsed / 1048.576
         end

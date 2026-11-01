@@ -18,7 +18,7 @@ A buffer comes from the host. On LuaJIT it is `string.buffer`; everywhere else
 it is a portable one written in Nupp. Both answer to the same [](Buffer), so a
 program that only ever writes and reads bytes does not notice which it has.
 
-[](nupp.text.utf8) is the other half of this namespace: codepoints rather than
+[](utf8) is the other half of this namespace: codepoints rather than
 bytes.
 ]]
 

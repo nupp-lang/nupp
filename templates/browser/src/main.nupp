@@ -4,14 +4,14 @@ const util = require("nupp.util")
 const time = require("nupp.time")
 const json = require("serde.json")
 
-local started = time.now()
+local started = os.monotonic()
 time.sleep(10)
 
 local digest = digests.hexDigest("sha256", random.randomBytes(32))
 
 return json.encodeValue({
     project = "${name}",
-    elapsedMilliseconds = time.now() - started,
+    elapsedMilliseconds = os.monotonic() - started,
     digest = digest,
     identifier = util.uuid4(),
 })

@@ -233,16 +233,16 @@ establish that evidence:
 
 ```nupp
 local whole: integer = 1
-local signed: int32 = nupp.math.i32.wrap(whole)
-local unsigned: uint32 = nupp.math.u32.wrap(whole)
-local rounded: float = nupp.math.f32.narrow(0.5)
+local signed: int32 = math.i32.wrap(whole)
+local unsigned: uint32 = math.u32.wrap(whole)
+local rounded: float = math.f32.narrow(0.5)
 ```
 
 The erased assertion `as` may claim one of these types but does not establish
 it, and is reported where the evidence is missing. Ordinary arithmetic over them
 keeps LuaJIT's numeric semantics and produces `number`, so use the
-`nupp.math.f32`, `nupp.math.i32`, and `nupp.math.u32` operations when a
-particular width is part of the calculation. See [](nupp.math) for the complete
+`math.f32`, `math.i32`, and `math.u32` operations when a
+particular width is part of the calculation. See [](math) for the complete
 operation set.
 
 ### Storage-only widths
@@ -478,7 +478,7 @@ math.huge` an infinity.
 
 When the wrapping matters. `integer` says the value is whole, while `int32`,
 `uint32`, and `float` say it belongs to a fixed-width set, which is what lets
-the `nupp.math` operations wrap and narrow the way C does. See [](nupp.math) for
+the `math` operations wrap and narrow the way C does. See [](math) for
 those operations.
 
 ### Can `unknown` replace `any` everywhere?

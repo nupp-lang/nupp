@@ -1,55 +1,30 @@
 module nupp.time
 
 --[[
-`nupp.time` provides clocks and waits from the current host.
+`nupp.time` schedules cooperative waits and wakeups. Deadlines use the
+`os.monotonic` clock.
 
 ```nupp
 const time = nupp.time
-
-const started = time.now()
 time.sleep(50)
-print(time.now() - started)  -- about 50
-
-print(time.wallTime())       -- milliseconds since the Unix epoch
 ```
-
-`now` is the clock durations and deadlines are measured in. It only moves
-forward and its zero is whatever the host picked, so one reading means nothing
-except against another. `wallTime` is calendar time and may jump backwards when
-the machine's clock is corrected. Never subtract two of those to measure how
-long something took.
 ]]
 
-local contracts = require("nupp.time.spi")
-
-local target = require("nupp.runtime.target")
-const provider: contracts.Provider = require("nupp.runtime.timeprovider").provider ?? do
-    if target.host == "native" then
-        yield _G.require("nupp.runtime.provider.nativetime") as contracts.Provider
-    end
-    assert(target.host == "browser" and rawget(_G, "__nuppBrowser") ~= nil, "nupp.time: no clock provider is available")
-    yield _G.require("nupp.runtime.browser.time") as contracts.Provider
-end
-
---- Returns monotonic milliseconds, the domain durations and deadlines use.
-export const now: function(): number = provider.now
-
---- Returns milliseconds since the Unix epoch.
-export const wallTime: function(): number = provider.wallTime
+local provider = require("nupp.runtime.clocks").selected
 
 --- Waits for a finite, non-negative interval through the suspension context.
 ---
 --- @raises string when the interval is invalid or cannot be scheduled
 export const sleep: function(milliseconds: number): nil = provider.sleep
 
---- Waits until a non-negative deadline in the [](now) domain.
+--- Waits until a non-negative deadline in the [](os.monotonic) domain.
 ---
 --- A deadline already past returns without waiting.
 ---
 --- @raises string when the deadline is invalid or cannot be scheduled
 export const sleepUntil: function(deadline: number): nil = provider.sleepUntil
 
---- Schedules a callback for a non-negative deadline in the [](now) domain.
+--- Schedules a callback for a non-negative deadline in the [](os.monotonic) domain.
 ---
 --- Returns a function that when called cancels the scheduled callback.
 --- Registration itself does not suspend.

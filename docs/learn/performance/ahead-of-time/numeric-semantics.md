@@ -11,7 +11,7 @@ any target-specific code is produced.
 ```nupp
 @aot
 local function add(left: float, right: float): float
-    return nupp.math.f32.add(left, right)
+    return math.f32.add(left, right)
 end
 ```
 
@@ -20,12 +20,12 @@ end
 | `a + b` on numbers | binary64 | not contracted, not reassociated |
 | a `float` field read | binary64 | the physical load widens |
 | a `float` field write | binary32 | the physical store narrows |
-| `nupp.math.f32.add(a, b)` | binary32, one rounding | exact, see below |
-| `nupp.math.f32.min`/`max`/`fma` | binary32, corrected | a helper repairs NaN behavior |
-| `nupp.math.i32.add(a, b)` | wrapping int32 | wraps in unsigned, comes back |
-| `nupp.math.u32.add(a, b)` | wrapping uint32 | native unsigned modular arithmetic |
-| `int32` `+`, `-`, `*` on established operands | wrapping int32 | what `nupp.math.i32.add` and its siblings return, see below |
-| `uint32` `+`, `-`, `*` on established operands | wrapping uint32 | what `nupp.math.u32.add` and its siblings return |
+| `math.f32.add(a, b)` | binary32, one rounding | exact, see below |
+| `math.f32.min`/`max`/`fma` | binary32, corrected | a helper repairs NaN behavior |
+| `math.i32.add(a, b)` | wrapping int32 | wraps in unsigned, comes back |
+| `math.u32.add(a, b)` | wrapping uint32 | native unsigned modular arithmetic |
+| `int32` `+`, `-`, `*` on established operands | wrapping int32 | what `math.i32.add` and its siblings return, see below |
+| `uint32` `+`, `-`, `*` on established operands | wrapping uint32 | what `math.u32.add` and its siblings return |
 | `int64` `+`, `-`, `*` in AOT | wrapping int64 | operates as uint64, then converts back |
 | `uint64` `+`, `-`, `*` in AOT | wrapping uint64 | native unsigned modular arithmetic |
 | 64-bit `/`, `%` in AOT | truncating integer division | LuaJIT's cdata answer for a zero divisor |
@@ -49,7 +49,7 @@ refuse to load into an incompatible LuaJIT; this does not silently fall back.
 
 Ordinary `math.min` and `math.max` follow LuaJIT, which chooses the second
 operand on ties or unordered comparisons. Variadic calls apply that rule from
-left to right. The corrected `nupp.math.f32` operations have their own
+left to right. The corrected `math.f32` operations have their own
 target-independent contract below. `math.log(value, base)` honors its optional
 base. Under LuaJIT, ordinary code and AOT both compute `log2(value) * (1 /
 log2(base))`, keeping the two roundings apart as LuaJIT does; a quotient of
@@ -64,7 +64,7 @@ divisor (Lua returns NaN), and wherever `a / b` rounds (`1 % 0.1`).
 Ordinary floating-point arithmetic assumes round-to-nearest-even. Signed zero
 and numeric NaN behavior are preserved. NaN signaling state, payload bits, and
 floating-point exception flags are not observable guarantees. The bit-level
-surface of `nupp.math.f32`, including its canonical NaN behavior, retains the
+surface of `math.f32`, including its canonical NaN behavior, retains the
 stronger guarantees described below.
 
 Signed wrapping arithmetic operates on the two's-complement bits and wraps.
@@ -74,8 +74,8 @@ overflowing `int32` or `int64` result is defined rather than undefined.
 `+`, `-` and `*` between two operands established at one fixed width mean the
 wrapping operation of that width, in an `@aot` body and in the ordinary code
 around it alike: an `int32` accumulator plus an `int32` field read is the
-`nupp.math.i32.add` of the two, a `uint32` cursor times a literal is the
-`nupp.math.u32.mul`, and the checker annotates the operator so the retained Lua
+`math.i32.add` of the two, a `uint32` cursor times a literal is the
+`math.u32.mul`, and the checker annotates the operator so the retained Lua
 body and the native lowering compute the same bits. One operand has to be typed
 at the width and both established at it, so an erased `as int32` or a plain
 `integer` beside one still returns `integer`, which an assignment to the width
@@ -104,7 +104,7 @@ FFI store does, which is not `wrap`: it truncates toward zero through `int64`
 and keeps the low bits, so storing `1.9` gives 1 and `-1.9` gives -1 at every
 width, and `4294967303.5` stored into an `int32` gives 7. A `uint64`
 destination takes the union of both 64-bit ranges, so a negative value keeps
-its two's-complement pattern. `nupp.math.i32.wrap` and `u32.wrap` are LuaJIT's
+its two's-complement pattern. `math.i32.wrap` and `u32.wrap` are LuaJIT's
 `tobit` instead, and round to nearest. NaN, infinities and values outside
 those ranges convert to target-dependent integers.
 
@@ -115,13 +115,13 @@ instruction, because 53 ≥ 2 × 24 + 2.
 
 `min`, `max` and `fma` are not covered by that argument. A differential over
 every interesting binary32 value found they disagree with `fminf`, `fmaxf` and
-`fmaf` in exactly one respect each: `nupp.math.f32` canonicalizes every NaN
+`fmaf` in exactly one respect each: `math.f32` canonicalizes every NaN
 where the instruction propagates a payload, and `min` and `max` return that
 canonical NaN where IEEE `minNum` returns the operand that is not NaN. Both are
 repaired by a select, so they are admitted with a correction rather than left
 out.
 
-`nupp.math.f32.exp` is instead defined by the scalar IR itself: clamp the input
+`math.f32.exp` is instead defined by the scalar IR itself: clamp the input
 to `[-104, 88]`, evaluate a degree-12 Taylor polynomial for `exp(x / 128)` in
 Horner order with `fma`, then square seven times. The interpreter, native code,
 Wasm, and SPIR-V execute that same binary32 sequence; WGPU translates the canonical
@@ -136,7 +136,7 @@ arithmetic type:
 ```nupp:fragment [Nupp]
 local wide = inputs[i].value
 local doubled = wide + wide
-local narrow = nupp.math.f32.add(nupp.math.f32.narrow(wide), nupp.math.f32.narrow(wide))
+local narrow = math.f32.add(math.f32.narrow(wide), math.f32.narrow(wide))
 outputs[i].value = narrow + doubled
 ```
 
@@ -158,13 +158,13 @@ add, and adding it back to a binary64 promotes it rather than narrowing the
 other operand.
 
 An entry conversion takes a binary64, so an `int32` or `uint32` reaching one --
-a counted-loop index handed to `nupp.math.u32.wrap`, say -- is promoted to
+a counted-loop index handed to `math.u32.wrap`, say -- is promoted to
 binary64 first, and that promotion is written down like any other. It is exact
 for every 32-bit integer and establishes nothing: the conversion it is an
 argument to is what establishes. Nothing narrows on the way in, so an operand
 the source never established is still refused.
 
-`nupp.math.u32.fromI32`, `nupp.math.i32.fromU32` and `nupp.math.u32.toI32` are
+`math.u32.fromI32`, `math.i32.fromU32` and `math.u32.toI32` are
 the exceptions, and are the ones to reach for between the two views of the same
 thirty-two bits. They take the width they convert from rather than a binary64,
 so nothing is promoted and nothing comes back: the emitted cast reinterprets
@@ -266,7 +266,7 @@ of the lanes they test beside the mask of the lanes that are active.
 
 A floating-point reducer accumulates in the element its constructor names.
 `orderedSum(initial)` is binary64; `orderedSum(array.float, initial)` is
-binary32 under every contract, rounding after every operation as `nupp.math.f32`
+binary32 under every contract, rounding after every operation as `math.f32`
 does: an ordered binary32 sum rounds after every lane, a pairwise one at every
 node of the tree, a compensated one keeps its total and its compensation in
 binary32, a dot rounds each product before adding it (or fuses the two under the
@@ -297,7 +297,7 @@ corpus feeds one reducer the seed as a scalar, whole vectors inside a region
 and the remaining elements as scalars, at two fixed widths, and compares it
 against the same contributions made one at a time. Every floating contract runs
 twice, over `number` and over the `float` witness, the latter against a
-binary32 reference built from `nupp.math.f32`. The integer horizontals compare
+binary32 reference built from `math.f32`. The integer horizontals compare
 against exact wrapping and bitwise folds in the lane's width.
 
 Algebraic checks use a different contract. For finite inputs whose intermediate

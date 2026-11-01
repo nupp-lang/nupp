@@ -5892,7 +5892,7 @@ function M.artifactDiscoveryNamesAotKernel()
         projectDir,
         "kernel.nupp",
         [[
-local i32 = require("nupp.math.i32")
+local i32 = require("math.i32")
 @aot
 local function double(value: int32): int32
     return i32.add(value, value)

@@ -183,7 +183,7 @@ end
 
 @aot
 local function fixed(value: int32): int32
-    return nupp.math.i32.wrap(switch value do
+    return math.i32.wrap(switch value do
         case 1 -> do yield 31 end
         else -> do yield 47 end
     end)

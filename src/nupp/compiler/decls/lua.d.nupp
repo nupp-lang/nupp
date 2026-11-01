@@ -1745,3 +1745,6 @@ local debug: {
 --- Index 0 holds the script name, and negative indices hold the interpreter and the
 --- options it was given.
 local arg: {string}
+
+--- Joins its messages and routes a warning through the shared log sink.
+local warn: function(message: string, ...: string): nil

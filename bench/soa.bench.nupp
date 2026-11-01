@@ -2,8 +2,8 @@
 -- and the canonical AoS struct layout.
 -- Run: nupp bench --file bench/soa.bench.nupp
 
-local bench = require("nupp.bench")
-const {type Invocation} = require("nupp.bench")
+local bench = require("debug.bench")
+const {type Invocation} = require("debug.bench")
 local soa = require("nupp.mem.soa")
 local ffi = require("ffi")
 
@@ -47,8 +47,7 @@ local function generatedSoA(_: any, _: Invocation): number
 end
 
 local function handwrittenSoA(_: any, _: Invocation): number
-    @unsafe
-    do
+    @unsafe do
         local xs = carray(Scalar, COUNT)
         local ys = carray(Scalar, COUNT)
         local dxs = carray(Scalar, COUNT)
@@ -75,8 +74,7 @@ local function handwrittenSoA(_: any, _: Invocation): number
 end
 
 local function ordinaryAoS(_: any, _: Invocation): number
-    @unsafe
-    do
+    @unsafe do
         local particles = carray(Particle, COUNT)
         for i = 0, COUNT - 1 do
             particles[i].x = i + 1

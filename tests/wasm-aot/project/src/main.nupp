@@ -6,7 +6,7 @@ local base64 = require("serde.base64")
 local valuebuilder = require("serde.valuebuilder")
 
 local function u32(value: integer): uint32
-    return nupp.math.u32.wrap(value)
+    return math.u32.wrap(value)
 end
 
 @aot
@@ -17,7 +17,7 @@ local function copyString(source: string, nullValue: any): any
     local index: uint32 = u32(0)
     while index < length do
         valuebuilder.setScratchByte(scratch, index, valuebuilder.byte(source, index))
-        index = nupp.math.u32.add(index, u32(1))
+        index = math.u32.add(index, u32(1))
     end
     valuebuilder.stringScratch(builder, scratch, u32(0), length)
 
@@ -112,7 +112,7 @@ end
 
 @aot
 local function rotateWide(value: uint64, count: integer): (uint64, uint64)
-    return nupp.math.u64.rotateLeft(value, count), nupp.math.u64.rotateRight(value, count)
+    return math.u64.rotateLeft(value, count), math.u64.rotateRight(value, count)
 end
 
 local wideInput = array.scalar(array.uint64, 2)

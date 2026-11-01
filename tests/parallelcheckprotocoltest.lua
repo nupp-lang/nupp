@@ -1,7 +1,6 @@
 local testAssert = require("assert")
 local protocol = require("nupp.tools.build.parallelcheckprotocol")
 local workerchannel = require("nupp.compiler.workerchannel")
-local time = require("nupp.time")
 
 -- A child whose output arrives as the given chunks, one per poll, then ends.
 local function scripted(chunks, said)
@@ -55,7 +54,7 @@ function M.assemblesFramesSplitAcrossReads()
     testAssert.equal(framed, tostring(#body) .. "\n" .. body, "length-delimited frame")
     local chunks = {framed:sub(1, 2), framed:sub(3, 9), framed:sub(10, 40000), framed:sub(40001), "4\nnext"}
     local channel = workerchannel.open(scripted(chunks, "warning\n"), {maxFrame = 100000, maxSaid = 4})
-    local deadline = time.now() + 1000
+    local deadline = os.monotonic() + 1000
     local first, failure = workerchannel.receive(channel, deadline)
     testAssert.equal(failure, nil, "first frame")
     testAssert.equal(first, body, "the body is reassembled exactly")
@@ -73,7 +72,7 @@ function M.reportsWhyNoFrameArrived()
     }
     for _, case in ipairs(cases) do
         local channel = workerchannel.open(scripted(case.chunks), {maxFrame = 100})
-        local payload, failure = workerchannel.receive(channel, time.now() + 1000)
+        local payload, failure = workerchannel.receive(channel, os.monotonic() + 1000)
         testAssert.equal(payload, nil, case.kind .. " payload")
         testAssert.equal(failure and failure.kind, case.kind, case.kind .. " failure")
     end

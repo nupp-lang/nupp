@@ -617,7 +617,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
             cache = "nupp.runtime.workersprovider"
         },
         {
-            module = "nupp.system",
+            module = "nupp.runtime.system",
             interface = "nupp.system.spi.Provider",
             native = "nupp.runtime.provider.nativesystem",
             browser = "nupp.runtime.browser.system",
@@ -625,13 +625,13 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
         },
         {
             module = "nupp.io.path.provider",
-            interface = "nupp.io.path.spi.Provider",
+            interface = "io.path.spi.Provider",
             native = "nupp.runtime.provider.nativepath",
             browser = "nupp.runtime.browser.path"
         },
         {
             module = "nupp.io.uri.provider",
-            interface = "nupp.io.uri.spi.Provider",
+            interface = "io.uri.spi.Provider",
             native = "nupp.runtime.provider.nativeuri",
             browser = "nupp.runtime.browser.uri"
         },
@@ -730,7 +730,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                         provider.derive = function()
                             return name
                         end
-                    elseif case.module == "nupp.system" then
+                    elseif case.module == "nupp.runtime.system" then
                         provider.platform, provider.architecture = "fixture", "fixture"
                         provider.pointerBits, provider.endianness = 32, "little"
                     elseif case.storage then
@@ -995,10 +995,10 @@ local SELECTING_FACADES = {
     {"nupp.io.files", "nupp.io.files.spi.Provider"},
     {"nupp.io.http", "nupp.io.http.spi.Provider"},
     {"nupp.io.net", "nupp.io.net.spi.Provider"},
-    {"nupp.io.path.provider", "nupp.io.path.spi.Provider"},
+    {"nupp.io.path.provider", "io.path.spi.Provider"},
     {"nupp.io.process", "nupp.io.process.spi.Provider"},
     {"nupp.io.tls", "nupp.io.tls.spi.Provider"},
-    {"nupp.io.uri.provider", "nupp.io.uri.spi.Provider"},
+    {"nupp.io.uri.provider", "io.uri.spi.Provider"},
     {"binary.hash.mac", "binary.hash.mac.spi.Provider"},
     {"nupp.random", "nupp.random.spi.Provider"},
     {"nupp.mem.representation", "nupp.mem.representation.spi.CstorageProvider"},
@@ -1006,7 +1006,7 @@ local SELECTING_FACADES = {
     {"nupp.runtime.uuidprovider", "nupp.util.spi.UuidProvider"},
     {"nupp.runtime.workersprovider", "nupp.workers.spi.Provider"},
     {"nupp.suspension.selected", "nupp.suspension.spi.Provider"},
-    {"nupp.system", "nupp.system.spi.Provider"},
+    {"nupp.runtime.system", "nupp.system.spi.Provider"},
     {"nupp.text", "nupp.text.spi.Provider"},
 }
 

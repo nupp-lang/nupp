@@ -26,7 +26,7 @@ local function checkValue(info: nupp.reflect.Info, index: integer, value: any, p
     elseif kind == "number" then
         return type(value) == "number"
     elseif kind == "float" then
-        return type(value) == "number" and (value ~= value or nupp.math.f32.narrow(value) == value)
+        return type(value) == "number" and (value ~= value or math.f32.narrow(value) == value)
     elseif kind == "integer"
         or kind == "int32"
         or kind == "uint32"

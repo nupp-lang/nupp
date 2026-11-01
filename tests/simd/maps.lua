@@ -62,9 +62,9 @@ for _, name in ipairs({'min', 'max'}) do
 end
 -- The portable ordinary call also tests the declared optional-base adapter.
 add('logBase', 'math.log', 'a, b', 'math.log(left, right)', false)
-add('f32min', 'nupp.math.f32.min', 'a, b', 'minimum32(left, right)', true, true)
-add('f32max', 'nupp.math.f32.max', 'a, b', 'maximum32(left, right)', true, true)
-add('f32fma', 'nupp.math.f32.fma', 'a, b, c', 'fmaReference(left, right, third, pattern)', true, true)
+add('f32min', 'math.f32.min', 'a, b', 'minimum32(left, right)', true, true)
+add('f32max', 'math.f32.max', 'a, b', 'maximum32(left, right)', true, true)
+add('f32fma', 'math.f32.fma', 'a, b, c', 'fmaReference(left, right, third, pattern)', true, true)
 -- The four a floating vector takes directly, as the `map` forms above.
 for _, name in ipairs({'sqrt', 'abs', 'floor', 'ceil'}) do
     add(name .. 'Direct', 'math.' .. name .. '(a)', 'a', 'math.' .. name .. '(left)', name ~= 'sqrt', false, true)
@@ -79,7 +79,7 @@ add('fmaMethod64', 'a:fma(b, c)', 'a, b, c', 'fmaReference64(left, right, third)
 local common = [[local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
-local u32 = nupp.math.u32
+local u32 = math.u32
 local negativeZero = -1 / math.huge
 local nan = 0 / 0
 local samples: {{number}} = {
@@ -209,14 +209,7 @@ function M.generate(options)
                                 #source + 1
                             ] = (
                                 '    local result%d = %s\n    s:store(output, %d, result%d, mask)\n    words:store(raw, %d, words:reinterpret(result%d), words:tail(active))\n'
-                            ):format(
-                                index,
-                                expression,
-                                (index - 1) * 64 + 1,
-                                index,
-                                (index - 1) * 64 + 1,
-                                index
-                            )
+                            ):format(index, expression, (index - 1) * 64 + 1, index, (index - 1) * 64 + 1, index)
                         else
                             source[
                                 #source + 1

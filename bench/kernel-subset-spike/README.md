@@ -94,13 +94,13 @@ The scalar subset covers:
 - flat reified structs containing `float`, `int32`, and `uint32` fields;
 - full-span or guarded inclusive-range iteration;
 - ordinary binary64 arithmetic with explicit storage widening and narrowing;
-- the released `nupp.math.f32` and `nupp.math.i32` operations, lowered to native
+- the released `math.f32` and `math.i32` operations, lowered to native
   single-precision and wrapping 32-bit instructions. A binary32 operation over
   binary32 operands computed in binary64 and rounded once is bit-identical to
   the native instruction, because 53 >= 2 * 24 + 2, so this is an exact lowering
   rather than a relaxation;
 - `min`, `max`, and `fma`, which that argument does not cover, through a
-  correcting helper. `nupp.math.f32` canonicalizes every NaN where the
+  correcting helper. `math.f32` canonicalizes every NaN where the
   instruction propagates a payload, and `min` and `max` answer with that
   canonical NaN where IEEE `minNum` answers with whichever operand is not NaN.
   Nothing else differs from `fminf`, `fmaxf` and `fmaf`: not signed zero, not

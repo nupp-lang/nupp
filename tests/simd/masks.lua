@@ -24,7 +24,7 @@ function M.generate(options)
                 [[local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
-local u32 = nupp.math.u32
+local u32 = math.u32
 ]]
             }
             local parameters, arguments, names, exports, calls, lanes = {}, {}, {}, {}, {}, {}

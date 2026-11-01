@@ -23,7 +23,6 @@ handle even when a process is killed or a caller stops reading its output.
 
 local contract = require("nupp.io.process.spi")
 local shared = require("nupp.io.process.types")
-local time = require("nupp.time")
 
 const native = require("nupp.runtime.native")
 
@@ -318,7 +317,7 @@ local function create(): contract.Provider
             return true, nil
         end,
         now = function(self: contract.Provider): number
-            return time.now()
+            return os.monotonic()
         end,
         waitReady = function(self: contract.Provider, interest: shared.Interest, timeoutMs: number): integer
             local readable, readCount = makeArray(interest.read)

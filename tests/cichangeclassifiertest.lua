@@ -68,6 +68,17 @@ function M.toolChangeSelectsWhatACompilerChangeDoes()
     end
 end
 
+function M.utilityRootsRetainTheirExistingLibrarySurfaces()
+    for _, path in ipairs({"src/log.nupp", "src/warn.nupp", "src/io/path/init.nupp", "src/io/uri/spi.nupp"}) do
+        local surfaces = classifier().surfacesOf(path)
+        test.assert(surfaces.library, path .. " is a library")
+        test.assert(not surfaces.unclassified, path .. " has an explicit classification")
+        if path:match("^src/io/") then
+            test.assert(surfaces.native, path .. " retains native provider coverage")
+        end
+    end
+end
+
 function M.aotChangeSelectsAotAndFixpoint()
     selects("src/nupp/compiler/aot/lower.nupp", {"fast-checks", "linux-integration", "fixpoint"})
 end
@@ -82,7 +93,7 @@ function M.localFleetInputsRemainAnExplicitSimdSurface()
         "src/nupp/runtime/storage.nupp",
         "src/nupp/mem/representation/init.nupp",
         "src/nupp/runtime/provider/nativestorage.nupp",
-        "src/nupp/text/utf8.nupp",
+        "src/utf8.nupp",
         "src/serde/valuebuilder.nupp",
         "src/nupp/serde/internal/valuebuilder.nupp",
         "src/nupp/codec/json/aot.nupp",
@@ -328,7 +339,7 @@ function M.everyBenchmarkRunnerInputReachesTheMeasurementSurface()
     local surfacesOf = classifier().surfacesOf
     for _, path in ipairs({
         "bench/presize.bench.nupp",
-        "src/nupp/bench/init.nupp",
+        "src/debug/bench.nupp",
         "src/nupp/bench/internal/statistics.nupp",
         "src/nupp/tools/benchrunner.nupp",
         "src/nupp/tools/cli/bench.nupp",

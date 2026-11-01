@@ -191,13 +191,10 @@ end
 
 function M.cliRunLoadsStdlibFromALuaEntry()
     withProject(
-        {
-            ["nupp.lua"] = "return { include = { 'src' } }\n",
-            ["main.lua"] = [[
-local time = require("nupp.time")
-print(type(time.now()))
-]],
-        },
+        {["nupp.lua"] = "return { include = { 'src' } }\n", ["main.lua"] = [[
+
+print(type(os.monotonic()))
+]],},
         function(dir)
             local output = dir .. "/output.txt"
             local errors = dir .. "/errors.txt"

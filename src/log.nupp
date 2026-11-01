@@ -1,15 +1,15 @@
-module nupp.log
+module log
 
 --[[
-`nupp.log` is leveled logging whose disabled path is the one it is designed
+`log` is leveled logging whose disabled path is the one it is designed
 around. A severity call in statement position is lowered rather than called, so
 a filtered line evaluates none of its arguments.
 
 ```nupp:fragment
-nupp.log.error("cannot open %s: %s", path, reason)
-nupp.log.warn("retrying in %dms", delay)
-nupp.log.info("loaded %d entities", count)
-nupp.log.debug("state=%s", state)
+log.error("cannot open %s: %s", path, reason)
+log.warn("retrying in %dms", delay)
+log.info("loaded %d entities", count)
+log.debug("state=%s", state)
 ```
 
 Each severity accepts a `string.format` directive string and the arguments it
@@ -19,7 +19,7 @@ argument or a `%d` handed a string is a compile error rather than a line that
 fails at run time.
 
 ```text
-nupp.log.error("id %d")
+log.error("id %d")
   error: NUPP2006: omitted argument 2 supplies nil, not number
 ```
 
@@ -31,7 +31,7 @@ says otherwise.
 `debug()` method, and formats the returned string as `%s`:
 
 ```nupp:fragment
-nupp.log.debug("state=%?", state)
+log.debug("state=%?", state)
 ```
 
 At lowered call sites that method call is inside the level guard, so filtered
@@ -44,11 +44,11 @@ A severity call in statement position whose format is a literal is lowered
 rather than called:
 
 ```nupp:fragment
-nupp.log.error("id %d", id)
+log.error("id %d", id)
 ```
 
 ```lua
-const __nuppModule = require("nupp.log").forModule("amb");   -- once, in the prologue
+const __nuppModule = require("log").forModule("amb");   -- once, in the prologue
 if __nuppModule.on[1] then __nuppModule.emit(1,47,string.format("id %d",id)) end
 ```
 
@@ -58,7 +58,7 @@ is a compiler intrinsic rather than a library.
 ### Filtered calls evaluate nothing
 
 The level test stands at the call site, so the arguments of a suppressed line
-are never computed. `nupp.log.debug("%s", render(state))` does not call `render`
+are never computed. `log.debug("%s", render(state))` does not call `render`
 when debug is off. No library can decline to evaluate its own arguments.
 
 ### Module name and line are constants
@@ -81,10 +81,10 @@ slower. The module shows as `?`, and the arguments are evaluated:
 
 | Form | Lowered | Reason |
 | --- | --- | --- |
-| `nupp.log.info("id %d", id)` | yes | |
-| `nupp.log.info(format, id)` | no | the format is not a literal |
-| `local f = nupp.log.info` | no | a value, not a call |
-| `x = nupp.log.info("hi")` | no | not statement position |
+| `log.info("id %d", id)` | yes | |
+| `log.info(format, id)` | no | the format is not a literal |
+| `local f = log.info` | no | a value, not a call |
+| `x = log.info("hi")` | no | not statement position |
 | `local nupp = ...` | no | not the compiler-provided `nupp` |
 | `logger:info("id %d", id)` | no | a named logger, not the path |
 
@@ -93,8 +93,8 @@ slower. The module shows as `?`, and the arguments are evaluated:
 `level` reads the threshold and `setLevel` moves it:
 
 ```nupp
-nupp.log.setLevel("debug") -- returns the previous one
-nupp.log.level() -- "debug"
+log.setLevel("debug") -- returns the previous one
+log.level() -- "debug"
 ```
 
 The five levels are `"off"`, `"error"`, `"warn"`, `"info"` and `"debug"`, each
@@ -108,20 +108,20 @@ be narrowed to one of the five before it can be passed.
 ```nupp
 local wanted = os.getenv("LOG_LEVEL")
 if wanted == "debug" or wanted == "info" or wanted == "warn" then
-    nupp.log.setLevel(wanted)
+    log.setLevel(wanted)
 end
 ```
 
 A level that is not one of the five is a compile error where it is a literal and
 an ordinary raise where it is not.
 
-`nupp.log.enabled(level)` returns whether a level would emit. Use it to guard
+`log.enabled(level)` returns whether a level would emit. Use it to guard
 preparation spanning more than one call, which no single lowered site can elide:
 
 ```nupp:fragment
-if nupp.log.enabled("debug") then
+if log.enabled("debug") then
     local report = summarize(world)
-    nupp.log.debug("world: %s", report)
+    log.debug("world: %s", report)
 end
 ```
 
@@ -131,16 +131,16 @@ end
 without an override inherit the global threshold, including after it changes:
 
 ```nupp
-nupp.log.setLevel("warn")
-nupp.log.setModuleLevel("game.physics", "debug")
+log.setLevel("warn")
+log.setModuleLevel("game.physics", "debug")
 ```
 
 The override reaches existing and future module views. `moduleLevel` reads the
 effective threshold, and passing `"inherit"` removes the override:
 
 ```nupp
-nupp.log.moduleLevel("game.physics") -- "debug"
-nupp.log.setModuleLevel("game.physics", "inherit") -- restore the global threshold
+log.moduleLevel("game.physics") -- "debug"
+log.setModuleLevel("game.physics", "inherit") -- restore the global threshold
 ```
 
 Names are exact: configuring `game.physics` does not also configure
@@ -154,12 +154,12 @@ over completely. It receives the parts, not a rendered line, and pays for no
 formatting it would discard:
 
 ```nupp:fragment
-nupp.log.setSink(function(level: integer, module: string, line: integer, message: string): nil
+log.setSink(function(level: integer, module: string, line: integer, message: string): nil
     sdl.logMessage(CATEGORY, PRIORITY[level], ("%s:%d %s"):format(module, line, message))
 end)
 ```
 
-`level` is `1` error, `2` warn, `3` info, `4` debug; `nupp.log.levelName` turns
+`level` is `1` error, `2` warn, `3` info, `4` debug; `log.levelName` turns
 one back into its name. `line` is `0` for a line the compiler could not
 attribute, which is every line from a named logger.
 
@@ -167,7 +167,7 @@ Passing anything file-like instead keeps the built-in rendering and only moves
 where it goes:
 
 ```nupp
-nupp.log.setSink(assert(io.open("game.log", "a")))
+log.setSink(assert(io.open("game.log", "a")))
 ```
 
 `io.open` returns `LuaFile?`, and `setSink` takes a target rather than a maybe,
@@ -178,8 +178,8 @@ A file-like target renders through the formatter, which is replaceable on its
 own:
 
 ```nupp
-nupp.log.setFormatter(function(level: integer, module: string, line: integer, message: string, stamp: string): string
-    return ("%s[%s] %s"):format(stamp, nupp.log.levelName(level), message)
+log.setFormatter(function(level: integer, module: string, line: integer, message: string, stamp: string): string
+    return ("%s[%s] %s"):format(stamp, log.levelName(level), message)
 end)
 ```
 
@@ -188,15 +188,15 @@ found, and `setFormatter(nil)` returns to the built-in rendering.
 
 ## Timestamps
 
-`nupp.log.timestamp()` returns the current time formatted, recomputed at most
+`log.timestamp()` returns the current time formatted, recomputed at most
 once per wall-clock second and shared by every logger. It is a pull rather than
 something pushed to sinks, so a host that stamps its own lines never pays for
 one.
 
 ```nupp
-nupp.log.setTimestampFormat("%H:%M:%S ") -- returns the previous format
-nupp.log.setTimestampFormat("") -- off
-nupp.log.timestampFormat() -- ""
+log.setTimestampFormat("%H:%M:%S ") -- returns the previous format
+log.setTimestampFormat("") -- off
+log.timestampFormat() -- ""
 ```
 
 ::: deepdive Reading the second through the FFI
@@ -212,7 +212,7 @@ returns nonsense rather than failing to resolve.
 `named` returns a logger carrying a fixed name, with a method per severity:
 
 ```nupp:fragment
-local physics = nupp.log.named("physics")
+local physics = log.named("physics")
 physics:warn("step %d took %.2fms", step, elapsed)
 ```
 
@@ -224,7 +224,7 @@ evaluated, which is the cost of a name chosen at run time.
 
 ## Cost
 
-The installer lands only in modules that reach `nupp.log`, like every other
+The installer lands only in modules that reach `log`, like every other
 compiler-provided facility. A module that never logs carries nothing.
 
 ::: seealso
@@ -573,7 +573,7 @@ end
 --- filtered call reaches an empty function rather than a test.
 ---
 --- ```nupp:fragment
---- const log = nupp.log.named("renderer")
+--- const log = log.named("renderer")
 --- log:info("loaded %d entities", count)
 --- ```
 ---

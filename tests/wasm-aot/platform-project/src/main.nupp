@@ -3,20 +3,20 @@ local browserTime = require("nupp.time")
 local digest = require("binary.hash.digest")
 local mac = require("binary.hash.mac")
 local checksum = require("binary.hash.checksum")
-local uuid = require("nupp.util")
+local uuid = os
 local json = require("serde.json")
-local system = require("nupp.system")
+local system = os.info()
 
-local started = browserTime.now()
+local started = os.monotonic()
 browserTime.sleep(1)
-local elapsed = browserTime.now() - started
+local elapsed = os.monotonic() - started
 
 return json.encodeValue({
     platform = system.platform,
-    architecture = system.architecture,
-    pointerBits = system.pointerBits,
+    architecture = system.arch,
+    pointerBits = system.pointerbits,
     endianness = system.endianness,
-    parallelism = system.availableParallelism(),
+    parallelism = system.parallelism,
     elapsed = elapsed,
     randomBytes = #browserRandom.randomBytes(32),
     md5 = digest.hexDigest("md5", "abc"),

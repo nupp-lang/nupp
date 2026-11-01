@@ -163,7 +163,7 @@ function M.aComponentInstallsBeforeItsEntryRuns()
         [
             "src/app/main.nupp"
         ] = [[
-local log = require("nupp.log")
+local log = require("log")
 local json = require("serde.json")
 assert(_G.component_started == nil)
 log.info("starting component")
@@ -188,7 +188,7 @@ return game
     local marker = "-- NUPP-COMPONENT 1"
     assert(artifact and artifact:sub(1, #marker) == marker, "the component has a version marker")
     assert(
-        artifact:find('package.preload["nupp.log"]', 1, true),
+        artifact:find('package.preload["log"]', 1, true),
         "the component carries standard-library modules reached by its source"
     )
     assert(
@@ -225,8 +225,8 @@ end
 
 function M.componentsShareOneRuntimeAndRejectNameCollisions()
     local dir = tempProject({
-        ["build/one/main.lua"] = 'require("nupp.log")\nreturn {call=function(n) return n + 1 end}\n',
-        ["build/two/main.lua"] = 'require("nupp.log")\nreturn {call=function(n) return n + 2 end}\n',
+        ["build/one/main.lua"] = 'require("log")\nreturn {call=function(n) return n + 1 end}\n',
+        ["build/two/main.lua"] = 'require("log")\nreturn {call=function(n) return n + 2 end}\n',
         ["build/three/main.lua"] = "return {call=function(n) return n + 3 end}\n",
         ["build/shared/log.lua"] = "return {version=1}\n",
         ["build/changed/log.lua"] = "return {version=2}\n",
@@ -236,7 +236,7 @@ function M.componentsShareOneRuntimeAndRejectNameCollisions()
         local path = dir .. "/build/" .. entry:gsub("%.", "/") .. ".lua"
         local modules = {[entry] = {output = path}}
         if shared then
-            modules["nupp.log"] = {output = dir .. "/build/" .. shared .. "/log.lua", compilerRuntime = true}
+            modules["log"] = {output = dir .. "/build/" .. shared .. "/log.lua", compilerRuntime = true}
         end
         local text = assert(
             packaging.bundleText(
@@ -261,8 +261,8 @@ function M.componentsShareOneRuntimeAndRejectNameCollisions()
     local changed = assert(loadstring(artifact("three.main", "three.main.call", "changed")))()
     local savedHost, savedPublic = _G.__nuppHost, _G.__nuppComponentExports
     local savedShared = _G.__nuppComponentSharedModules
-    local savedLogLoaded, savedLogPreload = package.loaded["nupp.log"], package.preload["nupp.log"]
-    package.loaded["nupp.log"], package.preload["nupp.log"] = nil, nil
+    local savedLogLoaded, savedLogPreload = package.loaded["log"], package.preload["log"]
+    package.loaded["log"], package.preload["log"] = nil, nil
     _G.__nuppHost = {hostAbi = 1, hostFeatures = {}}
     local first = one.install()
     local second = two.install()
@@ -275,13 +275,13 @@ function M.componentsShareOneRuntimeAndRejectNameCollisions()
     )
     installed, problem = pcall(changed.install)
     assert(
-        not installed and tostring(problem):find("component shared module collision: nupp.log", 1, true),
+        not installed and tostring(problem):find("component shared module collision: log", 1, true),
         "components share only byte-identical compiler runtime modules"
     )
     assert(first.exports["one.main.call"](1) == 2, "the prior component remains installed")
     package.loaded["one.main"], package.loaded["two.main"] = nil, nil
     package.preload["one.main"], package.preload["two.main"] = nil, nil
-    package.loaded["nupp.log"], package.preload["nupp.log"] = savedLogLoaded, savedLogPreload
+    package.loaded["log"], package.preload["log"] = savedLogLoaded, savedLogPreload
     _G.__nuppHost, _G.__nuppComponentExports = savedHost, savedPublic
     _G.__nuppComponentSharedModules = savedShared
     os.execute("rm -rf '" .. dir .. "'")

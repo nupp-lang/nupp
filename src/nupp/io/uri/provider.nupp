@@ -3,10 +3,10 @@ module nupp.io.uri.provider
 
 local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
-local contracts = require("nupp.io.uri.spi")
+local contracts = require("io.uri.spi")
 
 local provider: contracts.Provider = do
-    const chosen = spi.select(spi.providers<contracts.Provider>("nupp.io.uri.spi.Provider"))
+    const chosen = spi.select(spi.providers<contracts.Provider>("io.uri.spi.Provider"))
     if chosen ~= nil then
         yield chosen
     end

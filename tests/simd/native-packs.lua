@@ -19,7 +19,7 @@ local function speciesModule(element, lanes)
         'local array = require("nupp.mem.array")',
         'local span = require("nupp.mem.span")',
         'local simd = require("nupp.simd")',
-        'local u32 = nupp.math.u32',
+        'local u32 = math.u32',
     }
     local names, exports = {}, {}
     for _, width in ipairs(lanes) do
@@ -287,10 +287,7 @@ end
 local function validateProbes(generated, expected)
     local total, seen = 0, {}
     for module, names in pairs(generated.probes or {}) do
-        assert(
-            generated.files[module .. ".nupp"],
-            "probe module has no generated source " .. module
-        )
+        assert(generated.files[module .. ".nupp"], "probe module has no generated source " .. module)
         assert(type(names) == "table" and #names > 0, "probe module is empty " .. module)
         for _, name in ipairs(names) do
             local id = module .. "." .. tostring(name)

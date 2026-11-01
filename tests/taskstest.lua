@@ -94,7 +94,7 @@ function M.spawnHandsItsArgumentsToTheBody()
 end
 
 function M.childrenRunConcurrentlyAndAwaitAnswersEachOne()
-    local started = time.now()
+    local started = os.monotonic()
     local first, second
     scoped(nil, function(scope)
         -- Library order again: the named overload takes the callable first, and the
@@ -114,7 +114,7 @@ function M.childrenRunConcurrentlyAndAwaitAnswersEachOne()
     end)
     testAssert.equal(first, "a", "the first child's result")
     testAssert.equal(second, "b", "the second child's result")
-    assert(time.now() - started < 70, "the children serialized")
+    assert(os.monotonic() - started < 70, "the children serialized")
 end
 
 function M.awaitingTwiceObservesOneSettlement()
@@ -312,7 +312,7 @@ end
 
 function M.aLimitParksSpawnUntilAChildSettles()
     local live, peak, ran = 0, 0, 0
-    local started = time.now()
+    local started = os.monotonic()
     scoped({limit = 2}, function(scope)
         for _ = 1, 6 do
             scope:spawn(function()
@@ -330,7 +330,7 @@ function M.aLimitParksSpawnUntilAChildSettles()
     end)
     testAssert.equal(ran, 6, "not every child ran")
     testAssert.equal(peak, 2, "the limit was not the number of children live at once")
-    assert(time.now() - started >= 40, "six children under a limit of two finished in fewer than three rounds")
+    assert(os.monotonic() - started >= 40, "six children under a limit of two finished in fewer than three rounds")
 end
 
 function M.aSpawnParkedForASlotDropsItsBodyWhenASiblingFails()
@@ -436,7 +436,7 @@ function M.aChildStartingOnAFullScopeLendsItsSlotRatherThanDeadlocking()
 end
 
 function M.aScopeWithADeadlineCancelsWhatOutlivesIt()
-    local started = time.now()
+    local started = os.monotonic()
     local problem = raises(function()
         scoped({deadline = 40}, function(scope)
             local child = scope:spawn(function()
@@ -447,7 +447,7 @@ function M.aScopeWithADeadlineCancelsWhatOutlivesIt()
         end)
     end)
     assert(tasks.isCancelled(problem), "the deadline did not cancel: " .. tostring(problem))
-    assert(time.now() - started < 1000, "the scope waited for work its deadline had ended")
+    assert(os.monotonic() - started < 1000, "the scope waited for work its deadline had ended")
 end
 
 function M.aDeadlineUnwindsEveryParkedChildThroughItsCleanup()
@@ -470,7 +470,7 @@ function M.aDeadlineUnwindsEveryParkedChildThroughItsCleanup()
         end
     end
 
-    local started = time.now()
+    local started = os.monotonic()
     local problem = raises(function()
         scoped({deadline = 30}, function(scope)
             scope:spawn(child)
@@ -480,7 +480,7 @@ function M.aDeadlineUnwindsEveryParkedChildThroughItsCleanup()
     assert(tasks.isCancelled(problem), "the deadline was not raised at the block's exit: " .. tostring(problem))
     testAssert.equal(unwound, 2, "a parked child did not observe the cancellation")
     testAssert.equal(closes, 2, "a child's cleanup was skipped")
-    assert(time.now() - started < 1000, "settling waited for work the deadline had ended")
+    assert(os.monotonic() - started < 1000, "settling waited for work the deadline had ended")
 
     -- The same when the block is parked on a child when the deadline passes: its own
     -- wait is cancelled, and settling still drives the children through cleanup.
@@ -500,14 +500,14 @@ end
 function M.aDeadlineCancelsTheBlocksOwnWait()
     -- The block is not a child, but its waits are the scope's: a deadline reaches
     -- the block where it is waiting rather than at its next task operation.
-    local started = time.now()
+    local started = os.monotonic()
     local problem = raises(function()
         scoped({deadline = 30}, function()
             time.sleep(4000)
         end)
     end)
     assert(tasks.isCancelled(problem), "the block's wait was not cancelled: " .. tostring(problem))
-    assert(time.now() - started < 1000, "the block slept past its deadline")
+    assert(os.monotonic() - started < 1000, "the block slept past its deadline")
 end
 
 function M.aNestedDeadlineTakesTheEarlierOfTheTwo()
@@ -1383,7 +1383,7 @@ function M.runJoinsChildrenWhenTheBodyReturns()
 end
 
 function M.runCancelsChildrenWhenTheBodyFails()
-    local started = time.now()
+    local started = os.monotonic()
     local unwound = false
     local problem = raises(function()
         tasks.run(function(scope)
@@ -1400,7 +1400,7 @@ function M.runCancelsChildrenWhenTheBodyFails()
     end)
     testAssert.equal(problem, "the body failed", "the body's own failure is what run raises")
     assert(unwound, "the child was not cancelled through its cleanup")
-    assert(time.now() - started < 1000, "the body's failure waited for its child")
+    assert(os.monotonic() - started < 1000, "the body's failure waited for its child")
 end
 
 function M.runRaisesAChildsFailureAsItself()
@@ -1446,7 +1446,7 @@ function M.runKeepsTheBodysFailurePrimaryOverACleanupFailure()
 end
 
 function M.runRaisesItsDeadline()
-    local started = time.now()
+    local started = os.monotonic()
     local problem = raises(function()
         tasks.run(nil, 20, function(scope)
             scope:spawn(function()
@@ -1456,7 +1456,7 @@ function M.runRaisesItsDeadline()
         end)
     end)
     assert(tasks.isCancelled(problem), "the deadline did not cancel: " .. tostring(problem))
-    assert(time.now() - started < 1000, "the deadline was not kept")
+    assert(os.monotonic() - started < 1000, "the deadline was not kept")
 end
 
 function M.runInsideAChildFailsThatChild()

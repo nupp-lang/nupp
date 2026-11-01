@@ -1,16 +1,16 @@
-local system = require("nupp.system")
+local system = os.info()
 local random = require("nupp.random")
-local uuid = require("nupp.util")
+local uuid = os
 local providerstate = require("providerstate")
 local ffi = require("ffi")
 local M = {}
 
 function M.systemReportsExecutingAbiWithoutWorkers()
     assert(type(system.platform) == "string" and #system.platform > 0)
-    assert(type(system.architecture) == "string" and #system.architecture > 0)
-    assert(system.pointerBits == ffi.sizeof("void *") * 8)
+    assert(type(system.arch) == "string" and #system.arch > 0)
+    assert(system.pointerbits == ffi.sizeof("void *") * 8)
     assert(system.endianness == (ffi.abi("le") and "little" or "big"))
-    local count = system.availableParallelism()
+    local count = os.info().parallelism
     assert(type(count) == "number" and count >= 1 and count == math.floor(count))
 end
 
@@ -24,7 +24,7 @@ function M.secureRandomBytesSizesAndValidation()
     assert(random.sha256 == nil and random.uuid4 == nil and random.hmacSha256 == nil)
 end
 
-function M.identifiersAreMembersOfTheUtilNamespace()
+function M.identifiersAreMembersOfTheOsNamespace()
     assert(uuid.uuid4():match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-4%x%x%x%-[89ab]%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"))
     assert(uuid.uuid7():match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-7%x%x%x%-[89ab]%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"))
     assert(uuid.v4 == nil and uuid.v7 == nil, "the old nested spelling is gone")

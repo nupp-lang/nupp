@@ -202,7 +202,7 @@ same lanes and pay ten thousand copies to do it.
 
 The first fork creates one scheduler for the process. Its lane count is the
 host's online processor count, capped at 64, and
-`nupp.system.availableParallelism()` returns that count without opening
+`os.info().parallelism` returns that count without opening
 anything. Later and concurrent scopes reuse the same lanes rather than creating
 a pool or a thread per task.
 
@@ -567,7 +567,7 @@ lanes, so no Wasm threads, no `SharedArrayBuffer`, and no cross-origin isolation
 headers are involved.
 
 The page's pool is bounded by both the package's lane limit and
-`navigator.hardwareConcurrency`, and `nupp.system.availableParallelism()`
+`navigator.hardwareConcurrency`, and `os.info().parallelism`
 returns that bound there. Lanes boot as work arrives rather than when the first
 fork is made.
 

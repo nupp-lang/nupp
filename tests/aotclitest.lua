@@ -364,15 +364,15 @@ local function doubled(
 ): nil
     if #output ~= #input then error("length mismatch", 2) end
     for i = 1, #output do
-        local value = nupp.math.f32.narrow(input[i])
+        local value = math.f32.narrow(input[i])
         local product: float = 0.0
         local repetition: uint32 = 0
-        while repetition < nupp.math.u32.wrap(1) do
-            product = nupp.math.f32.mul(nupp.math.f32.narrow(-value), scale)
-            repetition = nupp.math.u32.add(repetition, 1)
+        while repetition < math.u32.wrap(1) do
+            product = math.f32.mul(math.f32.narrow(-value), scale)
+            repetition = math.u32.add(repetition, 1)
         end
-        local adjusted = nupp.math.f32.sub(scale, 1.0)
-        output[i] = nupp.math.f32.fma(nupp.math.f32.add(product, adjusted), scale, 0.0)
+        local adjusted = math.f32.sub(scale, 1.0)
+        output[i] = math.f32.fma(math.f32.add(product, adjusted), scale, 0.0)
     end
 end
 return {doubled = doubled}
@@ -427,10 +427,10 @@ local function convert(
 ): nil
     if #output ~= #input then error("length mismatch", 2) end
     for i = 1, #output do
-        local bits = nupp.math.u32.fromI32(input[i])
-        output[i] = nupp.math.u32.xorBits(
-            nupp.math.u32.shiftLeft(bits, count),
-            nupp.math.u32.shiftRightLogical(bits, count)
+        local bits = math.u32.fromI32(input[i])
+        output[i] = math.u32.xorBits(
+            math.u32.shiftLeft(bits, count),
+            math.u32.shiftRightLogical(bits, count)
         )
     end
 end
@@ -472,7 +472,7 @@ function M.mandelbrotGpuBenchmarkUsesTheCpuFmaRecurrence()
         local source = handle:read("*a")
         handle:close()
         assert(
-            source:find("zy = nupp.math.f32.fma(doubledZx, zy, cy)", 1, true),
+            source:find("zy = math.f32.fma(doubledZx, zy, cy)", 1, true),
             path .. " must use the explicitly fused binary32 recurrence"
         )
     end
@@ -498,7 +498,7 @@ local function shrink(
             if done then
                 continue
             end
-            value = nupp.math.u32.sub(value, 1)
+            value = math.u32.sub(value, 1)
         until done
         output[i] = value
     end
@@ -555,7 +555,7 @@ local function xorMask(
 ): nil
     assert(#output == #input, "length mismatch")
     for i = 1, #output do
-        output[i] = nupp.math.u32.xorBits(input[i], mask)
+        output[i] = math.u32.xorBits(input[i], mask)
     end
 end
 return xorMask
@@ -596,8 +596,8 @@ local function doubled(
 ): nil
     assert(#output == #input, "length mismatch")
     for i = 1, #output do
-        local value = nupp.math.f32.narrow(input[i])
-        output[i] = nupp.math.f32.mul(value, 2.0)
+        local value = math.f32.narrow(input[i])
+        output[i] = math.f32.mul(value, 2.0)
     end
 end
 return doubled
@@ -624,7 +624,7 @@ local function reservedNames(
 ): nil
     assert(#uniforms == #array, "length mismatch")
     for i = 1, #uniforms do
-        uniforms[i] = nupp.math.u32.add(nupp.math.u32.add(array[i], count), asm)
+        uniforms[i] = math.u32.add(math.u32.add(array[i], count), asm)
     end
 end
 return reservedNames
@@ -665,7 +665,7 @@ local span = require("nupp.mem.span")
 local function increment(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil
     assert(#output == #input, "length mismatch")
     for i = 1, #output do
-        output[i] = nupp.math.u32.add(input[i], 1)
+        output[i] = math.u32.add(input[i], 1)
     end
 end
 return increment
@@ -721,9 +721,9 @@ local function bindingNames(
 ): nil
     assert(#raw == #gpuImplementation_ks_binding_names, "length mismatch")
     for i = 1, #raw do
-        raw[i] = nupp.math.u32.add(
+        raw[i] = math.u32.add(
             gpuImplementation_ks_binding_names[i],
-            nupp.math.u32.add(scalars, nupp.math.u32.add(uniforms, self))
+            math.u32.add(scalars, math.u32.add(uniforms, self))
         )
     end
 end
@@ -741,8 +741,8 @@ return bindingNames
     local browser, browserCode = run(dir, "--emit binding --triple wasm32-unknown-emscripten gpu.nupp")
     test.equal(browserCode, 0, browser)
     assert(browser:find("local scalars_: {uint32} = {}", 1, true), browser)
-    assert(browser:find("nupp.math.u32.wrap(scalars as integer)", 1, true), browser)
-    assert(browser:find("nupp.math.u32.wrap(gpuParameter as integer)", 1, true), browser)
+    assert(browser:find("math.u32.wrap(scalars as integer)", 1, true), browser)
+    assert(browser:find("math.u32.wrap(gpuParameter as integer)", 1, true), browser)
 end
 
 -- affine(T) takes T's cleanup from its Closeable claim, and a T declared later
@@ -761,7 +761,7 @@ local span = require("nupp.mem.span")
 local function addMask(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>, mask: uint32): nil
     assert(#output == #input, "length mismatch")
     for index = 1, #output do
-        output[index] = nupp.math.u32.add(input[index], mask)
+        output[index] = math.u32.add(input[index], mask)
     end
 end
 return addMask
@@ -813,7 +813,7 @@ local gpu = require("nupp.gpu")
 local function addMask(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>, mask: uint32): nil
     assert(#output == #input, "length mismatch")
     for index = 1, #output do
-        output[index] = nupp.math.u32.add(input[index], mask)
+        output[index] = math.u32.add(input[index], mask)
     end
 end
 
@@ -821,7 +821,7 @@ with context = gpu.open() do
     with gpuInput = context:buffer(array.uint32, 2), gpuOutput = context:buffer(array.uint32, 2) do
         with kernel = addMask:compile(context) do
             with binding = kernel:bind(gpuOutput, gpuInput) do
-                binding:dispatch(nupp.math.u32.wrap(3))
+                binding:dispatch(math.u32.wrap(3))
             end
         end
     end
@@ -886,8 +886,8 @@ local function relaxed(
 ): nil
     assert(#output == #input, "length mismatch")
     for i = 1, #output do
-        output[i] = nupp.math.f32.add(
-            nupp.math.f32.mul(nupp.math.f32.narrow(input[i]), scale),
+        output[i] = math.f32.add(
+            math.f32.mul(math.f32.narrow(input[i]), scale),
             bias
         )
     end
@@ -916,14 +916,14 @@ local function nativeExp(
 ): nil
     assert(#output == #input, "length mismatch")
     for i = 1, #output do
-        output[i] = nupp.math.f32.exp(nupp.math.f32.narrow(input[i]))
+        output[i] = math.f32.exp(math.f32.narrow(input[i]))
     end
 end
 
 @relax("fp-transcendentals")
 @aot
 local function nativeExpCpu(value: float): float
-    return nupp.math.f32.exp(value)
+    return math.f32.exp(value)
 end
 
 return {nativeExp = nativeExp, nativeExpCpu = nativeExpCpu}
@@ -965,9 +965,9 @@ local function roundTripCpu(
 ): nil
     assert(#output == #packed and #output == #input, "length mismatch")
     for i = 1, #output do
-        local value = nupp.math.f32.fromF16Bits(input[i])
+        local value = math.f32.fromF16Bits(input[i])
         output[i] = value
-        packed[i] = nupp.math.f32.toF16Bits(value)
+        packed[i] = math.f32.toF16Bits(value)
     end
 end
 
@@ -979,9 +979,9 @@ local function roundTripBf16Cpu(
 ): nil
     assert(#output == #packed and #output == #input, "length mismatch")
     for i = 1, #output do
-        local value = nupp.math.f32.fromBF16Bits(input[i])
+        local value = math.f32.fromBF16Bits(input[i])
         output[i] = value
-        packed[i] = nupp.math.f32.toBF16Bits(value)
+        packed[i] = math.f32.toBF16Bits(value)
     end
 end
 return {roundTripCpu = roundTripCpu, roundTripBf16Cpu = roundTripBf16Cpu}
@@ -998,7 +998,7 @@ local function roundTrip(
 ): nil
     assert(#output == #input, "length mismatch")
     for i = 1, #output do
-        output[i] = nupp.math.f32.fromF16Bits(input[i])
+        output[i] = math.f32.fromF16Bits(input[i])
     end
 end
 return {roundTrip = roundTrip}
@@ -1019,7 +1019,7 @@ local function signedToFloat(
 ): nil
     assert(#output == #input, "length mismatch")
     for i = 1, #output do
-        output[i] = nupp.math.f32.narrow(input[i].level)
+        output[i] = math.f32.narrow(input[i].level)
     end
 end
 return {signedToFloat = signedToFloat, Pixel = Pixel}
@@ -1059,7 +1059,7 @@ local function exponential(
 ): nil
     assert(#output == #input, "length mismatch")
     for i = 1, #output do
-        output[i] = nupp.math.f32.exp(nupp.math.f32.narrow(input[i]))
+        output[i] = math.f32.exp(math.f32.narrow(input[i]))
     end
 end
 
@@ -1070,7 +1070,7 @@ local function exponentialCpu(
 ): nil
     assert(#output == #input, "length mismatch")
     for i = 1, #output do
-        output[i] = nupp.math.f32.exp(nupp.math.f32.narrow(input[i]))
+        output[i] = math.f32.exp(math.f32.narrow(input[i]))
     end
 end
 return {exponential = exponential, exponentialCpu = exponentialCpu}
@@ -1121,10 +1121,10 @@ local function gemm(
     if #c ~= #rowOf then error("length mismatch", 2) end
     for i = 1, #c do
         local row = rowOf[i]
-        local ai = nupp.math.u32.mul(row, columns)
+        local ai = math.u32.mul(row, columns)
         local value: float = 0.0
         if ai < #a then
-            value = nupp.math.f32.narrow(a[ai + 1])
+            value = math.f32.narrow(a[ai + 1])
         end
         c[i] = value
     end
@@ -1168,7 +1168,7 @@ local function gather(
         local cursor = offsets[i]
         local value: float = 0.0
         if cursor < #source then
-            value = nupp.math.f32.narrow(source[cursor + 1])
+            value = math.f32.narrow(source[cursor + 1])
         end
         out[i] = value
     end
@@ -1211,7 +1211,7 @@ local function copyFirst(
         local cursor: uint32 = 0
         local value: float = 0.0
         if cursor < #input then
-            value = nupp.math.f32.narrow(input[cursor + 1])
+            value = math.f32.narrow(input[cursor + 1])
         end
         output[i] = value
     end
@@ -1244,10 +1244,10 @@ local function coordinates(
 ): nil
     assert(#out == #input, "length mismatch")
     for i = 1, #out do
-        local offset = nupp.math.u32.sub(nupp.math.u32.wrap(i), 1)
-        local row = nupp.math.u32.div(offset, columns)
-        local column = nupp.math.u32.mod(offset, columns)
-        out[i] = nupp.math.u32.add(input[i], nupp.math.u32.add(row, column))
+        local offset = math.u32.sub(math.u32.wrap(i), 1)
+        local row = math.u32.div(offset, columns)
+        local column = math.u32.mod(offset, columns)
+        out[i] = math.u32.add(input[i], math.u32.add(row, column))
     end
 end
 
@@ -1259,10 +1259,10 @@ local function coordinatesCpu(
 ): nil
     assert(#out == #input, "length mismatch")
     for i = 1, #out do
-        local offset = nupp.math.u32.sub(nupp.math.u32.wrap(i), 1)
-        local row = nupp.math.u32.div(offset, columns)
-        local column = nupp.math.u32.mod(offset, columns)
-        out[i] = nupp.math.u32.add(input[i], nupp.math.u32.add(row, column))
+        local offset = math.u32.sub(math.u32.wrap(i), 1)
+        local row = math.u32.div(offset, columns)
+        local column = math.u32.mod(offset, columns)
+        out[i] = math.u32.add(input[i], math.u32.add(row, column))
     end
 end
 return {coordinates = coordinates, coordinatesCpu = coordinatesCpu}
@@ -1329,24 +1329,24 @@ local function reduce(
     exclusive output: span.WriteSpan<float>,
     borrows input: span.Span<float>
 ): nil
-    local zero = nupp.math.f32.narrow(0.0)
-    local groups = nupp.math.u32.div(nupp.math.u32.wrap(#input), nupp.math.u32.wrap(4))
+    local zero = math.f32.narrow(0.0)
+    local groups = math.u32.div(math.u32.wrap(#input), math.u32.wrap(4))
     gpu.workgroups(groups, 4, function(groupIndex: uint32, phases: gpu.Phases)
         local values = phases:scratch(zero, 4)
         phases:run(function(localIndex: uint32)
-            local cursor = nupp.math.u32.add(
-                nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(4)),
+            local cursor = math.u32.add(
+                math.u32.mul(groupIndex, math.u32.wrap(4)),
                 localIndex
             )
             if cursor < #input then
-                values[localIndex] = nupp.math.f32.narrow(input[cursor + 1])
+                values[localIndex] = math.f32.narrow(input[cursor + 1])
             else
-                values[localIndex] = nupp.math.f32.narrow(0.0)
+                values[localIndex] = math.f32.narrow(0.0)
             end
         end)
         phases:reduceSum(values)
         phases:run(function(localIndex: uint32)
-            if localIndex == nupp.math.u32.wrap(0) and groupIndex < #output then
+            if localIndex == math.u32.wrap(0) and groupIndex < #output then
                 output[groupIndex + 1] = values[0]
             end
         end)
@@ -1381,12 +1381,12 @@ local span = require("nupp.mem.span")
 local function map(
     exclusive output: span.WriteSpan<float>
 ): nil
-    local groups = nupp.math.u32.div(nupp.math.u32.wrap(#output), nupp.math.u32.wrap(4))
+    local groups = math.u32.div(math.u32.wrap(#output), math.u32.wrap(4))
     gpu.workgroups(groups, 4, function(groupIndex: uint32, phases: gpu.Phases)
         phases:run(function(localIndex: uint32)
-            if localIndex == nupp.math.u32.wrap(0) then
+            if localIndex == math.u32.wrap(0) then
                 if groupIndex < #output then
-                    output[groupIndex + 1] = nupp.math.f32.narrow(1.0)
+                    output[groupIndex + 1] = math.f32.narrow(1.0)
                 end
             end
         end)
@@ -1421,11 +1421,11 @@ local function addPairs(
     exclusive output: span.WriteSpan<float>,
     borrows input: span.Span<Pair>
 ): nil
-    local groups = nupp.math.u32.div(nupp.math.u32.wrap(#output), nupp.math.u32.wrap(4))
+    local groups = math.u32.div(math.u32.wrap(#output), math.u32.wrap(4))
     gpu.workgroups(groups, 4, function(groupIndex: uint32, phases: gpu.Phases)
         phases:run(function(localIndex: uint32)
-            local index = nupp.math.u32.add(
-                nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(4)),
+            local index = math.u32.add(
+                math.u32.mul(groupIndex, math.u32.wrap(4)),
                 localIndex
             )
             local inputCursor = index
@@ -1433,9 +1433,9 @@ local function addPairs(
             if inputCursor < #input then
                 if outputCursor < #output then
                     local pair = input[inputCursor + 1]
-                    output[outputCursor + 1] = nupp.math.f32.add(
-                        nupp.math.f32.narrow(pair.left),
-                        nupp.math.f32.narrow(pair.right)
+                    output[outputCursor + 1] = math.f32.add(
+                        math.f32.narrow(pair.left),
+                        math.f32.narrow(pair.right)
                     )
                 end
             end
@@ -1462,17 +1462,17 @@ local span = require("nupp.mem.span")
 
 @aot(target = "gpu")
 local function scan(exclusive output: span.WriteSpan<uint32>): nil
-    local groups = nupp.math.u32.div(nupp.math.u32.wrap(#output), nupp.math.u32.wrap(4))
+    local groups = math.u32.div(math.u32.wrap(#output), math.u32.wrap(4))
     gpu.workgroups(groups, 4, function(groupIndex: uint32, phases: gpu.Phases)
-        local values = phases:scratch(nupp.math.u32.wrap(0), 4)
-        local temporary = phases:scratch(nupp.math.u32.wrap(0), 4)
+        local values = phases:scratch(math.u32.wrap(0), 4)
+        local temporary = phases:scratch(math.u32.wrap(0), 4)
         phases:run(function(localIndex: uint32)
-            values[localIndex] = nupp.math.u32.add(localIndex, nupp.math.u32.wrap(1))
+            values[localIndex] = math.u32.add(localIndex, math.u32.wrap(1))
         end)
         phases:inclusiveScan(values, temporary)
         phases:run(function(localIndex: uint32)
-            local cursor = nupp.math.u32.add(
-                nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(4)),
+            local cursor = math.u32.add(
+                math.u32.mul(groupIndex, math.u32.wrap(4)),
                 localIndex
             )
             if cursor < #output then
@@ -1502,11 +1502,11 @@ local span = require("nupp.mem.span")
 
 @aot(target = "gpu")
 local function bad(exclusive output: span.WriteSpan<float>): nil
-    local groups = nupp.math.u32.div(nupp.math.u32.wrap(#output), nupp.math.u32.wrap(4))
+    local groups = math.u32.div(math.u32.wrap(#output), math.u32.wrap(4))
     gpu.workgroups(groups, 4, function(groupIndex: uint32, phases: gpu.Phases)
-        local values = phases:scratch(nupp.math.f32.narrow(0.0), 4)
+        local values = phases:scratch(math.f32.narrow(0.0), 4)
         phases:run(function(localIndex: uint32)
-            values[nupp.math.u32.add(localIndex, nupp.math.u32.wrap(1))] = nupp.math.f32.narrow(0.0)
+            values[math.u32.add(localIndex, math.u32.wrap(1))] = math.f32.narrow(0.0)
         end)
     end)
 end
@@ -1530,18 +1530,18 @@ local span = require("nupp.mem.span")
 
 @aot(target = "gpu")
 local function racy(exclusive output: span.WriteSpan<float>): nil
-    local groups = nupp.math.u32.div(nupp.math.u32.wrap(#output), nupp.math.u32.wrap(4))
+    local groups = math.u32.div(math.u32.wrap(#output), math.u32.wrap(4))
     gpu.workgroups(groups, 4, function(groupIndex: uint32, phases: gpu.Phases)
-        local values = phases:scratch(nupp.math.f32.narrow(0.0), 4)
+        local values = phases:scratch(math.f32.narrow(0.0), 4)
         phases:run(function(localIndex: uint32)
-            values[localIndex] = nupp.math.f32.narrow(1.0)
+            values[localIndex] = math.f32.narrow(1.0)
         end)
         phases:run(function(localIndex: uint32)
-            values[localIndex] = nupp.math.f32.narrow(values[nupp.math.u32.mod(
-                nupp.math.u32.add(localIndex, nupp.math.u32.wrap(1)), nupp.math.u32.wrap(4))])
+            values[localIndex] = math.f32.narrow(values[math.u32.mod(
+                math.u32.add(localIndex, math.u32.wrap(1)), math.u32.wrap(4))])
         end)
         phases:run(function(localIndex: uint32)
-            if localIndex == nupp.math.u32.wrap(0) and groupIndex < #output then
+            if localIndex == math.u32.wrap(0) and groupIndex < #output then
                 output[groupIndex + 1] = values[0]
             end
         end)
@@ -1824,7 +1824,7 @@ local function delimiters(
         if source[i] == 44 then
             if written < #offsets then
                 offsets[written + 1] = written
-                written = nupp.math.u32.add(written, 1)
+                written = math.u32.add(written, 1)
             else
                 return written
             end
@@ -1844,7 +1844,7 @@ local function afterIncrement(borrows source: span.Span<uint8>): uint32
     local cursor: uint32 = 0
     local byte: uint32 = 0
     while cursor < #source do
-        cursor = nupp.math.u32.add(cursor, 1)
+        cursor = math.u32.add(cursor, 1)
         byte = source[(cursor + 1) as integer]
     end
     return byte
@@ -1870,7 +1870,7 @@ local function quotes(borrows source: span.Span<uint8>): uint32
         local slash = bytes == 92
         local either = quote | slash
         local syntax = either & tail
-        found = nupp.math.u32.add(found, syntax:count())
+        found = math.u32.add(found, syntax:count())
         cursor = cursor + species.lanes
     end
     return found
@@ -2626,7 +2626,7 @@ local function transform(
     local parity = values:prefixXor()
     species:store(output, 1, prefix + aligned + parity, active)
     local bits = selected:bits()
-    return nupp.math.u64.popcount(bits & (bits - 1))
+    return math.u64.popcount(bits & (bits - 1))
 end
 
 return {transform = transform}
@@ -3500,9 +3500,9 @@ local function inspect(borrows input: span.Span<float>): (float, uint32, integer
     local bits = (values > 0.0):bits()
     local first: integer = 0
     if bits ~= 0 then
-        first = nupp.math.u64.trailingZeros(bits) + 1
+        first = math.u64.trailingZeros(bits) + 1
     end
-    return values:extract(2), nupp.math.u64.popcount(bits), first
+    return values:extract(2), math.u64.popcount(bits), first
 end
 
 return {inspect = inspect}
@@ -3549,12 +3549,12 @@ local function inspect(borrows input: span.Span<float>): (uint32, integer, boole
     local allBits = species:tail(species.lanes):bits()
     local shift: uint64 = 1
     local selected = (~((positive | large) & positive) << shift) & allBits
-    local parity = nupp.math.u64.prefixXor(selected) & allBits
+    local parity = math.u64.prefixXor(selected) & allBits
     local first: integer = 0
     if parity ~= 0 then
-        first = nupp.math.u64.trailingZeros(parity) + 1
+        first = math.u64.trailingZeros(parity) + 1
     end
-    return nupp.math.u64.popcount(parity), first, parity ~= 0, parity == allBits
+    return math.u64.popcount(parity), first, parity ~= 0, parity == allBits
 end
 
 return {inspect = inspect}
@@ -3666,9 +3666,9 @@ function M.aSingleFixedWidthResultIsEstablishedByItsWrapper()
                 "@aot",
                 "local function count(bytes: string): uint32",
                 "    local limit: uint32 = valuebuilder.length(bytes)",
-                "    local at: uint32 = nupp.math.u32.wrap(0)",
+                "    local at: uint32 = math.u32.wrap(0)",
                 "    while at < limit do",
-                "        at = nupp.math.u32.add(at, nupp.math.u32.wrap(1))",
+                "        at = math.u32.add(at, math.u32.wrap(1))",
                 "    end",
                 "",
                 "    return at",
@@ -3684,7 +3684,7 @@ function M.aSingleFixedWidthResultIsEstablishedByItsWrapper()
     local decoded, raw, code, where = lowered(dir, "--json counter.nupp")
     test.equal(code, 0, raw)
     assert(
-        decoded.binding:find("nupp.math.u32.wrap(native1 as integer)", 1, true),
+        decoded.binding:find("math.u32.wrap(native1 as integer)", 1, true),
         where .. ": the single result is established rather than returned as any: " .. decoded.binding
     )
     assert(decoded.ir, where .. ": and the checked run still reports the IR it judged: " .. raw)
@@ -3833,7 +3833,7 @@ local valuebuilder = require("serde.valuebuilder")
 local publishing = {}
 
 local function u32(value: integer): uint32
-    return nupp.math.u32.wrap(value)
+    return math.u32.wrap(value)
 end
 
 @aot
@@ -3938,7 +3938,7 @@ function M.aCountedLoopIndexReachesAnEntryConversion()
     local dir = project{
         [
             "positions.nupp"
-        ] = replaceOnce(DELIMITERS, "offsets[written + 1] = written", "offsets[written + 1] = nupp.math.u32.wrap(i)")
+        ] = replaceOnce(DELIMITERS, "offsets[written + 1] = written", "offsets[written + 1] = math.u32.wrap(i)")
     }
     local decoded, raw, code = lowered(dir, "--json positions.nupp")
     test.equal(code, 0, raw)
@@ -3970,7 +3970,7 @@ local span = require("nupp.mem.span")
 @aot
 local function scale(borrows input: span.Span<float>, exclusive out: span.WriteSpan<float>, k: number): nil
     for i = 1, #input do
-        out[i] = nupp.math.f32.mul(input[i], k)
+        out[i] = math.f32.mul(input[i], k)
     end
 end
 
@@ -4349,10 +4349,10 @@ local function brighten(
     for i = first, last do
         local sample = samples[i]
         local input = source[i]
-        local value = nupp.math.f32.narrow(input.value)
-        local weight = nupp.math.f32.narrow(input.weight)
-        sample.value = nupp.math.f32.add(value, lift)
-        sample.weight = nupp.math.f32.mul(weight, lift)
+        local value = math.f32.narrow(input.value)
+        local weight = math.f32.narrow(input.weight)
+        sample.value = math.f32.add(value, lift)
+        sample.weight = math.f32.mul(weight, lift)
     end
 end
 
@@ -4558,11 +4558,11 @@ function builder.newByteScratch(capacity: uint32): any return {} end
 function builder.scratchByte(scratch: any, index: uint32): uint32 return index end
 function builder.setScratchByte(scratch: any, index: uint32, value: uint32): nil end
 function builder.resetByteScratch(scratch: any): nil end
-function builder.length(bytes: string): uint32 return nupp.math.u32.wrap(#bytes) end
-function builder.depth(state: any): uint32 return nupp.math.u32.wrap(0) end
-function builder.kind(state: any): uint32 return nupp.math.u32.wrap(0) end
-function builder.count(state: any): uint32 return nupp.math.u32.wrap(0) end
-function builder.state(state: any): uint32 return nupp.math.u32.wrap(0) end
+function builder.length(bytes: string): uint32 return math.u32.wrap(#bytes) end
+function builder.depth(state: any): uint32 return math.u32.wrap(0) end
+function builder.kind(state: any): uint32 return math.u32.wrap(0) end
+function builder.count(state: any): uint32 return math.u32.wrap(0) end
+function builder.state(state: any): uint32 return math.u32.wrap(0) end
 function builder.openArray(state: any, capacity: uint32): nil end
 function builder.openObject(state: any, capacity: uint32): nil end
 function builder.key(state: any, source: string, start: uint32, length: uint32, escaped: boolean): nil end
@@ -4596,24 +4596,24 @@ local function decode(source: string, tape: string, nullValue: any): (any, uint3
     local packedState = builder.state(state)
     local scratch = builder.newWordScratch(count)
     local byteScratch = builder.newByteScratch(count)
-    builder.setScratchWord(scratch, nupp.math.u32.wrap(0), count)
-    builder.setScratchByte(byteScratch, nupp.math.u32.wrap(0), nupp.math.u32.wrap(65))
-    builder.openObject(state, nupp.math.u32.wrap(1))
-    builder.key(state, source, nupp.math.u32.wrap(0), count, false)
-    builder.openArray(state, nupp.math.u32.wrap(2))
-    builder.stringScratch(state, byteScratch, nupp.math.u32.wrap(0), nupp.math.u32.wrap(1))
+    builder.setScratchWord(scratch, math.u32.wrap(0), count)
+    builder.setScratchByte(byteScratch, math.u32.wrap(0), math.u32.wrap(65))
+    builder.openObject(state, math.u32.wrap(1))
+    builder.key(state, source, math.u32.wrap(0), count, false)
+    builder.openArray(state, math.u32.wrap(2))
+    builder.stringScratch(state, byteScratch, math.u32.wrap(0), math.u32.wrap(1))
     builder.number(state, 1)
-    builder.numberSlice(state, source, nupp.math.u32.wrap(0), count)
-    builder.integerSlice(state, source, nupp.math.u32.wrap(0), count)
+    builder.numberSlice(state, source, math.u32.wrap(0), count)
+    builder.integerSlice(state, source, math.u32.wrap(0), count)
     local magnitude: uint64 = count as uint64
     magnitude = magnitude * (10 as uint64) + (1 as uint64)
     builder.integer64(state, magnitude, false)
-    builder.decimal64(state, source, nupp.math.u32.wrap(0), count, magnitude, nupp.math.i32.wrap(-1), false, true)
+    builder.decimal64(state, source, math.u32.wrap(0), count, magnitude, math.i32.wrap(-1), false, true)
     builder.close(state)
     builder.close(state)
-    return builder.finish(state), builder.byte(source, nupp.math.u32.wrap(0)), nupp.math.u32.add(
-        builder.scratchWord(scratch, nupp.math.u32.wrap(0)),
-        nupp.math.u32.add(direct, packedState)
+    return builder.finish(state), builder.byte(source, math.u32.wrap(0)), math.u32.add(
+        builder.scratchWord(scratch, math.u32.wrap(0)),
+        math.u32.add(direct, packedState)
     )
 end
 return {decode = decode} as unknown
@@ -4673,7 +4673,7 @@ return {decode = decode} as unknown
         ),
         "the key goes to the string event as a key:\n" .. entry
     )
-    assert(decoded.binding:find("nupp.math.u32.wrap", 1, true), decoded.binding)
+    assert(decoded.binding:find("math.u32.wrap", 1, true), decoded.binding)
 end
 
 function M.valueStreamBuilderModesAreAotConstants()
@@ -4703,21 +4703,21 @@ local stream = require("nupp.codec.json.internal.builder")
 
 @aot
 local function eager(nullValue: any): any
-    local state = builder.newSized(nullValue, nupp.math.u32.wrap(1), nupp.math.u32.wrap(1))
+    local state = builder.newSized(nullValue, math.u32.wrap(1), math.u32.wrap(1))
     builder.number(state, 1)
     return builder.finish(state)
 end
 
 @aot
 local function pull(nullValue: any, arrayMarker: any, objectMarker: any, shape: any, arrayShape: any, markers: any): any
-    local state = stream.newPull(nullValue, nupp.math.u32.wrap(1), nupp.math.u32.wrap(1), arrayMarker, objectMarker, shape, arrayShape, markers)
+    local state = stream.newPull(nullValue, math.u32.wrap(1), math.u32.wrap(1), arrayMarker, objectMarker, shape, arrayShape, markers)
     builder.number(state, 1)
     return builder.finish(state)
 end
 
 @aot
 local function serde(nullValue: any, arrayMarker: any, objectMarker: any, shape: any, arrayShape: any, markers: any): any
-    local state = stream.newSerde(nullValue, nupp.math.u32.wrap(1), nupp.math.u32.wrap(1), arrayMarker, objectMarker, shape, arrayShape, markers)
+    local state = stream.newSerde(nullValue, math.u32.wrap(1), math.u32.wrap(1), arrayMarker, objectMarker, shape, arrayShape, markers)
     builder.number(state, 1)
     return builder.finish(state)
 end
@@ -4793,8 +4793,8 @@ const QUOTED = 'a"b'
 
 @aot
 local function entry(index: uint32, nullValue: any): any
-    local state = valueBuilder.newSized(nullValue, nupp.math.u32.wrap(2), nupp.math.u32.wrap(8))
-    valueBuilder.openArray(state, nupp.math.u32.wrap(2))
+    local state = valueBuilder.newSized(nullValue, math.u32.wrap(2), math.u32.wrap(8))
+    valueBuilder.openArray(state, math.u32.wrap(2))
     valueBuilder.number(state, valueBuilder.byte(CLASSES, index) * 1.0)
     valueBuilder.number(state, valueBuilder.byte(QUOTED, index) * 1.0)
     valueBuilder.close(state)
@@ -4994,9 +4994,9 @@ local function decode(source: string): uint32
     do
         local n = builder.length(source)
     end
-    local n: uint32 = nupp.math.u32.wrap(100)
-    local cursor: uint32 = nupp.math.u32.wrap(50)
-    local direct: uint32 = nupp.math.u32.wrap(0)
+    local n: uint32 = math.u32.wrap(100)
+    local cursor: uint32 = math.u32.wrap(50)
+    local direct: uint32 = math.u32.wrap(0)
     if cursor < n then
         direct = builder.byteAt(source, cursor)
     end
@@ -5163,9 +5163,9 @@ local function decode(borrows source: span.Span<uint8>): uint32
     local rounds: uint32 = 0
     if cursor < #source then
         while CONDITION do
-            total = nupp.math.u32.add(total, source[(cursor + 1) as integer])
-            cursor = nupp.math.u32.add(cursor, 1)
-            rounds = nupp.math.u32.add(rounds, 1)
+            total = math.u32.add(total, source[(cursor + 1) as integer])
+            cursor = math.u32.add(cursor, 1)
+            rounds = math.u32.add(rounds, 1)
         end
     end
     return total
@@ -5202,14 +5202,14 @@ local span = require("nupp.mem.span")
 
 @aot
 local function scan(borrows bytes: span.Span<number>, exclusive out: span.WriteSpan<number>): number
-    local cursor: uint32 = nupp.math.u32.wrap(0)
+    local cursor: uint32 = math.u32.wrap(0)
     local total = 0.0
     if cursor < #bytes then
         while total < 10.0 do
             total = total + bytes[cursor + 1]
             for i = 1, #out do
                 out[i] = total
-                cursor = cursor + nupp.math.u32.wrap(1)
+                cursor = cursor + math.u32.wrap(1)
             end
         end
     end

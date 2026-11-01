@@ -3,10 +3,10 @@
 module nupp.compiler.runtime.math
 
 --[[
-The Lua half of `nupp.math`, for every read the compiler did not inline.
+The Lua half of `math`, for every read the compiler did not inline.
 
-Most reads of `nupp.math` never reach here. The compiler recognizes the qualified
-paths, `nupp.math.i32.wrap`, `nupp.math.u32.popcount`, `nupp.math.f32.narrow` and
+Most reads of `math` never reach here. The compiler recognizes the qualified
+paths, `math.i32.wrap`, `math.u32.popcount`, `math.f32.narrow` and
 the rest, and lowers them to operations, and the AOT backend emits them as machine
 instructions. What is left for run time is every other way of getting at one: taking
 it as a value, calling it through a local, or reaching a part that has no operation
@@ -18,7 +18,7 @@ rather than to what reads well: `mul32` splits its arguments into halves because
 product of two 32-bit values does not fit a double, and every `f32` result is pushed
 through a union because narrowing is what `float` means.
 
-Programs reach all of it as `nupp.math`, whose declaration stays in the prelude
+Programs reach all of it as `math`, whose declaration stays in the prelude
 because the compiler answers most of it directly. What the bootstrap installs is
 `install`, below.
 ]]
@@ -91,7 +91,7 @@ end
 --- The float `binary32` bits name, as a double.
 ---
 --- Written as arithmetic rather than as a load out of a union because this module
---- is the run-time half of `nupp.math` on every target, and `ffi` belongs to one of
+--- is the run-time half of `math` on every target, and `ffi` belongs to one of
 --- them. The trip is exact either way: every `binary32` is a double, so decoding is
 --- a scale of an integer significand and nothing rounds.
 local function decode32(bits: number): number
@@ -512,7 +512,7 @@ function u64.rotateRight(a: uint64, count: integer): uint64
 end
 
 -- Like the u32 runtime functions above, these return a Lua number. Each count
--- is in 0..64; calling the public nupp.math namespace here would make its
+-- is in 0..64; calling the public math namespace here would make its
 -- installer require itself on portable targets.
 function u64.popcount(a: uint64): number
     local remaining = a
@@ -867,7 +867,7 @@ end
 --- The angle of a vector, in [-pi, pi].
 ---
 --- Written out rather than deferred to Lua's two-argument arc tangent, which is not
---- on the `lua51` surface: this module answers `nupp.math` on every target the
+--- on the `lua51` surface: this module answers `math` on every target the
 --- compiler emits for, and the quadrant correction is the whole of what the
 --- two-argument form adds over the one.
 local function atan2(y: number, x: number): number
@@ -1310,7 +1310,7 @@ local function deltaAngle(from: number, to: number): number
     return wrapAngle(to - from)
 end
 
---- Fills a program's `nupp.math` namespace in.
+--- Fills a program's `math` namespace in.
 ---
 --- The bootstrap reserves the table before this module is required, because generated
 --- code addresses it through a local it has already declared, so the members are put

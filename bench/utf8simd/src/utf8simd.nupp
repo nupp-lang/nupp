@@ -249,7 +249,7 @@ local function validPrefix(borrows source: span.Span<uint8>): uint32
         end
     end
 
-    return nupp.math.u32.wrap(#source)
+    return math.u32.wrap(#source)
 end
 
 --- How many bytes at the front of `source` spell whole, well-formed scalars.

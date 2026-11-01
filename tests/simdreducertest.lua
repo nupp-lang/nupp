@@ -74,11 +74,11 @@ function M.theElementWitnessDecidesHowAnIntegerReducerWraps()
 end
 
 -- The `float` witness selects binary32 accumulation in the Lua bodies too:
--- every operation rounds as `nupp.math.f32` rounds, and the seed is rounded
+-- every operation rounds as `math.f32` rounds, and the seed is rounded
 -- on the way in.
 function M.theFloatWitnessRoundsEveryOperationToBinary32()
     local array = require("nupp.mem.array")
-    local f32 = nupp.math.f32
+    local f32 = math.f32
     local wide = simd.reducer.orderedSum(0.1)
     local narrow = simd.reducer.orderedSum(array.float, 0.1)
     wide:add(0.2)

@@ -1,8 +1,8 @@
 -- Transient trivia records compared with record-free scalar fields.
 -- Run: nupp bench --file bench/trivia-record.bench.nupp
 
-local bench = require("nupp.bench")
-const {type Invocation} = require("nupp.bench")
+local bench = require("debug.bench")
+const {type Invocation} = require("debug.bench")
 -- The benchmark is outside the compiler package but intentionally measures its
 -- private lexer surface, so keep this one import dynamic.
 local loadModule: function(string): any = require

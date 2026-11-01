@@ -119,7 +119,7 @@ end
 
 function gpu.Phases.run(borrows self: gpu.Phases, scoped stage: function(uint32): nil): nil
     for index = 0, self._size - 1 do
-        stage(nupp.math.u32.wrap(index))
+        stage(math.u32.wrap(index))
     end
 end
 
@@ -134,9 +134,7 @@ function gpu.Phases.reduceSum(borrows self: gpu.Phases, exclusive valuesInput: a
         self:run(function(localIndex: uint32)
             local lane = localIndex as integer
             if lane < active then
-                values[
-                    lane
-                ] = nupp.math.f32.add(nupp.math.f32.narrow(values[lane]), nupp.math.f32.narrow(values[lane + active]))
+                values[lane] = math.f32.add(math.f32.narrow(values[lane]), math.f32.narrow(values[lane + active]))
             end
         end)
         stride = stride // 2
@@ -166,9 +164,9 @@ function gpu.Phases.inclusiveScan(
                 local lane = localIndex as integer
                 local value = values[lane]
                 if lane >= distance then
-                    value = nupp.math.u32.add(
-                        nupp.math.u32.wrap(value as integer),
-                        nupp.math.u32.wrap(values[lane - distance] as integer)
+                    value = math.u32.add(
+                        math.u32.wrap(value as integer),
+                        math.u32.wrap(values[lane - distance] as integer)
                     )
                 end
                 temporary[lane] = value
@@ -178,9 +176,9 @@ function gpu.Phases.inclusiveScan(
                 local lane = localIndex as integer
                 local value = temporary[lane]
                 if lane >= distance then
-                    value = nupp.math.u32.add(
-                        nupp.math.u32.wrap(value as integer),
-                        nupp.math.u32.wrap(temporary[lane - distance] as integer)
+                    value = math.u32.add(
+                        math.u32.wrap(value as integer),
+                        math.u32.wrap(temporary[lane - distance] as integer)
                     )
                 end
                 values[lane] = value
@@ -214,7 +212,7 @@ function gpu.workgroups(groups: uint32, size: uint32, scoped controller: functio
     end
     local phases = new types.Phases(_size = groupSize)
     for groupIndex = 0, groupCount - 1 do
-        controller(nupp.math.u32.wrap(groupIndex), phases)
+        controller(math.u32.wrap(groupIndex), phases)
     end
 end
 

@@ -11,7 +11,7 @@ assert(
 local ffi = require("ffi")
 local span = require("nupp.mem.span")
 local gpu = require("nupp.gpu")
-local bench = require("nupp.bench")
+local bench = require("debug.bench")
 
 local function host(invocation)
     local count = invocation.parameters.count

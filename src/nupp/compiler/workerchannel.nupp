@@ -14,8 +14,6 @@ that pipe, and a worker that fills it stops mid-answer; what it says is kept,
 bounded, so a failure can be reported beside whatever the worker complained about.
 ]]
 
-local clock = require("nupp.time")
-
 local workerchannel = {}
 
 -- The longest header a frame may have: the digits of any length a caller accepts.
@@ -170,7 +168,7 @@ function workerchannel.receive(channel: any, deadline: number): (string?, worker
         if channel.cancelled ~= nil and channel.cancelled() then
             return failure(channel, "cancelled")
         end
-        local now = clock.now()
+        local now = os.monotonic()
         if now >= deadline then
             return failure(channel, "timeout")
         end

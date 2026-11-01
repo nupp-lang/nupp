@@ -2278,7 +2278,7 @@ local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
 local sum: simd.WrappingSum<int32> = simd.reducer.wrappingSum<int32>(array.int32, 0)
 local product: simd.Reducer<uint64> = simd.reducer.wrappingProduct(array.uint64, 1ULL)
-local bits: simd.AndBits<uint32> = simd.reducer.andBits(array.uint32, nupp.math.u32.wrap(7))
+local bits: simd.AndBits<uint32> = simd.reducer.andBits(array.uint32, math.u32.wrap(7))
 local least: simd.IntegerMin<int64> = simd.reducer.integerMin(array.int64, 0LL)
 local position: simd.IntegerArgMax<uint32> = simd.reducer.integerArgMax(array.uint32)
 return sum, product, bits, least, position

@@ -1168,7 +1168,7 @@ end
 
 -- Public UTF-8 and digest modules document their complete declared surface.
 function M.standardDataApiHasCompleteDocumentation()
-    local modules = {"src/nupp/text/utf8.nupp", "src/binary/hash/digest/init.nupp",}
+    local modules = {"src/utf8.nupp", "src/binary/hash/digest/init.nupp",}
     for _, relative in ipairs(modules) do
         local source = assert(readFile(HERE .. "/../" .. relative), "no module at " .. relative)
         local name = relative:match("^src/(.+)%.nupp$"):gsub("/", "."):gsub("%.init$", "")
@@ -1206,10 +1206,10 @@ function M.standardIOApiHasCompleteDocumentation()
             functions = {newBuffer = true, newStringReader = true,},
         },
         [
-            "src/nupp/io/path/init.nupp"
+            "src/io/path/init.nupp"
         ] = {types = {Path = true,}, functions = {newPath = true, currentDirectory = true, separator = true,},},
         [
-            "src/nupp/io/uri/init.nupp"
+            "src/io/uri/init.nupp"
         ] = {types = {URI = true, Components = true,}, functions = {newURI = true, validate = true, isURI = true,},},
         [
             "src/nupp/io/files/init.nupp"
@@ -1220,13 +1220,13 @@ function M.standardIOApiHasCompleteDocumentation()
     }
     for relative, expected in pairs(modules) do
         local source = assert(readFile(HERE .. "/../" .. relative), "no module at " .. relative)
-        local name = relative:match("src/nupp/(.+)%.nupp"):gsub("/", "."):gsub("%.init$", "")
-        local module, errors = doc.extract(source, relative, "nupp." .. name)
+        local name = relative:match("src/(.+)%.nupp"):gsub("/", "."):gsub("%.init$", "")
+        local module, errors = doc.extract(source, relative, name)
         assert(module, errors and errors[1] and errors[1].msg)
-        assert(module.text ~= "", "nupp." .. name .. " has no module documentation")
+        assert(module.text ~= "", name .. " has no module documentation")
         local foundTypes, foundFunctions = {}, {}
         for _, item in ipairs(module.items) do
-            local prefix = "nupp." .. name .. "." .. item.name
+            local prefix = name .. "." .. item.name
             assert(item.doc.text ~= "", prefix .. " has no documentation")
             if expected.types[item.name] then
                 foundTypes[item.name] = true
@@ -1242,24 +1242,24 @@ function M.standardIOApiHasCompleteDocumentation()
             end
         end
         for member in pairs(expected.types) do
-            assert(foundTypes[member], "nupp." .. name .. " did not document " .. member)
+            assert(foundTypes[member], name .. " did not document " .. member)
         end
         for member in pairs(expected.functions) do
-            assert(foundFunctions[member], "nupp." .. name .. " did not document " .. member)
+            assert(foundFunctions[member], name .. " did not document " .. member)
         end
     end
 
     -- Paths are interned by `newPath`; direct construction is intentionally
     -- unavailable.
-    local path = assert(readFile(HERE .. "/../src/nupp/io/path/init.nupp"))
-    local module = assert(doc.extract(path, "src/nupp/io/path/init.nupp", "nupp.io.path"))
+    local path = assert(readFile(HERE .. "/../src/io/path/init.nupp"))
+    local module = assert(doc.extract(path, "src/io/path/init.nupp", "io.path"))
     local factory
     for _, item in ipairs(module.items) do
         if item.name == "newPath" then
             factory = item
         end
     end
-    assert(factory, "nupp.io.path did not document newPath")
+    assert(factory, "io.path did not document newPath")
     assert(factory.doc.text:find("#### Examples", 1, true), "path.newPath has no examples")
     assert(
         factory.doc.text:find('path.newPath("src", "main.nupp")', 1, true),
@@ -1268,15 +1268,15 @@ function M.standardIOApiHasCompleteDocumentation()
 
     -- URIs are likewise interned by `newURI`; their exported record is a value type,
     -- not a public construction surface.
-    local uri = assert(readFile(HERE .. "/../src/nupp/io/uri/init.nupp"))
-    local uriModule = assert(doc.extract(uri, "src/nupp/io/uri/init.nupp", "nupp.io.uri"))
+    local uri = assert(readFile(HERE .. "/../src/io/uri/init.nupp"))
+    local uriModule = assert(doc.extract(uri, "src/io/uri/init.nupp", "io.uri"))
     local uriFactory
     for _, item in ipairs(uriModule.items) do
         if item.name == "newURI" then
             uriFactory = item
         end
     end
-    assert(uriFactory, "nupp.io.uri did not document newURI")
+    assert(uriFactory, "io.uri did not document newURI")
     assert(uriFactory.doc.text:find("#### Examples", 1, true), "uri.newURI has no examples")
     assert(
         uriFactory.doc.text:find('uri.newURI("https://example.com/a?b=1")', 1, true),
@@ -1367,7 +1367,7 @@ function M.standardLibraryBackingRecordsStayInternal()
     )
     assert(module, errors and errors[1] and errors[1].msg)
 
-    local expected = {["nupp.math.vec2"] = "add", ["nupp.math.quat"] = "multiply",}
+    local expected = {["math.vec2"] = "add", ["math.quat"] = "multiply",}
     for _, child in ipairs(extra or {}) do
         local member = expected[child.name]
         if member then
@@ -1430,6 +1430,31 @@ function M.standardLibraryBackingRecordsStayInternal()
     assert(nestedLibraries == 0, "private docs grew a nested backing record")
 end
 
+function M.namedNamespaceProjectsAPrivateDeclarationContract()
+    local source = [[
+--- Shared operations.
+--- @internal
+--- @namespace sample
+record PrivateLibrary
+    --- Produces the next value.
+    --- @param value the input
+    --- @return the next value
+    next: function(value: integer): integer
+end
+]]
+    local module, errors, namespaces = doc.extract(source, "sample.d.nupp", "private")
+    assert(module, errors and errors[1] and errors[1].msg)
+    assert(#module.items == 0, "the backing record stays private")
+    assert(#namespaces == 1 and namespaces[1].name == "sample")
+    local item = namespaces[1].items[1]
+    assert(item.name == "next" and item.path == "sample.next")
+    assert(item.signature == "local next: function(value: integer): integer", item.signature)
+    assert(item.params[1].text == "the input")
+    assert(item.returns[1].text == "the next value")
+    local private = assert(doc.extract(source, "sample.d.nupp", "private", {includePrivate = true}))
+    assert(private.items[1].name == "PrivateLibrary")
+end
+
 function M.standardMathApiHasCompleteDocumentation()
     local source = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp")
     local module, errors, extra = doc.extract(
@@ -1441,21 +1466,21 @@ function M.standardMathApiHasCompleteDocumentation()
 
     local mathModule, vec2Module, quatModule
     for _, candidate in ipairs(extra or {}) do
-        if candidate.name == "nupp.math" then
+        if candidate.name == "math" then
             mathModule = candidate
         end
-        if candidate.name == "nupp.math.vec2" then
+        if candidate.name == "math.vec2" then
             vec2Module = candidate
         end
-        if candidate.name == "nupp.math.quat" then
+        if candidate.name == "math.quat" then
             quatModule = candidate
         end
     end
-    assert(mathModule, "the prelude did not synthesize nupp.math")
-    assert(vec2Module, "the prelude did not synthesize nupp.math.vec2")
-    assert(#vec2Module.items > 0, "nupp.math.vec2 has no operations")
-    assert(quatModule, "the prelude did not synthesize nupp.math.quat")
-    assert(#quatModule.items > 0, "nupp.math.quat has no operations")
+    assert(mathModule, "the prelude did not synthesize math")
+    assert(vec2Module, "the prelude did not synthesize math.vec2")
+    assert(#vec2Module.items > 0, "math.vec2 has no operations")
+    assert(quatModule, "the prelude did not synthesize math.quat")
+    assert(#quatModule.items > 0, "math.quat has no operations")
 
     local function assertDocumented(documentedModule)
         for _, item in ipairs(documentedModule.items) do
@@ -4322,7 +4347,7 @@ local VERSION_SOURCES = {
     ["Documentation model"] = {"src/nupp/tools/doc/init.nupp", "schemaVersion = (%d+), modules = model"},
     ["Coverage report"] = {"src/nupp/tools/coverage.nupp", "coverage%.SCHEMA_VERSION = (%d+)"},
     ["Test report"] = {"src/nupp/tools/cli/test.nupp", "schemaVersion = {%s*type = \"integer\",%s*enum = {(%d+)}"},
-    ["Bench record"] = {"src/nupp/bench/init.nupp", "bench%.SCHEMA = (%d+)"},
+    ["Bench record"] = {"src/debug/bench.nupp", "bench%.SCHEMA = (%d+)"},
     ["Optimizer remarks"] = {"src/nupp/tools/cli/compile.nupp", "local document = {%s*schema = (%d+),"},
     ["Trace reason catalog"] = {"src/nupp/profile/trace.nupp", "trace%.CATALOG_VERSION = (%d+)"},
     ["GPU cost records"] = {"native/crates/gpu/src/costs.rs", "values%[\"schemaVersion\"%] = json!%((%d+)%)"},

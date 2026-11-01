@@ -24,30 +24,30 @@ for _, family in ipairs({"i32", "u32"}) do
         "lessThan",
         "lessOrEqual",
     }) do
-        PATHS["nupp.math." .. family .. "." .. operation] = family .. "." .. operation
+        PATHS["math." .. family .. "." .. operation] = family .. "." .. operation
     end
 end
-PATHS["nupp.math.i32.shiftRightArithmetic"] = "i32.shiftRightArithmetic"
-PATHS["nupp.math.i32.wrap"] = "i32.wrap"
-PATHS["nupp.math.i32.fromU32"] = "i32.fromU32"
-PATHS["nupp.math.i32.toU32"] = "i32.toU32"
-PATHS["nupp.math.u32.shiftRightLogical"] = "u32.shiftRightLogical"
-PATHS["nupp.math.u32.wrap"] = "u32.wrap"
-PATHS["nupp.math.u32.fromI32"] = "u32.fromI32"
-PATHS["nupp.math.u32.toI32"] = "u32.toI32"
-PATHS["nupp.math.u32.popcount"] = "u32.popcount"
-PATHS["nupp.math.u32.trailingZeros"] = "u32.trailingZeros"
-PATHS["nupp.math.u32.leadingZeros"] = "u32.leadingZeros"
-PATHS["nupp.math.u32.div"] = "u32.div"
-PATHS["nupp.math.u32.mod"] = "u32.mod"
-PATHS["nupp.math.u64.andBits"] = "u64.andBits"
-PATHS["nupp.math.u64.sub"] = "u64.sub"
-PATHS["nupp.math.u64.rotateLeft"] = "u64.rotateLeft"
-PATHS["nupp.math.u64.rotateRight"] = "u64.rotateRight"
-PATHS["nupp.math.u64.popcount"] = "u64.popcount"
-PATHS["nupp.math.u64.trailingZeros"] = "u64.trailingZeros"
-PATHS["nupp.math.u64.leadingZeros"] = "u64.leadingZeros"
-PATHS["nupp.math.u64.prefixXor"] = "u64.prefixXor"
+PATHS["math.i32.shiftRightArithmetic"] = "i32.shiftRightArithmetic"
+PATHS["math.i32.wrap"] = "i32.wrap"
+PATHS["math.i32.fromU32"] = "i32.fromU32"
+PATHS["math.i32.toU32"] = "i32.toU32"
+PATHS["math.u32.shiftRightLogical"] = "u32.shiftRightLogical"
+PATHS["math.u32.wrap"] = "u32.wrap"
+PATHS["math.u32.fromI32"] = "u32.fromI32"
+PATHS["math.u32.toI32"] = "u32.toI32"
+PATHS["math.u32.popcount"] = "u32.popcount"
+PATHS["math.u32.trailingZeros"] = "u32.trailingZeros"
+PATHS["math.u32.leadingZeros"] = "u32.leadingZeros"
+PATHS["math.u32.div"] = "u32.div"
+PATHS["math.u32.mod"] = "u32.mod"
+PATHS["math.u64.andBits"] = "u64.andBits"
+PATHS["math.u64.sub"] = "u64.sub"
+PATHS["math.u64.rotateLeft"] = "u64.rotateLeft"
+PATHS["math.u64.rotateRight"] = "u64.rotateRight"
+PATHS["math.u64.popcount"] = "u64.popcount"
+PATHS["math.u64.trailingZeros"] = "u64.trailingZeros"
+PATHS["math.u64.leadingZeros"] = "u64.leadingZeros"
+PATHS["math.u64.prefixXor"] = "u64.prefixXor"
 for _, operation in ipairs({
     "narrow",
     "round",
@@ -67,13 +67,10 @@ for _, operation in ipairs({
     "fromBF16Bits",
     "toBF16Bits",
 }) do
-    PATHS["nupp.math.f32." .. operation] = "f32." .. operation
+    PATHS["math.f32." .. operation] = "f32." .. operation
 end
 
 function scalar.forPath(path: string): string?
-    if path:sub(1, 5) == "math." then
-        return PATHS["nupp." .. path]
-    end
     return PATHS[path]
 end
 

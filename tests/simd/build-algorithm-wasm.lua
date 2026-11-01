@@ -66,7 +66,7 @@ write("src/corpusmath.nupp", corpusmath)
 if name == "utf8simd" then
     copy("bench/utf8simd/src/utf8simd.nupp", "utf8simd.nupp")
     copy("bench/utf8simd/src/utf8reference.nupp", "utf8reference.nupp")
-    imports = 'local simd=require("utf8simd"); local reference=require("utf8reference"); local shipped=require("nupp.text.utf8")\n'
+    imports = 'local simd=require("utf8simd"); local reference=require("utf8reference"); local shipped=require("utf8")\n'
     corpus = body(snapshot("bench/utf8simd/tests/run.lua"), "local checks = 0", 'print(("ok - %d UTF-8')
     probes = {utf8simd = {"validPrefix"}}
 elseif name == "base64simd" then
@@ -90,7 +90,7 @@ elseif name == "simd-json" then
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
 local indexer = require("simd_json.indexer")
-local u32 = nupp.math.u32
+local u32 = math.u32
 local function indexed(source: string, capacity: integer): ({number}, number, number)
     local storage = array.scalar(array.uint32, capacity)
     local count, status, position = u32.wrap(0), u32.wrap(0), u32.wrap(0)

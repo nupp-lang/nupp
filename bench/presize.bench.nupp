@@ -1,6 +1,6 @@
-const {type Invocation} = require("nupp.bench")
+const {type Invocation} = require("debug.bench")
 
---- OPT-1 presizing, measured through `nupp.bench`.
+--- OPT-1 presizing, measured through `debug.bench`.
 ---
 --- The Lua benchmark beside this one compares hand-written compiler output; this
 --- compares what the compiler actually emits for the same two shapes, which is the
@@ -8,7 +8,7 @@ const {type Invocation} = require("nupp.bench")
 --- earlier version of `bench/presize.lua` measured LuaJIT removing it.
 ---
 --- Run: nupp bench --file bench/presize.bench.nupp
-local bench = require("nupp.bench")
+local bench = require("debug.bench")
 
 local function grown(_: any, _: Invocation): nil
     for _ = 1, 100000 do

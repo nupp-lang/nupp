@@ -11,7 +11,7 @@ the boundary materialization will later use.
 
 local json = require("nupp.serde.internal.json.values")
 local process = require("nupp.compiler.process")
-local clock = require("nupp.time")
+
 local workerchannel = require("nupp.compiler.workerchannel")
 
 type worker.Failure = {
@@ -580,7 +580,7 @@ local function requestService(request: any, executable: string, host: any?): any
     if not channel then
         return nil, startFailure
     end
-    local text, stopped = workerchannel.request(channel, encoded, clock.now() + WORKER_TIMEOUT_MS)
+    local text, stopped = workerchannel.request(channel, encoded, os.monotonic() + WORKER_TIMEOUT_MS)
     if text == nil then
         stopService(true)
         local kind = stopped and stopped.kind or "ended"

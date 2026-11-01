@@ -440,7 +440,7 @@ local adjusted = root:fma(0.5, 1.0)
 ```
 
 Both `root` and `mapped` hold 2 in every lane. `fma` multiplies and adds with
-one rounding, giving 2 in `adjusted`. It follows `nupp.math.f32.fma` for
+one rounding, giving 2 in `adjusted`. It follows `math.f32.fma` for
 `float` lanes and the binary64 fused operation for `number` lanes.
 
 Use `species:map` for the other supported math functions or a helper of your

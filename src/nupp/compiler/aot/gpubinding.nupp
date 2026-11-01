@@ -329,7 +329,7 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
         for _, param in ipairs(artifact.uniforms) do
             append(
                 lines,
-                "    " .. scalarWords .. "[#" .. scalarWords .. " + 1] = nupp.math.u32.wrap(" .. parameterName(
+                "    " .. scalarWords .. "[#" .. scalarWords .. " + 1] = math.u32.wrap(" .. parameterName(
                     names,
                     param.name
                 ) .. " as integer)"

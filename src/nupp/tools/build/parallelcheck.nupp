@@ -25,7 +25,6 @@ local fs = require("nupp.compiler.fs")
 local moduleTargets = require("nupp.compiler.standardsurface")
 local protocol = require("nupp.tools.build.parallelcheckprotocol")
 local workerchannel = require("nupp.compiler.workerchannel")
-local clock = require("nupp.time")
 
 local join = fs.join
 
@@ -121,11 +120,10 @@ function parallelcheck.run(input: any): (any?, string?)
             totalBytes = totalBytes + #(text as string)
         end
     end
-    local system = require("nupp.system")
     local plan = parallelcheck.plan(
         #ordered,
         totalBytes,
-        system.availableParallelism(),
+        os.info().parallelism,
         tonumber(os.getenv("NUPP_CHECK_JOBS") or "")
     )
     local jobCount = plan.workers as integer
@@ -216,7 +214,7 @@ function parallelcheck.run(input: any): (any?, string?)
         request.schema = 1
         request.requestId = state.requestIds[index]
         request.initializer = state.lanes[index].initializer
-        local text, stopped = workerchannel.request(channel, protocol.encode(request), clock.now() + timeoutMs)
+        local text, stopped = workerchannel.request(channel, protocol.encode(request), os.monotonic() + timeoutMs)
         if text == nil then
             local kind = stopped and stopped.kind or "ended"
             local said = stopped and stopped.said or ""
@@ -253,7 +251,7 @@ function parallelcheck.run(input: any): (any?, string?)
 
     -- Parsing the project to discover its graph is real work on a cold check, so the
     -- workers do it. Largest first, each to the least loaded worker.
-    local scanStarted = clock.now()
+    local scanStarted = os.monotonic()
     local objects: {any} = {}
     table.sort(ordered, function(left, right)
         if left.bytes ~= right.bytes then
@@ -349,7 +347,7 @@ function parallelcheck.run(input: any): (any?, string?)
         end
         weights[index] = weight
     end
-    local scanMs = clock.now() - scanStarted
+    local scanMs = os.monotonic() - scanStarted
 
     local remaining: integer = #components
     local waiting: {integer} = {}

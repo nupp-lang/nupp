@@ -181,7 +181,7 @@ export function createWorkerPool({laneUrl, manifestUrl, manifestDigest, maxLanes
     tasks.set(task.id, task);
     queue.push(task);
     // The scope's absolute deadline is a reading of the same monotonic clock the
-    // application's own `nupp.time.now` returns, because both are this Worker's.
+    // application's own `os.monotonic` returns, because both are this Worker's.
     if (typeof entry.deadline === "number" && Number.isFinite(entry.deadline)) {
       task.timer = setTimeout(
         () => requestCancel(task, true),
@@ -220,8 +220,8 @@ export function createWorkerPool({laneUrl, manifestUrl, manifestDigest, maxLanes
   };
 
   return {
-    // How many lanes the pool runs, which the page answers `nupp.system`'s
-    // parallelism query with: it is what a caller sizing work can actually use.
+    // How many lanes the pool runs, which the page answers `os.info().parallelism`
+    // with: it is what a caller sizing work can actually use.
     lanes: capacity,
     perform(effect) {
       if (effect.operation === "submit") return submit(effect);

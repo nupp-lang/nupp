@@ -1625,6 +1625,24 @@ function extract.extract(
             if info.tags.internal and not opts.includePrivate then
                 shapePublic = false
             end
+            -- A named namespace can publish a declaration's fields while its
+            -- backing record remains private.
+            local recordNamespace = declarationFile
+                and stat.kind == "recordDecl"
+                and type(info.tags.namespace) == "string"
+                and not opts.shapesAsModules
+            if stat.kind == "recordDecl" and recordNamespace then
+                shapeModule(
+                    info.tags.namespace,
+                    stat.entries,
+                    info.text,
+                    path,
+                    parsed.root.blocks,
+                    opts.includePrivate,
+                    {},
+                    extraModules
+                )
+            end
             if shape and info.tags.namespace and shapePublic then
                 if not opts.shapesAsModules then
                     local prefix = info.tags.namespace == true and name or info.tags.namespace
@@ -1640,7 +1658,7 @@ function extract.extract(
                 ) do
                     extraModules[#extraModules + 1] = module
                 end
-            else
+            elseif not recordNamespace or opts.includePrivate then
                 local item = declarationItem(
                     stat,
                     name,

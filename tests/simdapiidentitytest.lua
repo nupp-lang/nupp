@@ -115,12 +115,12 @@ local gpu = require(%q)
 local span = require("nupp.mem.span")
 @aot(target = "gpu")
 local function increment(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil
-    local groups = nupp.math.u32.div(nupp.math.u32.wrap(#input), nupp.math.u32.wrap(4))
+    local groups = math.u32.div(math.u32.wrap(#input), math.u32.wrap(4))
     gpu.workgroups(groups, 4, function(groupIndex: uint32, phases: gpu.Phases)
         phases:run(function(localIndex: uint32)
-            local cursor = nupp.math.u32.add(nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(4)), localIndex)
+            local cursor = math.u32.add(math.u32.mul(groupIndex, math.u32.wrap(4)), localIndex)
             if cursor < #input and cursor < #output then
-                output[cursor + 1] = nupp.math.u32.add(input[cursor + 1], 1)
+                output[cursor + 1] = math.u32.add(input[cursor + 1], 1)
             end
         end)
     end)

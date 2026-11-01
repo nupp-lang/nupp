@@ -23,27 +23,27 @@ local base64bench = {}
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
 local function u32(value: integer): uint32
-    return nupp.math.u32.wrap(value)
+    return math.u32.wrap(value)
 end
 
 local function add(a: uint32, b: uint32): uint32
-    return nupp.math.u32.add(a, b)
+    return math.u32.add(a, b)
 end
 
 local function shr(value: uint32, count: uint32): uint32
-    return nupp.math.u32.shiftRightLogical(value, count)
+    return math.u32.shiftRightLogical(value, count)
 end
 
 local function shl(value: uint32, count: uint32): uint32
-    return nupp.math.u32.shiftLeft(value, count)
+    return math.u32.shiftLeft(value, count)
 end
 
 local function andBits(a: uint32, b: uint32): uint32
-    return nupp.math.u32.andBits(a, b)
+    return math.u32.andBits(a, b)
 end
 
 local function orBits(a: uint32, b: uint32): uint32
-    return nupp.math.u32.orBits(a, b)
+    return math.u32.orBits(a, b)
 end
 
 --- Encodes `source` as standard base64 with padding.
@@ -86,7 +86,7 @@ local function encodeAot(source: string, alphabet: string, nullValue: any): any
     -- One or two bytes left over, padded to a whole quantum. Written as two
     -- cases rather than one loop because the padding differs between them and
     -- a loop would have to branch on the same thing anyway.
-    local rest = nupp.math.u32.sub(length, at)
+    local rest = math.u32.sub(length, at)
     if rest == 1 then
         local b0 = valuebuilder.byte(source, at)
         valuebuilder.setScratchByte(scratch, out, valuebuilder.byte(alphabet, shr(b0, u32(2))))
@@ -240,7 +240,7 @@ local function encodeConstAot(source: string, nullValue: any): any
         out = add(out, u32(4))
     end
 
-    local rest = nupp.math.u32.sub(length, at)
+    local rest = math.u32.sub(length, at)
     if rest == 1 then
         local b0 = valuebuilder.byte(source, at)
         valuebuilder.setScratchByte(scratch, out, valuebuilder.byte(ALPHABET, shr(b0, u32(2))))

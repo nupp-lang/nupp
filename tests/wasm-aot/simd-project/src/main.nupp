@@ -63,7 +63,7 @@ local tile = array.scalar(array.uint32, 9)
 do
     local writable = tile:write()
     for i = 1, 9 do
-        writable[i] = nupp.math.u32.wrap(i)
+        writable[i] = math.u32.wrap(i)
     end
     writable[1] = 0x80000000
     writable[2] = 0x7fc12345
@@ -155,7 +155,7 @@ end
 -- rotation of the corpus, so each value passes through every lane.
 for offset = 0, #reducerSamples - 1 do
     local seed = reducerSamples[offset + 1]
-    local word = nupp.math.i32.wrap(reducerWords[offset + 1])
+    local word = math.i32.wrap(reducerWords[offset + 1])
     for count = 0, 21 do
         local values = array.scalar(array.number, count)
         local words = array.scalar(array.int32, count)
@@ -173,8 +173,8 @@ for offset = 0, #reducerSamples - 1 do
                 pairwise:add(value)
                 dot:add(value, value)
                 local digit = reducerWords[(i + offset - 1) % #reducerWords + 1]
-                writableWords[i] = nupp.math.i32.wrap(digit)
-                wrapping:add(nupp.math.i32.wrap(digit))
+                writableWords[i] = math.i32.wrap(digit)
+                wrapping:add(math.i32.wrap(digit))
             end
             nupp.drop(writableWords)
             nupp.drop(writableValues)

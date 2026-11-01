@@ -1434,7 +1434,7 @@ end
 --- So a body can size its work rather than discover the bound by being cancelled
 --- part way through it.
 ---
---- @return an absolute monotonic reading, as `nupp.time.now` returns
+--- @return an absolute monotonic reading, as `os.monotonic` returns
 function tasks.deadline(): number?
     const owner = currentScope()
     if owner == nil then

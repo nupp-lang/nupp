@@ -8,7 +8,7 @@ local function exactExp(exclusive output: span.WriteSpan<float>, borrows input: 
         error("length mismatch", 2)
     end
     for i = 1, #output do
-        output[i] = nupp.math.f32.exp(nupp.math.f32.narrow(input[i]))
+        output[i] = math.f32.exp(math.f32.narrow(input[i]))
     end
 end
 
@@ -19,7 +19,7 @@ local function nativeExp(exclusive output: span.WriteSpan<float>, borrows input:
         error("length mismatch", 2)
     end
     for i = 1, #output do
-        output[i] = nupp.math.f32.exp(nupp.math.f32.narrow(input[i]))
+        output[i] = math.f32.exp(math.f32.narrow(input[i]))
     end
 end
 

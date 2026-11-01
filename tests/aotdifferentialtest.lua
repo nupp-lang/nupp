@@ -113,7 +113,7 @@ local function radf(a: number): number
 end
 @aot
 local function halff(a: number): float
-    return nupp.math.f32.narrow(a * 0.5)
+    return math.f32.narrow(a * 0.5)
 end
 
 m.modf = modf
@@ -145,71 +145,71 @@ local m = {}
 
 @aot
 local function iandb(a: int32, b: int32): int32
-    return nupp.math.i32.andBits(a, b)
+    return math.i32.andBits(a, b)
 end
 @aot
 local function iorb(a: int32, b: int32): int32
-    return nupp.math.i32.orBits(a, b)
+    return math.i32.orBits(a, b)
 end
 @aot
 local function ixorb(a: int32, b: int32): int32
-    return nupp.math.i32.xorBits(a, b)
+    return math.i32.xorBits(a, b)
 end
 @aot
 local function inotb(a: int32): int32
-    return nupp.math.i32.notBits(a)
+    return math.i32.notBits(a)
 end
 @aot
 local function ishlb(a: int32, b: int32): int32
-    return nupp.math.i32.shiftLeft(a, b)
+    return math.i32.shiftLeft(a, b)
 end
 @aot
 local function isar(a: int32, b: int32): int32
-    return nupp.math.i32.shiftRightArithmetic(a, b)
+    return math.i32.shiftRightArithmetic(a, b)
 end
 @aot
 local function irol(a: int32, b: int32): int32
-    return nupp.math.i32.rotateLeft(a, b)
+    return math.i32.rotateLeft(a, b)
 end
 @aot
 local function iror(a: int32, b: int32): int32
-    return nupp.math.i32.rotateRight(a, b)
+    return math.i32.rotateRight(a, b)
 end
 @aot
 local function iless(a: int32, b: int32): boolean
-    return nupp.math.i32.lessThan(a, b)
+    return math.i32.lessThan(a, b)
 end
 @aot
 local function ilesseq(a: int32, b: int32): boolean
-    return nupp.math.i32.lessOrEqual(a, b)
+    return math.i32.lessOrEqual(a, b)
 end
 @aot
 local function itou(a: int32): uint32
-    return nupp.math.i32.toU32(a)
+    return math.i32.toU32(a)
 end
 @aot
 local function urol(a: uint32, b: uint32): uint32
-    return nupp.math.u32.rotateLeft(a, b)
+    return math.u32.rotateLeft(a, b)
 end
 @aot
 local function uror(a: uint32, b: uint32): uint32
-    return nupp.math.u32.rotateRight(a, b)
+    return math.u32.rotateRight(a, b)
 end
 @aot
 local function uless(a: uint32, b: uint32): boolean
-    return nupp.math.u32.lessThan(a, b)
+    return math.u32.lessThan(a, b)
 end
 @aot
 local function ulesseq(a: uint32, b: uint32): boolean
-    return nupp.math.u32.lessOrEqual(a, b)
+    return math.u32.lessOrEqual(a, b)
 end
 @aot
 local function fbits(a: uint32): uint32
-    return nupp.math.f32.toBits(nupp.math.f32.fromBits(a))
+    return math.f32.toBits(math.f32.fromBits(a))
 end
 @aot
 local function ftobits(a: number): uint32
-    return nupp.math.f32.toBits(nupp.math.f32.narrow(a))
+    return math.f32.toBits(math.f32.narrow(a))
 end
 
 @aot
@@ -246,11 +246,11 @@ local function ilt(a: int32, b: int32): boolean
 end
 @aot
 local function iwrap(a: integer): int32
-    return nupp.math.i32.wrap(a)
+    return math.i32.wrap(a)
 end
 @aot
 local function uwrap(a: integer): uint32
-    return nupp.math.u32.wrap(a)
+    return math.u32.wrap(a)
 end
 @aot
 local function usub(a: uint32, b: uint32): uint32
@@ -258,11 +258,11 @@ local function usub(a: uint32, b: uint32): uint32
 end
 @aot
 local function udiv(a: uint32, b: uint32): uint32
-    return nupp.math.u32.div(a, b)
+    return math.u32.div(a, b)
 end
 @aot
 local function umod(a: uint32, b: uint32): uint32
-    return nupp.math.u32.mod(a, b)
+    return math.u32.mod(a, b)
 end
 @aot
 local function ushr(a: uint32, b: uint32): uint32
@@ -370,11 +370,11 @@ local function lusar(a: uint64, b: uint64): uint64
 end
 @aot
 local function lurol(a: uint64, count: integer): uint64
-    return nupp.math.u64.rotateLeft(a, count)
+    return math.u64.rotateLeft(a, count)
 end
 @aot
 local function luror(a: uint64, count: integer): uint64
-    return nupp.math.u64.rotateRight(a, count)
+    return math.u64.rotateRight(a, count)
 end
 
 @aot

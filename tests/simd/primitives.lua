@@ -100,7 +100,7 @@ local prelude = [[
 local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
-local u32 = nupp.math.u32
+local u32 = math.u32
 
 local function extreme(a: number, b: number, maximum: boolean, ignoreNaN: boolean): number
     if a ~= a then return ignoreNaN and b or 0 / 0 end
@@ -319,8 +319,8 @@ end
         local expected = "normalize(" .. op[3] .. ")"
         local actual = ("assert(tonumber(writable[u32.wrap(%d + i)]))"):format((opIndex - 1) * 64)
         if ty == "uint64" and (op[1] == "negate" or op[1] == "subtract" or op[1] == "bitNot") then
-            expected = op[1] == "negate" and "nupp.math.u64.sub(0ULL, readable[u32.wrap(i)])"
-                or op[1] == "subtract" and "nupp.math.u64.sub(readable[u32.wrap(i)], 2ULL)"
+            expected = op[1] == "negate" and "math.u64.sub(0ULL, readable[u32.wrap(i)])"
+                or op[1] == "subtract" and "math.u64.sub(readable[u32.wrap(i)], 2ULL)"
                 or "~readable[u32.wrap(i)]"
             actual = ("writable[u32.wrap(%d + i)]"):format((opIndex - 1) * 64)
         end

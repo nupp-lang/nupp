@@ -1,7 +1,7 @@
 local files = require("nupp.io.files")
 local harness = require("harness")
 local batch = require("batcheval")
-local time = require("nupp.time")
+
 local json = require("serde.json")
 
 local arguments = {...} as {string}
@@ -120,10 +120,10 @@ local function main(): integer
     print(("%d task(s), %d at a time, model %s"):format(#codes, jobs, model or "default"))
     io.stdout:flush()
 
-    local started = time.now()
+    local started = os.monotonic()
     local options: batch.Options = {nupp = nupp, out = out, model = model, jobs = jobs, timeout = timeout, lean = lean,}
     local records = batch.run(options, codes)
-    local elapsed = (time.now() - started) / 1000
+    local elapsed = (os.monotonic() - started) / 1000
     local summary = batch.summarize(records)
     summary.model = model or "default"
     summary.lean = lean

@@ -1,6 +1,6 @@
 local game = require("game")
 local json = require("serde.json")
-local log = require("nupp.log")
+local log = require("log")
 
 log.info("answering")
 assert(game.answer(41) == 42)

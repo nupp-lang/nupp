@@ -121,7 +121,7 @@ local function decodeFields(
     local length = valuebuilder.length(source)
     while cursor < length do
         valuebuilder.integerSlice(builder, source, cursor, width)
-        cursor = nupp.math.u32.add(cursor, width)
+        cursor = math.u32.add(cursor, width)
     end
     valuebuilder.close(builder)
 
@@ -176,10 +176,10 @@ local function shout(source: string, capacity: uint32, nullValue: any): any
     while index < length do
         local byte = valuebuilder.byte(source, index)
         if byte >= 97 and byte <= 122 then
-            byte = nupp.math.u32.sub(byte, 32)
+            byte = math.u32.sub(byte, 32)
         end
         valuebuilder.setScratchByte(scratch, index, byte)
-        index = nupp.math.u32.add(index, 1)
+        index = math.u32.add(index, 1)
     end
     valuebuilder.stringScratch(builder, scratch, zero, length)
 

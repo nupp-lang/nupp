@@ -54,20 +54,24 @@ local function edgeOracles(ty)
     local width = tonumber(ty:match("%d+"))
     local signed = ty:match("^int") ~= nil
     if width < 64 then
-        local wrap = signed and ("    if q >= %.0f then q = q - %.0f end\n"):format(2 ^ (width - 1), 2 ^ width)
-            or ""
+        local wrap = signed and ("    if q >= %.0f then q = q - %.0f end\n"):format(2 ^ (width - 1), 2 ^ width) or ""
         local maximum = signed and 2 ^ (width - 1) - 1 or 2 ^ width - 1
         local minimum = signed and -(2 ^ (width - 1)) or 0
         local scale = ("%.0f"):format(2 ^ width)
         local product = signed
             and (
                 "    local product = (left * 1LL) * (right * 1LL)\n"
-                .. "    local q = product / " .. scale .. "LL\n"
-                .. "    if product % " .. scale .. "LL ~= 0LL and product < 0LL then q = q - 1LL end\n"
+                .. "    local q = product / "
+                .. scale
+                .. "LL\n"
+                .. "    if product % "
+                .. scale
+                .. "LL ~= 0LL and product < 0LL then q = q - 1LL end\n"
                 .. "    return assert(tonumber(q))\n"
             )
             or "    return assert(tonumber(((left * 1ULL) * (right * 1ULL)) / " .. scale .. "ULL))\n"
-        return ("local function saturate(value: number): number\n"
+        return (
+            "local function saturate(value: number): number\n"
             .. "    if value > %.0f then return %.0f end\n"
             .. "    if value < %.0f then return %.0f end\n"
             .. "    return value\n"
@@ -86,7 +90,15 @@ local function edgeOracles(ty)
             .. "        bits = math.floor(bits / 2)\n"
             .. "    end\n"
             .. "    return count\n"
-            .. "end\n"):format(maximum, maximum, minimum, minimum, 2 ^ width, width)
+            .. "end\n"
+        ):format(
+            maximum,
+            maximum,
+            minimum,
+            minimum,
+            2 ^ width,
+            width
+        )
             .. "local function mulHigh(left: number, right: number): number\n"
             .. product
             .. "end\n"
@@ -138,6 +150,7 @@ local function edgeOracles(ty)
             .. "    return left / right\n"
             .. "end\n"
     end
+
     return "local function saturatingAdd(left: int64, right: int64): int64\n"
         .. "    local sum = left + right\n"
         .. "    if right > 0LL and sum < left then return 9223372036854775807LL end\n"
@@ -181,6 +194,7 @@ local function edgeOracles(ty)
         .. "    return q\n"
         .. "end\n"
 end
+
 function M.generate(options)
     local files, probes, coverage, modules = {}, {}, {}, {}
     for _, ty in ipairs(options.types) do
@@ -192,7 +206,7 @@ function M.generate(options)
                     [[local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
-local u32 = nupp.math.u32
+local u32 = math.u32
 ]],
                     edgeOracles(ty),
                 }

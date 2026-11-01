@@ -2,7 +2,7 @@
 -- `utf8` compiles the validator ahead of time and calls the compiled entry;
 -- `utf8-scalar` leaves the same Nupp source to LuaJIT. Building both into
 -- separate directories is what lets one benchmark process measure them against
--- each other, against `nupp.text.utf8` as it ships, and against the rock.
+-- each other, against `utf8` as it ships, and against the rock.
 return {
     include = {"src", "../../src"},
 

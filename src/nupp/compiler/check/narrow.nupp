@@ -1056,7 +1056,7 @@ function narrow.install(c: state.Checker): narrow.Ops
     -- Narrowing a value's type does not unestablish it. A shadow entry that
     -- dropped these facts would make every fixed-width local lose its refinement
     -- the first time anything narrowed it -- including the narrowing an ordinary
-    -- assignment performs -- so `x = nupp.math.f32.narrow(v)` would leave `x`
+    -- assignment performs -- so `x = math.f32.narrow(v)` would leave `x`
     -- unusable as a `float` on the next line.
     local function carryFixedWidth(shadow: any, entry: any): any
         local established = entry and entry.fixedWidthEstablished or nil

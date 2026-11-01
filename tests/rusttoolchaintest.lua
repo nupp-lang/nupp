@@ -413,7 +413,7 @@ function M.gpuConformanceIsValidPosixShell()
     assert(linux:find("$root/build/?.lua", 1, true), "Linux GPU conformance omits compiled Nupp modules")
     assert(windows:find("NUPP_REQUIRE_GPU=1", 1, true), "Windows GPU conformance allows adapter absence")
     assert(windows:find("gemm-api.lua", 1, true), "Windows GPU conformance does not cross the public Nupp API")
-    assert(typedGemm:find('require("nupp.time").now', 1, true), "GPU conformance omits its packaged clock dependency")
+    assert(typedGemm:find('os.monotonic', 1, true), "GPU conformance omits its packaged clock dependency")
     assert(gemm:find("generated.now()", 1, true), "GPU conformance does not use its packaged benchmark clock")
 end
 

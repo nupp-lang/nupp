@@ -102,7 +102,7 @@ local function sumBytes(borrows first: span.Span<uint8>, borrows second: span.Sp
         total = total + second[i]
     end
 
-    return total, nupp.math.u32.wrap(#first), nupp.math.u32.wrap(#second)
+    return total, math.u32.wrap(#first), math.u32.wrap(#second)
 end
 
 local first = array.scalar(array.uint8, 2)

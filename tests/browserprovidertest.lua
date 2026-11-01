@@ -314,7 +314,7 @@ function M.aNestedScopeSpendsTheTurnBudgetThroughItsChild()
     check(turns >= 2, "the turn budget was not spent: " .. turns .. " turn frames")
 end
 
--- The parallelism query is `nupp.system`'s, and the page answers it; a task asks it
+-- The browser system provider supplies parallelism; a task asks the page for it
 -- the way any frame does.
 function M.parallelismAnswersInsideATask()
     local app = application({

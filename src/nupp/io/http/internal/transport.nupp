@@ -2,8 +2,6 @@
 
 module nupp.io.http.internal.transport
 
-const time = require("nupp.time")
-
 export interface NativeTransfer
     onHead: function(self: NativeTransfer, wake: function()): function()
     onBody: function(self: NativeTransfer, wake: function()): function()
@@ -614,7 +612,7 @@ local record Client is NativeClient
     -- exported for HTTP alone, which happened to be the same reading and promised
     -- nothing of the sort.
     function now(self: Client): number
-        return time.now()
+        return os.monotonic()
     end
 
     --- Closes every transfer still in flight, then the pool.

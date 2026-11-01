@@ -1,7 +1,7 @@
 -- uint32 words wrap the way machine words do, so their bit operations agree
 -- with a GPU kernel's bit for bit. Each input word is xored with the mask.
 
-local u32 = nupp.math.u32
+local u32 = math.u32
 local input = {0x00000000, 0x00ff00ff, 0x12345678, 0xffffffff}
 local mask = u32.wrap(0xa5a5a5a5)
 

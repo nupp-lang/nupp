@@ -10,7 +10,7 @@ a parser and does not want a dependency for them.
 
 ```nupp:playground
 local digest = binary.hash.digest.hexDigest("sha256", "payload")
-print(#digest, nupp.math.lerp(10, 20, 0.25))
+print(#digest, math.lerp(10, 20, 0.25))
 ```
 
 ## Intrinsics and declared modules
@@ -64,17 +64,17 @@ intrinsic namespaces and the declared modules:
 - [](binary.hash.mac) provides keyed authentication, including HMAC-SHA256.
 - [](serde.json), [](serde.base64) and [](serde.hex) encode and
   decode representations. [](serde.valuebuilder) supports codec authors.
-- [](nupp.text.utf8) validates and walks UTF-8 text.
+- [](utf8) validates and walks UTF-8 text.
 - [](serde) binds application types to reusable serialization schemas.
 - [](nupp.util) owns the small general-purpose types: [](nupp.util.Bitset) is a
   growable set of bit positions, and [](nupp.util.Store) is a bag of values
   indexed by the typed keys [](nupp.util.newKey) hands out.
   [](nupp.util.Pool) leases cleared record instances of one declared type from a
-  free list. [](binary.hash.fnv1a64) hashes bytes with FNV-1a. [](nupp.util.uuid4) and
-  [](nupp.util.uuid7) generate identifiers, and are the only members here that reach
-  a host provider.
-- [](nupp.system) reports execution platform, architecture, endianness, pointer
-  width and available parallelism, independently of the worker scheduler.
+  free list. [](binary.hash.fnv1a64) hashes bytes with FNV-1a.
+- `os.info()` reports execution platform, architecture, endianness, pointer width
+  and available parallelism. `os.uuid4()` and `os.uuid7()` generate identifiers;
+  `os.monotonic()` and `os.walltime()` read the host clocks. See
+  [System services](../system.md) for their contracts.
 - [](nupp.host) asks whatever runs the program, a page or an embedding
   application, for something by kind, and carries streams between them.
   [](nupp.host.pump) runs an embedded component's operations for a host-owned
@@ -85,10 +85,10 @@ intrinsic namespaces and the declared modules:
 - [](nupp.io.net) owns listeners and the connections they accept, and
   connections a program opens itself.
 - [](nupp.io.tls) encrypts one of those connections.
-- [](nupp.io.path) models filesystem paths, and [](nupp.io.uri) models resource
+- [](io.path) models filesystem paths, and [](io.uri) models resource
   names.
-- [](nupp.log) owns leveled logging over a swappable destination.
-- [](nupp.math) owns scalar and two-dimensional vector helpers.
+- [](log) owns leveled logging over a swappable destination.
+- [](math) owns scalar and two-dimensional vector helpers.
 - [](nupp.mem.span) owns rooted, bounds-checked shared and writable C array
   views.
 - [`nupp.mem.soa`](structure-of-arrays.md) stores every top-level field of a
@@ -110,7 +110,7 @@ scheduler and sendable values.
 
 ## Availability and initialization
 
-`nupp` and `nupp.math` are intrinsic namespaces. The other standard modules
+`nupp` and `math` are intrinsic namespaces. The other standard modules
 have their own declared module identities and are loaded through qualified
 references or ordinary require calls. Providers resolve while their facades load.
 
@@ -120,7 +120,7 @@ A member's implementation is emitted only when checked source resolves that
 member, and an alias stays as precise as the name it came from:
 
 ```nupp
-const uuid4 = nupp.util.uuid4
+const uuid4 = os.uuid4
 print(uuid4()) -- selects UUID support
 ```
 
@@ -162,7 +162,7 @@ Storage offsets count from zero; element indexes count from one. Storage is a
 a zero-based offset and a count, because an offset names a distance from the
 beginning and maps directly onto a native byte range. An element view, a
 [span](nupp.mem.span) or a [SoA](structure-of-arrays.md) view, and text, a Lua
-string or [](nupp.text.utf8), use 1-based positions, as a Lua array and
+string or [](utf8), use 1-based positions, as a Lua array and
 `string.sub` do. Do not pass a `string.find` position to a buffer method.
 
 ## Errors and ownership

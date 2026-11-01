@@ -4,7 +4,7 @@
 local valuebuilder = require("serde.valuebuilder")
 
 local function indexOf(row: integer, column: integer, width: integer): uint32
-    return nupp.math.u32.wrap((row - 1) * width + column - 1)
+    return math.u32.wrap((row - 1) * width + column - 1)
 end
 
 @aot
@@ -13,13 +13,13 @@ local function accumulate2(seed: uint32): uint32
     for row = 1, 2 do
         for column = 1, 2 do
             local index = indexOf(row, column, 2)
-            valuebuilder.setScratchWord(values, index, nupp.math.u32.add(seed, index))
+            valuebuilder.setScratchWord(values, index, math.u32.add(seed, index))
         end
     end
-    local total = nupp.math.u32.wrap(0)
+    local total = math.u32.wrap(0)
     for row = 1, 2 do
         for column = 1, 2 do
-            total = nupp.math.u32.add(total, valuebuilder.scratchWord(values, indexOf(row, column, 2)))
+            total = math.u32.add(total, valuebuilder.scratchWord(values, indexOf(row, column, 2)))
         end
     end
 
@@ -32,13 +32,13 @@ local function accumulate4(seed: uint32): uint32
     for row = 1, 4 do
         for column = 1, 4 do
             local index = indexOf(row, column, 4)
-            valuebuilder.setScratchWord(values, index, nupp.math.u32.add(seed, index))
+            valuebuilder.setScratchWord(values, index, math.u32.add(seed, index))
         end
     end
-    local total = nupp.math.u32.wrap(0)
+    local total = math.u32.wrap(0)
     for row = 1, 4 do
         for column = 1, 4 do
-            total = nupp.math.u32.add(total, valuebuilder.scratchWord(values, indexOf(row, column, 4)))
+            total = math.u32.add(total, valuebuilder.scratchWord(values, indexOf(row, column, 4)))
         end
     end
 
@@ -51,13 +51,13 @@ local function accumulate16(seed: uint32): uint32
     for row = 1, 16 do
         for column = 1, 16 do
             local index = indexOf(row, column, 16)
-            valuebuilder.setScratchWord(values, index, nupp.math.u32.add(seed, index))
+            valuebuilder.setScratchWord(values, index, math.u32.add(seed, index))
         end
     end
-    local total = nupp.math.u32.wrap(0)
+    local total = math.u32.wrap(0)
     for row = 1, 16 do
         for column = 1, 16 do
-            total = nupp.math.u32.add(total, valuebuilder.scratchWord(values, indexOf(row, column, 16)))
+            total = math.u32.add(total, valuebuilder.scratchWord(values, indexOf(row, column, 16)))
         end
     end
 

@@ -44,10 +44,26 @@ local function loopCases(types)
                 {'orBits', 'add'},
                 {'xorBits', 'add'}
             }) do
-                add(ty, code .. '_' .. op[1], 'simd.reducer.' .. op[1] .. '(nupp.mem.array.' .. ty .. ', seed)', op[2], ty, nil, seed)
+                add(
+                    ty,
+                    code .. '_' .. op[1],
+                    'simd.reducer.' .. op[1] .. '(nupp.mem.array.' .. ty .. ', seed)',
+                    op[2],
+                    ty,
+                    nil,
+                    seed
+                )
             end
             for _, extreme in ipairs({'Min', 'Max'}) do
-                add(ty, code .. '_' .. extreme, 'simd.reducer.integer' .. extreme .. '(nupp.mem.array.' .. ty .. ', seed)', 'add', ty, nil, seed)
+                add(
+                    ty,
+                    code .. '_' .. extreme,
+                    'simd.reducer.integer' .. extreme .. '(nupp.mem.array.' .. ty .. ', seed)',
+                    'add',
+                    ty,
+                    nil,
+                    seed
+                )
                 add(
                     ty,
                     code .. '_arg' .. extreme,
@@ -67,12 +83,15 @@ local function loopCases(types)
         if selected[ty] then
             local prefix = ty == 'float' and 'f32_' or ''
             local witness = ty == 'float' and 'nupp.mem.array.float' or nil
+
             local function seeded(name)
                 return 'simd.reducer.' .. name .. '(' .. (witness and witness .. ', ' or '') .. 'seed)'
             end
+
             local function seedless(name)
                 return 'simd.reducer.' .. name .. '(' .. (witness or '') .. ')'
             end
+
             for _, policy in ipairs({'propagating', 'number'}) do
                 for _, extreme in ipairs({'Min', 'Max', 'ArgMin', 'ArgMax'}) do
                     local arg = extreme:find('Arg', 1, true)
@@ -174,7 +193,7 @@ local simd = require("nupp.simd")
     if floatingCases then
         source[
             #source + 1
-        ] = [[local f32 = nupp.math.f32
+        ] = [[local f32 = math.f32
 local function same(a: number, b: number): boolean
     if a ~= a or b ~= b then return a ~= a and b ~= b end
     return a == b and (a ~= 0 or 1 / a == 1 / b)
@@ -256,16 +275,14 @@ end
             local scalarValue = case.value == 'input[i], input[i]' and 'scalar, scalar'
                 or case.value == 'input[i] > seed' and 'scalar > seed'
                 or 'scalar'
-            local pre = isPredicate(case) and '' or ('    fold:%s(%s)\n'):format(
-                case.method,
-                case.value == 'input[i], input[i]' and 'seed, seed' or 'seed'
-            )
+            local pre = isPredicate(case) and ''
+                or (
+                    '    fold:%s(%s)\n'
+                ):format(case.method, case.value == 'input[i], input[i]' and 'seed, seed' or 'seed')
             local tail = isArg(case) and ('        fold:%s(%s)'):format(case.method, scalarValue)
-                or ('        if selection == 1 or (selection == 2 and scalar > %s) then fold:%s(%s) end'):format(
-                    zero,
-                    case.method,
-                    scalarValue
-                )
+                or (
+                    '        if selection == 1 or (selection == 2 and scalar > %s) then fold:%s(%s) end'
+                ):format(zero, case.method, scalarValue)
             body = pre .. (
                 [[    local species = assert(simd.species(array.%s, %d))
     local cursor: uint32 = 0
@@ -370,10 +387,12 @@ end
                     elseif %s then fold:%s(%s) end
                 end]]
             ):format(
-                mixed and not predicate and ('                fold:%s(%s)'):format(
-                    case.method,
-                    case.value == 'input[i], input[i]' and 'seed, seed' or 'seed'
-                ) or '',
+                mixed
+                and not predicate
+                and (
+                    '                fold:%s(%s)'
+                ):format(case.method, case.value == 'input[i], input[i]' and 'seed, seed' or 'seed')
+                or '',
                 mixed and 'i <= vectorEnd' or 'true',
                 case.method,
                 case.value,
@@ -400,7 +419,9 @@ end
             ):format(
                 mixed and (case.name:match('Dot') and ', seed * seed' or ', seed') or '',
                 selected,
-                case.name:match('Dot') and (narrow and 'f32.mul(f32.narrow(input[i]), f32.narrow(input[i]))' or 'input[i] * input[i]') or 'input[i]',
+                case.name:match('Dot')
+                and (narrow and 'f32.mul(f32.narrow(input[i]), f32.narrow(input[i]))' or 'input[i] * input[i]')
+                or 'input[i]',
                 tostring(case.name:match('Product') ~= nil),
                 tostring(narrow)
             )
@@ -421,7 +442,8 @@ end
                 end
                 assert(expected == at, "first logical position of the extremum: scenario=" .. tostring(scenario) .. " selection=" .. tostring(selection) .. " count=" .. tostring(count) .. " expected=" .. tostring(expected) .. " independent=" .. tostring(at))]]
             ):format(
-                (case.ty == 'int32' or case.ty == 'uint32') and 'integer' or (case.ty == 'float' and 'number' or case.ty),
+                (case.ty == 'int32' or case.ty == 'uint32') and 'integer'
+                or (case.ty == 'float' and 'number' or case.ty),
                 mixed and 1 or 0,
                 mixed and '                best, at = seed, 1' or '',
                 selected,
@@ -455,7 +477,7 @@ end
 %s
                 local expected = fold:value()
 %s
-                local actual = %s(input, seed, nupp.math.u32.wrap(selection))
+                local actual = %s(input, seed, math.u32.wrap(selection))
                 %s
                 checked = checked + 1
             end
@@ -478,7 +500,12 @@ end
             mixed and ('local vectorEnd = count - count % ' .. tostring(width)) or '',
             case.ty,
             case.seed,
-            floating and (narrow and 'if scenario == 4 then seed = f32.narrow(-0.0) end' or 'if scenario == 4 then seed = -0.0 end') or '',
+            floating
+            and (
+                narrow and 'if scenario == 4 then seed = f32.narrow(-0.0) end'
+                or 'if scenario == 4 then seed = -0.0 end'
+            )
+            or '',
             declaredFold(case),
             reference,
             independent,
@@ -492,7 +519,7 @@ end
     local rendered = table.concat(source, '\n'):gsub('__SIMD_REDUCER_LENGTH__', tostring(maximum))
     if not vectors then
         rendered = rendered:gsub(', selection: uint32', '')
-        rendered = rendered:gsub(', nupp.math.u32.wrap%(selection%)', '')
+        rendered = rendered:gsub(', math.u32.wrap%(selection%)', '')
         rendered = rendered:gsub('for selection = 1, 3 do', 'for selection = 1, 1 do')
     end
 

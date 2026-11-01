@@ -11,7 +11,7 @@ local documents = require("serde.document")
 local documentReaders = require("serde.document")
 local bridge = require("serde.document")
 local contexts = require("serde.codec")
-local utf8 = require("nupp.text.utf8")
+local utf8 = require("utf8")
 
 export interface Policy
     number: function<M is core.Member>(self, member: M): integer

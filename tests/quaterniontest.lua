@@ -1,4 +1,4 @@
--- The rotation half of `nupp.math`, checked against references that are not the
+-- The rotation half of `math`, checked against references that are not the
 -- implementation written a second time.
 --
 -- Three kinds of case earn their place here. A rotation whose answer is known by

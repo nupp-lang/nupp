@@ -103,7 +103,7 @@ function stream.numberToken(builder: any, borrows source: any, start: uint32, li
     local text = source as string
     local at = start as integer
     if limit > #text or limit >= 2147483648 or start >= limit then
-        return nupp.math.u32.wrap(start + 1)
+        return math.u32.wrap(start + 1)
     end
 
     -- JSON's grammar, in the order it is written: an optional minus, an
@@ -123,23 +123,23 @@ function stream.numberToken(builder: any, borrows source: any, start: uint32, li
         at = at + 1
     end
     if at >= limit then
-        return nupp.math.u32.wrap(at + 1)
+        return math.u32.wrap(at + 1)
     end
     local lead = text:byte(at + 1)
     if lead == 48 then
         at = at + 1
         if at < limit and text:byte(at + 1) >= 48 and text:byte(at + 1) <= 57 then
-            return nupp.math.u32.wrap(at + 1)
+            return math.u32.wrap(at + 1)
         end
     elseif lead >= 49 and lead <= 57 then
         digits()
     else
-        return nupp.math.u32.wrap(at + 1)
+        return math.u32.wrap(at + 1)
     end
     if at < limit and text:byte(at + 1) == 46 then
         at = at + 1
         if digits() == 0 then
-            return nupp.math.u32.wrap(at + 1)
+            return math.u32.wrap(at + 1)
         end
     end
     if at < limit and (text:byte(at + 1) == 101 or text:byte(at + 1) == 69) then
@@ -148,22 +148,22 @@ function stream.numberToken(builder: any, borrows source: any, start: uint32, li
             at = at + 1
         end
         if digits() == 0 then
-            return nupp.math.u32.wrap(at + 1)
+            return math.u32.wrap(at + 1)
         end
     end
 
     local value = tonumber(text:sub(start + 1, at))
     if value == nil then
-        return nupp.math.u32.wrap(at + 1)
+        return math.u32.wrap(at + 1)
     end
     -- A token too large for binary64 is refused at its first byte rather than
     -- read as an infinity no encoder writes back. Underflow to zero stands.
     if value == math.huge or value == -math.huge then
-        return nupp.math.u32.wrap(start + 1)
+        return math.u32.wrap(start + 1)
     end
     valuebuilder.number(builder, value)
 
-    return nupp.math.u32.wrap(at + 2147483648)
+    return math.u32.wrap(at + 2147483648)
 end
 
 --- Reads a retained escape position in source order.

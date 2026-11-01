@@ -18,26 +18,24 @@ const store = nupp.util.newStore()
 const theme: nupp.util.Key<string> = nupp.util.newKey("app.theme")
 store:set(theme, "dark")
 
-print(nupp.util.uuid4())
+print(os.uuid4())
 ```
 
 Each member is one type and the few functions that hand it out, reached by the
 type's name rather than by a module of its own. [](Bitset) is a set of bit
 positions, [](Store) is a bag of values indexed by typed [](Key)s, and [](Pool)
-leases cleared record instances from a free list. [](uuid4) and [](uuid7)
+leases cleared record instances from a free list. `os.uuid4` and `os.uuid7`
 generate identifiers. [](try) and [](tryWith) run
 a function protected and return `(result, reason), which is the layout the `or
 return` suffix reads and `pcall`'s own is not.
 
 Unlike [](nupp.mem), which keeps every member a module of its own, these are
 re-exported here. Checked source still selects members independently, so using a
-bitset does not retain UUID support. [](uuid4) and [](uuid7) are the only
-members that resolve a host provider.
+bitset does not retain UUID support.
 ]]
 
 local bitset = require("nupp.util.internal.bitset")
 local pool = require("nupp.util.internal.pool")
-local uuid = require("nupp.util.internal.uuid")
 local store = require("nupp.util.internal.store")
 local protected = require("nupp.util.internal.protected")
 
@@ -78,13 +76,3 @@ export const try = protected.try
 --- The same for `xpcall`, with the handler after the function: it runs before the
 --- stack unwinds and its result is the reason.
 export const tryWith = protected.tryWith
-
---- Generates a random version 4 UUID, hyphenated and lowercase.
-export const uuid4: function(): string = uuid.uuid4
-
---- Generates a time-ordered version 7 UUID, hyphenated and lowercase.
----
---- Ordered to the millisecond only: two made in the same millisecond carry
---- random bits after the timestamp, so they compare in either order. It uses
---- no RFC 9562 monotonic counter.
-export const uuid7: function(): string = uuid.uuid7

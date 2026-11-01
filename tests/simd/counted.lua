@@ -5,7 +5,7 @@ function M.generate()
     local source = [=[local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
-local u32 = nupp.math.u32
+local u32 = math.u32
 
 @aot
 local function counted(first: number, last: number): (number, number, number)

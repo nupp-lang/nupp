@@ -175,9 +175,9 @@ that page:
 | Interfaces | [interfaces.md](../learn/language/types/interfaces.md) | `NUPP2116`, `NUPP2117`, `NUPP2118`, `NUPP2136`, `NUPP3001` |
 | Intersections and overloads | [intersections.md](../learn/language/types/intersections.md) | `NUPP2124`, `NUPP2125`, `NUPP2126`, `NUPP2208` |
 | Lints | [lints.md](lints.md) | `NUPP2107`, `NUPP2120`, `NUPP2501`, `NUPP2502`, `NUPP2504` through `NUPP2518` |
-| Logging | [](nupp.log) | `NUPP2006` |
+| Logging | [](log) | `NUPP2006` |
 | LuaJIT trace checking | [jit-trace-checking.md](../learn/performance/jit-trace-checking.md) | `NUPP2502`, `NUPP2505`, `NUPP2514`, `NUPP2515`, `NUPP2707`, `NUPP2904` |
-| Math | [](nupp.math) | `NUPP2011`, `NUPP2012` |
+| Math | [](math) | `NUPP2011`, `NUPP2012` |
 | Metamethods | [metamethods.md](../learn/language/metamethods.md) | `NUPP2003`, `NUPP2005`, `NUPP2006`, `NUPP2007`, `NUPP2116`, `NUPP2117`, `NUPP2118` |
 | Modules | [modules.md](../learn/language/modules.md) | `NUPP1002`, `NUPP2004`, `NUPP2101`, `NUPP2105`, `NUPP2119` |
 | Named and plucked arguments | [calls.md](../learn/language/named-arguments.md) | `NUPP2004`, `NUPP2006`, `NUPP2125` |

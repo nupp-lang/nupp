@@ -142,7 +142,7 @@ return {rest = rest}
     [
         "shift.nupp"
     ] = [[
-local u32 = nupp.math.u32
+local u32 = math.u32
 
 @aot
 local function shifted(a: uint32, b: integer): uint32
@@ -320,7 +320,7 @@ local span = require("nupp.mem.span")
 local function scale(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>, factor: float): nil
     assert(#output == #input, "length mismatch")
     for index = 1, #output do
-        output[index] = nupp.math.f32.mul(input[index], factor)
+        output[index] = math.f32.mul(input[index], factor)
     end
 end
 
@@ -338,7 +338,7 @@ local function halve(exclusive output: span.WriteSpan<float>, borrows input: spa
     assert(#output == #input, "length mismatch")
     for index = 1, #output do
         local value = input[index]
-        output[index] = nupp.math.f32.mul(value, 0.5)
+        output[index] = math.f32.mul(value, 0.5)
     end
 end
 
@@ -440,7 +440,7 @@ end
 return {clamp = clamp}
 ]],
     -- Byte reads accumulated into either thirty-two bit width with the
-    -- operators, which wrap at that width as the `nupp.math` calls do.
+    -- operators, which wrap at that width as the `math` calls do.
     [
         "bytecarry.nupp"
     ] = [[

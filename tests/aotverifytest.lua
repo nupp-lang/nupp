@@ -92,8 +92,8 @@ local builder = require("serde.valuebuilder")
 @aot
 local function decode(source: string): uint32
     local n = builder.length(source)
-    local cursor: uint32 = nupp.math.u32.wrap(0)
-    local direct: uint32 = nupp.math.u32.wrap(0)
+    local cursor: uint32 = math.u32.wrap(0)
+    local direct: uint32 = math.u32.wrap(0)
     if cursor < n then
         direct = builder.byteAt(source, cursor)
     end

@@ -213,7 +213,7 @@ end
 --- Whether a binary64 value is exactly a binary32, so narrowing it to a
 --- native callee's `float` parameter changes nothing.
 function lower.roundTripsBinary32(value: number): boolean
-    return nupp.math.f32.narrow(value) == value
+    return math.f32.narrow(value) == value
 end
 
 --- An argument brought to the type a helper parameter takes.
@@ -927,7 +927,7 @@ end
 
 --- The dotted path a node writes, if it is a chain of names.
 ---
---- `math.sqrt` and `nupp.math.f32.add` are how the admitted intrinsics are
+--- `math.sqrt` and `math.f32.add` are how the admitted intrinsics are
 --- written, and anything with a call or an index in it is not one of them.
 function lower.dottedName(node: cst.Node?): string?
     if node == nil then
@@ -3470,7 +3470,7 @@ local function call(
     -- The checker follows definitions through local aliases and publishes the
     -- canonical fixed-width identity on the call. A spelling lookup remains
     -- only for the standalone parser harness; production lowering must not
-    -- turn `local add = nupp.math.u32.add` into an unrelated helper call.
+    -- turn `local add = math.u32.add` into an unrelated helper call.
     local fixedIdentity = (node as any).scalarIntrinsic
     local fixed = fixedIdentity ~= nil and admit.FIXED[fixedIdentity as string]
         or not context.checked and path ~= nil and admit.fixed(path as string)
@@ -4808,7 +4808,7 @@ end
 function lower.constantWidth(value: scalarIR.Expr): integer?
     local raw = value as any
     -- Through a width conversion, because that is how a literal capacity is
-    -- written: `u32(64)` is `nupp.math.u32.wrap(64)`, which lowers to a cast of
+    -- written: `u32(64)` is `math.u32.wrap(64)`, which lowers to a cast of
     -- the constant. Casting an exact in-range integer answers that integer, so
     -- looking through the cast reads the same number the source wrote.
     while raw.op == "numeric_cast" or raw.op == "int_to_f64" do
@@ -7008,7 +7008,7 @@ local function localStmt(
         -- A `float` read from a span or a field arrives widened to binary64, and
         -- a binary32 consumer peels the widening off the load. A local would
         -- stop that: bound without an annotation it held the binary64, so
-        -- `nupp.math.f32.mul(value, 0.5)` was refused over a `value` the
+        -- `math.f32.mul(value, 0.5)` was refused over a `value` the
         -- checker types as `float`, where the same read written inline was
         -- admitted. Bind it at the width the checker gave it, as `: float`
         -- would.

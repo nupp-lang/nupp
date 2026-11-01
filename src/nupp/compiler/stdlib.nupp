@@ -16,7 +16,6 @@ end
 local BASE = compact(
     [=[
 local __nupp=_G.nupp or {};_G.nupp=__nupp
-local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end
 local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile
 ]=]
@@ -30,13 +29,12 @@ local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__n
 local HOT_BASE = compact(
     [=[
 local __nupp=_G.nupp or {};_G.nupp=__nupp
-rawset(__nupp,"math",rawget(__nupp,"math")or{})
 local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end
 local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile
 ]=]
 )
 
--- `nupp.math` is mostly answered by the compiler, which lowers the qualified
+-- `math` is mostly answered by the compiler, which lowers the qualified
 -- paths to operations and never reaches a function at all. What this installs
 -- is the module that answers the reads it could not lower, filling in the
 -- namespace the base reserved rather than replacing it, because generated code
@@ -44,7 +42,6 @@ local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__n
 local MATH = compact(
     [=[
 local __nuppMathRuntime=require("nupp.compiler.runtime.math")
-__nuppMathRuntime.install(rawget(__nupp,"math"))
 __nuppMathRuntime.install(_G.math)
 ]=]
 )

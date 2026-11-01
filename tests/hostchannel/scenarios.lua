@@ -32,6 +32,7 @@ local function pattern(size, seed)
     for index = 0, size - 1 do
         buffer[index] = (index * 31 + seed) % 251
     end
+
     return ffi.string(buffer, size)
 end
 
@@ -41,6 +42,7 @@ local function sum(text)
     for index = 0, #text - 1 do
         total = (total + pointer[index] * (index % 7 + 1)) % 2147483647
     end
+
     return total
 end
 
@@ -64,6 +66,7 @@ function scenarios.arity()
     local none = packed(host.call("test.echo"))
     local onlyNil = packed(host.call("test.echo", nil))
     local interior = packed(host.call("test.results"))
+
     return {
         echoed = {n = echoed.n, a = echoed[1], b = echoed[2], c = echoed[3], d = echoed[4], e = echoed[5]},
         none = none.n,
@@ -84,6 +87,7 @@ function scenarios.refusals()
     refused.kind = failure(host.call, "nodots")
     refused.unknown = failure(host.call, "test.nobody")
     refused.failed = failure(host.call, "test.fail", "why")
+
     return refused
 end
 
@@ -93,9 +97,15 @@ function scenarios.bytes()
     local length, total, back = host.call("test.digest", span.fromString(small))
     local largeLength, largeTotal = host.call("test.digest", span.fromString(large))
     local three = {pattern(1024 * 1024, 7), pattern(1024 * 1024, 8), pattern(1024 * 1024, 9)}
-    local count = host.call("test.count", span.fromString(three[1]), span.fromString(three[2]), span.fromString(three[3]))
+    local count = host.call(
+        "test.count",
+        span.fromString(three[1]),
+        span.fromString(three[2]),
+        span.fromString(three[3])
+    )
     local made = host.call("test.make", 8 * 1024 * 1024, 11)
     local empty = host.call("test.make", 0, 1)
+
     return {
         small = length == #small and total == sum(small) and bytesOf(back) == small,
         large = largeLength == #large and largeTotal == sum(large),
@@ -108,7 +118,7 @@ end
 -- A slow call holding its bytes must not hold the frame: a deadline beside it
 -- fires on time, and the slow call still gets its whole answer.
 function scenarios.slowCallBesideADeadline()
-    local started = time.now()
+    local started = os.monotonic()
     local firedAfter
     local slowAnswer
     local outer = tasks.open()
@@ -120,10 +130,11 @@ function scenarios.slowCallBesideADeadline()
         scoped(50, function()
             time.sleep(5000)
         end)
-        firedAfter = time.now() - started
+        firedAfter = os.monotonic() - started
     end)
     slowAnswer = slow:await()
     outer:close()
+
     return {firedAfter = firedAfter, slow = slowAnswer}
 end
 
@@ -144,6 +155,7 @@ function scenarios.lateReleases()
     -- Let the late answer arrive and the release ship.
     time.sleep(400)
     local live = host.call("test.live")
+
     return {cancelled = not ok and tostring(problem) or "not cancelled", live = live}
 end
 
@@ -167,10 +179,12 @@ function scenarios.answeredThenCancelled()
                 scope:cancel("the first answer to run cancels the other")
             end
         end
+
         scope:spawn(openThenCancel(open))
         scope:spawn(openThenCancel(counted))
     end)
     time.sleep(100)
+
     return {cancelled = not ok, live = host.call("test.live")}
 end
 
@@ -188,6 +202,7 @@ function scenarios.lateCannotWait()
     end)
     time.sleep(300)
     local echoed = host.call("test.echo", "still answering")
+
     return {echoed = echoed, live = host.call("test.live")}
 end
 
@@ -198,6 +213,7 @@ function scenarios.cancelBeforeShipping()
             host.call("test.count", "never")
         end):await()
     end)
+
     return {cancelled = not ok, seen = host.call("test.seen", "test.count")}
 end
 
@@ -220,6 +236,7 @@ function scenarios.cancelMidFetch()
         time.sleep(50)
         live = host.call("test.live")
     end
+
     return {cancelled = not ok, live = live, after = lengthOf(after)}
 end
 
@@ -240,6 +257,7 @@ function scenarios.concurrentLargeResults()
     end
     scope:close()
     local tooLarge = failure(host.call, "test.makeMany", 2, 5 * 1024 * 1024)
+
     return {sizes = sizes, tooLarge = tooLarge, live = host.call("test.live")}
 end
 
@@ -259,6 +277,7 @@ function scenarios.manySmallCalls()
         end
     end
     scope:close()
+
     return {correct = correct}
 end
 
@@ -267,6 +286,7 @@ function scenarios.posts()
         host.post("test.note", index, span.fromString(pattern(100, index)))
     end
     local notes = host.call("test.notes")
+
     return {notes = notes}
 end
 
@@ -279,14 +299,24 @@ function scenarios.streams()
     local events = require("nupp.events")
     local bus = events.newMessageBus()
     local moves, keys, order = {}, {}, {}
-    bus:observe(1, hostevents.PointerMove, function(event)
-        moves[#moves + 1] = event.x .. "," .. event.y
-        order[#order + 1] = moves[#moves]
-    end, "moves")
-    bus:observe(1, hostevents.KeyPress, function(event)
-        keys[#keys + 1] = event.key .. (event.down and "+" or "-")
-        order[#order + 1] = keys[#keys]
-    end, "keys")
+    bus:observe(
+        1,
+        hostevents.PointerMove,
+        function(event)
+            moves[#moves + 1] = event.x .. "," .. event.y
+            order[#order + 1] = moves[#moves]
+        end,
+        "moves"
+    )
+    bus:observe(
+        1,
+        hostevents.KeyPress,
+        function(event)
+            keys[#keys + 1] = event.key .. (event.down and "+" or "-")
+            order[#order + 1] = keys[#keys]
+        end,
+        "keys"
+    )
     local moveRoute = host.route("test.move", hostevents.PointerMove, bus, 1, "dropOldest", 3)
     local keyRoute = host.route("test.key", hostevents.KeyPress, bus, 1, "latest")
     host.call("test.pushInput", 5)
@@ -307,6 +337,7 @@ function scenarios.streams()
     local dropped = moveRoute:dropped()
     moveRoute:close()
     keyRoute:close()
+
     return {
         moves = table.concat(moves, " "),
         keys = table.concat(keys, " "),
@@ -323,21 +354,32 @@ function scenarios.streamObserverFails()
     local events = require("nupp.events")
     local bus = events.newMessageBus()
     local order = {}
-    bus:observe(1, hostevents.PointerMove, function(event)
-        order[#order + 1] = event.x .. "," .. event.y
-        if event.x == 3 then
-            error("observer refused 3")
-        end
-    end, "moves")
-    bus:observe(1, hostevents.KeyPress, function(event)
-        order[#order + 1] = event.key .. (event.down and "+" or "-")
-    end, "keys")
+    bus:observe(
+        1,
+        hostevents.PointerMove,
+        function(event)
+            order[#order + 1] = event.x .. "," .. event.y
+            if event.x == 3 then
+                error("observer refused 3")
+            end
+        end,
+        "moves"
+    )
+    bus:observe(
+        1,
+        hostevents.KeyPress,
+        function(event)
+            order[#order + 1] = event.key .. (event.down and "+" or "-")
+        end,
+        "keys"
+    )
     local moveRoute = host.route("test.move", hostevents.PointerMove, bus, 1, "dropOldest", 16)
     local keyRoute = host.route("test.key", hostevents.KeyPress, bus, 1, "dropOldest", 16)
     host.call("test.pushInput", 5)
     time.sleep(30)
     moveRoute:close()
     keyRoute:close()
+
     return {order = table.concat(order, " ")}
 end
 

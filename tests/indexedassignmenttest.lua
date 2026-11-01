@@ -23,7 +23,7 @@ local M = {}
 function M.spanAssignmentsPreserveLocationsOrderAndTupleAdjustment()
     local source = [[
 local span = require("nupp.mem.span")
-local u32 = nupp.math.u32
+local u32 = math.u32
 local function apply(exclusive values: span.WriteSpan<number>, trace: {number}): number
     local function index(mark: number): uint32
         trace[#trace + 1] = mark
@@ -69,7 +69,7 @@ end
 function M.mixedAssignmentsFreezeTableReceiversBeforeRebinding()
     local source = [[
 local span = require("nupp.mem.span")
-local u32 = nupp.math.u32
+local u32 = math.u32
 local function apply(exclusive values: span.WriteSpan<number>, trace: {number}): number
     local current: {number} = {10}
     local original = current
@@ -132,7 +132,7 @@ end
 function M.temporaryStructFieldReceiversRemainRefused()
     local source = [[
 local span = require("nupp.mem.span")
-local u32 = nupp.math.u32
+local u32 = math.u32
 local struct Cell value: number end
 local function apply(factory: function(): span.WriteSpan<Cell>, trace: {number}): nil
     local function index(mark: number): uint32
@@ -165,7 +165,7 @@ end
 function M.rootedStructFieldsEvaluateIndicesOnce()
     local source = [[
 local span = require("nupp.mem.span")
-local u32 = nupp.math.u32
+local u32 = math.u32
 local struct Cell value: number end
 local function apply(exclusive values: span.WriteSpan<Cell>, trace: {number}): nil
     local function index(mark: number): uint32

@@ -14,6 +14,7 @@
 -- run means one misbehaving suite turns the whole shard's report into "the shard
 -- wrote no report", which loses every other suite's result and reads like an
 -- infrastructure failure rather than the one test that broke.
+require("nupp.runtime.standardos")
 local runnerPath = arg[0]
 local dir = rawget(_G, "__NUPP_TEST_DIR")
 if not dir then

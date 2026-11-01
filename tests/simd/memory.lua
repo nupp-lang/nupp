@@ -4,7 +4,7 @@ local M = {}
 local function sourceFor(ty, lanes)
     local source = {
         (
-            'local array = require("nupp.mem.array")\nlocal span = require("nupp.mem.span")\nlocal simd = require("nupp.simd")\nlocal u32 = nupp.math.u32\nlocal struct Pair\n    first: %s\n    second: %s\nend\n'
+            'local array = require("nupp.mem.array")\nlocal span = require("nupp.mem.span")\nlocal simd = require("nupp.simd")\nlocal u32 = math.u32\nlocal struct Pair\n    first: %s\n    second: %s\nend\n'
         ):format(ty, ty)
     }
     local probes, fields, indexed, interleaved, exports = {}, {}, {}, {}, {}
@@ -33,15 +33,30 @@ end
         local interleavedName = 'interleaved_' .. n
         probes[#probes + 1], exports[#exports + 1] = interleavedName, interleavedName .. '=' .. interleavedName
         interleaved[#interleaved + 1] = interleavedName
-        source[#source + 1] = ('@aot\nlocal function %s(exclusive output: span.WriteSpan<%s>, borrows input: span.Span<%s>, ways: uint32, first: uint32): uint32\n    local s = %s\n'):format(interleavedName, ty, ty, species)
+        source[
+            #source + 1
+        ] = (
+            '@aot\nlocal function %s(exclusive output: span.WriteSpan<%s>, borrows input: span.Span<%s>, ways: uint32, first: uint32): uint32\n    local s = %s\n'
+        ):format(interleavedName, ty, ty, species)
         -- Each width twice: under a guard proving the whole run, and without
         -- one, so both the proved and the checked forms run. The store puts
         -- the vectors back in another order, so a vector read from the wrong
         -- place or written to the wrong one cannot cancel out.
-        for ways, access in ipairs({false, {'Pairs', 'a, b', 'b, a'}, {'Triples', 'a, b, c', 'c, a, b'}, {'Quads', 'a, b, c, d', 'd, c, a, b'}}) do
+        for ways, access in ipairs({
+            false,
+            {'Pairs', 'a, b', 'b, a'},
+            {'Triples', 'a, b, c', 'c, a, b'},
+            {'Quads', 'a, b, c, d', 'd, c, a, b'}
+        }) do
             if access then
-                local body = ('local %s = s:load%s(input, first + 1)\n            s:store%s(output, first + 1, %s)'):format(access[2], access[1], access[1], access[3])
-                source[#source + 1] = ('    %s ways == %d then\n        if first + %d * s.lanes <= #input and first + %d * s.lanes <= #output then\n            %s\n        else\n            %s\n        end\n'):format(ways == 2 and 'if' or 'elseif', ways, ways, ways, body, body)
+                local body = (
+                    'local %s = s:load%s(input, first + 1)\n            s:store%s(output, first + 1, %s)'
+                ):format(access[2], access[1], access[1], access[3])
+                source[
+                    #source + 1
+                ] = (
+                    '    %s ways == %d then\n        if first + %d * s.lanes <= #input and first + %d * s.lanes <= #output then\n            %s\n        else\n            %s\n        end\n'
+                ):format(ways == 2 and 'if' or 'elseif', ways, ways, ways, body, body)
             end
         end
         source[#source + 1] = '    end\n    return s.lanes\nend\n'

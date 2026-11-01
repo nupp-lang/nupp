@@ -19,8 +19,7 @@ local narrower = {}
 for from, to in pairs(wider) do
     narrower[to] = from
 end
-local INTEGER_VALUES =
-    "{0ULL, 1ULL, 255ULL, 256ULL, 65535ULL, 65536ULL, 4294967295ULL, 4294967296ULL, 9223372036854775807ULL, 9223372036854775808ULL, 18446744073709551615ULL, 9223372586610589697ULL}"
+local INTEGER_VALUES = "{0ULL, 1ULL, 255ULL, 256ULL, 65535ULL, 65536ULL, 4294967295ULL, 4294967296ULL, 9223372036854775807ULL, 9223372036854775808ULL, 18446744073709551615ULL, 9223372586610589697ULL}"
 local FLOAT_VALUES = "{0.0, -0.0, 3.9, -3.9, 255.9, -257.9, 65535.9, -65537.9, 2147483520.0, -2147483648.0, 0.5, -0.5, 2 ^ -149, 1e30, 3.4028234663852886e38}"
 
 local function probeSource(name, from, target, method, inverse, shape)
@@ -135,7 +134,7 @@ function M.generate(options)
                 [[local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
 local simd = require("nupp.simd")
-local u32 = nupp.math.u32
+local u32 = math.u32
 ]]
             }
             local names, exports, calls, selected, operations = {}, {}, {}, {}, {}
@@ -156,11 +155,11 @@ local u32 = nupp.math.u32
             for _, direction in ipairs(directions) do
                 source[#source + 1] = checkSource(direction[1], from, direction[2])
             end
-            source[#source + 1] = "local function run(): number\n    local cases = 0\n"
-                .. table.concat(calls)
-                .. "    return cases\nend\nreturn {run=run,"
-                .. table.concat(exports, ",")
-                .. "}\n"
+            source[
+                #source + 1
+            ] = "local function run(): number\n    local cases = 0\n" .. table.concat(
+                calls
+            ) .. "    return cases\nend\nreturn {run=run," .. table.concat(exports, ",") .. "}\n"
             files[name .. ".nupp"], probes[name] = table.concat(source), names
             modules[#modules + 1] = name
             coverage[
@@ -172,7 +171,8 @@ local u32 = nupp.math.u32
                 operations = operations,
                 tails = "0..lanes",
                 oracle = "ordinary scalar storage conversion, and the round trip through the inverse species",
-                input = (from == "float" or from == "number") and "finite float fractions, boundaries and the float range"
+                input = (from == "float" or from == "number")
+                and "finite float fractions, boundaries and the float range"
                 or "all integer widths and boundaries",
             }
         end

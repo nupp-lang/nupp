@@ -6,7 +6,7 @@ order: 625
 
 `nupp bench` finds every `bench/*.bench.nupp`, runs each case in its own
 process at `-O1`, and merges the results. A benchmark is an ordinary program
-that declares cases through `nupp.bench` and ends in `bench.report()`.
+that declares cases through `debug.bench` and ends in `bench.report()`.
 
 ```bash
 nupp bench                  # everything, one process per benchmark
@@ -23,7 +23,7 @@ difference.
 ## Declaring a case
 
 ```nupp
-local bench = require("nupp.bench")
+local bench = require("debug.bench")
 
 local function sized(b: bench.Case): nil
     for _ = 1, b.n do
@@ -122,8 +122,8 @@ A suite runs several implementations against the same workloads, expanding
 every case × parameter × variant into its own isolated benchmark:
 
 ```nupp
-local bench = require("nupp.bench")
-const {type Invocation} = require("nupp.bench")
+local bench = require("debug.bench")
+const {type Invocation} = require("debug.bench")
 
 local function numbers(invocation: Invocation): any
     local values: {number} = {}
@@ -403,7 +403,7 @@ A frame loop is a latency question, and a distribution answers it: one frame in
 a hundred over budget is a visible stutter and an unmoved mean.
 
 ```nupp:fragment
-local bench = require("nupp.bench")
+local bench = require("debug.bench")
 
 local frames = bench.frames("frame", 16.6, 60)
 while running and frames:more() do
@@ -581,7 +581,7 @@ suite options `minDurationMs` and `maxDurationMs`.
 `build/bench-record.json` always holds the latest complete record. `--history`
 appends the same document as NDJSON once every selected benchmark reported.
 
-`nupp.bench` measures from inside a program; `nupp bench` discovers and isolates
+`debug.bench` measures from inside a program; `nupp bench` discovers and isolates
 those programs. Neither replaces an application's own hot loop, such as a
 game's frame or a server's request path with its real asset load and trace
 population.

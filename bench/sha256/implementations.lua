@@ -10,7 +10,7 @@ local implementations = {}
 
 --- The `@aot` entry, compiled by the `sha256` target and entered as a
 --- registered Lua C closure.
-implementations.aot = require("nupp.bench.sha256").sha256
+implementations.aot = require("debug.bench.sha256").sha256
 
 --- The same Nupp source built by the `sha256-scalar` target, left to LuaJIT.
 implementations.scalar = assert(

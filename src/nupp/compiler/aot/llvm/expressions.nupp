@@ -1129,7 +1129,7 @@ function expressions.value(ctx: context.Context, node: scalarIR.Expr): (string, 
             and "u32"
             or "i32"
     elseif operation == "f32_to_bits" then
-        -- Every NaN reads as the one canonical pattern, as `nupp.math.f32` does.
+        -- Every NaN reads as the one canonical pattern, as `math.f32` does.
         local value, t = expressions.value(ctx, (node as scalarIR.Convert).value)
         local operand = expressions.convert(ctx, value, t, "f32")
         local bits = context.value(ctx, ("bitcast float %s to i32"):format(operand))

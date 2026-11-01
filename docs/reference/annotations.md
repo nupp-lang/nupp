@@ -605,7 +605,7 @@ coordinates and one complete span extent, so broadcast and overlapping writes
 are refused.
 
 Binary16 and bfloat16 storage conversions are explicit through
-`nupp.math.f32.fromF16Bits`, `toF16Bits`, `fromBF16Bits`, and `toBF16Bits`.
+`math.f32.fromF16Bits`, `toF16Bits`, `fromBF16Bits`, and `toBF16Bits`.
 The narrow integer names remain physical span and buffer element types, so a
 kernel can define its own dequantization while accumulation uses explicit
 binary32. These portable paths require no optional device feature. Native half
@@ -775,7 +775,7 @@ local function activate(
 ): nil
     assert(#output == #input, "length mismatch")
     for i = 1, #output do
-        output[i] = nupp.math.f32.exp(nupp.math.f32.narrow(input[i]))
+        output[i] = math.f32.exp(math.f32.narrow(input[i]))
     end
 end
 ```

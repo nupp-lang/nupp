@@ -601,7 +601,7 @@ end
 
 function M.browserHttpRejectsMalformedSharedInputsBeforeEffects()
     local browser = require("providerstate").browserHttp()
-    local uri = require("nupp.io.uri")
+    local uri = require("io.uri")
     local messages = require("nupp.io.http.messages")
 
     local function rejected(fields, expected)
@@ -774,7 +774,7 @@ function M.nativeHttpProviderRejectsMalformedBoundaries()
 
     local client = provider.newClient()
     local request = setmetatable(
-        {url = assert(require("nupp.io.uri").newURI("https://example.com/"))},
+        {url = assert(require("io.uri").newURI("https://example.com/"))},
         require("nupp.io.http.messages").Request
     )
     head.status = 99
@@ -858,7 +858,7 @@ function M.filesystemNamesAreFilesPathsEverywhere()
                 "const files = require('nupp.io.files')",
                 "const http = require('nupp.io.http')",
                 "const net = require('nupp.io.net')",
-                "const paths = require('nupp.io.path')",
+                "const paths = require('io.path')",
                 "const process = require('nupp.io.process')",
                 "local function send(where: files.Path): nil",
                 "    local body = http.file(where)",
@@ -1143,7 +1143,7 @@ function M.browserHttpRejectsMalformedHostValuesAndReleasesBodies()
     local ok, problem = pcall(function()
         local browser = require("providerstate").browserHttp(memory)
         local request = setmetatable(
-            {url = assert(require("nupp.io.uri").newURI("https://example.com/"))},
+            {url = assert(require("io.uri").newURI("https://example.com/"))},
             require("nupp.io.http.messages").Request
         )
         local client = browser.newClient({maxBytes = 4})
@@ -1245,7 +1245,7 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
         }
         local request = setmetatable(
             {
-                url = assert(require("nupp.io.uri").newURI("https://example.com/")),
+                url = assert(require("io.uri").newURI("https://example.com/")),
                 headers = {["x-test"] = "request", ["content-type"] = "request/type"},
                 body = require("nupp.io.http").reader(source, 6, "body/type"),
             },
@@ -1905,9 +1905,9 @@ function M.nativeFeaturesAreResolvedEffects()
     assert(not shadowed["native.sha256"], "a local binary is not the global facility")
 
     local shadowedIO = effectsOf(
-        table.concat({"local nupp = {io = {path = {separator = function() end}}}", "nupp.io.path.separator()",}, "\n")
+        table.concat({"local io = {path = {separator = function() end}}", "io.path.separator()",}, "\n")
     )
-    assert(not shadowedIO["native.path"], "a local nupp.io is not the global facility")
+    assert(not shadowedIO["native.path"], "a local io is not the global facility")
 
     local shadowedRequire = effectsOf(
         table.concat({"local require = function(_) return {} end", "require('lpeg')",}, "\n")
@@ -1917,15 +1917,15 @@ function M.nativeFeaturesAreResolvedEffects()
     local expected = {
         ["serde.json.encodeValue({answer = 42})"] = "native.json",
         ["serde.json.pull('{}', {answer = true})"] = "native.json",
-        ["nupp.text.utf8.length('hello')"] = "runtime.data_utf8",
+        ["utf8.length('hello')"] = "runtime.data_utf8",
         ["nupp.io.newBuffer('hello')"] = "stdlib.io",
-        ["nupp.math.lerp(10, 20, 0.25)"] = "stdlib.math",
-        ["nupp.math.vec2.length(3, 4)"] = "stdlib.math",
-        ["nupp.math.quat.length(0, 0, 0, 1)"] = "stdlib.math",
-        ["nupp.io.path.separator()"] = "runtime.path",
-        ["nupp.io.uri.newURI('https://example.com')"] = "runtime.uri",
-        ["nupp.util.uuid7()"] = "runtime.uuid",
-        ["nupp.system.availableParallelism()"] = "runtime.system",
+        ["math.lerp(10, 20, 0.25)"] = "stdlib.math",
+        ["math.vec2.length(3, 4)"] = "stdlib.math",
+        ["math.quat.length(0, 0, 0, 1)"] = "stdlib.math",
+        ["io.path.separator()"] = "runtime.path",
+        ["io.uri.newURI('https://example.com')"] = "runtime.uri",
+        ["os.uuid7()"] = "runtime.uuid",
+        ["os.info()"] = "runtime.system",
         ["nupp.host.attached()"] = "runtime.host",
     }
     for source, effect in pairs(expected) do
@@ -1941,22 +1941,20 @@ function M.nativeFeaturesAreResolvedEffects()
     assertClean(
         table.concat(
             {
-                "const {Path} = require('nupp.io.path')",
-                "local source: nupp.io.path.Path = nupp.io.path.newPath('src', 'main.nupp')",
-                "local components: nupp.io.uri.Components = nil as any",
+                "const {Path} = require('io.path')",
+                "local source: io.path.Path = io.path.newPath('src', 'main.nupp')",
+                "local components: io.uri.Components = nil as any",
                 "local URIOf: function(",
-                "    value: string | nupp.io.uri.Components",
-                "): (nupp.io.uri.URI?, string?) = nupp.io.uri.newURI",
-                "local address: nupp.io.uri.URI? = URIOf(components)",
+                "    value: string | io.uri.Components",
+                "): (io.uri.URI?, string?) = io.uri.newURI",
+                "local address: io.uri.URI? = URIOf(components)",
                 "print(source, address)",
             },
             "\n"
         )
     )
 
-    local aliased = effectsOf(
-        table.concat({"const system = require('nupp.system')", "system.availableParallelism()",}, "\n")
-    )
+    local aliased = effectsOf(table.concat({"const system = os.info", "system()",}, "\n"))
     assert(aliased["runtime.system"], "requiring a facility records its feature")
     assert(not aliased["runtime.uuid"], "separate facilities do not share effects")
 
@@ -1969,7 +1967,7 @@ function M.nativeFeaturesAreResolvedEffects()
     local typeOnly = effectsOf(
         table.concat(
             {
-                "const {type Path} = require('nupp.io.path')",
+                "const {type Path} = require('io.path')",
                 "local function describe(p: Path?): string return p == nil and 'none' or 'some' end",
                 "print(describe(nil))",
             },
@@ -1977,7 +1975,7 @@ function M.nativeFeaturesAreResolvedEffects()
         )
     )
     assert(next(typeOnly) == nil, "a type-only import selects no feature")
-    local mixed = effectsOf("const {type Path, separator} = require('nupp.io.path')\nprint(separator)")
+    local mixed = effectsOf("const {type Path, separator} = require('io.path')\nprint(separator)")
     assert(mixed["runtime.path"], "a pattern that also selects a value still uses the module")
 end
 
@@ -2098,13 +2096,7 @@ end
 
 function M.optimizedDeadCodeDropsItsNativeFeatures()
     local source = table.concat(
-        {
-            "if false then",
-            "    print(nupp.system.availableParallelism())",
-            "else",
-            "    print(nupp.util.uuid4())",
-            "end",
-        },
+        {"if false then", "    print(os.info().parallelism)", "else", "    print(os.uuid4())", "end",},
         "\n"
     )
     local result = parser.parse(source, "dead-native-feature")
@@ -2118,13 +2110,7 @@ end
 
 function M.generatedBootstrapFollowsWhatCodegenEmits()
     local source = table.concat(
-        {
-            "if false then",
-            "    print(nupp.system.availableParallelism())",
-            "else",
-            "    print(nupp.util.uuid4())",
-            "end",
-        },
+        {"if false then", "    print(os.info().parallelism)", "else", "    print(os.uuid4())", "end",},
         "\n"
     )
     local result = parser.parse(source, "generated-runtime-features")
@@ -2142,7 +2128,7 @@ function M.generatedBootstrapFollowsWhatCodegenEmits()
         not emitted["runtime.system"] and emitted["runtime.uuid"],
         "generation reports only features whose consumers it wrote"
     )
-    assert(not code:find("availableParallelism", 1, true), "the dead system branch loses its member access")
+    assert(not code:find("parallelism", 1, true), "the dead system branch loses its member access")
     assert(code:find("uuid4", 1, true), "the live UUID branch keeps its member access")
 end
 
@@ -2167,27 +2153,26 @@ function M.compilerProvidedPureLibraries()
       assert(reader:read(8) == "ld")
       assert(reader:read(1) == "")
       assert(not pcall(function() reader:read(0) end))
-      local x, y = nupp.math.vec2.normalize(3, 4)
+      local x, y = math.vec2.normalize(3, 4)
       assert(math.abs(x - 0.6) < 0.000001 and math.abs(y - 0.8) < 0.000001)
-      local dx, dy = nupp.math.vec2.sub(5, 7, 2, 3)
+      local dx, dy = math.vec2.sub(5, 7, 2, 3)
       assert(dx == 3 and dy == 4)
-      local qx, qy, qz, qw = nupp.math.quat.fromAxisAngle(0, 0, 2, math.pi / 2)
+      local qx, qy, qz, qw = math.quat.fromAxisAngle(0, 0, 2, math.pi / 2)
       assert(math.abs(qz - math.sqrt(0.5)) < 0.000001 and math.abs(qw - math.sqrt(0.5)) < 0.000001)
       assert(qx == 0 and qy == 0)
-      assert(nupp.math.lerp(10, 20, 0) == 10)
-      assert(nupp.math.lerp(10, 20, 0.25) == 12.5)
-      assert(nupp.math.lerp(10, 20, 1) == 20)
-      assert(nupp.math.lerp(10, 20, 1.5) == 25)
+      assert(math.lerp(10, 20, 0) == 10)
+      assert(math.lerp(10, 20, 0.25) == 12.5)
+      assert(math.lerp(10, 20, 1) == 20)
+      assert(math.lerp(10, 20, 1.5) == 25)
       local checksum = require("binary.hash.checksum")
       local digest = require("binary.hash.digest")
-      local util = require("nupp.util")
       local hash = require("binary.hash")
       assert(hash.fnv1a64("hello") == "a430d84680aabd0b")
       assert(checksum.value("crc32", "123456789") == 3421780262ULL)
       assert(digest.hexDigest("sha256", "abc") ==
          "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
-      local uuid4 = util.uuid4()
-      local uuid7 = util.uuid7()
+      local uuid4 = os.uuid4()
+      local uuid7 = os.uuid7()
       assert(uuid4:match("^[0-9a-f]+%-[0-9a-f]+%-4[0-9a-f]+%-[89ab][0-9a-f]+%-[0-9a-f]+$")
          and #uuid4 == 36)
       assert(uuid7:match("^[0-9a-f]+%-[0-9a-f]+%-7[0-9a-f]+%-[89ab][0-9a-f]+%-[0-9a-f]+$")
@@ -2278,10 +2263,10 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
         "NUPP2001:2"
     )
     assertClean(
-        "const files = require('nupp.io.files')\nlocal paths: {nupp.io.path.Path} = assert(files.glob('src/**/*.nupp'))"
+        "const files = require('nupp.io.files')\nlocal paths: {io.path.Path} = assert(files.glob('src/**/*.nupp'))"
     )
     testAssert.equal(
-        (diagsOf("const files = require('nupp.io.files')\nfiles.glob(nupp.io.path.newPath('src'))")),
+        (diagsOf("const files = require('nupp.io.files')\nfiles.glob(io.path.newPath('src'))")),
         "NUPP2006:2",
         "a glob takes a pattern, not a path"
     )
@@ -2320,7 +2305,7 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
             {
                 "const http = require('nupp.io.http')",
                 "const io = require('nupp.io')",
-                "const uri = require('nupp.io.uri')",
+                "const uri = require('io.uri')",
                 "const process = require('nupp.io.process')",
                 "do local client = http.newClient() end",
                 "do",
@@ -2350,7 +2335,7 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
     assertClean(
         table.concat(
             {
-                "const path = require('nupp.io.path')",
+                "const path = require('io.path')",
                 "local source: path.Path = path.newPath('src', 'main.nupp')",
                 "print(source)",
             },
@@ -2358,11 +2343,11 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
         )
     )
     testAssert.equal(
-        (diagsOf(table.concat({"const path = require('nupp.io.path')", "local value = new path.Path()",}, "\n"))),
+        (diagsOf(table.concat({"const path = require('io.path')", "local value = new path.Path()",}, "\n"))),
         "NUPP2209:2"
     )
 
-    local path = require("nupp.io.path")
+    local path = require("io.path")
     local first = path.newPath("cache", "first")
     assert(rawequal(first, path.newPath("cache", "first")), "path.newPath interns equal path text")
     assert(path.Path.__nuppCtor1 == nil, "Path exposes no generated constructor")
@@ -2377,7 +2362,7 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
     assertClean(
         table.concat(
             {
-                "const uri = require('nupp.io.uri')",
+                "const uri = require('io.uri')",
                 "local endpoint: uri.URI = assert(uri.newURI('https://example.com/api'))",
                 "print(endpoint)",
             },
@@ -2385,11 +2370,11 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
         )
     )
     testAssert.equal(
-        (diagsOf(table.concat({"const uri = require('nupp.io.uri')", "local value = new uri.URI()",}, "\n"))),
+        (diagsOf(table.concat({"const uri = require('io.uri')", "local value = new uri.URI()",}, "\n"))),
         "NUPP2209:2"
     )
 
-    local uri = require("nupp.io.uri")
+    local uri = require("io.uri")
     local firstURI = assert(uri.newURI("https://example.com/cache/first"))
     assert(
         rawequal(firstURI, assert(uri.newURI("https://example.com/cache/first"))),
@@ -2445,11 +2430,11 @@ end
 
 function M.theUtf8ModuleNeedsNoNativeModule()
     local loadedRock = package.loaded["lua-utf8"]
-    local loadedModule = package.loaded["nupp.text.utf8"]
+    local loadedModule = package.loaded["utf8"]
     package.loaded["lua-utf8"] = nil
-    package.loaded["nupp.text.utf8"] = nil
+    package.loaded["utf8"] = nil
     local ok, problem = pcall(function()
-        local utf8 = require("nupp.text.utf8")
+        local utf8 = require("utf8")
         assert(package.loaded["lua-utf8"] == nil, "requiring the module opened no rock")
         assert(utf8.length("A\226\130\172") == 2)
         assert(utf8.isValid("A\226\130\172"))
@@ -2465,7 +2450,7 @@ function M.theUtf8ModuleNeedsNoNativeModule()
     -- between queue pieces can undo that: `package.loaded` is restored by key,
     -- and the key would be pointing at the replacement.
     package.loaded["lua-utf8"] = loadedRock
-    package.loaded["nupp.text.utf8"] = loadedModule
+    package.loaded["utf8"] = loadedModule
     assert(ok, problem)
 end
 
@@ -2536,7 +2521,7 @@ function M.theJsonModuleLoadsItsNuppProviderOnRequire()
 end
 
 function M.utf8EncodingCoversEveryBoundary()
-    local utf8 = require("nupp.text.utf8")
+    local utf8 = require("utf8")
     local boundaries = {
         {0, "\0"},
         {1, "\1"},
@@ -2572,7 +2557,7 @@ function M.utf8EncodingCoversEveryBoundary()
 end
 
 function M.utf8WalkingPreservesEveryByteBoundary()
-    local utf8 = require("nupp.text.utf8")
+    local utf8 = require("utf8")
     local values = {
         "",
         "A\xc2\xa2\xe2\x82\xac\xf0\x9f\x98\x80Z",
@@ -2617,7 +2602,7 @@ function M.utf8WalkingPreservesEveryByteBoundary()
 end
 
 function M.utf8ByteViewsAndBudgetsMatchStrings()
-    local utf8 = require("nupp.text.utf8")
+    local utf8 = require("utf8")
     local buffer = require("nupp.io").newBuffer("A\xe2\x82\xacZ")
     local view = buffer:view()
     testAssert.equal(utf8.length(view), 3, "byte-view length")
@@ -2679,7 +2664,7 @@ function M.jsonEncodingRefusesEveryMalformedUtf8Shape()
 end
 
 function M.utf8ValidationCoversEveryShape()
-    local utf8 = require("nupp.text.utf8")
+    local utf8 = require("utf8")
     for _, case in ipairs(UTF8_SHAPES) do
         local value, valid = case[1], case[2]
         local what = case[3] or ("%q"):format(value)
@@ -3156,7 +3141,7 @@ end
 function M.publicResourceAliasesKeepConstructionAndPrivacy()
     assertClean(
         [[const http = require("nupp.io.http")
-const uri = require("nupp.io.uri")
+const uri = require("io.uri")
 local request = new http.Request(url = assert(uri.newURI("https://example.com/")))
 request:close()
 ]]

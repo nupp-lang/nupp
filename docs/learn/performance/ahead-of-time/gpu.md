@@ -119,15 +119,15 @@ local function reduce(
     exclusive output: span.WriteSpan<float>,
     borrows input: span.Span<float>
 ): nil
-    local groups = nupp.math.u32.div(
-        nupp.math.u32.wrap(#input),
-        nupp.math.u32.wrap(4)
+    local groups = math.u32.div(
+        math.u32.wrap(#input),
+        math.u32.wrap(4)
     )
     gpu.workgroups(groups, 4, function(groupIndex: uint32, phases: gpu.Phases)
-        local shared = phases:scratch(nupp.math.f32.narrow(0.0), 4)
+        local shared = phases:scratch(math.f32.narrow(0.0), 4)
         phases:run(function(localIndex: uint32)
-            local cursor = nupp.math.u32.add(
-                nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(4)),
+            local cursor = math.u32.add(
+                math.u32.mul(groupIndex, math.u32.wrap(4)),
                 localIndex
             )
             if cursor < #input then
@@ -136,7 +136,7 @@ local function reduce(
         end)
         phases:reduceSum(shared)
         phases:run(function(localIndex: uint32)
-            if localIndex == nupp.math.u32.wrap(0) and groupIndex < #output then
+            if localIndex == math.u32.wrap(0) and groupIndex < #output then
                 output[groupIndex + 1] = shared[0]
             end
         end)
@@ -205,7 +205,7 @@ local function addMask(
 ): nil
     assert(#output == #input, "length mismatch")
     for index = 1, #output do
-        output[index] = nupp.math.u32.add(input[index], mask)
+        output[index] = math.u32.add(input[index], mask)
     end
 end
 ```
