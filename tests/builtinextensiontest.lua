@@ -31,6 +31,11 @@ local function withExtension(callback, assertionSource)
 @!internal
 module nupp.runtime.standardio
 export type Style = {label: string}
+export type ColorMode = "auto" | "always" | "never"
+export type Alignment = "left" | "right"
+export type Cell = {text: string}
+export type Column = {heading: string}
+export type TableOptions = {rows: {{Cell}}}
 export function columns(): integer return 73 end
 export const value: table = do
     local original = rawget(_G, "io") as any
@@ -257,6 +262,37 @@ return style.label, facts.platform
             env
         )
         assert(withValue:find('require("nupp.runtime.standardos")', 1, true))
+    end)
+end
+
+function M.typeOnlyRequiresShareQualifiedExtensionTypes()
+    withExtension(function(env)
+        local code, parsed = compile(
+            [[
+module extensiontypes
+const {type ColorMode, type Style, type Cell, type TableOptions, type Alignment, type Column} = require("io")
+export type SelectedColorMode = ColorMode
+export type SelectedStyle = Style
+export type SelectedCell = Cell
+export type SelectedTableOptions = TableOptions
+export type SelectedAlignment = Alignment
+export type SelectedColumn = Column
+export function identity(style: Style): Style return style end
+]],
+            "type-import-extension-consumer.nupp",
+            env
+        )
+        for _, name in ipairs({"ColorMode", "Style", "Cell", "TableOptions", "Alignment", "Column"}) do
+            test.equal(parsed.moduleExports.types["Selected" .. name], env.globalTypes["io." .. name])
+            test.equal(parsed.moduleExports.types["Selected" .. name], env.builtinExtensionExports.io.types[name])
+        end
+        test.equal(code:find('require("io")', 1, true), nil)
+        test.equal(code:find('require("nupp.runtime.standardio")', 1, true), nil)
+        test.equal(next(parsed.effects), nil, "type imports record no runtime effect")
+        test.equal(package.loaded["nupp.runtime.standardio"], nil)
+        local consumer = assert(loadstring(code))()
+        local style = {label = "ready"}
+        test.equal(consumer.identity(style), style)
     end)
 end
 

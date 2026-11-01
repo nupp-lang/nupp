@@ -45,6 +45,16 @@ function M.helperSeedsOnlyReusableWorktreeState()
     assert(os.execute(("cp %s/scripts/worktree %s/scripts/worktree"):format(quote(ROOT), quote(origin))) == 0)
     assert(os.execute("chmod +x " .. quote(origin .. "/scripts/worktree")) == 0)
     write(origin .. "/src/main.nupp", "return true\n")
+    for _, name in ipairs({"nupp", "serde", "binary", "arg"}) do
+        assert(os.execute(("mkdir -p %s/src/%s %s/build/%s"):format(quote(origin), name, quote(origin), name)) == 0)
+        write(origin .. "/src/" .. name .. "/init.nupp", "return true\n")
+        write(origin .. "/build/" .. name .. "/member.lua", name .. " member\n")
+        write(origin .. "/build/" .. name .. ".lua", name .. " module\n")
+    end
+    write(origin .. "/src/warn.nupp", "return true\n")
+    write(origin .. "/build/warn.lua", "warning module\n")
+    write(origin .. "/src/log.nupp", "return true\n")
+    write(origin .. "/build/log.lua", "checkout-owned output\n")
     write(origin .. "/build/cache/checks.buf", "compiler-cache\n")
     write(origin .. "/build/.nupp-test-times.json", '{"suites":{"slow":10}}\n')
     write(origin .. "/build/nupp/tools/main.lua", "return true\n")
@@ -55,11 +65,12 @@ function M.helperSeedsOnlyReusableWorktreeState()
         os.execute(
             (
                 "git -C %s init -q && git -C %s config user.name Test "
-                .. "&& git -C %s config user.email test@example.com && git -C %s add scripts src "
+                .. "&& git -C %s config user.email test@example.com && git -C %s add scripts src build/log.lua "
                 .. "&& git -C %s commit -q -m initial"
             ):format(quote(origin), quote(origin), quote(origin), quote(origin), quote(origin))
         ) == 0
     )
+    write(origin .. "/build/log.lua", "origin-built output\n")
     write(origin .. "/build/.nupp-complete", "complete\n")
 
     local command = ("%s/scripts/worktree cached-worktree %s HEAD >/dev/null"):format(quote(origin), quote(task))
@@ -67,6 +78,15 @@ function M.helperSeedsOnlyReusableWorktreeState()
     assert(read(task .. "/build/cache/checks.buf") == "compiler-cache\n", "the incremental cache was not seeded")
     assert(read(task .. "/build/.nupp-test-times.json"):find('"slow":10', 1, true), "test timings were not seeded")
     assert(read(task .. "/build/nupp/tools/main.lua") == "return true\n", "a current compiler was not seeded")
+    for _, name in ipairs({"serde", "binary", "arg"}) do
+        assert(
+            read(task .. "/build/" .. name .. "/member.lua") == name .. " member\n",
+            name .. " output directory was not seeded"
+        )
+        assert(read(task .. "/build/" .. name .. ".lua") == name .. " module\n", name .. " flat module was not seeded")
+    end
+    assert(read(task .. "/build/warn.lua") == "warning module\n", "a top-level source module was not seeded")
+    assert(read(task .. "/build/log.lua") == "checkout-owned output\n", "existing compiler output was overwritten")
     assert(
         os.execute(("test ! %s/src/main.nupp -nt %s/build/.nupp-complete"):format(quote(task), quote(task))) == 0,
         "the copied completion stamp remained older than a fresh checkout"
@@ -84,6 +104,8 @@ function M.helperSeedsOnlyReusableWorktreeState()
     )
     local dirtyCompiler = io.open(dirtyTask .. "/build/nupp/tools/main.lua", "rb")
     assert(not dirtyCompiler, "generated compiler output from dirty source was copied into a clean worktree")
+    assert(not io.open(dirtyTask .. "/build/serde/member.lua", "rb"), "a dirty origin seeded moved compiler modules")
+    assert(not io.open(dirtyTask .. "/build/warn.lua", "rb"), "a dirty origin seeded a top-level source module")
 
     os.execute(("git -C %s worktree remove --force %s >/dev/null 2>&1"):format(quote(origin), quote(task)))
     os.execute(("git -C %s worktree remove --force %s >/dev/null 2>&1"):format(quote(origin), quote(dirtyTask)))

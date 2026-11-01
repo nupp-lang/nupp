@@ -47,12 +47,11 @@ function compile.check(
         cliReport.fileFailure(path, readErr, "check that the path exists and is readable", collected)
         return nil
     end
-    local result = require("nupp.compiler.syntax.parser").parse(source, path)
+    local result, diags = require("nupp.compiler.project.env").checkModuleSource(env as any, path, source, opts as any)
     if #result.errors > 0 then
         report(result.errors)
         return nil
     end
-    local diags = require("nupp.compiler.check").check(result, path, env, opts)
     if report(diags) then
         return nil
     end
