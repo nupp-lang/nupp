@@ -736,11 +736,6 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             argTable = callArgs.table
         end
         local calleeIdentity = apiidentity.expression(c, callee)
-        local deriveIntrinsic = calleeIdentity and calleeIdentity:match("^types%.derive%.[%w_]+$")
-        if deriveIntrinsic and (c.comptimeFunctionDepth or 0) == 0 then
-            c.diag("NUPP2809", node, "nupp.derive builders are available only inside a comptime provider")
-            return T.any
-        end
         -- Resolve the standard-library binding rather than trusting the spelling, so a
         -- project table called `jit` changes nothing. With no argument LuaJIT disables
         -- the containing function; with one it disables that named function value.
@@ -1347,6 +1342,14 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         local selectedExport = callee
             and (callee.exactCallExport or calleeDefinition and calleeDefinition.exactCallExport)
             or nil
+        local deriveIntrinsic = calleeIdentity and calleeIdentity:match("^types%.derive%.[%w_]+$")
+        -- The historical runtime module shares its path with the ambient recipe API.
+        -- Its ordinary exports have module provenance; recipe projections do not.
+        local deriveRuntime = selectedExport and selectedExport.module == "nupp.derive"
+        if deriveIntrinsic and not deriveRuntime and (c.comptimeFunctionDepth or 0) == 0 then
+            c.diag("NUPP2809", node, "nupp.derive builders are available only inside a comptime provider")
+            return T.any
+        end
         -- The frozen toolchain calls the private string contract. Retain its
         -- discovery boundary for module initialization and language navigation.
         if selectedExport

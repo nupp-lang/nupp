@@ -1257,8 +1257,12 @@ function expr.install(c: state.Checker): nil
             -- than making the alias spelling part of their ABI.
             if entry and entry.requiredModule then
                 node.requiredModule = entry.requiredModule
-                node.qualifiedModule = entry.requiredModule
-                node.qualifiedMembers = {}
+                -- Only an ambient module needs an emitted binding. An authored local
+                -- already holds its require result, possibly inside a lazy function.
+                if builtin and entry.definition == builtin.definition then
+                    node.qualifiedModule = entry.requiredModule
+                    node.qualifiedMembers = {}
+                end
             end
             local capturedType = nil
             if entry

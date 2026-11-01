@@ -413,7 +413,15 @@ function index.install(c: state.Checker): state.ExprHandlers
         if not namespace and identity then
             namespace, intrinsicMember = identity:match("^(types)%.([%w_]+)$")
         end
-        if namespace and intrinsicMember then
+        local runtimeModule = (target as any).requiredModule
+        if target.kind == "name" and target.token then
+            local holder = c.lookupEntry(target.token.text)
+            runtimeModule = holder and holder.requiredModule or runtimeModule
+        elseif target.kind == "call" then
+            c.infer(target)
+            runtimeModule = (target as any).requiredModule
+        end
+        if namespace and intrinsicMember and runtimeModule ~= "nupp.derive" then
             local intrinsicNamespace = apiidentity.lookup(c.env.globalTypes, namespace)
             if namespace == "types" then
                 local builtin = c.env.globals.types

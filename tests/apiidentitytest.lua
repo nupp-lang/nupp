@@ -172,6 +172,75 @@ return own.manage(types.reflect(types.reflect(1)) + 1)
     test.equal(assert(loadstring(code))(), 7)
 end
 
+local function runtimeEnv()
+    local env = finalEnv()
+    local values = {
+        entry = T.func({T.any}, {
+            T.any
+        }),
+        initializer = T.func({T.any}, {
+            T.any
+        }),
+        debug = T.func({T.any, T.any}, {T.string}),
+    }
+    local fields = {}
+    for name, value in pairs(values) do
+        fields[#fields + 1] = {name = name, read = value}
+    end
+    env.loaded["nupp.derive"] = {type = T.shape(fields), exports = {values = values}}
+
+    return env
+end
+
+function M.keepsImportedDeriveRuntimeHelpersOrdinary()
+    local _, errors = compile(
+        [[
+local runtime = require("nupp.derive")
+local record Value end
+local entry = runtime.entry(Value)
+local initializer = runtime.initializer(Value)
+local render = runtime.debug
+return 17
+]],
+        runtimeEnv()
+    )
+    test.equal(errors, "", errors)
+    for _, root in ipairs({"nupp.derive", "types.derive"}) do
+        local source = ([[
+return ROOT.entry()
+]]):gsub("ROOT", root)
+        local _, recipeErrors = compile(source)
+        assert(recipeErrors:find("NUPP2809", 1, true), recipeErrors)
+    end
+end
+
+function M.preservesLazyExplicitModuleRequires()
+    local code, errors = compile(
+        [[
+local function later(): any
+    local runtime = require("nupp.derive")
+    return runtime
+end
+return 17
+]],
+        runtimeEnv()
+    )
+    test.equal(errors, "", errors)
+    local original = _G.require
+    local calls = 0
+    _G.require = function(name)
+        if name == "nupp.derive" then
+            calls = calls + 1
+        end
+        return original(name)
+    end
+    local ok, result = pcall(assert(loadstring(code, "@lazy-module")))
+    _G.require = original
+    assert(ok, result)
+    test.equal(result, 17)
+    test.equal(calls, 0)
+end
+
 function M.preservesCanonicalAssertionAliasesAndShadowing()
     test.equal(
         run(
