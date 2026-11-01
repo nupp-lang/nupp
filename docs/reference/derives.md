@@ -245,10 +245,10 @@ A provider may ask for the owner's initializer with `initializer = true` beside
 constructor body, or its field list when it declares none, as a hidden member
 taking the instance first: `initializer(storage, ...)` fills storage the caller
 already holds and returns it, and `new` allocates and calls the same body. The
-runtime reaches it through `types.derive.initializer(Type)`. A field-list
-initializer applies a field default where its argument is nil, which is the one
-place that can, since a positional call never passes through the checker's
-default filling.
+generated runtime protocol records this hidden member in the declaration's derive
+metadata. A field-list initializer applies a field default where its argument is
+nil, which is the one place that can, since a positional call never passes
+through the checker's default filling.
 
 The compiler refuses the request on a declaration whose body could notice the
 reuse: several constructors, a constructor that lets `self` escape or moves a
