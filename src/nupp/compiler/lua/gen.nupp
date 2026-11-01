@@ -1,5 +1,7 @@
 module nupp.compiler.lua.gen
 
+const assert2 = require("assert")
+
 const {type Type} = require("nupp.compiler.types")
 
 --[[
@@ -1764,7 +1766,7 @@ function gen.generate(
             elseif argument.kind == "witness" then
                 local subject = x.deriveWitnesses and x.deriveWitnesses[argument.witnessIndex]
                 local path = argument.runtimePath or error("invalid derived type witness")
-                assert(subject, "missing semantic derived type witness")
+                assert2(subject, "missing semantic derived type witness")
                 needRuntimeEffect("stdlib.typewitness")
                 local reflection = require("nupp.compiler.reflection")
                 local data = literal.renderData(
@@ -7308,12 +7310,13 @@ function gen.generate(
             e(" end")
             return
 
-        elseif kind == "callStmt" and x.expr and x.expr.ownershipIntrinsic then
-            -- Every helper intrinsic lowers to a value. Written for the assertion
-            -- rather than the value -- surrendering an owner the caller is finished
-            -- with -- that leaves an expression where Lua wants a statement, and a file
-            -- that checks and builds but will not load. Binding the value keeps
-            -- whatever computing it does and lets the block discard it.
+        elseif kind == "callStmt"
+            and x.expr
+            and (x.expr.ownershipIntrinsic or x.expr.standardRoot and x.expr.qualifiedModule)
+        then
+            -- An ownership helper or a projected builtin require lowers to a value.
+            -- Binding that value keeps its evaluation and makes discarding it a Lua
+            -- statement, including when another statement follows on the next line.
             --
             -- `drop` is the one intrinsic that clears a move flag, and it has its own
             -- branch above.
@@ -8997,7 +9000,7 @@ function gen.generate(
             emitPackedReturn(pluck.currentRegion(), x)
 
         elseif kind == "returnStmt" and x.constructorReturn then
-            e("do return " .. assert(emitDepth.constructorReturnName) .. " end", sourceLine(x))
+            e("do return " .. assert2(emitDepth.constructorReturnName) .. " end", sourceLine(x))
 
         elseif kind == "returnStmt" and emitDepth.returnsConstruction(x) then
             -- A constructor produces one value. Keep its caller's frame alive
@@ -10138,7 +10141,7 @@ function gen.generate(
         }
         for _, resolver in ipairs(cleanupResolverOrder) do
             local cleanup = resolver.cleanup
-            assert(
+            assert2(
                 cleanup.key,
                 "unresolved affine terminal reached lowering in " .. (
                     filename or "<source>"
