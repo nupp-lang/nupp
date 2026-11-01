@@ -40,6 +40,17 @@ end
     local file = assert(io.open(path, "wb"));
     file:write(source);
     file:close()
+    local argvSource = [[
+module arg
+local methods = {}
+function methods.parse(value: string): string return value end
+local argv: {string} = rawget(_G, "arg") as {string}
+export = setmetatable(argv, {__index = methods})
+]]
+    local argvPath = root .. "/src/arg.nupp"
+    local argvFile = assert(io.open(argvPath, "wb"));
+    argvFile:write(argvSource);
+    argvFile:close()
     local env = envMod.new(root, {config = {include = {"src"}}})
     local name = "nupp.runtime.standardio"
     local loaded, preload, columns = package.loaded[name], package.preload[name], rawget(io, "columns")
@@ -47,7 +58,7 @@ end
         local code = compile(source, path, env)
         package.loaded[name] = nil
         package.preload[name] = assert(loadstring(code, "@standardio-fixture"))
-        callback(env)
+        callback(env, argvSource, argvPath)
     end)
     package.loaded[name], package.preload[name] = loaded, preload
     rawset(io, "columns", columns)
@@ -70,6 +81,8 @@ return original == io, original == imported, imported.columns(), original.stdout
         test.equal(stdout, true)
         test.equal(package.loaded.io, io)
         test.equal(require("nupp.runtime.standardio").value, io)
+        local separate = envMod.new("/private/tmp", {config = {include = {"no-builtin-extension-fixture"}}})
+        test.equal(separate.globals.io.t.byname.columns, nil, "a project extension must not mutate cached preludes")
     end)
 end
 
@@ -86,7 +99,7 @@ function M.localTablesAndRequireShadowsKeepTheirOwnMeaning()
     withExtension(function(env)
         local code = compile(
             [[
-module shadow_consumer
+module shadowconsumer
 export function run(): (integer, integer)
     local io = {columns = function(): integer return 19 end}
     local require: function(string): integer = function(name: string): integer return #name end
@@ -101,6 +114,42 @@ end
         local columns, length = assert(loadstring(code))().run()
         test.equal(columns, 19)
         test.equal(length, 2)
+    end)
+end
+
+function M.directArgRootKeepsOneRawArrayInstance()
+    withExtension(function(env, source, path)
+        local previous, loaded, preload = arg, package.loaded.arg, package.preload.arg
+        local argv = {[0] = "fixture", [1] = "value", [-1] = "nupp"}
+        local ok, reason = pcall(function()
+            rawset(_G, "arg", argv)
+            package.loaded.arg = nil
+            package.preload.arg = assert(loadstring(compile(source, path, env)))
+            local code = compile(
+                [[
+local current = arg
+local imported = require("arg")
+return current == imported, current.parse("kept"), #current
+]],
+                "argv-consumer.nupp",
+                env
+            )
+            local same, parsed, count = assert(loadstring(code))()
+            test.equal(same, true)
+            test.equal(parsed, "kept")
+            test.equal(count, 1)
+            test.equal(rawget(argv, "parse"), nil)
+            test.equal(argv[-1], "nupp")
+            test.equal(package.loaded.arg, argv)
+            local rawCount = 0
+            for _ in pairs(argv) do
+                rawCount = rawCount + 1
+            end
+            test.equal(rawCount, 3)
+        end)
+        rawset(_G, "arg", previous)
+        package.loaded.arg, package.preload.arg = loaded, preload
+        assert(ok, reason)
     end)
 end
 
