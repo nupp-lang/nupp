@@ -244,4 +244,106 @@ function M.shortMathAliasesReuseTheExistingPrivateFunctions()
     test.equal(w, 4)
 end
 
+local CONVERTERS = {"fromF16Bits", "toF16Bits", "fromBF16Bits", "toBF16Bits"}
+
+function M.scalarConvertersKeepLowercaseHelperLookupsAndFrozenIdentities()
+    local namespace = require("nupp.vm.math")
+    local previous = {}
+    for _, name in ipairs(CONVERTERS) do
+        previous[name] = namespace.f32[name]
+        test.equal(namespace.f32[name:lower()], previous[name])
+        namespace.f32[name] = nil
+    end
+    local ok, problem = pcall(function()
+        for _, lowercase in ipairs({false, true}) do
+            local function public(name)
+                return lowercase and name:lower() or name
+            end
+
+            local source = (
+                [=[
+local half: float32 = math.f32.%s(0x3c00)
+local halfBits: uint32 = math.f32.%s(1.5)
+local short: float32 = math.f32.%s(0x3f80)
+local shortBits: uint32 = math.f32.%s(1.5)
+return half, halfBits, short, shortBits, math.f32.exp(0.0)
+]=]
+            ):format(public(CONVERTERS[1]), public(CONVERTERS[2]), public(CONVERTERS[3]), public(CONVERTERS[4]))
+            local parsed = checked(source)
+            local intrinsic = {}
+
+            local function visit(node)
+                if node.scalarIntrinsic then
+                    intrinsic[node.scalarIntrinsic] = true
+                end
+                for _, child in ipairs(node) do
+                    if type(child) == "table" then
+                        visit(child)
+                    end
+                end
+            end
+
+            visit(parsed.root)
+            for _, name in ipairs(CONVERTERS) do
+                test.equal(intrinsic["f32." .. name], true)
+            end
+            test.equal(intrinsic["f32.exp"], true)
+            local image = program.image(parsed, "vm.scalar.helpers", "vm-scalar-helpers.nupp")
+            program.installSourceModules()
+            local execute = assert(assert(rawget(_G, "__nupp_load_image"))(image))
+            local half, halfBits, short, shortBits, exponential = execute()
+            test.equal(half, 1)
+            test.equal(halfBits, 0x3e00)
+            test.equal(short, 1)
+            test.equal(shortBits, 0x3fc0)
+            test.equal(exponential, 1)
+            test.equal(program.names(image, "nupp.vm.math"), true)
+            for _, name in ipairs(CONVERTERS) do
+                test.equal(program.names(image, name:lower()), true)
+                test.equal(program.names(image, name), false)
+            end
+        end
+    end)
+    for name, value in pairs(previous) do
+        namespace.f32[name] = value
+    end
+    assert(ok, problem)
+end
+
+function M.scalarConverterSpellingsKeepTypeRefusals()
+    local env = environment.new(ROOT, {cache = false})
+    for _, name in ipairs(CONVERTERS) do
+        for _, public in ipairs({name, name:lower()}) do
+            local source = 'return math.f32.' .. public .. '("invalid")'
+            local parsed = parser.parse(source, "vm-scalar-refusal.nupp")
+            test.equal(#parsed.errors, 0)
+            local diagnostics = checker.check(parsed, "vm-scalar-refusal.nupp", env)
+            local errors = {}
+            for _, item in ipairs(diagnostics) do
+                if item.severity == "error" then
+                    errors[#errors + 1] = item
+                end
+            end
+            test.equal(#errors, 1)
+            test.equal(errors[1].code, "NUPP2006")
+            test.equal(errors[1].line, 1)
+        end
+    end
+end
+
+function M.scalarConverterShadowsRemainOrdinaryCalls()
+    for _, name in ipairs({"fromF16Bits", "fromf16bits"}) do
+        local source = (
+            [=[
+local math = {f32 = {%s = function(value: string): string return value .. "!" end}}
+return math.f32.%s("kept")
+]=]
+        ):format(name, name)
+        local parsed = checked(source)
+        local image = program.image(parsed, "vm.scalar.shadow", "vm-scalar-shadow.nupp")
+        test.equal(program.names(image, "nupp.vm.math"), false)
+        test.equal(assert(assert(rawget(_G, "__nupp_load_image"))(image))(), "kept!")
+    end
+end
+
 return M

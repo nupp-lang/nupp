@@ -1930,7 +1930,9 @@ function lower.emit(
             if shared[node.scalarIntrinsic] then
                 queueModule("nupp.vm.math")
                 f:op("Require", fr, f:const("str", "nupp.vm.math"))
-                for member in node.scalarIntrinsic:gmatch("[^.]+") do
+                -- The shared math namespace uses public lowercase names; the
+                -- frozen scalar identity above remains unchanged.
+                for member in node.scalarIntrinsic:lower():gmatch("[^.]+") do
                     local value = f:reg()
                     f:op("GetField", value, fr, f:const("str", member))
                     f:op("Move", fr, value)
