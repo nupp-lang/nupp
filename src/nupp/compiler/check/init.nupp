@@ -1644,9 +1644,11 @@ function checkMod.check(
             s = s.parent
         end
         if env and env.globalTypes then
-            local t = env.globalTypes[name]
+            local t = apiidentity.lookup(env.globalTypes, name)
             if t then
-                return t, env.globalTypeDefs and env.globalTypeDefs[name] or nil
+                local definitions = env.globalTypeDefs or {}
+                local canonical = apiidentity.canonical(name)
+                return t, definitions[name] or definitions[canonical] or definitions[apiidentity.legacy(canonical)]
             end
         end
         if env and env.resolveProjectType then

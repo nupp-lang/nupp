@@ -71,6 +71,7 @@ function M.canonicalizesOnlyRegisteredPublicIdentities()
         ["nupp.derive.array"] = "types.derive.array",
         ["nupp.derive.Debug"] = "types.Debug",
         ["nupp.Debug"] = "types.Debug",
+        ["nupp.__Debug"] = "types.Debug",
         ["nupp.util.newStore"] = "types.newStore",
         ["nupp.Copyable"] = "own.Copyable",
         ["nupp.recoverAlias"] = "own.recoverAlias",
@@ -101,6 +102,37 @@ function M.preservesOneNominalAndOneEvaluatorLibrary()
     test.equal(values.types.derive, values.nupp.derive)
     assert(values.types.array ~= values.types.derive.array)
     assert(values.types.error ~= values.types.derive.error)
+end
+
+function M.resolvesFinalContractsWithUnchangedPreludeDeclarations()
+    local env = envMod.new(HERE .. "/..", {config = {include = {"src"}}})
+    test.equal(env.globalTypes["own.Closeable"], nil)
+    test.equal(env.globalTypes["types.Debug"], nil)
+    local _, errors = compile(
+        [[
+local function render(value: types.Debug): string
+    return value:debug()
+end
+local function contract(value: nupp.__Debug): types.Debug
+    return value
+end
+local function inspect(info: types.reflect.Info): string
+    return info.kind
+end
+@comptime
+local function recipe(info: types.derive.Info): types.derive.Result<types.Debug>
+    return nil as any
+end
+local record Resource is own.Closeable
+    function close(takes self): nil end
+end
+local value = new Resource()
+value:close()
+return 17
+]],
+        env
+    )
+    test.equal(errors, "", errors)
 end
 
 function M.executesBothTypeBuilderSurfacesAndAliases()
