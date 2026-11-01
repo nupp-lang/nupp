@@ -68,8 +68,8 @@ end
 function M.acquireStampsTheDeclarationWithNoFieldsSet(): nil
     local events = newPool(Event, 2)
     local event = events:acquire()
-    assert(event is Event, "the instance carries the record's metatable")
-    assert(hasNoFields(event), "a fresh instance has no fields")
+    test(event is Event, "the instance carries the record's metatable")
+    test(hasNoFields(event), "a fresh instance has no fields")
     test.equal(events:live(), 1)
     test.equal(events:free(), 1)
     events:release(event)
@@ -93,7 +93,7 @@ function M.reserveThenAcquireWithinCapacityAllocatesNothing(): nil
     local bytes = allocated(function()
         churn(10000)
     end)
-    assert(bytes < 1024, "acquire and release within capacity allocated " .. tostring(bytes) .. " bytes")
+    test(bytes < 1024, "acquire and release within capacity allocated " .. tostring(bytes) .. " bytes")
 
     -- A burst of the whole capacity out at once and back, also warm.
     local held: {Event} = {}
@@ -115,7 +115,7 @@ function M.reserveThenAcquireWithinCapacityAllocatesNothing(): nil
     bytes = allocated(function()
         burst(100)
     end)
-    assert(bytes < 1024, "a warm burst to capacity allocated " .. tostring(bytes) .. " bytes")
+    test(bytes < 1024, "a warm burst to capacity allocated " .. tostring(bytes) .. " bytes")
 end
 
 function M.releaseClearsEveryField(): nil
@@ -127,8 +127,8 @@ function M.releaseClearsEveryField(): nil
     test.equal(events:live(), 0)
     test.equal(events:free(), 1)
     local again = events:acquire()
-    assert(again == event, "within capacity the same instance comes back")
-    assert(hasNoFields(again), "a released instance comes back with no fields")
+    test(again == event, "within capacity the same instance comes back")
+    test(hasNoFields(again), "a released instance comes back with no fields")
     events:release(again)
 end
 
@@ -138,7 +138,7 @@ function M.instancesAreDistinctWhileLive(): nil
     local held: {Event} = {}
     for index = 1, 8 do
         local event = events:acquire()
-        assert(not seen[event], "a live instance was handed out twice")
+        test(not seen[event], "a live instance was handed out twice")
         seen[event] = true
         event.x = index
         held[index] = event

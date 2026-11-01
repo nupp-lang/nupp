@@ -1,5 +1,7 @@
 module gemm
 
+const assert2 = require("assert")
+
 -- Naive GEMM over row-major binary32 matrices: c[m x n] = a[m x k] * b[k x n].
 -- Each dispatched thread owns one output element. Its one-based loop index is
 -- converted to a zero-based row and column, and every a/b access is a proved
@@ -12,7 +14,7 @@ local gpu = require("gpu")
 -- failures before the full GEMM makes either one look like a zero result.
 @aot(target = "gpu")
 local function copyProbe(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
-    assert(#output == #input)
+    assert2(#output == #input)
     for i = 1, #output do
         output[i] = input[i]
     end
@@ -20,7 +22,7 @@ end
 
 @aot(target = "gpu")
 local function fillProbe(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>, value: float): nil
-    assert(#output == #input)
+    assert2(#output == #input)
     for i = 1, #output do
         output[i] = input[i] * 0.0 + value
     end
@@ -61,7 +63,7 @@ local function loopProbe(
     borrows input: span.Span<float>,
     iterations: uint32
 ): nil
-    assert(#output == #input)
+    assert2(#output == #input)
     for i = 1, #output do
         local value: float = 0.0
         local cursor: uint32 = 0
@@ -79,7 +81,7 @@ local function fmaProbe(
     borrows a: span.Span<float>,
     borrows b: span.Span<float>
 ): nil
-    assert(#output == #a and #output == #b)
+    assert2(#output == #a and #output == #b)
     for i = 1, #output do
         output[i] = math.f32.fma(math.f32.narrow(a[i]), math.f32.narrow(b[i]), math.f32.narrow(0.0))
     end
@@ -91,7 +93,7 @@ local function uintUniformProbe(
     borrows input: span.Span<float>,
     value: uint32
 ): nil
-    assert(#output == #input)
+    assert2(#output == #input)
     for i = 1, #output do
         if value == 73 then
             output[i] = input[i]
@@ -103,7 +105,7 @@ end
 
 @aot(target = "gpu")
 local function fixedLoopProbe(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
-    assert(#output == #input)
+    assert2(#output == #input)
     for i = 1, #output do
         local value: float = 0.0
         local cursor: uint32 = 0

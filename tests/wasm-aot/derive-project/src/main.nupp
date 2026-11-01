@@ -1,4 +1,6 @@
 -- Declaration bindings, document contexts, and Debug through browser providers.
+const assert2 = require("assert")
+
 const util = require("types")
 
 local json = require("serde.json")
@@ -52,20 +54,20 @@ local document = typedJSON.decodeDocument(
     '{"values":[null,18446744073709551615]}',
     context:freeze()
 )
-local values = assert(document:get("values"))
-assert(values:at(1).kind == "null")
-assert(values:at(2):numberToken() == "18446744073709551615")
-assert(assert(values:at(2):context()):get(key) == "browser schema")
-assert(typedJSON.encodeDocument(documents.adapter(), document) == '{"values":[null,18446744073709551615]}')
-assert(not pcall(native.codec), "native persistence must refuse the browser")
+local values = assert2(document:get("values"))
+assert2(values:at(1).kind == "null")
+assert2(values:at(2):numberToken() == "18446744073709551615")
+assert2(assert2(values:at(2):context()):get(key) == "browser schema")
+assert2(typedJSON.encodeDocument(documents.adapter(), document) == '{"values":[null,18446744073709551615]}')
+assert2(not pcall(native.codec), "native persistence must refuse the browser")
 
 local viewOwner = new Reading(id = 1, samples = {2})
 local view = documents.view(binding, viewOwner)
 local snapshot = view:snapshot()
 viewOwner.samples[1] = 3
 local viewAdapter = documents.viewAdapter(binding)
-assert(typedJSON.encodeDocument(viewAdapter, view):find('"samples":[3]', 1, true))
-assert(typedJSON.encodeDocument(viewAdapter, snapshot):find('"samples":[2]', 1, true))
+assert2(typedJSON.encodeDocument(viewAdapter, view):find('"samples":[3]', 1, true))
+assert2(typedJSON.encodeDocument(viewAdapter, snapshot):find('"samples":[2]', 1, true))
 
 return json.encodeValue({
     documents = true,

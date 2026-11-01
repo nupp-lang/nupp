@@ -1,5 +1,7 @@
 module contract.breadth
 
+const assert2 = require("assert")
+
 local __serdeJson = require("serde.json")
 
 local model = require("example.richmodel")
@@ -19,7 +21,7 @@ local cases = {}
 
 local function task(name, work)
     local value = work()
-    assert(value ~= nil)
+    assert2(value ~= nil)
     cases[#cases + 1] = {name = name, work = work}
 end
 
@@ -27,7 +29,7 @@ local function bindingCases(name, binding, input, policy)
     local codec = json.codec(policy)
     local value = codec:decode(binding, input)
     local canonical = codec:encode(binding, value)
-    assert(codec:encode(binding, codec:decode(binding, canonical)) == canonical)
+    assert2(codec:encode(binding, codec:decode(binding, canonical)) == canonical)
     local buffer = text.newBuffer()
     task(name .. "/encode", function()
         return codec:encode(binding, value)
@@ -139,17 +141,17 @@ local record StringConstruction is structure.Construction<Strings, StringBuilder
     function finish(self, takes state: StringBuilder): Strings
         local owned: StringBuilder = state
         local active = owned.active
-        assert(active ~= nil)
-        local result = new Strings(id = assert(owned.id), active = active, name = assert(owned.name))
+        assert2(active ~= nil)
+        local result = new Strings(id = assert2(owned.id), active = active, name = assert2(owned.name))
         owned:close()
 
         return result
     end
 end
 local smithyShape = loaded:shape("example#Request")
-local idMember, activeMember, nameMember = assert(
+local idMember, activeMember, nameMember = assert2(
     smithyShape:member("id")
-), assert(smithyShape:member("active")), assert(smithyShape:member("name"))
+), assert2(smithyShape:member("active")), assert2(smithyShape:member("name"))
 local smithyFields = {
     structure.field<Strings, StringBuilder, string, smithy.Member>(
         idMember,
@@ -232,7 +234,7 @@ local richContents = documentAdapter:contents()
 local richBuffer = text.newBuffer()
 local richCanonical = richCodec:encode(richContents, rich)
 richCodec:encodeInto(richContents, rich, richBuffer)
-assert(richBuffer:tostring() == richCanonical)
+assert2(richBuffer:tostring() == richCanonical)
 task("rich/blob-buffer", function()
     richBuffer:reset()
     richCodec:encodeInto(richContents, rich, richBuffer)
@@ -258,9 +260,9 @@ local bounded = json.codec(epoch, 8)
 for index = 1, 64 do
     local binding = model.binding(model.newModel())
     local item = bounded:decode(binding, source)
-    assert(bounded:encode(binding, item) ~= "")
-    assert(bounded:cachedBindings() <= 8)
+    assert2(bounded:encode(binding, item) ~= "")
+    assert2(bounded:cachedBindings() <= 8)
 end
 bounded:clear()
-assert(bounded:cachedBindings() == 0)
+assert2(bounded:cachedBindings() == 0)
 export = cases

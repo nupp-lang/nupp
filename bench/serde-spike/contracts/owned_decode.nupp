@@ -1,3 +1,5 @@
+const assert2 = require("assert")
+
 local core = require("serde")
 local codec = require("serde.json")
 local plans = require("serde.json")
@@ -46,7 +48,7 @@ local record Adapter is core.Adapter<Resource, Member>
         if self.consume then
             result.text = reader:readString(self.description.member)
         end
-        assert(not self.fail, "model rejected the value")
+        assert2(not self.fail, "model rejected the value")
 
         return result
     end
@@ -90,20 +92,20 @@ local jsonCodec = codec.codec(new Factory())
 local accepted = binding(false)
 do
     local resource = jsonCodec:decode(accepted, '"kept"')
-    assert(resource.text == "kept")
-    assert(jsonCodec:encode(accepted, resource) == '"kept"')
+    assert2(resource.text == "kept")
+    assert2(jsonCodec:encode(accepted, resource) == '"kept"')
 end
-assert(counts.created == 1 and counts.closed == 1)
+assert2(counts.created == 1 and counts.closed == 1)
 
 local function decodeAndClose(selected: core.Binding<Resource>, input: string): nil
     local resource = jsonCodec:decode(selected, input)
     resource:close()
 end
 
-assert(not pcall(decodeAndClose, accepted, '"value" trailing'))
-assert(counts.created == 2 and counts.closed == 2)
-assert(not pcall(decodeAndClose, binding(true), '"value"'))
-assert(counts.created == 3 and counts.closed == 3)
+assert2(not pcall(decodeAndClose, accepted, '"value" trailing'))
+assert2(counts.created == 2 and counts.closed == 2)
+assert2(not pcall(decodeAndClose, binding(true), '"value"'))
+assert2(counts.created == 3 and counts.closed == 3)
 print("owning decode results transfer cleanup and aborted construction closes exactly once")
 
 local record Field is core.Child<Member>
@@ -146,7 +148,7 @@ local record Aggregate is core.Adapter<Resource, Member>
         self.counts.created += 1
         local result = new Resource(counts = self.counts, text = "")
         reader:readStruct(self.description.member, result, readField, skipField)
-        assert(result.text ~= "", "required text")
+        assert2(result.text ~= "", "required text")
 
         return result
     end
@@ -167,13 +169,13 @@ local aggregate: core.Binding<Resource> = new core.OwnedBound<Resource, Member>(
 )
 do
     local result = jsonCodec:decode(aggregate, '{"text":"aggregate"}')
-    assert(result.text == "aggregate")
+    assert2(result.text == "aggregate")
 end
-assert(counts.created == 4 and counts.closed == 4)
-assert(not pcall(decodeAndClose, aggregate, '{"text":"partial","unknown":[}'))
-assert(counts.created == 5 and counts.closed == 5)
-assert(not pcall(decodeAndClose, aggregate, '{}'))
-assert(counts.created == 6 and counts.closed == 6)
+assert2(counts.created == 4 and counts.closed == 4)
+assert2(not pcall(decodeAndClose, aggregate, '{"text":"partial","unknown":[}'))
+assert2(counts.created == 5 and counts.closed == 5)
+assert2(not pcall(decodeAndClose, aggregate, '{}'))
+assert2(counts.created == 6 and counts.closed == 6)
 print("aggregate callbacks borrow owning construction state exclusively")
 
 local before = counts.closed
@@ -188,5 +190,5 @@ local unconsumed: core.Binding<Resource> = new core.OwnedBound<Resource, Member>
         consume = false
     )
 )
-assert(not pcall(decodeAndClose, unconsumed, '"ignored"'))
-assert(counts.closed == before + 1 and counts.closed == counts.created, "JSON publication leaked an owned result")
+assert2(not pcall(decodeAndClose, unconsumed, '"ignored"'))
+assert2(counts.closed == before + 1 and counts.closed == counts.created, "JSON publication leaked an owned result")

@@ -10,41 +10,41 @@ local test = require("assert")
 local M = {}
 
 function M.hashFamiliesKeepSeparateAlgorithmCatalogs(): nil
-    assert(checksum.lookup("sha256") == nil)
-    assert(digest.lookup("crc32") == nil)
-    assert(mac.lookup("sha256") == nil)
-    assert(checksum == require("binary.hash.checksum"))
-    assert(digest == require("binary.hash.digest"))
-    assert(mac == require("binary.hash.mac"))
-    assert(hash == require("binary.hash"))
+    test(checksum.lookup("sha256") == nil)
+    test(digest.lookup("crc32") == nil)
+    test(mac.lookup("sha256") == nil)
+    test(checksum == require("binary.hash.checksum"))
+    test(digest == require("binary.hash.digest"))
+    test(mac == require("binary.hash.mac"))
+    test(hash == require("binary.hash"))
 end
 
 function M.publishedFnv1a64VectorsAndByteViews(): nil
-    assert(hash.fnv1a64("") == "cbf29ce484222325")
-    assert(hash.fnv1a64("a") == "af63dc4c8601ec8c")
-    assert(hash.fnv1a64("foobar") == "85944171f73967e8")
-    assert(hash.fnv1a64("a\0b\255c") == "3e5746fc83766ddc")
+    test(hash.fnv1a64("") == "cbf29ce484222325")
+    test(hash.fnv1a64("a") == "af63dc4c8601ec8c")
+    test(hash.fnv1a64("foobar") == "85944171f73967e8")
+    test(hash.fnv1a64("a\0b\255c") == "3e5746fc83766ddc")
 
     local bytes = io.newBuffer("\0\1\127\128\255")
     local view = bytes:view()
-    assert(hash.fnv1a64(view) == "a5bcd1d1065f84b6")
-    assert(hash.fnv1a64(view) == "a5bcd1d1065f84b6")
+    test(hash.fnv1a64(view) == "a5bcd1d1065f84b6")
+    test(hash.fnv1a64(view) == "a5bcd1d1065f84b6")
 end
 
 function M.publishedDigestVectors(): nil
-    assert(digest.hexDigest("md5", "") == "d41d8cd98f00b204e9800998ecf8427e")
-    assert(digest.hexDigest("md5", "abc") == "900150983cd24fb0d6963f7d28e17f72")
-    assert(digest.hexDigest("sha1", "") == "da39a3ee5e6b4b0d3255bfef95601890afd80709")
-    assert(digest.hexDigest("sha1", "abc") == "a9993e364706816aba3e25717850c26c9cd0d89d")
-    assert(digest.hexDigest("sha256", "") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
-    assert(digest.hexDigest("sha256", "abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
-    assert(
+    test(digest.hexDigest("md5", "") == "d41d8cd98f00b204e9800998ecf8427e")
+    test(digest.hexDigest("md5", "abc") == "900150983cd24fb0d6963f7d28e17f72")
+    test(digest.hexDigest("sha1", "") == "da39a3ee5e6b4b0d3255bfef95601890afd80709")
+    test(digest.hexDigest("sha1", "abc") == "a9993e364706816aba3e25717850c26c9cd0d89d")
+    test(digest.hexDigest("sha256", "") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+    test(digest.hexDigest("sha256", "abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    test(
         digest.hexDigest(
             "sha512",
             ""
         ) == "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e"
     )
-    assert(
+    test(
         digest.hexDigest(
             "sha512",
             "abc"
@@ -86,35 +86,35 @@ function M.wordDigestPaddingBoundariesMatchIndependentVectors(): nil
     }
     for _, vector in ipairs(vectors) do
         for index = 2, #vector, 2 do
-            local length = assert(tonumber(vector[index])) as integer
-            assert(digest.hexDigest(vector[1], string.rep("x", length)) == vector[index + 1])
+            local length = test(tonumber(vector[index])) as integer
+            test(digest.hexDigest(vector[1], string.rep("x", length)) == vector[index + 1])
         end
     end
 end
 
 function M.metadataAndIndependentContexts(): nil
-    assert(table.concat(digest.algorithms(), ",") == "md5,sha1,sha256,sha512")
-    assert(digest.lookup("unknown") == nil)
+    test(table.concat(digest.algorithms(), ",") == "md5,sha1,sha256,sha512")
+    test(digest.lookup("unknown") == nil)
     local algorithm = digest.algorithm("sha256")
-    assert(algorithm.name == "sha256" and algorithm.digestSize == 32)
+    test(algorithm.name == "sha256" and algorithm.digestSize == 32)
     local first = algorithm:newDigest()
     local second = algorithm:newDigest()
-    assert(first:algorithm() == "sha256" and first:digestSize() == 32)
+    test(first:algorithm() == "sha256" and first:digestSize() == 32)
     first:write("a")
     second:write("abc")
     first:write("bc")
-    assert(first:digest() == second:digest())
+    test(first:digest() == second:digest())
 
-    assert(table.concat(mac.algorithms(), ",") == "hmac-sha256")
-    assert(mac.lookup("unknown") == nil)
+    test(table.concat(mac.algorithms(), ",") == "hmac-sha256")
+    test(mac.lookup("unknown") == nil)
     local macAlgorithm = mac.algorithm("hmac-sha256")
-    assert(macAlgorithm.name == "hmac-sha256" and macAlgorithm.digestSize == 32)
+    test(macAlgorithm.name == "hmac-sha256" and macAlgorithm.digestSize == 32)
     local firstMac = macAlgorithm:newMac("key")
     local secondMac = macAlgorithm:newMac("key")
     firstMac:write("a")
     secondMac:write("abc")
     firstMac:write("bc")
-    assert(firstMac:digest() == secondMac:digest())
+    test(firstMac:digest() == secondMac:digest())
 end
 
 function M.overloadedFinalizationWritesOnlyTheSuppliedSlice(): nil
@@ -130,12 +130,12 @@ function M.overloadedFinalizationWritesOnlyTheSuppliedSlice(): nil
         local input = span.fromString(source)
         rolling:writeSpan(input)
         local written: integer = rolling:digest(region)
-        assert(written == algorithm.digestSize)
+        test(written == algorithm.digestSize)
         own.drop(region)
-        assert(output[1] == 0xa5 and output[#output] == 0x5a)
+        test(output[1] == 0xa5 and output[#output] == 0x5a)
         local expected = digest.digest(name, "abc")
         for index = 1, #expected do
-            assert(output[index + 1] == expected:byte(index))
+            test(output[index + 1] == expected:byte(index))
         end
     end
 end
@@ -161,27 +161,27 @@ function M.chunkingAndBinaryInput(): nil
             for index = 1, #input, 7 do
                 rolling:write(input:sub(index, index + 6))
             end
-            assert(rolling:hexDigest() == digest.hexDigest(name, input), name .. " length " .. length)
+            test(rolling:hexDigest() == digest.hexDigest(name, input), name .. " length " .. length)
         end
     end
 end
 
 function M.hmacRfc4231AndBinaryInput(): nil
-    assert(
+    test(
         mac.hexDigest(
             "hmac-sha256",
             string.rep("\11", 20),
             "Hi There"
         ) == "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"
     )
-    assert(
+    test(
         mac.hexDigest(
             "hmac-sha256",
             "Jefe",
             "what do ya want for nothing?"
         ) == "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
     )
-    assert(
+    test(
         mac.hexDigest(
             "hmac-sha256",
             string.rep("\170", 131),
@@ -191,51 +191,51 @@ function M.hmacRfc4231AndBinaryInput(): nil
     local rolling = mac.newMac("hmac-sha256", "k\0ey")
     rolling:write("one\0")
     rolling:write("two\255")
-    assert(rolling:digest() == mac.digest("hmac-sha256", "k\0ey", "one\0two\255"))
+    test(rolling:digest() == mac.digest("hmac-sha256", "k\0ey", "one\0two\255"))
 end
 
 function M.checksumVectorsAndNonConsumingReads(): nil
-    assert(table.concat(checksum.algorithms(), ",") == "adler32,crc32,crc32c,crc64-ecma,crc64nvme")
+    test(table.concat(checksum.algorithms(), ",") == "adler32,crc32,crc32c,crc64-ecma,crc64nvme")
     local listed = checksum.algorithms()
     listed[1] = "changed"
-    assert(checksum.algorithms()[1] == "adler32")
-    assert(checksum.lookup("unknown") == nil)
+    test(checksum.algorithms()[1] == "adler32")
+    test(checksum.lookup("unknown") == nil)
     test.raises(
         function(): nil
             checksum.algorithm("unknown")
         end,
         "unknown checksum algorithm unknown"
     )
-    assert(checksum.value("adler32", "") == 1ULL)
-    assert(checksum.value("crc32", "") == 0ULL)
-    assert(checksum.value("crc32c", "") == 0ULL)
-    assert(checksum.value("crc64-ecma", "") == 0ULL)
-    assert(checksum.value("crc64nvme", "") == 0ULL)
-    assert(checksum.value("adler32", "123456789") == 0x091e01deULL)
-    assert(checksum.value("crc32", "123456789") == 0xcbf43926ULL)
-    assert(checksum.value("crc32c", "123456789") == 0xe3069283ULL)
-    assert(checksum.value("crc64-ecma", "123456789") == 0x6c40df5f0b497347ULL)
-    assert(checksum.algorithm("crc64-ecma").width == 64)
-    assert(checksum.value("crc64nvme", "123456789") == 0xae8b14860a799888ULL)
-    assert(checksum.algorithm("crc64nvme").width == 64)
+    test(checksum.value("adler32", "") == 1ULL)
+    test(checksum.value("crc32", "") == 0ULL)
+    test(checksum.value("crc32c", "") == 0ULL)
+    test(checksum.value("crc64-ecma", "") == 0ULL)
+    test(checksum.value("crc64nvme", "") == 0ULL)
+    test(checksum.value("adler32", "123456789") == 0x091e01deULL)
+    test(checksum.value("crc32", "123456789") == 0xcbf43926ULL)
+    test(checksum.value("crc32c", "123456789") == 0xe3069283ULL)
+    test(checksum.value("crc64-ecma", "123456789") == 0x6c40df5f0b497347ULL)
+    test(checksum.algorithm("crc64-ecma").width == 64)
+    test(checksum.value("crc64nvme", "123456789") == 0xae8b14860a799888ULL)
+    test(checksum.algorithm("crc64nvme").width == 64)
     for _, name in ipairs(checksum.algorithms()) do
-        assert(checksum.lookup(name) == checksum.algorithm(name))
+        test(checksum.lookup(name) == checksum.algorithm(name))
         local rolling = checksum.newChecksum(name)
-        assert(rolling:algorithm() == name)
-        assert(rolling:width() == checksum.algorithm(name).width)
+        test(rolling:algorithm() == name)
+        test(rolling:width() == checksum.algorithm(name).width)
         rolling:write("1234")
-        assert(rolling:value() == checksum.value(name, "1234"))
+        test(rolling:value() == checksum.value(name, "1234"))
         local source = "56789"
         local tail = span.fromString(source)
         rolling:writeSpan(tail)
-        assert(rolling:value() == checksum.value(name, "123456789"))
+        test(rolling:value() == checksum.value(name, "123456789"))
 
         local chunked = checksum.newChecksum(name)
         local message = string.rep("a\0b\255c", 53)
         for index = 1, #message, 7 do
             chunked:write(message:sub(index, index + 6))
         end
-        assert(chunked:value() == checksum.value(name, message))
+        test(chunked:value() == checksum.value(name, message))
     end
 end
 
@@ -246,16 +246,16 @@ function M.hexCodecIsStrictAndRoundTripsBytes(): nil
     end
     local input = table.concat(parts)
     local encoded = hex.encode(input)
-    assert(#encoded == 512 and not encoded:find("[^0-9a-f]"))
-    assert(hex.decode(encoded) == input)
-    assert(hex.decode(encoded:upper()) == input)
-    assert(hex.decode("") == "")
+    test(#encoded == 512 and not encoded:find("[^0-9a-f]"))
+    test(hex.decode(encoded) == input)
+    test(hex.decode(encoded:upper()) == input)
+    test(hex.decode("") == "")
     local decoded, reason = hex.decode("0")
-    assert(decoded == nil and reason == "hex input must contain an even number of digits")
+    test(decoded == nil and reason == "hex input must contain an even number of digits")
     decoded, reason = hex.decode("0x")
-    assert(decoded == nil and reason == "hex input contains a non-hexadecimal digit")
+    test(decoded == nil and reason == "hex input contains a non-hexadecimal digit")
     decoded, reason = hex.decode("00 1")
-    assert(decoded == nil and reason == "hex input contains a non-hexadecimal digit")
+    test(decoded == nil and reason == "hex input contains a non-hexadecimal digit")
 end
 
 function M.crcViewsRespectOffsetsAndContextsAreIndependent(): nil
@@ -268,12 +268,12 @@ function M.crcViewsRespectOffsetsAndContextsAreIndependent(): nil
         local second = checksum.newChecksum(name)
         first:writeSpan(view)
         second:write("1234")
-        assert(first:value() == checksum.value(name, payload))
+        test(first:value() == checksum.value(name, payload))
         local before = first:value()
         second:write("56789")
         first:write("")
-        assert(first:value() == before)
-        assert(second:value() == checksum.value(name, "123456789"))
+        test(first:value() == before)
+        test(second:value() == checksum.value(name, "123456789"))
     end
 end
 
@@ -287,13 +287,13 @@ function M.aReaderTransfersIntoADigestAndAChecksum(): nil
 
     local rolling = digest.newDigest("sha256")
     local source = io.newStringReader(message)
-    assert(source:transferTo(rolling) == #message)
-    assert(rolling:hexDigest() == expected)
+    test(source:transferTo(rolling) == #message)
+    test(rolling:hexDigest() == expected)
 
     local sum = checksum.newChecksum("crc32c")
     local again = io.newStringReader(message)
-    assert(again:transferTo(sum) == #message)
-    assert(sum:value() == checksum.value("crc32c", message))
+    test(again:transferTo(sum) == #message)
+    test(sum:value() == checksum.value("crc32c", message))
 end
 
 return M

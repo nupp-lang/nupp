@@ -1,3 +1,5 @@
+const assert2 = require("assert")
+
 const derive2 = require("types.derive")
 
 local M = {}
@@ -45,7 +47,7 @@ record M.Value
 end
 
 local value = new M.Value(name = "local")
-assert(value:named() == "name=local")
+assert2(value:named() == "name=local")
 
 @derive(M.deriveLabelled)
 record M.Box<T>
@@ -53,6 +55,6 @@ record M.Box<T>
 end
 
 local box = new M.Box(value = "anything")
-assert(box:label() == "generic")
+assert2(box:label() == "generic")
 
 return M

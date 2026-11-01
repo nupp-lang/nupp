@@ -1,3 +1,5 @@
+const assert2 = require("assert")
+
 local __serdeJson = require("serde.json")
 local core = require("serde")
 local smithy = require("example.smithy")
@@ -24,10 +26,10 @@ local model = smithy.parse(
 )
 local shape = model:shape("test#Request")
 local root = smithy.root(shape)
-local attributeId = assert(shape:member("attributeId"))
-local elementId = assert(shape:member("elementId"))
-local items = assert(shape:member("items"))
-local empty = assert(shape:member("empty"))
+local attributeId = assert2(shape:member("attributeId"))
+local elementId = assert2(shape:member("elementId"))
+local items = assert2(shape:member("items"))
+local empty = assert2(shape:member("empty"))
 local record Request
     attributeId: string
     elementId: string
@@ -52,8 +54,8 @@ local record Construction is structure.Construction<Request, Builder>
     function finish(self, takes value: Builder): Request
         local owned: Builder = value
         local result = new Request(
-            attributeId = assert(owned.attributeId),
-            elementId = assert(owned.elementId),
+            attributeId = assert2(owned.attributeId),
+            elementId = assert2(owned.elementId),
             items = owned.items,
             empty = owned.empty,
             unknown = owned.unknown
@@ -140,35 +142,35 @@ local policy = protocol.policy()
 local xml = codec.codec(policy)
 local wire = [[<r:Request xmlns:r="urn:test" xmlns:x="urn:unknown" id="attr"><r:item>first</r:item><r:id>element</r:id><empty></empty><r:item>second &amp; third</r:item><x:extra x:code="z"><x:nested>owned</x:nested></x:extra></r:Request>]]
 local record = xml:decode(recordBinding, wire)
-assert(record.attributeId == "attr" and record.elementId == "element" and record.empty == "")
-assert(#record.items == 2 and record.items[2] == "second & third" and #record.unknown == 1)
+assert2(record.attributeId == "attr" and record.elementId == "element" and record.empty == "")
+assert2(#record.items == 2 and record.items[2] == "second & third" and #record.unknown == 1)
 local document = xml:decode(documentBinding, wire)
-assert(assert(document:get("items")):at(2):string() == record.items[2])
-assert(document:get("absent") == nil and assert(document:get("empty")):string() == "")
-local unknown = assert(assert(document:context()):get(smithy.unknownFieldsContext))
-assert(#unknown == 1 and syntax.identity(unknown[1].field).namespaceUri == "urn:unknown")
+assert2(assert2(document:get("items")):at(2):string() == record.items[2])
+assert2(document:get("absent") == nil and assert2(document:get("empty")):string() == "")
+local unknown = assert2(assert2(document:context()):get(smithy.unknownFieldsContext))
+assert2(#unknown == 1 and syntax.identity(unknown[1].field).namespaceUri == "urn:unknown")
 local recordBytes = xml:encode(recordBinding, record)
 local documentBytes = xml:encode(documentBinding, document)
 local again = xml:decode(recordBinding, documentBytes)
-assert(again.attributeId == record.attributeId and #again.items == 2 and #again.unknown == 1)
+assert2(again.attributeId == record.attributeId and #again.items == 2 and #again.unknown == 1)
 local snapshot = readers.snapshot(document)
-assert(#xml:encode(documentBinding, snapshot) > 0)
+assert2(#xml:encode(documentBinding, snapshot) > 0)
 local changed = wire:gsub("xmlns:r=", "xmlns:changed="):gsub("r:", "changed:")
-assert(xml:decode(recordBinding, changed).elementId == "element")
-assert(not pcall(xml.decode, xml, recordBinding, (wire:gsub("<empty></empty>", "<r:id>duplicate</r:id>"))))
-assert(not pcall(xml.decode, xml, documentBinding, (wire:gsub("<empty></empty>", "<r:id>duplicate</r:id>"))))
-assert(not pcall(xml.decode, xml, recordBinding, '<!DOCTYPE Request><Request/>'))
-assert(not pcall(xml.decode, xml, recordBinding, wire:sub(1, #wire - 2)))
+assert2(xml:decode(recordBinding, changed).elementId == "element")
+assert2(not pcall(xml.decode, xml, recordBinding, (wire:gsub("<empty></empty>", "<r:id>duplicate</r:id>"))))
+assert2(not pcall(xml.decode, xml, documentBinding, (wire:gsub("<empty></empty>", "<r:id>duplicate</r:id>"))))
+assert2(not pcall(xml.decode, xml, recordBinding, '<!DOCTYPE Request><Request/>'))
+assert2(not pcall(xml.decode, xml, recordBinding, wire:sub(1, #wire - 2)))
 local foreign = codec.codec(protocol.policy())
-assert(not pcall(foreign.encode, foreign, recordBinding, record))
+assert2(not pcall(foreign.encode, foreign, recordBinding, record))
 -- Captured subtrees retain expanded identities while the writer chooses prefixes.
 local parsed = assembly.parse(recordBytes)
 local last = parsed.content[#parsed.content] as assembly.Node
-assert(last.field.namespaceUri == "urn:unknown" and last.field.localName == "extra")
-assert(last.attributes[1].field.namespaceUri == "urn:unknown")
-assert(assembly.text(last.content[1] as assembly.Node) == "owned")
+assert2(last.field.namespaceUri == "urn:unknown" and last.field.localName == "extra")
+assert2(last.attributes[1].field.namespaceUri == "urn:unknown")
+assert2(assembly.text(last.content[1] as assembly.Node) == "owned")
 local noItems = xml:decode(documentBinding, '<n:Request xmlns:n="urn:test" id="a"><n:id>b</n:id><empty/></n:Request>')
-assert(noItems:get("items") == nil and assert(noItems:get("empty")):string() == "")
+assert2(noItems:get("items") == nil and assert2(noItems:get("empty")):string() == "")
 
-assert(not pcall(xml.decode, xml, recordBinding, '<Request xmlns:unused=""/>'))
-assert(not pcall(xml.decode, xml, recordBinding, (wire:gsub("element", "\239\191\190"))))
+assert2(not pcall(xml.decode, xml, recordBinding, '<Request xmlns:unused=""/>'))
+assert2(not pcall(xml.decode, xml, recordBinding, (wire:gsub("element", "\239\191\190"))))

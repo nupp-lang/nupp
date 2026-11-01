@@ -1,3 +1,5 @@
+const assert2 = require("assert")
+
 local span = require("nupp.mem.span")
 local indexed = require("nupp.mem.indexed")
 
@@ -21,13 +23,13 @@ own.drop(middle)
 own.drop(writable)
 
 const readable = span.fromCarray(storage, 4)
-assert(#readable == 4)
-assert(readable[3].x == 3)
-assert(readable[3].y == 7)
+assert2(#readable == 4)
+assert2(readable[3].x == 3)
+assert2(readable[3].y == 7)
 const outer = readable:slice(2, 4)
 const inner = outer:slice(1, 2)
 local total = 0
 for index = 1, #inner do
     total += inner[index].x
 end
-assert(total == 5)
+assert2(total == 5)

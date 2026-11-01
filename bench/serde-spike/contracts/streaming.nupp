@@ -1,3 +1,5 @@
+const assert2 = require("assert")
+
 local core = require("serde")
 local smithy = require("example.smithy")
 local scalar = require("serde.adapters")
@@ -20,8 +22,8 @@ local model = smithy.parse(
 )
 local shape = model:shape("example#Request")
 local root = smithy.root(shape)
-local name, payload = assert(shape:member("name")), assert(shape:member("payload"))
-local streaming = assert(shape:member("stream"))
+local name, payload = assert2(shape:member("name")), assert2(shape:member("payload"))
+local streaming = assert2(shape:member("stream"))
 local record Stream
     reads: integer = 0
     function next(self): string?
@@ -118,8 +120,8 @@ local stream = new Stream()
 local request = new Request(name = "a b", payload = "metadata", stream = stream)
 local body = json.codec(protocol.body(smithy.policy(true, false)))
 local parameters = routing.codec(protocol.parameters(shape))
-assert(body:encode(binding, request) == '{"payload":"metadata"}')
-assert(routing.query(parameters:encode(binding, request)) == 'name=a%20b')
+assert2(body:encode(binding, request) == '{"payload":"metadata"}')
+assert2(routing.query(parameters:encode(binding, request)) == 'name=a%20b')
 local layout = indexed.layout(root)
 local nameSlot = layout:add(name, scalar.text(name), false)
 local payloadSlot = layout:add(payload, scalar.text(payload), false)
@@ -128,25 +130,25 @@ local slots = layout:value()
 slots:set(nameSlot, request.name)
 slots:set(payloadSlot, request.payload)
 slots:set(streamSlot, stream)
-assert(body:encode(layout:binding(), slots) == '{"payload":"metadata"}')
-assert(routing.query(parameters:encode(layout:binding(), slots)) == 'name=a%20b')
-assert(stream.reads == 0 and slots:get(streamSlot) == stream)
-assert(
+assert2(body:encode(layout:binding(), slots) == '{"payload":"metadata"}')
+assert2(routing.query(parameters:encode(layout:binding(), slots)) == 'name=a%20b')
+assert2(stream.reads == 0 and slots:get(streamSlot) == stream)
+assert2(
     not pcall(function(): nil
         bridge.from(binding, request)
     end)
 )
 local finite = json.codec(smithy.policy(true, false))
-assert(
+assert2(
     not pcall(function(): nil
         finite:encode(binding, request)
     end)
 )
-assert(
+assert2(
     not pcall(function(): nil
         finite:decode(smithy.binding(shape), '{"stream":"not a finite blob"}')
     end)
 )
-assert(stream.reads == 0)
+assert2(stream.reads == 0)
 -- Transport owns the stream; serialization only supplied the finite metadata.
-assert(stream:next() == "unbuffered bytes" and stream:next() == nil)
+assert2(stream:next() == "unbuffered bytes" and stream:next() == nil)

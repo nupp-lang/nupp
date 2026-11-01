@@ -192,8 +192,8 @@ function M.emitWithNoObserversAcquiresInitializesAndRunsNothing(): nil
     bus:emit(7, Heal, amount = 1)
     test.equal(healConstructions, before, "the initializer did not run either")
     test.equal(runs, 0)
-    assert(not bus:hasObservers(7, Damage))
-    assert(bus:hasObservers(8, Damage))
+    test(not bus:hasObservers(7, Damage))
+    test(bus:hasObservers(8, Damage))
 end
 
 function M.emitBindsNamedAndPositionalArgumentsAndAppliesDefaults(): nil
@@ -334,7 +334,7 @@ function M.aNameAlreadyRegisteredAtTheSameAddressAndEventIsRefused(): nil
     test.equal(bus.observers.count, 3)
 
     -- Once the name is removed it may be used again.
-    assert(bus:stopObserving(7, Damage, "log"))
+    test(bus:stopObserving(7, Damage, "log"))
     bus:observe(7, Damage, |event| -> nil, "log")
     test.equal(bus.observers.count, 3)
 end
@@ -359,36 +359,36 @@ function M.stopObservingByNameRemovesThatRegistrationAndByCallbackEveryMatch(): 
     bus:observe(7, Damage, other, "c")
     test.equal(bus.observers.count, 4)
 
-    assert(bus:stopObserving(7, Damage, "a"), "removing a name reports the removal")
+    test(bus:stopObserving(7, Damage, "a"), "removing a name reports the removal")
     test.equal(bus.observers.count, 3)
     bus:emit(7, Damage, amount = 1, source = 1)
     test.equal(runs, 102, "the two other registrations of the callback survive a removal by name")
-    assert(not bus:stopObserving(7, Damage, "a"), "a name already removed reports nothing")
+    test(not bus:stopObserving(7, Damage, "a"), "a name already removed reports nothing")
 
     runs = 0
-    assert(bus:stopObserving(7, Damage, shared), "removing a callback reports the removal")
+    test(bus:stopObserving(7, Damage, shared), "removing a callback reports the removal")
     test.equal(bus.observers.count, 1, "every registration of the callback went")
     bus:emit(7, Damage, amount = 1, source = 1)
     test.equal(runs, 100)
-    assert(not bus:stopObserving(7, Damage, shared))
-    assert(not bus:stopObserving(7, Damage, "missing"))
-    assert(not bus:stopObserving(9, Damage, "c"), "an address with nothing registered reports nothing")
+    test(not bus:stopObserving(7, Damage, shared))
+    test(not bus:stopObserving(7, Damage, "missing"))
+    test(not bus:stopObserving(9, Damage, "c"), "an address with nothing registered reports nothing")
 
-    assert(bus:stopObserving(7, Damage, "c"))
+    test(bus:stopObserving(7, Damage, "c"))
     test.equal(bus.observers.count, 0)
-    assert(not bus:hasObservers(7, Damage))
-    assert(not bus:stopObserving(7, Damage, "c"), "an emptied address is gone entirely")
+    test(not bus:hasObservers(7, Damage))
+    test(not bus:stopObserving(7, Damage, "c"), "an emptied address is gone entirely")
 end
 
 function M.hasObserversAnswersPerAddressAndEvent(): nil
     local bus = newBus()
-    assert(not bus:hasObservers(7, Damage), "an empty bus observes nothing")
+    test(not bus:hasObservers(7, Damage), "an empty bus observes nothing")
     bus:observe(7, Damage, |event| -> nil, "one")
-    assert(bus:hasObservers(7, Damage))
-    assert(not bus:hasObservers(7, Heal))
-    assert(not bus:hasObservers(8, Damage))
+    test(bus:hasObservers(7, Damage))
+    test(not bus:hasObservers(7, Heal))
+    test(not bus:hasObservers(8, Damage))
     bus:stopObserving(7, Damage, "one")
-    assert(not bus:hasObservers(7, Damage))
+    test(not bus:hasObservers(7, Damage))
 end
 
 ----------------------------------------------------------------------------
@@ -434,8 +434,8 @@ function M.removalDuringDeliveryTakesEffectNowAndCompactsAfterTheDeliveryLeaves(
         Damage,
         |event| -> do
             order[#order + 1] = "first"
-            assert(bus:stopObserving(7, Damage, "third"), "the later registration is removable mid-delivery")
-            assert(bus:stopObserving(7, Damage, "first"), "and so is the running one")
+            test(bus:stopObserving(7, Damage, "third"), "the later registration is removable mid-delivery")
+            test(bus:stopObserving(7, Damage, "first"), "and so is the running one")
             test.equal(bus.observers.count, 1, "the count drops at once")
         end,
         "first"
@@ -460,7 +460,7 @@ function M.removalDuringDeliveryTakesEffectNowAndCompactsAfterTheDeliveryLeaves(
     bus:emit(7, Damage, amount = 1, source = 1)
     test.equal(table.concat(order, ","), "first,second", "a removed registration not yet reached is skipped")
     test.equal(bus.observers.count, 1)
-    assert(bus:hasObservers(7, Damage))
+    test(bus:hasObservers(7, Damage))
 
     -- After the outermost delivery left, the list holds only what remains.
     local list = (bus.observers as any).byAddress[7][events.id(Damage)]
@@ -480,13 +480,13 @@ function M.removingTheLastRegistrationDuringDeliveryPrunesTheAddressAfterwards()
         Damage,
         |event| -> do
             bus:stopObserving(7, Damage, "only")
-            assert(bus:hasObservers(7, Damage) == false, "nothing live remains at once")
+            test(bus:hasObservers(7, Damage) == false, "nothing live remains at once")
         end,
         "only"
     )
     bus:emit(7, Damage, amount = 1, source = 1)
     test.equal(bus.observers.count, 0)
-    assert((bus.observers as any).byAddress[7] == nil, "the emptied address was pruned after delivery")
+    test((bus.observers as any).byAddress[7] == nil, "the emptied address was pruned after delivery")
     bus:emit(7, Damage, amount = 1, source = 1)
     -- The address is usable again.
     local runs = 0
@@ -520,7 +520,7 @@ function M.aOnceRegistrationIsConsumedBeforeItsCallbackRuns(): nil
     test.equal(onceRuns, 1)
     test.equal(plainRuns, 2, "the plain observer saw both the outer and the nested emission")
     test.equal(bus.observers.count, 1)
-    assert(not bus:stopObserving(7, Damage, "once"), "a consumed once registration cannot be removed again")
+    test(not bus:stopObserving(7, Damage, "once"), "a consumed once registration cannot be removed again")
     bus:emit(7, Damage, amount = 1, source = 1)
     test.equal(onceRuns, 1)
     test.equal(plainRuns, 3)
@@ -530,7 +530,7 @@ function M.aOnceRegistrationNotYetReachedCanStillBeRemovedDuringDelivery(): nil
     local bus = newBus()
     local onceRuns = 0
     bus:observe(7, Damage, |event| -> do
-        assert(bus:stopObserving(7, Damage, "once"))
+        test(bus:stopObserving(7, Damage, "once"))
     end)
     bus:observeOnce(
         7,
@@ -564,9 +564,9 @@ function M.clearAddressDuringDeliveryLetsTheDeliveryFinish(): nil
     end)
     bus:emit(7, Damage, amount = 1, source = 1)
     test.equal(table.concat(order, ","), "first,second", "the list in flight is finished")
-    assert(not bus:hasObservers(7, Damage))
-    assert(not bus:hasObservers(7, Heal))
-    assert(bus:hasObservers(0, Damage))
+    test(not bus:hasObservers(7, Damage))
+    test(not bus:hasObservers(7, Heal))
+    test(bus:hasObservers(0, Damage))
     test.equal(bus.observers.count, 1)
 
     order = {}
@@ -592,7 +592,7 @@ function M.clearAddressAfterRemovalDuringDeliverySettlesCleanly(): nil
         Damage,
         |event| -> do
             runs = runs + 1
-            assert(bus:stopObserving(7, Damage, "second"))
+            test(bus:stopObserving(7, Damage, "second"))
             bus:clearAddress(7)
         end,
         "first"
@@ -609,7 +609,7 @@ function M.clearAddressAfterRemovalDuringDeliverySettlesCleanly(): nil
     bus:emit(7, Damage, amount = 1, source = 1)
     test.equal(runs, 1, "the removed observer did not run")
     test.equal(bus.observers.count, 0)
-    assert(not bus:hasObservers(7, Damage))
+    test(not bus:hasObservers(7, Damage))
 
     bus:observe(7, Damage, |event| -> do
         runs = runs + 1
@@ -635,7 +635,7 @@ function M.resetDuringDeliveryLetsTheDeliveryFinish(): nil
     bus:emit(7, Damage, amount = 1, source = 1)
     test.equal(table.concat(order, ","), "first,second")
     test.equal(bus.observers.count, 0)
-    assert(not bus:hasObservers(0, Damage), "reset cleared every address")
+    test(not bus:hasObservers(0, Damage), "reset cleared every address")
     order = {}
     bus:emit(7, Damage, amount = 1, source = 1)
     bus:emit(0, Damage, amount = 1, source = 1)
@@ -669,11 +669,11 @@ function M.registrationsAtAddressZeroSurviveClearingAnotherAddress(): nil
     test.equal(bus.observers.count, 3)
     bus:clearAddress(7)
     test.equal(bus.observers.count, 1)
-    assert(bus:hasObservers(0, Damage))
-    assert(not bus:hasObservers(7, Damage))
+    test(bus:hasObservers(0, Damage))
+    test(not bus:hasObservers(7, Damage))
     bus:emit(0, Damage, amount = 1, source = 1)
     test.equal(worldRuns, 1)
-    assert(bus:stopObserving(0, Damage, "world"), "the registration is still removable by name")
+    test(bus:stopObserving(0, Damage, "world"), "the registration is still removable by name")
     test.equal(bus.observers.count, 0)
     -- Clearing an address nobody observes is not an error.
     bus:clearAddress(42)
@@ -730,8 +730,8 @@ function M.anObserverThatRaisesReleasesTheLeaseAndRestoresBookkeeping(): nil
     bus:emit(7, Damage, amount = 1, source = 1)
     test.equal(runs, 3, "the next emission reaches both observers")
     test.equal(counting.live, 0)
-    assert(bus:stopObserving(7, Damage, "failing"))
-    assert(bus:stopObserving(7, Damage, "after"))
+    test(bus:stopObserving(7, Damage, "failing"))
+    test(bus:stopObserving(7, Damage, "after"))
     test.equal(bus.observers.count, 0)
 end
 
@@ -930,7 +930,7 @@ function M.structRowsReadAsZeroWhenLeasedAndAreDeliveredAsStructReferences(): ni
     bus:setAllocator(Contact, rows)
     local seen: {string} = {}
     bus:observe(0, Contact, |event| -> do
-        assert(event is Contact, "the payload is a row of the struct type")
+        test(event is Contact, "the payload is a row of the struct type")
         seen[#seen + 1] = ("%s %s %s"):format(event.a, event.b, event.impulse)
     end)
     bus:emit(0, Contact, 5, 6, 0.25)
@@ -998,7 +998,7 @@ function M.anExplicitAllocatorSeesOneAcquireAndOneReleasePerEmitAndNoneForDelive
     test.equal(counting.releases, 5)
     test.equal(counting.live, 0)
 
-    assert(bus:stopObserving(7, Damage, "emitted"))
+    test(bus:stopObserving(7, Damage, "emitted"))
     local held = new Damage(amount = 1, source = 1)
     bus:observe(7, Damage, |event| -> do
         runs = runs + 1
@@ -1063,10 +1063,10 @@ function M.aSuspendingObserverHoldsItsLeaseUntilItResumes(): nil
     test.equal(#phases, 1)
     test.equal(counting.live, 1, "the lease is held across the suspension")
     test.equal(counting.releases, 0)
-    assert(not finished)
+    test(not finished)
 
     resume()
-    assert(finished)
+    test(finished)
     test.equal(table.concat(phases, ","), "before,after,second 3")
     test.equal(counting.live, 0, "resuming to completion released it")
     test.equal(counting.releases, 1)
@@ -1129,8 +1129,8 @@ function M.warmEmissionOfARecordEventAllocatesNothing(): nil
     local bytes = allocated(function()
         churn(10000)
     end)
-    assert(bytes < 1024, "a warm record emission allocated " .. tostring(bytes) .. " bytes over 10000 emissions")
-    assert(total > 0)
+    test(bytes < 1024, "a warm record emission allocated " .. tostring(bytes) .. " bytes over 10000 emissions")
+    test(total > 0)
 end
 
 function M.warmEmissionOfAStructEventAllocatesNothing(): nil
@@ -1153,8 +1153,8 @@ function M.warmEmissionOfAStructEventAllocatesNothing(): nil
     local bytes = allocated(function()
         churn(10000)
     end)
-    assert(bytes < 1024, "a warm struct emission allocated " .. tostring(bytes) .. " bytes over 10000 emissions")
-    assert(total > 0)
+    test(bytes < 1024, "a warm struct emission allocated " .. tostring(bytes) .. " bytes over 10000 emissions")
+    test(total > 0)
 end
 
 return M

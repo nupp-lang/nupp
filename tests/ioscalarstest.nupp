@@ -1,3 +1,5 @@
+const assert2 = require("assert")
+
 const {type Reader} = require("nupp.io")
 const {type Buffer} = require("nupp.io")
 const {type Writer} = require("nupp.io")
@@ -134,55 +136,55 @@ function M.roundTripsEveryCScalar(): nil
     writer:writeFloat64(-1234.5)
 
     local stored = writer:buffer()
-    assert(stored ~= nil)
+    assert2(stored ~= nil)
     local reader = io2.newScalarReader(stored as Buffer)
-    assert(reader:remaining() == 42)
-    assert(reader:readUint8() == 255)
-    assert(reader:readInt8() == -128)
-    assert(reader:readUint16() == 65535)
-    assert(reader:readInt16() == -32768)
-    assert(reader:readUint32() == 4294967295)
-    assert(reader:readInt32() == -2147483648)
-    assert(reader:readUint64() == (1234567890123 as uint64))
-    assert(reader:readInt64() == (-1234567890123 as int64))
-    assert(reader:readFloat32() == 1.5)
-    assert(reader:readFloat64() == -1234.5)
-    assert(reader:remaining() == 0)
-    assert(reader:atEnd())
+    assert2(reader:remaining() == 42)
+    assert2(reader:readUint8() == 255)
+    assert2(reader:readInt8() == -128)
+    assert2(reader:readUint16() == 65535)
+    assert2(reader:readInt16() == -32768)
+    assert2(reader:readUint32() == 4294967295)
+    assert2(reader:readInt32() == -2147483648)
+    assert2(reader:readUint64() == (1234567890123 as uint64))
+    assert2(reader:readInt64() == (-1234567890123 as int64))
+    assert2(reader:readFloat32() == 1.5)
+    assert2(reader:readFloat64() == -1234.5)
+    assert2(reader:remaining() == 0)
+    assert2(reader:atEnd())
 end
 
 function M.movesRawBytesAndTracksTheCursor(): nil
     local reader = io2.newScalarReader("abcdef")
-    assert(reader:readBytes(2) == "ab")
-    assert(reader:skip(2) == reader)
-    assert(reader:remaining() == 2)
-    assert(reader:readBytes(2) == "ef")
-    assert(reader:atEnd())
+    assert2(reader:readBytes(2) == "ab")
+    assert2(reader:skip(2) == reader)
+    assert2(reader:remaining() == 2)
+    assert2(reader:readBytes(2) == "ef")
+    assert2(reader:atEnd())
 end
 
 function M.appendsToABufferItWasGiven(): nil
     local destination = io2.newBuffer("head")
     local writer = io2.newScalarWriter(destination)
-    assert(writer:buffer() == destination)
-    assert(writer:writeBytes(":"):writeUint8(33) == writer)
-    assert(destination:getString() == "head:!")
+    assert2(writer:buffer() == destination)
+    assert2(writer:writeBytes(":"):writeUint8(33) == writer)
+    assert2(destination:getString() == "head:!")
 end
 
 function M.writesThroughSomebodyElsesWriter(): nil
     local destination = io2.newBuffer()
     local writer = io2.newScalarWriter(destination:newWriter())
-    assert(writer:buffer() == nil)
+    assert2(writer:buffer() == nil)
     writer:writeUint16(513)
-    assert(writer:flush())
-    assert(destination:getString() == "\1\2")
+    assert2(writer:flush())
+    assert2(destination:getString() == "\1\2")
 end
 
 function M.readsThroughAnyReader(): nil
     local reader = io2.newScalarReader(io2.newStringReader("\1\2\3\4rest"))
-    assert(reader:remaining() == nil)
-    assert(reader:readUint32() == 67305985)
-    assert(reader:readBytes(4) == "rest")
-    assert(reader:atEnd())
+    assert2(reader:remaining() == nil)
+    assert2(reader:readUint32() == 67305985)
+    assert2(reader:readBytes(4) == "rest")
+    assert2(reader:atEnd())
 end
 
 function M.readsAStringBufferInPlace(): nil
@@ -191,11 +193,11 @@ function M.readsAStringBufferInPlace(): nil
     queue:put("!")
 
     local reader = io2.newScalarReader(queue)
-    assert(reader:remaining() == 6)
-    assert(reader:readBytes(5) == "head:")
-    assert(queue:tostring() == "!")
-    assert(reader:readUint8() == 33)
-    assert(reader:atEnd())
+    assert2(reader:remaining() == 6)
+    assert2(reader:readBytes(5) == "head:")
+    assert2(queue:tostring() == "!")
+    assert2(reader:readUint8() == 33)
+    assert2(reader:atEnd())
 end
 
 function M.bridgesAStringBufferIntoTheReaderContract(): nil
@@ -204,9 +206,9 @@ function M.bridgesAStringBufferIntoTheReaderContract(): nil
 
     local destination = io2.newBuffer()
     local reader = io2.newQueueReader(queue)
-    assert(reader:transferTo(destination:newWriter()) == 7)
-    assert(destination:getString() == "payload")
-    assert(reader:read(8) == "")
+    assert2(reader:transferTo(destination:newWriter()) == 7)
+    assert2(destination:getString() == "payload")
+    assert2(reader:read(8) == "")
 end
 
 function M.shortReadsRaiseBeforeConsuming(): nil
@@ -214,9 +216,9 @@ function M.shortReadsRaiseBeforeConsuming(): nil
     local ok, reason = pcall(function(): nil
         reader:readUint16()
     end)
-    assert(not ok)
-    assert(tostring(reason):find("needs 2 bytes, has 1", 1, true) ~= nil)
-    assert(reader:remaining() == 1)
+    assert2(not ok)
+    assert2(tostring(reason):find("needs 2 bytes, has 1", 1, true) ~= nil)
+    assert2(reader:remaining() == 1)
 end
 
 function M.bufferWriteLeasesCommitAtomically(): nil
@@ -232,29 +234,29 @@ function M.bufferWriteLeasesCommitAtomically(): nil
         end
         lease:commit(2)
     end
-    assert(destination:getString() == "headAB")
+    assert2(destination:getString() == "headAB")
 
     do
         local aborted = destination:reserveWrite(10, 2)
         local output = aborted:span()
         output[1] = 88
     end
-    assert(destination:getString() == "headAB")
+    assert2(destination:getString() == "headAB")
 end
 
 function M.readerCountsArePositiveAndEofDoesNotGrowBuffers(): nil
     local reader = io2.newStringReader("x")
-    assert(
+    assert2(
         not pcall(function(): nil
             reader:read(0)
         end)
     )
     local destination = io2.newBuffer("kept")
-    assert(reader:readInto(destination, 4, 1) == 1)
-    assert(destination:getString() == "keptx")
-    assert(reader:readInto(destination, 20, 1) == 0)
-    assert(destination:getString() == "keptx")
-    assert(
+    assert2(reader:readInto(destination, 4, 1) == 1)
+    assert2(destination:getString() == "keptx")
+    assert2(reader:readInto(destination, 20, 1) == 0)
+    assert2(destination:getString() == "keptx")
+    assert2(
         not pcall(function(): nil
             local other = io2.newBuffer()
             reader:readInto(other, 0, 0)
@@ -265,36 +267,36 @@ end
 function M.scalarReadersHonorTheByteQueueContract(): nil
     local named = new NamedQueue(bytes = "xy", read = true)
     local reader = io2.newScalarReader(named)
-    assert(reader:readBytes(1) == "x")
-    assert(named.bytes == "y")
+    assert2(reader:readBytes(1) == "x")
+    assert2(named.bytes == "y")
 
     local broken = io2.newScalarReader(new BrokenQueue(reported = 2, answer = "xyz"))
     local ok, reason = pcall(function(): nil
         broken:readBytes(1)
     end)
-    assert(not ok and tostring(reason):find("wrong byte count", 1, true) ~= nil)
+    assert2(not ok and tostring(reason):find("wrong byte count", 1, true) ~= nil)
 end
 
 function M.rejectsInvalidRangesAndMalformedByteQueues(): nil
     local buffer = io2.newBuffer("abc")
-    assert(
+    assert2(
         not pcall(function(): nil
             buffer:setString("x", false as any)
         end)
     )
-    assert(
+    assert2(
         not pcall(function(): nil
             local lease = buffer:reserveWrite(9007199254740991, 1)
             own.drop(lease)
         end)
     )
-    assert(
+    assert2(
         not pcall(function(): nil
             local invalid = io2.newStringReader("x")
             invalid:read(math.huge as integer)
         end)
     )
-    assert(
+    assert2(
         not pcall(function(): nil
             local invalid = io2.newStringReader("x")
             local destination = io2.newBuffer()
@@ -306,19 +308,19 @@ function M.rejectsInvalidRangesAndMalformedByteQueues(): nil
     local ok, reason = pcall(function(): nil
         reader:read(2)
     end)
-    assert(not ok and tostring(reason):find("wrong byte count", 1, true) ~= nil)
+    assert2(not ok and tostring(reason):find("wrong byte count", 1, true) ~= nil)
 
     local negative = io2.newQueueReader(new BrokenQueue(reported = -1, answer = ""))
     ok, reason = pcall(function(): nil
         negative:read(1)
     end)
-    assert(not ok and tostring(reason):find("ByteQueue length", 1, true) ~= nil)
+    assert2(not ok and tostring(reason):find("ByteQueue length", 1, true) ~= nil)
 
     local scalar = io2.newScalarReader("x")
     ok, reason = pcall(function(): nil
         scalar:readBytes(math.huge as integer)
     end)
-    assert(not ok and tostring(reason):find("must be a non-negative integer", 1, true) ~= nil)
+    assert2(not ok and tostring(reason):find("must be a non-negative integer", 1, true) ~= nil)
 end
 
 function M.scalarReadersRejectSourcesThatOverread(): nil
@@ -327,7 +329,7 @@ function M.scalarReadersRejectSourcesThatOverread(): nil
     local ok, reason = pcall(function(): nil
         reader:readUint8()
     end)
-    assert(not ok and tostring(reason):find("more bytes than requested", 1, true) ~= nil)
+    assert2(not ok and tostring(reason):find("more bytes than requested", 1, true) ~= nil)
 end
 
 function M.scalarWritersPropagateDestinationFailures(): nil
@@ -335,25 +337,25 @@ function M.scalarWritersPropagateDestinationFailures(): nil
     local ok, reason = pcall(function(): nil
         writer:writeUint16(1)
     end)
-    assert(not ok and tostring(reason):find("destination failed: cancelled", 1, true) ~= nil)
+    assert2(not ok and tostring(reason):find("destination failed: cancelled", 1, true) ~= nil)
 end
 
 function M.lineReadersBoundPullsAndOwnTheirSources(): nil
     local state = {bytes = "abc\r\nrest", closes = 0, maxRead = 0}
     local lines = io2.newLines(new ProbeReader(state = state), 3)
-    assert(lines:read() == "abc")
-    assert(state.maxRead <= 5)
+    assert2(lines:read() == "abc")
+    assert2(state.maxRead <= 5)
     lines:close()
-    assert(state.closes == 1)
+    assert2(state.closes == 1)
 end
 
 function M.lineReadersPropagateFailuresAfterPartialInput(): nil
     local state = {bytes = "partial", closes = 0, failure = "cancelled"}
     local lines = io2.newLines(new ProbeReader(state = state), 64)
     local line, reason = lines:read()
-    assert(line == nil and reason == "cancelled")
+    assert2(line == nil and reason == "cancelled")
     lines:close()
-    assert(state.closes == 1)
+    assert2(state.closes == 1)
 end
 
 function M.lineReadersRejectInvalidLimitsAndSourcesThatOverread(): nil
@@ -361,13 +363,13 @@ function M.lineReadersRejectInvalidLimitsAndSourcesThatOverread(): nil
         local lines = io2.newLines(new ProbeReader(state = {closes = 0}), math.huge as integer)
         lines:close()
     end)
-    assert(not ok)
+    assert2(not ok)
 
     local lines = io2.newLines(new ProbeReader(state = {bytes = "abcdef", closes = 0, overread = true}), 2)
     ok, reason = pcall(function(): nil
         lines:read()
     end)
-    assert(not ok and tostring(reason):find("more bytes than requested", 1, true) ~= nil)
+    assert2(not ok and tostring(reason):find("more bytes than requested", 1, true) ~= nil)
 end
 
 function M.scalarAdaptersFinishTakenEndpointsExactlyOnce(): nil
@@ -375,27 +377,27 @@ function M.scalarAdaptersFinishTakenEndpointsExactlyOnce(): nil
     do
         local scalar = io2.newScalarReader(new ProbeReader(state = readerDrop))
     end
-    assert(readerDrop.closes == 1)
+    assert2(readerDrop.closes == 1)
 
     local readerClose = {drops = 0, closes = 0}
     do
         local scalar = io2.newScalarReader(new ProbeReader(state = readerClose))
         scalar:close()
     end
-    assert(readerClose.closes == 1)
+    assert2(readerClose.closes == 1)
 
     local writerDrop = {drops = 0, closes = 0}
     do
         local scalar = io2.newScalarWriter(new ProbeWriter(state = writerDrop))
     end
-    assert(writerDrop.closes == 1)
+    assert2(writerDrop.closes == 1)
 
     local writerClose = {drops = 0, closes = 0}
     do
         local scalar = io2.newScalarWriter(new ProbeWriter(state = writerClose))
         scalar:close()
     end
-    assert(writerClose.closes == 1)
+    assert2(writerClose.closes == 1)
 end
 
 -- `close` answers nothing, so a destination that failed to take its bytes has to
@@ -406,33 +408,33 @@ function M.flushReportsAFailedDestinationBeforeClose(): nil
         local scalar = io2.newScalarWriter(new ProbeWriter(state = state))
         scalar:writeUint8(1)
         local flushed, reason = scalar:flush()
-        assert(flushed == false)
-        assert(reason == "disk full")
+        assert2(flushed == false)
+        assert2(reason == "disk full")
         scalar:close()
     end
-    assert(state.closes == 1)
+    assert2(state.closes == 1)
 end
 
 -- A reader drained whole answers one string; a limit is checked as bytes arrive,
 -- and the reader it took is closed either way.
 function M.readAllDrainsAReaderWithinItsLimit(): nil
-    assert(io2.readAll(io2.newStringReader("")) == "")
+    assert2(io2.readAll(io2.newStringReader("")) == "")
     local big = string.rep("0123456789", 20000)
-    assert(io2.readAll(io2.newStringReader(big)) == big)
-    assert(io2.readAll(io2.newStringReader(big), #big) == big, "exactly the limit is within it")
+    assert2(io2.readAll(io2.newStringReader(big)) == big)
+    assert2(io2.readAll(io2.newStringReader(big), #big) == big, "exactly the limit is within it")
     local refused, reason = io2.readAll(io2.newStringReader(big), #big - 1)
-    assert(refused == nil and reason ~= nil, "one byte past the limit is refused")
+    assert2(refused == nil and reason ~= nil, "one byte past the limit is refused")
 
     local state = {closes = 0, bytes = "abc", maxRead = 0}
     local answered = io2.readAll(new ProbeReader(state = state), 2)
-    assert(answered == nil)
-    assert(state.maxRead <= 3, "it never asks for more than one byte past the limit")
-    assert(state.closes == 1, "the reader is closed when the limit refuses it")
+    assert2(answered == nil)
+    assert2(state.maxRead <= 3, "it never asks for more than one byte past the limit")
+    assert2(state.closes == 1, "the reader is closed when the limit refuses it")
 
     local failing = {closes = 0, bytes = "ab", failure = "broken pipe"}
     local text, why = io2.readAll(new ProbeReader(state = failing))
-    assert(text == nil and why == "broken pipe")
-    assert(failing.closes == 1, "the reader is closed when it fails")
+    assert2(text == nil and why == "broken pipe")
+    assert2(failing.closes == 1, "the reader is closed when it fails")
 end
 
 return M

@@ -1,3 +1,5 @@
+const assert2 = require("assert")
+
 const {type EncodedString} = require("serde.json")
 const {type Buffer} = require("nupp.text")
 
@@ -653,13 +655,13 @@ function m.preparedWriterNested(): integer
 end
 
 function m.currentDecodeNested(): NestedEnvelope
-    return assert(
+    return assert2(
         typedJSON.decode(serde.binding(NestedEnvelope, new serde.Options(unknownMembers = "ignore")), nestedJson)
     )
 end
 
 function m.preparedDecodeNested(): NestedEnvelope
-    return assert(productionCodec:decode(preparedNested, nestedJson))
+    return assert2(productionCodec:decode(preparedNested, nestedJson))
 end
 
 local smallJson = m.nativeEncodeSmall()
@@ -677,11 +679,11 @@ local mediumReverseJson = [[{"cached":true,"retries":3,"owner":"example-owner","
 local mediumUnknownJson = [[{"ignored":{"nested":[1,2,3]},"id":41,"active":true,"name":"Ada","count":1701,"score":98.25,"region":"us-east-1","enabled":false,"version":7,"ratio":0.625,"owner":"example-owner","retries":3,"cached":true}]]
 
 function m.currentDecodeSmall(): Small
-    return assert(typedJSON.decode(serde.binding(Small, new serde.Options(unknownMembers = "ignore")), smallJson))
+    return assert2(typedJSON.decode(serde.binding(Small, new serde.Options(unknownMembers = "ignore")), smallJson))
 end
 
 function m.documentDecodeSmall(): unknown
-    return (assert(json.decodeValue(smallJson)))
+    return (assert2(json.decodeValue(smallJson)))
 end
 
 function m.nativeDecodeSmall(): Small
@@ -693,19 +695,19 @@ function m.nativeDynamicDecodeSmall(): unknown
 end
 
 function m.preparedDecodeSmall(): Small
-    return assert(productionCodec:decode(preparedSmall, smallJson))
+    return assert2(productionCodec:decode(preparedSmall, smallJson))
 end
 
 function m.preparedDecodeSmallBuffer(): Small
-    return assert(productionCodec:decode(preparedSmall, smallInput:tostring()))
+    return assert2(productionCodec:decode(preparedSmall, smallInput:tostring()))
 end
 
 function m.currentDecodeMedium(): Medium
-    return assert(typedJSON.decode(serde.binding(Medium, new serde.Options(unknownMembers = "ignore")), mediumJson))
+    return assert2(typedJSON.decode(serde.binding(Medium, new serde.Options(unknownMembers = "ignore")), mediumJson))
 end
 
 function m.documentDecodeMedium(): unknown
-    return (assert(json.decodeValue(mediumJson)))
+    return (assert2(json.decodeValue(mediumJson)))
 end
 
 function m.nativeDecodeMedium(): Medium
@@ -717,29 +719,29 @@ function m.nativeDynamicDecodeMedium(): unknown
 end
 
 function m.preparedDecodeMedium(): Medium
-    return assert(productionCodec:decode(preparedMedium, mediumJson))
+    return assert2(productionCodec:decode(preparedMedium, mediumJson))
 end
 
 function m.preparedDecodeMediumBuffer(): Medium
-    return assert(productionCodec:decode(preparedMedium, mediumInput:tostring()))
+    return assert2(productionCodec:decode(preparedMedium, mediumInput:tostring()))
 end
 
 function m.preparedDecodeNestedBuffer(): NestedEnvelope
-    return assert(productionCodec:decode(preparedNested, nestedInput:tostring()))
+    return assert2(productionCodec:decode(preparedNested, nestedInput:tostring()))
 end
 
 function m.currentDecodePayload64KiB(): Payload
-    return assert(
+    return assert2(
         typedJSON.decode(serde.binding(Payload, new serde.Options(unknownMembers = "ignore")), payload64KiBJson)
     )
 end
 
 function m.preparedDecodePayload64KiB(): Payload
-    return assert(productionCodec:decode(preparedPayload, payload64KiBJson))
+    return assert2(productionCodec:decode(preparedPayload, payload64KiBJson))
 end
 
 function m.preparedDecodePayload64KiBBuffer(): Payload
-    return assert(productionCodec:decode(preparedPayload, payload64KiBInput:tostring()))
+    return assert2(productionCodec:decode(preparedPayload, payload64KiBInput:tostring()))
 end
 
 function m.nativeDecodeMediumReverse(): Medium
@@ -747,7 +749,7 @@ function m.nativeDecodeMediumReverse(): Medium
 end
 
 function m.preparedDecodeMediumReverse(): Medium
-    return assert(productionCodec:decode(preparedMedium, mediumReverseJson))
+    return assert2(productionCodec:decode(preparedMedium, mediumReverseJson))
 end
 
 function m.nativeDecodeMediumUnknown(): Medium
@@ -755,17 +757,17 @@ function m.nativeDecodeMediumUnknown(): Medium
 end
 
 function m.preparedDecodeMediumUnknown(): Medium
-    return assert(productionCodec:decode(preparedMedium, mediumUnknownJson))
+    return assert2(productionCodec:decode(preparedMedium, mediumUnknownJson))
 end
 
 function m.currentDecodeMediumReverse(): Medium
-    return assert(
+    return assert2(
         typedJSON.decode(serde.binding(Medium, new serde.Options(unknownMembers = "ignore")), mediumReverseJson)
     )
 end
 
 function m.currentDecodeMediumUnknown(): Medium
-    return assert(
+    return assert2(
         typedJSON.decode(serde.binding(Medium, new serde.Options(unknownMembers = "ignore")), mediumUnknownJson)
     )
 end

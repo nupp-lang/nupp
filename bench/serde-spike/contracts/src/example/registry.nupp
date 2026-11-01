@@ -1,5 +1,7 @@
 module example.registry
 
+const assert2 = require("assert")
+
 local __serdeJson = require("serde.json")
 
 local core = require("serde")
@@ -41,7 +43,7 @@ end
 export record Registry
     @private @readonly entries: {[string]: Entry} = {}
     function register<T is own.Copyable>(self, identity: string, binding: core.Binding<T>): nil
-        assert(identity ~= "" and self.entries[identity] == nil, "duplicate or empty type identity")
+        assert2(identity ~= "" and self.entries[identity] == nil, "duplicate or empty type identity")
         self.entries[identity] = new Bound<T>(id = identity, binding = binding)
     end
 
@@ -50,7 +52,7 @@ export record Registry
     end
 
     function reconstruct(self, identity: string, value: documents.Document): Value
-        return assert(self.entries[identity], "unknown type discriminator: " .. identity):read(value)
+        return assert2(self.entries[identity], "unknown type discriminator: " .. identity):read(value)
     end
 end
 

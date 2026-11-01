@@ -1,3 +1,5 @@
+const assert2 = require("assert")
+
 local cli = require("arg")
 const {type TokenKind, type DecodeError} = require("arg")
 
@@ -8,16 +10,16 @@ local record Options
 end
 
 local options: Options?, problem: DecodeError? = cli.parse(Options, {"--name", "Ada"})
-assert(problem == nil, problem and problem.message)
-assert(options ~= nil)
-assert(options.name == "Ada")
-assert(cli == arg)
+assert2(problem == nil, problem and problem.message)
+assert2(options ~= nil)
+assert2(options.name == "Ada")
+assert2(cli == rawget(_G, "arg"))
 
-local alias = arg
+local alias = require("arg")
 local parser = alias.optParser({"--flag"})
 local kind: TokenKind? = parser:next()
-assert(kind == alias.longOption)
-assert(parser:key() == "flag")
+assert2(kind == alias.longOption)
+assert2(parser:key() == "flag")
 
 local localArg = {
     parse = function(): integer
@@ -29,5 +31,5 @@ local function ordinary(arg: {parse: function(): integer}): integer
     return arg.parse()
 end
 
-assert(ordinary(localArg) == 42)
+assert2(ordinary(localArg) == 42)
 print("arg facade ok")

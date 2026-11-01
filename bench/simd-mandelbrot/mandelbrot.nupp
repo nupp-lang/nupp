@@ -1,6 +1,8 @@
 -- Binary32 Mandelbrot over precomputed points. The timed body only reads points
 -- and writes escape records; grid construction and checksum reduction belong
 -- to the harness.
+const assert2 = require("assert")
+
 local span = require("nupp.mem.span")
 local soa = require("nupp.mem.soa")
 local array = require("nupp.mem.array")
@@ -93,9 +95,9 @@ local function mandelbrotSimd(
         error("range out of bounds", 2)
     end
 
-    local fs = assert(simd.species(array.float, 8))
-    local is = assert(simd.species(array.int32, 8))
-    local us = assert(simd.species(array.uint32, 8))
+    local fs = assert2(simd.species(array.float, 8))
+    local is = assert2(simd.species(array.int32, 8))
+    local us = assert2(simd.species(array.uint32, 8))
     local limit = is:splat(maxIterations)
     local cursor: uint64 = (first - 1) as uint64
     while cursor < last do

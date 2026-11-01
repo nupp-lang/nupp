@@ -1,3 +1,5 @@
+const assert2 = require("assert")
+
 local __serdeJson = require("serde.json")
 local core = require("serde")
 local indexed = require("serde.adapters")
@@ -16,8 +18,8 @@ local model = smithy.parse(
 )
 local shape = model:shape("example#Row")
 local root = smithy.root(shape)
-local email, count = assert(shape:member("email")), assert(shape:member("count"))
-local payload, bytes = assert(shape:member("payload")), assert(shape:member("bytes"))
+local email, count = assert2(shape:member("email")), assert2(shape:member("count"))
+local payload, bytes = assert2(shape:member("payload")), assert2(shape:member("bytes"))
 local record Email
     text: string
 end
@@ -27,7 +29,7 @@ local record EmailConversion is scalar.Conversion<Email, string>
     end
 
     function restore(self, value: string): Email
-        assert(value:find("@", 1, true), "invalid email")
+        assert2(value:find("@", 1, true), "invalid email")
         return new Email(text = value)
     end
 end
@@ -42,22 +44,22 @@ local bytesSlot = layout:add(bytes, scalar.bytes(bytes), false)
 local binding = layout:binding()
 local codec = json.codec(smithy.policy(true, false))
 local first, second = codec:decode(binding, '{}'), codec:decode(binding, '{}')
-assert(first:has(emailSlot) and not first:has(countSlot))
-assert(first:get(emailSlot) ~= second:get(emailSlot))
-assert(first:get(emailSlot)).text = "changed@example.com"
-assert(assert(second:get(emailSlot)).text == "default@example.com")
+assert2(first:has(emailSlot) and not first:has(countSlot))
+assert2(first:get(emailSlot) ~= second:get(emailSlot))
+assert2(first:get(emailSlot)).text = "changed@example.com"
+assert2(assert2(second:get(emailSlot)).text == "default@example.com")
 first:set(countSlot, numbers.integer("-9223372036854775808", 64, true))
 first:set(payloadSlot, documents.null())
 first:set(bytesSlot, "\0\255binary")
 local encoded = codec:encode(binding, first)
-assert(encoded:find('"count":-9223372036854775808', 1, true))
-assert(encoded:find('"payload":null', 1, true))
+assert2(encoded:find('"count":-9223372036854775808', 1, true))
+assert2(encoded:find('"payload":null', 1, true))
 local decoded = codec:decode(binding, encoded)
-assert(assert(decoded:get(countSlot)).decimal == "-9223372036854775808")
-assert(decoded:has(payloadSlot) and assert(decoded:get(payloadSlot)).kind == "null")
-assert(decoded:get(bytesSlot) == "\0\255binary")
-assert(not pcall(codec.decode, codec, binding, '{"email":"invalid"}'))
-assert(not pcall(codec.decode, codec, binding, '{"count":9223372036854775808}'))
+assert2(assert2(decoded:get(countSlot)).decimal == "-9223372036854775808")
+assert2(decoded:has(payloadSlot) and assert2(decoded:get(payloadSlot)).kind == "null")
+assert2(decoded:get(bytesSlot) == "\0\255binary")
+assert2(not pcall(codec.decode, codec, binding, '{"email":"invalid"}'))
+assert2(not pcall(codec.decode, codec, binding, '{"count":9223372036854775808}'))
 local empty = layout:value()
 
 local record InspectField<
@@ -110,9 +112,9 @@ end
 local record Inspect is core.Consumer<indexed.IndexedValue, nil, integer>
     @readonly source: indexed.IndexedValue
     function apply<M is core.Member>(self, adapter: core.Adapter<indexed.IndexedValue, M>, borrows state: nil): integer
-        return assert(structure.inspect(adapter, new InspectStructure<M>(source = self.source)))
+        return assert2(structure.inspect(adapter, new InspectStructure<M>(source = self.source)))
     end
 end
-assert(binding:accept(new Inspect(source = empty), nil) == 2)
-assert(binding:accept(new Inspect(source = decoded), nil) == 4)
-assert(codec:encode(binding, empty) == '{"email":"default@example.com"}')
+assert2(binding:accept(new Inspect(source = empty), nil) == 2)
+assert2(binding:accept(new Inspect(source = decoded), nil) == 4)
+assert2(codec:encode(binding, empty) == '{"email":"default@example.com"}')

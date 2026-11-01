@@ -1,3 +1,5 @@
+const assert2 = require("assert")
+
 local soa = require("nupp.mem.soa")
 local array = require("nupp.mem.array")
 local simd = require("simd")
@@ -50,7 +52,7 @@ end
 
 @aot
 local function copy(exclusive output: Writer, borrows input: Reader, dt: float): nil
-    assert(#output == #input, "length mismatch")
+    assert2(#output == #input, "length mismatch")
     for i = 1, #output do
         output[i].x = input[i].x + input[i].velocity * dt
         output[i].velocity = input[i].velocity
@@ -149,20 +151,20 @@ for _, n in ipairs({0, 1, 3, 4, 5, 7, 8, 9, 17, 65}) do
     do
         local all = particles:read()
         local middle = all:slice(3, n + 2)
-        assert(count(middle) == n)
-        assert(named(middle, 1, 2, 3) == n + 6)
-        assert(countPlus(middle, 1) == n + 1 and countPlus(middle, 3) == n + 3)
-        assert(count(all:slice(1, 0)) == 0)
-        assert(all[1].x == 0.5 and all[2].x == 1)
-        assert(all[n + 3].x == (n + 3) * 0.5)
-        assert(all[n + 4].x == (n + 4) * 0.5)
+        assert2(count(middle) == n)
+        assert2(named(middle, 1, 2, 3) == n + 6)
+        assert2(countPlus(middle, 1) == n + 1 and countPlus(middle, 3) == n + 3)
+        assert2(count(all:slice(1, 0)) == 0)
+        assert2(all[1].x == 0.5 and all[2].x == 1)
+        assert2(all[n + 3].x == (n + 3) * 0.5)
+        assert2(all[n + 4].x == (n + 4) * 0.5)
         for i = 1, #middle do
-            assert(middle[i].x == (i + 2) * 0.5 + 3.5)
-            assert(middle[i].velocity == 3)
+            assert2(middle[i].x == (i + 2) * 0.5 + 3.5)
+            assert2(middle[i].velocity == 3)
         end
-        assert(cursorRead(middle, math.u32.wrap(n)) == -99)
+        assert2(cursorRead(middle, math.u32.wrap(n)) == -99)
         if n > 0 then
-            assert(cursorRead(middle, 0) == 3)
+            assert2(cursorRead(middle, 0) == 3)
         end
         local output = other:write()
         copy(output, middle, 0.5)
@@ -173,8 +175,8 @@ for _, n in ipairs({0, 1, 3, 4, 5, 7, 8, 9, 17, 65}) do
     do
         local rows = other:read()
         for i = 1, #rows do
-            assert(rows[i].x == (i + 2) * 0.5 + 5)
-            assert(rows[i].velocity == 3)
+            assert2(rows[i].x == (i + 2) * 0.5 + 5)
+            assert2(rows[i].velocity == 3)
         end
         checksum = checksum + sum(rows, rows)
     end
@@ -182,7 +184,7 @@ for _, n in ipairs({0, 1, 3, 4, 5, 7, 8, 9, 17, 65}) do
         local rows = other:write()
         orderedUpdate(rows)
         for i = 1, #rows do
-            assert(rows[i].x == (i + 2) * 0.5 + 7)
+            assert2(rows[i].x == (i + 2) * 0.5 + 7)
         end
         own.drop(rows)
     end
@@ -199,9 +201,9 @@ do
     end
     numeric(rows, 65539)
     for i = 1, #rows do
-        assert(rows[i].tiny == 3 and rows[i].small == -3)
-        assert(rows[i].flags == 0)
-        assert(rows[i].single == 16777216 and rows[i].wide == 50331648)
+        assert2(rows[i].tiny == 3 and rows[i].small == -3)
+        assert2(rows[i].flags == 0)
+        assert2(rows[i].single == 16777216 and rows[i].wide == 50331648)
     end
     own.drop(rows)
 end

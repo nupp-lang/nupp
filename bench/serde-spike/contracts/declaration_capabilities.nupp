@@ -1,3 +1,5 @@
+const assert2 = require("assert")
+
 local __serdeJson = require("serde.json")
 local declarations = require("serde")
 local json = require("serde.json")
@@ -19,12 +21,12 @@ _G.require = function(name: string): any
     return original(name)
 end
 local ok, result = pcall(function(): nil
-    assert(codec:decode(text, '{"value":"portable"}').value == "portable")
+    assert2(codec:decode(text, '{"value":"portable"}').value == "portable")
     local accepted, problem = pcall(codec.decode, codec, wide, "invalid input")
-    assert(not accepted and tostring(problem):find("no exact 64-bit carrier", 1, true))
+    assert2(not accepted and tostring(problem):find("no exact 64-bit carrier", 1, true))
 end)
 _G.require = original
-assert(ok, tostring(result))
+assert2(ok, tostring(result))
 
 local record Owned is own.Closeable
     value: string
@@ -35,4 +37,4 @@ end
 -- ordinary copyable result. The descriptor retains the semantic capability.
 local erased = Owned as Type<unknown>
 local owning = declarations.binding(erased)
-assert(not pcall(json.decode, owning, '{"value":"owned"}'))
+assert2(not pcall(json.decode, owning, '{"value":"owned"}'))

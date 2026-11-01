@@ -1,3 +1,5 @@
+const assert2 = require("assert")
+
 local span = require("nupp.mem.span")
 local array = require("nupp.mem.array")
 local struct Sample
@@ -40,10 +42,10 @@ do
 end
 
 local rows = output:read()
-assert(#rows == 3)
-assert(rows[1].value == 4 and rows[1].bias == 12 and rows[1].weight == 3)
-assert(rows[2].value == 6 and rows[2].bias == 22 and rows[2].weight == 6)
-assert(rows[3].value == 10 and rows[3].bias == 32 and rows[3].weight == 9)
+assert2(#rows == 3)
+assert2(rows[1].value == 4 and rows[1].bias == 12 and rows[1].weight == 3)
+assert2(rows[2].value == 6 and rows[2].bias == 22 and rows[2].weight == 6)
+assert2(rows[3].value == 10 and rows[3].bias == 32 and rows[3].weight == 9)
 
 @aot
 local function incrementWide(
@@ -78,9 +80,9 @@ do
     own.drop(writable)
 end
 local exact = addWide(wideInput:read()[2], 1 as uint64)
-assert(exact == 9007199254740993ULL)
-assert(wideOutput:read()[1] == (0 as uint64))
-assert(wideOutput:read()[2] == 9007199254740993ULL)
+assert2(exact == 9007199254740993ULL)
+assert2(wideOutput:read()[1] == (0 as uint64))
+assert2(wideOutput:read()[2] == 9007199254740993ULL)
 
 @aot
 local function both(left: number, right: boolean): (number, boolean)
@@ -88,9 +90,9 @@ local function both(left: number, right: boolean): (number, boolean)
 end
 
 local negativeZero, falseValue = both(-0.0, false)
-assert(1 / negativeZero == -math.huge and falseValue == false)
+assert2(1 / negativeZero == -math.huge and falseValue == false)
 local nan, trueValue = both(0 / 0, true)
-assert(nan ~= nan and trueValue == true)
+assert2(nan ~= nan and trueValue == true)
 
 @aot
 local function sumBytes(borrows first: span.Span<uint8>, borrows second: span.Span<uint8>): (number, uint32, uint32)
@@ -118,7 +120,7 @@ do
     own.drop(b)
 end
 local sum, n1, n2 = sumBytes(first:read(), second:read())
-assert(sum == 30 and n1 == 2 and n2 == 3)
+assert2(sum == 30 and n1 == 2 and n2 == 3)
 
 -- The guest uses single-number LuaJIT, so FORI preserves the first value.
 -- Stock Lua 5.1 instead initializes it through (first - 1) + 1, losing these
@@ -188,13 +190,13 @@ do
         local range = ranges[index]
         local expectedRan, expectedValue = loopOracle(range[1], range[2])
         -- Check the independent oracle against the actual guest probe too.
-        assert(expectedRan == (index ~= 4), "guest numeric loop admission")
+        assert2(expectedRan == (index ~= 4), "guest numeric loop admission")
         if expectedRan then
-            assert(sameLoopValue(expectedValue, range[1]), "guest numeric loop first value")
+            assert2(sameLoopValue(expectedValue, range[1]), "guest numeric loop first value")
         end
         local actualRan, actualValue = firstLoopValue(range[1], range[2])
-        assert(actualRan == expectedRan, "scalar numeric loop admission " .. index)
-        assert(sameLoopValue(actualValue, expectedValue), "scalar numeric loop first value " .. index)
+        assert2(actualRan == expectedRan, "scalar numeric loop admission " .. index)
+        assert2(sameLoopValue(actualValue, expectedValue), "scalar numeric loop first value " .. index)
         scalarLoopChecks = scalarLoopChecks + 1
         firsts[index], lasts[index] = range[1], range[2]
     end
@@ -216,20 +218,20 @@ local actualVisits, actualInitial = visits:read(), initial:read()
 for index = 1, #ranges do
     local range = ranges[index]
     local expectedRan, expectedValue = loopOracle(range[1], range[2])
-    assert(actualVisits[index] == (expectedRan and 1 or 0), "SIMD numeric loop admission " .. index)
-    assert(sameLoopValue(actualInitial[index], expectedValue), "SIMD numeric loop first value " .. index)
+    assert2(actualVisits[index] == (expectedRan and 1 or 0), "SIMD numeric loop admission " .. index)
+    assert2(sameLoopValue(actualInitial[index], expectedValue), "SIMD numeric loop first value " .. index)
     simdLoopChecks = simdLoopChecks + 1
 end
 
 -- A const family must call its independent Wasm entries, even though leaving
 -- the ordinary Lua body in place would produce the same numeric answers.
-local familyHost: any = assert(rawget(_G, "__nuppBrowser"))
+local familyHost: any = assert2(rawget(_G, "__nuppBrowser"))
 local registerFamilyKernel: any = familyHost.kernel
 local familyBindings, familyCalls = 0, 0
 local familySymbols: {[string]: boolean} = {}
 familyHost.kernel = function(unit: string, symbol: string, descriptor: any): any
-    assert(symbol:find("_const_family_scale_", 1, true) ~= nil, "unexpected const-family binding")
-    assert(not familySymbols[symbol], "each const-family body is bound once")
+    assert2(symbol:find("_const_family_scale_", 1, true) ~= nil, "unexpected const-family binding")
+    assert2(not familySymbols[symbol], "each const-family body is bound once")
     familySymbols[symbol] = true
     familyBindings = familyBindings + 1
     local invoke: any = registerFamilyKernel(unit, symbol, descriptor)
@@ -247,16 +249,16 @@ end
 
 -- The generated wrappers have captured the counted callables by this point.
 familyHost.kernel = registerFamilyKernel
-assert(constFamilyScale(5, 2) == 10)
-assert(constFamilyScale(5, 3) == 15)
-assert(familyBindings == 2, "both const-family Wasm bodies must be bound")
-assert(familyCalls == 2, "both const-family calls must enter independent Wasm")
+assert2(constFamilyScale(5, 2) == 10)
+assert2(constFamilyScale(5, 3) == 15)
+assert2(familyBindings == 2, "both const-family Wasm bodies must be bound")
+assert2(familyCalls == 2, "both const-family calls must enter independent Wasm")
 
 -- Erase the signature at this unchecked call so it does not demand another
 -- compiled tuple. The public family must fail instead of falling back to Lua.
 local unmatched, why = pcall(constFamilyScale as any, 5, 7)
-assert(not unmatched and tostring(why):find("no compiled const application exists", 1, true) ~= nil)
-assert(familyCalls == 2, "an unmatched tuple must not invoke a compiled body")
+assert2(not unmatched and tostring(why):find("no compiled const application exists", 1, true) ~= nil)
+assert2(familyCalls == 2, "an unmatched tuple must not invoke a compiled body")
 
 return {
     ok = true,

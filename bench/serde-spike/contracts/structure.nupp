@@ -1,3 +1,5 @@
+const assert2 = require("assert")
+
 local core = require("serde")
 local structure = require("serde.adapters")
 local codec = require("serde.json")
@@ -16,7 +18,7 @@ local record Value
     text: string
     callback: Handler
     constructor(self, text: string)
-        assert(text ~= "invalid", "constructor validation")
+        assert2(text ~= "invalid", "constructor validation")
         self.text = text
         self.callback = function(): string
             return "default"
@@ -37,7 +39,7 @@ local record Construction is structure.Construction<Value, Builder>
 
     function finish(self, takes state: Builder): Value
         local owned: Builder = state
-        local value = new Value(text = assert(owned.text, "required text"))
+        local value = new Value(text = assert2(owned.text, "required text"))
         counts.finished += 1
         owned:close()
 
@@ -140,15 +142,15 @@ local fields: {structure.Field<Value, Builder, Member>} = {
 local selected = structure.structure(root, fields, new Construction())
 local binding: core.Binding<Value> = new core.Bound<Value, Member>(adapter = selected)
 local engine = codec.codec(new Factory())
-assert(engine:encode(binding, new Value(text = "ok")) == '{"text":"ok","callback":"[redacted]"}')
-assert(counts.gets == 1)
+assert2(engine:encode(binding, new Value(text = "ok")) == '{"text":"ok","callback":"[redacted]"}')
+assert2(counts.gets == 1)
 local decoded = engine:decode(binding, '{"text":"ok","callback":null}')
-assert(decoded.text == "ok" and decoded.callback() == "default")
-assert(counts.opened == 1 and counts.closed == 1 and counts.finished == 1)
+assert2(decoded.text == "ok" and decoded.callback() == "default")
+assert2(counts.opened == 1 and counts.closed == 1 and counts.finished == 1)
 for _, input in ipairs({'{}', '{"text":"invalid"}', '{"text":"ok","callback":[}', '{"text":"ok"} trailing'}) do
-    assert(not pcall(engine.decode, engine, binding, input))
-    assert(counts.closed == counts.opened, input .. ": " .. tostring(counts.closed) .. "/" .. tostring(counts.opened))
-    assert(counts.finished == 1)
+    assert2(not pcall(engine.decode, engine, binding, input))
+    assert2(counts.closed == counts.opened, input .. ": " .. tostring(counts.closed) .. "/" .. tostring(counts.opened))
+    assert2(counts.finished == 1)
 end
 local record Inspect is structure.StructureConsumer<Value, Member, integer>
     function apply<S is own.Closeable>(
@@ -159,9 +161,9 @@ local record Inspect is structure.StructureConsumer<Value, Member, integer>
         unknown: core.UnknownConsumer<S>,
         additional: core.Members<Member, Value>?
     ): integer
-        assert(member == root and described[1].member == textMember and described[2].hasDefault)
+        assert2(member == root and described[1].member == textMember and described[2].hasDefault)
         return #described
     end
 end
-assert(structure.inspect(selected, new Inspect()) == 2)
+assert2(structure.inspect(selected, new Inspect()) == 2)
 print("typed structure operations preserve selection, checked construction, and abort cleanup")

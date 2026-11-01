@@ -1,3 +1,5 @@
+const assert2 = require("assert")
+
 const io2 = require("nupp.io")
 
 local span = require("nupp.mem.span")
@@ -29,12 +31,12 @@ local function describe(name: string, count: integer): {[string]: any}
     return {name = name, count = count, values = {1, 2, 3}}
 end
 
-assert(copyString("Lua-builder in Wasm", nil) == "Lua-builder in Wasm")
-assert(copyString("", nil) == "")
-assert(base64.encode("browser bytes\0\255") == "YnJvd3NlciBieXRlcwD/")
-assert(base64.decode("YnJvd3NlciBieXRlcwD/") == "browser bytes\0\255")
+assert2(copyString("Lua-builder in Wasm", nil) == "Lua-builder in Wasm")
+assert2(copyString("", nil) == "")
+assert2(base64.encode("browser bytes\0\255") == "YnJvd3NlciBieXRlcwD/")
+assert2(base64.decode("YnJvd3NlciBieXRlcwD/") == "browser bytes\0\255")
 local description = describe("wasm", 3)
-assert(description.name == "wasm" and description.count == 3 and description.values[3] == 3)
+assert2(description.name == "wasm" and description.count == 3 and description.values[3] == 3)
 
 local struct Sample
     value: float
@@ -76,10 +78,10 @@ do
 end
 
 local rows = output:read()
-assert(#rows == 3)
-assert(rows[1].value == 4 and rows[1].bias == 12 and rows[1].weight == 3)
-assert(rows[2].value == 6 and rows[2].bias == 22 and rows[2].weight == 6)
-assert(rows[3].value == 10 and rows[3].bias == 32 and rows[3].weight == 9)
+assert2(#rows == 3)
+assert2(rows[1].value == 4 and rows[1].bias == 12 and rows[1].weight == 3)
+assert2(rows[2].value == 6 and rows[2].bias == 22 and rows[2].weight == 6)
+assert2(rows[3].value == 10 and rows[3].bias == 32 and rows[3].weight == 9)
 
 @aot
 local function incrementWide(
@@ -129,16 +131,16 @@ do
     own.drop(writable)
 end
 local exact = addWide(wideInput:read()[2], 1 as uint64)
-assert(tostring(exact) == "9007199254740993")
-assert(wideOutput:read()[1] == (0 as uint64))
-assert(tostring(wideOutput:read()[2]) == "9007199254740993")
+assert2(tostring(exact) == "9007199254740993")
+assert2(wideOutput:read()[1] == (0 as uint64))
+assert2(tostring(wideOutput:read()[2]) == "9007199254740993")
 local banded, joined, toggled, shiftedLeft, shiftedRight = unsignedBits(0xf0 as uint64, 0x0f as uint64, 4 as uint64)
-assert(banded == (0 as uint64) and joined == (0xff as uint64) and toggled == (0xff as uint64))
-assert(shiftedLeft == (0xf00 as uint64) and shiftedRight == (0x0f as uint64))
+assert2(banded == (0 as uint64) and joined == (0xff as uint64) and toggled == (0xff as uint64))
+assert2(shiftedLeft == (0xf00 as uint64) and shiftedRight == (0x0f as uint64))
 local inverted, logical, arithmetic = signedBits(-2 as int64, 1 as int64)
-assert(inverted == (1 as int64) and tostring(logical) == "9223372036854775807" and arithmetic == (-1 as int64))
+assert2(inverted == (1 as int64) and tostring(logical) == "9223372036854775807" and arithmetic == (-1 as int64))
 local rotatedLeft, rotatedRight = rotateWide(1 as uint64, 1)
-assert(rotatedLeft == (2 as uint64) and tostring(rotatedRight) == "9223372036854775808")
+assert2(rotatedLeft == (2 as uint64) and tostring(rotatedRight) == "9223372036854775808")
 
 @aot
 local function copyBytes(exclusive destination: span.WriteSpan<uint8>, borrows source: span.ByteSpan): nil
@@ -160,4 +162,4 @@ do
     own.drop(bytes)
 end
 byteLease:commit(4)
-assert(byteBuffer:getString() == "a\0b\255")
+assert2(byteBuffer:getString() == "a\0b\255")

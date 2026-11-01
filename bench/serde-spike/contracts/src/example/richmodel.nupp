@@ -1,5 +1,7 @@
 module example.richmodel
 
+const assert2 = require("assert")
+
 local __serdeJson = require("serde.json")
 
 const util = require("types")
@@ -118,10 +120,10 @@ local record PacketStorage is Storage<Packet>
     end
 
     function finish(self, state: State<Packet>): Packet
-        assert(state.notePresence ~= "null", "Packet cannot retain explicit null separately from absence")
+        assert2(state.notePresence ~= "null", "Packet cannot retain explicit null separately from absence")
         return new Packet(
-            id = assert(state.id),
-            created = assert(state.created),
+            id = assert2(state.id),
+            created = assert2(state.created),
             note = state.note,
             document = state.document,
             labels = state.labels,
@@ -223,8 +225,8 @@ local record IndexedStorage is Storage<Indexed>
             owner = self.owner,
             notePresence = state.notePresence,
             slots = {
-                [1] = assert(state.id),
-                [2] = assert(state.created),
+                [1] = assert2(state.id),
+                [2] = assert2(state.created),
                 [3] = state.note,
                 [4] = state.document,
                 [5] = state.labels,
@@ -271,9 +273,9 @@ export record ModelDocument
         local state = self.state
         local value: documents.Document? = nil
         if name == "id" then
-            value = documents.string(assert(state.id))
+            value = documents.string(assert2(state.id))
         elseif name == "created" then
-            value = documents.timestamp(assert(state.created))
+            value = documents.timestamp(assert2(state.created))
         elseif name == "note" and state.notePresence == "null" then
             value = documents.null()
         elseif name == "note" and state.note ~= nil then
@@ -310,17 +312,17 @@ end
 local record DocumentStorage is Storage<ModelDocument>
     @readonly model: Model
     function validate(self, borrows value: ModelDocument): nil
-        assert(value.model == self.model, "document belongs to another schema")
+        assert2(value.model == self.model, "document belongs to another schema")
     end
 
     function id(self, borrows value: ModelDocument): string
         self:validate(value)
-        return assert(value.state.id)
+        return assert2(value.state.id)
     end
 
     function created(self, borrows value: ModelDocument): core.Timestamp
         self:validate(value)
-        return assert(value.state.created)
+        return assert2(value.state.created)
     end
 
     function note(self, borrows value: ModelDocument): string?
@@ -406,7 +408,7 @@ local record Fields<T> is core.Members<Member, T>
             if presence == "null" then
                 writer:writeNull(model.note)
             elseif presence == "value" then
-                writer:writeString(model.note, assert(self.storage:note(source)))
+                writer:writeString(model.note, assert2(self.storage:note(source)))
             end
         end
         if writer:include(model.document) then
@@ -482,7 +484,7 @@ local record ReadFields<T> is core.MemberConsumer<Member, State<T>>
         elseif member == model.choice then
             local choice = new ChoiceState()
             reader:readUnion(member, choice, readChoice, unknownChoice)
-            state.choice = assert(choice.value)
+            state.choice = assert2(choice.value)
         else
             error("foreign member", 2)
         end
@@ -658,10 +660,10 @@ local record Policy<M is core.Member> is plans.Policy<M>
 
     function parseTimestamp(self, member: M, value: string, kind: "string" | "number"): core.Timestamp
         if self.rename then
-            assert(kind == "number", "expected epoch seconds");
+            assert2(kind == "number", "expected epoch seconds");
             return timestamps.parseEpoch(value)
         end
-        assert(kind == "string", "expected date-time string")
+        assert2(kind == "string", "expected date-time string")
 
         return timestamps.parseDateTime(value)
     end

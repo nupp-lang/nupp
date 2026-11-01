@@ -1,3 +1,5 @@
+const assert2 = require("assert")
+
 local __serdeJson = require("serde.json")
 local core = require("serde")
 local native = require("serde.native")
@@ -45,7 +47,7 @@ local record Adapter is core.Adapter<Resource, Member>
         if self.consume then
             result.text = reader:readString(self.description.member)
         end
-        assert(not self.fail, "model rejected the value")
+        assert2(not self.fail, "model rejected the value")
 
         return result
     end
@@ -68,20 +70,20 @@ local codec = native.codec()
 local bytes = native.encodeDocument(documents.adapter(), documents.string("retained"))
 for index = 1, 3 do
     local resource = codec:decode(selected, bytes)
-    assert(resource.text == "retained")
-    assert(codec:encode(selected, resource) == bytes)
+    assert2(resource.text == "retained")
+    assert2(codec:encode(selected, resource) == bytes)
 end
-assert(counts.created == 3 and counts.closed == 3)
+assert2(counts.created == 3 and counts.closed == 3)
 
 local function rejected(target: core.Binding<Resource>): nil
     local resource = codec:decode(target, bytes)
     resource:close()
 end
 
-assert(not pcall(rejected, binding(true)))
-assert(counts.created == 4 and counts.closed == 4)
+assert2(not pcall(rejected, binding(true)))
+assert2(counts.created == 4 and counts.closed == 4)
 codec:clear()
-assert(counts.closed == 4, "codec cache owned decoded resources")
+assert2(counts.closed == 4, "codec cache owned decoded resources")
 print("native reconstruction transfers owned results and closes aborted construction exactly once")
 
 local unconsumed: core.Binding<Resource> = new core.OwnedBound<Resource, Member>(
@@ -95,8 +97,8 @@ local unconsumed: core.Binding<Resource> = new core.OwnedBound<Resource, Member>
         consume = false
     )
 )
-assert(not pcall(rejected, unconsumed))
-assert(counts.created == 5 and counts.closed == 5, "underconsumption leaked an owned decode result")
+assert2(not pcall(rejected, unconsumed))
+assert2(counts.created == 5 and counts.closed == 5, "underconsumption leaked an owned decode result")
 
 local record ResourceDocument is core.DocumentAdapter<Resource>
     @readonly counts: Counts
@@ -125,5 +127,5 @@ local function rejectedDocument(): nil
     resource:close()
 end
 
-assert(not pcall(rejectedDocument))
-assert(counts.created == 6 and counts.closed == 6, "document publication leaked an owned result")
+assert2(not pcall(rejectedDocument))
+assert2(counts.created == 6 and counts.closed == 6, "document publication leaked an owned result")

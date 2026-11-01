@@ -1,3 +1,5 @@
+const assert2 = require("assert")
+
 local inspect = require("tests.fixtures.deriveinspect")
 const prefix = "caller prefix"
 const self = "caller receiver"
@@ -16,13 +18,13 @@ local record Credentials
 end
 
 local credentials = new Credentials(username = "michael", password = "secret")
-assert(credentials:inspect() == "{username=michael, password=<redacted>}")
-assert(credentials:inspectKind() == "record")
-assert(credentials:prefixed("credentials=") == "credentials={username=michael, password=<redacted>}")
-assert(prefix == "caller prefix" and self == "caller receiver")
-assert(credentials:decorated() == "[{username=michael, password=<redacted>}]")
-assert(credentials:firstField() == "username")
-assert(
+assert2(credentials:inspect() == "{username=michael, password=<redacted>}")
+assert2(credentials:inspectKind() == "record")
+assert2(credentials:prefixed("credentials=") == "credentials={username=michael, password=<redacted>}")
+assert2(prefix == "caller prefix" and self == "caller receiver")
+assert2(credentials:decorated() == "[{username=michael, password=<redacted>}]")
+assert2(credentials:firstField() == "username")
+assert2(
     credentials:documentation() == "Credentials used to authenticate.\n\nKept as a typed record.\n-- fields --\nThe public account name.\nA secret value."
 )
 
@@ -37,9 +39,9 @@ local record Parent
 end
 
 local parent = new Parent(child = new Child(name = "nested"))
-assert(parent:inspect() == "{child=<nested>}")
-assert(credentials:firstField() == "username")
-assert(parent:documentation() == "<none>\n-- fields --\n<none>")
+assert2(parent:inspect() == "{child=<nested>}")
+assert2(credentials:firstField() == "username")
+assert2(parent:documentation() == "<none>\n-- fields --\n<none>")
 
 -- Both providers have to observe the other's declaration-time claim before
 -- either provider body has completed. The fields are intentionally not
@@ -56,7 +58,7 @@ end
 
 local leftInspect: inspect.Inspect = nil as any as Left
 local rightInspect: inspect.Inspect = nil as any as Right
-assert(leftInspect ~= nil or rightInspect == nil)
+assert2(leftInspect ~= nil or rightInspect == nil)
 
 @derive(inspect.derive)
 local record WrittenClaim is inspect.Inspect
@@ -64,8 +66,8 @@ local record WrittenClaim is inspect.Inspect
 end
 
 local written = new WrittenClaim(value = "coalesced")
-assert(written:inspect() == "{value=coalesced}")
-assert(written:inspectKind() == "record")
+assert2(written:inspect() == "{value=coalesced}")
+assert2(written:inspectKind() == "record")
 
 local inspectAlias = inspect
 
@@ -75,6 +77,6 @@ local record AliasedProvider
 end
 
 local aliased = new AliasedProvider(value = "alias")
-assert(aliased:inspect() == "{value=alias}")
+assert2(aliased:inspect() == "{value=alias}")
 
 return true

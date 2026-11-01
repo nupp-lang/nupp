@@ -1,9 +1,11 @@
+const assert2 = require("assert")
+
 local game = require("game")
 local json = require("serde.json")
 local log = require("log")
 
 log.info("answering")
-assert(game.answer(41) == 42)
+assert2(game.answer(41) == 42)
 print(json.encodeValue({answer = 42}))
 
 return true
