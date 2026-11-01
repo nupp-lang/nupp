@@ -9,6 +9,7 @@ layout nupp's reified type vocabulary can express, keyed by an explicit target t
 That makes a folded size a property of the build target rather than the compiler host.
 ]]
 
+local apiidentity = require("nupp.compiler.apiidentity")
 local record targetLayout
     ABI: integer
     keys: function(): {string}
@@ -215,7 +216,7 @@ function targetLayout.storageVector(t: any): (string?, integer?)
         return nil, nil
     end
     local origin = raw.origin or raw
-    if origin.moduleName ~= "nupp.simd" or origin.name ~= "Vector" then
+    if apiidentity.canonical(origin.moduleName or "") ~= "simd" or origin.name ~= "Vector" then
         return nil, nil
     end
     local arguments = raw.typeArgs or {}
@@ -230,7 +231,7 @@ function targetLayout.storageVector(t: any): (string?, integer?)
     local speciesOrigin = species ~= nil and (species.origin or species) or nil
     if species == nil
         or species.tag ~= "nominal"
-        or speciesOrigin.moduleName ~= "nupp.simd"
+        or apiidentity.canonical(speciesOrigin.moduleName or "") ~= "simd"
         or speciesOrigin.name ~= "Fixed"
     then
         return nil, nil
@@ -323,9 +324,9 @@ function targetLayout.of(t: any, key: string): any?, string?
                 return scalar(vector.size, vector.alignment)
             end
             local origin = subject.origin or subject
-            if origin.moduleName == "nupp.simd" and origin.name == "Mask" then
+            if apiidentity.canonical(origin.moduleName or "") == "simd" and origin.name == "Mask" then
                 return nil, "a mask has no storage layout"
-            elseif origin.moduleName == "nupp.simd" and origin.name == "Vector" then
+            elseif apiidentity.canonical(origin.moduleName or "") == "simd" and origin.name == "Vector" then
                 return nil, "a vector of a tier-dependent species has no target-independent layout"
             end
         elseif subject.tag == "nominal" and subject.declKind == "struct" then

@@ -14,6 +14,7 @@ conversion this module writes down, never as a side effect of an operator. A
 narrowing that is not in the IR is a narrowing that did not happen.
 ]]
 
+local apiidentity = require("nupp.compiler.apiidentity")
 local admit = require("nupp.compiler.aot.admit")
 local targetLayout = require("nupp.compiler.targetlayout")
 local carriedFacts = require("nupp.compiler.aot.carried")
@@ -333,7 +334,7 @@ end
 --- terms, never from source text.
 local function genericSimdType(t: any?): scalarIR.Type?
     local raw, origin = nominal(t)
-    if raw == nil or origin == nil or origin.moduleName ~= "nupp.simd" then
+    if raw == nil or origin == nil or apiidentity.canonical(origin.moduleName or "") ~= "simd" then
         return nil
     end
     local family = origin.name
@@ -360,11 +361,14 @@ local function genericSimdType(t: any?): scalarIR.Type?
     local elementName = element ~= nil and elementNames[element.tag] or nil
     local species, speciesOrigin = nominal(arguments[2])
     local shape: string? = nil
-    if speciesOrigin ~= nil and speciesOrigin.moduleName == "nupp.simd" and speciesOrigin.name == "Preferred" then
+    if speciesOrigin ~= nil
+        and apiidentity.canonical(speciesOrigin.moduleName or "") == "simd"
+        and speciesOrigin.name == "Preferred"
+    then
         shape = "preferred"
     elseif species ~= nil
         and speciesOrigin ~= nil
-        and speciesOrigin.moduleName == "nupp.simd"
+        and apiidentity.canonical(speciesOrigin.moduleName or "") == "simd"
         and speciesOrigin.name == "Fixed"
     then
         local count = (species.constArgs or {})[1]
@@ -457,7 +461,7 @@ local function semanticValueType(t: any?, helper: boolean?): scalarIR.Type?
     if origin ~= nil and origin.declKind == "struct" and origin.nativeOnly == true then
         return "aggregate:" .. tostring(origin.name)
     end
-    if origin == nil or origin.moduleName ~= "nupp.simd" then
+    if origin == nil or apiidentity.canonical(origin.moduleName or "") ~= "simd" then
         return nil
     end
     local generic = genericSimdType(raw)
@@ -957,7 +961,7 @@ function lower.callIdentity(node: cst.Node?): string?
     end
     local direct = (node as any).exactCallExport
     if direct ~= nil then
-        return direct.identity
+        return apiidentity.canonical(direct.identity)
     end
     if node.kind == "dotIndex" then
         local indexed = node as cst.DotIndex
@@ -966,7 +970,7 @@ function lower.callIdentity(node: cst.Node?): string?
         local definition = token ~= nil and (token as any).definition or nil
         local moduleName = definition ~= nil and definition.requiredModule or nil
         if moduleName ~= nil and indexed.name ~= nil then
-            return moduleName .. "." .. (indexed.name as lexer.Token).text
+            return apiidentity.canonical(moduleName .. "." .. (indexed.name as lexer.Token).text)
         end
     end
     if node.kind == "name" then
@@ -974,7 +978,7 @@ function lower.callIdentity(node: cst.Node?): string?
         local definition = token ~= nil and (token as any).definition or nil
         local aliased = definition ~= nil and definition.exactCallExport or nil
         if aliased ~= nil then
-            return aliased.identity
+            return apiidentity.canonical(aliased.identity)
         end
     end
 
@@ -1933,7 +1937,7 @@ local function calledIdentity(node: cst.Call, kernel: lower.Kernel): string?
         end
     end
 
-    return identity
+    return identity ~= nil and apiidentity.canonical(identity) or nil
 end
 
 --- Checks a `simd.species(witness[, lanes])` call's shape and where it sits.
@@ -2032,14 +2036,14 @@ local function assertedSpecies(node: cst.Call, kernel: lower.Kernel): (cst.Call?
     local arguments = node.args ~= nil and (node.args as cst.Args).exprs or {}
     local first = arguments[1]
     local identity = first ~= nil and first.kind == "call" and calledIdentity(first as cst.Call, kernel) or nil
-    if identity ~= "nupp.simd.species" and identity ~= "nupp.simd.vectors" then
+    if identity ~= "simd.species" and identity ~= "simd.vectors" then
         return nil, false
     end
     if #arguments > 2 or #arguments == 2 and arguments[2].kind ~= "string" then
         kernel.context.reject(lower.site(node), "assert(simd.species(...)) takes at most a literal message")
     end
 
-    return first as cst.Call, identity == "nupp.simd.vectors"
+    return first as cst.Call, identity == "simd.vectors"
 end
 
 --- Whether a comparison against nil is answered statically: a species from
@@ -2739,10 +2743,10 @@ local function call(
     local context = kernel.context
     local path = lower.dottedName(node.obj)
     local identity = calledIdentity(node, kernel)
-    if identity == "nupp.simd.species" or identity == "nupp.simd.vectors" then
+    if identity == "simd.species" or identity == "simd.vectors" then
         -- Answered before the arguments lower: the witness is a library value,
         -- not something native code can hold.
-        return species(node, kernel, false, identity == "nupp.simd.vectors")
+        return species(node, kernel, false, identity == "simd.vectors")
     end
     local required, optional = assertedSpecies(node, kernel)
     if required ~= nil then
@@ -2876,8 +2880,8 @@ local function call(
             type = resolved,
             source = lower.site(node)
         )
-    elseif identity ~= nil and identity:match("^nupp%.simd%.horizontal%.") ~= nil then
-        local operation = identity:match("^nupp%.simd%.horizontal%.(.+)$") as string
+    elseif identity ~= nil and identity:match("^simd%.horizontal%.") ~= nil then
+        local operation = identity:match("^simd%.horizontal%.(.+)$") as string
         local operations: {[string]: {
             arity: integer,
             order: string,
@@ -2952,7 +2956,7 @@ local function call(
             type = (indexed and "f64" or genericSimdScalar(element)) as scalarIR.Type,
             source = lower.site(node)
         )
-    elseif identity == "nupp.simd.transpose" then
+    elseif identity == "simd.transpose" then
         return lower.rearrange("transpose", args, lower.site(node), kernel)
     elseif identity == "serde.valuebuilder.new"
         or identity == "serde.valuebuilder.newSized"
@@ -6900,7 +6904,7 @@ local function localStmt(
     if #exprs == 1
         and exprs[1].kind == "call"
         and not context.vectors
-        and calledIdentity(exprs[1] as cst.Call, kernel) == "nupp.simd.vectors"
+        and calledIdentity(exprs[1] as cst.Call, kernel) == "simd.vectors"
     then
         -- `simd.vectors` on a tier without vectors: the name is bound to
         -- nothing, and the branch that tests it against nil prunes.
@@ -7992,10 +7996,10 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                     -- it. Nothing else lowers to a nil-tested native value.
                     local bound = arm.cond as cst.Node
                     local boundIdentity = bound.kind == "call" and calledIdentity(bound as cst.Call, kernel) or nil
-                    if boundIdentity ~= "nupp.simd.species" and boundIdentity ~= "nupp.simd.vectors" then
+                    if boundIdentity ~= "simd.species" and boundIdentity ~= "simd.vectors" then
                         context.reject(lower.site(bound), "a native if binding takes simd.vectors only")
                     end
-                    if context.vectors or boundIdentity == "nupp.simd.species" then
+                    if context.vectors or boundIdentity == "simd.species" then
                         local value = lower.expression(bound, environment, kernel.index, kernel)
                         local inner = inherit(environment)
                         local binding = bind((bindingToken as lexer.Token).text, value.type, nil, arm, inner, kernel)
@@ -10069,7 +10073,9 @@ function lower.program(
             local candidate = expression as cst.Call
             local path = lower.dottedName(candidate.obj)
             local root = path ~= nil and (path as string):match("^([^.]+)%.workgroups$") or nil
-            if root ~= nil and declarations.modules[root as string] == "nupp.gpu" then
+            if lower.callIdentity(candidate.obj) == "gpu.workgroups"
+                or root ~= nil and apiidentity.canonical(declarations.modules[root as string] or "") == "gpu"
+            then
                 workgroupCall = candidate
             end
         end
