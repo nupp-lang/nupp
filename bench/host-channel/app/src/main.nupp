@@ -10,8 +10,10 @@ local sources = require("sources")
 local _host = require("nupp.host")
 local _span = require("nupp.mem.span")
 local _tasks = require("nupp.tasks")
+local _time = require("nupp.time")
 local _events = require("events")
 local _hostevents = require("hostevents")
+local _clock = os.monotonic
 
 -- The page names the program in an initialization chunk; a page that starts the
 -- application through the packaged entry, which carries none, is asked.
