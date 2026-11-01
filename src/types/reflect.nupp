@@ -1,7 +1,7 @@
 module types.reflect
 
 --[[
-Semantic type descriptions and descriptor extensions.
+types.reflect describes types and provides descriptor extensions.
 Compile-time reflection reads a type; runtime reflection reads its checked witness.
 
 ```nupp
