@@ -2315,13 +2315,24 @@ function M.anUnprovedRangeSaysWhatWasMissing()
     assert(out:find("understood ", 1, true) and out:find("`1 <= first`", 1, true), "so is what was read: " .. out)
 end
 
-function M.anAssertGuardTakesAConditionAndAMessage()
+function M.anAssertGuardTakesAConditionAndAnOptionalMessage()
+    local conditionOnly = replaceOnce(
+        replaceOnce(COMPUTE_ASSERTED, ', "length mismatch"', ""),
+        ', "range out of bounds"',
+        ""
+    )
+    for _, source in ipairs({conditionOnly, COMPUTE_ASSERTED}) do
+        local dir = project{["compute.nupp"] = source}
+        local out, code = run(dir, PINNED .. "compute.nupp")
+        test.equal(code, 0, "a condition with an optional message is an AOT guard\n" .. out)
+    end
+
     local dir = project{
         ["compute.nupp"] = replaceOnce(COMPUTE_ASSERTED, '"length mismatch")', '"length mismatch", "and another")')
     }
     local out, code = run(dir, PINNED .. "compute.nupp")
-    test.equal(code, 1, "a third argument is rejected by the checked source\n" .. out)
-    assert(out:find("expected 2, got 3", 1, true), "the ordinary call contract is reported first: " .. out)
+    test.equal(code, 1, "a third argument is outside the AOT guard subset\n" .. out)
+    assert(out:find("NUPP2905", 1, true), "the AOT body refusal is reported: " .. out)
 end
 
 function M.anOrdinaryLoopCompilesScalarAndSaysSo()
