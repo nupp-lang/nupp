@@ -58,7 +58,14 @@ end
 -- Maps the heap's arena, creates the heap in it and registers the guest frame
 -- pool and module world as root ranges: their words may be stale, which root
 -- marking tolerates. Answers 1, or 0 when the mapping is refused.
-export function open(services: voidptr, pool: uint64, poolWords: uint64, world: uint64, worldWords: uint64): uint64
+export function open(
+    services: voidptr,
+    pool: uint64,
+    poolWords: uint64,
+    world: uint64,
+    worldWords: uint64,
+    stress: uint64
+): uint64
     local metadata = roundUp(native.sizeOf<arena.Chunk>(), native.alignmentOf<arena.Arena>())
     local header = roundUp(metadata + native.sizeOf<arena.Arena>(), 16ULL)
     local mapped = roundUp(HEAP_BYTES + header, os.pageSize())
@@ -79,6 +86,8 @@ export function open(services: voidptr, pool: uint64, poolWords: uint64, world: 
         local h = heap.create(a)
         collector.register(h, pool, poolWords)
         collector.register(h, world, worldWords)
+        -- Collect-at-every-allocation: a whole cycle at every safepoint.
+        h.stress = stress ~= 0ULL
         native.store64(services, native.fieldOffset<Services>("heap"), native.address(h))
         native.store64(services, native.fieldOffset<Services>("arena"), native.address(a))
     end

@@ -61,6 +61,17 @@ local CASES = {
     {"workloadStrings", 0x7FFF000000509842},
     {"stringsBasic", 0x7FFF0000000004B1}
 }
+-- Heap-using cases that also run with a whole collection at every
+-- allocation. records and strings allocate per iteration, which makes their
+-- full-scale workloads quadratic there; stringsBasic and tablesBasic stand in.
+local STRESS = {
+    callsNumeric = true,
+    workloadFib = true,
+    tablesBasic = true,
+    workloadClosures = true,
+    workloadTables = true,
+    stringsBasic = true
+}
 -- These refuse at run time and must publish nothing: Lua 5.5 raises for the
 -- first; the second needs a canonical integer object.
 local STATUS = {numericModZero = 6, numericOverflow = 5}
@@ -504,6 +515,15 @@ local function main()
                 bridgeRun(label, bundle, empty, output, 0)
                 check(read(output) == u64(expectedWord), ("%s result %016x"):format(label, expectedWord))
                 guarded(label, bundle, empty, highWater, expected)
+                -- The same result with a whole collection at every allocation.
+                if STRESS[name] and UNITS then
+                    local input = OUT .. "/" .. label .. "-stress.bin"
+                    write(input, u64(-1) .. u64(0) .. u64(1))
+                    local stressed = OUT .. "/" .. label .. "-stress.out"
+                    os.remove(stressed)
+                    bridgeRun(label .. " stress", bundle, input, stressed, 0)
+                    check(read(stressed) == u64(expectedWord), label .. " result under collect-at-every-allocation")
+                end
                 local _, short = shell(
                     (
                         "CORE_TEST_BUNDLE=%s CORE_TEST_INPUT=%s CORE_TEST_HIGH_WATER=0 %s --ignored --exact abi::generated_entry_refuses_short_regions --test-threads=1"
