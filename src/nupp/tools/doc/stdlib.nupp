@@ -13,6 +13,7 @@ local extractMod = require("nupp.tools.doc.extract")
 local markdownMod = require("nupp.tools.doc.markdown")
 local stringsMod = require("nupp.tools.doc.strings")
 local urlsMod = require("nupp.tools.doc.urls")
+local annotationapi = require("nupp.tools.doc.annotationapi")
 
 local stdlib = {}
 
@@ -29,7 +30,8 @@ type stdlib.Navigation = {
     libraries: {stdlib.Entry},
     globals: {stdlib.Entry},
     types: {stdlib.Entry},
-    reflection: {stdlib.Entry}
+    reflection: {stdlib.Entry},
+    annotations: {stdlib.Entry}?
 }
 
 --- The generated page: the route it is written to, its title, and its markdown.
@@ -44,7 +46,8 @@ type stdlib.Page = {
     modules: {extractMod.Module},
     indexModules: {extractMod.Module}?,
     globalItems: {extractMod.Item},
-    typeItems: {extractMod.Item}
+    typeItems: {extractMod.Item},
+    annotationItems: {extractMod.Item}
 }
 
 --- Where a manifest asked the page to live, and what to call it.
@@ -415,6 +418,13 @@ local function indexMarkdown(page: stdlib.Page): string
         end)
     )
     section(out, "Reflection", REFLECTION, only(page.typeItems, isReflection))
+    section(
+        out,
+        "Annotations",
+        "Annotations carry checked, type-erased metadata. "
+        .. "File directives use `@!name` and occupy a separate namespace.",
+        page.annotationItems
+    )
 
     return table.concat(out, "\n")
 end
@@ -427,7 +437,14 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
     local types: {extractMod.Item} = {}
     local globals: {extractMod.Item} = {}
     local modules: {extractMod.Module} = {}
-    local navigation: stdlib.Navigation = {libraries = {}, globals = {}, types = {}, reflection = {}}
+    local annotationItems = annotationapi.items()
+    local navigation: stdlib.Navigation = {
+        libraries = {},
+        globals = {},
+        types = {},
+        reflection = {},
+        annotations = navigationItems(annotationItems)
+    }
     for _, source in ipairs(SOURCES) do
         local text = bundledMod.source(source.file)
         if text then
@@ -480,6 +497,9 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
     for _, item in ipairs(types) do
         symbols[item.name] = item.path
     end
+    for _, item in ipairs(annotationItems) do
+        symbols[item.name] = item.path
+    end
     local page: stdlib.Page = {
         path = settings.path or "api",
         title = settings.title or "API reference",
@@ -488,7 +508,8 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
         navigation = navigation,
         modules = modules,
         globalItems = globals,
-        typeItems = types
+        typeItems = types,
+        annotationItems = annotationItems
     }
     page.markdown = indexMarkdown(page)
 

@@ -1731,7 +1731,7 @@ function M.documentsACdefOnlyWhereItReachesAReader()
     for _, item in ipairs(module.items) do
         listed[item.name] = item
     end
-    assert(listed["m.reserve"], "the module's own function must stay listed")
+    assert(listed.reserve and listed.reserve.path == "m.reserve", "the module's own function must stay listed")
     assert(
         not listed["malloc"] and not listed["Header"],
         "a cdef this module only calls is not part of what it publishes"
@@ -2056,11 +2056,21 @@ end
 function M.routedLinksLeaveCodeExamplesUntouched()
     local page = {source = "docs/start.md", path = "start", title = "Start"}
     local pages = {page, {source = "docs/guide.md", path = "guide", title = "Guide"},}
-    local markdown = "[Guide](guide.md)\n`[Guide](guide.md)`\n```md\n[Guide](guide.md)\n```\n"
+    local markdown = "[Guide](guide.md)\n[`Guide`](guide.md)\n`[Guide](guide.md)`\n```md\n[Guide](guide.md)\n```\n"
     local rewritten = urls.rewriteConfiguredPageLinks(markdown, page, pages, "start/index.html")
     assert(rewritten:find("[Guide](../guide/index.html)", 1, true), rewritten)
+    assert(rewritten:find("[`Guide`](../guide/index.html)", 1, true), rewritten)
     assert(rewritten:find("`[Guide](guide.md)`", 1, true), rewritten)
     assert(rewritten:find("```md\n[Guide](guide.md)\n```", 1, true), rewritten)
+end
+
+function M.generatedApiPointersResolveWithoutInventingASourceFile()
+    local page = {source = "docs/learn/language/annotations.md", path = "learn/language/annotations"}
+    local pages = {page, {path = "api", title = "API reference", api = true}}
+    local markdown = "[`@aot`](../../api.md#annotation-aot)"
+    local rewritten = urls.rewriteConfiguredPageLinks(markdown, page, pages, "learn/language/annotations/index.html")
+    assert(rewritten == "[`@aot`](../../../api/index.html#annotation-aot)", rewritten)
+    assert(not pages[2].source, "a generated API pointer pretended to be a handwritten file")
 end
 
 function M.highlightsAssociatedTypeAndDirectiveKeywordsWithTheParser()
@@ -2229,11 +2239,11 @@ function M.aRotatedCallSurfaceIsPrintedInCallOrder()
     end
     local spawn = assert(members["nupp.tasks.Scope.spawn"], "Scope:spawn is documented")
     assert(
-        spawn.type:find("(borrows self: tasks.Scope, ...: unpackof Parameters(F), takes body: F)", 1, true),
+        spawn.type:find("(borrows self: nupp.tasks.Scope, ...: unpackof Parameters(F), takes body: F)", 1, true),
         "the body comes after its arguments: " .. spawn.type
     )
     assert(
-        spawn.type:find("(borrows self: tasks.Scope, name: string, takes body: F)", 1, true),
+        spawn.type:find("(borrows self: nupp.tasks.Scope, name: string, takes body: F)", 1, true),
         "and after the name in the named overload: " .. spawn.type
     )
     assert(spawn.params[#spawn.params].name == "body", "the parameter table follows the same order")
@@ -2241,7 +2251,7 @@ function M.aRotatedCallSurfaceIsPrintedInCallOrder()
     assert(fork.type:find("Submitted(F), F)", 1, true), "fork takes its callable last: " .. fork.type)
     local cancel = assert(members["nupp.tasks.Scope.cancel"], "Scope:cancel is documented")
     assert(
-        cancel.type:find("(borrows self: tasks.Scope, reason: string?)", 1, true),
+        cancel.type:find("(borrows self: nupp.tasks.Scope, reason: string?)", 1, true),
         "an ordinary member keeps its order: " .. cancel.type
     )
 end
@@ -4025,6 +4035,141 @@ end
 -- The standard library page is generated from the declarations the checker itself
 -- loads, so it holds a section for every library the compiler carries without a
 -- manifest naming one of them.
+function M.annotationsUseTheRegistryAndTheCommonDeclarationModel()
+    local annotationapi = require("nupp.tools.doc.annotationapi")
+    local registry = require("nupp.compiler.annotations").new()
+    local stdlib = require("nupp.tools.doc.stdlib")
+    local json = require("testjson")
+    local items, count = {}, 0
+    local declarations = annotationapi.items()
+    for _, item in ipairs(declarations) do
+        items[item.name] = item
+        assert(item.kind == "annotation", item.name)
+    end
+    for name, definition in pairs(registry.byname) do
+        local item = assert(items["@" .. name], name)
+        assert(item.annotation.arguments == definition.arguments, name)
+        assert(table.concat(item.annotation.targets, ",") == table.concat(definition.targets, ","), name)
+        assert(definition.docsPath == "docs/api.md#" .. item.path, name)
+        count = count + 1
+    end
+    assert(#declarations == count + 2, "only the real registry and two file directives are published")
+    assert(items["@!internal"].annotation.fileDirective and items["@!nofmt"].annotation.fileDirective)
+    assert(not registry:get("internal") and not registry:get("nofmt"), "file directives reserved user annotation names")
+    assert(items["@cli"].annotation.singleValue == "name")
+    local members = {}
+    for _, member in ipairs(items["@cli"].members) do
+        members[member.name] = member
+    end
+    assert(members.complete.type == "type?" and members.complete.annotationMember.reference)
+    assert(members.name.type == "string | nil" and members.name.annotationMember.optional)
+    assert(items["@syntax"].members[1].name == "value" and items["@syntax"].members[1].type == "string")
+    assert(require("nupp.tools.doc.api").displaySignature(items["@aot"]) == "@aot(...)")
+    assert(not items["@syntax"].members[1].annotationMember.optional)
+    local page = assert(stdlib.page({}))
+    assert(#page.navigation.annotations == #declarations)
+    assert(page.markdown:find('<a id="annotation-aot"></a>', 1, true))
+    assert(page.markdown:find("## Annotations", 1, true))
+    assert(page.markdown:find("### `@aot` _annotation_", 1, true))
+    assert(page.markdown:find("#### Values", 1, true))
+    assert(not page.markdown:find("@aot ...", 1, true), "annotation schemas were printed as record members")
+    assert(
+        page.markdown:find("required whole-function ahead-of-time compilation contract", 1, true),
+        "the AOT contract prose was lost"
+    )
+    local model = json.decode(doc.json({}, declarations))
+    assert(#model.annotations == #declarations)
+    assert(model.annotations[1].annotation.fileDirective)
+    assert(doc.markdown({}, nil, nil, nil, declarations):find("## `@aot` _annotation_", 1, true))
+    local rendered = require("nupp.tools.doc.html").markdownHtml(page.markdown, {})
+    assert(rendered:find('nuppdoc-kind-annotation">Annotation</span>', 1, true), rendered)
+    local _, matchingIds = rendered:gsub('id="annotation%-annotation"', "")
+    assert(matchingIds == 1, "the canonical annotation anchor collides with its heading")
+    assert(rendered:find('id="annotation-aot"', 1, true), "a distinct explicit declaration anchor was removed")
+end
+
+function M.userAnnotationDefinitionsHaveTheSameDeclarationKind()
+    local module, errors = doc.extract(
+        table.concat(
+            {
+                "module metadata",
+                "--- Retries a request.",
+                '@annotation(targets = {"function"})',
+                "record retry",
+                "    @annotationValue",
+                "    attempts: integer",
+                "end",
+                "@jit",
+                "function metadata.run(): nil end",
+                "export = metadata",
+            },
+            "\n"
+        ),
+        "metadata.nupp",
+        "metadata"
+    )
+    assert(module and #errors == 0, errors and errors[1] and errors[1].msg)
+    local definition, run
+    for _, item in ipairs(module.items) do
+        if item.name == "retry" then
+            definition = item
+        end
+        if item.name == "run" then
+            run = item
+        end
+    end
+    assert(definition and definition.kind == "annotation")
+    assert(definition.annotation.targets[1] == "function")
+    assert(definition.annotation.singleValue == "attempts")
+    assert(run and run.kind == "function", "an application became a definition")
+    assert(doc.markdown({module}):find("`retry` _annotation_", 1, true))
+end
+
+function M.exportedTablesUseCanonicalPublicNamesInEveryOutput()
+    local examples = {
+        {path = "src/arg/init.nupp", name = "arg", member = "application", hidden = "cliModule."},
+        {
+            path = "src/debug/bench.nupp",
+            name = "debug.bench",
+            member = "decodeBaseline",
+            hidden = "bench.decodeBaseline"
+        },
+    }
+    for _, example in ipairs(examples) do
+        local source = readFile(HERE .. "/../" .. example.path)
+        local module, errors = doc.extract(source, example.path, example.name)
+        assert(module and #errors == 0, errors and errors[1] and errors[1].msg)
+        local found
+        for _, item in ipairs(module.items) do
+            if item.name == example.member then
+                found = item
+            end
+            assert(not item.name:find(example.hidden, 1, true), item.name)
+        end
+        assert(found, example.name .. "." .. example.member)
+        assert(found.path == example.name .. "." .. example.member, found.path)
+        local markdown = doc.markdown({module})
+        assert(markdown:find('<a id="' .. found.path .. '"></a>', 1, true))
+        assert(found.signature:find("function " .. found.path, 1, true), found.signature)
+        assert(not markdown:find("cliModule.", 1, true), "a private export alias leaked")
+    end
+end
+
+function M.annotationReferencePointersUseGeneratedItemsAndProse()
+    local reference = require("nupp.tools.reference")
+    local annotationapi = require("nupp.tools.doc.annotationapi")
+    for _, item in ipairs(annotationapi.items()) do
+        local pointer = "docs/api.md#" .. item.path
+        local sections = reference.pointerSections(pointer)
+        assert(#sections == 1 and sections[1].section.title == item.name, pointer)
+        assert(sections[1].section.body:find(item.doc.text, 1, true), pointer)
+    end
+    assert(
+        #reference.pointerSections("docs/reference/annotations.md#aot", HERE .. "/..") == 0,
+        "the removed reference route remains an alias"
+    )
+end
+
 function M.stdlibIndexHoldsTheLibrariesTheCompilerDeclares()
     local stdlib = require("nupp.tools.doc.stdlib")
 

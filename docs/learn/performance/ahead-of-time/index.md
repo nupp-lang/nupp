@@ -79,7 +79,7 @@ neither contracted nor reassociated, so an AOT function's results are a property
 of what was written rather than of the target that compiled it. Explicit
 wrapping integer operations may be reassociated because their modular answer
 does not depend on grouping. Ask for a relaxation per function with
-[`@relax`](../../../reference/annotations.md#relaxing-observable-guarantees).
+[`@relax`](../../../api.md#annotation-relax).
 
 ::: deepdive Required compilation
 The annotation is a contract over ordinary Nupp rather than a restricted

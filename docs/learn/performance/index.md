@@ -1201,7 +1201,7 @@ codes are stable; `-Z` flags are debugging interfaces.
 ### Does `-O1` change how a program works?
 
 No. Optimization preserves results; other observable guarantees require explicit
-[`@relax`](../../reference/annotations.md#relaxing-observable-guarantees)
+[`@relax`](../../api.md#annotation-relax)
 permission to change.
 
 <a id="why-did-a-pass-not-fire-on-code-that-looks-eligible"></a>

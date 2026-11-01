@@ -26,7 +26,7 @@ local annotationMod = require("nupp.compiler.annotations")
 local lsp = {}
 
 --- Where a documentation pointer is published: a repository path and anchor, such as
---- `docs/reference/annotations.md#aot`, as the route the site gives that page.
+--- `docs/api.md#annotation-aot`, as the route the site gives that page.
 --- `index.md` names the directory holding it. Nil for anything not under `docs/`.
 function lsp.siteUrl(pointer: string): string?
     local path, anchor = pointer:match("^docs/([^#]+)%.md(#?[^#]*)$")

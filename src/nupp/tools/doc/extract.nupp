@@ -76,6 +76,12 @@ record extract.Member
 
     --- What it was annotated with, as written, such as `@derive(types.Debug)`.
     annotations: {string}?
+
+    --- Whether an annotation's value member may be omitted or names a type.
+    annotationMember: {
+        optional: boolean,
+        reference: boolean
+    }?
 end
 
 --- A documented declaration: what it is called, how it is spelled, and everything its
@@ -100,7 +106,15 @@ type extract.Item = {
     --- comptime. Kept apart from `kind`, so functions retain their ordinary API
     --- grouping while renderers can distinguish when they are callable.
     comptimeKind: string?,
-    lua: boolean?
+    lua: boolean?,
+
+    --- The real application contract of an annotation declaration.
+    annotation: {
+        arguments: string,
+        targets: {string},
+        singleValue: string?,
+        fileDirective: boolean?
+    }?
 }
 
 --- A source file, read as its documented declarations.
@@ -1224,7 +1238,11 @@ declarationItem = function(
 )
     local documented = stat
     local applied = {}
+    local annotationDefinition = nil
     while stat.kind == "pragmaStmt" and stat.stat do
+        if stat.name and stat.name.text == "annotation" then
+            annotationDefinition = stat
+        end
         local text = annotationText(stat)
         if text then
             applied[#applied + 1] = text
@@ -1331,6 +1349,25 @@ declarationItem = function(
         annotations = #applied > 0 and applied or nil,
         comptimeKind = itemComptimeKind,
     }
+    if annotationDefinition and stat.kind == "recordDecl" then
+        item.kind = "annotation"
+        local targets = {}
+        for _, argument in ipairs(annotationDefinition.annotationArgs or {}) do
+            if argument.name
+                and argument.name.text == "targets"
+                and argument.expr
+                and argument.expr.kind == "tableExpr"
+            then
+                for _, field in ipairs(argument.expr.fields or {}) do
+                    local value = field.value
+                    if value and value.kind == "string" then
+                        targets[#targets + 1] = value.token.text:sub(2, -2)
+                    end
+                end
+            end
+        end
+        item.annotation = {arguments = "typed", targets = targets}
+    end
     local declaredFunction = stat.kind == "localStmt" and typeFunction(stat.types and stat.types[1]) or nil
     local generics = stat.generics
         or (stat.body and stat.body.generics)
@@ -1346,6 +1383,15 @@ declarationItem = function(
         item.params, item.returns = details.params, details.returns
     elseif stat.kind == "recordDecl" or stat.kind == "cdefStruct" then
         item.members = buildMembers(stat.entries, item.path, includePrivate, info.fields)
+    end
+    if item.annotation then
+        for _, member in ipairs(item.members) do
+            for _, applied in ipairs(member.annotations or {}) do
+                if applied == "@annotationValue" then
+                    item.annotation.singleValue = member.name
+                end
+            end
+        end
     end
 
     return item
@@ -1753,6 +1799,50 @@ function extract.extract(
         end
     end
     table.sort(result.items, byKindThenName)
+
+    -- The export table is a local implementation name. Public labels and type
+    -- references use the module which hands that table to its callers.
+    if result.moduleLocal then
+        local localName = result.moduleLocal
+
+        local function publicName(text: string): string
+            return (text:gsub("()%f[%w_]" .. localName .. "%.", function(at: integer): string
+                if at > 1 and text:sub(at - 1, at - 1):match("[%.:]") then
+                    return localName .. "."
+                end
+                return name .. "."
+            end))
+        end
+
+        local function members(values: {extract.Member}): nil
+            for _, value in ipairs(values) do
+                value.path = publicName(value.path)
+                value.type = publicName(value.type)
+                for _, param in ipairs(value.params) do
+                    param.type = publicName(param.type)
+                end
+                for _, returned in ipairs(value.returns) do
+                    returned.type = publicName(returned.type)
+                end
+                members(value.members or {})
+            end
+        end
+
+        for _, item in ipairs(result.items) do
+            if item.name:sub(1, #localName + 1) == localName .. "." then
+                item.name = item.name:sub(#localName + 2)
+                item.path = name .. "." .. item.name
+            end
+            item.signature = publicName(item.signature)
+            for _, param in ipairs(item.params) do
+                param.type = publicName(param.type)
+            end
+            for _, returned in ipairs(item.returns) do
+                returned.type = publicName(returned.type)
+            end
+            members(item.members)
+        end
+    end
 
     -- A private implementation can publish its existing declarations under a host
     -- table's public namespace without making its own module a public API.

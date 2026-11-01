@@ -209,7 +209,7 @@ See [tooling](learn/tooling/index.md) for the guided map and
 ## Reference
 
 - [CLI](reference/cli.md)
-- [Annotations](reference/annotations.md)
+- [Annotations](api.md#annotations)
 - [Derives](reference/derives.md)
 - [Diagnostics](reference/diagnostics.md)
 - [Lints](reference/lints.md)

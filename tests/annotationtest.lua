@@ -351,6 +351,24 @@ function M.newAnnotationsCanBeDefined()
     testAssert.equal(diagsOf("@inline local function f() end", registry), "")
 end
 
+function M.fileDirectivesDoNotReserveUserAnnotationNames()
+    testAssert.equal(
+        diagsOf(
+            table.concat(
+                {
+                    '@annotation(targets = {"record"})',
+                    'record internal end',
+                    '@annotation(targets = {"record"})',
+                    'record nofmt end',
+                    '@internal @nofmt local record Item end',
+                },
+                "\n"
+            )
+        ),
+        ""
+    )
+end
+
 function M.projectEnvironmentsOwnAnExtensibleRegistry()
     local projectEnv = envMod.new(HERE .. "/..")
     assert(projectEnv.annotations:define({name = "profile", arguments = "none", targets = {"function"},}))

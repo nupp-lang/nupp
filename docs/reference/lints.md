@@ -556,7 +556,7 @@ help: use current instead
 ```
 :::
 
-See [annotations.md](annotations.md#deprecated) for what the annotation accepts.
+See [`@deprecated`](../api.md#annotation-deprecated) for what the annotation accepts.
 
 ### `private-export-type`
 
@@ -750,7 +750,7 @@ local doubled = mathutil.double(21)
 
 Bare `@allow` silences every lint on that statement. It does not reach a type
 error: naming one reports `NUPP2108`, and the error stands. See
-[annotations.md](annotations.md#allow) for the annotation's own reference entry.
+[`@allow`](../api.md#annotation-allow) for the annotation's own reference entry.
 
 ## Adding a lint
 
@@ -829,7 +829,6 @@ level is a lint that fails the wrong builds.
 ::: seealso
 - [diagnostics.md](diagnostics.md) for every code the compiler reports, lint or
   not
-- [annotations.md](annotations.md#allow) for `@allow` beside the other built-in
-  annotations
+- [`@allow`](../api.md#annotation-allow) for the lint suppression contract
 - [cli.md](cli.md#lints) for `nupp lints` and its JSON output
 :::

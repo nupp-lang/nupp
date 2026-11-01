@@ -251,7 +251,7 @@ provider selected by the built target. Browser availability is checked by the
 host before dispatch.
 
 ::: seealso
-- [annotations.md](../../../reference/annotations.md#built-in-annotations)
+- [`@aot`](../../../api.md#annotation-aot)
   for the exact `@aot` arguments
 - [build-and-artifacts.md](build-and-artifacts.md) for AOT target policies and
   artifact caching

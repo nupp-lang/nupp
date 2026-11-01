@@ -1986,7 +1986,7 @@ ENTRIES[
     wrong = "@inline\nlocal function f(): nil\nend\n\nreturn f\n",
     right = "local function f(): nil\nend\n\nreturn f\n",
     related = {"NUPP2112", "NUPP2114"},
-    docs = "docs/reference/annotations.md#defining-an-annotation",
+    docs = "docs/learn/language/annotations.md#defining-an-annotation",
 }
 
 ENTRIES[
@@ -1998,7 +1998,7 @@ ENTRIES[
     wrong = "@jit\nlocal x = 1\n\nreturn x\n",
     right = "@jit\nlocal function f(): nil\nend\n\nreturn f\n",
     related = {"NUPP2111", "NUPP2115"},
-    docs = "docs/reference/annotations.md#attachment-targets",
+    docs = "docs/learn/language/annotations.md#attachment-targets",
 }
 
 ENTRIES[#ENTRIES + 1] = {
@@ -2020,7 +2020,7 @@ ENTRIES[
     wrong = "local record Plain\n    @annotationValue\n    x: string\nend\n",
     right = "@annotation(targets = {\"record\"})\nlocal record Plain\n    @annotationValue\n    x: string\nend\n",
     related = {"NUPP2115", "NUPP2112"},
-    docs = "docs/reference/annotations.md#single-value-applications",
+    docs = "docs/learn/language/annotations.md#single-value-applications",
 }
 
 ENTRIES[
@@ -2032,7 +2032,7 @@ ENTRIES[
     wrong = "@syntax(42)\nlocal value = 1\n\nreturn value\n",
     right = "@syntax(\"json\")\nlocal value = 1\n\nreturn value\n",
     related = {"NUPP2114", "NUPP2112"},
-    docs = "docs/reference/annotations.md#built-in-annotations",
+    docs = "docs/api.md#annotations",
 }
 
 ENTRIES[

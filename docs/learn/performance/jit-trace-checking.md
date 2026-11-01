@@ -19,7 +19,7 @@ local function sum(values: {integer}): integer
 end
 ```
 
-[`@jit`](../../reference/annotations.md#built-in-annotations) is a contract, so
+[`@jit`](../../api.md#annotation-jit) is a contract, so
 every check and every build reports a refused operation the annotated body can
 reach. Without the annotation the same analysis is available on request, and it
 can also normalize the aborts observed in one profiled execution.

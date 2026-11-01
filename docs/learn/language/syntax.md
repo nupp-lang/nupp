@@ -304,7 +304,7 @@ end
 
 `@unsafe` marks operations whose validity the author must establish. It can
 cover an expression, a statement, or a `do` block. See
-[annotations](../../reference/annotations.md#unsafe-operations) for its boundaries
+[annotations](annotations.md#unsafe-operations) for its boundaries
 and [ownership](../runtime/ownership/index.md#unsafe-representation-boundaries)
 for the obligations that remain checked.
 
@@ -382,7 +382,7 @@ Types are built from a fixed set of forms.
 ::: seealso
 - [type-system/overview.md](types/index.md) for what the checker
   does with these forms
-- [annotations.md](../../reference/annotations.md) for the `@` annotations that
+- [annotations.md](annotations.md) for the `@` annotations that
   decorate a declaration
 - [grammar.md](../../reference/grammar.md) for the normative production of every
   form on this page

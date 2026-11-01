@@ -796,8 +796,8 @@ built.
 
 ::: seealso
 - [cli.md](../../reference/cli.md#doc) for the command's flags and JSON report
-- [annotations.md](../../reference/annotations.md) for `@!internal` and the rest of
-  the file-level annotations
+- [`@!internal`](../../api.md#annotation-file-internal) for generated
+  documentation visibility
 - [diagnostics.md](../../reference/diagnostics.md) for the page the `diagnostics`
   key generates
 :::

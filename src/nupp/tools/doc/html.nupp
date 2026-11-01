@@ -81,7 +81,8 @@ local function kindClass(kind: string): string
 end
 
 local function kindBadge(kind: string): string
-    return '<span class="nuppdoc-kind-badge nuppdoc-kind-' .. kindClass(kind) .. '">' .. htmlEscape(kind) .. "</span>"
+    local label = kind == "annotation" and "Annotation" or kind
+    return '<span class="nuppdoc-kind-badge nuppdoc-kind-' .. kindClass(kind) .. '">' .. htmlEscape(label) .. "</span>"
 end
 
 -- A generated API heading names a declaration and then says in one word what it is:
@@ -444,16 +445,30 @@ end
 -- as a pill once the name has been rendered without it.
 local function headingSlugs(text)
     local slugs, out = {}, {}
+    local namedAnchor, anchorAt = nil, nil
     for line in (text .. "\n"):gmatch("(.-)\n") do
         local hashes, heading = line:match("^(#+)%s+(.+)$")
         if hashes then
             local name, badge, lua = headingBadge(heading)
+            local id = headingId(heading)
+            if namedAnchor == id and anchorAt then
+                -- The heading already owns this exact anchor. Keeping the empty
+                -- anchor before it would give the document two identical IDs.
+                out[anchorAt] = ""
+            end
+            namedAnchor, anchorAt = nil, nil
             -- The label is read aloud by a screen reader following the anchor, so it is
             -- the heading as it reads rather than as it was written.
-            slugs[#slugs + 1] = {id = headingId(heading), text = name:gsub("[`*_]", ""), badge = badge, lua = lua}
+            slugs[#slugs + 1] = {id = id, text = name:gsub("[`*_]", ""), badge = badge, lua = lua}
             out[#out + 1] = badge and hashes .. " " .. name or line
         else
             out[#out + 1] = line
+            local explicit = line:match('^<a id="([^"]+)"></a>$')
+            if explicit then
+                namedAnchor, anchorAt = explicit, #out
+            elseif line:match("%S") then
+                namedAnchor, anchorAt = nil, nil
+            end
         end
     end
 

@@ -165,6 +165,7 @@ local function moduleTree(modules, pages)
             category("@globals", "Globals", "globals", catalog.globals)
             category("@intrinsic-types", "Intrinsic types", "types", catalog.types)
             category("@reflection", "Layout reflection", "reflection", catalog.reflection)
+            category("@annotations", "Annotations", "annotations", catalog.annotations or {})
             for _, item in ipairs(catalog.globals) do
                 local node = root.children[item.name]
                 if node and node.module then

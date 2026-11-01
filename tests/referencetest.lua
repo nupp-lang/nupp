@@ -284,6 +284,16 @@ function M.aDocsPointerNamesItsSection()
     assert(out:find("# Modules", 1, true), "a docs pointer resolves: " .. out:sub(1, 120))
 end
 
+function M.anAnnotationPointerNamesItsGeneratedDeclaration()
+    local pipe = assert(io.popen(('%q reference --section "docs/api.md#annotation-aot"'):format(NUPP)))
+    local out = pipe:read("*a")
+    assert(pipe:close())
+    assert(out:find("# @aot", 1, true), out)
+    assert(out:find("required whole-function ahead-of-time compilation contract", 1, true), out)
+    assert(out:find("target", 1, true) and out:find('"gpu"', 1, true), out)
+    assert(not out:find("### `@aot`", 1, true), "the declaration heading was repeated")
+end
+
 --- The loop a diagnostic half-closes: holding a code is enough to reach the prose.
 function M.aCodeReachesTheSectionsExplainingIt()
     local reference = require("nupp.tools.reference")

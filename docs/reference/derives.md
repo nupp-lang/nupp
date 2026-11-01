@@ -30,8 +30,8 @@ delivers.
 Generated members participate in normal member lookup, generic inference, and
 interface checking. A written member of the same name is a compile-time
 conflict. Stacked `@derive` applications combine, but a provider cannot be
-requested twice. See [annotations.md](annotations.md#derive) for where `@derive`
-sits among the built-in annotations.
+requested twice. See [`@derive`](../api.md#annotation-derive) for its declaration
+contract.
 
 ## Debug
 
@@ -357,7 +357,7 @@ provider contract, so a recipe cannot depend on it happening.
 :::
 
 ::: seealso
-- [annotations.md](annotations.md#built-in-annotations) for `@derive`,
+- [Annotation declarations](../api.md#annotations) for `@derive`,
   and `@debug` beside the rest of the built-ins
 - [comptime.md](../learn/language/comptime.md) for the evaluation model a provider
   runs in
