@@ -909,6 +909,54 @@ return v.x, v.z
     testAssert.eq(z, 2, "an aliased pattern field")
 end
 
+function M.exportedComptimeFunctionsStayErasedWithoutChangingGlobals()
+    local source = [[
+module phaseexports
+@comptime
+export function debug(value: integer): integer
+    return value + 1
+end
+export const answer: integer = comptime do return 42 end
+export function run(value: integer): integer
+    return value + 2
+end
+]]
+    local checked = parser.parse(source, "phaseexports.nupp")
+    testAssert.eq(#checked.errors, 0)
+    local diagnostics = check.check(checked, "phaseexports.nupp", envMod.new(HERE .. "/..", {cache = false}))
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    testAssert.eq(type(checked.moduleExports.comptimeFunctions.debug), "table")
+    local code, generated = gen.generate(checked, "phaseexports.nupp")
+    testAssert.eq(#generated, 0)
+    local originalDebug = rawget(_G, "debug")
+    local priorModule = package.loaded.phaseexports
+    local ok, exported = pcall(assert(loadstring(code, "@phaseexports.nupp")))
+    local after = rawget(_G, "debug")
+    rawset(_G, "debug", originalDebug)
+    package.loaded.phaseexports = priorModule
+    testAssert(ok, exported)
+    testAssert.eq(after, originalDebug, "an erased provider must not replace the debug library")
+    testAssert.eq(type(originalDebug.getinfo), "function")
+    testAssert.eq(exported.debug, nil, "the provider has no runtime export")
+    testAssert.eq(exported.answer, 42, "compile-time expressions still evaluate")
+    testAssert.eq(exported.run(40), 42, "ordinary exported functions still run")
+end
+
+function M.thePublicTypeFacadeDoesNotReplaceTheHostDebugLibrary()
+    local originalDebug = rawget(_G, "debug")
+    local priorModule = package.loaded.types
+    package.loaded.types = nil
+    local ok, exported = pcall(require, "types")
+    local after = rawget(_G, "debug")
+    rawset(_G, "debug", originalDebug)
+    package.loaded.types = priorModule
+    testAssert(ok, exported)
+    testAssert.eq(after, originalDebug, "loading types must preserve the host debug library")
+    testAssert.eq(type(originalDebug.getinfo), "function")
+    testAssert.eq(exported.debug, nil, "the checked provider is erased from the runtime facade")
+    testAssert.eq(type(exported.newstore), "function", "runtime facade members remain available")
+end
+
 -- A helper's optional parameter may be left out, exactly as the checker admits it:
 -- the missing argument is nil, and only a required one omitted is a mistake.
 function M.callableAssertionsKeepTheirTableAndResultPack()

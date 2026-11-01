@@ -9296,6 +9296,9 @@ function gen.generate(
             pluck.emitRegistrations(x.name and x.name.cleanupRegistrations, sourceLine(x), nil, x.name and x.name.text)
 
         elseif kind == "funcStmt" and x.exported and x.name and x.name.base and #x.name == 1 and not x.name.method then
+            if x.comptimeFunction or x.comptimeTok then
+                return
+            end
             e(x.name.base.text .. "=function", sourceLine(x))
             if x.body then
                 local previousHoist = emitDepth.hoist
