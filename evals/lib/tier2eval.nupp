@@ -1,5 +1,7 @@
 module tier2eval
 
+const assert2 = require("assert")
+
 const digest2 = require("binary.hash.digest")
 
 -- Tier 2: export a commit's parent without Git history, carry its tests forward,
@@ -237,8 +239,8 @@ function tier2.repairDiff(repo: string, commit: string, at: string, reverted: {s
     local ok, answer = pcall(function(): string
         local before = harness.join(root, "before")
         local after = harness.join(root, "after")
-        assert(files.createDirectory(before))
-        assert(files.createDirectory(after))
+        assert2(files.createDirectory(before))
+        assert2(files.createDirectory(after))
         for _, path in ipairs(reverted) do
             local prior = harness.run({"git", "-C", repo, "show", commit .. "^:" .. path})
             if prior.returncode == 0 then

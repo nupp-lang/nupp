@@ -1,3 +1,5 @@
+const assert2 = require("assert")
+
 local json = require("serde.json")
 local serde = require("serde")
 local typedJSON = require("serde.json")
@@ -56,56 +58,56 @@ local test = {}
 
 function test.run(): nil
     local typed, typedProblem = decoded(fastPrepared, fastSource)
-    assert(typedProblem == nil and typed ~= nil and typed.id == 41)
-    assert(typed.child.label == "one" and typed.children[1].label == "two" and typed.labels.region == "us")
+    assert2(typedProblem == nil and typed ~= nil and typed.id == 41)
+    assert2(typed.child.label == "one" and typed.children[1].label == "two" and typed.labels.region == "us")
     local input = newBuffer()
     input:put(fastSource)
     local buffered, bufferedProblem = decoded(fastPrepared, input:tostring())
-    assert(bufferedProblem == nil and buffered ~= nil and buffered.id == 41)
-    assert(buffered.child.label == "one" and buffered.children[1].label == "two")
+    assert2(bufferedProblem == nil and buffered ~= nil and buffered.id == 41)
+    assert2(buffered.child.label == "one" and buffered.children[1].label == "two")
     local advanced, advancedProblem = decoded(advancedPrepared, [[{"pair":["x",2],"state":"ready"}]])
-    assert(advancedProblem == nil and advanced ~= nil and advanced.pair[2] == 2 and advanced.state == "ready")
+    assert2(advancedProblem == nil and advanced ~= nil and advanced.pair[2] == 2 and advanced.state == "ready")
     local badAdvanced, badAdvancedProblem = decoded(advancedPrepared, [[{"pair":["x",2],"state":"other"}]])
-    assert(badAdvanced == nil and badAdvancedProblem ~= nil)
+    assert2(badAdvanced == nil and badAdvancedProblem ~= nil)
     local derived, derivedProblem = decoded(serde.binding(FastEnvelope), fastSource)
-    assert(derivedProblem == nil and derived ~= nil and derived.child.label == "one")
+    assert2(derivedProblem == nil and derived ~= nil and derived.child.label == "one")
     local rejected, rejection = decoded(
         fastPrepared,
         [[{"id":1,"child":{"label":"x"},"children":[],"labels":{},"extra":true}]]
     )
-    assert(rejected == nil and rejection ~= nil and rejection:find("extra", 1, true) ~= nil)
+    assert2(rejected == nil and rejection ~= nil and rejection:find("extra", 1, true) ~= nil)
     local wrongScalar, wrongScalarProblem = decoded(
         fastPrepared,
         [[{"id":"1","child":{"label":"x"},"children":[],"labels":{}}]]
     )
-    assert(wrongScalar == nil and wrongScalarProblem ~= nil)
+    assert2(wrongScalar == nil and wrongScalarProblem ~= nil)
     local missing, missingProblem = decoded(fastPrepared, [[{"id":1,"child":{"label":"x"},"children":[]}]])
-    assert(missing == nil and missingProblem ~= nil and missingProblem:find("labels", 1, true) ~= nil)
+    assert2(missing == nil and missingProblem ~= nil and missingProblem:find("labels", 1, true) ~= nil)
     local fractional, fractionalProblem = decoded(
         fastPrepared,
         [[{"id":1.5,"child":{"label":"x"},"children":[],"labels":{}}]]
     )
-    assert(fractional == nil and fractionalProblem ~= nil)
+    assert2(fractional == nil and fractionalProblem ~= nil)
     local overflow, overflowProblem = decoded(
         fastPrepared,
         [[{"id":4294967296,"child":{"label":"x"},"children":[],"labels":{}}]]
     )
-    assert(overflow == nil and overflowProblem ~= nil)
+    assert2(overflow == nil and overflowProblem ~= nil)
     local derivedWrong, derivedWrongProblem = decoded(
         serde.binding(FastEnvelope),
         [[{"id":1.5,"child":{"label":"x"},"children":[],"labels":{}}]]
     )
-    assert(derivedWrong == nil and derivedWrongProblem ~= nil)
+    assert2(derivedWrong == nil and derivedWrongProblem ~= nil)
     local optionalDefaultPlan = serde.binding(OptionalDefault)
-    local optionalDefault = assert(decoded(optionalDefaultPlan, [[{"name":"x","note":null}]]))
-    assert(optionalDefault.name == "x" and optionalDefault.enabled == false and optionalDefault.note == nil)
+    local optionalDefault = assert2(decoded(optionalDefaultPlan, [[{"name":"x","note":null}]]))
+    assert2(optionalDefault.name == "x" and optionalDefault.enabled == false and optionalDefault.note == nil)
     local literalTuplePlan = serde.binding(LiteralTuple)
-    local literalTuple = assert(decoded(literalTuplePlan, [[{"kind":"pair","items":["x",2]}]]))
-    assert(literalTuple.kind == "pair" and literalTuple.items[2] == 2 and literalTuple.options.mode == "safe")
+    local literalTuple = assert2(decoded(literalTuplePlan, [[{"kind":"pair","items":["x",2]}]]))
+    assert2(literalTuple.kind == "pair" and literalTuple.items[2] == 2 and literalTuple.options.mode == "safe")
     local wrongLiteral, wrongLiteralProblem = decoded(literalTuplePlan, [[{"kind":"other","items":["x",2]}]])
-    assert(wrongLiteral == nil and wrongLiteralProblem ~= nil)
+    assert2(wrongLiteral == nil and wrongLiteralProblem ~= nil)
     local wrongTuple, wrongTupleProblem = decoded(literalTuplePlan, [[{"kind":"pair","items":["x"]}]])
-    assert(wrongTuple == nil and wrongTupleProblem ~= nil)
+    assert2(wrongTuple == nil and wrongTupleProblem ~= nil)
     local renamed = serde.binding(
         FastEnvelope,
         new serde.Options(
@@ -122,20 +124,20 @@ function test.run(): nil
         renamed,
         [[{"ignored":{"deep":[1,2]},"i\u0022d":42,"child":{"label":"x"},"children":[],"labels":{}}]]
     )
-    assert(renamedProblem == nil and renamedValue ~= nil and renamedValue.id == 42)
+    assert2(renamedProblem == nil and renamedValue ~= nil and renamedValue.id == 42)
 
     local value = json.decodeValue([[{"items":[],"object":{},"escaped":"a\"b\\c\n","unicode":"\u03ba"}]])
-    assert(json.encodeValue(value.items) == "[]")
-    assert(json.encodeValue(value.object) == "{}")
-    assert(value.escaped == "a\"b\\c\n")
-    assert(value.unicode == "κ")
+    assert2(json.encodeValue(value.items) == "[]")
+    assert2(json.encodeValue(value.object) == "{}")
+    assert2(value.escaped == "a\"b\\c\n")
+    assert2(value.unicode == "κ")
     local numbers = json.decodeValue(
         "[2.2250738585072013e-308,7.2057594037927933e+16,3.1415926535897932384626433832795028841971693993751]"
     )
-    assert(numbers[1] == 2.2250738585072013e-308)
-    assert(numbers[2] == 7.2057594037927933e+16)
-    assert(numbers[3] == 3.1415926535897932384626433832795028841971693993751)
-    assert(
+    assert2(numbers[1] == 2.2250738585072013e-308)
+    assert2(numbers[2] == 7.2057594037927933e+16)
+    assert2(numbers[3] == 3.1415926535897932384626433832795028841971693993751)
+    assert2(
         json.encodeValue(value) == [[{"items":[],"object":{},"escaped":"a\"b\\c\n","unicode":"κ"}]]
         or json.decodeValue(json.encodeValue(value)).escaped == value.escaped
     )
@@ -144,14 +146,14 @@ function test.run(): nil
         id = true,
         profile = {name = true},
     })
-    assert(projected.id == 41 and projected.profile.name == "Ada" and projected.profile.admin == nil)
+    assert2(projected.id == 41 and projected.profile.name == "Ada" and projected.profile.admin == nil)
     local escapedKey = json.pull([[{"na\u006de":"Ada","ignored":true}]], {name = true})
-    assert(escapedKey.name == "Ada" and escapedKey.ignored == nil)
+    assert2(escapedKey.name == "Ada" and escapedKey.ignored == nil)
     local growingScratch = json.pull(
         [=[{"short":"\n","long":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\t"}]=],
         {short = true, long = true}
     )
-    assert(growingScratch.short == "\n" and growingScratch.long:sub(-1) == "\t")
+    assert2(growingScratch.short == "\n" and growingScratch.long:sub(-1) == "\t")
 
     local nullValue = {}
     local selected = json.pull(
@@ -159,17 +161,17 @@ function test.run(): nil
         json.arrayOf({id = true}),
         nullValue
     )
-    assert(#selected == 2 and selected[1].id == 1 and selected[2].id == 2)
-    assert(selected[1].ignored == nil)
-    assert(json.pull([[{"nullable":null}]], {nullable = true}, nullValue).nullable == nullValue)
-    assert(json.encodeValue(json.pull("[1,2,3]", json.arrayOf(false))) == "[]")
-    assert(refused(json.pull([[{"id":1,"ignored":1e}]], {id = true})))
-    assert(refused(json.pull([[{"id":1,"ignored":"\uD800"}]], {id = true})))
-    assert(refused(json.pull([[{"ignored":{"\uD800":1}}]], {id = true})))
-    assert(refused(json.pull([[{"id":1}]], json.arrayOf(true))))
-    assert(refused(json.pull("1", {id = true})))
-    assert(refused(json.pull("1", 3)))
-    assert(refused(json.pull("1", nil)))
+    assert2(#selected == 2 and selected[1].id == 1 and selected[2].id == 2)
+    assert2(selected[1].ignored == nil)
+    assert2(json.pull([[{"nullable":null}]], {nullable = true}, nullValue).nullable == nullValue)
+    assert2(json.encodeValue(json.pull("[1,2,3]", json.arrayOf(false))) == "[]")
+    assert2(refused(json.pull([[{"id":1,"ignored":1e}]], {id = true})))
+    assert2(refused(json.pull([[{"id":1,"ignored":"\uD800"}]], {id = true})))
+    assert2(refused(json.pull([[{"ignored":{"\uD800":1}}]], {id = true})))
+    assert2(refused(json.pull([[{"id":1}]], json.arrayOf(true))))
+    assert2(refused(json.pull("1", {id = true})))
+    assert2(refused(json.pull("1", 3)))
+    assert2(refused(json.pull("1", nil)))
 
     local deepSource = "1"
     local deepShape: any = true
@@ -181,31 +183,31 @@ function test.run(): nil
     for _ = 1, 24 do
         deepValue = deepValue.x
     end
-    assert(deepValue == 1)
+    assert2(deepValue == 1)
 
     local wideShape: {[string]: any} = {}
     for index = 1, 70 do
         wideShape["field-" .. tostring(index)] = true
     end
-    assert(json.pull([[{"field-70":70}]], wideShape)["field-70"] == 70)
+    assert2(json.pull([[{"field-70":70}]], wideShape)["field-70"] == 70)
 
     local out = newBuffer()
     local writer = json.newWriter(out)
     writer:startObject():key(json.encodedString('a"b')):write(json.verified("42")):endObject()
     writer:close()
-    assert(out:tostring() == [[{"a\"b":42}]])
+    assert2(out:tostring() == [[{"a\"b":42}]])
 
-    assert(json.decodeValue("null", json.NULL) == json.NULL)
-    assert(json.decodeValue("null") == nil)
+    assert2(json.decodeValue("null", json.NULL) == json.NULL)
+    assert2(json.decodeValue("null") == nil)
     local dropped = json.decodeValue([[{"items":[1,null,2],"gone":null,"kept":3}]])
-    assert(#dropped.items == 2 and dropped.items[1] == 1 and dropped.items[2] == 2)
-    assert(dropped.gone == nil and dropped.kept == 3)
-    assert(refused(json.decodeValue([["\uD800"]])))
-    assert(not pcall(json.encodeValue, 0 / 0))
+    assert2(#dropped.items == 2 and dropped.items[1] == 1 and dropped.items[2] == 2)
+    assert2(dropped.gone == nil and dropped.kept == 3)
+    assert2(refused(json.decodeValue([["\uD800"]])))
+    assert2(not pcall(json.encodeValue, 0 / 0))
 end
 
 function test.preparedDecode(): FastEnvelope
-    return assert(decoded(fastPrepared, fastSource))
+    return (assert2(decoded(fastPrepared, fastSource)))
 end
 
 function test.preparedBufferDecode(): FastEnvelope
@@ -213,11 +215,11 @@ function test.preparedBufferDecode(): FastEnvelope
 end
 
 function test.preparedBufferCopyDecode(): FastEnvelope
-    return assert(decoded(fastPrepared, fastBuffer:tostring()))
+    return (assert2(decoded(fastPrepared, fastBuffer:tostring())))
 end
 
 function test.derivedDecode(): FastEnvelope
-    return assert(decoded(serde.binding(FastEnvelope), fastSource))
+    return (assert2(decoded(serde.binding(FastEnvelope), fastSource)))
 end
 
 function test.source(): string

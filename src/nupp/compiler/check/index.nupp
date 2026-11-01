@@ -431,6 +431,18 @@ function index.install(c: state.Checker): state.ExprHandlers
                 and (namespace == "types.derive" or namespace == "own" or compilerOnlyValue(intrinsicType))
             then
                 c.infer(target)
+                if not node.writeContext
+                    and compilerOnlyValue(intrinsicType)
+                    and (c.comptimeDepth or 0) == 0
+                    and (c.comptimeFunctionDepth or 0) == 0
+                then
+                    c.diag(
+                        "NUPP2421",
+                        member,
+                        ("compiler-only member %q is available only inside comptime"):format(memberName)
+                    )
+                    return T.any
+                end
                 local dynamicNode: any = node
                 dynamicNode.namespacePath = apiidentity.sourceExpression(c, node)
                 node.immutablePath = true

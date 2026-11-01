@@ -1,5 +1,7 @@
 module nupp.serde.internal.structure
 
+const assert2 = require("assert")
+
 local core = require("nupp.serde.internal.value")
 
 export type Has<T> = function(borrows value: T): boolean
@@ -210,7 +212,7 @@ end
 local record Read<T, S is own.Closeable, M is core.Member> is core.MemberConsumer<M, S>
     @readonly byMember: {[M]: Field<T, S, M>}
     function apply(self, exclusive state: S, member: M, exclusive reader: core.Reader<M>): nil
-        assert(self.byMember[member], "foreign structure member"):read(state, reader)
+        assert2(self.byMember[member], "foreign structure member"):read(state, reader)
     end
 end
 
@@ -270,7 +272,7 @@ export function adapter<T, S is own.Closeable, M is core.Member>(
     local byMember: {[M]: Field<T, S, M>} = {}
     local children: {core.Child<M>} = {}
     for index, item in ipairs(fields) do
-        assert(byMember[item.member] == nil, "duplicate structure member")
+        assert2(byMember[item.member] == nil, "duplicate structure member")
         ordered[index] = item
         byMember[item.member] = item
         children[index] = item

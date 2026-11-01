@@ -1,6 +1,8 @@
 @!internal
 module nupp.serde.internal.json.compiled
 
+const assert2 = require("assert")
+
 local core = require("nupp.serde.internal.value")
 local plans = require("nupp.serde.internal.json.plan")
 local lowering = require("nupp.serde.internal.json.lower")
@@ -56,7 +58,7 @@ local record Field<T, S is own.Closeable, M is core.Member> is structures.FieldC
             #self.syntax + 1
         ] = {
             name = member.name,
-            wire = assert(self.plan:wireName(member)),
+            wire = assert2(self.plan:wireName(member)),
             target = recipe.syntax,
             required = self.required,
             hasDefault = false
@@ -173,8 +175,8 @@ local record Native<T> is Decoder<T>
     end
 
     function decodeBuffer(self, exclusive input: Buffer): T
-        assert(self:acceptsBuffer(input), "compiled buffer input exceeds its execution capability")
-        local invoke = assert(self.invokeBuffer)
+        assert2(self:acceptsBuffer(input), "compiled buffer input exceeds its execution capability")
+        local invoke = assert2(self.invokeBuffer)
         local ok, value, problem = pcall(invoke, self.schema, input)
         if not ok then
             error(diagnostic.explain(self.syntax, input:tostring(), value), 0)
@@ -194,7 +196,7 @@ local record Native<T> is Decoder<T>
     end
 
     function decode(self, bytes: string): T
-        assert(self:accepts(bytes), "compiled input exceeds its execution capability")
+        assert2(self:accepts(bytes), "compiled input exceeds its execution capability")
         local ok, value, problem = pcall(self.invoke, self.schema, bytes)
         if not ok then
             error(diagnostic.explain(self.syntax, bytes, value), 0)

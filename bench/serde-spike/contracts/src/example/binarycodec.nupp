@@ -1,5 +1,7 @@
 module example.binarycodec
 
+const assert2 = require("assert")
+
 local __serdeJson = require("serde.json")
 
 local core = require("serde")
@@ -38,32 +40,32 @@ local function plan<M is core.Member>(
     if previous ~= nil then
         return previous
     end
-    assert(not description.nullable, "binary fixture has no null representation")
-    assert(direction ~= "read" or description.canRead, "binding has no construction operation")
+    assert2(not description.nullable, "binary fixture has no null representation")
+    assert2(direction ~= "read" or description.canRead, "binding has no construction operation")
     local kind = description.kind
-    local tag = assert(wire[kind], "unsupported binary fixture kind: " .. kind)
+    local tag = assert2(wire[kind], "unsupported binary fixture kind: " .. kind)
     local number = policy:number(description.member)
-    assert(number >= 1 and number <= 65535, "binary field number is out of range")
+    assert2(number >= 1 and number <= 65535, "binary field number is out of range")
     local result = new Plan<M>(description = description, field = new syntax.Field(number = number, wire = tag))
     seen[description] = result
     if kind == "integer" then
-        assert(
+        assert2(
             description.width == 8 or description.width == 16 or description.width == 32 or description.width == 64,
             "binary integer needs a width"
         )
-        assert(description.signed ~= nil, "binary integer needs a signedness")
+        assert2(description.signed ~= nil, "binary integer needs a signedness")
     end
     for index, child in ipairs(description.children) do
         local selected = plan(child:describe(direction), policy, direction, seen)
-        assert(result.children[child.member] == nil, "duplicate binary member")
+        assert2(result.children[child.member] == nil, "duplicate binary member")
         result.children[child.member] = selected
         result.ordered[index] = selected
         if kind == "structure" then
-            assert(result.numbered[selected.field.number] == nil, "colliding binary field number")
+            assert2(result.numbered[selected.field.number] == nil, "colliding binary field number")
             result.numbered[selected.field.number] = selected
         elseif kind == "tuple" then
             local childKind = selected.description.kind
-            assert(
+            assert2(
                 childKind == "integer" or childKind == "string" or childKind == "bytes",
                 "positional fixture slots must be scalar"
             )
@@ -105,14 +107,14 @@ local record Scope
                 error("recursive binary extension initialization", 2)
             end
         end
-        assert(self.count < 256, "binary fixture extension cache is full")
+        assert2(self.count < 256, "binary fixture extension cache is full")
         local slot = new Slot()
         cache[adapter] = slot
         self.count += 1
         self.active += 1
         local ok, selected = pcall(function(): Plan<M>
             local description = adapter:describe(direction)
-            assert(description.kind == "structure", "binary fixture root must be a structure")
+            assert2(description.kind == "structure", "binary fixture root must be a structure")
             return plan(description, self.policy, direction, {})
         end)
         self.active -= 1
@@ -145,7 +147,7 @@ local record Unknown is core.UnknownReader, own.Closeable
     used: boolean = false
     closed: boolean = false
     function live(self): nil
-        assert(not self.closed and not self.used, "binary unknown reader has expired")
+        assert2(not self.closed and not self.used, "binary unknown reader has expired")
     end
 
     function skipValue(exclusive self): nil
@@ -183,8 +185,8 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
     used: boolean = false
     closed: boolean = false
     function live(self): nil
-        assert(not self.closed and not self.used, "binary reader has expired")
-        assert(self.depth <= 128, "binary nesting limit exceeded")
+        assert2(not self.closed and not self.used, "binary reader has expired")
+        assert2(self.depth <= 128, "binary nesting limit exceeded")
     end
 
     function context(self): core.Context?
@@ -199,7 +201,7 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
 
     function consume(exclusive self, member: M, kind: string): nil
         self:live()
-        assert(
+        assert2(
             member == self.selected.description.member and kind == self.selected.description.kind,
             "binary adapter does not match its description"
         )
@@ -208,20 +210,20 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
 
     function readString(exclusive self, member: M): string
         self:consume(member, "string")
-        assert(type(self.value) == "string", "invalid string carrier")
-        assert(utf8.isValid(self.value as string), "invalid UTF-8 string")
+        assert2(type(self.value) == "string", "invalid string carrier")
+        assert2(utf8.isValid(self.value as string), "invalid UTF-8 string")
         return self.value as string
     end
 
     function readBytes(exclusive self, member: M): string
         self:consume(member, "bytes")
-        assert(type(self.value) == "string", "invalid byte carrier")
+        assert2(type(self.value) == "string", "invalid byte carrier")
         return self.value as string
     end
 
     function readInteger(exclusive self, member: M, width: 8 | 16 | 32 | 64, signed: boolean): core.Integer
         self:consume(member, "integer")
-        assert(
+        assert2(
             width == self.selected.description.width and signed == self.selected.description.signed,
             "integer access does not match its schema"
         )
@@ -254,16 +256,16 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
             end
             local child = self.selected.numbered[entry.field.number]
             if child ~= nil then
-                assert(entry.field.wire == child.field.wire, "binary wire type does not match its schema")
-                assert(not seen[child.description.member], "duplicate binary scalar member")
+                assert2(entry.field.wire == child.field.wire, "binary wire type does not match its schema")
+                assert2(not seen[child.description.member], "duplicate binary scalar member")
                 seen[child.description.member] = true
                 local input = self:child(child, entry.bytes)
                 consume:apply(state, child.description.member, input)
-                assert(input.used, "binary member was not consumed")
+                assert2(input.used, "binary member was not consumed")
             else
                 local input: affine(Unknown) = new Unknown(entry = entry, source = self.source)
                 unknown:apply(state, entry.field, input)
-                assert(input.used, "unknown binary field was not consumed")
+                assert2(input.used, "unknown binary field was not consumed")
             end
         end
     end
@@ -276,12 +278,12 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
         consume: core.ElementConsumer<M, S>
     ): nil
         self:consume(member, "tuple")
-        assert(size == #self.selected.ordered, "tuple access does not match its schema")
+        assert2(size == #self.selected.ordered, "tuple access does not match its schema")
         local values = positional.decode(self.selected.positional, self.value as string)
         for index, value in ipairs(values) do
             local input = self:child(self.selected.ordered[index], value)
             consume:apply(state, index, input)
-            assert(input.used, "binary tuple slot was not consumed")
+            assert2(input.used, "binary tuple slot was not consumed")
         end
     end
 
@@ -362,19 +364,19 @@ local record Output<M is core.Member> is core.Writer<M>
     result: string?
     closed: boolean = false
     function live(self): nil
-        assert(not self.closed, "binary writer has expired")
-        assert(#self.frames <= 128, "binary nesting limit exceeded")
+        assert2(not self.closed, "binary writer has expired")
+        assert2(#self.frames <= 128, "binary nesting limit exceeded")
     end
 
     function selected(self, member: M): Plan<M>
         self:live()
         local frame = self.frames[#self.frames]
         if frame == nil then
-            assert(self.root.description.member == member, "foreign binary root member")
+            assert2(self.root.description.member == member, "foreign binary root member")
             return self.root
         end
 
-        return assert(frame.selected.children[member], "foreign binary member")
+        return (assert2(frame.selected.children[member], "foreign binary member"))
     end
 
     function include(exclusive self, member: M): boolean
@@ -384,14 +386,14 @@ local record Output<M is core.Member> is core.Writer<M>
 
     function put(exclusive self, member: M, kind: string, value: positional.Value): nil
         local selected = self:selected(member)
-        assert(selected.description.kind == kind, "binary adapter does not match its description")
+        assert2(selected.description.kind == kind, "binary adapter does not match its description")
         local frame = self.frames[#self.frames]
-        assert(frame ~= nil, "scalar binary root is unsupported")
-        assert(not frame.seen[member], "duplicate binary member")
+        assert2(frame ~= nil, "scalar binary root is unsupported")
+        assert2(not frame.seen[member], "duplicate binary member")
         frame.seen[member] = true
         if frame.selected.description.kind == "tuple" then
             local position = #frame.values + 1
-            assert(frame.selected.ordered[position] == selected, "tuple members are out of order")
+            assert2(frame.selected.ordered[position] == selected, "tuple members are out of order")
             frame.values[position] = value
         else
             local bytes = type(value) == "string" and value as string or integers.encode(value as core.Integer)
@@ -400,7 +402,7 @@ local record Output<M is core.Member> is core.Writer<M>
     end
 
     function writeString(exclusive self, member: M, value: string): nil
-        assert(utf8.isValid(value), "invalid UTF-8 string")
+        assert2(utf8.isValid(value), "invalid UTF-8 string")
         self:put(member, "string", value)
     end
 
@@ -424,7 +426,7 @@ local record Output<M is core.Member> is core.Writer<M>
 
     function aggregate<S>(exclusive self, member: M, kind: string, borrows source: S, emit: core.Members<M, S>): nil
         local selected = self:selected(member)
-        assert(selected.description.kind == kind, "binary aggregate does not match its description")
+        assert2(selected.description.kind == kind, "binary aggregate does not match its description")
         local frame = new Frame<M>(selected = selected)
         self.frames[#self.frames + 1] = frame
         emit:apply(source, self)
@@ -432,7 +434,7 @@ local record Output<M is core.Member> is core.Writer<M>
         local bytes = kind == "structure" and syntax.encode(frame.entries)
             or positional.encode(selected.positional, frame.values)
         if #self.frames == 0 then
-            assert(self.result == nil, "binary root was written twice")
+            assert2(self.result == nil, "binary root was written twice")
             self.result = bytes
         else
             self:put(member, kind, bytes)
@@ -444,7 +446,7 @@ local record Output<M is core.Member> is core.Writer<M>
     end
 
     function writeTuple<S>(exclusive self, member: M, size: integer, borrows source: S, emit: core.Members<M, S>): nil
-        assert(size == #self:selected(member).ordered, "tuple arity does not match its schema")
+        assert2(size == #self:selected(member).ordered, "tuple arity does not match its schema")
         self:aggregate(member, "tuple", source, emit)
     end
 
@@ -456,22 +458,22 @@ local record Output<M is core.Member> is core.Writer<M>
     ): nil
         self:live()
         local selected = syntax.identity(field)
-        local frame = assert(self.frames[#self.frames], "unknown binary field outside structure")
-        assert(frame.selected.description.kind == "structure", "unknown positional slot has no schema")
-        assert(frame.selected.numbered[selected.number] == nil, "unknown binary field collides with a known member")
+        local frame = assert2(self.frames[#self.frames], "unknown binary field outside structure")
+        assert2(frame.selected.description.kind == "structure", "unknown positional slot has no schema")
+        assert2(frame.selected.numbered[selected.number] == nil, "unknown binary field collides with a known member")
         local source = adapter:context(value)
-        assert(
+        assert2(
             source ~= nil and source.codec == family and source.profile == self.policy,
             "unknown binary value needs its original protocol context"
         )
         local captured = bridge.from(adapter:contents(), value)
         local atom = captured:atom()
-        assert(
+        assert2(
             getmetatable(atom) == Opaque and atom.family == family,
             "unknown binary value is not an owned wire payload"
         )
         local opaque = atom as Opaque
-        assert(
+        assert2(
             opaque.field.number == selected.number and opaque.field.wire == selected.wire,
             "unknown binary identity changed"
         )
@@ -555,8 +557,8 @@ local record Encode<T> is core.Consumer<T, T, string>
         local selected = self.scope:resolve(adapter, "write")
         local writer = output(selected, self.scope.policy)
         adapter:write(value, writer)
-        local result = assert(writer.result, "binary binding did not write its root"):sub(1)
-        assert(#result <= 16777216, "binary output exceeds byte limit")
+        local result = assert2(writer.result, "binary binding did not write its root"):sub(1)
+        assert2(#result <= 16777216, "binary output exceeds byte limit")
 
         return result
     end
@@ -588,7 +590,7 @@ local record Cached is Codec
     end
 
     function decode<T>(self, binding: core.Binding<T>, bytes: string): T
-        assert(#bytes <= 16777216, "binary input exceeds byte limit")
+        assert2(#bytes <= 16777216, "binary input exceeds byte limit")
         return binding:accept(new Decode<T>(binding = binding, scope = self.scope, bytes = bytes), nil)
     end
 end

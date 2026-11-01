@@ -41,6 +41,7 @@ worker lanes. It is not persistent across processes. Resumption never sends
 application data before the handshake: TLS 1.3 early data is deliberately not
 enabled because accepting it requires an application-level replay policy.
 ]]
+const assert2 = require("assert")
 
 local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
@@ -63,7 +64,7 @@ local provider: contract.Provider = do
     if chosen ~= nil then
         yield chosen
     end
-    assert(target.host == "native", "nupp.io.tls: no implementation is available")
+    assert2(target.host == "native", "nupp.io.tls: no implementation is available")
     yield _G.require("nupp.runtime.provider.nativetls") as contract.Provider
 end
 local tls = {}

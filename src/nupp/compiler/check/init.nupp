@@ -19,6 +19,8 @@ the run through it.
 Diagnostics carry stable `NUPP2xxx` codes; `docs/reference/diagnostics.md` is the
 reference for their shape and their families.
 ]]
+const assert2 = require("assert")
+
 const {type Target} = require("nupp.compiler.analysis")
 const {type Target as Target2} = require("nupp.compiler.tracesource")
 const {type Checker as Checker2} = require("nupp.compiler.tracesource")
@@ -2109,7 +2111,7 @@ function checkMod.check(
             and (c.env and c.env.compilerServices and c.env.compilerServices.cheader ~= nil)
             and next(c.cDeclared) ~= nil
         then
-            local cheader: any = assert(
+            local cheader: any = assert2(
                 c.env and c.env.compilerServices and c.env.compilerServices.cheader,
                 "native C-header compiler service is unavailable"
             )

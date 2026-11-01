@@ -69,6 +69,28 @@ end
 
 local M = {}
 
+function M.compilerCarriesEveryFeatureRuntimeSource()
+    local manifest = assert(loadfile(ROOT .. "/nupp.lua"))()
+    local resources = {}
+    for _, resource in ipairs(manifest.build.targets.compiler.resources) do
+        if type(resource) == "table" then
+            resources[resource.output] = true
+        end
+    end
+    local native = require("nupp.compiler.native")
+    for _, effect in ipairs(native.effectNames()) do
+        local feature = native.feature(effect)
+        local module = feature.runtimeModule
+        if module and not module:match("^nupp%.compiler%.") and not module:match("^nupp%.tools%.") then
+            local path = "nupp/compiler/" .. module:gsub("%.", "/")
+            assert(
+                resources[path .. ".nupp"] or resources[path .. "/init.nupp"] or resources[path .. ".lua"],
+                effect .. " has no carried runtime source: " .. module
+            )
+        end
+    end
+end
+
 function M.uuidUsesItsContractWithoutNativeCompilerServices()
     local relations = require("nupp.compiler.types.relations")
     local env = envMod.new(".", {memoryOnly = true, nativeCompilerServices = false, typeRoots = {},})

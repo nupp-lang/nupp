@@ -35,7 +35,8 @@ assert(json.encodeValue(json.EMPTY_OBJECT) == "{}")
 
 local emptyArray = assert(json.decodeValue("[]"))
 assert(json.isArray(emptyArray))
-assert(not json.isArray(assert(json.decodeValue("{}"))))
+local emptyObject = assert(json.decodeValue("{}"))
+assert(not json.isArray(emptyObject))
 ```
 
 `asObject` is the corresponding mark for a table that must encode as an object.
@@ -368,8 +369,10 @@ end
 ---
 --- ```nupp
 --- const json = serde.json
---- assert(json.isArray(assert(json.decodeValue("[]"))))
---- assert(not json.isArray(assert(json.decodeValue("{}"))))
+--- local array = assert(json.decodeValue("[]"))
+--- local object = assert(json.decodeValue("{}"))
+--- assert(json.isArray(array))
+--- assert(not json.isArray(object))
 --- assert(json.isArray({1, 2}))
 --- ```
 --- @param value the value whose JSON container shape to inspect
