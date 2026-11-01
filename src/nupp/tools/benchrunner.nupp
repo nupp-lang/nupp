@@ -17,7 +17,6 @@ module nupp.tools.benchrunner
 local json = require("serde.json")
 
 local buildProcess = require("nupp.compiler.process")
-local cli = require("arg")
 local files = require("nupp.io.files")
 local process = require("nupp.io.process")
 local random = require("nupp.random")

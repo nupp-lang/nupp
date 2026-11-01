@@ -10,7 +10,7 @@ ends up running. Colour is the exception: it governs both the build this command
 performs and the configured runner, so it is read here and still passed along.
 ]]
 
-local cliModule = ansi
+local cliModule = require("arg")
 local usageError = require("nupp.tools.cli.error").forCommand("test")
 
 --- What a

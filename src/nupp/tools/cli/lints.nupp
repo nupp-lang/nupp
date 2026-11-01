@@ -113,13 +113,15 @@ local function run(options: any): integer
         if row.moved then
             note = (" (default %s)"):format(row.default)
         end
+        local summary = io.cell(row.summary)
+        summary.note = note
         cells[
             #cells + 1
         ] = {
             io.paintedCell(row.name, style.strong),
             io.paintedCell(row.category, style.faint),
             io.paintedCell(row.level, levelPaint(style, row.level)),
-            new io.Cell(text = row.summary, note = note),
+            summary,
         }
     end
     io.writeTable(
