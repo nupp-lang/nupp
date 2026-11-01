@@ -123,7 +123,7 @@ end
 local record Tool
 end
 
-function Tool.subcommands(): {cli.commandType}
+function Tool.subcommands(): {cli.CommandType}
     return {Gmatch}
 end
 

@@ -208,11 +208,11 @@ local expectedLines = 131072
 if corpus:slice(8, 8):toString() ~= "abcdefg\n" then
     error("a region slice read the wrong bytes")
 end
-if corpus:slice(0, corpus:length()) ~= corpus then
+if corpus:slice(0, corpus:len()) ~= corpus then
     error("region extent equality failed")
 end
 with scope = tasks.scope() do
-    const counted = scope:fork(corpus, 0, corpus:length(), jobs.countRange):await()
+    const counted = scope:fork(corpus, 0, corpus:len(), jobs.countRange):await()
     if counted ~= expectedLines then
         error("a region crossing miscounted: " .. tostring(counted))
     end
@@ -268,7 +268,7 @@ for sample = 1, SAMPLES + 2 do
     local started = now()
     with scope = tasks.scope() do
         for _ = 1, SCAN_TASKS do
-            sink = sink + scope:fork(corpus, 0, corpus:length(), jobs.countRange):await()
+            sink = sink + scope:fork(corpus, 0, corpus:len(), jobs.countRange):await()
         end
     end
     if sample > 2 then

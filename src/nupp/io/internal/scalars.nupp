@@ -518,7 +518,7 @@ put = function(borrows self: ScalarWriter, bytes: string): nil
         -- Kept untyped: a local typed as the buffer would be an owner of it, and
         -- would close it on the way out.
         local buffer = state._buffer
-        buffer:setString(bytes, buffer:length())
+        buffer:setString(bytes, buffer:len())
 
         return
     end

@@ -555,7 +555,7 @@ local function functionSignature(stat, name)
     return result
 end
 
-local function cdefSignature(stat)
+local function cdefSignature(stat, publishedAs)
     local params = {}
     for _, param in ipairs(stat.params or {}) do
         if param[1] and param[1].kind == "..." then
@@ -567,7 +567,7 @@ local function cdefSignature(stat)
             params[#params + 1] = value
         end
     end
-    local result = "cdef function " .. stat.name.text .. "(" .. table.concat(params, ", ") .. ")"
+    local result = "cdef function " .. (publishedAs or stat.name.text) .. "(" .. table.concat(params, ", ") .. ")"
     if stat.ret then
         result = result .. ": " .. syntax(stat.ret)
     end
@@ -1206,12 +1206,34 @@ local function publishedTables(root, moduleLocal: string?): {[string]: boolean}
     return tables
 end
 
-local function returnedNames(root): {[string]: boolean}
-    local names: {[string]: boolean} = {}
+local function returnedNames(root, moduleLocal: string?): any, any
+    local names, aliases = {}, {}
 
-    local function record(value)
-        if value and value.kind == "name" and value.token then
-            names[value.token.text] = true
+    local function recordTable(value: any): nil
+        while value and (value.kind == "castExpr" or value.kind == "paren") do
+            value = value.expr
+        end
+        if not value or value.kind ~= "tableExpr" then
+            return
+        end
+        for _, field in ipairs(value.fields or {}) do
+            local member = field.kind == "fieldNamed"
+                and field.name.text
+                or field.kind == "fieldBracket"
+                and field.key
+                and field.key.kind == "string"
+                and syntax(field.key):match("^[\"']([%a_][%w_]*)[\"']$")
+                or nil
+            local binding = field.value
+            if binding and binding.kind == "name" and binding.token then
+                local name = binding.token.text
+                names[name] = true
+                if member then
+                    local held = aliases[name] or {}
+                    held[#held + 1] = member
+                    aliases[name] = held
+                end
+            end
         end
     end
 
@@ -1219,21 +1241,21 @@ local function returnedNames(root): {[string]: boolean}
         for _, stat in ipairs(block.stats or {}) do
             if stat.kind == "returnStmt" then
                 for _, expr in ipairs(stat.exprs or {}) do
-                    if expr.kind == "tableExpr" then
-                        for _, field in ipairs(expr.fields or {}) do
-                            record(field.value)
-                        end
-                    end
+                    recordTable(expr)
                 end
-            elseif stat.kind == "exportStmt" and stat.value and stat.value.kind == "tableExpr" then
-                for _, field in ipairs(stat.value.fields or {}) do
-                    record(field.value)
+            elseif stat.kind == "exportStmt" and stat.value then
+                recordTable(stat.value)
+            elseif stat.kind == "localStmt" and moduleLocal then
+                for index, binding in ipairs(stat.names or {}) do
+                    if binding.text == moduleLocal then
+                        recordTable(stat.exprs and stat.exprs[index])
+                    end
                 end
             end
         end
     end
 
-    return names
+    return names, aliases
 end
 
 -- Statement annotations wrap the declaration they modify in `pragmaStmt` nodes. The
@@ -1248,7 +1270,8 @@ declarationItem = function(
     includePrivate,
     published,
     moduleLocal,
-    publicNames
+    publicNames,
+    publishedAs
 )
     local documented = stat
     local applied = {}
@@ -1272,8 +1295,9 @@ declarationItem = function(
     local public = everyDeclaration or declarationFile or explicitlyExported or info.tags.export or info.tags.public
     local kind, name, signature, itemComptimeKind
     if stat.kind == "funcStmt" or stat.kind == "localFuncStmt" then
-        name = stat.kind == "funcStmt" and syntax(stat.name) or stat.name.text
-        public = public or stat.kind == "funcStmt"
+        local declared = stat.kind == "funcStmt" and syntax(stat.name) or stat.name.text
+        name = publishedAs or declared
+        public = public or stat.kind == "funcStmt" or (published or {})[declared] == true
         kind = stat.name and stat.name.method and "method" or "function"
         signature = functionSignature(stat, name)
         itemComptimeKind = stat.comptimeTok and "function" or nil
@@ -1282,9 +1306,9 @@ declarationItem = function(
         -- public when a declaration file says the whole file is, when the author
         -- exports it, or when the module hands it back by name; a module that merely
         -- calls C for its own reasons publishes the functions it wrote, not `malloc`.
-        name, kind = stat.name.text, "function"
-        public = public or (published or {})[name] == true
-        signature = cdefSignature(stat)
+        name, kind = publishedAs or stat.name.text, "function"
+        public = public or (published or {})[stat.name.text] == true
+        signature = cdefSignature(stat, publishedAs)
     elseif stat.kind == "typeAlias" then
         name, kind = stat.name.text, "type"
         public = public or stat.visibility == "module" or stat.visibility == "global"
@@ -1303,13 +1327,14 @@ declarationItem = function(
         if #(stat.names or {}) ~= 1 then
             return nil
         end
-        name, kind = stat.names[1].text, "variable"
+        name, kind = publishedAs or stat.names[1].text, "variable"
         signature = (stat.isConst and "const " or "local ") .. name
         if stat.types[1] then
             signature = signature .. ": " .. syntax(stat.types[1])
         end
         if typeFunction(stat.types[1]) then
             kind = "function"
+            public = public or (published or {})[stat.names[1].text] == true
         end
         itemComptimeKind = comptimeKind(stat.types[1])
     else
@@ -1941,7 +1966,7 @@ function extract.extract(
     local extraModules = {}
     local declaredTypes: {[string]: boolean} = {}
     local hiddenMembers: {[string]: boolean} = {}
-    local published = returnedNames(parsed.root)
+    local published, publicAliases = returnedNames(parsed.root, result.moduleLocal)
     for _, block in ipairs(parsed.root.blocks or {}) do
         for _, stat in ipairs(block.stats or {}) do
             local typePath = declaredTypePath(stat, name)
@@ -2015,18 +2040,43 @@ function extract.extract(
                     extraModules[#extraModules + 1] = module
                 end
             elseif not recordNamespace or opts.includePrivate then
-                local item = declarationItem(
-                    stat,
-                    name,
-                    opts.includePrivate,
-                    declarationFile,
-                    opts.includePrivate,
-                    published,
-                    result.moduleLocal,
-                    opts.publicNames
-                )
-                if item then
-                    result.items[#result.items + 1] = item
+                local declaration = stat
+                while (declaration.kind == "pragmaStmt" or declaration.kind == "exportStmt") and declaration.stat do
+                    declaration = declaration.stat
+                end
+                local localName = (declaration.kind == "localFuncStmt" or declaration.kind == "cdefFunc")
+                    and declaration.name
+                    and declaration.name.text
+                    or declaration.kind == "localStmt"
+                    and #declaration.names == 1
+                    and typeFunction(declaration.types[1])
+                    and declaration.names[1].text
+                    or nil
+                local aliases = localName and publicAliases[localName] or nil
+
+                local function append(publishedAs: string?): nil
+                    local item = declarationItem(
+                        stat,
+                        name,
+                        opts.includePrivate,
+                        declarationFile,
+                        opts.includePrivate,
+                        published,
+                        result.moduleLocal,
+                        opts.publicNames,
+                        publishedAs
+                    )
+                    if item then
+                        result.items[#result.items + 1] = item
+                    end
+                end
+
+                if aliases then
+                    for _, alias in ipairs(aliases) do
+                        append(alias)
+                    end
+                else
+                    append(nil)
                 end
             end
         end

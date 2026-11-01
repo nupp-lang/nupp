@@ -404,7 +404,7 @@ use parentheses in type position and leave nothing in the compiled program.
 `types.elements` takes a pack apart as readily as a composite type, giving
 its fixed head, and `types.arguments` gives the arguments a generic
 declaration was applied to, or nothing for a type that is not an application.
-`types.sameNominal(A, B)` says whether two types come from the same nominal
+`types.samenominal(A, B)` says whether two types come from the same nominal
 declaration without exposing that declaration's identity.
 
 `types.construction(T)` is a record or struct's construction contract as a
@@ -1618,13 +1618,13 @@ remaining union. An open type such as `string`, `integer`, or `any` needs
 `else`. A non-exhaustive switch is `NUPP2140` and cannot be suppressed as a
 lint.
 
-A union that lists `types.nonExhaustive()` among its alternatives always
+A union that lists `types.nonexhaustive()` among its alternatives always
 needs `else`, and never reports one as unnecessary. That call returns a member
 no value inhabits and no name resolves to, so no case covers it, and the union
 does not fit the closed union of the alternatives written beside it.
 
 ```nupp
-local type Status = "ok" | "error" | types.nonExhaustive()
+local type Status = "ok" | "error" | types.nonexhaustive()
 
 local label = switch status do
     case "ok" -> "fine"
@@ -3021,7 +3021,7 @@ checker's process-local type identities. Annotation names, arguments, values,
 and referenced types take part in it, so changing serialization metadata
 invalidates a cached comptime result even when the field types are unchanged.
 
-`types.reflect.fieldCodec(types.reflect(R))` materializes a field codec.
+`types.reflect.fieldcodec(types.reflect(R))` materializes a field codec.
 For a record `R` it produces a `types.reflect.FieldCodec<R>` whose `encode`
 method copies exactly the record's present declared fields with `rawget`.
 Encoding and decoding are shallow; decoding selects the same fields from a

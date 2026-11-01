@@ -97,7 +97,7 @@ function M.aBaselineOfTheSameSchemaCompares()
         "the change names both compilers"
     )
     testAssert.eq(movedNotes[2], "emit: no baseline", "and the cases are still compared")
-    testAssert.eq(bench.compilerChange(compiler, nil), nil, "a side that does not say is no change")
+    testAssert.eq(bench.compilerchange(compiler, nil), nil, "a side that does not say is no change")
 end
 
 -- An older record still reads as a baseline, and an inconclusive one. A schema four

@@ -1252,7 +1252,7 @@ end
 ---
 --- @param now the record's `compiler`
 --- @param was the baseline's `compiler`
-function bench.compilerChange(now: any, was: any): string?
+function bench.compilerchange(now: any, was: any): string?
     if type(now) ~= "table" or type(was) ~= "table" or now.digest == was.digest then
         return nil
     end
@@ -1299,7 +1299,7 @@ function bench.compare(record: any, baseline: any): ({string}, {string})
 
         return failures, uncompared
     end
-    local changed = bench.compilerChange(record.compiler, baseline.compiler)
+    local changed = bench.compilerchange(record.compiler, baseline.compiler)
     if changed then
         uncompared[#uncompared + 1] = changed
     end

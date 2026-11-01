@@ -143,17 +143,15 @@ end
 function M.preservesTheHostTableThroughAliasesAndRequire()
     withExtension(function(env)
         local source = [[
-const terminal = require("io.terminal")
-
 local original = io
 local imported = require("io")
-return original == io, original == imported, terminal.columns(), original.stdout == imported.stdout
+return original == io, original == imported, imported.newbuffer("ready").label, original.stdout == imported.stdout
 ]]
         local code = compile(source, "extension-consumer.nupp", env)
-        local global, imported, columns, stdout = assert(loadProgram(code))()
+        local global, imported, label, stdout = assert(loadProgram(code))()
         test.eq(global, true)
         test.eq(imported, true)
-        test.eq(columns, 73)
+        test.eq(label, "ready")
         test.eq(stdout, true)
         test.eq(package.loaded.io, io)
         test.eq(require("nupp.runtime.standardio").value, io)

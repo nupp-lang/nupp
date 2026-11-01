@@ -34,8 +34,8 @@ local system = os.info()
 local type Bench = {
     SCHEMA: integer,
     compare: function(any, any): ({string}, {string}),
-    compilerChange: function(any, any): string?,
-    decodeBaseline: function(string, string, integer?): (any, string?),
+    compilerchange: function(any, any): string?,
+    decodebaseline: function(string, string, integer?): (any, string?),
     format: function(any, any?): string
 }
 local bench = require("debug.bench") as Bench
@@ -1484,7 +1484,7 @@ function runner.run(options: runner.Options): integer
     if baselinePath then
         local text = readFile(baselinePath)
         if text then
-            local document, refused = bench.decodeBaseline(text, baselinePath, OLDEST_BASELINE_SCHEMA)
+            local document, refused = bench.decodebaseline(text, baselinePath, OLDEST_BASELINE_SCHEMA)
             -- Accepting replaces the file, so one this version cannot read is only
             -- replaced; otherwise it is an error rather than a missing baseline.
             if refused then
@@ -1805,7 +1805,7 @@ function runner.run(options: runner.Options): integer
         end
         local firstMerged = merged[1]
         local firstBaseline = (previous.benchmarks or {})[1]
-        local compilerNote = bench.compilerChange(
+        local compilerNote = bench.compilerchange(
             firstMerged and firstMerged.compiler,
             firstBaseline and firstBaseline.compiler
         )

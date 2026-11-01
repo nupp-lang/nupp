@@ -66,9 +66,9 @@ it encodes back as null:
 ```nupp:fragment
 const json = serde.json
 
-local value = assert(json.decodeValue([[{"items":[1,null,2]}]], json.NULL))
+local value = assert(json.decodevalue([[{"items":[1,null,2]}]], json.NULL))
 assert(value.items[2] == json.NULL)
-assert(json.encodeValue(value) == [[{"items":[1,null,2]}]])
+assert(json.encodevalue(value) == [[{"items":[1,null,2]}]])
 ```
 
 ::: deepdive Dropping null by default
@@ -588,7 +588,7 @@ end
 ---     name: string
 --- end
 --- local buffer = nupp.text.newbuffer()
---- local writer = json.newWriter(buffer)
+--- local writer = json.newwriter(buffer)
 --- writer:startArray()
 --- json.writevalue(serde.binding(Tag), new Tag(name = "x"), writer)
 --- writer:endArray()
@@ -718,7 +718,7 @@ export const pull = json.pull
 --- const json = serde.json
 --- local users = assert(json.pull(
 ---     [[{"users":[{"id":1,"name":"Ada"},{"id":2,"name":"Lin"}]}]],
----     {users = json.arrayOf({id = true})}
+---     {users = json.arrayof({id = true})}
 --- ))
 --- assert(users.users[1].id == 1 and users.users[1].name == nil)
 --- assert(users.users[2].id == 2)
@@ -743,8 +743,8 @@ export const asarray = json.asArray
 ---
 --- ```nupp
 --- const json = serde.json
---- local object = json.asObject(json.asArray({}))
---- assert(json.encodeValue(object) == "{}")
+--- local object = json.asobject(json.asarray({}))
+--- assert(json.encodevalue(object) == "{}")
 --- ```
 --- @param value the table to mark
 --- @return the same table
@@ -758,11 +758,11 @@ export const asobject = json.asObject
 ---
 --- ```nupp
 --- const json = serde.json
---- local array = assert(json.decodeValue("[]"))
---- local object = assert(json.decodeValue("{}"))
---- assert(json.isArray(array))
---- assert(not json.isArray(object))
---- assert(json.isArray({1, 2}))
+--- local array = assert(json.decodevalue("[]"))
+--- local object = assert(json.decodevalue("{}"))
+--- assert(json.isarray(array))
+--- assert(not json.isarray(object))
+--- assert(json.isarray({1, 2}))
 --- ```
 --- @param value the value whose JSON container shape to inspect
 --- @return true for a JSON array and false for an object or scalar
@@ -800,7 +800,7 @@ export const encoded = json.encoded
 ---
 --- ```nupp
 --- local json = serde.json
---- assert(json.encodeValue(json.numberToken("12345678901234567890")) == "12345678901234567890")
+--- assert(json.encodevalue(json.numbertoken("12345678901234567890")) == "12345678901234567890")
 --- ```
 --- @param text the exact numeric lexeme
 --- @return a validated fragment for a JSON writer or encoder

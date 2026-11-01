@@ -52,7 +52,7 @@ park without accepting a scheduler parameter:
 
 ```nupp:fragment [main.nupp]
 local frame = require("scheduler")
-local process = io.process
+local process = nupp.io.process
 
 local function printCompilerVersion(): nil
     local child = assert(process.spawn({args = {"cc", "--version"}}))
@@ -114,7 +114,7 @@ Waiting does not introduce `async function`, `await`, or a future return type.
 An ordinary wrapper returns the value produced after the wait:
 
 ```nupp
-local process = io.process
+local process = nupp.io.process
 
 local function compilerVersion(): string
     local child = assert(process.spawn({args = {"cc", "--version"}}))

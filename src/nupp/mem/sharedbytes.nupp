@@ -47,7 +47,8 @@ process shares the live block again.
 ]]
 const assert2 = require("assert")
 
-local span = require("nupp.mem.span")
+local span = require("binary.span")
+local spanImplementation = require("nupp.mem.span")
 local files = require("nupp.vm.files")
 local storage: any = assert2(
     require("nupp.mem.representation").storage,
@@ -55,11 +56,11 @@ local storage: any = assert2(
 )
 
 local foreignByteSpan = rawget(
-    span as table,
+    spanImplementation as table,
     "__foreignByteSpan"
 ) as @nosuspend function(any, any, integer, integer): span.ByteSpan
 local foreignSpan = rawget(
-    span as table,
+    spanImplementation as table,
     "__foreignSpan"
 ) as function<T>(any, borrows pointer: voidptr, integer, integer, ctype<T>): span.Span<T>
 
@@ -302,7 +303,7 @@ function sharedbytes.Builder:reserve(count: integer): span.Writable<uint8>
 
     local window = advance(growing.bytes, growing.length)
 
-    return span.writeCarray(window as uint8[?], count)
+    return span.writecarray(window as uint8[?], count)
 end
 
 --- @raises string when `written` is not a nonnegative integer, no reservation

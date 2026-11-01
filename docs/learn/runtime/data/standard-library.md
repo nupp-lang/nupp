@@ -9,7 +9,7 @@ tools. Its APIs live in builtin tables such as `math` and in declared modules
 such as `binary.hash.digest`.
 
 ```nupp
-local digest = binary.hash.digest.hexDigest("sha256", "payload")
+local digest = binary.hash.digest.hexdigest("sha256", "payload")
 print(#digest, math.lerp(10, 20, 0.25))
 ```
 

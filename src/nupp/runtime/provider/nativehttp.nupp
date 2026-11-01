@@ -979,9 +979,9 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
         elseif type(body) == "string" then
             bodyKind = BODY_INLINE
             bodyLength = #(body as string)
-        elseif type(concrete.length) == "function" and type(concrete.getString) == "function" then
+        elseif type(concrete.len) == "function" and type(concrete.getString) == "function" then
             bodyKind = BODY_INLINE
-            bodyLength = concrete:length()
+            bodyLength = concrete:len()
             body = concrete:getString()
         else
             error("nupp: HTTP request body is not bytes, a Buffer, ReaderBody, or FileBody", 2)

@@ -289,7 +289,7 @@ module types
 export const answer: integer = 17
 export type Debug = nupp.__Debug
 @comptime
-export function Debug(info: types.derive.Info): types.derive.Result<types.Debug>
+export function debug(info: types.derive.Info): types.derive.Result<types.Debug>
     return types.derive.implement{
         methods = {
             debug = types.derive.forward{

@@ -41,12 +41,12 @@ time.
 ## Finalization and caller storage
 
 `digest()` returns raw bytes, `digest(destination)` writes a writable byte span
-and returns the byte count, and `hexdigest()` returns lowercase hexadecimal.
+and returns the byte count, and `hexDigest()` returns lowercase hexadecimal.
 Every finalization consumes the digest; it neither snapshots nor resets it.
 Scope exit closes an unfinished provider context.
 
 ```nupp
-local rolling = binary.hash.digest.newDigest("sha256")
+local rolling = binary.hash.digest.newdigest("sha256")
 rolling:write("payload")
 local bytes = nupp.mem.array.bytes(rolling:digestSize())
 local output = bytes:write()
@@ -70,7 +70,7 @@ separately:
 ## Checksums and MACs
 
 ```nupp
-local sum = binary.hash.checksum.newChecksum("crc32c")
+local sum = binary.hash.checksum.newchecksum("crc32c")
 assert(sum:width() == 32)
 sum:write("1234")
 local partial = sum:value()
@@ -92,7 +92,7 @@ own scalar serialization rules. Checksums provide no authentication.
 `binary.hash.mac.newmac("hmac-sha256", key)` accepts a raw-byte key and returns
 the same writer and consuming finalization as a digest. Its descriptor has
 `digestSize = 32`. The one-shot forms are `mac.digest(name, key, bytes)` and
-`mac.hexDigest(name, key, bytes)`.
+`mac.hexdigest(name, key, bytes)`.
 
 `hmac-sha256` names the HMAC construction over SHA-256. Smithy's `httpChecksum`
 trait defines no MAC algorithms. AWS KMS uses `HMAC_SHA_256` for this

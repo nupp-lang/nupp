@@ -145,6 +145,7 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.time"
     ] = {
         name = "time_runtime",
+        globals = {"coroutine.sleep", "coroutine.sleepuntil", "coroutine.wakeat"},
         module = "nupp.time",
         runtimeModule = "nupp.time",
         portableRuntime = true,
@@ -356,6 +357,15 @@ local FEATURES: {[string]: native.Feature} = {
         "stdlib.io"
     ] = {
         name = "io",
+        globals = {
+            "io.newbuffer",
+            "io.newlines",
+            "io.newqueuereader",
+            "io.newscalarreader",
+            "io.newscalarwriter",
+            "io.newstringreader",
+            "io.readall",
+        },
         modules = {"nupp.io"},
         runtimeModule = "nupp.io",
         portableRuntime = true,

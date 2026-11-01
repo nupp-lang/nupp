@@ -31,7 +31,7 @@ assert(options ~= nil, problem and problem.message)
 
 `@derive(cli.command)` goes further and adds metadata, help, and shell
 completion, with a parent naming its children in `subcommands` so the tree reads
-from the top down. Underneath both, `optParser` and `getopt` are the
+from the top down. Underneath both, `optparser` and `getopt` are the
 syntax-only foundation: a token stream with no types attached, for when the
 shape of the command line is not a record.
 
