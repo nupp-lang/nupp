@@ -299,8 +299,9 @@ local ENTRIES: {any} = {
     {
         code = "NUPP2006",
         summary = "A call's arguments are not arranged in a way it can be given",
-        rule = "Named and plucked arguments follow every positional argument, so "
-        .. "nothing positional may come after one. A plucked operand must be a "
+        rule = "Named and plucked arguments follow positional arguments. One final "
+        .. "function literal may follow them and fills the final fixed parameter; "
+        .. "other positional arguments cannot. A plucked operand must be a "
         .. "name or dotted field path: each name it fills reads one field of that "
         .. "path, and confining it to a path is what lets those reads be unordered "
         .. "and the path be evaluated once. Bind a call or a computed index to a "

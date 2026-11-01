@@ -701,6 +701,24 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return (packArgs or explicitPack) and parseTypePack(false) or parseType()
     end
 
+    -- Both clause orders share the same checked packs during the seed transition.
+    local function parseProtocolClauses(n: any, allowBareList: boolean?): nil
+        if cur().kind ~= "name" or cur().text ~= "yields" then
+            return
+        end
+        if n.yieldPack then
+            errAt(cur(), "a function has only one coroutine protocol")
+        end
+        add(n, advance()).typeKeyword = true
+        n.yieldPack = add(n, parseTypePack(allowBareList))
+        if not (cur().kind == "name" and cur().text == "resumes") then
+            errAt(cur(), "'resumes' must follow a coroutine yield pack")
+        else
+            add(n, advance()).typeKeyword = true
+            n.resumePack = add(n, parseTypePack(allowBareList))
+        end
+    end
+
     --- A type without its postfixes.
     local function parseTypePrimary(): Node
         local kind = cur().kind
@@ -1074,6 +1092,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 until false
             end
             add(n, expect(")", "to close function type parameters"))
+            parseProtocolClauses(n, false)
             if cur().kind == ":" then
                 annotationColon(n, "before return type")
                 -- `function(...): R & function(...)` is a callable intersection. A
@@ -1094,16 +1113,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             if cur().kind == "name" and cur().text == "borrows" and tokens[i + 1] and tokens[i + 1].kind == "(" then
                 n.captureBorrows = add(n, parseCaptureClause())
             end
-            if cur().kind == "name" and cur().text == "yields" then
-                add(n, advance())
-                n.yieldPack = add(n, parseTypePack(false))
-                if not (cur().kind == "name" and cur().text == "resumes") then
-                    errAt(cur(), "'resumes' must follow a coroutine yield pack")
-                else
-                    add(n, advance())
-                    n.resumePack = add(n, parseTypePack(false))
-                end
-            end
+            parseProtocolClauses(n, false)
             return n
         elseif kind == "istringOpen" then
             return parseIstring()
@@ -2554,6 +2564,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             until false
         end
         add(n, expect(")", "to close parameter list"))
+        parseProtocolClauses(n, true)
         if cur().kind == ":" then
             -- Statement-position return annotation: unparenthesized list [CS-7].
             annotationColon(n, "before return types")
@@ -2576,16 +2587,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 n.captureBorrows = add(n, clause)
             end
         end
-        if cur().kind == "name" and cur().text == "yields" then
-            add(n, advance())
-            n.yieldPack = add(n, parseTypePack(true))
-            if not (cur().kind == "name" and cur().text == "resumes") then
-                errAt(cur(), "'resumes' must follow a coroutine yield pack")
-            else
-                add(n, advance())
-                n.resumePack = add(n, parseTypePack(true))
-            end
-        end
+        parseProtocolClauses(n, true)
         n.body = add(n, parseFunctionBlock())
         add(n, expect("end", "to close function"))
 

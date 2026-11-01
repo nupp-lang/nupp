@@ -44,6 +44,132 @@ local vector = table.concat({"local record Vec3", "   x: number", "   y: number"
 
 local M = {}
 
+function M.protocolClauseOrderKeepsCoroutineExecution()
+    for _, signature in ipairs({
+        "yields(number) resumes(boolean): string",
+        ": string yields(number) resumes(boolean)",
+    }) do
+        local answer = run(
+            (
+                [[
+local function worker(start: number) %s
+    local again: boolean = coroutine.yield(start)
+    return tostring(again)
+end
+local co = coroutine.create(worker)
+local ok, first = coroutine.resume(co, 3)
+assert(ok)
+local done, final = coroutine.resume(co, true)
+assert(done)
+return tostring(first) .. tostring(final)
+]]
+            ):format(signature)
+        )
+        testAssert.equal(answer, "3true")
+    end
+end
+
+function M.aFinalFunctionLiteralBindsAnExplicitConstructorCallback()
+    local answer = run(
+        [[
+local record Task
+    result: string
+    constructor(self, name: string, option: string?, callback: function(string): string)
+        self.result = callback(name) .. ':' .. tostring(option)
+    end
+end
+return (new Task(name = 'load', function(name: string): string return name .. '!' end)).result
+]]
+    )
+    testAssert.equal(answer, "load!:nil")
+end
+
+function M.aFinalFunctionLiteralFillsTheFinalParameterAfterNamedArguments()
+    local answer = run(
+        [[
+local function invoke(name: string, option: string?, callback: function(string, string?): string): string
+    return callback(name, option)
+end
+return invoke(name = 'load', function(name, option): string
+    return name .. ':' .. tostring(option)
+end)
+]]
+    )
+    testAssert.equal(answer, "load:nil")
+end
+
+function M.aFinalShortFunctionKeepsGenericCallbackInference()
+    local answer = run(
+        [[
+local function invoke<T, U>(value: T, callback: function(T): U): U
+    return callback(value)
+end
+return invoke(value = 'load', |value| -> value .. '!')
+]]
+    )
+    testAssert.equal(answer, "load!")
+end
+
+function M.aFinalFunctionLiteralPreservesMethodAndNamedEvaluationOrder()
+    local answer = run(
+        [[
+local events: {string} = {}
+local function mark(value: string): string
+    events[#events + 1] = value
+    return value
+end
+local record Runner
+    function invoke(self, name: string, option: string?, callback: function(): string): string
+        mark('invoke')
+        return name .. ':' .. tostring(option) .. ':' .. callback()
+    end
+end
+local function receiver(): Runner
+    mark('receiver')
+    return new Runner()
+end
+local result = receiver():invoke(name = mark('name'), function(): string
+    mark('callback')
+    return table.concat(events, ',')
+end)
+return result
+]]
+    )
+    testAssert.equal(answer, "name:nil:receiver,name,invoke,callback")
+end
+
+function M.onlyOneFinalFunctionLiteralMayFollowNamedArguments()
+    local declaration = [[
+local function invoke(name: string, callback: function(): string): string
+    return callback()
+end
+local callback = function(): string return 'done' end
+]]
+    for _, arguments in ipairs({
+        "name = 'load', callback",
+        "name = 'load', (function(): string return 'done' end)",
+        "name = 'load', function(): string return 'done' end, 'extra'",
+        "name = 'load', function(): string return 'done' end, function(): string return 'done' end",
+    }) do
+        local found = diagnostics(declaration .. "return invoke(" .. arguments .. ")")
+        assert(found:find("NUPP2006", 1, true), arguments .. ": " .. found)
+    end
+    local duplicate = diagnostics(
+        declaration .. "return invoke(name = 'load', callback = callback, function(): string return 'done' end)"
+    )
+    assert(duplicate:find("NUPP2125", 1, true), duplicate)
+end
+
+function M.aTrailingFunctionLiteralRequiresAClosedParameterList()
+    local found = diagnostics(
+        [[
+local function invoke(name: string, ...: any): nil end
+invoke(name = 'load', function(): nil end)
+]]
+    )
+    assert(found:find("NUPP2125", 1, true), found)
+end
+
 function M.syntaxRoundTripsAndRecordsArgumentKinds()
     local source = vector .. "\ndraw({x} = position, {y} = position, color = 'red')"
     local result = parsed(source)
@@ -214,7 +340,11 @@ function M.sharedPrefixesAreBoundWithoutOneUseLeafTemporaries()
         )
     )
     testAssert.equal(answer, "HBPSxyWHTU")
-    testAssert.equal(select(2, code:gsub("entity%.body", "")), 1, "the common entity.body prefix is bound once:\n" .. code)
+    testAssert.equal(
+        select(2, code:gsub("entity%.body", "")),
+        1,
+        "the common entity.body prefix is bound once:\n" .. code
+    )
     assert(not code:find("(function()", 1, true), "a statement call should use locals, not a wrapper:\n" .. code)
     assert(not code:match("const __nuppT%d+= update"), "a named callee should remain direct:\n" .. code)
     testAssert.equal(

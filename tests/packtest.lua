@@ -24,6 +24,34 @@ end
 
 local M = {}
 
+function M.protocolClausesBeforeResultsKeepCheckedCoroutinePacks()
+    clean(
+        [[
+local type Producer = function(start: number) yields(number, string) resumes(boolean): string
+local function worker(start: number) yields(number, string) resumes(boolean): string
+    local again: boolean = coroutine.yield(start, 'paused')
+    return tostring(again)
+end
+local producer: Producer = worker
+local co: thread<(number), (boolean), (number, string), (string)> = coroutine.create(producer)
+local ok, value, label = coroutine.resume(co, 1)
+]]
+    )
+    testAssert.equal(
+        codes(
+            [[
+local type Producer = function() yields(string) resumes(boolean): string
+local function worker() yields(number) resumes(boolean): string
+    coroutine.yield(1)
+    return 'done'
+end
+local producer: Producer = worker
+]]
+        ),
+        "NUPP2001"
+    )
+end
+
 function M.genericForChecksIteratorInputsAndNextControl()
     clean(
         table.concat(
@@ -312,7 +340,9 @@ end
 -- leaked pack through in the first place.
 function M.aStringLiteralReachesTheStringLibrary()
     testAssert.equal(
-        codes(table.concat({"local function want(n: number): nil end", "want(('%s'):format(1))", "return want",}, "\n")),
+        codes(
+            table.concat({"local function want(n: number): nil end", "want(('%s'):format(1))", "return want",}, "\n")
+        ),
         "NUPP2006"
     )
     clean(
@@ -700,7 +730,10 @@ function M.genericPackForwardingKeepsBorrowProvenance()
 end
 
 function M.potentiallyAffineGenericPacksMustTransferExactlyOnce()
-    testAssert.equal(codes(table.concat({"local function drop<A...>(...: A...): nil end", "return drop",}, "\n")), "NUPP2605")
+    testAssert.equal(
+        codes(table.concat({"local function drop<A...>(...: A...): nil end", "return drop",}, "\n")),
+        "NUPP2605"
+    )
     testAssert.equal(
         codes(
             table.concat(
