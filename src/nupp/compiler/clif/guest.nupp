@@ -3777,14 +3777,14 @@ function guest.main(functionPath: string, layoutsPath: string, nested: string?):
     if os.getenv("JIT_GUEST_PROFILE") then
         -- The phases apart, on standard error: what emission costs where.
         local started = os.clock()
-        local fn = guest.parse(assert(fs.readFile(functionPath)))
+        local fn = guest.parse((assert(fs.readFile(functionPath))))
         local parsed = os.clock()
         local live = guest.liveness(fn)
         for pc = 0, #fn.code - 1 do
             live.liveAt(pc)
         end
         local analyzed = os.clock()
-        local clif, reason = guest.emit(fn, guest.layoutsWithInterp(assert(fs.readFile(layoutsPath))), {
+        local clif, reason = guest.emit(fn, guest.layoutsWithInterp((assert(fs.readFile(layoutsPath)))), {
             nested = (tonumber(nested or "0") or 0) as integer
         })
         local emitted = os.clock()
@@ -3821,8 +3821,8 @@ end
 --- test harness, as the native JIT suite writes it.
 --- @raises string when the function is refused or a file cannot be read.
 function guest.harnessMain(functionPath: string, layoutsPath: string): string
-    local layout = guest.layoutsWithInterp(assert(fs.readFile(layoutsPath)))
-    local fn = guest.parse(assert(fs.readFile(functionPath)))
+    local layout = guest.layoutsWithInterp((assert(fs.readFile(layoutsPath))))
+    local fn = guest.parse((assert(fs.readFile(functionPath))))
     local clif, reason = guest.emit(fn, layout, {nested = 0})
     if clif == nil then
         error("guest: " .. tostring(reason), 0)

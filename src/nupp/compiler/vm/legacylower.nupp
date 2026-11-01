@@ -3396,7 +3396,7 @@ function lower.emit(
                 local described = exprAs(f, require("nupp.compiler.vm.metadata").literal(instanceLayout), "v")
                 local witness = exprAs(
                     f,
-                    assert(call.vmStructWitness or call.obj, "struct construction has no witness"),
+                    (assert(call.vmStructWitness or call.obj, "struct construction has no witness")),
                     "v"
                 )
                 local physical = builtinRegisters(f, "storage.structDefine", {described, witness})
@@ -3422,7 +3422,7 @@ function lower.emit(
                     {
                         kind = "methodCall",
                         obj = structDescriptor(
-                            assert(call.vmStructWitness or call.obj, "struct construction has no witness")
+                            (assert(call.vmStructWitness or call.obj, "struct construction has no witness"))
                         ),
                         name = {text = "new"},
                         args = {exprs = {}}

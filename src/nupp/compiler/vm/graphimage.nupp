@@ -384,7 +384,7 @@ function image.encoder(): any
                 word(certs[i] == 0 and NONE or certs[i] - 1)
             end
             local t = b.term
-            word(assert(termKinds[t.kind], "unknown terminator"))
+            word((assert(termKinds[t.kind], "unknown terminator")))
             word(t.value and t.value - 1 or NONE)
             word(t.constant or NONE)
             word(t.count or NONE)
@@ -443,7 +443,7 @@ function image.encoder(): any
             for j = 1, #slots do
                 local slot = slots[j]
                 word(str(slot.name))
-                word(assert(slotTypes[slot.type or "any"], "unknown slot type"))
+                word((assert(slotTypes[slot.type or "any"], "unknown slot type")))
                 word(slot.record or NONE)
             end
             local methods = s.methods or {}

@@ -2154,7 +2154,7 @@ end
 -- The structure offsets a handler names come from the runtime's glue
 -- (`nupp-vm native layouts`), which measures the layouts it links against.
 local function layouts(path: string): function(string): number
-    local offsets: any = json.decode(assert(fs.readFile(path)))
+    local offsets: any = json.decode((assert(fs.readFile(path))))
     return function(field: string): number
         local offset = offsets[field]
         need(type(offset) == "number", "unknown context field " .. field)
