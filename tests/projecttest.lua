@@ -342,7 +342,9 @@ function M.isolatedProcessStopsAtItsWallClockDeadline()
 end
 
 function M.isolatedProcessCapturesACompletedResponse()
-    local code, output = process.captureIsolated({"sh", "-c", "printf worker-ready"}, {timeoutMs = 1000})
+    -- This tests completed output, not startup speed. Git Bash can need more than
+    -- a second to start on a busy Windows runner.
+    local code, output = process.captureIsolated({"sh", "-c", "printf worker-ready"}, {timeoutMs = 10000})
     testAssert.equal(code, 0, "the completed child succeeds")
     testAssert.equal(output, "worker-ready", "the private output is returned")
 end
