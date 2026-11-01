@@ -11,6 +11,7 @@ local ROOTS = {
     warn = {module = "warn", direct = true},
     assert = {module = "assert", direct = true},
     arg = {module = "arg", direct = true},
+    table = {module = "nupp.runtime.standardtable", members = {move = true}},
     io = {
         module = "nupp.runtime.standardio",
         members = {

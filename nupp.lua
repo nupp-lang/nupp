@@ -457,6 +457,7 @@ local RESOURCES = {
     {source = "src/nupp/time/init.nupp", output = "nupp/compiler/nupp/time/init.nupp"},
     {source = "src/nupp/runtime/clocks.nupp", output = "nupp/compiler/nupp/runtime/clocks.nupp"},
     {source = "src/nupp/runtime/standardos.nupp", output = "nupp/compiler/nupp/runtime/standardos.nupp"},
+    {source = "src/nupp/runtime/standardtable.nupp", output = "nupp/compiler/nupp/runtime/standardtable.nupp"},
     {source = "src/nupp/io/net/init.nupp", output = "nupp/compiler/nupp/io/net/init.nupp"},
     {source = "src/nupp/io/tls/init.nupp", output = "nupp/compiler/nupp/io/tls/init.nupp"},
     {source = "src/nupp/io/process/init.nupp", output = "nupp/compiler/nupp/io/process/init.nupp"},
