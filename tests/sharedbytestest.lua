@@ -68,13 +68,13 @@ function M.emptyRegionsKeepEngineBlockIdentity()
 end
 
 function M.builderCountsRemainExactAtThePublicBoundary()
-    local reserve = sharedbytes.newBuilder()
+    local reserve = sharedbytes.newbuilder()
     assert(
         not pcall(function()
             reserve:reserve(1.5)
         end)
     )
-    local commit = sharedbytes.newBuilder()
+    local commit = sharedbytes.newbuilder()
     assert(
         not pcall(function()
             commit:commit(1.5)
@@ -83,7 +83,7 @@ function M.builderCountsRemainExactAtThePublicBoundary()
 end
 
 function M.droppingAnUnfrozenBuilderReleasesItsStorageAtOnce()
-    local builder = sharedbytes.newBuilder()
+    local builder = sharedbytes.newbuilder()
     local handle = builder._handle
     local before = #released
     builder:drop()
@@ -129,7 +129,7 @@ end
 
 -- A file that cannot be read is the environment failing, so it is answered.
 function M.readingAMissingFileAnswersAReason()
-    local region, reason = sharedbytes.readFile("definitely/not/here.bin")
+    local region, reason = sharedbytes.readfile("definitely/not/here.bin")
     assert(region == nil)
     assert(reason == "unavailable", tostring(reason))
 end

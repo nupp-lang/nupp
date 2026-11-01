@@ -507,6 +507,7 @@ end
 
 function M.aStampedBinaryRunsStructuredTasksOnTheSharedScheduler()
     local dir = tempProject({
+        ["shared-bytes.bin"] = "engine\0bytes\255",
         [
             "nupp.lua"
         ] = [[
@@ -811,6 +812,14 @@ end
 with scope = tasks.scope() do
     print(scope:fork(counts, jobs.total):await())
 end
+
+local dynamicShared = sharedbytes as any
+assert(dynamicShared.newBuilder == nil and dynamicShared.readFile == nil)
+local loaded, readProblem = sharedbytes.readfile("shared-bytes.bin")
+if loaded == nil then error(readProblem or "shared byte file failed") end
+assert(loaded:len() == 13 and loaded:toString() == "engine\0bytes\255")
+local absent, missingReason = sharedbytes.readfile("missing-shared-bytes.bin")
+assert(absent == nil and type(missingReason) == "string")
 
 local builder = sharedbytes.newbuilder()
 with writer = builder:reserve(3) do
