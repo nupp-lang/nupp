@@ -478,7 +478,10 @@ def native_runtime_object(runner, image, out, target, glue=None):
         raise ValueError("the lowering wrote no CLIF")
     obj = out / "runtime.o"
     run_step([str(glue), "native", "object", str(clif), str(obj)], None, "native object")
-    (ROOT / "native/crates/vm/src/lib.rs").touch()
+    # The build script reruns when the object is newer than its last run; an
+    # object restored with an older time would not be. Touching a compiler
+    # source instead would make the launcher rebuild after every link.
+    obj.touch()
     return obj
 
 
@@ -597,9 +600,11 @@ def linked_runtime(image, out, target):
     run_step([str(out / "aot-tool"), "aot", str(image), str(obj), "--frames"], None, "AOT of the root image")
     features = "aot-linked,c-headers,native-ffi,compression,net,http,regex,markdown,native-runtime"
     env = {"NUPP_AOT_OBJECT": str(obj), "NUPP_NATIVE_RUNTIME_OBJECT": str(core)}
-    # The object is read by the build script, which does not see a changed
-    # file behind an unchanged variable.
-    (ROOT / "native/crates/vm/src/lib.rs").touch()
+    # The objects are read by the build script, which reruns when they are
+    # newer than its last run (not when a compiler source is: the launcher
+    # watches those, and would rebuild after every link).
+    obj.touch()
+    Path(core).touch()
     return cargo(features, target, env, default_features=False)
 
 
