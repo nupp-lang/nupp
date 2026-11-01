@@ -61,6 +61,7 @@ local function scalar(value: any, numeric: boolean, dynamic: boolean?): string
     if dynamic
         and (
             value.tag == "string"
+            or value.tag == "typevar"
             or value.tag == "array"
             or value.tag == "map"
             or value.tag == "table"
@@ -94,6 +95,8 @@ local function typeSignature(signature: any, numeric: boolean, dynamic: boolean)
         and not signature.resumePack,
         "unsupported callable signature"
     )
+    -- From v8 plain type parameters erase to dynamic values, and what a
+    -- result preserves of its parameters is a static ownership fact.
     for _, key in ipairs({
         "typeParams",
         "packParams",
@@ -103,7 +106,10 @@ local function typeSignature(signature: any, numeric: boolean, dynamic: boolean)
         "partitionResults",
         "preservesPaths"
     }) do
-        empty(signature[key], "callable " .. key)
+        local erased = dynamic and (key == "typeParams" or key == "preservesResults" or key == "preservesPaths")
+        if not erased then
+            empty(signature[key], "callable " .. key)
+        end
     end
     need(
         not signature.borrowsParam and not signature.borrowsSelf and not signature.borrowsResult,

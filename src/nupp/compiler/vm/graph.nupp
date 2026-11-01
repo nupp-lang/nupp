@@ -1282,7 +1282,9 @@ invokeScalar = function(t: any): nil
         and (t.tag == "int64" or t.tag == "number" or t.tag == "float64" or t.tag == "boolean" or t.tag == "string" or t.tag == "nil"
         -- Tables and functions pass as values; core graph contracts admit
         -- them from profile v8.
-        or t.tag == "array" or t.tag == "map" or t.tag == "table" or t.tag == "func"),
+        or t.tag == "array" or t.tag == "map" or t.tag == "table" or t.tag == "func"
+        -- A plain type parameter erases to a value.
+        or t.tag == "typevar"),
         "invoke requires a checked scalar type, got " .. tostring(t and t.tag)
     )
 end
@@ -1298,18 +1300,13 @@ local function invokeSignature(signature: any): nil
         and not signature.resumePack,
         "invoke signature is outside the scalar guest subset"
     )
-    for _, field in ipairs({
-        "typeParams",
-        "packParams",
-        "constParams",
-        "borrowsParams",
-        "preservesResults",
-        "partitionResults",
-        "preservesPaths"
-    }) do
+    -- Plain type parameters erase: their values pass as dynamic values. What
+    -- a result preserves of its parameters is a static ownership fact the
+    -- collected guest heap has no use for.
+    for _, field in ipairs({"packParams", "constParams", "borrowsParams", "partitionResults"}) do
         assert(
             signature[field] == nil or next(signature[field]) == nil,
-            "invoke generic or ownership contract is unsupported"
+            "invoke generic or ownership contract is unsupported: " .. field
         )
     end
     assert(

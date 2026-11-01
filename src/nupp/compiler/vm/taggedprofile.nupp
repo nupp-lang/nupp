@@ -37,8 +37,13 @@ function tagged.initialize(fn: any, options: any): any
     need(fn.node.kind == "localFuncStmt" or fn.node.kind == "funcExpr", "unsupported function declaration form")
     local body = fn.body
     need(
-        not body.varargParam and not body.generics and not body.yieldPack and not body.resumePack,
-        "variadic, generic and suspended functions are unsupported"
+        not body.varargParam and not body.yieldPack and not body.resumePack,
+        "variadic and suspended functions are unsupported"
+    )
+    -- Plain type parameters erase; packs and const parameters do not.
+    need(
+        not body.generics or next(fn.signature.packParams or {}) == nil and next(fn.signature.constParams or {}) == nil,
+        "pack and const generic parameters are unsupported"
     )
     need(
         #fn.signature.rets <= 16 and not fn.signature.retPack.tail and not fn.signature.retPack.alternatives,

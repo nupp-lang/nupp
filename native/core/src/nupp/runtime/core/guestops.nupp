@@ -254,6 +254,26 @@ local function heapTarget(callee: uint64): uint64
     return (first & values.PAYLOAD) + 1ULL
 end
 
+-- 1 when a dynamic callsite's signature admits the callee's: the same
+-- parameter count, and a result the site takes as given or as any value.
+local function compatibleSignatures(c: voidptr, site: uint64, callee: uint64): uint64
+    local records = native.loadPointer(c, native.fieldOffset<catalog.Catalog>("signatures"))
+    local a = native.offset(records, native.index(site * native.sizeOf<catalog.Signature>()))
+    local b = native.offset(records, native.index(callee * native.sizeOf<catalog.Signature>()))
+    if native.load64(
+        a,
+        native.fieldOffset<catalog.Signature>("parameterCount")
+    ) ~= native.load64(b, native.fieldOffset<catalog.Signature>("parameterCount")) then
+        return 0ULL
+    end
+    local wanted = native.load64(a, native.fieldOffset<catalog.Signature>("resultKind"))
+    if wanted ~= catalog.VALUE and wanted ~= native.load64(b, native.fieldOffset<catalog.Signature>("resultKind")) then
+        return 0ULL
+    end
+
+    return 1ULL
+end
+
 -- The callee is the actual registry handle loaded from a live slot. Hint alone
 -- cannot select a body. Canonical byte fields must also match this PC's retained
 -- checked callsite, its target signature and each canonical scalar argument.
@@ -321,9 +341,17 @@ export function prepare(
         native.loadPointer(c, native.fieldOffset<catalog.Catalog>("records")),
         native.index(actual * native.sizeOf<catalog.Function>())
     )
-    local signatureId = native.load64(call, native.fieldOffset<catalog.Callsite>("signature"))
-    if native.load64(target, native.fieldOffset<catalog.Function>("kind")) ~= catalog.FUNCTION
-        or native.load64(target, native.fieldOffset<catalog.Function>("signature")) ~= signatureId
+    local siteSignature = native.load64(call, native.fieldOffset<catalog.Callsite>("signature"))
+    local signatureId = native.load64(target, native.fieldOffset<catalog.Function>("signature"))
+    if native.load64(target, native.fieldOffset<catalog.Function>("kind")) ~= catalog.FUNCTION then
+        return 0ULL
+    end
+    -- A dynamic call's site may see the callee through erased type
+    -- parameters: it holds when the counts agree and the site takes the result
+    -- as the callee gives it or as any value. Arguments are checked against
+    -- the callee's own kinds below.
+    if signatureId ~= siteSignature
+        and (not dynamic or compatibleSignatures(c, siteSignature, signatureId) == 0ULL)
     then
         return 0ULL
     end
