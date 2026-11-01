@@ -1692,19 +1692,19 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             -- rounds nothing and is defined at every element. The two that
             -- answer a lane index answer it at the declared `integer` and take
             -- their result from the declaration rather than from the element.
-            local named = (operation or "") as string
+            local named = ((operation or "") as string):lower()
             local extremum = named:match("^propagating") ~= nil or named:match("^number") ~= nil
-            local indexed = named:match("Arg") ~= nil
+            local indexed = named:match("arg") ~= nil
             -- The wrapping, bitwise and integer extremum contracts take
             -- integer lanes only; the named floating orders exist because
             -- addition rounds, so they take floating lanes only.
-            local integerContract = named == "wrappingSum"
-                or named == "wrappingProduct"
-                or named == "andBits"
-                or named == "orBits"
-                or named == "xorBits"
-                or named == "integerMin"
-                or named == "integerMax"
+            local integerContract = named == "wrappingsum"
+                or named == "wrappingproduct"
+                or named == "andbits"
+                or named == "orbits"
+                or named == "xorbits"
+                or named == "integermin"
+                or named == "integermax"
             local floating = element ~= nil and (element.tag == "float" or element.tag == "number")
             if element and indexed then
                 (node as any).simdHorizontal = selectedExport.member

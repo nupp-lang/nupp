@@ -6016,7 +6016,7 @@ function gen.generate(
                 emitDepth.storageVectorReading[x] = true
                 e(
                     (
-                        "%s.lane.fromStorage(%q,%d,"
+                        "%s.lane.fromstorage(%q,%d,"
                     ):format(compilerModuleName(moduleName or "nupp.simd"), element, lanes as integer),
                     sourceLine(x)
                 )

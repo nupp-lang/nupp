@@ -2755,8 +2755,8 @@ local function call(
 
     local args: {scalarIR.Expr} = {}
     local written = node.args ~= nil and (node.args as cst.Args).exprs or {}
-    local contract = identity ~= nil and reducers.CONSTRUCTORS[identity] or nil
-    local floatingContract = identity ~= nil and reducers.FLOATING[identity] or nil
+    local contract = identity ~= nil and reducers.CONSTRUCTORS[identity:lower()] or nil
+    local floatingContract = identity ~= nil and reducers.FLOATING[identity:lower()] or nil
     -- An integer reducer's first argument is its element's array witness: a
     -- library value the inferred type already carries, which native code
     -- cannot hold, so it is read from the type rather than lowered. A
@@ -2881,41 +2881,41 @@ local function call(
             source = lower.site(node)
         )
     elseif identity ~= nil and identity:match("^simd%.horizontal%.") ~= nil then
-        local operation = identity:match("^simd%.horizontal%.(.+)$") as string
+        local operation = (identity:match("^simd%.horizontal%.(.+)$") as string):lower()
         local operations: {[string]: {
             arity: integer,
             order: string,
             kind: string
         }} = {
-            orderedSum = {arity = 1, order = "ordered", kind = "sum"},
-            pairwiseSum = {arity = 1, order = "pairwise", kind = "sum"},
-            algebraicSum = {arity = 1, order = "algebraic", kind = "sum"},
-            orderedProduct = {arity = 1, order = "ordered", kind = "product"},
-            pairwiseProduct = {arity = 1, order = "pairwise", kind = "product"},
-            algebraicProduct = {arity = 1, order = "algebraic", kind = "product"},
-            orderedDot = {arity = 2, order = "ordered", kind = "dot"},
-            pairwiseDot = {arity = 2, order = "pairwise", kind = "dot"},
-            algebraicDot = {arity = 2, order = "algebraic", kind = "dot"},
+            orderedsum = {arity = 1, order = "ordered", kind = "sum"},
+            pairwisesum = {arity = 1, order = "pairwise", kind = "sum"},
+            algebraicsum = {arity = 1, order = "algebraic", kind = "sum"},
+            orderedproduct = {arity = 1, order = "ordered", kind = "product"},
+            pairwiseproduct = {arity = 1, order = "pairwise", kind = "product"},
+            algebraicproduct = {arity = 1, order = "algebraic", kind = "product"},
+            ordereddot = {arity = 2, order = "ordered", kind = "dot"},
+            pairwisedot = {arity = 2, order = "pairwise", kind = "dot"},
+            algebraicdot = {arity = 2, order = "algebraic", kind = "dot"},
             -- An extremum rounds nothing, so it takes no association order.
             -- What it does take is the NaN contract, which occupies the same
             -- position in the name that ordered, pairwise and algebraic do.
-            propagatingMin = {arity = 1, order = "propagating", kind = "min"},
-            propagatingMax = {arity = 1, order = "propagating", kind = "max"},
-            numberMin = {arity = 1, order = "number", kind = "min"},
-            numberMax = {arity = 1, order = "number", kind = "max"},
-            propagatingArgMin = {arity = 1, order = "propagating", kind = "arg_min"},
-            propagatingArgMax = {arity = 1, order = "propagating", kind = "arg_max"},
-            numberArgMin = {arity = 1, order = "number", kind = "arg_min"},
-            numberArgMax = {arity = 1, order = "number", kind = "arg_max"},
+            propagatingmin = {arity = 1, order = "propagating", kind = "min"},
+            propagatingmax = {arity = 1, order = "propagating", kind = "max"},
+            numbermin = {arity = 1, order = "number", kind = "min"},
+            numbermax = {arity = 1, order = "number", kind = "max"},
+            propagatingargmin = {arity = 1, order = "propagating", kind = "arg_min"},
+            propagatingargmax = {arity = 1, order = "propagating", kind = "arg_max"},
+            numberargmin = {arity = 1, order = "number", kind = "arg_min"},
+            numberargmax = {arity = 1, order = "number", kind = "arg_max"},
             -- The exact integer contracts: wrapping and bitwise operations
             -- answer the same under every association, so each has one name.
-            wrappingSum = {arity = 1, order = "exact", kind = "sum"},
-            wrappingProduct = {arity = 1, order = "exact", kind = "product"},
-            andBits = {arity = 1, order = "exact", kind = "and"},
-            orBits = {arity = 1, order = "exact", kind = "or"},
-            xorBits = {arity = 1, order = "exact", kind = "xor"},
-            integerMin = {arity = 1, order = "integer", kind = "min"},
-            integerMax = {arity = 1, order = "integer", kind = "max"},
+            wrappingsum = {arity = 1, order = "exact", kind = "sum"},
+            wrappingproduct = {arity = 1, order = "exact", kind = "product"},
+            andbits = {arity = 1, order = "exact", kind = "and"},
+            orbits = {arity = 1, order = "exact", kind = "or"},
+            xorbits = {arity = 1, order = "exact", kind = "xor"},
+            integermin = {arity = 1, order = "integer", kind = "min"},
+            integermax = {arity = 1, order = "integer", kind = "max"},
         }
         local horizontal = operations[operation]
         if horizontal == nil then

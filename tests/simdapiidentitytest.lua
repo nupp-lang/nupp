@@ -186,4 +186,114 @@ function M.formerPublicModulesAreAbsentAndGpuImplementationStaysPrivate()
     assert(reason and reason:find("internal", 1, true), tostring(reason))
 end
 
+local function lowercaseSimdNamespaces(source)
+    for _, namespace in ipairs({"reducer", "horizontal"}) do
+        source = source:gsub("%f[%w_]" .. namespace .. "%.([%a_][%w_]*)", function(name)
+            return namespace .. "." .. (name:match("^[a-z]") and name:lower() or name)
+        end)
+    end
+
+    source = source:gsub("local reducer: %b{}", function(declaration)
+        return declaration:gsub("(\n    )([a-z][%w_]*)(: function)", function(indent, name, suffix)
+            return indent .. name:lower() .. suffix
+        end)
+    end)
+
+    return source
+end
+
+local function simdEnvironment(lowercase)
+    local root = HERE .. "/.."
+    local env = envMod.new(root, {cache = false})
+    if lowercase then
+        local path = root .. "/src/simd.nupp"
+        local file = assert(io.open(path, "rb"))
+        local source = file:read("*a")
+        file:close()
+        local _, diagnostics = envMod.checkModuleSource(env, path, lowercaseSimdNamespaces(source), {
+            moduleName = "simd"
+        })
+        test.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    end
+
+    return env
+end
+
+local function checkedSimd(source, env)
+    local parsed = parser.parse(source, "simd-case.nupp")
+    test.equal(#parsed.errors, 0)
+    local diagnostics = checker.check(parsed, "simd-case.nupp", env)
+    return parsed, diagnostics
+end
+
+local CASE_KERNEL = [[
+local array = require("nupp.mem.array")
+local simd = require("simd")
+@aot
+local function fold(): number
+    local floating = simd.reducer.orderedSum(0.0)
+    local exact = simd.reducer.wrappingSum(array.int32, 0)
+    do
+        floating:add(1.5)
+        exact:add(2)
+    end
+    return floating:value() + exact:value()
+end
+@aot
+local function horizontal(): (int32, integer)
+    local integers = assert(simd.species(array.int32, 4))
+    local floats = assert(simd.species(array.float, 4))
+    local total: int32 = simd.horizontal.wrappingSum(integers:splat(3))
+    local at: integer = simd.horizontal.propagatingArgMax(floats:splat(2.0))
+    return total, at
+end
+]]
+
+function M.lowercaseSimdDeclarationsKeepVerifiedOperations()
+    local before
+    for _, lowercase in ipairs({false, true}) do
+        local source = lowercase and lowercaseSimdNamespaces(CASE_KERNEL) or CASE_KERNEL
+        local parsed, diagnostics = checkedSimd(source, simdEnvironment(lowercase))
+        test.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+        local programs, problems = compile.lower(source, "simd-case.nupp", parsed)
+        test.equal(#problems, 0, problems[1] and problems[1].message)
+        test.equal(#programs, 2)
+        local after = text.programs(programs)
+        assert(after:find("reducer.ordered.sum", 1, true), after)
+        assert(after:find("simd_horizontal", 1, true), after)
+        if before then
+            test.equal(after, before, "public casing changed private SIMD operations")
+        end
+        before = after
+    end
+end
+
+function M.lowercaseSimdContractsKeepRefusalsAndMethodCase()
+    local source = [[
+local array = require("nupp.mem.array")
+local simd = require("simd")
+@aot
+local function invalid(): number
+    local floats = assert(simd.species(array.float, 4))
+    return simd.horizontal.wrappingSum(floats:splat(1.0))
+end
+]]
+    for _, lowercase in ipairs({false, true}) do
+        local input = lowercase and lowercaseSimdNamespaces(source) or source
+        local _, diagnostics = checkedSimd(input, simdEnvironment(lowercase))
+        test.equal(#diagnostics, 1)
+        test.equal(diagnostics[1].code, "NUPP2006")
+    end
+    local runtime = require("simd")
+    test.equal(runtime.lane.fromstorage, runtime.lane.fromStorage, "bootstrap entry must reuse the runtime function")
+    local _, diagnostics = checkedSimd(
+        [[
+local simd = {horizontal = {wrappingsum = function(value: number): number return value + 1 end}}
+return simd.horizontal.wrappingsum(2)
+]],
+        simdEnvironment(true)
+    )
+    test.equal(#diagnostics, 0, "a shadowed table remains an ordinary call")
+end
+
 return M
