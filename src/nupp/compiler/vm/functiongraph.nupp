@@ -62,7 +62,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
     end
     -- An anonymous `...` has no name; its node keys the hidden pack parameter.
     local varargKey: any = nil
-    for index, parameter in ipairs(moduleOwner and {} or body.params) do
+    for index, parameter in ipairs(moduleOwner and {} or graph.parameters(body)) do
         local key = parameter.name and (parameter.name.definition or parameter.name) or parameter
         if parameter.vararg and not parameter.name then
             varargKey = key
@@ -928,7 +928,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
         for index, key in ipairs(outerOrder) do
             bindings[key], bindingOrder[index] = outerBindings[key], key
         end
-        for index, parameter in ipairs(target.body.params) do
+        for index, parameter in ipairs(graph.parameters(target.body)) do
             local key = parameter.name.definition or parameter.name
             bindings[key] = values[index]
             bindingOrder[#bindingOrder + 1] = key
@@ -1018,6 +1018,8 @@ function frontend.compile(fn: any, options: any, profile: any): any
                         ctx.release(values[index])
                     end
                 end
+            elseif stat.kind == "funcStmt" and profile.functionStatement then
+                invoke("functionStatement", stat, nil)
             elseif stat.kind == "localFuncStmt" and profile.closure then
                 local key = stat.name.definition or stat.name
                 local initial = invoke("recursiveBinding", stat, key)
@@ -1436,6 +1438,14 @@ function frontend.compile(fn: any, options: any, profile: any): any
                 else
                     invoke("exportStatement", stat, nil)
                 end
+            elseif stat.kind == "recordDecl" and profile.recordValue then
+                -- A record's name can hold a table of its methods.
+                invoke("erasedStatement", stat, nil)
+                local key = stat.name and stat.name.definition
+                local value = key and invoke("recordValue", stat, nil)
+                if value and block then
+                    ctx.bind(key, initializeBinding(stat, key, value))
+                end
             elseif stat.kind == "moduleStmt" or stat.kind == "typeAlias" or stat.kind == "recordDecl" then
                 invoke("erasedStatement", stat, nil)
             elseif stat.kind == "returnStmt" then
@@ -1454,7 +1464,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
     end
     if profile.entryBindings then
         context()
-        for index, parameter in ipairs(moduleOwner and {} or body.params) do
+        for index, parameter in ipairs(moduleOwner and {} or graph.parameters(body)) do
             local key = parameter.name and (parameter.name.definition or parameter.name) or parameter
             bindings[key] = initializeBinding(parameter, key, index)
         end

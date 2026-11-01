@@ -407,15 +407,24 @@ const NATIVE_OPS = {
 --- `modules`, when a build gives them, are the target's compiled source set:
 --- a program carries every one of them, as a LuaJIT build carried its whole
 --- output tree, so a module named only by a computed `require` is found.
+--- `cacheDir` keeps each module's lowering for the next build, which replays
+--- what is unchanged (`nupp.tools.vm.emitcache`). A replayed module is not
+--- lowered, so the facilities it needs cannot be seen; `seeded` carries the
+--- last build's, which a caller passes only with a cache it wrote.
 function project.program(
     root: string,
     config: table,
     entry: string,
     embedded: string?,
     coverage: lower.CoverageRequest?,
-    modules: {[string]: any}?
+    modules: {[string]: any}?,
+    cacheDir: string?,
+    seeded: {string}?
 ): (string, {string})
     local reached: {[string]: boolean} = {}
+    for _, facility in ipairs(seeded or {}) do
+        reached[facility] = true
+    end
     local extras: {string} = embedded and {"nupp.embedded"} or {}
     local sources: {[string]: string} = {}
     local names: {string} = {}
@@ -474,7 +483,7 @@ function project.program(
         embedded and {["nupp.embedded"] = embedded} or nil,
         reached,
         coverage,
-        nil,
+        coverage == nil and cacheDir or nil,
         sources
     )
     lower.pathMapper = nil

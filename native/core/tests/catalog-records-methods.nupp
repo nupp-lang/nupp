@@ -1,0 +1,41 @@
+module nupp.core.catalogrecordsmethods
+
+-- Record methods: `function R:m(...)` stores the method in the table the
+-- record's name holds, and `c:m(...)` calls it with the receiver first,
+-- across instances, from other methods, with several results, and with
+-- another instance as an argument.
+local record Counter
+    count: integer
+    step: integer
+end
+
+function Counter:bump(by: integer): integer
+    self.count = self.count + by * self.step
+    return self.count
+end
+
+function Counter:twice(): integer
+    return self:bump(1) + self:bump(1)
+end
+
+function Counter:split(): (integer, integer)
+    return self.count // 10, self.count % 10
+end
+
+function Counter:absorb(other: Counter): integer
+    self.count = self.count + other.count
+    other.count = 0
+    return self.count
+end
+
+local c = new Counter(count = 1, step = 3)
+local d = new Counter(count = 100, step = 1)
+local a = c:bump(2)
+local b = c:twice()
+local tens, ones = c:split()
+local merged = d:absorb(c)
+local total = 0
+for i = 1, 4 do
+    total = total + d:bump(i)
+end
+export = a * 1000000 + b * 10000 + tens * 1000 + ones * 100 + merged + c.count * 7 + total * 100000000
