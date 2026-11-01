@@ -869,7 +869,7 @@ function M.filesystemNamesAreFilesPathsEverywhere()
                 "end",
                 "send('/tmp/x')",
                 "send(paths.newPath('/tmp/x'))",
-                "send(assert(files.dataPath()))",
+                "send((assert(files.dataPath())))",
             },
             "\n"
         )

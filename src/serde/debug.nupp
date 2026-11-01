@@ -22,6 +22,8 @@ format may change. [](binding) honours the `Debug` derive's field annotations
 and a declaration's own `Debug` method; any other binding renders through its
 adapter as written, so a model library's values render without a derive.
 ]]
+const assert2 = require("assert")
+
 const reflect = require("types.reflect")
 
 local core = require("nupp.serde.internal.value")
@@ -50,7 +52,7 @@ end
 local record Custom<M is core.Member> is core.Adapter<unknown, M>
     @readonly description: CustomDescription<M>
     function describe(self, direction: core.Direction): core.Description<M>
-        assert(direction == "write", "a Debug view cannot decode values")
+        assert2(direction == "write", "a Debug view cannot decode values")
         return self.description
     end
 
@@ -154,7 +156,7 @@ local function action<M is core.Member>(member: M): Action
             end
         end
     end
-    assert(not (skip and redact), "a debug field cannot be both skipped and redacted")
+    assert2(not (skip and redact), "a debug field cannot be both skipped and redacted")
 
     return skip and "skip" or redact and "redact" or "traverse"
 end
@@ -170,7 +172,7 @@ local function plan<M is core.Member>(description: core.Description<M>, seen: {[
     if previous ~= nil then
         return previous
     end
-    assert(description.kind ~= "opaque", "debug field requires an explicit binding")
+    assert2(description.kind ~= "opaque", "debug field requires an explicit binding")
     local result = new Plan<M>(description = description)
     seen[description] = result
     for _, child in ipairs(description.children) do
@@ -235,7 +237,7 @@ local record Output<M is core.Member> is core.Writer<M>
     rootWritten: boolean = false
     closed: boolean = false
     function live(self): nil
-        assert(not self.closed, "debug writer has expired")
+        assert2(not self.closed, "debug writer has expired")
     end
 
     function add(self, value: string): nil
@@ -256,10 +258,10 @@ local record Output<M is core.Member> is core.Writer<M>
         self:live()
         local frame = self.frames[#self.frames]
         if frame == nil then
-            assert(not self.rootWritten, "debug root was written twice")
+            assert2(not self.rootWritten, "debug root was written twice")
             self.rootWritten = true
         elseif frame.kind == "map" then
-            assert(frame.entry, "debug map value outside entry")
+            assert2(frame.entry, "debug map value outside entry")
         else
             if frame.count > 0 then
                 self:add(", ")
@@ -345,7 +347,7 @@ local record Output<M is core.Member> is core.Writer<M>
 
     function aggregate<S>(exclusive self, member: M, kind: core.Kind, borrows source: S, emit: core.Members<M, S>): nil
         self:live()
-        assert(self.depth + #self.frames < 128, "debug nesting limit exceeded")
+        assert2(self.depth + #self.frames < 128, "debug nesting limit exceeded")
         self:position(member)
         local id = identity(source)
         if id ~= nil and self.state.active[id] then
@@ -406,8 +408,8 @@ local record Output<M is core.Member> is core.Writer<M>
         valueEmit: core.Members<M, V>
     ): nil
         self:live()
-        local frame = assert(self.frames[#self.frames], "debug entry outside map")
-        assert(frame.kind == "map" and not frame.entry, "debug entry outside map")
+        local frame = assert2(self.frames[#self.frames], "debug entry outside map")
+        assert2(frame.kind == "map" and not frame.entry, "debug entry outside map")
         local start = #self.state.parts + 1
         frame.count += 1
         frame.entry = true
@@ -433,7 +435,7 @@ local record Output<M is core.Member> is core.Writer<M>
         adapter: core.DocumentAdapter<D>
     ): nil
         self:live()
-        local frame = assert(self.frames[#self.frames], "unknown debug field outside structure")
+        local frame = assert2(self.frames[#self.frames], "unknown debug field outside structure")
         if frame.count > 0 then
             self:add(", ")
         end
@@ -458,11 +460,11 @@ local record Render<T> is core.Consumer<T, T, nil>
         local selected = self.state.cache:resolve(adapter)
         local writer = output(selected, self.state, self.depth)
         adapter:write(value, writer)
-        assert(writer.rootWritten, "debug binding did not emit a value")
+        assert2(writer.rootWritten, "debug binding did not emit a value")
     end
 end
 contents = function<D>(adapter: core.DocumentAdapter<D>, borrows value: D, state: State, depth: integer): nil
-    assert(depth <= 128, "debug nesting limit exceeded")
+    assert2(depth <= 128, "debug nesting limit exceeded")
     adapter:contents():accept(new Render<D>(state = state, depth = depth), value)
 end
 

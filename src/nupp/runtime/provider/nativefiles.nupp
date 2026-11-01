@@ -8,7 +8,8 @@ keeps a user's folders. It also moves and removes names.
 
 ```nupp:playground
 local files = nupp.io.files
-for _, entry in ipairs(assert(files.list("src"))) do
+local entries = assert(files.list("src"))
+for _, entry in ipairs(entries) do
     print(entry.kind, entry.name)
 end
 ```
@@ -1392,7 +1393,8 @@ end
 --- Walk every source file under a directory:
 ---
 --- ```nupp
---- for _, match in ipairs(assert(nupp.io.files.glob("src/**/*.nupp"))) do
+--- local matches = assert(nupp.io.files.glob("src/**/*.nupp"))
+--- for _, match in ipairs(matches) do
 ---     print(match:toString())
 --- end
 --- ```

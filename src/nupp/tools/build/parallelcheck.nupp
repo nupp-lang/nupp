@@ -17,6 +17,7 @@ reuses them as it would records from an earlier run, so anything this checker ge
 wrong is caught there or rechecked serially, and any failure here returns the whole
 check to the serial checker before a partial record is published.
 ]]
+const arg2 = require("arg")
 
 local aotcheck = require("nupp.tools.build.aotcheck")
 local envMod = require("nupp.compiler.project.env")
@@ -140,7 +141,7 @@ function parallelcheck.run(input: any): (any?, string?)
     local hosted: any = rawget(_G, "__NUPP_EXECUTABLE")
     local executable = compilerRoot and join(compilerRoot, "bin/nupp")
         or type(hosted) == "string" and hosted
-        or tostring(arg and arg[0] or "nupp")
+        or tostring(arg2 and arg2[0] or "nupp")
     local timeoutMs = os.getenv("NUPP_TEST_PARALLEL_CHECK_FAILURE") == "hang" and 100 or WORKER_TIMEOUT_MS
 
     -- What the run shares between its lanes.

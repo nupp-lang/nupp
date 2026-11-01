@@ -604,8 +604,9 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
             interface = "nupp.time.spi.Provider",
             native = "nupp.runtime.provider.nativetime",
             browser = "nupp.runtime.browser.time",
-            member = "now",
-            cache = "nupp.runtime.timeprovider"
+            member = "sleep",
+            cache = "nupp.runtime.timeprovider",
+            siblings = {"nupp.runtime.clocks"}
         },
         {
             module = "nupp.workers",

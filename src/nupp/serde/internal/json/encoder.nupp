@@ -1,6 +1,8 @@
 @!internal
 module nupp.serde.internal.json.encoder
 
+const assert2 = require("assert")
+
 local core = require("nupp.serde.internal.value")
 local plans = require("nupp.serde.internal.json.plan")
 local lowering = require("nupp.serde.internal.json.lower")
@@ -71,7 +73,7 @@ local record Field<T, S is own.Closeable, M is core.Member> is structures.FieldC
             #self.fields + 1
         ] = new Project<T, V>(
             dynamic = encoding.dynamic,
-            key = assert(self.plan:key(member)),
+            key = assert2(self.plan:key(member)),
             path = path,
             present = has,
             get = get,

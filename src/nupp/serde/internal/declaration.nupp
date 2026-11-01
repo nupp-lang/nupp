@@ -1,5 +1,7 @@
 module nupp.serde.internal.declaration
 
+const assert2 = require("assert")
+
 const reflect = require("types.reflect")
 
 local core = require("nupp.serde.internal.value")
@@ -134,7 +136,7 @@ local record Scalar is core.Adapter<unknown, Member>
             writer:writeFloat(member, (value as number) * 1, self.description.width as(32 | 64))
         elseif kind == "numberToken" then
             local number = (value as number) + 0
-            assert(
+            assert2(
                 number == number and number ~= math.huge and number ~= -math.huge and number % 1 == 0,
                 "expected a finite integer"
             )
@@ -173,7 +175,7 @@ local record Scalar is core.Adapter<unknown, Member>
             return reader:readFloat(member, self.description.width as(32 | 64))
         elseif kind == "numberToken" then
             local number = tonumber(reader:readNumberToken(member))
-            assert(
+            assert2(
                 number ~= nil and number == number and number ~= math.huge and number ~= -math.huge and number % 1 == 0,
                 "expected a finite integer"
             )
@@ -189,7 +191,7 @@ local record Scalar is core.Adapter<unknown, Member>
                 local magnitude: any = runtime.new("uint64_t", 0)
                 local negative = decimal:sub(1, 1) == "-"
                 for position = negative and 2 or 1, #decimal do
-                    magnitude = magnitude * 10 + (assert(decimal:byte(position)) - 48)
+                    magnitude = magnitude * 10 + (assert2(decimal:byte(position)) - 48)
                 end
                 if self.description.signed then
                     if negative then
@@ -217,7 +219,7 @@ local record EpochSeconds is core.Adapter<unknown, Member>
 
     function write(self, borrows value: unknown, exclusive writer: core.Writer<Member>): nil
         local seconds = (value as number) + 0
-        assert(
+        assert2(
             seconds == seconds and seconds % 1 == 0 and math.abs(seconds) <= 9007199254740991,
             "expected exact integer epoch seconds"
         )
@@ -230,7 +232,7 @@ local record EpochSeconds is core.Adapter<unknown, Member>
     function read(self, exclusive reader: core.Reader<Member>): unknown
         local timestamp = reader:readTimestamp(self.description.member)
         local seconds = tonumber(timestamp.seconds)
-        assert(
+        assert2(
             timestamp.nanos == 0 and seconds ~= nil and math.abs(seconds) <= 9007199254740991,
             "timestamp does not fit integer epoch seconds"
         )
@@ -242,15 +244,15 @@ end
 local record Link is core.Adapter<unknown, Member>
     target: core.Adapter<unknown, Member>?
     function describe(self, direction: core.Direction): core.Description<Member>
-        return assert(self.target, "incomplete declaration graph"):describe(direction)
+        return assert2(self.target, "incomplete declaration graph"):describe(direction)
     end
 
     function write(self, borrows value: unknown, exclusive writer: core.Writer<Member>): nil
-        assert(self.target, "incomplete declaration graph"):write(value, writer)
+        assert2(self.target, "incomplete declaration graph"):write(value, writer)
     end
 
     function read(self, exclusive reader: core.Reader<Member>): unknown
-        return assert(self.target, "incomplete declaration graph"):read(reader)
+        return assert2(self.target, "incomplete declaration graph"):read(reader)
     end
 end
 
@@ -262,13 +264,13 @@ local record LiteralSet is core.Adapter<unknown, Member>
     end
 
     function write(self, borrows value: unknown, exclusive writer: core.Writer<Member>): nil
-        assert(self.values[value], "value is outside the declaration's literals")
+        assert2(self.values[value], "value is outside the declaration's literals")
         self.target:write(value, writer)
     end
 
     function read(self, exclusive reader: core.Reader<Member>): unknown
         local value = self.target:read(reader)
-        assert(self.values[value], "value is outside the declaration's literals")
+        assert2(self.values[value], "value is outside the declaration's literals")
         return value
     end
 end
@@ -352,7 +354,7 @@ local record Checked is core.Adapter<unknown, Member>
     end
 
     function read(self, exclusive reader: core.Reader<Member>): unknown
-        assert(self.problem == nil, self.problem)
+        assert2(self.problem == nil, self.problem)
         return self.target:read(reader)
     end
 end
@@ -387,9 +389,9 @@ local record ReadElements is core.ElementConsumer<Member, SequenceState>
     @readonly adapters: {core.Adapter<unknown, Member>}
     @readonly tuple: boolean
     function apply(self, exclusive state: SequenceState, index: integer, exclusive reader: core.Reader<Member>): nil
-        assert(index == state.count + 1, "nonsequential element")
+        assert2(index == state.count + 1, "nonsequential element")
         local value = self.adapters[self.tuple and index or 1]:read(reader)
-        assert(
+        assert2(
             self.tuple or value ~= nil,
             "a Nupp array cannot retain a null element; use a document or explicit mapping"
         )
@@ -458,10 +460,10 @@ local record ReadEntries is core.EntryConsumer<Member, MapState>
         exclusive value: core.Reader<Member>
     ): nil
         local name = self.key.adapter:read(key)
-        assert(name ~= nil and name == name, "invalid map key")
-        assert(not state.seen[name], "duplicate map key")
+        assert2(name ~= nil and name == name, "invalid map key")
+        assert2(not state.seen[name], "duplicate map key")
         local item = self.value.adapter:read(value)
-        assert(item ~= nil, "a Nupp map cannot retain a null value; use a document or explicit mapping")
+        assert2(item ~= nil, "a Nupp map cannot retain a null value; use a document or explicit mapping")
         state.seen[name] = true
         state.values[name] = item
     end
@@ -567,7 +569,7 @@ local function recordAdapter(graph: Graph, index: integer, member: Member): core
         end
         if whitelist ~= nil then
             for name in pairs(whitelist) do
-                assert(known[name], "unknown declaration field: " .. name)
+                assert2(known[name], "unknown declaration field: " .. name)
             end
         end
         graph.members[index] = members
@@ -616,7 +618,7 @@ local function recordAdapter(graph: Graph, index: integer, member: Member): core
                     return selected:get(value, field)
                 end,
                 function(exclusive state: access.Builder<unknown>, value: unknown): nil
-                    state:set(assert(parameter, "field has no construction parameter"), value)
+                    state:set(assert2(parameter, "field has no construction parameter"), value)
                 end,
                 target,
                 parameter ~= nil and not parameter.optional,
@@ -663,9 +665,9 @@ local record ShapeConstruction is structure.Construction<unknown, ShapeState>
     end
 
     function finish(self, takes state: ShapeState): unknown
-        assert(not state.closed, "shape construction is closed")
+        assert2(not state.closed, "shape construction is closed")
         for _, name in ipairs(self.required) do
-            assert(state.present[name], "missing construction field: " .. name)
+            assert2(state.present[name], "missing construction field: " .. name)
         end
         local result = state.values
         state:close()
@@ -695,11 +697,11 @@ end
 
 local function shapeAdapter(graph: Graph, index: integer, member: Member): core.Adapter<unknown, Member>
     local node: any = graph.root.info.types[index]
-    assert(node.index == nil or next(node.index) == nil, "shape indexers require an explicit binding")
+    assert2(node.index == nil or next(node.index) == nil, "shape indexers require an explicit binding")
     local fields: {structure.Field<unknown, ShapeState, Member>} = {}
     local required: {string} = {}
     for position, field in ipairs(node.fields) do
-        assert(field.read ~= nil, "shape field is not readable")
+        assert2(field.read ~= nil, "shape field is not readable")
         local name: string = field.name
         local child = new Member(
             name = name,
@@ -717,7 +719,7 @@ local function shapeAdapter(graph: Graph, index: integer, member: Member): core.
                 return (value as {[string]: unknown})[name]
             end,
             function(exclusive state: ShapeState, value: unknown): nil
-                assert(not state.closed and not state.present[name], "shape field was already assigned")
+                assert2(not state.closed and not state.present[name], "shape field was already assigned")
                 state.present[name] = true
                 state.values[name] = value
             end,
@@ -758,7 +760,7 @@ resolve = function(graph: Graph, index: integer, member: Member): core.Adapter<u
         end
     end
     if member.representation == "iso8601Seconds" then
-        assert(
+        assert2(
             kind == "const"
             or kind == "literal"
             or kind == "union"
@@ -894,7 +896,7 @@ resolve = function(graph: Graph, index: integer, member: Member): core.Adapter<u
             scalar, width, signed = "integer", tonumber(kind:match("%d+")) as integer, kind:sub(1, 1) == "i"
         end
         if member.representation == "iso8601Seconds" then
-            assert(
+            assert2(
                 kind == "integer" or scalar == "integer" and width ~= 64,
                 "ISO epoch-seconds mapping requires a Lua integer carrier"
             )
@@ -967,17 +969,17 @@ end
 
 local record Policy<M is core.Member> is plans.Policy<M>
     function name(self, member: M): string
-        assert(getmetatable(member) == Member, "declaration policy requires declaration members")
+        assert2(getmetatable(member) == Member, "declaration policy requires declaration members")
         return (member as Member).wireName or member.name
     end
 
     function select(self, member: M, direction: core.Direction): plans.Selection
-        assert(getmetatable(member) == Member, "declaration policy requires declaration members")
+        assert2(getmetatable(member) == Member, "declaration policy requires declaration members")
         return "traverse"
     end
 
     function timestamp(self, member: M, borrows value: core.Timestamp): json.EncodedValue
-        assert(
+        assert2(
             getmetatable(member) == Member and (member as Member).representation == "iso8601Seconds",
             "a timestamp requires an explicit declaration mapping"
         )
@@ -986,11 +988,11 @@ local record Policy<M is core.Member> is plans.Policy<M>
     end
 
     function parseTimestamp(self, member: M, text: string, kind: "string" | "number"): core.Timestamp
-        assert(
+        assert2(
             getmetatable(member) == Member and (member as Member).representation == "iso8601Seconds",
             "a timestamp requires an explicit declaration mapping"
         )
-        assert(kind == "string", "ISO timestamp requires a JSON string")
+        assert2(kind == "string", "ISO timestamp requires a JSON string")
 
         return timestamps.parseDateTime(text)
     end
@@ -998,7 +1000,7 @@ end
 
 local record Factory is plans.PolicyFactory
     function policy<M is core.Member>(self, member: M): plans.Policy<M>
-        assert(getmetatable(member) == Member, "declaration policy requires a declaration binding")
+        assert2(getmetatable(member) == Member, "declaration policy requires a declaration binding")
         return new Policy<M>()
     end
 end
@@ -1060,7 +1062,7 @@ local function nativeCarrier(info: types.reflect.Info, index: integer, syntax: a
         or kind == "uint16"
         or kind == "uint32"
     then
-        local width = assert(tonumber(kind:match("%d+")))
+        local width = assert2(tonumber(kind:match("%d+")))
         local signed = kind:sub(1, 1) == "i"
         local limit = 2 ^ (width - (signed and 1 or 0))
         return (syntax.kind == "integer" or syntax.kind == "unsigned")
@@ -1117,7 +1119,7 @@ local function directRecord<T>(selected: access.Access<unknown>, recipe: lowerin
         field.defaultValue = stored.defaultValue
     end
     recipe.syntax.access = "record"
-    recipe.syntax.typeObject = assert(reflect.runtimeType(selected.info, selected.typeIndex))
+    recipe.syntax.typeObject = assert2(reflect.runtimeType(selected.info, selected.typeIndex))
     recipe.syntax.factory = nil
 end
 
@@ -1174,7 +1176,7 @@ export function nativeRecipe<T, M is core.Member>(
         local sequence = adapter as unknown as Sequence
         local items: {any} = {}
         for index, child in ipairs(sequence.description.children) do
-            local nested = assert(plan:child(child.member as unknown as M))
+            local nested = assert2(plan:child(child.member as unknown as M))
             local target = sequence.elements.adapters[index] as unknown as core.Adapter<unknown, M>
             local recipe = resolver:resolve(target, nested, path)
             if recipe == nil or not inertRecipe(recipe.syntax) then
@@ -1190,7 +1192,7 @@ export function nativeRecipe<T, M is core.Member>(
         local children = mapping.description.children
         local key = resolver:resolve(
             mapping.entries.key.adapter as unknown as core.Adapter<unknown, M>,
-            assert(plan:child(children[1].member as unknown as M)),
+            assert2(plan:child(children[1].member as unknown as M)),
             path
         )
         if key == nil or key.syntax.kind ~= "string" then
@@ -1198,7 +1200,7 @@ export function nativeRecipe<T, M is core.Member>(
         end
         local value = resolver:resolve(
             mapping.entries.value.adapter as unknown as core.Adapter<unknown, M>,
-            assert(plan:child(children[2].member as unknown as M)),
+            assert2(plan:child(children[2].member as unknown as M)),
             path
         )
         if value == nil or not inertRecipe(value.syntax) then
@@ -1250,7 +1252,7 @@ local record ScalarEncoding is lowering.Encoding<unknown>
             sink:write(numbers.floating((value as number) * 1, self.description.width as(32 | 64)))
         elseif kind == "numberToken" then
             local number = (value as number) + 0
-            assert(
+            assert2(
                 number == number and number ~= math.huge and number ~= -math.huge and number % 1 == 0,
                 "expected a finite integer"
             )
@@ -1270,7 +1272,7 @@ local record SequenceEncoding is lowering.Encoding<unknown>
     @readonly items: {lowering.Encoding<unknown>}
     @readonly tuple: boolean
     function write(self, borrows value: unknown, exclusive sink: json.Writer, budget: lowering.Budget?): nil
-        assert(budget):step(self.path)
+        assert2(budget):step(self.path)
         local values = value as {unknown}
         local count = self.tuple and #self.items or #values
         sink:startArray()
@@ -1289,7 +1291,7 @@ local record MapEncoding is lowering.Encoding<unknown>
     @readonly path: string
     @readonly item: lowering.Encoding<unknown>
     function write(self, borrows value: unknown, exclusive sink: json.Writer, budget: lowering.Budget?): nil
-        assert(budget):step(self.path)
+        assert2(budget):step(self.path)
         sink:startObject()
         for key, item in pairs(value as {[string]: unknown}) do
             sink:key(key)
@@ -1325,7 +1327,7 @@ export function nativeEncoding<T, M is core.Member>(
         local sequence = adapter as unknown as Sequence
         local items: {lowering.Encoding<unknown>} = {}
         for index, child in ipairs(sequence.description.children) do
-            local nested = assert(plan:child(child.member as unknown as M))
+            local nested = assert2(plan:child(child.member as unknown as M))
             local item = resolver:resolve(
                 sequence.elements.adapters[index] as unknown as core.Adapter<unknown, M>,
                 nested,
@@ -1346,7 +1348,7 @@ export function nativeEncoding<T, M is core.Member>(
         if not stringKey(mapping.entries.key.adapter) then
             return nil
         end
-        local nested = assert(plan:child(mapping.description.children[2].member as unknown as M))
+        local nested = assert2(plan:child(mapping.description.children[2].member as unknown as M))
         local item = resolver:resolve(mapping.entries.value.adapter as unknown as core.Adapter<unknown, M>, nested, "$")
         if item == nil then
             return nil

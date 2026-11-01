@@ -881,7 +881,7 @@ function M.theBrowserSimdTemplateChecksBuildsAndTests()
             .. " aot --triple wasm32-unknown-emscripten --features "
         local ok, out = shell(prefix .. "scalar '" .. into .. "/src/scalar.nupp'")
         assert(ok, "the scalar browser kernel is not admitted:\n" .. out)
-        ok, out = shell(prefix .. "simd128 '" .. into .. "/src/simd.nupp'")
+        ok, out = shell(prefix .. "simd128 '" .. into .. "/src/vector_kernel.nupp'")
         assert(
             ok and out:find("explicit simd", 1, true),
             "the SIMD browser kernel did not use explicit vectors:\n" .. out

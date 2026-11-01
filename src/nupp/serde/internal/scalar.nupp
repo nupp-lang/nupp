@@ -1,5 +1,7 @@
 module nupp.serde.internal.scalar
 
+const assert2 = require("assert")
+
 local core = require("nupp.serde.internal.value")
 
 local record Description<M is core.Member> is core.Description<M>
@@ -132,7 +134,7 @@ local record BigInteger<M is core.Member> is core.Adapter<string, M>
     end
 
     function write(self, borrows value: string, exclusive writer: core.Writer<M>): nil
-        assert(value:match("^%-?%d+$"), "invalid big integer")
+        assert2(value:match("^%-?%d+$"), "invalid big integer")
         writer:writeBigInteger(self.description.member, value:sub(1))
     end
 

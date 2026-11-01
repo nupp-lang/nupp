@@ -20,6 +20,7 @@ The browser host must install its effect transport before consumers load
 [](nupp.suspension). Handler, source, and waiting state stays local to each Lua
 state, and scheduling operations never resolve the service again.
 ]]
+const assert2 = require("assert")
 
 local effects = require("nupp.runtime.browser.effects")
 local contract = require("nupp.suspension.spi")
@@ -75,7 +76,7 @@ local function contextsource(
     active: (function(suspension.Source): boolean)?
 ): suspension.Source
     local source = suspension.source(name, order, poller, waiter, active)
-    local associated = assert((self as any)._associated)
+    local associated = assert2((self as any)._associated)
     associated[#associated + 1] = source
     local owned = ownedSources[self]
     if owned == nil then
@@ -91,7 +92,7 @@ local function contextuses(self: contract.Context, source: suspension.Source): n
     if source == nil or (source as any)._released then
         error("nupp: cannot use a released readiness source", 2)
     end
-    local associated = assert((self as any)._associated)
+    local associated = assert2((self as any)._associated)
     associated[#associated + 1] = source
 end
 

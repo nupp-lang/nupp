@@ -585,9 +585,13 @@ return child == getmetatable(value.child) and value.child.value == 7
     )
     local stats = {}
     testAssert.equal(project.build(dir, {stats = stats}), 0)
-    testAssert.equal(stats.checkedModules, 1, "only the consumer changed")
+    testAssert.equal(stats.checkedModules, 2, "the consumer and newly reached reflection facade are checked")
     testAssert.equal(read(dir .. "/out/witnessmodels.lua"), producer)
     testAssert.equal(answerFrom(dir .. "/out", dir), "true", producer .. read(dir .. "/out/main.lua"))
+    local warm = {}
+    testAssert.equal(project.build(dir, {stats = warm}), 0)
+    testAssert.equal(warm.checkedModules, 0, "the complete reflection closure is then reused")
+    testAssert.equal(read(dir .. "/out/witnessmodels.lua"), producer)
     remove(dir)
 end
 

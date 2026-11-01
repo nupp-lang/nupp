@@ -974,6 +974,15 @@ function M.comptimeTypeLibraryDoesNotLeakIntoRuntimeCode()
     )
 end
 
+function M.compilerOnlyNamespaceAliasesKeepRuntimeRefusals()
+    oneDiagnostic(
+        "local library = require('types')\nlocal leaked = library.string",
+        "NUPP2421",
+        'compiler-only member "string" is available only inside comptime'
+    )
+    clean("local types = {string = 'runtime'}\nreturn types.string")
+end
+
 function M.templateConstructionAndOneSegmentExtractionAreFinite()
     clean(
         table.concat(

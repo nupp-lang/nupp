@@ -42,6 +42,7 @@ raw DEFLATE has no checksum at all. Trailing bytes are rejected in every case.
 A provider-added format keys its options by its own canonical name;
 `deflateRaw` above is the built-in ergonomic spelling of `deflate-raw`.
 ]]
+const assert2 = require("assert")
 
 local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
@@ -804,7 +805,7 @@ local selected: provider.Provider = do
     if chosen ~= nil then
         yield chosen
     end
-    assert(target.host == "native", "binary.compress: no implementation is available")
+    assert2(target.host == "native", "binary.compress: no implementation is available")
     yield _G.require("nupp.runtime.provider.nativecompression") as provider.Provider
 end
 validate(selected)

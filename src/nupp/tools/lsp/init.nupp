@@ -11,6 +11,7 @@ dependent module rechecks only when an interface really changed.
 This module is the session, the handlers, and the loop. What each handler
 returns with is next door.
 ]]
+const arg2 = require("arg")
 
 local incremental = require("nupp.compiler.project.incremental")
 
@@ -2080,7 +2081,7 @@ function lsp.run(rootDir: string?): integer
     local process = require("nupp.io.process")
     local compilerRoot = os.getenv("NUPP_COMPILER_ROOT")
     local executable = compilerRoot and compilerRoot .. "/bin/nupp"
-        or type(arg) == "table" and type(arg[0]) == "string" and arg[0]
+        or type(arg2) == "table" and type(arg2[0]) == "string" and arg2[0]
         or nil
     if not executable then
         io.stderr:write("nupp-lsp: cannot identify the current executable\n")
