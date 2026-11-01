@@ -431,4 +431,44 @@ end
     assert(code:find("__nuppV:close()", 1, true), "the public File terminal runs at lexical scope exit")
 end
 
+function M.movedPrivateBundledSourcesKeepFileAndTreePrivacyDistinct()
+    local bundled = require("nupp.compiler.bundled")
+    local originalSource = bundled.source
+    local originalEnv = package.loaded["nupp.compiler.project.env"]
+    local overrides = {
+        ["/nupp/io/init.nupp"] = false,
+        ["/nupp/io.nupp"] = "@!internal\nmodule nupp.io\nexport record Token value: integer end\n",
+        ["/nupp/io/process/init.nupp"] = "module nupp.io.process\nexport const answer: integer = 29\n",
+        ["/nupp/tasks.nupp"] = false,
+        ["/nupp/tasks/init.nupp"] = "@!internal\nmodule nupp.tasks\nexport record Token value: integer end\n",
+    }
+    bundled.source = function(path)
+        if overrides[path] ~= nil then
+            return overrides[path] or nil
+        end
+        return originalSource(path)
+    end
+    package.loaded["nupp.compiler.project.env"] = nil
+    local ok, problem = pcall(function()
+        local fresh = require("nupp.compiler.project.env")
+        local env = fresh.new("/private/tmp", {config = {include = {"no-bundled-layout-fixture"}}, cache = false})
+        local ioModule = env.loadBundledModule("nupp.io")
+        assert(ioModule and ioModule.exports.types.Token)
+        testAssert.equal(ioModule.exports.types.Token.moduleName, "nupp.io")
+        testAssert.equal(ioModule.resource, "/nupp/io.nupp")
+        testAssert.equal(env.bundledImplementation("nupp.io"), "/nupp/io.nupp")
+        assert(env.moduleAccess(env, "application", "nupp.io"))
+        testAssert.equal(env.moduleAccess(env, "application", "nupp.io.process"), nil)
+        testAssert.equal(env.moduleAccess(env, "io.facade", "nupp.io"), nil)
+        local tasks = env.loadBundledModule("nupp.tasks")
+        assert(tasks and tasks.exports.types.Token)
+        testAssert.equal(tasks.resource, "/nupp/tasks/init.nupp")
+        testAssert.equal(env.bundledImplementation("nupp.tasks"), "/nupp/tasks/init.nupp")
+        assert(env.moduleAccess(env, "application", "nupp.tasks.child"))
+    end)
+    package.loaded["nupp.compiler.project.env"] = originalEnv
+    bundled.source = originalSource
+    assert(ok, problem)
+end
+
 return M

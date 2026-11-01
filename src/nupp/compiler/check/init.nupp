@@ -2878,10 +2878,37 @@ function checkMod.check(
             return
         end
         if stat.kind == "localStmt" and stat.isConst and not stat.pattern then
+            local helper = nil
+            if #stat.names == 1 and #(stat.exprs or {}) == 1 and c.env and c.env.resolveModuleExports then
+                local path = apiidentity.sourceExpression(c, stat.exprs[1])
+                local moduleName, member = nil, nil
+                if path then
+                    moduleName, member = path:match("^(.*)%.([^.]+)$")
+                end
+                if moduleName then
+                    local exports = c.env.resolveModuleExports(c.env, moduleName)
+                    helper = exports and exports.comptimeFunctions and exports.comptimeFunctions[member] or nil
+                end
+            end
+            if helper then
+                c.comptimeFunctionDepth = c.comptimeFunctionDepth + 1
+            end
             statHandlers.localStmt(stat)
+            if helper then
+                c.comptimeFunctionDepth = c.comptimeFunctionDepth - 1
+                stat.comptimeFunction = true
+            end
             for _, nameTok in ipairs(stat.names or {}) do
                 local entry = c.scope.vars[nameTok.text]
-                exportValue(nameTok, entry and entry.t, entry and entry.definition, nil, true, true)
+                if helper then
+                    c.comptimeFunctions[nameTok.text] = helper
+                    c.moduleExports.comptimeFunctions[nameTok.text] = helper
+                    if entry and entry.definition then
+                        entry.definition.comptimeFunction = true
+                        entry.definition.comptimeOnly = true
+                    end
+                end
+                exportValue(nameTok, entry and entry.t, entry and entry.definition, nil, true, not helper)
                 c.privateExport.exported(nameTok, "values")
             end
             return

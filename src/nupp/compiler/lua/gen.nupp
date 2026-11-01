@@ -6227,6 +6227,9 @@ function gen.generate(
             end
             return
         end
+        if kind == "localStmt" and x.comptimeFunction then
+            return
+        end
         if kind == "localStmt" and x.pattern then
             local values: {cst.BindingEntry} = {}
             for _, entry in ipairs(x.pattern) do

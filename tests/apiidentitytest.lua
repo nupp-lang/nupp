@@ -898,4 +898,168 @@ return types.derive.annotationtype(4)
     test.equal(result, 5)
 end
 
+local function withComptimeFacade(callback)
+    local root = os.tmpname()
+    os.remove(root)
+    assert(os.execute("mkdir -p '" .. root .. "/src/nupp/internal' '" .. root .. "/src/coroutine/workers'") == 0)
+    local files = {
+        [
+            "nupp/internal/typehelper.nupp"
+        ] = [[
+@!internal
+module nupp.internal.typehelper
+@comptime
+export function Parameters(F: type): typepack return types.parameters(F) end
+@comptime
+export function Identity(T: type): type return T end
+@comptime
+export function Answer(): integer return 37 end
+]],
+        [
+            "coroutine/workers/spi.nupp"
+        ] = [[
+module coroutine.workers.spi
+const implementation = require("nupp.internal.typehelper")
+export const submitted = implementation.Parameters
+export const identity = implementation.Identity
+export const answer = implementation.Answer
+]],
+        [
+            "coroutine/workers/forward.nupp"
+        ] = [[
+module coroutine.workers.forward
+const facade = require("coroutine.workers.spi")
+export const parameters = facade.submitted
+]],
+        [
+            "ordinary.nupp"
+        ] = [[
+module ordinary
+local implementation = {Identity = function(value: integer): integer return value + 1 end}
+export const identity: function(integer): integer = implementation.Identity
+]],
+    }
+    for path, source in pairs(files) do
+        local file = assert(io.open(root .. "/src/" .. path, "wb"))
+        file:write(source)
+        file:close()
+    end
+    local env = finalEnv(root)
+    local saved = {}
+    for path in pairs(files) do
+        local name = path:gsub("%.nupp$", ""):gsub("/", ".")
+        saved[name] = {loaded = package.loaded[name], preload = package.preload[name]}
+        package.loaded[name] = nil
+        package.preload[name] = function()
+            env.resolveModuleExports(env, name)
+            local parsed = env.loadedPaths[root .. "/src/" .. path].result
+            local code = generator.generate(parsed, path)
+            return assert(loadstring(code, "@" .. path))()
+        end
+    end
+    local ok, failure = pcall(callback, env, root)
+    for name, old in pairs(saved) do
+        package.loaded[name], package.preload[name] = old.loaded, old.preload
+    end
+    os.execute("rm -rf '" .. root .. "'")
+    assert(ok, failure)
+end
+
+function M.exportedComptimeAliasesRetainTheExactSealedHelper()
+    withComptimeFacade(function(env)
+        local code, errors = compile(
+            [[
+local api = require("coroutine.workers.spi")
+local forwarded = require("coroutine.workers.forward")
+local type Item = api.identity(integer)
+local function accept(...: unpackof forwarded.parameters(function(integer, string): nil)): nil end
+accept(1, "kept")
+local value: Item = 11
+return value
+]],
+            env
+        )
+        test.equal(errors, "", errors)
+        local value = assert(loadstring(code))()
+        test.equal(value, 11)
+        local origin = env.resolveModuleExports(env, "nupp.internal.typehelper")
+        local facade = env.resolveModuleExports(env, "coroutine.workers.spi")
+        local forwarded = env.resolveModuleExports(env, "coroutine.workers.forward")
+        test.equal(facade.comptimeFunctions.submitted, origin.comptimeFunctions.Parameters)
+        test.equal(facade.comptimeFunctions.identity, origin.comptimeFunctions.Identity)
+        test.equal(facade.comptimeFunctions.answer, origin.comptimeFunctions.Answer)
+        test.equal(forwarded.comptimeFunctions.parameters, origin.comptimeFunctions.Parameters)
+        local path = env.rootDir .. "/src/coroutine/workers/spi.nupp"
+        local parsed = env.loadedPaths[path].result
+        local emitted = generator.generate(parsed, path)
+        test.equal(emitted:find('"submitted"', 1, true), nil)
+        test.equal(emitted:find(".Parameters", 1, true), nil)
+        local images = require("nupp.compiler.project.interfaceimage")
+        local encoded, problem = images.encode(
+            {
+                facade = {
+                    path = path,
+                    interface = {type = env.resolveModule(env, "coroutine.workers.spi")},
+                    exports = facade,
+                }
+            },
+            {projectPaths = {path}}
+        )
+        assert(encoded, problem)
+        local decoded, decodeProblem = images.decode(encoded)
+        assert(decoded, decodeProblem)
+        local restored = decoded.facade
+        test.equal(restored.exports.comptimeFunctions.submitted.identity, origin.comptimeFunctions.Parameters.identity)
+        test.equal(restored.exports.valueDefs.answer.comptimeOnly, true)
+        local fresh = finalEnv(env.rootDir)
+        fresh.loaded["coroutine.workers.spi"] = {type = restored.interface.type, exports = restored.exports}
+        local _, runtimeError = compile('local api = require("coroutine.workers.spi")\nreturn api.answer()', fresh)
+        assert(runtimeError:find("NUPP2421", 1, true), runtimeError)
+    end)
+end
+
+function M.exportedComptimeAliasesKeepRuntimeRefusalsAndOrdinaryShadows()
+    withComptimeFacade(function(env)
+        for _, source in ipairs({
+            'local api = require("coroutine.workers.spi")\nreturn api.submitted',
+            'local api = require("coroutine.workers.spi")\nreturn api.answer()',
+        }) do
+            local _, errors = compile(source, env)
+            assert(errors:find("NUPP2421", 1, true), errors)
+        end
+        local _, localLeak = compile(
+            [[
+module coroutine.workers.leak
+const api = require("coroutine.workers.spi")
+export const identity = api.identity
+export function leak(): any return identity end
+]],
+            env
+        )
+        assert(localLeak:find("NUPP2415", 1, true), localLeak)
+        local _, invalid = compile(
+            [[
+local api = require("coroutine.workers.spi")
+local type Bad = api.identity(integer, string)
+]],
+            env
+        )
+        assert(invalid:find("NUPP2421", 1, true), invalid)
+        local code, errors = compile(
+            [[
+local api = require("ordinary")
+local shadow = {submitted = function(value: integer): integer return value end}
+return api.identity(5), shadow.submitted(7)
+]],
+            env
+        )
+        test.equal(errors, "", errors)
+        local first, second = assert(loadstring(code))()
+        test.equal(first, 6)
+        test.equal(second, 7)
+        local ordinary = env.resolveModuleExports(env, "ordinary")
+        test.equal(ordinary.comptimeFunctions.identity, nil)
+    end)
+end
+
 return M
