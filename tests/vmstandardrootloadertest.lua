@@ -82,4 +82,21 @@ function M.dynamicPublicSimdUsesTheFrozenHostObject()
     )
 end
 
+function M.erasedCompileTimeNamespacesDoNotLoadRuntimeModules()
+    local source = [[
+@comptime local function Refuse(info: types.derive.Info): types.derive.Result<any>
+    return types.derive.error("unsupported declaration", info.reference)
+end
+@comptime local function Items(Element: type): type
+    return types.array(Element)
+end
+local store = require("types").newStore()
+return type(store)
+]]
+    local env = environment.new(ROOT, {cache = false})
+    local image = assert(compile.image("metadata-comptime.nupp", env, "metadatacomptime", nil, source, false))
+    local chunk = assert(assert(rawget(_G, "__nupp_load_image"))(image))
+    test.equal(chunk(), "table", "ordinary runtime namespace remains available")
+end
+
 return M
