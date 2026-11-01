@@ -4308,12 +4308,14 @@ function M.luaBuilderRegistrationReturnsOrdinaryTables()
     -- What goes wrong here is usually the search path rather than the answer,
     -- and the interpreter's own report names every path it tried except the one
     -- that was meant to work.
-    local runtime = NATIVE_HERE .. "/../build/nupp/valuebuilder.lua"
-    local handle = io.open(runtime, "rb")
+    local runtime = package.searchpath("serde.valuebuilder", package.path)
+    local handle = runtime and io.open(runtime, "rb")
     if handle then
         handle:close()
     end
-    local context = ("\n(runtime searched at %s, present: %s)"):format(runtime, tostring(handle ~= nil))
+    local context = (
+        "\n(runtime searched at %s, present: %s)"
+    ):format(runtime or "serde.valuebuilder (not on module path)", tostring(handle ~= nil))
 
     test.equal(
         native,

@@ -586,7 +586,7 @@ function M.intrinsicIdentityFollowsAliasesButNotShadowing()
             {
                 "local add = math.u32.add",
                 "local a = add(0xffffffff, 1)",
-                "local nupp = {math = {u32 = {add = function(x: number, y: number): number return x + y end}}}",
+                "local math = {u32 = {add = function(x: number, y: number): number return x + y end}}",
                 "local b = math.u32.add(1, 2)",
                 "return a, b",
             },

@@ -29,7 +29,14 @@ end
 -- A copied runner loads compiled modules before it does anything, and it cannot
 -- find them from a temporary directory. Naming the repository's build directory
 -- is what lets the copy be the same program as the original.
-local MODULES = ("NUPP_TEST_MODULES=%q "):format(os.getenv("NUPP_TEST_MODULES") or ROOT .. "/build")
+local modulesRoot = os.getenv("NUPP_TEST_MODULES")
+if not modulesRoot or modulesRoot == "" then
+    modulesRoot = os.getenv("NUPP_COVERAGE_BUILD") or os.getenv("NUPP_TEST_BUILD") or "build"
+    if not modulesRoot:match("^[/\\]") and not modulesRoot:match("^[A-Za-z]:[/\\]") then
+        modulesRoot = ROOT .. "/" .. modulesRoot
+    end
+end
+local MODULES = ("NUPP_TEST_MODULES=%q "):format(modulesRoot)
 
 -- A copied Windows runner launched directly behind `io.popen` inherits OS pipe
 -- handles without matching C-runtime descriptors, while its per-case capture
@@ -39,7 +46,9 @@ local MODULES = ("NUPP_TEST_MODULES=%q "):format(os.getenv("NUPP_TEST_MODULES") 
 local function runRedirected(path, args, stderr)
     local quoted = "'" .. path:gsub("'", "'\\''") .. "'"
     local outputPath = os.tmpname()
-    local command = (MODULES .. "luajit %s %s >%q %s"):format(quoted, args or "", outputPath, stderr)
+    local command = (
+        MODULES .. "NUPP_TEST_BUILD=build luajit %s %s >%q %s"
+    ):format(quoted, args or "", outputPath, stderr)
     os.execute(command)
     local output = read(outputPath)
     os.remove(outputPath)
@@ -796,6 +805,77 @@ end}
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
+function M.workerJobsRefillTheCanonicalArgvBetweenRuns()
+    local job = require("job")
+    local argv = require("arg")
+    local originalArg = arg
+    local originalMeta = getmetatable(argv)
+    local originalValues = {}
+    for key, value in pairs(argv) do
+        originalValues[key] = value
+    end
+    local originalLoadfile = loadfile
+    local originalExecute, originalPopen, originalGetenv = os.execute, io.popen, os.getenv
+    local names = {
+        "__NUPP_TEST_EMBEDDED",
+        "__NUPP_TEST_PROGRESS_FD",
+        "__NUPP_TEST_LANE_CACHE",
+        "__NUPP_TEST_SUITE_CATALOG",
+    }
+    local originals = {}
+    for _, name in ipairs(names) do
+        originals[name] = rawget(_G, name)
+    end
+    local ok, problem = xpcall(
+        function()
+            local paths = {}
+            loadfile = function(path)
+                paths[#paths + 1] = path
+                return function()
+                    return {argument = argv[2], verbose = argv[4]}
+                end
+            end
+            rawset(argv, -17, "old interpreter token")
+            rawset(argv, 50, "old job token")
+            rawset(argv, "oldJob", "old metadata")
+
+            local first = job.run("--queue=first", "first-cache", nil, true, "never", "first-catalog")
+            test.equal(first.argument, "--queue=first")
+            test.equal(first.verbose, "--verbose")
+            test.equal(argv[-17], nil)
+            test.equal(argv[50], nil)
+            test.equal(rawget(argv, "oldJob"), nil)
+
+            local second = job.run("--queue=second", "second-cache", nil, false, "always", "second-catalog")
+            test.equal(second.argument, "--queue=second")
+            test.equal(second.verbose, nil, "the prior job's optional token was removed")
+            test.equal(argv[0], "tests/run.lua")
+            test.equal(argv[1], "--json")
+            test.equal(argv[3], "--color=always")
+            test.equal(paths[1], "tests/run.lua")
+            test.equal(paths[2], "tests/run.lua")
+            test.equal(arg, originalArg, "worker jobs retain the raw argv object")
+            test.equal(require("arg"), argv, "imports retain the same initialized module")
+            test.equal(getmetatable(argv), originalMeta, "the CLI facade remains installed")
+        end,
+        debug.traceback
+    )
+
+    loadfile = originalLoadfile
+    arg = originalArg
+    os.execute, io.popen, os.getenv = originalExecute, originalPopen, originalGetenv
+    for key in pairs(argv) do
+        rawset(argv, key, nil)
+    end
+    for key, value in pairs(originalValues) do
+        rawset(argv, key, value)
+    end
+    for _, name in ipairs(names) do
+        rawset(_G, name, originals[name])
+    end
+    test(ok, problem)
+end
+
 function M.workerHostDogfoodsNuppWorkersForOrdinarySuites()
     local ordinary, ordinaryRun = runWorkerHost("lexertest --timings=0")
     test.equal(ordinaryRun.status, 0, "the worker host run succeeded" .. evidence(ordinaryRun))
@@ -1137,7 +1217,9 @@ dofile(arg[0])
     local output = dir .. "/output"
     local progress = dir .. "/progress"
     local status = os.execute(
-        (MODULES .. "NUPP_TEST_PROGRESS_FD=9 luajit %q 9>%q >%q 2>&1"):format(dir .. "/host.lua", progress, output)
+        (
+            MODULES .. "NUPP_TEST_BUILD=build NUPP_TEST_PROGRESS_FD=9 luajit %q 9>%q >%q 2>&1"
+        ):format(dir .. "/host.lua", progress, output)
     )
     local result = read(output)
     test(status == 0, "the outer runner failed after launching its nested runner: " .. result)

@@ -67,8 +67,8 @@ LLVM_DIRECTORY='llvm-project-${LLVM_VERSION}.src'
 # the source the compiler actually loads is reproducible from the tag by anyone
 # who rebuilds it. `scripts/toolchain stage0` verifies it after decompressing
 # and before installing, and an offline builder may supply either spelling.
-STAGE0_TAG=v0.0.15-api-seed.1
-STAGE0_SHA256=aac815bbb528c45f4f218887beb1f54a9b434f4f45add8043d966ea4f395564d
+STAGE0_TAG=v0.0.15-api-seed.2
+STAGE0_SHA256=6959d1b3f4ab73694de9be9fa83031f8de8ba103fffe5f27bffb70414d3cb84f
 STAGE0_URL='https://github.com/nupp-lang/nupp/releases/download/${STAGE0_TAG}/nupp-stage0-${STAGE0_TAG}.lua.gz'
 
 # Opt-in browser guest inputs. These do not change the native toolchain key.

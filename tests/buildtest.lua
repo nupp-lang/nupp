@@ -139,7 +139,7 @@ return true
     })
     local out = capture(("cd %q && %q build"):format(dir, NUPP))
     testAssert.equal(out, "", "the public assertion module builds: " .. out)
-    assert(exists(dir .. "/build/nupp/test.lua"), "the compiler-carried assertion module is linked into the project")
+    assert(exists(dir .. "/build/assert.lua"), "the compiler-carried assertion module is linked into the project")
     local ran = capture(
         ("cd %q && LUA_PATH='./build/?.lua;;' luajit -e " .. "%q"):format(dir, "assert(require('main'))")
     )

@@ -4473,7 +4473,14 @@ return {
 }
 ]],
         ["src/main.nupp"] = "return true\n",
-        ["test.lua"] = "local f=assert(io.open('test-ran','wb')); f:write('yes'); f:close()\n",
+        [
+            "test.lua"
+        ] = [[
+assert(os.getenv("NUPP_TEST_BUILD") == "out", tostring(os.getenv("NUPP_TEST_BUILD")))
+local f = assert(io.open("test-ran", "wb"))
+f:write("yes")
+f:close()
+]],
     })
     testAssert.equal(project.test(dir), 0)
     testAssert.equal(read(dir .. "/test-ran"), "yes")
