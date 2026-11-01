@@ -112,6 +112,7 @@ type state.Definition = {
     documentationToken: lexer.Token?,
     generatedIdentity: string?,
     qualifiedName: string?,
+    qualifiedRootDefinition: any,
     requiredModule: string?,
     exactCallExport: any,
     scalarIntrinsic: string?,
