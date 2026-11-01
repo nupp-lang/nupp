@@ -390,13 +390,14 @@ function program.describe(modules: {any}, entryModule: string): any
         if bodyOwner then
             owner = bodyOwner
         end
-        -- `for i, v in ipairs(t)` is a loop form the profile lowers itself: its
-        -- `ipairs` is never called, so it is neither a reference nor a call.
+        -- `for i, v in ipairs(t)` and `pairs(t)` are loop forms the profile lowers
+        -- itself: the iterator is never called, so it is neither a reference nor a
+        -- call.
         if node.kind == "forinStmt"
             and node.exprs
             and node.exprs[1]
             and node.exprs[1].kind == "call"
-            and node.exprs[1].resolvedGlobal == "ipairs"
+            and (node.exprs[1].resolvedGlobal == "ipairs" or node.exprs[1].resolvedGlobal == "pairs")
         then
             loopForms[node.exprs[1]] = true
         end

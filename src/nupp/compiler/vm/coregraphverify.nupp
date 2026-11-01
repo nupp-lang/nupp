@@ -120,7 +120,10 @@ function verify.copyGraph(g: any, version: integer?, fromSource: boolean?): any
             "unsupported scalar constant"
         )
         need(
-            constant.kind == "str" and type(value) == "string" and #value > 0 and #value <= 256
+            constant.kind == "str"
+            and type(value) == "string"
+            and #value <= ((version or 2) >= 8 and 65536 or 256)
+            and (#value > 0 or (version or 2) >= 8)
             or (constant.kind == "num" or constant.kind == "int64") and type(value) == "string" and #value == 8
             or constant.kind ~= "str" and constant.kind ~= "num" and constant.kind ~= "int64" and value == "",
             "invalid scalar constant payload"
@@ -504,8 +507,12 @@ function verify.resultKind(g: any, signature: any, output: any): string
             local contract = output.contracts[term.contract + 1]
             local target = output.signatures[contract.signature + 1]
             need(
-                kinds[term.callee] == "function:" .. contract.target
-                or output.schema.version >= 7 and kinds[term.callee] == "value",
+                kinds[term.callee] == "function:"
+                .. contract.target
+                or output.schema.version >= 7
+                and kinds[term.callee] == "value"
+                or contract.target == output.schema.absent
+                and tostring(kinds[term.callee]):match("^function:") ~= nil,
                 "actual callee provenance differs"
             )
             need(#term.args == #target.params, "call arity differs")
@@ -736,7 +743,11 @@ function verify.semantic(p: any): nil
     for index, g in ipairs(p.graphs) do
         local owner = p.catalog[index]
         local signature = p.signatures[owner.signature + 1]
-        need(verify.resultKind(g, signature, p) == signature.result, "semantic result differs from signature")
+        local kind = verify.resultKind(g, signature, p)
+        need(
+            kind == signature.result or p.schema.version >= 8 and (kind == "value" or signature.result == "value"),
+            "semantic result differs from signature"
+        )
     end
 end
 

@@ -1,9 +1,9 @@
 -- Random programs in the core's Lua subset, written twice: as a typed Nupp
 -- module and as the plain Lua the reference interpreter runs. Integers only
 -- (wrapping, as Lua's do), Booleans from comparisons, if/while/numeric for,
--- `and`/`or`, integer-keyed tables and local functions. Every program exports
--- one integer checksum, and every loop and divisor is bounded or guarded so
--- the two can be compared word for word.
+-- `and`/`or`, integer-keyed tables, pairs traversals and local functions.
+-- Every program exports one integer checksum, and every loop and divisor is
+-- bounded or guarded so the two can be compared word for word.
 local generate = {}
 
 local function chooser(seed)
@@ -63,8 +63,11 @@ function generate.program(seed, size)
         if level <= 0 or pick(3) == 1 then
             return atom()
         end
-        local roll = pick(6)
+        local roll = pick(8)
         local a, b = expression(level - 1), expression(level - 1)
+        if roll >= 7 then
+            roll = pick(6)
+        end
         if roll == 1 then
             return "(" .. a .. " + " .. b .. ")"
         elseif roll == 2 then
@@ -102,8 +105,11 @@ function generate.program(seed, size)
     end
 
     local loops = 0
+    local closures = 0
+    local arrays = 0
+    local traversals = 0
     statement = function()
-        local roll = pick(9)
+        local roll = pick(14)
         if roll <= 3 or #variables < 2 then
             if depth == 0 and #variables < 6 and (pick(2) == 1 or #variables < 2) then
                 local name = "v" .. (#variables + 1)
@@ -149,12 +155,60 @@ function generate.program(seed, size)
             emit("end")
         elseif roll == 8 then
             emit(target() .. " = f(" .. expression(1) .. ", " .. expression(1) .. ")")
+        elseif roll == 9 and pick(2) == 1 then
+            -- A traversal of t folded into a sum, so the order pairs visits
+            -- the keys in (which Lua leaves unspecified) cannot show.
+            traversals = traversals + 1
+            local sum = "p" .. traversals
+            emit("local " .. sum .. ": integer = 0", "local " .. sum .. " = 0")
+            emit("for k, v in pairs(t) do")
+            emit("    " .. sum .. " = " .. sum .. " + k * 7 + v % 1000")
+            emit("end")
+            local into = target()
+            emit(into .. " = (" .. into .. " + " .. sum .. ") % 1000003")
+        elseif roll == 10 then
+            local a, b = target(), target()
+            if a ~= b then
+                emit(a .. ", " .. b .. " = " .. b .. ", (" .. a .. " + " .. expression(1) .. ") % 1000003")
+            end
+        elseif roll == 11 then
+            emit(target() .. " = bump(" .. expression(1) .. ")")
+        elseif roll == 13 then
+            -- // and math.floor answer number in Nupp's types, so they feed text.
+            local d = literals[pick(#literals - 2) + 1]
+            local forms = {
+                expression(1),
+                "(" .. expression(1) .. " // " .. d .. ")",
+                "math.floor((" .. expression(1) .. " % 100000) / " .. d .. ")"
+            }
+            emit("s = s .. tostring(" .. forms[pick(3)] .. ") .. \",\"")
+        elseif roll == 14 and depth == 0 then
+            arrays = arrays + 1
+            local name = "u" .. arrays
+            local items = expression(1) .. ", " .. expression(1) .. ", " .. expression(1)
+            emit("local " .. name .. ": {integer} = {" .. items .. "}", "local " .. name .. " = {" .. items .. "}")
+            emit(target() .. " = (" .. name .. "[1] + " .. name .. "[3] * 2 + #" .. name .. ") % 1000003")
+        elseif roll == 12 and depth > 0 and closures < 3 then
+            -- A closure made in this block, capturing what is in scope here.
+            closures = closures + 1
+            local name = "g" .. closures
+            local body = expression(2)
+            emit("local " .. name .. " = function(x: integer): integer", "local " .. name .. " = function(x)")
+            emit("    return (x + " .. body .. ") % 65521")
+            emit("end")
+            emit(target() .. " = " .. name .. "(" .. expression(1) .. ")")
         else
             emit(target() .. " = (" .. variable() .. " + " .. expression(1) .. ") % 1000003")
         end
     end
 
     emit("local t: {[integer]: integer} = {}", "local t = {}")
+    emit("local c: integer = 0", "local c = 0")
+    emit("local s: string = \"\"", "local s = \"\"")
+    emit("local function bump(n: integer): integer", "local function bump(n)")
+    emit("    c = (c + n) % 1000003")
+    emit("    return c")
+    emit("end")
     emit("local function f(a: integer, b: integer): integer", "local function f(a, b)")
     depth = 1
     emit("if a < b then")
@@ -168,6 +222,8 @@ function generate.program(seed, size)
     for _, name in ipairs(variables) do
         sum[#sum + 1] = name
     end
+    sum[#sum + 1] = "c"
+    sum[#sum + 1] = "#s"
     for k = 0, 15, 5 do
         sum[#sum + 1] = "(t[" .. k .. "] or 0)"
     end

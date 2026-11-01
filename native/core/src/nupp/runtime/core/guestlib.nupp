@@ -19,6 +19,10 @@ export const TOSTRING: uint64 = 1ULL
 export const FORMAT: uint64 = 2ULL
 export const CONCAT: uint64 = 3ULL
 export const GMATCH_NEXT: uint64 = 4ULL
+export const CONCAT2: uint64 = 5ULL
+export const DIVIDE: uint64 = 6ULL
+export const FLOOR_DIVIDE: uint64 = 7ULL
+export const NEXT_STEP: uint64 = 8ULL
 
 local function integerValue(value: uint64): int64
     local payload = value & values.PAYLOAD
@@ -227,6 +231,104 @@ local function gmatchNext(ctx: voidptr, stateValue: uint64): uint64
     end
 end
 
+-- a .. b over strings and integers; floats raise until float text exists.
+local function concat2(ctx: voidptr, a: uint64, b: uint64): uint64
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = guestHeap(ctx)
+        local builder = state as strings.Builder*
+        if strings.header(a) == 0ULL and not ints.isInteger(a)
+            or strings.header(b) == 0ULL and not ints.isInteger(b)
+        then
+            error("attempt to concatenate a value the core cannot yet convert")
+        end
+        appendText(h, builder, a)
+        appendText(h, builder, b)
+        return values.TAG_OBJ | strings.finish(h, builder)
+    end
+end
+
+-- A number's float bits, or NIL bits for anything else.
+local function floatOf(value: uint64): uint64
+    if ints.isInteger(value) then
+        return ints.toFloatBits(ints.bitsOf(value))
+    end
+    if value & values.QNAN ~= values.QNAN or value == values.QNAN then
+        return value
+    end
+
+    return values.NIL
+end
+
+-- A float result as a value: NaNs collapse to the one quiet NaN.
+local function floatValue(bits: uint64): uint64
+    local x = native.fromBits(bits)
+    if x ~= x then
+        return values.QNAN
+    end
+
+    return bits
+end
+
+-- Lua's /: always float.
+local function divide(a: uint64, b: uint64): uint64
+    local x = floatOf(a)
+    local y = floatOf(b)
+    if x == values.NIL or y == values.NIL then
+        error("attempt to perform arithmetic on a non-number value")
+    end
+
+    return floatValue(native.bits(native.fromBits(x) / native.fromBits(y)))
+end
+
+-- Lua's //: floor division, integer for integers (raising for zero) and
+-- float otherwise.
+local function floorDivide(ctx: voidptr, a: uint64, b: uint64): uint64
+    if ints.isInteger(a) and ints.isInteger(b) then
+        local x = native.index(ints.bitsOf(a))
+        local y = native.index(ints.bitsOf(b))
+        if y == 0 then
+            error("attempt to perform 'n//0'")
+        end
+        if y == -1 then
+            return guestscope.integer(ctx, 0ULL - native.word(x))
+        end
+        return guestscope.integer(ctx, native.word(x // y))
+    end
+    local x = floatOf(a)
+    local y = floatOf(b)
+    if x == values.NIL or y == values.NIL then
+        error("attempt to perform arithmetic on a non-number value")
+    end
+
+    return floatValue(native.bits(native.floor(native.fromBits(x) / native.fromBits(y))))
+end
+
+-- One step of `for k, v in pairs(t)` over a state table {t, key, k, v}:
+-- advances key and stores the pair at 3 and 4. Answers true or false.
+local function nextStep(ctx: voidptr, stateValue: uint64): uint64
+    @unsafe do
+        local h = guestHeap(ctx)
+        local state = stateValue & values.PAYLOAD
+        local subject = tables.get(state, values.TAG_INTEGER | 1ULL)
+        if subject & values.TAG_MASK ~= values.TAG_OBJ then
+            error("bad argument #1 to 'for iterator' (table expected)")
+        end
+        local t = subject & values.PAYLOAD
+        local key = tables.nextKey(t, tables.get(state, values.TAG_INTEGER | 2ULL))
+        if key == values.TRUE then
+            error("invalid key to 'next'")
+        end
+        if key == values.NIL then
+            return values.FALSE
+        end
+        tables.set(h, state, values.TAG_INTEGER | 2ULL, key)
+        tables.set(h, state, values.TAG_INTEGER | 3ULL, key)
+        tables.set(h, state, values.TAG_INTEGER | 4ULL, tables.get(t, key))
+        return values.TRUE
+    end
+end
+
 -- Library call `id` with `count` arguments; answers the result value.
 export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint64, c: uint64, d: uint64): uint64
     if id == TOSTRING then
@@ -237,6 +339,14 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         return concat(ctx, count, a, b)
     elseif id == GMATCH_NEXT then
         return gmatchNext(ctx, a)
+    elseif id == CONCAT2 then
+        return concat2(ctx, a, b)
+    elseif id == DIVIDE then
+        return divide(a, b)
+    elseif id == FLOOR_DIVIDE then
+        return floorDivide(ctx, a, b)
+    elseif id == NEXT_STEP then
+        return nextStep(ctx, a)
     end
     error("unknown core library call")
 

@@ -170,6 +170,44 @@ export function set(h: heap.Heap*, table: uint64, key: uint64, value: uint64): u
     end
 end
 
+-- The key after `key` in a traversal (nil starts one): the array part in
+-- order, then the hash part in insertion order, skipping removed entries.
+-- Answers nil at the end, and TRUE (never a key) when `key` is not present.
+export function nextKey(table: uint64, key: uint64): uint64
+    @unsafe do
+        local o = native.pointer(table) as heap.Header*
+        local a = arrayOf(o)
+        local t = hashOf(o)
+        local index = position(key)
+        local after = key
+        if key == values.NIL or (index ~= 0ULL and index <= a.length) then
+            -- Array slots holding nil are holes, which a traversal skips.
+            while index < a.length do
+                if native.load64(native.pointer(a.base), native.index(index * 8ULL)) ~= values.NIL then
+                    return values.TAG_INTEGER | (index + 1ULL)
+                end
+                index = index + 1ULL
+            end
+            after = values.NIL
+        end
+        if t.ptr == 0ULL then
+            if after == values.NIL then
+                return values.NIL
+            end
+            return values.TRUE
+        end
+        local next = hashes.tableOwnedNextAfter(t, after)
+        if next == 0xffffffffffffffffULL then
+            if after ~= values.NIL and hashes.tableOwnedPosition(t, after) == 0xffffffffffffffffULL then
+                return values.TRUE
+            end
+            return values.NIL
+        end
+        local bucket = hashes.tableOwnedEntryBucket(t, next)
+        return native.load64(native.pointer(t.ptr), native.index(bucket * 16ULL))
+    end
+end
+
 -- A border: the array part's length, which the hash part never extends.
 export function length(table: uint64): uint64
     @unsafe do

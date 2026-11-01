@@ -189,6 +189,11 @@ end
 local function binary(ctx: any, node: any, expected: string?, version: integer): integer
     local operation = node.op.text
     need(expected == nil or expected == "tagged", "tagged result required")
+    -- From v8 `..`, `/` and `//` are core library calls (guestlib).
+    local library = version >= 8 and ({[".."] = 5, ["/"] = 6, ["//"] = 7})[operation]
+    if library then
+        return libraryCall(ctx, node, library, {node.lhs, node.rhs})
+    end
     -- From v8 `a ~= b` is `not (a == b)`.
     if operation == "~=" and version >= 8 then
         local operands = ctx.operands({node.lhs, node.rhs}, {"tagged", "tagged"})
@@ -532,8 +537,39 @@ function tagged.forVersion(version: integer): any
     if version >= 8 then
         profile.tableConstructor = function(ctx: any, node: any, expected: string?): integer
             need(expected == nil or expected == "tagged", "table requires tagged destination")
-            need(#node.fields == 0, "only empty table constructors are admitted")
-            return ctx.emit(node, "NewTable", {}, "tagged") as integer
+            -- Entries are evaluated in order, keys before their values, then
+            -- stored: positional ones at 1, 2, ..., named ones at their string.
+            local nodes, kinds, keys = {}, {}, {}
+            local position = 0
+            for _, field in ipairs(node.fields) do
+                if field.kind == "fieldItem" then
+                    position += 1
+                    keys[#keys + 1] = {kind = "int64", text = tostring(position)}
+                elseif field.kind == "fieldNamed" then
+                    keys[#keys + 1] = {kind = "str", text = need(field.name, "named field lacks a name").text}
+                elseif field.kind == "fieldBracket" then
+                    nodes[#nodes + 1], kinds[#kinds + 1] = field.key, "tagged"
+                    keys[#keys + 1] = {kind = "value", at = #nodes}
+                else
+                    error("tagged graph: unsupported table constructor entry", 0)
+                end
+                nodes[#nodes + 1], kinds[#kinds + 1] = field.value, "tagged"
+                keys[#keys].valueAt = #nodes
+            end
+            local values = {}
+            if #nodes > 0 then
+                values = ctx.operands(nodes, kinds)
+                if values == nil then
+                    return nil as any
+                end
+            end
+            local result = ctx.emit(node, "NewTable", {}, "tagged")
+            for _, key in ipairs(keys) do
+                local k = key.at and values[key.at] or ctx.emit(node, "K", {pool(ctx, key.kind, key.text)}, "tagged")
+                ctx.emit(node, "SetIdx", {result, k, values[key.valueAt]}, nil)
+            end
+
+            return result as integer
         end
         profile.indexRead = function(ctx: any, node: any, expected: string?): integer
             need(expected == nil or expected == "tagged", "index requires tagged destination")
@@ -613,6 +649,34 @@ function tagged.forVersion(version: integer): any
         profile.assignTarget = function(ctx: any, node: any, target: any, receiver: integer, value: integer): nil
             ctx.emit(node, "SetIdx", {receiver, ctx.readHeld(target.heldIndex), value}, nil)
         end
+
+        -- A loop over a state table advanced by library step `id`, which
+        -- answers whether it continues and leaves the bound names from key
+        -- `offset + 1` on.
+        local function stepped(stat: any, state: integer, id: integer, offset: integer): any
+            local function step(c: any, node: any, v: any): (integer, boolean)
+                return c.emit(node, "LibCall", {id, v[1]}, "tagged"), false
+            end
+
+            return {
+                values = {state},
+                first = step,
+                test = step,
+                advance = function(c: any, node: any, v: any): (integer, integer?)
+                    return v[1], nil
+                end,
+                bind = function(c: any, node: any, v: any): any
+                    local bound = {}
+                    for index = 1, #stat.names do
+                        local key = c.emit(node, "K", {pool(c, "int64", tostring(offset + index))}, "tagged")
+                        bound[index] = c.emit(node, "GetIdx", {v[1], key}, "tagged")
+                    end
+
+                    return bound
+                end
+            }
+        end
+
         -- `for i, v in ipairs(t)`: i counts from 1 while t[i] is not nil. The
         -- element is read for the test and again for the body, which only a
         -- metatable could tell apart; the core has none yet.
@@ -637,27 +701,23 @@ function tagged.forVersion(version: integer): any
                 local zero = ctx.emit(stat, "K", {pool(ctx, "int64", "0")}, "tagged")
                 ctx.emit(stat, "SetIdx", {state, srcKey, zero}, nil)
 
-                local function step(c: any, node: any, v: any): (integer, boolean)
-                    return c.emit(node, "LibCall", {4, v[1]}, "tagged"), false
+                return stepped(stat, state, 4, 4)
+            end
+            -- `for k, v in pairs(t)`: a state table {t, key, k, v} the next
+            -- step advances, leaving the pair at keys 3 and 4.
+            if #stat.exprs == 1 and source.kind == "call" and source.resolvedGlobal == "pairs" then
+                need(#(source.args.exprs or {}) == 1 and #stat.names <= 2, "pairs takes one table")
+                local t = ctx.expression(source.args.exprs[1], "tagged")
+                if t == nil then
+                    return nil
                 end
+                local held = ctx.hold(t)
+                local state = ctx.emit(stat, "NewTable", {}, "tagged")
+                local subjectKey = ctx.emit(stat, "K", {pool(ctx, "int64", "1")}, "tagged")
+                ctx.emit(stat, "SetIdx", {state, subjectKey, ctx.readHeld(held)}, nil)
+                ctx.release(held)
 
-                return {
-                    values = {state},
-                    first = step,
-                    test = step,
-                    advance = function(c: any, node: any, v: any): (integer, integer?)
-                        return v[1], nil
-                    end,
-                    bind = function(c: any, node: any, v: any): any
-                        local bound = {}
-                        for index = 1, #stat.names do
-                            local key = c.emit(node, "K", {pool(c, "int64", tostring(4 + index))}, "tagged")
-                            bound[index] = c.emit(node, "GetIdx", {v[1], key}, "tagged")
-                        end
-
-                        return bound
-                    end
-                }
+                return stepped(stat, state, 8, 2)
             end
             need(
                 #stat.exprs == 1

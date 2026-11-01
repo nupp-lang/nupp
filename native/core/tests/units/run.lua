@@ -310,7 +310,8 @@ UNITS[#UNITS + 1] = {
         {"tableunits", "migrate", 1},
         {"tableunits", "removal", 1},
         {"tableunits", "objectKeys", 1},
-        {"tableunits", "survives", 1}
+        {"tableunits", "survives", 1},
+        {"tableunits", "traversal", 1}
     },
     cases = function()
         local cases = {}
@@ -324,6 +325,11 @@ UNITS[#UNITS + 1] = {
             -- With five keys, clearing 5 and 4 leaves 3 last, so clearing it
             -- trims once more.
             cases[#cases + 1] = {"removal", {n}, (n == 5 and 2 or n - 2) * 1000 + 4}
+        end
+        for _, n in ipairs({5, 100, 1000}) do
+            local half = n * (n + 1) // 2
+            local sum = (half - 3) + (half + 1000 * n - 1002) + (half - 3) + (half - 2)
+            cases[#cases + 1] = {"traversal", {n}, (2 * n - 2) * 1000000000 + sum * 10 + 1}
         end
 
         return cases

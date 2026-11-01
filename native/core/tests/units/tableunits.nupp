@@ -237,3 +237,44 @@ export function survives(count: uint64): uint64
 
     return answer
 end
+
+-- Traversal: keys 1..count in the array part and 1000+i beside them, with
+-- key 3 and key 1002 removed, visited from nil until nextKey answers nil.
+-- Answers a billion per key visited plus ten times the sum of the keys and
+-- values seen, plus one when a key the table lacks is refused.
+export function traversal(count: uint64): uint64
+    local answer: uint64 = 0ULL
+    with a = arena.open(16777216ULL) do
+        @unsafe do
+            local h = heap.create(a)
+            local t = fresh(a, h)
+            local i: uint64 = 1ULL
+            while i <= count do
+                put(h, t, int(i), int(i))
+                put(h, t, int(1000ULL + i), int(i))
+                i = i + 1ULL
+            end
+            put(h, t, int(3ULL), values.NIL)
+            put(h, t, int(1002ULL), values.NIL)
+            local visits: uint64 = 0ULL
+            local sum: uint64 = 0ULL
+            local key = tables.nextKey(t, values.NIL)
+            while key ~= values.NIL and key ~= values.TRUE do
+                visits = visits + 1ULL
+                sum = sum + payload(key) + payload(tables.get(t, key))
+                key = tables.nextKey(t, key)
+            end
+            if key == values.TRUE then
+                visits = visits + 1000ULL
+            end
+            local refused: uint64 = 0ULL
+            if tables.nextKey(t, int(999999ULL)) == values.TRUE then
+                refused = 1ULL
+            end
+            answer = visits * BILLION + sum * 10ULL + refused
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
