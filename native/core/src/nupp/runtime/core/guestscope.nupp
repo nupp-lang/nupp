@@ -225,6 +225,19 @@ end
 
 -- The canonical value of int64 `bits` on the entry's heap: an immediate, or
 -- the interned box.
+-- The boxed integer a v8 wide integer constant word names in the catalog
+-- data.
+export function integerConstant(ctx: voidptr, word: uint64): uint64
+    @unsafe do
+        local c = native.loadPointer(ctx, context.CATALOG)
+        local data = native.load64(c, native.fieldOffset<catalog.Catalog>("data"))
+        local h = native.pointer(guestHeap(ctx)) as heap.Heap*
+        local value = ints.make(h, native.load64(native.pointer(data + (word & values.PAYLOAD)), 0))
+        tables.drain(h)
+        return value
+    end
+end
+
 export function integer(ctx: voidptr, bits: uint64): uint64
     @unsafe do
         local h = native.pointer(guestHeap(ctx)) as heap.Heap*

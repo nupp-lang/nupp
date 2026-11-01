@@ -6,6 +6,16 @@ local literal = require("s0.literal")
 local artifact = {}
 -- The constant-word tag of a v8 string constant; the payload is its offset.
 local STRING_CONSTANT = 0x7ffe000000000000
+-- A wide integer constant (past the 48-bit immediate) over its eight bytes'
+-- offset; a negative NaN, which no checked float constant can be.
+local INTEGER_CONSTANT = 0xfffe000000000000
+
+-- True when an int64 constant's little-endian bytes do not fit the signed
+-- 48-bit immediate.
+local function wide(bytes: string): boolean
+    local sign, low, high = bytes:byte(6, 8)
+    return not (low == 0 and high == 0 and sign < 0x80 or low == 0xff and high == 0xff and sign >= 0x80)
+end
 
 -- This writes a trusted checked-source artifact, not a native loader token.
 -- The closed producer retains executable issuance and the exact checked layout
@@ -63,8 +73,12 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
     -- From v8 string constants are payloads after the dispatch table: a length
     -- word, the bytes and a NUL. Their constant word is STRING_CONSTANT over
     -- the payload's offset.
+    -- Integers past the 48-bit immediate follow as their eight int64 bytes,
+    -- named by INTEGER_CONSTANT over the offset.
     local stringOffsets: {[string]: integer} = {}
     local stringOrder: {string} = {}
+    local integerOffsets: {[string]: integer} = {}
+    local integerOrder: {string} = {}
     if version >= 8 then
         for _, fn in ipairs(code.functions) do
             for _, constant in ipairs(fn.constants) do
@@ -72,6 +86,10 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
                     stringOffsets[constant.value] = cursor
                     stringOrder[#stringOrder + 1] = constant.value
                     cursor += 8 + ((#constant.value + 8) // 8) * 8
+                elseif constant.kind == "int64" and wide(constant.value) and integerOffsets[constant.value] == nil then
+                    integerOffsets[constant.value] = cursor
+                    integerOrder[#integerOrder + 1] = constant.value
+                    cursor += 8
                 end
             end
         end
@@ -188,6 +206,10 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
             word(
                 (constantOffsets[index] + (ci - 1) * 8) as integer,
                 constant.kind == "num" and version >= 3 and floatBits(constant.value)
+                or constant.kind == "int64"
+                and version >= 8
+                and wide(constant.value)
+                and INTEGER_CONSTANT | assert(integerOffsets[constant.value])
                 or constant.kind == "int64" and version >= 6 and integerBits(constant.value)
                 or constant.kind == "str" and version >= 8 and STRING_CONSTANT | assert(stringOffsets[constant.value])
                 or assert(constants[constant.kind] or constant.kind == "str" and constants["nil"])
@@ -239,6 +261,12 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
         word(at, #text)
         for byte = 1, #text do
             bytes[at + 8 + byte] = text:byte(byte)
+        end
+    end
+    for _, raw in ipairs(integerOrder) do
+        local at = assert(integerOffsets[raw])
+        for byte = 1, 8 do
+            bytes[at + byte] = raw:byte(byte)
         end
     end
     local chunks = {}

@@ -56,8 +56,17 @@ end
 
 local function scalar(value: any, numeric: boolean, dynamic: boolean?): string
     need(value and value.tag ~= "literal" and value.tag ~= "const", "qualified scalar signatures are unsupported")
-    -- v8 passes tables and functions as dynamic values, checked where used.
-    if dynamic and (value.tag == "array" or value.tag == "map" or value.tag == "table" or value.tag == "func") then
+    -- v8 passes strings, tables and functions as dynamic values, checked where
+    -- used.
+    if dynamic
+        and (
+            value.tag == "string"
+            or value.tag == "array"
+            or value.tag == "map"
+            or value.tag == "table"
+            or value.tag == "func"
+        )
+    then
         return "value"
     end
     need(

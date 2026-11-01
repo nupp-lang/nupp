@@ -53,7 +53,8 @@ local CASES: {[string]: {
     workloadRecords = {fixture = "catalog-workload-records", version = 8},
     workloadStrings = {fixture = "catalog-workload-strings", version = 8},
     stringsBasic = {fixture = "catalog-strings-basic", version = 8},
-    integersWide = {fixture = "catalog-integers-wide", version = 8}
+    integersWide = {fixture = "catalog-integers-wide", version = 8},
+    numbersText = {fixture = "catalog-numbers-text", version = 8}
 }
 
 -- The handlers a profile version dispatches, in table order.
@@ -283,6 +284,17 @@ local function compileProgram(caseName: string, fixture: string, version: intege
         program.compile(catalog, version >= 5 and tagged.forVersion(version) or tagged),
         version
     )
+end
+
+-- The graph profile version a named case compiles at; generated oracle
+-- programs are v8.
+function build.version(caseName: string): integer
+    local case = CASES[caseName]
+    if case == nil and caseName:match("^generated%d+$") then
+        return 8
+    end
+
+    return assert(case, "unknown guest case: " .. caseName).version
 end
 
 -- A guest build in the shape guestshim takes: the program executable, the
