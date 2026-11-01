@@ -8,6 +8,9 @@ local function unavailable(): (nil, string)
 end
 
 export function new(): any
+    -- The retained compiler shares a fixed guest budget with its temporary graphs.
+    -- Start collection before those temporaries double the live compiler heap.
+    collectgarbage("setpause", 100)
     return Browser.new({
         layoutTarget = "i686-unknown-linux-gnu",
         compilerServices = {
