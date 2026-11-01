@@ -1,5 +1,20 @@
 @!internal
+
+--- @namespace os
 module nupp.runtime.standardos
+
+--[[
+`os` provides process operations, system facts, clocks, and UUIDs.
+Its clocks return milliseconds and distinguish elapsed time from calendar time.
+
+```nupp
+local facts = os.info()
+print(facts.platform, facts.arch, facts.parallelism)
+print(os.monotonic())
+```
+
+See [system services](docs/learn/runtime/system.md) for facts, clocks, and UUIDs.
+]]
 
 local system = require("nupp.runtime.system")
 local clocks = require("nupp.runtime.clocks").selected

@@ -1,7 +1,7 @@
 module types.derive
 
 --[[
-types.derive provides closed recipes for checked derive providers.
+`types.derive` provides closed recipes for checked derive providers.
 Providers inspect a declaration and return forwarding recipes for its members.
 
 ```nupp

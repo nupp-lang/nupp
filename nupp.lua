@@ -669,6 +669,8 @@ return {
                     "src/nupp",
                     "src/serde",
                     "src/binary",
+                    "src/types",
+                    "src/own",
                     "src/io",
                     "src/debug",
                     "src/utf8.nupp",
@@ -680,7 +682,6 @@ return {
                     "src/simd.nupp",
                     "src/events.nupp"
                 },
-                sources = {"src/nupp", "src/serde", "src/binary", "src/types", "src/own"},
                 format = "both",
                 outDir = "build/docs",
                 title = "Nupp API",

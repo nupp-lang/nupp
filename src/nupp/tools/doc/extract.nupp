@@ -1692,6 +1692,55 @@ function extract.extract(
     )
     table.sort(result.items, byKindThenName)
 
+    -- A private implementation can publish its existing declarations under a host
+    -- table's public namespace without making its own module a public API.
+    local _, moduleNode = cst.declaredModule(parsed.root)
+    local namespace = moduleNode and parseDoc(docLines(moduleNode)).tags.namespace
+    if type(namespace) == "string" and namespace ~= name then
+        local projection = extract.extract(source, path, namespace, {includePrivate = false})
+        if projection then
+            projection.documentationInternal = nil
+            local localName = projection.moduleLocal
+
+            local function publicName(text: string): string
+                if localName then
+                    return (text:gsub("%f[%w_]" .. localName .. "%.", namespace .. "."))
+                end
+                return text
+            end
+
+            local function members(values: {extract.Member}): nil
+                for _, value in ipairs(values) do
+                    value.path = publicName(value.path)
+                    value.type = publicName(value.type)
+                    for _, param in ipairs(value.params or {}) do
+                        param.type = publicName(param.type)
+                    end
+                    for _, returned in ipairs(value.returns or {}) do
+                        returned.type = publicName(returned.type)
+                    end
+                    members(value.members or {})
+                end
+            end
+
+            for _, item in ipairs(projection.items) do
+                if localName and item.name:sub(1, #localName + 1) == localName .. "." then
+                    item.name = item.name:sub(#localName + 2)
+                end
+                item.path = namespace .. "." .. item.name
+                item.signature = publicName(item.signature)
+                for _, param in ipairs(item.params) do
+                    param.type = publicName(param.type)
+                end
+                for _, returned in ipairs(item.returns) do
+                    returned.type = publicName(returned.type)
+                end
+                members(item.members)
+            end
+            extraModules[#extraModules + 1] = projection
+        end
+    end
+
     return result, {}, extraModules
 end
 

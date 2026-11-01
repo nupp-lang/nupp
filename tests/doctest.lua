@@ -1472,6 +1472,113 @@ end
     assert(private.items[1].name == "PrivateLibrary")
 end
 
+function M.namedNamespaceProjectsAHostTableWithoutPublishingItsImplementation()
+    local source = [[
+@!internal
+--- @namespace console
+module package.internal.console
+local implementation = {}
+--- A message.
+record implementation.Message text: string end
+--- Writes a message.
+function implementation.write(message: implementation.Message): nil end
+--- The private host value.
+--- @internal
+implementation.value = {}
+export = implementation
+]]
+    for _, includePrivate in ipairs({false, true}) do
+        local original, errors, extra = doc.extract(source, "console.nupp", "package.internal.console", {
+            includePrivate = includePrivate
+        })
+        assert(original and #errors == 0 and original.documentationInternal)
+        assert(#extra == 1 and extra[1].name == "console" and not extra[1].documentationInternal)
+        local listed = {}
+        for _, item in ipairs(extra[1].items) do
+            listed[item.name] = item
+        end
+        assert(
+            listed.Message and listed.write and not listed.value,
+            "only the existing public declarations project onto the host table"
+        )
+        assert(listed.write.path == "console.write")
+        assert(listed.write.signature:find("console.write", 1, true), listed.write.signature)
+        assert(listed.write.params[1].type == "console.Message", listed.write.params[1].type)
+        assert(not listed.Message.signature:find("implementation.", 1, true), listed.Message.signature)
+    end
+end
+
+function M.hostExtensionPagesKeepTheirContractsAndClockLinks()
+    local fixture = {['guide.md'] = '# Extensions\n\nThe clock is [](os.monotonic).\n'}
+    for _, name in ipairs({
+        "nupp/runtime/standardio.nupp",
+        "nupp/runtime/standardos.nupp",
+        "nupp/cli/internal/terminal.nupp",
+        "nupp/cli/internal/table.nupp",
+    }) do
+        fixture["src/" .. name] = readFile(HERE .. "/../src/" .. name)
+    end
+    local dir = tempProject(fixture)
+    local config = {include = {"src"}}
+    local settings = {sources = {"src"}, pages = {{path = "guide", source = "guide.md", title = "Extensions"}}}
+    assert(doc.build(dir, config, settings, {format = "json", output = "api.json"}) == 0)
+    local model = require("testjson").decode(readFile(dir .. "/api.json"))
+    local modules = {}
+    for _, module in ipairs(model.modules) do
+        assert(not module.name:find("nupp.runtime.standard", 1, true), "the implementation remains private")
+        modules[module.name] = module
+    end
+    local publicIO, publicOS = assert(modules.io, "io has no public page"), assert(modules.os, "os has no public page")
+    local ioItems, osItems = {}, {}
+    for _, item in ipairs(publicIO.items) do
+        ioItems[item.name] = item
+    end
+    for _, item in ipairs(publicOS.items) do
+        osItems[item.name] = item
+    end
+    for _, name in ipairs({"ColorMode", "Style", "Cell", "TableOptions", "Alignment", "Column"}) do
+        assert(ioItems[name], "the terminal type is missing: " .. name)
+    end
+    for _, name in ipairs({
+        "style",
+        "table",
+        "writeTable",
+        "cell",
+        "paintedCell",
+        "annotatedCell",
+        "severity",
+        "setColorMode",
+        "withColorMode",
+        "colorEnabled",
+        "isTerminal",
+        "columns"
+    }) do
+        assert(ioItems[name], "the terminal member is missing: " .. name)
+        assert(not ioItems[name].signature:find("terminal.", 1, true), ioItems[name].signature)
+    end
+    assert(
+        #ioItems.Style.members > 0 and #ioItems.TableOptions.members > 0,
+        "public type aliases retain their source contract members"
+    )
+    assert(not ioItems.value and not osItems.value, "private host-table values do not become public API")
+    for _, name in ipairs({"Info", "info", "monotonic", "walltime", "uuid4", "uuid7"}) do
+        assert(osItems[name], "the system member is missing: " .. name)
+    end
+    local fields = {}
+    for _, field in ipairs(osItems.Info.members) do
+        fields[field.name] = true
+    end
+    for _, name in ipairs({"platform", "arch", "endianness", "pointerbits", "parallelism"}) do
+        assert(fields[name], "os.Info lost its field: " .. name)
+    end
+    assert(doc.build(dir, config, settings, {format = "site", output = "site"}) == 0)
+    local guide = readFile(dir .. "/site/guide/index.html")
+    assert(guide:find("modules/os/index.html#os.monotonic", 1, true), "the clock links to its public declaration")
+    local osPage = readFile(dir .. "/site/modules/os/index.html")
+    assert(osPage:find('id="os.monotonic"', 1, true), "the public clock anchor is missing")
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
 function M.standardMathApiHasCompleteDocumentation()
     local source = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp")
     local module, errors, extra = doc.extract(

@@ -1,5 +1,20 @@
 @!internal
+
+--- @namespace io
 module nupp.runtime.standardio
+
+--[[
+`io` provides stream operations and terminal formatting.
+Terminal styles and tables share the stream's color policy.
+
+```nupp
+local styles = io.style(io.stderr)
+io.stderr:write(styles.strong("error:") .. " bad input\n")
+```
+
+See [command-line applications](docs/learn/projects/command-line-applications.md#use-terminal-colors)
+for styles and aligned tables.
+]]
 
 local terminal = {}
 const {type ColorMode, type Style} = require("nupp.cli.internal.terminal")

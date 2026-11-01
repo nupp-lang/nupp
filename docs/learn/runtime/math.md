@@ -116,8 +116,8 @@ local projectedX, projectedY = vec2.project(x, y, 1, 0)
 | `project`, `reflect` | (x, y, axisX, axisY) -> x, y |
 
 A zero vector has no direction, so the operations that would need one
-answer something defined rather than a NaN: `normalize(0, 0)` and
-projection onto the zero vector answer `(0, 0)`, an angle involving a
+return a defined value rather than a NaN: `normalize(0, 0)` and
+projection onto the zero vector return `(0, 0)`, an angle involving a
 zero vector is zero, and reflection across a zero normal returns the
 original vector.
 

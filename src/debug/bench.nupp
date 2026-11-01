@@ -1,10 +1,8 @@
 module debug.bench
 
 --[[
-Measuring Nupp code from inside an ordinary program.
-
-A benchmark here is a program, not a case a runner discovered. It links this
-module, runs under `nupp run`, and reports itself:
+`debug.bench` measures code from inside an ordinary program.
+A benchmark links this module, runs under `nupp run`, and reports its own cases:
 
 ```nupp:fragment
 local bench = debug.bench
