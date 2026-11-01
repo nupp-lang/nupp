@@ -462,9 +462,7 @@ A distributed binary is deliberately none of these things.
   Filesystem and network operations, TLS, clocks, payload trailer verification
   and child processes come from the feature-selected Rust native archive linked
   into the host.
-  The official `re.lua` module remains ordinary Lua in the payload. Another
-  payload selects whatever its own code and bundled dependencies need; the
-  format has no opinion.
+  Each payload selects whatever its own code and bundled dependencies need.
 - **It does not make Nupp a C project either.** The production host and native
   resource owners are Rust. LuaJIT, LPeg, protected VM shims, and compiled AOT
   code remain deliberate native boundaries; the complete ownership and support

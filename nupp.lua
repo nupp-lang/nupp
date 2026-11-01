@@ -662,7 +662,7 @@ return {
             docs = {
                 kind = "docs",
                 dependencies = {"lunamark_lpeg", "lunamark_cosmo", "lunamark_getopt", "lunamark", "scintillua",},
-                sources = {"src"},
+                sources = {"src/nupp", "src/serde", "src/binary"},
                 format = "both",
                 outDir = "build/docs",
                 title = "Nupp API",

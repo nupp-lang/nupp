@@ -259,8 +259,7 @@ recomputes these effects from the post-folding tree, so a use found only in a
 constant-dead branch or loop is removed with that code.
 
 The registry also recognizes compiler-provided modules. `require("lpeg")`
-selects native LPeg 1.1, while `require("re")` selects the bundled official Lua
-frontend and implies LPeg. A local table named `nupp`, or a computed `require`,
+selects native LPeg 1.1. A local table named `nupp`, or a computed `require`,
 does not claim a compiler feature: only the resolved global path and literal
 module name do.
 
@@ -281,8 +280,8 @@ nativeFeatures = {
 
 The forceable binary feature names are `json`, `lpeg`, `path`,
 `uri`, `uuid`, `files`, `process`, `workers`, and `http`. The registered module
-effects include `serde.json`, native `lpeg`, and the Lua `re`
-module that requires it. Bundled LuaRock modules are checked too, so Lunamark
+effects include `serde.json` and native `lpeg`. Bundled LuaRock modules are
+checked too, so Lunamark
 contributes LPeg even when application source does not require it directly.
 Forced removal is an expert escape hatch:
 if reachable code still requires that provider, the resulting program fails at
@@ -1167,11 +1166,10 @@ A bundle and a binary are one file, and one file cannot bring a rock tree along.
 into:
 
 ```lua
-lunamark = {
+scintillua = {
    kind = "luarocks",
-   version = "0.6.0-1",
-   bundle = { "lunamark.lua", "lunamark/**.lua", "cosmo.lua", "cosmo/**.lua",
-      "re.lua" }
+   rockspec = "rocks/scintillua-6.7-1.rockspec",
+   bundle = { "scintillua/**.lua" }
 }
 ```
 
