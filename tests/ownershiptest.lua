@@ -600,8 +600,8 @@ function M.assertForwardsOwnersInItsCompleteResultPack()
                 "local last = resource_new()",
                 "local present, gap, tail = assert(first, nil, last)",
                 "local empty: nil = gap",
-                "nupp.drop(present)",
-                "nupp.drop(tail)",
+                "own.drop(present)",
+                "own.drop(tail)",
             },
             "\n"
         )
@@ -614,8 +614,8 @@ function M.assertForwardsOwnersInItsCompleteResultPack()
                 "local last = resource_new()",
                 "local present, gap, tail = assert(through(first, nil, last))",
                 "local empty: nil = gap",
-                "nupp.drop(present)",
-                "nupp.drop(tail)",
+                "own.drop(present)",
+                "own.drop(tail)",
             },
             "\n"
         )
@@ -629,8 +629,8 @@ function M.assertForwardsOwnersInItsCompleteResultPack()
                 "local last = resource_new()",
                 "local present, gap, tail = requireTruthy(first, nil, last)",
                 "local empty: nil = gap",
-                "nupp.drop(present)",
-                "nupp.drop(tail)",
+                "own.drop(present)",
+                "own.drop(tail)",
             },
             "\n"
         )
@@ -638,7 +638,7 @@ function M.assertForwardsOwnersInItsCompleteResultPack()
     testAssert.matches(
         codes(
             declaration
-            .. "\nlocal value = resource_new()\nlocal result = assert(value)\nprint(value)\nnupp.drop(result)"
+            .. "\nlocal value = resource_new()\nlocal result = assert(value)\nprint(value)\nown.drop(result)"
         ),
         "NUPP2601",
         "forwarding moves the owner exactly once"
@@ -3114,7 +3114,7 @@ function M.opaqueOwnersAreTransferOnly()
         "\n"
     )
     assertClean(opaque .. "\nlocal value = resource_new()\nresource_take(value)")
-    testAssert.equal(codes(opaque .. "\nlocal value = resource_new()\nnupp.drop(value)"), "NUPP2602")
+    testAssert.equal(codes(opaque .. "\nlocal value = resource_new()\nown.drop(value)"), "NUPP2602")
 end
 
 function M.affineUsesItsExactCleanupFunction()
@@ -5365,13 +5365,13 @@ function M.bothSpellingsOfDropLowerTheSameWay()
     lowered("own.drop(file)")
 end
 
-function M.aBindingNamedNuppShadowsTheQualifiedSpelling()
-    -- The intrinsic is reached through the compiler's own `nupp`, so a local of
+function M.aBindingNamedOwnShadowsTheQualifiedSpelling()
+    -- The intrinsic is reached through the compiler's `own` root, so a local of
     -- that name means what the program says it means, as any other name would.
     assertClean(
         table.concat(
             {
-                "local nupp = {",
+                "local own = {",
                 "   drop = function(value: integer): integer return value end",
                 "}",
                 "local answer = own.drop(3)",
@@ -7676,7 +7676,7 @@ end
 -- is discharged, and a slot that starts nil takes its first owner without
 -- overwriting anything. A live owner is still never overwritten.
 function M.anOptionalOwnerSlotIsFilledOnceAndClearedAfterDischarge()
-    assertClean(CONSUMABLE .. "\nlocal a: Res? = open(1)\nnupp.drop(a)\na = nil")
+    assertClean(CONSUMABLE .. "\nlocal a: Res? = open(1)\nown.drop(a)\na = nil")
     testAssert.equal(codes(CONSUMABLE .. "\nlocal a: Res? = open(1)\na = nil"), "NUPP2602")
     assertClean(
         CONSUMABLE .. "\n" .. table.concat(
@@ -8354,10 +8354,10 @@ function M.aPartiallyMovedRecordCannotBeBorrowedWhole()
         },
         "\n"
     )
-    testAssert.equal(codes(PAIR .. "\npeek(pair)\nnupp.drop(pair)"), "NUPP2602", "a borrows parameter")
-    testAssert.equal(codes(PAIR .. "\npoke(pair)\nnupp.drop(pair)"), "NUPP2602", "an exclusive parameter")
-    testAssert.equal(codes(PAIR .. "\npair:peek()\nnupp.drop(pair)"), "NUPP2602", "a method receiver")
-    assertClean(PAIR .. "\nprint(pair.right.value)\nnupp.drop(pair)")
+    testAssert.equal(codes(PAIR .. "\npeek(pair)\nown.drop(pair)"), "NUPP2602", "a borrows parameter")
+    testAssert.equal(codes(PAIR .. "\npoke(pair)\nown.drop(pair)"), "NUPP2602", "an exclusive parameter")
+    testAssert.equal(codes(PAIR .. "\npair:peek()\nown.drop(pair)"), "NUPP2602", "a method receiver")
+    assertClean(PAIR .. "\nprint(pair.right.value)\nown.drop(pair)")
 end
 
 -- A loan names a place, and a place written as a field or index path has no entry
