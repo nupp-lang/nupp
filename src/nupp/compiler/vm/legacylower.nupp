@@ -4236,7 +4236,9 @@ function lower.emit(
     stmt = function(f: Fn, node)
         local k = node.kind
         -- A comptime helper ran while compiling; the program never sees it.
-        if (k == "localFuncStmt" or k == "funcStmt") and (node.comptimeFunction or node.comptimeTok) then
+        if (k == "localStmt" or k == "localFuncStmt" or k == "funcStmt")
+            and (node.comptimeFunction or node.comptimeTok)
+        then
             return
         end
         if k == "localStmt" and node.pattern then
@@ -5958,7 +5960,7 @@ function lower.emit(
     local function requiresOf(tree)
         local names = {}
         walkSyntax(tree, {}, function(n)
-            if n.typeOnlyRequire then
+            if n.typeOnlyRequire or n.comptimeFunction or n.comptimeTok then
                 return false
             end
             -- `require("m")`, and softly `_G.require("m")`, which a facade spells

@@ -4909,6 +4909,188 @@ return declared
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.publicAliasSignaturesUseTheirExportedTypeProvenance()
+    local dir = tempProject({
+        [
+            "src/package/init.nupp"
+        ] = [[
+module package
+const model = require("package.internal.model")
+const {type Reader} = require("package.internal.messages")
+export type Stream<T> = Reader<T>
+export type Envelope = model.Request
+export type Other = model.Envelope
+export const read = model.read
+export const submitted = model.Submitted
+]],
+        [
+            "src/client.nupp"
+        ] = [[
+module client
+const model = require("package.internal.model")
+export const fetch = model.read
+]],
+        [
+            "src/package/internal/model.nupp"
+        ] = [[
+module package.internal.model
+const messages = require("package.internal.messages")
+const {type Reader} = require("package.internal.messages")
+export record Envelope
+    value: string
+end
+export record Request
+    reader: messages.Reader<string>
+    nested: {read: function<Reader>(value: Reader): Reader, source: Reader<string>}
+    label: "package.internal.messages.Reader"
+    generic: function<Reader>(value: Reader): Reader
+    plucked: Reader<string>
+    hidden: Hidden
+end
+record Hidden
+    token: integer
+end
+export function read(request: Request): messages.Reader<string>
+    error("documentation fixture")
+end
+@comptime export function Submitted<F>(value: F): typepack
+    error("documentation fixture")
+end
+]],
+        [
+            "src/package/internal/messages.nupp"
+        ] = [[
+module package.internal.messages
+export record Reader<T>
+    value: T
+    next: Reader<T>?
+end
+]],
+    })
+    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "json", output = "api.json"}) == 0)
+    local model = assert(require("testjson").decode(readFile(dir .. "/api.json")))
+    local items = {}
+    for _, module in ipairs(model.modules) do
+        assert(not module.name:find("internal", 1, true), "private source became a public module")
+        for _, item in ipairs(module.items) do
+            items[item.path] = item
+        end
+    end
+    local request, stream = assert(items["package.Envelope"]), assert(items["package.Stream"])
+    local fields = {}
+    for _, field in ipairs(request.members) do
+        fields[field.name] = field
+    end
+    assert(fields.reader.type == "Stream<string>", fields.reader.type)
+    assert(request.signature == "record Envelope", request.signature)
+    assert(fields.generic.type == "function<Reader>(value: Reader): Reader", fields.generic.type)
+    assert(fields.plucked.type == "Stream<string>", fields.plucked.type)
+    assert(fields.hidden.type == "Hidden", "an unexported type was invented")
+    assert(fields.nested.type:find("function<Reader>(value: Reader): Reader", 1, true), fields.nested.type)
+    assert(fields.nested.type:find("source: Stream<string>", 1, true), fields.nested.type)
+    assert(fields.label.type == '"package.internal.messages.Reader"', "a string literal was rewritten")
+    assert(stream.signature == "record Stream<T>", stream.signature)
+    assert(stream.members[1].type == "T", "the generic binder was rewritten")
+    assert(stream.members[2].type == "Stream<T>?", stream.members[2].type)
+    assert(stream.members[2].path == "package.Stream.next", stream.members[2].path)
+    local read = assert(items["package.read"])
+    assert(read.params[1].type == "Envelope", read.params[1].type)
+    assert(read.returns[1].type == "Stream<string>", read.returns[1].type)
+    assert(read.signature == "function read(request: Envelope): Stream<string>", read.signature)
+    local fetch = assert(items["client.fetch"])
+    assert(fetch.params[1].type == "package.Envelope", fetch.params[1].type)
+    assert(fetch.returns[1].type == "package.Stream<string>", fetch.returns[1].type)
+    local submitted = assert(items["package.submitted"])
+    assert(submitted.signature == "@comptime function submitted<F>(value: F): typepack", submitted.signature)
+    assert(submitted.comptimeKind == "function", "projection lost the compile-time phase")
+    assert(submitted.annotations[1] == "@comptime", "projection lost the annotation")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.indexedProviderAliasesKeepTheirDeclaredFunctionContracts()
+    local dir = tempProject({
+        [
+            "src/api/init.nupp"
+        ] = [[
+module api
+const contract = require("api.contract")
+const implementation = require("api.internal.selected")
+export type Resource = contract.Resource
+export function direct(): contract.Resource
+    error("documentation fixture")
+end
+export const retain: contract.Provider.["retain"] = implementation.retain
+export const create: contract.Provider.["create"] = implementation.create
+export const describe: contract.Provider.["describe"] = implementation.describe
+export const available: implementation.Available = implementation.available
+export const unknown: contract.Provider.["missing"] = implementation.unknown
+]],
+        [
+            "src/api/contract.nupp"
+        ] = [[
+module api.contract
+const source = require("api.internal.contract")
+export type Provider = source.Provider
+export type Resource = source.Resource
+]],
+        [
+            "src/api/internal/selected.nupp"
+        ] = [[
+module api.internal.selected
+export type Available = function(): boolean
+]],
+        [
+            "src/api/internal/contract.nupp"
+        ] = [[
+module api.internal.contract
+export record Resource
+    close: @nosuspend function(takes self: Resource): nil
+end
+export type Create = function<A..., R...>(body: function(A...): R...): thread
+export type Describe = @comptime function<T>(value: T): type
+export interface Provider
+    --- Keeps the borrowed resource through the callback.
+    @readonly retain: @nosuspend function<T>(borrows resource: Resource, body: function(Resource): T): T
+    @readonly create: Create
+    @readonly describe: Describe
+end
+]],
+    })
+    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "json", output = "api.json"}) == 0)
+    local model = assert(require("testjson").decode(readFile(dir .. "/api.json")))
+    local items = {}
+    for _, module in ipairs(model.modules) do
+        for _, item in ipairs(module.items) do
+            items[item.path] = item
+        end
+    end
+    local direct = assert(items["api.direct"])
+    assert(direct.kind == "function" and direct.signature == "function direct(): contract.Resource", direct.signature)
+    local retain = assert(items["api.retain"])
+    assert(retain.kind == "function", retain.kind)
+    assert(retain.signature:find("@nosuspend function<T>", 1, true), retain.signature)
+    assert(retain.params[1].mode == "borrows", "the provider's borrow mode was lost")
+    assert(retain.params[1].type == "Resource", retain.params[1].type)
+    assert(retain.params[2].type == "function(Resource): T", retain.params[2].type)
+    assert(retain.returns[1].type == "T", retain.returns[1].type)
+    assert(retain.typeargs[1].name == "T", "the provider's generic binder was lost")
+    assert(retain.doc.text:find("borrowed resource", 1, true), retain.doc.text)
+    local create = assert(items["api.create"])
+    assert(create.kind == "function" and #create.typeargs == 2, create.signature)
+    assert(create.params[1].type == "function(A...): R...", create.params[1].type)
+    assert(create.returns[1].type == "thread", create.returns[1].type)
+    local describe = assert(items["api.describe"])
+    assert(describe.kind == "function" and describe.comptimeKind == "function", describe.signature)
+    assert(describe.typeargs[1].name == "T" and describe.returns[1].type == "type", describe.signature)
+    local available = assert(items["api.available"])
+    assert(available.kind == "function" and available.returns[1].type == "boolean", available.signature)
+    assert(available.signature == "const available: function(): boolean", available.signature)
+    local unknown = assert(items["api.unknown"])
+    assert(unknown.kind == "variable", "an unresolved contract field acquired a callable signature")
+    assert(unknown.signature == 'const unknown: contract.Provider.["missing"]', unknown.signature)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.gpuDocumentsApplicationOperationsAndHidesGeneratedBindings()
     local source = readFile(HERE .. "/../src/gpu/init.nupp")
     local module = assert(doc.extract(source, "src/gpu/init.nupp", "gpu"))

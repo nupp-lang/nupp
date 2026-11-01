@@ -896,7 +896,7 @@ function index.install(c: state.Checker): state.ExprHandlers
             ft = T.affine(rawType(ft), exact)
         end
         if not writing
-            and compilerOnlyValue(ft)
+            and (compilerOnlyValue(ft) or fieldDef and fieldDef.comptimeOnly)
             and (c.comptimeDepth or 0) == 0
             and (c.comptimeFunctionDepth or 0) == 0
         then

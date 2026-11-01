@@ -533,4 +533,58 @@ return scopeType, cancellation
     )
 end
 
+function M.coroutineStructuredCombinatorsPreserveAliasesAndShadows()
+    local source = [[
+@!internal
+module nupp.runtime.standardcoroutine
+local original = require("nupp.tasks")
+export const run = original.run
+export const gather = original.gather
+export const race = original.race
+export const value: table = do
+    local host = rawget(_G, "coroutine") as any
+    host.run = run
+    host.gather = gather
+    host.race = race
+    yield host
+end
+]]
+    local saved = {run = coroutine.run, gather = coroutine.gather, race = coroutine.race}
+    local ok, failure = pcall(function()
+        withExtension(
+            function(env)
+                local code = compile(
+                    [[
+local imported = require("coroutine")
+return coroutine.run, imported.gather, imported.race
+]],
+                    "coroutine-combinators.nupp",
+                    env
+                )
+                local run, gather, race = assert(loadProgram(code))()
+                local original = require("nupp.tasks")
+                test.equal(run, original.run)
+                test.equal(gather, original.gather)
+                test.equal(race, original.race)
+                local shadow = compile(
+                    [[
+local coroutine = {run = function(): integer return 11 end}
+return coroutine.run()
+]],
+                    "coroutine-combinators-shadow.nupp",
+                    env
+                )
+                test.equal(assert(loadProgram(shadow))(), 11)
+            end,
+            nil,
+            nil,
+            source
+        )
+    end)
+    for _, name in ipairs({"run", "gather", "race"}) do
+        rawset(coroutine, name, saved[name])
+    end
+    assert(ok, failure)
+end
+
 return M

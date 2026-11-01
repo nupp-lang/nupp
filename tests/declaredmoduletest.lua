@@ -659,6 +659,52 @@ function M.moduleWithChildrenRequiresInitSource()
     )
 end
 
+function M.privateParentFilesKeepPublicChildrenAndCanonicalTypeOwners()
+    withProject(
+        {
+            ["src/nupp/io.nupp"] = "@!internal\nmodule nupp.io\nexport record Token value: integer end\n",
+            ["src/nupp/io/process.nupp"] = "module nupp.io.process\nexport const answer: integer = 29\n",
+            [
+                "src/io/facade.nupp"
+            ] = [[
+module io.facade
+local implementation = require("nupp.io")
+export type Token = implementation.Token
+export const Token = implementation.Token
+]],
+            [
+                "src/app.nupp"
+            ] = [[
+module app
+local facade = require("io.facade")
+local process = require("nupp.io.process")
+export const token: facade.Token = new facade.Token(value = process.answer)
+]],
+        },
+        function(dir)
+            local env = projectEnv(dir)
+            local index = env:ensureProjectIndex()
+            testAssert.equal(#index.registrationDiagnostics, 0)
+            local code, problem = compile(dir .. "/src/app.nupp", env)
+            assert(code, problem)
+            local origin = env.resolveModuleExports(env, "nupp.io")
+            local facade = env.resolveModuleExports(env, "io.facade")
+            testAssert.equal(facade.types.Token, origin.types.Token)
+            testAssert.equal(origin.types.Token.moduleName, "nupp.io")
+            for _, source in ipairs({
+                'module app\nlocal old = require("nupp.io")\n',
+                'module app\nlocal old = nupp.io.Token\n',
+            }) do
+                local parsed = parser.parse(source, dir .. "/src/app.nupp")
+                local diags = check.check(parsed, dir .. "/src/app.nupp", env)
+                local denied = diagnosticContaining(diags, "is internal to package namespace")
+                assert(denied and denied.code == "NUPP2144")
+            end
+            testAssert.equal(env.moduleAccess(env, "app", "nupp.io.process"), nil)
+        end
+    )
+end
+
 -- Two include roots can each hold a file that names one module, and only one of
 -- them can be what `require` finds. Which one the checker saw and which one the
 -- build compiled used to depend on the order each walked the files in, so the
