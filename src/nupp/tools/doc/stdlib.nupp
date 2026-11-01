@@ -22,8 +22,24 @@ provides is not here: it has module pages of its own.
 local bundledMod = require("nupp.compiler.bundled")
 local extractMod = require("nupp.tools.doc.extract")
 local markdownMod = require("nupp.tools.doc.markdown")
+local stringsMod = require("nupp.tools.doc.strings")
 
 local stdlib = {}
+
+--- A declaration and its nested members, linked to the generated index.
+record stdlib.Entry
+    name: string
+    path: string
+    items: {stdlib.Entry}?
+end
+
+--- The builtin libraries, globals, and intrinsic types extracted for navigation.
+type stdlib.Navigation = {
+    libraries: {stdlib.Entry},
+    globals: {stdlib.Entry},
+    types: {stdlib.Entry},
+    reflection: {stdlib.Entry}
+}
 
 --- The generated page: the route it is written to, its title, and its markdown.
 type stdlib.Page = {
@@ -32,7 +48,8 @@ type stdlib.Page = {
     redirects: {string}?,
     source: string?,
     symbols: {[string]: string}?,
-    title: string
+    title: string,
+    navigation: stdlib.Navigation?
 }
 
 --- Where a manifest asked the page to live, and what to call it.
@@ -63,6 +80,7 @@ local SOURCES: {
     new Source(file = "/decls/jit/util.d.nupp", required = "jit.util"),
     new Source(file = "/decls/jit/profile.d.nupp", required = "jit.profile"),
     new Source(file = "/decls/jit/zone.d.nupp", required = "jit.zone"),
+    new Source(file = "/decls/jit/vmdef.d.nupp", required = "jit.vmdef"),
 }
 
 local INTRO = "Every name a checked program can use without declaring it, and every "
@@ -172,6 +190,30 @@ local function section(out: {string}, title: string, text: string?, items: {extr
     end
 end
 
+-- Keep declaration paths beside the labels before qualification changes their
+-- displayed names. The same extracted items write the body and the navigation.
+local function navigationItems(items: {any}): {stdlib.Entry}
+    local entries: {stdlib.Entry} = {}
+    for _, item in ipairs(items) do
+        entries[
+            #entries + 1
+        ] = new stdlib.Entry(name = item.name, path = item.path, items = navigationItems(item.members or {}))
+    end
+
+    return entries
+end
+
+local function libraryEntry(name: string, items: {extractMod.Item}, required: boolean?): stdlib.Entry
+    local entries = navigationItems(items)
+    -- Require-only declarations often describe the returned library with one
+    -- record. Its fields are the library's members; their anchors stay intact.
+    if required and #entries == 1 and #(entries[1].items or {}) > 0 then
+        entries = entries[1].items as {stdlib.Entry}
+    end
+
+    return new stdlib.Entry(name = name, path = stringsMod.headingId(name), items = entries)
+end
+
 --- The whole standard library as one page, or nil when the manifest asked for no page.
 ---
 --- A declaration this compiler does not carry is left out rather than reported: the
@@ -187,21 +229,27 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
     local title = settings.title or "LuaJIT standard library"
     local out = {"# " .. title, "", INTRO, ""}
     local types: {extractMod.Item} = {}
+    local navigation: stdlib.Navigation = {libraries = {}, globals = {}, types = {}, reflection = {}}
     for _, source in ipairs(SOURCES) do
         local text = bundledMod.source(source.file)
         if text then
             local path = source.file:gsub("^/", "")
             local module, _, libraries = extractMod.extract(text, path, source.required or "globals", {
-                shapesAsModules = source.required == nil
+                shapesAsModules = source.required == nil,
+                publicNames = source.file == "/decls/lua.d.nupp" and {_G = true, _VERSION = true} or nil
             })
             if module then
                 if source.required then
                     local items = withoutRedeclaredBindings(module.items)
+                    navigation.libraries[#navigation.libraries + 1] = libraryEntry(source.required, items, true)
                     qualifyNames(source.required, items)
                     section(out, "`" .. source.required .. "`", module.text, items)
                 else
                     local globals = only(module.items, isGlobal)
                     anchorByName(globals)
+                    for _, entry in ipairs(navigationItems(globals)) do
+                        navigation.globals[#navigation.globals + 1] = entry
+                    end
                     section(out, "Globals", GLOBALS, globals)
                     for _, item in ipairs(only(module.items, isType)) do
                         types[#types + 1] = item
@@ -211,12 +259,19 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
             -- Each shape-typed global is a library of its own, in the order the
             -- declarations give them.
             for _, library in ipairs(libraries or {}) do
+                navigation.libraries[#navigation.libraries + 1] = libraryEntry(library.name, library.items)
                 qualifyNames(library.name, library.items)
                 section(out, "`" .. library.name .. "`", library.text, library.items)
             end
         end
     end
     anchorByName(types)
+    navigation.types = navigationItems(
+        only(types, function(item: extractMod.Item): boolean
+            return not isReflection(item)
+        end)
+    )
+    navigation.reflection = navigationItems(only(types, isReflection))
     local symbols: {[string]: string} = {}
     for _, item in ipairs(types) do
         symbols[item.name] = item.path
@@ -242,7 +297,8 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
         -- Ambient types have no module page to enter them in the ordinary symbol
         -- index. Publish their anchors with this generated page so API signatures
         -- such as a field of type `LuaFile` can still reach the canonical declaration.
-        symbols = symbols
+        symbols = symbols,
+        navigation = navigation
     }
 end
 

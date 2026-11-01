@@ -3314,13 +3314,12 @@ function M.siteMatchesTheNuppdocPageModel()
     assert(guide:find('<li><a aria-current="page" href="../guide/index.html">Guide</a>', 1, true), guide)
     assert(guide:find('<details><summary>Reference</summary>', 1, true), guide)
     assert(guide:find('<details><summary>API reference</summary>', 1, true), guide)
-    -- inside it, a top-level branch is a library and stands open on every page,
-    -- while the nesting below one stays shut until the reader is in it
+    -- API library branches start collapsed, including the current branch.
     assert(
         guide:match(
-            '<details open><summary class="nuppdoc%-module%-branch%-link">' .. '<a href="[^"]*" aria%-label="engine">'
+            '<details><summary class="nuppdoc%-module%-branch%-link">' .. '<a href="[^"]*" aria%-label="engine">'
         ),
-        "a top-level module branch must stand open"
+        "a top-level module branch must start collapsed"
     )
     assert(
         guide:match(
@@ -3384,16 +3383,15 @@ function M.siteMatchesTheNuppdocPageModel()
 
     local module = readFile(dir .. "/site/modules/math/index.html")
     assert(module:find("Module contents", 1, true), module)
-    -- a module page opens the API reference instead, with its top-level branches
-    -- open as everywhere else and the nesting open only along the branch
-    -- reaching the module itself
+    -- A module page opens the API reference, while its library branches stay
+    -- collapsed even along the path to the current module.
     assert(module:find('<details open><summary>API reference</summary>', 1, true), module)
     assert(module:find('<li><a href="../../guide/index.html">Guide</a></li>', 1, true), module)
     assert(
         module:match(
-            '<details open><summary class="nuppdoc%-module%-branch%-link">' .. '<a href="[^"]*" aria%-label="engine">'
+            '<details><summary class="nuppdoc%-module%-branch%-link">' .. '<a href="[^"]*" aria%-label="engine">'
         ),
-        "a top-level module branch must stand open"
+        "a top-level module branch must start collapsed"
     )
     assert(
         module:match(
@@ -3483,7 +3481,7 @@ function M.siteMatchesTheNuppdocPageModel()
     assert(nestedModule:find('<code>render</code>', 1, true), nestedModule)
     assert(
         nestedModule:find(
-            '<details open><summary class="nuppdoc-module-branch-link">'
+            '<details><summary class="nuppdoc-module-branch-link">'
             .. '<a href="../../../modules/engine/index.html" aria-label="engine">'
             .. "<code>engine</code></a></summary>",
             1,
@@ -4052,6 +4050,7 @@ function M.stdlibIndexHoldsTheLibrariesTheCompilerDeclares()
         "`jit.util`",
         "`jit.profile`",
         "`jit.zone`",
+        "`jit.vmdef`",
         "Types",
         "Reflection",
     }
@@ -4220,6 +4219,172 @@ function M.shapeTypedGlobalsDocumentAsTheirOwnLibraries()
     local plain, _, namespaces = doc.extract(source, "prelude.d.nupp", "globals")
     assert(plain, "the same file must still document as one module")
     assert(#namespaces == 1 and namespaces[1].name == "demo.data", "@namespace stopped working")
+end
+
+function M.builtinNavigationKeepsEveryDeclaredGlobalAndLibrary()
+    local page = assert(require("nupp.tools.doc.stdlib").page({path = "reference/lua"}))
+    local catalog = assert(page.navigation)
+    local globals, libraries = {}, {}
+    for _, entry in ipairs(catalog.globals) do
+        globals[entry.name] = entry
+    end
+    for _, entry in ipairs(catalog.libraries) do
+        libraries[entry.name] = entry
+    end
+    local source = readFile(HERE .. "/../src/nupp/compiler/decls/lua.d.nupp")
+    local module, errors, shapes = doc.extract(source, "lua.d.nupp", "globals", {shapesAsModules = true})
+    assert(module, errors and errors[1] and errors[1].msg)
+    for _, item in ipairs(module.items) do
+        if not item.module and (item.kind == "function" or item.kind == "variable") then
+            assert(globals[item.name], "missing runtime global " .. item.name)
+        end
+    end
+    for _, library in ipairs(shapes) do
+        assert(libraries[library.name], "missing library " .. library.name)
+    end
+    for _, name in ipairs({"ffi", "string.buffer", "jit.util", "jit.profile", "jit.zone", "jit.vmdef"}) do
+        assert(libraries[name], "missing required builtin " .. name)
+    end
+    for _, name in ipairs({
+        "print",
+        "type",
+        "tostring",
+        "tonumber",
+        "pairs",
+        "ipairs",
+        "next",
+        "select",
+        "rawget",
+        "rawset",
+        "rawequal",
+        "rawlen",
+        "setmetatable",
+        "getmetatable",
+        "assert",
+        "error",
+        "pcall",
+        "xpcall",
+        "unpack",
+        "require",
+        "collectgarbage",
+        "load",
+        "loadstring",
+        "loadfile",
+        "setfenv",
+        "getfenv",
+        "dofile",
+        "gcinfo",
+        "newproxy",
+        "_G",
+        "_VERSION",
+        "arg",
+        "warn"
+    }) do
+        assert(globals[name], "lost a callable, array, value or function global: " .. name)
+    end
+    assert(not globals.__nuppCloseFile, "compiler helper became a public global")
+    assert(not libraries.number and not libraries.int32, "primitive types became runtime namespaces")
+    assert(not libraries.lpeg and not libraries.re, "third-party modules became Lua builtins")
+
+    local function anchors(entries)
+        for _, entry in ipairs(entries) do
+            assert(page.markdown:find('<a id="' .. entry.path .. '"></a>', 1, true), "missing anchor " .. entry.path)
+            anchors(entry.items or {})
+        end
+    end
+
+    anchors(catalog.globals)
+    anchors(catalog.types)
+    anchors(catalog.reflection)
+    for _, library in ipairs(catalog.libraries) do
+        anchors(library.items or {})
+    end
+end
+
+function M.builtinNavigationMergesOwnedRootsAndStartsCollapsed()
+    local function library(name, members)
+        local binding = name:match("([^.]+)$")
+        local lines = {"module " .. name, "--[[Public operations.]]", "local " .. binding .. " = {}"}
+        for _, member in ipairs(members) do
+            lines[#lines + 1] = "--- Performs the operation."
+            lines[#lines + 1] = "function " .. binding .. "." .. member .. "(): nil end"
+        end
+        lines[#lines + 1] = "return " .. binding
+
+        return table.concat(lines, "\n")
+    end
+
+    local dir = tempProject({
+        ["src/io/init.nupp"] = library("io", {
+            "write",
+            "style"
+        }),
+        ["src/io/path.nupp"] = library("io.path", {"join"}),
+        ["src/assert/init.nupp"] = library("assert", {"equal"}),
+        ["src/arg/init.nupp"] = library("arg", {"parse"}),
+        ["src/warn.nupp"] = library("warn", {"emit"}),
+        ["src/types/init.nupp"] = library("types", {"newStore"}),
+        ["docs/guide.md"] = "# Guide\n\nRead the library.\n"
+    })
+    assert(
+        doc.build(
+            dir,
+            {include = {"src"}},
+            {
+                sources = {"src"},
+                stdlib = {path = "reference/lua"},
+                pages = {{path = "guide", source = "docs/guide.md"}}
+            },
+            {format = "site", output = "site"}
+        ) == 0
+    )
+    local nested = readFile(dir .. "/site/modules/io/path/index.html")
+    local sidebar = assert(nested:match('<aside class="nuppdoc%-sidebar".-</aside>'))
+    assert(sidebar:find('<details open><summary>API reference</summary>', 1, true))
+    local api = assert(sidebar:match('<summary>API reference</summary>(.*)'))
+    assert(not api:find('<details open', 1, true), "an API branch starts open, including the active one")
+    for _, name in ipairs({
+        "arg",
+        "assert",
+        "warn",
+        "io",
+        "os",
+        "math",
+        "string",
+        "table",
+        "coroutine",
+        "bit",
+        "jit",
+        "debug",
+        "package",
+        "ffi"
+    }) do
+        local _, count = api:gsub('data%-module="' .. name .. '"', '')
+        assert(count == 1, name .. " has " .. count .. " roots")
+    end
+    for _, name in ipairs({"string.buffer", "jit.util", "jit.profile", "jit.zone", "jit.vmdef"}) do
+        assert(api:find('data-module="' .. name .. '"', 1, true), "missing nested builtin " .. name)
+    end
+    assert(api:find('>Globals</a>', 1, true), "standalone functions need their own group")
+    assert(api:find('>Intrinsic types</a>', 1, true), "intrinsic types confused with public types")
+    assert(api:find('>Layout reflection</a>', 1, true))
+    assert(api:find('<code>types</code>', 1, true), "the public types root disappeared")
+    assert(api:find('href="../../../modules/io/index.html#io.write"', 1, true), "owned member lost its canonical link")
+    assert(api:find('href="../../../modules/io/index.html#io.style"', 1, true), "owned extension member missing")
+    assert(api:find('href="../../../reference/lua/index.html#io.open"', 1, true), "builtin member lost its fallback")
+    assert(api:find('href="../../../modules/assert/index.html"', 1, true), "callable global lost its owned page")
+    assert(api:find('href="../../../modules/arg/index.html"', 1, true), "array global lost its owned page")
+    assert(api:find('href="../../../reference/lua/index.html#_G"', 1, true), "global value missing")
+    assert(api:find('href="../../../reference/lua/index.html#print"', 1, true), "global function missing")
+    assert(api:find('href="../../../reference/lua/index.html">LuaJIT</a>', 1, true), "aggregate overview unreachable")
+    local aggregate = readFile(dir .. "/site/reference/lua/index.html")
+    for anchor in api:gmatch('href="%.%./%.%./%.%./reference/lua/index%.html#([^"]+)"') do
+        assert(aggregate:find('id="' .. anchor .. '"', 1, true), "navigation target does not exist: " .. anchor)
+    end
+    local guide = readFile(dir .. "/site/guide/index.html")
+    local guideSidebar = assert(guide:match('<aside class="nuppdoc%-sidebar".-</aside>'))
+    assert(not guideSidebar:find('<details open', 1, true), "unrelated API or page branch starts open")
+    os.execute("rm -rf '" .. dir .. "'")
 end
 
 -- A route a page used to answer at keeps answering, by way of a stub that names

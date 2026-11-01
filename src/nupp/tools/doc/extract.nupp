@@ -142,6 +142,9 @@ type extract.Module = {
 --- own, which an ordinary run documents already.
 type extract.Options = {
     includePrivate: boolean?,
+
+    --- Declaration names a catalog explicitly publishes despite a leading underscore.
+    publicNames: {[string]: boolean}?,
     shapesAsModules: boolean?
 }
 
@@ -1204,7 +1207,16 @@ end
 -- wrapper owns the leading trivia, so documentation comes from the outside while the
 -- name, signature and visibility come from the declaration at the centre. Following
 -- every wrapper also handles stacked annotations.
-declarationItem = function(stat, moduleName, everyDeclaration, declarationFile, includePrivate, published, moduleLocal)
+declarationItem = function(
+    stat,
+    moduleName,
+    everyDeclaration,
+    declarationFile,
+    includePrivate,
+    published,
+    moduleLocal,
+    publicNames
+)
     local documented = stat
     local applied = {}
     while stat.kind == "pragmaStmt" and stat.stat do
@@ -1276,7 +1288,7 @@ declarationItem = function(stat, moduleName, everyDeclaration, declarationFile, 
     -- method: a module function, type, or variable named `_thing` is as much an
     -- implementation detail as `Record._thing`, and the generated runtime helpers
     -- the compiler calls by name are exactly that.
-    if privateName(name) and not includePrivate then
+    if privateName(name) and not includePrivate and not (publicNames and publicNames[name]) then
         public = false
     end
     if not public then
@@ -1684,7 +1696,8 @@ function extract.extract(
                     declarationFile,
                     opts.includePrivate,
                     published,
-                    result.moduleLocal
+                    result.moduleLocal,
+                    opts.publicNames
                 )
                 if item then
                     result.items[#result.items + 1] = item

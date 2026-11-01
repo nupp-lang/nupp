@@ -103,6 +103,7 @@ local type BuiltPage = {
     symbols: {[string]: string}?,
     api: boolean?,
     navigationTitle: string?,
+    navigation: stdlibMod.Navigation?,
     unlisted: boolean?,
     heroText: string?,
     heroTitle: string?,
@@ -1035,7 +1036,8 @@ local function configuredPages(root, settings, title): {BuiltPage}?, string?
         generated: doc.Generated?,
         what: string,
         api: boolean?,
-        navigationTitle: string?
+        navigationTitle: string?,
+        navigation: stdlibMod.Navigation?
     ): boolean?, string?
         if not generated then
             return true
@@ -1054,6 +1056,7 @@ local function configuredPages(root, settings, title): {BuiltPage}?, string?
             path = route,
             title = generated.title,
             navigationTitle = navigationTitle,
+            navigation = navigation,
             markdown = generated.markdown,
             source = generated.source,
             redirects = generated.redirects,
@@ -1091,7 +1094,14 @@ local function configuredPages(root, settings, title): {BuiltPage}?, string?
     if not added then
         return nil, addErr
     end
-    added, addErr = addGenerated(stdlibMod.page(settings.stdlib), "standard library index", true, "LuaJIT")
+    local standardLibrary = stdlibMod.page(settings.stdlib)
+    added, addErr = addGenerated(
+        standardLibrary,
+        "standard library index",
+        true,
+        "LuaJIT",
+        standardLibrary and standardLibrary.navigation or nil
+    )
     if not added then
         return nil, addErr
     end
