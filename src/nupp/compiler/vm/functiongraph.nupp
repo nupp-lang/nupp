@@ -387,12 +387,17 @@ function frontend.compile(fn: any, options: any, profile: any): any
         return value
     end
     ctx.expression = expression
-    branch = function(resultKind: string?): any
+    branch = function(resultKind: string?, resultCount: integer?): any
         local target = graph.block(g)
         local result
+        local results = {}
         if resultKind then
-            result = profile.newValue(g, resultKind)
-            target.params[1] = result
+            -- A call's results are the continuation's leading parameters.
+            for index = 1, resultCount or 1 do
+                results[index] = profile.newValue(g, resultKind)
+                target.params[index] = results[index]
+            end
+            result = results[1]
         end
         local transported, order, args, keys = {}, {}, {}, {}
         for _, key in ipairs(bindingOrder) do
@@ -417,6 +422,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
         return {
             block = target,
             result = result,
+            results = results,
             bindings = transported,
             order = order,
             keys = keys,
@@ -445,6 +451,20 @@ function frontend.compile(fn: any, options: any, profile: any): any
     jump = function(state: any, node: any): nil
         block.term = {kind = "jump", edges = {currentEdge(state)}, pos = position(node)}
         block = nil
+    end
+
+    -- How many results a last call supplies when `count` targets outnumber the
+    -- expressions, or nil when the profile has no multi-result calls.
+    local function spreadCall(exprs: any, count: integer): integer?
+        local last = exprs[#exprs]
+        if not profile.callResults or not last or count <= #exprs then
+            return nil
+        end
+        if last.kind ~= "call" and last.kind ~= "methodCall" then
+            return nil
+        end
+
+        return count - #exprs + 1
     end
 
     local function flag(node: any, value: boolean): integer
@@ -800,6 +820,27 @@ function frontend.compile(fn: any, options: any, profile: any): any
 
         return continuation.result
     end
+    -- A call keeping `count` results, as `local a, b = f()` does.
+    ctx.invokeMany = function(node: any, calleeValue: integer, args: any, contract: any, count: integer): {integer}
+        need(g.native == nil and g.types[calleeValue] == "v", "guest invoke requires a tagged callee")
+        need(count >= 1 and count <= 16, "a call keeps one to sixteen results")
+        local parent = need(block, "invoke after terminator")
+        local continuation = branch("tagged", count)
+        parent.term = {
+            kind = "invoke",
+            callee = calleeValue,
+            args = args,
+            contract = contract,
+            result = continuation.result,
+            results = continuation.results,
+            edges = {continuation.edge},
+            pos = position(node)
+        }
+        resume(continuation)
+        context()
+
+        return continuation.results
+    end
 
     local function callee(call: any): any
         if call.kind ~= "call" then
@@ -906,12 +947,19 @@ function frontend.compile(fn: any, options: any, profile: any): any
                     need(#stat.exprs <= #stat.names, "too many local initializer values")
                     need(profile.missingLocal or #stat.names == #stat.exprs, "plain initialized locals required")
                     local values = {}
+                    -- A last call fills every remaining name with its results.
+                    local spread, spreadValues = spreadCall(stat.exprs, #stat.names), nil
                     -- All RHS see the old lexical environment. Publication and
                     -- cell allocation happen only after every RHS was evaluated.
                     for index, token in ipairs(stat.names) do
                         local kind = profile.localKind(token, fn)
                         local value
-                        if stat.exprs[index] then
+                        if spread and index >= #stat.exprs then
+                            if index == #stat.exprs then
+                                spreadValues = profile.callResults(ctx, stat.exprs[index], spread)
+                            end
+                            value = spreadValues and spreadValues[index - #stat.exprs + 1]
+                        elseif stat.exprs[index] then
                             value = expression(stat.exprs[index], kind)
                         else
                             value = invoke("missingLocal", stat, kind)
@@ -954,7 +1002,11 @@ function frontend.compile(fn: any, options: any, profile: any): any
                     ctx.bind(key, initializeBinding(stat, key, value))
                 end
             elseif stat.kind == "assignStmt" then
-                need(#stat.targets == #stat.exprs, "parallel local assignment requires one value per target")
+                local spread, spreadValues = spreadCall(stat.exprs, #stat.targets), nil
+                need(
+                    #stat.targets == #stat.exprs or spread ~= nil,
+                    "parallel local assignment requires one value per target"
+                )
                 local values, targets = {}, {}
                 -- Capture every LHS address before the RHS list. A later RHS
                 -- may branch or change memory, so receivers are held as SSA.
@@ -983,7 +1035,15 @@ function frontend.compile(fn: any, options: any, profile: any): any
                     end
                 end
                 for index, target in ipairs(targets) do
-                    local value = expression(stat.exprs[index], target.kind)
+                    local value
+                    if spread and index >= #stat.exprs then
+                        if index == #stat.exprs then
+                            spreadValues = profile.callResults(ctx, stat.exprs[index], spread)
+                        end
+                        value = spreadValues and spreadValues[index - #stat.exprs + 1]
+                    else
+                        value = expression(stat.exprs[index], target.kind)
+                    end
                     if not block then
                         for previous = #values, 1, -1 do
                             ctx.release(values[previous])

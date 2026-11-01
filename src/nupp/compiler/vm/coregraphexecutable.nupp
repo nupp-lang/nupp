@@ -79,6 +79,9 @@ local function assignSlots(g: any): (any, integer)
         end
         local term = block.term
         use(term.value, count + 1)
+        for _, value in ipairs(term.values or {}) do
+            use(value, count + 1)
+        end
         use(term.callee, count + 1)
         for _, value in ipairs(term.args or {}) do
             use(value, count + 1)
@@ -158,8 +161,12 @@ local function derive(g: any, catalog: any): any
         if block.term.kind == "invoke" then
             need(#block.term.args <= 63, "fixed CallK argument capacity")
             maximumArguments = math.max(maximumArguments, #block.term.args) as integer
+            -- Several results land after the callee slot.
+            maximumArguments = math.max(maximumArguments, #(block.term.results or {})) as integer
         elseif block.term.kind == "return" then
             need(block.term.value ~= nil, "absent return is not executable")
+            -- Several results are staged from the call base for RetN.
+            maximumArguments = math.max(maximumArguments, #(block.term.values or {})) as integer
         end
     end
     need(g.nparams <= 63, "fixed parameter capacity")
@@ -213,12 +220,13 @@ local function derive(g: any, catalog: any): any
         patches[#patches + 1] = {at = emit({"Jmp", 0}, position), operand = 2, target = target}
     end
 
-    local function edgeCopies(edge: any, position: integer, result: boolean): nil
+    -- `results` call results come first, from the slots after the callee.
+    local function edgeCopies(edge: any, position: integer, results: integer): nil
         local params = g.blocks[edge.target].params
         local destinations, sources = {}, {}
-        local offset: integer = result and 1 or 0
-        if result then
-            destinations[1], sources[1] = physical(params[1]), callBase + 1
+        local offset: integer = results
+        for index = 1, results do
+            destinations[index], sources[index] = physical(params[index]), callBase + index
         end
         for index, source in ipairs(edge.args) do
             destinations[index + offset] = physical(params[index + offset])
@@ -330,18 +338,25 @@ local function derive(g: any, catalog: any): any
         local term, position = block.term, block.term.pos or 0
         local _ = switch term.kind do
             case "return" -> do
-                emit({"Ret", physical(term.value)}, position)
+                if term.values and #term.values > 1 then
+                    for index, value in ipairs(term.values) do
+                        emit({"Move", callBase + index - 1, physical(value)}, position)
+                    end
+                    emit({"RetN", callBase, #term.values}, position)
+                else
+                    emit({"Ret", physical(term.value)}, position)
+                end
                 yield nil
             end
             case "jump" -> do
-                edgeCopies(term.edges[1], position, false)
+                edgeCopies(term.edges[1], position, 0)
                 yield nil
             end
             case "branch" -> do
                 local at = emit({"JmpIf", physical(term.value), 0}, position)
-                edgeCopies(term.edges[2], position, false)
+                edgeCopies(term.edges[2], position, 0)
                 instructions[at][3] = #instructions - at
-                edgeCopies(term.edges[1], position, false)
+                edgeCopies(term.edges[1], position, 0)
                 yield nil
             end
             case "invoke" -> do
@@ -353,7 +368,8 @@ local function derive(g: any, catalog: any): any
                 for index, argument in ipairs(term.args) do
                     emit({"Move", callBase + index, physical(argument)}, position)
                 end
-                local at = emit({"CallK", contract.target, callBase, callBase, #term.args, 1}, position)
+                local wanted = term.results and #term.results or 1
+                local at = emit({"CallK", contract.target, callBase, callBase, #term.args, wanted}, position)
                 calls[
                     #calls + 1
                 ] = {
@@ -365,11 +381,11 @@ local function derive(g: any, catalog: any): any
                     argumentBase = callBase,
                     argumentCount = #term.args,
                     resultSlot = callBase + 1,
-                    wanted = 1,
+                    wanted = wanted,
                     discarded = term.result == nil,
                     inLoop = inLoop[block.id] == true
                 }
-                edgeCopies(term.edges[1], position, term.result ~= nil)
+                edgeCopies(term.edges[1], position, term.results and #term.results or term.result ~= nil and 1 or 0)
                 yield nil
             end
             else -> error("core executable: unsupported terminator", 0)

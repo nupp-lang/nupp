@@ -121,18 +121,27 @@ local function typeSignature(signature: any, numeric: boolean, dynamic: boolean)
             )
         end
     end
+    -- v8 admits up to sixteen fixed results, as dynamic values.
+    local results = dense(signature.rets, dynamic and 16 or 1)
     need(
         dense(signature.params, 239) == #signature.paramPack.head
-        and dense(signature.rets, 1) == 1
-        and #signature.retPack.head == 1,
+        and results >= 1
+        and #signature.retPack.head == results,
         "fixed single-result signature required"
     )
     for index, value in ipairs(signature.params) do
         need(value == signature.paramPack.head[index], "checked parameter pack differs")
         params[index] = scalar(value, numeric, dynamic)
     end
-    need(signature.rets[1] == signature.retPack.head[1], "checked result pack differs")
-    result = scalar(signature.rets[1], numeric, dynamic)
+    for index, value in ipairs(signature.rets) do
+        need(value == signature.retPack.head[index], "checked result pack differs")
+        result = scalar(value, numeric, dynamic)
+    end
+    -- RetN and the caller's frame carry the counts, so the signature needs
+    -- only the kind.
+    if results > 1 then
+        result = "value"
+    end
 
     return {kind = "callable", params = params, result = result}
 end

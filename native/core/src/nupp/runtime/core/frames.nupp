@@ -110,6 +110,8 @@ export const PREPARED: uint64 = 1ULL
 export const ACTIVE: uint64 = 2ULL
 export const WAITING: uint64 = 3ULL
 export const CALLER_DESTINATION: uint64 = 1ULL
+-- The most results a caller frame may want from one call.
+export const MAX_RESULTS: uint64 = 16ULL
 
 local function range(address: uint64, bytes: uint64, alignment: uint64): uint64
     if address == 0ULL or bytes == 0ULL or alignment == 0ULL or (alignment & (alignment - 1ULL)) ~= 0ULL then
@@ -700,14 +702,19 @@ local function linked(state: voidptr, parent: voidptr, child: voidptr): uint64
     end
     if native.load64(child, native.fieldOffset<Frame>("resultKind")) ~= CALLER_DESTINATION
         or native.load64(child, native.fieldOffset<Frame>("resultOwner")) ~= native.address(parent)
-        or native.load64(child, native.fieldOffset<Frame>("resultCount")) ~= 1ULL
+        or native.load64(child, native.fieldOffset<Frame>("resultCount")) == 0ULL
+        or native.load64(child, native.fieldOffset<Frame>("resultCount")) > MAX_RESULTS
     then
         return 0ULL
     end
+    -- Every wanted result lands inside the caller's value window.
     if native.load64(
         child,
         native.fieldOffset<Frame>("resultSlot")
-    ) >= native.load64(parent, native.fieldOffset<Frame>("valueCount")) then
+    ) + native.load64(
+        child,
+        native.fieldOffset<Frame>("resultCount")
+    ) > native.load64(parent, native.fieldOffset<Frame>("valueCount")) then
         return 0ULL
     end
     if native.load64(child, native.fieldOffset<Frame>("cleanupCursor")) ~= 0ULL
@@ -854,11 +861,8 @@ export function abortActive(state: voidptr, callee: voidptr): uint64
     return 1ULL
 end
 
--- The canonical Ret handler selects the value before calling this leaf.
--- This service decodes no instruction and performs no dispatch. Tagged values
--- must already satisfy their heap lifetime contract; frame objects are refused.
--- Entry-lifetime helper spills/control must remain outside the retired span.
-export function returnScalar(state: voidptr, callee: voidptr, value: uint64): uint64
+-- The caller frame a linked, active callee may return into, or zero.
+local function returnTarget(state: voidptr, callee: voidptr): uint64
     if validState(state) == 0ULL or validFrame(state, callee) == 0ULL then
         return 0ULL
     end
@@ -879,13 +883,14 @@ export function returnScalar(state: voidptr, callee: voidptr, value: uint64): ui
     ) >= native.load64(parent, native.fieldOffset<Frame>("instructionCount")) then
         return 0ULL
     end
-    -- All fallible metadata/mark checks precede the caller's observable result.
-    -- Exclusive ownership and no safepoint keep canRelease valid through release.
-    local slots = native.loadPointer(parent, native.fieldOffset<Frame>("values"))
-    local slot = native.load64(callee, native.fieldOffset<Frame>("resultSlot"))
+
+    return native.address(parent)
+end
+
+-- Retires the callee once its results are stored: `count` were produced.
+local function retire(state: voidptr, parent: voidptr, count: uint64): uint64
     local segment = native.loadPointer(state, native.fieldOffset<State>("segment"))
     local mark = native.offset(parent, native.fieldOffset<Frame>("childMark"))
-    native.store64(slots, native.index(slot * 8ULL), value)
     if arena.release(segment, mark) == 0ULL then
         return 0ULL
     end
@@ -893,13 +898,83 @@ export function returnScalar(state: voidptr, callee: voidptr, value: uint64): ui
     -- logical PC is consumed by a future canonical transfer, not by this helper.
     native.store64(parent, native.fieldOffset<Frame>("child"), 0ULL)
     native.store64(parent, native.fieldOffset<Frame>("phase"), ACTIVE)
-    native.store64(state, native.fieldOffset<State>("lastResultCount"), 1ULL)
+    native.store64(state, native.fieldOffset<State>("lastResultCount"), count)
     native.store64(
         state,
         native.fieldOffset<State>("depth"),
         native.load64(state, native.fieldOffset<State>("depth")) - 1ULL
     )
     native.store64(state, native.fieldOffset<State>("active"), native.address(parent))
+
+    return 1ULL
+end
+
+-- The canonical Ret handler selects the value before calling this leaf.
+-- This service decodes no instruction and performs no dispatch. Tagged values
+-- must already satisfy their heap lifetime contract; frame objects are refused.
+-- Entry-lifetime helper spills/control must remain outside the retired span.
+-- A caller that wanted more results gets nil for the rest.
+export function returnScalar(state: voidptr, callee: voidptr, value: uint64): uint64
+    local parent = returnTarget(state, callee)
+    if parent == 0ULL then
+        return 0ULL
+    end
+    -- All fallible metadata/mark checks precede the caller's observable result.
+    -- Exclusive ownership and no safepoint keep canRelease valid through release.
+    local slots = native.loadPointer(native.pointer(parent), native.fieldOffset<Frame>("values"))
+    local slot = native.load64(callee, native.fieldOffset<Frame>("resultSlot"))
+    local wanted = native.load64(callee, native.fieldOffset<Frame>("resultCount"))
+    native.store64(slots, native.index(slot * 8ULL), value)
+    local extra: uint64 = 1ULL
+    while extra < wanted do
+        native.store64(slots, native.index((slot + extra) * 8ULL), values.NIL)
+        extra = extra + 1ULL
+    end
+
+    return retire(state, native.pointer(parent), 1ULL)
+end
+
+-- RetN: `count` results from the callee's window at `source`, adjusted to
+-- what the caller wanted as Lua adjusts them: extra results are dropped and
+-- missing ones are nil.
+export function returnValues(state: voidptr, callee: voidptr, source: voidptr, count: uint64): uint64
+    local parent = returnTarget(state, callee)
+    if parent == 0ULL or count > MAX_RESULTS then
+        return 0ULL
+    end
+    local slots = native.loadPointer(native.pointer(parent), native.fieldOffset<Frame>("values"))
+    local slot = native.load64(callee, native.fieldOffset<Frame>("resultSlot"))
+    local wanted = native.load64(callee, native.fieldOffset<Frame>("resultCount"))
+    local i: uint64 = 0ULL
+    while i < wanted do
+        local value = values.NIL
+        if i < count then
+            value = native.load64(source, native.index(i * 8ULL))
+        end
+        native.store64(slots, native.index((slot + i) * 8ULL), value)
+        i = i + 1ULL
+    end
+
+    return retire(state, native.pointer(parent), count)
+end
+
+-- How many results a prepared child's caller wants; one unless set.
+export function wantResults(state: voidptr, child: voidptr, count: uint64): uint64
+    if validState(state) == 0ULL or validFrame(state, child) == 0ULL then
+        return 0ULL
+    end
+    local parent = native.loadPointer(child, native.fieldOffset<Frame>("previous"))
+    if count == 0ULL
+        or count > MAX_RESULTS
+        or native.load64(child, native.fieldOffset<Frame>("phase")) ~= PREPARED
+        or native.load64(
+            child,
+            native.fieldOffset<Frame>("resultSlot")
+        ) + count > native.load64(parent, native.fieldOffset<Frame>("valueCount"))
+    then
+        return 0ULL
+    end
+    native.store64(child, native.fieldOffset<Frame>("resultCount"), count)
 
     return 1ULL
 end

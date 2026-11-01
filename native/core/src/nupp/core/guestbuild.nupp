@@ -56,7 +56,8 @@ local CASES: {[string]: {
     integersWide = {fixture = "catalog-integers-wide", version = 8},
     numbersText = {fixture = "catalog-numbers-text", version = 8},
     environmentRead = {fixture = "catalog-environment", version = 8},
-    numbersFloat = {fixture = "catalog-numbers-float", version = 8}
+    numbersFloat = {fixture = "catalog-numbers-float", version = 8},
+    callsResults = {fixture = "catalog-calls-results", version = 8}
 }
 
 -- The handlers a profile version dispatches, in table order.
@@ -85,7 +86,8 @@ local function handlerNames(caseName: string, version: integer): {string}
         Len = 8,
         MathFloor = 8,
         LibCall = 8,
-        Not = 8
+        Not = 8,
+        RetN = 8
     }
     for _, name in ipairs({
         "Add",
@@ -105,7 +107,8 @@ local function handlerNames(caseName: string, version: integer): {string}
         "Len",
         "MathFloor",
         "LibCall",
-        "Not"
+        "Not",
+        "RetN"
     }) do
         if version >= introduced[name] then
             table.insert(names, 2, name)

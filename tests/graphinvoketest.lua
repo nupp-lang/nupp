@@ -362,8 +362,11 @@ function M.closedPacksAndScalarSignaturesAreRequired()
             "signature is outside the scalar guest subset"
         },
         {
-            "local function target(): (integer, integer) return 1, 2 end; return target()",
-            "exactly one checked scalar result"
+            "local function target(): (integer" .. string.rep(
+                ", integer",
+                16
+            ) .. ") return 1" .. string.rep(", 1", 16) .. " end; return target()",
+            "one to sixteen checked scalar results"
         },
         {"local function target(value: any): integer return 1 end; return target(1)", "checked scalar type"},
         {

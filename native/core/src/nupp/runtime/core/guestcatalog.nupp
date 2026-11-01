@@ -379,6 +379,12 @@ local function valid(data: voidptr, bytes: uint64): uint64
             local nargs = native.load64(site, native.fieldOffset<Callsite>("argumentCount"))
             -- A v8 dynamic call has no target; its callee is checked when it runs.
             local dynamic = target == 0xffffffffULL and version >= 8ULL
+            -- From v8 a call may want up to sixteen results, all in the window.
+            local wanted = native.load64(site, native.fieldOffset<Callsite>("wanted"))
+            local results: uint64 = 1ULL
+            if version >= 8ULL then
+                results = 16ULL
+            end
             if native.load64(site, native.fieldOffset<Callsite>("id")) ~= index
                 or native.load64(site, native.fieldOffset<Callsite>("owner")) ~= i
                 or pc >= size - 1ULL
@@ -388,7 +394,9 @@ local function valid(data: voidptr, bytes: uint64): uint64
                 or nargs > 63ULL
                 or base >= nv - 1ULL
                 or nargs > nv - base - 1ULL
-                or native.load64(site, native.fieldOffset<Callsite>("wanted")) ~= 1ULL
+                or wanted == 0ULL
+                or wanted > results
+                or wanted > nv - base - 1ULL
                 or native.load64(site, native.fieldOffset<Callsite>("resultSlot")) ~= base + 1ULL
             then
                 return 0ULL

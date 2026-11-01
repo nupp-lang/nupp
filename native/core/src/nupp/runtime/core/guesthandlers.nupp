@@ -1267,7 +1267,7 @@ export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
-    if wanted ~= 1 then
+    if wanted < 1 or native.word(wanted) > frames.MAX_RESULTS then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -1278,6 +1278,10 @@ export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
     local child = ops.prepare(ctx, frame, pc, callee, native.word(base), native.word(nargs), native.word(wanted), hint)
     if child == 0ULL then
         ops.failure(ctx, ops.RESOURCE)
+        return native.fail()
+    end
+    if wanted > 1 and frames.wantResults(s, native.pointer(child), native.word(wanted)) ~= 1ULL then
+        ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
     local published = frames.publish(s, frame, native.pointer(child), resumePC)
@@ -1334,6 +1338,60 @@ export function Ret(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     local returned = frames.returnScalar(s, frame, value)
+    if returned ~= 1ULL then
+        ops.failure(ctx, ops.INVALID)
+        return native.fail()
+    end
+    local current = native.pointer(access.active(s))
+    local currentValues = native.pointer(access.values(s, current))
+    local currentIntegers = native.pointer(access.integers(s, current))
+    local currentFloats = native.pointer(access.floats(s, current))
+    local currentPC = native.pointer(access.pc(s, current))
+    access.refresh(s, current, ctx)
+
+    return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+end
+
+-- Return `count` results from consecutive slots starting at `src` (core-only).
+-- The caller keeps as many as it wanted, nil-filled; a root keeps the first.
+export function RetN(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local src = program.readByte(pc, 1)
+    local count = program.readByte(pc, 2)
+    if count < 1
+        or native.word(count) > frames.MAX_RESULTS
+        or native.word(src) + native.word(count) > native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local value = slots.readValue(frame, regs, src)
+    if ops.result(ctx, frame, pc, value) ~= 1ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local s = native.pointer(ops.state(ctx))
+    ops.checkpoint(ctx, frame, pc)
+    if ops.root(ctx, frame) == 1ULL then
+        if value & values.TAG_MASK == values.TAG_OBJ then
+            ops.fail(ctx, frame, pc, ops.RESOURCE)
+            return native.fail()
+        end
+        if ops.finish(ctx, frame, value) ~= 1ULL then
+            ops.failure(ctx, ops.INVALID)
+            return native.fail()
+        end
+        return native.fail()
+    end
+    local returned = frames.returnValues(
+        s,
+        frame,
+        native.offset(regs, native.index(native.word(src) * 8ULL)),
+        native.word(count)
+    )
     if returned ~= 1ULL then
         ops.failure(ctx, ops.INVALID)
         return native.fail()

@@ -456,6 +456,19 @@ function graph.emitNative(g: any, b: any, op: string, args: any, kind: string?, 
     return result
 end
 
+-- How many leading continuation parameters an invoke's results fill: one per
+-- kept result, none for a discarded one.
+local function resultOffset(t: any): integer
+    if t.kind ~= "invoke" then
+        return 0
+    end
+    if t.results then
+        return #t.results
+    end
+
+    return t.result ~= nil and 1 or 0
+end
+
 local function nativeContract(value: any, fields: any): nil
     assert(type(value) == "table", "native operation requires a contract")
     for name in pairs(value) do
@@ -1324,11 +1337,14 @@ local function invokeSignature(signature: any): nil
     dense(signature.rets)
     assert(
         #signature.paramPack.head == #signature.params
-        and #signature.retPack.head == 1
-        and #signature.rets == 1
-        and signature.retPack.head[1] == signature.rets[1],
-        "invoke requires exactly one checked scalar result"
+        and #signature.retPack.head == #signature.rets
+        and #signature.rets >= 1
+        and #signature.rets <= 16,
+        "invoke requires one to sixteen checked scalar results"
     )
+    for index, t in ipairs(signature.rets) do
+        assert(signature.retPack.head[index] == t, "invoke result pack identity differs")
+    end
     for index, t in ipairs(signature.params) do
         assert(signature.paramPack.head[index] == t, "invoke parameter pack identity differs")
     end
@@ -1868,6 +1884,7 @@ local function verifyGraph(g: any, invokeArity: any): nil
                 args = true,
                 contract = true,
                 result = true,
+                results = true,
                 edges = true,
                 pos = true
             })
@@ -1891,6 +1908,16 @@ local function verifyGraph(g: any, invokeArity: any): nil
                     "invoke result must be the first tagged continuation parameter"
                 )
                 assert(not usable(t.result), "invoke result cannot be defined before its continuation")
+            end
+            if t.results ~= nil then
+                dense(t.results)
+                assert(#t.results >= 1 and #t.results <= 16 and t.results[1] == t.result, "invoke results")
+                for i, value in ipairs(t.results) do
+                    assert(
+                        valueId(value) and types[value] == "v" and continuation.params[i] == value,
+                        "invoke results must lead the tagged continuation parameters"
+                    )
+                end
             end
             local pos = t.pos or 0
             assert(
@@ -2023,6 +2050,11 @@ local function verifyGraph(g: any, invokeArity: any): nil
                     error("graph return value", 0)
                 end
             end
+            for _, value in ipairs(t.values or {}) do
+                if not (usable(value) and types[value] == "v") then
+                    error("graph return values", 0)
+                end
+            end
         elseif kind == "park" then
             if not (usable(t.value) and (types[t.value] == "f" or types[t.value] == "v")) then
                 error("graph park value", 0)
@@ -2050,7 +2082,7 @@ local function verifyGraph(g: any, invokeArity: any): nil
             end
             local target = assert(blocks[e.target], "bad graph target")
             local args, targetParams = e.args, target.params
-            local offset = kind == "invoke" and t.result ~= nil and 1 or 0
+            local offset = resultOffset(t)
             if not (e.target ~= 1 and #args + offset == #targetParams) then
                 error("bad graph edge arity", 0)
             end
@@ -2167,8 +2199,14 @@ function graph.prune(g: any): nil
         if b.term.value then
             used[b.term.value] = true
         end
+        for _, value in ipairs(b.term.values or {}) do
+            used[value] = true
+        end
         if b.term.kind == "invoke" then
             used[b.term.callee] = true
+            for _, value in ipairs(b.term.results or {}) do
+                used[value] = true
+            end
         end
         if b.term.kind == "dispatch" or b.term.kind == "nativeTail" or b.term.kind == "invoke" then
             for _, value in ipairs(b.term.args) do
@@ -2187,7 +2225,7 @@ function graph.prune(g: any): nil
         changed = false
         for bi = 1, #blocks do
             local term = blocks[bi].term
-            local offset = term.kind == "invoke" and term.result ~= nil and 1 or 0
+            local offset = resultOffset(term)
             local edges = term.edges
             for ei = 1, #edges do
                 local e = edges[ei]
@@ -2268,12 +2306,21 @@ function graph.prune(g: any): nil
         if t.value then
             t.value = assert(remap[t.value])
         end
-        local offset = t.kind == "invoke" and t.result ~= nil and 1 or 0
+        for i = 1, #(t.values or {}) do
+            t.values[i] = assert(remap[t.values[i]])
+        end
+        local offset = resultOffset(t)
         if t.kind == "invoke" then
             t.callee = assert(remap[t.callee])
             -- Removing the unused edge result changes only the consumer to
             -- discard. The scalar call contract and every input remain.
             t.result = t.result and remap[t.result] or nil
+            -- Several results keep their positions, so all of them survive.
+            if t.results then
+                for i = 1, #t.results do
+                    t.results[i] = assert(remap[t.results[i]])
+                end
+            end
         end
         if t.kind == "dispatch" or t.kind == "nativeTail" or t.kind == "invoke" then
             for i = 1, #t.args do
