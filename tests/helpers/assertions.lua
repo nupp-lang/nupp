@@ -4,7 +4,7 @@ local M = {}
 
 function M.clean(result, label)
     if type(result) == "string" then
-        test.equal(result, "", label or "expected a clean check")
+        test.eq(result, "", label or "expected a clean check")
         return
     end
     local diagnostics = result
@@ -13,7 +13,7 @@ function M.clean(result, label)
     if first ~= nil then
         detail = detail .. ": " .. tostring(first.msg or first.message or first)
     end
-    test.equal(#diagnostics, 0, detail)
+    test.eq(#diagnostics, 0, detail)
 end
 
 function M.check(checker, labeler)

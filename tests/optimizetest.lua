@@ -24,11 +24,11 @@ end
 -- and type facts left by checking; presizing remains syntax-only.
 local function compile(src, level, coverage)
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors in test source")
+    testAssert.eq(#result.errors, 0, "syntax errors in test source")
     local diagnostics = check.check(result, "test.nupp", env)
     local remarks = runOptimizer(result, {level = level or 2})
     local code, diags = gen.generate(result, "test", coverage)
-    testAssert.equal(#diags, 0, "gen diagnostics for " .. src)
+    testAssert.eq(#diags, 0, "gen diagnostics for " .. src)
 
     return code, remarks, diagnostics
 end
@@ -160,47 +160,47 @@ function M.presizesARunOfNamedFields()
         code:match("local t%s*=%s*{%s*a%s*=%s*1%s*,%s*b%s*=%s*2%s*,") ~= nil,
         "named writes become constructor fields: " .. code
     )
-    testAssert.equal(code:match("__nuppNew"), nil, "a literal needs no table.new call")
+    testAssert.eq(code:match("__nuppNew"), nil, "a literal needs no table.new call")
 end
 
 function M.presizesArrayIndices()
     local narr, nhash = sized("local t = {}\nt[1] = 1\nt[2] = 2\nreturn t")
-    testAssert.equal(narr, "2", "array part")
-    testAssert.equal(nhash, "0", "hash part")
+    testAssert.eq(narr, "2", "array part")
+    testAssert.eq(nhash, "0", "hash part")
 end
 
 function M.presizesStringLiteralKeys()
     local narr, nhash = sized("local t = {}\nt['a'] = 1\nt['b'] = 2\nreturn t")
-    testAssert.equal(narr, "0", "array part")
-    testAssert.equal(nhash, "2", "hash part")
+    testAssert.eq(narr, "0", "array part")
+    testAssert.eq(nhash, "2", "hash part")
 end
 
 function M.countsARepeatedKeyOnce()
     local _, nhash = sized("local t = {}\nt.a = 1\nt.a = 2\nt.b = 3\nreturn t")
-    testAssert.equal(nhash, "2", "a repeated key is one slot")
+    testAssert.eq(nhash, "2", "a repeated key is one slot")
 end
 
 function M.countsAnOpaqueKeyAsOneSlot()
     local narr, nhash = sized("local k = 'x'\nlocal t = {}\nt[k] = 1\nt.b = 2\nreturn t")
-    testAssert.equal(narr, "0", "array part")
-    testAssert.equal(nhash, "2", "hash part")
+    testAssert.eq(narr, "0", "array part")
+    testAssert.eq(nhash, "2", "hash part")
 end
 
 function M.stepsOverUnrelatedStatements()
     local _, nhash = sized("local t = {}\nt.a = 1\nlocal z = 5\nt.b = 2\nreturn t")
-    testAssert.equal(nhash, "2", "an unrelated statement cannot reach the table")
+    testAssert.eq(nhash, "2", "an unrelated statement cannot reach the table")
 end
 
 function M.keepsPresizingWhenNamedWritesHaveAGap()
     local narr, nhash = sized("local t = {}\nt.a = 1\nlocal z = 5\nt.b = 2\nreturn t")
-    testAssert.equal(narr, "0", "array part")
-    testAssert.equal(nhash, "2", "hash part")
+    testAssert.eq(narr, "0", "array part")
+    testAssert.eq(nhash, "2", "hash part")
 end
 
 function M.keepsPresizingRepeatedNamedFields()
     local narr, nhash = sized("local t = {}\nt.a = 1\nt.a = 2\nt.b = 3\nreturn t")
-    testAssert.equal(narr, "0", "array part")
-    testAssert.equal(nhash, "2", "hash part")
+    testAssert.eq(narr, "0", "array part")
+    testAssert.eq(nhash, "2", "hash part")
 end
 
 function M.constructorFieldsKeepValueOrderAndLines()
@@ -214,9 +214,9 @@ function M.constructorFieldsKeepValueOrderAndLines()
     )
     local chunk = assert(loadstring(code, "@presize_lines"))
     local t, seen = chunk()
-    testAssert.equal(t.a, "a", "first field")
-    testAssert.equal(t.b, "b", "second field")
-    testAssert.equal(seen, "ab", "field values retain assignment order")
+    testAssert.eq(t.a, "a", "first field")
+    testAssert.eq(t.b, "b", "second field")
+    testAssert.eq(seen, "ab", "field values retain assignment order")
     assert(
         code:match('\n%s*a%s*=%s*take%s*%(%s*"a"%s*%)') ~= nil,
         "the first value remains on its source line: " .. code
@@ -235,11 +235,11 @@ function M.coverageKeepsPresizedWritesAsStatements()
 end
 
 function M.leavesASingleFieldAlone()
-    testAssert.equal(sized("local t = {}\nt.a = 1\nreturn t"), nil, "one field is not worth a call")
+    testAssert.eq(sized("local t = {}\nt.a = 1\nreturn t"), nil, "one field is not worth a call")
 end
 
 function M.leavesANonEmptyConstructorAlone()
-    testAssert.equal(
+    testAssert.eq(
         sized("local t = {1, 2}\nt.a = 1\nt.b = 2\nreturn t"),
         nil,
         "a constructor with entries is already sized by its entries"
@@ -247,7 +247,7 @@ function M.leavesANonEmptyConstructorAlone()
 end
 
 function M.stopsWhenTheTableEscapes()
-    testAssert.equal(
+    testAssert.eq(
         sized("local t = {}\nprint(t)\nt.a = 1\nt.b = 2\nreturn t"),
         nil,
         "a call may keep the table, so the count is only a guess after it"
@@ -255,7 +255,7 @@ function M.stopsWhenTheTableEscapes()
 end
 
 function M.stopsWhenTheTableIsRead()
-    testAssert.equal(
+    testAssert.eq(
         sized("local t = {}\nlocal z = t\nt.a = 1\nt.b = 2\nreturn t"),
         nil,
         "an alias may be written through"
@@ -263,7 +263,7 @@ function M.stopsWhenTheTableIsRead()
 end
 
 function M.stopsWhenTheTableIsReassigned()
-    testAssert.equal(
+    testAssert.eq(
         sized("local t = {}\nt = {}\nt.a = 1\nt.b = 2\nreturn t"),
         nil,
         "the constructor no longer decides what the name holds"
@@ -271,17 +271,13 @@ function M.stopsWhenTheTableIsReassigned()
 end
 
 function M.stopsAtAConditionalWrite()
-    testAssert.equal(
-        sized("local t = {}\nif x then t.a = 1 end\nt.b = 2\nreturn t"),
-        nil,
-        "a nested block is not scanned"
-    )
+    testAssert.eq(sized("local t = {}\nif x then t.a = 1 end\nt.b = 2\nreturn t"), nil, "a nested block is not scanned")
 end
 
 function M.stopsAtAShadowingDeclaration()
     local code = compile("local t = {}\nlocal t = {}\nt.a = 1\nt.b = 2\nreturn t")
     local _, count = code:gsub("\na=", "")
-    testAssert.equal(count, 1, "only the second t is folded into its constructor")
+    testAssert.eq(count, 1, "only the second t is folded into its constructor")
 end
 
 function M.presizesInsideAFunctionBody()
@@ -296,7 +292,7 @@ end
 
 function M.levelZeroDoesNothing()
     local code = compile("local t = {}\nt.a = 1\nt.b = 2\nreturn t", 0)
-    testAssert.equal(code:match("__nuppNew"), nil, "-O0 performs no optimization")
+    testAssert.eq(code:match("__nuppNew"), nil, "-O0 performs no optimization")
     assert(code:match("{%s*}") ~= nil, "the constructor is left alone")
 end
 
@@ -304,7 +300,7 @@ function M.aDisabledPassDoesNothing()
     local result = parser.parse("local t = {}\nt.a = 1\nt.b = 2\nreturn t", "test")
     runOptimizer(result, {level = 2, disabled = {["OPT-1"] = true}})
     local code = gen.generate(result, "test")
-    testAssert.equal(code:match("__nuppNew"), nil, "-Zno-opt=OPT-1 performs no rewrite")
+    testAssert.eq(code:match("__nuppNew"), nil, "-Zno-opt=OPT-1 performs no rewrite")
 end
 
 function M.optimizerOptionOwnsRemarkFilenames()
@@ -314,7 +310,7 @@ function M.optimizerOptionOwnsRemarkFilenames()
     local remarks = runOptimizer(result, {level = 1, filename = "selected.nupp"})
     assert(#remarks > 0, "the fixture emits an optimizer remark")
     for _, entry in ipairs(remarks) do
-        testAssert.equal(entry.filename, "selected.nupp", "the option owns remark attribution")
+        testAssert.eq(entry.filename, "selected.nupp", "the option owns remark attribution")
     end
 end
 
@@ -327,65 +323,65 @@ function M.preservesTheLineCount()
         return n
     end
 
-    testAssert.equal(lines(code), lines(src) + 1, "generated line count matches source")
+    testAssert.eq(lines(code), lines(src) + 1, "generated line count matches source")
 end
 
 function M.behavesTheSameAsAnEmptyConstructor()
     local t = run("local t = {}\nt.a = 1\nt.b = 2\nt[1] = 'x'\nreturn t")
-    testAssert.equal(type(t), "table", "a table is still what comes back")
-    testAssert.equal(t.a, 1, "t.a")
-    testAssert.equal(t.b, 2, "t.b")
-    testAssert.equal(t[1], "x", "t[1]")
-    testAssert.equal(#t, 1, "length")
+    testAssert.eq(type(t), "table", "a table is still what comes back")
+    testAssert.eq(t.a, 1, "t.a")
+    testAssert.eq(t.b, 2, "t.b")
+    testAssert.eq(t[1], "x", "t[1]")
+    testAssert.eq(#t, 1, "length")
     local keys = 0
     for _ in pairs(t) do
         keys = keys + 1
     end
-    testAssert.equal(keys, 3, "iteration sees exactly what was assigned")
+    testAssert.eq(keys, 3, "iteration sees exactly what was assigned")
 end
 
 function M.anEmptyPresizedTableIsStillEmpty()
     local t = run("local t = {}\nt.a = nil\nt.b = nil\nreturn t")
-    testAssert.equal(next(t), nil, "assigning nil leaves the table empty")
+    testAssert.eq(next(t), nil, "assigning nil leaves the table empty")
 end
 
 function M.remarksOnWhatItDid()
     local _, remarks = compile("local t = {}\nt.a = 1\nt.b = 2\nreturn t")
-    testAssert.equal(#remarks, 1, "one remark")
-    testAssert.equal(remarks[1].code, "OPT-1", "code")
-    testAssert.equal(remarks[1].severity, "note", "a remark is reported and stepped over")
-    testAssert.equal(remarks[1].line, 1, "attributed to the constructor")
+    testAssert.eq(#remarks, 1, "one remark")
+    testAssert.eq(remarks[1].code, "OPT-1", "code")
+    testAssert.eq(remarks[1].severity, "note", "a remark is reported and stepped over")
+    testAssert.eq(remarks[1].line, 1, "attributed to the constructor")
     assert(remarks[1].msg:match("created with 2 named fields") ~= nil, "says what it did: " .. remarks[1].msg)
 end
 
 function M.remarksOnWhatItDeclined()
     local _, remarks = compile("local t = {}\nprint(t)\nt.a = 1\nt.b = 2\nreturn t")
-    testAssert.equal(#remarks, 1, "one remark")
-    testAssert.equal(remarks[1].code, "OPT-1", "code")
+    testAssert.eq(#remarks, 1, "one remark")
+    testAssert.eq(remarks[1].code, "OPT-1", "code")
     assert(remarks[1].msg:match("not presized") ~= nil, "says what it declined: " .. remarks[1].msg)
-    testAssert.equal(remarks[1].related[1].line, 2, "points at the use that stopped it")
+    testAssert.eq(remarks[1].related[1].line, 2, "points at the use that stopped it")
 end
 
 function M.saysNothingWhenThereIsNothingToSay()
     local _, remarks = compile("local x = 1\nreturn x")
-    testAssert.equal(#remarks, 0, "no remark without a candidate")
+    testAssert.eq(#remarks, 0, "no remark without a candidate")
 end
 
 function M.levelZeroRemarksNothing()
     local _, remarks = compile("local t = {}\nt.a = 1\nt.b = 2\nreturn t", 0)
-    testAssert.equal(#remarks, 0, "a pass that did not run has nothing to report")
+    testAssert.eq(#remarks, 0, "a pass that did not run has nothing to report")
 end
 
 function M.foldsExactPrimitiveArithmetic()
     local code = compile("return (2 + 3) * 4")
     assert(code:find("return 20", 1, true) ~= nil, "the expression is emitted as its exact result: " .. code)
-    testAssert.equal(run("return (2 + 3) * 4"), 20, "folded arithmetic result")
+    testAssert.eq(run("return (2 + 3) * 4"), 20, "folded arithmetic result")
 end
 
 function M.propagatesConstBindings()
     local code = compile("const size = 6\nreturn size * 7")
     assert(code:find("return 42", 1, true) ~= nil, "a const use is replaced by its value: " .. code)
-    testAssert.equal(run("const size = 6\nreturn size * 7"), 42, "propagated arithmetic result")
+    testAssert.eq(run("const size = 6\nreturn size * 7"), 42, "propagated arithmetic result")
 end
 
 function M.propagatesScalarComptimeConstants()
@@ -401,7 +397,7 @@ return banner
     for _, diagnostic in ipairs(diagnostics) do
         diagnosticDetails[#diagnosticDetails + 1] = tostring(diagnostic.code) .. " " .. tostring(diagnostic.msg)
     end
-    testAssert.equal(
+    testAssert.eq(
         #diagnostics,
         0,
         "check diagnostics for scalar comptime propagation: " .. table.concat(diagnosticDetails, "; ")
@@ -410,7 +406,7 @@ return banner
         code:find('return "NUPP COMPILES THIS ONCE ========"', 1, true) ~= nil,
         "a scalar comptime const is propagated: " .. code
     )
-    testAssert.equal(run(src), "NUPP COMPILES THIS ONCE ========", "propagated comptime string")
+    testAssert.eq(run(src), "NUPP COMPILES THIS ONCE ========", "propagated comptime string")
 end
 
 function M.propagatesNestedConstFields()
@@ -428,8 +424,8 @@ function M.propagatesNestedConstFields()
     local code = compile(src)
     assert(code:find("return 123 , \"nupp\"", 1, true) ~= nil, "nested const paths are propagated: " .. code)
     local number, text = run(src)
-    testAssert.equal(number, 123, "nested number")
-    testAssert.equal(text, "nupp", "nested string")
+    testAssert.eq(number, 123, "nested number")
+    testAssert.eq(text, "nupp", "nested string")
 end
 
 function M.deepConstFieldsAreSugarForNestedConstFields()
@@ -448,8 +444,8 @@ function M.deepConstFieldsAreSugarForNestedConstFields()
     local code = compile(src)
     assert(code:find("return 123 , \"nupp\"", 1, true) ~= nil, "deep const fields are propagated: " .. code)
     local number, text = run(src)
-    testAssert.equal(number, 123, "deep number")
-    testAssert.equal(text, "nupp", "deep string")
+    testAssert.eq(number, 123, "deep number")
+    testAssert.eq(text, "nupp", "deep string")
 end
 
 function M.doesNotPropagateAConstPathAfterItsRootIsReplaced()
@@ -459,7 +455,7 @@ function M.doesNotPropagateAConstPathAfterItsRootIsReplaced()
     )
     local code = compile(src)
     assert(code:find("return M . bar . BAZ", 1, true) ~= nil, "replacing the root invalidates nested facts: " .. code)
-    testAssert.equal(run(src), 456, "the replacement remains observable")
+    testAssert.eq(run(src), 456, "the replacement remains observable")
 end
 
 function M.propagatesNestedConstFieldsAcrossARequiredModule()
@@ -468,12 +464,12 @@ function M.propagatesNestedConstFieldsAcrossARequiredModule()
         table.concat({"const Foo = require('fixtures.consts')", "return Foo.bar.BAZ, Foo.bar.nested.name",}, "\n"),
         "test"
     )
-    testAssert.equal(#result.errors, 0, "consumer parses")
+    testAssert.eq(#result.errors, 0, "consumer parses")
     local diags = check.check(result, "test.nupp", requiredEnv)
-    testAssert.equal(#diags, 0, "consumer checks")
+    testAssert.eq(#diags, 0, "consumer checks")
     runOptimizer(result, {level = 1})
     local code, generatedDiags = gen.generate(result, "test")
-    testAssert.equal(#generatedDiags, 0, "consumer generates")
+    testAssert.eq(#generatedDiags, 0, "consumer generates")
     assert(code:find("return 123 , \"nupp\"", 1, true) ~= nil, "required module constants are propagated: " .. code)
 end
 
@@ -482,12 +478,12 @@ function M.requiresEveryImportedPathEdgeToBeConst()
 
     local function generated(src)
         local result = parser.parse(src, "test.nupp")
-        testAssert.equal(#result.errors, 0, "consumer parses")
+        testAssert.eq(#result.errors, 0, "consumer parses")
         local diags = check.check(result, "test.nupp", requiredEnv)
-        testAssert.equal(#diags, 0, "consumer checks")
+        testAssert.eq(#diags, 0, "consumer checks")
         runOptimizer(result, {level = 1})
         local code, generatedDiags = gen.generate(result, "test")
-        testAssert.equal(#generatedDiags, 0, "consumer generates")
+        testAssert.eq(#generatedDiags, 0, "consumer generates")
 
         return code
     end
@@ -513,22 +509,22 @@ function M.bindsRepeatedImmutableDottedCallees()
         table.concat({"const Foo = require('fixtures.consts')", "Foo.api.ping(1)", "Foo.api.ping(2)",}, "\n"),
         "test"
     )
-    testAssert.equal(#result.errors, 0, "consumer parses")
+    testAssert.eq(#result.errors, 0, "consumer parses")
     local diags = check.check(result, "test.nupp", requiredEnv)
-    testAssert.equal(#diags, 0, "consumer checks")
+    testAssert.eq(#diags, 0, "consumer checks")
     local remarks = runOptimizer(result, {level = 1})
     local code, generatedDiags = gen.generate(result, "test")
-    testAssert.equal(#generatedDiags, 0, "consumer generates")
+    testAssert.eq(#generatedDiags, 0, "consumer generates")
     assert(
         code:find("const __nupp_call_1= Foo . api . ping", 1, true) ~= nil,
         "first call binds the immutable path: " .. code
     )
-    testAssert.equal(
+    testAssert.eq(
         select(2, code:gsub("__nupp_call_1", "")),
         3,
         "one declaration and two calls use the generated binding"
     )
-    testAssert.equal(select(2, code:gsub("Foo . api . ping", "")), 1, "the dotted path is read only once")
+    testAssert.eq(select(2, code:gsub("Foo . api . ping", "")), 1, "the dotted path is read only once")
     local found = false
     for _, remark in ipairs(remarks) do
         if remark.code == "OPT-4" then
@@ -543,7 +539,7 @@ function M.leavesSingleOrMutableDottedCalleesAlone()
 
     local function generated(src)
         local result = parser.parse(src, "test.nupp")
-        testAssert.equal(#result.errors, 0, "consumer parses")
+        testAssert.eq(#result.errors, 0, "consumer parses")
         check.check(result, "test.nupp", requiredEnv)
         runOptimizer(result, {level = 1})
 
@@ -551,12 +547,12 @@ function M.leavesSingleOrMutableDottedCalleesAlone()
     end
 
     local single = generated(table.concat({"const Foo = require('fixtures.consts')", "Foo.api.ping(1)",}, "\n"))
-    testAssert.equal(single:find("__nupp_call_", 1, true), nil, "one call does not pay for a binding")
+    testAssert.eq(single:find("__nupp_call_", 1, true), nil, "one call does not pay for a binding")
 
     local mutable = generated(
         table.concat({"local Foo = require('fixtures.consts')", "Foo.api.ping(1)", "Foo.api.ping(2)",}, "\n")
     )
-    testAssert.equal(mutable:find("__nupp_call_", 1, true), nil, "a mutable root is not statically bound")
+    testAssert.eq(mutable:find("__nupp_call_", 1, true), nil, "a mutable root is not statically bound")
 end
 
 function M.leavesStaticCalleesAloneAcrossGotoScopes()
@@ -574,11 +570,11 @@ function M.leavesStaticCalleesAloneAcrossGotoScopes()
         ),
         "test"
     )
-    testAssert.equal(#result.errors, 0, "goto consumer parses")
+    testAssert.eq(#result.errors, 0, "goto consumer parses")
     check.check(result, "test.nupp", requiredEnv)
     runOptimizer(result, {level = 1})
     local code = gen.generate(result, "test")
-    testAssert.equal(code:find("__nupp_call_", 1, true), nil, "a generated local must not change goto scope")
+    testAssert.eq(code:find("__nupp_call_", 1, true), nil, "a generated local must not change goto scope")
 end
 
 function M.staticCallableNamesDoNotCollideWithSourceNames()
@@ -610,7 +606,7 @@ function M.aDisabledStaticCallablePassDoesNothing()
     check.check(result, "test.nupp", requiredEnv)
     runOptimizer(result, {level = 1, disabled = {["OPT-4"] = true}})
     local code = gen.generate(result, "test")
-    testAssert.equal(code:find("__nupp_call_", 1, true), nil, "-Zno-opt=OPT-4 preserves dotted calls")
+    testAssert.eq(code:find("__nupp_call_", 1, true), nil, "-Zno-opt=OPT-4 preserves dotted calls")
 end
 
 function M.staticCallableBindingPreservesRuntimeBehavior()
@@ -628,19 +624,19 @@ function M.staticCallableBindingPreservesRuntimeBehavior()
         },
         "\n"
     )
-    testAssert.equal(run(src), 2, "the bound callable is invoked normally")
+    testAssert.eq(run(src), 2, "the bound callable is invoked normally")
 end
 
 function M.foldsPrimitiveStringsAndTruthiness()
     local code = compile("const prefix = 'nu'\nreturn (false or prefix) .. 'pp'")
     assert(code:find('return "nupp"', 1, true) ~= nil, "primitive string and logical expressions fold: " .. code)
-    testAssert.equal(run("const prefix = 'nu'\nreturn (false or prefix) .. 'pp'"), "nupp", "folded string result")
+    testAssert.eq(run("const prefix = 'nu'\nreturn (false or prefix) .. 'pp'"), "nupp", "folded string result")
 end
 
 function M.foldsExactPrimitiveComparisons()
     local code = compile("return 'nupp' < 'rust' and 9 >= 3")
     assert(code:find("return true", 1, true) ~= nil, "primitive comparisons fold: " .. code)
-    testAssert.equal(run("return 'nupp' < 'rust' and 9 >= 3"), true, "folded comparison result")
+    testAssert.eq(run("return 'nupp' < 'rust' and 9 >= 3"), true, "folded comparison result")
 end
 
 function M.foldsEqualityAndInequalityWithoutChangingFalseResults()
@@ -651,7 +647,7 @@ function M.foldsEqualityAndInequalityWithoutChangingFalseResults()
                 local source = "return " .. left .. " " .. op .. " " .. right
                 local expected = assert(loadstring((compile(source, 0))))()
                 local actual = assert(loadstring((compile(source, 1))))()
-                testAssert.equal(actual, expected, source)
+                testAssert.eq(actual, expected, source)
             end
         end
     end
@@ -668,15 +664,15 @@ return choose
 ]]
     local code = compile(source)
     local body = assert(code:match("local function choose.*"))
-    testAssert.equal(body:find(" and ", 1, true), nil, "known logical conditions disappear")
-    testAssert.equal(body:find(" or ", 1, true), nil, "known alternatives disappear")
-    testAssert.equal(body:find("??", 1, true), nil, "known nil tests disappear")
+    testAssert.eq(body:find(" and ", 1, true), nil, "known logical conditions disappear")
+    testAssert.eq(body:find(" or ", 1, true), nil, "known alternatives disappear")
+    testAssert.eq(body:find("??", 1, true), nil, "known nil tests disappear")
     local plain = assert(loadstring((compile(source, 0))))()
     local folded = assert(loadstring(code))()
     for _, value in ipairs({false, true, 0, 17, "text", {}}) do
         local want, got = {plain(value)}, {folded(value)}
         for index = 1, 8 do
-            testAssert.equal(got[index], want[index], "operand " .. index)
+            testAssert.eq(got[index], want[index], "operand " .. index)
         end
     end
 end
@@ -696,15 +692,15 @@ return calls, count, first, second, select('#', varargs(3, 4)), varargs(3, 4)
     local want = {assert(loadstring((compile(source, 0))))()}
     local got = {assert(loadstring((compile(source, 1))))()}
     for index = 1, 6 do
-        testAssert.equal(got[index], want[index], "result " .. index)
+        testAssert.eq(got[index], want[index], "result " .. index)
     end
-    testAssert.equal(got[1], 2, "only selected calls run")
-    testAssert.equal(got[2], 1, "a selected call still produces one value")
-    testAssert.equal(got[4], nil, "a second return value does not escape")
-    testAssert.equal(got[5], 1, "a selected vararg still produces one value")
+    testAssert.eq(got[1], 2, "only selected calls run")
+    testAssert.eq(got[2], 1, "a selected call still produces one value")
+    testAssert.eq(got[4], nil, "a second return value does not escape")
+    testAssert.eq(got[5], 1, "a selected vararg still produces one value")
     for _, expression in ipairs({"true and error('expected')", "false or error('expected')"}) do
         local ok, message = pcall(assert(loadstring((compile("return " .. expression)))))
-        testAssert.equal(ok, false, "selected errors are preserved")
+        testAssert.eq(ok, false, "selected errors are preserved")
         assert(tostring(message):find("expected", 1, true) ~= nil)
     end
 end
@@ -719,10 +715,10 @@ local c = {const known = 1, effect = value()} and false
 return calls, a, b, c
 ]]
     local calls, a, b, c = run(source)
-    testAssert.equal(calls, 3, "known right operands never erase evaluation on the left")
-    testAssert.equal(a, false)
-    testAssert.equal(b, true)
-    testAssert.equal(c, false)
+    testAssert.eq(calls, 3, "known right operands never erase evaluation on the left")
+    testAssert.eq(a, false)
+    testAssert.eq(b, true)
+    testAssert.eq(c, false)
 end
 
 function M.removesConstantArmsAmongDynamicConditions()
@@ -748,15 +744,15 @@ return choose
 ]]
     local code = compile(source)
     for _, value in ipairs({901, 902, 903, 904}) do
-        testAssert.equal(code:find(tostring(value), 1, true), nil, "unreachable arm is gone")
+        testAssert.eq(code:find(tostring(value), 1, true), nil, "unreachable arm is gone")
     end
     local _, beforeLines = source:gsub("\n", "")
     local _, afterLines = code:gsub("\n", "")
-    testAssert.equal(afterLines, beforeLines, "source line attribution survives removed arms")
+    testAssert.eq(afterLines, beforeLines, "source line attribution survives removed arms")
     local plain, folded = assert(loadstring((compile(source, 0))))(), assert(loadstring(code))()
     for _, first in ipairs({false, true}) do
         for _, second in ipairs({false, true}) do
-            testAssert.equal(folded(first, second), plain(first, second))
+            testAssert.eq(folded(first, second), plain(first, second))
         end
     end
 end
@@ -782,9 +778,9 @@ end
 return calls, answer
 ]]
     local calls, answer = run(source)
-    testAssert.equal(calls, "ab", "remaining conditions keep their order")
-    testAssert.equal(answer, 9, "selected arm locals stay scoped")
-    testAssert.equal(compile(source):find("'c'", 1, true), nil, "conditions beyond true are absent")
+    testAssert.eq(calls, "ab", "remaining conditions keep their order")
+    testAssert.eq(answer, 9, "selected arm locals stay scoped")
+    testAssert.eq(compile(source):find("'c'", 1, true), nil, "conditions beyond true are absent")
 end
 
 function M.constantBindingsDoNotReplaceNamesBoundByAnIfClause()
@@ -797,8 +793,8 @@ end
 return choose
 ]]
     local choose = run(source)
-    testAssert.equal(choose(false), false, "binding conditions accept false and shadow outer locals")
-    testAssert.equal(choose(nil), 17, "the outer binding remains available afterward")
+    testAssert.eq(choose(false), false, "binding conditions accept false and shadow outer locals")
+    testAssert.eq(choose(nil), 17, "the outer binding remains available afterward")
 end
 
 function M.unchangedLocalPropagationSeparatesShadowedBindings()
@@ -815,8 +811,8 @@ return capture(), parameter(9)
     local code = compile(source)
     assert(code:find("return 42", 1, true) ~= nil, "a different binding's write does not block propagation")
     local value, parameter = run(source)
-    testAssert.equal(value, 42)
-    testAssert.equal(parameter, 9)
+    testAssert.eq(value, 42)
+    testAssert.eq(parameter, 9)
 end
 
 function M.doesNotPropagateLocalsWrittenDirectlyOrThroughClosures()
@@ -833,7 +829,7 @@ function M.doesNotPropagateLocalsWrittenDirectlyOrThroughClosures()
     for _, source in ipairs(cases) do
         local plain = assert(loadstring((compile(source, 0))))()
         local folded = assert(loadstring((compile(source, 1))))()
-        testAssert.equal(folded, plain, source)
+        testAssert.eq(folded, plain, source)
     end
 end
 
@@ -848,7 +844,7 @@ return type(wide), tostring(wide), object == alias, object.value
     local want = {assert(loadstring((compile(source, 0))))()}
     local got = {assert(loadstring((compile(source, 1))))()}
     for index = 1, 4 do
-        testAssert.equal(got[index], want[index])
+        testAssert.eq(got[index], want[index])
     end
 end
 
@@ -860,13 +856,13 @@ return value * 4
 ]]
     local code = compile(source)
     assert(code:find("return 20", 1, true) ~= nil, "the inlined result reaches its uses: " .. code)
-    testAssert.equal(run(source), 20)
+    testAssert.eq(run(source), 20)
     for _, disabled in ipairs({{["OPT-3"] = true}, {["OPT-7"] = true}}) do
         local result = parser.parse(source, "test.nupp")
         check.check(result, "test.nupp", env)
         runOptimizer(result, {level = 1, disabled = disabled})
         local kept = gen.generate(result, "test")
-        testAssert.equal(kept:find("return 20", 1, true), nil, "both passes are required")
+        testAssert.eq(kept:find("return 20", 1, true), nil, "both passes are required")
     end
 end
 
@@ -875,8 +871,8 @@ function M.refoldingAnInlinedHelperCanSelectItsCallersBranch()
 local function different(a: number, b: number): boolean return a ~= b end
 if different(2, 2) then return 901 else return 42 end
 ]]
-    testAssert.equal(compile(source):find("901", 1, true), nil)
-    testAssert.equal(run(source), 42)
+    testAssert.eq(compile(source):find("901", 1, true), nil)
+    testAssert.eq(run(source), 42)
 end
 
 function M.foldingKeepsTheSameResults()
@@ -892,12 +888,12 @@ return choose(true), 1 == 2, select('#', true and choose(false))
     check.check(result, "test.nupp", env)
     runOptimizer(result, {level = 1})
     local code, diagnostics = gen.generate(result, "test")
-    testAssert.equal(#diagnostics, 0, "generates")
+    testAssert.eq(#diagnostics, 0, "generates")
     local value, equality, count = assert(loadstring(code))()
-    testAssert.equal(value, 20)
-    testAssert.equal(equality, false)
-    testAssert.equal(count, 1)
-    testAssert.equal(code:find("901", 1, true), nil, "removes the dead arm")
+    testAssert.eq(value, 20)
+    testAssert.eq(equality, false)
+    testAssert.eq(count, 1)
+    testAssert.eq(code:find("901", 1, true), nil, "removes the dead arm")
 end
 
 function M.constantControlFlowPreservesBlockExpressionEvaluation()
@@ -920,10 +916,10 @@ return calls, first, second
     local code = compile(source)
     local actual = {assert(loadstring(code))()}
     for index = 1, 3 do
-        testAssert.equal(actual[index], expected[index])
+        testAssert.eq(actual[index], expected[index])
     end
-    testAssert.equal(actual[1], 7, "only the selected blocks run")
-    testAssert.equal(code:find("100000", 1, true), nil, "a later block condition is absent")
+    testAssert.eq(actual[1], 7, "only the selected blocks run")
+    testAssert.eq(code:find("100000", 1, true), nil, "a later block condition is absent")
 end
 
 function M.partialBranchFoldingPreservesFallthroughAndLoopExits()
@@ -943,15 +939,15 @@ for i = 1, 5 do
 end
 return total
 ]]
-    testAssert.equal(run(source), 4, "nested emitted blocks preserve continue and break")
+    testAssert.eq(run(source), 4, "nested emitted blocks preserve continue and break")
     local code = compile(source, 1, {path = "folded-branches.nupp"})
-    testAssert.equal(assert(loadstring(code))(), 4, "coverage observes the retained conditions")
-    testAssert.equal(code:find("unreachable", 1, true), nil)
+    testAssert.eq(assert(loadstring(code))(), 4, "coverage observes the retained conditions")
+    testAssert.eq(code:find("unreachable", 1, true), nil)
 end
 
 function M.doesNotPropagateALocalReplacedByAFunctionDeclaration()
     local source = "local value: any = 6\nfunction value() return 7 end\nreturn value()"
-    testAssert.equal(run(source), 7)
+    testAssert.eq(run(source), 7)
 end
 
 function M.foldedControlFlowKeepsAllocationAndFeatureAccountsAccurate()
@@ -978,9 +974,9 @@ return choose
             tables = tables + 1
         end
     end
-    testAssert.equal(tables, 1, "only the selected constructor is counted")
+    testAssert.eq(tables, 1, "only the selected constructor is counted")
     local effects = optimize.liveEffects(result)
-    testAssert.equal(effects["runtime.system"], nil, "removed conditions drop their provider")
+    testAssert.eq(effects["runtime.system"], nil, "removed conditions drop their provider")
     assert(effects["runtime.uuid"], "the fallback keeps its provider")
 end
 
@@ -995,10 +991,10 @@ function M.leavesConstTableEqualityToTheRuntime()
     local code = compile(src, 1)
     assert(code:find("a == nil", 1, true) ~= nil, "a const table's nil comparison is not folded: " .. code)
     local isNil, notNil, same, branch = run(src)
-    testAssert.equal(isNil, false, "a const table is not nil")
-    testAssert.equal(notNil, true, "a const table is not nil, negated")
-    testAssert.equal(same, false, "two const tables are distinct")
-    testAssert.equal(branch, "table", "the else branch survives")
+    testAssert.eq(isNil, false, "a const table is not nil")
+    testAssert.eq(notNil, true, "a const table is not nil, negated")
+    testAssert.eq(same, false, "two const tables are distinct")
+    testAssert.eq(branch, "table", "the else branch survives")
 end
 
 -- Lua's grammar takes only a name, a parenthesized expression, or another
@@ -1009,7 +1005,7 @@ function M.parenthesizesAFoldedCallOrIndexPrefix()
     local written = "return ('abc'):find('b')"
     local writtenCode = compile(written)
     assert(writtenCode:match('%("abc"%)%s*:%s*find') ~= nil, "written parentheses survive the fold: " .. writtenCode)
-    testAssert.equal(run(written), 2, "folded receiver still finds the byte")
+    testAssert.eq(run(written), 2, "folded receiver still finds the byte")
 
     local propagated = "const greeting = 'hello'\nreturn greeting:upper()"
     local propagatedCode = compile(propagated)
@@ -1017,10 +1013,10 @@ function M.parenthesizesAFoldedCallOrIndexPrefix()
         propagatedCode:match('%("hello"%)%s*:%s*upper') ~= nil,
         "a const receiver gains parentheses it never had: " .. propagatedCode
     )
-    testAssert.equal(run(propagated), "HELLO", "folded const receiver still upper-cases")
+    testAssert.eq(run(propagated), "HELLO", "folded const receiver still upper-cases")
 
     local indexed = "const greeting = 'hello'\nreturn greeting.byte ~= nil"
-    testAssert.equal(run(indexed), true, "a folded index prefix loads and reads")
+    testAssert.eq(run(indexed), true, "a folded index prefix loads and reads")
 end
 
 function M.elidesConstantConditionalArms()
@@ -1029,9 +1025,9 @@ function M.elidesConstantConditionalArms()
         "\n"
     )
     local code = compile(src)
-    testAssert.equal(code:find("unreachable", 1, true), nil, "the false arm is absent from generated code")
-    testAssert.equal(code:find("return 10", 1, true), nil, "the unselected else arm is absent from generated code")
-    testAssert.equal(run(src), 9, "the selected arm remains")
+    testAssert.eq(code:find("unreachable", 1, true), nil, "the false arm is absent from generated code")
+    testAssert.eq(code:find("return 10", 1, true), nil, "the unselected else arm is absent from generated code")
+    testAssert.eq(run(src), 9, "the selected arm remains")
 end
 
 function M.leavesFloatingPointArithmeticForTheTarget()
@@ -1042,15 +1038,15 @@ end
 function M.propagatesProvablyUnchangedLocals()
     local code = compile("local size = 6\nreturn size * 7")
     assert(code:find("return 42", 1, true) ~= nil, "an unchanged scalar local propagates: " .. code)
-    testAssert.equal(run("local size = 6\nreturn size * 7"), 42)
-    testAssert.equal(code:find("local size", 1, true), nil, "folding removes the unused scalar declaration")
+    testAssert.eq(run("local size = 6\nreturn size * 7"), 42)
+    testAssert.eq(code:find("local size", 1, true), nil, "folding removes the unused scalar declaration")
 end
 
 function M.foldsFloorDivisionAsItIsLowered()
     local code = compile("return 103 // 64")
     assert(code:find("return 1", 1, true) ~= nil, "floor division folds: " .. code)
-    testAssert.equal(code:find("math.floor", 1, true), nil, "folding it also removes the call it lowers to: " .. code)
-    testAssert.equal(run("return 103 // 64"), 1, "folded floor division result")
+    testAssert.eq(code:find("math.floor", 1, true), nil, "folding it also removes the call it lowers to: " .. code)
+    testAssert.eq(run("return 103 // 64"), 1, "folded floor division result")
 end
 
 function M.foldsTheAlignUpIdiomWhole()
@@ -1059,7 +1055,7 @@ function M.foldsTheAlignUpIdiomWhole()
     local src = "const CACHE = 64\nconst RAW = 40\n" .. "return (RAW + CACHE - 1) // CACHE * CACHE"
     local code = compile(src)
     assert(code:find("return 64", 1, true) ~= nil, "aligning a constant up folds to one literal: " .. code)
-    testAssert.equal(run(src), 64, "folded alignment result")
+    testAssert.eq(run(src), 64, "folded alignment result")
 end
 
 function M.leavesFloorDivisionByZeroAtRuntime()
@@ -1105,7 +1101,7 @@ function M.foldsBitwiseOperatorsAsTheRuntimeDoes()
                 assert(folded:find("%d", 1, true) == nil, "no operator survives folding: " .. folded)
                 local want = assert(loadstring(plain, "@plain"))()
                 local got = assert(loadstring(folded, "@folded"))()
-                testAssert.equal(got, want, "folded " .. src)
+                testAssert.eq(got, want, "folded " .. src)
             end
         end
     end
@@ -1114,15 +1110,15 @@ end
 function M.foldsBitwiseComplement()
     local code = compile("return ~0")
     assert(code:find("return -1", 1, true) ~= nil, "complement folds to its signed 32-bit result: " .. code)
-    testAssert.equal(run("return ~0"), -1, "folded complement result")
+    testAssert.eq(run("return ~0"), -1, "folded complement result")
 end
 
 function M.foldsBitwiseOperatorsWithTheirThirtyTwoBitWrap()
     -- Named separately because these are the answers a reader assumes are bugs. A
     -- shift count is taken modulo 32, and `>>` is logical where `~>>` is arithmetic.
-    testAssert.equal(run("return 1 << 32"), 1, "a shift count wraps at 32")
-    testAssert.equal(run("return -8 >> 1"), 2147483644, "the plain shift is logical")
-    testAssert.equal(run("return -8 ~>> 1"), -4, "the tilde shift is arithmetic")
+    testAssert.eq(run("return 1 << 32"), 1, "a shift count wraps at 32")
+    testAssert.eq(run("return -8 >> 1"), 2147483644, "the plain shift is logical")
+    testAssert.eq(run("return -8 ~>> 1"), -4, "the tilde shift is arithmetic")
     local code = compile("return 1 << 32")
     assert(code:find("return 1", 1, true) ~= nil, "the wrap happens at compile time too: " .. code)
 end
@@ -1141,24 +1137,16 @@ end
 function M.removesAWhileLoopWhoseTestIsConstantlyFalse()
     local src = "local seen = 0\nwhile false do seen = seen + 1 end\nreturn seen"
     local code = compile(src)
-    testAssert.equal(
-        code:find("seen = seen + 1", 1, true),
-        nil,
-        "the body of a loop that cannot run is absent: " .. code
-    )
-    testAssert.equal(run(src), 0, "the loop contributed nothing to run")
+    testAssert.eq(code:find("seen = seen + 1", 1, true), nil, "the body of a loop that cannot run is absent: " .. code)
+    testAssert.eq(run(src), 0, "the loop contributed nothing to run")
 end
 
 function M.removesANumericLoopWhoseBoundsAdmitNoIteration()
     for _, header in ipairs({"for i = 1, 0", "for i = 10, 1", "for i = 1, 10, -1"}) do
         local src = "local seen = 0\n" .. header .. " do seen = seen + i end\nreturn seen"
         local code = compile(src)
-        testAssert.equal(
-            code:find("seen = seen + i", 1, true),
-            nil,
-            "the body is absent for " .. header .. ": " .. code
-        )
-        testAssert.equal(run(src), 0, "no iteration ran for " .. header)
+        testAssert.eq(code:find("seen = seen + i", 1, true), nil, "the body is absent for " .. header .. ": " .. code)
+        testAssert.eq(run(src), 0, "no iteration ran for " .. header)
     end
 end
 
@@ -1166,7 +1154,7 @@ function M.keepsALoopThatRuns()
     local src = "local seen = 0\nfor i = 1, 3 do seen = seen + i end\nreturn seen"
     local code = compile(src)
     assert(code:find("seen = seen + i", 1, true) ~= nil, "a loop with iterations keeps its body: " .. code)
-    testAssert.equal(run(src), 6, "the loop ran")
+    testAssert.eq(run(src), 6, "the loop ran")
 end
 
 function M.keepsALoopWhoseStepIsZero()
@@ -1183,14 +1171,14 @@ function M.keepsALoopWhoseStepIsNotConstant()
         .. "for i = 1, 0, step do seen = seen + 1 end\nreturn seen"
     local code = compile(src)
     assert(code:find("for i = 1 , 0 , step", 1, true) ~= nil, "an unproved step keeps the loop: " .. code)
-    testAssert.equal(run(src), 2, "the loop this would have deleted runs twice")
+    testAssert.eq(run(src), 2, "the loop this would have deleted runs twice")
 end
 
 function M.usesAProvedStepToRemoveALoop()
     local src = "const step = 1\nlocal seen = 0\n" .. "for i = 1, 0, step do seen = seen + 1 end\nreturn seen"
     local code = compile(src)
-    testAssert.equal(code:find("seen = seen + 1", 1, true), nil, "a proved step completes the proof: " .. code)
-    testAssert.equal(run(src), 0, "no iteration ran")
+    testAssert.eq(code:find("seen = seen + 1", 1, true), nil, "a proved step completes the proof: " .. code)
+    testAssert.eq(run(src), 0, "no iteration ran")
 end
 
 function M.keepsALoopWhoseBoundsAreNotConstant()
@@ -1216,7 +1204,7 @@ function M.removingALoopPreservesTheLineCount()
         return n
     end
 
-    testAssert.equal(lines(code), lines(src), "attribution survives by the line count holding: " .. code)
+    testAssert.eq(lines(code), lines(src), "attribution survives by the line count holding: " .. code)
 end
 
 function M.aDisabledConstantFoldPassLeavesDeadLoopsAlone()
@@ -1239,9 +1227,9 @@ function M.rewritesStableDeclaredArrayIteration()
         .. "for _, value in ipairs(xs) do sum = sum + value end\nreturn sum"
     )
     assert(code:find("for _=1,3 do", 1, true) ~= nil, "numeric loop uses a proved static bound: " .. code)
-    testAssert.equal(code:find("__nuppT", 1, true), nil, "the proved operand needs no generated alias")
+    testAssert.eq(code:find("__nuppT", 1, true), nil, "the proved operand needs no generated alias")
     assert(code:find("local value= xs [_]", 1, true) ~= nil, "the source loop value reads the array directly: " .. code)
-    testAssert.equal(
+    testAssert.eq(
         run(
             "local xs: {integer} = {1, 2, 3}\nlocal sum = 0\n"
             .. "for _, value in ipairs(xs) do sum = sum + value end\nreturn sum"
@@ -1289,8 +1277,8 @@ function M.usesTheSourceIndexAsTheNumericControlVariable()
         )
     )
     assert(code:find("for index=1,3 do", 1, true) ~= nil, "the source index controls the numeric loop: " .. code)
-    testAssert.equal(code:find("local index=", 1, true), nil, "the index is not copied from a generated temporary")
-    testAssert.equal(
+    testAssert.eq(code:find("local index=", 1, true), nil, "the index is not copied from a generated temporary")
+    testAssert.eq(
         run(
             table.concat(
                 {
@@ -1373,14 +1361,14 @@ function M.numericIpairsDeclinesALiteralThatMayHoldAHoleOrExpand()
     for _, case in ipairs(cases) do
         assertAgrees(case[1], case[2])
         local remarks = remarksOf(case[1], case[2], "OPT-2")
-        testAssert.equal(#remarks, 1, "one OPT-2 decision for\n" .. case[1])
-        testAssert.equal(remarks[1].status, "declined", "the rewrite is declined for\n" .. case[1])
+        testAssert.eq(#remarks, 1, "one OPT-2 decision for\n" .. case[1])
+        testAssert.eq(remarks[1].status, "declined", "the rewrite is declined for\n" .. case[1])
     end
     -- Items that are one value each and never nil are still a proved bound.
     local dense = "local function f(a: integer, s: string)\n    local t = {a, s, 3, true, {}}\n"
         .. "    local n = 0\n    for i, v in ipairs(t) do n = n + i end\n    return n\nend\nprint(f(1, 'x'))"
-    testAssert.equal(assertAgrees(dense, "test.nupp"), "15")
-    testAssert.equal(remarksOf(dense, "test.nupp", "OPT-2")[1].status, "fired", "a dense literal still rewrites")
+    testAssert.eq(assertAgrees(dense, "test.nupp"), "15")
+    testAssert.eq(remarksOf(dense, "test.nupp", "OPT-2")[1].status, "fired", "a dense literal still rewrites")
 end
 
 function M.keepsIpairsWhenArrayShapeChanges()
@@ -1391,7 +1379,7 @@ function M.keepsIpairsWhenArrayShapeChanges()
         .. "return seen"
     )
     assert(code:find("in ipairs", 1, true) ~= nil, "mutating iteration keeps ipairs: " .. code)
-    testAssert.equal(
+    testAssert.eq(
         run(
             "local xs: {integer} = {1, 2, 3}\nlocal seen = 0\n"
             .. "for i, value in ipairs(xs) do\n"
@@ -1552,8 +1540,8 @@ function M.inlinesAHelperThatConstructsARecord()
         .. "local function pair(value: number): Pair return new Pair(first = value, second = value + 1.0) end\n"
         .. "local function m(): number local other = 7.0 local made = pair(other) return made.first + made.second end\n"
         .. "return m()"
-    testAssert.equal(run(source), 15.0, "the inlined spelling answers")
-    testAssert.equal(run(source), run(source, 0), "and answers what the call answered")
+    testAssert.eq(run(source), 15.0, "the inlined spelling answers")
+    testAssert.eq(run(source), run(source, 0), "and answers what the call answered")
 end
 
 --- The same where the field's value is an index of the parameter rather than the
@@ -1565,8 +1553,8 @@ function M.inlinesAHelperThatReadsAFieldOfItsParameter()
         .. "local function held(spot: Spot): Held return new Held(at = spot.line) end\n"
         .. "local function m(): number local somewhereElse = new Spot(line = 3.0) return held(somewhereElse).at end\n"
         .. "return m()"
-    testAssert.equal(run(source), 3.0, "the inlined spelling answers")
-    testAssert.equal(run(source), run(source, 0), "and answers what the call answered")
+    testAssert.eq(run(source), 3.0, "the inlined spelling answers")
+    testAssert.eq(run(source), run(source, 0), "and answers what the call answered")
 end
 
 function M.inliningDoesNotChangeTheAnswer()
@@ -1579,8 +1567,8 @@ function M.inliningDoesNotChangeTheAnswer()
         .. "local function m(): number local x = 4.0 local y = 1.0 return mix(x, y) end\nreturn m()",
         0
     )
-    testAssert.equal(inlined, 11.0, "the inlined spelling answers")
-    testAssert.equal(inlined, kept, "and answers what the call answered")
+    testAssert.eq(inlined, 11.0, "the inlined spelling answers")
+    testAssert.eq(inlined, kept, "and answers what the call answered")
 end
 
 function M.keepsPrecedenceWhereTheCallStood()
@@ -1590,7 +1578,7 @@ function M.keepsPrecedenceWhereTheCallStood()
         "local function plus(a: number, b: number): number return a + b end\n"
         .. "local function m(): number local x = 2.0 local y = 3.0 return 10.0 * plus(x, y) end\nreturn m()"
     )
-    testAssert.equal(value, 50.0, "the spliced expression keeps the call's parentheses")
+    testAssert.eq(value, 50.0, "the spliced expression keeps the call's parentheses")
 end
 
 function M.inlinesAHelperThatGeneratesToSomethingElse()
@@ -1638,7 +1626,7 @@ function M.inlinesAPureComputedArgument()
         code:find("return twice (", 1, true) == nil and code:find("x * 3", 1, true) ~= nil,
         "a computed argument used once was spliced: " .. code
     )
-    testAssert.equal(assert(loadstring(code))()(7), 42)
+    testAssert.eq(assert(loadstring(code))()(7), 42)
 end
 
 function M.inlinedArgumentsKeepTheirOperatorGrouping()
@@ -1654,7 +1642,7 @@ end
 return check
 ]]
     local code, remarks = compile(source)
-    testAssert.equal(assert(loadstring(code))()(255, 2), true)
+    testAssert.eq(assert(loadstring(code))()(255, 2), true)
     local inlined = {}
     for _, entry in ipairs(remarks) do
         if entry.code == "OPT-7" then
@@ -1694,7 +1682,7 @@ function M.inliningCopiesOnlyTheHelpersOwnTree()
         .. "export function read(world: World, component: Component): integer\n"
         .. "    return readOf(world, component)\nend\n"
     )
-    testAssert.equal(inlineRemarks(remarks, "inlines readOf"), 1, "the helper was inlined")
+    testAssert.eq(inlineRemarks(remarks, "inlines readOf"), 1, "the helper was inlined")
     assert(code:find("return ( world : get ( component ) )", 1, true) ~= nil, code)
 end
 
@@ -1704,8 +1692,8 @@ function M.keepsACallThatWouldDuplicateComputation()
         .. "local function m(x: number): number return twice(x * 3.0 + 1) end\nreturn m"
     )
     assert(code:find("return twice (", 1, true) ~= nil, code)
-    testAssert.equal(inlineRemarks(remarks, "duplicates argument computation"), 1)
-    testAssert.equal(assert(loadstring(code))()(7), 44)
+    testAssert.eq(inlineRemarks(remarks, "duplicates argument computation"), 1)
+    testAssert.eq(assert(loadstring(code))()(7), 44)
 end
 
 function M.inlinesOneRepeatedPrimitiveButBoundsFurtherDuplication()
@@ -1714,13 +1702,13 @@ function M.inlinesOneRepeatedPrimitiveButBoundsFurtherDuplication()
         .. "local function m(x: number): number return twice(x * 3.0) end\nreturn m"
     )
     assert(code:find("return twice (", 1, true) == nil, code)
-    testAssert.equal(assert(loadstring(code))()(7), 42)
+    testAssert.eq(assert(loadstring(code))()(7), 42)
     local triple, remarks = compile(
         "local function triple(v: number): number return v + v + v end\n"
         .. "local function m(x: number): number return triple(x * 3.0) end\nreturn m"
     )
-    testAssert.equal(inlineRemarks(remarks, "duplicates argument computation"), 1)
-    testAssert.equal(assert(loadstring(triple))()(7), 63)
+    testAssert.eq(inlineRemarks(remarks, "duplicates argument computation"), 1)
+    testAssert.eq(assert(loadstring(triple))()(7), 63)
 end
 
 function M.totalsDuplicatedWorkAcrossArguments()
@@ -1728,8 +1716,8 @@ function M.totalsDuplicatedWorkAcrossArguments()
         "local function mix(a: number, b: number): number return a + a + b + b end\n"
         .. "local function m(x: number): number return mix(x * 3.0, x * 4.0) end\nreturn m"
     )
-    testAssert.equal(inlineRemarks(remarks, "duplicates argument computation"), 1)
-    testAssert.equal(assert(loadstring(code))()(7), 98)
+    testAssert.eq(inlineRemarks(remarks, "duplicates argument computation"), 1)
+    testAssert.eq(assert(loadstring(code))()(7), 98)
 end
 
 function M.inlinesAFoldedComputedArgumentUsedTwice()
@@ -1738,8 +1726,8 @@ function M.inlinesAFoldedComputedArgumentUsedTwice()
         .. "local function m(): number return twice(2 * 3) end\nreturn m"
     )
     assert(code:find("return 12", 1, true) ~= nil, code)
-    testAssert.equal(inlineRemarks(remarks, "duplicates argument computation"), 0)
-    testAssert.equal(assert(loadstring(code))()(), 12)
+    testAssert.eq(inlineRemarks(remarks, "duplicates argument computation"), 0)
+    testAssert.eq(assert(loadstring(code))()(), 12)
 end
 
 function M.boundsNestedArgumentExpansionWithoutAddingLocals()
@@ -1756,12 +1744,12 @@ function M.boundsNestedArgumentExpansionWithoutAddingLocals()
     local _, additions = code:gsub("%+", "")
     local _, locals = code:gsub("%f[%a]local%f[%A]", "")
     local _, plainLocals = plain:gsub("%f[%a]local%f[%A]", "")
-    testAssert.equal(additions, 4, "the helper and two innermost calls have bounded addition")
-    testAssert.equal(locals, plainLocals, "no temporary locals were introduced")
+    testAssert.eq(additions, 4, "the helper and two innermost calls have bounded addition")
+    testAssert.eq(locals, plainLocals, "no temporary locals were introduced")
     assert(inlineRemarks(remarks, "duplicates argument computation") > 0)
     local optimized, baseline = assert(loadstring(code))(), assert(loadstring(plain))()
     for _, input in ipairs({-3.5, 0, 1, 17.25}) do
-        testAssert.equal(optimized(input), baseline(input), "nested helpers retain their result")
+        testAssert.eq(optimized(input), baseline(input), "nested helpers retain their result")
     end
 end
 
@@ -1774,8 +1762,8 @@ function M.inlinesDeepForwardingChains()
     lines[#lines + 1] = "return m"
     local code, remarks = compile(table.concat(lines, "\n"))
     assert(code:find("return h63 (", 1, true) == nil, "the deepest call disappeared")
-    testAssert.equal(inlineRemarks(remarks, "inlines h"), 64)
-    testAssert.equal(assert(loadstring(code))()(7), 8)
+    testAssert.eq(inlineRemarks(remarks, "inlines h"), 64)
+    testAssert.eq(assert(loadstring(code))()(7), 8)
 end
 
 function M.measuresHelpersAfterTheirBodiesWereInlined()
@@ -1785,8 +1773,8 @@ function M.measuresHelpersAfterTheirBodiesWereInlined()
         .. "local function m(x: number): number return forwarded(x * 3.0 + 1) end\nreturn m"
     )
     assert(code:find("return forwarded (", 1, true) ~= nil, code)
-    testAssert.equal(inlineRemarks(remarks, "keeps forwarded: duplicates argument computation"), 1)
-    testAssert.equal(assert(loadstring(code))()(7), 44)
+    testAssert.eq(inlineRemarks(remarks, "keeps forwarded: duplicates argument computation"), 1)
+    testAssert.eq(assert(loadstring(code))()(7), 44)
 end
 
 function M.countsParameterUsesInNamedConstructorArguments()
@@ -1796,10 +1784,10 @@ function M.countsParameterUsesInNamedConstructorArguments()
         .. "local function m(x: number): Pair return pair(x * 3.0 + 1) end\nreturn m"
     )
     assert(code:find("return pair (", 1, true) ~= nil, code)
-    testAssert.equal(inlineRemarks(remarks, "duplicates argument computation"), 1)
+    testAssert.eq(inlineRemarks(remarks, "duplicates argument computation"), 1)
     local answer = assert(loadstring(code))()(7)
-    testAssert.equal(answer.first, 22)
-    testAssert.equal(answer.second, 22)
+    testAssert.eq(answer.first, 22)
+    testAssert.eq(answer.second, 22)
 end
 
 function M.doesNotCountFieldNamesAsParameterUses()
@@ -1808,8 +1796,8 @@ function M.doesNotCountFieldNamesAsParameterUses()
         .. "local function m(x: number): any return box(x * 3.0 + 1) end\nreturn m"
     )
     assert(code:find("return box (", 1, true) == nil, code)
-    testAssert.equal(inlineRemarks(remarks, "duplicates argument computation"), 0)
-    testAssert.equal(assert(loadstring(code))()(7).payload, 22)
+    testAssert.eq(inlineRemarks(remarks, "duplicates argument computation"), 0)
+    testAssert.eq(assert(loadstring(code))()(7).payload, 22)
 end
 
 local function sumHelper(terms)
@@ -1826,8 +1814,8 @@ function M.boundsGrowthAtEachCall()
         local source = sumHelper(terms) .. "local function m(x: number): number return sum(x) end\nreturn m"
         local code, remarks = compile(source)
         local refused = inlineRemarks(remarks, "call growth would exceed 64 nodes")
-        testAssert.equal(refused, terms == 35 and 1 or 0, "growth of 63 fits and growth of 65 does not")
-        testAssert.equal(assert(loadstring(code))()(2), terms * 2)
+        testAssert.eq(refused, terms == 35 and 1 or 0, "growth of 63 fits and growth of 65 does not")
+        testAssert.eq(assert(loadstring(code))()(2), terms * 2)
     end
 end
 
@@ -1841,14 +1829,14 @@ function M.boundsCumulativeGrowthPerCallerAcrossBlocks()
     lines[#lines + 1] = "return m"
     local code, remarks = compile(table.concat(lines, "\n"))
     assert(inlineRemarks(remarks, "caller growth would exceed 512 nodes") > 0)
-    testAssert.equal(
+    testAssert.eq(
         inlineRemarks(remarks, "inlines sum"),
         47,
         "46 calls fit in the first function; the second starts fresh"
     )
     local result = assert(loadstring(code))()
-    testAssert.equal(result.first(2), 800)
-    testAssert.equal(result.second(2), 16)
+    testAssert.eq(result.first(2), 800)
+    testAssert.eq(result.second(2), 16)
 end
 
 function M.boundsTopLevelGrowthAndRestoresEnclosingFunctionBudgets()
@@ -1864,17 +1852,17 @@ function M.boundsTopLevelGrowthAndRestoresEnclosingFunctionBudgets()
     lines[#lines + 1] = "return value + sum(x), inner end"
     lines[#lines + 1] = "return total, outer"
     local code, remarks = compile(table.concat(lines, "\n"))
-    testAssert.equal(
+    testAssert.eq(
         inlineRemarks(remarks, "inlines sum"),
         93,
         "the module, outer function, and inner function have separate budgets"
     )
     assert(inlineRemarks(remarks, "caller growth would exceed 512 nodes") > 0)
     local total, outer = assert(loadstring(code))(2)
-    testAssert.equal(total, 800)
+    testAssert.eq(total, 800)
     local answer, inner = outer(2)
-    testAssert.equal(answer, 752)
-    testAssert.equal(inner(2), 16)
+    testAssert.eq(answer, 752)
+    testAssert.eq(inner(2), 16)
 end
 
 function M.givesShortFunctionsTheirOwnGrowthBudget()
@@ -1885,10 +1873,10 @@ function M.givesShortFunctionsTheirOwnGrowthBudget()
     lines[#lines + 1] = "local inner = |y: number| -> sum(y)"
     lines[#lines + 1] = "return total, inner"
     local code, remarks = compile(table.concat(lines, "\n"))
-    testAssert.equal(inlineRemarks(remarks, "inlines sum"), 47)
+    testAssert.eq(inlineRemarks(remarks, "inlines sum"), 47)
     local total, inner = assert(loadstring(code))(2)
-    testAssert.equal(total, 800)
-    testAssert.equal(inner(2), 16)
+    testAssert.eq(total, 800)
+    testAssert.eq(inner(2), 16)
 end
 
 function M.keepsACallWhoseComputedArgumentHasAnEffect()
@@ -1931,9 +1919,9 @@ end
 
 function M.usesASuppliedWholeDeliverableConstSelection()
     local result = parser.parse(CONST_ACCUMULATE, "test.nupp")
-    testAssert.equal(#result.errors, 0, "const selection fixture parses")
+    testAssert.eq(#result.errors, 0, "const selection fixture parses")
     local diagnostics = check.check(result, "test.nupp", env)
-    testAssert.equal(#diagnostics, 0, "const selection fixture checks")
+    testAssert.eq(#diagnostics, 0, "const selection fixture checks")
     local plans = constspecialize.collect(result, "test.nupp")
     local accepted, declined = constspecialize.select(plans)
     local remarks, specializedBodies = runOptimizer(result, {
@@ -1941,13 +1929,13 @@ function M.usesASuppliedWholeDeliverableConstSelection()
         constSelection = {accepted = accepted, declined = declined, plans = plans},
     })
     local code, generated = gen.generate(result, "test")
-    testAssert.equal(#generated, 0, "const selection fixture generates")
-    testAssert.equal(specializedBodies, 1, "the supplied selection emits its private body")
+    testAssert.eq(#generated, 0, "const selection fixture generates")
+    testAssert.eq(specializedBodies, 1, "the supplied selection emits its private body")
     assert(
         code:find("local function __nuppConst_accumulate_", 1, true) ~= nil,
         "the supplied selection is consumed: " .. code
     )
-    testAssert.equal(remarks[1].filename, "test.nupp", "selection and remarks share the option filename")
+    testAssert.eq(remarks[1].filename, "test.nupp", "selection and remarks share the option filename")
 end
 
 function M.constSpecializationOmitsItsCarrierAndUnrollsItsLoop()
@@ -1964,11 +1952,11 @@ function M.constSpecializationDoesNotChangeTheAnswerOrFunctionIdentity()
         "local held = accumulate\nlocal answer = accumulate(10.0, 4)\nreturn held == accumulate, answer"
     )
     local same, answer = run(source)
-    testAssert.equal(same, true, "the public function remains the source value")
-    testAssert.equal(answer, 20, "the private body answers like the generic body")
+    testAssert.eq(same, true, "the public function remains the source value")
+    testAssert.eq(answer, 20, "the private body answers like the generic body")
     local genericSame, genericAnswer = run(source, 0)
-    testAssert.equal(genericSame, same, "-O0 preserves the same public identity")
-    testAssert.equal(genericAnswer, answer, "-O0 and OPT-8 agree")
+    testAssert.eq(genericSame, same, "-O0 preserves the same public identity")
+    testAssert.eq(genericAnswer, answer, "-O0 and OPT-8 agree")
 end
 
 function M.constSpecializationBindsEachBodyBlockExpression()
@@ -1995,10 +1983,10 @@ return pick(1, 1), pick(2, 2), held(3, 1), calls
     for _, level in ipairs({0, 2}) do
         local code = compile(source, level)
         local a, b, c, calls = assert(loadstring(code))()
-        testAssert.equal(a, 12)
-        testAssert.equal(b, 23)
-        testAssert.equal(c, 14)
-        testAssert.equal(calls, 3, "each selected branch executes once")
+        testAssert.eq(a, 12)
+        testAssert.eq(b, 23)
+        testAssert.eq(c, 14)
+        testAssert.eq(calls, 3, "each selected branch executes once")
     end
 end
 
@@ -2012,7 +2000,7 @@ function M.constSpecializationDeduplicatesAKey()
         CONST_ACCUMULATE:gsub("return accumulate%(10%.0, 4%)", "return accumulate(10.0, 4) + accumulate(20.0, 4)")
     )
     local _, declarations = code:gsub("local function __nuppConst_accumulate_", "")
-    testAssert.equal(declarations, 1, "one private body serves both calls")
+    testAssert.eq(declarations, 1, "one private body serves both calls")
 end
 
 function M.constSpecializationFollowsAConstAlias()
@@ -2022,7 +2010,7 @@ function M.constSpecializationFollowsAConstAlias()
         code:find("local function __nuppConst_accumulate_", 1, true) ~= nil,
         "the declaration still owns the aliased call's body"
     )
-    testAssert.equal(run(source), 20, "the const alias reaches the specialized body")
+    testAssert.eq(run(source), 20, "the const alias reaches the specialized body")
 end
 
 function M.constSpecializationCapsModuleBodyClasses()
@@ -2033,14 +2021,14 @@ function M.constSpecializationCapsModuleBodyClasses()
     local source = CONST_ACCUMULATE:gsub("return accumulate%(10%.0, 4%)", "return " .. table.concat(calls, " + "))
     local code, remarks = compile(source)
     local _, declarations = code:gsub("local function __nuppConst_accumulate_", "")
-    testAssert.equal(declarations, 8, "the module cap is eight private body classes")
+    testAssert.eq(declarations, 8, "the module cap is eight private body classes")
     local declined = 0
     for _, entry in ipairs(remarks) do
         if entry.code == "OPT-8" and entry.msg:find("declines", 1, true) then
             declined = declined + 1
         end
     end
-    testAssert.equal(declined, 1, "the ninth key carries a decline remark")
+    testAssert.eq(declined, 1, "the ninth key carries a decline remark")
 end
 
 function M.constSpecializationSeparatesIntegersThatShareADecimalSpelling()
@@ -2055,12 +2043,12 @@ function M.constSpecializationSeparatesIntegersThatShareADecimalSpelling()
     )
     local code = compile(source)
     local _, declarations = code:gsub("local function __nuppConst_pick_", "")
-    testAssert.equal(declarations, 2, "two admitted const integers get two bodies")
+    testAssert.eq(declarations, 2, "two admitted const integers get two bodies")
     assert(code:find("1e+15", 1, true) == nil, "a substituted const keeps its exact spelling: " .. code)
     local specialA, specialB = run(source)
     local genericA, genericB = run(source, 0)
-    testAssert.equal(specialA, genericA, "the first application answers like -O0")
-    testAssert.equal(specialB, genericB, "the second application answers like -O0")
+    testAssert.eq(specialA, genericA, "the first application answers like -O0")
+    testAssert.eq(specialB, genericB, "the second application answers like -O0")
 end
 
 function M.constSpecializationCoalescesKeysWithOneBackendBody()
@@ -2079,14 +2067,14 @@ function M.constSpecializationCoalescesKeysWithOneBackendBody()
     )
     local code, remarks = compile(source)
     local _, declarations = code:gsub("local function __nuppConst_tag_", "")
-    testAssert.equal(declarations, 1, "keys whose omitted const never reaches the body share one physical body")
+    testAssert.eq(declarations, 1, "keys whose omitted const never reaches the body share one physical body")
     for _, entry in ipairs(remarks) do
         assert(
             not (entry.code == "OPT-8" and entry.msg:find("declines", 1, true)),
             "coalesced semantic keys consume one cap slot"
         )
     end
-    testAssert.equal(run(source), 18, "every key dispatches to the shared body")
+    testAssert.eq(run(source), 18, "every key dispatches to the shared body")
 end
 
 function M.keepsACallWhoseComputedArgumentAllocates()
@@ -2145,10 +2133,10 @@ local function change(): nil value = 8 end
 change()
 return effects * 10 + value
 ]]
-    testAssert.equal(run(source), 18)
+    testAssert.eq(run(source), 18)
     local code = compile(source, 1)
     assert(code:find("local value", 1, true), code)
-    testAssert.equal(run("local size = 6\nlocal other = size * 2\nreturn other * 3"), 36)
+    testAssert.eq(run("local size = 6\nlocal other = size * 2\nreturn other * 3"), 36)
     local reduced = compile("local size = 6\nlocal other = size * 2\nreturn other * 3", 1)
     assert(not reduced:find("local size", 1, true), reduced)
     assert(not reduced:find("local other", 1, true), reduced)
@@ -2161,7 +2149,7 @@ local function values(): number, number calls = calls + 1 return 4, 5 end
 local unused, kept = values()
 return kept * 10 + calls
 ]]
-    testAssert.equal(run(source), 51)
+    testAssert.eq(run(source), 51)
     local plain = compile("local size = 6\nreturn size * 7", 0)
     assert(plain:find("local size", 1, true), plain)
 end
@@ -2177,7 +2165,7 @@ local function scope(): number
 end
 return read() + scope()
 ]]
-    testAssert.equal(run(source), 16)
+    testAssert.eq(run(source), 16)
     assert(compile(source, 1):find("local size", 1, true), "captured bindings remain available to capture plans")
 end
 
@@ -2191,8 +2179,8 @@ local ok = pcall(render, 6)
 return ok
 ]]
     local plain = assert(loadstring((compile(source, 0))))()
-    testAssert.equal(plain, true, "the generated conversion reaches the builtin past the local")
-    testAssert.equal(run(source), plain, "cleanup must preserve the scope of implicit reads")
+    testAssert.eq(plain, true, "the generated conversion reaches the builtin past the local")
+    testAssert.eq(run(source), plain, "cleanup must preserve the scope of implicit reads")
 end
 
 function M.deadScalarCleanupKeepsDependencyMetadata()
@@ -2207,16 +2195,16 @@ end
 
 function M.optimizerRemarksCarryDecisionStatus()
     local _, fired = compile("local t = {}\nt.a = 1\nt.b = 2\nreturn t")
-    testAssert.equal(fired[1].status, "fired", "accepted decision")
-    testAssert.equal(fired[1].hotness, "unknown", "static analysis invents no runtime heat")
+    testAssert.eq(fired[1].status, "fired", "accepted decision")
+    testAssert.eq(fired[1].hotness, "unknown", "static analysis invents no runtime heat")
     local _, declined = compile("local t = {}\nprint(t)\nt.a = 1\nt.b = 2\nreturn t")
-    testAssert.equal(declined[1].status, "declined", "declined decision")
+    testAssert.eq(declined[1].status, "declined", "declined decision")
 end
 
 -- `..` adjusts its right operand to one value; an argument list does not. A call or
 -- `...` as the last piece of an accumulation appends one value, as the source did.
 function M.concatBufferAppendsOneValueOfAMultiValuePiece()
-    testAssert.equal(
+    testAssert.eq(
         assertAgrees(
             "local function two(): (string, string) return 'a', 'b' end\n"
             .. "local s = ''\nfor _ = 1, 2 do\n    s = s .. two()\nend\nprint(s)",
@@ -2224,7 +2212,7 @@ function M.concatBufferAppendsOneValueOfAMultiValuePiece()
         ),
         "aa"
     )
-    testAssert.equal(
+    testAssert.eq(
         assertAgrees(
             "local function f(...: string): string\n    local s = ''\n"
             .. "    for i = 1, 2 do s = s .. ... end\n    return s\nend\nprint(f('x', 'y'))",
@@ -2232,7 +2220,7 @@ function M.concatBufferAppendsOneValueOfAMultiValuePiece()
         ),
         "xx"
     )
-    testAssert.equal(
+    testAssert.eq(
         assertAgrees(
             "local function two() return 'a', 'b' end\n"
             .. "local s = ''\nfor i = 1, 2 do\n    s = s .. i .. two()\nend\nprint(s)"
@@ -2246,13 +2234,13 @@ end
 function M.concatBufferDeclinesALoopAGotoLeaves()
     local src = "local s = ''\nfor i = 1, 3 do\n    s = s .. i\n    if i == 2 then\n        goto done\n    end\nend\n"
         .. "::done::\nprint(s)"
-    testAssert.equal(assertAgrees(src, "test.nupp"), "12")
-    testAssert.equal(#remarksOf(src, "test.nupp", "OPT-5"), 0, "no buffer for a loop a goto leaves")
+    testAssert.eq(assertAgrees(src, "test.nupp"), "12")
+    testAssert.eq(#remarksOf(src, "test.nupp", "OPT-5"), 0, "no buffer for a loop a goto leaves")
     -- A jump that stays inside the loop is no reason to decline.
     local inner = "local s = ''\nfor i = 1, 3 do\n    if i == 2 then\n        goto next\n    end\n"
         .. "    s = s .. i\n    ::next::\nend\nprint(s)"
-    testAssert.equal(assertAgrees(inner, "test.nupp"), "13")
-    testAssert.equal(#remarksOf(inner, "test.nupp", "OPT-5"), 1, "a jump within the loop keeps the buffer")
+    testAssert.eq(assertAgrees(inner, "test.nupp"), "13")
+    testAssert.eq(#remarksOf(inner, "test.nupp", "OPT-5"), 1, "a jump within the loop keeps the buffer")
 end
 
 -- OPT-7 decides by the definitions the checker attached, not by spelling: a call
@@ -2279,7 +2267,7 @@ function M.inlineKeepsAHelperWhereItsFreeNamesMeanSomethingElse()
     for _, src in ipairs(cases) do
         assertAgrees(src)
     end
-    testAssert.equal(
+    testAssert.eq(
         assertAgrees(
             "local function helper(k: integer): integer\n    return k\nend\n"
             .. "local k: integer = 10\nk = k + 1\nlocal function getk(): integer return k end\n"
@@ -2295,14 +2283,14 @@ end
 -- can write the variable, and only the same error when the body cannot tell which
 -- frame it runs in.
 function M.inlineKeepsWhenTheArgumentCanChangeOrTheFrameIsObserved()
-    testAssert.equal(
+    testAssert.eq(
         assertAgrees(
             "local x = 1\nlocal function bump() x = x + 10; return 0 end\n"
             .. "local function h(p) return bump() + p end\nprint(h(x))"
         ),
         "1"
     )
-    testAssert.equal(
+    testAssert.eq(
         assertAgrees(
             "local x: integer = 1\nlocal function bump(): integer x = x + 10\n    return 0\nend\n"
             .. "local function h(p: integer): integer return bump() + p end\nprint(h(x))",
@@ -2323,7 +2311,7 @@ function M.inlineKeepsWhenTheArgumentCanChangeOrTheFrameIsObserved()
     -- An argument nothing writes, into a body that calls, still inlines.
     local src = "local function bump(): integer return 0 end\n"
         .. "local function h(p: integer): integer return bump() + p end\nlocal x: integer = 1\nprint(h(x))"
-    testAssert.equal(assertAgrees(src, "test.nupp"), "1")
+    testAssert.eq(assertAgrees(src, "test.nupp"), "1")
     local fired = false
     for _, entry in ipairs(remarksOf(src, "test.nupp", "OPT-7")) do
         fired = fired or entry.msg == "inline-return-helper: inlines h"
@@ -2334,16 +2322,16 @@ end
 -- A folded negative number is spliced where a name stood, and `-5 ^ 2` reads as
 -- `-(5 ^ 2)`: the fold has to keep the operand one operand.
 function M.foldsANegativeConstantUnderExponentiationAsOneOperand()
-    testAssert.equal(assertAgrees("const n = -5\nprint(n ^ 2)", "test.nupp"), "25")
-    testAssert.equal(assertAgrees("local n: integer = -5\nprint(n ^ 2, n^2 == 25)", "test.nupp"), "25\ttrue")
-    testAssert.equal(assertAgrees("local n = -5\nprint(n ^ 2, -n ^ 2)"), "25\t-25")
+    testAssert.eq(assertAgrees("const n = -5\nprint(n ^ 2)", "test.nupp"), "25")
+    testAssert.eq(assertAgrees("local n: integer = -5\nprint(n ^ 2, n^2 == 25)", "test.nupp"), "25\ttrue")
+    testAssert.eq(assertAgrees("local n = -5\nprint(n ^ 2, -n ^ 2)"), "25\t-25")
 end
 
 -- `//` runs as `math.floor((a) / (b))`, whose zero is a double that keeps a sign
 -- through multiplication. An integer literal does not, so a zero quotient stays.
 function M.keepsAZeroFloorQuotientThatCarriesTheSignOfZero()
-    testAssert.equal(assertAgrees("local x1 = 4\nx1 = -x1\nx1 *= (#\"\" // 3)\nprint(x1, 1 / x1)"), "-0\t-inf")
-    testAssert.equal(
+    testAssert.eq(assertAgrees("local x1 = 4\nx1 = -x1\nx1 *= (#\"\" // 3)\nprint(x1, 1 / x1)"), "-0\t-inf")
+    testAssert.eq(
         assertAgrees("local a = -4\na = a + 0\nlocal z = 0\nprint(a * (z / 3), a * ((7 // 2) - 3))"),
         "-0\t-0"
     )
@@ -2352,12 +2340,12 @@ end
 -- A folded string is written back on the line it came from: a newline in its value
 -- is spelled `\n`, or everything after it on that source line moves down one.
 function M.foldedStringsKeepLineIdentity()
-    testAssert.equal(
+    testAssert.eq(
         assertAgrees("local x2 = #((\"x\\ny\" .. (rawget(_G, \"x1\"))) .. tostring((rawget(_G, \"x1\"))))"),
         "ERROR differential.nupp:1: attempt to concatenate a nil value"
     )
     local code = compile("local s = \"a\\nb\" .. \"c\"\nlocal t = s .. nothing\nreturn s")
-    testAssert.equal(code:find("\\\n"), nil, "no quoted newline spans two generated lines: " .. code)
+    testAssert.eq(code:find("\\\n"), nil, "no quoted newline spans two generated lines: " .. code)
     assert(code:find("\"a\\nbc\"", 1, true) ~= nil, "the fold is one quoted line: " .. code)
 end
 
@@ -2366,23 +2354,19 @@ end
 -- run from 1 of values that are never nil, and any other integer key leaves the table
 -- as written.
 function M.presizingReservesArraySlotsOnlyForASequence()
-    testAssert.equal(assertAgrees("local t = {}\nt.c = 1\nt[3] = 2\nprint(#t)"), "0")
-    testAssert.equal(
+    testAssert.eq(assertAgrees("local t = {}\nt.c = 1\nt[3] = 2\nprint(#t)"), "0")
+    testAssert.eq(
         sized("local t = {}\nt.c = 1\nt[3] = 2\nreturn t"),
         nil,
         "a key after a gap keeps the table as written"
     )
-    testAssert.equal(remarksOf("local t = {}\nt.c = 1\nt[3] = 2\nreturn t", nil, "OPT-1")[1].status, "declined")
-    testAssert.equal(
+    testAssert.eq(remarksOf("local t = {}\nt.c = 1\nt[3] = 2\nreturn t", nil, "OPT-1")[1].status, "declined")
+    testAssert.eq(
         sized("local function f(v)\n    local t = {}\n    t[1] = v\n    t[2] = 2\n    return t\nend\nreturn f"),
         nil,
         "a value that may be nil does not extend the run"
     )
-    testAssert.equal(
-        sized("local t = {}\nt[1] = 1\nt[2] = 2\nt[3] = 3\nreturn t"),
-        "3",
-        "a run from 1 is still reserved"
-    )
+    testAssert.eq(sized("local t = {}\nt[1] = 1\nt[2] = 2\nt[3] = 3\nreturn t"), "3", "a run from 1 is still reserved")
 end
 
 -- A multi-owner region that the generator parks in a module-level cache
@@ -2428,7 +2412,7 @@ return run()
     )
     assert(not code:find("local n ", 1, true), "the folded declaration is gone:\n" .. code)
     local chunk = assert(loadstring(code, "@folded-capture"))
-    testAssert.equal(chunk(), 0, "the region body reads the folded value")
+    testAssert.eq(chunk(), 0, "the region body reads the folded value")
 end
 
 function M.inlinesAClosedImportedScalarBody()
@@ -2469,7 +2453,7 @@ return work
     package.loaded["tests.fixtures.crossmodulefacts"] = {}
     local ok, problem = pcall(function()
         local fn = assert(loadstring(code))()
-        testAssert.equal(fn(100000, 255), (100000 * 33 + 255) % 65536)
+        testAssert.eq(fn(100000, 255), (100000 * 33 + 255) % 65536)
     end)
     package.loaded["tests.fixtures.crossmodulefacts"] = old
     assert(ok, problem)

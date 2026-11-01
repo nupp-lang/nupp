@@ -18,7 +18,7 @@ local function diagnostics(source)
     env.loaded = {}
     local filename = ("typelevel-%d.nupp"):format(diagnosticRun)
     local parsed = parser.parse(source, filename)
-    testAssert.equal(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
+    testAssert.eq(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
 
     return check.check(parsed, filename, env)
 end
@@ -33,21 +33,21 @@ local function codes(source)
 end
 
 local function clean(source)
-    testAssert.equal(codes(source), "", "expected clean check for:\n" .. source)
+    testAssert.eq(codes(source), "", "expected clean check for:\n" .. source)
 end
 
 local function oneDiagnostic(source, code, message)
     local found = diagnostics(source)
-    testAssert.equal(#found, 1, "one diagnostic for:\n" .. source)
-    testAssert.equal(found[1].code, code)
+    testAssert.eq(#found, 1, "one diagnostic for:\n" .. source)
+    testAssert.eq(found[1].code, code)
     if found[1].msg ~= message and not found[1].msg:match("^" .. message:gsub("([^%w])", "%%%1") .. "\n  called ") then
-        testAssert.equal(found[1].msg, message)
+        testAssert.eq(found[1].msg, message)
     end
 end
 
 local function typeDump(typeSource)
     local parsed = parser.parse("local value: " .. typeSource, "test.nupp")
-    testAssert.equal(#parsed.errors, 0)
+    testAssert.eq(#parsed.errors, 0)
     local declaration = parsed.root.blocks[1].stats[1]
     assert(declaration.kind == "localStmt")
     local annotation = declaration.types[1]
@@ -71,7 +71,7 @@ function M.closedComptimeTypeFunctionsConstructTypes()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -122,7 +122,7 @@ function M.closedComptimeTypeFunctionsUseScalarControlFlowAndInspection()
 end
 
 function M.closedComptimeTypeFunctionsReportApplicationFailures()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -136,7 +136,7 @@ function M.closedComptimeTypeFunctionsReportApplicationFailures()
         ),
         "NUPP2420"
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -150,15 +150,15 @@ function M.closedComptimeTypeFunctionsReportApplicationFailures()
         ),
         "NUPP2421"
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(table.concat({"local function Runtime(T: any): any return T end", "local bad: Runtime(string)",}, "\n")),
         "NUPP2421"
     )
 end
 
 function M.compilerOnlyTypeHandlesCannotEnterRuntimeSignatures()
-    testAssert.equal(codes("local function identity(T: type): type return T end"), "NUPP2421 NUPP2421")
-    testAssert.equal(codes("local value: type = nil as any"), "NUPP2421")
+    testAssert.eq(codes("local function identity(T: type): type return T end"), "NUPP2421 NUPP2421")
+    testAssert.eq(codes("local value: type = nil as any"), "NUPP2421")
 end
 
 function M.openComptimeTypeCallsCloseAfterGenericInference()
@@ -177,7 +177,7 @@ function M.openComptimeTypeCallsCloseAfterGenericInference()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -310,7 +310,7 @@ function M.constrainedOpenTypeCallsExposeOnlyTheirDeclaredBound()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -342,7 +342,7 @@ function M.comptimeTypePackResultsExpandThroughUnpackof()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -374,7 +374,7 @@ function M.comptimeTypeFunctionsAcceptTypePackArguments()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -394,23 +394,23 @@ end
 
 function M.finiteTypeOperatorSyntaxRoundTrips()
     local dump, text = typeDump("writeof Cell.[\"value\"]")
-    testAssert.equal(dump, "(twriteof writeof (tmember (tname Cell) . [ (tliteral \"value\") ]))")
-    testAssert.equal(text, "local value: writeof Cell.[\"value\"]")
+    testAssert.eq(dump, "(twriteof writeof (tmember (tname Cell) . [ (tliteral \"value\") ]))")
+    testAssert.eq(text, "local value: writeof Cell.[\"value\"]")
     dump = typeDump("keyof Cell")
-    testAssert.equal(dump, "(tkeyof keyof (tname Cell))")
+    testAssert.eq(dump, "(tkeyof keyof (tname Cell))")
     dump = typeDump("writekeyof Cell")
-    testAssert.equal(dump, "(tkeyof writekeyof (tname Cell))")
+    testAssert.eq(dump, "(tkeyof writekeyof (tname Cell))")
     dump = typeDump("{string,}")
-    testAssert.equal(dump, "(ttuple { (tname string) , })")
+    testAssert.eq(dump, "(ttuple { (tname string) , })")
     dump = typeDump("function<F is string>(fmt: F, ...: unpackof Args<F>): string")
-    testAssert.equal(
+    testAssert.eq(
         dump,
         "(tfunc function (generics < F is (tname string) >) ( "
         .. "(tfuncParam fmt : (tname F)) , (tfuncParam ... : "
         .. "(tpack unpackof (tname Args < (tname F) >))) ) : (tname string))"
     )
     dump = typeDump("{string, unpackof Tail}")
-    testAssert.equal(dump, "(ttuple { (tname string) , unpackof (tname Tail) })")
+    testAssert.eq(dump, "(ttuple { (tname string) , unpackof (tname Tail) })")
 end
 
 function M.computedPackSyntaxFormatsIdempotently()
@@ -424,8 +424,8 @@ function M.computedPackSyntaxFormatsIdempotently()
         "\n"
     )
     local once, errors = fmt.format(source)
-    testAssert.equal(#errors, 0)
-    testAssert.equal(
+    testAssert.eq(#errors, 0)
+    testAssert.eq(
         once,
         table.concat(
             {
@@ -439,8 +439,8 @@ function M.computedPackSyntaxFormatsIdempotently()
         ) .. "\n"
     )
     local twice, again = fmt.format(once)
-    testAssert.equal(#again, 0)
-    testAssert.equal(twice, once)
+    testAssert.eq(#again, 0)
+    testAssert.eq(twice, once)
 end
 
 function M.keyAndIndexedMemberOperatorsRespectCapabilities()
@@ -456,7 +456,7 @@ function M.keyAndIndexedMemberOperatorsRespectCapabilities()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat({"local type Cell = {@readonly value: string}", "local bad: writekeyof Cell = 'value'",}, "\n")
         ),
@@ -503,8 +503,8 @@ function M.mappedShapesReduceAfterGenericSubstitution()
 end
 
 function M.broadAndMissingMemberReductionsReportLocally()
-    testAssert.equal(codes("local value: {@readonly [K in string]: K}"), "NUPP2130")
-    testAssert.equal(codes("local value: {name: string}.['missing']"), "NUPP2130")
+    testAssert.eq(codes("local value: {@readonly [K in string]: K}"), "NUPP2130")
+    testAssert.eq(codes("local value: {name: string}.['missing']"), "NUPP2130")
 end
 
 function M.finiteReducerCancellationIsBounded()
@@ -519,8 +519,8 @@ function M.finiteReducerCancellationIsBounded()
             return true
         end
     })
-    testAssert.equal(err, "type reduction cancelled")
-    testAssert.equal(polls, 1, "the finite reducer polls its cancellation control")
+    testAssert.eq(err, "type reduction cancelled")
+    testAssert.eq(polls, 1, "the finite reducer polls its cancellation control")
 end
 
 function M.constParametersSizeArraysWithoutRuntimeSpecialization()
@@ -551,13 +551,13 @@ function M.constFunctionInferenceRequiresIdenticalKnownValues()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat({"local function same<const S: string>(left: S, right: S): nil end", "same('x', 'y')",}, "\n")
         ),
         "NUPP2131"
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -576,7 +576,7 @@ function M.constInferenceSeparatesIntegersThatShareADecimalSpelling()
     -- `tostring` on a LuaJIT number is %.14g, so these two admitted integers
     -- share a spelling. Interning a literal under that spelling gave them one
     -- type, and a const parameter then agreed with itself across both.
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -639,7 +639,7 @@ function M.computedTypesExpandIntoCallablePacks()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -658,7 +658,7 @@ function M.computedTypesExpandIntoCallablePacks()
         ),
         "NUPP2006"
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(table.concat({"local function apply(...: unpackof {string,}): nil end", "apply(1)",}, "\n")),
         "NUPP2006"
     )
@@ -684,8 +684,8 @@ function M.computedTypesExpandIntoCallablePacks()
             "\n"
         )
     )
-    testAssert.equal(#failure, 1, "one authored type-function diagnostic")
-    testAssert.equal(failure[1].code, "NUPP2420")
+    testAssert.eq(#failure, 1, "one authored type-function diagnostic")
+    testAssert.eq(failure[1].code, "NUPP2420")
     assert(failure[1].msg:match("^computed contract failed"), "the authored message begins the diagnostic")
 end
 
@@ -819,13 +819,13 @@ end
 function M.luaDebugFormatLoweringUsesTheDirectiveScanner()
     local luaFormat = require("nupp.compiler.lua.luaformat")
     local parsed, why = luaFormat.analyze("%-+#09.2f %q %% %d %?")
-    testAssert.equal(why, nil)
-    testAssert.equal(parsed and parsed.format, "%-+#09.2f %q %% %d %s")
-    testAssert.equal(parsed and parsed.debugArguments[1], false)
-    testAssert.equal(parsed and parsed.debugArguments[4], true)
+    testAssert.eq(why, nil)
+    testAssert.eq(parsed and parsed.format, "%-+#09.2f %q %% %d %s")
+    testAssert.eq(parsed and parsed.debugArguments[1], false)
+    testAssert.eq(parsed and parsed.debugArguments[4], true)
     local missing, invalid = luaFormat.analyze("%..f")
-    testAssert.equal(missing, nil)
-    testAssert.equal(invalid, 'invalid string.format directive starting at "%..f"')
+    testAssert.eq(missing, nil)
+    testAssert.eq(invalid, 'invalid string.format directive starting at "%..f"')
 end
 
 function M.osDateDerivesItsResultFromALiteralFormat()
@@ -1027,7 +1027,7 @@ function M.mappedRemappingBuildsDependentEventAdapters()
 end
 
 function M.remapCollisionsReportAtTheOperator()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -1043,7 +1043,7 @@ end
 
 function M.removedTypeProgrammingSyntaxHasNoSpecialCst()
     local parsed = parser.parse("local value: typeerror<'broken'>", "removed.nupp")
-    testAssert.equal(#parsed.errors, 0)
+    testAssert.eq(#parsed.errors, 0)
     assert(not cst.dump(parsed.root):find("ttypeerror", 1, true), "typeerror is now an ordinary generic type name")
     local matched = parser.parse("local type Old<T> = match T when infer X then X end", "removed.nupp")
     assert(#matched.errors > 0, "type-level match and infer are no longer grammar")
@@ -1063,7 +1063,7 @@ function M.templateProductsHaveABoundedDiagnostic()
         },
         "\n"
     )
-    testAssert.equal(codes(source), "NUPP2132")
+    testAssert.eq(codes(source), "NUPP2132")
 end
 
 function M.boundsIntersectionsAndIndexersShareTheMemberVocabulary()
@@ -1081,8 +1081,8 @@ function M.boundsIntersectionsAndIndexersShareTheMemberVocabulary()
 end
 
 function M.constArithmeticErrorsStayAtTheTypeBoundary()
-    testAssert.equal(codes("local huge: float[9007199254740991 + 1]"), "NUPP2131")
-    testAssert.equal(codes("local divided: float[4 // 0]"), "NUPP2131")
+    testAssert.eq(codes("local huge: float[9007199254740991 + 1]"), "NUPP2131")
+    testAssert.eq(codes("local divided: float[4 // 0]"), "NUPP2131")
 end
 
 function M.constExpressionsAcceptNumericSeparators()
@@ -1099,7 +1099,7 @@ function M.constExpressionsAcceptNumericSeparators()
 end
 
 function M.constArgumentsParticipateInNominalIdentity()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -1122,12 +1122,12 @@ function M.emptyGenericMemberMapsLearnTheirFirstDeclaration()
     local instance = generics.instantiate(declaration, bindings)
     local surfaces = {"byname", "writeByname", "staticByname", "staticWriteByname", "metamethods"}
     for _, name in ipairs(surfaces) do
-        testAssert.equal(next(instance[name]), nil)
+        testAssert.eq(next(instance[name]), nil)
         declaration[name].late = parameter
     end
-    testAssert.equal(generics.instantiate(declaration, bindings), instance)
+    testAssert.eq(generics.instantiate(declaration, bindings), instance)
     for _, name in ipairs(surfaces) do
-        testAssert.equal(instance[name].late, types.string)
+        testAssert.eq(instance[name].late, types.string)
     end
 end
 
@@ -1153,16 +1153,16 @@ function M.concreteSubgraphsAreRecognizedOncePerRefresh()
     local ok, problem = pcall(function()
         local bindings = {[left] = types.string, [right] = types.number}
         local instance = generics.instantiate(parent, bindings)
-        testAssert.equal(visits, 1, "a concrete subgraph is independent of the two binding maps")
-        testAssert.equal(instance.byname.left.byname.value, closed)
-        testAssert.equal(instance.byname.right.byname.value, closed)
-        testAssert.equal(instance.byname.left.byname.element, types.string)
-        testAssert.equal(instance.byname.right.byname.element, types.number)
+        testAssert.eq(visits, 1, "a concrete subgraph is independent of the two binding maps")
+        testAssert.eq(instance.byname.left.byname.value, closed)
+        testAssert.eq(instance.byname.right.byname.value, closed)
+        testAssert.eq(instance.byname.left.byname.element, types.string)
+        testAssert.eq(instance.byname.right.byname.element, types.number)
         child.byname.late = element
-        testAssert.equal(generics.instantiate(parent, bindings), instance)
-        testAssert.equal(instance.byname.left.byname.late, types.string)
-        testAssert.equal(instance.byname.right.byname.late, types.number)
-        testAssert.equal(visits, 2, "a changed child starts a fresh containment walk")
+        testAssert.eq(generics.instantiate(parent, bindings), instance)
+        testAssert.eq(instance.byname.left.byname.late, types.string)
+        testAssert.eq(instance.byname.right.byname.late, types.number)
+        testAssert.eq(visits, 2, "a changed child starts a fresh containment walk")
     end)
     types.hasTypevar = original
     assert(ok, problem)
@@ -1190,17 +1190,17 @@ function M.sharedGenericSubstitutionsCompleteOncePerRefresh()
     end
     local ok, problem = pcall(function()
         local first = generics.instantiate(declaration, bindings)
-        testAssert.equal(visits, 2, "shared function graphs are substituted once in one refresh")
+        testAssert.eq(visits, 2, "shared function graphs are substituted once in one refresh")
         local expected = first.byname.member1
-        testAssert.equal(expected.params[1].params[1], types.string)
+        testAssert.eq(expected.params[1].params[1], types.string)
         for _, name in ipairs(surfaces) do
-            testAssert.equal(first[name].member6, expected)
+            testAssert.eq(first[name].member6, expected)
         end
         declaration.byname.late = shared
         local again = generics.instantiate(declaration, bindings)
-        testAssert.equal(again, first)
-        testAssert.equal(again.byname.late, expected)
-        testAssert.equal(visits, 4, "a later explicit refresh gets a fresh substitution walk")
+        testAssert.eq(again, first)
+        testAssert.eq(again.byname.late, expected)
+        testAssert.eq(visits, 4, "a later explicit refresh gets a fresh substitution walk")
     end)
     types.funcWith = original
     assert(ok, problem)
@@ -1229,10 +1229,10 @@ function M.distinctGenericFunctionsShareTheirSubstitutedPacks()
     for _ in pairs(heads) do
         count = count + 1
     end
-    testAssert.equal(count, 1, "distinct functions sharing a pack substitute one head sequence")
+    testAssert.eq(count, 1, "distinct functions sharing a pack substitute one head sequence")
     local pack = instance.byname.ordinary.paramPack
-    testAssert.equal(pack.modes[1], "borrows")
-    testAssert.equal(instance.byname.noYield.paramPack, pack)
+    testAssert.eq(pack.modes[1], "borrows")
+    testAssert.eq(instance.byname.noYield.paramPack, pack)
     assert(instance.byname.noYield.noYield and instance.byname.never.noreturn and instance.byname.foreign.foreign)
 end
 
@@ -1248,8 +1248,8 @@ function M.oneGenericRefreshKeepsDistinctArgumentMapsSeparate()
     parent.byname.left = generics.instantiate(child, {[element] = left})
     parent.byname.right = generics.instantiate(child, {[element] = right})
     local instance = generics.instantiate(parent, {[left] = types.string, [right] = types.number})
-    testAssert.equal(instance.byname.left.byname.get.rets[1], types.string)
-    testAssert.equal(instance.byname.right.byname.get.rets[1], types.number)
+    testAssert.eq(instance.byname.left.byname.get.rets[1], types.string)
+    testAssert.eq(instance.byname.right.byname.get.rets[1], types.number)
     assert(instance.byname.left ~= instance.byname.right, "one walk must preserve distinct nominal arguments")
 end
 
@@ -1278,8 +1278,8 @@ function M.unrelatedSubstitutionKeepsOpenNominalArgumentsUnchanged()
     local ok, rebound = pcall(generics.rebind, open, {[unrelated] = types.number})
     generics.instantiate = instantiate
     assert(ok, rebound)
-    testAssert.equal(rebound, open, "unrelated substitution preserves the exact nominal")
-    testAssert.equal(visits, 0, "an unrelated binder must not expand a recursive member graph")
+    testAssert.eq(rebound, open, "unrelated substitution preserves the exact nominal")
+    testAssert.eq(visits, 0, "an unrelated binder must not expand a recursive member graph")
 
     local answers = types.pack({types.string}, {kind = "homogeneous", type = types.integer}, {"borrows"})
     local closed = generics.rebind(open, {
@@ -1288,11 +1288,11 @@ function M.unrelatedSubstitutionKeepsOpenNominalArgumentsUnchanged()
         [size] = types.constLiteral("integer", 4),
     })
     assert(closed ~= open, "changed arguments produce their own application")
-    testAssert.equal(closed.byname.value, types.integer)
-    testAssert.equal(closed.byname.values.pack.head[1], types.string)
-    testAssert.equal(closed.byname.values.pack.modes[1], "borrows")
-    testAssert.equal(closed.byname.values.pack.tail.type, types.integer)
-    testAssert.equal(closed.byname.storage.count, 4)
+    testAssert.eq(closed.byname.value, types.integer)
+    testAssert.eq(closed.byname.values.pack.head[1], types.string)
+    testAssert.eq(closed.byname.values.pack.modes[1], "borrows")
+    testAssert.eq(closed.byname.values.pack.tail.type, types.integer)
+    testAssert.eq(closed.byname.storage.count, 4)
     local recursive = false
     for _, member in ipairs(closed.byname.next.members) do
         recursive = recursive or member == closed
@@ -1300,8 +1300,8 @@ function M.unrelatedSubstitutionKeepsOpenNominalArgumentsUnchanged()
     assert(recursive, "changed arguments preserve the recursive application")
 
     local materialized = generics.materialize(open, {})
-    testAssert.equal(materialized.typeArgs[1], types.string, "materialization still applies the declared default")
-    testAssert.equal(materialized.packArgs[1].tail.kind, "unknown", "unmapped pack arguments still materialize")
+    testAssert.eq(materialized.typeArgs[1], types.string, "materialization still applies the declared default")
+    testAssert.eq(materialized.packArgs[1].tail.kind, "unknown", "unmapped pack arguments still materialize")
 end
 
 function M.explicitRefreshReachesAnUnchangedOpenChild()
@@ -1318,10 +1318,10 @@ function M.explicitRefreshReachesAnUnchangedOpenChild()
     child.byname.value = types.integer
     child.byname.get = types.func({}, {childParameter})
     local refreshed = generics.instantiate(parent, {[parentParameter] = types.string})
-    testAssert.equal(refreshed, first)
-    testAssert.equal(refreshed.byname.child, openChild)
-    testAssert.equal(openChild.byname.value, types.integer, "explicit refresh visits an unrelated open child")
-    testAssert.equal(openChild.byname.get.rets[1], childParameter)
+    testAssert.eq(refreshed, first)
+    testAssert.eq(refreshed.byname.child, openChild)
+    testAssert.eq(openChild.byname.value, types.integer, "explicit refresh visits an unrelated open child")
+    testAssert.eq(openChild.byname.get.rets[1], childParameter)
 end
 
 function M.unchangedReservedApplicationsStillComplete()
@@ -1341,9 +1341,9 @@ function M.unchangedReservedApplicationsStillComplete()
         else
             completed = generics.rebind(reserved, {[unrelated] = types.string})
         end
-        testAssert.equal(completed, reserved, "completion preserves the reserved nominal")
-        testAssert.equal(completed.byname.value, parameter)
-        testAssert.equal(completed.byname.get.rets[1], parameter)
+        testAssert.eq(completed, reserved, "completion preserves the reserved nominal")
+        testAssert.eq(completed.byname.value, parameter)
+        testAssert.eq(completed.byname.get.rets[1], parameter)
     end
 end
 
@@ -1353,19 +1353,19 @@ function M.cachedGenericInstantiationsLearnLateDeclaredMembers()
     declaration.typeParams = {parameter}
 
     local first = generics.instantiate(declaration, {[parameter] = types.string})
-    testAssert.equal(first.byname.get, nil, "the early instance starts incomplete")
+    testAssert.eq(first.byname.get, nil, "the early instance starts incomplete")
 
     declaration.byname.get = types.func({declaration}, {parameter})
     declaration.metamethods.__tostring = types.func({declaration}, {types.string})
     local refreshed = generics.instantiate(declaration, {[parameter] = types.string})
 
-    testAssert.equal(refreshed, first, "refreshing preserves nominal identity")
+    testAssert.eq(refreshed, first, "refreshing preserves nominal identity")
     local getter = refreshed.byname.get
     local stringify = refreshed.metamethods.__tostring
     assert(getter and getter.tag == "func")
     assert(stringify and stringify.tag == "func")
-    testAssert.equal(getter.rets[1], types.string, "late members are specialized onto the cached instance")
-    testAssert.equal(stringify.rets[1], types.string, "late metamethods are copied onto the cached instance")
+    testAssert.eq(getter.rets[1], types.string, "late members are specialized onto the cached instance")
+    testAssert.eq(stringify.rets[1], types.string, "late metamethods are copied onto the cached instance")
 end
 
 function M.genericMemberIdentitiesIgnoreHashIterationOrder()
@@ -1404,8 +1404,8 @@ function M.genericMemberIdentitiesIgnoreHashIterationOrder()
     assert(ok, instance)
     for _, surface in ipairs(surfaces) do
         local members = instance[surface]
-        testAssert.equal(members.alpha.elems[1], argument, surface .. " alpha argument")
-        testAssert.equal(members.zeta.elems[1], argument, surface .. " zeta argument")
+        testAssert.eq(members.alpha.elems[1], argument, surface .. " alpha argument")
+        testAssert.eq(members.zeta.elems[1], argument, surface .. " zeta argument")
         local alpha = assert(tonumber(members.alpha.id:match("(%d+)$")))
         local zeta = assert(tonumber(members.zeta.id:match("(%d+)$")))
         assert(alpha < zeta, surface .. " identities depend on member map enumeration")
@@ -1449,8 +1449,8 @@ function M.sharedGenericMembersRefreshAgainAfterDeclarationChanges()
 
     local first = generics.instantiate(parent, {[parentParameter] = types.string})
     local shared = first.byname.left
-    testAssert.equal(first.byname.right, shared, "both paths retain one nominal identity")
-    testAssert.equal(shared.byname.value, types.string, "the nested argument is substituted")
+    testAssert.eq(first.byname.right, shared, "both paths retain one nominal identity")
+    testAssert.eq(shared.byname.value, types.string, "the nested argument is substituted")
 
     child.byname.value = types.integer
     child.byname.get = types.func({}, {childParameter})
@@ -1459,19 +1459,19 @@ function M.sharedGenericMembersRefreshAgainAfterDeclarationChanges()
     child.staticWriteByname.value = childParameter
     child.metamethods.__tostring = types.func({}, {types.string})
     local refreshed = generics.instantiate(parent, {[parentParameter] = types.string})
-    testAssert.equal(refreshed, first, "a later walk preserves the parent")
-    testAssert.equal(refreshed.byname.left, shared, "a later walk preserves the child")
-    testAssert.equal(shared.byname.value, types.integer, "a replaced nested member is refreshed")
-    testAssert.equal(shared.byname.get.rets[1], types.string, "a late nested member is specialized")
-    testAssert.equal(shared.writeByname.value, types.integer)
-    testAssert.equal(shared.staticByname.get.rets[1], types.string)
-    testAssert.equal(shared.staticWriteByname.value, types.string)
-    testAssert.equal(shared.metamethods.__tostring.rets[1], types.string)
+    testAssert.eq(refreshed, first, "a later walk preserves the parent")
+    testAssert.eq(refreshed.byname.left, shared, "a later walk preserves the child")
+    testAssert.eq(shared.byname.value, types.integer, "a replaced nested member is refreshed")
+    testAssert.eq(shared.byname.get.rets[1], types.string, "a late nested member is specialized")
+    testAssert.eq(shared.writeByname.value, types.integer)
+    testAssert.eq(shared.staticByname.get.rets[1], types.string)
+    testAssert.eq(shared.staticWriteByname.value, types.string)
+    testAssert.eq(shared.metamethods.__tostring.rets[1], types.string)
 
     local other = generics.instantiate(parent, {[parentParameter] = types.number})
     assert(other ~= first, "different arguments retain distinct parent identities")
     assert(other.byname.left ~= shared, "different arguments retain distinct child identities")
-    testAssert.equal(other.byname.left.byname.get.rets[1], types.number)
+    testAssert.eq(other.byname.left.byname.get.rets[1], types.number)
 end
 
 function M.typeComputationAndConstBindersEraseFromGeneratedLua()
@@ -1489,11 +1489,11 @@ function M.typeComputationAndConstBindersEraseFromGeneratedLua()
     clean(source)
     local parsed = parser.parse(source, "erase.nupp")
     local lua, emitted = gen.generate(parsed, "erase")
-    testAssert.equal(#emitted, 0, "code generation diagnostics")
+    testAssert.eq(#emitted, 0, "code generation diagnostics")
     assert(not lua:find("const Name", 1, true), "const binder reached runtime Lua")
     assert(not lua:find("keyof", 1, true), "type operator reached runtime Lua")
     local chunk = assert(loadstring(lua))
-    testAssert.equal(chunk(), "ok")
+    testAssert.eq(chunk(), "ok")
 end
 
 function M.comptimeCallsInAnnotationPositionEraseFromGeneratedLua()
@@ -1510,13 +1510,13 @@ function M.comptimeCallsInAnnotationPositionEraseFromGeneratedLua()
     clean(source)
     local parsed = parser.parse(source, "annotation.nupp")
     local lua, emitted = gen.generate(parsed, "annotation")
-    testAssert.equal(#emitted, 0, "code generation diagnostics")
+    testAssert.eq(#emitted, 0, "code generation diagnostics")
     -- The call is type material, so its parentheses erase with the annotation
     -- rather than reaching the statement as `local value ( ) = 'ok'`, which is
     -- not Lua and so fails to load rather than to type-check.
     assert(lua:find("local value = 'ok'", 1, true), "annotation reached runtime Lua:\n" .. lua)
     local chunk = assert(loadstring(lua))
-    testAssert.equal(chunk(), "ok")
+    testAssert.eq(chunk(), "ok")
 end
 
 -- A parameter with a default may be left out of an application, and the
@@ -1559,7 +1559,7 @@ end
 -- A written argument still decides the position, so a default changes nothing
 -- about an application that supplies one.
 function M.aWrittenArgumentOverridesTheDefault()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -1580,14 +1580,14 @@ end
 -- Leaving an argument out has to mean the last position, or it would say
 -- nothing about which one was left out.
 function M.aParameterWithoutADefaultCannotFollowOneWithIt()
-    testAssert.equal(
+    testAssert.eq(
         codes(table.concat({"local record Bad<A = string, B>", "   left: A", "   right: B", "end",}, "\n")),
         "NUPP2121"
     )
 end
 
 function M.aGenericPackParameterCannotHaveADefault()
-    testAssert.equal(
+    testAssert.eq(
         codes(table.concat({"local record Bad<A... = string>", "   value: integer", "end",}, "\n")),
         "NUPP2121"
     )
@@ -1625,7 +1625,7 @@ end
 -- The whole point of putting it in the type: two applications naming different
 -- functions are different types, so a terminal cannot be swapped silently.
 function M.constFunctionArgumentsDistinguishTypes()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             FUNCTION_CONST .. table.concat(
                 {
@@ -1642,7 +1642,7 @@ function M.constFunctionArgumentsDistinguishTypes()
 end
 
 function M.aConstFunctionArgumentMustNameAFunction()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             FUNCTION_CONST .. table.concat(
                 {
@@ -1660,7 +1660,7 @@ function M.aConstFunctionArgumentMustNameAFunction()
 end
 
 function M.aConstFunctionArgumentMustBeDeclared()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             FUNCTION_CONST .. table.concat(
                 {"", "local function missing(h: Handle<integer, nosuchthing>): integer", "   return h.value", "end",},
@@ -1763,7 +1763,7 @@ function M.transparentAffineAliasesWithTheSameTerminalInterchange()
 end
 
 function M.transparentAffineAliasesRetainTerminalIdentity()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             AFFINE_TYPES .. table.concat(
                 {
@@ -1780,7 +1780,7 @@ function M.transparentAffineAliasesRetainTerminalIdentity()
 end
 
 function M.terminalLessAffineTypesAreExplicitAndCannotBeDropped()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -1828,12 +1828,12 @@ function M.affineConstructorAddsNoRuntimeRepresentation()
     )
     local parsed = parser.parse(source, "affine-erasure.nupp")
     local found = check.check(parsed, "affine-erasure.nupp", env)
-    testAssert.equal(#found, 0, found[1] and found[1].msg or "check")
+    testAssert.eq(#found, 0, found[1] and found[1].msg or "check")
     local lua, emitted = gen.generate(parsed, "affine-erasure")
-    testAssert.equal(#emitted, 0, "code generation diagnostics")
+    testAssert.eq(#emitted, 0, "code generation diagnostics")
     assert(not lua:find("Counter = {}", 1, true), "affine constructor allocated a runtime type")
     local chunk = assert(loadstring(lua))
-    testAssert.equal(chunk(), 2)
+    testAssert.eq(chunk(), 2)
 end
 
 local TUPLE_QUERY = table.concat(
@@ -1863,7 +1863,7 @@ function M.aComputedTailTypesAnUnannotatedCallbackParameter()
 end
 
 function M.aComputedTailCarriesFieldsIntoTheCallbackBody()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             TUPLE_QUERY .. table.concat(
                 {"", "each(function(entity, position, velocity): nil", "   position.missing = 1", "end)",},
@@ -1879,7 +1879,7 @@ end
 -- type already admits, so one left untyped passes where one written as a string
 -- does not.
 function M.aComputedTailCountsTheCallbackParameters()
-    testAssert.equal(
+    testAssert.eq(
         codes(TUPLE_QUERY .. table.concat({"", "each(function(entity, a, b, c: string, d): nil", "end)",}, "\n")),
         "NUPP2006"
     )
@@ -1887,7 +1887,7 @@ function M.aComputedTailCountsTheCallbackParameters()
 end
 
 function M.aComputedTailComparesAWrittenCallbackParameter()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             TUPLE_QUERY .. table.concat(
                 {"", "each(function(entity: integer, position: Position, velocity: Position): nil", "end)",},
@@ -1988,13 +1988,33 @@ end
 
 function M.lowercaseFormatargumentsKeepsItsExistingCheckedSignature()
     local member = env.globals.types.t.byname.formatarguments
-    testAssert.equal(member.tag, "func")
-    testAssert.equal(#member.params, 1)
-    testAssert.equal(types.tostring(member.params[1]), "type")
-    testAssert.equal(member.comptimeOnly, true)
-    testAssert.equal(#member.retPack.head, 1)
-    testAssert.equal(types.tostring(member.retPack.head[1]), "typepack")
-    testAssert.equal(env.globals.types.t.byname.formatArguments, nil, "the old public name is absent")
+    testAssert.eq(member.tag, "func")
+    testAssert.eq(#member.params, 1)
+    testAssert.eq(types.tostring(member.params[1]), "type")
+    testAssert.eq(member.comptimeOnly, true)
+    testAssert.eq(#member.retPack.head, 1)
+    testAssert.eq(types.tostring(member.retPack.head[1]), "typepack")
+    testAssert.eq(env.globals.types.t.byname.formatArguments, nil, "the old public name is absent")
+end
+
+function M.retiredComptimeModuleNamesAreNotAliases()
+    local state, values = {}, {}
+    require("nupp.compiler.comptime.materialize.providers").installEvaluator(state, values)
+    for _, names in ipairs({
+        {"nonExhaustive", "nonexhaustive"},
+        {"sameNominal", "samenominal"},
+        {"readAt", "readat"},
+        {"writeAt", "writeat"},
+        {"readKeys", "readkeys"},
+        {"writeKeys", "writekeys"},
+    }) do
+        testAssert.eq(values.types[names[1]], nil)
+        testAssert.eq(type(state.intrinsics[values.types[names[2]]]), "function")
+    end
+    testAssert.eq(values.types.reflect.fieldCodec, nil)
+    testAssert.eq(type(state.intrinsics[values.types.reflect.fieldcodec]), "function")
+    clean('local type Status = "ready" | types.nonexhaustive()')
+    testAssert.ne(codes('local type Status = "ready" | types.nonExhaustive()'), "")
 end
 
 function M.lowercaseBuilderNamesPreserveTypeIdentityDuringBootstrap()
@@ -2114,7 +2134,7 @@ function M.aTypeFunctionTakesAGenericPackArgument()
 end
 
 function M.aPackDerivedFromTheArgumentsReachesTheCallbackBody()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             PACK_QUERY .. table.concat(
                 {
@@ -2151,7 +2171,7 @@ function M.aComputedIteratorResultPackTypesGenericForBindings()
 end
 
 function M.aComputedIteratorResultPackReachesTheLoopBody()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             PACK_QUERY .. table.concat(
                 {
@@ -2172,7 +2192,7 @@ function M.aComputedIteratorResultPackReachesTheLoopBody()
 end
 
 function M.computedIteratorModesMakeBindingsIterationScopedBorrows()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             PACK_QUERY .. table.concat(
                 {
@@ -2241,7 +2261,7 @@ function M.aTypeParameterArgumentNeedsABoundThatImpliesTheBound()
         },
         "\n"
     ) .. "\n"
-    testAssert.equal(
+    testAssert.eq(
         codes(
             body .. table.concat(
                 {"local function wrap<U>(x: U): Reg<U>", "   return new Reg(item = x)", "end", "return wrap",},
@@ -2250,7 +2270,7 @@ function M.aTypeParameterArgumentNeedsABoundThatImpliesTheBound()
         ),
         "NUPP2116 NUPP2116"
     )
-    testAssert.equal(codes(body .. "local type Also<U> = Reg<U>\n"), "NUPP2116")
+    testAssert.eq(codes(body .. "local type Also<U> = Reg<U>\n"), "NUPP2116")
     clean(
         body .. table.concat(
             {
@@ -2266,7 +2286,7 @@ function M.aTypeParameterArgumentNeedsABoundThatImpliesTheBound()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -2299,9 +2319,9 @@ function M.aDefaultTypeArgumentIsCheckedAgainstItsBoundWhereDeclared()
         {"local interface Named", "   name: string", "end", "local record P is Named", "   name: string", "end",},
         "\n"
     ) .. "\n"
-    testAssert.equal(codes(body .. "local record Reg<T is Named = integer>\n   item: T\nend\nreturn Reg\n"), "NUPP2116")
+    testAssert.eq(codes(body .. "local record Reg<T is Named = integer>\n   item: T\nend\nreturn Reg\n"), "NUPP2116")
     clean(body .. "local record Reg<T is Named = P>\n   item: T\nend\nreturn Reg\n")
-    testAssert.equal(
+    testAssert.eq(
         codes(body .. "local function make<T is Named = integer>(): T?\n   return nil\nend\nreturn make\n"),
         "NUPP2116"
     )
@@ -2341,7 +2361,7 @@ function M.simdSpeciesIdentityIsInvariantAndComparisonsReturnMasks()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -2356,7 +2376,7 @@ function M.simdSpeciesIdentityIsInvariantAndComparisonsReturnMasks()
         ),
         "NUPP2002"
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -2386,9 +2406,9 @@ local different: simd.Mask<uint8, simd.Fixed<3>> = left ~= right
 return same:select(4, 2), different:any()
 ]]
     )
-    testAssert.equal(codes(prefix .. "local result = left < right"), "NUPP2003")
-    testAssert.equal(codes(prefix .. "local result = left == true"), "NUPP2003")
-    testAssert.equal(
+    testAssert.eq(codes(prefix .. "local result = left < right"), "NUPP2003")
+    testAssert.eq(codes(prefix .. "local result = left == true"), "NUPP2003")
+    testAssert.eq(
         codes(prefix .. [[
 local other: simd.Mask<uint8, simd.Fixed<4>> = nil as any
 local result = left == other
@@ -2416,7 +2436,7 @@ function M.narrowStorageWidthsAreValidOnlyInsideCompilerOwnedSimdFamilies()
             "\n"
         )
     )
-    testAssert.equal(codes("local value: uint8 = 1\nreturn value\n"), "NUPP2012")
+    testAssert.eq(codes("local value: uint8 = 1\nreturn value\n"), "NUPP2012")
 end
 
 function M.simdHorizontalContractsPreserveTheirNestedIntrinsicIdentity()
@@ -2433,7 +2453,7 @@ function M.simdHorizontalContractsPreserveTheirNestedIntrinsicIdentity()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -2464,7 +2484,7 @@ return total
     clean(source)
     local bad = source:gsub("fold:add%(seed%)", "if i > 2 then fold:add(seed) end")
     clean(bad)
-    testAssert.equal(codes(source:gsub("fold:add%(seed%)", "fold:add(true)")), "NUPP2006")
+    testAssert.eq(codes(source:gsub("fold:add%(seed%)", "fold:add(true)")), "NUPP2006")
     clean(
         [[
 local simd = require("simd")
@@ -2477,7 +2497,7 @@ return minimum, flag, count
 end
 
 function M.floatingReducerStateIsPrivateToTheSimdModule()
-    testAssert.equal(
+    testAssert.eq(
         codes([[
 local simd = require("simd")
 local sum = simd.reducer.orderedsum(0.0)
@@ -2485,7 +2505,7 @@ local total = sum.total
 ]]),
         "NUPP2209"
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             [[
 local simd = require("simd")
@@ -2545,7 +2565,7 @@ return finish(product), finish(pairwise), finish(algebraic), finish(ordered), fi
     finish(any), finish(position), finish(least)
 ]]
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             [[
 local simd = require("simd")
@@ -2573,7 +2593,7 @@ local position: simd.IntegerArgMax<uint32> = simd.reducer.integerargmax(array.ui
 return sum, product, bits, least, position
 ]]
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             [[
 local array = require("nupp.mem.array")
@@ -2584,7 +2604,7 @@ return simd.reducer.wrappingsum<uint32>(array.int32, 0)
             :match("NUPP%d+"),
         "NUPP2006"
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             [[
 local array = require("nupp.mem.array")
@@ -2606,7 +2626,7 @@ local prefix: simd.Vector<float, simd.Fixed<4>> = value:NAME()
 return prefix
 ]]
     clean((source:gsub("NAME", "orderedPrefixSum")))
-    testAssert.equal(codes((source:gsub("NAME", "prefixSumOrdered"))), "NUPP2004")
+    testAssert.eq(codes((source:gsub("NAME", "prefixSumOrdered"))), "NUPP2004")
 end
 
 function M.reducerLifecyclesAreCheckedWithoutTargetLowering()
@@ -2672,9 +2692,9 @@ function M.aShapeMustCarryAnInterfacesDefaultMember()
         },
         "\n"
     ) .. "\n"
-    testAssert.equal(codes(body .. 'local n: Named = {name = "x"}\nreturn n\n'), "NUPP2001")
-    testAssert.equal(codes(body .. 'print(greet({name = "y"}))\n'), "NUPP2006")
-    testAssert.equal(codes(body .. 'local t: {name: string} = {name = "z"}\nprint(greet(t))\n'), "NUPP2006")
+    testAssert.eq(codes(body .. 'local n: Named = {name = "x"}\nreturn n\n'), "NUPP2001")
+    testAssert.eq(codes(body .. 'print(greet({name = "y"}))\n'), "NUPP2006")
+    testAssert.eq(codes(body .. 'local t: {name: string} = {name = "z"}\nprint(greet(t))\n'), "NUPP2006")
     clean(
         body .. table.concat(
             {
@@ -2697,12 +2717,12 @@ function M.admissionIsWrittenWhereProofRunsOut()
     -- says what it meant should keep compiling when it does
     clean(alias .. "local function of(): Small\n    return nupp.admit(7)\nend\nprint(of())")
     -- the destination has to be constrained
-    testAssert.equal(
+    testAssert.eq(
         codes(alias .. "local function of(v: integer): integer\n    return nupp.admit(v)\nend\nprint(of(1))"),
         "NUPP2013"
     )
     -- and the value has to be the constraint's base: this admits, it does not convert
-    testAssert.equal(
+    testAssert.eq(
         codes(alias .. "local function of(v: string): Small\n    return nupp.admit(v)\nend\nprint(of('x'))"),
         "NUPP2013"
     )
@@ -2715,7 +2735,7 @@ function M.admissionEmitsOnlyWhatProofLeaves()
 
     local function lua(source)
         local parsed = parser.parse(source, "admit.nupp")
-        testAssert.equal(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
+        testAssert.eq(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
         env.loaded = {}
         check.check(parsed, "admit.nupp", env)
 
@@ -2749,11 +2769,11 @@ function M.aConstraintBuiltAtComptimeIsTheOneWrittenInAType()
     clean(built .. "local function pass(v: Made): Written\n    return v\nend\nprint(pass(1))")
     clean(built .. "local function pass(v: Written): Made\n    return v\nend\nprint(pass(1))")
     clean(built .. "local ok: Made = 7\nprint(ok)")
-    testAssert.equal(codes(built .. "local no: Made = 32\nprint(no)"), "NUPP2001")
+    testAssert.eq(codes(built .. "local no: Made = 32\nprint(no)"), "NUPP2001")
     -- and a wider interval still takes a narrower one
     local percent = built .. "local type Percent = Range<integer, 0, 100>\n"
     clean(percent .. "local function widen(v: Made): Percent\n    return v\nend\nprint(widen(1))")
-    testAssert.equal(
+    testAssert.eq(
         codes(percent .. "local function narrow(v: Percent): Made\n    return v\nend\nprint(narrow(1))"),
         "NUPP2002"
     )
@@ -2772,8 +2792,8 @@ function M.computedConstraintsKeepExactIntegerBounds()
         )
     end
 
-    testAssert.equal(codes(generated("range", "integer")), "NUPP2415")
-    testAssert.equal(codes(generated("length", "string")), "NUPP2415")
+    testAssert.eq(codes(generated("range", "integer")), "NUPP2415")
+    testAssert.eq(codes(generated("length", "string")), "NUPP2415")
 end
 
 -- `pairs` takes a read-only indexer, and an array and a record shape both satisfy
@@ -2808,7 +2828,7 @@ function M.pairsBindsItsKeyAndValueOverAnArrayOrAShape()
         ) .. "\n"
     )
     -- the binding is the argument's own element type, not a widening to `any`
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -2833,9 +2853,9 @@ function M.aCallMaySupplyItsTypeArgumentsInWriting()
     clean(pick .. "local a: integer? = pick<integer>()\nprint(a)")
     clean(pick .. "local b: string? = pick<string>()\nprint(b)")
     -- the written argument is what the result is, not whatever the destination says
-    testAssert.equal(codes(pick .. "local c: string? = pick<integer>()\nprint(c)"), "NUPP2001")
+    testAssert.eq(codes(pick .. "local c: string? = pick<integer>()\nprint(c)"), "NUPP2001")
     -- more arguments than the callee declares is refused
-    testAssert.equal(codes(pick .. "local d = pick<integer, string>()\nprint(d)"), "NUPP2007")
+    testAssert.eq(codes(pick .. "local d = pick<integer, string>()\nprint(d)"), "NUPP2007")
     -- a comparison pair still reads as one wherever the list does not close into a call
     clean("local x, y, z = 1, 2, 3\nlocal cmp = x < y or x > (z)\nprint(cmp)")
     clean("local x, y = 1, 2\nlocal cmp = (x < y) == (y > x)\nprint(cmp)")
@@ -2857,14 +2877,14 @@ function M.aMethodCallMaySupplyItsTypeArgumentsInWriting()
         "\n"
     ) .. "\n"
     clean(holder .. "local a: integer? = h:pick<integer>()\nprint(a)")
-    testAssert.equal(codes(holder .. "local b: string? = h:pick<integer>()\nprint(b)"), "NUPP2001")
+    testAssert.eq(codes(holder .. "local b: string? = h:pick<integer>()\nprint(b)"), "NUPP2001")
 end
 
 -- `as` is erased, so it may say a value is one of these but cannot make it one. A
 -- constraint is exactly the claim that has to be established.
 function M.anErasedCastCannotManufactureAConstraint()
     local alias = "local type Small = types.range(integer, 0, 10)\n"
-    testAssert.equal(
+    testAssert.eq(
         codes(alias .. "local function of(v: integer): Small\n    return v as Small\nend\nprint(of(1))"),
         "NUPP2013"
     )
@@ -2895,20 +2915,17 @@ function M.admissionCarriesExactlyTheEffectsItLeft()
     end
 
     clean(body("@noraise", "7"))
-    testAssert.equal(codes(body("@noraise", "v")), "NUPP2711")
+    testAssert.eq(codes(body("@noraise", "v")), "NUPP2711")
     clean(body("@noalloc", "v"))
 
     -- a field, an element and a constructor are admission positions too
     local box = alias .. "local record Box\n    n: Small\nend\n"
-    testAssert.equal(
-        codes(box .. "local function put(b: Box, v: integer): nil\n    b.n = v\nend\nprint(put)"),
-        "NUPP2001"
-    )
-    testAssert.equal(
+    testAssert.eq(codes(box .. "local function put(b: Box, v: integer): nil\n    b.n = v\nend\nprint(put)"), "NUPP2001")
+    testAssert.eq(
         codes(box .. "local function make(v: integer): Box\n    return new Box(n = v)\nend\nprint(make)"),
         "NUPP2202"
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(alias .. "local function list(v: integer): {Small}\n    return {v}\nend\nprint(list)"),
         "NUPP2002"
     )
@@ -2993,14 +3010,14 @@ function M.sharedGenericSignatureSubstitutionUsesOneRefreshWalk()
         assert(ok, tostring(result))
         local parameters = result.tag == "pack" and result.head or result.params
         for position = 1, count do
-            testAssert.equal(parameters[position].byname.value, types.integer)
-            testAssert.equal(parameters[position].byname.next, parameters[position % count + 1])
+            testAssert.eq(parameters[position].byname.value, types.integer)
+            testAssert.eq(parameters[position].byname.next, parameters[position % count + 1])
             if result.tag ~= "pack" then
-                testAssert.equal(parameters[position], result.rets[position])
+                testAssert.eq(parameters[position], result.rets[position])
             end
         end
         declarations[1].byname.late = types.literal(index, types.number)
-        testAssert.equal(
+        testAssert.eq(
             generics.rebind(signature, bindings).params[1].byname.late,
             declarations[1].byname.late,
             "later declaration changes remain visible"
@@ -3039,7 +3056,7 @@ function M.failedSubstitutionsRestoreEnclosingRefreshScope()
             local ok, problem = pcall(generics.rebind, inner, bindings)
             assert(not ok and tostring(problem):find("substitution failure", 1, true))
             nested.byname.late = types.string
-            testAssert.equal(generics.rebind(open[nested], bindings).byname.late, types.string)
+            testAssert.eq(generics.rebind(open[nested], bindings).byname.late, types.string)
         end
 
         return instantiate(declaration, map)
@@ -3047,9 +3064,9 @@ function M.failedSubstitutionsRestoreEnclosingRefreshScope()
     local ok, problem = pcall(generics.rebind, outer, bindings)
     generics.instantiate, types.funcWith = instantiate, funcWith
     assert(not ok and tostring(problem):find("substitution failure", 1, true))
-    testAssert.equal(outerRefreshes, 1, "failed nested substitution preserves enclosing visits")
+    testAssert.eq(outerRefreshes, 1, "failed nested substitution preserves enclosing visits")
     first.byname.afterFailure = types.boolean
-    testAssert.equal(generics.rebind(open[first], bindings).byname.afterFailure, types.boolean)
+    testAssert.eq(generics.rebind(open[first], bindings).byname.afterFailure, types.boolean)
 end
 
 function M.completedGenericRefreshValidatesSourceTargetAndAllBindings()
@@ -3070,25 +3087,25 @@ function M.completedGenericRefreshValidatesSourceTargetAndAllBindings()
     end
     local ok, problem = pcall(function()
         local instance = generics.instantiate(declaration, bindings)
-        testAssert.equal(visits, 1)
-        testAssert.equal(generics.instantiate(declaration, bindings), instance)
-        testAssert.equal(visits, 1, "unchanged completed applications reuse their fill")
+        testAssert.eq(visits, 1)
+        testAssert.eq(generics.instantiate(declaration, bindings), instance)
+        testAssert.eq(visits, 1, "unchanged completed applications reuse their fill")
 
         local function changed(mutate)
             local before = visits
             mutate(instance)
-            testAssert.equal(generics.instantiate(declaration, bindings), instance)
-            testAssert.equal(visits, before + 1, "a changed snapshot must refill")
+            testAssert.eq(generics.instantiate(declaration, bindings), instance)
+            testAssert.eq(visits, before + 1, "a changed snapshot must refill")
         end
 
         changed(function()
             declaration.byname.added = parameter
         end)
-        testAssert.equal(instance.byname.added, types.string)
+        testAssert.eq(instance.byname.added, types.string)
         changed(function()
             declaration.byname.added = types.boolean
         end)
-        testAssert.equal(instance.byname.added, types.boolean)
+        testAssert.eq(instance.byname.added, types.boolean)
         changed(function()
             declaration.byname.removable = nil
         end)
@@ -3098,15 +3115,15 @@ function M.completedGenericRefreshValidatesSourceTargetAndAllBindings()
         changed(function(value)
             value.byname = {}
         end)
-        testAssert.equal(instance.byname.method.rets[1], types.number)
+        testAssert.eq(instance.byname.method.rets[1], types.number)
         changed(function(value)
             value.byname.method = types.any
         end)
-        testAssert.equal(instance.byname.method.rets[1], types.number)
+        testAssert.eq(instance.byname.method.rets[1], types.number)
         changed(function()
             bindings[free] = types.boolean
         end)
-        testAssert.equal(instance.byname.method.rets[1], types.boolean)
+        testAssert.eq(instance.byname.method.rets[1], types.boolean)
         local unrelated = {}
         changed(function()
             bindings[unrelated] = types.string
@@ -3118,19 +3135,19 @@ function M.completedGenericRefreshValidatesSourceTargetAndAllBindings()
             changed(function()
                 declaration[name].added = parameter
             end)
-            testAssert.equal(instance[name].added, types.string)
+            testAssert.eq(instance[name].added, types.string)
             changed(function(value)
                 value[name].added = types.number
             end)
-            testAssert.equal(instance[name].added, types.string)
+            testAssert.eq(instance[name].added, types.string)
             changed(function()
                 declaration[name] = {added = types.boolean}
             end)
-            testAssert.equal(instance[name].added, types.boolean)
+            testAssert.eq(instance[name].added, types.boolean)
             changed(function(value)
                 value[name] = {}
             end)
-            testAssert.equal(instance[name].added, types.boolean)
+            testAssert.eq(instance[name].added, types.boolean)
         end
     end)
     types.funcWith = original
@@ -3152,22 +3169,22 @@ function M.completedGenericRefreshValidatesTransitiveAndSupertypeDependencies()
     local instance = generics.instantiate(outer, bindings)
     local concreteMiddle = instance.byname.middle
     local concreteLeaf = concreteMiddle.supertypes[1]
-    testAssert.equal(concreteLeaf.byname.value, types.string)
+    testAssert.eq(concreteLeaf.byname.value, types.string)
     leaf.byname.late = types.number
-    testAssert.equal(generics.instantiate(outer, bindings), instance)
-    testAssert.equal(concreteLeaf.byname.late, types.number)
+    testAssert.eq(generics.instantiate(outer, bindings), instance)
+    testAssert.eq(concreteLeaf.byname.late, types.number)
     middle.supertypes = {}
     generics.instantiate(outer, bindings)
-    testAssert.equal(#concreteMiddle.supertypes, 0)
+    testAssert.eq(#concreteMiddle.supertypes, 0)
     middle.supertypes[1] = generics.reserveInstantiation(leaf, {[parameter] = parameter})
     generics.instantiate(outer, bindings)
-    testAssert.equal(concreteMiddle.supertypes[1], concreteLeaf)
+    testAssert.eq(concreteMiddle.supertypes[1], concreteLeaf)
     concreteMiddle.supertypes[1] = types.any
     generics.instantiate(outer, bindings)
-    testAssert.equal(concreteMiddle.supertypes[1], concreteLeaf)
+    testAssert.eq(concreteMiddle.supertypes[1], concreteLeaf)
     concreteMiddle.supertypes = {}
     generics.instantiate(outer, bindings)
-    testAssert.equal(concreteMiddle.supertypes[1], concreteLeaf)
+    testAssert.eq(concreteMiddle.supertypes[1], concreteLeaf)
 end
 
 function M.aMidFillFailureRestoresTheEnclosingDependencyCollector()
@@ -3200,20 +3217,20 @@ function M.aMidFillFailureRestoresTheEnclosingDependencyCollector()
     local ok, instance = pcall(generics.instantiate, parent, bindings)
     types.funcWith = original
     assert(ok, instance)
-    testAssert.equal(attempts, 1)
-    testAssert.equal(instance.byname.zChild.byname.value, types.string)
+    testAssert.eq(attempts, 1)
+    testAssert.eq(instance.byname.zChild.byname.value, types.string)
     child.byname.late = types.boolean
-    testAssert.equal(generics.instantiate(parent, bindings), instance)
-    testAssert.equal(
+    testAssert.eq(generics.instantiate(parent, bindings), instance)
+    testAssert.eq(
         instance.byname.zChild.byname.late,
         types.boolean,
         "a failed nested fill must not steal the successful parent's later dependencies"
     )
-    testAssert.equal(generics.instantiate(bad, bindings).byname.broken.params[1], types.string)
+    testAssert.eq(generics.instantiate(bad, bindings).byname.broken.params[1], types.string)
 end
 
 function M.lowercaseFormatargumentsEvaluatesTheExistingCheckedBody()
-    for _, member in ipairs({"formatArguments", "formatarguments"}) do
+    for _, member in ipairs({"formatarguments"}) do
         local source = [[
 local function format<F is string>(fmt: F, ...: unpackof types.MEMBER(F)): string
     return string.format(fmt, ...)
@@ -3223,9 +3240,13 @@ print(value)
 ]]
         source = source:gsub("MEMBER", member)
         clean(source)
+        assert(
+            codes(source:gsub("types.formatarguments", "types.formatArguments")) ~= "",
+            "the retired public name must be refused"
+        )
         oneDiagnostic(source:gsub('"count", 3', '"count", "wrong"'), "NUPP2006", "argument 3: string is not a number")
     end
-    testAssert.equal(
+    testAssert.eq(
         codes(
             [[
 local types = {formatarguments = function(value: string): string return value end}

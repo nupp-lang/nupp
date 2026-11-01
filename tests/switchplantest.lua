@@ -44,9 +44,9 @@ end
 
 local function plan(source, coverage)
     local result = parser.parse(source, "switch-plan-test.nupp")
-    testAssert.equal(#result.errors, 0, "planner source parses")
+    testAssert.eq(#result.errors, 0, "planner source parses")
     local diagnostics = check.check(result, "switch-plan-test.nupp", env)
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "planner source checks")
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "planner source checks")
     local node = assert(findSwitch(result.root), "switch node")
 
     return switchplan.regular(node, coverage), node
@@ -71,21 +71,21 @@ local function strings(count)
 end
 
 function M.denseIntegerThresholdIsExplicit()
-    testAssert.equal(plan(sourceFor(integers(1, 3), "number")).tag, "OrderedBranches", "below dense threshold")
-    testAssert.equal(plan(sourceFor(integers(1, 4), "number")).tag, "DenseIntegerMap", "at dense threshold")
+    testAssert.eq(plan(sourceFor(integers(1, 3), "number")).tag, "OrderedBranches", "below dense threshold")
+    testAssert.eq(plan(sourceFor(integers(1, 4), "number")).tag, "DenseIntegerMap", "at dense threshold")
 end
 
 function M.stringAndSparseFloorsAreExplicit()
-    testAssert.equal(plan(sourceFor(strings(7), "string")).tag, "OrderedBranches", "below string floor")
-    testAssert.equal(plan(sourceFor(strings(8), "string")).tag, "StringMap", "at string floor")
-    testAssert.equal(plan(sourceFor(integers(1, 15, 100), "number")).tag, "OrderedBranches", "below sparse floor")
-    testAssert.equal(plan(sourceFor(integers(1, 16, 100), "number")).tag, "SparseIntegerMap", "at sparse floor")
+    testAssert.eq(plan(sourceFor(strings(7), "string")).tag, "OrderedBranches", "below string floor")
+    testAssert.eq(plan(sourceFor(strings(8), "string")).tag, "StringMap", "at string floor")
+    testAssert.eq(plan(sourceFor(integers(1, 15, 100), "number")).tag, "OrderedBranches", "below sparse floor")
+    testAssert.eq(plan(sourceFor(integers(1, 16, 100), "number")).tag, "SparseIntegerMap", "at sparse floor")
 end
 
 function M.coverageAlwaysKeepsOrderedConditions()
     local selected = plan(sourceFor(integers(1, 64), "number"), true)
-    testAssert.equal(selected.tag, "OrderedBranches")
-    testAssert.equal(selected.reason, "coverage needs one condition for every case")
+    testAssert.eq(selected.tag, "OrderedBranches")
+    testAssert.eq(selected.reason, "coverage needs one condition for every case")
 end
 
 function M.dynamicResultsAreNotMapped()
@@ -105,8 +105,8 @@ function M.dynamicResultsAreNotMapped()
             "\n"
         )
     )
-    testAssert.equal(selected.tag, "OrderedBranches")
-    testAssert.equal(selected.reason, "an arm result is not one inert scalar")
+    testAssert.eq(selected.tag, "OrderedBranches")
+    testAssert.eq(selected.reason, "an arm result is not one inert scalar")
 end
 
 function M.guardedCasesAreNotMapped()
@@ -128,8 +128,8 @@ function M.guardedCasesAreNotMapped()
             "\n"
         )
     )
-    testAssert.equal(selected.tag, "OrderedBranches")
-    testAssert.equal(selected.reason, "a guarded case needs lexical branches")
+    testAssert.eq(selected.tag, "OrderedBranches")
+    testAssert.eq(selected.reason, "a guarded case needs lexical branches")
 end
 
 function M.dynamicFallbacksAreNotMapped()
@@ -138,8 +138,8 @@ function M.dynamicFallbacksAreNotMapped()
             return string.format("%q", "v" .. index)
         end):gsub("else %-> 0", "else -> tostring(#selector)"))
     )
-    testAssert.equal(selected.tag, "OrderedBranches")
-    testAssert.equal(selected.reason, "the fallback is not one inert scalar")
+    testAssert.eq(selected.tag, "OrderedBranches")
+    testAssert.eq(selected.reason, "the fallback is not one inert scalar")
 end
 
 function M.nilResultsAreRecordedForConditionalSentinels()
@@ -148,14 +148,14 @@ function M.nilResultsAreRecordedForConditionalSentinels()
             return index == 3 and "nil" or string.format("%q", "v" .. index)
         end)
     )
-    testAssert.equal(selected.tag, "StringMap")
-    testAssert.equal(selected.facts.nilResult, true)
+    testAssert.eq(selected.tag, "StringMap")
+    testAssert.eq(selected.facts.nilResult, true)
 end
 
 function M.nativePlanRequiresAnEstablishedWidth()
-    testAssert.equal(switchplan.native("f64").tag, "OrderedBranches")
-    testAssert.equal(switchplan.native("i32").tag, "NativeIntegerSwitch")
-    testAssert.equal(switchplan.native("u32").tag, "NativeIntegerSwitch")
+    testAssert.eq(switchplan.native("f64").tag, "OrderedBranches")
+    testAssert.eq(switchplan.native("i32").tag, "NativeIntegerSwitch")
+    testAssert.eq(switchplan.native("u32").tag, "NativeIntegerSwitch")
 end
 
 return M

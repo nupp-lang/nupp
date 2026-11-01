@@ -9,7 +9,7 @@ local env = envMod.new(HERE .. "/..")
 local function codes(source)
     env.loaded = {}
     local parsed = parser.parse(source, "test.nupp")
-    testAssert.equal(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
+    testAssert.eq(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
     local out = {}
     for j, diagnostic in ipairs(check.check(parsed, "test.nupp", env)) do
         out[j] = diagnostic.code
@@ -19,7 +19,7 @@ local function codes(source)
 end
 
 local function clean(source)
-    testAssert.equal(codes(source), "", "expected clean check for:\n" .. source)
+    testAssert.eq(codes(source), "", "expected clean check for:\n" .. source)
 end
 
 local M = {}
@@ -37,7 +37,7 @@ local co: thread<(number), (boolean), (number, string), (string)> = coroutine.cr
 local ok, value, label = coroutine.resume(co, 1)
 ]]
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             [[
 local type Producer = function() yields(string) resumes(boolean): string
@@ -65,9 +65,9 @@ function M.functionProtocolRenderingUsesTheFinalGrammar()
     }
     local value = types.func(unpack(arguments, 1, 18))
     local rendered = types.tostring(value)
-    testAssert.equal(rendered, "function(number) yields (number, string) resumes (boolean): string")
+    testAssert.eq(rendered, "function(number) yields (number, string) resumes (boolean): string")
     local parsed = parser.parse("local type Producer = " .. rendered)
-    testAssert.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
+    testAssert.eq(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
 end
 
 function M.genericForChecksIteratorInputsAndNextControl()
@@ -89,7 +89,7 @@ function M.genericForChecksIteratorInputsAndNextControl()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -110,7 +110,7 @@ end
 -- promises only an optional of the element: `function(): ...string` does not
 -- fit `function(): string`.
 function M.aHomogeneousTailSlotReadsAsOptional()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -215,7 +215,7 @@ function M.nominalsAcceptAndForwardResultPacks()
 end
 
 function M.nominalPackArgumentsParticipateInCompatibility()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -250,8 +250,8 @@ function M.nominalsAcceptOpenPackArguments()
 end
 
 function M.packBinderPlacementAndPackPositionsAreChecked()
-    testAssert.equal(codes("local function bad<A..., T>(x: T) end"), "NUPP2121")
-    testAssert.equal(codes("local value: (number, string)"), "NUPP2121")
+    testAssert.eq(codes("local function bad<A..., T>(x: T) end"), "NUPP2121")
+    testAssert.eq(codes("local value: (number, string)"), "NUPP2121")
 end
 
 function M.luaOnlyExpandsTheFinalUnparenthesizedExpression()
@@ -275,7 +275,7 @@ function M.luaOnlyExpandsTheFinalUnparenthesizedExpression()
 end
 
 function M.missingExpandedResultsAreNilRatherThanAny()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -294,7 +294,7 @@ function M.missingExpandedResultsAreNilRatherThanAny()
 end
 
 function M.finalTableItemsExpandTheirResultPack()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -357,7 +357,7 @@ end
 -- that, `('%s'):format(x)` found no method and answered `any`, which is what let the
 -- leaked pack through in the first place.
 function M.aStringLiteralReachesTheStringLibrary()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat({"local function want(n: number): nil end", "want(('%s'):format(1))", "return want",}, "\n")
         ),
@@ -376,7 +376,7 @@ function M.aStringLiteralReachesTheStringLibrary()
 end
 
 function M.expandedSurplusArgumentsKeepTheArityDiagnostic()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -439,7 +439,7 @@ function M.declaredPackUnionsKeepCorrelatedResultArms()
 end
 
 function M.declaredPackUnionsCheckTheBodyAgainstEveryArm()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -483,7 +483,7 @@ function M.genericWrappersPreserveTheirCallbacksResultArms()
     end
 
     clean(inArm("   local n: number = value", "   local s: string = text"))
-    testAssert.equal(codes(inArm("   local s: string = value")), "NUPP2001")
+    testAssert.eq(codes(inArm("   local s: string = value")), "NUPP2001")
 end
 
 function M.selectTransformsPacksWithoutAny()
@@ -499,7 +499,7 @@ function M.selectTransformsPacksWithoutAny()
             "\n"
         )
     )
-    testAssert.equal(codes("local value = select(0, 1, 2)"), "NUPP2010")
+    testAssert.eq(codes("local value = select(0, 1, 2)"), "NUPP2010")
 end
 
 function M.unpackPreservesTupleAndArrayElementTypes()
@@ -573,7 +573,7 @@ function M.coroutineStartAndResumePacksFollowTheLocalHandlePhase()
         },
         "\n"
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             declaration .. "\n" .. table.concat(
                 {"local co = coroutine.create(worker)", "coroutine.resume(co, true)",},
@@ -592,7 +592,7 @@ function M.coroutineStartAndResumePacksFollowTheLocalHandlePhase()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             declaration .. "\n" .. table.concat(
                 {"local co = coroutine.create(worker)", "coroutine.resume(co, 1)", "coroutine.resume(co, 2)",},
@@ -624,14 +624,14 @@ function M.coroutineWrapCarriesTheSameStatefulProtocol()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(declaration .. "\n" .. table.concat({"local wrapped = coroutine.wrap(worker)", "wrapped(true)",}, "\n")),
         "NUPP2006"
     )
 end
 
 function M.coroutineStatusNarrowsADeadHandle()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -668,8 +668,8 @@ function M.affinePackResultsCannotBeSilentlyDiscarded()
         },
         "\n"
     )
-    testAssert.equal(codes(declaration .. "\nlocal first = make()"), "NUPP2605")
-    testAssert.equal(codes(declaration .. "\nmake()"), "NUPP2605")
+    testAssert.eq(codes(declaration .. "\nlocal first = make()"), "NUPP2605")
+    testAssert.eq(codes(declaration .. "\nmake()"), "NUPP2605")
 end
 
 function M.protectedCallOwnersAutoDestroyOnlyInTheSuccessArm()
@@ -718,7 +718,7 @@ function M.genericPackForwardingKeepsBorrowProvenance()
         },
         "\n"
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             declaration .. "\n" .. table.concat(
                 {
@@ -748,11 +748,11 @@ function M.genericPackForwardingKeepsBorrowProvenance()
 end
 
 function M.potentiallyAffineGenericPacksMustTransferExactlyOnce()
-    testAssert.equal(
+    testAssert.eq(
         codes(table.concat({"local function drop<A...>(...: A...): nil end", "return drop",}, "\n")),
         "NUPP2605"
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -803,12 +803,12 @@ function M.typedVarargOwnershipChecksEveryOriginalArgument()
         )
     )
 
-    testAssert.equal(
+    testAssert.eq(
         codes("local function invalid(borrows ...): nil end"),
         "NUPP2602",
         "an ownership-qualified tail must be typed"
     )
-    testAssert.equal(
+    testAssert.eq(
         codes("local function invalid(takes ...: string): nil end"),
         "NUPP2602",
         "an unnamed tail cannot silently consume owners"
@@ -825,7 +825,7 @@ function M.typedVarargModesParticipateInFunctionCompatibility()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             table.concat(
                 {
@@ -861,7 +861,7 @@ coroutine.resume(co)
 coroutine.resume(co, true)
 ]]
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(declaration .. [[
 local co = coroutine.create(outer)
 coroutine.resume(co)
@@ -869,7 +869,7 @@ coroutine.resume(co, 1)
 ]]),
         "NUPP2010"
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(declaration .. [[
 local function wrong() yields(string) resumes(boolean): nil
     outer()
@@ -877,7 +877,7 @@ end
 ]]),
         "NUPP2010"
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(declaration .. [[
 local function wrong() yields(number) resumes(string): nil
     outer()
@@ -903,8 +903,8 @@ local co = coroutine.create(both)
 coroutine.resume(co)
 ]]
     clean(declaration .. "coroutine.resume(co, true)")
-    testAssert.equal(codes(declaration .. "coroutine.resume(co, 'x')"), "NUPP2010")
-    testAssert.equal(codes(declaration .. "coroutine.resume(co, 1)"), "NUPP2010")
+    testAssert.eq(codes(declaration .. "coroutine.resume(co, 'x')"), "NUPP2010")
+    testAssert.eq(codes(declaration .. "coroutine.resume(co, 1)"), "NUPP2010")
 end
 
 function M.coroutineProtocolsFollowGenericAndCallbackCalls()
@@ -943,7 +943,7 @@ end
 end
 
 function M.forwardedYieldPacksKeepArityAndCorrelation()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             [[
 local function leaf() yields(number, string) resumes(boolean): nil
@@ -992,7 +992,7 @@ local co: thread<(), (boolean), (number), (nil)> = coroutine.create(worker)
 end
 
 function M.yieldAliasesCheckAndForwardTheirValuePacks()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             [[
 local pause = coroutine.yield
@@ -1019,7 +1019,7 @@ local co: thread<(), (boolean), (number), (nil)> = coroutine.create(worker)
 end
 
 function M.inferredResumePacksCannotDropIndependentGenericRequirements()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             [[
 local function forward<A..., B...>(left: function() yields(number) resumes(A...): nil, right: function() yields(number) resumes(B...): nil): nil
@@ -1041,7 +1041,7 @@ end
 end
 
 function M.unsafeYieldAliasesKeepTheirValueProtocol()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             [[
 local pause = coroutine.yield

@@ -27,11 +27,11 @@ local simd = require("simd")
 
 local function compile(src)
     local result = parser.parse(src, "fixed.nupp")
-    testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "syntax errors")
+    testAssert.eq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "syntax errors")
     local diagnostics = check.check(result, "fixed.nupp", env)
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "diagnostics")
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "diagnostics")
     local code, diags = gen.generate(result, "fixed")
-    testAssert.equal(#diags, 0, "gen diagnostics")
+    testAssert.eq(#diags, 0, "gen diagnostics")
     local chunk, err = loadstring(code, "@fixed.nupp")
     if not chunk then
         error("generated code does not load: " .. tostring(err) .. "\n---\n" .. code, 2)
@@ -78,17 +78,17 @@ end
 ]]
     )
     local lanes, chunks, lastActive, total, last = run(10)
-    testAssert.equal(lanes, 4, "a fixed species is its lanes as Lua")
-    testAssert.equal(chunks, 3, "ten elements are three chunks of four")
-    testAssert.equal(lastActive, 2, "the last chunk's mask is the tail")
-    testAssert.equal(total, 27.5, "every element is scaled once")
-    testAssert.equal(last, 5, "the last element is scaled under the tail mask")
+    testAssert.eq(lanes, 4, "a fixed species is its lanes as Lua")
+    testAssert.eq(chunks, 3, "ten elements are three chunks of four")
+    testAssert.eq(lastActive, 2, "the last chunk's mask is the tail")
+    testAssert.eq(total, 27.5, "every element is scaled once")
+    testAssert.eq(last, 5, "the last element is scaled under the tail mask")
     lanes, chunks, lastActive, total, last = run(8)
-    testAssert.equal(chunks, 2, "a span of whole chunks has no partial tail")
-    testAssert.equal(lastActive, 4)
-    testAssert.equal(total, 18)
+    testAssert.eq(chunks, 2, "a span of whole chunks has no partial tail")
+    testAssert.eq(lastActive, 4)
+    testAssert.eq(total, 18)
     lanes, chunks = run(0)
-    testAssert.equal(chunks, 0, "an empty span is visited by no chunk")
+    testAssert.eq(chunks, 0, "an empty span is visited by no chunk")
 end
 
 function M.laneOperatorsRunLaneByLaneAndScalarsStandForEveryLane()
@@ -132,7 +132,7 @@ return function(): {number}
 end
 ]]
     )
-    testAssert.deepequal(run(), {
+    testAssert.deepeq(run(), {
         244, -- 250 + 250 wraps in a byte lane
         2, -- lanes one and two hit
         1,
@@ -205,7 +205,7 @@ end
 return probe
 ]]
     )
-    testAssert.deepequal(run(), {
+    testAssert.deepeq(run(), {
         4, -- reverse
         9,
         1, -- insert leaves the other lanes
@@ -303,7 +303,7 @@ end
 ]]
     )
     local squares = 25 + 9 + 81 + 1 + 49 + 4 + 64 + 36 + 16 + 100
-    testAssert.deepequal(run(), {
+    testAssert.deepeq(run(), {
         55,
         55,
         5, -- 9, 7, 8, 6 and 10 exceed five; the inactive tail lanes do not count
@@ -349,7 +349,7 @@ end
 return fold
 ]]
     )
-    testAssert.deepequal(run(), {
+    testAssert.deepeq(run(), {
         12,
         12,
         12,
@@ -395,7 +395,7 @@ end
 return tile
 ]]
     )
-    testAssert.deepequal(run(), {11, 41, 32, 14, 44, 13 + 23 + 33 + 43})
+    testAssert.deepeq(run(), {11, 41, 32, 14, 44, 13 + 23 + 33 + 43})
 end
 
 function M.memoryMethodsMoveWholeChunks()
@@ -468,7 +468,7 @@ end
 ]]
     )
     local answers, written = run()
-    testAssert.deepequal(answers, {
+    testAssert.deepeq(answers, {
         7, -- loadPairs deals 1 3 5 7 | 2 4 6 8
         2,
         12, -- loadTriples deals 1 4 7 10 | 2 5 8 11 | 3 6 9 12
@@ -487,7 +487,7 @@ end
         4, -- load under tail(2) from offset three reads 3 4 and zeroes
         0,
     })
-    testAssert.deepequal(written, {
+    testAssert.deepeq(written, {
         2,
         1,
         4,
@@ -542,7 +542,7 @@ end
 ]]
     )
     local answers, measured = run()
-    testAssert.deepequal(answers, {
+    testAssert.deepeq(answers, {
         2, -- a field built from a splat
         9, -- 7 8 9 in the three-lane field
         40, -- written twice: an iota, then that field times ten
@@ -550,7 +550,7 @@ end
         100,
         12, -- two stored fields read into vectors and added
     })
-    testAssert.deepequal(measured, {
+    testAssert.deepeq(measured, {
         48,
         16, -- the struct
         0,
@@ -605,7 +605,7 @@ local function buildAndRun(dir, entries, policy)
             "cd %q && rm -rf build && %q build --target native > %q 2>&1"
         ):format(dir, os.getenv("NUPP_TEST_BIN") or HERE .. "/../bin/nupp", logPath)
     )
-    testAssert.equal(status, 0, policy .. " build at " .. dir .. ": " .. read(logPath))
+    testAssert.eq(status, 0, policy .. " build at " .. dir .. ": " .. read(logPath))
     local pipe = assert(io.popen(("cd %q && luajit check.lua %s 2>&1"):format(dir, policy)))
     local result = pipe:read("*a")
     pipe:close()
@@ -665,7 +665,7 @@ function M.aFixedSpeciesKernelAnswersTheSameAsLuaAndNatively()
     local expected = "4 3 4.5 8 4.5 10 16.5 | 46"
     for _, policy in ipairs({"off", "require"}) do
         local result, log = buildAndRun(dir, '"fixed"', policy)
-        testAssert.equal(result, expected, policy .. " at " .. dir .. "\n" .. log)
+        testAssert.eq(result, expected, policy .. " at " .. dir .. "\n" .. log)
     end
 end
 

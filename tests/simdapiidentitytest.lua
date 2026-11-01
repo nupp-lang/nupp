@@ -31,26 +31,26 @@ function M.finalModuleKeepsVectorStorageAndNativeBoundaries()
     for _, module in ipairs({"nupp.simd", "simd"}) do
         local value = fixedVector(module)
         local element, lanes = targetLayout.storageVector(value)
-        test.equal(element, "float")
-        test.equal(lanes, 4)
-        test.equal(nativeonly.carriesNativeOnly(value), true)
-        test.equal(nativeonly.fieldMakesNativeOnly(value), false)
+        test.eq(element, "float")
+        test.eq(lanes, 4)
+        test.eq(nativeonly.carriesNativeOnly(value), true)
+        test.eq(nativeonly.fieldMakesNativeOnly(value), false)
         value.typeArgs[2].origin.name = "Preferred"
-        test.equal(nativeonly.fieldMakesNativeOnly(value), true)
+        test.eq(nativeonly.fieldMakesNativeOnly(value), true)
     end
-    test.equal(nativeonly.carriesNativeOnly(fixedVector("user.simd")), false)
+    test.eq(nativeonly.carriesNativeOnly(fixedVector("user.simd")), false)
 end
 
 function M.callAliasesKeepSemanticIdentityAndShadowing()
     for _, module in ipairs({"nupp.simd", "simd"}) do
-        test.equal(
+        test.eq(
             lower.callIdentity({
                 kind = "name",
                 exactCallExport = {identity = module .. ".species"}
             }),
             "simd.species"
         )
-        test.equal(
+        test.eq(
             lower.callIdentity({
                 kind = "name",
                 token = {definition = {exactCallExport = {identity = module .. ".reducer.wrappingSum"}}},
@@ -58,7 +58,7 @@ function M.callAliasesKeepSemanticIdentityAndShadowing()
             "simd.reducer.wrappingSum"
         )
     end
-    test.equal(
+    test.eq(
         lower.callIdentity({
             kind = "dotIndex",
             obj = {kind = "name", token = {text = "simd", definition = {}}},
@@ -96,16 +96,16 @@ function M.finalAndLegacyImportsProduceTheSameVerifiedIR()
     for _, module in ipairs({"nupp.simd", "simd"}) do
         local source = SCALE:format(module)
         local parsed = parser.parse(source, "simd-identity.nupp")
-        test.equal(#parsed.errors, 0)
+        test.eq(#parsed.errors, 0)
         local diagnostics = checker.check(parsed, "simd-identity.nupp", env)
-        test.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+        test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
         local programs, problems = compile.lower(source, "simd-identity.nupp", parsed)
-        test.equal(#problems, 0, problems[1] and problems[1].message)
-        test.equal(#programs, 1)
+        test.eq(#problems, 0, problems[1] and problems[1].message)
+        test.eq(#programs, 1)
         local after = text.programs(programs)
         assert(after:find("simd", 1, true), after)
         if before then
-            test.equal(after, before)
+            test.eq(after, before)
         end
         before = after
     end
@@ -132,12 +132,12 @@ function M.finalAndLegacyGpuImportsProduceTheSameVerifiedWorkgroupIR()
     local before
     for _, module in ipairs({"nupp.gpu", "gpu"}) do
         local programs, problems = compile.lower(WORKGROUP:format(module), "gpu-identity.nupp")
-        test.equal(#problems, 0, problems[1] and problems[1].message)
-        test.equal(#programs, 1)
-        test.equal(programs[1].executionTarget, "gpu")
+        test.eq(#problems, 0, problems[1] and problems[1].message)
+        test.eq(#programs, 1)
+        test.eq(programs[1].executionTarget, "gpu")
         local after = text.programs(programs)
         if before then
-            test.equal(after, before)
+            test.eq(after, before)
         end
         before = after
     end
@@ -149,13 +149,13 @@ local imported = require("simd")
 return simd.species == imported.species
 ]]
     local parsed = parser.parse(source, "simd-root.nupp")
-    test.equal(#parsed.errors, 0)
+    test.eq(#parsed.errors, 0)
     local env = envMod.new(HERE .. "/..")
     local diagnostics = checker.check(parsed, "simd-root.nupp", env)
-    test.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     local code, problems = generator.generate(parsed, "simd-root.nupp")
-    test.equal(#problems, 0, problems[1] and problems[1].msg)
-    test.equal(assert(loadstring(code, "@simd-root.nupp"))(), true)
+    test.eq(#problems, 0, problems[1] and problems[1].msg)
+    test.eq(assert(loadstring(code, "@simd-root.nupp"))(), true)
 end
 
 function M.computeLibraryNamesRespectLocalShadowing()
@@ -166,22 +166,22 @@ local events = {id = function(value: number): number return value + 2 end}
 return simd.species(1) + events.id(2), gpu.available()
 ]]
     local parsed = parser.parse(source, "compute-shadow.nupp")
-    test.equal(#parsed.errors, 0)
+    test.eq(#parsed.errors, 0)
     local diagnostics = checker.check(parsed, "compute-shadow.nupp", envMod.new(HERE .. "/.."))
-    test.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     local code, problems = generator.generate(parsed, "compute-shadow.nupp")
-    test.equal(#problems, 0, problems[1] and problems[1].msg)
+    test.eq(#problems, 0, problems[1] and problems[1].msg)
     local value, available = assert(loadstring(code, "@compute-shadow.nupp"))()
-    test.equal(value, 6)
-    test.equal(available, true)
+    test.eq(value, 6)
+    test.eq(available, true)
 end
 
 function M.formerPublicModulesAreAbsentAndGpuImplementationStaysPrivate()
     local env = envMod.new(HERE .. "/..")
     for _, name in ipairs({"nupp.gpu", "nupp.gpu.layout", "nupp.gpu.spi", "nupp.simd", "nupp.events"}) do
-        test.equal(env.resolveModule(env, name), nil, name)
+        test.eq(env.resolveModule(env, name), nil, name)
     end
-    test.equal(env.moduleAccess(env, "gpu", "nupp.gpu.api"), nil)
+    test.eq(env.moduleAccess(env, "gpu", "nupp.gpu.api"), nil)
     local reason = env.moduleAccess(env, "application", "nupp.gpu.api")
     assert(reason and reason:find("internal", 1, true), tostring(reason))
 end
@@ -213,7 +213,7 @@ local function simdEnvironment(lowercase)
         local _, diagnostics = envMod.checkModuleSource(env, path, lowercaseSimdNamespaces(source), {
             moduleName = "simd"
         })
-        test.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+        test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     end
 
     return env
@@ -221,7 +221,7 @@ end
 
 local function checkedSimd(source, env)
     local parsed = parser.parse(source, "simd-case.nupp")
-    test.equal(#parsed.errors, 0)
+    test.eq(#parsed.errors, 0)
     local diagnostics = checker.check(parsed, "simd-case.nupp", env)
     return parsed, diagnostics
 end
@@ -254,15 +254,15 @@ function M.lowercaseSimdDeclarationsKeepVerifiedOperations()
     for _, lowercase in ipairs({false, true}) do
         local source = lowercase and lowercaseSimdNamespaces(CASE_KERNEL) or CASE_KERNEL
         local parsed, diagnostics = checkedSimd(source, simdEnvironment(lowercase))
-        test.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+        test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
         local programs, problems = compile.lower(source, "simd-case.nupp", parsed)
-        test.equal(#problems, 0, problems[1] and problems[1].message)
-        test.equal(#programs, 2)
+        test.eq(#problems, 0, problems[1] and problems[1].message)
+        test.eq(#programs, 2)
         local after = text.programs(programs)
         assert(after:find("reducer.ordered.sum", 1, true), after)
         assert(after:find("simd_horizontal", 1, true), after)
         if before then
-            test.equal(after, before, "public casing changed private SIMD operations")
+            test.eq(after, before, "public casing changed private SIMD operations")
         end
         before = after
     end
@@ -281,11 +281,11 @@ end
     for _, lowercase in ipairs({false, true}) do
         local input = lowercase and lowercaseSimdNamespaces(source) or source
         local _, diagnostics = checkedSimd(input, simdEnvironment(lowercase))
-        test.equal(#diagnostics, 1)
-        test.equal(diagnostics[1].code, "NUPP2006")
+        test.eq(#diagnostics, 1)
+        test.eq(diagnostics[1].code, "NUPP2006")
     end
     local runtime = require("simd")
-    test.equal(runtime.lane.fromstorage, runtime.lane.fromstorage, "bootstrap entry must reuse the runtime function")
+    test.eq(runtime.lane.fromstorage, runtime.lane.fromstorage, "bootstrap entry must reuse the runtime function")
     local _, diagnostics = checkedSimd(
         [[
 local simd = {horizontal = {wrappingsum = function(value: number): number return value + 1 end}}
@@ -293,7 +293,7 @@ return simd.horizontal.wrappingsum(2)
 ]],
         simdEnvironment(true)
     )
-    test.equal(#diagnostics, 0, "a shadowed table remains an ordinary call")
+    test.eq(#diagnostics, 0, "a shadowed table remains an ordinary call")
 end
 
 return M

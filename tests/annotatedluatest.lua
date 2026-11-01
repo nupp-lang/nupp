@@ -56,12 +56,12 @@ return module
 ]]
     local parsed = parser.parse(source, "users.lua")
     local diagnostics, moduleType, exports = check.check(parsed, "users.lua")
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     assert(moduleType and moduleType.tag == "shape", "annotated Lua did not export a shape")
     local find = moduleType.byname.find
     assert(find and find.tag == "func", "annotated function signature was not exported")
-    testAssert.equal(T.tostring(find.params[1]), "integer", "alias-backed parameter")
-    testAssert.equal(T.tostring(find.rets[1]), "User", "class-backed result")
+    testAssert.eq(T.tostring(find.params[1]), "integer", "alias-backed parameter")
+    testAssert.eq(T.tostring(find.rets[1]), "User", "class-backed result")
     assert(exports.types.User and exports.types.User.tag == "nominal", "foreign class was not available as a type")
 end
 
@@ -76,16 +76,16 @@ return keep
 ]]
     local parsed = parser.parse(source, "broken.lua")
     local diagnostics, moduleType = check.check(parsed, "broken.lua")
-    testAssert.equal(#diagnostics, 1, "one recoverable warning")
-    testAssert.equal(diagnostics[1].code, "NUPP1008")
-    testAssert.equal(diagnostics[1].severity, "warning")
-    testAssert.equal(
+    testAssert.eq(#diagnostics, 1, "one recoverable warning")
+    testAssert.eq(diagnostics[1].code, "NUPP1008")
+    testAssert.eq(diagnostics[1].severity, "warning")
+    testAssert.eq(
         source:sub(diagnostics[1].offset, diagnostics[1].offset + diagnostics[1].length - 1),
         "@param value @@@",
         "warning range"
     )
     assert(moduleType and moduleType.tag == "func")
-    testAssert.equal(T.tostring(moduleType.params[1]), "any", "recovered parameter")
+    testAssert.eq(T.tostring(moduleType.params[1]), "any", "recovered parameter")
 end
 
 function M.annotationTextInsideStringsIsNotIngested()
@@ -96,9 +96,9 @@ local example = [[
 return example
 ]=]
     local parsed = parser.parse(source, "strings.lua")
-    testAssert.equal(#annotated.tags(source, parsed.tokens), 0, "string contents are not comments")
+    testAssert.eq(#annotated.tags(source, parsed.tokens), 0, "string contents are not comments")
     local diagnostics, _, exports = check.check(parsed, "strings.lua")
-    testAssert.equal(#diagnostics, 0)
+    testAssert.eq(#diagnostics, 0)
     assert(exports.types.Phantom == nil, "string text declared a type")
 end
 
@@ -118,12 +118,12 @@ return keep
 ]==]
     local parsed = parser.parse(source, "blocks.lua")
     local found = annotated.tags(source, parsed.tokens)
-    testAssert.equal(#found, 3, "block annotation count")
+    testAssert.eq(#found, 3, "block annotation count")
     local diagnostics, moduleType = check.check(parsed, "blocks.lua")
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     assert(moduleType and moduleType.tag == "func")
-    testAssert.equal(T.tostring(moduleType.params[1]), "integer")
-    testAssert.equal(T.tostring(moduleType.rets[1]), "integer")
+    testAssert.eq(T.tostring(moduleType.params[1]), "integer")
+    testAssert.eq(T.tostring(moduleType.rets[1]), "integer")
 end
 
 function M.migrationUsesTheSameRecoveredFacts()
@@ -139,11 +139,11 @@ return module
 ]]
     local plan, problem = migrate.plan(source, "identity.lua", "auto")
     assert(plan, problem)
-    testAssert.equal(plan.destination, "identity.nupp")
+    testAssert.eq(plan.destination, "identity.nupp")
     assert(plan.text:find("local type Id = integer", 1, true), "alias was not emitted")
     assert(plan.text:find("function module.keep(value: Id): Id", 1, true), "function annotations were not migrated")
     local migrated = parser.parse(plan.text, plan.destination)
-    testAssert.equal(#migrated.errors, 0, migrated.errors[1] and migrated.errors[1].msg)
+    testAssert.eq(#migrated.errors, 0, migrated.errors[1] and migrated.errors[1].msg)
 end
 
 function M.genericOwnershipGapIsExplicitlyRecovered()
@@ -158,12 +158,12 @@ return keep
 ]]
     local parsed = parser.parse(source, "generic.lua")
     local diagnostics, moduleType = check.check(parsed, "generic.lua")
-    testAssert.equal(#diagnostics, 1)
-    testAssert.equal(diagnostics[1].severity, "warning")
+    testAssert.eq(#diagnostics, 1)
+    testAssert.eq(diagnostics[1].severity, "warning")
     assert(diagnostics[1].msg:find("ownership", 1, true))
     assert(moduleType and moduleType.tag == "func")
-    testAssert.equal(T.tostring(moduleType.params[1]), "any")
-    testAssert.equal(T.tostring(moduleType.rets[1]), "any")
+    testAssert.eq(T.tostring(moduleType.params[1]), "any")
+    testAssert.eq(T.tostring(moduleType.rets[1]), "any")
 end
 
 function M.unknownForeignNamesWarnInsteadOfFailingLua()
@@ -176,11 +176,11 @@ return keep
 ]]
     local parsed = parser.parse(source, "unknown.lua")
     local diagnostics, moduleType = check.check(parsed, "unknown.lua")
-    testAssert.equal(#diagnostics, 1)
-    testAssert.equal(diagnostics[1].code, "NUPP1008")
-    testAssert.equal(diagnostics[1].severity, "warning")
+    testAssert.eq(#diagnostics, 1)
+    testAssert.eq(diagnostics[1].code, "NUPP1008")
+    testAssert.eq(diagnostics[1].severity, "warning")
     assert(moduleType and moduleType.tag == "func")
-    testAssert.equal(T.tostring(moduleType.params[1]), "any")
+    testAssert.eq(T.tostring(moduleType.params[1]), "any")
 end
 
 function M.typeOnlyExportsSurviveAnonymousModuleReturns()
@@ -197,7 +197,7 @@ return {connect = connect}
 ]]
     local parsed = parser.parse(source, "client.lua")
     local diagnostics, moduleType, exports = check.check(parsed, "client.lua")
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     assert(moduleType and moduleType.tag == "shape")
     assert(
         exports.types.Client and exports.types.Client.tag == "nominal",
@@ -221,7 +221,7 @@ return assigned
     assert(plan.text:find("value = value as string", 1, true), "positive cast was not migrated")
     assert(plan.text:find("assigned = assigned as integer", 1, true), "assignment type was not migrated")
     local migrated = parser.parse(plan.text, plan.destination)
-    testAssert.equal(#migrated.errors, 0, migrated.errors[1] and migrated.errors[1].msg)
+    testAssert.eq(#migrated.errors, 0, migrated.errors[1] and migrated.errors[1].msg)
 end
 
 function M.blockAssignmentTypesInsertAfterTheWholeComment()
@@ -237,7 +237,7 @@ return assigned
     assert(plan, problem)
     assert(plan.text:find("]]\nassigned = assigned as integer\nassigned = unknown()", 1, true), plan.text)
     local migrated = parser.parse(plan.text, plan.destination)
-    testAssert.equal(#migrated.errors, 0, migrated.errors[1] and migrated.errors[1].msg)
+    testAssert.eq(#migrated.errors, 0, migrated.errors[1] and migrated.errors[1].msg)
 end
 
 function M.ambientLuaCATSRootsDeclareGlobalsWithoutBecomingModules()
@@ -257,7 +257,7 @@ host = {answer = function() return 42 end}
     local env = envMod.new(root, {cache = false, ambientTypeRoots = {root .. "/types"}})
     local parsed = parser.parse("local answer: integer = host.answer()\n", root .. "/main.nupp")
     local diagnostics = check.check(parsed, root .. "/main.nupp", env)
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     assert(envMod.findRuntimeModulePath(env, "host") == nil, "an ambient type dependency became a runtime module")
     os.execute("rm -rf '" .. root .. "'")
 end
@@ -291,8 +291,8 @@ local Shape = {}
     local env = envMod.new(root, {cache = false, ambientTypeRoots = {root .. "/types"}})
     local parsed = parser.parse("local n: number = game.area({width = 2})\n", root .. "/main.nupp")
     local diagnostics = check.check(parsed, root .. "/main.nupp", env)
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
-    testAssert.equal(
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    testAssert.eq(
         #(env.ambientTypeProblems or {}),
         0,
         env.ambientTypeProblems and env.ambientTypeProblems[1] and env.ambientTypeProblems[1].msg
@@ -322,9 +322,9 @@ return keep
 ]]
     local parsed = parser.parse(source, "luadoc.lua")
     local diagnostics, moduleType = check.check(parsed, "luadoc.lua")
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
-    testAssert.equal(T.tostring(moduleType.params[1]), "string")
-    testAssert.equal(T.tostring(moduleType.rets[1]), "string")
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    testAssert.eq(T.tostring(moduleType.params[1]), "string")
+    testAssert.eq(T.tostring(moduleType.rets[1]), "string")
 
     local plan, problem = migrate.plan(source, "luadoc.lua", "luadoc")
     assert(plan, problem)
@@ -349,19 +349,19 @@ return module
 ]]
     local parsed = parser.parse(source, "users.lua")
     local diagnostics, _, exports = check.check(parsed, "users.lua")
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     local user = exports.types.User
     assert(user and user.tag == "nominal", "described fields dropped the class")
-    testAssert.equal(T.tostring(user.byname.id), "integer", "described field")
-    testAssert.equal(T.tostring(user.byname.name), "string", "described field")
-    testAssert.equal(T.tostring(user.byname.secret), "string", "scoped field")
+    testAssert.eq(T.tostring(user.byname.id), "integer", "described field")
+    testAssert.eq(T.tostring(user.byname.name), "string", "described field")
+    testAssert.eq(T.tostring(user.byname.secret), "string", "scoped field")
     assert(
         user.byname["[string]"] == nil and user.byname["string"] == nil,
         "a bracketed field name was read as a field"
     )
     assert(user.indexReadValue, "a bracketed field name was not read as an indexer")
-    testAssert.equal(T.tostring(user.indexReadKey), "string", "indexer key")
-    testAssert.equal(T.tostring(user.indexReadValue), "integer", "indexer value")
+    testAssert.eq(T.tostring(user.indexReadKey), "string", "indexer key")
+    testAssert.eq(T.tostring(user.indexReadValue), "integer", "indexer value")
 end
 
 -- A multi-line alias lists its members on `---|` lines; the declaration keeps the
@@ -380,9 +380,9 @@ return keep
 ]]
     local parsed = parser.parse(source, "modes.lua")
     local diagnostics, moduleType, exports = check.check(parsed, "modes.lua")
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     assert(exports.types.Mode, "the alias kept a name nobody registered")
-    testAssert.equal(T.tostring(moduleType.params[1]), '"fast" | "slow"')
+    testAssert.eq(T.tostring(moduleType.params[1]), '"fast" | "slow"')
 end
 
 -- `---@param ... T` types the vararg the same way `---@vararg T` does.
@@ -397,10 +397,10 @@ return keep
 ]]
     local parsed = parser.parse(source, "vararg.lua")
     local diagnostics, moduleType = check.check(parsed, "vararg.lua")
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
-    testAssert.equal(T.tostring(moduleType.params[1]), "string")
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    testAssert.eq(T.tostring(moduleType.params[1]), "string")
     assert(moduleType.vararg, "the function lost its vararg")
-    testAssert.equal(T.tostring(moduleType.varargType), "integer", "vararg")
+    testAssert.eq(T.tostring(moduleType.varargType), "integer", "vararg")
 end
 
 -- A module field's type is every write the file makes to it, widened from the
@@ -422,11 +422,11 @@ return M
 ]]
     local parsed = parser.parse(source, "widen.lua")
     local diagnostics, moduleType = check.check(parsed, "widen.lua")
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     assert(moduleType and moduleType.tag == "shape", "the module did not export a shape")
-    testAssert.equal(T.tostring(moduleType.byname.count), "integer | string", "a body write widens")
-    testAssert.equal(T.tostring(moduleType.byname.limit), "integer", "a literal widens to its type")
-    testAssert.equal(T.tostring(moduleType.byname.late), "integer?", "a body-only write is absent at load")
+    testAssert.eq(T.tostring(moduleType.byname.count), "integer | string", "a body write widens")
+    testAssert.eq(T.tostring(moduleType.byname.limit), "integer", "a literal widens to its type")
+    testAssert.eq(T.tostring(moduleType.byname.late), "integer?", "a body-only write is absent at load")
 end
 
 function M.serializationMigrationUsesResolvedDeclarationsAndPreservesErrors()
@@ -464,12 +464,12 @@ assert(user:debug():find("Ada", 1, true))
     assert(plan.text:find('name = "user_name"', 1, true), plan.text)
     assert(plan.text:find("omitEmpty = true", 1, true), plan.text)
     local parsed = parser.parse(plan.text, plan.destination)
-    testAssert.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
+    testAssert.eq(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
     local env = envMod.new(".", {cache = false})
     local diagnostics = check.check(parsed, plan.destination, env)
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg .. "\n" .. plan.text)
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg .. "\n" .. plan.text)
     local code, errors = require("nupp.compiler.lua.gen").generate(parsed, "serialization_migration")
-    testAssert.equal(#errors, 0)
+    testAssert.eq(#errors, 0)
     assert(loadstring(code))()
     local again = assert(migrate.plan(plan.text, plan.destination))
     assert(#again.edits == 0 and again.text == plan.text, "migration is not idempotent")
@@ -544,7 +544,7 @@ assert(restored ~= nil and problem == nil and restored.child.value == "forward")
     assert(#parsed.errors == 0)
     local env = envMod.new(".", {cache = false})
     local diagnostics = check.check(parsed, plan.destination, env)
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     local code, errors = require("nupp.compiler.lua.gen").generate(parsed, "forward_policy")
     assert(#errors == 0)
     assert(loadstring(code))()

@@ -22,11 +22,11 @@ local simd = require("simd")
 
 local function compile(src)
     local result = parser.parse(src, "lane.nupp")
-    testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "syntax errors")
+    testAssert.eq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "syntax errors")
     local diagnostics = check.check(result, "lane.nupp", env)
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "diagnostics")
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "diagnostics")
     local code, diags = gen.generate(result, "lane")
-    testAssert.equal(#diags, 0, "gen diagnostics")
+    testAssert.eq(#diags, 0, "gen diagnostics")
     local chunk, err = loadstring(code, "@lane.nupp")
     if not chunk then
         error("generated code does not load: " .. tostring(err) .. "\n---\n" .. code, 2)
@@ -71,8 +71,8 @@ end
     )
     for _, n in ipairs({0, 1, 7, 64}) do
         local bad, lanes = run(n)
-        testAssert.equal(bad, 0, "count " .. n)
-        testAssert.equal(lanes, 1, "one lane as Lua")
+        testAssert.eq(bad, 0, "count " .. n)
+        testAssert.eq(lanes, 1, "one lane as Lua")
     end
 end
 
@@ -102,12 +102,12 @@ end
 ]]
     )
     local sum, shifted, hit, miss, neg, notted = run(10)
-    testAssert.equal(sum, 4, "10 + 250 wraps to 4 in a byte lane")
-    testAssert.equal(shifted, 5, "(10 << 7) | (10 >> 1) in a byte lane")
-    testAssert.equal(hit, 1, "an equal lane selects")
-    testAssert.equal(miss, 0, "an inactive mask counts nothing")
-    testAssert.equal(neg, 246, "negation wraps")
-    testAssert.equal(notted, 245, "complement wraps")
+    testAssert.eq(sum, 4, "10 + 250 wraps to 4 in a byte lane")
+    testAssert.eq(shifted, 5, "(10 << 7) | (10 >> 1) in a byte lane")
+    testAssert.eq(hit, 1, "an equal lane selects")
+    testAssert.eq(miss, 0, "an inactive mask counts nothing")
+    testAssert.eq(neg, 246, "negation wraps")
+    testAssert.eq(notted, 245, "complement wraps")
 end
 
 function M.earlyExitAndReductionsRunInOneLane()
@@ -156,12 +156,12 @@ end
 ]]
     )
     local found, none, sum = run(37, 23)
-    testAssert.equal(found, 23)
-    testAssert.equal(none, 0)
-    testAssert.equal(sum, 37 * 38 / 2)
+    testAssert.eq(found, 23)
+    testAssert.eq(none, 0)
+    testAssert.eq(sum, 37 * 38 / 2)
     found, none, sum = run(0, 0)
-    testAssert.equal(found, 0)
-    testAssert.equal(sum, 0)
+    testAssert.eq(found, 0)
+    testAssert.eq(sum, 0)
 end
 
 function M.vectorsIsNilAsLuaAndTheScalarContinuationRuns()
@@ -198,8 +198,8 @@ end
 ]]
     )
     local found, absent = run()
-    testAssert.equal(found, 4)
-    testAssert.equal(absent, true, "simd.vectors is nil as Lua")
+    testAssert.eq(found, 4)
+    testAssert.eq(absent, true, "simd.vectors is nil as Lua")
 end
 
 function M.theLaneVocabularyAndWidthCouplingRunInOneLane()
@@ -237,14 +237,14 @@ end
 ]]
     )
     local mod, div, sat, pop, high, widened, root, fused = run(200, 2.25)
-    testAssert.equal(mod, 4, "200 % 7")
-    testAssert.equal(div, 66, "200 // 3")
-    testAssert.equal(sat, 255, "saturating add clamps")
-    testAssert.equal(pop, 3, "popcount of 200")
-    testAssert.equal(high, 156, "high byte of 200 * 200")
-    testAssert.equal(widened, 60000 % 65536, "widened lanes wrap at sixteen bits")
-    testAssert.equal(root, 1.5, "sqrt applied directly")
-    testAssert.equal(fused, 5, "fma on a float lane")
+    testAssert.eq(mod, 4, "200 % 7")
+    testAssert.eq(div, 66, "200 // 3")
+    testAssert.eq(sat, 255, "saturating add clamps")
+    testAssert.eq(pop, 3, "popcount of 200")
+    testAssert.eq(high, 156, "high byte of 200 * 200")
+    testAssert.eq(widened, 60000 % 65536, "widened lanes wrap at sixteen bits")
+    testAssert.eq(root, 1.5, "sqrt applied directly")
+    testAssert.eq(fused, 5, "fma on a float lane")
 end
 
 function M.maskNegationAndIndexedMemoryRunInOneLane()
@@ -279,10 +279,10 @@ end
 ]]
     )
     local inverted, hit, outside, written = run()
-    testAssert.equal(inverted, 0, "negating a true lane answers false")
-    testAssert.equal(hit, 7, "gather reads the element at its one-based index")
-    testAssert.equal(outside, 0, "an index past the span reads zero")
-    testAssert.equal(written, 9, "scatter writes within the span and ignores an index past it")
+    testAssert.eq(inverted, 0, "negating a true lane answers false")
+    testAssert.eq(hit, 7, "gather reads the element at its one-based index")
+    testAssert.eq(outside, 0, "an index past the span reads zero")
+    testAssert.eq(written, 9, "scatter writes within the span and ignores an index past it")
 end
 
 return M

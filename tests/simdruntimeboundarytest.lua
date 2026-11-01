@@ -23,7 +23,7 @@ local cases = test.suite.cases(
         return boundary.target:gsub("[^%w]", "_")
     end,
     function(boundary)
-        test.equal(EXPECTED[boundary.target], boundary.status)
+        test.eq(EXPECTED[boundary.target], boundary.status)
         test(type(boundary.reason) == "string" and boundary.reason ~= "")
         test(type(boundary.evidence) == "table" and #boundary.evidence > 0)
         test.suite.fact("coverage.witness", {
@@ -39,7 +39,7 @@ for name, case in pairs(cases) do
 end
 
 function M.inventoryIsExact()
-    test.equal(#boundaries, 3)
+    test.eq(#boundaries, 3)
     for target in pairs(EXPECTED) do
         local found = false
         for _, boundary in ipairs(boundaries) do

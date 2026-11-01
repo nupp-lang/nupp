@@ -28,10 +28,10 @@ function M.allThirteenExactWitnessesSatisfyTheEquivalenceGate()
     local report = equivalence.run(ledger, function(defect)
         return result(defect)
     end)
-    test.equal(report.ok, true)
-    test.equal(report.total, 13)
-    test.equal(report.passed, 13)
-    test.equal(report.failed, 0)
+    test.eq(report.ok, true)
+    test.eq(report.total, 13)
+    test.eq(report.passed, 13)
+    test.eq(report.failed, 0)
     local missing = obligations.validate({}, {gate = "equivalence"}).missing
     local facts = {}
     for index, item in ipairs(missing) do
@@ -50,7 +50,7 @@ function M.allThirteenExactWitnessesSatisfyTheEquivalenceGate()
     end
     local supplemental = {failed = 0, tests = {{id = "fixture/otherCoverage", status = "passed", facts = facts}}}
     local coverage = obligations.validate({supplemental, report}, {gate = "equivalence"})
-    test.equal(coverage.ok, true)
+    test.eq(coverage.ok, true)
 end
 
 function M.setupAndUnrelatedFailuresCannotCountAsKills()
@@ -70,8 +70,8 @@ function M.setupAndUnrelatedFailuresCannotCountAsKills()
 
         return result(defect)
     end)
-    test.equal(report.ok, false)
-    test.equal(report.failed, 3)
+    test.eq(report.ok, false)
+    test.eq(report.failed, 3)
     test.matches(report.tests[1].failure.message, "unknown option")
     test.matches(report.tests[3].failure.message, "unrelated case")
     test.matches(report.tests[9].failure.message, "unrelated reason")
@@ -91,7 +91,7 @@ function M.aSurvivingPreservedMutationFailsTheGate()
 
         return execution
     end)
-    test.equal(report.ok, false)
+    test.eq(report.ok, false)
     test.matches(report.tests[1].failure.message, "survived")
 end
 
@@ -112,7 +112,7 @@ function M.aSurvivingMutationFailsTheGate()
 
         return result(defect)
     end)
-    test.equal(report.ok, false)
+    test.eq(report.ok, false)
     test.matches(report.tests[8].failure.message, "survived")
 end
 
@@ -136,14 +136,14 @@ function M.generatedFixturesAreDeterministicAndKilled()
         },
     }
     local stack = fixtures.mutate(manifest, "wasm-stack-transport")
-    test.equal(stack.expected, "bridge extent mismatch")
-    test.equal(#manifest.units[1].bridge.entries[1].params, 2)
+    test.eq(stack.expected, "bridge extent mismatch")
+    test.eq(#manifest.units[1].bridge.entries[1].params, 2)
 
     manifest.units[1].bridge.entries[1].params[2] = nil
     local wide = fixtures.mutate(manifest, "wasm-wide-transport")
-    test.equal(wide.expected, "Wasm scalar span layout mismatch")
-    test.equal(manifest.units[1].bridge.entries[1].params[1].sourceType, "int32")
-    test.equal(manifest.units[1].bridge.entries[1].params[1].type, "i32")
+    test.eq(wide.expected, "Wasm scalar span layout mismatch")
+    test.eq(manifest.units[1].bridge.entries[1].params[1].sourceType, "int32")
+    test.eq(manifest.units[1].bridge.entries[1].params[1].type, "i32")
 end
 
 function M.driverUsesOnlyThePublicExactCaseSelector()

@@ -382,8 +382,8 @@ function M.readerRejectsATruncatedFrame()
     local ok, status = pcall(lsp.readerMain)
     io.stdin, io.stdout = originalInput, originalOutput
     assert(ok, status)
-    test.equal(status, 1)
-    test.equal(emitted, "")
+    test.eq(status, 1)
+    test.eq(emitted, "")
 end
 
 function M.syntaxTreeSpansAreHalfOpen()
@@ -1078,8 +1078,8 @@ function M.hoverOnALocalFunctionNameShowsItsSignature()
 
     local signature = "function(name: string): string"
     assertContains(responseWithId(out, 10).result.contents.value, signature, "hover on the declaration")
-    test.equal(responseWithId(out, 11).result.type, signature)
-    test.equal(responseWithId(out, 12).result.type, signature)
+    test.eq(responseWithId(out, 11).result.type, signature)
+    test.eq(responseWithId(out, 12).result.type, signature)
 end
 
 function M.hoverAndInspectExposeAutomaticCleanup()
@@ -5171,7 +5171,7 @@ function M.codeLensesAreOfferedOnlyToAClientThatNamedItsCommand()
         {jsonrpc = "2.0", id = 2, method = "shutdown"},
         {jsonrpc = "2.0", method = "exit"},
     })
-    test.equal(responseWithId(silent, 1).result.capabilities.codeLensProvider, nil)
+    test.eq(responseWithId(silent, 1).result.capabilities.codeLensProvider, nil)
 
     local asked = runSession({
         {
@@ -5199,7 +5199,7 @@ function M.codeLensesCarryTheCommandTheClientNamed()
     os.execute("rm -rf '" .. projectDir .. "'")
     assert(#lenses > 0, "a client that asked gets lenses")
     for _, lens in ipairs(lenses) do
-        test.equal(lens.command.command, "demo.inspect")
+        test.eq(lens.command.command, "demo.inspect")
     end
 end
 
@@ -5209,7 +5209,7 @@ function M.codeLensesAreEmptyForAClientThatNamedNoCommand()
     writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
     local lenses = artifactSession(projectDir, "silent.nupp", ARTIFACT_SOURCE, "textDocument/codeLens", {})
     os.execute("rm -rf '" .. projectDir .. "'")
-    test.equal(#lenses, 0)
+    test.eq(#lenses, 0)
 end
 
 function M.artifactDiscoveryNamesTheFunctionTheCursorIsIn()
@@ -5224,9 +5224,9 @@ function M.artifactDiscoveryNamesTheFunctionTheCursorIsIn()
         kinds[entry.kind] = entry
     end
     assert(kinds.lua and kinds.bytecode, "both kinds are offered")
-    test.equal(kinds.lua.languageId, "lua")
-    test.equal(kinds.lua.scope, "module")
-    test.equal(result["function"].name, "scale")
+    test.eq(kinds.lua.languageId, "lua")
+    test.eq(kinds.lua.scope, "module")
+    test.eq(result["function"].name, "scale")
 end
 
 -- Outside any function there is still a file to inspect, so discovery answers
@@ -5239,7 +5239,7 @@ function M.artifactDiscoveryOutsideAFunctionStillOffersTheFile()
     })
     os.execute("rm -rf '" .. projectDir .. "'")
     assert(#result.artifacts == 2, "the file's artifacts are still offered")
-    test.equal(result["function"], nil)
+    test.eq(result["function"], nil)
 end
 
 -- The emitter holds generated Lua to the source's own line numbering, and the
@@ -5251,10 +5251,10 @@ function M.generatedLuaIsLineIdenticalToItsSource()
     local result = artifactSession(projectDir, "lowered.nupp", ARTIFACT_SOURCE, "nupp/artifact", {kind = "lua"})
     os.execute("rm -rf '" .. projectDir .. "'")
     assert(result.available, "the file lowers: " .. json.encode(result.unavailable or {}))
-    test.equal(result.kind, "lua")
-    test.equal(result.languageId, "lua")
-    test.equal(result.mapping.kind, "line-identity")
-    test.equal(result.version, 7)
+    test.eq(result.kind, "lua")
+    test.eq(result.languageId, "lua")
+    test.eq(result.mapping.kind, "line-identity")
+    test.eq(result.version, 7)
     local sourceLines, generatedLines = 0, 0
     for _ in ARTIFACT_SOURCE:gmatch("\n") do
         sourceLines = sourceLines + 1
@@ -5262,7 +5262,7 @@ function M.generatedLuaIsLineIdenticalToItsSource()
     for _ in result.text:gmatch("\n") do
         generatedLines = generatedLines + 1
     end
-    test.equal(generatedLines, sourceLines)
+    test.eq(generatedLines, sourceLines)
     assertContains(result.text, "total = total + value * by", "the authored line is on its own line")
 end
 
@@ -5291,7 +5291,7 @@ function M.bytecodeArtifactMapsItsLinesBackToSource()
     local result = artifactSession(projectDir, "listing.nupp", ARTIFACT_SOURCE, "nupp/artifact", {kind = "bytecode"})
     os.execute("rm -rf '" .. projectDir .. "'")
     assert(result.available, "the file compiles: " .. json.encode(result.unavailable or {}))
-    test.equal(result.mapping.kind, "lines-collapsible")
+    test.eq(result.mapping.kind, "lines-collapsible")
     assert(#result.mapping.entries > 0, "a listing carries entries")
     local roles = {}
     for _, entry in ipairs(result.mapping.entries) do
@@ -5302,7 +5302,7 @@ function M.bytecodeArtifactMapsItsLinesBackToSource()
     assert(roles.synthetic, "the runtime preamble is marked synthetic")
     for _, entry in ipairs(result.mapping.entries) do
         if entry.role == "synthetic" then
-            test.equal(entry.sourceLine, 1)
+            test.eq(entry.sourceLine, 1)
         end
     end
     assertContains(result.text, "instructions of runtime preamble", "the preamble is named")
@@ -5340,7 +5340,7 @@ function M.foldingTheListingLeavesOneRowPerSourceLine()
     for _, entry in ipairs(result.mapping.entries) do
         if entry.role == "exact" then
             checked = checked + 1
-            test.equal(
+            test.eq(
                 visibleAt[entry.generatedLine],
                 entry.sourceLine,
                 "folded row " .. tostring(
@@ -5361,10 +5361,10 @@ function M.anUnresolvableArtifactSaysWhyRatherThanComingBackEmpty()
         kind = "lua"
     })
     os.execute("rm -rf '" .. projectDir .. "'")
-    test.equal(result.available, false)
-    test.equal(result.unavailable.reason, "not-lowered")
+    test.eq(result.available, false)
+    test.eq(result.unavailable.reason, "not-lowered")
     assert(result.unavailable.detail, "an unavailable artifact says what stopped it")
-    test.equal(result.text, nil)
+    test.eq(result.text, nil)
 end
 
 function M.anUnknownArtifactKindIsRefusedByName()
@@ -5372,8 +5372,8 @@ function M.anUnknownArtifactKindIsRefusedByName()
     writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
     local result = artifactSession(projectDir, "kind.nupp", ARTIFACT_SOURCE, "nupp/artifact", {kind = "wgsl"})
     os.execute("rm -rf '" .. projectDir .. "'")
-    test.equal(result.available, false)
-    test.equal(result.unavailable.reason, "unknown-kind")
+    test.eq(result.available, false)
+    test.eq(result.unavailable.reason, "unknown-kind")
 end
 
 -- Two levels of the same file are two artifacts, and a client putting them side
@@ -5387,9 +5387,9 @@ function M.artifactIdentityCarriesTheOptimizationLevel()
         optLevel = 1
     })
     os.execute("rm -rf '" .. projectDir .. "'")
-    test.equal(plain.metadata.optLevel, 0)
-    test.equal(optimized.metadata.optLevel, 1)
-    test.notequal(plain.id, optimized.id)
+    test.eq(plain.metadata.optLevel, 0)
+    test.eq(optimized.metadata.optLevel, 1)
+    test.ne(plain.id, optimized.id)
 end
 
 function M.anUnknownOptimizationLevelIsRefused()
@@ -5400,8 +5400,8 @@ function M.anUnknownOptimizationLevelIsRefused()
         optLevel = 9
     })
     os.execute("rm -rf '" .. projectDir .. "'")
-    test.equal(result.available, false)
-    test.equal(result.unavailable.reason, "unknown-opt-level")
+    test.eq(result.available, false)
+    test.eq(result.unavailable.reason, "unknown-opt-level")
 end
 
 function M.optimizationLevelsAreNotCoerced()
@@ -5412,8 +5412,8 @@ function M.optimizationLevelsAreNotCoerced()
             kind = "lua",
             optLevel = optLevel
         })
-        test.equal(result.available, false)
-        test.equal(result.unavailable.reason, "unknown-opt-level")
+        test.eq(result.available, false)
+        test.eq(result.unavailable.reason, "unknown-opt-level")
     end
     os.execute("rm -rf '" .. projectDir .. "'")
 end
@@ -5433,10 +5433,10 @@ function M.codeLensesOfferOneInspectPerFunction()
     os.execute("rm -rf '" .. projectDir .. "'")
     local names = {}
     for _, lens in ipairs(lenses) do
-        test.equal(lens.command.title, "Inspect")
-        test.equal(lens.command.command, "nupp.inspectCompiledFunction")
+        test.eq(lens.command.title, "Inspect")
+        test.eq(lens.command.command, "nupp.inspectCompiledFunction")
         names[lens.command.arguments[1].name] = true
-        test.equal(lens.range.start.line, lens.range["end"].line)
+        test.eq(lens.range.start.line, lens.range["end"].line)
     end
     assert(names.scale and names.second, "every function gets a lens")
 end
@@ -5734,8 +5734,8 @@ function M.traceCheckReportsTheFunctionAtTheCursor()
     )
     local result = responseWithId(out, 10).result
     assert(type(result) == "table", "the function at the cursor is checked")
-    test.equal(result.name, "hot", "the enclosing declaration is selected")
-    test.equal(result.contract, "inspection", "an uncontracted function is inspected")
+    test.eq(result.name, "hot", "the enclosing declaration is selected")
+    test.eq(result.contract, "inspection", "an uncontracted function is inspected")
     local construction = false
     for _, finding in ipairs(result.findings) do
         construction = construction or finding.reason == "jit/loop-function-construction"
@@ -5924,8 +5924,8 @@ return double
         "nupp/artifacts",
         {position = {line = 3, character = 8}}
     )
-    test.equal(answer["function"].aotSymbol, "ks_double")
-    test.equal(answer["function"].aotSource, "kernel.nupp")
+    test.eq(answer["function"].aotSymbol, "ks_double")
+    test.eq(answer["function"].aotSource, "kernel.nupp")
 end
 
 -- The stdio transport, driven with raw bytes through the real server. What a
@@ -6048,9 +6048,9 @@ function M.theTransportKeepsTheNewestVersionAndEveryFrame()
     end
 
     assert(t.feed(change(3) .. change(2)) == nil)
-    test.equal(t.documentVersion("file:///a.nupp"), 3)
+    test.eq(t.documentVersion("file:///a.nupp"), 3)
     assert(t.feed(change(4)) == nil)
-    test.equal(t.documentVersion("file:///a.nupp"), 4)
+    test.eq(t.documentVersion("file:///a.nupp"), 4)
 
     local u = transport.new()
     local ping = frame({jsonrpc = "2.0", id = 7, method = "ping"})

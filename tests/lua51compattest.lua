@@ -270,7 +270,7 @@ end
 function M.publicAssertionFacadeRemainsOutsideStock51()
     inProject(function(root, write)
         write("nupp.lua", 'return {compat="lua51",include={"."}}')
-        write("main.nupp", 'local assertions = require("assert"); assertions.equal(1, 1)')
+        write("main.nupp", 'local assertions = require("assert"); assertions.eq(1, 1)')
         local options = {diagnostics = {}, produced = {}}
         assert(require("nupp.tools.build.project").build(root, options) == 1)
         local message = errors(options.diagnostics)

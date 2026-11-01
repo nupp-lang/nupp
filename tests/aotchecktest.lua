@@ -659,19 +659,19 @@ local M = {}
 function M.checkRefusesExactlyWhatAotRefuses()
     local dir = corpus()
     local decoded, code, raw = checkJson(dir, "")
-    test.equal(code, 1, raw)
+    test.eq(code, 1, raw)
     assert(decoded.ok == false, raw)
     local checked = refusalsByFile(decoded)
     for name in pairs(REFUSED) do
         local out, aotCode = run(dir, ("aot --triple %s %s"):format(TRIPLE, name))
-        test.equal(aotCode, 1, name .. " is refused by aot: " .. out)
+        test.eq(aotCode, 1, name .. " is refused by aot: " .. out)
         local escaped = name:gsub("%.", "%%.")
         local line, column, refusedCode = out:match(escaped .. ":(%d+):(%d+): aot: (NUPP%d+):")
         assert(refusedCode, name .. ": aot names a coded refusal: " .. out)
         local expected = ("%s %s:%s"):format(refusedCode, line, column)
         local reported = checked[name] or {}
-        test.equal(#reported, 1, name .. " is refused once by check: " .. raw)
-        test.equal(reported[1], expected, name .. ": check and aot agree")
+        test.eq(#reported, 1, name .. " is refused once by check: " .. raw)
+        test.eq(reported[1], expected, name .. ": check and aot agree")
     end
     for name in pairs(ADMITTED) do
         assert(checked[name] == nil, name .. " is admitted and checks clean: " .. raw)
@@ -687,20 +687,20 @@ function M.theRefusalIsACodedDiagnosticWithARange()
     local decoded = checkJson(corpus(), "method.nupp")
     local diagnostic = decoded.diagnostics[1]
     assert(diagnostic, "the named file is refused")
-    test.equal(diagnostic.code, "NUPP2905")
-    test.equal(diagnostic.severity, "error")
-    test.equal(diagnostic.range.start.line, 3)
-    test.equal(diagnostic.range.start.column, 12)
-    test.equal(diagnostic.range["end"].column, 18, "the range covers `source`")
+    test.eq(diagnostic.code, "NUPP2905")
+    test.eq(diagnostic.severity, "error")
+    test.eq(diagnostic.range.start.line, 3)
+    test.eq(diagnostic.range.start.column, 12)
+    test.eq(diagnostic.range["end"].column, 18, "the range covers `source`")
     assert(diagnostic.message:find("method :sub on a string is not admitted", 1, true), diagnostic.message)
     assert(diagnostic.help:find("target native", 1, true) and diagnostic.help:find("neon", 1, true), diagnostic.help)
-    test.equal(diagnostic.docs, "docs/learn/performance/ahead-of-time/index.md#annotation-guarantees")
+    test.eq(diagnostic.docs, "docs/learn/performance/ahead-of-time/index.md#annotation-guarantees")
 end
 
 -- `off` never lowers and a build under it never refuses, so a check says nothing.
 function M.aTargetThatDoesNotLowerIsLeftAlone()
     local decoded, code, raw = checkJson(corpus(), "--target off")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     assert(decoded.ok == true, raw)
 end
 
@@ -718,18 +718,18 @@ return {include = {"."}, build = {targets = {native = {kind = "modules", aot = "
     local cold, _, coldRaw = checkJson(dir, "")
     assert(cold.timing.compiledModules > 0, coldRaw)
     local warm, code, warmRaw = checkJson(dir, "")
-    test.equal(code, 1, warmRaw)
-    test.equal(warm.timing.compiledModules, 0, "nothing is checked or lowered again: " .. warmRaw)
-    test.equal(#warm.diagnostics, 1, warmRaw)
-    test.equal(warm.diagnostics[1].code, "NUPP2905", warmRaw)
+    test.eq(code, 1, warmRaw)
+    test.eq(warm.timing.compiledModules, 0, "nothing is checked or lowered again: " .. warmRaw)
+    test.eq(#warm.diagnostics, 1, warmRaw)
+    test.eq(warm.diagnostics[1].code, "NUPP2905", warmRaw)
     -- A fix is an edit to that module alone, and the refusal goes with it.
     write(
         dir .. "/method.nupp",
         "@aot\nlocal function rest(from: integer): integer\n    return from\nend\n" .. "return {rest = rest}\n"
     )
     local fixed, fixedCode, fixedRaw = checkJson(dir, "")
-    test.equal(fixedCode, 0, fixedRaw)
-    test.equal(fixed.timing.compiledModules, 1, fixedRaw)
+    test.eq(fixedCode, 0, fixedRaw)
+    test.eq(fixed.timing.compiledModules, 1, fixedRaw)
 end
 
 -- A build lowers what its deliverable reaches. A module no entry requires is
@@ -751,18 +751,18 @@ return {
         }
     )
     local decoded, code, raw = checkJson(dir, "")
-    test.equal(code, 0, "the unreached module is not the target's to refuse: " .. raw)
-    test.equal(#decoded.diagnostics, 0, raw)
+    test.eq(code, 0, "the unreached module is not the target's to refuse: " .. raw)
+    test.eq(#decoded.diagnostics, 0, raw)
     local out, buildCode = run(dir, "build")
-    test.equal(buildCode, 0, "and the build agrees: " .. out)
+    test.eq(buildCode, 0, "and the build agrees: " .. out)
     -- Reached, it is refused, although the module itself did not change.
     write(
         dir .. "/src/main.nupp",
         'local used = require("used")\nlocal stray = require("stray")\n' .. "return {used = used, stray = stray}\n"
     )
     local reached, reachedCode, reachedRaw = checkJson(dir, "")
-    test.equal(reachedCode, 1, reachedRaw)
-    test.equal(reached.diagnostics[1].code, "NUPP2905", reachedRaw)
+    test.eq(reachedCode, 1, reachedRaw)
+    test.eq(reached.diagnostics[1].code, "NUPP2905", reachedRaw)
     assert(tostring(reached.diagnostics[1].file):match("stray%.nupp$"), reachedRaw)
 end
 
@@ -796,24 +796,24 @@ return {include = {"src"}, build = {targets = {native = {kind = "modules", entri
         {["src/family.nupp"] = family, ["src/main.nupp"] = caller(9), ["src/other.nupp"] = "return {answer = 42}\n",}
     )
     local out, buildCode = run(dir, "build")
-    test.equal(buildCode, 1, "the build refuses the family: " .. out)
+    test.eq(buildCode, 1, "the build refuses the family: " .. out)
     assert(out:find("NUPP2908", 1, true), out)
     local decoded, code, raw = checkJson(dir, "")
-    test.equal(code, 1, raw)
+    test.eq(code, 1, raw)
     local refused = refusalsByFile(decoded)
     assert(refused["family.nupp"] and refused["family.nupp"][1]:match("^NUPP2908 "), raw)
-    test.equal(refused["main.nupp"], nil, raw)
+    test.eq(refused["main.nupp"], nil, raw)
     local warm, warmCode, warmRaw = checkJson(dir, "")
-    test.equal(warmCode, 1, warmRaw)
-    test.equal(warm.timing.compiledModules, 0, warmRaw)
-    test.equal(#warm.diagnostics, 1, warmRaw)
+    test.eq(warmCode, 1, warmRaw)
+    test.eq(warm.timing.compiledModules, 0, warmRaw)
+    test.eq(#warm.diagnostics, 1, warmRaw)
     -- Eight bodies fit, and the verdict follows the caller without the family moving.
     write(dir .. "/src/main.nupp", caller(8))
     local fixed, fixedCode, fixedRaw = checkJson(dir, "")
-    test.equal(fixedCode, 0, fixedRaw)
-    test.equal(fixed.timing.compiledModules, 1, fixedRaw)
+    test.eq(fixedCode, 0, fixedRaw)
+    test.eq(fixed.timing.compiledModules, 1, fixedRaw)
     local _, fixedBuild = run(dir, "build")
-    test.equal(fixedBuild, 0, "and the build agrees")
+    test.eq(fixedBuild, 0, "and the build agrees")
 end
 
 -- A Lua use of a native-only entry is the checker's refusal, not lowering's:
@@ -870,17 +870,17 @@ return {alias = alias, member = member}
         }
     )
     local decoded, code, raw = checkJson(dir, "")
-    test.equal(code, 1, raw)
+    test.eq(code, 1, raw)
     local found = refusalsByFile(decoded)
-    test.equal(#(found["uses.nupp"] or {}), 2, "both Lua uses are refused: " .. raw)
+    test.eq(#(found["uses.nupp"] or {}), 2, "both Lua uses are refused: " .. raw)
     assert(found["uses.nupp"][1]:match("^NUPP2910 7:12"), found["uses.nupp"][1])
     assert(found["uses.nupp"][2]:match("^NUPP2910 11:16"), found["uses.nupp"][2])
     assert(found["vec.nupp"] == nil, "the export itself is admitted: " .. raw)
     local off, offCode, offRaw = checkJson(dir, "--target off")
-    test.equal(offCode, 0, offRaw)
+    test.eq(offCode, 0, offRaw)
     assert(off.ok == true, "without a compiling policy the Lua call is ordinary: " .. offRaw)
     local out, aotCode = run(dir, ("aot --triple %s vec.nupp"):format(TRIPLE))
-    test.equal(aotCode, 0, out)
+    test.eq(aotCode, 0, out)
     assert(out:find("twice, kernel, explicit simd, native-only", 1, true), "the report says native-only: " .. out)
 end
 
@@ -931,15 +931,15 @@ return {conjugate = conjugate, fromLua = fromLua, Pair = Pair}
         }
     )
     local decoded, code, raw = checkJson(dir, "")
-    test.equal(code, 1, raw)
+    test.eq(code, 1, raw)
     local found = refusalsByFile(decoded)["pair.nupp"] or {}
-    test.equal(#found, 2, raw)
+    test.eq(#found, 2, raw)
     assert(found[1]:match("^NUPP2911 11:7"), "the field store is refused: " .. found[1])
     assert(found[2]:match("^NUPP2910 17:16"), "the Lua construction is refused: " .. found[2])
     local off, offCode, offRaw = checkJson(dir, "--target off")
-    test.equal(offCode, 1, offRaw)
+    test.eq(offCode, 1, offRaw)
     local offFound = refusalsByFile(off)["pair.nupp"] or {}
-    test.equal(#offFound, 1, "only the field store is refused without a compiling policy: " .. offRaw)
+    test.eq(#offFound, 1, "only the field store is refused without a compiling policy: " .. offRaw)
     assert(offFound[1]:match("^NUPP2911 11:7"), offFound[1])
 end
 

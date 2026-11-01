@@ -195,7 +195,7 @@ function hostreload.open(entry: string, root: string?): (hostreload.Session?, st
     -- owns the loop instead, so the chunk returning *is* that boundary: settle the
     -- entry here, and the session watches from the build it just ran rather than
     -- from whatever the host's first poll happens to find on disk.
-    local hot: any = _G.nupp.hotreload
+    local hot: any = _G.debug.reload
     if opened.prepare().kind == "prepared" then
         opened.apply()
     end

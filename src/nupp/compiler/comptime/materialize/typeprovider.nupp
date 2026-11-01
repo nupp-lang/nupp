@@ -141,7 +141,6 @@ local function installIntrinsic(state, library, name, implementation)
     -- shared closure however often it is evaluated.
     local token = {}
     state.intrinsics[token] = implementation
-    library[name] = token
     library[name:lower()] = token
 end
 

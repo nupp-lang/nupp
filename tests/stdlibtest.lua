@@ -20,7 +20,7 @@ local sharedEnv = envMod.new(HERE)
 local function diagsOf(src, opts)
     sharedEnv.loaded = {}
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors in test source")
+    testAssert.eq(#result.errors, 0, "syntax errors in test source")
     local diags = check.check(result, "test.nupp", sharedEnv, opts)
     local out = {}
     for j, d in ipairs(diags) do
@@ -157,13 +157,13 @@ end
 function M.formerResultClosesAnswerNothing()
     local io = require("io")
     local buffer = io.newbuffer("abc")
-    testAssert.equal(select("#", buffer:view():close()), 0, "ByteView:close answers nothing")
-    testAssert.equal(select("#", io.newscalarreader("abcd"):close()), 0, "ScalarReader:close answers nothing")
-    testAssert.equal(select("#", io.newscalarwriter():close()), 0, "ScalarWriter:close answers nothing")
-    testAssert.equal(select("#", io.newscalarwriter(buffer):close()), 0, "a borrowing ScalarWriter answers nothing")
-    testAssert.equal(buffer:isReleased(), false, "a borrowing scalar writer leaves its buffer open")
-    testAssert.equal(select("#", buffer:close()), 0, "Buffer:close answers nothing")
-    testAssert.equal(select("#", buffer:close()), 0, "a second close is safe")
+    testAssert.eq(select("#", buffer:view():close()), 0, "ByteView:close answers nothing")
+    testAssert.eq(select("#", io.newscalarreader("abcd"):close()), 0, "ScalarReader:close answers nothing")
+    testAssert.eq(select("#", io.newscalarwriter():close()), 0, "ScalarWriter:close answers nothing")
+    testAssert.eq(select("#", io.newscalarwriter(buffer):close()), 0, "a borrowing ScalarWriter answers nothing")
+    testAssert.eq(buffer:isReleased(), false, "a borrowing scalar writer leaves its buffer open")
+    testAssert.eq(select("#", buffer:close()), 0, "Buffer:close answers nothing")
+    testAssert.eq(select("#", buffer:close()), 0, "a second close is safe")
 end
 
 function M.closedBufferReleasesItsAllocationWhileMetadataSurvives()
@@ -202,7 +202,7 @@ function M.ownershipInstallerDoesNotRecursivelyLoadItsPrelude()
     check.check(result, "installer.nupp", sharedEnv, {strict = false})
     result.preludeRuntime = 'require("nupp.runtime.managed").install()'
     local code, diagnostics = gen.generate(result, "installer.nupp")
-    testAssert.equal(#diagnostics, 0, "the ownership installer generates")
+    testAssert.eq(#diagnostics, 0, "the ownership installer generates")
     for _, name in ipairs(gen.runtimeModules(code)) do
         assert(name ~= "nupp.runtime.managed", "the installer must not load itself through the prelude")
     end
@@ -211,10 +211,10 @@ end
 
 function M.generatedPreludeLoadsWithoutLoadstring()
     local result = parser.parse("return 42\n", "prelude.nupp")
-    testAssert.equal(#check.check(result, "prelude.nupp", sharedEnv), 0, "prelude fixture checks")
+    testAssert.eq(#check.check(result, "prelude.nupp", sharedEnv), 0, "prelude fixture checks")
     result.preludeRuntime = "_G.__testPrelude = true"
     local code, diagnostics = gen.generate(result, "prelude.nupp")
-    testAssert.equal(#diagnostics, 0, "prelude fixture generates")
+    testAssert.eq(#diagnostics, 0, "prelude fixture generates")
 
     local scope = setmetatable({loadstring = false}, {__index = _G})
     scope._G = scope
@@ -225,7 +225,7 @@ function M.generatedPreludeLoadsWithoutLoadstring()
     end
     local chunk = assert(loadstring(code))
     setfenv(chunk, scope)
-    testAssert.equal(chunk(), 42, "module result with load-only host")
+    testAssert.eq(chunk(), 42, "module result with load-only host")
     assert(scope.__testPrelude, "prelude executes with a load-only host")
 end
 
@@ -244,7 +244,7 @@ local negative: int64 = -4294967296
 return c < a, c >> 1LL, ~c, wide & bit, decimal + exponent + hex, grouped, negative
 ]]
     local nativeTree = parser.parse(source, "native-int64.nupp")
-    testAssert.equal(#check.check(nativeTree, "native-int64.nupp", sharedEnv), 0, "native int64 checks")
+    testAssert.eq(#check.check(nativeTree, "native-int64.nupp", sharedEnv), 0, "native int64 checks")
     local nativeCode = gen.generate(nativeTree, "native-int64.nupp")
     assert(nativeCode:find("9223372036854775807LL", 1, true), "native output keeps cdata literals")
     assert(nativeCode:find("68719476735ULL", 1, true), "native output materializes annotated uint64 literals")
@@ -252,10 +252,10 @@ return c < a, c >> 1LL, ~c, wide & bit, decimal + exponent + hex, grouped, negat
     assert(not nativeCode:find('require("nupp.runtime.int64")', 1, true), "native output needs no wide integer module")
     local nativeChunk = assert(loadstring(nativeCode))
     local _, _, _, masked, forms, grouped, negative = nativeChunk()
-    testAssert.equal(tostring(masked), "4294967296ULL", "native annotated uint64 bitwise result")
-    testAssert.equal(tostring(forms), "1017ULL", "integral literal notation materializes at its width")
-    testAssert.equal(tostring(grouped), "4294967296ULL", "parentheses preserve width")
-    testAssert.equal(tostring(negative), "-4294967296LL", "negative literals preserve width")
+    testAssert.eq(tostring(masked), "4294967296ULL", "native annotated uint64 bitwise result")
+    testAssert.eq(tostring(forms), "1017ULL", "integral literal notation materializes at its width")
+    testAssert.eq(tostring(grouped), "4294967296ULL", "parentheses preserve width")
+    testAssert.eq(tostring(negative), "-4294967296LL", "negative literals preserve width")
 
     local compatible = parser.parse(source, "compatible-int64.nupp")
     local diagnostics = check.check(compatible, "compatible-int64.nupp", sharedEnv, {compat = "lua51"})
@@ -272,7 +272,7 @@ local p = new Point(16777217, 254)
 return p
 ]]
     local nativeTree = parser.parse(source, "native-struct.nupp")
-    testAssert.equal(#check.check(nativeTree, "native-struct.nupp", sharedEnv), 0, "native struct checks")
+    testAssert.eq(#check.check(nativeTree, "native-struct.nupp", sharedEnv), 0, "native struct checks")
     local nativeCode = gen.generate(nativeTree, "native-struct.nupp")
     assert(nativeCode:find("require(\"ffi\")", 1, true), "native output keeps direct FFI representation")
     assert(not nativeCode:find("__nuppStructvalue", 1, true), "native output pays no provider access")
@@ -301,7 +301,7 @@ local readable = values:read()
 return #readable, readable[1].value
 ]]
     local tree = parser.parse(source, "wasm-view.nupp")
-    testAssert.equal(
+    testAssert.eq(
         #check.check(tree, "wasm-view.nupp", sharedEnv, {
             host = "browser"
         }),
@@ -309,7 +309,7 @@ return #readable, readable[1].value
         "Wasm views check through both required contracts"
     )
     local code, diags = gen.generate(tree, "wasm-view.nupp")
-    testAssert.equal(#diags, 0, "Wasm views lower")
+    testAssert.eq(#diags, 0, "Wasm views lower")
     assert(code:find("writable%s*:set%s*%(%s*1"), code)
     assert(code:find("readable%s*%.count"), code)
     assert(code:find("readable%s*:get%s*%(%s*1%s*%)%s*%.value"), code)
@@ -332,7 +332,7 @@ function M.poolIsOrdinaryTablesOnEveryHost()
         "\n"
     )
     assertClean(source)
-    testAssert.equal(diagsOf(source, {compat = "lua51"}), "NUPP3015:1", "the LuaJIT-backed pool is not compatible")
+    testAssert.eq(diagsOf(source, {compat = "lua51"}), "NUPP3015:1", "the LuaJIT-backed pool is not compatible")
 end
 
 function M.arenaLowersThroughTheStorageContract()
@@ -353,18 +353,18 @@ function M.arenaLowersThroughTheStorageContract()
     sharedEnv.loaded = {}
     local tree = parser.parse(source, "wasm-arena.nupp")
     local diags = check.check(tree, "wasm-arena.nupp", sharedEnv, {host = "browser"})
-    testAssert.equal(
+    testAssert.eq(
         #diags,
         0,
         "an arena checks through the storage contract" .. (diags[1] and (": " .. diags[1].msg) or "")
     )
     local code, genDiags = gen.generate(tree, "wasm-arena.nupp")
-    testAssert.equal(#genDiags, 0, "an arena lowers through the storage contract")
+    testAssert.eq(#genDiags, 0, "an arena lowers through the storage contract")
     assert(code:find("require(\"ffi\")", 1, true), code)
 end
 
 function M.aComputedRequireArgumentIsChecked()
-    testAssert.equal(
+    testAssert.eq(
         (
             diagsOf(
                 table.concat(
@@ -376,7 +376,7 @@ function M.aComputedRequireArgumentIsChecked()
         "",
         "a computed name of the right type checks"
     )
-    testAssert.equal(
+    testAssert.eq(
         (
             diagsOf(
                 table.concat(
@@ -388,8 +388,8 @@ function M.aComputedRequireArgumentIsChecked()
         "NUPP2004:2",
         "a field no value has is reported inside the call"
     )
-    testAssert.equal((diagsOf("local n: integer = 5\nreturn require(n)")), "NUPP2006:2", "require takes a string")
-    testAssert.equal((diagsOf("return require('nupp.util', 'extra')")), "NUPP2007:1", "and takes one of them")
+    testAssert.eq((diagsOf("local n: integer = 5\nreturn require(n)")), "NUPP2006:2", "require takes a string")
+    testAssert.eq((diagsOf("return require('nupp.util', 'extra')")), "NUPP2007:1", "and takes one of them")
 end
 
 function M.randomUsesPortableBitops()
@@ -428,7 +428,7 @@ function M.oneShotHmacUsesOrdinaryCode()
         "\n"
     )
     assertClean(source)
-    testAssert.equal(diagsOf(source, {compat = "lua51"}), "NUPP3015:1", "the runtime provider is not compatible")
+    testAssert.eq(diagsOf(source, {compat = "lua51"}), "NUPP3015:1", "the runtime provider is not compatible")
 end
 
 function M.browserHttpProviderHasAPortableDependencyClosure()
@@ -437,11 +437,11 @@ function M.browserHttpProviderHasAPortableDependencyClosure()
     local source = handle:read("*a")
     handle:close()
     local result = parser.parse(source, path)
-    testAssert.equal(#result.errors, 0, "syntax errors in browser HTTP provider")
+    testAssert.eq(#result.errors, 0, "syntax errors in browser HTTP provider")
     local root = HERE .. "/.."
     local env = envMod.new(root)
     local diags = check.check(result, path, env, {host = "browser"})
-    testAssert.equal(
+    testAssert.eq(
         diags[1] and diags[1].msg or "",
         "",
         "the browser HTTP provider must not reach a native implementation"
@@ -544,37 +544,37 @@ function M.browserFilesUseEffectsAndRejectMalformedBoundaries()
 
         local before = #calls
         local application, kindReason = browser.applicationPath("logs", "nupp", "files-test")
-        testAssert.equal(application, nil)
-        testAssert.equal(kindReason, "unknown application path kind")
-        testAssert.equal(#calls, before, "an invalid application path kind must not reach the host")
+        testAssert.eq(application, nil)
+        testAssert.eq(kindReason, "unknown application path kind")
+        testAssert.eq(#calls, before, "an invalid application path kind must not reach the host")
         local opened, invalidMode = pcall(browser.open, path, "sideways")
         assert(not opened and tostring(invalidMode):find("no mode named", 1, true), tostring(invalidMode))
-        testAssert.equal(#calls, before, "an invalid mode must not reach the host")
+        testAssert.eq(#calls, before, "an invalid mode must not reach the host")
 
         local file = assert(browser.open(path, "r+"))
-        testAssert.equal(calls[#calls].operation, "open")
-        testAssert.equal(assert(file:seek(3)), 3)
+        testAssert.eq(calls[#calls].operation, "open")
+        testAssert.eq(assert(file:seek(3)), 3)
         local validCalls = #calls
         local sought, invalidOffset = pcall(file.seek, file, math.huge, "set")
         assert(not sought and tostring(invalidOffset):find("must be an integer", 1, true), tostring(invalidOffset))
-        testAssert.equal(#calls, validCalls, "an invalid seek must not reach the host")
+        testAssert.eq(#calls, validCalls, "an invalid seek must not reach the host")
         local read, invalidCount = pcall(file.read, file, math.huge)
         assert(not read and tostring(invalidCount):find("must be an integer", 1, true), tostring(invalidCount))
-        testAssert.equal(assert(file:read(3)), "abc")
+        testAssert.eq(assert(file:read(3)), "abc")
         assert(file:write("xy"))
-        testAssert.equal(written, "xy")
+        testAssert.eq(written, "xy")
         assert(next(leases) == nil, "file transfers must release memory leases")
 
         response["file-size"] = {size = math.huge}
         local size, sizeReason = file:size()
-        testAssert.equal(size, nil)
+        testAssert.eq(size, nil)
         assert(tostring(sizeReason):find("invalid size", 1, true), tostring(sizeReason))
 
         response.info = 7
         assert(not browser.exists(path), "malformed metadata must not report a path")
         response.list = 7
         local listed, listReason = browser.list(path)
-        testAssert.equal(listed, nil)
+        testAssert.eq(listed, nil)
         assert(tostring(listReason):find("invalid directory listing", 1, true), tostring(listReason))
         response.persist = {granted = "yes"}
         local persisted, persistReason = browser.requestPersistentStorage()
@@ -582,7 +582,7 @@ function M.browserFilesUseEffectsAndRejectMalformedBoundaries()
         assert(tostring(persistReason):find("invalid persistence result", 1, true), tostring(persistReason))
 
         file:close()
-        testAssert.equal(calls[#calls].operation, "file-close")
+        testAssert.eq(calls[#calls].operation, "file-close")
     end)
     effects.request = prior
     assert(ok, problem)
@@ -668,7 +668,7 @@ function M.nativeHttpDispatchDrainsAfterAWakerRaises()
         requireFeature = function()
         end,
         succeeded = function(status)
-            testAssert.equal(status, 0)
+            testAssert.eq(status, 0)
         end,
     })
     local client = assert(
@@ -722,8 +722,8 @@ function M.nativeHttpDispatchDrainsAfterAWakerRaises()
     end)
     ok, problem = pcall(client.close, client)
     assert(not ok and tostring(problem):find("admission waker failed", 1, true), tostring(problem))
-    testAssert.equal(released.transfer, 1, "transfer releases after an admission waker failure")
-    testAssert.equal(released.client, 1, "client releases after an admission waker failure")
+    testAssert.eq(released.transfer, 1, "transfer releases after an admission waker failure")
+    testAssert.eq(released.client, 1, "client releases after an admission waker failure")
 end
 
 function M.nativeHttpProviderRejectsMalformedBoundaries()
@@ -779,13 +779,13 @@ function M.nativeHttpProviderRejectsMalformedBoundaries()
     )
     head.status = 99
     local response, reason = client:send(request)
-    testAssert.equal(response, nil)
+    testAssert.eq(response, nil)
     assert(tostring(reason):find("response status", 1, true), tostring(reason))
     head.status, head.version = 200, 99
     response, reason = client:send(request)
-    testAssert.equal(response, nil)
+    testAssert.eq(response, nil)
     assert(tostring(reason):find("protocol version", 1, true), tostring(reason))
-    testAssert.equal(closed, 2, "malformed native responses release their transfer")
+    testAssert.eq(closed, 2, "malformed native responses release their transfer")
     client:close()
     request:close()
 end
@@ -806,7 +806,7 @@ function M.gpuAvailabilityAnswersWithoutRaising()
                     return createStatus
                 end,
                 nuppNativeGpuContextRelease = function(handle)
-                    testAssert.equal(handle, 9ULL)
+                    testAssert.eq(handle, 9ULL)
                     released = released + 1
                     return 0
                 end,
@@ -817,7 +817,7 @@ function M.gpuAvailabilityAnswersWithoutRaising()
                 end
             end,
             succeeded = function(status)
-                testAssert.equal(status, 0)
+                testAssert.eq(status, 0)
             end,
         }
 
@@ -827,26 +827,26 @@ function M.gpuAvailabilityAnswersWithoutRaising()
     end
 
     local withoutFeature = native(0, 0)
-    testAssert.equal(withoutFeature.available(), false, "a provider built without GPU support has no device")
+    testAssert.eq(withoutFeature.available(), false, "a provider built without GPU support has no device")
     local noAdapter = native(4, 1)
-    testAssert.equal(noAdapter.available(), false, "a provider with no adapter has no device")
+    testAssert.eq(noAdapter.available(), false, "a provider with no adapter has no device")
     local adapter, released = native(4, 0)
-    testAssert.equal(adapter.available(), true)
-    testAssert.equal(released(), 1, "the probe closes the device it opened")
+    testAssert.eq(adapter.available(), true)
+    testAssert.eq(released(), 1, "the probe closes the device it opened")
 
     local refused = require("providerstate").browserGpu({
         await = function()
             error("WebGPU is unavailable", 0)
         end,
     })
-    testAssert.equal(refused.available(), false, "a host without WebGPU has no device")
+    testAssert.eq(refused.available(), false, "a host without WebGPU has no device")
     local host = {
         await = function()
             return {driver = "webgpu"}
         end,
     }
-    testAssert.equal(require("providerstate").browserGpu(host).available(), true)
-    testAssert.equal(host.closed.payload.operation, "runtime-close", "the probe closes the device it opened")
+    testAssert.eq(require("providerstate").browserGpu(host).available(), true)
+    testAssert.eq(host.closed.payload.operation, "runtime-close", "the probe closes the device it opened")
 end
 
 function M.filesystemNamesAreFilesPathsEverywhere()
@@ -891,7 +891,7 @@ function M.optionBagsArePlainTables()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         (diagsOf(table.concat({"const http = require(\"io.http\")", "local options = new http.Options()",}, "\n"))),
         "NUPP2004:2",
         "http.Options is not a record to construct"
@@ -932,19 +932,19 @@ function M.anHttpClientPumpsItsTransfersOnRequest()
         end,
     })
     local client = provider.newClient()
-    testAssert.equal(client.flush, nil, "the old flush spelling is gone")
+    testAssert.eq(client.flush, nil, "the old flush spelling is gone")
     -- Waiting sleeps on the shared readiness generation rather than inside the
     -- transport, so a pump drains once and, told to wait and finding nothing
     -- settled, drains again after the sleep.
     client:pump()
-    testAssert.equal(polls, 1, "a pump without a timeout drains once and does not wait")
+    testAssert.eq(polls, 1, "a pump without a timeout drains once and does not wait")
     client:pump(25)
-    testAssert.equal(polls, 3, "a pump told to wait drains, sleeps, and drains again")
+    testAssert.eq(polls, 3, "a pump told to wait drains, sleeps, and drains again")
     local ok, problem = pcall(client.pump, client, -1)
     assert(not ok and tostring(problem):find("timeoutMs", 1, true), tostring(problem))
     client:close()
     client:pump()
-    testAssert.equal(polls, 3, "a closed client drives nothing")
+    testAssert.eq(polls, 3, "a closed client drives nothing")
 end
 
 function M.nativeGpuRejectsFractionalCountsBeforeTheAbi()
@@ -991,7 +991,7 @@ function M.nativeGpuRejectsFractionalCountsBeforeTheAbi()
         requireFeature = function()
         end,
         succeeded = function(status)
-            testAssert.equal(status, 0)
+            testAssert.eq(status, 0)
         end,
     })
     local context = provider.open()
@@ -1029,7 +1029,7 @@ function M.browserCryptoRejectsMalformedHostValues()
     local base64 = require("serde.base64")
 
     returned.random = {bytesBase64 = base64.encode("\0")}
-    testAssert.equal(browser.randomBytes(1), "\0")
+    testAssert.eq(browser.randomBytes(1), "\0")
     returned.random = {bytesBase64 = base64.encode("short")}
     local ok, problem = pcall(browser.randomBytes, 6)
     assert(not ok and tostring(problem):find("bytesBase64", 1, true), tostring(problem))
@@ -1038,13 +1038,13 @@ function M.browserCryptoRejectsMalformedHostValues()
     assert(not ok and tostring(problem):find("bytesBase64", 1, true), tostring(problem))
 
     returned.sha256 = string.rep("a", 64)
-    testAssert.equal(browser.sha256("value"), returned.sha256)
+    testAssert.eq(browser.sha256("value"), returned.sha256)
     returned.sha256 = string.rep("A", 64)
     ok, problem = pcall(browser.sha256, "value")
     assert(not ok and tostring(problem):find("SHA-256", 1, true), tostring(problem))
 
     returned["hmac-sha256"] = {digestBase64 = base64.encode(string.rep("x", 32))}
-    testAssert.equal(#browser.digest("key", "value"), 32)
+    testAssert.eq(#browser.digest("key", "value"), 32)
     returned["hmac-sha256"] = {digestBase64 = base64.encode("short")}
     ok, problem = pcall(browser.digest, "key", "value")
     assert(not ok and tostring(problem):find("digestBase64", 1, true), tostring(problem))
@@ -1070,7 +1070,7 @@ function M.browserSystemRejectsMalformedParallelism()
         assert(not ok and tostring(problem):find("invalid available parallelism", 1, true), tostring(problem))
     end
     value = {availableParallelism = 3}
-    testAssert.equal(browser.availableParallelism(), 3)
+    testAssert.eq(browser.availableParallelism(), 3)
 end
 
 function M.browserTimeRejectsMalformedClocksAndWakeResults()
@@ -1090,8 +1090,8 @@ function M.browserTimeRejectsMalformedClocksAndWakeResults()
             end,
         }
     )
-    testAssert.equal(browser.now(), 12.5)
-    testAssert.equal(browser.wallTime(), 1000)
+    testAssert.eq(browser.now(), 12.5)
+    testAssert.eq(browser.wallTime(), 1000)
     for _, malformed in ipairs({"12", -1, math.huge}) do
         values.now = malformed
         local ok, problem = pcall(browser.now)
@@ -1103,11 +1103,11 @@ function M.browserTimeRejectsMalformedClocksAndWakeResults()
         woke = answer
     end)
     delivered({ok = true, value = nil})
-    testAssert.equal(woke, true)
+    testAssert.eq(woke, true)
     delivered({ok = false, error = "refused"})
-    testAssert.equal(woke, false)
+    testAssert.eq(woke, false)
     delivered({})
-    testAssert.equal(woke, false, "a malformed timer response must not report success")
+    testAssert.eq(woke, false, "a malformed timer response must not report success")
 end
 
 function M.browserHttpRejectsMalformedHostValuesAndReleasesBodies()
@@ -1156,20 +1156,20 @@ function M.browserHttpRejectsMalformedHostValuesAndReleasesBodies()
         }) do
             returned = case.value
             local response, reason = client:send(request)
-            testAssert.equal(response, nil)
+            testAssert.eq(response, nil)
             assert(tostring(reason):find(case.expected, 1, true), tostring(reason))
         end
-        testAssert.equal(table.concat(released, ","), "2,3,4", "malformed metadata releases valid body handles")
+        testAssert.eq(table.concat(released, ","), "2,3,4", "malformed metadata releases valid body handles")
 
         returned = {status = 200, body = 5, bodyBytes = 0, headers = {}}
         copied = 1
         local sent, invalidCopy = pcall(client.send, client, request)
         assert(not sent and tostring(invalidCopy):find("copied byte count", 1, true), tostring(invalidCopy))
-        testAssert.equal(released[#released], 5)
+        testAssert.eq(released[#released], 5)
 
         assert(type(discard) == "function", "browser HTTP supplies a late-response discard")
         discard({ok = true, value = {body = 6}})
-        testAssert.equal(released[#released], 6, "a cancelled response releases its retained host body")
+        testAssert.eq(released[#released], 6, "a cancelled response releases its retained host body")
         client:close()
         request:close()
         assert(next(leases) == nil)
@@ -1208,9 +1208,9 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
                 assert(headers[name] == nil, "browser HTTP sent a duplicate header")
                 headers[name] = header[2]
             end
-            testAssert.equal(headers["x-test"], "request")
-            testAssert.equal(headers["content-type"], "request/type")
-            testAssert.equal(headers["x-default"], "client")
+            testAssert.eq(headers["x-test"], "request")
+            testAssert.eq(headers["content-type"], "request/type")
+            testAssert.eq(headers["x-default"], "client")
             local upload = assert(leases[effect.bodyLease])
             assert(not upload.writable and ffi.string(upload.pointer, upload.count) == "upload")
             resume({
@@ -1253,26 +1253,26 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
         )
         local response, reason = client:send(request)
         assert(response, reason)
-        testAssert.equal(response.status, 204)
+        testAssert.eq(response.status, 204)
         assert(response:ok())
-        testAssert.equal(response.version, nil)
-        testAssert.equal(response:header("X-TEST"), "one, two")
-        testAssert.equal(response:header("set-cookie"), "first")
+        testAssert.eq(response.version, nil)
+        testAssert.eq(response:header("X-TEST"), "one, two")
+        testAssert.eq(response:header("set-cookie"), "first")
         local repeated = response:headerValues("x-test")
-        testAssert.equal(#repeated, 2)
+        testAssert.eq(#repeated, 2)
         repeated[1] = "changed"
-        testAssert.equal(response:headerValues("x-test")[1], "one", "headerValues returns a fresh list")
+        testAssert.eq(response:headerValues("x-test")[1], "one", "headerValues returns a fresh list")
         local headers = response:headers()
         headers["x-test"] = "changed"
-        testAssert.equal(response:headers()["x-test"], "one, two", "headers returns a fresh mapping")
+        testAssert.eq(response:headers()["x-test"], "one, two", "headers returns a fresh mapping")
         local destination = require("io").newbuffer()
-        testAssert.equal(response.body:readInto(destination, 0, 2), 2)
-        testAssert.equal(destination:getString(), "ab")
-        testAssert.equal(response.body:read(3), "c", "the returned response owns a live ordinary reader")
+        testAssert.eq(response.body:readInto(destination, 0, 2), 2)
+        testAssert.eq(destination:getString(), "ab")
+        testAssert.eq(response.body:read(3), "c", "the returned response owns a live ordinary reader")
         response:close()
         local bytes, closed = response.body:read(1)
-        testAssert.equal(bytes, nil)
-        testAssert.equal(closed, "the reader is closed")
+        testAssert.eq(bytes, nil)
+        testAssert.eq(closed, "the reader is closed")
         request:close()
         assert(closedUpload, "the request retains its upload close obligation")
         client:close()
@@ -1410,10 +1410,10 @@ function M.browserGpuProtectsCancelledResourcesAndTransferLeases()
         1
     )
     assert(not compiled and kernelProblem == "cancelled kernel", tostring(kernelProblem))
-    testAssert.equal(cancelledHost.requests[1].payload.operation, "runtime-destroy-buffer")
-    testAssert.equal(cancelledHost.requests[1].payload.buffer, 41)
-    testAssert.equal(cancelledHost.requests[2].payload.operation, "runtime-destroy-kernel")
-    testAssert.equal(cancelledHost.requests[2].payload.kernel, 42)
+    testAssert.eq(cancelledHost.requests[1].payload.operation, "runtime-destroy-buffer")
+    testAssert.eq(cancelledHost.requests[1].payload.buffer, 41)
+    testAssert.eq(cancelledHost.requests[2].payload.operation, "runtime-destroy-kernel")
+    testAssert.eq(cancelledHost.requests[2].payload.kernel, 42)
     cancelledContext:close()
 
     local nextBuffer, nextKernel = 0, 0
@@ -1501,8 +1501,8 @@ function M.browserGpuProtectsCancelledResourcesAndTransferLeases()
     for _, request in ipairs(host.requests) do
         queued[request.payload.operation] = request.payload
     end
-    testAssert.equal(queued["runtime-destroy-buffer"].buffer, input._handle)
-    testAssert.equal(queued["runtime-destroy-kernel"].kernel, kernel._handle)
+    testAssert.eq(queued["runtime-destroy-buffer"].buffer, input._handle)
+    testAssert.eq(queued["runtime-destroy-kernel"].kernel, kernel._handle)
     failure = nil
     context:close()
 end
@@ -1527,7 +1527,7 @@ function M.browserEffectsHandCancelledResourcesToTheirDiscard()
     local ok, encoded = coroutine.resume(shipped)
     assert(ok, encoded)
     local batch = json.decode(encoded)
-    testAssert.equal(#batch.requests, 1, "the park ships the queued request")
+    testAssert.eq(#batch.requests, 1, "the park ships the queued request")
     -- Cancelled after it shipped: the host opened the file whatever this side
     -- decided, so the handle has to reach the discard or it leaks.
     cancel()
@@ -1540,7 +1540,7 @@ function M.browserEffectsHandCancelledResourcesToTheirDiscard()
         )
     )
     assert(not resumed, "a cancelled request must not resume its waiter")
-    testAssert.equal(discarded, 7, "a cancelled request still hears about the resource it was handed")
+    testAssert.eq(discarded, 7, "a cancelled request still hears about the resource it was handed")
 end
 
 function M.browserEffectsDropCancelledRequestsBeforeTheyShip()
@@ -1562,7 +1562,7 @@ function M.browserEffectsDropCancelledRequestsBeforeTheyShip()
     end)
     local ok, encoded = coroutine.resume(shipped)
     assert(ok, encoded)
-    testAssert.equal(json.decode(encoded).kind, "poll", "a request cancelled before it ships never happens")
+    testAssert.eq(json.decode(encoded).kind, "poll", "a request cancelled before it ships never happens")
     assert(coroutine.resume(shipped, json.encode({responses = json.asArray({})})))
     assert(not discarded, "nothing was opened, so nothing is discarded")
 end
@@ -1717,15 +1717,15 @@ end
 function M.stringLibrary()
     assertClean("local s: string = string.format('%d', 3)")
     assertClean("local s: string = string.format('%d', 3)\nreturn string.rep(s, 2)", {compat = "lua51"})
-    testAssert.equal((diagsOf("local n: number = string.format('%d', 3)")), "NUPP2001:1")
-    testAssert.equal((diagsOf("string.formt('%d', 3)")), "NUPP2004:1")
+    testAssert.eq((diagsOf("local n: number = string.format('%d', 3)")), "NUPP2001:1")
+    testAssert.eq((diagsOf("string.formt('%d', 3)")), "NUPP2004:1")
     assertClean("local a, b = string.find('abc', 'b')\nlocal x: integer? = a")
 end
 
 function M.stringMethods()
     assertClean("local s: string = ('abc'):sub(1, 2)")
     assertClean("local s: string = 'abc'\nlocal u: string = s:upper()")
-    testAssert.equal((diagsOf("local s: string = 'abc'\ns:sub('bad')")), "NUPP2006:2")
+    testAssert.eq((diagsOf("local s: string = 'abc'\ns:sub('bad')")), "NUPP2006:2")
 end
 
 function M.mathAndBit()
@@ -1733,10 +1733,10 @@ function M.mathAndBit()
     assertClean("local n: number = math.max(1, 2, 3)")
     assertClean("local i: integer = bit.band(0xFF, 0x0F)")
     assertClean("local a, b, c = bit.band(1), bit.bor(1), bit.bxor(1)")
-    testAssert.equal((diagsOf("bit.band()")), "NUPP2006:1")
-    testAssert.equal((diagsOf("bit.bor()")), "NUPP2006:1")
-    testAssert.equal((diagsOf("bit.bxor()")), "NUPP2006:1")
-    testAssert.equal((diagsOf("math.floor('x')")), "NUPP2006:1")
+    testAssert.eq((diagsOf("bit.band()")), "NUPP2006:1")
+    testAssert.eq((diagsOf("bit.bor()")), "NUPP2006:1")
+    testAssert.eq((diagsOf("bit.bxor()")), "NUPP2006:1")
+    testAssert.eq((diagsOf("math.floor('x')")), "NUPP2006:1")
 end
 
 function M.mathRandomOverloadsMatchLuaJitArities()
@@ -1750,7 +1750,7 @@ function M.mathRandomOverloadsMatchLuaJitArities()
             "\n"
         )
     )
-    testAssert.equal((diagsOf("math.random(nil, 2)")), "NUPP2125:1")
+    testAssert.eq((diagsOf("math.random(nil, 2)")), "NUPP2125:1")
 
     local unit = math.random()
     local upper = math.random(10)
@@ -1759,7 +1759,7 @@ function M.mathRandomOverloadsMatchLuaJitArities()
         type(unit) == "number" and type(upper) == "number" and type(fractional) == "number",
         "every documented math.random arity returns a Lua number"
     )
-    testAssert.equal(pcall(math.random, nil, 2), false, "the rejected nil hole also fails in LuaJIT")
+    testAssert.eq(pcall(math.random, nil, 2), false, "the rejected nil hole also fails in LuaJIT")
 end
 
 function M.mathMinMaxKeepIntegers()
@@ -1775,15 +1775,15 @@ function M.mathMinMaxKeepIntegers()
         )
     )
     assertClean("local w: number = math.min(1.5, 2)")
-    testAssert.equal((diagsOf("local bad: integer = math.min(1.5, 2.5)")), "NUPP2001:1")
-    testAssert.equal((diagsOf("math.min('nope', 1)")), "NUPP2116:1")
+    testAssert.eq((diagsOf("local bad: integer = math.min(1.5, 2.5)")), "NUPP2001:1")
+    testAssert.eq((diagsOf("math.min('nope', 1)")), "NUPP2116:1")
 end
 
 function M.typedVarargElements()
     assertClean(
         table.concat({"local function sum(...: integer): integer", "    return 0", "end", "sum(1, 2, 3)",}, "\n")
     )
-    testAssert.equal(
+    testAssert.eq(
         (
             diagsOf(
                 table.concat(
@@ -1794,7 +1794,7 @@ function M.typedVarargElements()
         ),
         "NUPP2006:4"
     )
-    testAssert.equal((diagsOf("string.char(65, 'B')")), "NUPP2006:1")
+    testAssert.eq((diagsOf("string.char(65, 'B')")), "NUPP2006:1")
     assertClean(table.concat({"local function anything(...) end", "anything(1, 'two', {})",}, "\n"))
 end
 
@@ -1863,12 +1863,12 @@ end
 function M.nativeFeaturesAreResolvedEffects()
     local function effectsOf(source)
         local result = parser.parse(source, "native-effects")
-        testAssert.equal(#result.errors, 0, "native-effects source parses")
+        testAssert.eq(#result.errors, 0, "native-effects source parses")
         check.check(result, "native-effects", sharedEnv)
         return result.effects or {}
     end
 
-    testAssert.equal(
+    testAssert.eq(
         (diagsOf("local location: NuppPath")),
         "NUPP2101:1",
         "qualified nominals do not leak into the ambient type namespace"
@@ -1935,7 +1935,7 @@ function M.nativeFeaturesAreResolvedEffects()
         for _ in pairs(found) do
             count = count + 1
         end
-        testAssert.equal(count, 1, source .. " records only its own facility")
+        testAssert.eq(count, 1, source .. " records only its own facility")
     end
 
     assertClean(
@@ -2008,7 +2008,7 @@ function M.processViewsSatisfyTheSharedContracts()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         (
             diagsOf(
                 table.concat(
@@ -2026,7 +2026,7 @@ function M.processViewsSatisfyTheSharedContracts()
         "NUPP2001:5 NUPP2608:5",
         "a view cannot escape its borrowed process stream"
     )
-    testAssert.equal(
+    testAssert.eq(
         (
             diagsOf(
                 table.concat(
@@ -2054,9 +2054,9 @@ function M.processSurfaceIsBundledOutsideThisCheckout()
         "\n"
     )
     local result = parser.parse(source, "outside.nupp")
-    testAssert.equal(#result.errors, 0, "the external consumer parses")
+    testAssert.eq(#result.errors, 0, "the external consumer parses")
     local diags = check.check(result, "outside.nupp", isolated)
-    testAssert.equal(#diags, 0, "the shipped process source supplies its typed surface")
+    testAssert.eq(#diags, 0, "the shipped process source supplies its typed surface")
 end
 
 function M.randomSurfaceIsBundledOutsideThisCheckout()
@@ -2070,9 +2070,9 @@ function M.randomSurfaceIsBundledOutsideThisCheckout()
         "\n"
     )
     local result = parser.parse(source, "outside.nupp")
-    testAssert.equal(#result.errors, 0, "the external consumer parses")
+    testAssert.eq(#result.errors, 0, "the external consumer parses")
     local diags = check.check(result, "outside.nupp", isolated)
-    testAssert.equal(#diags, 0, "the shipped random source supplies its typed surface")
+    testAssert.eq(#diags, 0, "the shipped random source supplies its typed surface")
 end
 
 function M.digestAndMacSurfacesAreBundledOutsideThisCheckout()
@@ -2089,9 +2089,9 @@ function M.digestAndMacSurfacesAreBundledOutsideThisCheckout()
         "\n"
     )
     local result = parser.parse(source, "outside.nupp")
-    testAssert.equal(#result.errors, 0, "the external consumer parses")
+    testAssert.eq(#result.errors, 0, "the external consumer parses")
     local diags = check.check(result, "outside.nupp", isolated)
-    testAssert.equal(#diags, 0, "the shipped streaming hash source supplies its typed surface")
+    testAssert.eq(#diags, 0, "the shipped streaming hash source supplies its typed surface")
 end
 
 function M.optimizedDeadCodeDropsItsNativeFeatures()
@@ -2114,7 +2114,7 @@ function M.generatedBootstrapFollowsWhatCodegenEmits()
         "\n"
     )
     local result = parser.parse(source, "generated-runtime-features")
-    testAssert.equal(#result.errors, 0, "generated-runtime-features source parses")
+    testAssert.eq(#result.errors, 0, "generated-runtime-features source parses")
     check.check(result, "generated-runtime-features", sharedEnv)
     assert(
         result.effects["runtime.system"] and result.effects["runtime.uuid"],
@@ -2123,7 +2123,7 @@ function M.generatedBootstrapFollowsWhatCodegenEmits()
     optimize.run(result, {level = 1})
 
     local code, diagnostics, _, emitted = gen.generate(result, "generated-runtime-features")
-    testAssert.equal(#diagnostics, 0, "the optimized feature fragment generates")
+    testAssert.eq(#diagnostics, 0, "the optimized feature fragment generates")
     assert(
         not emitted["runtime.system"] and emitted["runtime.uuid"],
         "generation reports only features whose consumers it wrote"
@@ -2258,25 +2258,25 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
         )
     )
 
-    testAssert.equal((diagsOf("const files = require(\"io.files\")\nlocal n: number = files.read('x')")), "NUPP2001:2")
+    testAssert.eq((diagsOf("const files = require(\"io.files\")\nlocal n: number = files.read('x')")), "NUPP2001:2")
     assertClean(
         "const files = require(\"io.files\")\nlocal paths: {io.path.Path} = assert(files.glob('src/**/*.nupp'))"
     )
-    testAssert.equal(
+    testAssert.eq(
         (diagsOf("const files = require(\"io.files\")\nfiles.glob(io.path.newpath('src'))")),
         "NUPP2006:2",
         "a glob takes a pattern, not a path"
     )
     assertClean("const files = require(\"io.files\")\nlocal link: boolean = files.issymlink('x')")
-    testAssert.equal((diagsOf("const files = require(\"io.files\")\nfiles.info(42)")), "NUPP2006:2")
-    testAssert.equal((diagsOf("const files = require(\"io.files\")\nfiles.open('x')")), "NUPP2605:2")
-    testAssert.equal((diagsOf("const files = require(\"io.files\")\nfiles.createtemporaryfile()")), "NUPP2605:2")
+    testAssert.eq((diagsOf("const files = require(\"io.files\")\nfiles.info(42)")), "NUPP2006:2")
+    testAssert.eq((diagsOf("const files = require(\"io.files\")\nfiles.open('x')")), "NUPP2605:2")
+    testAssert.eq((diagsOf("const files = require(\"io.files\")\nfiles.createtemporaryfile()")), "NUPP2605:2")
 end
 
 function M.luaFilesAndPublicResourcesUseAffineConstructors()
-    testAssert.equal((diagsOf("io.open('input.txt')")), "NUPP2605:1")
-    testAssert.equal((diagsOf("io.popen('true')")), "NUPP2605:1")
-    testAssert.equal((diagsOf("io.tmpfile()")), "NUPP2605:1")
+    testAssert.eq((diagsOf("io.open('input.txt')")), "NUPP2605:1")
+    testAssert.eq((diagsOf("io.popen('true')")), "NUPP2605:1")
+    testAssert.eq((diagsOf("io.tmpfile()")), "NUPP2605:1")
     assertClean(
         table.concat(
             {
@@ -2291,7 +2291,7 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
 
     local source = "do\n    local file = assert(io.open('input.txt'))\nend"
     local parsed = parser.parse(source, "lua-file-owner.nupp")
-    testAssert.equal(#parsed.errors, 0, "syntax errors in the Lua file ownership fragment")
+    testAssert.eq(#parsed.errors, 0, "syntax errors in the Lua file ownership fragment")
     sharedEnv.loaded = {}
     check.check(parsed, "lua-file-owner.nupp", sharedEnv)
     local code = gen.generate(parsed, "lua-file-owner")
@@ -2316,11 +2316,8 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
             "\n"
         )
     )
-    testAssert.equal(
-        (diagsOf(table.concat({"const http = require(\"io.http\")", "http.client()",}, "\n"))),
-        "NUPP2004:2"
-    )
-    testAssert.equal(
+    testAssert.eq((diagsOf(table.concat({"const http = require(\"io.http\")", "http.client()",}, "\n"))), "NUPP2004:2")
+    testAssert.eq(
         (
             diagsOf(
                 table.concat({"const process = require('nupp.io.process')", "process.new({args = {'true'}})",}, "\n")
@@ -2339,7 +2336,7 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         (diagsOf(table.concat({"const path = require('io.path')", "local value = new path.Path()",}, "\n"))),
         "NUPP2209:2"
     )
@@ -2366,7 +2363,7 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         (diagsOf(table.concat({"const uri = require('io.uri')", "local value = new uri.URI()",}, "\n"))),
         "NUPP2209:2"
     )
@@ -2539,15 +2536,15 @@ function M.utf8EncodingCoversEveryBoundary()
         {0x1F600, "\240\159\152\128"},
     }
     for _, case in ipairs(boundaries) do
-        testAssert.equal(utf8.encode(case[1]), case[2], ("the encoding of U+%04X"):format(case[1]))
+        testAssert.eq(utf8.encode(case[1]), case[2], ("the encoding of U+%04X"):format(case[1]))
         if case[1] < 0xD800 or case[1] > 0xDFFF then
             local codepoint, nextAt = utf8.decodeat(case[2], 1)
-            testAssert.equal(codepoint, case[1], ("decoding U+%04X"):format(case[1]))
-            testAssert.equal(nextAt, #case[2] + 1, ("the width of U+%04X"):format(case[1]))
+            testAssert.eq(codepoint, case[1], ("decoding U+%04X"):format(case[1]))
+            testAssert.eq(nextAt, #case[2] + 1, ("the width of U+%04X"):format(case[1]))
         end
     end
-    testAssert.equal(utf8.isvalid(utf8.encode(0xD800)), false, "an encoded surrogate half is not valid UTF-8")
-    testAssert.equal(utf8.decodeat(utf8.encode(0x1F600), 1), 0x1F600, "a four-byte scalar decodes back")
+    testAssert.eq(utf8.isvalid(utf8.encode(0xD800)), false, "an encoded surrogate half is not valid UTF-8")
+    testAssert.eq(utf8.decodeat(utf8.encode(0x1F600), 1), 0x1F600, "a four-byte scalar decodes back")
     for _, outside in ipairs({-1, 0x110000, 0.5}) do
         assert(not pcall(utf8.encode, outside), tostring(outside) .. " is not a codepoint")
     end
@@ -2571,25 +2568,25 @@ function M.utf8WalkingPreservesEveryByteBoundary()
         while true do
             local codepoint, nextAt = utf8.decodeat(value, at)
             if codepoint == nil then
-                testAssert.equal(nextAt, #value + 1, "forward end offset")
+                testAssert.eq(nextAt, #value + 1, "forward end offset")
                 break
             end
             assert(nextAt > at, "forward decoding always makes progress")
             forward[#forward + 1] = {codepoint, at, nextAt}
             at = nextAt
         end
-        testAssert.equal(utf8.len(value), #forward, "length matches a forward walk")
+        testAssert.eq(utf8.len(value), #forward, "length matches a forward walk")
 
         at = #value + 1
         for index = #forward, 1, -1 do
             local codepoint, startAt = utf8.decodebefore(value, at)
-            testAssert.equal(codepoint, forward[index][1], "reverse codepoint")
-            testAssert.equal(startAt, forward[index][2], "reverse start offset")
+            testAssert.eq(codepoint, forward[index][1], "reverse codepoint")
+            testAssert.eq(startAt, forward[index][2], "reverse start offset")
             at = startAt
         end
         local codepoint, startAt = utf8.decodebefore(value, at)
-        testAssert.equal(codepoint, nil, "reverse start sentinel")
-        testAssert.equal(startAt, 1, "reverse start offset")
+        testAssert.eq(codepoint, nil, "reverse start sentinel")
+        testAssert.eq(startAt, 1, "reverse start offset")
     end
 
     for _, badOffset in ipairs({0, 2, 1.5}) do
@@ -2602,15 +2599,15 @@ function M.utf8ByteViewsAndBudgetsMatchStrings()
     local utf8 = require("utf8")
     local buffer = require("io").newbuffer("A\xe2\x82\xacZ")
     local view = buffer:view()
-    testAssert.equal(utf8.len(view), 3, "byte-view length")
-    testAssert.equal(utf8.isvalid(view), true, "byte-view validation")
-    testAssert.equal(utf8.validprefixlength(view, 4), 4, "byte-view prefix")
+    testAssert.eq(utf8.len(view), 3, "byte-view length")
+    testAssert.eq(utf8.isvalid(view), true, "byte-view validation")
+    testAssert.eq(utf8.validprefixlength(view, 4), 4, "byte-view prefix")
     view:close()
     buffer:close()
 
-    testAssert.equal(utf8.validprefixlength("A", -1), 0, "a negative budget is empty")
-    testAssert.equal(utf8.validprefixlength("A", 0), 0, "a zero budget is empty")
-    testAssert.equal(utf8.validprefixlength("A", 2), 1, "a large budget stops at the end")
+    testAssert.eq(utf8.validprefixlength("A", -1), 0, "a negative budget is empty")
+    testAssert.eq(utf8.validprefixlength("A", 0), 0, "a zero budget is empty")
+    testAssert.eq(utf8.validprefixlength("A", 2), 1, "a large budget stops at the end")
     assert(not pcall(utf8.validprefixlength, "AB", 1.5), "a prefix budget must be an integer")
     assert(not pcall(utf8.validprefixlength, "AB", math.huge), "an infinite prefix budget is not an integer")
     assert(not pcall(utf8.truncate, "AB", 1.5), "a truncate budget must be an integer")
@@ -2649,14 +2646,14 @@ function M.jsonEncodingRefusesEveryMalformedUtf8Shape()
         local value, valid = case[1], case[2]
         local what = case[3] or ("%q"):format(value)
         local ok, result = pcall(json.encode, value)
-        testAssert.equal(ok, valid, "encoding " .. what)
+        testAssert.eq(ok, valid, "encoding " .. what)
         if valid then
-            testAssert.equal(result, case[4] or ('"' .. value .. '"'), "the encoding of " .. what)
+            testAssert.eq(result, case[4] or ('"' .. value .. '"'), "the encoding of " .. what)
         else
             assert(tostring(result):find("invalid UTF-8", 1, true), "a refusal says what was wrong with " .. what)
         end
         -- The same bytes as an object key take the same route as a value.
-        testAssert.equal(pcall(json.encode, {[value] = 1}), valid, "encoding " .. what .. " as a key")
+        testAssert.eq(pcall(json.encode, {[value] = 1}), valid, "encoding " .. what .. " as a key")
     end
 end
 
@@ -2665,7 +2662,7 @@ function M.utf8ValidationCoversEveryShape()
     for _, case in ipairs(UTF8_SHAPES) do
         local value, valid = case[1], case[2]
         local what = case[3] or ("%q"):format(value)
-        testAssert.equal(utf8.isvalid(value), valid, "validating " .. what)
+        testAssert.eq(utf8.isvalid(value), valid, "validating " .. what)
         -- The longest valid prefix within every budget the value admits.
         for budget = 0, #value do
             local length = utf8.validprefixlength(value, budget)
@@ -2679,7 +2676,7 @@ function M.utf8ValidationCoversEveryShape()
             end
         end
         if valid then
-            testAssert.equal(utf8.truncate(value, #value), value, "a whole valid value truncates to itself")
+            testAssert.eq(utf8.truncate(value, #value), value, "a whole valid value truncates to itself")
         end
     end
 end
@@ -2693,7 +2690,7 @@ function M.nativeProvidersOpenOnlyWhenTheirModuleLoads()
     local loadedPath = package.loaded["nupp.io.pathimpl"]
     package.loaded["nupp.io.pathimpl"] = nil
     local chunk = assert(loadstring(bootstrap .. " return package.loaded.ffi"))
-    testAssert.equal(chunk(), loadedFFI, "installing the bootstrap opens no provider")
+    testAssert.eq(chunk(), loadedFFI, "installing the bootstrap opens no provider")
     package.loaded["nupp.io.pathimpl"] = loadedPath
 end
 
@@ -2731,7 +2728,7 @@ end
 function M.removedPegNamespaceDoesNotResolve()
     local got = diagsOf("return nupp.peg")
     assert(got:find("NUPP2004", 1, true), got)
-    testAssert.equal(
+    testAssert.eq(
         #native.features({
             ["stdlib.peg"] = true,
             ["stdlib.peg.compile"] = true
@@ -2751,9 +2748,9 @@ function M.pureAndNativeRuntimeFeaturesComposeAsLua()
     )
     local codecType, keyedType, io = chunk()
     _G.nupp = previous
-    testAssert.equal(codecType, "table", "the pure field-codec runtime is installed")
-    testAssert.equal(keyedType, "function", "the keyed codec helper is installed")
-    testAssert.equal(io, nil, "selecting a native facility installs no ambient io namespace")
+    testAssert.eq(codecType, "table", "the pure field-codec runtime is installed")
+    testAssert.eq(keyedType, "function", "the keyed codec helper is installed")
+    testAssert.eq(io, nil, "selecting a native facility installs no ambient io namespace")
 end
 
 function M.lpegAndReUseTheNativeRuntime()
@@ -2794,16 +2791,16 @@ return identifier:match("name9"), fields:match("1,22,333"),
     package.loaded.re = previousReLoaded
     package.preload.re = previousRePreload
     _G.nupp = previousNupp
-    testAssert.equal(identifier, "name9", "LPeg facade substring capture")
-    testAssert.equal(fields[3], "333", "LPeg facade table capture")
-    testAssert.equal(same, "echo", "LPeg facade back capture")
-    testAssert.equal(recursive, 6, "LPeg facade recursive grammar")
-    testAssert.equal(substitution, "a[12]b", "LPeg facade substitution")
-    testAssert.equal(positions[1], 1, "LPeg facade first position")
-    testAssert.equal(positions[4], 3, "LPeg facade final position")
-    testAssert.equal(version, "LPeg 1.1.0", "LPeg facade version field")
-    testAssert.equal(reFirst, "item", "bundled re first capture")
-    testAssert.equal(reSecond, "42", "bundled re second capture")
+    testAssert.eq(identifier, "name9", "LPeg facade substring capture")
+    testAssert.eq(fields[3], "333", "LPeg facade table capture")
+    testAssert.eq(same, "echo", "LPeg facade back capture")
+    testAssert.eq(recursive, 6, "LPeg facade recursive grammar")
+    testAssert.eq(substitution, "a[12]b", "LPeg facade substitution")
+    testAssert.eq(positions[1], 1, "LPeg facade first position")
+    testAssert.eq(positions[4], 3, "LPeg facade final position")
+    testAssert.eq(version, "LPeg 1.1.0", "LPeg facade version field")
+    testAssert.eq(reFirst, "item", "bundled re first capture")
+    testAssert.eq(reSecond, "42", "bundled re second capture")
 end
 
 function M.nativeFeatureOverridesAreTriState()
@@ -2829,13 +2826,13 @@ function M.selectOverloadsSeparateCountFromPackSelection()
             "\n"
         )
     )
-    testAssert.equal((diagsOf("select('bad', 1, 2)")), "NUPP2125:1")
+    testAssert.eq((diagsOf("select('bad', 1, 2)")), "NUPP2125:1")
 
-    testAssert.equal(select("#", 1, "two", true), 3, "the count overload matches LuaJIT")
+    testAssert.eq(select("#", 1, "two", true), 3, "the count overload matches LuaJIT")
     local text, flag = select(2, 1, "two", true)
-    testAssert.equal(text, "two", "the numeric overload starts at its index")
-    testAssert.equal(flag, true, "and preserves the rest of the pack")
-    testAssert.equal(pcall(select, "bad", 1, 2), false, "the rejected selector also fails in LuaJIT")
+    testAssert.eq(text, "two", "the numeric overload starts at its index")
+    testAssert.eq(flag, true, "and preserves the rest of the pack")
+    testAssert.eq(pcall(select, "bad", 1, 2), false, "the rejected selector also fails in LuaJIT")
 end
 
 function M.collectgarbageOverloadsTrackResultKinds()
@@ -2851,13 +2848,13 @@ function M.collectgarbageOverloadsTrackResultKinds()
             "\n"
         )
     )
-    testAssert.equal((diagsOf("collectgarbage('unknown')")), "NUPP2125:1")
+    testAssert.eq((diagsOf("collectgarbage('unknown')")), "NUPP2125:1")
 
-    testAssert.equal(type(collectgarbage()), "number", "the default collection reports a number")
-    testAssert.equal(type(collectgarbage("count")), "number", "count reports a number")
-    testAssert.equal(type(collectgarbage("step", 0)), "boolean", "step reports a boolean")
-    testAssert.equal(type(collectgarbage("isrunning")), "boolean", "isrunning reports a boolean")
-    testAssert.equal(pcall(collectgarbage, "unknown"), false, "the rejected operation also fails in LuaJIT")
+    testAssert.eq(type(collectgarbage()), "number", "the default collection reports a number")
+    testAssert.eq(type(collectgarbage("count")), "number", "count reports a number")
+    testAssert.eq(type(collectgarbage("step", 0)), "boolean", "step reports a boolean")
+    testAssert.eq(type(collectgarbage("isrunning")), "boolean", "isrunning reports a boolean")
+    testAssert.eq(pcall(collectgarbage, "unknown"), false, "the rejected operation also fails in LuaJIT")
 end
 
 function M.pairsTyping()
@@ -2885,7 +2882,7 @@ function M.pairsTyping()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         (
             diagsOf(
                 table.concat(
@@ -2903,7 +2900,7 @@ function M.tableLibrary()
     assertClean("local s: string = table.concat({'a', 'b'}, ',')")
     assertClean("local t = table.new(16, 0)")
     assertClean("local t = table.new(16, 0)\ntable.clear(t)")
-    testAssert.equal((diagsOf("table.clear = function() end")), "NUPP2009:1")
+    testAssert.eq((diagsOf("table.clear = function() end")), "NUPP2009:1")
 end
 
 function M.stringBufferModule()
@@ -2920,7 +2917,7 @@ function M.stringBufferModule()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         (
             diagsOf(
                 table.concat(
@@ -2931,7 +2928,7 @@ function M.stringBufferModule()
         ),
         "NUPP2004:3"
     )
-    testAssert.equal(
+    testAssert.eq(
         (
             diagsOf(
                 table.concat({"local buffer = require('string.buffer')", "local n: number = buffer.encode({})",}, "\n")
@@ -2955,7 +2952,7 @@ function M.stringBufferTypeIsNameable()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         (
             diagsOf(
                 table.concat(
@@ -3004,7 +3001,7 @@ function M.stringBufferCoversTheWholeApi()
 end
 
 function M.stringBufferBorrowBlocksInvalidation()
-    testAssert.equal(
+    testAssert.eq(
         (
             diagsOf(
                 table.concat(
@@ -3075,7 +3072,7 @@ function M.profileSessionProtocolPreservesItsReportType()
         )
     )
 
-    testAssert.equal(
+    testAssert.eq(
         (
             diagsOf(
                 table.concat(
@@ -3103,11 +3100,11 @@ function M.moduleRequireTyped()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         (diagsOf(table.concat({"local geom = require('fixtures.geom')", "geom.make('a', 2)",}, "\n"))),
         "NUPP2006:2"
     )
-    testAssert.equal(
+    testAssert.eq(
         (diagsOf(table.concat({"local geom = require('fixtures.geom')", "geom.nope()",}, "\n"))),
         "NUPP2004:2"
     )
@@ -3124,14 +3121,14 @@ function M.moduleRequireDeclarationFile()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         (diagsOf(table.concat({"local clib = require('fixtures.clib')", "clib.add('x', 2)",}, "\n"))),
         "NUPP2006:2"
     )
 end
 
 function M.anUnresolvedModuleIsUnknown()
-    testAssert.equal((diagsOf("local value: number = require('no.such.module')")), "NUPP2001:1")
+    testAssert.eq((diagsOf("local value: number = require('no.such.module')")), "NUPP2001:1")
     assertClean("local value = require('no.such.module') as number")
 end
 
@@ -3240,7 +3237,7 @@ end
 
 function M.tensorLayoutAlgebraDoesNotSelectAGpu()
     assertClean("local layout = require('gpu.layout')", {host = "browser"})
-    testAssert.equal(native.forModule("gpu.layout"), "runtime.gpu_layout", "layout algebra is a portable module")
+    testAssert.eq(native.forModule("gpu.layout"), "runtime.gpu_layout", "layout algebra is a portable module")
     local selected = native.expand({["runtime.gpu_layout"] = true})
     assert(not selected["native.gpu"], "layout algebra must not select a device provider")
 end

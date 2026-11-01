@@ -15,7 +15,7 @@ local env = envMod.new(HERE .. "/..")
 local function diagnose(source)
     env.loaded = {}
     local parsed = parser.parse(source, "test.nupp")
-    testAssert.equal(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
+    testAssert.eq(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
     return check.check(parsed, "test.nupp", env)
 end
 
@@ -33,11 +33,11 @@ local function src(...)
 end
 
 local function clean(source)
-    testAssert.equal(codes(source), "", "expected clean check for:\n" .. source)
+    testAssert.eq(codes(source), "", "expected clean check for:\n" .. source)
 end
 
 local function reports(source, want)
-    testAssert.equal(codes(source), want, "for:\n" .. source)
+    testAssert.eq(codes(source), want, "for:\n" .. source)
 end
 
 local ROW = src(
@@ -146,13 +146,13 @@ function M.aMismatchNamesTheConcreteType()
             "return wrong"
         )
     )
-    testAssert.equal(#diags, 1, "expected one mismatch")
-    testAssert.equal(diags[1].code, "NUPP2001")
+    testAssert.eq(#diags, 1, "expected one mismatch")
+    testAssert.eq(diags[1].code, "NUPP2001")
     assert(
         diags[1].msg:find("{number} is not a {string}", 1, true),
         "the message did not name the concrete type: " .. diags[1].msg
     )
-    testAssert.equal(diags[1].help, nil, "nothing is left to explain")
+    testAssert.eq(diags[1].help, nil, "nothing is left to explain")
 end
 
 -- Computed callable packs and associated members in one signature.

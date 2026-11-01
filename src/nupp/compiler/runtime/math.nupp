@@ -1319,7 +1319,7 @@ end
 export function install(namespace: any): nil
     namespace.lerp = lerp
     namespace.wrapangle = wrapAngle
-    namespace.deltaangle = deltaAngle
+    namespace.dtangle = deltaAngle
     namespace.i32 = i32
     namespace.u32 = u32
     namespace.u64 = u64

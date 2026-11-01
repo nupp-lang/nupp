@@ -421,10 +421,8 @@ local FEATURES: {[string]: native.Feature} = {
         globals = {
             "math",
             "math.lerp",
-            "math.wrapAngle",
             "math.wrapangle",
-            "math.deltaAngle",
-            "math.deltaangle",
+            "math.dtangle",
             "math.i32",
             "math.u32",
             "math.u64",

@@ -14,7 +14,7 @@ local env = envMod.new(HERE .. "/..")
 
 local function compile(source)
     local parsed = parser.parse(source, "zone_intrinsic_test.nupp")
-    testAssert.equal(#parsed.errors, 0, "syntax errors")
+    testAssert.eq(#parsed.errors, 0, "syntax errors")
     local diagnostics = check.check(parsed, "zone_intrinsic_test.nupp", env)
     local code, generated = gen.generate(parsed, "zone_intrinsic_test")
     for _, diagnostic in ipairs(generated) do
@@ -55,7 +55,7 @@ zone.pop()
     for _ in code:gmatch("zone%s*%.%s*p[uo][sp][hp]?%s*%(") do
         calls = calls + 1
     end
-    testAssert.equal(calls, 1, "exactly the captured pop keeps an ordinary call\n" .. code)
+    testAssert.eq(calls, 1, "exactly the captured pop keeps an ordinary call\n" .. code)
 end
 
 function M.lowersPushOnlyOnAReceiverStaticallyKnownToBeTheZoneModule()
@@ -92,10 +92,10 @@ local whileInactive = zone.depth()
 return path, kept, afterBoth, whileInactive
 ]]
     )
-    testAssert.equal(outer, "outer/inner", "path sees both pushes")
-    testAssert.equal(inner, "inner", "the captured pop returns the innermost name")
-    testAssert.equal(poppedCount, 0, "the lowered pop empties what the lowered push filled")
-    testAssert.equal(depthAfter, 0, "a lowered push while inactive is still a no-op")
+    testAssert.eq(outer, "outer/inner", "path sees both pushes")
+    testAssert.eq(inner, "inner", "the captured pop returns the innermost name")
+    testAssert.eq(poppedCount, 0, "the lowered pop empties what the lowered push filled")
+    testAssert.eq(depthAfter, 0, "a lowered push while inactive is still a no-op")
 end
 
 function M.staysCorrectAlongsideAnUnrelatedLiveSession()
@@ -107,8 +107,8 @@ local zone = require("nupp.profile.zone")
 zone.push("compiled")
 return zone.depth()
 ]])
-    testAssert.equal(depth, zone.depth(), "the lowered push landed on the live session's own stack")
-    testAssert.equal(zone.current(), "compiled", "the live session reads back what the lowered push wrote")
+    testAssert.eq(depth, zone.depth(), "the lowered push landed on the live session's own stack")
+    testAssert.eq(zone.current(), "compiled", "the live session reads back what the lowered push wrote")
     zone.pop()
     zone.release()
 end

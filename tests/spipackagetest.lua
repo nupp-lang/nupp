@@ -45,7 +45,7 @@ function M.capabilityDescriptorsRejectUnknownAndDuplicateEntries()
     })
     local record = {typeRoot = dir}
     local entry = assert(capabilities.find(record, "provider", "generator", "codegen"))
-    testAssert.equal(entry.entry, "provider.codegen", "the selected entry is returned")
+    testAssert.eq(entry.entry, "provider.codegen", "the selected entry is returned")
 
     write(dir .. "/capabilities.json", '{"schema":2,"capabilities":[],"extra":true}\n')
     local _, unknown = capabilities.find(record, "provider", "generator", "codegen")
@@ -93,27 +93,27 @@ return {newBuffer = text.newbuffer, now = os.monotonic, storage = representation
         for _, diagnostic in ipairs(diagnostics) do
             assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
         end
-        testAssert.equal(parsed.host, "browser", "the editor honors the named default target")
-        testAssert.equal(project.check(dir), 0, "the default browser target checks")
+        testAssert.eq(parsed.host, "browser", "the editor honors the named default target")
+        testAssert.eq(project.check(dir), 0, "the default browser target checks")
         for _, target in ipairs({{name = "browser", host = "browser"}, {name = "native", host = "native"},}) do
             local options = target.name == "browser" and {} or {target = target.name}
-            testAssert.equal(project.build(dir, options), 0, target.name .. " target builds")
+            testAssert.eq(project.build(dir, options), 0, target.name .. " target builds")
             local output = dir .. "/out/" .. target.name
             local facts = assert(loadfile(output .. "/nupp/runtime/target.lua"))()
-            testAssert.equal(facts.host, target.host, "generated host")
-            testAssert.equal(facts.dialect, "luajit", "every target runs on LuaJIT")
+            testAssert.eq(facts.host, target.host, "generated host")
+            testAssert.eq(facts.dialect, "luajit", "every target runs on LuaJIT")
             for _, name in ipairs({"nativebuffer", "nativestorage"}) do
                 assert(
                     exists(output .. "/nupp/runtime/provider/" .. name .. ".lua"),
                     target.name .. " carries " .. name
                 )
             end
-            testAssert.equal(
+            testAssert.eq(
                 exists(output .. "/nupp/runtime/provider/nativetime.lua"),
                 target.host == "native",
                 target.name .. " carries native clocks"
             )
-            testAssert.equal(
+            testAssert.eq(
                 exists(output .. "/nupp/runtime/browser/time.lua"),
                 target.host == "browser",
                 target.name .. " carries browser clocks"
@@ -135,7 +135,7 @@ function M.fixedHostLibrariesRemainOrdinaryBundleImports()
         ["src/main.nupp"] = [[local re = require("re")
 return re.match("aaa", "'a'+")]],
     })
-    testAssert.equal(project.build(dir), 0, "bundle with host LPeg")
+    testAssert.eq(project.build(dir), 0, "bundle with host LPeg")
     local output = read(dir .. "/out/app.lua")
     assert(not output:find('package.preload["lpeg"]', 1, true))
     assert(not output:find('package.preload["nupp.runtime.packages"]', 1, true))
@@ -144,8 +144,8 @@ return re.match("aaa", "'a'+")]],
         "-e",
         "io.write(assert(loadfile(" .. string.format("%q", dir .. "/out/app.lua") .. "))())"
     })
-    testAssert.equal(status, 0, value)
-    testAssert.equal(value, "4")
+    testAssert.eq(status, 0, value)
+    testAssert.eq(value, "4")
     remove(dir)
 end
 
@@ -232,18 +232,12 @@ return codec
 ]],
     })
     local produced = {}
-    testAssert.equal(
-        project.build(dir, {
-            produced = produced
-        }),
-        0,
-        "a packaged generator and runtime implementation build"
-    )
+    testAssert.eq(project.build(dir, {produced = produced}), 0, "a packaged generator and runtime implementation build")
     local found = false
     for _, provider in ipairs(produced.spi or {}) do
         if provider.interface == "codec.Provider" then
-            testAssert.equal(provider.implementation, "provider.codec")
-            testAssert.equal(provider.dependency, "provider")
+            testAssert.eq(provider.implementation, "provider.codec")
+            testAssert.eq(provider.dependency, "provider")
             found = true
         end
     end
@@ -253,12 +247,8 @@ return codec
         "the generator publishes beneath its instance module root"
     )
     local state = json.decode(read(dir .. "/out/.nupp-state.json"))
-    testAssert.equal(
-        state.dependencies["tool:provider"].usage,
-        "tool",
-        "generator discovery installs a host-tool record"
-    )
-    testAssert.equal(state.dependencies.provider.usage, "target", "runtime discovery keeps a distinct target record")
+    testAssert.eq(state.dependencies["tool:provider"].usage, "tool", "generator discovery installs a host-tool record")
+    testAssert.eq(state.dependencies.provider.usage, "target", "runtime discovery keeps a distinct target record")
     assert(
         exists(dir .. "/out/nupp/spi/index/g.lua") or exists(dir .. "/out/nupp/spi/index.lua"),
         "the build compiles a deterministic SPI index"
@@ -268,12 +258,12 @@ return codec
         "package.path=%q..package.path;io.write(require('main'));assert(type(require('provider.codec'))=='userdata')"
     ):format(dir .. "/out/?.lua;" .. dir .. "/.rocks/share/lua/5.1/?.lua;")
     local status, output = process.capture({"luajit", "-e", script})
-    testAssert.equal(status, 0, "the generated module and implementation load: " .. tostring(output))
-    testAssert.equal(output, "generated-answer:codec")
+    testAssert.eq(status, 0, "the generated module and implementation load: " .. tostring(output))
+    testAssert.eq(output, "generated-answer:codec")
 
-    testAssert.equal(project.build(dir), 0, "unchanged generator output is reusable")
+    testAssert.eq(project.build(dir), 0, "unchanged generator output is reusable")
     write(dir .. "/model/value.txt", "changed\n")
-    testAssert.equal(project.build(dir), 0, "an input change reruns the generator")
+    testAssert.eq(project.build(dir), 0, "an input change reruns the generator")
     assert(
         read(dir .. "/out/generated/api/fixture/generated.nupp"):find("generated%-changed"),
         "the published output follows the changed input"
@@ -295,7 +285,7 @@ export function shift(value: int32): int32
 end
 ]],
     })
-    testAssert.equal(project.build(dir), 0, "native bitops build")
+    testAssert.eq(project.build(dir), 0, "native bitops build")
     local script = (
         [=[
 package.path = %q .. package.path
@@ -308,8 +298,8 @@ io.write("direct")
     local probe = dir .. "/verify.lua"
     write(probe, script)
     local status, output = process.capture({"luajit", probe})
-    testAssert.equal(status, 0, "native bit operation initialization: " .. tostring(output))
-    testAssert.equal(output, "direct")
+    testAssert.eq(status, 0, "native bit operation initialization: " .. tostring(output))
+    testAssert.eq(output, "direct")
     local code = read(dir .. "/out/consumer.lua")
     assert(code:find("value << 3", 1, true), code)
     assert(not code:find('require("nupp.runtime.bitops")', 1, true), code)
@@ -341,7 +331,7 @@ end
 ]],
     })
     local diagnostics = {}
-    testAssert.equal(
+    testAssert.eq(
         project.build(dir, {
             diagnostics = diagnostics
         }),
@@ -359,8 +349,8 @@ io.write("direct")
     local probe = dir .. "/verify.lua"
     write(probe, script)
     local status, output = process.capture({"luajit", probe})
-    testAssert.equal(status, 0, "native struct initialization: " .. tostring(output))
-    testAssert.equal(output, "direct")
+    testAssert.eq(status, 0, "native struct initialization: " .. tostring(output))
+    testAssert.eq(output, "direct")
     local code = read(dir .. "/out/consumer.lua")
     assert(code:find('require("ffi")', 1, true), code)
     assert(not code:find('require("nupp.runtime.structvalue")', 1, true), code)
@@ -438,13 +428,13 @@ return {algorithms = {["hmac-sha256"] = {name = "hmac-sha256", digestSize = 32, 
 end}}}
 ]],
     })
-    testAssert.equal(project.build(dir), 0, "a target dependency supplies an incremental MAC implementation")
+    testAssert.eq(project.build(dir), 0, "a target dependency supplies an incremental MAC implementation")
     local script = (
         "package.path=%q..package.path;io.write(require('main'))"
     ):format(dir .. "/out/?.lua;" .. dir .. "/.rocks/share/lua/5.1/?.lua;")
     local status, output = process.capture({"luajit", "-e", script})
-    testAssert.equal(status, 0, "the dependency-backed MAC artifact loads: " .. tostring(output))
-    testAssert.equal(output, "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8")
+    testAssert.eq(status, 0, "the dependency-backed MAC artifact loads: " .. tostring(output))
+    testAssert.eq(output, "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8")
     remove(dir)
 end
 
@@ -481,15 +471,15 @@ end
 export = {apply = apply}
 ]],
     })
-    testAssert.equal(project.build(dir, {outDir = dir .. "/out"}), 0, "the implementation's AOT import builds")
+    testAssert.eq(project.build(dir, {outDir = dir .. "/out"}), 0, "the implementation's AOT import builds")
     local script = (
         "package.path=%q..package.path;local apply=require('main');"
         .. "assert(_G.__nuppAotCompiled[apply], 'SPI reached an uncompiled function');"
         .. "io.write(apply(20))"
     ):format(dir .. "/out/?.lua;")
     local status, output = process.capture({"luajit", "-e", script})
-    testAssert.equal(status, 0, output)
-    testAssert.equal(output, "41")
+    testAssert.eq(status, 0, output)
+    testAssert.eq(output, "41")
     remove(dir)
 end
 
@@ -521,18 +511,18 @@ return codec.encode == require("example.fastcodec").encode and "provider" or "fa
             files["nupp/spi.json"] = source .. "\n"
         end
     end
-    testAssert.equal(moduleCount, 4, "the guide's interface, implementations, and consumer")
+    testAssert.eq(moduleCount, 4, "the guide's interface, implementations, and consumer")
     assert(files["nupp/spi.json"], "the guide includes a discovery descriptor")
     local dir = tempProject(files)
     for _, expected in ipairs({"provider", "fallback"}) do
-        testAssert.equal(project.build(dir), 0, "the documented SPI example builds")
+        testAssert.eq(project.build(dir), 0, "the documented SPI example builds")
         local status, output = process.capture({
             "luajit",
             "-e",
             "io.write(assert(loadfile(" .. string.format("%q", dir .. "/out/app.lua") .. "))())",
         })
-        testAssert.equal(status, 0, output)
-        testAssert.equal(output, expected, "the documented consumer chooses its implementation")
+        testAssert.eq(status, 0, output)
+        testAssert.eq(output, expected, "the documented consumer chooses its implementation")
         write(dir .. "/nupp/spi.json", "{}\n")
     end
     remove(dir)

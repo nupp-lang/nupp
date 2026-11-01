@@ -8,7 +8,7 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 
 local function checked(source)
     local result = parser.parse(source, "src/game.nupp")
-    testAssert.equal(#result.errors, 0, "parse errors")
+    testAssert.eq(#result.errors, 0, "parse errors")
     local env = envMod.new(HERE .. "/..", {cache = false})
     local diagnostics, _, exports = check.check(result, "src/game.nupp", env, {moduleName = "game"})
     for _, diagnostic in ipairs(diagnostics) do
@@ -43,23 +43,23 @@ function M.canonicalIdentityIsNominalAndModuleQualified()
     local exports = checked(SOURCE)
     local position = assert(exports.types.Position)
     local motion = assert(exports.types.Motion)
-    testAssert.equal(cabi.identity(position), "game.Position")
-    testAssert.equal(cabi.identity(motion), "game.Motion")
+    testAssert.eq(cabi.identity(position), "game.Position")
+    testAssert.eq(cabi.identity(motion), "game.Motion")
     local a = assert(cabi.aggregate(position, TARGET))
     local b = assert(cabi.aggregate(motion, TARGET))
     assert(a.typedef ~= b.typedef, "distinct declarations keep distinct C names")
-    testAssert.equal(a.typedef, "nupp_4_game_8_Position")
+    testAssert.eq(a.typedef, "nupp_4_game_8_Position")
 end
 
 function M.descriptionCarriesTargetLayoutAndSemanticFingerprints()
     local exports = checked(SOURCE)
     local description = assert(cabi.aggregate(exports.types.Motion, TARGET))
-    testAssert.equal(description.schema, cabi.ABI)
-    testAssert.equal(description.target, TARGET)
-    testAssert.equal(description.size, 12)
-    testAssert.equal(description.alignment, 4)
-    testAssert.equal(description.fields[1].offset, 0)
-    testAssert.equal(description.fields[2].offset, 8)
+    testAssert.eq(description.schema, cabi.ABI)
+    testAssert.eq(description.target, TARGET)
+    testAssert.eq(description.size, 12)
+    testAssert.eq(description.alignment, 4)
+    testAssert.eq(description.fields[1].offset, 0)
+    testAssert.eq(description.fields[2].offset, 8)
     assert(#description.semanticFingerprint == 64, "semantic SHA-256")
     assert(#description.layoutFingerprint == 64, "layout SHA-256")
 end
@@ -75,7 +75,7 @@ function M.headerOrdersByValueDependenciesAndAssertsEveryOffset()
     assert(header:find("offsetof(" .. motion.typedef .. ", position) == 0", 1, true))
     assert(header:find("offsetof(" .. motion.typedef .. ", flags) == 8", 1, true))
     local repeated = assert(cabi.header({position, motion}, {}, "GAME_NUPP_H"))
-    testAssert.equal(repeated, header, "header output is deterministic")
+    testAssert.eq(repeated, header, "header output is deterministic")
 end
 
 function M.oneFunctionRecordRendersTypedAndErasedPointers()
@@ -90,11 +90,11 @@ function M.oneFunctionRecordRendersTypedAndErasedPointers()
         },
         nil
     )
-    testAssert.equal(
+    testAssert.eq(
         assert(cabi.prototype(signature, false)),
         "void integrate(nupp_4_game_8_Position *position, float dt);"
     )
-    testAssert.equal(assert(cabi.prototype(signature, true)), "void integrate(void *, float);")
+    testAssert.eq(assert(cabi.prototype(signature, true)), "void integrate(void *, float);")
 end
 
 function M.aPointerToAnArrayKeepsItsParentheses()
@@ -104,13 +104,10 @@ function M.aPointerToAnArrayKeepsItsParentheses()
     local ffi = require("ffi")
     local row = T.ptr(T.carray(T.int32, 4))
     local rows = T.carray(T.ptr(T.int32), 4)
-    testAssert.equal(cabi.declaration(row, "row", "ffi"), "int32_t (*row)[4]")
-    testAssert.equal(cabi.declaration(rows, "rows", "ffi"), "int32_t *rows[4]")
-    testAssert.equal(ffi.sizeof("struct { " .. cabi.declaration(row, "row", "ffi") .. "; }"), ffi.sizeof("void *"))
-    testAssert.equal(
-        ffi.sizeof("struct { " .. cabi.declaration(rows, "rows", "ffi") .. "; }"),
-        4 * ffi.sizeof("void *")
-    )
+    testAssert.eq(cabi.declaration(row, "row", "ffi"), "int32_t (*row)[4]")
+    testAssert.eq(cabi.declaration(rows, "rows", "ffi"), "int32_t *rows[4]")
+    testAssert.eq(ffi.sizeof("struct { " .. cabi.declaration(row, "row", "ffi") .. "; }"), ffi.sizeof("void *"))
+    testAssert.eq(ffi.sizeof("struct { " .. cabi.declaration(rows, "rows", "ffi") .. "; }"), 4 * ffi.sizeof("void *"))
 end
 
 function M.aGuardIsAlwaysACIdentifier()
@@ -128,8 +125,8 @@ end
 function M.functionRecordsRejectUnmodelledCallingConventions()
     local signature = cabi.functionRecord("callback", {}, nil, false, "stdcall")
     local prototype, why = cabi.prototype(signature)
-    testAssert.equal(prototype, nil)
-    testAssert.equal(why, "the C function signature has an unsupported calling convention")
+    testAssert.eq(prototype, nil)
+    testAssert.eq(why, "the C function signature has an unsupported calling convention")
 end
 
 function M.hostRuntimeLayoutAgreesWithTheCanonicalRecord()
@@ -139,10 +136,10 @@ function M.hostRuntimeLayoutAgreesWithTheCanonicalRecord()
     local generated = require("nupp.compiler.lua.gen").generate(parsed, "src/game.nupp")
     local game = assert(loadstring(generated, "@generated-game"))()
     local ffi = require("ffi")
-    testAssert.equal(ffi.sizeof(game.Motion), description.size, "host size")
-    testAssert.equal(ffi.alignof(game.Motion), description.alignment, "host alignment")
+    testAssert.eq(ffi.sizeof(game.Motion), description.size, "host size")
+    testAssert.eq(ffi.alignof(game.Motion), description.alignment, "host alignment")
     for _, field in ipairs(description.fields) do
-        testAssert.equal(ffi.offsetof(game.Motion, field.name), field.offset, "host offset for " .. field.name)
+        testAssert.eq(ffi.offsetof(game.Motion, field.name), field.offset, "host offset for " .. field.name)
     end
 end
 
@@ -174,8 +171,8 @@ end
 return game
 ]])
     local node = assert(cabi.aggregate(exports.types.Node, TARGET))
-    testAssert.equal(#node.dependencies, 0, "a pointer is not a by-value dependency")
-    testAssert.equal(node.pointerDependencies[1], exports.types.Node, "the recursive pointer is recorded")
+    testAssert.eq(#node.dependencies, 0, "a pointer is not a by-value dependency")
+    testAssert.eq(node.pointerDependencies[1], exports.types.Node, "the recursive pointer is recorded")
     local header = assert(cabi.header({node}, {}, "NODE_H"))
     local forward = assert(header:find("typedef struct " .. node.tag, 1, true))
     local body = assert(header:find("struct " .. node.tag .. " {", 1, true))
@@ -204,7 +201,7 @@ return game
             moduleName = "game"
         }
     )
-    testAssert.equal(diagnostics[1] and diagnostics[1].code, "NUPP2201")
+    testAssert.eq(diagnostics[1] and diagnostics[1].code, "NUPP2201")
     assert(
         diagnostics[1].msg:find("contain itself", 1, true),
         "the source diagnostic explains why the layout is impossible"

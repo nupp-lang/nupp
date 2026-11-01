@@ -11,7 +11,7 @@ local env = envMod.new(HERE .. "/..")
 
 local function diagsOf(src)
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors in test source")
+    testAssert.eq(#result.errors, 0, "syntax errors in test source")
     local diags = check.check(result, "test.nupp", env)
     local out = {}
     for j, d in ipairs(diags) do
@@ -29,21 +29,21 @@ local M = {}
 
 function M.subtractingAnExhaustiveUnionLeavesNever()
     local values = T.union({T.number, T.string})
-    testAssert.equal(narrowing.subtract(values, values), T.never)
+    testAssert.eq(narrowing.subtract(values, values), T.never)
 end
 
 function M.narrowingRetainsExplicitOpaqueOwnership()
     local source = T.affine(T.optional(T.string), nil, true)
     local narrowed = narrowing.subtract(source, T.nil_)
-    testAssert.equal(narrowed.transferOnly, true, "narrowing erased explicit transfer-only affinity")
-    testAssert.equal(T.tostring(narrowed), "affine(string)")
+    testAssert.eq(narrowed.transferOnly, true, "narrowing erased explicit transfer-only affinity")
+    testAssert.eq(T.tostring(narrowed), "affine(string)")
 end
 
 function M.nilCheckNarrowing()
     assertClean(table.concat({"local s: string?", "if s ~= nil then", "   local t: string = s", "end",}, "\n"))
     assertClean(table.concat({"local s: string?", "if s == nil then", "else", "   local t: string = s", "end",}, "\n"))
     -- without the check it still errors
-    testAssert.equal((diagsOf("local s: string?\nlocal t: string = s")), "NUPP2001:2")
+    testAssert.eq((diagsOf("local s: string?\nlocal t: string = s")), "NUPP2001:2")
 end
 
 function M.truthinessNarrowing()
@@ -57,7 +57,7 @@ function M.orDropsAFalseLeftOperand()
     assertClean("local i = 2\nlocal v: string = i == 2 and nil or 's'")
     assertClean("local i = 2\nlocal w: string = (i == 2 and false) or 's'")
     assertClean("local f: false | nil = nil\nlocal s: string = f or 's'")
-    testAssert.equal((diagsOf("local b: boolean = true\nlocal s: string = b or 's'")), "NUPP2001:2")
+    testAssert.eq((diagsOf("local b: boolean = true\nlocal s: string = b or 's'")), "NUPP2001:2")
 end
 
 function M.isNarrowing()
@@ -151,7 +151,7 @@ function M.genericsInstantiation()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         (diagsOf(table.concat({"local id: function<T>(x: T): T = nil as any", "local n: number = id('hi')",}, "\n"))),
         "NUPP2001:2"
     )
@@ -163,7 +163,7 @@ end
 -- Every caller of analyzeCond infers the condition first, so a condition the
 -- narrowing pass looked at a second time reported its problems twice.
 function M.conditionIsCheckedOnce()
-    testAssert.equal(
+    testAssert.eq(
         (
             diagsOf(
                 table.concat(
@@ -184,7 +184,7 @@ function M.conditionIsCheckedOnce()
         ),
         "NUPP2006:5 NUPP2006:8"
     )
-    testAssert.equal(
+    testAssert.eq(
         (diagsOf(table.concat({"local x: any", "if x is Unknowable then", "end",}, "\n"))),
         "NUPP2101:2 NUPP3001:2"
     )
@@ -210,7 +210,7 @@ end
 -- branch it guards is one nothing reaches. `is` sits at the comparison level and `not`
 -- binds tighter, which makes `not v is T` one of the ways to write one.
 function M.isRefusesATestNoValueCouldPass()
-    testAssert.equal(
+    testAssert.eq(
         (
             diagsOf(
                 table.concat(
@@ -226,7 +226,7 @@ function M.isRefusesATestNoValueCouldPass()
         ),
         "NUPP2147:4"
     )
-    testAssert.equal(
+    testAssert.eq(
         (
             diagsOf(
                 table.concat(
@@ -245,7 +245,7 @@ function M.isRefusesATestNoValueCouldPass()
         ),
         "NUPP2147:7"
     )
-    testAssert.equal(
+    testAssert.eq(
         (diagsOf(table.concat({"local function test(count: integer): boolean return count is string end",}, "\n"))),
         "NUPP2147:1"
     )
@@ -284,7 +284,7 @@ function M.isLeavesATestItCannotRuleOut()
 end
 
 function M.isStillRefusesATypeWithNoRuntimeIdentity()
-    testAssert.equal(
+    testAssert.eq(
         (
             diagsOf(
                 table.concat(
@@ -322,7 +322,7 @@ end
 -- And leaves it alone when the second conjunct could have been the one that failed:
 -- an optional field says nothing about the test beside it.
 function M.aConjunctionWithAFalsyRightSideLeavesItsFallbackAlone()
-    testAssert.equal(
+    testAssert.eq(
         (
             diagsOf(
                 table.concat(

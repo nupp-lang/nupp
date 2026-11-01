@@ -206,16 +206,13 @@ local function TaskType(F: type): type
         return types.error("a task must name a function type")
     end
     return types.shape({
-        {
-            name = "await",
-            read = types.function_(
-                types.pack({
-                    types.any
-                }),
-                types.results(F)
-            ),
-        },
+        --- Waits for settlement and returns the function's complete result pack.
+        {name = "await", read = types.function_(types.pack({types.any}), types.results(F)),},
+
+        --- Reports whether the task has settled without waiting.
         {name = "isDone", read = types.function_(types.pack({types.any}), types.pack({types.boolean})),},
+
+        --- Returns the task's current scheduling state.
         {
             name = "status",
             read = types.function_(
@@ -233,6 +230,8 @@ local function TaskType(F: type): type
                 })
             ),
         },
+
+        --- Requests cancellation and reports whether this is the first request.
         {
             name = "cancel",
             read = types.function_(

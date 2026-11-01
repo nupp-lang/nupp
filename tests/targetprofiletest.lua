@@ -55,9 +55,9 @@ function M.everyModelledTripleHasABuiltInProfile()
     for _, key in ipairs(layouts.keys()) do
         local profile, err = profiles.resolve(key)
         assert(profile, key .. ": " .. tostring(err))
-        testAssert.equal(profile.target, key, "the profile names its target")
-        testAssert.equal(profile.origin, "built-in", "a modelled triple needs no descriptor")
-        testAssert.equal(profile.layoutModel, key, "a modelled triple is its own layout model")
+        testAssert.eq(profile.target, key, "the profile names its target")
+        testAssert.eq(profile.origin, "built-in", "a modelled triple needs no descriptor")
+        testAssert.eq(profile.layoutModel, key, "a modelled triple is its own layout model")
     end
 end
 
@@ -65,16 +65,16 @@ function M.hostedTargetsAdmitEverythingAndNameTheirLinker()
     local darwin = assert(profiles.resolve("aarch64-apple-darwin"))
     assert(darwin.dynamicLoader and darwin.tracingJit and darwin.ffiCallbacks)
     assert(darwin.staticSymbolResolver and darwin.staticAot)
-    testAssert.equal(darwin.os, "darwin", "the triple classifies its os")
-    testAssert.equal(darwin.forceLoad[1], "-Wl,-force_load,<archive>", "Darwin retains an archive by forcing it in")
-    testAssert.equal(darwin.export[1], "-Wl,-export_dynamic", "and publishes what it kept")
+    testAssert.eq(darwin.os, "darwin", "the triple classifies its os")
+    testAssert.eq(darwin.forceLoad[1], "-Wl,-force_load,<archive>", "Darwin retains an archive by forcing it in")
+    testAssert.eq(darwin.export[1], "-Wl,-export_dynamic", "and publishes what it kept")
 
     local linux = assert(profiles.resolve("x86_64-unknown-linux-gnu"))
-    testAssert.equal(linux.forceLoad[1], "-Wl,--whole-archive", "GNU ld brackets the archive")
-    testAssert.equal(linux.forceLoad[3], "-Wl,--no-whole-archive", "and closes the bracket")
+    testAssert.eq(linux.forceLoad[1], "-Wl,--whole-archive", "GNU ld brackets the archive")
+    testAssert.eq(linux.forceLoad[3], "-Wl,--no-whole-archive", "and closes the bracket")
 
     local windows = assert(profiles.resolve("x86_64-pc-windows-msvc"))
-    testAssert.equal(windows.export[1], "-Wl,--export-all-symbols", "Windows exports nothing by default")
+    testAssert.eq(windows.export[1], "-Wl,--export-all-symbols", "Windows exports nothing by default")
 end
 
 function M.wasmHasNoTracingJitAndNoArchiveToLink()
@@ -87,7 +87,7 @@ end
 
 function M.anUndescribedTargetIsRefusedRatherThanGuessed()
     local profile, err = profiles.resolve("aarch64-vendor-console")
-    testAssert.equal(profile, nil, "nothing describes a private triple by itself")
+    testAssert.eq(profile, nil, "nothing describes a private triple by itself")
     assert(err:find("no target profile describes", 1, true), err)
 end
 
@@ -102,18 +102,18 @@ function M.aDescriptorAdmitsAPrivateTripleThroughAModelledLayout()
         "pack.json"
     )
     assert(profile, err)
-    testAssert.equal(profile.target, "aarch64-vendor-console", "the profile is the private target's")
-    testAssert.equal(profile.layoutModel, "x86_64-unknown-linux-gnu", "its layout is referenced rather than invented")
+    testAssert.eq(profile.target, "aarch64-vendor-console", "the profile is the private target's")
+    testAssert.eq(profile.layoutModel, "x86_64-unknown-linux-gnu", "its layout is referenced rather than invented")
     assert(not profile.dynamicLoader and not profile.tracingJit)
     assert(profile.staticAot, "which is the point of describing it")
-    testAssert.equal(profile.origin, "pack.json", "a diagnostic can say where this came from")
+    testAssert.eq(profile.origin, "pack.json", "a diagnostic can say where this came from")
 end
 
 function M.aDescriptorMustStateEveryCapability()
     local stated = descriptor()
     stated.capabilities.tracingJit = nil
     local profile, err = profiles.fromDescriptor("aarch64-vendor-console", stated, "pack.json")
-    testAssert.equal(profile, nil, "an omitted capability is one nobody verified")
+    testAssert.eq(profile, nil, "an omitted capability is one nobody verified")
     assert(err:find("boolean tracingJit", 1, true), err)
 end
 
@@ -121,7 +121,7 @@ function M.aDescriptorMustReferenceAModelledLayout()
     local stated = descriptor()
     stated.layoutModel = "aarch64-vendor-console"
     local profile, err = profiles.fromDescriptor("aarch64-vendor-console", stated, "pack.json")
-    testAssert.equal(profile, nil, "admitting a triple may not also open a layout model")
+    testAssert.eq(profile, nil, "admitting a triple may not also open a layout model")
     assert(err:find("modelled layoutModel", 1, true), err)
 end
 
@@ -129,26 +129,26 @@ function M.aDescriptorRejectsMalformedLinkFlags()
     local mapped = descriptor()
     mapped.link.forceLoad = {archive = "-Wl,--whole-archive"}
     local profile, err = profiles.fromDescriptor("aarch64-vendor-console", mapped, "pack.json")
-    testAssert.equal(profile, nil, "an object is not a flag array")
+    testAssert.eq(profile, nil, "an object is not a flag array")
     assert(err:find("array of strings", 1, true), err)
 
     local sparse = descriptor()
     sparse.link.export = {[2] = "-Wl,-E"}
     profile, err = profiles.fromDescriptor("aarch64-vendor-console", sparse, "pack.json")
-    testAssert.equal(profile, nil, "a sparse array loses linker arguments")
+    testAssert.eq(profile, nil, "a sparse array loses linker arguments")
     assert(err:find("must not have gaps", 1, true), err)
 
     local scalar = descriptor()
     scalar.link = "-Wl,-E"
     profile, err = profiles.fromDescriptor("aarch64-vendor-console", scalar, "pack.json")
-    testAssert.equal(profile, nil, "link metadata must be an object")
+    testAssert.eq(profile, nil, "link metadata must be an object")
     assert(err:find("link must be an object", 1, true), err)
 end
 
 function M.staticAotWithoutAResolverIsRefusedInTheDescriptor()
     local stated = descriptor({staticSymbolResolver = false})
     local profile, err = profiles.fromDescriptor("aarch64-vendor-console", stated, "pack.json")
-    testAssert.equal(profile, nil, "an archive nothing can resolve out of is not static AOT")
+    testAssert.eq(profile, nil, "an archive nothing can resolve out of is not static AOT")
     assert(err:find("without a static symbol resolver", 1, true), err)
 end
 
@@ -200,7 +200,7 @@ function M.aPackWithoutADescriptorLeavesTheBuiltInProfileInPlace()
     local profile = withPack(nil, function(host)
         return assert(packs.profile(host))
     end)
-    testAssert.equal(profile.origin, "built-in", "a toolchain-only pack describes no capabilities")
+    testAssert.eq(profile.origin, "built-in", "a toolchain-only pack describes no capabilities")
     assert(profile.dynamicLoader, "and changes nothing about the target")
 end
 
@@ -210,7 +210,7 @@ local function codesFor(source, target)
         config = {build = {entries = {"main"}, layoutTarget = target}},
     })
     local result = parser.parse(source, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors")
+    testAssert.eq(#result.errors, 0, "syntax errors")
     local out = {}
     for _, diagnostic in ipairs(check.check(result, "test.nupp", env)) do
         out[#out + 1] = diagnostic.code
@@ -229,17 +229,17 @@ return {hot = hot}
 ]]
 
 function M.jitIsRefusedOnATargetWithNoTraceCompiler()
-    testAssert.equal(
+    testAssert.eq(
         codesFor(JIT_SOURCE, "wasm32-unknown-emscripten"),
         "NUPP2904",
         "@jit asserts a contract Wasm cannot meet"
     )
-    testAssert.equal(
+    testAssert.eq(
         codesFor(JIT_SOURCE, "x86_64-unknown-linux-gnu"),
         "",
         "and is ordinary everywhere a trace compiler exists"
     )
-    testAssert.equal(codesFor(JIT_SOURCE, nil), "", "a target nothing describes refuses nothing")
+    testAssert.eq(codesFor(JIT_SOURCE, nil), "", "a target nothing describes refuses nothing")
 end
 
 local LIBRARY_SOURCE = [[
@@ -252,12 +252,12 @@ function M.aNamedLibraryIsRefusedOnATargetWithNoLoader()
     local refused = withPack(descriptor({dynamicLoader = false}), function(host)
         return codesFor(LIBRARY_SOURCE, host)
     end)
-    testAssert.equal(refused, "NUPP2904", "a named library needs something to load it")
+    testAssert.eq(refused, "NUPP2904", "a named library needs something to load it")
 
     local accepted = withPack(descriptor(), function(host)
         return codesFor(LIBRARY_SOURCE, host)
     end)
-    testAssert.equal(accepted, "", "and is ordinary where a loader exists")
+    testAssert.eq(accepted, "", "and is ordinary where a loader exists")
 end
 
 -- Permitted by `unsafe`, and reported anyway where the VM allocates no

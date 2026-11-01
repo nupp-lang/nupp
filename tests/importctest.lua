@@ -33,7 +33,7 @@ function M.windowsSourceDirectoryStaysAbsolute()
     local directory = sourceDirectory("@D:\\a\\nupp\\tests\\importctest.lua", function()
         error("an absolute drive path must not ask for the current directory")
     end)
-    testAssert.equal(directory, "D:/a/nupp/tests")
+    testAssert.eq(directory, "D:/a/nupp/tests")
 end
 
 local function readFile(path)
@@ -157,7 +157,7 @@ function M.staticInlineAndExplicitMacroBridgesCompileAndCall()
     })
     assert(text, "bridge import failed: " .. table.concat(warnings or {}, "; "))
     assert(details and details.bridgeSource, "bridge C was not emitted")
-    testAssert.equal(details.bridged, 4, "two inlines and two macro bridges")
+    testAssert.eq(details.bridged, 4, "two inlines and two macro bridges")
     assertContains(text, "local nupp_bridge_scale = __nupp_bridge_")
     assertContains(text, "local NUPP_BRIDGE_CLAMP = __nupp_bridge_")
     assertContains(text, "local NUPP_BRIDGE_IGNORE = __nupp_bridge_", "void-result macro bridge")
@@ -187,8 +187,8 @@ function M.staticInlineAndExplicitMacroBridgesCompileAndCall()
         ):format(symbols.nupp_bridge_scale, symbols.NUPP_BRIDGE_CLAMP)
     )
     local native = ffi.load(library)
-    testAssert.equal(native[symbols.nupp_bridge_scale](7), 21)
-    testAssert.equal(native[symbols.NUPP_BRIDGE_CLAMP](20, 2, 9), 9)
+    testAssert.eq(native[symbols.nupp_bridge_scale](7), 21)
+    testAssert.eq(native[symbols.NUPP_BRIDGE_CLAMP](20, 2, 9), 9)
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -197,14 +197,14 @@ function M.headerOnlyFunctionsHaveAnExplicitSkippedDisposition()
     assert(text, "direct inspection import succeeds")
     assertContains(text, "static inline needs --bridge-out")
     assert(#warnings == 2, "each inline explains the required bridge")
-    testAssert.equal(details.skipped, 2)
+    testAssert.eq(details.skipped, 2)
     local bridgeRequired = 0
     for _, disposition in ipairs(details.dispositions) do
         if disposition.reason == "bridge-required" then
             bridgeRequired = bridgeRequired + 1
         end
     end
-    testAssert.equal(bridgeRequired, 2)
+    testAssert.eq(bridgeRequired, 2)
 end
 
 function M.macroConstants()
@@ -325,7 +325,7 @@ function M.theBridgeWrapsOnlyWhatThisPlatformCompiles()
     )
     local text, warnings, details = importc.import(path, {module = "vec", bridge = true, bridgeInclude = "vec.h"})
     assert(text, table.concat(warnings or {}, "; "))
-    testAssert.equal(details.bridged, 1, "only vec2 is compiled on this platform")
+    testAssert.eq(details.bridged, 1, "only vec2 is compiled on this platform")
     assert(not details.bridgeSource:find("vec_disabled", 1, true), details.bridgeSource)
     assert(not details.bridgeSource:find("vec_elsewhere", 1, true), details.bridgeSource)
     assertContains(details.bridgeSource, "(vec2_t x) {", "the parameter type keeps its name")
@@ -594,9 +594,9 @@ function M.aStructTheRenderingCannotLayOutIsRefusedWithItsLine()
     for name, want in pairs(refused) do
         local disposition = byName[name]
         assert(disposition, name .. " has no disposition")
-        testAssert.equal(disposition.kind, "skipped", name)
-        testAssert.equal(disposition.reason, want[1], name .. " reason")
-        testAssert.equal(disposition.line, want[2], name .. " line")
+        testAssert.eq(disposition.kind, "skipped", name)
+        testAssert.eq(disposition.reason, want[1], name .. " reason")
+        testAssert.eq(disposition.line, want[2], name .. " line")
         assert(
             not imported.text:find("cdef struct " .. name .. "\n", 1, true)
             and not imported.text:find("cdef function " .. name .. "(", 1, true),
@@ -604,7 +604,7 @@ function M.aStructTheRenderingCannotLayOutIsRefusedWithItsLine()
         )
     end
     for _, name in ipairs({"layout_inner", "layout_mixed", "layout_value", "layout_opaque"}) do
-        testAssert.equal(byName[name] and byName[name].kind, "type-only", name)
+        testAssert.eq(byName[name] and byName[name].kind, "type-only", name)
     end
     assertContains(imported.text, "skipped struct layout_tagged at layout.h:10", "the comment says where the struct is")
     local warned = table.concat(imported.warnings, "\n")
@@ -723,7 +723,7 @@ function M.importedLayoutsMatchWhatTheCCompilerLaysOut()
     local compiled = pipe:read("*a")
     pipe:close()
     os.execute("rm -rf '" .. dir .. "'")
-    testAssert.equal(luajit, compiled, "LuaJIT's layout of the imported declarations")
+    testAssert.eq(luajit, compiled, "LuaJIT's layout of the imported declarations")
 end
 
 function M.outputParsesAndChecksCleanly()

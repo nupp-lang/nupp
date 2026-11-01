@@ -9,7 +9,7 @@ local env = envMod.new(HERE .. "/..")
 
 local function generate(src)
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors in test source")
+    testAssert.eq(#result.errors, 0, "syntax errors in test source")
     local code, diags = gen.generate(result, "test")
     -- These generate from a bare parse, where `gen.generate` documents a checked one. A
     -- construct whose lowering reads the checker's annotations -- `new R(field = v)` is
@@ -22,16 +22,16 @@ local function generate(src)
             lowering[#lowering + 1] = d
         end
     end
-    testAssert.equal(#lowering, 0, "gen diagnostics for " .. src)
+    testAssert.eq(#lowering, 0, "gen diagnostics for " .. src)
 
     return code
 end
 
 local function generateCoverage(src)
     local result = parser.parse(src, "coverage-test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors in coverage test source")
+    testAssert.eq(#result.errors, 0, "syntax errors in coverage test source")
     local code, diags, metadata = gen.generate(result, "coverage-test.nupp", {path = "coverage-test.nupp"})
-    testAssert.equal(#diags, 0, "coverage gen diagnostics for " .. src)
+    testAssert.eq(#diags, 0, "coverage gen diagnostics for " .. src)
 
     return code, metadata
 end
@@ -57,11 +57,11 @@ end
 
 local function generateChecked(src)
     local result = parser.parse(src, "prepared_worker.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors in checked generator source")
+    testAssert.eq(#result.errors, 0, "syntax errors in checked generator source")
     local diagnostics = check.check(result, "prepared_worker.nupp", env)
-    testAssert.equal(#diagnostics, 0, "check diagnostics for " .. src)
+    testAssert.eq(#diagnostics, 0, "check diagnostics for " .. src)
     local code, generated = gen.generate(result, "prepared_worker")
-    testAssert.equal(#generated, 0, "generation diagnostics for " .. src)
+    testAssert.eq(#generated, 0, "generation diagnostics for " .. src)
 
     return code
 end
@@ -95,8 +95,8 @@ export const original: function(value: string): string = implementation.create
 ]]
     )
     local exported = assert(loadstring(code, "@indexed-provider"))()
-    testAssert.equal(exported.create, exported.original)
-    testAssert.equal(exported.create("kept"), "kept")
+    testAssert.eq(exported.create, exported.original)
+    testAssert.eq(exported.create("kept"), "kept")
 end
 
 function M.semanticTypeOperatorsEraseFromRuntimeAnnotations()
@@ -112,10 +112,10 @@ return key, identity(row.name), optional, "cast" as Row.["name"]
 ]]
     )
     local key, value, optional, cast = assert(loadstring(code, "@semantic-types"))()
-    testAssert.equal(key, "name")
-    testAssert.equal(value, "kept")
-    testAssert.equal(optional, "kept")
-    testAssert.equal(cast, "cast")
+    testAssert.eq(key, "name")
+    testAssert.eq(value, "kept")
+    testAssert.eq(optional, "kept")
+    testAssert.eq(cast, "cast")
 end
 
 -- A comparison whose field is on the right has to reverse its ordered operator
@@ -134,9 +134,9 @@ return isSmall
 ]]
     local code = generateChecked(source)
     local isSmall = assert(loadstring(code))()
-    testAssert.equal(isSmall({n = 63}), true, "the reversed comparison admits a smaller value")
-    testAssert.equal(isSmall({n = 65}), false, "the reversed comparison rejects a larger value")
-    testAssert.equal(isSmall({n = "63"}), false, "an ordered comparison with the wrong runtime type is false")
+    testAssert.eq(isSmall({n = 63}), true, "the reversed comparison admits a smaller value")
+    testAssert.eq(isSmall({n = 65}), false, "the reversed comparison rejects a larger value")
+    testAssert.eq(isSmall({n = "63"}), false, "an ordered comparison with the wrong runtime type is false")
 end
 
 function M.lengthRefinementsAreFalseForTheWrongRuntimeType()
@@ -152,9 +152,9 @@ return isShort
 ]]
     local code = generateChecked(source)
     local isShort = assert(loadstring(code))()
-    testAssert.equal(isShort({name = "four"}), true, "a short string passes")
-    testAssert.equal(isShort({name = "longer"}), false, "a long string fails")
-    testAssert.equal(isShort({name = 4}), false, "a non-string field does not make `is` raise")
+    testAssert.eq(isShort({name = "four"}), true, "a short string passes")
+    testAssert.eq(isShort({name = "longer"}), false, "a long string fails")
+    testAssert.eq(isShort({name = 4}), false, "a non-string field does not make `is` raise")
 end
 
 function M.refinementsRenderOrdinaryNumericLiteralForms()
@@ -169,9 +169,9 @@ end
 return isBounded
 ]]
     local isBounded = assert(loadstring(generateChecked(source)))()
-    testAssert.equal(isBounded({n = -1000}), true, "negative separated literal")
-    testAssert.equal(isBounded({n = 15}), true, "hexadecimal upper bound")
-    testAssert.equal(isBounded({n = 16}), false, "exclusive upper bound")
+    testAssert.eq(isBounded({n = -1000}), true, "negative separated literal")
+    testAssert.eq(isBounded({n = 15}), true, "hexadecimal upper bound")
+    testAssert.eq(isBounded({n = 16}), false, "exclusive upper bound")
 end
 
 function M.targetFactsResolveTheHostFromTheEnvironment()
@@ -191,12 +191,12 @@ function M.targetFactsResolveTheHostFromTheEnvironment()
         local diagnostics = check.check(parsed, "target-facts.nupp", environment.value, {
             moduleName = "nupp.runtime.target",
         })
-        testAssert.equal(#diagnostics, 0, "target fact checking")
+        testAssert.eq(#diagnostics, 0, "target fact checking")
         local code, generated = gen.generate(parsed, "target-facts.nupp")
-        testAssert.equal(#generated, 0, "target fact generation")
+        testAssert.eq(#generated, 0, "target fact generation")
         local facts = assert(loadstring(code))()
-        testAssert.equal(facts.dialect, "luajit", "every artifact runs on LuaJIT")
-        testAssert.equal(facts.host, expectedHost, "only an explicit host overrides the native default")
+        testAssert.eq(facts.dialect, "luajit", "every artifact runs on LuaJIT")
+        testAssert.eq(facts.host, expectedHost, "only an explicit host overrides the native default")
 
         local imported = parser.parse('return require("nupp.runtime.browser.time")', "host-import.nupp")
         local admission = check.check(imported, "host-import.nupp", environment.value, {
@@ -210,7 +210,7 @@ function M.targetFactsResolveTheHostFromTheEnvironment()
                 assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
             end
         end
-        testAssert.equal(rejected, expectedHost ~= "browser", "browser module admission follows the resolved host")
+        testAssert.eq(rejected, expectedHost ~= "browser", "browser module admission follows the resolved host")
     end
 end
 
@@ -227,12 +227,12 @@ local function constructed(value: integer): Built return new Built(value) end
 return direct, cast, constructed
 ]]
     local code = generateChecked(source)
-    testAssert.equal(countLines(code), countLines(source), "record returns keep source lines")
+    testAssert.eq(countLines(code), countLines(source), "record returns keep source lines")
     local direct, cast, constructed = assert(loadstring(code))()
     local util = require("jit.util")
     local trace = require("nupp.profile.trace")
     for _, fn in ipairs({direct, cast, constructed}) do
-        testAssert.equal(fn(37).value, 37)
+        testAssert.eq(fn(37).value, 37)
         local pc = 1
         while true do
             local instruction = util.funcbc(fn, pc)
@@ -258,7 +258,7 @@ function M.recordReturnsDoNotConsumeAnotherLocalSlot()
             "\n"
         ) .. "\nreturn new Token(value = " .. table.concat(terms, " + ") .. ")\nend\nreturn make()"
     )
-    testAssert.equal(assert(loadstring(code))().value, 20100, "a return fits at the local limit")
+    testAssert.eq(assert(loadstring(code))().value, 20100, "a return fits at the local limit")
 end
 
 function M.recordReturnsPreserveEvaluationAndMultipleValues()
@@ -281,11 +281,11 @@ return a.value, b.value, c, d, log
 ]]
     )
     local a, b, c, d, log = assert(loadstring(code))()
-    testAssert.equal(a, 31)
-    testAssert.equal(b, 32)
-    testAssert.equal(c, nil)
-    testAssert.equal(d, 9)
-    testAssert.equal(log, "abc", "each constructor argument runs once in source order")
+    testAssert.eq(a, 31)
+    testAssert.eq(b, 32)
+    testAssert.eq(c, nil)
+    testAssert.eq(d, 9)
+    testAssert.eq(log, "abc", "each constructor argument runs once in source order")
 end
 
 function M.exportedPrimitiveFunctionsPublishPreparedWorkerTransfers()
@@ -343,8 +343,8 @@ function M.escapedQuotesInBacktickStringsLoad()
     local code = generate('local s = `a\\"b`\nlocal t = `x\\"${s}\\"y`\nreturn s, t')
     local chunk = assert(loadstring(code))
     local s, t = chunk()
-    testAssert.equal(s, 'a"b', "plain backtick string")
-    testAssert.equal(t, 'x"a"b"y', "interpolated backtick string")
+    testAssert.eq(s, 'a"b', "plain backtick string")
+    testAssert.eq(t, 'x"a"b"y', "interpolated backtick string")
 end
 
 function M.lineCountInvariant()
@@ -362,7 +362,7 @@ function M.lineCountInvariant()
     }
     for _, src in ipairs(cases) do
         local code = generate(src)
-        testAssert.equal(countLines(code), countLines(src) + 1, "line count changed for:\n" .. src .. "\n---\n" .. code)
+        testAssert.eq(countLines(code), countLines(src) + 1, "line count changed for:\n" .. src .. "\n---\n" .. code)
         -- (+1: generated output always ends with a final newline)
     end
 end
@@ -402,14 +402,14 @@ function M.ifBindingsTakeNonNilValuesOnceAndScopeToTheirArm()
         "\n"
     )
     local classify, chain, callsSoFar = run(src)
-    testAssert.equal(classify(1), "bound:1")
-    testAssert.equal(classify(false), "bound:false", "false is a value, not nil")
-    testAssert.equal(classify(nil), "outer seen", "the binding is not the outer name in a later arm")
-    testAssert.equal(callsSoFar(), 3, "the bound expression is evaluated once per test")
-    testAssert.equal(chain(nil, 2), "b2")
-    testAssert.equal(chain(1, 2), "a1")
-    testAssert.equal(callsSoFar(), 6, "a later arm's expression is evaluated only when reached")
-    testAssert.equal(chain(nil, nil), "none")
+    testAssert.eq(classify(1), "bound:1")
+    testAssert.eq(classify(false), "bound:false", "false is a value, not nil")
+    testAssert.eq(classify(nil), "outer seen", "the binding is not the outer name in a later arm")
+    testAssert.eq(callsSoFar(), 3, "the bound expression is evaluated once per test")
+    testAssert.eq(chain(nil, 2), "b2")
+    testAssert.eq(chain(1, 2), "a1")
+    testAssert.eq(callsSoFar(), 6, "a later arm's expression is evaluated only when reached")
+    testAssert.eq(chain(nil, nil), "none")
     local code = generate(src)
     assert(
         code:find("do local __nuppT%d+ = probe %( value %) if __nuppT%d+ ~= nil then local v = __nuppT%d+\n"),
@@ -475,7 +475,7 @@ function M.returnPacksEraseEntirely()
         if not chunk then
             error(("%s generated Lua that does not load: %s\n---\n%s"):format(label, err, code), 0)
         end
-        testAssert.equal(countLines(code), countLines(src) + 1, label .. " changed the line count:\n" .. code)
+        testAssert.eq(countLines(code), countLines(src) + 1, label .. " changed the line count:\n" .. code)
     end
 end
 
@@ -484,7 +484,7 @@ function M.coverageModeLeavesNormalOutputAlone()
     local result = parser.parse(src, "coverage-off.nupp")
     local ordinary = assert(gen.generate(result, "coverage-off.nupp"))
     local explicitlyOff = assert(gen.generate(result, "coverage-off.nupp", false))
-    testAssert.equal(explicitlyOff, ordinary, "coverage=false changes ordinary Lua")
+    testAssert.eq(explicitlyOff, ordinary, "coverage=false changes ordinary Lua")
 end
 
 function M.coverageModeCountsStatementsFunctionsAndBranches()
@@ -500,7 +500,7 @@ function M.coverageModeCountsStatementsFunctionsAndBranches()
             "\n"
         )
     )
-    testAssert.equal(countLines(code), 5, "coverage generation changes line count")
+    testAssert.eq(countLines(code), 5, "coverage generation changes line count")
     assert(metadata and metadata.path == "coverage-test.nupp", "coverage manifest path")
     local kinds = {}
     for _, site in ipairs(metadata.sites) do
@@ -512,7 +512,7 @@ function M.coverageModeCountsStatementsFunctionsAndBranches()
     withFreshCoverage(function()
         local chunk, err = loadstring(code, "@coverage_generated")
         assert(chunk, tostring(err) .. "\n" .. code)
-        testAssert.equal(chunk(), 1, "instrumented program result")
+        testAssert.eq(chunk(), 1, "instrumented program result")
         local hits = assert(_G.__nuppCoverage and _G.__nuppCoverage.hits["coverage-test.nupp"])
         local sawStatement, sawFunction, sawTrue = false, false, false
         for _, site in ipairs(metadata.sites) do
@@ -561,9 +561,9 @@ function M.coverageFunctionSitesCarryNamesAndSpans()
         end
     end
     local named = assert(byName.named, "the declared function is named in the manifest")
-    testAssert.equal(named.line, 1, "the named function starts on its declaration line")
-    testAssert.equal(named.endLine, 3, "the named function spans to its end")
-    testAssert.equal(anonymous, 1, "the anonymous function is one nameless site")
+    testAssert.eq(named.line, 1, "the named function starts on its declaration line")
+    testAssert.eq(named.endLine, 3, "the named function spans to its end")
+    testAssert.eq(anonymous, 1, "the anonymous function is one nameless site")
 end
 
 -- A function attached to a table is called by its own name. Naming it by the
@@ -624,9 +624,9 @@ end
 -- naming walk must not run, and the generated bytes must not move.
 function M.ordinaryGenerationRecordsNoFunctionNames()
     local result = parser.parse("local function named(): integer\n   return 1\nend\n", "plain.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors in plain source")
+    testAssert.eq(#result.errors, 0, "syntax errors in plain source")
     local _, _, metadata = gen.generate(result, "plain.nupp")
-    testAssert.equal(metadata, nil, "an ordinary compile produces no coverage manifest")
+    testAssert.eq(metadata, nil, "an ordinary compile produces no coverage manifest")
 end
 
 function M.coverageModeCountsANamedVarargFunction()
@@ -643,18 +643,18 @@ function M.coverageModeCountsANamedVarargFunction()
             "\n"
         )
     )
-    testAssert.equal(countLines(code), 4, "coverage generation changes line count")
+    testAssert.eq(countLines(code), 4, "coverage generation changes line count")
     local functions = 0
     for _, site in ipairs(metadata.sites) do
         if site.kind == "function" then
             functions = functions + 1
         end
     end
-    testAssert.equal(functions, 1, "the vararg function is a function site")
+    testAssert.eq(functions, 1, "the vararg function is a function site")
     withFreshCoverage(function()
         local chunk, err = loadstring(code, "@coverage_vararg")
         assert(chunk, tostring(err) .. "\n" .. code)
-        testAssert.equal(chunk(), 3, "instrumented program result")
+        testAssert.eq(chunk(), 3, "instrumented program result")
         local hits = assert(_G.__nuppCoverage and _G.__nuppCoverage.hits["coverage-test.nupp"])
         local sawFunction = false
         for _, site in ipairs(metadata.sites) do
@@ -667,16 +667,16 @@ function M.coverageModeCountsANamedVarargFunction()
 end
 
 function M.erasure()
-    testAssert.equal(run("local x: number = 21\nreturn x * 2"), 42)
-    testAssert.equal(run("local record P\n   x: number\nend\nlocal p = { x = 7 } as P\nreturn p.x"), 7)
-    testAssert.equal(run("local type E = 'a' | 'b'\nreturn 'ok'"), "ok")
-    testAssert.equal(run("local type Id = uint32\nlocal i = 9\nreturn i + 0"), 9)
-    testAssert.equal(run("local function f<T>(x: T): T return x end\nreturn f('generic')"), "generic")
-    testAssert.equal(run("@jit local function hot(): number return 5 end\nreturn hot()"), 5)
+    testAssert.eq(run("local x: number = 21\nreturn x * 2"), 42)
+    testAssert.eq(run("local record P\n   x: number\nend\nlocal p = { x = 7 } as P\nreturn p.x"), 7)
+    testAssert.eq(run("local type E = 'a' | 'b'\nreturn 'ok'"), "ok")
+    testAssert.eq(run("local type Id = uint32\nlocal i = 9\nreturn i + 0"), 9)
+    testAssert.eq(run("local function f<T>(x: T): T return x end\nreturn f('generic')"), "generic")
+    testAssert.eq(run("@jit local function hot(): number return 5 end\nreturn hot()"), 5)
 end
 
 function M.nestedRecordsAndInlineMethodsRun()
-    testAssert.equal(
+    testAssert.eq(
         run(
             table.concat(
                 {
@@ -699,7 +699,7 @@ function M.nestedRecordsAndInlineMethodsRun()
 end
 
 function M.tecsStyleLateEventRegistrationRuns()
-    testAssert.equal(
+    testAssert.eq(
         run(
             table.concat(
                 {
@@ -737,8 +737,8 @@ function M.tecsStyleLateEventRegistrationRuns()
 end
 
 function M.constSemantics()
-    testAssert.equal(run("const x: number = 42\nreturn x"), 42)
-    testAssert.equal(run("const function f(x: number): number return x * 2 end\nreturn f(21)"), 42)
+    testAssert.eq(run("const x: number = 42\nreturn x"), 42)
+    testAssert.eq(run("const function f(x: number): number return x * 2 end\nreturn f(21)"), 42)
     local code = generate("const answer: integer = 42\nreturn answer")
     assert(code:find("const answer = 42", 1, true), "const should survive type erasure: " .. code)
 end
@@ -772,27 +772,24 @@ end
 -- has to vanish rather than leaving its token behind as a bare expression statement
 -- next to the one the initializer already wrote.
 function M.literalTypeErasure()
-    testAssert.equal(run("local t: true = true\nreturn t"), true)
-    testAssert.equal(run("local f: false = false\nreturn f"), false)
-    testAssert.equal(run("local m: \"read\" = \"read\"\nreturn m"), "read")
-    testAssert.equal(
-        run("local function mode(x: \"read\"): \"read\" return x end" .. "\nreturn mode(\"read\")"),
-        "read"
-    )
+    testAssert.eq(run("local t: true = true\nreturn t"), true)
+    testAssert.eq(run("local f: false = false\nreturn f"), false)
+    testAssert.eq(run("local m: \"read\" = \"read\"\nreturn m"), "read")
+    testAssert.eq(run("local function mode(x: \"read\"): \"read\" return x end" .. "\nreturn mode(\"read\")"), "read")
 end
 
 -- `const T`, the read-only view, is a type node the same way `T?` or `T*` are: erased
 -- in place, not left as a stray identifier beside the value.
 function M.constTypeErasure()
-    testAssert.equal(run("local x: const number = 42\nreturn x"), 42)
+    testAssert.eq(run("local x: const number = 42\nreturn x"), 42)
 end
 
 function M.ternarySemantics()
-    testAssert.equal(run("return 1 < 2 ? 'yes' : 'no'"), "yes")
+    testAssert.eq(run("return 1 < 2 ? 'yes' : 'no'"), "yes")
     -- falsy middle arm must still be selected (the a-and-b-or-c pitfall)
-    testAssert.equal(run("local t = true\nreturn t ? false : 1"), false)
+    testAssert.eq(run("local t = true\nreturn t ? false : 1"), false)
     -- laziness: the untaken arm must not evaluate
-    testAssert.equal(
+    testAssert.eq(
         run([[
 local hits = 0
 local function boom() hits = hits + 1 return 9 end
@@ -801,18 +798,18 @@ return hits]]),
         0
     )
     -- right associativity chain
-    testAssert.equal(run("local n = 2\nreturn n == 1 ? 'one' : n == 2 ? 'two' : 'many'"), "two")
+    testAssert.eq(run("local n = 2\nreturn n == 1 ? 'one' : n == 2 ? 'two' : 'many'"), "two")
 end
 
 function M.safeNavigationSemantics()
-    testAssert.equal(run("local t = { x = 5 }\nreturn t?.x"), 5)
-    testAssert.equal(run("local t = nil\nreturn t?.x"), nil)
-    testAssert.equal(run("local t = { m = { n = 3 } }\nreturn t?.m?.n"), 3)
-    testAssert.equal(run("local t = nil\nreturn t?.['k']"), nil)
-    testAssert.equal(run("local f = nil\nreturn f?.(1)"), nil)
-    testAssert.equal(run("local f = function(a) return a * 3 end\nreturn f?.(2)"), 6)
+    testAssert.eq(run("local t = { x = 5 }\nreturn t?.x"), 5)
+    testAssert.eq(run("local t = nil\nreturn t?.x"), nil)
+    testAssert.eq(run("local t = { m = { n = 3 } }\nreturn t?.m?.n"), 3)
+    testAssert.eq(run("local t = nil\nreturn t?.['k']"), nil)
+    testAssert.eq(run("local f = nil\nreturn f?.(1)"), nil)
+    testAssert.eq(run("local f = function(a) return a * 3 end\nreturn f?.(2)"), 6)
     -- single evaluation of the object expression
-    testAssert.equal(
+    testAssert.eq(
         run(
             [[
 local calls = 0
@@ -825,13 +822,13 @@ return calls]]
 end
 
 function M.shortFunctionSemantics()
-    testAssert.equal(run("local add = |a, b| -> a + b\nreturn add(2, 3)"), 5)
-    testAssert.equal(run("local dbl = x -> x * 2\nreturn dbl(21)"), 42)
-    testAssert.equal(run("local t = || -> true\nreturn t()"), true)
-    testAssert.equal(run("local f = |n: number| -> do return n + 1 end\nreturn f(1)"), 2)
-    testAssert.equal(run("local curry = a -> b -> a .. b\nreturn curry('x')('y')"), "xy")
+    testAssert.eq(run("local add = |a, b| -> a + b\nreturn add(2, 3)"), 5)
+    testAssert.eq(run("local dbl = x -> x * 2\nreturn dbl(21)"), 42)
+    testAssert.eq(run("local t = || -> true\nreturn t()"), true)
+    testAssert.eq(run("local f = |n: number| -> do return n + 1 end\nreturn f(1)"), 2)
+    testAssert.eq(run("local curry = a -> b -> a .. b\nreturn curry('x')('y')"), "xy")
     -- Expression-bodied short functions always return exactly one value.
-    testAssert.equal(select("#", run([[
+    testAssert.eq(select("#", run([[
 local function pair() return 1, 2 end
 local one = || -> pair()
 return one()]])), 1)
@@ -870,23 +867,23 @@ end
 
 -- What 2.1 did not backport still is lowered, so those keep their own tests.
 function M.unbackportedSyntaxIsStillLowered()
-    testAssert.equal(run("return -7 // 2"), -4)
-    testAssert.equal(run("local a = -7\na //= 2\nreturn a"), -4)
-    testAssert.equal(run("local a = nil\na ??= 5\nreturn a"), 5)
-    testAssert.equal(run("local f = |...v| -> v.n\nreturn f(1, 2, 3)"), 3)
-    testAssert.equal(run("local function f(...v) return v.n end\nreturn f(nil, nil)"), 2)
+    testAssert.eq(run("return -7 // 2"), -4)
+    testAssert.eq(run("local a = -7\na //= 2\nreturn a"), -4)
+    testAssert.eq(run("local a = nil\na ??= 5\nreturn a"), 5)
+    testAssert.eq(run("local f = |...v| -> v.n\nreturn f(1, 2, 3)"), 3)
+    testAssert.eq(run("local function f(...v) return v.n end\nreturn f(nil, nil)"), 2)
     local code = generate("return 7 // 2")
     assert(code:find("math.floor", 1, true), "floor division lowers: " .. code)
 end
 
 function M.numberSeparatorSemantics()
-    testAssert.equal(run("return 1_234 + 0_x_10 + 1_e_2"), 1350)
+    testAssert.eq(run("return 1_234 + 0_x_10 + 1_e_2"), 1350)
     local code = generate("return 1_2_3")
     assert(code:find("1_2_3", 1, true), "separators survive: the runtime reads them: " .. code)
 end
 
 function M.continueSemantics()
-    testAssert.equal(
+    testAssert.eq(
         run([[
 local total = 0
 for i = 1, 5 do
@@ -896,7 +893,7 @@ end
 return total]]),
         9
     )
-    testAssert.equal(
+    testAssert.eq(
         run([[
 local n, hits = 0, 0
 repeat
@@ -909,7 +906,7 @@ return hits]]),
     )
     -- The until condition is in the body's scope, so a continue ahead of a
     -- later local would jump into that local's scope.
-    testAssert.equal(
+    testAssert.eq(
         run(
             [[
 local total, i = 0, 0
@@ -924,7 +921,7 @@ return total]]
         ),
         50
     )
-    testAssert.equal(
+    testAssert.eq(
         run(
             [[
 local total, i = 0, 0
@@ -953,11 +950,11 @@ local function collect(prefix, ...args)
 end
 return collect("ignored", nil, 3)]]
     )
-    testAssert.equal(n, 2)
-    testAssert.equal(first, nil)
-    testAssert.equal(second, 3)
-    testAssert.equal(plain, 2)
-    testAssert.equal(run("local count = |...args| -> args.n\nreturn count(nil, nil)"), 2)
+    testAssert.eq(n, 2)
+    testAssert.eq(first, nil)
+    testAssert.eq(second, 3)
+    testAssert.eq(plain, 2)
+    testAssert.eq(run("local count = |...args| -> args.n\nreturn count(nil, nil)"), 2)
 
     local code = generate("local function f(...args) return args.n end")
     assert(code:find("...", 1, true), "plain vararg remains in output")
@@ -966,27 +963,27 @@ return collect("ignored", nil, 3)]]
 end
 
 function M.istringSemantics()
-    testAssert.equal(run("local n = 6\nreturn `n is ${n}, double ${n * 2}`"), "n is 6, double 12")
-    testAssert.equal(run("return `${1}${2}`"), "12")
-    testAssert.equal(run("return `plain`"), "plain")
-    testAssert.equal(run("return `quote \" and \\` tick`"), 'quote " and ` tick')
-    testAssert.equal(run("return `escaped \\${x}`"), "escaped ${x}")
-    testAssert.equal(run("return `a\nb`"), "a\nb")
-    testAssert.equal(run("local t = { n = 4 }\nreturn `v=${ ({ t.n })[1] }`"), "v=4")
+    testAssert.eq(run("local n = 6\nreturn `n is ${n}, double ${n * 2}`"), "n is 6, double 12")
+    testAssert.eq(run("return `${1}${2}`"), "12")
+    testAssert.eq(run("return `plain`"), "plain")
+    testAssert.eq(run("return `quote \" and \\` tick`"), 'quote " and ` tick')
+    testAssert.eq(run("return `escaped \\${x}`"), "escaped ${x}")
+    testAssert.eq(run("return `a\nb`"), "a\nb")
+    testAssert.eq(run("local t = { n = 4 }\nreturn `v=${ ({ t.n })[1] }`"), "v=4")
 end
 
 function M.dedentLongStringSemantics()
-    testAssert.equal(run("return dedent [[\n   hello\n   ]]"), "hello\n")
-    testAssert.equal(run("return dedent [[\n   outer\n      inner\n   ]]"), "outer\n   inner\n")
-    testAssert.equal(run("return dedent [=[\n   ]] remains text\n   ]=]"), "]] remains text\n")
-    testAssert.equal(run("return dedent [[\n    {\n        \"user\": \"foo\"\n    }]]"), "{\n    \"user\": \"foo\"\n}")
+    testAssert.eq(run("return dedent [[\n   hello\n   ]]"), "hello\n")
+    testAssert.eq(run("return dedent [[\n   outer\n      inner\n   ]]"), "outer\n   inner\n")
+    testAssert.eq(run("return dedent [=[\n   ]] remains text\n   ]=]"), "]] remains text\n")
+    testAssert.eq(run("return dedent [[\n    {\n        \"user\": \"foo\"\n    }]]"), "{\n    \"user\": \"foo\"\n}")
 end
 
 function M.isSemantics()
-    testAssert.equal(run("local v: number | string = 'hi'\nreturn v is string"), true)
-    testAssert.equal(run("local v: number | string = 5\nreturn v is string"), false)
-    testAssert.equal(run("local v = nil\nreturn v is nil"), true)
-    testAssert.equal(run("local f = print\nreturn f is function(): nil"), true)
+    testAssert.eq(run("local v: number | string = 'hi'\nreturn v is string"), true)
+    testAssert.eq(run("local v: number | string = 5\nreturn v is string"), false)
+    testAssert.eq(run("local v = nil\nreturn v is nil"), true)
+    testAssert.eq(run("local f = print\nreturn f is function(): nil"), true)
 end
 
 -- A test whose answer the subject's declared type already settles compiles into the
@@ -1015,21 +1012,21 @@ function M.isSemanticsWhereTheTestAdmitsNil()
         "\n"
     )
     local classify, settled = assert(loadstring(generateChecked(source), "@gen_nil_test"))()
-    testAssert.equal(classify(nil), 2, "a nil subject takes the nil arm")
-    testAssert.equal(classify("text"), 1, "a string subject takes the string arm")
-    testAssert.equal(settled(nil), true, "a target that admits nil is satisfied by nil")
+    testAssert.eq(classify(nil), 2, "a nil subject takes the nil arm")
+    testAssert.eq(classify("text"), 1, "a string subject takes the string arm")
+    testAssert.eq(settled(nil), true, "a target that admits nil is satisfied by nil")
 end
 
 function M.bitAndFloordivSemantics()
-    testAssert.equal(run("return 5 & 3"), 1)
-    testAssert.equal(run("return 5 | 2"), 7)
-    testAssert.equal(run("return 2 ~ 3"), 1)
-    testAssert.equal(run("return 1 << 4"), 16)
-    testAssert.equal(run("return 256 >> 4"), 16)
-    testAssert.equal(run("return -8 ~>> 1"), -4)
-    testAssert.equal(run("return ~0"), -1)
-    testAssert.equal(run("return -7 // 2"), -4)
-    testAssert.equal(run("return 7 // 2"), 3)
+    testAssert.eq(run("return 5 & 3"), 1)
+    testAssert.eq(run("return 5 | 2"), 7)
+    testAssert.eq(run("return 2 ~ 3"), 1)
+    testAssert.eq(run("return 1 << 4"), 16)
+    testAssert.eq(run("return 256 >> 4"), 16)
+    testAssert.eq(run("return -8 ~>> 1"), -4)
+    testAssert.eq(run("return ~0"), -1)
+    testAssert.eq(run("return -7 // 2"), -4)
+    testAssert.eq(run("return 7 // 2"), 3)
 end
 
 -- These guarantees outlive the portable lowering backend. Both paths consume
@@ -1038,19 +1035,19 @@ function M.sharedLanguageSemanticsSurviveLegacyRetirement()
     local fixtures = dofile(HERE .. "/fixtures/language-semantics.lua")
     for name, fixture in pairs(fixtures) do
         local result = parser.parse(fixture.source, name .. ".nupp")
-        testAssert.equal(#result.errors, 0, name .. " parses")
+        testAssert.eq(#result.errors, 0, name .. " parses")
         local diagnostics = check.check(result, name .. ".nupp", env)
         for _, diagnostic in ipairs(diagnostics) do
             assert(diagnostic.severity ~= "error", diagnostic.msg)
         end
         local code, generated = gen.generate(result, name)
-        testAssert.equal(#generated, 0, name .. " generates")
+        testAssert.eq(#generated, 0, name .. " generates")
         local chunk = assert(loadstring(code, "@shared-" .. name))
 
         local function verify(...)
-            testAssert.equal(select("#", ...), fixture.count, name .. " result count")
+            testAssert.eq(select("#", ...), fixture.count, name .. " result count")
             for index = 1, fixture.count do
-                testAssert.equal(select(index, ...), fixture.expected[index], name .. " result " .. index)
+                testAssert.eq(select(index, ...), fixture.expected[index], name .. " result " .. index)
             end
         end
 
@@ -1063,12 +1060,12 @@ end
 local function printed(src, filename)
     filename = filename or "printed.nupp"
     local result = parser.parse(src, filename)
-    testAssert.equal(#result.errors, 0, "syntax errors in test source")
+    testAssert.eq(#result.errors, 0, "syntax errors in test source")
     for _, d in ipairs(check.check(result, filename, env)) do
         assert(d.severity ~= "error", "check error for " .. src .. ": " .. tostring(d.msg or d.message))
     end
     local code, diags = gen.generate(result, filename)
-    testAssert.equal(#diags, 0, "gen diagnostics for " .. src)
+    testAssert.eq(#diags, 0, "gen diagnostics for " .. src)
     local chunk = assert(loadstring(code, "@" .. filename))
     local out = {}
     setfenv(
@@ -1095,39 +1092,39 @@ end
 -- same name in the program -- `type` in a parser, `math` in a geometry module -- does
 -- not change what `a // 2` or `v is number` means.
 function M.loweringsReachRuntimeGlobalsPastAShadowingLocal()
-    testAssert.equal(
+    testAssert.eq(
         printed(
             "local math = {floor = function(x: number): number return 42 end}\nlocal a: integer = 7\nprint(a // 2)",
             "printed.nupp"
         ),
         "3"
     )
-    testAssert.equal(printed("local math = {}\nlocal a = 7\na //= 2\nprint(a)"), "3")
-    testAssert.equal(
+    testAssert.eq(printed("local math = {}\nlocal a = 7\na //= 2\nprint(a)"), "3")
+    testAssert.eq(
         printed(
             "local type = function(x: any): string return 'table' end\nlocal v: any = 5\nprint(v is number, v is string)"
         ),
         "true\tfalse"
     )
-    testAssert.equal(
+    testAssert.eq(
         printed(
             "local getmetatable = function(x: any): any return nil end\nlocal record R\n    x: integer\nend\n"
             .. "local r: any = new R(x = 1)\nprint(r is R)"
         ),
         "true"
     )
-    testAssert.equal(
+    testAssert.eq(
         printed(
             "local select = function(...: any): integer return 99 end\n"
             .. "local function f(...rest: any): integer\n    return rest.n\nend\nprint(f(1, 2))"
         ),
         "2"
     )
-    testAssert.equal(
+    testAssert.eq(
         printed("local tostring = function(x: any): string return 'T' end\nlocal n = 5\nprint(`n=${n}`)"),
         "n=5"
     )
-    testAssert.equal(
+    testAssert.eq(
         printed(
             "local setmetatable = function(t: any, m: any): any return 'hijacked' end\n"
             .. "local record P\n    x: integer\nend\nlocal p = new P(x = 1)\nprint(p.x)"
@@ -1140,23 +1137,23 @@ end
 -- integers is lowered on its own: the quotient rounds toward negative infinity, as it
 -- does for numbers.
 function M.floorDivisionOnSixtyFourBitIntegersRoundsDown()
-    testAssert.equal(
+    testAssert.eq(
         printed("local a = 7LL\nlocal b = -7LL\nprint(a // 2LL, b // 2LL, a // -2LL, b // -2LL, 6LL // -3LL)"),
         "3LL\t-4LL\t-4LL\t3LL\t-2LL"
     )
-    testAssert.equal(printed("local c = -7LL\nc = c // 2LL\nprint(c, 7ULL // 2ULL)"), "-4LL\t3ULL")
+    testAssert.eq(printed("local c = -7LL\nc = c // 2LL\nprint(c, 7ULL // 2ULL)"), "-4LL\t3ULL")
 end
 
 -- LuaJIT 2.1 takes `;` after a statement and refuses it anywhere else: at the start of
 -- a block, or after another `;`. Nupp accepts an empty statement wherever Lua 5.2
 -- does, so generation writes a `;` only where it separates two statements.
 function M.emptyStatementsGenerateCodeThatLoads()
-    testAssert.equal(printed(";;print(1);;\nlocal x = 2;\nprint(x);"), "1\n2")
-    testAssert.equal(printed("do ; end\nprint(3)"), "3")
-    testAssert.equal(printed("local function f() ; return 4 end\nif true then ; print(f()) ; else ; end"), "4")
-    testAssert.equal(printed("repeat ; until true\nwhile false do ; end\nfor i = 1, 1 do ; ; print(i) end"), "1")
+    testAssert.eq(printed(";;print(1);;\nlocal x = 2;\nprint(x);"), "1\n2")
+    testAssert.eq(printed("do ; end\nprint(3)"), "3")
+    testAssert.eq(printed("local function f() ; return 4 end\nif true then ; print(f()) ; else ; end"), "4")
+    testAssert.eq(printed("repeat ; until true\nwhile false do ; end\nfor i = 1, 1 do ; ; print(i) end"), "1")
     -- The stdlib reviewer's one-line body, each statement separated by `;`.
-    testAssert.equal(
+    testAssert.eq(
         printed(
             "local function read(n: string): string local f = assert(io.open(n, 'rb')); "
             .. "local s = f:read('*a'); f:close(); return s end\nprint(#read('"
@@ -1166,13 +1163,13 @@ function M.emptyStatementsGenerateCodeThatLoads()
         "true"
     )
     -- A `;` that keeps a parenthesized statement from reading as a call survives.
-    testAssert.equal(printed("local t = {}\nlocal f = print; (f)('call')"), "call")
+    testAssert.eq(printed("local t = {}\nlocal f = print; (f)('call')"), "call")
 end
 
 -- An affine local that ends a `repeat` body leaves the protected region with no
 -- statement of its own before the hoisted `until` test.
 function M.anAffineLocalCanEndARepeatBody()
-    testAssert.equal(
+    testAssert.eq(
         printed(
             table.concat(
                 {
@@ -1212,12 +1209,12 @@ function M.unloadableOutputIsReportedAtItsLine()
         end
     end
     local _, diags = gen.generate(result, "broken.nupp")
-    testAssert.equal(#diags, 1, "one diagnostic")
-    testAssert.equal(diags[1].code, "NUPP3005")
-    testAssert.equal(diags[1].line, 2, "the line LuaJIT named")
-    testAssert.equal(diags[1].col, 1)
-    testAssert.equal(diags[1].offset, #"local a = 1\n" + 1, "the offset of that line's first byte")
-    testAssert.equal(diags[1].help:find("nupp bc", 1, true), nil, "no command that fails the same way")
+    testAssert.eq(#diags, 1, "one diagnostic")
+    testAssert.eq(diags[1].code, "NUPP3005")
+    testAssert.eq(diags[1].line, 2, "the line LuaJIT named")
+    testAssert.eq(diags[1].col, 1)
+    testAssert.eq(diags[1].offset, #"local a = 1\n" + 1, "the offset of that line's first byte")
+    testAssert.eq(diags[1].help:find("nupp bc", 1, true), nil, "no command that fails the same way")
 end
 
 -- More than 200 locals in one function is a limit of Lua's, reached by the program
@@ -1232,16 +1229,16 @@ function M.tooManyLocalsIsReportedAsTheLimit()
     local result = parser.parse(src, "wide.nupp")
     check.check(result, "wide.nupp", env)
     local _, diags = gen.generate(result, "wide.nupp")
-    testAssert.equal(#diags, 1, "one diagnostic")
-    testAssert.equal(diags[1].code, "NUPP3005")
+    testAssert.eq(#diags, 1, "one diagnostic")
+    testAssert.eq(diags[1].code, "NUPP3005")
     assert(diags[1].msg:find("more than 200 local names", 1, true), diags[1].msg)
-    testAssert.equal(diags[1].help:find("bug in the compiler", 1, true), nil, "not called a compiler bug")
+    testAssert.eq(diags[1].help:find("bug in the compiler", 1, true), nil, "not called a compiler bug")
 end
 
 -- The same holds for a switch type case, and for the declarations a `cdef` and a
 -- struct lower to, which run in the program's scope too.
 function M.typeCasesAndCdefsReachRuntimeGlobalsPastAShadowingLocal()
-    testAssert.equal(
+    testAssert.eq(
         printed(
             table.concat(
                 {
@@ -1262,7 +1259,7 @@ function M.typeCasesAndCdefsReachRuntimeGlobalsPastAShadowingLocal()
         ),
         "record\tother"
     )
-    testAssert.equal(
+    testAssert.eq(
         printed(
             table.concat(
                 {
@@ -1280,7 +1277,7 @@ end
 -- Explicit type arguments erase with the rest of the type layer: the angle brackets
 -- and the commas between the types are type material, not code.
 function M.explicitTypeArgumentsErase()
-    testAssert.equal(
+    testAssert.eq(
         printed(
             "local function id<T>(x: T): T return x end\n"
             .. "local function pair<A, B>(a: A, b: B): (A, B) return a, b end\n"
@@ -1289,14 +1286,14 @@ function M.explicitTypeArgumentsErase()
         ),
         "5\ta\t1"
     )
-    testAssert.equal(
+    testAssert.eq(
         printed(
             "local ffi = require('ffi')\nlocal span = binary.span\nlocal s = ffi.new('uint8_t[?]', 4) as any\n"
             .. "local v = span.fromCarray<uint8>(s, 4)\nprint(#v)"
         ),
         "4"
     )
-    testAssert.equal(
+    testAssert.eq(
         printed(
             "local record Box\n    v: integer\nend\n"
             .. "function Box:get<T>(fallback: T): integer | T return self.v end\n"
@@ -1311,7 +1308,7 @@ end
 -- such as `sqlite3` or `FILE` this way -- and is declared as one, so LuaJIT itself
 -- refuses to allocate the incomplete struct while pointers to it still work.
 function M.aFieldlessCdefStructIsOpaque()
-    testAssert.equal(
+    testAssert.eq(
         printed(
             table.concat(
                 {
@@ -1334,17 +1331,13 @@ end
 local function moduleExports(src, name)
     local filename = name .. ".nupp"
     local result = parser.parse(src, filename)
-    testAssert.equal(#result.errors, 0, "syntax errors in test source")
+    testAssert.eq(#result.errors, 0, "syntax errors in test source")
     local diagnostics = check.check(result, filename, env, {moduleName = name})
     for _, d in ipairs(diagnostics) do
         assert(d.severity ~= "error", "check error: " .. tostring(d.code) .. " " .. tostring(d.msg))
     end
     local code, generated = gen.generate(result, name)
-    testAssert.equal(
-        #generated,
-        0,
-        generated[1] and (generated[1].code .. " " .. generated[1].msg) or "gen diagnostics"
-    )
+    testAssert.eq(#generated, 0, generated[1] and (generated[1].code .. " " .. generated[1].msg) or "gen diagnostics")
     local chunk = assert(loadstring(code, "@" .. filename))
     package.loaded[name] = nil
     local exports = chunk()
@@ -1382,15 +1375,15 @@ function M.aModuleOverTheLocalLimitSpillsItsDeclarations()
     end
 
     local exports, code = moduleExports(exporting("genspillwide", 201), "genspillwide")
-    testAssert.equal(exports.f200(), 200, "a spilled export answers")
-    testAssert.equal(exports.f0(), 300, "a forward reference reaches a declaration made after it")
-    testAssert.equal(exports.counted(), 2, "a spilled record builds instances and a user local stays shared")
-    testAssert.equal(exports.counted(), 3, "the user local keeps its state between calls")
-    testAssert.equal(rawget(_G, "f200"), nil, "a spilled declaration does not leak into the global table")
+    testAssert.eq(exports.f200(), 200, "a spilled export answers")
+    testAssert.eq(exports.f0(), 300, "a forward reference reaches a declaration made after it")
+    testAssert.eq(exports.counted(), 2, "a spilled record builds instances and a user local stays shared")
+    testAssert.eq(exports.counted(), 3, "the user local keeps its state between calls")
+    testAssert.eq(rawget(_G, "f200"), nil, "a spilled declaration does not leak into the global table")
     assert(code:find("__nuppScope", 1, true), "the wide module runs against a table")
 
     local _, narrow = moduleExports(exporting("genspillnarrow", 150), "genspillnarrow")
-    testAssert.equal(narrow:find("__nuppScope", 1, true), nil, "a module that fits keeps every declaration a local")
+    testAssert.eq(narrow:find("__nuppScope", 1, true), nil, "a module that fits keeps every declaration a local")
     assert(narrow:find("local f149;", 1, true), "and declares its exports the way it always did")
 end
 
@@ -1426,9 +1419,9 @@ function M.aLargeImportCModuleBuildsAndRuns()
     lines[#lines + 1] = ""
     local exports, code = moduleExports(table.concat(lines, "\n"), "genspillcdefs")
     assert(code:find("__nuppScope", 1, true), "three hundred cdef declarations spill")
-    testAssert.equal(exports.abs(-3), 3, "a spilled cdef function calls through")
-    testAssert.equal(tonumber(exports.strlen("four")), 4, "and so does another")
-    testAssert.equal(exports.NuppGenSpill289(7).a, 7, "a spilled cdef struct constructs")
+    testAssert.eq(exports.abs(-3), 3, "a spilled cdef function calls through")
+    testAssert.eq(tonumber(exports.strlen("four")), 4, "and so does another")
+    testAssert.eq(exports.NuppGenSpill289(7).a, 7, "a spilled cdef struct constructs")
 end
 
 -- The `local`s a module writes stay locals, so past the limit nothing can spill them:
@@ -1444,7 +1437,7 @@ function M.tooManyUserLocalsAreReportedByCheck()
     for _, d in ipairs(check.check(result, "genspilllocals.nupp", env, {moduleName = "genspilllocals"})) do
         codes[#codes + 1] = d.code .. ":" .. d.line
     end
-    testAssert.equal(table.concat(codes, " "), "NUPP3005:203", "the 201st local is where the module stops fitting")
+    testAssert.eq(table.concat(codes, " "), "NUPP3005:203", "the 201st local is where the module stops fitting")
 end
 
 return M

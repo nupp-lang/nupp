@@ -59,8 +59,8 @@ local ELEMENTS = {"float", "number", "int8", "uint8", "int16", "uint16", "int32"
 
 function M.manifestIsOrthogonalAndLedgerIsFixed()
     local manifest, ledger = obligations.load()
-    test.equal(manifest.schemaVersion, 1)
-    test.equal(#ledger.defects, 13)
+    test.eq(manifest.schemaVersion, 1)
+    test.eq(#ledger.defects, 13)
     local empty = obligations.validate({})
     test(empty.required < 3000, "the manifest expanded back into the old Cartesian matrix")
 
@@ -73,8 +73,8 @@ function M.manifestIsOrthogonalAndLedgerIsFixed()
             speciesRequirements = speciesRequirements + 1
         end
     end
-    test.equal(operationRequirements, 15 * 4 * 2)
-    test.equal(speciesRequirements, 10 * 64 * 2)
+    test.eq(operationRequirements, 15 * 4 * 2)
+    test.eq(speciesRequirements, 10 * 64 * 2)
 
     local ids, witnesses = {}, {}
     local preserved, generated = 0, 0
@@ -84,48 +84,48 @@ function M.manifestIsOrthogonalAndLedgerIsFixed()
         if defect.mechanism.kind == "preserved-test" then
             preserved = preserved + 1
         else
-            test.equal(defect.mechanism.kind, "generated-fixture-mutation")
-            test.equal(defect.mechanism.implemented, true)
+            test.eq(defect.mechanism.kind, "generated-fixture-mutation")
+            test.eq(defect.mechanism.implemented, true)
             generated = generated + 1
         end
-        test.equal(defect.mechanism.implemented, true)
+        test.eq(defect.mechanism.implemented, true)
         test(type(defect.mechanism.operation) == "string" and defect.mechanism.operation ~= "")
         test(
             defect.mechanism.killMarker:find("SIMD_EQUIVALENCE_KILL:" .. defect.id .. ":", 1, true) == 1,
             "defect kill marker does not begin with its ID"
         )
-        test.equal(defect.mechanism.productionFlag, nil)
+        test.eq(defect.mechanism.productionFlag, nil)
         for _, witness in ipairs(defect.expectedWitnesses) do
             test(not witnesses[witness], "duplicate defect witness")
             witnesses[witness] = true
-            test.equal(witness, defect.mechanism.testId)
+            test.eq(witness, defect.mechanism.testId)
         end
     end
-    test.equal(preserved, 11)
-    test.equal(generated, 2)
+    test.eq(preserved, 11)
+    test.eq(generated, 2)
 end
 
 function M.coverageWitnessFactsSatisfyOnlyPassingCases()
     local facts, empty = completeFacts("migration")
     local complete = obligations.validate({harness(facts)})
-    test.equal(complete.ok, true)
-    test.equal(complete.covered, empty.required)
+    test.eq(complete.ok, true)
+    test.eq(complete.covered, empty.required)
 
     local unavailable = obligations.validate({harness(facts, "not-executed")})
-    test.equal(unavailable.ok, false)
-    test.equal(unavailable.covered, 0)
+    test.eq(unavailable.ok, false)
+    test.eq(unavailable.covered, 0)
 
     facts[#facts + 1] = facts[1]
     local duplicate = obligations.validate({harness(facts)})
-    test.equal(duplicate.ok, false)
+    test.eq(duplicate.ok, false)
     test.matches(duplicate.invalid[1], "duplicate witness ID")
 end
 
 function M.equivalenceGateRequiresExactLedgerWitnesses()
     local facts, empty = completeFacts("equivalence")
     local complete = obligations.validate({harness(facts)}, {gate = "equivalence"})
-    test.equal(complete.ok, true)
-    test.equal(complete.covered, empty.required)
+    test.eq(complete.ok, true)
+    test.eq(complete.covered, empty.required)
 
     for _, fact in ipairs(facts) do
         if fact.value.obligation == "simd.historical-defect" then
@@ -134,7 +134,7 @@ function M.equivalenceGateRequiresExactLedgerWitnesses()
         end
     end
     local wrong = obligations.validate({harness(facts)}, {gate = "equivalence"})
-    test.equal(wrong.ok, false)
+    test.eq(wrong.ok, false)
     test(#wrong.invalid > 0)
 end
 
@@ -191,9 +191,9 @@ function M.nativeMatrixEvidenceMigratesIntoCompactObligations()
         },
     }
     local result = obligations.validate({report})
-    test.equal(#result.invalid, 0)
-    test.equal(missing(result, "simd.species-inventory", {backend = "native", element = "int8", lane = 2}), false)
-    test.equal(
+    test.eq(#result.invalid, 0)
+    test.eq(missing(result, "simd.species-inventory", {backend = "native", element = "int8", lane = 2}), false)
+    test.eq(
         missing(result, "simd.operation-semantics", {
             backend = "native",
             operationCase = "integer/signed-integer",
@@ -201,11 +201,11 @@ function M.nativeMatrixEvidenceMigratesIntoCompactObligations()
         }),
         false
     )
-    test.equal(missing(result, "simd.conversions", {backend = "native", source = "int8", destination = "float"}), false)
-    test.equal(missing(result, "simd.tail-semantics", {backend = "native", tailCase = "logical"}), false)
-    test.equal(missing(result, "simd.representation-boundary", {boundary = "avx512-gather-scatter"}), false)
-    test.equal(missing(result, "simd.native.host", {host = "linux-x64"}), false)
-    test.equal(missing(result, "simd.native.algorithm", {algorithm = "utf8simd", tier = "avx512f"}), false)
+    test.eq(missing(result, "simd.conversions", {backend = "native", source = "int8", destination = "float"}), false)
+    test.eq(missing(result, "simd.tail-semantics", {backend = "native", tailCase = "logical"}), false)
+    test.eq(missing(result, "simd.representation-boundary", {boundary = "avx512-gather-scatter"}), false)
+    test.eq(missing(result, "simd.native.host", {host = "linux-x64"}), false)
+    test.eq(missing(result, "simd.native.algorithm", {algorithm = "utf8simd", tier = "avx512f"}), false)
 
     report.rows[1].execution.nativeCalls = 0
     local invalid = obligations.validate({report})
@@ -235,10 +235,10 @@ function M.partialMatrixEvidenceDoesNotClaimUnexecutedCoverage()
         },
     }
     local result = obligations.validate({report})
-    test.equal(#result.invalid, 0)
-    test.equal(missing(result, "simd.species-inventory", {backend = "native", element = "int8", lane = 4}), false)
-    test.equal(missing(result, "simd.species-inventory", {backend = "native", element = "int8", lane = 5}), true)
-    test.equal(
+    test.eq(#result.invalid, 0)
+    test.eq(missing(result, "simd.species-inventory", {backend = "native", element = "int8", lane = 4}), false)
+    test.eq(missing(result, "simd.species-inventory", {backend = "native", element = "int8", lane = 5}), true)
+    test.eq(
         missing(result, "simd.operation-semantics", {
             backend = "native",
             operationCase = "common/signed-integer",
@@ -247,7 +247,7 @@ function M.partialMatrixEvidenceDoesNotClaimUnexecutedCoverage()
         false
     )
     for _, representation in ipairs({"composite-exact", "composite-remainder", "preferred"}) do
-        test.equal(
+        test.eq(
             missing(result, "simd.operation-semantics", {
                 backend = "native",
                 operationCase = "common/signed-integer",
@@ -256,9 +256,9 @@ function M.partialMatrixEvidenceDoesNotClaimUnexecutedCoverage()
             true
         )
     end
-    test.equal(missing(result, "simd.conversions", {backend = "native", source = "int8", destination = "float"}), false)
-    test.equal(missing(result, "simd.conversions", {backend = "native", source = "int8", destination = "uint64"}), true)
-    test.equal(missing(result, "simd.tail-semantics", {backend = "native", tailCase = "chunk-plus-one"}), true)
+    test.eq(missing(result, "simd.conversions", {backend = "native", source = "int8", destination = "float"}), false)
+    test.eq(missing(result, "simd.conversions", {backend = "native", source = "int8", destination = "uint64"}), true)
+    test.eq(missing(result, "simd.tail-semantics", {backend = "native", tailCase = "chunk-plus-one"}), true)
 
     report.rows[
         2
@@ -271,8 +271,8 @@ function M.partialMatrixEvidenceDoesNotClaimUnexecutedCoverage()
         execution = native,
     }
     local bothCompilers = obligations.validate({report})
-    test.equal(#bothCompilers.invalid, 0)
-    test.equal(bothCompilers.witnesses, result.witnesses * 2)
+    test.eq(#bothCompilers.invalid, 0)
+    test.eq(bothCompilers.witnesses, result.witnesses * 2)
 end
 
 function M.wasmMatrixEvidenceUsesTheSameObligations()
@@ -298,9 +298,9 @@ function M.wasmMatrixEvidenceUsesTheSameObligations()
         counted = {execution = execution({}), scalarC = execution({})},
     }
     local result = obligations.validate({report})
-    test.equal(#result.invalid, 0)
-    test.equal(missing(result, "simd.species-inventory", {backend = "wasm", element = "float", lane = 64}), false)
-    test.equal(
+    test.eq(#result.invalid, 0)
+    test.eq(missing(result, "simd.species-inventory", {backend = "wasm", element = "float", lane = 64}), false)
+    test.eq(
         missing(result, "simd.operation-semantics", {
             backend = "wasm",
             operationCase = "floating-special/floating",
@@ -308,9 +308,9 @@ function M.wasmMatrixEvidenceUsesTheSameObligations()
         }),
         false
     )
-    test.equal(missing(result, "simd.conversions", {backend = "wasm", source = "float", destination = "uint64"}), false)
-    test.equal(missing(result, "simd.wasm.counted-runtime", {route = "simd"}), false)
-    test.equal(missing(result, "simd.wasm.counted-runtime", {route = "scalar-c"}), false)
+    test.eq(missing(result, "simd.conversions", {backend = "wasm", source = "float", destination = "uint64"}), false)
+    test.eq(missing(result, "simd.wasm.counted-runtime", {route = "simd"}), false)
+    test.eq(missing(result, "simd.wasm.counted-runtime", {route = "scalar-c"}), false)
 end
 
 return M

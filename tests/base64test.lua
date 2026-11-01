@@ -28,8 +28,8 @@ local VECTORS = {
 
 function M.publishedVectorsEncodeAndDecode()
     for _, vector in ipairs(VECTORS) do
-        check.equal(base64.encode(vector[1]), vector[2])
-        check.equal(base64.decode(vector[2]), vector[1])
+        check.eq(base64.encode(vector[1]), vector[2])
+        check.eq(base64.decode(vector[2]), vector[1])
     end
 end
 
@@ -41,8 +41,8 @@ function M.everyAlphabetPositionRoundTrips()
     end
     local all = table.concat(bytes)
     local encoded = base64.encode(all)
-    check.equal(#encoded, 344)
-    check.equal(base64.decode(encoded), all)
+    check.eq(#encoded, 344)
+    check.eq(base64.decode(encoded), all)
 end
 
 --- Every length across the group boundary and the block the entry reads as
@@ -51,31 +51,31 @@ function M.everyLengthThroughTwoBlocksRoundTrips()
     local bytes = {}
     for length = 0, 64 do
         local value = table.concat(bytes)
-        check.equal(base64.decode(base64.encode(value)), value)
-        check.equal(#base64.encode(value) % 4, 0)
+        check.eq(base64.decode(base64.encode(value)), value)
+        check.eq(#base64.encode(value) % 4, 0)
         bytes[#bytes + 1] = string.char(length % 256)
     end
 end
 
 function M.paddingIsExactlyWhatTheRemainderAsksFor()
-    check.equal(base64.encode("a"):sub(-2), "==")
-    check.equal(base64.encode("ab"):sub(-1), "=")
-    check.equal(base64.encode("abc"):sub(-1) == "=", false)
+    check.eq(base64.encode("a"):sub(-2), "==")
+    check.eq(base64.encode("ab"):sub(-1), "=")
+    check.eq(base64.encode("abc"):sub(-1) == "=", false)
 end
 
 -- Text that is not base64 is an ordinary answer, nil and the reason, as
 -- hex.decode gives, rather than a raise.
 local function refused(text)
     local value, reason = base64.decode(text)
-    check.equal(value, nil, text)
-    check.equal(type(reason), "string", text)
+    check.eq(value, nil, text)
+    check.eq(type(reason), "string", text)
     return reason
 end
 
 --- The decoder reports rather than returning whatever the inverse table holds
 --- for a byte outside the alphabet.
 function M.aCharacterOutsideTheAlphabetIsRefused()
-    check.equal(refused("ab!="), "base64 input is not canonical padded base64")
+    check.eq(refused("ab!="), "base64 input is not canonical padded base64")
     refused("....")
     refused("Zm9v\128\129\130\131")
 end
@@ -83,7 +83,7 @@ end
 --- A length that is not a whole quantum, which the padding rules make
 --- unrepresentable rather than merely wrong.
 function M.decodeRefusesALengthThatIsNotAQuantum()
-    check.equal(refused("abc"), "base64 input length is not a multiple of four")
+    check.eq(refused("abc"), "base64 input length is not a multiple of four")
     refused("Zm9vY")
 end
 

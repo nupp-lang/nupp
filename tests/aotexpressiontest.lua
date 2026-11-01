@@ -556,11 +556,11 @@ function M.nativeAndLuaAgreeOnValueBlocksAndSwitchExpressions()
         local output = pipe:read("*a")
         pipe:close()
         local status = tonumber(output:match("__exit__:(%d+)%s*$"))
-        test.equal(status, 0, policy .. " build at " .. dir .. ": " .. output)
+        test.eq(status, 0, policy .. " build at " .. dir .. ": " .. output)
         pipe = assert(io.popen(("cd %q && luajit check.lua 2>&1"):format(dir)))
         output = pipe:read("*a")
         pipe:close()
-        test.equal(output:gsub("%s+$", ""), "expression results match", policy .. " at " .. dir)
+        test.eq(output:gsub("%s+$", ""), "expression results match", policy .. " at " .. dir)
     end
 end
 

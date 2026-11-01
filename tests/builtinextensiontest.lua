@@ -7,16 +7,16 @@ local M = {}
 
 local function compile(source, filename, env)
     local parsed = parser.parse(source, filename)
-    test.equal(#parsed.errors, 0)
+    test.eq(#parsed.errors, 0)
     local errors = {}
     for _, item in ipairs(checker.check(parsed, filename, env)) do
         if item.severity == "error" then
             errors[#errors + 1] = item.code .. ": " .. item.msg
         end
     end
-    test.equal(table.concat(errors, "\n"), "", source)
+    test.eq(table.concat(errors, "\n"), "", source)
     local code, diagnostics = gen.generate(parsed, filename)
-    test.equal(#diagnostics, 0)
+    test.eq(#diagnostics, 0)
 
     return code, parsed
 end
@@ -134,14 +134,14 @@ return original == io, original == imported, imported.columns(), original.stdout
 ]]
         local code = compile(source, "extension-consumer.nupp", env)
         local global, imported, columns, stdout = assert(loadstring(code))()
-        test.equal(global, true)
-        test.equal(imported, true)
-        test.equal(columns, 73)
-        test.equal(stdout, true)
-        test.equal(package.loaded.io, io)
-        test.equal(require("nupp.runtime.standardio").value, io)
+        test.eq(global, true)
+        test.eq(imported, true)
+        test.eq(columns, 73)
+        test.eq(stdout, true)
+        test.eq(package.loaded.io, io)
+        test.eq(require("nupp.runtime.standardio").value, io)
         local separate = envMod.new("/private/tmp", {config = {include = {"no-builtin-extension-fixture"}}})
-        test.equal(separate.globals.io.t.byname.columns, nil, "a project extension must not mutate cached preludes")
+        test.eq(separate.globals.io.t.byname.columns, nil, "a project extension must not mutate cached preludes")
     end)
 end
 
@@ -149,8 +149,8 @@ function M.ordinaryBuiltinMembersDoNotLoadExtensions()
     withExtension(function(env)
         local code = compile("return io.stdout", "ordinary-consumer.nupp", env)
         assert(not code:find('require("nupp.runtime.standardio")', 1, true))
-        test.equal(assert(loadstring(code))(), io.stdout)
-        test.equal(package.loaded["nupp.runtime.standardio"], nil)
+        test.eq(assert(loadstring(code))(), io.stdout)
+        test.eq(package.loaded["nupp.runtime.standardio"], nil)
     end)
 end
 
@@ -171,8 +171,8 @@ end
         )
         assert(not code:find('require("nupp.runtime.standardio")', 1, true))
         local columns, length = assert(loadstring(code))().run()
-        test.equal(columns, 19)
-        test.equal(length, 2)
+        test.eq(columns, 19)
+        test.eq(length, 2)
     end)
 end
 
@@ -202,18 +202,18 @@ return current == imported, current.parse("kept"), #current
                 env
             )
             local same, parsed, count = assert(loadstring(code))()
-            test.equal(same, true)
-            test.equal(parsed, "kept")
-            test.equal(count, 1)
-            test.equal(loads, 1, "standalone and value requires share one initialization")
-            test.equal(rawget(argv, "parse"), nil)
-            test.equal(argv[-1], "nupp")
-            test.equal(package.loaded.arg, argv)
+            test.eq(same, true)
+            test.eq(parsed, "kept")
+            test.eq(count, 1)
+            test.eq(loads, 1, "standalone and value requires share one initialization")
+            test.eq(rawget(argv, "parse"), nil)
+            test.eq(argv[-1], "nupp")
+            test.eq(package.loaded.arg, argv)
             local rawCount = 0
             for _ in pairs(argv) do
                 rawCount = rawCount + 1
             end
-            test.equal(rawCount, 3)
+            test.eq(rawCount, 3)
         end)
         rawset(_G, "arg", previous)
         package.loaded.arg, package.preload.arg = loaded, preload
@@ -228,18 +228,18 @@ function M.anImplicitAssertionHelperDoesNotReplaceTheBuiltin()
             [[
 local helpers = require("assert")
 local first: string, gap: nil, last: integer = assert("kept", nil, 42)
-return first, gap, last, helpers.equal ~= nil
+return first, gap, last, helpers.eq ~= nil
 ]],
             "assertion-shim-consumer.nupp",
             env
         )
         local first, gap, last, helper = assert(loadstring(code))()
-        test.equal(first, "kept")
-        test.equal(gap, nil)
-        test.equal(last, 42)
-        test.equal(helper, true)
-        test.equal(env.builtinExtensions.assert, false)
-        test.equal(env.globals.assert.t, builtinType, "the implicit helper preserves the canonical builtin type")
+        test.eq(first, "kept")
+        test.eq(gap, nil)
+        test.eq(last, 42)
+        test.eq(helper, true)
+        test.eq(env.builtinExtensions.assert, false)
+        test.eq(env.globals.assert.t, builtinType, "the implicit helper preserves the canonical builtin type")
     end)
 end
 
@@ -271,10 +271,10 @@ return type(assert), first, gap, last
                     env
                 )
                 local kind, first, gap, last = assert(loadstring(code))()
-                test.equal(kind, "table")
-                test.equal(first, "kept")
-                test.equal(gap, nil)
-                test.equal(last, 42)
+                test.eq(kind, "table")
+                test.eq(first, "kept")
+                test.eq(gap, nil)
+                test.eq(last, 42)
             end)
             package.loaded.assert, package.preload.assert = loaded, preload
             assert(ok, reason)
@@ -294,12 +294,12 @@ return style.label, facts.platform
             "type-only-extension-consumer.nupp",
             env
         )
-        test.equal(code:find('require("nupp.runtime.standardio")', 1, true), nil)
-        test.equal(code:find('require("nupp.runtime.standardos")', 1, true), nil)
-        test.equal(next(parsed.effects), nil, "type lookup records no runtime effect")
+        test.eq(code:find('require("nupp.runtime.standardio")', 1, true), nil)
+        test.eq(code:find('require("nupp.runtime.standardos")', 1, true), nil)
+        test.eq(next(parsed.effects), nil, "type lookup records no runtime effect")
         local label, platform = assert(loadstring(code))()
-        test.equal(label, "ready")
-        test.equal(platform, "fixture")
+        test.eq(label, "ready")
+        test.eq(platform, "fixture")
         local withValue = compile(
             'local facts: os.Info = os.info()\nreturn facts.platform',
             "typed-value-consumer.nupp",
@@ -327,16 +327,16 @@ export function identity(style: Style): Style return style end
             env
         )
         for _, name in ipairs({"ColorMode", "Style", "Cell", "TableOptions", "Alignment", "Column"}) do
-            test.equal(parsed.moduleExports.types["Selected" .. name], env.globalTypes["io." .. name])
-            test.equal(parsed.moduleExports.types["Selected" .. name], env.builtinExtensionExports.io.types[name])
+            test.eq(parsed.moduleExports.types["Selected" .. name], env.globalTypes["io." .. name])
+            test.eq(parsed.moduleExports.types["Selected" .. name], env.builtinExtensionExports.io.types[name])
         end
-        test.equal(code:find('require("io")', 1, true), nil)
-        test.equal(code:find('require("nupp.runtime.standardio")', 1, true), nil)
-        test.equal(next(parsed.effects), nil, "type imports record no runtime effect")
-        test.equal(package.loaded["nupp.runtime.standardio"], nil)
+        test.eq(code:find('require("io")', 1, true), nil)
+        test.eq(code:find('require("nupp.runtime.standardio")', 1, true), nil)
+        test.eq(next(parsed.effects), nil, "type imports record no runtime effect")
+        test.eq(package.loaded["nupp.runtime.standardio"], nil)
         local consumer = assert(loadstring(code))()
         local style = {label = "ready"}
-        test.equal(consumer.identity(style), style)
+        test.eq(consumer.identity(style), style)
     end)
 end
 
@@ -361,26 +361,26 @@ export function identity(value: Buffer): Buffer return value end
 ]]
             )
             local checked = inc.checkFile(path)
-            test.equal(checked.syntax, nil)
+            test.eq(checked.syntax, nil)
             local errors = {}
             for _, diagnostic in ipairs(checked.diags) do
                 if diagnostic.severity == "error" then
                     errors[#errors + 1] = diagnostic.code .. ": " .. diagnostic.msg
                 end
             end
-            test.equal(table.concat(errors, "\n"), "")
+            test.eq(table.concat(errors, "\n"), "")
             local exports = inc.q:get("moduleExports", "nupp.runtime.standardio")
-            test.equal(checked.result.moduleExports.types.SelectedBuffer, exports.types.Buffer)
+            test.eq(checked.result.moduleExports.types.SelectedBuffer, exports.types.Buffer)
             local reached = {}
             for _, dependency in ipairs(inc.moduleDependencies(path)) do
                 reached[dependency] = true
             end
-            test.equal(reached["nupp.runtime.standardio"], true)
+            test.eq(reached["nupp.runtime.standardio"], true)
             local code, diagnostics = gen.generate(checked.result, path)
-            test.equal(#diagnostics, 0)
-            test.equal(code:find('require("io")', 1, true), nil)
-            test.equal(code:find('require("nupp.runtime.standardio")', 1, true), nil)
-            test.equal(next(checked.result.effects), nil)
+            test.eq(#diagnostics, 0)
+            test.eq(code:find('require("io")', 1, true), nil)
+            test.eq(code:find('require("nupp.runtime.standardio")', 1, true), nil)
+            test.eq(next(checked.result.effects), nil)
         end
     end)
 end
@@ -531,12 +531,12 @@ return style, facts
             "local-type-extension-consumer.nupp",
             env
         )
-        test.equal(env.builtinExtensions, nil)
-        test.equal(code:find('require("nupp.runtime.standardio")', 1, true), nil)
-        test.equal(code:find('require("nupp.runtime.standardos")', 1, true), nil)
+        test.eq(env.builtinExtensions, nil)
+        test.eq(code:find('require("nupp.runtime.standardio")', 1, true), nil)
+        test.eq(code:find('require("nupp.runtime.standardos")', 1, true), nil)
         local style, facts = assert(loadstring(code))()
-        test.equal(style, "local")
-        test.equal(facts, 17)
+        test.eq(style, "local")
+        test.eq(facts, 17)
     end)
 end
 
@@ -557,11 +557,11 @@ end
             "byte-consumer.nupp",
             env
         )
-        test.equal(parsed.moduleExports.types.SelectedBuffer, env.globalTypes["io.Buffer"])
+        test.eq(parsed.moduleExports.types.SelectedBuffer, env.globalTypes["io.Buffer"])
         local same, label = assert(loadstring(code))().run()
-        test.equal(same, true)
-        test.equal(label, "kept")
-        test.equal(require("nupp.runtime.standardio").value, io)
+        test.eq(same, true)
+        test.eq(label, "kept")
+        test.eq(require("nupp.runtime.standardio").value, io)
     end)
 end
 
@@ -581,19 +581,19 @@ return same, value, coroutine.checkpoint()
             env
         )
         local same, value, shadow = assert(loadstring(code))()
-        test.equal(same, true)
-        test.equal(value, 29)
-        test.equal(shadow, 17)
-        test.equal(require("nupp.runtime.standardcoroutine").value, coroutine)
+        test.eq(same, true)
+        test.eq(value, 29)
+        test.eq(shadow, 17)
+        test.eq(require("nupp.runtime.standardcoroutine").value, coroutine)
     end)
 end
 
 function M.ordinaryCoroutineMembersDoNotLoadExtensions()
     withExtension(function(env)
         local code = compile("return coroutine.running", "ordinary-coroutine-consumer.nupp", env)
-        test.equal(code:find('require("nupp.runtime.standardcoroutine")', 1, true), nil)
-        test.equal(assert(loadstring(code))(), coroutine.running)
-        test.equal(package.loaded["nupp.runtime.standardcoroutine"], nil)
+        test.eq(code:find('require("nupp.runtime.standardcoroutine")', 1, true), nil)
+        test.eq(assert(loadstring(code))(), coroutine.running)
+        test.eq(package.loaded["nupp.runtime.standardcoroutine"], nil)
     end)
 end
 
@@ -605,7 +605,7 @@ function M.coroutineScopeAliasesRetainDeadlineEffectsAndLocalShadows()
             'local imported = require("coroutine")\nimported.scope(timeoutMs = 1)',
         }) do
             local _, parsed = compile(source, "scope-deadline-consumer.nupp", env)
-            test.equal(parsed.effects["runtime.time"], true, "the deadline carries the clock provider")
+            test.eq(parsed.effects["runtime.time"], true, "the deadline carries the clock provider")
         end
         local _, ordinary = compile(
             [[
@@ -615,7 +615,7 @@ coroutine.scope(nil, 1)
             "shadow-scope-consumer.nupp",
             env
         )
-        test.equal(ordinary.effects["runtime.time"], nil)
+        test.eq(ordinary.effects["runtime.time"], nil)
     end)
 end
 
@@ -645,9 +645,9 @@ return constructor, problem, tostring(problem)
             )
             local constructor, problem, rendered = assert(loadstring(code))()
             local original = require("nupp.io").Error
-            test.equal(constructor, original)
-            test.equal(getmetatable(problem), original)
-            test.equal(rendered, "kept")
+            test.eq(constructor, original)
+            test.eq(getmetatable(problem), original)
+            test.eq(rendered, "kept")
             assert(code:find('require("nupp.runtime.standardio")', 1, true))
         end,
         nil,
@@ -684,9 +684,9 @@ return scopeType, cancellation
             )
             local scopeType, cancellation = assert(loadstring(code))()
             local original = require("nupp.tasks")
-            test.equal(scopeType, original.Scope)
-            test.equal(getmetatable(cancellation), original.Cancellation)
-            test.equal(cancellation.operation, "kept")
+            test.eq(scopeType, original.Scope)
+            test.eq(getmetatable(cancellation), original.Cancellation)
+            test.eq(cancellation.operation, "kept")
         end,
         nil,
         nil,
@@ -724,9 +724,9 @@ return coroutine.run, imported.gather, imported.race
                 )
                 local run, gather, race = assert(loadstring(code))()
                 local original = require("nupp.tasks")
-                test.equal(run, original.run)
-                test.equal(gather, original.gather)
-                test.equal(race, original.race)
+                test.eq(run, original.run)
+                test.eq(gather, original.gather)
+                test.eq(race, original.race)
                 local shadow = compile(
                     [[
 local coroutine = {run = function(): integer return 11 end}
@@ -735,7 +735,7 @@ return coroutine.run()
                     "coroutine-combinators-shadow.nupp",
                     env
                 )
-                test.equal(assert(loadstring(shadow))(), 11)
+                test.eq(assert(loadstring(shadow))(), 11)
             end,
             nil,
             nil,

@@ -23,7 +23,7 @@ local env = envMod.new(HERE .. "/..")
 
 local function runs(src)
     local result = parser.parse(src, "test")
-    testAssert.equal(#result.errors, 0, "syntax errors in test source\n" .. src)
+    testAssert.eq(#result.errors, 0, "syntax errors in test source\n" .. src)
     local diags = check.check(result, "test", env)
     for _, diag in ipairs(diags or {}) do
         if diag.severity == "error" then
@@ -32,7 +32,7 @@ local function runs(src)
     end
     optimize.run(result, {level = 1})
     local code, genDiags = gen.generate(result, "test")
-    testAssert.equal(#genDiags, 0, "gen diagnostics")
+    testAssert.eq(#genDiags, 0, "gen diagnostics")
     local chunk, err = loadstring(code, "@bulk_column_test")
     if not chunk then
         error(("does not load: %s\n---\n%s"):format(tostring(err), code), 2)
@@ -111,12 +111,12 @@ return sum
         )
     )
     -- x is i and vy is 4i, so the sum over 0..7 is 5 * 28.
-    testAssert.equal(total, 140, "every field survives the copy")
+    testAssert.eq(total, 140, "every field survives the copy")
 end
 
 function M.theStrideIsTheOnlyThingTheFastPathNeeds()
     local size = runs(COLUMN:format("return layoutof(Particle).size"))
-    testAssert.equal(
+    testAssert.eq(
         size,
         ffi.sizeof(ffi.typeof("struct { float x; float y; float vx; float vy; }")),
         "four floats, and the bulk write is size times count"
@@ -138,7 +138,7 @@ return not ok
 ]]
         )
     )
-    testAssert.equal(refused, true, "the fingerprint is what makes the refusal possible")
+    testAssert.eq(refused, true, "the fingerprint is what makes the refusal possible")
 end
 
 return M

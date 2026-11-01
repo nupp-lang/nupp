@@ -102,8 +102,8 @@ function M.communicateDrainsRealPipesWhileFeedingInput()
     local result = assert(child:communicate({input = "joined\n"}))
     child:close()
 
-    test.equal(result.output, "out:joined")
-    test.equal(result.errorOutput, "err:joined")
+    test.eq(result.output, "out:joined")
+    test.eq(result.errorOutput, "err:joined")
     assert(result:succeeded(), "the real child succeeded")
 end
 
@@ -114,7 +114,7 @@ function M.stderrCanJoinTheActualStdoutDestination()
     child:close()
 
     assert(result.output:find("out", 1, true) and result.output:find("err", 1, true), result.output)
-    test.equal(result.errorOutput, "")
+    test.eq(result.errorOutput, "")
     assert(result:succeeded())
 end
 
@@ -141,8 +141,8 @@ function M.sharedViewsUseTheRealStreamsAndDeliverEof()
     local sink = destination:newWriter()
     local copied = assert(reader:transferTo(sink))
     sink:close()
-    test.equal(copied, 7)
-    test.equal(destination:getString(), "adapter")
+    test.eq(copied, 7)
+    test.eq(destination:getString(), "adapter")
     reader:close()
     local exit = child:wait()
     child:close()
@@ -158,8 +158,8 @@ function M.theTecsPublicCallShapesRunAgainstTheNuppModule()
     child.stdin:close()
     local reply, readReason = child.stdout:read(64)
     assert(reply, readReason)
-    test.equal(reply, "tecs call site\n")
-    test.equal(assert(child.stdout:read(64)), "")
+    test.eq(reply, "tecs call site\n")
+    test.eq(assert(child.stdout:read(64)), "")
     local exit = child:wait()
     assert(exit:succeeded())
     child:close()
@@ -169,9 +169,9 @@ function M.aMissingProgramAnswersAReasonRatherThanRaising()
     ready()
     local ok, child, reason = pcall(startProcess, {args = {"/no/such/nupp-program"}})
     assert(ok, "spawn did not raise: " .. tostring(child))
-    test.equal(child, nil)
+    test.eq(child, nil)
     assert(reason ~= nil and #tostring(reason) > 0, "and said why")
-    test.equal(reason.kind, "notFound")
+    test.eq(reason.kind, "notFound")
 
     -- uv_spawn initializes its process handle before it can report that exec
     -- failed. The failed handle must be closed rather than freed in place, or
@@ -179,7 +179,7 @@ function M.aMissingProgramAnswersAReasonRatherThanRaising()
     -- leave its reaper cycling forever.
     local child = assert(startProcess({args = shell("printf recovered"), stderr = "null"}))
     local result = assert(child:communicate())
-    test.equal(result.output, "recovered")
+    test.eq(result.output, "recovered")
     child:close()
 end
 
@@ -191,7 +191,7 @@ function M.aProcessWriterTakesCheckedSpans()
     local source = buffers.newbuffer("checked bytes")
     local wrote, reason = child.stdin:writeSpan(source:readSpan())
     assert(wrote, reason)
-    test.equal(wrote, 13)
+    test.eq(wrote, 13)
     child.stdin:close()
     assert(child:wait():succeeded())
     child:close()
@@ -203,15 +203,15 @@ function M.communicateAcceptsBuffersAndEnforcesItsCombinedLimit()
     local child = assert(startProcess({args = shell("cat"), stderr = "null"}))
     local result, reason = child:communicate({input = input})
     assert(result, reason)
-    test.equal(result.output, "buffer input")
+    test.eq(result.output, "buffer input")
     child:close()
     input:close()
 
     local noisy = assert(startProcess({args = shell("printf 12345; printf 67890 >&2"),}))
     local limited, limitReason = noisy:communicate({maxOutputBytes = 6})
-    test.equal(limited, nil)
-    test.equal(tostring(limitReason), "process output exceeds the configured maximum")
-    test.equal(limitReason.kind, "limit")
+    test.eq(limited, nil)
+    test.eq(tostring(limitReason), "process output exceeds the configured maximum")
+    test.eq(limitReason.kind, "limit")
     noisy:close()
 end
 
@@ -230,7 +230,7 @@ function M.environmentAndWorkingDirectoryKeepTheirTecsMeaning()
     if package.config:sub(1, 1) == "\\" then
         assert(result.output:match("^/%a|present$"), result.output)
     else
-        test.equal(result.output, "/|present")
+        test.eq(result.output, "/|present")
     end
     child:close()
 end
@@ -257,15 +257,15 @@ end
 
 function M.thePublicModuleSelectsOnlyItsPrivateProvider()
     ready()
-    test.equal(native.forModule("nupp.io.process"), "runtime.process")
+    test.eq(native.forModule("nupp.io.process"), "runtime.process")
     local feature = assert(native.feature("native.process"))
-    test.equal(feature.providerFeature, "process")
-    test.equal(feature.provider, "nupp_native")
+    test.eq(feature.providerFeature, "process")
+    test.eq(feature.provider, "nupp_native")
     local expanded = native.expand({["native.process"] = true})
     assert(expanded["runtime.suspension"])
     assert(expanded["runtime.native"])
 
-    test.equal(feature.runtimeModule, "nupp.runtime.provider.nativeprocess")
+    test.eq(feature.runtimeModule, "nupp.runtime.provider.nativeprocess")
     assert(
         not stdlib.bootstrap({
             ["native.process"] = true

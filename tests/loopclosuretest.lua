@@ -14,7 +14,7 @@ local env = envMod.new(".")
 -- Every NUPP2505 the source produces.
 local function lint(src)
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors in test source")
+    testAssert.eq(#result.errors, 0, "syntax errors in test source")
     local diags = check.check(result, "test.nupp", env, {})
     local found = {}
     for _, diag in ipairs(diags) do
@@ -28,8 +28,8 @@ end
 
 local function assertFlagged(src, label)
     local found = lint(src)
-    testAssert.equal(#found, 1, (label or "expected one report") .. "\n" .. src)
-    testAssert.equal(found[1].lint, "loop-invariant-closure", "lint name")
+    testAssert.eq(#found, 1, (label or "expected one report") .. "\n" .. src)
+    testAssert.eq(found[1].lint, "loop-invariant-closure", "lint name")
     return found[1]
 end
 
@@ -47,7 +47,7 @@ end
 -- project asked for it, the broken `@jit` promise whether it asked or not.
 local function traceLint(src, opts)
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors in test source")
+    testAssert.eq(#result.errors, 0, "syntax errors in test source")
     local diags = check.check(result, "test.nupp", env, opts or {lints = {["jit-loop-closure"] = "note"}})
     local found = {}
     for _, diag in ipairs(diags) do
@@ -61,7 +61,7 @@ end
 
 local function assertTraceLost(src, label, opts)
     local found = traceLint(src, opts)
-    testAssert.equal(#found, 1, (label or "expected one report") .. "\n" .. src)
+    testAssert.eq(#found, 1, (label or "expected one report") .. "\n" .. src)
     return found[1]
 end
 
@@ -85,8 +85,8 @@ for _, item in ipairs(items) do
 end
 ]]
     )
-    testAssert.equal(at.line, 2, "reported at the function, not the loop")
-    testAssert.equal(at.severity, "warning", "suspicious lints warn by default")
+    testAssert.eq(at.line, 2, "reported at the function, not the loop")
+    testAssert.eq(at.severity, "warning", "suspicious lints warn by default")
 end
 
 function M.flagsAShortFunction()
@@ -315,8 +315,8 @@ for i = 1, 10 do
    end)
 end
 ]])
-    testAssert.equal(#found, 1, "the inner function is not the loop's to hoist")
-    testAssert.equal(found[1].line, 2, "the outer one is reported")
+    testAssert.eq(#found, 1, "the inner function is not the loop's to hoist")
+    testAssert.eq(found[1].line, 2, "the outer one is reported")
 end
 
 function M.flagsInsideTheInnerOfTwoLoops()
@@ -352,7 +352,7 @@ for i = 1, 10 do
    register(function() return 1 end)
 end
 ]])
-    testAssert.equal(at.help, "declare it once above the loop and pass the name", "help text")
+    testAssert.eq(at.help, "declare it once above the loop and pass the name", "help text")
 end
 
 -- A closure that reads the iteration. It cannot be lifted, so there is no edit to
@@ -377,10 +377,10 @@ for _, item in ipairs(items) do
    register(function() return item.id end)
 end
 ]])
-    testAssert.equal(at.code, "NUPP2515", "the lint, not the broken promise")
-    testAssert.equal(at.lint, "jit-loop-closure", "lint name")
-    testAssert.equal(at.severity, "note", "at the level the project asked for")
-    testAssert.equal(at.line, 2, "reported at the function, not the loop")
+    testAssert.eq(at.code, "NUPP2515", "the lint, not the broken promise")
+    testAssert.eq(at.lint, "jit-loop-closure", "lint name")
+    testAssert.eq(at.severity, "note", "at the level the project asked for")
+    testAssert.eq(at.line, 2, "reported at the function, not the loop")
 end
 
 function M.reportsTheLiftableClosureAsTheOtherLintInstead()
@@ -419,7 +419,7 @@ for i = 1, 10 do
 end
 ]]
     )
-    testAssert.equal(#found, 1, "an argument inferred twice is one function to judge")
+    testAssert.eq(#found, 1, "an argument inferred twice is one function to judge")
 end
 
 function M.aJitFunctionHearsItWhateverTheLevelIs()
@@ -437,8 +437,8 @@ return hot
         "the annotation promised this function compiles",
         {}
     )
-    testAssert.equal(at.code, "NUPP2707", "a promise broken, not a suggestion declined")
-    testAssert.equal(at.severity, "error", "and a build that stops")
+    testAssert.eq(at.code, "NUPP2707", "a promise broken, not a suggestion declined")
+    testAssert.eq(at.severity, "error", "and a build that stops")
 end
 
 function M.aJitFunctionAlsoHearsALiftableClosure()
@@ -456,7 +456,7 @@ return hot
         "FNEW is a blocker whether or not the closure captures",
         {}
     )
-    testAssert.equal(at.code, "NUPP2707", "the contract, not the repairable lint")
+    testAssert.eq(at.code, "NUPP2707", "the contract, not the repairable lint")
     assert(at.msg:find("built once per iteration", 1, true), "the source explanation remains specific")
 end
 
@@ -479,7 +479,7 @@ return hot
         "the contract follows a resolved checked callee",
         {}
     )
-    testAssert.equal(at.code, "NUPP2707", "the caller owns the broken contract")
+    testAssert.eq(at.code, "NUPP2707", "the caller owns the broken contract")
     assert(at.msg:find("hot -> helper", 1, true), "the call path is reported")
     assert(at.msg:find("jit/loop-function-construction", 1, true), "the normalized reason is reported")
 end
@@ -518,7 +518,7 @@ return hot
         "the annotation checks deliberate interpreter transitions",
         {}
     )
-    testAssert.equal(at.code, "NUPP2707", "the caller breaks its trace contract")
+    testAssert.eq(at.code, "NUPP2707", "the caller breaks its trace contract")
     assert(at.msg:find("jit/disabled-callee", 1, true), "the explicit boundary has a stable reason")
 end
 
@@ -546,7 +546,7 @@ return hot
         "a recursive edge terminates without losing the blocker",
         {}
     )
-    testAssert.equal(at.code, "NUPP2707", "the recursive callee breaks the contract")
+    testAssert.eq(at.code, "NUPP2707", "the recursive callee breaks the contract")
     assert(at.msg:find("hot -> helper", 1, true), "the bounded path is useful")
 end
 
@@ -606,7 +606,7 @@ end
 ]], "test")
     local diags = check.check(result, "test.nupp", env, {lints = {["loop-invariant-closure"] = "off"}})
     for _, diag in ipairs(diags) do
-        testAssert.equal(diag.code ~= "NUPP2505", true, "a lint set to off says nothing")
+        testAssert.eq(diag.code ~= "NUPP2505", true, "a lint set to off says nothing")
     end
 end
 

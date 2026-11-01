@@ -682,9 +682,6 @@ interface cst.Hints
     --- Stable target policy for alias recovery and downcasting.
     managedAliasPolicy: string?
 
-    --- This call validates and recovers a managed alias from `any`.
-    recoverManagedAlias: boolean?
-
     --- Whether a use-after-move was already reported here.
     ownershipUseReported: boolean?
 
@@ -2885,7 +2882,7 @@ local OWNERSHIP_INTRINSICS: {
 local QUALIFIED_OWNERSHIP_NAMES: {[string]: string} = {attemptall = "attemptAll", borrowfrom = "borrowFrom",}
 
 function cst.ownershipIntrinsicName(member: string): string?
-    return OWNERSHIP_INTRINSICS[member] and member or QUALIFIED_OWNERSHIP_NAMES[member]
+    return member == member:lower() and OWNERSHIP_INTRINSICS[member] and member or QUALIFIED_OWNERSHIP_NAMES[member]
 end
 
 --- The ownership intrinsic a callee is written as, before anything asks what

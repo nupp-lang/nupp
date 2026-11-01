@@ -281,9 +281,9 @@ function M.drainsBothPipesAndWaits()
     local child = spawnOn(backend, {args = {"echo"}})
     local result = assert(child:communicate())
     child:close()
-    testAssert.equal(result.output, "hello world", "stdout was drained to the end")
-    testAssert.equal(result.errorOutput, "warning", "and stderr alongside it, not after it")
-    testAssert.equal(result.exit.exitCode, 0, "the exit came back")
+    testAssert.eq(result.output, "hello world", "stdout was drained to the end")
+    testAssert.eq(result.errorOutput, "warning", "and stderr alongside it, not after it")
+    testAssert.eq(result.exit.exitCode, 0, "the exit came back")
     assert(result:succeeded(), "and it succeeded")
 end
 
@@ -292,9 +292,9 @@ function M.writesAndClosesStandardInput()
     local child = spawnOn(backend, {args = {"cat"}})
     local result = assert(child:communicate({input = "payload"}))
     child:close()
-    testAssert.equal(backend.state.written[1], "payload", "the input went")
+    testAssert.eq(backend.state.written[1], "payload", "the input went")
     assert(backend.state.closed["in"], "and stdin was closed, which is how EOF is sent")
-    testAssert.equal(result.output, "ok", "the output came back")
+    testAssert.eq(result.output, "ok", "the output came back")
 end
 
 function M.aKilledChildDidNotSucceed()
@@ -305,7 +305,7 @@ function M.aKilledChildDidNotSucceed()
     local exit = child:wait()
     child:close()
     assert(exit.killed, "it was killed")
-    testAssert.equal(exit:succeeded(), false, "a killed child never succeeded, whatever status was reported")
+    testAssert.eq(exit:succeeded(), false, "a killed child never succeeded, whatever status was reported")
 end
 
 function M.aDeadlineIsMeasuredFromTheStart()
@@ -318,7 +318,7 @@ function M.aDeadlineIsMeasuredFromTheStart()
     child:close()
     assert(exit.killed, "the deadline killed it")
     assert(exit.timedOut, "and said that is why")
-    testAssert.equal(exit:succeeded(), false, "a timeout is not a success")
+    testAssert.eq(exit:succeeded(), false, "a timeout is not a success")
 end
 
 function M.aDeadlineThatHasNotPassedDoesNotFire()
@@ -327,8 +327,8 @@ function M.aDeadlineThatHasNotPassedDoesNotFire()
     backend:advance(10)
     local result = assert(child:communicate())
     child:close()
-    testAssert.equal(result.output, "done", "it finished on its own")
-    testAssert.equal(result.exit.timedOut, false, "well inside its deadline")
+    testAssert.eq(result.output, "done", "it finished on its own")
+    testAssert.eq(result.exit.timedOut, false, "well inside its deadline")
     assert(result:succeeded(), "and succeeded")
 end
 
@@ -338,7 +338,7 @@ function M.isRunningEnforcesAnElapsedDeadline()
     backend:advance(150)
 
     assert(not child:isRunning(), "the elapsed deadline is observed")
-    testAssert.equal(backend.state.kills, 1, "the elapsed deadline requested termination")
+    testAssert.eq(backend.state.kills, 1, "the elapsed deadline requested termination")
     local exit = child:wait()
     child:close()
     assert(exit.timedOut, "the resulting exit records the deadline")
@@ -364,8 +364,8 @@ end
 function M.readsAnswerNilAtEndOfStream()
     local backend = fakeBackend({out = {"only"}, exitAfter = 1})
     local child = spawnOn(backend, {args = {"echo"}})
-    testAssert.equal(child.stdout:read(65536), "only", "the one chunk")
-    testAssert.equal(child.stdout:read(65536), "", "then end of stream")
+    testAssert.eq(child.stdout:read(65536), "only", "the one chunk")
+    testAssert.eq(child.stdout:read(65536), "", "then end of stream")
     assert(child.stdout:isEnded(), "and it says so")
     child:close()
 end
@@ -377,16 +377,16 @@ function M.pollTellsNothingYetFromTheEnd()
     local backend = fakeBackend({out = {"late"}, err = {}, outDelay = 1, exitAfter = 1})
     local child = spawnOn(backend, {args = {"slow"}})
     local chunk, ended = child.stdout:poll()
-    testAssert.equal(chunk, nil, "nothing was ready yet")
-    testAssert.equal(ended, false, "and that is not the end")
+    testAssert.eq(chunk, nil, "nothing was ready yet")
+    testAssert.eq(ended, false, "and that is not the end")
     chunk, ended = child.stdout:poll()
-    testAssert.equal(chunk, "late", "the bytes when they came")
-    testAssert.equal(ended, false, "with the stream still open")
+    testAssert.eq(chunk, "late", "the bytes when they came")
+    testAssert.eq(ended, false, "with the stream still open")
     repeat
         chunk, ended = child.stdout:poll()
     until chunk ~= nil or ended
-    testAssert.equal(chunk, nil, "then no bytes")
-    testAssert.equal(ended, true, "because the stream ended")
+    testAssert.eq(chunk, nil, "then no bytes")
+    testAssert.eq(ended, true, "because the stream ended")
     assert(child.stdout:isEnded(), "which the stream reports as well")
     child:close()
 end
@@ -395,8 +395,8 @@ function M.pollWaitsOnlyAsLongAsItWasToldTo()
     local backend = fakeBackend({out = {}, err = {}, eofWhenExited = true})
     local child = spawnOn(backend, {args = {"quiet"}})
     local chunk, ended = child.stdout:poll(nil, 30)
-    testAssert.equal(chunk, nil, "a quiet stream gave nothing")
-    testAssert.equal(ended, false, "and has not ended")
+    testAssert.eq(chunk, nil, "a quiet stream gave nothing")
+    testAssert.eq(ended, false, "and has not ended")
     assert(backend.state.waits > 0, "so the wait slept in the platform rather than spinning")
     child:close()
 end
@@ -408,16 +408,16 @@ function M.sendStopsAtAStallOrAtItsDeadline()
     stalled.state.pendingOut = 1000
     local child = spawnOn(stalled, {args = {"full"}})
     local started = stalled:now()
-    testAssert.equal(child.stdin:send("abcdef", nil, 50), 0, "a pipe that takes nothing sends nothing")
+    testAssert.eq(child.stdin:send("abcdef", nil, 50), 0, "a pipe that takes nothing sends nothing")
     assert(stalled:now() - started >= 50, "after waiting out the stall bound")
     assert(child:isRunning(), "and the child is left alone")
     child:close()
 
     local steady = fakeBackend({out = {}, err = {}, inputChunk = 1})
     local second = spawnOn(steady, {args = {"cat"}})
-    testAssert.equal(second.stdin:send("abcdef", steady:now() - 1), 0, "a deadline already past sends nothing")
-    testAssert.equal(second.stdin:send("abcdef", nil, 10), 6, "a pipe that keeps taking bytes outlasts a stall bound")
-    testAssert.equal(second.stdin.setTimeout, nil, "the stream timeout setter is gone")
+    testAssert.eq(second.stdin:send("abcdef", steady:now() - 1), 0, "a deadline already past sends nothing")
+    testAssert.eq(second.stdin:send("abcdef", nil, 10), 6, "a pipe that keeps taking bytes outlasts a stall bound")
+    testAssert.eq(second.stdin.setTimeout, nil, "the stream timeout setter is gone")
     second:close()
 end
 
@@ -432,8 +432,8 @@ function M.streamsReportEndedAndReleasedLikeEveryOtherStream()
     assert(stdin:isEnded(), "and can take nothing more")
     stdout:close()
     assert(stdout:isReleased() and stdout:isEnded(), "a closed reader is both")
-    testAssert.equal(stdin.isClosed, nil, "the old closed-ness spelling is gone")
-    testAssert.equal(stdout.isEOF, nil, "and so is the old end-of-stream one")
+    testAssert.eq(stdin.isClosed, nil, "the old closed-ness spelling is gone")
+    testAssert.eq(stdout.isEOF, nil, "and so is the old end-of-stream one")
     child:close()
 end
 
@@ -446,9 +446,9 @@ function M.aChildThatCannotStartIsAnAnswerNotARaise()
     local instance = require("providerstate").load("process", backend)
     local ok, child, reason = pcall(instance.spawn, {args = {"missing"}})
     assert(ok, "spawn did not raise: " .. tostring(child))
-    testAssert.equal(child, nil, "there is no child")
+    testAssert.eq(child, nil, "there is no child")
     assert(tostring(reason):find("no such program", 1, true) ~= nil, "and the reason says why: " .. tostring(reason))
-    testAssert.equal(instance.Process.__nuppCtor1, nil, "and no public constructor stands beside spawn")
+    testAssert.eq(instance.Process.__nuppCtor1, nil, "and no public constructor stands beside spawn")
 end
 
 function M.waitingWorksUnderAHandler()
@@ -472,7 +472,7 @@ function M.waitingWorksUnderAHandler()
     local result = assert(child:communicate())
     child:close()
     installation:close()
-    testAssert.equal(result.output, "handled", "the output came back through a handled wait")
+    testAssert.eq(result.output, "handled", "the output came back through a handled wait")
     assert(drove > 0, "and the handler is what drove it")
 end
 
@@ -496,9 +496,9 @@ function M.makesProgressOnAllThreeStreamsTogether()
     local child = spawnOn(backend, {args = {"filter"}})
     local result = assert(child:communicate({input = "a longer payload than one chunk"}))
     child:close()
-    testAssert.equal(result.output, "onetwothree", "stdout arrived in full")
-    testAssert.equal(result.errorOutput, "ab", "and so did stderr, interleaved rather than after")
-    testAssert.equal(
+    testAssert.eq(result.output, "onetwothree", "stdout arrived in full")
+    testAssert.eq(result.errorOutput, "ab", "and so did stderr, interleaved rather than after")
+    testAssert.eq(
         table.concat(backend.state.written),
         "a longer payload than one chunk",
         "every byte of input went, four at a time"
@@ -539,10 +539,10 @@ function M.drainingUnderAHandlerNeverBlocksThePlatform()
     local result = assert(child:communicate({input = "a longer payload than one chunk"}))
     child:close()
     installation:close()
-    testAssert.equal(result.output, "onetwo", "everything arrived")
-    testAssert.equal(result.errorOutput, "a", "on both streams")
+    testAssert.eq(result.output, "onetwo", "everything arrived")
+    testAssert.eq(result.errorOutput, "a", "on both streams")
     assert(result:succeeded(), "and the child finished")
-    testAssert.equal(backend.state.waits, 0, "without ever asking the platform to block")
+    testAssert.eq(backend.state.waits, 0, "without ever asking the platform to block")
 end
 
 function M.communicateClosesStdinWhenTheChildEndsEarly()
@@ -565,7 +565,7 @@ function M.communicateClosesStdinWhenTheChildEndsEarly()
     local closedOnTheWayOut = backend.state.closed["in"]
     local delivered = #table.concat(backend.state.written)
     child:close()
-    testAssert.equal(result.output, "bye", "what it did say arrived")
+    testAssert.eq(result.output, "bye", "what it did say arrived")
     assert(delivered < #payload, "the child really did end with input still undelivered")
     assert(closedOnTheWayOut, "and communicate closed its stdin before returning")
 end
@@ -596,7 +596,7 @@ function M.aGoneStdinIsLeftOutOfTheWriteInterest()
     child = spawnOn(backend, {args = {"head"}})
     local result = assert(child:communicate({input = "abc"}))
     child:close()
-    testAssert.equal(result.output, "data", "the outputs were still drained to the end")
+    testAssert.eq(result.output, "data", "the outputs were still drained to the end")
     assert(not waitedOnGoneStdin, "and no wait named a stdin whose far end had gone")
 end
 
@@ -634,10 +634,10 @@ function M.pollTakesNoMoreThanItWasAskedForAndLosesNothing()
     local backend = fakeBackend({out = {"abcdefgh"}, err = {}, eofWhenExited = true, exitAfter = 9, code = 0})
     local child = spawnOn(backend, {args = {"talkative"}})
     local first = child.stdout:poll(4)
-    testAssert.equal(first, "abcd", "the first read took exactly its limit")
+    testAssert.eq(first, "abcd", "the first read took exactly its limit")
     local second = child.stdout:poll(4)
-    testAssert.equal(second, "efgh", "and the next took up where it left off")
-    testAssert.equal(first .. second, "abcdefgh", "losing nothing between them")
+    testAssert.eq(second, "efgh", "and the next took up where it left off")
+    testAssert.eq(first .. second, "abcdefgh", "losing nothing between them")
     child:close()
 end
 
@@ -647,10 +647,10 @@ function M.aNonPositiveLimitReadsOneByte()
     -- read that reads as end of stream or an enormous one.
     local backend = fakeBackend({out = {"abcdefgh"}, err = {}, eofWhenExited = true, exitAfter = 9, code = 0})
     local child = spawnOn(backend, {args = {"talkative"}})
-    testAssert.equal(child.stdout:poll(0), "a", "zero read one byte")
-    testAssert.equal(backend.state.lastReadLimit, 1, "and the platform was asked for one")
-    testAssert.equal(child.stdout:poll(-5), "b", "a negative one did too")
-    testAssert.equal(backend.state.lastReadLimit, 1, "asking for one again")
+    testAssert.eq(child.stdout:poll(0), "a", "zero read one byte")
+    testAssert.eq(backend.state.lastReadLimit, 1, "and the platform was asked for one")
+    testAssert.eq(child.stdout:poll(-5), "b", "a negative one did too")
+    testAssert.eq(backend.state.lastReadLimit, 1, "asking for one again")
     child:close()
 end
 
@@ -760,7 +760,7 @@ function M.aReapThatReleasedAndComplainedIsStillAReap()
     end
 
     child:close()
-    testAssert.equal(calls, 0, "a released child is never offered to the platform again")
+    testAssert.eq(calls, 0, "a released child is never offered to the platform again")
 end
 
 function M.aRefusalWithNoReasonIsStillARefusal()
@@ -821,7 +821,7 @@ function M.aStreamReleasedWithAComplaintStaysClosed()
         end
 
         stream:close()
-        testAssert.equal(calls, 0, which .. ": a released descriptor is never offered to the platform again")
+        testAssert.eq(calls, 0, which .. ": a released descriptor is never offered to the platform again")
         child:close()
     end
 end
@@ -966,7 +966,7 @@ function M.aWriteEndsWhenTheChildDoesRatherThanWaitingForever()
     child:wait()
     local payload = "input for a child that is no longer there"
     local sent = child.stdin:send(payload)
-    testAssert.equal(sent, 0, "nothing went, because nobody was reading")
+    testAssert.eq(sent, 0, "nothing went, because nobody was reading")
     assert(child.stdin.gone, "and the writer knows the far end has gone")
     assert(not child.stdin.closed, "while this end is still open, since the descriptor is still ours to close")
     child:close()
@@ -1004,8 +1004,8 @@ function M.genericWriterCodeCanTellNoRoomYetFromNoRoomEver()
     child:wait()
     local sent, how = drainInto(child.stdin, "input for a child that is no longer there")
     child:close()
-    testAssert.equal(how, "gone", "the loop ended because it was told to, not by giving up")
-    testAssert.equal(sent, 0, "having sent nothing to a child that had already left")
+    testAssert.eq(how, "gone", "the loop ended because it was told to, not by giving up")
+    testAssert.eq(sent, 0, "having sent nothing to a child that had already left")
 end
 
 function M.aPartialWriteKeepsWhatWentBeforeTheChildLeft()
@@ -1015,8 +1015,8 @@ function M.aPartialWriteKeepsWhatWentBeforeTheChildLeft()
     local child = spawnOn(backend, {args = {"head"}})
     local sent = child.stdin:send("far more input than this child will ever read")
     child:close()
-    testAssert.equal(sent, 8, "the two chunks that landed before it stopped reading")
-    testAssert.equal(table.concat(backend.state.written), "far more", "and those are the bytes the child actually got")
+    testAssert.eq(sent, 8, "the two chunks that landed before it stopped reading")
+    testAssert.eq(table.concat(backend.state.written), "far more", "and those are the bytes the child actually got")
 end
 
 function M.aRefusedStreamCloseCanBeRetried()
@@ -1068,7 +1068,7 @@ function M.closeReenteredFromItsOwnTeardownJustReturns()
     local ok, err = coroutine.resume(frame)
     assert(ok, "the teardown finished: " .. tostring(err))
     assert(reentries > 0, "the teardown really was reentered")
-    testAssert.equal(backend.state.kills, 1, "and did not start over: one kill")
+    testAssert.eq(backend.state.kills, 1, "and did not start over: one kill")
     assert(backend.state.reaped, "one reap, and the child released")
 end
 
@@ -1156,9 +1156,9 @@ function M.aSecondCloserUnderASchedulerWaitsForTheTeardown()
         suspension.poll()
     end
     assert(order["second sawTeardown"], "the second really did arrive mid-teardown")
-    testAssert.equal(backend.state.kills, 1, "the child was ended once, not once per caller")
+    testAssert.eq(backend.state.kills, 1, "the child was ended once, not once per caller")
     assert(backend.state.reaped, "and released")
-    testAssert.equal(order[#order], "second returned", "with the second returning only after the teardown it waited on")
+    testAssert.eq(order[#order], "second returned", "with the second returning only after the teardown it waited on")
 end
 
 function M.waitingWithoutAHandlerAsksThePlatformToSleep()
@@ -1171,8 +1171,8 @@ function M.waitingWithoutAHandlerAsksThePlatformToSleep()
     child:close()
     assert(exit.exitCode == 0, "it finished")
     assert(backend.state.waits > 0, "and got there by waiting, not by spinning")
-    testAssert.equal(backend.state.lastWait.child, "child", "the child is what it waited on")
-    testAssert.equal(
+    testAssert.eq(backend.state.lastWait.child, "child", "the child is what it waited on")
+    testAssert.eq(
         backend.state.lastWait.reads,
         0,
         "and not its output, which nobody is reading and which is therefore always ready"
@@ -1202,7 +1202,7 @@ function M.waitingUnderAHandlerNeverBlocksThePlatform()
     child:close()
     installation:close()
     assert(exit.exitCode == 0, "it finished")
-    testAssert.equal(backend.state.waits, 0, "and never asked the platform to block")
+    testAssert.eq(backend.state.waits, 0, "and never asked the platform to block")
 end
 
 function M.aBlockingWaitNeverSleepsPastTheDeadline()
@@ -1220,7 +1220,7 @@ function M.aBlockingWaitNeverSleepsPastTheDeadline()
     -- The clock only moves when this sleeps, so where it stopped is the sum of the
     -- budgets. A final sleep that ignored the time remaining would land past the
     -- deadline by up to a whole `BLOCKING_WAIT_MS`, and this is what notices.
-    testAssert.equal(whenItNoticed, 30, "and stopped exactly on it rather than overshooting")
+    testAssert.eq(whenItNoticed, 30, "and stopped exactly on it rather than overshooting")
 end
 
 function M.theBackpressureScriptReallyModelsTheDeadlock()
@@ -1305,7 +1305,7 @@ function M.aDeadlineSignalsOnlyOnceWhileTerminationTakesTime()
     child:close()
     installation:close()
     assert(exit.timedOut, "the deadline fired")
-    testAssert.equal(backend.state.kills, 1, "and asked exactly once, however many polls dying took")
+    testAssert.eq(backend.state.kills, 1, "and asked exactly once, however many polls dying took")
 end
 
 function M.waitsKeepBlockingWhileAKilledChildTakesItsTimeToDie()
@@ -1327,7 +1327,7 @@ function M.waitsKeepBlockingWhileAKilledChildTakesItsTimeToDie()
     local exit = child:wait()
     child:close()
     assert(exit.timedOut, "the deadline fired")
-    testAssert.equal(zeroBudgets, 0, "and the waits for the dying child kept their full budget")
+    testAssert.eq(zeroBudgets, 0, "and the waits for the dying child kept their full budget")
 end
 
 function M.closeWaitsForAKilledChildToFinish()
@@ -1344,8 +1344,8 @@ end
 function M.readersAndWritersAreSeparateSurfaces()
     local backend = fakeBackend({out = {"x"}, exitAfter = 1})
     local child = spawnOn(backend, {args = {"echo"}})
-    testAssert.equal(child.stdout.write, nil, "stdout cannot be written")
-    testAssert.equal(child.stdin.read, nil, "stdin cannot be read")
+    testAssert.eq(child.stdout.write, nil, "stdout cannot be written")
+    testAssert.eq(child.stdin.read, nil, "stdin cannot be read")
     assert(child.stdout.read ~= nil, "stdout reads")
     assert(child.stdin.write ~= nil, "stdin writes")
     child:close()
@@ -1357,8 +1357,8 @@ function M.sharedViewsCompleteAndCloseTheBorrowedStreams()
     local reader = child.stdout:asReader()
     local writer = child.stdin:asWriter()
 
-    testAssert.equal(assert(reader:read(2)), "ab", "the reader honours its count")
-    testAssert.equal(assert(reader:read(2)), "c", "and keeps no adapter-side surplus")
+    testAssert.eq(assert(reader:read(2)), "ab", "the reader honours its count")
+    testAssert.eq(assert(reader:read(2)), "c", "and keeps no adapter-side surplus")
     assert(writer:write("payload"), "the writer completes its whole value")
     writer:close()
     assert(backend.state.closed["in"], "and delivers EOF to the child")
@@ -1384,7 +1384,7 @@ function M.plainLuaInputsAreValidatedBeforeTheyReachTheProvider()
 
     local child = spawnOn(backend, {args = {"echo"}})
     local result, reason = child:communicate({maxOutputBytes = 1.5})
-    testAssert.equal(result, nil, "a fractional byte limit is rejected")
+    testAssert.eq(result, nil, "a fractional byte limit is rejected")
     assert(tostring(reason):find("non%-negative integer") ~= nil, tostring(reason))
     child:close()
 end
@@ -1409,7 +1409,7 @@ function M.aWaitInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
     end)
     local exit = waited:await()
     scope:close()
-    testAssert.equal(exit.exitCode, 0, "the child's exit")
+    testAssert.eq(exit.exitCode, 0, "the child's exit")
     assert(sleeps > 0, "the driver slept in the platform between quiet passes")
     child:close()
 end
@@ -1425,7 +1425,7 @@ function M.aReadInsideATaskScopeKeepsTheChunkThatWokeIt()
     local chunk = read:await()
     scope:close()
     child:close()
-    testAssert.equal(chunk, "first", "the readiness probe's bytes reach the waiting read")
+    testAssert.eq(chunk, "first", "the readiness probe's bytes reach the waiting read")
 end
 
 function M.drainingInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
@@ -1447,7 +1447,7 @@ function M.drainingInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
     local result = drained:await()
     scope:close()
     child:close()
-    testAssert.equal(result.output, "onetwo", "everything arrived")
+    testAssert.eq(result.output, "onetwo", "everything arrived")
     assert(sleeps > 0, "the driver slept in the platform between quiet passes")
 end
 

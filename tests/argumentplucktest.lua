@@ -10,7 +10,7 @@ local env = envMod.new(HERE .. "/..")
 
 local function parsed(source)
     local result = parser.parse(source, "test.nupp")
-    testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "unexpected syntax error")
+    testAssert.eq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "unexpected syntax error")
     return result
 end
 
@@ -25,15 +25,15 @@ local function diagnostics(source)
 end
 
 local function clean(source)
-    testAssert.equal(diagnostics(source), "", "expected clean check for:\n" .. source)
+    testAssert.eq(diagnostics(source), "", "expected clean check for:\n" .. source)
 end
 
 local function run(source)
     local result = parsed(source)
     local checked = check.check(result, "test.nupp", env)
-    testAssert.equal(#checked, 0, checked[1] and checked[1].msg or "unexpected check diagnostic")
+    testAssert.eq(#checked, 0, checked[1] and checked[1].msg or "unexpected check diagnostic")
     local code, problems = gen.generate(result, "test.nupp")
-    testAssert.equal(#problems, 0, problems[1] and problems[1].msg or "unexpected generation diagnostic")
+    testAssert.eq(#problems, 0, problems[1] and problems[1].msg or "unexpected generation diagnostic")
     local chunk, problem = loadstring(code, "@argument_pluck_test")
     assert(chunk, tostring(problem) .. "\n" .. code)
 
@@ -62,7 +62,7 @@ return tostring(first) .. tostring(final)
 ]]
             ):format(signature)
         )
-        testAssert.equal(answer, "3true")
+        testAssert.eq(answer, "3true")
     end
 end
 
@@ -78,7 +78,7 @@ end
 return (new Task(name = 'load', function(name: string): string return name .. '!' end)).result
 ]]
     )
-    testAssert.equal(answer, "load!:nil")
+    testAssert.eq(answer, "load!:nil")
 end
 
 function M.aFinalFunctionLiteralFillsTheFinalParameterAfterNamedArguments()
@@ -92,7 +92,7 @@ return invoke(name = 'load', function(name, option): string
 end)
 ]]
     )
-    testAssert.equal(answer, "load:nil")
+    testAssert.eq(answer, "load:nil")
 end
 
 function M.aFinalShortFunctionKeepsGenericCallbackInference()
@@ -104,7 +104,7 @@ end
 return invoke(value = 'load', |value| -> value .. '!')
 ]]
     )
-    testAssert.equal(answer, "load!")
+    testAssert.eq(answer, "load!")
 end
 
 function M.aFinalFunctionLiteralPreservesMethodAndNamedEvaluationOrder()
@@ -132,7 +132,7 @@ end)
 return result
 ]]
     )
-    testAssert.equal(answer, "name:nil:receiver,name,invoke,callback")
+    testAssert.eq(answer, "name:nil:receiver,name,invoke,callback")
 end
 
 function M.onlyOneFinalFunctionLiteralMayFollowNamedArguments()
@@ -170,12 +170,12 @@ end
 function M.syntaxRoundTripsAndRecordsArgumentKinds()
     local source = vector .. "\ndraw({x} = position, {y} = position, color = 'red')"
     local result = parsed(source)
-    testAssert.equal(require("nupp.compiler.syntax.cst").textOf(result.root), source)
+    testAssert.eq(require("nupp.compiler.syntax.cst").textOf(result.root), source)
     local call = result.root.blocks[1].stats[2].expr
-    testAssert.equal(call.args.exprs[1].kind, "pluckArg")
-    testAssert.equal(#call.args.exprs[1].names, 1)
-    testAssert.equal(call.args.exprs[2].kind, "pluckArg")
-    testAssert.equal(call.args.exprs[3].kind, "namedArg")
+    testAssert.eq(call.args.exprs[1].kind, "pluckArg")
+    testAssert.eq(#call.args.exprs[1].names, 1)
+    testAssert.eq(call.args.exprs[2].kind, "pluckArg")
+    testAssert.eq(call.args.exprs[3].kind, "namedArg")
 end
 
 function M.aPluckIsSugarForReadingTheFieldTheParameterNames()
@@ -191,7 +191,7 @@ function M.aPluckIsSugarForReadingTheFieldTheParameterNames()
             "\n"
         )
     )
-    testAssert.equal(answer, "12r")
+    testAssert.eq(answer, "12r")
     assert(code:find("draw ( position .x , position .y , 'r' )", 1, true), code)
 end
 
@@ -208,7 +208,7 @@ function M.aGroupBindsWhatTheSingleFormBinds()
             "\n"
         )
     )
-    testAssert.equal(answer, "12r")
+    testAssert.eq(answer, "12r")
     assert(code:find("draw ( position .x , position .y , 'r' )", 1, true), code)
 end
 
@@ -235,8 +235,8 @@ function M.aGroupsNamesAreUnordered()
             "\n"
         )
     )
-    testAssert.equal(answer, 12)
-    testAssert.equal(reversed, straight, "a reordered group generates the same call")
+    testAssert.eq(answer, 12)
+    testAssert.eq(reversed, straight, "a reordered group generates the same call")
 end
 
 function M.aPluckReachesAnyRecordWithTheField()
@@ -278,8 +278,8 @@ function M.dottedPathPluckLowersThroughEmbeddedRecords()
             "\n"
         )
     )
-    testAssert.equal(answer, "12r")
-    testAssert.equal(select(2, code:gsub("entity%.body", "")), 1, "the shared path is read once:\n" .. code)
+    testAssert.eq(answer, "12r")
+    testAssert.eq(select(2, code:gsub("entity%.body", "")), 1, "the shared path is read once:\n" .. code)
     local positionTemp = code:match("const (__nuppT%d+)= __nuppT%d+%.position")
     assert(positionTemp, code)
     assert(code:find(positionTemp .. ".x", 1, true), code)
@@ -336,15 +336,11 @@ function M.sharedPrefixesAreBoundWithoutOneUseLeafTemporaries()
             "\n"
         )
     )
-    testAssert.equal(answer, "HBPSxyWHTU")
-    testAssert.equal(
-        select(2, code:gsub("entity%.body", "")),
-        1,
-        "the common entity.body prefix is bound once:\n" .. code
-    )
+    testAssert.eq(answer, "HBPSxyWHTU")
+    testAssert.eq(select(2, code:gsub("entity%.body", "")), 1, "the common entity.body prefix is bound once:\n" .. code)
     assert(not code:find("(function()", 1, true), "a statement call should use locals, not a wrapper:\n" .. code)
     assert(not code:match("const __nuppT%d+= update"), "a named callee should remain direct:\n" .. code)
-    testAssert.equal(
+    testAssert.eq(
         select(2, code:gsub("const __nuppT%d+= __nuppT%d+%.[xywh]", "")),
         0,
         "projected leaves should remain direct call arguments:\n" .. code
@@ -374,7 +370,7 @@ function M.nestedPluckBindsThePathInsideTheGuardWithoutAWrapper()
             "\n"
         )
     )
-    testAssert.equal(answer, 1)
+    testAssert.eq(answer, 1)
     assert(not code:find("(function()", 1, true), "a nested pluck must not allocate a wrapper:\n" .. code)
 end
 
@@ -401,7 +397,7 @@ function M.nestedSafePluckBindsThePathInsideTheGuardWithoutAWrapper()
             "\n"
         )
     )
-    testAssert.equal(answer, "1nil3")
+    testAssert.eq(answer, "1nil3")
     assert(code:find("~=nil then", 1, true), code)
     assert(not code:find("(function()", 1, true), code)
 end
@@ -423,7 +419,7 @@ local function draw(x: number, y: number): number return x + y end
 
 local function nestedBoth(source, expected)
     local answer, code = run(nestedFixture .. source)
-    testAssert.equal(answer, expected, "nested pluck")
+    testAssert.eq(answer, expected, "nested pluck")
     assert(not code:find("(function()", 1, true), code)
 end
 
@@ -607,7 +603,7 @@ function M.safeCallStatementUsesGuardsWithoutAnExpressionWrapper()
             "\n"
         )
     )
-    testAssert.equal(answer, 1)
+    testAssert.eq(answer, 1)
     assert(code:find("~=nil then", 1, true), code)
     assert(not code:find("(function()", 1, true), code)
 end
@@ -628,7 +624,7 @@ function M.returnedSafePluckUsesEarlyReturnsWithoutAWrapper()
             "\n"
         )
     )
-    testAssert.equal(answer, 11)
+    testAssert.eq(answer, 11)
     assert(code:find("==nil then return nil", 1, true), code)
     assert(not code:find("(function()", 1, true), code)
 end
@@ -662,7 +658,7 @@ function M.safeReceiverAndMethodPluckUsesStagedGuards()
             "\n"
         )
     )
-    testAssert.equal(answer, 11)
+    testAssert.eq(answer, 11)
     assert(code:find("~=nil then", 1, true), code)
     assert(not code:find("(function()", 1, true), code)
 end
@@ -690,8 +686,8 @@ function M.constructorCallsReuseTheSamePlan()
             "\n"
         )
     )
-    testAssert.equal(answer, 78)
-    testAssert.equal(select(2, code:gsub("entity%.position", "")), 1, code)
+    testAssert.eq(answer, 78)
+    testAssert.eq(select(2, code:gsub("entity%.position", "")), 1, code)
 end
 
 function M.callableObjectsReuseTheOrdinaryPlan()
@@ -714,7 +710,7 @@ function M.callableObjectsReuseTheOrdinaryPlan()
             "\n"
         )
     )
-    testAssert.equal(answer, 9)
+    testAssert.eq(answer, 9)
 end
 
 function M.methodReceiverAndDottedOperandAreEachEvaluatedOnce()
@@ -745,7 +741,7 @@ function M.methodReceiverAndDottedOperandAreEachEvaluatedOnce()
             "\n"
         )
     )
-    testAssert.equal(answer, 11)
+    testAssert.eq(answer, 11)
 end
 
 function M.pluckRejectsEffectfulAndComputedPlaceOperands()
@@ -758,8 +754,8 @@ function M.pluckRejectsEffectfulAndComputedPlaceOperands()
         },
         "\n"
     )
-    testAssert.equal(diagnostics(declaration .. "\ndraw({x, y} = make())"), "NUPP2006")
-    testAssert.equal(
+    testAssert.eq(diagnostics(declaration .. "\ndraw({x, y} = make())"), "NUPP2006")
+    testAssert.eq(
         diagnostics(
             declaration .. "\n" .. table.concat(
                 {"local positions: {Vec3} = {make()}", "draw({x, y} = positions[1])",},
@@ -782,7 +778,7 @@ function M.namedArgumentsCanFillAnOptionalGap()
             "\n"
         )
     )
-    testAssert.equal(answer, "nil2!")
+    testAssert.eq(answer, "nil2!")
 end
 
 -- A record carrying more fields than the call needs is the ordinary case: the
@@ -800,7 +796,7 @@ function M.aCalleePicksTheSubsetItNeeds()
             "\n"
         )
     )
-    testAssert.equal(answer, "12k")
+    testAssert.eq(answer, "12k")
     assert(not code:find(".z", 1, true), "the unread field is never projected:\n" .. code)
 end
 
@@ -818,13 +814,13 @@ function M.aTrailingOrdinaryCallStillSuppliesItsResultPack()
             "\n"
         )
     )
-    testAssert.equal(answer, 10)
+    testAssert.eq(answer, 10)
 end
 
 -- A call keeps its several results only as the last argument, so one ahead of a
 -- pluck is adjusted to a single value and leaves the next parameter unfilled.
 function M.aCallAheadOfAPluckIsAdjustedToOneValue()
-    testAssert.equal(
+    testAssert.eq(
         diagnostics(
             vector .. "\n" .. table.concat(
                 {
@@ -868,7 +864,7 @@ function M.aBoundedTypeParameterPlucksThroughItsBound()
 end
 
 function M.aStaticInterfaceViewExposesOnlyItsOwnFields()
-    testAssert.equal(
+    testAssert.eq(
         diagnostics(
             table.concat(
                 {
@@ -916,12 +912,12 @@ function M.namedLabelsSelectMethodBodiesWithoutADispatcher()
             "\n"
         )
     )
-    testAssert.equal(answer, "ns")
+    testAssert.eq(answer, "ns")
 end
 
 function M.invalidPluckAndArgumentBindingAreRejected()
     -- A name that is not a field of the operand.
-    testAssert.equal(
+    testAssert.eq(
         diagnostics(
             vector .. "\n" .. table.concat(
                 {
@@ -935,7 +931,7 @@ function M.invalidPluckAndArgumentBindingAreRejected()
         "NUPP2004"
     )
     -- A name that is not a parameter of the callee.
-    testAssert.equal(
+    testAssert.eq(
         diagnostics(
             vector .. "\n" .. table.concat(
                 {
@@ -949,7 +945,7 @@ function M.invalidPluckAndArgumentBindingAreRejected()
         "NUPP2125"
     )
     -- A field whose type does not fit the parameter it fills.
-    testAssert.equal(
+    testAssert.eq(
         diagnostics(
             table.concat(
                 {
@@ -967,7 +963,7 @@ function M.invalidPluckAndArgumentBindingAreRejected()
         "NUPP2125"
     )
     -- One parameter filled twice.
-    testAssert.equal(
+    testAssert.eq(
         diagnostics(
             vector .. "\n" .. table.concat(
                 {
@@ -981,7 +977,7 @@ function M.invalidPluckAndArgumentBindingAreRejected()
         "NUPP2125"
     )
     -- A group naming one parameter twice.
-    testAssert.equal(
+    testAssert.eq(
         diagnostics(
             vector .. "\n" .. table.concat(
                 {
@@ -995,7 +991,7 @@ function M.invalidPluckAndArgumentBindingAreRejected()
         "NUPP2125 NUPP2006"
     )
     -- A positional argument after a pluck.
-    testAssert.equal(
+    testAssert.eq(
         diagnostics(
             vector .. "\n" .. table.concat(
                 {
@@ -1008,17 +1004,17 @@ function M.invalidPluckAndArgumentBindingAreRejected()
         ),
         "NUPP2125 NUPP2006"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagnostics(table.concat({"local function f(x: number, y: number): nil end", "f(y = 2, x = 1)",}, "\n")),
         "NUPP2125"
     )
-    testAssert.equal(diagnostics("local unknown: any = nil\nunknown(x = 1)"), "NUPP2006")
+    testAssert.eq(diagnostics("local unknown: any = nil\nunknown(x = 1)"), "NUPP2006")
 end
 
 -- A construction fills fields rather than parameters, so there is nothing to
 -- pluck into even when the names would line up.
 function M.constructionHasNoParametersToPluckInto()
-    testAssert.equal(
+    testAssert.eq(
         diagnostics(
             vector .. "\n" .. table.concat(
                 {
@@ -1037,9 +1033,9 @@ function M.constructionHasNoParametersToPluckInto()
 end
 
 function M.formattingKeepsPluckGroupsReadable()
-    testAssert.equal(fmt.format("draw( {x} =  position,color='red')"), "draw({x} = position, color = 'red')\n")
-    testAssert.equal(fmt.format("draw({x,y} =position,color='red')"), "draw({x, y} = position, color = 'red')\n")
-    testAssert.equal(
+    testAssert.eq(fmt.format("draw( {x} =  position,color='red')"), "draw({x} = position, color = 'red')\n")
+    testAssert.eq(fmt.format("draw({x,y} =position,color='red')"), "draw({x, y} = position, color = 'red')\n")
+    testAssert.eq(
         fmt.format("draw({x,y} =entity.body.position,color='red')"),
         "draw({x, y} = entity.body.position, color = 'red')\n"
     )

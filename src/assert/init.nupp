@@ -6,17 +6,17 @@ Call assert to require a truthy first argument and return the complete input pac
 Its helpers compare values, while assert.suite records test cases and their evidence.
 
 ```nupp
-assert.equal(2 + 2, 4)
-assert.deepequal({"ready", 200}, {"ready", 200})
+assert.eq(2 + 2, 4)
+assert.deepeq({"ready", 200}, {"ready", 200})
 local value, gap, count = assert("ready", nil, 2)
 assert(value == "ready" and gap == nil and count == 2)
 ```
 ]]
 
 local interface Callable
-    equal: function(any, any, string?): any
-    notequal: function(any, any, string?): any
-    deepequal: function(any, any, string?): any
+    eq: function(any, any, string?): any
+    ne: function(any, any, string?): any
+    deepeq: function(any, any, string?): any
     matches: function(any, string, string?): string
     raises: function(function(...: any): any, string?): any
     suite: {
@@ -588,13 +588,7 @@ function suite.notexecutedreason(value: any): string?
     return nil
 end
 
-local callable = {
-    equal = equal,
-    notEqual = notEqual,
-    deepEqual = deepEqual,
-    matches = matches,
-    raises = raises,
-} as Callable
+local callable = {eq = equal, ne = notEqual, deepeq = deepEqual, matches = matches, raises = raises,} as Callable
 callable.suite = suite
 
 rawset(_G, "assert", callable)

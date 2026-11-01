@@ -194,15 +194,15 @@ function M.parsingAnswersTheRecordedComponents()
     for _, row in ipairs(PARSED) do
         local value, reason = module.newuri(row[1])
         assert(value, row[1] .. ": " .. tostring(reason))
-        test.equal(value:toString(), row[2], row[1] .. " normalizes")
+        test.eq(value:toString(), row[2], row[1] .. " normalizes")
         for _, name in ipairs(COMPONENTS) do
             local wanted = row[name]
             if wanted ~= nil then
                 local found = value[name](value)
                 if wanted == false then
-                    test.equal(found, nil, row[1] .. " has no " .. name)
+                    test.eq(found, nil, row[1] .. " has no " .. name)
                 else
-                    test.equal(found, wanted, row[1] .. " " .. name)
+                    test.eq(found, wanted, row[1] .. " " .. name)
                 end
             end
         end
@@ -222,8 +222,8 @@ function M.malformedTextAnswersAReason()
         ["http:"] = "empty host",
     }) do
         local value, why = module.newuri(text)
-        test.equal(value, nil, "[" .. text .. "] does not parse")
-        test.equal(why, reason, "[" .. text .. "] says why")
+        test.eq(value, nil, "[" .. text .. "] does not parse")
+        test.eq(why, reason, "[" .. text .. "] says why")
     end
 end
 
@@ -231,25 +231,25 @@ function M.derivingReplacesOneComponentAtATime()
     local module = ready()
     local base = assert(module.newuri("https://user:pass@example.com:8443/api/v1?q=1#top"))
 
-    test.equal(base:withScheme("http"):toString(), "http://user:pass@example.com:8443/api/v1?q=1#top")
-    test.equal(base:withUserInfo(nil):toString(), "https://example.com:8443/api/v1?q=1#top")
-    test.equal(base:withUserInfo("u"):toString(), "https://u@example.com:8443/api/v1?q=1#top")
-    test.equal(base:withUserInfo("u:p"):toString(), "https://u:p@example.com:8443/api/v1?q=1#top")
-    test.equal(base:withHost("other.example"):toString(), "https://user:pass@other.example:8443/api/v1?q=1#top")
-    test.equal(base:withPort(99):toString(), "https://user:pass@example.com:99/api/v1?q=1#top")
-    test.equal(base:withPort(nil):toString(), "https://user:pass@example.com/api/v1?q=1#top")
-    test.equal(base:withPath("/x"):toString(), "https://user:pass@example.com:8443/x?q=1#top")
+    test.eq(base:withScheme("http"):toString(), "http://user:pass@example.com:8443/api/v1?q=1#top")
+    test.eq(base:withUserInfo(nil):toString(), "https://example.com:8443/api/v1?q=1#top")
+    test.eq(base:withUserInfo("u"):toString(), "https://u@example.com:8443/api/v1?q=1#top")
+    test.eq(base:withUserInfo("u:p"):toString(), "https://u:p@example.com:8443/api/v1?q=1#top")
+    test.eq(base:withHost("other.example"):toString(), "https://user:pass@other.example:8443/api/v1?q=1#top")
+    test.eq(base:withPort(99):toString(), "https://user:pass@example.com:99/api/v1?q=1#top")
+    test.eq(base:withPort(nil):toString(), "https://user:pass@example.com/api/v1?q=1#top")
+    test.eq(base:withPath("/x"):toString(), "https://user:pass@example.com:8443/x?q=1#top")
     -- A path is a hierarchy under an authority, so one written without a leading
     -- separator gets one rather than running into the host.
-    test.equal(base:withPath("x/y"):toString(), "https://user:pass@example.com:8443/x/y?q=1#top")
-    test.equal(base:withPath(""):toString(), "https://user:pass@example.com:8443/?q=1#top")
-    test.equal(base:withQuery(nil):toString(), "https://user:pass@example.com:8443/api/v1#top")
-    test.equal(base:withQuery("a=b"):toString(), "https://user:pass@example.com:8443/api/v1?a=b#top")
-    test.equal(base:withFragment(nil):toString(), "https://user:pass@example.com:8443/api/v1?q=1")
-    test.equal(base:withFragment("z"):toString(), "https://user:pass@example.com:8443/api/v1?q=1#z")
+    test.eq(base:withPath("x/y"):toString(), "https://user:pass@example.com:8443/x/y?q=1#top")
+    test.eq(base:withPath(""):toString(), "https://user:pass@example.com:8443/?q=1#top")
+    test.eq(base:withQuery(nil):toString(), "https://user:pass@example.com:8443/api/v1#top")
+    test.eq(base:withQuery("a=b"):toString(), "https://user:pass@example.com:8443/api/v1?a=b#top")
+    test.eq(base:withFragment(nil):toString(), "https://user:pass@example.com:8443/api/v1?q=1")
+    test.eq(base:withFragment("z"):toString(), "https://user:pass@example.com:8443/api/v1?q=1#z")
 
     -- The original is untouched by all of it.
-    test.equal(base:toString(), "https://user:pass@example.com:8443/api/v1?q=1#top")
+    test.eq(base:toString(), "https://user:pass@example.com:8443/api/v1?q=1#top")
 
     local raised = select(
         2,
@@ -265,21 +265,21 @@ function M.concatenatingAPathAddsOneSeparator()
     local module = ready()
     local plain = assert(module.newuri("https://api.example.com/v1"))
     local slashed = assert(module.newuri("https://api.example.com/v1/"))
-    test.equal(plain:concatPath("users"):path(), "/v1/users")
-    test.equal(plain:concatPath("/users"):path(), "/v1/users")
-    test.equal(slashed:concatPath("users"):path(), "/v1/users")
-    test.equal(slashed:concatPath("/users"):path(), "/v1/users")
-    test.equal(plain:concatPath(""), plain, "an empty suffix leaves the URI unchanged")
+    test.eq(plain:concatPath("users"):path(), "/v1/users")
+    test.eq(plain:concatPath("/users"):path(), "/v1/users")
+    test.eq(slashed:concatPath("users"):path(), "/v1/users")
+    test.eq(slashed:concatPath("/users"):path(), "/v1/users")
+    test.eq(plain:concatPath(""), plain, "an empty suffix leaves the URI unchanged")
 end
 
 function M.removingAHostRemovesItsAuthority()
     local module = ready()
     local value = assert(module.newuri("custom://user:pass@example.com:8080/path"))
     local without = value:withHost(nil)
-    test.equal(without:toString(), "custom:/path")
-    test.equal(without:authority(), nil)
-    test.equal(without:userInfo(), nil)
-    test.equal(without:port(), nil)
+    test.eq(without:toString(), "custom:/path")
+    test.eq(without:authority(), nil)
+    test.eq(without:userInfo(), nil)
+    test.eq(without:port(), nil)
 end
 
 -- A component holding a delimiter, or a path shaped like an authority, is
@@ -305,7 +305,7 @@ function M.composingRefusesComponentsThatShiftBoundaries()
     }
     for _, row in ipairs(refused) do
         local value, why = module.newuri(row[1])
-        test.equal(value, nil, row[2] .. ": refused")
+        test.eq(value, nil, row[2] .. ": refused")
         assert(tostring(why):find(row[2], 1, true), row[2] .. ": the reason says which rule, got " .. tostring(why))
     end
 
@@ -319,7 +319,7 @@ function M.composingRefusesComponentsThatShiftBoundaries()
     for _, row in ipairs(accepted) do
         local value, why = module.newuri(row[1])
         assert(value, row[2] .. ": " .. tostring(why))
-        test.equal(value:toString(), row[2], row[2] .. " composes")
+        test.eq(value:toString(), row[2], row[2] .. " composes")
     end
 end
 
@@ -342,7 +342,7 @@ function M.resolvingFollowsTheReferenceRules()
     for _, row in ipairs(expected) do
         local resolved, reason = page:resolve(row[1])
         assert(resolved, "[" .. row[1] .. "]: " .. tostring(reason))
-        test.equal(resolved:toString(), row[2], "resolve [" .. row[1] .. "]")
+        test.eq(resolved:toString(), row[2], "resolve [" .. row[1] .. "]")
     end
 end
 
@@ -405,7 +405,7 @@ function M.resolvingFollowsRfc3986Examples()
     for _, row in ipairs(expected) do
         local resolved, reason = base:resolve(row[1])
         assert(resolved, "[" .. row[1] .. "]: " .. tostring(reason))
-        test.equal(resolved:toString(), row[2], "resolve [" .. row[1] .. "]")
+        test.eq(resolved:toString(), row[2], "resolve [" .. row[1] .. "]")
     end
 end
 
@@ -431,8 +431,8 @@ function M.derivingRefusesTextThatIsNotTheComponent()
             "host"
         )
     end
-    test.equal(base:withHost("[::1]"):host(), "[::1]")
-    test.equal(base:withScheme("HTTP"):toString(), "http://example.com/x")
+    test.eq(base:withHost("[::1]"):host(), "[::1]")
+    test.eq(base:withScheme("HTTP"):toString(), "http://example.com/x")
     -- A scheme change that would move text into the authority is refused
     -- rather than letting the new parse find a host the old URI did not have.
     local mail = assert(module.newuri("mailto:evil.example"))
@@ -449,11 +449,11 @@ end
 function M.rerootingKeepsThePathQueryAndFragment()
     local module = ready()
     local request = assert(module.newuri("https://service.example/v1/items?a=1#f"))
-    test.equal(
+    test.eq(
         request:withEndpoint(assert(module.newuri("http://127.0.0.1:8080/prefix"))):toString(),
         "http://127.0.0.1:8080/prefix/v1/items?a=1#f"
     )
-    test.equal(
+    test.eq(
         request:withEndpoint(assert(module.newuri("http://127.0.0.1:8080/"))):toString(),
         "http://127.0.0.1:8080/v1/items?a=1#f"
     )
@@ -466,14 +466,14 @@ function M.portableParserAgreesOnPortableUriComponents()
         for _, row in ipairs(PARSED) do
             local parts, reason = parser.parse(row[1])
             assert(parts, tostring(reason))
-            test.equal(parts.text, row[2], row[1] .. " portable normalization")
+            test.eq(parts.text, row[2], row[1] .. " portable normalization")
             for _, name in ipairs(COMPONENTS) do
                 if row[name] ~= nil then
                     local expected = row[name]
                     if expected == false then
                         expected = nil
                     end
-                    test.equal(parts[name], expected, row[1] .. " portable " .. name)
+                    test.eq(parts[name], expected, row[1] .. " portable " .. name)
                 end
             end
         end
@@ -499,14 +499,14 @@ function M.encodedDotSegmentsAreRemovedByEveryParser()
     }
     for _, row in ipairs(rows) do
         local native = assert(module.newuri(row[1]))
-        test.equal(native:path(), row[2], row[1] .. " native path")
+        test.eq(native:path(), row[2], row[1] .. " native path")
         local parts, reason = portable.parse(row[1])
         assert(parts, tostring(reason))
-        test.equal(parts.path, row[2], row[1] .. " portable path")
+        test.eq(parts.path, row[2], row[1] .. " portable path")
     end
     local page = assert(module.newuri("https://ex.com/public/index.html"))
-    test.equal(assert(page:resolve("%2e%2e/secret")):path(), "/secret")
-    test.equal(assert(page:resolve("..\\..\\secret")):path(), "/secret")
+    test.eq(assert(page:resolve("%2e%2e/secret")):path(), "/secret")
+    test.eq(assert(page:resolve("..\\..\\secret")):path(), "/secret")
 end
 
 function M.portableParserRefusesMalformedHosts()
@@ -530,8 +530,8 @@ function M.portableParserRefusesMalformedHosts()
         ["http://example.com/\255"] = "URI is not valid UTF-8",
     }) do
         local value, why = portable.parse(text)
-        test.equal(value, nil, text .. " is refused")
-        test.equal(why, reason, text .. " explains its refusal")
+        test.eq(value, nil, text .. " is refused")
+        test.eq(why, reason, text .. " explains its refusal")
     end
 end
 
@@ -553,19 +553,19 @@ local STANDARD_ROWS = {
 
 local function checkStandardRow(label, parts, reason, row)
     if row[2] == false then
-        test.equal(parts, nil, label .. " " .. row[1] .. " is refused")
+        test.eq(parts, nil, label .. " " .. row[1] .. " is refused")
         assert(reason, label .. " " .. row[1] .. " says why")
         return
     end
     assert(parts, label .. " " .. row[1] .. ": " .. tostring(reason))
-    test.equal(parts.text, row[2], label .. " " .. row[1])
+    test.eq(parts.text, row[2], label .. " " .. row[1])
     for _, name in ipairs(COMPONENTS) do
         if row[name] ~= nil then
             local expected = row[name]
             if expected == false then
                 expected = nil
             end
-            test.equal(parts[name], expected, label .. " " .. row[1] .. " " .. name)
+            test.eq(parts[name], expected, label .. " " .. row[1] .. " " .. name)
         end
     end
 end
@@ -601,11 +601,11 @@ function M.ipv4NumberFormsAreAddresses()
         for label, parser in pairs({native = native, portable = portable}) do
             local parts, reason = parser.parse(text)
             assert(parts, label .. " " .. text .. ": " .. tostring(reason))
-            test.equal(parts.host, host, label .. " " .. text)
+            test.eq(parts.host, host, label .. " " .. text)
         end
     end
     -- Only a special scheme's host is a domain, so another scheme keeps it.
-    test.equal(assert(portable.parse("foo://0x7f.1/")).host, "0x7f.1")
+    test.eq(assert(portable.parse("foo://0x7f.1/")).host, "0x7f.1")
 end
 
 -- The portable parser carries no IDNA tables, so a special-scheme host that
@@ -623,12 +623,12 @@ function M.portableParserRefusesInternationalHosts()
         "https://www.xn--caf-dma.example/",
     }) do
         local parts, reason = portable.parse(text)
-        test.equal(parts, nil, text .. " is refused by the portable parser")
-        test.equal(reason, "internationalized host needs a host URL parser", text)
+        test.eq(parts, nil, text .. " is refused by the portable parser")
+        test.eq(reason, "internationalized host needs a host URL parser", text)
         assert(native.parse(text), text .. " is mapped by the native parser")
     end
-    test.equal(assert(portable.parse("foo://\195\177.test/")).host, "%C3%B1.test")
-    test.equal(assert(native.parse("foo://\195\177.test/")).host, "%C3%B1.test")
+    test.eq(assert(portable.parse("foo://\195\177.test/")).host, "%C3%B1.test")
+    test.eq(assert(native.parse("foo://\195\177.test/")).host, "%C3%B1.test")
 end
 
 -- A page host with its own `URL` is asked, and its canonical text is read back,
@@ -651,17 +651,17 @@ function M.browserHostUrlIsReadBack()
     local ok, problem = pcall(function()
         local browser = require("nupp.runtime.browser.uri")
         local parts = assert(browser.parse("https://caf\195\169.example/a b"))
-        test.equal(parts.text, "https://xn--caf-dma.example/a%20b")
-        test.equal(parts.host, "xn--caf-dma.example")
-        test.equal(parts.path, "/a%20b")
+        test.eq(parts.text, "https://xn--caf-dma.example/a%20b")
+        test.eq(parts.host, "xn--caf-dma.example")
+        test.eq(parts.path, "/a%20b")
         local value, reason = browser.parse("http://[")
-        test.equal(value, nil)
-        test.equal(reason, "Invalid URL")
+        test.eq(value, nil)
+        test.eq(reason, "Invalid URL")
         -- What every provider refuses never reaches the host.
         value, reason = browser.parse("http://example.com/\0")
-        test.equal(value, nil)
-        test.equal(reason, "URI contains a NUL byte")
-        test.equal(#asked, 2)
+        test.eq(value, nil)
+        test.eq(reason, "URI contains a NUL byte")
+        test.eq(#asked, 2)
     end)
     rawset(_G, "__nuppBrowser", previousHost)
     package.loaded["nupp.runtime.browser.uri"] = previousModule
@@ -820,16 +820,16 @@ function M.seededCorpusAgreesAcrossProviders()
         if found == nil and reason == "internationalized host needs a host URL parser" then
             refusedInternational = refusedInternational + 1
         else
-            test.equal(found and found.text, expected and expected.text, ("%q portable text"):format(text))
+            test.eq(found and found.text, expected and expected.text, ("%q portable text"):format(text))
             if expected and found then
                 for _, name in ipairs(COMPONENTS) do
-                    test.equal(found[name], expected[name], ("%q portable %s"):format(text, name))
+                    test.eq(found[name], expected[name], ("%q portable %s"):format(text, name))
                 end
             end
-            test.equal(found == nil, expected == nil, ("%q acceptance: %s"):format(text, tostring(expectedReason)))
+            test.eq(found == nil, expected == nil, ("%q acceptance: %s"):format(text, tostring(expectedReason)))
         end
         if hrefs ~= nil and not newerThanTheCrate(text) then
-            test.equal(expected and expected.text or false, hrefs[index], ("%q host URL"):format(text))
+            test.eq(expected and expected.text or false, hrefs[index], ("%q host URL"):format(text))
         end
     end
     assert(refusedInternational < 30, "the corpus is mostly ASCII hosts")
@@ -870,10 +870,10 @@ function M.seededReferencesResolveAsTheHostDoes()
         local parts = portable.parse(text, assert(portable.parse(baseTexts[index])))
         local label = ("%q against %s"):format(text, baseTexts[index])
         if not (parts == nil and resolved ~= nil and text:find("[\128-\255]")) then
-            test.equal(parts and parts.text, resolved and resolved:toString(), label .. " portable")
+            test.eq(parts and parts.text, resolved and resolved:toString(), label .. " portable")
         end
         if hrefs ~= nil and not newerThanTheCrate(text) and not newerThanTheCrate(baseTexts[index]) then
-            test.equal(resolved and resolved:toString() or false, hrefs[index], label .. " host URL")
+            test.eq(resolved and resolved:toString() or false, hrefs[index], label .. " host URL")
         end
     end
     if hrefs == nil then

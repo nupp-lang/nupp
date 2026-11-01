@@ -2276,6 +2276,125 @@ end
 
 -- `scope:spawn(arguments..., f)` is what a caller writes, and the compiler rotates it
 -- into the declaration's callable-first order. The reference prints the call.
+function M.literalComptimeShapesDocumentTheirActualMemberTypes()
+    local source = [[
+module contract
+const types = require("types")
+@comptime
+local function Handle(F: type): type
+    if types.kind(F) ~= "function" then
+        return types.error("a handle needs a function")
+    end
+    return types.shape({
+        --- Returns the complete body result pack.
+        {name = "await", read = types.function_(types.pack({types.any}), types.results(F))},
+        {name = "done", read = types.function_(types.pack({types.any}), types.pack({types.boolean}))},
+        {name = "label", read = types.literal("types.Reader")},
+    })
+end
+export type Task<G> = Handle(G)
+]]
+    local module = assert(doc.extract(source, "src/contract.nupp", "contract"))
+    local task = assert(module.items[1])
+    local members = {}
+    for _, member in ipairs(task.members) do
+        members[member.name] = member
+    end
+    assert(members.await and members.await.isFunction, "the actual shape declares await")
+    assert(members.await.type == "function(any): unpackof types.results(G)", members.await.type)
+    assert(members.await.returns[1].type == "unpackof types.results(G)")
+    assert(members.await.text == "Returns the complete body result pack.")
+    assert(members.done.returns[1].type == "boolean", members.done.type)
+    assert(members.label.type == '"types.Reader"', members.label.type)
+
+    for _, unknown in ipairs({
+        source:gsub("types.shape%({", "types.shape(descriptors or {", 1),
+        source:gsub('require%("types"%)', 'require("other")', 1),
+        source:gsub("local function Handle%(F: type%)", "local function Handle(F: type, types: table)", 1),
+        source:gsub("return types.shape", "F = types.integer\n    return types.shape", 1),
+        source:gsub("return types.shape", "local F = types.integer\n    return types.shape", 1),
+        source:gsub("return types.shape", "types.shape = other\n    return types.shape", 1),
+        source:gsub("return types.shape", 'types["function_"] = other\n    return types.shape', 1),
+        source:gsub("@comptime\n", "types.shape = other\n@comptime\n", 1),
+        (source:gsub("@comptime\n", "", 1)),
+    }) do
+        local opaque = assert(doc.extract(unknown, "src/contract.nupp", "contract"))
+        assert(#opaque.items[1].members == 0, "unknown or shadowed builders stay opaque")
+    end
+end
+
+function M.coroutineWorkerDocsRetainScopesAndTaskResultPacks()
+    local dir = tempProject({["nupp.lua"] = "return {}\n"})
+    local root = HERE .. "/.."
+    local ok, problem = doc.build(
+        root,
+        {include = {"src"}},
+        {
+            sources = {
+                "src/nupp/tasks.nupp",
+                "src/nupp/workers/spi.nupp",
+                "src/nupp/runtime/standardcoroutine.nupp",
+                "src/coroutine/workers/init.nupp",
+            },
+        },
+        {format = "json", output = dir .. "/api.json"}
+    )
+    assert(ok == 0, tostring(problem))
+    local json = require("serde.json")
+    local model = assert(json.decodevalue(readFile(dir .. "/api.json")))
+    local modules = {}
+    for _, module in ipairs(model.modules) do
+        modules[module.name] = module
+    end
+    local items = {}
+    for _, item in ipairs(assert(modules.coroutine).items) do
+        items[item.name] = item
+    end
+    local scope = {}
+    for _, member in ipairs(assert(items.Scope).members) do
+        scope[member.name] = member
+    end
+    assert(scope.fork and scope.spawn and scope.cancel and scope.close, "scope owns worker creation and settlement")
+    local task = {}
+    for _, member in ipairs(assert(items.Task).members) do
+        task[member.name] = member
+    end
+    assert(task.await and task.isDone and task.status and task.cancel, "task methods come from the actual type builder")
+    assert(task.await.type:find("unpackof types.results(F)", 1, true), task.await.type)
+    assert(task.status.type:find('"cancelled"', 1, true), task.status.type)
+    assert(modules["coroutine.workers"].text:find("coroutine.Scope.fork", 1, true))
+    assert(modules["coroutine.workers"].text:find("coroutine.Task", 1, true))
+    assert(not modules["nupp.tasks"] and not modules["nupp.workers.spi"], "implementation modules stay private")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.reloadDocsDescribeThePublicWatchBoundary()
+    local page = assert(require("nupp.tools.doc.stdlib").page({path = "api"}))
+    local reload, debugModule
+    for _, module in ipairs(page.modules) do
+        if module.name == "debug" then
+            debugModule = module
+        end
+        if module.name == "debug.reload" then
+            reload = module
+        end
+        assert(module.name ~= "nupp.hotreload", "the retired public route is absent")
+    end
+    assert(reload and #reload.items == 2, "reload publishes generation and poll")
+    local names = {}
+    for _, item in ipairs(reload.items) do
+        names[item.name] = item.kind
+    end
+    assert(names.generation == "function" and names.poll == "function")
+    local pollType
+    for _, item in ipairs(assert(debugModule).items) do
+        if item.path == "debug.ReloadPoll" then
+            pollType = item
+        end
+    end
+    assert(pollType and #pollType.members == 6, "the poll result has one documented public contract")
+end
+
 function M.aRotatedCallSurfaceIsPrintedInCallOrder()
     local path = HERE .. "/../src/nupp/tasks.nupp"
     local module = assert(doc.extract(readFile(path), path, "nupp.tasks"))

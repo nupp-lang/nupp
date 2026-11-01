@@ -127,7 +127,7 @@ end
 
 function M.theSkillCarriesLoadableFrontmatter()
     local skill = reference.skill()
-    testAssert.equal(skill:sub(1, 4), "---\n", "opens with frontmatter")
+    testAssert.eq(skill:sub(1, 4), "---\n", "opens with frontmatter")
     assert(skill:find("\nname: nupp\n", 1, true), "names itself")
     assert(skill:find("description:", 1, true), "says when to load it")
     local closing = skill:find("\n---\n", 4, true)
@@ -142,13 +142,13 @@ end
 function M.aSectionCanBeEjectedAsASkill()
     local text, ok = runCommand(HERE .. "/..", "--section types --format skill")
     assert(ok, "the section renders as a skill: " .. text)
-    testAssert.equal(text:sub(1, 4), "---\n", "opens with frontmatter")
+    testAssert.eq(text:sub(1, 4), "---\n", "opens with frontmatter")
     assert(text:find("\nname: nupp-types\n", 1, true), "names itself after the section")
     local closing = text:find("\n---\n", 4, true)
     assert(closing, "closes its frontmatter")
     assert(text:find("# Types", closing, true), "the section follows the frontmatter")
     local byCode = runCommand(HERE .. "/..", "--for NUPP2004 --skill")
-    testAssert.equal(byCode:sub(1, 4), "---\n", "--for honours the format too")
+    testAssert.eq(byCode:sub(1, 4), "---\n", "--for honours the format too")
 end
 
 function M.chaptersAreDiscoverableAndFocused()
@@ -216,7 +216,7 @@ function M.allJsonListsEverySectionItsMarkdownContains()
     for _, chapter in ipairs(reference.chapters) do
         expected = expected + #chapter.sections
     end
-    testAssert.equal(#payload.sections, expected, "the flat section index agrees with the chapter index")
+    testAssert.eq(#payload.sections, expected, "the flat section index agrees with the chapter index")
     local byTitle = {}
     for _, section in ipairs(payload.sections) do
         byTitle[section.title] = true

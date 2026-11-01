@@ -437,6 +437,7 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
     local types: {extractMod.Item} = {}
     local globals: {extractMod.Item} = {}
     local modules: {extractMod.Module} = {}
+    local qualified: {extractMod.Item} = {}
     local annotationItems = annotationapi.items()
     local navigation: stdlib.Navigation = {
         libraries = {},
@@ -455,6 +456,11 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
                 publicNames = source.file == "/decls/lua.d.nupp" and {_G = true, _VERSION = true} or nil
             })
             if module then
+                for _, item in ipairs(module.items) do
+                    if item.module then
+                        qualified[#qualified + 1] = item
+                    end
+                end
                 if source.required then
                     module.items = withoutRedeclaredBindings(module.items)
                     module.path = nil
@@ -478,6 +484,21 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
                 library.path = nil
                 modules[#modules + 1] = library
                 navigation.libraries[#navigation.libraries + 1] = libraryEntry(library)
+            end
+        end
+    end
+    -- A qualified declaration belongs to the library that already publishes its
+    -- namespace. Keep that one contract rather than dropping it from both the
+    -- standalone Types list and its actual module page.
+    for _, item in ipairs(qualified) do
+        for _, library in ipairs(modules) do
+            if library.name == item.module then
+                item.path = library.name .. "." .. item.name
+                for _, member in ipairs(item.members or {}) do
+                    member.path = item.path .. "." .. member.name
+                end
+                library.items[#library.items + 1] = item
+                break
             end
         end
     end

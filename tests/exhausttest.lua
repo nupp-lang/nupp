@@ -10,7 +10,7 @@ local env = envMod.new(HERE .. "/..")
 
 local function diagsOf(src)
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax: " .. (result.errors[1] and result.errors[1].msg or ""))
+    testAssert.eq(#result.errors, 0, "syntax: " .. (result.errors[1] and result.errors[1].msg or ""))
     local out = {}
     for j, d in ipairs(check.check(result, "test.nupp", env)) do
         out[j] = d.code
@@ -32,7 +32,7 @@ local M = {}
 -- A branch that cannot produce a value adds no member to the value's type, so a
 -- ternary with a failing arm still dispatches over the literal union.
 function M.aFailingArmDoesNotHideTheDispatch()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -68,7 +68,7 @@ function M.aDispatchMissingAMemberIsReported()
         },
         "\n"
     )
-    testAssert.equal(diagsOf(src), "NUPP2107")
+    testAssert.eq(diagsOf(src), "NUPP2107")
     local msg = messageOf(src)
     assert(msg:find('"blue"', 1, true), "names the member: " .. msg)
     assert(msg:find('"green"', 1, true), "names the set: " .. msg)
@@ -92,7 +92,7 @@ function M.everyMissingMemberIsNamed()
 end
 
 function M.aCompleteDispatchIsSilent()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             COLOR .. table.concat(
                 {
@@ -116,7 +116,7 @@ end
 
 function M.partialHandlingIsNotADispatch()
     -- the branch does not leave, so the chain is not claiming to be total
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             COLOR .. table.concat(
                 {
@@ -135,7 +135,7 @@ function M.partialHandlingIsNotADispatch()
 end
 
 function M.anElseBranchCoversTheRest()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             COLOR .. table.concat(
                 {
@@ -156,7 +156,7 @@ function M.anElseBranchCoversTheRest()
 end
 
 function M.errorCountsAsLeaving()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             COLOR .. table.concat(
                 {
@@ -178,7 +178,7 @@ function M.errorCountsAsLeaving()
 end
 
 function M.chainsOverDifferentSubjectsAreLeftAlone()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             COLOR .. table.concat(
                 {
@@ -199,7 +199,7 @@ function M.chainsOverDifferentSubjectsAreLeftAlone()
 end
 
 function M.nonEnumChainsAreUnaffected()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -221,7 +221,7 @@ end
 
 function M.theRemainingMembersNarrowInLaterBranches()
     -- subtraction composes, so a later branch sees only what is left
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             COLOR .. table.concat(
                 {"", "local c: Color = nil as any", "if c == 'red' then", "else", "    local still: Color = c", "end",},

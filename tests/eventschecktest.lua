@@ -21,7 +21,7 @@ local function diagnostics(source)
     env.loaded = {}
     local filename = ("eventscheck-%d.nupp"):format(run)
     local parsed = parser.parse(source, filename)
-    testAssert.equal(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
+    testAssert.eq(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
 
     return check.check(parsed, filename, env)
 end
@@ -37,7 +37,7 @@ end
 
 local function clean(source)
     local found = diagnostics(source)
-    testAssert.equal(
+    testAssert.eq(
         #found,
         0,
         "expected a clean check, got " .. (found[1] and (found[1].code .. ": " .. found[1].msg) or "")
@@ -106,7 +106,7 @@ bus:observe(|event| -> print(event.amount))
 end
 
 function M.anAdoptedBorrowCannotBeStored()
-    testAssert.equal(
+    testAssert.eq(
         codes(OBSERVED .. [[
 local kept: {Damage} = {}
 bus:observe(|event| -> do
@@ -119,7 +119,7 @@ end)
 end
 
 function M.anAdoptedBorrowCannotBeReturnedFromANestedFunction()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             OBSERVED
             .. [[
@@ -145,7 +145,7 @@ bus:observe(function(borrows event: Damage, world: World): nil
     world.frame = 1
 end)
 ]])
-    testAssert.equal(
+    testAssert.eq(
         codes(
             OBSERVED
             .. [[
@@ -160,7 +160,7 @@ end)
 end
 
 function M.takesIsNeverAdopted()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             [[
 local record Token
@@ -195,7 +195,7 @@ bus:observe(f)
 bus:observe(g)
 ]]
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             OBSERVED
             .. [[
@@ -263,7 +263,7 @@ end
 print(observe)
 ]]
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             [[
 local record Damage
@@ -340,7 +340,7 @@ end
 print(describe(new Down(kind = "down")))
 ]]
     )
-    testAssert.equal(
+    testAssert.eq(
         codes(
             [[
 local record Down
@@ -398,7 +398,7 @@ end
 end
 
 function M.aForwardedViewHoldsTheCalleeToItsMode()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             FORWARDED
             .. [[
@@ -476,7 +476,7 @@ print(count(Diagonal, 4))
 end
 
 function M.aComputedTailRefusesAnUnknownName()
-    testAssert.equal(
+    testAssert.eq(
         codes(CONSTRUCTED .. [[
 print(count(Damage, amount = 1, sauce = 2))
 ]]),
@@ -486,7 +486,7 @@ print(count(Damage, amount = 1, sauce = 2))
 end
 
 function M.aComputedTailRefusesAMissingRequiredSlot()
-    testAssert.equal(codes(CONSTRUCTED .. [[
+    testAssert.eq(codes(CONSTRUCTED .. [[
 print(count(Damage, amount = 1))
 ]]), "NUPP2125", "an omitted required slot")
 end
@@ -529,7 +529,7 @@ function M.theConsumerFixtureChecksStrictlyAndRuns()
     assert(checked == 0, checkOutput)
     local ran, output = process.capture({NUPP, "run", consumer})
     assert(ran == 0, output)
-    testAssert.equal(
+    testAssert.eq(
         output,
         table.concat(
             {

@@ -32,7 +32,7 @@ local function checkProducerStamp()
         .. "io.write(cache.moduleCompilerFingerprint(nil, fingerprint.contentDigest(true)))"
     ):format(ROOT .. "/build/?.lua;")
     local code, output = process.capture({"luajit", "-e", source})
-    testAssert.equal(code, 0, "the CLI generation's fingerprint could not be read: " .. output)
+    testAssert.eq(code, 0, "the CLI generation's fingerprint could not be read: " .. output)
     assert(output:match("^%x+$"), "the CLI generation returned an invalid fingerprint: " .. output)
     producerStamp = "checks/1\0" .. output
 
@@ -316,7 +316,7 @@ local function runtimeLinkFixture(path, checked)
         packaged = {},
         records = {assert = {interfaceHash = "checked", runtimeModules = {"dependency"}}},
         stage = function(name)
-            testAssert.equal(name, "assert")
+            testAssert.eq(name, "assert")
             return path
         end,
     }
@@ -325,15 +325,15 @@ end
 function M.recursivelyStagedRuntimeSourcesRemainCompilerOwned()
     local context = runtimeLinkFixture("build/cache/runtime-source/assert/init.nupp", false)
     modules.linkPackagedRuntime("assert", context)
-    testAssert.equal(context.packaged.assert, true, "recursively carried source belongs to the compiler")
-    testAssert.equal(context.linked.assert, true)
-    testAssert.equal(context.records.assert.compilerRuntime, true)
+    testAssert.eq(context.packaged.assert, true, "recursively carried source belongs to the compiler")
+    testAssert.eq(context.linked.assert, true)
+    testAssert.eq(context.records.assert.compilerRuntime, true)
 end
 
 function M.lateRuntimeLinkingUpdatesAnExistingRecord()
     local context = runtimeLinkFixture("build/cache/runtime-source/assert/init.nupp", true)
     modules.linkPackagedRuntime("assert", context)
-    testAssert.deepequal(context.records.assert, {
+    testAssert.deepeq(context.records.assert, {
         interfaceHash = "checked",
         runtimeModules = {"dependency"},
         compilerRuntime = true
@@ -347,38 +347,38 @@ function M.authoredSourcesAreNotClaimedAsCompilerRuntime()
             error("an authored source must not be staged")
         end
         modules.linkPackagedRuntime("assert", context)
-        testAssert.equal(context.packaged.assert, nil)
-        testAssert.equal(context.linked.assert, nil)
-        testAssert.equal(context.records.assert.compilerRuntime, nil)
+        testAssert.eq(context.packaged.assert, nil)
+        testAssert.eq(context.linked.assert, nil)
+        testAssert.eq(context.records.assert.compilerRuntime, nil)
     end
 end
 
 function M.workerPolicyKeepsSmallChecksSerialAndCapsAutomaticParallelism()
-    testAssert.equal(parallelcheck.plan(63, 1048576, 8, nil).workers, 1, "module floor")
-    testAssert.equal(parallelcheck.plan(64, 262143, 8, nil).workers, 1, "byte floor")
-    testAssert.equal(parallelcheck.plan(64, 262144, 8, nil).workers, 6, "automatic cap")
-    testAssert.equal(parallelcheck.plan(64, 262144, 2, nil).workers, 2, "available workers")
-    testAssert.equal(parallelcheck.plan(4, 16, 8, 8).workers, 4, "explicit count")
-    testAssert.equal(parallelcheck.plan(64, 262144, 8, 1).workers, 1, "serial escape hatch")
+    testAssert.eq(parallelcheck.plan(63, 1048576, 8, nil).workers, 1, "module floor")
+    testAssert.eq(parallelcheck.plan(64, 262143, 8, nil).workers, 1, "byte floor")
+    testAssert.eq(parallelcheck.plan(64, 262144, 8, nil).workers, 6, "automatic cap")
+    testAssert.eq(parallelcheck.plan(64, 262144, 2, nil).workers, 2, "available workers")
+    testAssert.eq(parallelcheck.plan(4, 16, 8, 8).workers, 4, "explicit count")
+    testAssert.eq(parallelcheck.plan(64, 262144, 8, 1).workers, 1, "serial escape hatch")
 end
 
 function M.parallelChecksMatchSerialRecordsAndDiagnosticsAcrossSchedules()
     local directory = tempProject(true)
     local serialCode, serialReport, serialState = coldCheck(directory, {NUPP_CHECK_JOBS = "1"})
-    testAssert.equal(serialCode, 1, "the fixture reports its authored errors")
-    testAssert.equal(serialReport.timing.parallel.mode, "serial", "one requested worker")
+    testAssert.eq(serialCode, 1, "the fixture reports its authored errors")
+    testAssert.eq(serialReport.timing.parallel.mode, "serial", "one requested worker")
 
     for _, run in ipairs({{jobs = "2", seed = "17"}, {jobs = "3", seed = "83"}}) do
         local code, report, state = coldCheck(directory, {
             NUPP_CHECK_JOBS = run.jobs,
             NUPP_TEST_PARALLEL_CHECK_RANDOM_SEED = run.seed,
         })
-        testAssert.equal(code, serialCode, "parallel exit status")
-        testAssert.equal(stable(report.diagnostics), stable(serialReport.diagnostics), "parallel diagnostics")
-        testAssert.equal(state, serialState, "parallel check records")
-        testAssert.equal(report.timing.parallel.mode, "parallel", "parallel timing mode")
-        testAssert.equal(report.timing.parallel.workers, tonumber(run.jobs), "parallel worker count")
-        testAssert.equal(report.timing.parallel.retries, 0, "healthy workers are not retried")
+        testAssert.eq(code, serialCode, "parallel exit status")
+        testAssert.eq(stable(report.diagnostics), stable(serialReport.diagnostics), "parallel diagnostics")
+        testAssert.eq(state, serialState, "parallel check records")
+        testAssert.eq(report.timing.parallel.mode, "parallel", "parallel timing mode")
+        testAssert.eq(report.timing.parallel.workers, tonumber(run.jobs), "parallel worker count")
+        testAssert.eq(report.timing.parallel.retries, 0, "healthy workers are not retried")
     end
 
     assert(require("io.files").remove(directory, true))
@@ -434,12 +434,12 @@ return {value = value, described = described}
     end
 
     local serialCode, _, serialState = coldCheck(directory, {NUPP_CHECK_JOBS = "1"})
-    testAssert.equal(serialCode, 0, "serial fixture")
+    testAssert.eq(serialCode, 0, "serial fixture")
     local code, report, state = coldCheck(directory, {NUPP_CHECK_JOBS = "2"})
-    testAssert.equal(code, 0, "parallel exit status")
-    testAssert.equal(report.timing.parallel.mode, "parallel", "parallel timing mode")
-    testAssert.equal(report.timing.parallel.rechecked, 0, "worker records survive validation")
-    testAssert.equal(state, serialState, "parallel check records")
+    testAssert.eq(code, 0, "parallel exit status")
+    testAssert.eq(report.timing.parallel.mode, "parallel", "parallel timing mode")
+    testAssert.eq(report.timing.parallel.rechecked, 0, "worker records survive validation")
+    testAssert.eq(state, serialState, "parallel check records")
 
     assert(require("io.files").remove(directory, true))
 end
@@ -500,11 +500,11 @@ return {value = value}
     end
 
     local serialCode, serialReport = coldCheck(directory, {NUPP_CHECK_JOBS = "1"})
-    testAssert.equal(stable(serialReport.diagnostics), stable({}), "serial diagnostics")
-    testAssert.equal(serialCode, 0, "serial fixture")
+    testAssert.eq(stable(serialReport.diagnostics), stable({}), "serial diagnostics")
+    testAssert.eq(serialCode, 0, "serial fixture")
     local code, report = coldCheck(directory, {NUPP_CHECK_JOBS = "2"})
-    testAssert.equal(code, 0, "parallel exit status")
-    testAssert.equal(stable(report.diagnostics), stable(serialReport.diagnostics), "parallel diagnostics")
+    testAssert.eq(code, 0, "parallel exit status")
+    testAssert.eq(stable(report.diagnostics), stable(serialReport.diagnostics), "parallel diagnostics")
 
     assert(require("io.files").remove(directory, true))
 end
@@ -556,14 +556,14 @@ return {make = make}
     end
 
     local serialCode, serialReport, serialState = coldCheck(directory, {NUPP_CHECK_JOBS = "1"})
-    testAssert.equal(serialCode, 0, "serial fixture: " .. json.encode(serialReport.diagnostics))
+    testAssert.eq(serialCode, 0, "serial fixture: " .. json.encode(serialReport.diagnostics))
     local code, report, state = coldCheck(directory, {NUPP_CHECK_JOBS = "4"})
-    testAssert.equal(report.timing.parallel.mode, "parallel", "parallel timing mode")
-    testAssert.equal(#report.diagnostics, 0, "parallel diagnostics: " .. json.encode(report.diagnostics))
-    testAssert.equal(code, 0, "parallel exit status")
-    testAssert.equal(state, serialState, "parallel check records")
+    testAssert.eq(report.timing.parallel.mode, "parallel", "parallel timing mode")
+    testAssert.eq(#report.diagnostics, 0, "parallel diagnostics: " .. json.encode(report.diagnostics))
+    testAssert.eq(code, 0, "parallel exit status")
+    testAssert.eq(state, serialState, "parallel check records")
     local warmCode, warmOutput = process.capture({NUPP, "check", "--json"}, {cwd = directory})
-    testAssert.equal(warmCode, 0, "the warm check reuses clean records: " .. warmOutput)
+    testAssert.eq(warmCode, 0, "the warm check reuses clean records: " .. warmOutput)
 
     assert(require("io.files").remove(directory, true))
 end
@@ -576,13 +576,13 @@ function M.parallelBuildsWriteWhatSerialBuildsWrite()
         local serialCode, serialReport, serialOutputs, serialState = coldBuild(directory, {NUPP_CHECK_JOBS = "1"}, {
             level
         })
-        testAssert.equal(serialCode, 0, level .. " serial build: " .. json.encode(serialReport.diagnostics))
+        testAssert.eq(serialCode, 0, level .. " serial build: " .. json.encode(serialReport.diagnostics))
         local code, report, outputs, state = coldBuild(directory, {NUPP_CHECK_JOBS = "3"}, {level})
-        testAssert.equal(code, 0, level .. " parallel build: " .. json.encode(report.diagnostics))
-        testAssert.equal(report.timing.parallel.mode, "parallel", level .. " parallel timing mode")
-        testAssert.equal(report.timing.parallel.rechecked, 0, level .. " worker records survive validation")
-        testAssert.equal(outputs, serialOutputs, level .. " build outputs")
-        testAssert.equal(state, serialState, level .. " build state")
+        testAssert.eq(code, 0, level .. " parallel build: " .. json.encode(report.diagnostics))
+        testAssert.eq(report.timing.parallel.mode, "parallel", level .. " parallel timing mode")
+        testAssert.eq(report.timing.parallel.rechecked, 0, level .. " worker records survive validation")
+        testAssert.eq(outputs, serialOutputs, level .. " build outputs")
+        testAssert.eq(state, serialState, level .. " build state")
     end
 
     assert(require("io.files").remove(directory, true))
@@ -612,15 +612,15 @@ return {four = four}
 ]]
     )
     local code, report = coldBuild(directory, {NUPP_CHECK_JOBS = "2"}, {"-O2"})
-    testAssert.equal(code, 0, "const-generic build: " .. json.encode(report.diagnostics))
-    testAssert.equal(report.timing.parallel.mode, "serial", "the build stays in one process")
+    testAssert.eq(code, 0, "const-generic build: " .. json.encode(report.diagnostics))
+    testAssert.eq(report.timing.parallel.mode, "serial", "the build stays in one process")
     assert(
         tostring(report.timing.parallel.reason):find("const-generic", 1, true),
         "the build says why: " .. tostring(report.timing.parallel.reason)
     )
     local checkCode, checkReport = coldCheck(directory, {NUPP_CHECK_JOBS = "2"})
-    testAssert.equal(checkCode, 0, "const-generic check")
-    testAssert.equal(checkReport.timing.parallel.mode, "parallel", "a check plans no specialization")
+    testAssert.eq(checkCode, 0, "const-generic check")
+    testAssert.eq(checkReport.timing.parallel.mode, "parallel", "a check plans no specialization")
 
     assert(require("io.files").remove(directory, true))
 end
@@ -628,7 +628,7 @@ end
 function M.workerAndInterfaceFailuresFallBackWithoutPublishingPartialState()
     local directory = tempProject(false)
     local serialCode, _, serialState = coldCheck(directory, {NUPP_CHECK_JOBS = "1"})
-    testAssert.equal(serialCode, 0, "serial fixture")
+    testAssert.eq(serialCode, 0, "serial fixture")
 
     -- `exit` stops a worker before the scan, `hang` outlives the request deadline,
     -- `interface` damages every interface a worker sends so the consumer's decode
@@ -638,9 +638,9 @@ function M.workerAndInterfaceFailuresFallBackWithoutPublishingPartialState()
             NUPP_CHECK_JOBS = "2",
             NUPP_TEST_PARALLEL_CHECK_FAILURE = failure,
         })
-        testAssert.equal(code, 0, failure .. " fallback exit status")
-        testAssert.equal(report.timing.parallel.mode, "serial-fallback", failure .. " fell back")
-        testAssert.equal(state, serialState, failure .. " fallback records")
+        testAssert.eq(code, 0, failure .. " fallback exit status")
+        testAssert.eq(report.timing.parallel.mode, "serial-fallback", failure .. " fell back")
+        testAssert.eq(state, serialState, failure .. " fallback records")
         if failure == "crash" then
             assert(report.timing.parallel.retries >= 1, "a crashed worker was restarted before falling back")
         end
@@ -651,10 +651,10 @@ function M.workerAndInterfaceFailuresFallBackWithoutPublishingPartialState()
         NUPP_CHECK_JOBS = "2",
         NUPP_TEST_PARALLEL_CHECK_FAILURE = "crash-once",
     })
-    testAssert.equal(code, 0, "restarted worker exit status")
-    testAssert.equal(report.timing.parallel.mode, "parallel", "a restarted worker keeps the check parallel")
-    testAssert.equal(report.timing.parallel.retries, 1, "the stopped worker was retried once")
-    testAssert.equal(state, serialState, "restarted worker records")
+    testAssert.eq(code, 0, "restarted worker exit status")
+    testAssert.eq(report.timing.parallel.mode, "parallel", "a restarted worker keeps the check parallel")
+    testAssert.eq(report.timing.parallel.retries, 1, "the stopped worker was retried once")
+    testAssert.eq(state, serialState, "restarted worker records")
 
     assert(require("io.files").remove(directory, true))
 end
@@ -711,7 +711,7 @@ function M.anInterruptedCheckLeavesNoWorkers()
         assert(os.monotonic() < deadline, "parallel workers did not begin a request")
         time.sleep(10)
     end
-    testAssert.equal(ffi.C.kill(-child.pid, 2), 0, "send SIGINT")
+    testAssert.eq(ffi.C.kill(-child.pid, 2), 0, "send SIGINT")
     local exit = child:wait()
     local said = ""
     while true do

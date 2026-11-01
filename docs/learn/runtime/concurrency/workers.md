@@ -70,7 +70,7 @@ Every worker task belongs to the task scope that forked it. Leaving the exact
 awaited and every path out by return or error.
 
 ```nupp:fragment
-with scope = tasks.open() do
+with scope = tasks.scope() do
     scope:fork(snapshot, jobs.rebuildIndex)
 end -- rebuildIndex has settled here
 ```
@@ -115,12 +115,12 @@ export function hashEach(inputs: {string}): {string}
     local hashed: {string} = {}
 
     local function hashInto(index: integer, bytes: string): nil
-        with lane = tasks.open() do
+        with lane = tasks.scope() do
             hashed[index] = lane:fork(bytes, jobs.hash):await()
         end
     end
 
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         for index, bytes in ipairs(inputs) do
             scope:spawn(index, bytes, hashInto)
         end
@@ -145,7 +145,7 @@ work divides:
 
 ```nupp:fragment
 export function bothHashes(left: string, right: string): (string, string)
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         const task = scope:fork(right, jobs.hash)
         const mine = jobs.hash(left)
 
@@ -165,12 +165,12 @@ export function hashChunks(inputs: {string}, size: integer): {string}
     local chunks: {{string}} = {}
 
     local function hashChunk(at: integer, chunk: {string}): nil
-        with lane = tasks.open() do
+        with lane = tasks.scope() do
             chunks[at] = lane:fork(chunk, jobs.hashAll):await()
         end
     end
 
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         local count = 0
         for first = 1, #inputs, size do
             local chunk: {string} = {}
@@ -255,12 +255,12 @@ export function countAll(shards: {{string}}): number
     local total: number = 0
 
     local function countShard(paths: {string}): nil
-        with lane = tasks.open() do
+        with lane = tasks.scope() do
             total = total + lane:fork(paths, indexJobs.count):await()
         end
     end
 
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         for _, paths in ipairs(shards) do
             scope:spawn(paths, countShard)
         end
@@ -377,7 +377,7 @@ A rejection names the position it found, so the message says which argument and
 which field stopped the copy rather than that the message was untransferable:
 
 ```nupp:fragment
-with scope = tasks.open() do
+with scope = tasks.scope() do
     const row = new jobs.Row(name = "a")
 
     -- The lane receives its own jobs.Row metatable, so its methods work there.
@@ -445,7 +445,7 @@ end
 
 ```nupp:fragment
 local frame = heap.allocate(ffi.typeof<uint8>(), 8 * 1048576)
-with scope = tasks.open() do
+with scope = tasks.scope() do
     for generation = 1, 60 do
         frame = scope:fork(frame, generation, jobs.fill):await()
     end
@@ -485,7 +485,7 @@ raises it too, and so does any later task operation in the scope.
 ```nupp:fragment
 export function observed(): string
     local digest = ""
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         const bad = scope:fork("beta", jobs.refuse)
 
         -- false, "nupp: worker task failed: ...: cannot hash beta"
@@ -500,7 +500,7 @@ export function observed(): string
 end
 
 export function unobserved(): string
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         scope:fork("beta", jobs.refuse)
 
         return jobs.hash("alpha") -- the failure is raised leaving the scope

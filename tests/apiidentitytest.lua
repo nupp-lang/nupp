@@ -17,7 +17,7 @@ end
 local function compile(source, env, filename)
     filename = filename or "api-identity.nupp"
     local parsed = parser.parse(source, filename)
-    test.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
+    test.eq(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
     local diagnostics = checker.check(parsed, filename, env or finalEnv())
     local errors = {}
     for _, diagnostic in ipairs(diagnostics) do
@@ -32,7 +32,7 @@ end
 
 local function run(source)
     local code, errors = compile(source)
-    test.equal(errors, "", errors .. "\n" .. code)
+    test.eq(errors, "", errors .. "\n" .. code)
     return assert(loadstring(code, "@api-identity"))()
 end
 
@@ -47,34 +47,34 @@ function M.canonicalizesOnlyRegisteredPublicIdentities()
         "nupp.Copyable",
         "nupp.recoverAlias"
     }) do
-        test.equal(identities.canonical(old), old)
+        test.eq(identities.canonical(old), old)
     end
-    test.equal(identities.canonical("nupp.__Debug"), "types.Debug")
-    test.equal(identities.canonical("nupp.compiler.types"), "nupp.compiler.types")
-    test.equal(identities.canonical("nupp.gpu.types.Buffer"), "nupp.gpu.types.Buffer")
-    test.equal(identities.legacy("gpu.internal.Image"), "gpu.internal.Image")
-    test.equal(identities.canonical("types.array"), "types.array")
-    test.equal(identities.canonical("types.derive.array"), "types.derive.array")
+    test.eq(identities.canonical("nupp.__Debug"), "types.Debug")
+    test.eq(identities.canonical("nupp.compiler.types"), "nupp.compiler.types")
+    test.eq(identities.canonical("nupp.gpu.types.Buffer"), "nupp.gpu.types.Buffer")
+    test.eq(identities.legacy("gpu.internal.Image"), "gpu.internal.Image")
+    test.eq(identities.canonical("types.array"), "types.array")
+    test.eq(identities.canonical("types.derive.array"), "types.derive.array")
 end
 
 function M.preservesOneNominalAndOneEvaluatorLibrary()
     local env = finalEnv()
-    test.equal(identities.lookup(env.globalTypes, "types.reflect"), env.globalTypes["types.reflect"])
-    test.equal(identities.lookup(env.globalTypes, "types.derive"), env.globalTypes["types.derive"])
-    test.equal(identities.lookup(env.globalTypes, "nupp.__Debug"), env.globalTypes["types.Debug"])
+    test.eq(identities.lookup(env.globalTypes, "types.reflect"), env.globalTypes["types.reflect"])
+    test.eq(identities.lookup(env.globalTypes, "types.derive"), env.globalTypes["types.derive"])
+    test.eq(identities.lookup(env.globalTypes, "nupp.__Debug"), env.globalTypes["types.Debug"])
     local values = {}
     providers.installEvaluator({}, values)
-    test.equal(values.nupp.types, nil)
-    test.equal(values.nupp.reflect, nil)
-    test.equal(values.nupp.derive, nil)
+    test.eq(values.nupp.types, nil)
+    test.eq(values.nupp.reflect, nil)
+    test.eq(values.nupp.derive, nil)
     assert(values.types.array ~= values.types.derive.array)
     assert(values.types.error ~= values.types.derive.error)
 end
 
 function M.preservesFinalContractsAndThePrivateDebugAlias()
     local env = envMod.new(HERE .. "/..", {config = {include = {"src"}}})
-    test.equal(env.globalTypes["nupp.Closeable"], nil)
-    test.equal(env.globalTypes["nupp.Debug"], nil)
+    test.eq(env.globalTypes["nupp.Closeable"], nil)
+    test.eq(env.globalTypes["nupp.Debug"], nil)
     local _, errors = compile(
         [[
 local function render(value: types.Debug): string
@@ -99,12 +99,12 @@ return 17
 ]],
         env
     )
-    test.equal(errors, "", errors)
+    test.eq(errors, "", errors)
 end
 
 function M.executesBothTypeBuilderSurfacesAndAliases()
     for _, root in ipairs({"types"}) do
-        test.equal(
+        test.eq(
             run(
                 (
                     [[
@@ -126,7 +126,7 @@ end
 
 function M.reflectsThroughBothCallableSurfacesAndLocalAliases()
     for _, root in ipairs({"types.reflect"}) do
-        test.equal(
+        test.eq(
             run(
                 (
                     [[
@@ -156,10 +156,10 @@ local cell = manage(value)
 cell:close()
 ]]
     )
-    test.equal(errors, "", errors)
+    test.eq(errors, "", errors)
     local block = parsed.root.blocks[1]
     local cell = block.stats[4]
-    test.equal(cell.exprs[1].ownershipIntrinsic, "manage")
+    test.eq(cell.exprs[1].ownershipIntrinsic, "manage")
     local code, shadowErrors = compile(
         [[
 local own = {manage = function(value: integer): integer return value + 1 end}
@@ -167,8 +167,8 @@ local types = {reflect = function(value: integer): integer return value + 2 end}
 return own.manage(types.reflect(types.reflect(1)) + 1)
 ]]
     )
-    test.equal(shadowErrors, "", shadowErrors)
-    test.equal(assert(loadstring(code))(), 7)
+    test.eq(shadowErrors, "", shadowErrors)
+    test.eq(assert(loadstring(code))(), 7)
 end
 
 local function runtimeEnv()
@@ -204,7 +204,7 @@ return 17
         runtimeEnv(),
         HERE .. "/../src/nupp/compiler/apiidentityfixture.nupp"
     )
-    test.equal(errors, "", errors)
+    test.eq(errors, "", errors)
     for _, root in ipairs({"types.derive"}) do
         local source = ([[
 return ROOT.entry()
@@ -226,7 +226,7 @@ return 17
         runtimeEnv(),
         HERE .. "/../src/nupp/compiler/apiidentityfixture.nupp"
     )
-    test.equal(errors, "", errors)
+    test.eq(errors, "", errors)
     local original = _G.require
     local calls = 0
     _G.require = function(name)
@@ -238,12 +238,12 @@ return 17
     local ok, result = pcall(assert(loadstring(code, "@lazy-module")))
     _G.require = original
     assert(ok, result)
-    test.equal(result, 17)
-    test.equal(calls, 0)
+    test.eq(result, 17)
+    test.eq(calls, 0)
 end
 
 function M.preservesCanonicalAssertionAliasesAndShadowing()
-    test.equal(
+    test.eq(
         run(
             [[
 local check = assert
@@ -256,7 +256,7 @@ return length("abc")
         ),
         3
     )
-    test.equal(
+    test.eq(
         run(
             [[
 local assert = function(value: string?): string? return value end
@@ -316,7 +316,7 @@ return value:debug(), answer, api.answer
 ]],
                 env
             )
-            test.equal(errors, "", errors)
+            test.eq(errors, "", errors)
         end
     )
 end
@@ -341,9 +341,9 @@ return api.answer
 ]],
             env
         )
-        test.equal(errors, "", errors)
+        test.eq(errors, "", errors)
         local stats = parsed.root.blocks[1].stats
-        test.equal(stats[5].exprs[1].ownershipIntrinsic, "manage")
+        test.eq(stats[5].exprs[1].ownershipIntrinsic, "manage")
     end)
 end
 
@@ -358,9 +358,9 @@ local value = @unsafe own.adopt<Resource>(raw)
 value:close()
 ]]
     )
-    test.equal(errors, "", errors)
+    test.eq(errors, "", errors)
     local stats = parsed.root.blocks[1].stats
-    test.equal(stats[3].exprs[1].ownershipIntrinsic, "adopt")
+    test.eq(stats[3].exprs[1].ownershipIntrinsic, "adopt")
     local shadowCode, shadowErrors, shadow = compile(
         [[
 local own = {adopt = function<T>(value: any): T return value as T end}
@@ -368,10 +368,10 @@ local value: string = own.adopt<string>("ready")
 return value
 ]]
     )
-    test.equal(shadowErrors, "", shadowErrors)
-    test.equal(shadow.root.blocks[1].stats[2].exprs[1].ownershipIntrinsic, nil)
-    test.equal(#shadow.root.blocks[1].stats[2].exprs[1].typeArgs, 1)
-    test.equal(assert(loadstring(shadowCode, "@adopt-shadow"))(), "ready")
+    test.eq(shadowErrors, "", shadowErrors)
+    test.eq(shadow.root.blocks[1].stats[2].exprs[1].ownershipIntrinsic, nil)
+    test.eq(#shadow.root.blocks[1].stats[2].exprs[1].typeArgs, 1)
+    test.eq(assert(loadstring(shadowCode, "@adopt-shadow"))(), "ready")
 end
 
 function M.sealsImportedCompilerNamespacesThroughPersistedHelpers()
@@ -400,7 +400,7 @@ return #names
 ]],
                 env
             )
-            test.equal(errors, "", errors)
+            test.eq(errors, "", errors)
             local exports = env.resolveModuleExports(env, "types")
             local program = exports.comptimeFunctions.Items
             assert(program.serializedHelpers.list.source:find("types.array", 1, true))
@@ -416,12 +416,12 @@ return #names
             local loaded, loadProblem = images.decode(encoded)
             assert(loaded, loadProblem)
             local persisted = loaded.types.exports.comptimeFunctions.Items
-            test.equal(persisted.identity, program.identity)
+            test.eq(persisted.identity, program.identity)
             local envelope, failure = require(
                 "nupp.compiler.comptime"
             ).evaluateTypeFunctionDirect(persisted, {{kind = "type", value = T.string}}, {})
             assert(envelope, failure and failure.message)
-            test.equal(envelope.payload.nodes[envelope.payload.root].kind, "array")
+            test.eq(envelope.payload.nodes[envelope.payload.root].kind, "array")
         end
     )
 end
@@ -445,7 +445,7 @@ end
                 local program = env.resolveModuleExports(env, "types").comptimeFunctions.Items
                 assert(program.serializedHelpers.Items.source:find("types.array", 1, true))
                 if identity then
-                    test.equal(program.identity, identity)
+                    test.eq(program.identity, identity)
                 end
                 identity = program.identity
             end
@@ -462,7 +462,7 @@ end
 ]],
         "helper.nupp"
     )
-    test.equal(#parsed.errors, 0)
+    test.eq(#parsed.errors, 0)
     local helper = parsed.root.blocks[1].stats[1]
 
     local function bind(value)
@@ -485,7 +485,7 @@ end
     local program = comptime.sealTypeFunction(helper, {}, nil, {filename = "helper.nupp"})
     assert(program.serializedHelpers.Entry.source:find("runtime.entry", 1, true))
     assert(not program.serializedHelpers.Entry.source:find("types.derive.entry", 1, true))
-    test.equal(program.identity, comptime.typeFunctionProgram(helper, {}).identity)
+    test.eq(program.identity, comptime.typeFunctionProgram(helper, {}).identity)
 end
 
 function M.closesTopLevelCompilerImportsForDirectLocalTypeCalls()
@@ -507,7 +507,7 @@ return #names
 ]],
             env
         )
-        test.equal(errors, "", errors)
+        test.eq(errors, "", errors)
     end)
 end
 
@@ -523,9 +523,9 @@ return comptime do return types.kind(List(types.string)) end
 ]],
             env
         )
-        test.equal(errors, "", errors)
+        test.eq(errors, "", errors)
         local evaluated = parsed.root.blocks[1].stats[3].exprs[1]
-        test.equal(assert(loadstring("return " .. evaluated.comptimeValue))(), "array")
+        test.eq(assert(loadstring("return " .. evaluated.comptimeValue))(), "array")
     end)
 end
 
@@ -544,7 +544,7 @@ return #names
 ]],
         env
     )
-    test.equal(errors, "", errors)
+    test.eq(errors, "", errors)
 end
 
 function M.workerRequestsCarryTheSameClosedLocalHelperSource()
@@ -561,7 +561,7 @@ return names
 ]],
             env
         )
-        test.equal(errors, "", errors)
+        test.eq(errors, "", errors)
         local helper
 
         local function find(node)
@@ -609,8 +609,8 @@ return names
         )
         process.captureIsolated = original
         assert(ok, quoted)
-        test.equal(failure, nil, failure and failure.message)
-        test.equal(assert(loadstring("return " .. quoted))(), "array")
+        test.eq(failure, nil, failure and failure.message)
+        test.eq(assert(loadstring("return " .. quoted))(), "array")
     end)
 end
 
@@ -635,7 +635,7 @@ function M.formattedLuaDeclarationHelpersCloseImportedNamespaces()
     end
 
     collect(parsed.root)
-    test.equal(#pieces, 4)
+    test.eq(#pieces, 4)
     pieces[
         #pieces + 1
     ] = [[
@@ -645,7 +645,7 @@ accepts(1, 3, "one")
     local formatted = require("nupp.tools.fmt").new():format(table.concat(pieces, "\n"))
     withProject("module types\nexport const answer: integer = 17", function(env)
         local _, errors = compile(formatted, env)
-        test.equal(errors, "", errors)
+        test.eq(errors, "", errors)
         local shadow = formatted:gsub(
             "local plain = types2.describe",
             "local types2 = 7\n    local plain = types2.describe",
@@ -661,14 +661,14 @@ function M.reusesSealedProgramsUntilTheirHelperDependenciesChange()
 
     local function helper(source)
         local parsed = parser.parse(source, "cached-helper.nupp")
-        test.equal(#parsed.errors, 0)
+        test.eq(#parsed.errors, 0)
         return parsed.root.blocks[1].stats[1]
     end
 
     local main = helper("local function Main(Element: type): type return Dependency(Element) end")
     local dependency = helper("local function Dependency(Element: type): type return types.array(Element) end")
     local first = comptime.sealTypeFunction(main, {Dependency = dependency})
-    test.equal(comptime.sealTypeFunction(main, {Dependency = dependency}), first)
+    test.eq(comptime.sealTypeFunction(main, {Dependency = dependency}), first)
     local changed = helper("local function Dependency(Element: type): type return types.optional(Element) end")
     local nextProgram = comptime.sealTypeFunction(main, {Dependency = changed})
     assert(nextProgram ~= first)
@@ -686,8 +686,8 @@ function M.reusesSealedProgramsUntilTheirHelperDependenciesChange()
         assert(afterFirst > 0)
         local secondResult, secondFailure = comptime.evaluateTypeFunctionDirect(first, arguments, {})
         assert(secondResult, secondFailure and secondFailure.message)
-        test.equal(parses, afterFirst, "an immutable sealed program must be parsed once")
-        test.equal(secondResult.fingerprint, firstResult.fingerprint)
+        test.eq(parses, afterFirst, "an immutable sealed program must be parsed once")
+        test.eq(secondResult.fingerprint, firstResult.fingerprint)
     end)
     parser.parse = original
     assert(ok, failure)
@@ -702,7 +702,7 @@ local point = new types.Point(value = 7)
 return point.value
 ]]
     )
-    test.equal(errors, "", errors)
+    test.eq(errors, "", errors)
     local code, shadowErrors = compile(
         [[
 local types = {}
@@ -714,8 +714,8 @@ end
 return read()
 ]]
     )
-    test.equal(shadowErrors, "", shadowErrors)
-    test.equal(assert(loadstring(code, "@qualified-shadow"))(), 8)
+    test.eq(shadowErrors, "", shadowErrors)
+    test.eq(assert(loadstring(code, "@qualified-shadow"))(), 8)
 end
 
 function M.referencedRecipeRefusalsKeepTheirDiagnostic()
@@ -744,7 +744,7 @@ end
 
 function M.reflectionParsesFinalGenericTypeArguments()
     for _, root in ipairs({"types.reflect"}) do
-        test.equal(
+        test.eq(
             run(
                 (
                     [[
@@ -763,8 +763,8 @@ function M.assertionAliasesPreserveTheWholeResultPack()
 local check = assert
 return check("okay", false)
 ]])
-    test.equal(value, "okay")
-    test.equal(message, false)
+    test.eq(value, "okay")
+    test.eq(message, false)
     local _, errors = compile(
         [[
 local check = assert
@@ -773,7 +773,7 @@ local kept: boolean = message
 return value, kept
 ]]
     )
-    test.equal(errors, "", errors)
+    test.eq(errors, "", errors)
 end
 
 function M.recognizesDeclaredRootsWithoutAnAmbientBinding()
@@ -791,7 +791,7 @@ return api.answer, answer
 ]],
             env
         )
-        test.equal(errors, "", errors)
+        test.eq(errors, "", errors)
     end)
     withProject([[
 module own
@@ -809,7 +809,7 @@ cell:close()
 ]],
             env
         )
-        test.equal(errors, "", errors)
+        test.eq(errors, "", errors)
     end)
 end
 
@@ -826,11 +826,11 @@ export function info(format: string, value: integer?): nil end
             'local logger = require("log")\nlogger.info("value=%d", 1)',
         }) do
             local code, errors, parsed = compile(source, env)
-            test.equal(errors, "", errors)
+            test.eq(errors, "", errors)
             local stats = parsed.root.blocks[1].stats
             local expectedModule = "log"
-            test.equal(stats[#stats].expr.logIntrinsic, 3, source)
-            test.equal(stats[#stats].expr.logModule, expectedModule, source)
+            test.eq(stats[#stats].expr.logIntrinsic, 3, source)
+            test.eq(stats[#stats].expr.logModule, expectedModule, source)
             if not code:find('require("' .. expectedModule .. '").forModule', 1, true) then
                 missingModules[#missingModules + 1] = expectedModule .. ": " .. source
             end
@@ -842,12 +842,12 @@ log.info("value=%d", 1)
 ]],
             env
         )
-        test.equal(errors, "", errors)
-        test.equal(parsed.root.blocks[1].stats[2].expr.logIntrinsic, nil)
+        test.eq(errors, "", errors)
+        test.eq(parsed.root.blocks[1].stats[2].expr.logIntrinsic, nil)
         local _, aliasErrors, alias = compile('local info = require("log").info\ninfo("value=%d", 1)', env)
-        test.equal(aliasErrors, "", aliasErrors)
-        test.equal(alias.root.blocks[1].stats[2].expr.logIntrinsic, nil)
-        test.equal(#missingModules, 0, table.concat(missingModules, "\n"))
+        test.eq(aliasErrors, "", aliasErrors)
+        test.eq(alias.root.blocks[1].stats[2].expr.logIntrinsic, nil)
+        test.eq(#missingModules, 0, table.concat(missingModules, "\n"))
     end)
 end
 
@@ -856,31 +856,32 @@ function M.resolvesConstraintIntrinsicsWithoutAProjectEnvironment()
         local function diagnostics(prefix, expression)
             local source = prefix .. "\nlocal type Count = " .. root .. expression
             local parsed = parser.parse(source, "constraint-fragment.nupp")
-            test.equal(#parsed.errors, 0)
+            test.eq(#parsed.errors, 0)
             return checker.check(parsed, "constraint-fragment.nupp", nil, {strict = false})
         end
 
         local clean = diagnostics("", ".range(integer, 0, 10)")
-        test.equal(#clean, 0)
+        test.eq(#clean, 0)
         local invalid = diagnostics("", ".range(integer, 10, 0)")
-        test.equal(invalid[1].code, "NUPP2422")
+        test.eq(invalid[1].code, "NUPP2422")
         local shadow = diagnostics("local " .. root:match("^[^.]+") .. " = {}", ".range(integer, 0, 10)")
-        test.equal(shadow[1].code, "NUPP2421")
+        test.eq(shadow[1].code, "NUPP2421")
     end
 end
 
-function M.lowercaseDeriveAnnotationtypeReusesTheSameCheckedToken()
+function M.lowercaseDeriveAnnotationtypeKeepsItsCheckedOperation()
     local state, values = {}, {}
     providers.installEvaluator(state, values)
-    test.equal(values.types.derive.annotationtype, values.types.derive.annotationType)
+    test.eq(values.types.derive.annotationType, nil)
+    test.eq(type(state.intrinsics[values.types.derive.annotationtype]), "function")
     local handle, expected = {}, {}
     state.opaque[handle] = {provider = "derive", family = "View", payload = {value = {kind = "type", type = 1}}}
     state.deriveAnnotationTypes = {expected}
     local operation = state.intrinsics[values.types.derive.annotationtype]
-    test.equal(operation(nil, {n = 1, handle}), expected)
+    test.eq(operation(nil, {n = 1, handle}), expected)
     local value, refusal = operation(nil, {n = 0})
-    test.equal(value, nil)
-    test.equal(refusal.code, "NUPP2810")
+    test.eq(value, nil)
+    test.eq(refusal.code, "NUPP2810")
     local _, errors = compile(
         [[
 @comptime local function referred(argument: types.reflect.AnnotationArgument): any
@@ -888,14 +889,14 @@ function M.lowercaseDeriveAnnotationtypeReusesTheSameCheckedToken()
 end
 ]]
     )
-    test.equal(errors, "", errors)
+    test.eq(errors, "", errors)
     local result = run(
         [[
 local types = {derive = {annotationtype = function(value: integer): integer return value + 1 end}}
 return types.derive.annotationtype(4)
 ]]
     )
-    test.equal(result, 5)
+    test.eq(result, 5)
 end
 
 local function withComptimeFacade(callback)
@@ -979,21 +980,21 @@ return value
 ]],
             env
         )
-        test.equal(errors, "", errors)
+        test.eq(errors, "", errors)
         local value = assert(loadstring(code))()
-        test.equal(value, 11)
+        test.eq(value, 11)
         local origin = env.resolveModuleExports(env, "nupp.internal.typehelper")
         local facade = env.resolveModuleExports(env, "coroutine.workers.spi")
         local forwarded = env.resolveModuleExports(env, "coroutine.workers.forward")
-        test.equal(facade.comptimeFunctions.submitted, origin.comptimeFunctions.Parameters)
-        test.equal(facade.comptimeFunctions.identity, origin.comptimeFunctions.Identity)
-        test.equal(facade.comptimeFunctions.answer, origin.comptimeFunctions.Answer)
-        test.equal(forwarded.comptimeFunctions.parameters, origin.comptimeFunctions.Parameters)
+        test.eq(facade.comptimeFunctions.submitted, origin.comptimeFunctions.Parameters)
+        test.eq(facade.comptimeFunctions.identity, origin.comptimeFunctions.Identity)
+        test.eq(facade.comptimeFunctions.answer, origin.comptimeFunctions.Answer)
+        test.eq(forwarded.comptimeFunctions.parameters, origin.comptimeFunctions.Parameters)
         local path = env.rootDir .. "/src/coroutine/workers/spi.nupp"
         local parsed = env.loadedPaths[path].result
         local emitted = generator.generate(parsed, path)
-        test.equal(emitted:find('"submitted"', 1, true), nil)
-        test.equal(emitted:find(".Parameters", 1, true), nil)
+        test.eq(emitted:find('"submitted"', 1, true), nil)
+        test.eq(emitted:find(".Parameters", 1, true), nil)
         local images = require("nupp.compiler.project.interfaceimage")
         local encoded, problem = images.encode(
             {
@@ -1009,8 +1010,8 @@ return value
         local decoded, decodeProblem = images.decode(encoded)
         assert(decoded, decodeProblem)
         local restored = decoded.facade
-        test.equal(restored.exports.comptimeFunctions.submitted.identity, origin.comptimeFunctions.Parameters.identity)
-        test.equal(restored.exports.valueDefs.answer.comptimeOnly, true)
+        test.eq(restored.exports.comptimeFunctions.submitted.identity, origin.comptimeFunctions.Parameters.identity)
+        test.eq(restored.exports.valueDefs.answer.comptimeOnly, true)
         local fresh = finalEnv(env.rootDir)
         fresh.loaded["coroutine.workers.spi"] = {type = restored.interface.type, exports = restored.exports}
         local _, runtimeError = compile('local api = require("coroutine.workers.spi")\nreturn api.answer()', fresh)
@@ -1053,12 +1054,12 @@ return api.identity(5), shadow.submitted(7)
 ]],
             env
         )
-        test.equal(errors, "", errors)
+        test.eq(errors, "", errors)
         local first, second = assert(loadstring(code))()
-        test.equal(first, 6)
-        test.equal(second, 7)
+        test.eq(first, 6)
+        test.eq(second, 7)
         local ordinary = env.resolveModuleExports(env, "ordinary")
-        test.equal(ordinary.comptimeFunctions.identity, nil)
+        test.eq(ordinary.comptimeFunctions.identity, nil)
     end)
 end
 

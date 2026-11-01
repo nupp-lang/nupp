@@ -18,7 +18,7 @@ local sharedEnv = envMod.new(HERE .. "/..")
 
 local function compile(src)
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors" .. (result.errors[1] and (": " .. result.errors[1].msg) or ""))
+    testAssert.eq(#result.errors, 0, "syntax errors" .. (result.errors[1] and (": " .. result.errors[1].msg) or ""))
     local diags = check.check(result, "test.nupp", sharedEnv)
     local code, genDiags = gen.generate(result, "test")
 
@@ -45,14 +45,14 @@ local function run(src)
     for _, diagnostic in ipairs(diags) do
         messages[#messages + 1] = diagnostic.code .. ":" .. diagnostic.line .. ": " .. diagnostic.msg
     end
-    testAssert.equal(
+    testAssert.eq(
         #diags,
         0,
         "check diagnostics" .. (
             #messages > 0 and (":\n" .. table.concat(messages, "\n") .. "\n--- source ---\n" .. src) or ""
         )
     )
-    testAssert.equal(#genDiags, 0, "gen diagnostics")
+    testAssert.eq(#genDiags, 0, "gen diagnostics")
     local chunk, err = loadstring(code, "@cdeftest")
     if not chunk then
         error("generated code does not load: " .. tostring(err) .. "\n---\n" .. code, 2)
@@ -65,11 +65,11 @@ local M = {}
 
 function M.cdefFunctionTyping()
     assertClean("cdef function strlen(s: cstring): uint64\nstrlen('hi')")
-    testAssert.equal((diagsOf("cdef function strlen(s: cstring): uint64\nstrlen(42)")), "NUPP2006:2")
-    testAssert.equal((diagsOf("cdef function strlen(s: cstring): uint64\nstrlen('a', 'b')")), "NUPP2007:2")
+    testAssert.eq((diagsOf("cdef function strlen(s: cstring): uint64\nstrlen(42)")), "NUPP2006:2")
+    testAssert.eq((diagsOf("cdef function strlen(s: cstring): uint64\nstrlen('a', 'b')")), "NUPP2007:2")
     -- non-C types are rejected in signatures
-    testAssert.equal((diagsOf("cdef function bad(t: {number}): int32")), "NUPP2203:1")
-    testAssert.equal((diagsOf("cdef function bad2(): {[string]: number}")), "NUPP2203:1")
+    testAssert.eq((diagsOf("cdef function bad(t: {number}): int32")), "NUPP2203:1")
+    testAssert.eq((diagsOf("cdef function bad2(): {[string]: number}")), "NUPP2203:1")
 end
 
 function M.countedPointersBuildOneCheckedWrapperOverThePhysicalBinding()
@@ -99,8 +99,8 @@ function M.countedPointersBuildOneCheckedWrapperOverThePhysicalBinding()
     )
     assertClean(source)
     local code, diags, genDiags = compile(source)
-    testAssert.equal(#diags, 0)
-    testAssert.equal(#genDiags, 0)
+    testAssert.eq(#diags, 0)
+    testAssert.eq(#genDiags, 0)
     assert(code:find("positions.count~=velocities.count", 1, true), code)
     assert(code:find("positions:ref()", 1, true), code)
     assert(code:find("velocities:ref()", 1, true), code)
@@ -122,7 +122,7 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
     local built = os.execute(
         ("clang -std=c11 -O2 -Wall -Wextra -Werror -fPIC %s '%s' -o '%s'"):format(shared, fixture, library)
     )
-    testAssert.equal(built, 0, "build counted-pointer fixture")
+    testAssert.eq(built, 0, "build counted-pointer fixture")
 
     local declaration = table.concat(
         {
@@ -207,15 +207,15 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
         os.execute("rm -rf '" .. dir .. "'")
         error(a, 0)
     end
-    testAssert.equal(tonumber(a), 12, "sliced input starts at its adjusted pointer")
-    testAssert.equal(tonumber(b), 16, "partitioned output reaches its adjusted last element")
-    testAssert.equal(tonumber(calls), 1, "ordinary counted call reaches C once")
-    testAssert.equal(tonumber(zeroCalls), 1, "zero-count call reaches C exactly once")
-    testAssert.equal(tonumber(outputCount), 3, "first independent count reaches C")
-    testAssert.equal(tonumber(inputCount), 5, "second independent count reaches C")
-    testAssert.equal(tonumber(inputFirst), 1, "independent read pointer reaches C")
-    testAssert.equal(tonumber(sharedFirst), 17, "a shared downgrade is accepted as const input")
-    testAssert.equal(tonumber(sharedLast), 18, "shared downgrade preserves its full range")
+    testAssert.eq(tonumber(a), 12, "sliced input starts at its adjusted pointer")
+    testAssert.eq(tonumber(b), 16, "partitioned output reaches its adjusted last element")
+    testAssert.eq(tonumber(calls), 1, "ordinary counted call reaches C once")
+    testAssert.eq(tonumber(zeroCalls), 1, "zero-count call reaches C exactly once")
+    testAssert.eq(tonumber(outputCount), 3, "first independent count reaches C")
+    testAssert.eq(tonumber(inputCount), 5, "second independent count reaches C")
+    testAssert.eq(tonumber(inputFirst), 1, "independent read pointer reaches C")
+    testAssert.eq(tonumber(sharedFirst), 17, "a shared downgrade is accepted as const input")
+    testAssert.eq(tonumber(sharedLast), 18, "shared downgrade preserves its full range")
 
     local transform = run(declaration .. "\nreturn counted_pointer_transform")
     local spans = require("binary.span")
@@ -228,8 +228,8 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
     local callCount = ffi.load(library).counted_pointer_call_count
     reset()
     local unequalOk = pcall(transform, shortOutput, longInput)
-    testAssert.equal(unequalOk, false, "unequal shared counts raise before C")
-    testAssert.equal(tonumber(callCount()), 0, "unequal shared counts never enter C")
+    testAssert.eq(unequalOk, false, "unequal shared counts raise before C")
+    testAssert.eq(tonumber(callCount()), 0, "unequal shared counts never enter C")
     shortOutput:drop()
     os.execute("rm -rf '" .. dir .. "'")
 end
@@ -260,7 +260,7 @@ function M.cdefCallbackParameter()
     local source = "cdef function each(fn: function(int32), n: int32)"
     assertClean(source)
     local code, _, genDiags = compile(source)
-    testAssert.equal(#genDiags, 0, "callback signature generates cleanly")
+    testAssert.eq(#genDiags, 0, "callback signature generates cleanly")
     assert(
         code:find("void each(void (*)(int32_t), int32_t);", 1, true),
         "function type lowers to a C callback pointer:\n" .. code
@@ -280,7 +280,7 @@ function M.nullableCallbacksWorkInEveryCDeclaratorPosition()
     )
     assertClean(source)
     local code, _, genDiags = compile(source)
-    testAssert.equal(#genDiags, 0, "nullable callback declarations generate cleanly")
+    testAssert.eq(#genDiags, 0, "nullable callback declarations generate cleanly")
     assert(code:find("void (*callback)(int32_t);", 1, true), "callback field lowers to a function pointer:\n" .. code)
     assert(
         code:find("void (*callback_get(void))(int32_t);", 1, true),
@@ -295,7 +295,7 @@ function M.fixedArrayFieldsKeepTheirCDeclaratorOrder()
     )
     assertClean(source)
     local code, _, genDiags = compile(source)
-    testAssert.equal(#genDiags, 0, "fixed arrays generate cleanly")
+    testAssert.eq(#genDiags, 0, "fixed arrays generate cleanly")
     assert(code:find("int32_t values[4];", 1, true), "array field name precedes its bound:\n" .. code)
     assert(
         code:find("void (*callbacks[2])(int32_t);", 1, true),
@@ -319,7 +319,7 @@ function M.cdefStructTyping()
         )
     )
     -- the field loads a boxed int64, which is not a Lua number
-    testAssert.equal(
+    testAssert.eq(
         (
             diagsOf(
                 table.concat(
@@ -338,8 +338,8 @@ function M.cdefStructTyping()
     )
     -- cstring fields are legal in C structs (unlike GC-managed structs)
     assertClean("cdef struct entry\n   name: cstring\n   next: entry*?\nend")
-    testAssert.equal((diagsOf("local struct S\n   name: cstring\nend")), "NUPP2201:2")
-    testAssert.equal((diagsOf("cdef struct S\n   t: {number}\nend")), "NUPP2203:2")
+    testAssert.eq((diagsOf("local struct S\n   name: cstring\nend")), "NUPP2201:2")
+    testAssert.eq((diagsOf("cdef struct S\n   t: {number}\nend")), "NUPP2203:2")
 end
 
 function M.cdefBindingsAndHelpersUseConstWherePossible()
@@ -354,8 +354,8 @@ function M.cdefBindingsAndHelpersUseConstWherePossible()
             "\n"
         )
     )
-    testAssert.equal(#diags, 0, "check diagnostics")
-    testAssert.equal(#genDiags, 0, "gen diagnostics")
+    testAssert.eq(#diags, 0, "check diagnostics")
+    testAssert.eq(#genDiags, 0, "gen diagnostics")
     assert(code:find("const timeval = __nuppFfi.typeof", 1, true), code)
     assert(code:find("const clock_gettime = __nuppFfi.C.clock_gettime", 1, true), code)
 
@@ -377,7 +377,7 @@ function M.ownershipOnACdefReturnRequiresAPointer()
         .. "cdef function mk(): affine(blob*, release)"
     )
     -- Not a pointer, and so nothing `free` could accept either.
-    testAssert.equal(
+    testAssert.eq(
         (diagsOf("cdef function free(takes value: voidptr)\n" .. "cdef function bad(): affine(int32, free)")),
         "NUPP2615:2 NUPP2203:2"
     )
@@ -386,7 +386,7 @@ end
 function M.stringToCstringConversion()
     assertClean("cdef function puts2(s: cstring): int32\nputs2('hello')")
     -- but a cstring result is NOT a Lua string
-    testAssert.equal((diagsOf("cdef function nm(): cstring\nlocal s: string = nm()")), "NUPP2001:2")
+    testAssert.eq((diagsOf("cdef function nm(): cstring\nlocal s: string = nm()")), "NUPP2001:2")
 end
 
 function M.pointerConversions()
@@ -405,7 +405,7 @@ function M.pointerConversions()
         )
     )
     -- and a non-null pointer refuses NULL, which is why both spellings exist
-    testAssert.equal(
+    testAssert.eq(
         (
             diagsOf(
                 table.concat(
@@ -416,7 +416,7 @@ function M.pointerConversions()
         ),
         "NUPP2006:5"
     )
-    testAssert.equal(
+    testAssert.eq(
         (
             diagsOf(
                 table.concat(
@@ -440,11 +440,11 @@ end
 
 function M.realLibcCall()
     -- an actual C call through a typed declaration, end to end
-    testAssert.equal(
+    testAssert.eq(
         run(table.concat({"cdef function strlen(s: cstring): uint64", "return tonumber(strlen('hello, C'))",}, "\n")),
         8
     )
-    testAssert.equal(
+    testAssert.eq(
         run(
             table.concat(
                 {
@@ -459,7 +459,7 @@ function M.realLibcCall()
 end
 
 function M.cdefStructRuntime()
-    testAssert.equal(
+    testAssert.eq(
         run(
             table.concat(
                 {
@@ -478,7 +478,7 @@ function M.cdefStructRuntime()
 end
 
 function M.cdefUnionsAndBitfieldsKeepTheirCLayout()
-    testAssert.equal(
+    testAssert.eq(
         run(
             table.concat(
                 {
@@ -502,7 +502,7 @@ function M.cdefUnionsAndBitfieldsKeepTheirCLayout()
         ),
         13
     )
-    testAssert.equal(
+    testAssert.eq(
         (diagsOf(table.concat({"cdef struct nuppBadBits", "   field: number : 2", "end",}, "\n"))),
         "NUPP2203:2"
     )
@@ -511,7 +511,7 @@ end
 -- C's `bool` is a bitfield base one bit wide, as it is for a plain struct, so an
 -- imported C struct with a bool bitfield can be declared.
 function M.cdefBooleanBitfieldsHoldOneBit()
-    testAssert.equal(
+    testAssert.eq(
         run(
             table.concat(
                 {
@@ -529,14 +529,14 @@ function M.cdefBooleanBitfieldsHoldOneBit()
         ),
         6
     )
-    testAssert.equal(
+    testAssert.eq(
         (diagsOf(table.concat({"cdef struct nuppWideFlag", "   ready: boolean : 2", "end",}, "\n"))),
         "NUPP2203:2"
     )
 end
 
 function M.ownIsStaticAndDropIsExplicit()
-    testAssert.equal(
+    testAssert.eq(
         run(
             table.concat(
                 {
@@ -571,7 +571,7 @@ function M.fromClauseBindsNamedLibrary()
     if windows then
         assert(run(declaration .. "\nreturn GetCurrentProcessId()") > 0)
     else
-        testAssert.equal(
+        testAssert.eq(
             run(table.concat({declaration, "return tonumber(crc32(0, 'hello, world', 12))",}, "\n")),
             4289425978
         )
@@ -597,11 +597,8 @@ function M.luaStringCannotBeStoredInACstringField()
     -- struct field outlives the call and the collector may move on from the
     -- string while the field still points at it
     local HOLDER = "cdef struct holder\n   name: cstring\nend\n"
-    testAssert.equal(
-        (diagsOf(HOLDER .. "local h = new holder()\nlocal text = 'a' .. 'b'\nh.name = text")),
-        "NUPP2604:6"
-    )
-    testAssert.equal((diagsOf(HOLDER .. "local h = new holder('hi')")), "NUPP2604:4")
+    testAssert.eq((diagsOf(HOLDER .. "local h = new holder()\nlocal text = 'a' .. 'b'\nh.name = text")), "NUPP2604:6")
+    testAssert.eq((diagsOf(HOLDER .. "local h = new holder('hi')")), "NUPP2604:4")
     -- inside unsafe the author vouches that the string outlives the slot
     assertClean(HOLDER .. "local h = new holder()\nlocal text = 'a' .. 'b'\n@unsafe do\n   h.name = text\nend")
     -- the call-scoped conversion is unchanged

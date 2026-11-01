@@ -101,7 +101,7 @@ local X86_LABELS = table.concat(
 
 local function only(assembly, architecture, system)
     local listings = instructions.parse(assembly, architecture, system)
-    test.equal(#listings, 1, "one symbol has instructions")
+    test.eq(#listings, 1, "one symbol has instructions")
     return listings[1]
 end
 
@@ -120,17 +120,17 @@ end
 
 function M.aSymbolIsTheOnlyThingThatStartsAListing()
     local listing = only(ARM, "aarch64", "darwin")
-    test.equal(listing.symbol, "ks_scale")
-    test.equal(listing.instructions[1].mnemonic, "cbz")
-    test.equal(#listing.instructions, 11)
+    test.eq(listing.symbol, "ks_scale")
+    test.eq(listing.instructions[1].mnemonic, "cbz")
+    test.eq(#listing.instructions, 11)
 end
 
 -- The underscore is the assembler's, not the program's. A symbol spelled one
 -- way on one platform and another way on another would make two runs on two
 -- machines incomparable for a reason that has nothing to do with the code.
 function M.machOSymbolsLoseTheAssemblersUnderscore()
-    test.equal(only(ARM, "aarch64", "darwin").symbol, "ks_scale")
-    test.equal(only(X86, "x86_64", "linux").symbol, "ks_scale")
+    test.eq(only(ARM, "aarch64", "darwin").symbol, "ks_scale")
+    test.eq(only(X86, "x86_64", "linux").symbol, "ks_scale")
 end
 
 -- Data is not a function body. The constant pools and lengths beside a kernel
@@ -146,18 +146,18 @@ end
 -- listing without them shows a branch to nowhere.
 function M.aLocalLabelStaysWithTheInstructionItPrecedes()
     local listing = only(ARM, "aarch64", "darwin")
-    test.equal(listing.instructions[2].label, "LBB1_1")
-    test.equal(listing.instructions[1].label, nil)
+    test.eq(listing.instructions[2].label, "LBB1_1")
+    test.eq(listing.instructions[1].label, nil)
 end
 
 function M.anElfLocalLabelIsALabelRatherThanADirective()
     -- `.L2:` begins with the directive prefix and used to be dropped with the
     -- directives, so the instruction it named lost its label.
     local listing = only(X86_LABELS, "x86_64", "linux")
-    test.equal(#listing.instructions, 6, "the labels are not instructions")
-    test.equal(listing.instructions[3].label, ".LBB0_2")
-    test.equal(listing.instructions[6].label, ".L2")
-    test.equal(listing.instructions[4].label, nil)
+    test.eq(#listing.instructions, 6, "the labels are not instructions")
+    test.eq(listing.instructions[3].label, ".LBB0_2")
+    test.eq(listing.instructions[6].label, ".L2")
+    test.eq(listing.instructions[4].label, nil)
 end
 
 function M.x86ComparisonsAgainstMemoryAreLoads()
@@ -176,19 +176,19 @@ end
 -- kept it would differ from one written by a compiler that used spaces.
 function M.anInstructionIsRespelledFromItsHalves()
     local listing = only(ARM, "aarch64", "darwin")
-    test.equal(listing.instructions[1].text, "cbz x2, LBB1_2")
-    test.equal(listing.instructions[#listing.instructions].text, "ret")
+    test.eq(listing.instructions[1].text, "cbz x2, LBB1_2")
+    test.eq(listing.instructions[#listing.instructions].text, "ret")
 end
 
 function M.armCountsAreOverTheMnemonicAndTheOperands()
     local counts = only(ARM, "aarch64", "darwin").counts
-    test.equal(counts.total, 11)
-    test.equal(counts.vector, 3, "the two q-register accesses and the lane multiply")
-    test.equal(counts.loads, 2)
-    test.equal(counts.stores, 3)
-    test.equal(counts.branches, 2, "`bl` is a call rather than a branch")
-    test.equal(counts.calls, 1)
-    test.equal(counts.stack, 1)
+    test.eq(counts.total, 11)
+    test.eq(counts.vector, 3, "the two q-register accesses and the lane multiply")
+    test.eq(counts.loads, 2)
+    test.eq(counts.stores, 3)
+    test.eq(counts.branches, 2, "`bl` is a call rather than a branch")
+    test.eq(counts.calls, 1)
+    test.eq(counts.stack, 1)
 end
 
 -- `s` and `d` registers are scalar floating point. Counting them would report a
@@ -202,13 +202,13 @@ end
 
 function M.x86CountsAreOverTheMnemonicAndTheOperands()
     local counts = only(X86, "x86_64", "linux").counts
-    test.equal(counts.total, 12)
-    test.equal(counts.vector, 3, "the broadcast and the two packed operations")
-    test.equal(counts.loads, 4)
-    test.equal(counts.stores, 2)
-    test.equal(counts.branches, 1)
-    test.equal(counts.calls, 1)
-    test.equal(counts.stack, 3, "the frame push, the frame read, and the pop")
+    test.eq(counts.total, 12)
+    test.eq(counts.vector, 3, "the broadcast and the two packed operations")
+    test.eq(counts.loads, 4)
+    test.eq(counts.stores, 2)
+    test.eq(counts.branches, 1)
+    test.eq(counts.calls, 1)
+    test.eq(counts.stack, 3, "the frame push, the frame read, and the pop")
 end
 
 -- Scalar floating point on x86-64 lives in the low lane of a vector register,
@@ -254,8 +254,8 @@ end
 -- `#` begins a comment on x86-64 and an immediate on aarch64, which is why the
 -- architecture decides what one is rather than the object format.
 function M.aCommentIsNotAnOperand()
-    test.equal(only(X86, "x86_64", "linux").instructions[2].text, "movq %rsp, %rbp")
-    test.equal(
+    test.eq(only(X86, "x86_64", "linux").instructions[2].text, "movq %rsp, %rbp")
+    test.eq(
         only(ARM, "aarch64", "darwin").instructions[9].text,
         "subs x2, x2, #1",
         "an aarch64 immediate is not read as the start of a comment"
@@ -265,14 +265,14 @@ end
 -- Nothing claims a symbol by default, and a symbol nothing claims is a helper
 -- the compiler declined to inline rather than an error.
 function M.anUnclaimedSymbolIsAHelper()
-    test.equal(only(ARM, "aarch64", "darwin").role, "helper")
+    test.eq(only(ARM, "aarch64", "darwin").role, "helper")
 end
 
 function M.aClaimNamesTheFunctionASymbolBelongsTo()
     local listings = instructions.parse(ARM, "aarch64", "darwin")
     instructions.claim(listings, {ks_scale = {name = "scale", role = "kernel"}})
-    test.equal(listings[1].name, "scale")
-    test.equal(listings[1].role, "kernel")
+    test.eq(listings[1].name, "scale")
+    test.eq(listings[1].role, "kernel")
 end
 
 -- A layout reporter is the one symbol the emitter derives from another symbol
@@ -281,8 +281,8 @@ function M.aLayoutReporterIsClaimedByTheBodyItReportsFor()
     local assembly = table.concat({"_ks_scale_layout_Point_offset_x:", "\tmov\tw0, #4", "\tret",}, "\n")
     local listings = instructions.parse(assembly, "aarch64", "darwin")
     instructions.claim(listings, {ks_scale = {name = "scale", role = "kernel"}})
-    test.equal(listings[1].role, "reporter")
-    test.equal(listings[1].name, "scale")
+    test.eq(listings[1].role, "reporter")
+    test.eq(listings[1].name, "scale")
 end
 
 -- What the reader came for goes first. The compiler emits the oracle before the
@@ -298,26 +298,26 @@ function M.listingsAreOrderedByRole()
     for index, listing in ipairs(ordered) do
         shown[index] = listing.symbol
     end
-    test.equal(table.concat(shown, ","), "c,b,a,d", "kernel, oracle, then helpers in order")
+    test.eq(table.concat(shown, ","), "c,b,a,d", "kernel, oracle, then helpers in order")
 end
 
 function M.aRoleTheOrderDoesNotKnowIsStillListed()
     local ordered = instructions.order({{symbol = "a", role = "invented"}})
-    test.equal(#ordered, 1)
+    test.eq(#ordered, 1)
 end
 
 function M.selectMatchesEitherSpelling()
     local listings = instructions.parse(ARM, "aarch64", "darwin")
     instructions.claim(listings, {ks_scale = {name = "scale", role = "kernel"}})
-    test.equal(#instructions.select(listings, "scale"), 1, "the source name")
-    test.equal(#instructions.select(listings, "ks_scale"), 1, "the symbol")
-    test.equal(#instructions.select(listings, "other"), 0)
+    test.eq(#instructions.select(listings, "scale"), 1, "the source name")
+    test.eq(#instructions.select(listings, "ks_scale"), 1, "the symbol")
+    test.eq(#instructions.select(listings, "other"), 0)
 end
 
 function M.namesSayBothSpellingsOnce()
     local listings = instructions.parse(ARM, "aarch64", "darwin")
     instructions.claim(listings, {ks_scale = {name = "scale", role = "kernel"}})
-    test.equal(table.concat(instructions.names(listings), ", "), "scale, ks_scale")
+    test.eq(table.concat(instructions.names(listings), ", "), "scale, ks_scale")
 end
 
 -- A total with six zeroes beside it reads as a kernel that touches no memory
@@ -348,12 +348,12 @@ Lloop:
         "aarch64",
         "darwin"
     )
-    test.equal(parsed[1].instructions[1].sourceFile, "kernels/scale.nupp")
-    test.equal(parsed[1].instructions[1].sourceLine, 12)
-    test.equal(parsed[1].instructions[2].generatedColumn, 7)
-    test.equal(parsed[1].instructions[3].sourceFile, "helpers.nupp")
-    test.equal(parsed[1].instructions[4].sourceFile, nil)
-    test.equal(parsed[1].instructions[4].sourceLine, nil)
+    test.eq(parsed[1].instructions[1].sourceFile, "kernels/scale.nupp")
+    test.eq(parsed[1].instructions[1].sourceLine, 12)
+    test.eq(parsed[1].instructions[2].generatedColumn, 7)
+    test.eq(parsed[1].instructions[3].sourceFile, "helpers.nupp")
+    test.eq(parsed[1].instructions[4].sourceFile, nil)
+    test.eq(parsed[1].instructions[4].sourceLine, nil)
 end
 
 return M

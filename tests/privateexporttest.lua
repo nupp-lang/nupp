@@ -13,7 +13,7 @@ local sharedEnv = envMod.new(".", {config = {include = {"."}}})
 local function reports(source, opts)
     local filename = "geom/shapes.nupp"
     local result = parser.parse(source, filename)
-    testAssert.equal(#result.errors, 0, "syntax errors in test source")
+    testAssert.eq(#result.errors, 0, "syntax errors in test source")
     local diags = check.check(result, filename, sharedEnv, opts or {moduleName = "geom.shapes"})
     local found = {}
     for _, diag in ipairs(diags) do
@@ -27,7 +27,7 @@ end
 
 local function assertQuiet(source, label)
     local found = reports(source)
-    testAssert.equal(#found, 0, label or "expected no private-export-type report")
+    testAssert.eq(#found, 0, label or "expected no private-export-type report")
 end
 
 local M = {}
@@ -47,14 +47,14 @@ export record Point
 end
 ]]
     )
-    testAssert.equal(#found, 1, "one public declaration exposes Coordinate")
+    testAssert.eq(#found, 1, "one public declaration exposes Coordinate")
     local at = found[1]
-    testAssert.equal(at.lint, "private-export-type", "lint name")
-    testAssert.equal(at.severity, "warning", "default level")
-    testAssert.equal(at.line, 8, "reports at the exported declaration")
+    testAssert.eq(at.lint, "private-export-type", "lint name")
+    testAssert.eq(at.severity, "warning", "default level")
+    testAssert.eq(at.line, 8, "reports at the exported declaration")
     assert(at.msg:find('exported "Point" exposes private record "Coordinate"', 1, true), at.msg)
-    testAssert.equal(#(at.related or {}), 1, "points to the private declaration")
-    testAssert.equal(at.related[1].line, 3, "private declaration line")
+    testAssert.eq(#(at.related or {}), 1, "points to the private declaration")
+    testAssert.eq(at.related[1].line, 3, "private declaration line")
 end
 
 function M.walksFunctionSignaturesAndContainers()
@@ -71,7 +71,7 @@ export function first(values: {Coordinate}): Coordinate
 end
 ]]
     )
-    testAssert.equal(#found, 1, "one export reports one private identity")
+    testAssert.eq(#found, 1, "one export reports one private identity")
     assert(found[1].msg:find('private struct "Coordinate"', 1, true), found[1].msg)
 end
 
@@ -127,7 +127,7 @@ export record Box<T = Coordinate>
 end
 ]]
     )
-    testAssert.equal(#found, 1, "the omitted type argument exposes Coordinate")
+    testAssert.eq(#found, 1, "the omitted type argument exposes Coordinate")
     assert(found[1].msg:find('private record "Coordinate"', 1, true), found[1].msg)
 end
 
@@ -190,8 +190,8 @@ local record Coordinate x: number end
 export record Point coordinate: Coordinate end
 ]]
     local found = reports(source, {moduleName = "geom.shapes", lints = {["private-export-type"] = "note"},})
-    testAssert.equal(#found, 1)
-    testAssert.equal(found[1].severity, "note", "configured level")
+    testAssert.eq(#found, 1)
+    testAssert.eq(found[1].severity, "note", "configured level")
 end
 
 return M

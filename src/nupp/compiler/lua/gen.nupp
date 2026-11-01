@@ -7748,17 +7748,6 @@ function gen.generate(
             e(")")
             return
 
-        elseif kind == "call" and x.recoverManagedAlias then
-            local args = x.args and x.args.exprs or {}
-            e("__nupp.__recoverAlias(", sourceLine(x))
-            if args[1] then
-                emit(args[1])
-            else
-                e("nil")
-            end
-            e(")")
-            return
-
         elseif kind == "methodCall" and x.managedAliasPolicy then
             emit(x.obj)
             e((":_downcast(%q)"):format(x.managedAliasPolicy), sourceLine(x))

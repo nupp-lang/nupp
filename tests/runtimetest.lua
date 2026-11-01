@@ -90,7 +90,7 @@ local function withCarriedModule(dir, compileModule, callback)
     package.loaded.runtimecarried = previousLoaded
     package.preload.runtimecarried = previousPreload
     package.path = previousPath
-    testAssert.equal(#package.loaders, count, "both installed loaders are removed")
+    testAssert.eq(#package.loaders, count, "both installed loaders are removed")
     if not ok then
         error(failure, 0)
     end
@@ -103,18 +103,18 @@ function M.loadsUncompiledCarriedImplementationsOnce()
             dir,
             function(path, env, name, source)
                 calls = calls + 1
-                testAssert.equal(path, "runtimecarried", "carried checker identity")
-                testAssert.equal(name, "runtimecarried", "carried module identity")
-                testAssert.equal(source, "return {value = 42}\n", "compiler receives carried source")
+                testAssert.eq(path, "runtimecarried", "carried checker identity")
+                testAssert.eq(name, "runtimecarried", "carried module identity")
+                testAssert.eq(source, "return {value = 42}\n", "compiler receives carried source")
 
                 return source
             end,
             function()
                 local first = require("runtimecarried")
                 local second = require("runtimecarried")
-                testAssert.equal(first.value, 42)
+                testAssert.eq(first.value, 42)
                 assert(first == second, "the carried module keeps require identity")
-                testAssert.equal(calls, 1, "the carried module compiles once")
+                testAssert.eq(calls, 1, "the carried module compiles once")
             end
         )
     end)
@@ -131,21 +131,21 @@ function M.carriedImplementationsFollowProjectPreloadAndCompiledModules()
                 dir,
                 function(path, env, name, source)
                     assert(source == nil, "a resolved module must not use carried source")
-                    testAssert.equal(name, "runtimecarried", "the project callback keeps its requested module name")
+                    testAssert.eq(name, "runtimecarried", "the project callback keeps its requested module name")
                     return compile(path, env)
                 end,
                 function()
                     package.preload.runtimecarried = function()
                         return {value = 7}
                     end
-                    testAssert.equal(require("runtimecarried").value, 7, "preload remains first")
+                    testAssert.eq(require("runtimecarried").value, 7, "preload remains first")
                     package.loaded.runtimecarried = nil
                     package.preload.runtimecarried = nil
-                    testAssert.equal(require("runtimecarried").value, 21, "project source precedes carried source")
+                    testAssert.eq(require("runtimecarried").value, 21, "project source precedes carried source")
                     package.loaded.runtimecarried = nil
                     assert(os.remove(dir .. "/src/runtimecarried.nupp"))
                     package.path = dir .. "/compiled/?.lua;" .. package.path
-                    testAssert.equal(require("runtimecarried").value, 84, "compiled Lua precedes carried source")
+                    testAssert.eq(require("runtimecarried").value, 84, "compiled Lua precedes carried source")
                 end
             )
         end
@@ -156,8 +156,8 @@ function M.cliRunLoadsACarriedRootWithoutACompiledLibrary()
     withProject({["main.nupp"] = 'local serde = require("serde")\nprint(type(serde))\n'}, function(dir)
         local process = require("nupp.compiler.process")
         local code, output = process.capture({ROOT .. "/bin/nupp", "run", "main.nupp"}, {cwd = dir})
-        testAssert.equal(code, 0, output)
-        testAssert.equal(output, "table\n", "the carried root executes")
+        testAssert.eq(code, 0, output)
+        testAssert.eq(output, "table\n", "the carried root executes")
     end)
 end
 
@@ -178,7 +178,7 @@ return M
             local answer = require("runtimeanswer")
             removeLoader()
             package.loaded.runtimeanswer = nil
-            testAssert.equal(answer.double(21), 42, "required nupp module")
+            testAssert.eq(answer.double(21), 42, "required nupp module")
         end
     )
 end
@@ -203,7 +203,7 @@ return { loads = _G.runtimeFolderLoads }
             package.loaded.runtimefolder = nil
             _G.runtimeFolderLoads = nil
             assert(first == second, "require must return the cached module")
-            testAssert.equal(first.loads, 1, "init module execution count")
+            testAssert.eq(first.loads, 1, "init module execution count")
         end
     )
 end
@@ -224,8 +224,8 @@ function M.preservesPreloadAndPlainLuaLoaders()
             package.preload.runtimepreferred = nil
             package.loaded.runtimepreferred = nil
             package.loaded.runtimeplain = nil
-            testAssert.equal(preferred, "preload", "package.preload priority")
-            testAssert.equal(plain, "lua", "plain Lua project module")
+            testAssert.eq(preferred, "preload", "package.preload priority")
+            testAssert.eq(plain, "lua", "plain Lua project module")
         end
     )
 end
@@ -279,8 +279,8 @@ function M.declinesRequiresIssuedWhileCompiling()
             removeLoader()
             package.loaded.runtimemain = nil
             package.loaded.runtimelazy = nil
-            testAssert.equal(main.ok, true, "compiled module loads")
-            testAssert.equal(midCompile, "declined", "a require issued while compiling must not re-enter the loader")
+            testAssert.eq(main.ok, true, "compiled module loads")
+            testAssert.eq(midCompile, "declined", "a require issued while compiling must not re-enter the loader")
         end
     )
 end
@@ -298,8 +298,8 @@ print(type(os.monotonic()))
                 "cd '%s' && '%s/bin/nupp' run main.lua " .. "> '%s' 2> '%s'"
             ):format(dir, ROOT, output, errors)
             local status = os.execute(command)
-            testAssert.equal(status, 0, "nupp run stdlib exit status: " .. readFile(errors))
-            testAssert.equal(readFile(output), "number\n", "nupp run stdlib output")
+            testAssert.eq(status, 0, "nupp run stdlib exit status: " .. readFile(errors))
+            testAssert.eq(readFile(output), "number\n", "nupp run stdlib output")
         end
     )
 end
@@ -321,8 +321,8 @@ print(answer.value)
                 "cd '%s' && '%s/bin/nupp' run main.nupp " .. "> '%s' 2> '%s'"
             ):format(dir, ROOT, output, errors)
             local status = os.execute(command)
-            testAssert.equal(status, 0, "nupp run exit status: " .. readFile(errors))
-            testAssert.equal(readFile(output), "42\n", "nupp run module output")
+            testAssert.eq(status, 0, "nupp run exit status: " .. readFile(errors))
+            testAssert.eq(readFile(output), "42\n", "nupp run module output")
         end
     )
 end
@@ -367,7 +367,7 @@ return M
                 said:find("error checking lua module 'runtimelyingcats'", 1, true),
                 "the run was not refused for the dependency: " .. said
             )
-            testAssert.equal(readFile(output), "", "the program ran anyway")
+            testAssert.eq(readFile(output), "", "the program ran anyway")
         end
     )
 end
@@ -414,7 +414,7 @@ end
             ):format(dir, ROOT, output, errors)
             local status = os.execute(command)
             assert(status == 0, "the run was refused: " .. readFile(errors))
-            testAssert.equal(readFile(output), "claimed\n", "the claiming module did not run")
+            testAssert.eq(readFile(output), "claimed\n", "the claiming module did not run")
         end
     )
 end
@@ -455,8 +455,8 @@ return models
             ):format(dir, ROOT, output, errors)
             local status = os.execute(command)
             package.loaded.runtime_derive_models = nil
-            testAssert.equal(status, 0, "nupp run derive exit status: " .. readFile(errors))
-            testAssert.equal(
+            testAssert.eq(status, 0, "nupp run derive exit status: " .. readFile(errors))
+            testAssert.eq(
                 readFile(output),
                 "Outer { inner = Inner { value = 0 } }\n{\"inner\":{\"value\":0}}\n",
                 "nupp run derive output"
@@ -495,16 +495,16 @@ end
                 {
                     "local watched = require('watched')",
                     "local write = require('writer')",
-                    "nupp.hotreload.poll()",
+                    "debug.reload.poll()",
                     "print(watched.value())",
                     "write('src/watched.nupp', " .. versionTwo .. ")",
-                    "nupp.hotreload.poll()",
+                    "debug.reload.poll()",
                     "print(watched.value())",
                     "write('src/watched.nupp', " .. rejected .. ")",
-                    "nupp.hotreload.poll()",
+                    "debug.reload.poll()",
                     "print(watched.value())",
                     "write('src/watched.nupp', " .. structural .. ")",
-                    "nupp.hotreload.poll()",
+                    "debug.reload.poll()",
                     "print(watched.value())",
                     "",
                 },
@@ -519,8 +519,8 @@ end
             ):format(dir, ROOT, output, errors)
             local status = os.execute(command)
             local stderr = readFile(errors)
-            testAssert.equal(status, 0, "nupp run --watch exit status: " .. stderr)
-            testAssert.equal(readFile(output), "1\n2\n2\n2\n", "watch generation output")
+            testAssert.eq(status, 0, "nupp run --watch exit status: " .. stderr)
+            testAssert.eq(readFile(output), "1\n2\n2\n2\n", "watch generation output")
             assert(stderr:find("committed hot generation 2", 1, true), stderr)
             assert(stderr:find("NUPP2002", 1, true), stderr)
             assert(stderr:find("generation 2 remains running", 1, true), stderr)
@@ -561,11 +561,11 @@ end
                 {
                     "local api = cheader('api.h')",
                     "local write = require('writer')",
-                    "nupp.hotreload.poll()",
+                    "debug.reload.poll()",
                     "write('api.h', '/* comment */\\nint hot_watch_header(void);\\n')",
-                    "print(nupp.hotreload.poll().kind)",
+                    "print(debug.reload.poll().kind)",
                     "write('api.h', 'long hot_watch_header(void);\\n')",
-                    "print(nupp.hotreload.poll().kind)",
+                    "print(debug.reload.poll().kind)",
                     "return api",
                     "",
                 },
@@ -580,8 +580,8 @@ end
             ):format(dir, ROOT, output, errors)
             local status = os.execute(command)
             local stderr = readFile(errors)
-            testAssert.equal(status, 0, "header watch exit status: " .. stderr)
-            testAssert.equal(readFile(output), "no-change\nrestart-required\n")
+            testAssert.eq(status, 0, "header watch exit status: " .. stderr)
+            testAssert.eq(readFile(output), "no-change\nrestart-required\n")
             assert(stderr:find("header api.h at", 1, true), stderr)
         end
     )
@@ -603,12 +603,12 @@ function M.cliWatchRequiresRestartForMappedNativeReplacement()
             local current = "libmini" .. extension
             local replacement = "libmini-next" .. extension
             local flags = ffi.os == "OSX" and "-dynamiclib" or "-shared -fPIC"
-            testAssert.equal(
+            testAssert.eq(
                 os.execute(("cc %s -o '%s/%s' '%s/first.c'"):format(flags, dir, current, dir)),
                 0,
                 "compile first library"
             )
-            testAssert.equal(
+            testAssert.eq(
                 os.execute(("cc %s -o '%s/%s' '%s/second.c'"):format(flags, dir, replacement, dir)),
                 0,
                 "compile replacement library"
@@ -620,10 +620,10 @@ function M.cliWatchRequiresRestartForMappedNativeReplacement()
                     {
                         "cdef function hot_native_value(): int32 from 'mini'",
                         "local replace = require('replace')",
-                        "nupp.hotreload.poll()",
+                        "debug.reload.poll()",
                         "print(hot_native_value())",
                         ("replace(%q, %q)"):format(replacement, current),
-                        "print(nupp.hotreload.poll().kind)",
+                        "print(debug.reload.poll().kind)",
                         "",
                     },
                     "\n"
@@ -636,8 +636,8 @@ function M.cliWatchRequiresRestartForMappedNativeReplacement()
             ):format(dir, ROOT, output, errors)
             local status = os.execute(command)
             local stderr = readFile(errors)
-            testAssert.equal(status, 0, "native watch exit status: " .. stderr)
-            testAssert.equal(readFile(output), "1\nrestart-required\n")
+            testAssert.eq(status, 0, "native watch exit status: " .. stderr)
+            testAssert.eq(readFile(output), "1\nrestart-required\n")
             assert(stderr:find("native artifact for mini at", 1, true), stderr)
         end
     )
@@ -701,7 +701,7 @@ print('300000 calls passed',total)
             local flags = ffi.os == "OSX" and "-dynamiclib" or "-shared -fPIC"
             local library = dir .. (ffi.os == "Windows" and "/echo.dll" or "/echo.so")
             local cc = os.getenv("NUPP_CC") or (ffi.os == "Windows" and "gcc" or "cc")
-            testAssert.equal(
+            testAssert.eq(
                 os.execute(("%s -O2 %s '%s/echo.c' -o '%s' > '%s/cc.log' 2>&1"):format(cc, flags, dir, library, dir)),
                 0,
                 "build FFI width oracle"
@@ -711,7 +711,7 @@ print('300000 calls passed',total)
                 local command = ("luajit '%s/echo.lua' %s '%s' > '%s' 2>&1"):format(dir, mode, library, output)
                 local status = os.execute(command)
                 local result = readFile(output)
-                testAssert.equal(status, 0, mode .. " FFI calls: " .. result)
+                testAssert.eq(status, 0, mode .. " FFI calls: " .. result)
                 assert(result:find("300000 calls passed", 1, true), result)
             end
         end
@@ -747,8 +747,8 @@ print(table.concat(answers, ' '))
                 local status = os.execute(("luajit '%s/loops.lua' %s > '%s' 2>&1"):format(dir, mode, output))
                 -- Windows writes the interpreter's print with CRLF.
                 local result = readFile(output):gsub("\r\n", "\n")
-                testAssert.equal(status, 0, mode .. ": " .. result)
-                testAssert.equal(result, "1001 0 0 0 0 0 0 0 3 3\n", mode .. " loop counts")
+                testAssert.eq(status, 0, mode .. ": " .. result)
+                testAssert.eq(result, "1001 0 0 0 0 0 0 0 3 3\n", mode .. " loop counts")
             end
         end
     )

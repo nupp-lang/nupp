@@ -11,17 +11,17 @@ local env = envMod.new(HERE .. "/..")
 
 local function checked(src)
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors")
+    testAssert.eq(#result.errors, 0, "syntax errors")
     local diagnostics = check.check(result, "test.nupp", env)
     return result, diagnostics
 end
 
 local function compile(src, options)
     local result = checked(src)
-    testAssert.equal(#result.errors, 0, "checker errors")
+    testAssert.eq(#result.errors, 0, "checker errors")
     local remarks = optimize.run(result, options or {level = 1})
     local code, diags = gen.generate(result, "test")
-    testAssert.equal(#diags, 0, "generation diagnostics")
+    testAssert.eq(#diags, 0, "generation diagnostics")
 
     return code:gsub("%s+", ""), remarks, code
 end
@@ -181,7 +181,7 @@ return work
     )
     assert(not code:find(":slice(", 1, true), code)
     assert(not code:find("outer.count", 1, true), "the slice count is computed from its bounds:\n" .. code)
-    testAssert.equal(select(2, code:gsub("start%(%)", "")), 2, "start() is declared once and called once:\n" .. code)
+    testAssert.eq(select(2, code:gsub("start%(%)", "")), 2, "start() is declared once and called once:\n" .. code)
 end
 
 function M.anEscapingSliceKeepsItsSafeWrapper()
@@ -476,7 +476,7 @@ return Runtime
     local runtime = assert(loadstring(raw, "@virtual-root-runtime"))()
     local ffi = require("ffi")
     local storage = ffi.new("int32_t[2]", {17, 23})
-    testAssert.equal(runtime.read(storage, 2, 2), 23, "virtual checked read")
+    testAssert.eq(runtime.read(storage, 2, 2), 23, "virtual checked read")
     local inBounds, boundsError = pcall(runtime.read, storage, 2, 0)
     assert(not inBounds and tostring(boundsError):find("span index out of bounds", 1, true), tostring(boundsError))
     local validCount, countError = pcall(runtime.read, storage, -1, 1)
@@ -820,10 +820,10 @@ return R3
     local ffi = require("ffi")
     local xs = ffi.new("float[4]", {1, 2, 3, 4})
     local ys = ffi.new("float[4]", {5, 6, 7, 8})
-    testAssert.equal(module.readOnly(xs, 4), 10, "shared acquisition result")
-    testAssert.equal(module.mutate(xs, ys, 4), 11, "dirty component mask")
-    testAssert.equal(tonumber(xs[3]), 5, "direct x store")
-    testAssert.equal(tonumber(ys[3]), 10, "direct y store")
+    testAssert.eq(module.readOnly(xs, 4), 10, "shared acquisition result")
+    testAssert.eq(module.mutate(xs, ys, 4), 11, "dirty component mask")
+    testAssert.eq(tonumber(xs[3]), 5, "direct x store")
+    testAssert.eq(tonumber(ys[3]), 10, "direct y store")
 end
 
 function M.fixedSpansUseTheCommonAdapter()
@@ -964,7 +964,7 @@ return Probe
                     ("-O%d %s(%s): %s"):format(level, name, tostring(bad), tostring(got))
                 )
                 for at = 0, 3 do
-                    testAssert.equal(
+                    testAssert.eq(
                         storage[at],
                         at + 1,
                         ("-O%d %s(%s) left element %d"):format(level, name, tostring(bad), at + 1)
@@ -1076,9 +1076,9 @@ return work
             for _, index in ipairs({0, 1, 2, 3, 4}) do
                 local a, av = pcall(plain, text, index)
                 local b, bv = pcall(fast, text, index)
-                testAssert.equal(a, b, "the checked path fails on the same inputs")
+                testAssert.eq(a, b, "the checked path fails on the same inputs")
                 if a then
-                    testAssert.equal(av, bv)
+                    testAssert.eq(av, bv)
                 else
                     assert(tostring(av):find("span index out of bounds", 1, true), av)
                     assert(tostring(bv):find("span index out of bounds", 1, true), bv)

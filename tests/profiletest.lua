@@ -137,24 +137,24 @@ local M = {}
 -------------------------------------------------------------------------------
 
 function M.zonePathIsEmptyUntilSomethingIsPushed()
-    testAssert.equal(zone.path(), "", "no session, no path")
+    testAssert.eq(zone.path(), "", "no session, no path")
     zone.acquire()
-    testAssert.equal(zone.path(), "", "acquired but empty")
+    testAssert.eq(zone.path(), "", "acquired but empty")
     zone.release()
 end
 
 function M.zonePathJoinsTheStackOutermostFirst()
     zone.acquire()
     zone.push("frame")
-    testAssert.equal(zone.path(), "frame", "one zone")
+    testAssert.eq(zone.path(), "frame", "one zone")
     zone.push("render")
-    testAssert.equal(zone.path(), "frame/render", "two zones")
+    testAssert.eq(zone.path(), "frame/render", "two zones")
     zone.push("sprites")
-    testAssert.equal(zone.path(), "frame/render/sprites", "three zones")
-    testAssert.equal(zone.pop(), "sprites", "pop returns the zone it removed")
-    testAssert.equal(zone.path(), "frame/render", "path follows the pop")
+    testAssert.eq(zone.path(), "frame/render/sprites", "three zones")
+    testAssert.eq(zone.pop(), "sprites", "pop returns the zone it removed")
+    testAssert.eq(zone.path(), "frame/render", "path follows the pop")
     zone.release()
-    testAssert.equal(zone.path(), "", "release empties it")
+    testAssert.eq(zone.path(), "", "release empties it")
 end
 
 -- The path is cached against a version counter, so every mutation has to bump
@@ -162,14 +162,14 @@ end
 function M.zonePathIsRebuiltAfterEveryChange()
     zone.acquire()
     zone.push("a")
-    testAssert.equal(zone.path(), "a", "before")
+    testAssert.eq(zone.path(), "a", "before")
     zone.push("b")
     zone.pop()
-    testAssert.equal(zone.path(), "a", "after a push and a pop that cancel")
+    testAssert.eq(zone.path(), "a", "after a push and a pop that cancel")
     local token = zone.enter("c")
-    testAssert.equal(zone.path(), "a/c", "enter is a push")
+    testAssert.eq(zone.path(), "a/c", "enter is a push")
     zone.leave(token)
-    testAssert.equal(zone.path(), "a", "leave is a pop")
+    testAssert.eq(zone.path(), "a", "leave is a pop")
     zone.release()
 end
 
@@ -181,7 +181,7 @@ function M.aLateLeaveCannotPopANewerSession()
     zone.acquire()
     zone.push("current")
     zone.leave(stale)
-    testAssert.equal(zone.path(), "current", "a stale token left the new generation alone")
+    testAssert.eq(zone.path(), "current", "a stale token left the new generation alone")
     zone.pop()
     zone.release()
 end
@@ -211,8 +211,8 @@ function M.sampleCollectsCollapsedStacks()
         sourceCount = sourceCount + sample.samples
     end
     assert(sourceCount <= report.samples, "native VM states have no fabricated source count")
-    testAssert.equal(report.intervalMs, 1, "the interval it ran at")
-    testAssert.equal(tostring(report), report.text, "tostring is the collapsed text")
+    testAssert.eq(report.intervalMs, 1, "the interval it ran at")
+    testAssert.eq(tostring(report), report.text, "tostring is the collapsed text")
 
     for _, line in ipairs(lines(report.text)) do
         assertMatch(line, "^[^%s]+ %d+$", "a collapsed line is frames and a count")
@@ -266,8 +266,8 @@ function M.sampleZoneFilterEndsAtAPathComponent()
     zone.pop()
     local report = session:stop()
 
-    testAssert.equal(report.samples, 0, "a sibling sharing the prefix is not the subtree")
-    testAssert.equal(report.text, "", "and nothing is reported for it")
+    testAssert.eq(report.samples, 0, "a sibling sharing the prefix is not the subtree")
+    testAssert.eq(report.text, "", "and nothing is reported for it")
 end
 
 function M.sampleZoneFilterThatMatchesNothingIsEmptyRatherThanEverything()
@@ -275,9 +275,9 @@ function M.sampleZoneFilterThatMatchesNothingIsEmptyRatherThanEverything()
     burn(sampleWindow(0.1))
     local report = session:stop()
 
-    testAssert.equal(report.text, "", "no matching zone, no text")
-    testAssert.equal(report.samples, 0, "and nothing counted")
-    testAssert.equal(report.stacks, 0, "and no stacks")
+    testAssert.eq(report.text, "", "no matching zone, no text")
+    testAssert.eq(report.samples, 0, "and nothing counted")
+    testAssert.eq(report.stacks, 0, "and no stacks")
 end
 
 -- Root trimming is about stack names, not where a timer happens to interrupt
@@ -311,9 +311,9 @@ function M.sampleRootTrimsHarnessFramesAndMergesMatchingStacks()
     }
     local report = session:stop()
 
-    testAssert.equal(report.samples, 6, "all samples survive root trimming")
-    testAssert.equal(report.stacks, 2, "matching stacks merge after harness frames are cut")
-    testAssert.equal(
+    testAssert.eq(report.samples, 6, "all samples survive root trimming")
+    testAssert.eq(report.stacks, 2, "matching stacks merge after harness frames are cut")
+    testAssert.eq(
         report.text,
         "profiletest.lua:burn;library:work_[N] 5\n<outside>_[N] 1",
         "the exact root frame starts the stack and a partial name does not match"
@@ -326,7 +326,7 @@ function M.sampleWritesTheSameTextItReturns()
     burn(sampleWindow(0.15))
     local report = session:stop(path)
 
-    testAssert.equal(readFile(path), report.text, "the file is the report")
+    testAssert.eq(readFile(path), report.text, "the file is the report")
     os.remove(path)
 end
 
@@ -337,8 +337,8 @@ function M.samplePauseLeavesTheWindowOut()
     burn(sampleWindow(0.2))
     local report = session:stop()
 
-    testAssert.equal(report.samples, 0, "a paused session records nothing")
-    testAssert.equal(report.text, "", "and so has nothing to say")
+    testAssert.eq(report.samples, 0, "a paused session records nothing")
+    testAssert.eq(report.text, "", "and so has nothing to say")
 end
 
 function M.sampleResumeStartsRecordingAgain()
@@ -392,14 +392,14 @@ end
 -- report, so the next one can start, and it is free once `stop` has run.
 function M.closingEndsASessionWithoutAReport()
     local sampling = profile.sample({intervalMs = 10})
-    testAssert.equal(sampling:close(), nil, "close answers no report")
+    testAssert.eq(sampling:close(), nil, "close answers no report")
     local again = profile.sample({intervalMs = 10})
     assertMatch(tostring(select(2, pcall(sampling.stop, sampling))), "already stopped", "a closed session is over")
     again:stop()
     again:close()
 
     local tracing = profile.trace()
-    testAssert.equal(tracing:close(), nil, "close answers no report")
+    testAssert.eq(tracing:close(), nil, "close answers no report")
     local next = profile.trace()
     assertMatch(tostring(select(2, pcall(tracing.stop, tracing))), "already stopped", "a closed session is over")
     next:stop()
@@ -423,20 +423,20 @@ end
 function M.recordedTracePayloadUsesTheStaticReasonIdentity()
     local registry = require("nupp.profile.trace")
     local reason, raw = registry.runtime(FNEW_ERROR_CODE, FNEW_OPCODE)
-    testAssert.equal(
+    testAssert.eq(
         reason.id,
         "jit/loop-function-construction",
         "recorded VM payload and static bytecode share an identity"
     )
-    testAssert.equal(reason.class, "blocker", "the operation-level classification")
+    testAssert.eq(reason.class, "blocker", "the operation-level classification")
     assertMatch(raw, "FNEW", "raw recorder detail remains visible")
 end
 
 function M.unknownTracePayloadStaysVisibleWithoutInventedAdvice()
     local registry = require("nupp.profile.trace")
     local reason, raw = registry.runtime(2147483647, "opaque")
-    testAssert.equal(reason.id, "jit/runtime-unknown", "unknown stays unknown")
-    testAssert.equal(reason.repair, nil, "an unknown event has no guessed repair")
+    testAssert.eq(reason.id, "jit/runtime-unknown", "unknown stays unknown")
+    testAssert.eq(reason.repair, nil, "an unknown event has no guessed repair")
     assertMatch(raw, "2147483647", "the raw VM identity remains visible")
 end
 
@@ -458,14 +458,10 @@ function M.traceRecordsWhereTheCompilerGaveUp()
     local report = session:stop()
     jit.on()
 
-    testAssert.equal(report.totalAborts, 1, "the emitted abort is counted")
-    testAssert.equal(#report.sites, 1, "the emitted abort has one site")
-    testAssert.equal(
-        report.sites[1].reasonId,
-        "jit/loop-function-construction",
-        "the unrecordable bytecode is reported"
-    )
-    testAssert.equal(report.sites[1].reasonClass, "blocker", "the operation-level classification is preserved")
+    testAssert.eq(report.totalAborts, 1, "the emitted abort is counted")
+    testAssert.eq(#report.sites, 1, "the emitted abort has one site")
+    testAssert.eq(report.sites[1].reasonId, "jit/loop-function-construction", "the unrecordable bytecode is reported")
+    testAssert.eq(report.sites[1].reasonClass, "blocker", "the operation-level classification is preserved")
     assertMatch(report.sites[1].rawReason, "FNEW", "the VM's bytecode detail remains visible")
 end
 
@@ -475,8 +471,8 @@ function M.traceReportRendersAsCsv()
     local report = session:stop()
 
     local rows = lines(tostring(report))
-    testAssert.equal(rows[1], "severity,count,reason,location,zone,rootLocation", "the header")
-    testAssert.equal(#rows, #report.sites + 1, "one row per site, after the header")
+    testAssert.eq(rows[1], "severity,count,reason,location,zone,rootLocation", "the header")
+    testAssert.eq(#rows, #report.sites + 1, "one row per site, after the header")
     for index = 2, #rows do
         assertMatch(rows[index], "^%a+,%d+,", "a row leads with severity, count")
     end
@@ -488,7 +484,7 @@ function M.traceWritesTheCsvItReturns()
     emitFnewAbort(session)
     local report = session:stop(path)
 
-    testAssert.equal(readFile(path), tostring(report), "the file is the report")
+    testAssert.eq(readFile(path), tostring(report), "the file is the report")
     os.remove(path)
 end
 
@@ -498,7 +494,7 @@ function M.tracePauseLeavesTheWindowOut()
     emitFnewAbort(session)
     local report = session:stop()
 
-    testAssert.equal(report.totalAborts, 0, "a paused session counts nothing")
+    testAssert.eq(report.totalAborts, 0, "a paused session counts nothing")
 end
 
 function M.onlyOneTraceSessionRunsAtATime()
@@ -539,12 +535,12 @@ function M.theTwoChannelsShareTheZoneStack()
     local sampling = profile.sample({intervalMs = 10})
     local tracing = profile.trace()
     zone.push("shared")
-    testAssert.equal(zone.path(), "shared", "both sessions hold the stack open")
+    testAssert.eq(zone.path(), "shared", "both sessions hold the stack open")
     tracing:stop()
-    testAssert.equal(zone.path(), "shared", "one stopping does not release it")
+    testAssert.eq(zone.path(), "shared", "one stopping does not release it")
     zone.pop()
     sampling:stop()
-    testAssert.equal(zone.path(), "", "the last one out empties it")
+    testAssert.eq(zone.path(), "", "the last one out empties it")
 end
 
 -------------------------------------------------------------------------------
@@ -654,7 +650,7 @@ function M.cliJitAbortsWritesCsv()
     assertMatch(out, "%d+ trace aborts, %d+ blacklisted, written to " .. "jit%-aborts%.csv", "the summary: " .. out)
 
     local rows = lines(readFile(dir .. "/jit-aborts.csv"))
-    testAssert.equal(rows[1], "severity,count,reason,location,zone,rootLocation", "the header")
+    testAssert.eq(rows[1], "severity,count,reason,location,zone,rootLocation", "the header")
     assert(#rows > 1, "the closure workload aborts, so there is a row")
     assertMatch(rows[2], "^warn,%d+,NYI", "and it says what was refused")
     os.execute("rm -rf '" .. dir .. "'")
@@ -675,14 +671,14 @@ function M.cliJitAbortsWritesNormalizedJson()
     assert(ok, "the program ran: " .. out)
     local report = require("testjson").decode(readFile(dir .. "/aborts.json"))
     assert(report.traceProfile.id, "the VM profile is explicit")
-    testAssert.equal(report.reasonCatalog.id, "nupp-trace-reasons-v1", "the stable registry is explicit")
+    testAssert.eq(report.reasonCatalog.id, "nupp-trace-reasons-v1", "the stable registry is explicit")
     assert(#report.sites > 0, "the workload produced an observed abort")
-    testAssert.equal(
+    testAssert.eq(
         report.sites[1].reasonId,
         "jit/loop-function-construction",
         "the observed FNEW uses the static identity"
     )
-    testAssert.equal(report.sites[1].class, "blocker", "the reason class is preserved")
+    testAssert.eq(report.sites[1].class, "blocker", "the reason class is preserved")
     assertMatch(report.sites[1].rawReason, "FNEW", "the raw VM detail remains")
     os.execute("rm -rf '" .. dir .. "'")
 end
@@ -748,7 +744,7 @@ function M.cliGpuCostsComposeWithSamplingAndRetainProgramFailures()
     )
     assert(ok, "GPU cost output composes with CPU sampling: " .. out)
     local empty = assert(io.open(dir .. "/costs/empty.jsonl", "rb"))
-    testAssert.equal(empty:read("*a"), "", "a CPU-only program invents no GPU events")
+    testAssert.eq(empty:read("*a"), "", "a CPU-only program invents no GPU events")
     empty:close()
     out, ok = run(dir, "run --gpu-costs costs/failed.jsonl fail.nupp")
     assert(not ok, "the program still fails")
@@ -786,7 +782,7 @@ function M.samplePreservesEveryVmStateInCollapsedStacks()
         }
     }
     local report = session:stop()
-    testAssert.equal(report.samples, 10, "all states counted")
+    testAssert.eq(report.samples, 10, "all states counted")
     assert(report.text:find("library:callback_[N] 2", 1, true), report.text)
     assert(report.text:find("library:callback_[I] 1", 1, true), report.text)
     assert(report.text:find("<C>_[C] 3", 1, true), report.text)
@@ -807,8 +803,8 @@ function M.traceKeepsRootWhenRecordingAbortsInsideALibrary()
     session.callback("abort", 91, library, 1, FNEW_ERROR_CODE, FNEW_OPCODE)
     local report = session:stop()
     jit.on()
-    testAssert.equal(report.totalAborts, 2, "both recording attempts counted")
-    testAssert.equal(#report.sites, 1, "root and abort site aggregate together")
+    testAssert.eq(report.totalAborts, 2, "both recording attempts counted")
+    testAssert.eq(#report.sites, 1, "root and abort site aggregate together")
     assertMatch(report.sites[1].rootLocation, "program.nupp:", "origin retained")
     assertMatch(report.sites[1].location, "runtime/library.lua:", "library retained")
 end
@@ -874,11 +870,11 @@ function M.sourceSamplesRespectZoneBoundariesAndPreserveFullPaths()
         keptElsewhere = {["C:/project/work.nupp:12"] = 99},
     }
     local report = session:stop()
-    testAssert.equal(#report.sourceSamples, 2, "one row per retained source line")
-    testAssert.equal(report.sourceSamples[1].file, "C:/project/work.nupp", "path includes drive and directories")
-    testAssert.equal(report.sourceSamples[1].line, 12, "line split occurs after final colon")
-    testAssert.equal(report.sourceSamples[1].samples, 5, "zone subtree counts merge")
-    testAssert.equal(report.sourceSamples[2].samples, 1, "other line stays separate")
+    testAssert.eq(#report.sourceSamples, 2, "one row per retained source line")
+    testAssert.eq(report.sourceSamples[1].file, "C:/project/work.nupp", "path includes drive and directories")
+    testAssert.eq(report.sourceSamples[1].line, 12, "line split occurs after final colon")
+    testAssert.eq(report.sourceSamples[1].samples, 5, "zone subtree counts merge")
+    testAssert.eq(report.sourceSamples[2].samples, 1, "other line stays separate")
 end
 
 function M.cliProfileJoinsMeasuredHeatToOptimizerRemarks()
@@ -905,7 +901,7 @@ print(total)
     assert(#document.sampling.sourceSamples > 0, "actual sampled Lua locations are retained")
     local measured = false
     for _, remark in ipairs(document.remarks) do
-        testAssert.equal(remark.hotness, "sampled", "profiled source decisions have measured heat")
+        testAssert.eq(remark.hotness, "sampled", "profiled source decisions have measured heat")
         assert(type(remark.hotnessSamples) == "number" and remark.hotnessSamples >= 0, "counts include measured zero")
         assert(remark.hotnessRange.endLine >= remark.hotnessRange.startLine, "the counted source range is explicit")
         measured = true

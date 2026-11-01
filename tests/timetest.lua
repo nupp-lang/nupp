@@ -82,7 +82,7 @@ function M.invalidDurationsAndDeadlinesAreRefused()
     }) do
         for _, bad in ipairs({-1, -0.5, math.huge, notANumber}) do
             local ok, problem = pcall(operation.call, bad)
-            testAssert.equal(ok, false, operation.name .. " accepted " .. tostring(bad))
+            testAssert.eq(ok, false, operation.name .. " accepted " .. tostring(bad))
             assert(
                 tostring(problem):find("finite non-negative", 1, true) ~= nil,
                 operation.name .. " did not explain its refusal: " .. tostring(problem)
@@ -114,9 +114,9 @@ function M.concurrentSleepsShareOneSourceAndFireInDeadlineOrder()
     -- Serialized, this would be 120. The margin is wide because the point is that
     -- one source drove all three, not what the scheduler's overhead was.
     assert(elapsed < 110, "the sleeps serialized: " .. tostring(elapsed))
-    testAssert.equal(order[1], 20, "the soonest deadline did not fire first")
-    testAssert.equal(order[2], 40, "the middle deadline did not fire second")
-    testAssert.equal(order[3], 60, "the latest deadline did not fire last")
+    testAssert.eq(order[1], 20, "the soonest deadline did not fire first")
+    testAssert.eq(order[2], 40, "the middle deadline did not fire second")
+    testAssert.eq(order[3], 60, "the latest deadline did not fire last")
 end
 
 function M.anAbandonedWaitTakesItsTimerWithIt()
@@ -131,8 +131,8 @@ function M.anAbandonedWaitTakesItsTimerWithIt()
             return "fast"
         end,
     })
-    testAssert.equal(answer, "fast", "the wrong branch won")
-    testAssert.equal(which, 2, "the winner was reported as the wrong branch")
+    testAssert.eq(answer, "fast", "the wrong branch won")
+    testAssert.eq(which, 2, "the winner was reported as the wrong branch")
     assert(os.monotonic() - started < 500, "the race waited for the loser's timer")
 
     -- The loser's entry must be gone rather than merely ignored: a stale entry
@@ -150,7 +150,7 @@ function M.wakeAtCallbacksAndCancellationAreExactlyOnce()
     cancel()
     cancel()
     suspension.poll()
-    testAssert.equal(cancelledCalls, 0, "a cancelled deadline still fired")
+    testAssert.eq(cancelledCalls, 0, "a cancelled deadline still fired")
 
     local calls = 0
     local completed
@@ -161,8 +161,8 @@ function M.wakeAtCallbacksAndCancellationAreExactlyOnce()
     suspension.poll()
     suspension.poll()
     cancelCompleted()
-    testAssert.equal(calls, 1, "one deadline fired more than once")
-    testAssert.equal(completed, true, "the native timer did not report completion")
+    testAssert.eq(calls, 1, "one deadline fired more than once")
+    testAssert.eq(completed, true, "the native timer did not report completion")
 end
 
 function M.independentCoroutinesDoNotInheritEachOthersTaskDeadlines()
@@ -185,7 +185,7 @@ function M.independentCoroutinesDoNotInheritEachOthersTaskDeadlines()
     assert(secondDeadline > firstDeadline + 50000, "an independent coroutine inherited another coroutine's deadline")
     assert(coroutine.resume(second), "the second coroutine did not settle its scope")
     assert(coroutine.resume(first), "the first coroutine did not settle its scope")
-    testAssert.equal(tasks.deadline(), nil, "an independent scope leaked onto the main thread")
+    testAssert.eq(tasks.deadline(), nil, "an independent scope leaked onto the main thread")
 end
 
 function M.aSleepInsideAHandlerParksRatherThanBlocking()
@@ -212,15 +212,15 @@ function M.aSleepInsideAHandlerParksRatherThanBlocking()
         handling:close()
     end
 
-    testAssert.equal(parked, 1, "the sleep did not reach the installed handler")
+    testAssert.eq(parked, 1, "the sleep did not reach the installed handler")
     assert(os.monotonic() - started >= 25, "the parked sleep returned early")
 end
 
 function M.timeSelectsTheRustBaseProvider()
     local feature = assert(native.feature("native.time"))
-    testAssert.equal(feature.provider, "nupp_native", "time provider")
-    testAssert.equal(feature.providerDriver, "native-rust", "time provider driver")
-    testAssert.equal(feature.providerFeature, "base", "time provider feature")
+    testAssert.eq(feature.provider, "nupp_native", "time provider")
+    testAssert.eq(feature.providerDriver, "native-rust", "time provider driver")
+    testAssert.eq(feature.providerFeature, "base", "time provider feature")
     local expanded = native.expand({["native.time"] = true})
     assert(expanded["runtime.native"], "time omitted the Rust ABI runtime")
 end

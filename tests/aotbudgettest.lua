@@ -92,7 +92,7 @@ function M.theBenchmarkKernelsStayWithinTheirNativeCodeBudgets()
         local entry = found[budget.symbol]
         local where = ("%s on %s/%s"):format(budget.symbol, budget.target, budget.tier)
         assert(entry and entry.instructions, where .. " was not reported:\n" .. out)
-        test.equal(entry.role, "kernel", where .. " is the timed kernel")
+        test.eq(entry.role, "kernel", where .. " is the timed kernel")
         if entry.calls ~= 0 then
             failures[#failures + 1] = ("%s makes %d calls; a hot kernel makes none"):format(where, entry.calls)
         end

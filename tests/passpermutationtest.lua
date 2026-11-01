@@ -44,7 +44,7 @@ end
 -- One build under one set of disabled passes, run for its value.
 local function build(src, disabled)
     local result = parser.parse(src, "perm.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors in test source\n" .. src)
+    testAssert.eq(#result.errors, 0, "syntax errors in test source\n" .. src)
     local diags = check.check(result, "perm.nupp", env)
     for _, diag in ipairs(diags or {}) do
         if diag.severity == "error" then
@@ -53,7 +53,7 @@ local function build(src, disabled)
     end
     optimize.run(result, {level = 1, disabled = disabled})
     local code, genDiags = gen.generate(result, "perm")
-    testAssert.equal(#genDiags, 0, "gen diagnostics\n" .. src)
+    testAssert.eq(#genDiags, 0, "gen diagnostics\n" .. src)
     local chunk, err = loadstring(code, "@perm")
     if not chunk then
         return nil, "does not load: " .. tostring(err), code
@@ -284,7 +284,7 @@ function M.everyPassIsInTheSweep()
     end
     local combos, mode = subsets(all)
     if mode == "exhaustive" then
-        testAssert.equal(#combos, 2 ^ #all, "every subset of " .. #all .. " passes")
+        testAssert.eq(#combos, 2 ^ #all, "every subset of " .. #all .. " passes")
     else
         assert(#combos >= #all, "at least every pass alone")
     end

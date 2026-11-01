@@ -303,7 +303,7 @@ end
 function M.theCoverageMapAgreesWithTheWorkflow()
     local validator = dofile(".github/scripts/validate-ci-coverage.lua")
     local problems, jobs = validator.problems()
-    test.equal(table.concat(problems, "; "), "")
+    test.eq(table.concat(problems, "; "), "")
     test(jobs > 0, "the workflow should define at least one job")
 end
 

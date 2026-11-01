@@ -48,7 +48,7 @@ local function passesNodeSuite(label, files)
     local passed = tonumber(output:match("\n# pass (%d+)"))
     local failed = tonumber(output:match("\n# fail (%d+)"))
     check(passed ~= nil and failed ~= nil, "node printed no test summary:\n" .. output)
-    check.equal(failed, 0, label .. " failed:\n" .. output)
+    check.eq(failed, 0, label .. " failed:\n" .. output)
     check(passed > 0, label .. " ran no test")
     check(exited, "node exited unsuccessfully:\n" .. output)
 end
@@ -99,9 +99,9 @@ function M.theWasmEntryNameAgreesWithTheCompiler()
     for line in output:gmatch("[^\n]+") do
         index = index + 1
         local name = names[index]
-        check.equal(line, scalar.privateSymbol(name):sub(#"ks_" + 1), "the symbol tail of " .. tostring(name))
+        check.eq(line, scalar.privateSymbol(name):sub(#"ks_" + 1), "the symbol tail of " .. tostring(name))
     end
-    check.equal(index, #names, "node answered a different number of names:\n" .. output)
+    check.eq(index, #names, "node answered a different number of names:\n" .. output)
 end
 
 return M

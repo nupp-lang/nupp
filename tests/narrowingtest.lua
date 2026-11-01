@@ -15,7 +15,7 @@ local env = envMod.new(HERE .. "/..")
 
 local function diagsOf(src, opts)
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax: " .. (result.errors[1] and result.errors[1].msg or ""))
+    testAssert.eq(#result.errors, 0, "syntax: " .. (result.errors[1] and result.errors[1].msg or ""))
     local out = {}
     for j, d in ipairs(check.check(result, "test.nupp", env, opts)) do
         out[j] = d.code .. ":" .. d.line
@@ -39,13 +39,13 @@ function M.aWholeSingleTypeSurvivesSubtraction()
         return T.tostring(t)
     end
 
-    testAssert.equal(shown(narrowing.subtract(T.boolean, T.boolean)), "boolean")
-    testAssert.equal(shown(narrowing.subtract(T.string, T.string)), "string")
-    testAssert.equal(shown(narrowing.subtract(T.nil_, T.nil_)), "nil")
-    testAssert.equal(shown(narrowing.subtract(T.boolean, T.literal(true, T.boolean))), "false")
-    testAssert.equal(shown(narrowing.subtract(T.union({T.string, T.integer}), T.union({T.string, T.integer}))), "never")
-    testAssert.equal(shown(narrowing.subtract(T.any, T.nil_)), "any")
-    testAssert.equal(shown(narrowing.subtract(T.unknown, T.nil_)), "unknown")
+    testAssert.eq(shown(narrowing.subtract(T.boolean, T.boolean)), "boolean")
+    testAssert.eq(shown(narrowing.subtract(T.string, T.string)), "string")
+    testAssert.eq(shown(narrowing.subtract(T.nil_, T.nil_)), "nil")
+    testAssert.eq(shown(narrowing.subtract(T.boolean, T.literal(true, T.boolean))), "false")
+    testAssert.eq(shown(narrowing.subtract(T.union({T.string, T.integer}), T.union({T.string, T.integer}))), "never")
+    testAssert.eq(shown(narrowing.subtract(T.any, T.nil_)), "any")
+    testAssert.eq(shown(narrowing.subtract(T.unknown, T.nil_)), "unknown")
 end
 
 local SHAPES = table.concat(
@@ -87,7 +87,7 @@ end
 -- A fact the checker could not see go stale still leaves the declared shape on
 -- the arm it rules out, rather than a `never` that would accept anything there.
 function M.aStaleFactDoesNotEmptyAType()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -130,7 +130,7 @@ function M.anIfBindingAcceptsAnOpenTypeParameter()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -183,7 +183,7 @@ function M.typeNameTestsClassifyAnUnknown()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -245,7 +245,7 @@ end
 
 function M.aForwardGotoCarriesItsFactsToTheLabel()
     -- What the jump knew reaches the label: x is still nil on the jump's path.
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -265,7 +265,7 @@ function M.aForwardGotoCarriesItsFactsToTheLabel()
         ),
         "NUPP2003:8"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -310,7 +310,7 @@ function M.aForwardGotoCarriesItsFactsToTheLabel()
 end
 
 function M.anEarlyExitCarriesWhatItLeftUnassigned()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -330,7 +330,7 @@ function M.anEarlyExitCarriesWhatItLeftUnassigned()
         ),
         "NUPP2207:8"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -374,10 +374,10 @@ end
 
 function M.aTypedLocalHoldsNilUntilEveryPathAssignsIt()
     -- Declared without a value, a typed local is read as nil until it is assigned.
-    testAssert.equal(diagsOf("local x: string\nprint(x:upper())"), "NUPP2207:2")
-    testAssert.equal(diagsOf("local x: string\nif #arg > 5 then\n    x = 'set'\nend\nprint(x:upper())"), "NUPP2207:5")
-    testAssert.equal(diagsOf("local x: string\nwhile #arg > 5 do\n    x = 'set'\nend\nprint(#x)"), "NUPP2207:5")
-    testAssert.equal(diagsOf("local x: string\nfor _ = 1, #arg do\n    x = 'set'\nend\nprint(#x)"), "NUPP2207:5")
+    testAssert.eq(diagsOf("local x: string\nprint(x:upper())"), "NUPP2207:2")
+    testAssert.eq(diagsOf("local x: string\nif #arg > 5 then\n    x = 'set'\nend\nprint(x:upper())"), "NUPP2207:5")
+    testAssert.eq(diagsOf("local x: string\nwhile #arg > 5 do\n    x = 'set'\nend\nprint(#x)"), "NUPP2207:5")
+    testAssert.eq(diagsOf("local x: string\nfor _ = 1, #arg do\n    x = 'set'\nend\nprint(#x)"), "NUPP2207:5")
     -- Every path assigning it is what makes it hold a value.
     assertClean("local x: string\nif #arg > 5 then\n    x = 'a'\nelse\n    x = 'b'\nend\nprint(#x)")
     assertClean("local x: string\nif #arg > 5 then\n    x = 'a'\nelse\n    return\nend\nprint(#x)")
@@ -402,7 +402,7 @@ function M.nilChecksNarrowThroughFieldPaths()
         )
     )
     -- and outside the guard the field is still optional
-    testAssert.equal(diagsOf(CFG .. "\nlocal c: Cfg = new Cfg(name = 'test')\nlocal p: number = c.port"), "NUPP2001:6")
+    testAssert.eq(diagsOf(CFG .. "\nlocal c: Cfg = new Cfg(name = 'test')\nlocal p: number = c.port"), "NUPP2001:6")
 end
 
 function M.narrowingSurvivesTheElseBranch()
@@ -423,7 +423,7 @@ end
 
 function M.assignmentForgetsWhatWasNarrowed()
     -- writing through the path invalidates the refinement
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             CFG .. table.concat(
                 {
@@ -445,7 +445,7 @@ local SHAPE = "local s: {tag: 'circle', r: number} | {tag: 'rect', w: number} = 
 
 function M.literalTypesAreWritableInAnnotations()
     assertClean("local t: 'circle' = 'circle'")
-    testAssert.equal(diagsOf("local t: 'circle' = 'square'"), "NUPP2001:1")
+    testAssert.eq(diagsOf("local t: 'circle' = 'square'"), "NUPP2001:1")
 end
 
 function M.discriminantNarrowsAUnionOfShapes()
@@ -456,7 +456,7 @@ function M.discriminantNarrowsAUnionOfShapes()
         )
     )
     -- the member field is not reachable without narrowing
-    testAssert.equal(diagsOf(SHAPE .. "\nlocal r: number = s.r"), "NUPP2004:2")
+    testAssert.eq(diagsOf(SHAPE .. "\nlocal r: number = s.r"), "NUPP2004:2")
 end
 
 function M.discriminantInvertsForInequality()
@@ -496,7 +496,7 @@ function M.aModuleRequiresTypedExports()
         },
         "\n"
     )
-    testAssert.equal(diagsOf(src), "NUPP2106:7")
+    testAssert.eq(diagsOf(src), "NUPP2106:7")
     -- a fully annotated boundary passes
     assertClean(
         table.concat(
@@ -603,7 +603,7 @@ end
 
 -- A function that can return is not noreturn, however it ends.
 function M.noreturnIsNotInferredWhenAPathReturns()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -643,7 +643,7 @@ function M.declaredNeverReturn()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -748,7 +748,7 @@ local BOX = table.concat({"local record Box", "    f: string?", "end",}, "\n")
 function M.aLoopBodyWriteIsForgottenAtTheLoopEntry()
     -- The body runs again after its own write, so the narrowing from before the
     -- loop does not reach its first statement. while, numeric for, and repeat.
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -767,7 +767,7 @@ function M.aLoopBodyWriteIsForgottenAtTheLoopEntry()
         ),
         "NUPP2001:5"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -784,7 +784,7 @@ function M.aLoopBodyWriteIsForgottenAtTheLoopEntry()
         ),
         "NUPP2001:4"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -826,7 +826,7 @@ function M.aLoopBodyWriteIsForgottenAtTheLoopEntry()
 end
 
 function M.aBackwardGotoRepeatsTheWritesAfterItsLabel()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -852,7 +852,7 @@ end
 function M.aClosureDoesNotKeepANarrowingOfALocalAssignedLater()
     -- The literal may run after the assignment, so inside it the local is what
     -- it was declared as.
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -898,7 +898,7 @@ end
 function M.aFunctionHandedToACallIsTakenToRun()
     -- Through a parameter typed as a function, through pcall, and as an
     -- immediately called literal inside the condition itself.
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -916,7 +916,7 @@ function M.aFunctionHandedToACallIsTakenToRun()
         ),
         "NUPP2001:7"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -931,7 +931,7 @@ function M.aFunctionHandedToACallIsTakenToRun()
         ),
         "NUPP2001:4"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -949,7 +949,7 @@ end
 
 function M.aCalleeWritesReachThroughTheFunctionsItCalls()
     -- Transitive, recursive, and declared after the call site.
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -970,7 +970,7 @@ function M.aCalleeWritesReachThroughTheFunctionsItCalls()
         ),
         "NUPP2001:10"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -992,7 +992,7 @@ function M.aCalleeWritesReachThroughTheFunctionsItCalls()
         ),
         "NUPP2001:9"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             BOX .. table.concat(
                 {
@@ -1030,9 +1030,9 @@ function M.aLongCalleeChainReachesItsFinalWrite()
         lines[#lines + 1] = "end"
     end
     local result = parser.parse(table.concat(lines, "\n"), "test.nupp")
-    testAssert.equal(#result.errors, 0, "long call chain parses")
+    testAssert.eq(#result.errors, 0, "long call chain parses")
     local summaries = mutation.prescan(result.root)
-    testAssert.equal(summaries.byKey.f1.captured.x, true, "the first callee reaches the final write")
+    testAssert.eq(summaries.byKey.f1.captured.x, true, "the first callee reaches the final write")
 end
 
 function M.safeCallsCarryEffectsAndInvalidateShape()
@@ -1050,24 +1050,24 @@ return wrapper
 ]],
         "test.nupp"
     )
-    testAssert.equal(#result.errors, 0, "safe-call fixture parses")
+    testAssert.eq(#result.errors, 0, "safe-call fixture parses")
     local diags = check.check(result, "test.nupp", env, {})
-    testAssert.equal(#diags, 0, "safe-call fixture checks")
+    testAssert.eq(#diags, 0, "safe-call fixture checks")
     local queries = analysis.queries(result.analysis)
     local wrapper = result.root.blocks[1].stats[2].effectInfo
     assert(queries and wrapper, "the wrapper was analyzed")
-    testAssert.equal(wrapper.summary.writes["xs[*]"], true, "a known safe call carries its callee's writes")
+    testAssert.eq(wrapper.summary.writes["xs[*]"], true, "a known safe call carries its callee's writes")
 
     local block = wrapper.body.body
     local body = queries.body(block)
     local xs = wrapper.body.params[1].name
     local ok, reason = body.shapeStable(block, body.aliasOf(xs))
-    testAssert.equal(ok, false, "a safe call that mutates the array changes its shape")
-    testAssert.equal(reason, "a call may change the array's shape", "and says why")
+    testAssert.eq(ok, false, "a safe call that mutates the array changes its shape")
+    testAssert.eq(reason, "a call may change the array's shape", "and says why")
 end
 
 function M.aFunctionValueReachedThroughAFieldOrReassignedIsRead()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -1083,7 +1083,7 @@ function M.aFunctionValueReachedThroughAFieldOrReassignedIsRead()
         ),
         "NUPP2001:5"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -1103,7 +1103,7 @@ function M.aFunctionValueReachedThroughAFieldOrReassignedIsRead()
 end
 
 function M.aMethodThroughAnInterfaceMayWriteTheReceiver()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -1131,7 +1131,7 @@ function M.aMethodThroughAnInterfaceMayWriteTheReceiver()
 end
 
 function M.aNamedArgumentFindsItsParameter()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             BOX .. table.concat(
                 {
@@ -1154,7 +1154,7 @@ end
 
 function M.aCalleeWriteThroughACopyOfItsParameterReachesTheCaller()
     -- `local me = self` inside the method; a copy of the argument at the call.
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             BOX .. table.concat(
                 {
@@ -1174,7 +1174,7 @@ function M.aCalleeWriteThroughACopyOfItsParameterReachesTheCaller()
         ),
         "NUPP2001:11"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             BOX .. table.concat(
                 {
@@ -1227,7 +1227,7 @@ end
 function M.copiesAreFollowedThroughAnnotationsAndCopiesOfCopies()
     -- An annotated copy, a copy of a copy, and a fact recorded on the copy while
     -- the write goes through the original.
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             BOX .. table.concat(
                 {
@@ -1244,7 +1244,7 @@ function M.copiesAreFollowedThroughAnnotationsAndCopiesOfCopies()
         ),
         "NUPP2001:8"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -1261,7 +1261,7 @@ function M.copiesAreFollowedThroughAnnotationsAndCopiesOfCopies()
         ),
         "NUPP2001:6"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -1282,7 +1282,7 @@ end
 function M.aComputedIndexWriteClearsTheDottedFact()
     -- A literal key names the field; a computed key may be any of them; an
     -- integer key is never a field.
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -1343,7 +1343,7 @@ function M.safeNavigationProvesThePathItWalked()
         )
     )
     -- A nil result says nothing about which step was nil.
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -1409,7 +1409,7 @@ function M.ifBindingsHoldTheNonNilValueForTheirArmOnly()
     )
     -- The bound expression must admit nil, and the arm binds no fact about
     -- anything else: a plain `cfg.port` is not narrowed by the binding.
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -1467,7 +1467,7 @@ function M.aUnionOffersTheMethodItsAlternativesShare()
 end
 
 function M.aUnionMethodTakesOnlyWhatEveryAlternativeAccepts()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -1505,11 +1505,11 @@ function M.aCallThroughAnAliasEndsTheCalleesCapturedFact()
         },
         "\n"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(table.concat({prelude, "local g = f", "if x ~= nil then", "    g()", "    print(#x)", "end",}, "\n")),
         "NUPP2003:7"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {

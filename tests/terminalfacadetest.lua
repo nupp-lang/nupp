@@ -6,11 +6,11 @@ function M.theFacadeExtendsTheOriginalIoTable()
     local loaded = require("io")
     local write, stdout = original.write, original.stdout
     local terminal = require("nupp.runtime.standardio")
-    test.equal(terminal.value, original)
-    test.equal(require("io"), loaded)
-    test.equal(loaded, original)
-    test.equal(original.write, write)
-    test.equal(original.stdout, stdout)
+    test.eq(terminal.value, original)
+    test.eq(require("io"), loaded)
+    test.eq(loaded, original)
+    test.eq(original.write, write)
+    test.eq(original.stdout, stdout)
     for _, name in ipairs({
         "style",
         "table",
@@ -25,8 +25,8 @@ function M.theFacadeExtendsTheOriginalIoTable()
         "isTerminal",
         "columns"
     }) do
-        test.equal(type(original[name]), "function", name)
-        test.equal(original[name], terminal[name], name)
+        test.eq(type(original[name]), "function", name)
+        test.eq(original[name], terminal[name], name)
     end
 end
 
@@ -34,14 +34,14 @@ function M.theFacadeSharesTheApplicationColorPolicy()
     local terminal = require("nupp.runtime.standardio")
     local implementation = require("nupp.cli.internal.terminal")
     terminal.withColorMode("always", function()
-        test.equal(implementation.colorEnabled(io.stderr), true)
-        test.equal(terminal.colorEnabled(io.stderr), true)
-        test.equal(terminal.style(io.stderr).strong("value"), implementation.style(io.stderr).strong("value"))
+        test.eq(implementation.colorEnabled(io.stderr), true)
+        test.eq(terminal.colorEnabled(io.stderr), true)
+        test.eq(terminal.style(io.stderr).strong("value"), implementation.style(io.stderr).strong("value"))
         terminal.withColorMode("never", function()
-            test.equal(implementation.colorEnabled(io.stderr), false)
-            test.equal(terminal.style(io.stderr).strong("value"), "value")
+            test.eq(implementation.colorEnabled(io.stderr), false)
+            test.eq(terminal.style(io.stderr).strong("value"), "value")
         end)
-        test.equal(implementation.colorEnabled(io.stderr), true)
+        test.eq(implementation.colorEnabled(io.stderr), true)
     end)
 end
 

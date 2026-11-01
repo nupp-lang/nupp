@@ -6,12 +6,12 @@ order: 560
 
 `nupp run --watch app.nupp` builds a development-only version of a program in
 which named functions and methods keep their public identity while their bodies
-change. Reload is cooperative, so the host calls `nupp.hotreload.poll()` at a
+change. Reload is cooperative, so the host calls `debug.reload.poll()` at a
 point where changing future dispatch is safe:
 
 ```nupp:fragment
 while running do
-    nupp.hotreload.poll()
+    debug.reload.poll()
     update()
 end
 ```
@@ -35,7 +35,7 @@ local function message(): string
 end
 
 while true do
-    nupp.hotreload.poll()
+    debug.reload.poll()
     print(message())
     io.read("*l")
 end

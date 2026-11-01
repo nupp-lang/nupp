@@ -51,7 +51,7 @@ local function buildAndRun(dir, entries, policy)
     local status = os.execute(
         ("cd %q && rm -rf build && %q build --target native > %q 2>&1"):format(dir, HERE .. "/../bin/nupp", logPath)
     )
-    test.equal(status, 0, policy .. " build at " .. dir .. ": " .. read(logPath))
+    test.eq(status, 0, policy .. " build at " .. dir .. ": " .. read(logPath))
     local pipe = assert(io.popen(("cd %q && luajit check.lua %s 2>&1"):format(dir, policy)))
     local result = pipe:read("*a");
     pipe:close()
@@ -137,7 +137,7 @@ function M.vectorAndMaskEntriesLinkAcrossModulesWithoutALuaEntry()
     local dir = project{["src/vec.nupp"] = VEC, ["src/main.nupp"] = MAIN, ["check.lua"] = CHECK}
     for _, policy in ipairs({"off", "require"}) do
         local result, log = buildAndRun(dir, '"main"', policy)
-        test.equal(result, "native-only agrees", policy .. " at " .. dir .. "\n" .. log)
+        test.eq(result, "native-only agrees", policy .. " at " .. dir .. "\n" .. log)
     end
     local generated = read(dir .. "/build/native/vec.lua")
     assert(not generated:find("ks_%w*twice", 1), "no foreign declaration for a native-only entry:\n" .. generated)
@@ -197,7 +197,7 @@ function M.floatParametersReachANativeCalleeAtTheirOwnWidth()
     local dir = project{["src/floats.nupp"] = FLOATS, ["check.lua"] = FLOAT_CHECK}
     for _, policy in ipairs({"off", "require"}) do
         local result, log = buildAndRun(dir, '"floats"', policy)
-        test.equal(result, "10 20 30 40", policy .. " at " .. dir .. "\n" .. log)
+        test.eq(result, "10 20 30 40", policy .. " at " .. dir .. "\n" .. log)
     end
 end
 
@@ -279,7 +279,7 @@ function M.nativeOnlyAggregatesAreValuesAcrossEntriesUnderBothPolicies()
     local dir = project{["src/complex.nupp"] = AGGREGATE, ["check.lua"] = AGGREGATE_CHECK}
     for _, policy in ipairs({"off", "require"}) do
         local result, log = buildAndRun(dir, '"complex"', policy)
-        test.equal(result, "aggregates agree", policy .. " at " .. dir .. "\n" .. log)
+        test.eq(result, "aggregates agree", policy .. " at " .. dir .. "\n" .. log)
     end
     local llvm = read(dir .. "/build/native/aot/src/complex.neon.ll")
     assert(llvm:find("%aggregate.KaPair = type { <4 x float>, <4 x float> }", 1, true), llvm)

@@ -154,20 +154,20 @@ local getmetatable: function<T>(v: T): metatable<T>?
 
 --- Callable assertions and test-suite operations.
 local interface Assertion
-    equal: function(any, any, string?): any
-    notEqual: function(any, any, string?): any
-    deepEqual: function(any, any, string?): any
+    eq: function(any, any, string?): any
+    ne: function(any, any, string?): any
+    deepeq: function(any, any, string?): any
     matches: function(any, string, string?): string
     raises: function(function(...: any): any, string?): any
     suite: {
         skip: function(string): never,
-        isSkip: function(any): boolean,
-        skipReason: function(any): string?,
+        isskip: function(any): boolean,
+        skipreason: function(any): string?,
         cases: function({any}, function(any, integer): string, function(any, integer): any): any,
-        notExecuted: function(string): never,
-        isNotExecuted: function(any): boolean,
-        notExecutedReason: function(any): string?,
-        requireCapability: function(string, boolean, any?): nil,
+        notexecuted: function(string): never,
+        isnotexecuted: function(any): boolean,
+        notexecutedreason: function(any): string?,
+        requirecapability: function(string, boolean, any?): nil,
         fact: function(string, any): nil,
         metric: function(string, number, string?): nil,
         work: function(string, integer): nil,
@@ -1669,14 +1669,64 @@ local jit: {
 -- `jit.profile`, `jit.zone` and `jit.vmdef`, which are require()-only for the same
 -- reason.
 
---- The debug interface: stack inspection, hooks, locals and upvalues. Using it costs
---- performance and voids assumptions the compiler would rather make.
-
 ----------------------------------------------------------------------------
 -- debug
 ----------------------------------------------------------------------------
 
+--- Describes the outcome of a cooperative reload poll.
+---
+--- The four answers are `"prepared"`, when a patch was staged and committed and
+--- `generation` is now the live one; `"no-change"`, when no watched input moved;
+--- `"diagnostics"`, when the change did not check and the running generation stands;
+--- and `"restart-required"`, when the change is well-typed but outside what a live
+--- process can take.
+---
+--- The fields past `kind` are the ones that answer carries, so read them after
+--- branching on it rather than before.
+record debug.ReloadPoll
+    kind: string
+
+    --- Present on `"prepared"` and `"no-change"`. On the first it is the generation
+    --- now running; on the second, the one that stayed.
+    generation: integer?
+
+    --- The published patch chunk, on `"prepared"`.
+    patch: string?
+
+    --- What a `"prepared"` answer was prepared against.
+    baseGeneration: integer?
+
+    --- Why the change was refused, on `"diagnostics"` and `"restart-required"`.
+    diagnostics: {any}?
+
+    --- Which boundary refused it, where a restart answer could name one.
+    reason: any
+end
+
+--- Cooperative hot reload installed only while `nupp run --watch` is active.
+--- @internal
+record nupp.HotReload
+    --- Returns the currently committed implementation generation.
+    generation: @nosuspend function(): integer
+
+    --- Detects source edits and commits a compatible patch at this host boundary.
+    ---
+    --- Branch on `kind`: a poll that published reports `"prepared"`, one that found
+    --- nothing reports `"no-change"`, and the two refusals are told apart by whether
+    --- restarting is what it would take.
+    poll: function(): debug.ReloadPoll
+end
+
+--- The debug interface: stack inspection, hooks, locals and upvalues. Using it costs
+--- performance and voids assumptions the compiler would rather make.
+
 local debug: {
+    --- Cooperatively reloads compatible source changes in watch mode.
+    ---
+    --- Installed only while `nupp run --watch` is active.
+    --- @namespace debug.reload
+    reload: nupp.HotReload,
+
     --- Describes a function, or the activation record at a stack level.
     ---
     --- @param f the function to describe, or a stack level counted from here

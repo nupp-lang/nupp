@@ -5,7 +5,7 @@ two-dimensional vector operations.
 
 ```nupp:playground
 assert(math.lerp(10, 20, 0.25) == 12.5)
-local turn = math.deltaangle(math.rad(350), math.rad(10))
+local turn = math.dtangle(math.rad(350), math.rad(10))
 assert(math.abs(math.deg(turn) - 20) < 0.000001)
 ```
 
@@ -16,7 +16,7 @@ factors outside `[0, 1]` extrapolate. It returns `from` exactly at zero
 and `to` exactly at one, because it returns the endpoints without computing them.
 
 `wrapangle(radians)` returns the equivalent angle in `[-π, π)`, and
-`deltaangle(from, to)` returns the shortest signed rotation from one
+`dtangle(from, to)` returns the shortest signed rotation from one
 angle to another.
 
 ## Fixed-width arithmetic

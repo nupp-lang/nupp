@@ -17,7 +17,7 @@ local sharedEnv = envMod.new(".")
 -- Every NUPP2506 the source produces.
 local function lint(src, config)
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors in test source")
+    testAssert.eq(#result.errors, 0, "syntax errors in test source")
     local diags = check.check(result, "test.nupp", sharedEnv, config or {})
     local found = {}
     for _, diag in ipairs(diags) do
@@ -31,14 +31,14 @@ end
 
 local function diagnosticsOf(src)
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors in test source")
+    testAssert.eq(#result.errors, 0, "syntax errors in test source")
     return check.check(result, "test.nupp", sharedEnv, {})
 end
 
 local function assertFlagged(src, label)
     local found = lint(src)
-    testAssert.equal(#found, 1, (label or "expected one report") .. "\n" .. src)
-    testAssert.equal(found[1].lint, "undocumented-raise", "lint name")
+    testAssert.eq(#found, 1, (label or "expected one report") .. "\n" .. src)
+    testAssert.eq(found[1].lint, "undocumented-raise", "lint name")
     return found[1]
 end
 
@@ -101,8 +101,8 @@ local function load(path)
 end
 ]]
     )
-    testAssert.equal(at.line, 3, "reported at the declaration")
-    testAssert.equal(at.severity, "warning", "suspicious lints warn by default")
+    testAssert.eq(at.line, 3, "reported at the declaration")
+    testAssert.eq(at.severity, "warning", "suspicious lints warn by default")
 end
 
 function M.pointsAtTheRaise()
@@ -115,9 +115,9 @@ local function load(path)
 end
 ]]
     )
-    testAssert.equal(#at.related, 1, "the raise is a related location")
-    testAssert.equal(at.related[1].line, 3, "which is where the error call is")
-    testAssert.equal(at.related[1].message, "raises here", "labelled")
+    testAssert.eq(#at.related, 1, "the raise is a related location")
+    testAssert.eq(at.related[1].line, 3, "which is where the error call is")
+    testAssert.eq(at.related[1].message, "raises here", "labelled")
 end
 
 function M.namesTheMemberRatherThanItsTable()
@@ -128,8 +128,8 @@ function m.Q:get(name)
    error("unknown query")
 end
 ]])
-    testAssert.equal(at.col, 14, "reported at `get`, not at `m`")
-    testAssert.equal(at.msg:match("^(%S+)"), "m.Q:get", "named by its whole path")
+    testAssert.eq(at.col, 14, "reported at `get`, not at `m`")
+    testAssert.eq(at.msg:match("^(%S+)"), "m.Q:get", "named by its whole path")
 end
 
 function M.isQuietWhenTheRaiseIsDocumented()
@@ -306,17 +306,17 @@ end
 ]], {
         lints = {["undocumented-raise"] = "off"}
     })
-    testAssert.equal(#found, 0, "a lint set to off says nothing")
+    testAssert.eq(#found, 0, "a lint set to off says nothing")
 end
 
 -- The tag itself, which `nupp doc` renders and the lint reads.
 
 function M.parsesOneRaises()
     local doc = docblock.parse({"Reads a file.", "@raises string when the path is missing"})
-    testAssert.equal(#doc.raises, 1, "one condition")
-    testAssert.equal(doc.raises[1].type, "string", "the type it names")
-    testAssert.equal(doc.raises[1].text, "when the path is missing", "its text")
-    testAssert.equal(doc.text, "Reads a file.", "the prose keeps the rest")
+    testAssert.eq(#doc.raises, 1, "one condition")
+    testAssert.eq(doc.raises[1].type, "string", "the type it names")
+    testAssert.eq(doc.raises[1].text, "when the path is missing", "its text")
+    testAssert.eq(doc.text, "Reads a file.", "the prose keeps the rest")
 end
 
 function M.parsesSeveralRaises()
@@ -324,17 +324,17 @@ function M.parsesSeveralRaises()
         "@raises string when the path is missing",
         "@raises io.Problem when the file cannot be read",
     })
-    testAssert.equal(#doc.raises, 2, "one entry per occurrence, unlike @param")
-    testAssert.equal(doc.raises[2].type, "io.Problem", "a qualified type is one word")
-    testAssert.equal(doc.raises[2].text, "when the file cannot be read", "in the order written")
+    testAssert.eq(#doc.raises, 2, "one entry per occurrence, unlike @param")
+    testAssert.eq(doc.raises[2].type, "io.Problem", "a qualified type is one word")
+    testAssert.eq(doc.raises[2].text, "when the file cannot be read", "in the order written")
 end
 
 -- A type with no condition beside it is the whole of what some raises have to say.
 function M.parsesARaisesWithNoCondition()
     local doc = docblock.parse({"@raises never"})
-    testAssert.equal(#doc.raises, 1, "still an entry")
-    testAssert.equal(doc.raises[1].type, "never", "the type")
-    testAssert.equal(doc.raises[1].text, "", "and nothing after it")
+    testAssert.eq(#doc.raises, 1, "still an entry")
+    testAssert.eq(doc.raises[1].type, "never", "the type")
+    testAssert.eq(doc.raises[1].text, "", "and nothing after it")
 end
 
 function M.wrapsARaisesDescription()
@@ -342,9 +342,9 @@ function M.wrapsARaisesDescription()
         "@raises string when the path is missing,",
         "    which a caller cannot always tell in advance",
     })
-    testAssert.equal(#doc.raises, 1, "a continuation joins rather than starting a second")
-    testAssert.equal(doc.raises[1].type, "string", "the type stays where the first line put it")
-    testAssert.equal(
+    testAssert.eq(#doc.raises, 1, "a continuation joins rather than starting a second")
+    testAssert.eq(doc.raises[1].type, "string", "the type stays where the first line put it")
+    testAssert.eq(
         doc.raises[1].text,
         "when the path is missing, which a caller cannot always tell in advance",
         "joined with a single space"
@@ -353,22 +353,22 @@ end
 
 function M.aWrappedTypelessRaiseStaysTypeless()
     local doc = docblock.parse({"@raises", "    when validation fails",})
-    testAssert.equal(#doc.raises, 1)
-    testAssert.equal(doc.raises[1].type, "", "a continuation is not borrowed as the type")
-    testAssert.equal(doc.raises[1].text, "when validation fails")
+    testAssert.eq(#doc.raises, 1)
+    testAssert.eq(doc.raises[1].type, "", "a continuation is not borrowed as the type")
+    testAssert.eq(doc.raises[1].text, "when validation fails")
 end
 
 function M.wrapsAnExtensionTagValue()
     local doc = docblock.parse({"@since version 1.0,", "    including portable targets",})
-    testAssert.equal(doc.tags.since, "version 1.0, including portable targets")
-    testAssert.equal(doc.text, "", "the tag continuation does not leak into prose")
+    testAssert.eq(doc.tags.since, "version 1.0, including portable targets")
+    testAssert.eq(doc.text, "", "the tag continuation does not leak into prose")
 end
 
 function M.keepsRaisesApartFromReturns()
     local doc = docblock.parse({"@return the contents", "@raises string when the path is missing",})
-    testAssert.equal(#doc.returns, 1, "the return is its own list")
-    testAssert.equal(#doc.raises, 1, "and so is the raise")
-    testAssert.equal(doc.returns[1], "the contents", "neither collected the other")
+    testAssert.eq(#doc.returns, 1, "the return is its own list")
+    testAssert.eq(#doc.raises, 1, "and so is the raise")
+    testAssert.eq(doc.returns[1], "the contents", "neither collected the other")
 end
 
 -- The type a raise names, which the checker resolves once the file is read through.
@@ -395,7 +395,7 @@ local function load(path)
 end
 ]]
     )
-    testAssert.equal(#found, 0, "`string` names a type")
+    testAssert.eq(#found, 0, "`string` names a type")
 end
 
 function M.rejectsARaiseTypeThatNamesNothing()
@@ -409,8 +409,8 @@ local function load(path)
 end
 ]]
     )
-    testAssert.equal(#found, 1, "one report")
-    testAssert.equal(found[1].msg, "@raises when on load names no type here", "names the word it read")
+    testAssert.eq(#found, 1, "one report")
+    testAssert.eq(found[1].msg, "@raises when on load names no type here", "names the word it read")
 end
 
 function M.rejectsARaiseWithNothingAfterIt()
@@ -424,8 +424,8 @@ local function load(path)
 end
 ]]
     )
-    testAssert.equal(#found, 1, "one report")
-    testAssert.equal(found[1].msg, "@raises on load names no type", "says the line named none")
+    testAssert.eq(#found, 1, "one report")
+    testAssert.eq(found[1].msg, "@raises on load names no type", "says the line named none")
 end
 
 -- A raise may name a declaration written below the function that raises it, which is
@@ -445,7 +445,7 @@ record Problem
 end
 ]]
     )
-    testAssert.equal(#found, 0, "declaration order does not decide it")
+    testAssert.eq(#found, 0, "declaration order does not decide it")
 end
 
 -- A qualified name is split on its dots rather than having them skipped, so a
@@ -462,8 +462,8 @@ local function load(path)
 end
 ]]
     )
-    testAssert.equal(#found, 1, "a trailing dot is not `string`")
-    testAssert.equal(found[1].msg, "@raises string. on load names no type here", "says what it read")
+    testAssert.eq(#found, 1, "a trailing dot is not `string`")
+    testAssert.eq(found[1].msg, "@raises string. on load names no type here", "says what it read")
 end
 
 -- Not a lint: a docblock that promises a type it does not have is the same mistake
@@ -481,14 +481,14 @@ end
 ]],
         "test.nupp"
     )
-    testAssert.equal(#result.errors, 0, "syntax errors in test source")
+    testAssert.eq(#result.errors, 0, "syntax errors in test source")
     local diags = check.check(result, "test.nupp", sharedEnv, {lints = {["undocumented-raise"] = "off"}})
     for _, diag in ipairs(diags) do
         if diag.code == "NUPP1010" then
             found[#found + 1] = diag
         end
     end
-    testAssert.equal(#found, 1, "turning the lint off does not turn this off")
+    testAssert.eq(#found, 1, "turning the lint off does not turn this off")
 end
 
 return M

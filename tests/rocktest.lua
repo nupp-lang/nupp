@@ -48,8 +48,8 @@ function M.aNamedRockspecStaysInTheProjectRoot()
     outside:write('package = "outside"\nversion = "1.0-1"\n')
     outside:close()
     local packed, err = rock.pack(dir .. "/project", "../outside.rockspec")
-    testAssert.equal(packed, nil, "an outside rockspec is refused")
-    testAssert.equal(err, "the rockspec must be in the project root", "the boundary is named")
+    testAssert.eq(packed, nil, "an outside rockspec is refused")
+    testAssert.eq(err, "the rockspec must be in the project root", "the boundary is named")
     remove(dir)
 end
 
@@ -61,7 +61,7 @@ function M.packAndTestAProjectFromACleanRockTree()
     assert(exists(packed), "pack wrote the rock LuaRocks named")
     local checked, checkErr = rock.test(dir)
     assert(checked, checkErr)
-    testAssert.equal(checked, packed, "the clean consumer checked the packed artifact")
+    testAssert.eq(checked, packed, "the clean consumer checked the packed artifact")
     remove(dir)
 end
 

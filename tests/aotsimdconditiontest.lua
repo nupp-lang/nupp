@@ -169,11 +169,11 @@ function M.statementfulConditionsPreserveLaneEvaluationAndOuterExits()
         local f = assert(io.open(output, "rb"));
         local log = f:read("*a");
         f:close()
-        test.equal(status, 0, policy .. " build at " .. dir .. ": " .. log)
+        test.eq(status, 0, policy .. " build at " .. dir .. ": " .. log)
         local pipe = assert(io.popen(("cd %q && luajit check.lua %s 2>&1"):format(dir, policy)))
         local result = pipe:read("*a");
         pipe:close()
-        test.equal(result:gsub("%s+$", ""), "condition results match", policy .. " at " .. dir)
+        test.eq(result:gsub("%s+$", ""), "condition results match", policy .. " at " .. dir)
     end
 end
 

@@ -253,17 +253,17 @@ function M.nonFiniteNumbersAreRefusedByEveryProvider()
             for _, decode in ipairs(decoders) do
                 local ok, problem = pcall(decode, row[1])
                 assert(not ok, ("%s accepted %q"):format(name, row[1]))
-                test.equal(
+                test.eq(
                     tostring(problem),
                     ("invalid JSON at byte %d: number is out of range"):format(row[2]),
                     name .. " " .. row[1]
                 )
             end
         end
-        test.equal(provider.decode("1e-400"), 0, name .. " underflow")
-        test.equal(1 / provider.decode("-1e-400"), -math.huge, name .. " negative underflow")
-        test.equal(provider.decode("[1.7976931348623157e308]")[1], 1.7976931348623157e308, name .. " largest double")
-        test.equal(provider.decode("1e308"), 1e308, name .. " 1e308")
+        test.eq(provider.decode("1e-400"), 0, name .. " underflow")
+        test.eq(1 / provider.decode("-1e-400"), -math.huge, name .. " negative underflow")
+        test.eq(provider.decode("[1.7976931348623157e308]")[1], 1.7976931348623157e308, name .. " largest double")
+        test.eq(provider.decode("1e308"), 1e308, name .. " 1e308")
     end
 end
 
@@ -306,7 +306,7 @@ function M.duplicateMemberNamesAreRefusedByEveryProvider()
             for _, decode in ipairs(decoders) do
                 local ok, problem = pcall(decode, row[1])
                 assert(not ok, ("%s accepted %q"):format(name, row[1]))
-                test.equal(
+                test.eq(
                     tostring(problem),
                     ("invalid JSON at byte %d: duplicate member name"):format(row[2]),
                     name .. " " .. row[1]
@@ -315,9 +315,9 @@ function M.duplicateMemberNamesAreRefusedByEveryProvider()
         end
         -- The same name in two objects is two members.
         local value = provider.decode('[{"a":1},{"a":2},{"a":null},{"a":3}]')
-        test.equal(value[1].a, 1, name)
-        test.equal(value[4].a, 3, name)
-        test.equal(provider.decode('{"a":{"a":{"a":1}}}').a.a.a, 1, name)
+        test.eq(value[1].a, 1, name)
+        test.eq(value[4].a, 3, name)
+        test.eq(provider.decode('{"a":{"a":{"a":1}}}').a.a.a, 1, name)
     end
 end
 

@@ -52,7 +52,7 @@ end
 
 --- Asserts that `source` reports `want` and nothing else.
 local function reports(source, want, label)
-    testAssert.equal(codesOf(source), want, label)
+    testAssert.eq(codesOf(source), want, label)
 end
 
 local function diagnosticCodes(source)
@@ -77,7 +77,7 @@ local function reportsGpu(source, want, label)
         for _, diagnostic in ipairs(check.check(result, "test.nupp", environment)) do
             out[#out + 1] = diagnostic.code
         end
-        testAssert.equal(table.concat(out, " "), want, label)
+        testAssert.eq(table.concat(out, " "), want, label)
     end
 end
 

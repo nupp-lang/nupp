@@ -47,7 +47,7 @@ end
 --- Every code the checker reports for one source in one environment.
 local function codes(env, source)
     local parsed = parser.parse(source, "prelude-cache.nupp")
-    test.equal(#parsed.errors, 0, "the sample parses")
+    test.eq(#parsed.errors, 0, "the sample parses")
     local out = {}
     for _, diagnostic in ipairs(check.check(parsed, "prelude-cache.nupp", env)) do
         out[#out + 1] = diagnostic.code
@@ -84,21 +84,17 @@ function M.aCachedPreludeAnswersLikeAFreshlyCheckedOne()
     -- Forbidden it, so it checks the prelude from source.
     local fresh = envMod.new(dir, {cache = false})
 
-    test.equal(cached.preludeRuntime, fresh.preludeRuntime, "the generated prelude runtime is the same source")
-    test.equal(names(cached.globals), names(fresh.globals), "the same globals")
-    test.equal(names(cached.globalTypes), names(fresh.globalTypes), "the same global types")
-    test.equal(names(cached.globalTypeDefs), names(fresh.globalTypeDefs), "the same declaration sites")
-    test.equal(
-        names(cached.preludeComptimeFunctions),
-        names(fresh.preludeComptimeFunctions),
-        "the same comptime helpers"
-    )
-    test.equal(names(cached.annotations.byname), names(fresh.annotations.byname), "the same built-in annotations")
+    test.eq(cached.preludeRuntime, fresh.preludeRuntime, "the generated prelude runtime is the same source")
+    test.eq(names(cached.globals), names(fresh.globals), "the same globals")
+    test.eq(names(cached.globalTypes), names(fresh.globalTypes), "the same global types")
+    test.eq(names(cached.globalTypeDefs), names(fresh.globalTypeDefs), "the same declaration sites")
+    test.eq(names(cached.preludeComptimeFunctions), names(fresh.preludeComptimeFunctions), "the same comptime helpers")
+    test.eq(names(cached.annotations.byname), names(fresh.annotations.byname), "the same built-in annotations")
     assert(cached.stringLib ~= nil, "the string library survives")
-    test.equal(names(cached.stringLib.fields), names(fresh.stringLib.fields), "with the same members")
+    test.eq(names(cached.stringLib.fields), names(fresh.stringLib.fields), "with the same members")
 
     for _, source in ipairs(SAMPLES) do
-        test.equal(codes(cached, source), codes(fresh, source), "the same diagnostics for:\n" .. source)
+        test.eq(codes(cached, source), codes(fresh, source), "the same diagnostics for:\n" .. source)
     end
 
     -- Two environments must not share the tables they are about to add
@@ -144,15 +140,15 @@ function M.theCachedPreludeKeepsItsTrivia()
     local one, other = anyArena(fresh), anyArena(cached)
     assert(one ~= nil, "the checked prelude carries trivia to compare against")
     assert(other ~= nil, "the cached prelude carries trivia")
-    test.equal(other.source, one.source, "the arena keeps the source it indexes")
-    test.equal(other.count, one.count, "and every record in it")
+    test.eq(other.source, one.source, "the arena keeps the source it indexes")
+    test.eq(other.count, one.count, "and every record in it")
     local kind, offset, length, line, col = other:record(1)
     local wantKind, wantOffset, wantLength, wantLine, wantCol = one:record(1)
-    test.equal(kind, wantKind)
-    test.equal(offset, wantOffset)
-    test.equal(length, wantLength)
-    test.equal(line, wantLine)
-    test.equal(col, wantCol)
+    test.eq(kind, wantKind)
+    test.eq(offset, wantOffset)
+    test.eq(length, wantLength)
+    test.eq(line, wantLine)
+    test.eq(col, wantCol)
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -183,9 +179,9 @@ function M.theNextCommandReadsWhatThisOneWrote()
     -- What is compared is the answer, not the bytes: a JSON object writes its
     -- members in whatever order it holds them, and that order is not the point.
     local second = json.decode(run())
-    test.equal(second.ok, first.ok, "and the second answers the same")
-    test.equal(#second.diagnostics, #first.diagnostics, "with the same diagnostics")
-    test.equal(second.compat, first.compat, "under the same profile")
+    test.eq(second.ok, first.ok, "and the second answers the same")
+    test.eq(#second.diagnostics, #first.diagnostics, "with the same diagnostics")
+    test.eq(second.compat, first.compat, "under the same profile")
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -277,7 +273,7 @@ function M.aStoredPreludeIsNotRestoredOverAnotherIdentity()
             end
         end
         table.sort(shared)
-        test.equal(
+        test.eq(
             #shared,
             0,
             "no two interned types share an id:\n  " .. table.concat(shared, "\n  ", 1, math.min(#shared, 10))
@@ -292,7 +288,7 @@ function M.aStoredPreludeIsNotRestoredOverAnotherIdentity()
         for _, diagnostic in ipairs(require("nupp.compiler.check").check(parsed, "prelude-identity.nupp", env)) do
             found[#found + 1] = tostring(diagnostic.code) .. " " .. tostring(diagnostic.msg)
         end
-        test.equal(table.concat(found, "\n"), "", "a nominal the prelude declares is one type")
+        test.eq(table.concat(found, "\n"), "", "a nominal the prelude declares is one type")
     end)
     restore()
     os.execute("rm -rf '" .. dir .. "'")
@@ -348,10 +344,10 @@ print("shared ids: " .. shared)
     end
 
     local written = run(5)
-    test.equal(written:match("shared ids: %d+"), "shared ids: 0", "the writer's own arena is consistent:\n" .. written)
+    test.eq(written:match("shared ids: %d+"), "shared ids: 0", "the writer's own arena is consistent:\n" .. written)
     local read = run(0)
     os.execute("rm -rf '" .. dir .. "'")
-    test.equal(read:match("shared ids: %d+"), "shared ids: 0", "no two interned types share an id:\n" .. read)
+    test.eq(read:match("shared ids: %d+"), "shared ids: 0", "no two interned types share an id:\n" .. read)
 end
 
 -- Exercise the image writer and reader together with values the real prelude
@@ -449,8 +445,8 @@ function M.portableImageKeepsBinaryNumericAndGraphIdentity()
         return nil
     end
     types.adopt = function(bucket, key, value)
-        test.equal(bucket, "types");
-        test.equal(key, "compact-fixture")
+        test.eq(bucket, "types");
+        test.eq(key, "compact-fixture")
         adopted = value
     end
     types.resumeIdentity = function(value)
@@ -460,29 +456,29 @@ function M.portableImageKeepsBinaryNumericAndGraphIdentity()
     types.interned, types.adopt, types.resumeIdentity = oldInterned, oldAdopt, oldResume
     assert(ok, decoded)
     local values = decoded.globals
-    test.equal(values.binary, roots.globals.binary)
-    test.equal(decoded.preludeRuntime, values.binary)
-    test.equal(values.empty, "")
+    test.eq(values.binary, roots.globals.binary)
+    test.eq(decoded.preludeRuntime, values.binary)
+    test.eq(values.empty, "")
     assert(values.yes == true and values.no == false)
     assert(1 / values.zero == math.huge and 1 / values.negativeZero == -math.huge)
-    test.equal(values.negative, -16385)
-    test.equal(values.boundary, 9007199254740991)
-    test.equal(values.negativeBoundary, -9007199254740991)
-    test.equal(values.fraction, 1.25)
+    test.eq(values.negative, -16385)
+    test.eq(values.boundary, 9007199254740991)
+    test.eq(values.negativeBoundary, -9007199254740991)
+    test.eq(values.fraction, 1.25)
     assert(values.nan ~= values.nan and values.positiveInfinity == math.huge and values.negativeInfinity == -math.huge)
     assert(values.left == values.right and values.left == decoded.stringLib and values.left == adopted)
     assert(values.left.self == values.left and values.byTable[values.left] == values.left)
     assert(getmetatable(values.left).owner == values.left)
-    test.equal(resumed.serial, identity.serial)
-    test.equal(resumed.capability, identity.capability)
-    test.equal(resumed.nominal, identity.nominal)
+    test.eq(resumed.serial, identity.serial)
+    test.eq(resumed.capability, identity.capability)
+    test.eq(resumed.nominal, identity.nominal)
     local roundtripIdentity = {
         arenas = {types = {["compact-fixture"] = values.left}},
         serial = resumed.serial,
         capability = resumed.capability,
         nominal = resumed.nominal
     }
-    test.equal(
+    test.eq(
         writeImageFixture(decoded, roundtripIdentity),
         data,
         "dictionary ordering and every graph value survive re-encoding"
@@ -530,7 +526,7 @@ function M.portableImageExcludesRuntimeWitnessCachesOnly()
         executable = function()
         end
     }
-    test.equal(writeImageFixture(roots, identity), expected)
+    test.eq(writeImageFixture(roots, identity), expected)
     -- An unrelated anonymous key is still an invalid image. The exclusion is
     -- by the runtime's exact private keys, not by the shape of user data.
     owner[{}] = true
@@ -662,7 +658,7 @@ function M.nativeCacheRejectsMalformedPlainData()
         damage(image)
         local ok, decoded = pcall(cache.decode, image)
         assert(ok, "malformed native image " .. index .. " raised: " .. tostring(decoded))
-        test.equal(decoded, nil, "malformed native image " .. index .. " is a cache miss")
+        test.eq(decoded, nil, "malformed native image " .. index .. " is a cache miss")
     end
 end
 
@@ -688,7 +684,7 @@ function M.nativeCacheValidatesEveryRootBeforeAdoptingTypes()
     local ok, decoded = pcall(cache.decode, image)
     types.interned, types.adopt, types.resumeIdentity = oldInterned, oldAdopt, oldResume
     assert(ok, decoded)
-    test.equal(decoded, nil, "an incomplete root list is refused")
+    test.eq(decoded, nil, "an incomplete root list is refused")
     assert(not adopted and not resumed, "a refused native image changed type identity")
 end
 

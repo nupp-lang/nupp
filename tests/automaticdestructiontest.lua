@@ -15,7 +15,7 @@ local function checked(source)
     env.loaded = {}
     local filename = ("automatic-destruction-test-%d.nupp"):format(checkedRun)
     local result = parser.parse(source, filename)
-    testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "syntax")
+    testAssert.eq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "syntax")
     local diags = check.check(result, filename, env)
 
     return result, diags
@@ -33,9 +33,9 @@ end
 
 local function compile(source)
     local result, diags = checked(source)
-    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
+    testAssert.eq(#diags, 0, diags[1] and diags[1].msg or "check")
     local code, genDiags = gen.generate(result, "automatic-destruction-test")
-    testAssert.equal(#genDiags, 0, genDiags[1] and genDiags[1].msg or "generate")
+    testAssert.eq(#genDiags, 0, genDiags[1] and genDiags[1].msg or "generate")
     local chunk, err = loadstring(code, "@automatic-destruction-test")
     assert(chunk, tostring(err) .. "\n" .. code)
 
@@ -75,7 +75,7 @@ function M.repeatConditionsCanReadBodyOwnersBeforeCleanup()
             "\n"
         )
     )
-    testAssert.equal(chunk(), "r")
+    testAssert.eq(chunk(), "r")
 end
 
 function M.withIsContextualAndScopesAnAffineOwner()
@@ -83,7 +83,7 @@ function M.withIsContextualAndScopesAnAffineOwner()
         "local with = function(value) return value end\nreturn with(1)",
         "automatic-destruction-test.nupp"
     )
-    testAssert.equal(#ordinary.errors, 0)
+    testAssert.eq(#ordinary.errors, 0)
 
     local chunk = compile(
         PRELUDE .. table.concat(
@@ -91,7 +91,7 @@ function M.withIsContextualAndScopesAnAffineOwner()
             "\n"
         )
     )
-    testAssert.equal(chunk(), "w")
+    testAssert.eq(chunk(), "w")
 end
 
 function M.aProvenNonRaisingWithUsesDirectCleanup()
@@ -101,7 +101,7 @@ function M.aProvenNonRaisingWithUsesDirectCleanup()
             "\n"
         )
     )
-    testAssert.equal(chunk(), "f")
+    testAssert.eq(chunk(), "f")
     assert(not code:find("xpcall", 1, true), "a proven non-raising with should call its terminal directly:\n" .. code)
 end
 
@@ -122,8 +122,8 @@ function M.aWithThatMayRaiseKeepsProtectedCleanup()
         )
     )
     local ok, calls = chunk()
-    testAssert.equal(ok, false)
-    testAssert.equal(calls, "p")
+    testAssert.eq(ok, false)
+    testAssert.eq(calls, "p")
     assert(code:find("xpcall", 1, true), "a possibly raising with must retain body protection:\n" .. code)
 end
 
@@ -149,7 +149,7 @@ function M.aWithWhoseTerminalMayRaiseKeepsProtectedCleanup()
         "\n"
     )
     local chunk, code = compile(source)
-    testAssert.equal(chunk(), false)
+    testAssert.eq(chunk(), false)
     assert(code:find("xpcall", 1, true), "a possibly raising terminal must retain protected cleanup:\n" .. code)
 end
 
@@ -166,7 +166,7 @@ function M.withAcquiresLeftToRightAndDropsInReverse()
             "\n"
         )
     )
-    testAssert.equal(chunk(), "xba")
+    testAssert.eq(chunk(), "xba")
 end
 
 function M.withDropsOnRaisedAndReturnedExits()
@@ -188,13 +188,13 @@ function M.withDropsOnRaisedAndReturnedExits()
         )
     )
     local result, ok, calls = chunk()
-    testAssert.equal(result, "r")
-    testAssert.equal(ok, false)
-    testAssert.equal(calls, "re")
+    testAssert.eq(result, "r")
+    testAssert.eq(ok, false)
+    testAssert.eq(calls, "re")
 end
 
 function M.withBindingCannotEscapeOrBeDroppedEarly()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             PRELUDE .. table.concat(
                 {
@@ -209,7 +209,7 @@ function M.withBindingCannotEscapeOrBeDroppedEarly()
         "NUPP2608"
     )
 
-    testAssert.equal(
+    testAssert.eq(
         codes(PRELUDE .. table.concat({"", "with value = open_resource('x') do own.drop(value) end",}, "\n")),
         "NUPP2602"
     )
@@ -233,7 +233,7 @@ end
 return calls
 ]]
     )
-    testAssert.equal(chunk(), "changedchanged")
+    testAssert.eq(chunk(), "changedchanged")
 end
 
 function M.withReborrowsRejectLiveAliasesAndRecoverAtScopeExit()
@@ -250,8 +250,8 @@ with value = open_resource('fresh') do
     rename(value)
 end
 ]]
-    testAssert.equal(codes(source), "NUPP2607")
-    testAssert.equal(codes((source:gsub("        rename%(value%)\n", ""))), "")
+    testAssert.eq(codes(source), "NUPP2607")
+    testAssert.eq(codes((source:gsub("        rename%(value%)\n", ""))), "")
 end
 
 local WITH_SPAN = [[
@@ -265,7 +265,7 @@ local values = array.scalar(array.float, 4)
 ]]
 
 function M.withWritableSpansKeepTheirSourceLoansUntilExit()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             WITH_SPAN
             .. [[
@@ -317,8 +317,8 @@ with writable = values:write() do
     fill(writable)
 end
 ]]
-        testAssert.equal(codes(source), "NUPP2607", derive)
-        testAssert.equal(codes((source:gsub("        fill%(writable%)\n", ""))), "", derive)
+        testAssert.eq(codes(source), "NUPP2607", derive)
+        testAssert.eq(codes((source:gsub("        fill%(writable%)\n", ""))), "", derive)
     end
 end
 
@@ -333,11 +333,11 @@ local function escape(exclusive owner: array.Array<float>): span.Span<float> bor
 end
 ]]
     )
-    testAssert.equal(actual, "NUPP2619")
+    testAssert.eq(actual, "NUPP2619")
 end
 
 function M.gotoCannotEnterAWithScope()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             PRELUDE .. table.concat(
                 {
@@ -361,12 +361,12 @@ function M.withFormatsWrappedBindingsIdempotently()
         .. "very long resource name that forces wrapping') do\n"
         .. "use(first_resource, second_resource)\nend"
     local formatted, errors = fmt.format(source, "with-test.nupp")
-    testAssert.equal(#errors, 0)
+    testAssert.eq(#errors, 0)
     assert(formatted:find("with\n    first_resource", 1, true), formatted)
     assert(formatted:find("\n    second_resource", 1, true), formatted)
     assert(formatted:find("\ndo\n", 1, true), formatted)
     local again = fmt.format(formatted, "with-test.nupp")
-    testAssert.equal(again, formatted)
+    testAssert.eq(again, formatted)
 end
 
 function M.fallthroughDestroysAnOrdinaryOwner()
@@ -384,7 +384,7 @@ function M.fallthroughDestroysAnOrdinaryOwner()
             "\n"
         )
     )
-    testAssert.equal(chunk(), "a")
+    testAssert.eq(chunk(), "a")
 end
 
 function M.anEmptyNonRaisingIntervalUsesDirectCleanup()
@@ -394,7 +394,7 @@ function M.anEmptyNonRaisingIntervalUsesDirectCleanup()
             "\n"
         )
     )
-    testAssert.equal(chunk(), "z")
+    testAssert.eq(chunk(), "z")
     assert(
         not code:find("xpcall", 1, true),
         "a proven empty interval should not install raised-exit protection:\n" .. code
@@ -416,8 +416,8 @@ function M.aRaisedBodyStillDestroysTheOwner()
         )
     )
     local ok, calls = chunk()
-    testAssert.equal(ok, false)
-    testAssert.equal(calls, "e", code)
+    testAssert.eq(ok, false)
+    testAssert.eq(calls, "e", code)
 end
 
 function M.ownersDestroyInReverseActivationOrder()
@@ -436,14 +436,14 @@ function M.ownersDestroyInReverseActivationOrder()
             "\n"
         )
     )
-    testAssert.equal(chunk(), "abba")
+    testAssert.eq(chunk(), "abba")
 end
 
 function M.explicitDropSuppressesAutomaticCleanup()
     local chunk = compile(
         PRELUDE .. table.concat({"", "local value = open_resource('d')", "own.drop(value)", "return calls",}, "\n")
     )
-    testAssert.equal(chunk(), "d")
+    testAssert.eq(chunk(), "d")
 end
 
 function M.aMovedBindingCanBeReinitializedForAutomaticCleanup()
@@ -462,7 +462,7 @@ function M.aMovedBindingCanBeReinitializedForAutomaticCleanup()
             "\n"
         )
     )
-    testAssert.equal(chunk(), "ab")
+    testAssert.eq(chunk(), "ab")
 end
 
 function M.aTakesCallReceivesResponsibilityExactlyOnce()
@@ -483,11 +483,11 @@ function M.aTakesCallReceivesResponsibilityExactlyOnce()
             "\n"
         )
     )
-    testAssert.equal(chunk(), "t")
+    testAssert.eq(chunk(), "t")
 end
 
 function M.aTakesBoundaryMayItselfBeTheTerminal()
-    testAssert.equal(
+    testAssert.eq(
         codes(
             PRELUDE .. table.concat(
                 {"", "local function incomplete(takes value: Resource)", "   print(value.name)", "end",},
@@ -514,7 +514,7 @@ function M.anOwningReturnTransfersResponsibility()
             "\n"
         )
     )
-    testAssert.equal(chunk(), "r")
+    testAssert.eq(chunk(), "r")
 end
 
 function M.capabilityPreservingGenericsTransferAutomaticResponsibility()
@@ -533,17 +533,17 @@ function M.capabilityPreservingGenericsTransferAutomaticResponsibility()
             "\n"
         )
     )
-    testAssert.equal(chunk(), "f")
+    testAssert.eq(chunk(), "f")
 end
 
 function M.opaqueOwnersStillNeedAnExplicitTerminal()
     local source = table.concat({"local function begin(): affine(table) return {} end", "local value = begin()",}, "\n")
-    testAssert.equal(codes(source), "NUPP2603")
+    testAssert.eq(codes(source), "NUPP2603")
 end
 
 function M.rawSuspensionStillCannotStrandAnAutomaticOwner()
     local source = PRELUDE .. table.concat({"", "local value = open_resource('s')", "coroutine.yield()",}, "\n")
-    testAssert.equal(codes(source), "NUPP2603")
+    testAssert.eq(codes(source), "NUPP2603")
 end
 
 function M.optionalOwnersDestroyOnlyWhenPresent()
@@ -566,7 +566,7 @@ function M.optionalOwnersDestroyOnlyWhenPresent()
             "\n"
         )
     )
-    testAssert.equal(chunk(), "p")
+    testAssert.eq(chunk(), "p")
 end
 
 function M.protectedCallPacksKeepAutomaticOwnershipCorrelated()
@@ -584,7 +584,7 @@ function M.protectedCallPacksKeepAutomaticOwnershipCorrelated()
             "\n"
         )
     )
-    testAssert.equal(chunk(), "k")
+    testAssert.eq(chunk(), "k")
 end
 
 function M.partialAcquisitionCleansOnlySuccessfulOwners()
@@ -605,8 +605,8 @@ function M.partialAcquisitionCleansOnlySuccessfulOwners()
         )
     )
     local ok, calls = chunk()
-    testAssert.equal(ok, false)
-    testAssert.equal(calls, "a")
+    testAssert.eq(ok, false)
+    testAssert.eq(calls, "a")
 end
 
 function M.oneDeclarationRegistersEachSuccessfulAcquisition()
@@ -626,8 +626,8 @@ function M.oneDeclarationRegistersEachSuccessfulAcquisition()
         )
     )
     local ok, calls = chunk()
-    testAssert.equal(ok, false)
-    testAssert.equal(calls, "m")
+    testAssert.eq(ok, false)
+    testAssert.eq(calls, "m")
 end
 
 function M.partialFieldMovesAndReinitializationKeepExactObligations()
@@ -654,7 +654,7 @@ function M.partialFieldMovesAndReinitializationKeepExactObligations()
             "\n"
         )
     )
-    testAssert.equal(chunk(), "abc")
+    testAssert.eq(chunk(), "abc")
 end
 
 function M.managedGroupAdoptionTransfersAutomaticResponsibility()
@@ -674,7 +674,7 @@ function M.managedGroupAdoptionTransfersAutomaticResponsibility()
             "\n"
         )
     )
-    testAssert.equal(chunk(), "q")
+    testAssert.eq(chunk(), "q")
 end
 
 function M.structuredExitsRunCleanup()
@@ -703,8 +703,8 @@ function M.structuredExitsRunCleanup()
         )
     )
     local n, calls = chunk()
-    testAssert.equal(n, 1)
-    testAssert.equal(calls, "r12g")
+    testAssert.eq(n, 1)
+    testAssert.eq(calls, "r12g")
 end
 
 local CACHED_REGION = "if not __nuppT%d+ then __nuppT%d+=function%("
@@ -727,7 +727,7 @@ function M.aBodyThatOnlyCallsOutStillSharesOneRegion()
         )
     )
     assert(code:match(CACHED_REGION), "a body naming only module-level locals shares one region function")
-    testAssert.equal(chunk(), "aabbcc")
+    testAssert.eq(chunk(), "aabbcc")
 end
 
 function M.aChunkLevelLoopVariableTravelsThroughARegionFrame()
@@ -745,7 +745,7 @@ function M.aChunkLevelLoopVariableTravelsThroughARegionFrame()
         )
     )
     assert(code:match(CACHED_REGION), "a body reading a chunk-level loop variable shares its framed region function")
-    testAssert.equal(chunk(), "1x2x3x")
+    testAssert.eq(chunk(), "1x2x3x")
 end
 
 function M.aFunctionLocalWriteUsesOneRegionPerInvocation()
@@ -769,9 +769,9 @@ function M.aFunctionLocalWriteUsesOneRegionPerInvocation()
         )
     )
     local first, second, calls = chunk()
-    testAssert.equal(first, 3)
-    testAssert.equal(second, 2)
-    testAssert.equal(calls, "xxxxx")
+    testAssert.eq(first, 3)
+    testAssert.eq(second, 2)
+    testAssert.eq(calls, "xxxxx")
     assert(code:match("local __nuppT%d+;"), "a capturing region reserves one cache for the function invocation")
 end
 
@@ -794,8 +794,8 @@ function M.recursiveInvocationsDoNotShareRegionUpvalues()
         )
     )
     local total, calls = chunk()
-    testAssert.equal(total, 6)
-    testAssert.equal(calls, "xxxx")
+    testAssert.eq(total, 6)
+    testAssert.eq(calls, "xxxx")
 end
 
 function M.aColonMethodRegionDoesNotCacheItsReceiverModuleWide()
@@ -825,9 +825,9 @@ function M.aColonMethodRegionDoesNotCacheItsReceiverModuleWide()
         )
     )
     local first, second, calls = chunk()
-    testAssert.equal(first, "first")
-    testAssert.equal(second, "second", "a later receiver answers through its own self")
-    testAssert.equal(calls, "xx")
+    testAssert.eq(first, "first")
+    testAssert.eq(second, "second", "a later receiver answers through its own self")
+    testAssert.eq(calls, "xx")
     assert(
         code:match("Client : tell %( %) local __nuppT%d+;"),
         "a region reading the implicit receiver reserves an invocation cache"
@@ -854,8 +854,8 @@ function M.aLoopLocalWriteTravelsThroughARegionFrame()
         )
     )
     local totals, calls = chunk()
-    testAssert.equal(totals, "136")
-    testAssert.equal(calls, "xxxxxx")
+    testAssert.eq(totals, "136")
+    testAssert.eq(calls, "xxxxxx")
 end
 
 function M.frameWritebackPrecedesStructuredExitDispatch()
@@ -879,8 +879,8 @@ function M.frameWritebackPrecedesStructuredExitDispatch()
         )
     )
     local totals, calls = chunk()
-    testAssert.equal(totals, "333")
-    testAssert.equal(calls, "xxxxxx")
+    testAssert.eq(totals, "333")
+    testAssert.eq(calls, "xxxxxx")
 end
 
 function M.automaticLoweringEmitsLoadableCleanupRegions()
@@ -909,9 +909,9 @@ function M.aNestedFunctionReturnsValuesThroughItsOwnRegion()
         )
     )
     local name, count, calls = chunk()
-    testAssert.equal(name, "i")
-    testAssert.equal(count, 2)
-    testAssert.equal(calls, "i")
+    testAssert.eq(name, "i")
+    testAssert.eq(count, 2)
+    testAssert.eq(calls, "i")
 end
 
 function M.closeableFieldsCloseInReverseOrder()
@@ -939,7 +939,7 @@ function M.closeableFieldsCloseInReverseOrder()
             "\n"
         )
     )
-    testAssert.equal(chunk(), "ba")
+    testAssert.eq(chunk(), "ba")
 end
 
 function M.manualCloseDischargesAnInherentObligationOnce()
@@ -960,7 +960,7 @@ function M.manualCloseDischargesAnInherentObligationOnce()
             "\n"
         )
     )
-    testAssert.equal(chunk(), 1)
+    testAssert.eq(chunk(), 1)
 end
 
 function M.aTakingMethodCalledWithAStringArgumentReceivesIt()
@@ -991,8 +991,8 @@ function M.aTakingMethodCalledWithAStringArgumentReceivesIt()
         )
     )
     local answer, closed = chunk()
-    testAssert.equal(answer, "rx")
-    testAssert.equal(closed, "r")
+    testAssert.eq(answer, "rx")
+    testAssert.eq(closed, "r")
 end
 
 function M.aParenthesisedOwnerMovesIntoItsNewBindingOnce()
@@ -1018,7 +1018,7 @@ function M.aParenthesisedOwnerMovesIntoItsNewBindingOnce()
             "\n"
         )
     )
-    testAssert.equal(chunk(), "ab")
+    testAssert.eq(chunk(), "ab")
 end
 
 function M.aFieldMovedOnOnePathIsStillDroppedWithTheRecordOnTheOther()
@@ -1052,7 +1052,7 @@ function M.aFieldMovedOnOnePathIsStillDroppedWithTheRecordOnTheOther()
             "\n"
         )
     )
-    testAssert.equal(chunk(), "<a>ab|ba|")
+    testAssert.eq(chunk(), "<a>ab|ba|")
 end
 
 function M.aForInOwnerIsClosedAtTheEndOfEachIteration()
@@ -1074,7 +1074,7 @@ function M.aForInOwnerIsClosedAtTheEndOfEachIteration()
             "\n"
         )
     )
-    testAssert.equal(chunk(), "<1>1<2>2")
+    testAssert.eq(chunk(), "<1>1<2>2")
 end
 
 function M.anOptionalSlotFilledLaterIsDroppedAtScopeEnd()
@@ -1094,7 +1094,7 @@ function M.anOptionalSlotFilledLaterIsDroppedAtScopeEnd()
             "\n"
         )
     )
-    testAssert.equal(chunk(), "<b>b")
+    testAssert.eq(chunk(), "<b>b")
 end
 
 function M.aSwitchArmHandsItsOwnerToTheBindingOnce()
@@ -1120,7 +1120,7 @@ function M.aSwitchArmHandsItsOwnerToTheBindingOnce()
             "\n"
         )
     )
-    testAssert.equal(chunk(), "<a>a|<b>ba")
+    testAssert.eq(chunk(), "<a>a|<b>ba")
 end
 
 return M

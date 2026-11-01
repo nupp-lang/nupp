@@ -24,35 +24,35 @@ end
 
 function M.scalarsCrossUnchanged()
     local answer = roundTrip(nil, true, false, 0, -1, 1.5, "", "text")
-    check.equal(answer.count, 8, "the pack keeps its length")
-    check.equal(answer.values[1], nil, "a nil position is retained")
-    check.equal(answer.values[2], true, "true crosses")
-    check.equal(answer.values[3], false, "false crosses")
-    check.equal(answer.values[4], 0, "zero crosses")
-    check.equal(answer.values[5], -1, "a negative number crosses")
-    check.equal(answer.values[6], 1.5, "a fraction crosses")
-    check.equal(answer.values[7], "", "the empty string crosses")
-    check.equal(answer.values[8], "text", "a string crosses")
+    check.eq(answer.count, 8, "the pack keeps its length")
+    check.eq(answer.values[1], nil, "a nil position is retained")
+    check.eq(answer.values[2], true, "true crosses")
+    check.eq(answer.values[3], false, "false crosses")
+    check.eq(answer.values[4], 0, "zero crosses")
+    check.eq(answer.values[5], -1, "a negative number crosses")
+    check.eq(answer.values[6], 1.5, "a fraction crosses")
+    check.eq(answer.values[7], "", "the empty string crosses")
+    check.eq(answer.values[8], "text", "a string crosses")
 end
 
 function M.anEmptyPackCrosses()
     local answer = roundTrip()
-    check.equal(answer.count, 0, "an empty result pack has no values")
+    check.eq(answer.count, 0, "an empty result pack has no values")
 end
 
 function M.trailingNilPositionsAreRetained()
     local answer = roundTrip("only", nil, nil)
-    check.equal(answer.count, 3, "trailing nils are part of the pack")
-    check.equal(answer.values[1], "only", "the first value crosses")
+    check.eq(answer.count, 3, "trailing nils are part of the pack")
+    check.eq(answer.values[1], "only", "the first value crosses")
 end
 
 function M.numbersRoundTripExactly()
     local values = {0.1, 1 / 3, 2 ^ 53, -2 ^ 53, 1e308, 5e-324, 2147483647, -2147483648,}
     for _, value in ipairs(values) do
-        check.equal(roundTrip(value).values[1], value, "exact round trip for " .. tostring(value))
+        check.eq(roundTrip(value).values[1], value, "exact round trip for " .. tostring(value))
     end
-    check.equal(roundTrip(math.huge).values[1], math.huge, "positive infinity crosses")
-    check.equal(roundTrip(-math.huge).values[1], -math.huge, "negative infinity crosses")
+    check.eq(roundTrip(math.huge).values[1], math.huge, "positive infinity crosses")
+    check.eq(roundTrip(-math.huge).values[1], -math.huge, "negative infinity crosses")
     local nan = roundTrip(0 / 0).values[1]
     check(nan ~= nan, "not-a-number crosses as not-a-number")
 end
@@ -63,23 +63,23 @@ function M.arbitraryStringBytesSurvive()
         bytes[#bytes + 1] = string.char(byte)
     end
     local blob = table.concat(bytes)
-    check.equal(roundTrip(blob).values[1], blob, "every byte value crosses")
-    check.equal(roundTrip("a\0b").values[1], "a\0b", "an embedded zero crosses")
+    check.eq(roundTrip(blob).values[1], blob, "every byte value crosses")
+    check.eq(roundTrip("a\0b").values[1], "a\0b", "an embedded zero crosses")
 end
 
 function M.tablesCrossAsIndependentCopies()
     local original = {1, 2, three = {deep = "value"}, [true] = "flag"}
     local answer = roundTrip(original).values[1]
     check(answer ~= original, "the receiver gets its own table")
-    check.equal(answer[1], 1, "an array position crosses")
-    check.equal(answer[2], 2, "the next array position crosses")
-    check.equal(answer.three.deep, "value", "a nested table crosses")
-    check.equal(answer[true], "flag", "a boolean key crosses")
+    check.eq(answer[1], 1, "an array position crosses")
+    check.eq(answer[2], 2, "the next array position crosses")
+    check.eq(answer.three.deep, "value", "a nested table crosses")
+    check.eq(answer[true], "flag", "a boolean key crosses")
 end
 
 function M.aRepeatedTableIsRefusedRatherThanDuplicated()
     local shared = {name = "a"}
-    check.equal(
+    check.eq(
         rejects({
             shared,
             shared
@@ -106,16 +106,16 @@ function M.deepNestingIsRefused()
 end
 
 function M.valuesNoCopyCouldReproduceAreRefused()
-    check.equal(rejects(print), "argument 1 is a function", "a function cannot cross")
-    check.equal(
+    check.eq(rejects(print), "argument 1 is a function", "a function cannot cross")
+    check.eq(
         rejects({
             hook = print
         }),
         "argument 1[hook] is a function",
         "the message names the path rather than the argument"
     )
-    check.equal(rejects(coroutine.create(print)), "argument 1 is a thread", "a thread cannot cross")
-    check.equal(
+    check.eq(rejects(coroutine.create(print)), "argument 1 is a thread", "a thread cannot cross")
+    check.eq(
         rejects(
             setmetatable({}, {
                 __index = {}
@@ -124,7 +124,7 @@ function M.valuesNoCopyCouldReproduceAreRefused()
         "argument 1 has a metatable",
         "only an exported record declaration is reproducible"
     )
-    check.equal(
+    check.eq(
         rejects({
             [print] = 1
         }),
@@ -134,8 +134,8 @@ function M.valuesNoCopyCouldReproduceAreRefused()
 end
 
 function M.nothingRefusedIsSaidOfATransferableValue()
-    check.equal(rejects({1, "two", {nested = true}}), nil, "a plain tree of scalars crosses")
-    check.equal(rejects(nil), nil, "nil crosses")
+    check.eq(rejects({1, "two", {nested = true}}), nil, "a plain tree of scalars crosses")
+    check.eq(rejects(nil), nil, "nil crosses")
 end
 
 function M.malformedMessagesAreRefusedRatherThanDecoded()
@@ -199,7 +199,7 @@ return open
 ]],
         "worker-contract.nupp"
     )
-    check.equal(#parsed.errors, 0)
+    check.eq(#parsed.errors, 0)
     for _, diagnostic in ipairs(fragment.check(parsed, "worker-contract.nupp", env)) do
         check(diagnostic.severity ~= "error", diagnostic.msg)
     end
@@ -237,7 +237,7 @@ function M.laneFailuresKeepTheirStackAndCancellationIdentity()
     local ok, problem = pcall(function()
         local workers = require(providerName)
         effects.request = function(kind, payload, resume)
-            check.equal(kind, "lane")
+            check.eq(kind, "lane")
             if payload.operation == "reply" then
                 replies[#replies + 1] = payload
             end
@@ -265,15 +265,15 @@ function M.laneFailuresKeepTheirStackAndCancellationIdentity()
     package.loaded[providerName] = previousProvider
     _G.nupp.__workerCheckpoint = previousCheckpoint
     assert(ok, tostring(problem))
-    check.equal(#replies, 3)
-    check.equal(replies[1].status, "failed")
+    check.eq(#replies, 3)
+    check.eq(replies[1].status, "failed")
     check.matches(replies[1].error, "browser worker failure")
     check.matches(replies[1].error, "stack traceback:")
     check.matches(replies[1].error, "failInsideWorker")
-    check.equal(replies[2].status, "cancelled")
-    check.equal(replies[2].deadline, true)
-    check.equal(replies[2].error, nil)
-    check.equal(replies[3].status, "done")
+    check.eq(replies[2].status, "cancelled")
+    check.eq(replies[2].deadline, true)
+    check.eq(replies[2].error, nil)
+    check.eq(replies[3].status, "done")
 end
 
 return M

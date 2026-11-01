@@ -63,7 +63,7 @@ local function checkWork(name, report)
             ceiling.calls
         )
     )
-    test.equal(report.randomFingerprint, ceiling.fingerprint)
+    test.eq(report.randomFingerprint, ceiling.fingerprint)
 end
 
 local function fixtureKey(name, capabilities, host)
@@ -175,9 +175,9 @@ local cases = test.suite.cases(
                 artifacts = artifacts(directory, manifest),
             }
         end)
-        test.equal(report.algorithm, name)
-        test.equal(report.runtime, "Wasmtime 48 embedded host")
-        test.equal(report.tier, "simd128")
+        test.eq(report.algorithm, name)
+        test.eq(report.runtime, "Wasmtime 48 embedded host")
+        test.eq(report.tier, "simd128")
         test(
             report.cases > 0
             and report.probes > 0
@@ -186,7 +186,7 @@ local cases = test.suite.cases(
             and report.randomFingerprint ~= nil
             and report.randomFingerprint ~= ""
         )
-        test.equal(report.probes, 1)
+        test.eq(report.probes, 1)
         checkWork(name, report)
         test.suite.fact("simd.wasm.algorithm", {
             algorithm = name,

@@ -899,7 +899,7 @@ return {
     write(dir .. "/driver.lua", "local REPO_BUILD = " .. ("%q"):format(NATIVE_HERE .. "/../build") .. "\n" .. DRIVER)
     for _, target in ipairs({"off", "native"}) do
         local out, code = run(("cd %q && NO_COLOR= '%s' build --target %s"):format(dir, NUPP, target))
-        test.equal(code, 0, ("the %s build of %s: %s"):format(target, dir, out))
+        test.eq(code, 0, ("the %s build of %s: %s"):format(target, dir, out))
     end
     fixture = dir
 
@@ -910,7 +910,7 @@ end
 local function answer(group)
     local dir = built()
     local out, code = run(("cd %q && luajit -joff driver.lua %s"):format(dir, group))
-    test.equal(code, 0, ("the %s driver in %s: %s"):format(group, dir, out))
+    test.eq(code, 0, ("the %s driver in %s: %s"):format(group, dir, out))
 
     return out, dir
 end
@@ -921,7 +921,7 @@ local function agrees(group)
     local total, differ = out:match("(%d+) cases, (%d+) differ%s*$")
     assert(total, ("no summary from the %s driver in %s: %s"):format(group, dir, out))
     assert(tonumber(total) > 0, group .. " ran no case")
-    test.equal(tonumber(differ), 0, ("compiled %s code disagrees with Lua (fixture %s):\n%s"):format(group, dir, out))
+    test.eq(tonumber(differ), 0, ("compiled %s code disagrees with Lua (fixture %s):\n%s"):format(group, dir, out))
 end
 
 local M = {}
@@ -969,7 +969,7 @@ end
 function M.checkOfTheNativeTargetRefusesNothingTheBuildAdmits()
     local dir = built()
     local out, code = run(("cd %q && NO_COLOR= '%s' check --target native --json"):format(dir, NUPP))
-    test.equal(code, 0, ("check of the built corpus in %s: %s"):format(dir, out))
+    test.eq(code, 0, ("check of the built corpus in %s: %s"):format(dir, out))
     local decoded = require("testjson").decode(assert(out:match("(%b{})"), out))
     for _, diagnostic in ipairs(decoded.diagnostics or {}) do
         assert(diagnostic.severity ~= "error", dir .. ": " .. out)

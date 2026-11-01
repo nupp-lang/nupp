@@ -53,7 +53,7 @@ local function buildAndRun(dir, entries, policy)
     local status = os.execute(
         ("cd %q && rm -rf build && %q build --target native > %q 2>&1"):format(dir, HERE .. "/../bin/nupp", logPath)
     )
-    test.equal(status, 0, policy .. " build at " .. dir .. ": " .. tostring(read(logPath)))
+    test.eq(status, 0, policy .. " build at " .. dir .. ": " .. tostring(read(logPath)))
     local pipe = assert(io.popen(("cd %q && luajit check.lua %s 2>&1"):format(dir, policy)))
     local result = pipe:read("*a")
     pipe:close()
@@ -174,7 +174,7 @@ function M.aStoredVectorFieldAgreesBetweenLuaAndNative()
     local dir = project{["src/particles.nupp"] = PARTICLES, ["check.lua"] = CHECK}
     for _, policy in ipairs({"off", "require"}) do
         local result, log = buildAndRun(dir, '"particles"', policy)
-        test.equal(result, EXPECTED, policy .. " at " .. dir .. "\n" .. tostring(log))
+        test.eq(result, EXPECTED, policy .. " at " .. dir .. "\n" .. tostring(log))
         if policy == "off" then
             local lua = assert(read(dir .. "/build/native/particles.lua"))
             assert(

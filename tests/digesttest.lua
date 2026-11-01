@@ -34,12 +34,12 @@ local VECTORS = {
 
 function M.matchesThePublishedVectors()
     for index, vector in ipairs(VECTORS) do
-        check.equal(digest.sha256(vector[1]), vector[2], "vector " .. index)
+        check.eq(digest.sha256(vector[1]), vector[2], "vector " .. index)
     end
 end
 
 function M.hashesThePublishedMillionByteMessage()
-    check.equal(
+    check.eq(
         digest.sha256(string.rep("a", 1000000)),
         "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"
     )
@@ -47,7 +47,7 @@ end
 
 function M.isReachedThroughTheDataFacility()
     for _, vector in ipairs(VECTORS) do
-        check.equal(data.hexdigest("sha256", vector[1]), vector[2])
+        check.eq(data.hexdigest("sha256", vector[1]), vector[2])
     end
 end
 
@@ -76,7 +76,7 @@ function M.paddingBoundariesMatchIndependentVectors()
         {129, "0ec9eb33e74510bcdd1f2ea55206e82f21649c5c2becbf2b433eb475b34c01bd"},
     }
     for _, vector in ipairs(vectors) do
-        check.equal(digest.sha256(("x"):rep(vector[1])), vector[2], "length " .. vector[1])
+        check.eq(digest.sha256(("x"):rep(vector[1])), vector[2], "length " .. vector[1])
     end
 end
 
@@ -87,8 +87,8 @@ function M.hashesEveryByteValueIncludingNul()
     for value = 0, 255 do
         bytes[value + 1] = string.char(value)
     end
-    check.equal(digest.sha256(table.concat(bytes)), "40aff2e9d2d8922e47afd4648e6967497158785fbd1da870e7110266bf944880")
-    check.equal(digest.sha256("a\0b"), "59b271ae1bbcb1d31d41929817f4b16fb439eb4f31520b5ad1d5ce98920a7138")
+    check.eq(digest.sha256(table.concat(bytes)), "40aff2e9d2d8922e47afd4648e6967497158785fbd1da870e7110266bf944880")
+    check.eq(digest.sha256("a\0b"), "59b271ae1bbcb1d31d41929817f4b16fb439eb4f31520b5ad1d5ce98920a7138")
 end
 
 -- The entry reuses one scratch buffer per call and, when compiled, one
@@ -98,7 +98,7 @@ function M.oneCallDoesNotDisturbTheNext()
     local first = digest.sha256("first")
     digest.sha256(("y"):rep(5000))
     digest.sha256("")
-    check.equal(digest.sha256("first"), first)
+    check.eq(digest.sha256("first"), first)
 end
 
 return M

@@ -21,7 +21,7 @@ local sharedEnv = envMod.new(".")
 -- Parse, check, and hand back the query surface beside the tree.
 local function analysed(src)
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors in test source")
+    testAssert.eq(#result.errors, 0, "syntax errors in test source")
     check.check(result, "test.nupp", sharedEnv, {})
     local queries = analysis.queries(result.analysis)
     assert(queries, "the run produced no queries")
@@ -105,12 +105,12 @@ function test.nativeAllocationFactsPreserveOrdinaryWideBoxing()
         local _, result = analysed(case[1] .. "\nlocal function forward(a: uint64): any return value(a) end")
         local first = result.root.blocks[1].stats[1].body.effectSummary
         local forwarded = result.root.blocks[1].stats[2].body.effectSummary
-        testAssert.equal(first.allocates, true, "ordinary execution still allocates")
-        testAssert.equal(first.allocatesBeyondWideArithmetic, case[2], "only boxed arithmetic disappears natively")
-        testAssert.equal(forwarded.allocates, true, "ordinary allocation crosses calls")
-        testAssert.equal(forwarded.allocatesBeyondWideArithmetic, case[2], "native allocation crosses calls")
+        testAssert.eq(first.allocates, true, "ordinary execution still allocates")
+        testAssert.eq(first.allocatesBeyondWideArithmetic, case[2], "only boxed arithmetic disappears natively")
+        testAssert.eq(forwarded.allocates, true, "ordinary allocation crosses calls")
+        testAssert.eq(forwarded.allocatesBeyondWideArithmetic, case[2], "native allocation crosses calls")
     end
-    testAssert.equal(
+    testAssert.eq(
         analysis.fromContract({
             allocates = true
         }).allocatesBeyondWideArithmetic,
@@ -122,37 +122,37 @@ end
 function test.visibleSeparatesUnknownFromForeign()
     local queries = analysed("local x = 1\n")
     local ok, why = queries.visible(nil)
-    testAssert.equal(ok, false, "a callee that did not resolve is not visible")
-    testAssert.equal(why, "the callee is not known here", "and says which")
+    testAssert.eq(ok, false, "a callee that did not resolve is not visible")
+    testAssert.eq(why, "the callee is not known here", "and says which")
 
     ok, why = queries.visible({top = true})
-    testAssert.equal(ok, false, "a summary that gave up is not visible")
-    testAssert.equal(why, "the callee reaches code with unknown effects", "and says which")
+    testAssert.eq(ok, false, "a summary that gave up is not visible")
+    testAssert.eq(why, "the callee reaches code with unknown effects", "and says which")
 
     ok, why = queries.visible({external = true})
-    testAssert.equal(ok, false, "a foreign body is not visible")
-    testAssert.equal(why, "the callee's body is foreign", "and says which")
+    testAssert.eq(ok, false, "a foreign body is not visible")
+    testAssert.eq(why, "the callee's body is foreign", "and says which")
 
-    testAssert.equal(queries.visible(analysis.summary()), true, "an inferred summary is")
+    testAssert.eq(queries.visible(analysis.summary()), true, "an inferred summary is")
 end
 
 function test.freeNamesTheEffectItFound()
     local queries = analysed("local x = 1\n")
     local clean = analysis.summary()
-    testAssert.equal(queries.free(clean, {"yields", "raises"}), true, "reaches neither")
+    testAssert.eq(queries.free(clean, {"yields", "raises"}), true, "reaches neither")
 
     local yielding = analysis.summary()
     yielding.yields = true
     local ok, why = queries.free(yielding, {"yields"})
-    testAssert.equal(ok, false, "a flag disqualifies")
-    testAssert.equal(why, "the callee yields", "named in the reason")
-    testAssert.equal(queries.free(yielding, {"raises"}), true, "and only the kinds the caller asked about")
+    testAssert.eq(ok, false, "a flag disqualifies")
+    testAssert.eq(why, "the callee yields", "named in the reason")
+    testAssert.eq(queries.free(yielding, {"raises"}), true, "and only the kinds the caller asked about")
 
     local writing = analysis.summary()
     writing.writes["values[*]"] = true
     ok, why = queries.free(writing, {"writes"})
-    testAssert.equal(ok, false, "a non-empty list disqualifies")
-    testAssert.equal(why, "the callee writes values[*]", "with the path in the reason")
+    testAssert.eq(ok, false, "a non-empty list disqualifies")
+    testAssert.eq(why, "the callee writes values[*]", "with the path in the reason")
 end
 
 function test.knownResolvesANameToItsCallee()
@@ -172,8 +172,8 @@ return value
     local known = queries.known(tok)
     assert(known, "the callee resolved")
     assert(known.summary, "and carries a summary")
-    testAssert.equal(queries.visible(known.summary), true, "which is visible")
-    testAssert.equal(queries.known(nil), nil, "and nil resolves to nothing")
+    testAssert.eq(queries.visible(known.summary), true, "which is visible")
+    testAssert.eq(queries.known(nil), nil, "and nil resolves to nothing")
 end
 
 -- Walking a whole assignment target in "target context" suppressed every read
@@ -189,10 +189,10 @@ put({}, "k", 1)
     local call = findKind(result.root, "call")
     local known = queries.known(call and call.obj and call.obj.token)
     assert(known, "the callee resolved")
-    testAssert.equal(known.summary.reads.q, true, "the key is read")
-    testAssert.equal(known.summary.reads.v, true, "the value is read")
-    testAssert.equal(known.summary.reads.p, nil, "the assigned table itself is not")
-    testAssert.equal(known.summary.writes["p[*]"], true, "and it is written")
+    testAssert.eq(known.summary.reads.q, true, "the key is read")
+    testAssert.eq(known.summary.reads.v, true, "the value is read")
+    testAssert.eq(known.summary.reads.p, nil, "the assigned table itself is not")
+    testAssert.eq(known.summary.writes["p[*]"], true, "and it is written")
 
     local contracted = parser.parse('@effects(reads = {"v"}, writes = {"p[*]"}, shapes = {"p"})\n' .. src, "test.nupp")
     local diags = check.check(contracted, "test.nupp", sharedEnv, {})
@@ -225,12 +225,12 @@ return text, number
 ]]
     )
     local calls = findConstructors(result.root)
-    testAssert.equal(#calls, 2, "both constructor calls selected a body")
+    testAssert.eq(#calls, 2, "both constructor calls selected a body")
     local text = queries.callee(calls[1])
     local number = queries.callee(calls[2])
     assert(text and number and text ~= number, "the query resolves distinct constructor bodies")
-    testAssert.equal(text.summary.yields, false, "the first body's summary stays pure")
-    testAssert.equal(number.summary.yields, true, "the second body's yield is selected")
+    testAssert.eq(text.summary.yields, false, "the first body's summary stays pure")
+    testAssert.eq(number.summary.yields, true, "the second body's yield is selected")
 end
 
 function test.calleeUsesTheSelectedMethodOverloadSummary()
@@ -253,12 +253,12 @@ return text, number
 ]]
     )
     local calls = findMethods(result.root)
-    testAssert.equal(#calls, 2, "both method calls selected a body")
+    testAssert.eq(#calls, 2, "both method calls selected a body")
     local text = queries.callee(calls[1])
     local number = queries.callee(calls[2])
     assert(text and number and text ~= number, "the query resolves distinct overloaded method bodies")
-    testAssert.equal(text.summary.yields, false, "the first body's summary stays pure")
-    testAssert.equal(number.summary.yields, true, "the second body's yield is selected")
+    testAssert.eq(text.summary.yields, false, "the first body's summary stays pure")
+    testAssert.eq(number.summary.yields, true, "the second body's yield is selected")
 end
 
 function test.calleeKeepsInheritedMethodOverloadProvenance()
@@ -284,12 +284,12 @@ return text, number
 ]]
     )
     local calls = findMethods(result.root)
-    testAssert.equal(#calls, 2, "both concrete calls selected an entry")
+    testAssert.eq(#calls, 2, "both concrete calls selected an entry")
     local text = queries.callee(calls[1])
     local number = queries.callee(calls[2])
     assert(text and number and text ~= number, "local and inherited entries retain distinct bodies")
-    testAssert.equal(text.summary.yields, false, "the override stays pure")
-    testAssert.equal(number.summary.yields, true, "the inherited overload retains its yield summary")
+    testAssert.eq(text.summary.yields, false, "the override stays pure")
+    testAssert.eq(number.summary.yields, true, "the inherited overload retains its yield summary")
 end
 
 function test.aliasOfMergesTwoSpellingsOfOneTable()
@@ -303,7 +303,7 @@ return xs
     local first = findName(result.root, "xs")
     local second = findName(result.root, "ys")
     assert(first and second, "both names are present")
-    testAssert.equal(body.aliasOf(first), body.aliasOf(second), "an alias shares its source's class")
+    testAssert.eq(body.aliasOf(first), body.aliasOf(second), "an alias shares its source's class")
     assert(body.aliasOf(first) ~= nil, "and the class is a real value")
 end
 
@@ -316,7 +316,7 @@ return a, b
 ]])
     local body = queries.body(result.root.blocks[1])
     local tok = findName(result.root, "xs")
-    testAssert.equal(body.uses(tok.definition), 3, "the binding and its two reads")
+    testAssert.eq(body.uses(tok.definition), 3, "the binding and its two reads")
 end
 
 function test.shapeStableRefusesAWriteThroughAnAlias()
@@ -330,8 +330,8 @@ return xs
     local body = queries.body(block)
     local tok = findName(result.root, "xs")
     local ok, reason, related = body.shapeStable(block, body.aliasOf(tok))
-    testAssert.equal(ok, false, "a write through an alias changes the shape")
-    testAssert.equal(reason, "the array may change shape in the loop", "and says so")
+    testAssert.eq(ok, false, "a write through an alias changes the shape")
+    testAssert.eq(reason, "the array may change shape in the loop", "and says so")
     assert(related, "and points at the write")
 end
 
@@ -347,7 +347,7 @@ return total
     local block = result.root.blocks[1]
     local body = queries.body(block)
     local tok = findName(result.root, "xs")
-    testAssert.equal(body.shapeStable(block, body.aliasOf(tok)), true, "reading an element is not a shape change")
+    testAssert.eq(body.shapeStable(block, body.aliasOf(tok)), true, "reading an element is not a shape change")
 end
 
 function test.shapeStableRefusesAnOpaqueCall()
@@ -360,8 +360,8 @@ return xs
     local body = queries.body(block)
     local tok = findName(result.root, "xs")
     local ok, reason = body.shapeStable(block, body.aliasOf(tok))
-    testAssert.equal(ok, false, "a call the summaries cannot see through stops the proof")
-    testAssert.equal(reason, "a call in the loop may mutate or expose the array", "and says so")
+    testAssert.eq(ok, false, "a call the summaries cannot see through stops the proof")
+    testAssert.eq(reason, "a call in the loop may mutate or expose the array", "and says so")
 end
 
 function test.insteadRedirectsTheWalkAtOneNode()
@@ -382,12 +382,12 @@ return total
     local tok = findName(result.root, "xs")
     local loop = findKind(block, "forinStmt")
     assert(loop, "the loop is present")
-    testAssert.equal(
+    testAssert.eq(
         body.shapeStable(block, body.aliasOf(tok)),
         false,
         "the iterator call is opaque when the walk reaches it"
     )
-    testAssert.equal(
+    testAssert.eq(
         body.shapeStable(block, body.aliasOf(tok), function(node)
             return node == loop and loop.body or nil
         end),
@@ -399,7 +399,7 @@ end
 function test.oneBodyIsPreparedOnce()
     local queries, result = analysed("local xs: {integer} = {1, 2, 3}\nreturn xs\n")
     local block = result.root.blocks[1]
-    testAssert.equal(
+    testAssert.eq(
         queries.body(block),
         queries.body(block),
         "alias classes cost a walk, so the same body answers from the same table"
@@ -407,8 +407,8 @@ function test.oneBodyIsPreparedOnce()
 end
 
 function test.noAnalysisMeansNoQueries()
-    testAssert.equal(analysis.queries(nil), nil, "nothing to ask")
-    testAssert.equal(analysis.queries({}), nil, "and a run that resolved nothing answers nothing")
+    testAssert.eq(analysis.queries(nil), nil, "nothing to ask")
+    testAssert.eq(analysis.queries({}), nil, "and a run that resolved nothing answers nothing")
 end
 
 -- `calledOnly` is the question lambda lifting asks: a nested function every mention
@@ -425,15 +425,15 @@ local function calledOnly(inner, rest)
 end
 
 function test.calledOnlyAcceptsACalleeAndNothingElse()
-    testAssert.equal(calledOnly("pick(x) return x end", "return pick(1) + pick(2)"), true, "every mention is a call")
-    testAssert.equal(calledOnly("pick(x) return x end", "return pick"), false, "returned")
-    testAssert.equal(calledOnly("pick(x) return x end", "return {pick}"), false, "stored")
-    testAssert.equal(
+    testAssert.eq(calledOnly("pick(x) return x end", "return pick(1) + pick(2)"), true, "every mention is a call")
+    testAssert.eq(calledOnly("pick(x) return x end", "return pick"), false, "returned")
+    testAssert.eq(calledOnly("pick(x) return x end", "return {pick}"), false, "stored")
+    testAssert.eq(
         calledOnly("cmp(a, b) return a < b end", "table.sort(t, cmp) return t"),
         false,
         "passed to something that will call it with an arity of its own"
     )
-    testAssert.equal(
+    testAssert.eq(
         calledOnly("pick(x) return x end", "table.sort(t, pick) return pick(1)"),
         false,
         "one value use is enough"
@@ -441,7 +441,7 @@ function test.calledOnlyAcceptsACalleeAndNothingElse()
 end
 
 function test.calledOnlyCountsRecursionAsACall()
-    testAssert.equal(
+    testAssert.eq(
         calledOnly("down(k) if k > 0 then return down(k - 1) end return 0 end", "return down(3)"),
         true,
         "a recursive call is a call"
@@ -451,7 +451,7 @@ end
 function test.calledOnlyIgnoresTheDeclaringName()
     -- the name in `local function pick` binds rather than mentions, so a function
     -- declared and never called has no mentions at all and is not a candidate
-    testAssert.equal(calledOnly("pick(x) return x end", "return t"), false, "never called")
+    testAssert.eq(calledOnly("pick(x) return x end", "return t"), false, "never called")
 end
 
 return test

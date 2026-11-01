@@ -93,9 +93,6 @@ end
 --- @namespace nupp
 local nupp: {
 
-    --- Cooperative development hot reload, installed by `nupp run --watch`.
-    hotreload: nupp.HotReload,
-
     --- Admits a value into the constrained type the destination declares.
     ---
     --- The constrained type is taken from where the result goes -- an annotated
@@ -648,55 +645,6 @@ local function __NuppTypesFormatArguments(Format: type): typepack
     end
 
     return types.pack(arguments)
-end
-
-----------------------------------------------------------------------------
--- Hot reload
-----------------------------------------------------------------------------
-
---- What a
----
---- The four answers are `"prepared"`, when a patch was staged and committed and
---- `generation` is now the live one; `"no-change"`, when no watched input moved;
---- `"diagnostics"`, when the change did not check and the running generation stands;
---- and `"restart-required"`, when the change is well-typed but outside what a live
---- process can take.
----
---- The fields past `kind` are the ones that answer carries, so read them after
---- branching on it rather than before.
---- @internal
-record nupp.HotReloadPoll
-    kind: string
-
-    --- Present on `"prepared"` and `"no-change"`. On the first it is the generation
-    --- now running; on the second, the one that stayed.
-    generation: integer?
-
-    --- The published patch chunk, on `"prepared"`.
-    patch: string?
-
-    --- What a `"prepared"` answer was prepared against.
-    baseGeneration: integer?
-
-    --- Why the change was refused, on `"diagnostics"` and `"restart-required"`.
-    diagnostics: {any}?
-
-    --- Which boundary refused it, where a restart answer could name one.
-    reason: any
-end
-
---- Cooperative hot reload installed only while `nupp run --watch` is active.
---- @internal
-record nupp.HotReload
-    --- Returns the currently committed implementation generation.
-    generation: @nosuspend function(): integer
-
-    --- Detects source edits and commits a compatible patch at this host boundary.
-    ---
-    --- Branch on `kind`: a poll that published reports `"prepared"`, one that found
-    --- nothing reports `"no-change"`, and the two refusals are told apart by whether
-    --- restarting is what it would take.
-    poll: function(): nupp.HotReloadPoll
 end
 
 ----------------------------------------------------------------------------
@@ -2171,5 +2119,5 @@ record nupp.MathLibrary
     --- @param from the starting angle in radians
     --- @param to the target angle in radians
     --- @return the signed rotation in `[-pi, pi)`
-    deltaangle: function(from: number, to: number): number
+    dtangle: function(from: number, to: number): number
 end

@@ -10,11 +10,11 @@ local env = envMod.new(HERE .. "/..")
 
 local function compile(source)
     local parsed = parser.parse(source, "runtime_reflection.nupp")
-    testAssert.equal(#parsed.errors, 0, "syntax errors")
+    testAssert.eq(#parsed.errors, 0, "syntax errors")
     local diagnostics = check.check(parsed, "runtime_reflection.nupp", env)
-    testAssert.equal(#diagnostics, 0, "check: " .. (diagnostics[1] and diagnostics[1].msg or ""))
+    testAssert.eq(#diagnostics, 0, "check: " .. (diagnostics[1] and diagnostics[1].msg or ""))
     local code, generated = gen.generate(parsed, "runtime_reflection")
-    testAssert.equal(#generated, 0, "generation diagnostics")
+    testAssert.eq(#generated, 0, "generation diagnostics")
 
     return code
 end
@@ -48,12 +48,12 @@ bus:emit(1, Action, callback = function(): integer return 7 end)
 return {construction = description.types[description.root].construction as unknown, result = result}
 ]]
     )
-    testAssert.equal(#result.construction.params, 2)
-    testAssert.equal(result.construction.params[1].name, "callback")
-    testAssert.equal(result.construction.params[1].optional, false)
-    testAssert.equal(result.construction.params[2].name, "extra")
-    testAssert.equal(result.construction.params[2].optional, true)
-    testAssert.equal(result.result, 12)
+    testAssert.eq(#result.construction.params, 2)
+    testAssert.eq(result.construction.params[1].name, "callback")
+    testAssert.eq(result.construction.params[1].optional, false)
+    testAssert.eq(result.construction.params[2].name, "extra")
+    testAssert.eq(result.construction.params[2].optional, true)
+    testAssert.eq(result.result, 12)
 end
 
 function M.recordsExposeTypeWitnessesAndLazyDescriptors()
@@ -77,11 +77,11 @@ return {
 }
 ]]
     )
-    testAssert.equal(result.witness, true, "Type<T> witness")
-    testAssert.equal(result.distinct, true, "type is not an instance")
-    testAssert.equal(result.cached, true, "reflect cache")
-    testAssert.equal(result.name, "User", "descriptor name")
-    testAssert.equal(result.field, "id", "descriptor fields")
+    testAssert.eq(result.witness, true, "Type<T> witness")
+    testAssert.eq(result.distinct, true, "type is not an instance")
+    testAssert.eq(result.cached, true, "reflect cache")
+    testAssert.eq(result.name, "User", "descriptor name")
+    testAssert.eq(result.field, "id", "descriptor fields")
     assert(code:find("_G.nupp.__reflect.register", 1, true), code)
 end
 
@@ -95,7 +95,7 @@ local quiet = new Quiet(value = 1)
 return quiet.value
 ]]
     )
-    testAssert.equal(code:find("_G.nupp.__reflect", 1, true), nil, "unused reflection runtime")
+    testAssert.eq(code:find("_G.nupp.__reflect", 1, true), nil, "unused reflection runtime")
 end
 
 function M.extensionsAreTypedAndLazy()
@@ -143,10 +143,10 @@ return {cached = first == second, field = first.fields[1].name,
     distinct = left ~= right, same = left.fingerprint == right.fingerprint}
 ]]
     )
-    testAssert.equal(result.cached, true)
-    testAssert.equal(result.field, "name")
-    testAssert.equal(result.distinct, true)
-    testAssert.equal(result.same, true)
+    testAssert.eq(result.cached, true)
+    testAssert.eq(result.field, "name")
+    testAssert.eq(result.distinct, true)
+    testAssert.eq(result.same, true)
 end
 
 function M.genericReflectionSupportsStructWitnesses()
@@ -164,8 +164,8 @@ local info = describe(Point)
 return {kind = info.kind, field = info.fields[2].name}
 ]]
     )
-    testAssert.equal(result.kind, "struct")
-    testAssert.equal(result.field, "y")
+    testAssert.eq(result.kind, "struct")
+    testAssert.eq(result.field, "y")
 end
 
 function M.localWitnessDescriptorsFollowTheirOwnersLifetime()
@@ -183,16 +183,16 @@ end
     local weak = setmetatable({witness, info}, {__mode = "v"})
     info = nil
     collectgarbage("collect")
-    testAssert.equal(weak[2], require("types.reflect").runtime(witness), "a live type retains its descriptor")
+    testAssert.eq(weak[2], require("types.reflect").runtime(witness), "a live type retains its descriptor")
     info = weak[2]
     witness = nil
     collectgarbage("collect")
-    testAssert.equal(weak[1], info.type, "a live descriptor retains its type")
+    testAssert.eq(weak[1], info.type, "a live descriptor retains its type")
     info = nil
     collectgarbage("collect")
     collectgarbage("collect")
-    testAssert.equal(weak[1], nil, "an unused local type is collectible")
-    testAssert.equal(weak[2], nil, "its descriptor is collectible")
+    testAssert.eq(weak[1], nil, "an unused local type is collectible")
+    testAssert.eq(weak[2], nil, "its descriptor is collectible")
 end
 
 function M.witnessMetadataDoesNotReplaceUserStaticMembers()
@@ -211,8 +211,8 @@ local info = describe(User)
 return {name = info.name, custom = User.reflect()}
 ]]
     )
-    testAssert.equal(result.name, "User")
-    testAssert.equal(result.custom, "mine")
+    testAssert.eq(result.name, "User")
+    testAssert.eq(result.custom, "mine")
 end
 
 function M.aModuleReturnCanUseATypeWitness()
@@ -222,8 +222,8 @@ local record Message
 end
 return types.reflect.runtime(Message)
 ]])
-    testAssert.equal(info.name, "Message")
-    testAssert.equal(info.fields[1].name, "text")
+    testAssert.eq(info.name, "Message")
+    testAssert.eq(info.fields[1].name, "text")
 end
 
 function M.nestedWitnessesRetainTheirDeclarationsAcrossShadowing()
@@ -246,8 +246,8 @@ do
 end
 ]]
     )
-    testAssert.equal(result.original, true)
-    testAssert.equal(result.different, true)
+    testAssert.eq(result.original, true)
+    testAssert.eq(result.different, true)
 end
 
 function M.forwardWitnessesResolveAfterTheirDeclarationExecutes()
@@ -269,8 +269,8 @@ local after = types.reflect.runtimetype(info, index)
 return {absent = before == nil, correct = after == Second}
 ]]
     )
-    testAssert.equal(result.absent, true)
-    testAssert.equal(result.correct, true)
+    testAssert.eq(result.absent, true)
+    testAssert.eq(result.correct, true)
 end
 
 function M.freshLocalGraphsDoNotShareRuntimeWitnesses()
@@ -292,9 +292,9 @@ return {distinct = left ~= right, stable = left == types.reflect.runtimetype(fir
     same = first.fingerprint == second.fingerprint}
 ]]
     )
-    testAssert.equal(result.distinct, true)
-    testAssert.equal(result.stable, true)
-    testAssert.equal(result.same, true)
+    testAssert.eq(result.distinct, true)
+    testAssert.eq(result.stable, true)
+    testAssert.eq(result.same, true)
 end
 
 function M.aliasesRetainMetadataWhenTheirTypeIsErased()
@@ -311,8 +311,8 @@ local second = types.reflect.runtime(stored[1])
 return {same = first == second, field = first.fields[1].name}
 ]]
     )
-    testAssert.equal(result.same, true)
-    testAssert.equal(result.field, "name")
+    testAssert.eq(result.same, true)
+    testAssert.eq(result.field, "name")
 end
 
 function M.identityAndMetatableUsesDoNotCarryDescriptors()
@@ -327,8 +327,8 @@ local value = new User(name = "a")
 return getmetatable(value) == Alias and User == (Alias as any)
 ]]
     )
-    testAssert.equal(result, true)
-    testAssert.equal(code:find("__reflect", 1, true), nil)
+    testAssert.eq(result, true)
+    testAssert.eq(code:find("__reflect", 1, true), nil)
 end
 
 function M.lowercaseReflectionFunctionsKeepHandlesAndWitnessIdentity()
@@ -345,15 +345,15 @@ return {sameKey = types.reflect.extensionkey == types.reflect.extensionkey,
     witness = witness == Leaf, info = info, extension = extension}
 ]]
     )
-    testAssert.equal(result.sameKey, true)
-    testAssert.equal(result.sameWitness, true)
-    testAssert.equal(result.witness, true)
-    testAssert.equal(result.info:extension(result.extension), "Root")
+    testAssert.eq(result.sameKey, true)
+    testAssert.eq(result.sameWitness, true)
+    testAssert.eq(result.witness, true)
+    testAssert.eq(result.info:extension(result.extension), "Root")
     local source = [[
 local types = {reflect = {extensionkey = function(): integer return 37 end}}
 return types.reflect.extensionkey()
 ]]
-    testAssert.equal(run(source), 37)
+    testAssert.eq(run(source), 37)
 end
 
 return M

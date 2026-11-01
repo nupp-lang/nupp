@@ -10,7 +10,7 @@ local env = envMod.new(HERE .. "/..")
 
 local function compile(source, opts)
     local parsed = parser.parse(source, "fieldcodec_materialize_test.nupp")
-    testAssert.equal(#parsed.errors, 0, "syntax errors")
+    testAssert.eq(#parsed.errors, 0, "syntax errors")
     local diagnostics = check.check(parsed, "fieldcodec_materialize_test.nupp", env, opts)
     local code, generated = gen.generate(parsed, "fieldcodec_materialize_test")
     for _, diagnostic in ipairs(generated) do
@@ -77,20 +77,20 @@ return {
 }
 ]]
     )
-    testAssert.equal(result.x, 10, "x field")
-    testAssert.equal(result.y, 20, "y field")
-    testAssert.equal(result.fingerprint, "t:x,y", "compatibility fingerprint")
-    testAssert.equal(result.decodedX, 10, "decoded field")
-    testAssert.equal(result.decodeProblem, nil, "decoded keyed table")
-    testAssert.equal(result.decodeType, true, "decoded nominal identity")
-    testAssert.equal(result.invalid, nil, "non-table decode result")
-    testAssert.equal(result.invalidProblem, "$: expected keyed table", "non-table decode problem")
+    testAssert.eq(result.x, 10, "x field")
+    testAssert.eq(result.y, 20, "y field")
+    testAssert.eq(result.fingerprint, "t:x,y", "compatibility fingerprint")
+    testAssert.eq(result.decodedX, 10, "decoded field")
+    testAssert.eq(result.decodeProblem, nil, "decoded keyed table")
+    testAssert.eq(result.decodeType, true, "decoded nominal identity")
+    testAssert.eq(result.invalid, nil, "non-table decode result")
+    testAssert.eq(result.invalidProblem, "$: expected keyed table", "non-table decode problem")
     assert(code:find("nupp.fieldcodec.keyed", 1, true), code)
     -- The comptime reflection is folded away entirely: the program carries the codec
     -- the materializer built and none of the machinery that described the type. What
     -- says so is the reflection namespace, which a program installs only when a record
     -- of its own is reflected on at run time.
-    testAssert.equal(code:find("__reflect", 1, true), nil, "reflection erased")
+    testAssert.eq(code:find("__reflect", 1, true), nil, "reflection erased")
 end
 
 function M.passesReflectionThroughATypedComptimeHelper()
@@ -109,8 +109,8 @@ local encoded = Codec:encode(new Point(x = 3, y = 4))
 return {x = encoded.x as number, y = encoded.y as number}
 ]]
     local encoded = run(src)
-    testAssert.equal(encoded.x, 3, "the reflected helper selects x")
-    testAssert.equal(encoded.y, 4, "the reflected helper selects y")
+    testAssert.eq(encoded.x, 3, "the reflected helper selects x")
+    testAssert.eq(encoded.y, 4, "the reflected helper selects y")
 end
 
 function M.namesTheWholePublicReflectionGraphUnderNuppReflect()
@@ -143,7 +143,7 @@ end
 end
 return comptime do return summarize(types.reflect(User)) end
 ]]
-    testAssert.equal(run(src), "id:id:wire:name", "reflection graph types share one namespace")
+    testAssert.eq(run(src), "id:id:wire:name", "reflection graph types share one namespace")
 end
 
 function M.removesTheOldAmbientAndFieldcodecNames()
@@ -153,7 +153,7 @@ function M.removesTheOldAmbientAndFieldcodecNames()
 return "unused"
 ]]
     )
-    testAssert.equal(ambient[1], "NUPP2101", "TypeInfo is no longer ambient")
+    testAssert.eq(ambient[1], "NUPP2101", "TypeInfo is no longer ambient")
 
     local fieldcodec = errorsOf(
         [[
@@ -164,7 +164,7 @@ end
 return Codec
 ]]
     )
-    testAssert.equal(fieldcodec[1], "NUPP2101", "nupp.fieldcodec is no longer public")
+    testAssert.eq(fieldcodec[1], "NUPP2101", "nupp.fieldcodec is no longer public")
 end
 
 function M.inspectsTheImmutableReflectionSchemaInUserComptimeCode()
@@ -186,7 +186,7 @@ end
 end
 return comptime do return summarize(types.reflect(Pair)) end
 ]]
-    testAssert.equal(
+    testAssert.eq(
         run(src),
         "6:record:2:left:string,right:integer",
         "user comptime code reads the versioned descriptor graph"
@@ -218,11 +218,7 @@ end
 
 return comptime do return summarize(types.reflect(User)) end
 ]]
-    testAssert.equal(
-        run(src),
-        "users:user_id:true",
-        "typed annotation values cross the worker as immutable semantic data"
-    )
+    testAssert.eq(run(src), "users:user_id:true", "typed annotation values cross the worker as immutable semantic data")
 end
 
 function M.exposesAnnotationTypeReferencesAsDescriptorEdges()
@@ -247,7 +243,7 @@ return comptime do
     return info.types[edge].name
 end
 ]]
-    testAssert.equal(
+    testAssert.eq(
         run(src),
         "StringCodec",
         "annotation type references use the reflection graph instead of source names"
@@ -267,7 +263,7 @@ return comptime do
 end
 ]]
     )
-    testAssert.equal(codes[1], "NUPP2411", "reflection views reject mutation")
+    testAssert.eq(codes[1], "NUPP2411", "reflection views reject mutation")
 end
 
 function M.rejectsAReflectedTypeAndRuntimeTargetMismatch()
@@ -280,7 +276,7 @@ const Bad: types.reflect.FieldCodec<Velocity> = comptime do
 end
 ]]
     )
-    testAssert.equal(codes[1], "NUPP2415", "nominal mismatch")
+    testAssert.eq(codes[1], "NUPP2415", "nominal mismatch")
 end
 
 function M.rejectsDistinctQualifiedRecordsWithTheSameLocalShape()
@@ -296,7 +292,7 @@ end
 return Bad
 ]]
     )
-    testAssert.equal(codes[1], "NUPP2415", "qualified nominal mismatch")
+    testAssert.eq(codes[1], "NUPP2415", "qualified nominal mismatch")
 end
 
 function M.requiresATypePositionForReflection()
@@ -308,12 +304,12 @@ const Bad: types.reflect.FieldCodec<any> = comptime do
 end
 ]]
     )
-    testAssert.equal(codes[1], "NUPP2418", "runtime value reflection")
+    testAssert.eq(codes[1], "NUPP2418", "runtime value reflection")
 end
 
 function M.excludesTheCodecHelperFromUnrelatedPrograms()
     local code = compile("return 42")
-    testAssert.equal(code:find("nupp.compiler.runtime.reflect", 1, true), nil, "unused helper")
+    testAssert.eq(code:find("nupp.compiler.runtime.reflect", 1, true), nil, "unused helper")
 end
 
 return M

@@ -76,8 +76,8 @@ assert(fixture.read("lines.txt") == string.rep("x", 70000) .. "\n\nlast\n")
     )
     local ran, runOutput = process.capture({compiler, "run", "read.nupp"}, {cwd = directory})
     os.execute("rm -rf " .. quote(directory))
-    test.equal(status, 0, output)
-    test.equal(ran, 0, runOutput)
+    test.eq(status, 0, output)
+    test.eq(ran, 0, runOutput)
     assert(
         bytes:find('package.preload["io.files"]', 1, true),
         "the component carries the file implementation it checked"

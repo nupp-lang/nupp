@@ -52,7 +52,7 @@ local BUNDLED = {
 -- "CODE:line" strings, which is what a case about one declaration wants to see.
 local function diagsUnderPrelude(source)
     local result = parser.parse(source, "test.nupp")
-    testAssert.equal(
+    testAssert.eq(
         #result.errors,
         0,
         "syntax errors in test source: " .. (result.errors[1] and result.errors[1].msg or "")
@@ -95,27 +95,27 @@ function M.uuidUsesItsContractWithoutNativeCompilerServices()
     local relations = require("nupp.compiler.types.relations")
     local env = envMod.new(".", {memoryOnly = true, nativeCompilerServices = false, typeRoots = {},})
     local result = parser.parse("return os.uuid4", "uuid-contract.nupp")
-    testAssert.equal(#result.errors, 0)
+    testAssert.eq(#result.errors, 0)
     local diagnostics = check.check(result, "uuid-contract.nupp", env)
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     local uuid = env.globals.os.t
     local provider = assert(env.resolveModule(env, "nupp.runtime.uuidprovider"))
-    testAssert.equal(uuid.byname.uuid4.tag, "func", "uuid4 has a checked function signature")
-    testAssert.equal(uuid.byname.uuid4.rets[1].tag, "string", "uuid4 returns a string")
-    testAssert.equal(
+    testAssert.eq(uuid.byname.uuid4.tag, "func", "uuid4 has a checked function signature")
+    testAssert.eq(uuid.byname.uuid4.rets[1].tag, "string", "uuid4 returns a string")
+    testAssert.eq(
         relations.isA(uuid.byname.uuid4, provider.byname.uuid4),
         true,
         "uuid4 satisfies the canonical contract signature"
     )
-    testAssert.equal(
+    testAssert.eq(
         relations.isA(uuid.byname.uuid7, provider.byname.uuid7),
         true,
         "uuid7 satisfies the canonical contract signature"
     )
-    testAssert.equal(uuid.byname.randomBytes, nil, "unrelated operations are absent")
+    testAssert.eq(uuid.byname.randomBytes, nil, "unrelated operations are absent")
     local exports = assert(env.resolveModuleExports(env, "os"))
-    testAssert.equal(exports.values.uuid4, uuid.byname.uuid4, "module and export resolution agree")
-    testAssert.equal(
+    testAssert.eq(exports.values.uuid4, uuid.byname.uuid4, "module and export resolution agree")
+    testAssert.eq(
         rawget(env.bundled, "nupp.runtime.provider.nativeuuid"),
         nil,
         "the native implementation was not loaded"
@@ -126,7 +126,7 @@ end
 -- `unknown`: an unguarded read of it cannot launder into a typed binding, while
 -- the correlated `ok` test still reveals the callee's own results.
 function M.pcallErrorSlotIsUnknown()
-    testAssert.equal(
+    testAssert.eq(
         diagsUnderPrelude(
             [[
 local function g(): integer
@@ -153,7 +153,7 @@ end
 -- `for ... in` loop runs its body only while the first value is not nil, which is
 -- why the loop variables are exactly what an iteration holds.
 function M.manualIteratorCallsAreOptionalWhereLoopsAreNot()
-    testAssert.equal(
+    testAssert.eq(
         diagsUnderPrelude(
             [[
 local lines = io.lines("x")
@@ -165,7 +165,7 @@ print(line, key, value)
         ),
         "NUPP2001:2 NUPP2001:4 NUPP2001:4"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsUnderPrelude(
             [[
 for line in io.lines("x") do
@@ -187,7 +187,7 @@ end
 end
 
 function M.tableIteratorCallsAreOptionalWhereLoopsAreNot()
-    testAssert.equal(
+    testAssert.eq(
         diagsUnderPrelude(
             [[
 local keyed = pairs({one = 1})
@@ -199,7 +199,7 @@ print(key, value, index, item)
         ),
         "NUPP2001:2 NUPP2001:2 NUPP2001:4 NUPP2001:4"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsUnderPrelude(
             [[
 for key, value in pairs({one = 1}) do
@@ -219,7 +219,7 @@ end
 -- A metatable the receiver declared nothing for still has the fields Lua reads:
 -- `__index` is a table or a function, and it may be absent.
 function M.aMetatableExposesItsIndexHandlers()
-    testAssert.equal(
+    testAssert.eq(
         diagsUnderPrelude(
             [[
 local t = setmetatable({}, {__metatable = "locked"})
@@ -241,7 +241,7 @@ end
 -- A computed module name is a boundary nothing declared, so a strict file gets
 -- `unknown` back and has to narrow or cast before reading anything from it.
 function M.aDynamicRequireIsUnknownUnderStrict()
-    testAssert.equal(
+    testAssert.eq(
         diagsUnderPrelude([[
 local name: string = "os"
 local m = require(name)
@@ -261,7 +261,7 @@ function M.everyBundledDeclarationResolvesUnderStrict()
             lost[#lost + 1] = name
         end
     end
-    testAssert.equal(
+    testAssert.eq(
         #lost,
         0,
         "a project's strictness must not discard the compiler's own declarations; " .. "lost: " .. table.concat(
@@ -270,9 +270,9 @@ function M.everyBundledDeclarationResolvesUnderStrict()
         )
     )
     local util = assert(env.resolveModule(env, "jit.util"))
-    testAssert.equal(util.byname.traceir.rets[1].hasNil, true, "an absent trace has no IR mode")
-    testAssert.equal(util.byname.tracek.rets[2].hasNil, true, "an absent IR constant has no type")
-    testAssert.equal(util.byname.ircalladdr.rets[1].hasNil, true, "an absent IR call has no address")
+    testAssert.eq(util.byname.traceir.rets[1].hasNil, true, "an absent trace has no IR mode")
+    testAssert.eq(util.byname.tracek.rets[2].hasNil, true, "an absent IR constant has no type")
+    testAssert.eq(util.byname.ircalladdr.rets[1].hasNil, true, "an absent IR call has no address")
 end
 
 function M.stringBufferKeepsItsMembersUnderStrict()
@@ -288,7 +288,7 @@ return b:tostring()
 ]],
         "test"
     )
-    testAssert.equal(#result.errors, 0, "syntax errors")
+    testAssert.eq(#result.errors, 0, "syntax errors")
     for _, d in ipairs(check.check(result, "test", env, {strict = true}) or {}) do
         if d.severity == "error" then
             error(("%s: %s"):format(d.code, d.msg), 2)
@@ -308,14 +308,14 @@ end
 
 return m
 ]], "test")
-    testAssert.equal(#result.errors, 0, "syntax errors")
+    testAssert.eq(#result.errors, 0, "syntax errors")
     local found = false
     for _, d in ipairs(check.check(result, "test", env, {strict = true}) or {}) do
         if d.severity == "error" then
             found = true
         end
     end
-    testAssert.equal(found, true, "an exported signature mentioning any is still reported")
+    testAssert.eq(found, true, "an exported signature mentioning any is still reported")
 end
 
 -- A declaration the build copied beside the compiled modules goes stale the moment
@@ -332,7 +332,7 @@ function M.aTreeInSyncReportsNothingStale()
         assert(bundled.source(relative), "the compiler carries " .. relative)
     end
     local stale = bundled.staleDeclarations()
-    testAssert.equal(#stale, 0, "a tree whose build is current reports " .. table.concat(stale, ", "))
+    testAssert.eq(#stale, 0, "a tree whose build is current reports " .. table.concat(stale, ", "))
 end
 
 function M.everyCarriedDeclarationResolvesToItsSource()
@@ -363,7 +363,7 @@ function M.embeddedListingsNormalizeBothPackagingRoots()
         "/decls"
     )
     table.sort(found)
-    testAssert.equal(
+    testAssert.eq(
         table.concat(found, ","),
         "/decls/first.d.nupp,/decls/second.d.nupp,/decls/shared.d.nupp",
         "both bundle roots list the same relative paths"
@@ -403,7 +403,7 @@ function M.everyPublicStandardModuleResolves()
         end
     end
     table.sort(lost)
-    testAssert.equal(
+    testAssert.eq(
         #lost,
         0,
         "a module classified public must have loadable types; unresolvable: " .. table.concat(lost, ", ")
@@ -420,7 +420,7 @@ do
 end
 ]]
     local parsed = parser.parse(source, "files-owner.nupp")
-    testAssert.equal(#parsed.errors, 0, "syntax errors")
+    testAssert.eq(#parsed.errors, 0, "syntax errors")
     local diagnostics = check.check(parsed, "files-owner.nupp", strictEnv(), {strict = true}) or {}
     for _, diagnostic in ipairs(diagnostics) do
         if diagnostic.severity == "error" then
@@ -454,16 +454,16 @@ function M.movedPrivateBundledSourcesKeepFileAndTreePrivacyDistinct()
         local env = fresh.new("/private/tmp", {config = {include = {"no-bundled-layout-fixture"}}, cache = false})
         local ioModule = env.loadBundledModule("nupp.io")
         assert(ioModule and ioModule.exports.types.Token)
-        testAssert.equal(ioModule.exports.types.Token.moduleName, "nupp.io")
-        testAssert.equal(ioModule.resource, "/nupp/io.nupp")
-        testAssert.equal(env.bundledImplementation("nupp.io"), "/nupp/io.nupp")
+        testAssert.eq(ioModule.exports.types.Token.moduleName, "nupp.io")
+        testAssert.eq(ioModule.resource, "/nupp/io.nupp")
+        testAssert.eq(env.bundledImplementation("nupp.io"), "/nupp/io.nupp")
         assert(env.moduleAccess(env, "application", "nupp.io"))
-        testAssert.equal(env.moduleAccess(env, "application", "nupp.io.process"), nil)
-        testAssert.equal(env.moduleAccess(env, "io.facade", "nupp.io"), nil)
+        testAssert.eq(env.moduleAccess(env, "application", "nupp.io.process"), nil)
+        testAssert.eq(env.moduleAccess(env, "io.facade", "nupp.io"), nil)
         local tasks = env.loadBundledModule("nupp.tasks")
         assert(tasks and tasks.exports.types.Token)
-        testAssert.equal(tasks.resource, "/nupp/tasks/init.nupp")
-        testAssert.equal(env.bundledImplementation("nupp.tasks"), "/nupp/tasks/init.nupp")
+        testAssert.eq(tasks.resource, "/nupp/tasks/init.nupp")
+        testAssert.eq(env.bundledImplementation("nupp.tasks"), "/nupp/tasks/init.nupp")
         assert(env.moduleAccess(env, "application", "nupp.tasks.child"))
     end)
     package.loaded["nupp.compiler.project.env"] = originalEnv

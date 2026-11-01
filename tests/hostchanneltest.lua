@@ -77,7 +77,7 @@ local function passesNodeSuite(label, file)
     local passed = tonumber(output:match("\n# pass (%d+)"))
     local failed = tonumber(output:match("\n# fail (%d+)"))
     check(passed ~= nil and failed ~= nil, "node printed no test summary:\n" .. output)
-    check.equal(failed, 0, label .. " failed:\n" .. output)
+    check.eq(failed, 0, label .. " failed:\n" .. output)
     check(passed > 0, label .. " ran no test")
     check(exited, "node exited unsuccessfully:\n" .. output)
 end
@@ -135,7 +135,7 @@ local function nativeDriver()
     copy(HERE .. "/hostchannel/component/src/contract.nupp", project .. "/src/contract.nupp")
     copy(HERE .. "/hostchannel/component/src/hostevents.nupp", project .. "/src/hostevents.nupp")
     status, output = run(("cd %s && %s build"):format(shellQuote(project), shellQuote(ROOT .. "/bin/nupp")))
-    check.equal(status, 0, "the contract component did not build:\n" .. output)
+    check.eq(status, 0, "the contract component did not build:\n" .. output)
     local link = assert(io.open(library .. "/link.json", "rb"))
     local manifest = require("testjson").decode(link:read("*a"))
     link:close()
@@ -156,7 +156,7 @@ local function nativeDriver()
             shellQuote(executable)
         )
     )
-    check.equal(status, 0, "the contract driver did not compile:\n" .. output)
+    check.eq(status, 0, "the contract driver did not compile:\n" .. output)
     native = {executable = executable, component = project .. "/build/component.nuppc"}
 
     return native
@@ -177,7 +177,7 @@ local function embedded(name, direct)
             direct and " direct" or ""
         )
     )
-    check.equal(status, 0, name .. " did not run:\n" .. output)
+    check.eq(status, 0, name .. " did not run:\n" .. output)
     local line = assert(output:match("(%b{})%s*\ncancels="), name .. " printed no outcome:\n" .. output)
     local outcome = require("testjson").decode(line)
     check(outcome.ok, name .. " failed:\n" .. tostring(outcome.error) .. "\n" .. output)
@@ -188,16 +188,16 @@ end
 
 function M.embeddedRequestsKeepEveryPosition()
     local value = embedded("arity")
-    check.equal(value.echoed.n, 5)
-    check.equal(value.echoed.a, 1)
-    check.equal(value.echoed.b, nil)
-    check.equal(value.echoed.c, "two")
-    check.equal(value.echoed.d, true)
-    check.equal(value.echoed.e, nil)
-    check.equal(value.none, 0)
-    check.equal(value.onlyNil, 1)
-    check.equal(value.interior.n, 3)
-    check.equal(value.interior.b, 2)
+    check.eq(value.echoed.n, 5)
+    check.eq(value.echoed.a, 1)
+    check.eq(value.echoed.b, nil)
+    check.eq(value.echoed.c, "two")
+    check.eq(value.echoed.d, true)
+    check.eq(value.echoed.e, nil)
+    check.eq(value.none, 0)
+    check.eq(value.onlyNil, 1)
+    check.eq(value.interior.n, 3)
+    check.eq(value.interior.b, 2)
 end
 
 function M.embeddedRequestsRefuseWhatCannotCross()
@@ -217,67 +217,67 @@ end
 function M.embeddedBytesCrossBothWays()
     local value = embedded("bytes")
     for _, name in ipairs({"small", "large", "three", "made", "empty"}) do
-        check.equal(value[name], true, name)
+        check.eq(value[name], true, name)
     end
 end
 
 function M.anEmbedderAnswersLaterFromItsLoop()
     local value = embedded("slowCallBesideADeadline")
-    check.equal(value.slow, 4096)
+    check.eq(value.slow, 4096)
     check(value.firedAfter >= 50 and value.firedAfter < 400, "the deadline fired after " .. value.firedAfter)
 end
 
 function M.embeddedLateReleasesWhatItOpened()
     local value, host = embedded("lateReleases")
     check(value.cancelled:find("deadline", 1, true), value.cancelled)
-    check.equal(value.live, 0)
-    check.equal(host.live, 0)
+    check.eq(value.live, 0)
+    check.eq(host.live, 0)
     check(host.cancels >= 1, "the host heard no cancellation")
 end
 
 function M.embeddedLateReleasesAnAnswerItsCallerNeverTook()
     local value, host = embedded("answeredThenCancelled")
-    check.equal(value.live, 0)
-    check.equal(host.live, 0)
+    check.eq(value.live, 0)
+    check.eq(host.live, 0)
 end
 
 function M.embeddedLateCannotWait()
     local value, host, output = embedded("lateCannotWait")
-    check.equal(value.echoed, "still answering")
-    check.equal(value.live, 1)
+    check.eq(value.echoed, "still answering")
+    check.eq(value.live, 1)
     check(output:find("late handler failed: .*cannot suspend"), output)
-    check.equal(host.live, 1)
+    check.eq(host.live, 1)
 end
 
 function M.embeddedManyCallsAllAnswer()
-    check.equal(embedded("manySmallCalls").correct, 600)
+    check.eq(embedded("manySmallCalls").correct, 600)
 end
 
 function M.embeddedPostsReachTheirHandlers()
-    check.equal(embedded("posts").notes, "1:100,2:100,3:100,4:100,5:100,6:100,7:100,8:100,9:100,10:100")
+    check.eq(embedded("posts").notes, "1:100,2:100,3:100,4:100,5:100,6:100,7:100,8:100,9:100,10:100")
 end
 
 function M.embeddedStreamsRouteAndSend()
     local value = embedded("streams")
-    check.equal(value.moves, "3,30 4,40 5,50")
-    check.equal(value.keys, "b-")
-    check.equal(value.order, "b- 3,30 4,40 5,50")
-    check.equal(value.dropped, 2)
+    check.eq(value.moves, "3,30 4,40 5,50")
+    check.eq(value.keys, "b-")
+    check.eq(value.order, "b- 3,30 4,40 5,50")
+    check.eq(value.dropped, 2)
     -- A native send reaches its handler at once, so no policy ever applies.
-    check.equal(value.outbound, "packet:3 packet:4 log:one log:two log:three block:x block:y block:z")
+    check.eq(value.outbound, "packet:3 packet:4 log:one log:two log:three block:x block:y block:z")
 end
 
 function M.anEmbeddedObserverFailureCostsOnlyItsMessage()
     local value, _, output = embedded("streamObserverFails")
-    check.equal(value.order, "a+ b- 1,10 2,20 3,30 4,40 5,50")
+    check.eq(value.order, "a+ b- 1,10 2,20 3,30 4,40 5,50")
     check(output:find("host test.move: delivery failed: .*observer refused 3"), output)
 end
 
 function M.anUnansweredCallWithoutAHandlerIsRefused()
     local value, host = embedded("unansweredWithoutAHandler", true)
     check(value.problem:find("was not answered during the call", 1, true), value.problem)
-    check.equal(value.echoed, "answered at once")
-    check.equal(host.cancels, 1)
+    check.eq(value.echoed, "answered at once")
+    check.eq(host.cancels, 1)
 end
 
 function M.anEmbedderAnswerIsCheckedBeforeItIsKept()
@@ -307,7 +307,7 @@ print("refused", not ok, problem)
     local status, output = run(
         ("cd %s && %s run main.nupp"):format(shellQuote(directory), shellQuote(ROOT .. "/bin/nupp"))
     )
-    check.equal(status, 0, output)
+    check.eq(status, 0, output)
     check(output:find("attached\tfalse", 1, true), output)
     check(output:find("no host answers app.anything; no embedding application is attached", 1, true), output)
 end

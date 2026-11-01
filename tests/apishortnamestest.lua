@@ -16,16 +16,16 @@ local function futureModule(name, path, transform)
     local source = file:read("*a")
     file:close()
     local _, diagnostics = envMod.checkModuleSource(env, ROOT .. "/" .. path, transform(source), {moduleName = name})
-    test.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
 
     return env
 end
 
 local function checked(source, env)
     local parsed = parser.parse(source, "short-names.nupp")
-    test.equal(#parsed.errors, 0)
+    test.eq(#parsed.errors, 0)
     local diagnostics = checker.check(parsed, "short-names.nupp", env)
-    test.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
 
     return parsed
 end
@@ -33,15 +33,15 @@ end
 function M.shortMathNamesKeepTheExistingFunctionsAndContracts()
     local namespace = {}
     mathRuntime.install(namespace)
-    test.equal(namespace.vec2.length, nil)
-    test.equal(namespace.vec2.distance, nil)
-    test.equal(namespace.quat.length, nil)
-    test.equal(namespace.quat.multiply, nil)
-    test.equal(namespace.vec2.len(3, 4), 5)
-    test.equal(namespace.vec2.dist(1, 2, 4, 6), 5)
-    test.equal(namespace.quat.len(0, 0, 0, 1), 1)
+    test.eq(namespace.vec2.length, nil)
+    test.eq(namespace.vec2.distance, nil)
+    test.eq(namespace.quat.length, nil)
+    test.eq(namespace.quat.multiply, nil)
+    test.eq(namespace.vec2.len(3, 4), 5)
+    test.eq(namespace.vec2.dist(1, 2, 4, 6), 5)
+    test.eq(namespace.quat.len(0, 0, 0, 1), 1)
     local a = {namespace.quat.mul(1, 0, 0, 0, 0, 1, 0, 0)}
-    test.deepequal(a, {0, 0, 1, 0})
+    test.deepeq(a, {0, 0, 1, 0})
     checked(
         [[
 local length: number = math.vec2.len(3, 4)
@@ -73,9 +73,9 @@ return rows[1].x
 ]]
     local parsed = checked(source, env)
     local code, diagnostics = generator.generate(parsed, "short-names.nupp")
-    test.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     assert(code:find("._allocate", 1, true), code)
-    test.equal(assert(loadstring(code, "@short-names.nupp"))(), 17)
+    test.eq(assert(loadstring(code, "@short-names.nupp"))(), 17)
 end
 
 local BUILDER = [[
@@ -104,12 +104,12 @@ function M.lowercaseBuilderFunctionsAndLenKeepNativeOperations()
         end) or BUILDER
         local parsed = checked(source, env)
         local programs, diagnostics = compile.lower(source, "short-names.nupp", parsed)
-        test.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].message)
-        test.equal(#programs, 1)
+        test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].message)
+        test.eq(#programs, 1)
         local actual = text.programs(programs)
         assert(actual:find("lua.length(", 1, true), actual)
         if before then
-            test.equal(actual, before, "public builder names changed native operations")
+            test.eq(actual, before, "public builder names changed native operations")
         end
         before = actual
     end
@@ -124,8 +124,8 @@ return soa.alloc() + builder.len() + math.quat.mul()
 ]]
     local parsed = checked(source, envMod.new(ROOT))
     local code, diagnostics = generator.generate(parsed, "short-names.nupp")
-    test.equal(#diagnostics, 0)
-    test.equal(assert(loadstring(code, "@short-names.nupp"))(), 10)
+    test.eq(#diagnostics, 0)
+    test.eq(assert(loadstring(code, "@short-names.nupp"))(), 10)
 end
 
 return M

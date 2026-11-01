@@ -96,9 +96,9 @@ end
             local path = dir .. "/src/mathbox.nupp"
             local env = projectEnv(dir)
             local parsed = parser.parse(readFile(path), path)
-            testAssert.equal(#parsed.errors, 0, "declared syntax")
+            testAssert.eq(#parsed.errors, 0, "declared syntax")
             local diags, moduleType, exports = check.check(parsed, path, env)
-            testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
+            testAssert.eq(#diags, 0, diags[1] and diags[1].msg)
             assert(exports.values.answer, "constant is in the value interface")
             assert(exports.values.twice, "function is in the value interface")
             assert(exports.types.Box, "record is in the type interface")
@@ -110,9 +110,9 @@ end
             local mathbox = require("mathbox")
             removeLoader()
             package.loaded.mathbox = nil
-            testAssert.equal(mathbox.answer, 42)
-            testAssert.equal(mathbox.twice(21), 42)
-            testAssert.equal(mathbox.box(42).value, 42)
+            testAssert.eq(mathbox.answer, 42)
+            testAssert.eq(mathbox.twice(21), 42)
+            testAssert.eq(mathbox.box(42).value, 42)
         end
     )
 end
@@ -130,10 +130,10 @@ function M.aValueCarryingExportIsRefusedBesideAnExportAssignment()
         withProject({["src/m.nupp"] = "module m\n\nlocal api = {}\n\n" .. form .. "\n\nexport = api\n",}, function(dir)
             local path = dir .. "/src/m.nupp"
             local parsed = parser.parse(readFile(path), path)
-            testAssert.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
+            testAssert.eq(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
             local diags = check.check(parsed, path, projectEnv(dir))
-            testAssert.equal(#diags, 1, "one diagnostic for " .. form)
-            testAssert.equal(diags[1].code, "NUPP2143", form .. " is refused beside export =")
+            testAssert.eq(#diags, 1, "one diagnostic for " .. form)
+            testAssert.eq(diags[1].code, "NUPP2143", form .. " is refused beside export =")
             assert(
                 diags[1].help and diags[1].help:find("api.", 1, true),
                 "the help names the module value: " .. tostring(diags[1].help)
@@ -174,9 +174,9 @@ export = api
             local path = dir .. "/src/erased.nupp"
             local env = projectEnv(dir)
             local parsed = parser.parse(readFile(path), path)
-            testAssert.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
+            testAssert.eq(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
             local diags, _, exports = check.check(parsed, path, env)
-            testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
+            testAssert.eq(#diags, 0, diags[1] and diags[1].msg)
             assert(exports.types.Reader, "an exported interface enters the declared interface")
             assert(exports.types.Count, "an exported type alias enters the declared interface")
 
@@ -185,8 +185,8 @@ export = api
             local erased = require("erased")
             removeLoader()
             package.loaded.erased = nil
-            testAssert.equal(erased.read(), 42, "the module loads and its value is the table it named")
-            testAssert.equal(erased.Reader, nil, "an erased export puts nothing on the module value")
+            testAssert.eq(erased.read(), 42, "the module loads and its value is the table it named")
+            testAssert.eq(erased.Reader, nil, "an erased export puts nothing on the module value")
         end
     )
 end
@@ -214,9 +214,9 @@ export = setmetatable(legacy, {__call = function(self, value) return self.add(va
             local path = dir .. "/src/legacy.nupp"
             local env = projectEnv(dir)
             local parsed = parser.parse(readFile(path), path)
-            testAssert.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
+            testAssert.eq(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
             local diags, moduleType, exports = check.check(parsed, path, env)
-            testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
+            testAssert.eq(#diags, 0, diags[1] and diags[1].msg)
             assert(moduleType, "export assignment has a module boundary")
             assert(exports.values.add, "table members enter the declared interface")
             assert(exports.types.Count, "qualified table types enter the declared interface")
@@ -226,10 +226,10 @@ export = setmetatable(legacy, {__call = function(self, value) return self.add(va
             local legacy = require("legacy")
             removeLoader()
             package.loaded.legacy = nil
-            testAssert.equal(legacy.add(2), 42)
-            testAssert.equal(legacy(2), 42, "the migration boundary preserves the table metatable")
+            testAssert.eq(legacy.add(2), 42)
+            testAssert.eq(legacy(2), 42, "the migration boundary preserves the table metatable")
             legacy.answer = 50
-            testAssert.equal(legacy.add(2), 52, "the migration boundary preserves the module table's identity")
+            testAssert.eq(legacy.add(2), 52, "the migration boundary preserves the module table's identity")
         end
     )
 end
@@ -276,7 +276,7 @@ end
         function(dir)
             local inc = incremental.new(dir, {config = {include = {"src"}}})
             local checked = inc.checkFile(dir .. "/src/a.nupp")
-            testAssert.equal(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
+            testAssert.eq(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
             assert(checked.exports.values.fromA ~= nil, "the recursive interface keeps its function")
 
             package.loaded.a = nil
@@ -287,7 +287,7 @@ end
             removeLoader()
             package.loaded.a = nil
             package.loaded.b = nil
-            testAssert.equal(a.fromA(41), 42, "benign function cycle")
+            testAssert.eq(a.fromA(41), 42, "benign function cycle")
         end
     )
 end
@@ -313,9 +313,9 @@ end
         function(dir)
             local inc = incremental.new(dir, {config = {include = {"src"}}})
             local checked = inc.checkFile(dir .. "/src/use.nupp")
-            testAssert.equal(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
+            testAssert.eq(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
             local code, diags = gen.generate(checked.result, dir .. "/src/use.nupp")
-            testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
+            testAssert.eq(#diags, 0, diags[1] and diags[1].msg)
             assert(not code:find('require("model")', 1, true), "a type-only selection emits no require")
         end
     )
@@ -344,11 +344,11 @@ end
         function(dir)
             local inc = incremental.new(dir, {config = {include = {"src"}}})
             local checked = inc.checkFile(dir .. "/src/use.nupp")
-            testAssert.equal(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
+            testAssert.eq(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
             local code, diags = gen.generate(checked.result, dir .. "/src/use.nupp")
-            testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
+            testAssert.eq(#diags, 0, diags[1] and diags[1].msg)
             local _, count = code:gsub('require%("tecs.world.query"%)', "")
-            testAssert.equal(count, 1, "one hidden module binding")
+            testAssert.eq(count, 1, "one hidden module binding")
             assert(not code:find("tecs.world.query.each", 1, true), "qualified path is lowered away")
 
             package.loaded.use = nil
@@ -359,7 +359,7 @@ end
             removeLoader()
             package.loaded.use = nil
             package.loaded["tecs.world.query"] = nil
-            testAssert.equal(use.answer(), 43, "qualified module call")
+            testAssert.eq(use.answer(), 43, "qualified module call")
         end
     )
 end
@@ -394,9 +394,9 @@ end
         function(dir)
             local inc = incremental.new(dir, {config = {include = {"src"}}})
             local checked = inc.checkFile(dir .. "/src/use.nupp")
-            testAssert.equal(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
+            testAssert.eq(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
             local code, diags = gen.generate(checked.result, dir .. "/src/use.nupp")
-            testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
+            testAssert.eq(#diags, 0, diags[1] and diags[1].msg)
             assert(not code:find("tecs.world.shape.Box", 1, true), "qualified path is lowered away")
 
             package.loaded.use = nil
@@ -409,7 +409,7 @@ end
             package.loaded.use = nil
             package.loaded["tecs.world.shape"] = nil
             assert(ok, tostring(answer))
-            testAssert.equal(answer, 42, "the constructed record carries the module's methods")
+            testAssert.eq(answer, 42, "the constructed record carries the module's methods")
         end
     )
 end
@@ -454,7 +454,7 @@ end
     )
     local left = header.of("sample.nupp", "sample", before)
     local right = header.of("sample.nupp", "sample", after)
-    testAssert.equal(
+    testAssert.eq(
         left.declarations[1].signature,
         right.declarations[1].signature,
         "body-only edits preserve the exported interface header"
@@ -470,17 +470,17 @@ module sample
         "sample.nupp"
     )
     local found = header.of("sample.nupp", "sample", parsed).declarations[1]
-    testAssert.equal(found.name, "Field")
-    testAssert.equal(found.kind, "type")
-    testAssert.equal(found.comptimeOnly, true)
+    testAssert.eq(found.name, "Field")
+    testAssert.eq(found.kind, "type")
+    testAssert.eq(found.comptimeOnly, true)
 end
 
 function M.moduleWordsRemainContextualNames()
     local parsed = parser.parse("export = function() end\nexport()\nmodule('legacy')\n", "names.lua")
-    testAssert.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
-    testAssert.equal(parsed.root.blocks[1].stats[1].kind, "assignStmt")
-    testAssert.equal(parsed.root.blocks[1].stats[2].kind, "callStmt")
-    testAssert.equal(parsed.root.blocks[1].stats[3].kind, "callStmt")
+    testAssert.eq(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
+    testAssert.eq(parsed.root.blocks[1].stats[1].kind, "assignStmt")
+    testAssert.eq(parsed.root.blocks[1].stats[2].kind, "callStmt")
+    testAssert.eq(parsed.root.blocks[1].stats[3].kind, "callStmt")
 end
 
 function M.eagerCallsIntoAnInitializingModuleAreRejected()
@@ -537,7 +537,7 @@ function M.internalModulesEnforcePackageBoundaries()
 
             local function inspect(source, filename)
                 local parsed = parser.parse(source, filename)
-                testAssert.equal(#parsed.errors, 0, "privacy fixture parses")
+                testAssert.eq(#parsed.errors, 0, "privacy fixture parses")
                 return check.check(parsed, filename, env)
             end
 
@@ -556,9 +556,9 @@ function M.internalModulesEnforcePackageBoundaries()
             local diags = inspect("module app.main\nlocal value: library.hidden.Token = nil as any\n", client)
             assert(diagnosticContaining(diags, "is internal to package namespace"), "qualified type must be private")
             diags = inspect(readFile(dir .. "/src/library/client.nupp"), dir .. "/src/library/client.nupp")
-            testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
+            testAssert.eq(#diags, 0, diags[1] and diags[1].msg)
             diags = inspect("module app.main\nlocal value = library.answer\n", client)
-            testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
+            testAssert.eq(#diags, 0, diags[1] and diags[1].msg)
         end
     )
 end
@@ -573,7 +573,7 @@ function M.standardLibraryRootsSharePrivateImplementationOnlyWithEachOther()
                 "serde.internal.codec",
                 "binary.internal.hash"
             }) do
-                testAssert.equal(
+                testAssert.eq(
                     env.moduleAccess(env, consumer, implementation),
                     nil,
                     consumer .. " imports " .. implementation
@@ -602,11 +602,11 @@ function M.bareBundledModuleRootsEmitOneCanonicalRequire()
         local source = readFile(dir .. "/src/app.nupp")
         local parsed = parser.parse(source, dir .. "/src/app.nupp")
         local problems = check.check(parsed, dir .. "/src/app.nupp", env)
-        testAssert.equal(#problems, 0, problems[1] and problems[1].msg)
+        testAssert.eq(#problems, 0, problems[1] and problems[1].msg)
         local code, diagnostics = gen.generate(parsed, dir .. "/src/app.nupp")
-        testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+        testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
         local _, count = code:gsub('require%("serde"%)', "")
-        testAssert.equal(count, 1, "one bundled module instance")
+        testAssert.eq(count, 1, "one bundled module instance")
     end)
 end
 
@@ -622,13 +622,13 @@ function M.targetOutputSourcesStayOutsideTheProjectIndex()
                 build = {default = "app", outDir = "common", targets = {app = {outDir = "out"}}},
             }
             local env = envMod.new(dir, {config = config})
-            testAssert.equal(envMod.outDir(env), dir .. "/out", "the default target owns its output")
+            testAssert.eq(envMod.outDir(env), dir .. "/out", "the default target owns its output")
             local files = envMod.listProjectFiles(env)
-            testAssert.equal(#files, 1, "staged runtime sources are not project source")
-            testAssert.equal(files[1], dir .. "/main.nupp")
+            testAssert.eq(#files, 1, "staged runtime sources are not project source")
+            testAssert.eq(files[1], dir .. "/main.nupp")
             config._target = {outDir = "selected"}
             local selected = envMod.new(dir, {config = config})
-            testAssert.equal(envMod.outDir(selected), dir .. "/selected", "an explicit target controls indexing")
+            testAssert.eq(envMod.outDir(selected), dir .. "/selected", "an explicit target controls indexing")
         end
     )
 end
@@ -671,13 +671,13 @@ export const token: facade.Token = new facade.Token(value = process.answer)
         function(dir)
             local env = projectEnv(dir)
             local index = env:ensureProjectIndex()
-            testAssert.equal(#index.registrationDiagnostics, 0)
+            testAssert.eq(#index.registrationDiagnostics, 0)
             local code, problem = compile(dir .. "/src/app.nupp", env)
             assert(code, problem)
             local origin = env.resolveModuleExports(env, "nupp.io")
             local facade = env.resolveModuleExports(env, "io.facade")
-            testAssert.equal(facade.types.Token, origin.types.Token)
-            testAssert.equal(origin.types.Token.moduleName, "nupp.io")
+            testAssert.eq(facade.types.Token, origin.types.Token)
+            testAssert.eq(origin.types.Token.moduleName, "nupp.io")
             for _, source in ipairs({
                 'module app\nlocal old = require("nupp.io")\n',
                 'module app\nlocal old = nupp.io.Token\n',
@@ -687,7 +687,7 @@ export const token: facade.Token = new facade.Token(value = process.answer)
                 local denied = diagnosticContaining(diags, "is internal to package namespace")
                 assert(denied and denied.code == "NUPP2144")
             end
-            testAssert.equal(env.moduleAccess(env, "app", "nupp.io.process"), nil)
+            testAssert.eq(env.moduleAccess(env, "app", "nupp.io.process"), nil)
         end
     )
 end
@@ -710,7 +710,7 @@ function M.twoFilesProvidingOneModuleAreEachRefused()
                 local path = dir .. "/" .. root .. "/util.nupp"
                 local found = diagnosticContaining(inc.checkFile(path).diags, "more than one file")
                 assert(found, label .. ": " .. root .. "/util.nupp reports the other provider")
-                testAssert.equal(found.code, "NUPP1002", label .. " code")
+                testAssert.eq(found.code, "NUPP1002", label .. " code")
                 assert(found.line >= 1 and found.col >= 1, label .. ": the report has a position")
                 assert(found.related and found.related[1], label .. ": and names the other file")
             end
@@ -727,14 +727,14 @@ function M.privacyChangesInvalidateImporters()
         function(dir)
             local inc = incremental.new(dir, {config = {include = {"src"}}})
             local app, library = dir .. "/src/app.nupp", dir .. "/src/library/init.nupp"
-            testAssert.equal(#inc.checkFile(app).diags, 0, "initial public import")
+            testAssert.eq(#inc.checkFile(app).diags, 0, "initial public import")
             inc.changeDocument(library, "@!internal\nmodule library\nexport const value: integer = 1\n")
             assert(
                 diagnosticContaining(inc.checkFile(app).diags, "is internal to package namespace"),
                 "changing only module privacy must invalidate the importer"
             )
             inc.changeDocument(library, "module library\nexport const value: integer = 1\n")
-            testAssert.equal(#inc.checkFile(app).diags, 0, "making a module public restores access")
+            testAssert.eq(#inc.checkFile(app).diags, 0, "making a module public restores access")
         end
     )
 end
@@ -774,7 +774,7 @@ function M.generatedImportPermissionDoesNotSurviveAnOrdinaryOverlay()
             local app = dir .. "/src/app.nupp"
             local text = 'module app\nlocal implementation = require("library.internal")\nexport const value: integer = implementation.value\n'
             inc.openGeneratedDocument(app, text)
-            testAssert.equal(#inc.checkFile(app).diags, 0, "compiler-owned replacement")
+            testAssert.eq(#inc.checkFile(app).diags, 0, "compiler-owned replacement")
             inc.openDocument(app, text)
             assert(
                 diagnosticContaining(inc.checkFile(app).diags, "is internal to package namespace"),
@@ -804,7 +804,7 @@ export record Message
 end
 ]])
             local result = inc.checkFile(dir .. "/src/app.nupp")
-            testAssert.equal(#result.diags, 0, result.diags[1] and result.diags[1].msg)
+            testAssert.eq(#result.diags, 0, result.diags[1] and result.diags[1].msg)
         end
     )
 end
@@ -853,8 +853,8 @@ end
         function(dir)
             local inc = incremental.new(dir, {config = {include = {"src"}}})
             local checked = inc.checkFile(dir .. "/src/draw.nupp")
-            testAssert.equal(#checked.diags, 1, "only the field the nested record does not have")
-            testAssert.equal(checked.diags[1].code, "NUPP2004", checked.diags[1].msg)
+            testAssert.eq(#checked.diags, 1, "only the field the nested record does not have")
+            testAssert.eq(checked.diags[1].code, "NUPP2004", checked.diags[1].msg)
             assert(
                 diagnosticContaining({checked.diags[1]}, "Layer"),
                 "the nested declaration answers rather than being erased"
@@ -904,7 +904,7 @@ end
         function(dir)
             local inc = incremental.new(dir, {config = {include = {"src"}}})
             local checked = inc.checkFile(dir .. "/src/first.nupp")
-            testAssert.equal(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
+            testAssert.eq(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
         end
     )
 end
@@ -933,7 +933,7 @@ local type BuiltinAssert = function<A...>(A...): A...
 local original = rawget(_G, "assert") as BuiltinAssert
 local helper = require("assert")
 local value = {
-    equal = helper.equal,
+    equal = helper.eq,
     suite = {skip = helper.suite.skip, isSkip = helper.suite.isskip, skipReason = helper.suite.skipreason},
 } as Callable
 
@@ -959,23 +959,23 @@ export const result = true
             local removeLoader = runtime.install(env, compile)
             local ok, problem = pcall(function()
                 local callable = require("callableprobe")
-                testAssert.equal(type(callable), "table")
-                testAssert.equal(callable.equal, testAssert.equal, "the existing helper keeps its identity")
-                testAssert.equal(require("callableconsumer").result, true)
+                testAssert.eq(type(callable), "table")
+                testAssert.eq(callable.equal, testAssert.eq, "the existing helper keeps its identity")
+                testAssert.eq(require("callableconsumer").result, true)
 
                 local function collect(...)
                     return {n = select("#", ...), ...}
                 end
 
-                testAssert.deepequal(collect(callable("truthy", nil, 42, nil)), {n = 4, "truthy", nil, 42})
+                testAssert.deepeq(collect(callable("truthy", nil, 42, nil)), {n = 4, "truthy", nil, 42})
                 local _, originalDefault = pcall(assert, false)
                 local _, wrappedDefault = pcall(callable, false)
-                testAssert.equal(wrappedDefault, originalDefault)
+                testAssert.eq(wrappedDefault, originalDefault)
                 for _, message in ipairs({"failure", 17, false, {reason = "error object"}}) do
                     local originalOk, originalError = pcall(assert, false, message)
                     local wrappedOk, wrappedError = pcall(callable, false, message)
-                    testAssert.equal(wrappedOk, originalOk)
-                    testAssert.equal(wrappedError, originalError, "the builtin owns error routing")
+                    testAssert.eq(wrappedOk, originalOk)
+                    testAssert.eq(wrappedError, originalError, "the builtin owns error routing")
                 end
                 local evaluated = {}
 
@@ -987,9 +987,9 @@ export const result = true
                 local succeeded, failure = pcall(function()
                     callable(argument(false), argument("failure"), argument(42))
                 end)
-                testAssert.equal(succeeded, false)
+                testAssert.eq(succeeded, false)
                 testAssert.matches(failure, "failure")
-                testAssert.deepequal(evaluated, {1, 2, 3}, "all arguments run once before failure")
+                testAssert.deepeq(evaluated, {1, 2, 3}, "all arguments run once before failure")
             end)
             removeLoader()
             package.loaded.callableprobe = nil
@@ -1041,25 +1041,25 @@ export const result = true
             local removeLoader = runtime.install(env, compile)
             local ok, problem = pcall(function()
                 local argv = require("argvprobe")
-                testAssert.equal(require("argvprobe"), argv, "the exported array has one module identity")
-                testAssert.equal(require("argvconsumer").result, true)
-                testAssert.equal(rawget(argv, "parse"), nil)
-                testAssert.equal(argv.parse, getmetatable(argv).__index.parse)
-                testAssert.equal(#argv, 2)
+                testAssert.eq(require("argvprobe"), argv, "the exported array has one module identity")
+                testAssert.eq(require("argvconsumer").result, true)
+                testAssert.eq(rawget(argv, "parse"), nil)
+                testAssert.eq(argv.parse, getmetatable(argv).__index.parse)
+                testAssert.eq(#argv, 2)
                 local sequential = {}
                 for index, value in ipairs(argv) do
                     sequential[index] = value
                 end
-                testAssert.deepequal(sequential, {"one", "two"})
+                testAssert.deepeq(sequential, {"one", "two"})
                 local json = require("testjson")
-                testAssert.equal(json.encode(argv), json.encode({"one", "two"}), "methods stay out of serialization")
+                testAssert.eq(json.encode(argv), json.encode({"one", "two"}), "methods stay out of serialization")
                 argv[0], argv[-1] = "program", "launcher"
                 local raw = {}
                 for key, value in pairs(argv) do
                     raw[key] = value
                 end
-                testAssert.deepequal(raw, {[0] = "program", [-1] = "launcher", "one", "two"})
-                testAssert.equal(#argv, 2)
+                testAssert.deepeq(raw, {[0] = "program", [-1] = "launcher", "one", "two"})
+                testAssert.eq(#argv, 2)
             end)
             removeLoader()
             package.loaded.argvprobe = nil
@@ -1112,29 +1112,29 @@ export const result = true
         },
         function(dir)
             local parsed = parser.parse(ARRAY_PROVIDER, dir .. "/src/arrayprovider.nupp")
-            testAssert.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
+            testAssert.eq(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
             local found = header.of(dir .. "/src/arrayprovider.nupp", "arrayprovider", parsed)
-            testAssert.equal(found.moduleLocal, "methods")
-            testAssert.equal(found.declarations[1].name, "Named")
-            testAssert.equal(found.declarations[1].visibility, "module")
+            testAssert.eq(found.moduleLocal, "methods")
+            testAssert.eq(found.declarations[1].name, "Named")
+            testAssert.eq(found.declarations[1].visibility, "module")
             local env = projectEnv(dir)
             local removeLoader = runtime.install(env, compile)
             local ok, problem = pcall(function()
                 local api = require("arrayprovider")
-                testAssert.equal(require("arrayprovider"), api)
-                testAssert.equal(require("arrayconsumer").result, true)
-                testAssert.equal(rawget(api, "NamedRecord"), nil, "the derive provider stays erased")
-                testAssert.equal(rawget(api, "derivedName"), nil)
-                testAssert.equal(api.derivedName, getmetatable(api).__index.derivedName)
-                testAssert.equal(api.derivedName(), "derived")
-                testAssert.equal(#api, 2)
+                testAssert.eq(require("arrayprovider"), api)
+                testAssert.eq(require("arrayconsumer").result, true)
+                testAssert.eq(rawget(api, "NamedRecord"), nil, "the derive provider stays erased")
+                testAssert.eq(rawget(api, "derivedName"), nil)
+                testAssert.eq(api.derivedName, getmetatable(api).__index.derivedName)
+                testAssert.eq(api.derivedName(), "derived")
+                testAssert.eq(#api, 2)
                 local raw = {}
                 for key, value in pairs(api) do
                     raw[key] = value
                 end
-                testAssert.deepequal(raw, {"one", "two"})
+                testAssert.deepeq(raw, {"one", "two"})
                 local json = require("testjson")
-                testAssert.equal(json.encode(api), json.encode({"one", "two"}))
+                testAssert.eq(json.encode(api), json.encode({"one", "two"}))
             end)
             removeLoader()
             package.loaded.arrayprovider, package.loaded.arrayconsumer = nil, nil
@@ -1162,11 +1162,11 @@ function M.arbitraryMetatablesDoNotPublishAnotherLocalNamespace()
         local first, last = assert(ARRAY_PROVIDER:find(change[1], 1, true))
         local source = ARRAY_PROVIDER:sub(1, first - 1) .. change[2] .. ARRAY_PROVIDER:sub(last + 1)
         local parsed = parser.parse(source, "arrayprovider.nupp")
-        testAssert.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
+        testAssert.eq(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
         local found = header.of("arrayprovider.nupp", "arrayprovider", parsed)
-        testAssert.equal(found.moduleLocal, "argv", change[2])
+        testAssert.eq(found.moduleLocal, "argv", change[2])
         for _, declaration in ipairs(found.declarations) do
-            testAssert.equal(declaration.name == "Named", false, "the private method namespace stays private")
+            testAssert.eq(declaration.name == "Named", false, "the private method namespace stays private")
         end
         withProject({["src/arrayprovider.nupp"] = source}, function(dir)
             local parsedConsumer = parser.parse(
@@ -1224,10 +1224,10 @@ end
             local filename = dir .. "/src/main.nupp"
             local parsed = parser.parse(readFile(filename), filename)
             local diagnostics = check.check(parsed, filename, env)
-            testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+            testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
             require("nupp.compiler.lua.optimize").run(parsed, {level = 1})
             local code, generated = gen.generate(parsed, filename)
-            testAssert.equal(#generated, 0)
+            testAssert.eq(#generated, 0)
             assert(
                 code:gsub("%s+", ""):find(".pointer[", 1, true),
                 "the merged facade retains the range's indexed-view proof: " .. code
@@ -1253,7 +1253,7 @@ const rows = span.range(1, 1, {})
                 "shadow-span-consumer.nupp"
             )
             local ordinary = check.check(shadow, "shadow-span-consumer.nupp", env)
-            testAssert.equal(#ordinary, 0, ordinary[1] and ordinary[1].msg)
+            testAssert.eq(#ordinary, 0, ordinary[1] and ordinary[1].msg)
         end
     )
 end

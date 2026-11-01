@@ -18,7 +18,7 @@ local M = {}
 
 local function raises(body)
     local ok, problem = pcall(body)
-    testAssert.equal(ok, false, "expected a failure")
+    testAssert.eq(ok, false, "expected a failure")
 
     return problem
 end
@@ -48,8 +48,8 @@ function M.aBlockCarriesResultsThroughItsLocals()
         end)
         one, two = first:await(), second:await()
     end)
-    testAssert.equal(one, "first", "the first result did not survive the scope")
-    testAssert.equal(two, "second", "the second result did not survive the scope")
+    testAssert.eq(one, "first", "the first result did not survive the scope")
+    testAssert.eq(two, "second", "the second result did not survive the scope")
 
     -- Nil positions in the middle of a pack are positions, not absences.
     local a, b, c
@@ -58,9 +58,9 @@ function M.aBlockCarriesResultsThroughItsLocals()
             return 1, nil, 3
         end):await()
     end)
-    testAssert.equal(a, 1, "first")
-    testAssert.equal(b, nil, "the nil position was dropped")
-    testAssert.equal(c, 3, "the pack was shortened at the nil")
+    testAssert.eq(a, 1, "first")
+    testAssert.eq(b, nil, "the nil position was dropped")
+    testAssert.eq(c, 3, "the pack was shortened at the nil")
 end
 
 function M.spawnHandsItsArgumentsToTheBody()
@@ -74,7 +74,7 @@ function M.spawnHandsItsArgumentsToTheBody()
             20,
             22
         )
-        testAssert.equal(sum:await(), 42, "the arguments did not reach the body")
+        testAssert.eq(sum:await(), 42, "the arguments did not reach the body")
 
         local count = scope:spawn(
             function(...)
@@ -84,12 +84,12 @@ function M.spawnHandsItsArgumentsToTheBody()
             "x",
             nil
         )
-        testAssert.equal(count:await(), 3, "a nil argument was dropped from the pack")
+        testAssert.eq(count:await(), 3, "a nil argument was dropped from the pack")
 
         local none = scope:spawn(function(...)
             return select("#", ...)
         end)
-        testAssert.equal(none:await(), 0, "a bare body received arguments it was not given")
+        testAssert.eq(none:await(), 0, "a bare body received arguments it was not given")
     end)
 end
 
@@ -112,8 +112,8 @@ function M.childrenRunConcurrentlyAndAwaitAnswersEachOne()
         end)
         first, second = a:await(), b:await()
     end)
-    testAssert.equal(first, "a", "the first child's result")
-    testAssert.equal(second, "b", "the second child's result")
+    testAssert.eq(first, "a", "the first child's result")
+    testAssert.eq(second, "b", "the second child's result")
     assert(os.monotonic() - started < 70, "the children serialized")
 end
 
@@ -124,9 +124,9 @@ function M.awaitingTwiceObservesOneSettlement()
             ran = ran + 1
             return "once"
         end)
-        testAssert.equal(child:await(), "once", "the first await")
-        testAssert.equal(child:await(), "once", "the second await")
-        testAssert.equal(ran, 1, "the body ran more than once")
+        testAssert.eq(child:await(), "once", "the first await")
+        testAssert.eq(child:await(), "once", "the second await")
+        testAssert.eq(ran, 1, "the body ran more than once")
     end)
 end
 
@@ -197,11 +197,11 @@ function M.cancellingBeforeAChildStartsNeverRunsItsBody()
             ran = true
             return "never"
         end)
-        testAssert.equal(child:status(), "queued", "a spawned child starts queued")
-        testAssert.equal(child:cancel("not wanted"), true, "the first cancel made the request")
-        testAssert.equal(child:cancel(), false, "the second cancel reported it was not first")
-        testAssert.equal(child:status(), "cancelled", "the child did not settle as cancelled")
-        testAssert.equal(ran, false, "the body of a cancelled queued child ran")
+        testAssert.eq(child:status(), "queued", "a spawned child starts queued")
+        testAssert.eq(child:cancel("not wanted"), true, "the first cancel made the request")
+        testAssert.eq(child:cancel(), false, "the second cancel reported it was not first")
+        testAssert.eq(child:status(), "cancelled", "the child did not settle as cancelled")
+        testAssert.eq(ran, false, "the body of a cancelled queued child ran")
 
         local problem = raises(function()
             child:await()
@@ -228,14 +228,14 @@ function M.cancellingAParkedChildUnwindsIt()
         end)
         -- The block's own wait drives the child to its park before asking it to stop.
         time.sleep(20)
-        testAssert.equal(child:status(), "running", "the child had not started")
+        testAssert.eq(child:status(), "running", "the child had not started")
         child:cancel("the scene ended")
         local problem = raises(function()
             child:await()
         end)
         assert(tasks.iscancelled(problem), "await did not answer with the cancellation")
         assert(unwound, "the parked child did not unwind through its cleanup")
-        testAssert.equal(child:status(), "cancelled", "the settled status")
+        testAssert.eq(child:status(), "cancelled", "the settled status")
     end)
 end
 
@@ -304,7 +304,7 @@ function M.cancelIsTheScopesOwnDecisionAndTheExitStaysQuiet()
             ),
             "a child spawned after cancel was not cancelled"
         )
-        testAssert.equal(ran, false, "a child spawned after cancel ran")
+        testAssert.eq(ran, false, "a child spawned after cancel ran")
         settledQuietly = true
     end)
     assert(settledQuietly, "the block did not complete")
@@ -328,8 +328,8 @@ function M.aLimitParksSpawnUntilAChildSettles()
             assert(live <= 2, "spawn returned with more children live than the limit")
         end
     end)
-    testAssert.equal(ran, 6, "not every child ran")
-    testAssert.equal(peak, 2, "the limit was not the number of children live at once")
+    testAssert.eq(ran, 6, "not every child ran")
+    testAssert.eq(peak, 2, "the limit was not the number of children live at once")
     assert(os.monotonic() - started >= 40, "six children under a limit of two finished in fewer than three rounds")
 end
 
@@ -361,9 +361,9 @@ function M.aSpawnParkedForASlotDropsItsBodyWhenASiblingFails()
             scope:spawn(body)
         end)
     end)
-    testAssert.equal(tostring(problem), "first fails", "the sibling's failure is the scope's")
-    testAssert.equal(ran, false, "the parked body ran")
-    testAssert.equal(released, 1, "the parked body was not released")
+    testAssert.eq(tostring(problem), "first fails", "the sibling's failure is the scope's")
+    testAssert.eq(ran, false, "the parked body ran")
+    testAssert.eq(released, 1, "the parked body was not released")
 
     -- Refused before parking, by a failure the scope already owns: the same.
     released, ran = 0, false
@@ -376,9 +376,9 @@ function M.aSpawnParkedForASlotDropsItsBodyWhenASiblingFails()
             scope:spawn(body)
         end)
     end)
-    testAssert.equal(tostring(problem), "first fails", "the earlier failure is the scope's")
-    testAssert.equal(ran, false, "the refused body ran")
-    testAssert.equal(released, 1, "the refused body was not released")
+    testAssert.eq(tostring(problem), "first fails", "the earlier failure is the scope's")
+    testAssert.eq(ran, false, "the refused body ran")
+    testAssert.eq(released, 1, "the refused body was not released")
 end
 
 function M.aLimitCountsAChildSpawningIntoItsOwnScope()
@@ -401,7 +401,7 @@ function M.aLimitCountsAChildSpawningIntoItsOwnScope()
             end
         end)
     end)
-    testAssert.equal(peak, 2, "the parked spawner's slot was not lent to a sibling")
+    testAssert.eq(peak, 2, "the parked spawner's slot was not lent to a sibling")
 end
 
 function M.aChildStartingOnAFullScopeLendsItsSlotRatherThanDeadlocking()
@@ -431,7 +431,7 @@ function M.aChildStartingOnAFullScopeLendsItsSlotRatherThanDeadlocking()
             end)
         end
     end)
-    testAssert.equal(total, 150, "every nested child answered")
+    testAssert.eq(total, 150, "every nested child answered")
     assert(peak <= 2, "more children ran at once than the limit")
 end
 
@@ -478,8 +478,8 @@ function M.aDeadlineUnwindsEveryParkedChildThroughItsCleanup()
         end)
     end)
     assert(tasks.iscancelled(problem), "the deadline was not raised at the block's exit: " .. tostring(problem))
-    testAssert.equal(unwound, 2, "a parked child did not observe the cancellation")
-    testAssert.equal(closes, 2, "a child's cleanup was skipped")
+    testAssert.eq(unwound, 2, "a parked child did not observe the cancellation")
+    testAssert.eq(closes, 2, "a child's cleanup was skipped")
     assert(os.monotonic() - started < 1000, "settling waited for work the deadline had ended")
 
     -- The same when the block is parked on a child when the deadline passes: its own
@@ -493,8 +493,8 @@ function M.aDeadlineUnwindsEveryParkedChildThroughItsCleanup()
         end)
     end)
     assert(tasks.iscancelled(problem), "the deadline did not reach the block's wait: " .. tostring(problem))
-    testAssert.equal(unwound, 2, "a child parked under an awaiting block did not observe the cancellation")
-    testAssert.equal(closes, 2, "a child's cleanup was skipped under an awaiting block")
+    testAssert.eq(unwound, 2, "a child parked under an awaiting block did not observe the cancellation")
+    testAssert.eq(closes, 2, "a child's cleanup was skipped under an awaiting block")
 end
 
 function M.aDeadlineCancelsTheBlocksOwnWait()
@@ -524,16 +524,16 @@ function M.aNestedDeadlineTakesTheEarlierOfTheTwo()
         -- A looser one cannot extend what the parent already promised.
         scoped({deadline = 50000}, function()
             local inner = tasks.deadline()
-            testAssert.equal(inner, outer, "a child extended its parent's deadline")
+            testAssert.eq(inner, outer, "a child extended its parent's deadline")
         end)
 
         -- And a scope with none of its own inherits it.
         scoped(nil, function()
-            testAssert.equal(tasks.deadline(), outer, "a child without a deadline escaped its parent's")
+            testAssert.eq(tasks.deadline(), outer, "a child without a deadline escaped its parent's")
         end)
     end)
 
-    testAssert.equal(tasks.deadline(), nil, "a deadline outlived the scope that set it")
+    testAssert.eq(tasks.deadline(), nil, "a deadline outlived the scope that set it")
 end
 
 function M.aScopeOpenedInsideAChildIsDrivenFromThatChild()
@@ -542,7 +542,7 @@ function M.aScopeOpenedInsideAChildIsDrivenFromThatChild()
         total = outer:spawn(function()
             local sum = 0
             scoped({limit = 2}, function(inner)
-                testAssert.equal(tasks.deadline(), nil, "the inner scope reported a deadline nobody set")
+                testAssert.eq(tasks.deadline(), nil, "the inner scope reported a deadline nobody set")
                 local handles = {}
                 for value = 1, 5 do
                     handles[#handles + 1] = inner:spawn(
@@ -561,7 +561,7 @@ function M.aScopeOpenedInsideAChildIsDrivenFromThatChild()
             return sum
         end):await()
     end)
-    testAssert.equal(total, 15, "the inner scope's children did not all run")
+    testAssert.eq(total, 15, "the inner scope's children did not all run")
 end
 
 function M.aBadLimitOrDeadlineIsRefused()
@@ -630,7 +630,7 @@ function M.aScopeNestsInsideAHostHandlerWithoutAnsweringItsOwnWaits()
         end)
         handling:close()
     end
-    testAssert.equal(answer, "parked", "the scope did not answer under a host handler")
+    testAssert.eq(answer, "parked", "the scope did not answer under a host handler")
     assert(polls > 0, "the scope answered its own waits instead of the host's")
 end
 
@@ -701,7 +701,7 @@ function M.oneTurnBudgetIsSharedByNestedAndSequentialScopes()
                 end
             end)
         end
-        testAssert.equal(boundaries[1], 64, "sequential scopes replenished a budget the host had not replenished")
+        testAssert.eq(boundaries[1], 64, "sequential scopes replenished a budget the host had not replenished")
 
         handling:close()
     end
@@ -724,8 +724,8 @@ function M.oneTurnBudgetIsSharedByNestedAndSequentialScopes()
         handling:close()
     end
     -- The outer child is one activation; 63 inner children fit beside it.
-    testAssert.equal(boundaries[1], 63, "a nested scope multiplied rather than divided the 64-activation turn")
-    testAssert.equal(ran, 90, "the bounded nested scope did not eventually finish")
+    testAssert.eq(boundaries[1], 63, "a nested scope multiplied rather than divided the 64-activation turn")
+    testAssert.eq(ran, 90, "the bounded nested scope did not eventually finish")
 end
 
 function M.aHostBarrierStaysVisibleThroughAScope()
@@ -840,9 +840,9 @@ function M.gatherAnswersEveryBranchInTheOrderItWasGiven()
         end,
     })
     g.release()
-    testAssert.equal(values[1], "first", "branch one")
-    testAssert.equal(values[2], "second", "branch two")
-    testAssert.equal(values[3], "third", "branch three")
+    testAssert.eq(values[1], "first", "branch one")
+    testAssert.eq(values[2], "second", "branch two")
+    testAssert.eq(values[3], "third", "branch three")
 end
 
 function M.gatherRunsBranchesTogetherRatherThanInTurn()
@@ -863,7 +863,7 @@ function M.gatherRunsBranchesTogetherRatherThanInTurn()
     g.release()
     -- Run in turn, this would be a:start a:end b:start b:end. Together, b starts while
     -- a is parked and finishes first, because it asked for less waiting.
-    testAssert.equal(table.concat(trace, " "), "a:start b:start b:end a:end", "interleaved")
+    testAssert.eq(table.concat(trace, " "), "a:start b:start b:end a:end", "interleaved")
 end
 
 function M.gatherReportsFailuresBesideValues()
@@ -878,10 +878,10 @@ function M.gatherReportsFailuresBesideValues()
         end,
     })
     g.release()
-    testAssert.equal(values[1], "fine", "the branch that returned")
-    testAssert.equal(errors[1], nil, "and had no error")
-    testAssert.equal(values[2], nil, "the branch that raised produced no value")
-    testAssert.equal(errors[2], "no good", "and its error is reported rather than raised")
+    testAssert.eq(values[1], "fine", "the branch that returned")
+    testAssert.eq(errors[1], nil, "and had no error")
+    testAssert.eq(values[2], nil, "the branch that raised produced no value")
+    testAssert.eq(errors[2], "no good", "and its error is reported rather than raised")
 end
 
 -- The failure array alone says which branches failed: a branch that returned `nil`,
@@ -900,13 +900,13 @@ function M.gatherTellsANilResultFromAFailure()
             return false
         end,
     })
-    testAssert.equal(values[1], nil, "a nil result is a value")
-    testAssert.equal(errors[1], nil, "and not a failure")
-    testAssert.equal(values[2], nil, "a failed branch has no value")
-    testAssert.equal(errors[2], "no good", "and has its error")
-    testAssert.equal(errors[3], nil, "a branch that returned nothing did not fail")
-    testAssert.equal(values[4], false, "a false result is kept")
-    testAssert.equal(errors[4], nil, "and is not a failure")
+    testAssert.eq(values[1], nil, "a nil result is a value")
+    testAssert.eq(errors[1], nil, "and not a failure")
+    testAssert.eq(values[2], nil, "a failed branch has no value")
+    testAssert.eq(errors[2], "no good", "and has its error")
+    testAssert.eq(errors[3], nil, "a branch that returned nothing did not fail")
+    testAssert.eq(values[4], false, "a false result is kept")
+    testAssert.eq(errors[4], nil, "and is not a failure")
 end
 
 -- A branch answers one value. Keeping the first of several would drop the rest where
@@ -920,13 +920,13 @@ function M.gatherRefusesABranchThatReturnsSeveralValues()
             return 3
         end,
     })
-    testAssert.equal(values[1], nil, "the long pack is not truncated into a value")
+    testAssert.eq(values[1], nil, "the long pack is not truncated into a value")
     assert(
         tostring(errors[1]):find("returned 2 values", 1, true) ~= nil,
         "the branch failed, naming the count: " .. tostring(errors[1])
     )
-    testAssert.equal(values[2], 3, "a sibling is unaffected")
-    testAssert.equal(errors[2], nil, "and did not fail")
+    testAssert.eq(values[2], 3, "a sibling is unaffected")
+    testAssert.eq(errors[2], nil, "and did not fail")
 end
 
 -- The one thing a scope will not do. A scope is fail-fast, so this is the whole
@@ -946,10 +946,10 @@ function M.gatherLetsASiblingFinishAfterABranchFails()
         end,
     })
     g.release()
-    testAssert.equal(errors[1], "branch one failed", "the branch that raised")
-    testAssert.equal(finished, 1, "the sibling still ran to completion")
-    testAssert.equal(values[2], "late", "and reported its value")
-    testAssert.equal(g.outstanding(), 0, "no subscription was left waiting")
+    testAssert.eq(errors[1], "branch one failed", "the branch that raised")
+    testAssert.eq(finished, 1, "the sibling still ran to completion")
+    testAssert.eq(values[2], "late", "and reported its value")
+    testAssert.eq(g.outstanding(), 0, "no subscription was left waiting")
 end
 
 function M.raceAnswersWhicheverSettlesFirst()
@@ -963,8 +963,8 @@ function M.raceAnswersWhicheverSettlesFirst()
         end,
     })
     g.release()
-    testAssert.equal(value, "quick", "the winner's value")
-    testAssert.equal(index, 2, "and which branch won")
+    testAssert.eq(value, "quick", "the winner's value")
+    testAssert.eq(index, 2, "and which branch won")
 end
 
 function M.raceAnswersAFalseWinnerRatherThanNothing()
@@ -980,8 +980,8 @@ function M.raceAnswersAFalseWinnerRatherThanNothing()
         end,
     })
     g.release()
-    testAssert.equal(value, false, "the winner's value")
-    testAssert.equal(index, 2, "and which branch won")
+    testAssert.eq(value, false, "the winner's value")
+    testAssert.eq(index, 2, "and which branch won")
 end
 
 function M.raceCancelsTheBranchesItAbandons()
@@ -998,7 +998,7 @@ function M.raceCancelsTheBranchesItAbandons()
     -- place would keep the pump polling for a wait nobody is doing.
     assert(g.wasCancelled("slow"), "the loser unsubscribed")
     assert(not g.wasCancelled("quick"), "the winner did not")
-    testAssert.equal(g.outstanding(), 0, "and nothing was left pending")
+    testAssert.eq(g.outstanding(), 0, "and nothing was left pending")
     g.release()
 end
 
@@ -1036,7 +1036,7 @@ function M.raceRaisesWhereTheWinnerWonByFailing()
         })
     end)
     g.release()
-    testAssert.equal(problem, "first out of the gate", "the winner's failure is the call's")
+    testAssert.eq(problem, "first out of the gate", "the winner's failure is the call's")
 end
 
 function M.aFamilyCallNestsInsideAnInstalledHandler()
@@ -1069,8 +1069,8 @@ function M.aFamilyCallNestsInsideAnInstalledHandler()
         })
     end)
     g.release()
-    testAssert.equal(values[1], "x", "the nested family answered")
-    testAssert.equal(values[2], "y", "both branches")
+    testAssert.eq(values[1], "x", "the nested family answered")
+    testAssert.eq(values[2], "y", "both branches")
     assert(parks > 0, "and the driver parked on the outer handler")
 end
 
@@ -1110,8 +1110,8 @@ function M.nestedFamilyCallsPreserveAnOuterBarrier()
             end,
         })
     end)
-    testAssert.equal(saw, false, "the outer barrier remained visible through both drivers")
-    testAssert.equal(cancelled, true, "the refused subscription was cancelled")
+    testAssert.eq(saw, false, "the outer barrier remained visible through both drivers")
+    testAssert.eq(cancelled, true, "the refused subscription was cancelled")
     assert(
         tostring(errors[1]):find("cannot suspend here", 1, true) ~= nil,
         "the barrier reported the attempted suspension: " .. tostring(errors[1])
@@ -1120,11 +1120,11 @@ end
 
 function M.aFamilyOverNothingAnswersNothing()
     local values, errors = tasks.gather({})
-    testAssert.equal(#values, 0, "no branches, no values")
-    testAssert.equal(#errors, 0, "and no errors")
+    testAssert.eq(#values, 0, "no branches, no values")
+    testAssert.eq(#errors, 0, "and no errors")
     local value, index = tasks.race({})
-    testAssert.equal(value, nil, "racing nothing has no winner")
-    testAssert.equal(index, nil, "and no index")
+    testAssert.eq(value, nil, "racing nothing has no winner")
+    testAssert.eq(index, nil, "and no index")
 end
 
 -- A task that opened a scope of its own owns that family too. Cancelling the task
@@ -1162,12 +1162,12 @@ function M.cancellingATaskReachesTheScopeItIsDraining()
             handle:cancel("stop")
         end)
         local ok, problem = pcall(handle.await, handle)
-        testAssert.equal(ok, false, "the cancelled task answered")
+        testAssert.eq(ok, false, "the cancelled task answered")
         assert(tasks.iscancelled(problem), "the task raised " .. tostring(problem))
         status = handle:status()
     end)
-    testAssert.equal(status, "cancelled", "the task settled")
-    testAssert.equal(state.grandchild, "unwound", "the grandchild outlived the task that owned it")
+    testAssert.eq(status, "cancelled", "the task settled")
+    testAssert.eq(state.grandchild, "unwound", "the grandchild outlived the task that owned it")
 end
 
 function M.cancellingATaskReachesTheScopeItIsWaitingIn()
@@ -1179,7 +1179,7 @@ function M.cancellingATaskReachesTheScopeItIsWaitingIn()
             handle:cancel("stop")
         end)
     end)
-    testAssert.equal(state.grandchild, "unwound", "the grandchild outlived the task that owned it")
+    testAssert.eq(state.grandchild, "unwound", "the grandchild outlived the task that owned it")
 end
 
 function M.aSiblingFailureReachesAChildsOwnScope()
@@ -1193,8 +1193,8 @@ function M.aSiblingFailureReachesAChildsOwnScope()
             end)
         end)
     end)
-    testAssert.equal(problem, "sibling failed", "the scope's failure")
-    testAssert.equal(state.grandchild, "unwound", "the grandchild outlived the scope that failed")
+    testAssert.eq(problem, "sibling failed", "the scope's failure")
+    testAssert.eq(state.grandchild, "unwound", "the grandchild outlived the scope that failed")
 end
 
 function M.aSettleThatRaisesGivesBackTheFrame()
@@ -1207,10 +1207,10 @@ function M.aSettleThatRaisesGivesBackTheFrame()
         end)
     end)
     local ok, problem = pcall(scope.close, scope)
-    testAssert.equal(ok, false, "a wait nothing can answer settled")
+    testAssert.eq(ok, false, "a wait nothing can answer settled")
     assert(tostring(problem):find("no readiness source", 1, true), tostring(problem))
-    testAssert.equal(suspension.handled(), before, "the scope's frame handler outlived its settle")
-    testAssert.equal(tasks.deadline(), nil, "the scope is still registered on the frame")
+    testAssert.eq(suspension.handled(), before, "the scope's frame handler outlived its settle")
+    testAssert.eq(tasks.deadline(), nil, "the scope is still registered on the frame")
 end
 
 function M.aCancelledTaskCanParkWhileItDrainsItsOwnScope()
@@ -1256,7 +1256,7 @@ function M.aCancelledTaskCanParkWhileItDrainsItsOwnScope()
             end)
         end)
     end)
-    testAssert.equal(unwound, 150, "every grandchild unwound before the task let go of them")
+    testAssert.eq(unwound, 150, "every grandchild unwound before the task let go of them")
 end
 
 -- What a scope holds follows its live children, not the ones it has run. The counts
@@ -1286,7 +1286,7 @@ function M.aLongLivedScopeHoldsOnlyItsLiveChildren()
             end
         end
     end)
-    testAssert.equal(ran, total, "every child ran")
+    testAssert.eq(ran, total, "every child ran")
     assert(mostListed <= 8, "the scope listed more than its live children: " .. mostListed)
     assert(mostQueued <= 8, "the queue outgrew the live children: " .. mostQueued)
 end
@@ -1297,7 +1297,7 @@ function M.aSettledChildsHandleAnswersAfterItLeavesTheScope()
             return 1, nil, 3
         end)
         local a, b, c = kept:await()
-        testAssert.equal(a, 1, "first")
+        testAssert.eq(a, 1, "first")
         for _ = 1, 20 do
             scope:spawn(function()
             end)
@@ -1305,11 +1305,11 @@ function M.aSettledChildsHandleAnswersAfterItLeavesTheScope()
         assert(held(scope).listed <= 2, "settled children are still listed")
         -- Long gone from the scope, and the handle answers exactly as it did.
         local x, y, z = kept:await()
-        testAssert.equal(x, a, "first again")
-        testAssert.equal(y, b, "the nil position again")
-        testAssert.equal(z, c, "third again")
-        testAssert.equal(select("#", kept:await()), 3, "the pack kept its length")
-        testAssert.equal(kept:status(), "done", "status")
+        testAssert.eq(x, a, "first again")
+        testAssert.eq(y, b, "the nil position again")
+        testAssert.eq(z, c, "third again")
+        testAssert.eq(select("#", kept:await()), 3, "the pack kept its length")
+        testAssert.eq(kept:status(), "done", "status")
     end)
 end
 
@@ -1324,8 +1324,8 @@ function M.childrenCancelledBeforeTheyRunLeaveNothingQueued()
             child:cancel()
         end
         local counts = held(scope)
-        testAssert.equal(counts.live, 0, "a cancelled child is still live")
-        testAssert.equal(counts.ready, 0, "a settled child still counts as runnable")
+        testAssert.eq(counts.live, 0, "a cancelled child is still live")
+        testAssert.eq(counts.ready, 0, "a settled child still counts as runnable")
         assert(counts.queued <= 64, "stale queue entries piled up: " .. counts.queued)
     end)
 end
@@ -1356,10 +1356,10 @@ function M.runAnswersTheBodysWholeResultPack()
             return 1
         end):await(), nil, 3
     end)
-    testAssert.equal(a, 1, "first")
-    testAssert.equal(b, nil, "the nil position")
-    testAssert.equal(c, 3, "third")
-    testAssert.equal(
+    testAssert.eq(a, 1, "first")
+    testAssert.eq(b, nil, "the nil position")
+    testAssert.eq(c, 3, "third")
+    testAssert.eq(
         select(
             "#",
             tasks.run(function()
@@ -1398,7 +1398,7 @@ function M.runCancelsChildrenWhenTheBodyFails()
             error("the body failed", 0)
         end)
     end)
-    testAssert.equal(problem, "the body failed", "the body's own failure is what run raises")
+    testAssert.eq(problem, "the body failed", "the body's own failure is what run raises")
     assert(unwound, "the child was not cancelled through its cleanup")
     assert(os.monotonic() - started < 1000, "the body's failure waited for its child")
 end
@@ -1435,9 +1435,9 @@ function M.runKeepsTheBodysFailurePrimaryOverACleanupFailure()
             error("the body failed", 0)
         end)
     end)
-    testAssert.equal(type(problem), "table", "the cleanup failure was dropped or replaced the body's")
-    testAssert.equal(problem.primary, "the body failed", "primary")
-    testAssert.equal(problem.suppressed[1], "cleanup failed", "suppressed")
+    testAssert.eq(type(problem), "table", "the cleanup failure was dropped or replaced the body's")
+    testAssert.eq(problem.primary, "the body failed", "primary")
+    testAssert.eq(problem.suppressed[1], "cleanup failed", "suppressed")
     local text = tostring(problem)
     assert(
         text:find("the body failed", 1, true) ~= nil and text:find("cleanup failed", 1, true) ~= nil,
@@ -1472,7 +1472,7 @@ function M.runInsideAChildFailsThatChild()
             end)
         end)
     end)
-    testAssert.equal(problem, "the inner body failed", "the outer scope did not answer with the inner failure")
+    testAssert.eq(problem, "the inner body failed", "the outer scope did not answer with the inner failure")
 end
 
 function M.runRefusesABadLimit()

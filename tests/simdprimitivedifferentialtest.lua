@@ -228,14 +228,14 @@ function M.nativeCapabilityNamesTheBuildsCodeGenerator()
     local codegen = require("nupp.compiler.aot.llvm.codegen")
     local available, problem = codegen.available()
     local capability = runner.nativeCapability()
-    test.equal(capability.compiler, "llvm")
-    test.equal(capability.compilerDialect, "llvm")
+    test.eq(capability.compiler, "llvm")
+    test.eq(capability.compilerDialect, "llvm")
     if not available then
-        test.equal(capability.compilerVersion, nil, tostring(problem))
+        test.eq(capability.compilerVersion, nil, tostring(problem))
 
         return
     end
-    test.equal(capability.compilerVersion, codegen.version(), "the version every AOT artifact is keyed on")
+    test.eq(capability.compilerVersion, codegen.version(), "the version every AOT artifact is keyed on")
     local tiers = assert(runner.hostTiers())
     assert(("\n" .. tiers):find("\n" .. (jit.arch == "arm64" and "neon" or "baseline") .. "\n", 1, true), tiers)
 end

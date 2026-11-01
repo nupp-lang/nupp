@@ -113,7 +113,7 @@ end
 -- host, so every machine reads them.
 local function neonAsm(dir, file)
     local asm, code = run(dir, "--triple aarch64-apple-darwin --features neon --emit asm " .. file)
-    test.equal(code, 0, asm)
+    test.eq(code, 0, asm)
 
     return asm
 end
@@ -158,7 +158,7 @@ local function spirvInstructions(module)
         instructions[#instructions + 1] = {opcode = first % 65536, operands = operands}
         offset = offset + wordCount * 4
     end
-    test.equal(offset, #module + 1)
+    test.eq(offset, #module + 1)
 
     return instructions
 end
@@ -274,7 +274,7 @@ local function assertSpirvStructure(module)
             functionReturns[instruction.operands[1]] = instruction.operands[2]
         elseif instruction.opcode == 54 then -- OpFunction
             functions = functions + 1
-            test.equal(
+            test.eq(
                 functionReturns[instruction.operands[4]],
                 instruction.operands[1],
                 "SPIR-V function result and function type disagree"
@@ -379,16 +379,16 @@ return {doubled = doubled}
 ]],
     })
     local module, moduleCode = run(dir, "--emit spirv gpu.nupp")
-    test.equal(moduleCode, 0, module)
-    test.equal(#module > 20, true)
-    test.equal(module:sub(1, 4), "\3\2\35\7")
+    test.eq(moduleCode, 0, module)
+    test.eq(#module > 20, true)
+    test.eq(module:sub(1, 4), "\3\2\35\7")
     assertSpirvStructure(module)
     assert(spirvOpcodeCount(module, 127) > 0, "float negation lost the sign of zero")
     assert(spirvDecorationCount(module, 42) > 0, "strict binary32 arithmetic lost NoContraction")
     assert(not spirvHasFloatNaNConstant(module), "SPIR-V emitted a validator-rejected NaN float constant")
 
     local binding, bindingCode = run(dir, "--emit binding gpu.nupp")
-    test.equal(bindingCode, 0, binding)
+    test.eq(bindingCode, 0, binding)
     assert(binding:find("Buffer<float>", 1, true), binding)
     assert(binding:find("scale: float", 1, true), binding)
     assert(binding:find("ArtifactSet", 1, true), binding)
@@ -401,12 +401,12 @@ return {doubled = doubled}
     assert(binding:find("dispatchPacked", 1, true), binding)
 
     local wasmBinding, wasmBindingCode = run(dir, "--emit binding --triple wasm32-unknown-emscripten gpu.nupp")
-    test.equal(wasmBindingCode, 1, wasmBinding)
+    test.eq(wasmBindingCode, 1, wasmBinding)
     assert(wasmBinding:find("webgpu-int32", 1, true), wasmBinding)
     assert(not wasmBinding:find('wgsl = "nil"', 1, true), wasmBinding)
 
     local summary, summaryCode = run(dir, "gpu.nupp")
-    test.equal(summaryCode, 0, summary)
+    test.eq(summaryCode, 0, summary)
     assert(
         summary:find(", gpu, one iteration per GPU invocation", 1, true),
         "a compiled GPU artifact is reported with its lowered shape: " .. summary
@@ -438,15 +438,15 @@ return convert
 ]]
     })
     local module, code = run(dir, "--emit spirv gpu.nupp")
-    test.equal(code, 0, module)
+    test.eq(code, 0, module)
     assert(spirvOpcodeCount(module, 124) > 0, "equal-width signedness conversion uses OpBitcast")
-    test.equal(spirvOpcodeCount(module, 113), 0, "OpUConvert requires a change of width")
-    test.equal(spirvOpcodeCount(module, 114), 0, "OpSConvert requires a change of width")
-    test.equal(spirvOpcodeCount(module, 111), 0, "integer wrap must not round through binary32")
+    test.eq(spirvOpcodeCount(module, 113), 0, "OpUConvert requires a change of width")
+    test.eq(spirvOpcodeCount(module, 114), 0, "OpSConvert requires a change of width")
+    test.eq(spirvOpcodeCount(module, 111), 0, "integer wrap must not round through binary32")
     assert(spirvMaskedShiftCount(module, 196) > 0, "left shift count was not reduced modulo 32")
     assert(spirvMaskedShiftCount(module, 194) > 0, "right shift count was not reduced modulo 32")
     local raw, jsonCode = run(dir, "--json gpu.nupp")
-    test.equal(jsonCode, 0, raw)
+    test.eq(jsonCode, 0, raw)
     local report = require("testjson").decode(raw)
     for index = 1, #raw do
         assert(raw:byte(index) < 128, "binary SPIR-V escaped the JSON source literal at byte " .. index)
@@ -457,8 +457,8 @@ return convert
         authored and authored:find("local function convert", 1, true),
         "source identity resolves independently of the invocation directory"
     )
-    test.equal(shader.range.start.line, 2)
-    test.equal(shader.artifactId, require("nupp.compiler.hash").digest(module))
+    test.eq(shader.range.start.line, 2)
+    test.eq(shader.artifactId, require("nupp.compiler.hash").digest(module))
     assert(report.binding:find(shader.artifactId, 1, true), "runtime and inspection share the shader digest")
     assert(report.binding:find('sourceLine = 2', 1, true), report.binding)
     assert(report.binding:find('artifactId = "', 1, true), report.binding)
@@ -508,11 +508,11 @@ return {shrink = shrink}
 ]],
     })
     local module, moduleCode = run(dir, "--emit spirv gpu.nupp")
-    test.equal(moduleCode, 0, module)
+    test.eq(moduleCode, 0, module)
     assertSpirvStructure(module)
 
     local shader, shaderCode = run(dir, "--emit wgsl --triple wasm32-unknown-emscripten gpu.nupp")
-    test.equal(shaderCode, 0, shader)
+    test.eq(shaderCode, 0, shader)
     assert(shader:find("continuing {", 1, true), "WGSL repeat has a continuing block\n" .. shader)
     assert(shader:find("break if ", 1, true), "WGSL repeat evaluates its trailing condition\n" .. shader)
 end
@@ -523,14 +523,14 @@ function M.gpuCountedLoopsEmitNativeAndBrowserControlFlow()
     source:close()
     for _, name in ipairs({"literal", "boundaries", "snapshots", "control"}) do
         local module, moduleCode = run(dir, "--emit spirv --function " .. name .. " counted.nupp")
-        test.equal(moduleCode, 0, module)
+        test.eq(moduleCode, 0, module)
         assertSpirvStructure(module)
         assert(spirvOpcodeCount(module, 246) > 0, "counted loops require structured loop control")
         local shader, shaderCode = run(
             dir,
             "--emit wgsl --triple wasm32-unknown-emscripten --function " .. name .. " counted.nupp"
         )
-        test.equal(shaderCode, 0, shader)
+        test.eq(shaderCode, 0, shader)
         assert(shader:find("continuing {", 1, true), shader)
         assert(shader:find("break if ", 1, true), shader)
         assert(
@@ -562,7 +562,7 @@ return xorMask
 ]],
     })
     local shader, code = run(dir, "--emit wgsl gpu.nupp")
-    test.equal(code, 0, shader)
+    test.eq(code, 0, shader)
     assert(shader:find("@compute @workgroup_size(256)", 1, true), shader)
     assert(shader:find("var<storage, read> nupp_tmp_buffer_nupp_tmp_name_input: array<u32>", 1, true), shader)
     assert(shader:find("var<storage, read_write> nupp_tmp_buffer_nupp_tmp_name_output: array<u32>", 1, true), shader)
@@ -578,7 +578,7 @@ return xorMask
     assert(shader:find("^ nupp_tmp_uniforms.nupp_tmp_name_mask", 1, true), shader)
 
     local binding, bindingCode = run(dir, "--emit binding --triple wasm32-unknown-emscripten gpu.nupp")
-    test.equal(bindingCode, 0, binding)
+    test.eq(bindingCode, 0, binding)
     assert(binding:find("local artifacts = new gpuImplementation_ks_xor_mask.ArtifactSet", 1, true), binding)
     assert(binding:find("wgsl = \"struct nupp_tmp_Uniforms", 1, true), binding)
     assert(binding:find("compileGenerated(context, artifacts, 1, 1", 1, true), binding)
@@ -604,7 +604,7 @@ return doubled
 ]],
     })
     local floating, floatingCode = run(floatingDir, "--emit wgsl gpu.nupp")
-    test.equal(floatingCode, 1, floating)
+    test.eq(floatingCode, 1, floating)
     assert(floating:find("webgpu-int32 profile", 1, true), floating)
 end
 
@@ -631,7 +631,7 @@ return reservedNames
 ]],
     })
     local shader, code = run(dir, "--emit wgsl gpu.nupp")
-    test.equal(code, 0, shader)
+    test.eq(code, 0, shader)
     assert(shader:find("nupp_tmp_buffer_nupp_tmp_name_uniforms", 1, true), shader)
     assert(shader:find("nupp_tmp_buffer_nupp_tmp_name_array", 1, true), shader)
     assert(shader:find("nupp_tmp_count: u32", 1, true), shader)
@@ -640,11 +640,11 @@ return reservedNames
     assert(not shader:find("var<storage, read> array:", 1, true), shader)
 
     local module, moduleCode = run(dir, "--emit spirv gpu.nupp")
-    test.equal(moduleCode, 0, module)
-    test.equal(spirvDispatchCountMember(module), 0, "the dispatch guard reads the compiler-owned count")
+    test.eq(moduleCode, 0, module)
+    test.eq(spirvDispatchCountMember(module), 0, "the dispatch guard reads the compiler-owned count")
 
     local binding, bindingCode = run(dir, "--emit binding gpu.nupp")
-    test.equal(bindingCode, 0, binding)
+    test.eq(bindingCode, 0, binding)
     assert(binding:find("uint32_t dispatch_count;", 1, true), binding)
     assert(binding:find("uint32_t uniform_1;", 1, true), binding)
     assert(binding:find("uniforms.uniform_1 = count", 1, true), binding)
@@ -672,7 +672,7 @@ return increment
 ]],
     })
     local module, moduleCode = run(dir, "--emit spirv gpu.nupp")
-    test.equal(moduleCode, 0, module)
+    test.eq(moduleCode, 0, module)
     local workgroups, interface = nil, nil
     for _, instruction in ipairs(spirvInstructions(module)) do
         local operands = instruction.operands
@@ -688,10 +688,10 @@ return increment
         listed = listed or operand == workgroups
     end
     assert(listed, "the workgroup count is missing from the entry point's interface")
-    test.equal(spirvDispatchCountMember(module), 0, "the folded guard still reads the compiler-owned count")
+    test.eq(spirvDispatchCountMember(module), 0, "the folded guard still reads the compiler-owned count")
 
     local shader, code = run(dir, "--emit wgsl gpu.nupp")
-    test.equal(code, 0, shader)
+    test.eq(code, 0, shader)
     assert(shader:find("@builtin(num_workgroups) nupp_tmp_workgroups: vec3<u32>", 1, true), shader)
     assert(shader:find("let nupp_tmp_row_width = nupp_tmp_workgroups.x * 256u;", 1, true), shader)
     assert(
@@ -731,7 +731,7 @@ return bindingNames
 ]],
     })
     local native, nativeCode = run(dir, "--emit binding gpu.nupp")
-    test.equal(nativeCode, 0, native)
+    test.eq(nativeCode, 0, native)
     assert(native:find("local gpuImplementation_ks_binding_names_ = require", 1, true), native)
     assert(native:find("local raw_ = gpuImplementation_ks_binding_names_.bindKernel", 1, true), native)
     assert(native:find("raw_:setWrite(0, raw, true)", 1, true), native)
@@ -739,7 +739,7 @@ return bindingNames
     assert(native:find("uniforms_.uniform_3 = gpuParameter", 1, true), native)
 
     local browser, browserCode = run(dir, "--emit binding --triple wasm32-unknown-emscripten gpu.nupp")
-    test.equal(browserCode, 0, browser)
+    test.eq(browserCode, 0, browser)
     assert(browser:find("local scalars_: {uint32} = {}", 1, true), browser)
     assert(browser:find("math.u32.wrap(scalars as integer)", 1, true), browser)
     assert(browser:find("math.u32.wrap(gpuParameter as integer)", 1, true), browser)
@@ -769,7 +769,7 @@ return addMask
     })
     for _, triple in ipairs({"", " --triple wasm32-unknown-emscripten"}) do
         local binding, code = run(dir, "--emit binding" .. triple .. " gpu.nupp")
-        test.equal(code, 0, binding)
+        test.eq(code, 0, binding)
         local bindingAt = assert(binding:find("record GpuBinding_ks_add_mask", 1, true), binding)
         local kernelAt = assert(binding:find("record GpuKernel_ks_add_mask", 1, true), binding)
         local specAt = assert(binding:find("record GpuSpec_ks_add_mask", 1, true), binding)
@@ -830,7 +830,7 @@ end
     })
     for _, emit in ipairs({"ir", "wgsl", "spirv"}) do
         local out, code = run(dir, "--emit " .. emit .. " run.nupp")
-        test.equal(code, 0, out)
+        test.eq(code, 0, out)
     end
 end
 
@@ -845,7 +845,7 @@ return doubled
 ]],
     })
     local summary, code = run(dir, "scalar.nupp")
-    test.equal(code, 0, summary)
+    test.eq(code, 0, summary)
     assert(summary:find(", scalar", 1, true), "the summary says the body runs scalar: " .. summary)
     assert(not summary:find("lanes", 1, true), "and does not invent a lane decision for it: " .. summary)
 end
@@ -896,9 +896,9 @@ return {relaxed = relaxed}
 ]],
     })
     local module, code = run(dir, "--emit spirv relaxed.nupp")
-    test.equal(code, 0, module)
-    test.equal(module:sub(1, 4), "\3\2#\7")
-    test.equal(spirvDecorationCount(module, 42), 0, "relaxed arithmetic retained NoContraction")
+    test.eq(code, 0, module)
+    test.eq(module:sub(1, 4), "\3\2#\7")
+    test.eq(spirvDecorationCount(module, 42), 0, "relaxed arithmetic retained NoContraction")
 end
 
 function M.aotUsesNativeTranscendentalsOnlyWhenGranted()
@@ -930,12 +930,12 @@ return {nativeExp = nativeExp, nativeExpCpu = nativeExpCpu}
 ]],
     })
     local module, moduleCode = run(dir, "--emit spirv native-exp.nupp")
-    test.equal(moduleCode, 0, module)
-    test.equal(module:sub(1, 4), "\3\2#\7")
+    test.eq(moduleCode, 0, module)
+    test.eq(module:sub(1, 4), "\3\2#\7")
     assert(spirvHasExtendedInstruction(module, 27), "native exponential did not emit GLSL.std.450 Exp")
 
     local decoded, raw, code, where = lowered(dir, "--json native-exp.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     assert(
         decoded.llvm:find("call float @expf(", 1, true),
         where .. ": the CPU body calls the native exponential: " .. decoded.llvm
@@ -1026,14 +1026,14 @@ return {signedToFloat = signedToFloat, Pixel = Pixel}
 ]],
     })
     local module, code = run(dir, "--emit spirv --function roundTrip halfgpu.nupp")
-    test.equal(code, 1, module)
+    test.eq(code, 1, module)
     assert(module:find("GPU span input has uint16 elements; GPU kernels need 32-bit storage", 1, true), module)
     local signed, signedCode = run(dir, "--emit spirv --function signedToFloat signedgpu.nupp")
-    test.equal(signedCode, 1, signed)
+    test.eq(signedCode, 1, signed)
     assert(signed:find("GPU struct field Pixel.level is int8", 1, true), signed)
 
     local decoded, raw, lowerCode, where = lowered(dir, "--json half.nupp")
-    test.equal(lowerCode, 0, raw)
+    test.eq(lowerCode, 0, raw)
     local llvm = decoded.llvm
     assert(llvm:find("call float @nupp.f16.to.f32(", 1, true), where .. ": binary16 widens exactly\n" .. llvm)
     assert(llvm:find("call i32 @nupp.f32.to.f16(", 1, true), where .. ": and narrows back\n" .. llvm)
@@ -1077,15 +1077,15 @@ return {exponential = exponential, exponentialCpu = exponentialCpu}
 ]],
     })
     local module, moduleCode = run(dir, "--emit spirv exp.nupp")
-    test.equal(moduleCode, 0, module)
-    test.equal(module:sub(1, 4), "\3\2#\7")
+    test.eq(moduleCode, 0, module)
+    test.eq(module:sub(1, 4), "\3\2#\7")
     assert(not spirvHasExtendedInstruction(module, 27), "IR exponential delegated to GLSL.std.450 Exp")
     assert(spirvDecorationCount(module, 42) >= 8, "IR exponential lost its binary32 contraction barriers")
 
     -- The CPU twin takes the same polynomial rather than a library call, and
     -- evaluates it by fused Horner steps.
     local decoded, raw, code, where = lowered(dir, "--json exp.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     local llvm = decoded.llvm
     assert(
         llvm:find("call float @nupp.f32.exp(", 1, true),
@@ -1133,15 +1133,15 @@ return {gemm = gemm}
 ]],
     })
     local module, moduleCode = run(dir, "--emit spirv gemm.nupp")
-    test.equal(moduleCode, 0, module)
-    test.equal(module:sub(1, 4), "\3\2#\7")
+    test.eq(moduleCode, 0, module)
+    test.eq(module:sub(1, 4), "\3\2#\7")
     assert(spirvDecorationCount(module, 33) >= 4, "SPIR-V lost buffer or uniform bindings")
     assert(spirvDecorationCount(module, 34) >= 4, "SPIR-V lost descriptor-set assignments")
     assert(spirvOpcodeCount(module, 65) > 0, "cursor access emitted no OpAccessChain")
     assert(spirvOpcodeCount(module, 176) > 0, "cursor guard emitted no OpULessThan")
 
     local binding, bindingCode = run(dir, "--emit binding gemm.nupp")
-    test.equal(bindingCode, 0, binding)
+    test.eq(bindingCode, 0, binding)
     assert(binding:find("setRead(0, rowOf, true)", 1, true), binding)
     assert(binding:find("setRead(1, a, false)", 1, true), binding)
     assert(binding:find("setWrite(0, c, true)", 1, true), binding)
@@ -1177,7 +1177,7 @@ return {gather = gather}
 ]],
     })
     local decoded, raw, code, where = lowered(dir, "--json gather.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     assert(
         decoded.ir:find("guards\n  equal_count out offsets @", 1, true)
         and not decoded.ir:find("equal_count out source", 1, true),
@@ -1220,7 +1220,7 @@ return {copyFirst = copyFirst}
 ]],
     })
     local llvm, code = run(dir, "--emit llvm shared-count.nupp")
-    test.equal(code, 0, llvm)
+    test.eq(code, 0, llvm)
     assert(
         llvm:find("i64 range(i64 0, 9007199254740993) %count)", 1, true),
         "the entry takes one shared count: " .. llvm
@@ -1269,15 +1269,15 @@ return {coordinates = coordinates, coordinatesCpu = coordinatesCpu}
 ]],
     })
     local module, code = run(dir, "--emit spirv coordinates.nupp")
-    test.equal(code, 0, module)
-    test.equal(module:sub(1, 4), "\3\2#\7")
+    test.eq(code, 0, module)
+    test.eq(module:sub(1, 4), "\3\2#\7")
     assert(spirvOpcodeCount(module, 134) > 0, "coordinate row emitted no OpUDiv")
     assert(spirvOpcodeCount(module, 137) > 0, "coordinate column emitted no OpUMod")
 
     -- The CPU twin divides unsigned too, and its loop index is the one-based
     -- source index the body names.
     local decoded, raw, code, where = lowered(dir, "--json coordinates.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     local llvm = decoded.llvm
     assert(llvm:find("call i32 @nupp.u32.div(", 1, true), where .. ": the row is an unsigned division\n" .. llvm)
     assert(llvm:find("call i32 @nupp.u32.mod(", 1, true), where .. ": the column an unsigned remainder\n" .. llvm)
@@ -1356,13 +1356,13 @@ return {reduce = reduce}
 ]],
     })
     local spirv, spirvCode = run(dir, "--emit spirv reduce.nupp")
-    test.equal(spirvCode, 0, spirv)
-    test.equal(spirv:sub(1, 4), "\3\2#\7")
-    test.equal(spirvOpcodeCount(spirv, 224), 5, "reduction emitted the wrong barrier count")
+    test.eq(spirvCode, 0, spirv)
+    test.eq(spirv:sub(1, 4), "\3\2#\7")
+    test.eq(spirvOpcodeCount(spirv, 224), 5, "reduction emitted the wrong barrier count")
     assert(spirvDecorationCount(spirv, 11) >= 3, "workgroup kernel lost invocation builtins")
 
     local binding, bindingCode = run(dir, "--emit binding reduce.nupp")
-    test.equal(bindingCode, 0, binding)
+    test.eq(bindingCode, 0, binding)
     assert(binding:find("bindKernel(self._kernel, input.count)", 1, true), binding)
     assert(binding:find("raw:setRead(0, input, false)", 1, true), binding)
     assert(binding:find(", 4)", 1, true), binding)
@@ -1396,9 +1396,9 @@ return {map = map}
 ]],
     })
     local module, code = run(dir, "--emit spirv map.nupp")
-    test.equal(code, 0, module)
-    test.equal(module:sub(1, 4), "\3\2#\7")
-    test.equal(spirvOpcodeCount(module, 224), 0, "scratch-free workgroup emitted a barrier")
+    test.eq(code, 0, module)
+    test.eq(module:sub(1, 4), "\3\2#\7")
+    test.eq(spirvOpcodeCount(module, 224), 0, "scratch-free workgroup emitted a barrier")
     assert(spirvDecorationCount(module, 11) >= 3, "workgroup kernel lost invocation builtins")
 end
 
@@ -1446,9 +1446,9 @@ return {addPairs = addPairs}
 ]],
     })
     local module, code = run(dir, "--emit spirv fields.nupp")
-    test.equal(code, 0, module)
-    test.equal(module:sub(1, 4), "\3\2#\7")
-    test.equal(spirvOpcodeCount(module, 65), 7, "repeated struct fields rebuilt a storage address")
+    test.eq(code, 0, module)
+    test.eq(module:sub(1, 4), "\3\2#\7")
+    test.eq(spirvOpcodeCount(module, 65), 7, "repeated struct fields rebuilt a storage address")
 end
 
 function M.gpuTargetEmitsDeterministicInclusiveScan()
@@ -1485,9 +1485,9 @@ return {scan = scan}
 ]],
     })
     local module, code = run(dir, "--emit spirv scan.nupp")
-    test.equal(code, 0, module)
-    test.equal(module:sub(1, 4), "\3\2#\7")
-    test.equal(spirvOpcodeCount(module, 224), 5, "scan emitted the wrong barrier count")
+    test.eq(code, 0, module)
+    test.eq(module:sub(1, 4), "\3\2#\7")
+    test.eq(spirvOpcodeCount(module, 224), 5, "scan emitted the wrong barrier count")
     assert(spirvDecorationCount(module, 11) >= 3, "scan lost workgroup invocation builtins")
 end
 
@@ -1910,10 +1910,10 @@ function M.assertGuardsReachTheSameKernel()
     local asserted = project{["compute.nupp"] = COMPUTE_ASSERTED}
     local wantedReport, wanted, wantedCode, wantedWhere = lowered(plain, PINNED .. "--json compute.nupp")
     local gotReport, got, gotCode, gotWhere = lowered(asserted, PINNED .. "--json compute.nupp")
-    test.equal(wantedCode, 0, wanted)
-    test.equal(gotCode, 0, "assert guards are admitted like error guards\n" .. got)
+    test.eq(wantedCode, 0, wanted)
+    test.eq(gotCode, 0, "assert guards are admitted like error guards\n" .. got)
     assert(wantedReport.llvm, "the report carries the LLVM IR\n" .. wanted)
-    test.equal(
+    test.eq(
         gotReport.llvm,
         wantedReport.llvm,
         ("both guard forms emit the same LLVM IR (%s versus %s)"):format(gotWhere, wantedWhere)
@@ -1929,7 +1929,7 @@ function M.aGuardThatBoundsNothingNamesItsClause()
         ["compute.nupp"] = replaceOnce(COMPUTE_ASSERTED, "assert(#out == #points", "assert(#out ~= #points")
     }
     local out, code = run(dir, PINNED .. "compute.nupp")
-    test.equal(code, 1, "a guard that proves nothing is refused\n" .. out)
+    test.eq(code, 1, "a guard that proves nothing is refused\n" .. out)
     assert(out:find("`#out ~= #points` cannot be read as a guard", 1, true), "the clause is named: " .. out)
 end
 
@@ -1939,7 +1939,7 @@ end
 -- artifact would be one the backend understood differently.
 function M.equivalentGuardFormsReachTheSameKernel()
     local wanted, wantedCode = run(project{["compute.nupp"] = COMPUTE}, PINNED .. "--emit llvm compute.nupp")
-    test.equal(wantedCode, 0, wanted)
+    test.eq(wantedCode, 0, wanted)
     local forms = {
         reordered = {
             "first >= 1 and last <= #out and first <= last + 1",
@@ -1958,8 +1958,8 @@ function M.equivalentGuardFormsReachTheSameKernel()
     for name, pair in pairs(forms) do
         local source = replaceOnce(COMPUTE_ASSERTED, pair[1], pair[2])
         local got, code = run(project{["compute.nupp"] = source}, PINNED .. "--emit llvm compute.nupp")
-        test.equal(code, 0, name .. " is admitted\n" .. got)
-        test.equal(got, wanted, name .. " emits the same LLVM IR as the reference form")
+        test.eq(code, 0, name .. " is admitted\n" .. got)
+        test.eq(got, wanted, name .. " emits the same LLVM IR as the reference form")
     end
 end
 
@@ -1971,7 +1971,7 @@ function M.aStrongerRangeGuardIsAdmittedAndEnforced()
         ["compute.nupp"] = replaceOnce(COMPUTE_ASSERTED, "first >= 1 and last <= #out", "first >= 2 and last <= #out")
     }
     local out, code = run(dir, PINNED .. "--emit binding compute.nupp")
-    test.equal(code, 0, "a guard the loop does not need is carried, not refused\n" .. out)
+    test.eq(code, 0, "a guard the loop does not need is carried, not refused\n" .. out)
     assert(out:find("first < 2", 1, true), "the wrapper refuses what the source refuses: " .. out)
     assert(not out:find("first < 1", 1, true), "the loop's own weaker bound is not what is checked: " .. out)
 end
@@ -1985,7 +1985,7 @@ function M.constantAndNegativeGuardFactsReachValidWrapperSource()
     assert(first >= 1 and last <= #out and first <= last + 1, "range out of bounds")]]
     )
     local out, code = run(project{["compute.nupp"] = source}, PINNED .. "--emit binding compute.nupp")
-    test.equal(code, 0, "bounded integer literals are admitted\n" .. out)
+    test.eq(code, 0, "bounded integer literals are admitted\n" .. out)
     assert(out:find("first < -1", 1, true), "the negative relation is preserved: " .. out)
     assert(not out:find("nil <", 1, true), "the constant tautology emits no origin-to-origin check: " .. out)
 end
@@ -1998,7 +1998,7 @@ function M.aStrictGuardBeyondTheRelationOffsetLimitNamesItsClause()
     assert(first >= 1 and last <= #out and first <= last + 1, "range out of bounds")]]
     )
     local out, code = run(project{["compute.nupp"] = source}, PINNED .. "compute.nupp")
-    test.equal(code, 1, "an adjusted offset outside the bounded solver is refused\n" .. out)
+    test.eq(code, 1, "an adjusted offset outside the bounded solver is refused\n" .. out)
     assert(out:find("`1048576 < first` cannot be read as a guard", 1, true), "the clause is named: " .. out)
     assert(
         not out:find("guard relation offsets further", 1, true),
@@ -2020,7 +2020,7 @@ function M.anUnrelatedPreconditionIsCarriedIntoTheWrapper()
         )
     }
     local out, code = run(dir, PINNED .. "--emit binding compute.nupp")
-    test.equal(code, 0, "an extra precondition does not cost the map shape\n" .. out)
+    test.eq(code, 0, "an extra precondition does not cost the map shape\n" .. out)
     assert(out:find("last > 4096", 1, true), "the wrapper checks it: " .. out)
 end
 
@@ -2042,7 +2042,7 @@ function M.aUniformUsedOnlyByAGuardBecomesAnAssumption()
         )
     }
     local decoded, raw, code, where = lowered(dir, PINNED .. "--json compute.nupp")
-    test.equal(code, 0, "the precondition is admitted\n" .. raw)
+    test.eq(code, 0, "the precondition is admitted\n" .. raw)
     assert(decoded.ir:find("  1 <= guardOnly @", 1, true), where .. ": the guard is a relation: " .. decoded.ir)
     assert(
         decoded.ir:find("while lt(local:f64 iteration, uniform:i32 limit)", 1, true),
@@ -2089,7 +2089,7 @@ return {rowSums = rowSums}
 ]],
     }
     local out, code = run(dir, PINNED .. "--emit binding rows.nupp")
-    test.equal(code, 0, "a range alone is a guard prefix\n" .. out)
+    test.eq(code, 0, "a range alone is a guard prefix\n" .. out)
     assert(out:find("first < 1", 1, true), "the range is still checked: " .. out)
     assert(not out:find("incompatible lengths", 1, true), "no agreement is claimed: " .. out)
 end
@@ -2132,7 +2132,7 @@ return {copy = copy, fill = fill}
 ]],
     }
     local out, code = run(dir, PINNED .. "--emit binding transitive.nupp")
-    test.equal(code, 0, "lowering consumes transitive closure facts\n" .. out)
+    test.eq(code, 0, "lowering consumes transitive closure facts\n" .. out)
     assert(out:find("#input ~= #out", 1, true), "the transitive length equality becomes a body claim: " .. out)
     assert(out:find("last > middle", 1, true), "the first range edge is preserved: " .. out)
     assert(out:find("middle > #out", 1, true), "the second range edge is preserved: " .. out)
@@ -2152,7 +2152,7 @@ function M.anUnreadableClauseRefusesTheKernel()
         )
     }
     local out, code = run(dir, PINNED .. "compute.nupp")
-    test.equal(code, 1, "a known-true `or` states no fact about either side\n" .. out)
+    test.eq(code, 1, "a known-true `or` states no fact about either side\n" .. out)
     assert(out:find("cannot be read as a guard", 1, true), "the clause is named: " .. out)
 end
 
@@ -2173,7 +2173,7 @@ end
 return {copy = copy}
 ]]
     local out, code = run(project{["copy.nupp"] = source}, PINNED .. "copy.nupp")
-    test.equal(code, 1, "an eager message call is not dropped from the wrapper\n" .. out)
+    test.eq(code, 1, "an eager message call is not dropped from the wrapper\n" .. out)
     assert(out:find("`message()` cannot be discarded from a guard", 1, true), "the discarded call is named: " .. out)
 end
 
@@ -2194,7 +2194,7 @@ end
 return {copy = copy}
 ]]
     local out, code = run(project{["copy.nupp"] = source}, PINNED .. "copy.nupp")
-    test.equal(code, 1, "the local function is not consumed as a prelude guard\n" .. out)
+    test.eq(code, 1, "the local function is not consumed as a prelude guard\n" .. out)
     assert(not out:find("compiled copy", 1, true), "no invented length relation reaches an artifact: " .. out)
 end
 
@@ -2212,7 +2212,7 @@ function M.contradictoryGuardsRefuseTheKernel()
         )
     }
     local out, code = run(dir, PINNED .. "compute.nupp")
-    test.equal(code, 1, "a contradiction is refused\n" .. out)
+    test.eq(code, 1, "a contradiction is refused\n" .. out)
     assert(out:find("cannot all hold at once", 1, true), "it says why: " .. out)
 end
 
@@ -2234,7 +2234,7 @@ function M.aGuardPoolBeyondTheBudgetRefusesTheKernel()
         )
     }
     local out, code = run(dir, PINNED .. "compute.nupp")
-    test.equal(code, 1, "the budget is enforced\n" .. out)
+    test.eq(code, 1, "the budget is enforced\n" .. out)
     assert(out:find("at most 128 relations", 1, true), "the budget is named: " .. out)
 end
 
@@ -2267,7 +2267,7 @@ return {convert = convert}
 ]],
     }
     local out, code = run(dir, PINNED .. "compute.nupp")
-    test.equal(code, 1, "a precondition no dispatch checks is refused\n" .. out)
+    test.eq(code, 1, "a precondition no dispatch checks is refused\n" .. out)
     assert(out:find("only relate span lengths", 1, true), "it says why: " .. out)
 end
 
@@ -2293,7 +2293,7 @@ return {fill = fill}
 ]],
     }
     local out, code = run(dir, PINNED .. "--emit binding compute.nupp")
-    test.equal(code, 0, "a one-way count relation is admitted\n" .. out)
+    test.eq(code, 0, "a one-way count relation is admitted\n" .. out)
     assert(out:find("out.count > input.count", 1, true), "the generated binding enforces the relation: " .. out)
     assert(out:find("GPU precondition failed", 1, true), "the relation has a binding failure: " .. out)
 end
@@ -2310,7 +2310,7 @@ function M.anUnprovedRangeSaysWhatWasMissing()
         )
     }
     local out, code = run(dir, PINNED .. "compute.nupp")
-    test.equal(code, 1, "a range missing its upper bound is refused\n" .. out)
+    test.eq(code, 1, "a range missing its upper bound is refused\n" .. out)
     assert(out:find("needed `last <= #out`", 1, true), "the missing bound is named: " .. out)
     assert(out:find("understood ", 1, true) and out:find("`1 <= first`", 1, true), "so is what was read: " .. out)
 end
@@ -2324,21 +2324,21 @@ function M.anAssertGuardTakesAConditionAndAnOptionalMessage()
     for _, source in ipairs({conditionOnly, COMPUTE_ASSERTED}) do
         local dir = project{["compute.nupp"] = source}
         local out, code = run(dir, PINNED .. "compute.nupp")
-        test.equal(code, 0, "a condition with an optional message is an AOT guard\n" .. out)
+        test.eq(code, 0, "a condition with an optional message is an AOT guard\n" .. out)
     end
 
     local dir = project{
         ["compute.nupp"] = replaceOnce(COMPUTE_ASSERTED, '"length mismatch")', '"length mismatch", "and another")')
     }
     local out, code = run(dir, PINNED .. "compute.nupp")
-    test.equal(code, 1, "a third argument is outside the AOT guard subset\n" .. out)
+    test.eq(code, 1, "a third argument is outside the AOT guard subset\n" .. out)
     assert(out:find("NUPP2905", 1, true), "the AOT body refusal is reported: " .. out)
 end
 
 function M.anOrdinaryLoopCompilesScalarAndSaysSo()
     local dir = project{["stream.nupp"] = STREAMING}
     local out, code = run(dir, "stream.nupp")
-    test.equal(code, 0, "an ordinary loop compiles\n" .. out)
+    test.eq(code, 0, "an ordinary loop compiles\n" .. out)
     assert(out:find("advance, kernel, scalar", 1, true), "the report says it runs scalar: " .. out)
 end
 
@@ -2371,7 +2371,7 @@ return {folds = folds}
         "--triple wasm32-unknown-emscripten --features simd128 ",
     }) do
         local decoded, raw, code = lowered(dir, tier .. "--json folds.nupp")
-        test.equal(code, 0, raw)
+        test.eq(code, 0, raw)
         assert(decoded.ir:find("reducer.exact.sum", 1, true), tier .. decoded.ir)
         assert(decoded.ir:find("reducer.add", 1, true), tier .. ": missing scalar contribution")
         assert(not decoded.ir:find("simd_load", 1, true), tier .. ": no inferred vector load")
@@ -2390,7 +2390,7 @@ end
 function M.genericExplicitSimdKeepsIntrinsicTypesAndAnIndependentOracle()
     local dir = project{["vectors.nupp"] = GENERIC_EXPLICIT_SIMD}
     local decoded, raw, code, where = lowered(dir, PINNED .. "--json vectors.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     -- The shape is said once, by the type. The intrinsic beside it used to
     -- repeat it and nothing read the repetition.
     assert(
@@ -2436,7 +2436,7 @@ function M.genericExplicitSimdPrefersSixteenLanesAtAvx512f()
     local lanes = width / 4
     local dir = project{["vectors.nupp"] = GENERIC_EXPLICIT_SIMD}
     local decoded, raw, code, where = lowered(dir, "--triple " .. triple .. " --features avx512f --json vectors.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     assert(
         decoded.ir:find(("simd species(uint8,%d)"):format(width), 1, true),
         where .. (": AVX-512F selects %d bytes\n"):format(width) .. decoded.ir
@@ -2449,7 +2449,7 @@ function M.genericExplicitSimdPrefersSixteenLanesAtAvx512f()
         (where .. ": the oracle walks %d lanes"):format(lanes)
     )
     local asm, asmCode = run(dir, "--triple " .. triple .. " --features avx512f --emit asm vectors.nupp")
-    test.equal(asmCode, 0, asm)
+    test.eq(asmCode, 0, asm)
     local register = width == 64 and "zmm" or width == 32 and "ymm" or "xmm"
     assert(asm:find(register, 1, true), ("the multiply lives in a %d-byte register: "):format(width) .. asm)
     -- Byte and float vectors share the tier width even when byte operations
@@ -2474,7 +2474,7 @@ return {quotes = quotes, twice = twice}
 ]]
     }
     local mixed, mixedCode = run(both, "--triple " .. triple .. " --features avx512f --emit llvm mixed.nupp")
-    test.equal(mixedCode, 0, mixed)
+    test.eq(mixedCode, 0, mixed)
     local scanner = llvmFunction(mixed, "ks_quotes__%w+")
     local load = ("= load <%d x i8>, ptr %%t"):format(width)
     assert(scanner and scanner:find(load, 1, true), "byte vectors keep the " .. load .. " scanner: " .. mixed)
@@ -2519,7 +2519,7 @@ return {increment = increment}
 ]]
     local dir = project{["narrow.nupp"] = source}
     local decoded, raw, code, where = lowered(dir, "--triple aarch64-apple-darwin --features neon --json narrow.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     assert(decoded.ir:find("simd_vector_u8_preferred", 1, true), where .. ": physical byte identity reaches IR")
     local kernel = llvmFunction(decoded.llvm, "ks_increment__%w+")
     assert(
@@ -2608,7 +2608,7 @@ return {count = count}
             ):format(lanes)
         }
         local out, code = run(dir, "--triple aarch64-apple-darwin --features neon --emit ir fixed-count.nupp")
-        test.equal(code, 1, out)
+        test.eq(code, 1, out)
         assert(out:find("fixed-count.nupp:5:", 1, true), out)
         assert(out:find("integer lane count between 2 and 64", 1, true), out)
         assert(not out:find("stack traceback", 1, true), out)
@@ -2647,7 +2647,7 @@ return {transform = transform}
         dir,
         "--triple aarch64-apple-darwin --features neon --json structural.nupp"
     )
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     for _, intrinsic in ipairs({
         "simd_permute.reverse",
         "simd_permute.align",
@@ -2692,7 +2692,7 @@ return {convert = convert}
 function M.numericSimdConversionsRetainVectorLoweringAcrossCpuTiers()
     local dir = project{["convert.nupp"] = CONVERT_SIMD}
     local decoded, raw, code, where = lowered(dir, "--triple aarch64-apple-darwin --features neon --json convert.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     assert(decoded.ir:find("simd_convert.convert", 1, true), decoded.ir)
     local kernel = llvmFunction(decoded.llvm, "ks_convert__%w+")
     assert(
@@ -2709,7 +2709,7 @@ function M.numericSimdConversionsRetainVectorLoweringAcrossCpuTiers()
     for _, tier in ipairs({"baseline", "avx2", "avx512f"}) do
         local target = "--triple " .. host:gsub("^[^-]+", "x86_64") .. " --features " .. tier
         local asm, asmCode = run(dir, target .. " --emit asm convert.nupp")
-        test.equal(asmCode, 0, asm)
+        test.eq(asmCode, 0, asm)
         assert(asm:match("kernel: [^\n]* [1-9]%d* vector"), asm)
     end
 end
@@ -2721,7 +2721,7 @@ function M.numericSimdConversionsRejectLaneAndBitWidthMismatches()
     }) do
         local dir = project{["convert.nupp"] = case.source}
         local out, code = run(dir, "--triple aarch64-apple-darwin --features neon --emit llvm convert.nupp")
-        test.equal(code, 1, out)
+        test.eq(code, 1, out)
         assert(out:find(case.reason, 1, true), out)
     end
 end
@@ -2731,7 +2731,7 @@ function M.preferredSimdConversionsPreserveLanesAndReinterpretWithoutArithmetic(
     for _, method in ipairs({"convert", "reinterpret"}) do
         local dir = project{["convert.nupp"] = source:gsub("target:convert", "target:" .. method)}
         local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json convert.nupp")
-        test.equal(code, 0, raw)
+        test.eq(code, 0, raw)
         assert(decoded.ir:find("simd_" .. method .. "." .. method, 1, true), decoded.ir)
         local asm = neonAsm(dir, "convert.nupp")
         if asm ~= nil and method == "reinterpret" then
@@ -2759,7 +2759,7 @@ return {move = move}
 function M.indexedSimdMemoryCarriesItsExplicitConflictContract()
     local dir = project{["indexed.nupp"] = INDEXED_SIMD}
     local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json indexed.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     assert(decoded.ir:find("simd_load.gather", 1, true), decoded.ir)
     assert(decoded.ir:find("simd_store.scatterUnchecked", 1, true), decoded.ir)
     local asm = neonAsm(dir, "indexed.nupp")
@@ -2772,7 +2772,7 @@ function M.scatterRefusesUnprovedUniquenessWithoutARuntimeFallback()
     local source = INDEXED_SIMD:gsub("scatterUnchecked", "scatter")
     local dir = project{["indexed.nupp"] = source}
     local out, code = run(dir, "--triple aarch64-apple-darwin --features neon --emit llvm indexed.nupp")
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(out:find("provably unique indices", 1, true), out)
     assert(out:find("scatterUnchecked", 1, true), out)
 end
@@ -2787,7 +2787,7 @@ function M.indexedSimdUsesNativeAvx512MemoryInstructions()
     for _, source in ipairs({INDEXED_SIMD, (INDEXED_SIMD:gsub("float", "number"):gsub(", 8%)", ", 4)"))}) do
         local dir = project{["indexed.nupp"] = source}
         local decoded, raw, code, where = lowered(dir, target .. "--json indexed.nupp")
-        test.equal(code, 0, raw)
+        test.eq(code, 0, raw)
         assert(decoded.ir:find("simd species(uint8,64)", 1, true), where .. ": the tier holds 64 bytes\n" .. decoded.ir)
         local kernel = llvmFunction(decoded.llvm, "ks_move__%w+")
         assert(
@@ -2799,7 +2799,7 @@ function M.indexedSimdUsesNativeAvx512MemoryInstructions()
             where .. ": the scatter one masked scatter\n" .. kernel
         )
         local asm, asmCode = run(dir, target .. "--emit asm indexed.nupp")
-        test.equal(asmCode, 0, asm)
+        test.eq(asmCode, 0, asm)
         assert(asm:find("v%a*gather"), asm)
         assert(asm:find("v%a*scatter"), asm)
     end
@@ -2809,7 +2809,7 @@ function M.scatterProvesAConstantNonWrappingProgression()
     local source = INDEXED_SIMD:gsub("scatterUnchecked%(output, indices", "scatter(output, positions:iota(1, 2)")
     local dir = project{["indexed.nupp"] = source}
     local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json indexed.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     assert(decoded.ir:find("simd_store.scatter", 1, true), decoded.ir)
     local descending = source:gsub("uint32", "int32"):gsub("positions:iota%(1, 2%)", "positions:iota(8, -1)")
     local reversed = project{["indexed.nupp"] = descending}
@@ -2817,12 +2817,12 @@ function M.scatterProvesAConstantNonWrappingProgression()
         reversed,
         "--triple aarch64-apple-darwin --features neon --emit llvm indexed.nupp"
     )
-    test.equal(reverseStatus, 0, reverseOut)
+    test.eq(reverseStatus, 0, reverseOut)
     for _, progression in ipairs({"1, 0", "4294967295, 1", "1, 4294967295"}) do
         local rejected = source:gsub("positions:iota%(1, 2%)", "positions:iota(" .. progression .. ")")
         local failed = project{["indexed.nupp"] = rejected}
         local out, status = run(failed, "--triple aarch64-apple-darwin --features neon --emit llvm indexed.nupp")
-        test.equal(status, 1, out)
+        test.eq(status, 1, out)
         assert(out:find("provably unique indices", 1, true), out)
     end
 end
@@ -2834,7 +2834,7 @@ function M.indexedSimdRefusesFloatingIndicesAndMismatchedPreferredWidths()
     }) do
         local dir = project{["indexed.nupp"] = source}
         local out, code = run(dir, "--triple aarch64-apple-darwin --features neon --emit llvm indexed.nupp")
-        test.equal(code, 1, out)
+        test.eq(code, 1, out)
         assert(out:find("integer indices with the same logical lane count", 1, true), out)
     end
 end
@@ -2865,7 +2865,7 @@ return {horizontal = horizontal}
         dir,
         "--triple aarch64-apple-darwin --features neon --json horizontal.nupp"
     )
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     for _, intrinsic in ipairs({
         "simd_horizontal.ordered_sum",
         "simd_horizontal.pairwise_sum",
@@ -2882,7 +2882,7 @@ return {horizontal = horizontal}
     -- Eight lanes, so one fused step per lane of the one dot that asks for
     -- them, and none for the pairwise dot beside it.
     local _, fused = kernel:gsub("call float @llvm%.fma%.f32%(", "")
-    test.equal(fused, 8, where .. ": only the algebraic dot requests contraction\n" .. kernel)
+    test.eq(fused, 8, where .. ": only the algebraic dot requests contraction\n" .. kernel)
 end
 
 -- Contraction is a separate choice from reassociation, and only `algebraicDot`
@@ -2922,7 +2922,7 @@ return {ordered = ordered, pairwise = pairwise, algebraic = algebraic}
             dir,
             "--triple aarch64-apple-darwin --features neon --emit asm --function " .. name .. " dots.nupp"
         )
-        test.equal(code, 0, asm)
+        test.eq(code, 0, asm)
         local fused = 0
         for instruction in asm:gmatch("[%a][%w%.]*") do
             if instruction:find("^fmla") or instruction:find("^fmadd") or instruction:find("^fmsub") then
@@ -2935,7 +2935,7 @@ return {ordered = ordered, pairwise = pairwise, algebraic = algebraic}
 
     for _, name in ipairs({"ordered", "pairwise"}) do
         local fused, asm = fusedIn(name)
-        test.equal(fused, 0, name .. "Dot contracted a multiply and an add:\n" .. asm)
+        test.eq(fused, 0, name .. "Dot contracted a multiply and an add:\n" .. asm)
     end
     local fused, asm = fusedIn("algebraic")
     assert(fused > 0, "algebraicDot did not contract, which is the one place it may:\n" .. asm)
@@ -2957,7 +2957,7 @@ return {masks = masks, shifted = shifted}
 ]]
     local dir = project{["wide.nupp"] = source}
     local decoded, raw, code, where = lowered(dir, PINNED .. "--json wide.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     for _, op in ipairs({"u64_and", "u64_or", "u64_xor", "u64_not", "u64_shl", "u64_shr"}) do
         assert(decoded.ir:find(op, 1, true), where .. ": missing opcode " .. op .. "\n" .. decoded.ir)
     end
@@ -3004,7 +3004,7 @@ return {sum = sum}
         dir,
         "--triple x86_64-unknown-linux-gnu --features baseline --json composite.nupp"
     )
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     -- Seventeen lanes are one `<17 x i32>` value, which LLVM legalizes into
     -- native registers itself. Lane 2 is read out of that whole value, never
     -- out of a chunk the backend split off it.
@@ -3067,7 +3067,7 @@ return {lookup = lookup}
 ]]
     local dir = project{["swizzle.nupp"] = source}
     local decoded, raw, code, where = lowered(dir, "--triple aarch64-apple-darwin --features neon --json swizzle.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     assert(decoded.ir:find("simd_permute.swizzle", 1, true), where .. ": the lookup is one permutation\n" .. decoded.ir)
     assert(
         decoded.llvm:find("define void @ks_lookup__neon(", 1, true)
@@ -3107,7 +3107,7 @@ return {joined = joined}
 ]]
     local dir = project{["pair.nupp"] = source}
     local decoded, raw, code, where = lowered(dir, "--triple aarch64-apple-darwin --features neon --json pair.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     assert(
         decoded.ir:find("simd_permute.swizzle_pair", 1, true),
         where .. ": the paired form is its own intrinsic\n" .. decoded.ir
@@ -3181,7 +3181,7 @@ return {extrema = extrema, counted = counted, ignoringMissing = ignoringMissing}
 ]]
     local dir = project{["extrema.nupp"] = source}
     local decoded, raw, code, where = lowered(dir, "--triple aarch64-apple-darwin --features neon --json extrema.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     for _, intrinsic in ipairs({
         "simd_horizontal.propagating_min",
         "simd_horizontal.propagating_max",
@@ -3266,7 +3266,7 @@ return {total = total}
 ]]
     local dir = project{["compensated.nupp"] = source}
     local decoded, raw, code, where = lowered(dir, PINNED .. "--json compensated.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     assert(
         decoded.ir:find("reducer.compensated.sum", 1, true),
         where .. ": the exact contract is explicit\n" .. decoded.ir
@@ -3292,7 +3292,7 @@ function M.fixedExplicitSimdSplitsIntoNativeRegistersWithoutChangingItsIdentity(
     local source = GENERIC_EXPLICIT_SIMD:gsub("array%.float%)", "array.float, 8)", 1)
     local dir = project{["vectors.nupp"] = source}
     local llvm, llvmCode = run(dir, "--triple aarch64-apple-darwin --features neon --emit llvm vectors.nupp")
-    test.equal(llvmCode, 0, llvm)
+    test.eq(llvmCode, 0, llvm)
     local kernel = assert(llvm:match("define void @ks_saxpy__neon%(.-\n}\n"), "the kernel is emitted: " .. llvm)
     assert(
         kernel:find("fadd <8 x float>", 1, true) and not kernel:find("<4 x float>", 1, true),
@@ -3329,7 +3329,7 @@ return {copy = copy}
 ]]
     local dir = project{["copy.nupp"] = source}
     local decoded, raw, code, where = lowered(dir, "--triple aarch64-apple-darwin --features neon --json copy.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     local kernel = llvmFunction(decoded.llvm, "ks_copy__%w+")
     assert(kernel, where .. ": the kernel is emitted\n" .. decoded.llvm)
     -- The proved access is taken unconditionally, and is exactly five lanes wide.
@@ -3350,7 +3350,7 @@ return {copy = copy}
         where .. ": the proved store writes the output's five lanes\n" .. kernel
     )
     for lanes in kernel:gmatch("<(%d+) x float>") do
-        test.equal(lanes, "5", where .. ": no access is widened past the logical lanes\n" .. kernel)
+        test.eq(lanes, "5", where .. ": no access is widened past the logical lanes\n" .. kernel)
     end
 end
 
@@ -3385,7 +3385,7 @@ return {sumX = sumX}
 ]]
     local dir = project{["soa.nupp"] = source}
     local decoded, raw, code, where = lowered(dir, "--triple aarch64-apple-darwin --features neon --json soa.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     local kernel = llvmFunction(decoded.llvm, "ks_sum_x__%w+")
     assert(
         kernel
@@ -3419,7 +3419,7 @@ return {ones = ones, twice = twice}
 ]]
     local dir = project{["vectors.nupp"] = source}
     local out, code = run(dir, "--triple aarch64-apple-darwin --features neon vectors.nupp")
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     assert(out:find("ones, kernel, explicit simd, native-only", 1, true), out)
     assert(out:find("twice, kernel, explicit simd, native-only", 1, true), out)
     local llvm = run(dir, "--triple aarch64-apple-darwin --features neon --emit llvm vectors.nupp")
@@ -3450,7 +3450,7 @@ return {chosen = chosen}
 ]]
     }
     local refused, refusedCode = run(species, "species.nupp")
-    test.equal(refusedCode, 1, refused)
+    test.eq(refusedCode, 1, refused)
     assert(refused:find("a species or a reducer cannot cross an AOT entry result ABI", 1, true), refused)
 end
 
@@ -3481,7 +3481,7 @@ return {apply = apply}
 ]]
     local dir = project{["helper.nupp"] = source}
     local decoded, raw, code, where = lowered(dir, "--triple aarch64-apple-darwin --features neon --json helper.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     assert(
         decoded.ir:find("twice_simd_vector_f32_preferred", 1, true),
         where .. ": helper specialization retains species"
@@ -3520,7 +3520,7 @@ return {inspect = inspect}
 ]]
     local dir = project{["inspect.nupp"] = source}
     local decoded, raw, code, where = lowered(dir, "--triple aarch64-apple-darwin --features neon --json inspect.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     assert(decoded.ir:find("simd_insert.insert", 1, true), where .. ": insertion remains intrinsic")
     assert(decoded.ir:find("simd_extract.extract", 1, true), where .. ": extraction remains intrinsic")
     assert(decoded.ir:find("u64_popcount", 1, true), where .. ": uint64 population count remains intrinsic")
@@ -3572,7 +3572,7 @@ return {inspect = inspect}
 ]]
     local dir = project{["bits.nupp"] = source}
     local decoded, raw, code, where = lowered(dir, "--triple aarch64-apple-darwin --features neon --json bits.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     for _, op in ipairs({"u64_or", "u64_not", "u64_shl", "u64_prefix_xor", "u64_popcount", "u64_ctz"}) do
         assert(decoded.ir:find(op, 1, true), where .. ": missing uint64 operation " .. op .. "\n" .. decoded.ir)
     end
@@ -3587,7 +3587,7 @@ end
 function M.aLoopRefusesASpanNothingProvesIsLongEnough()
     local dir = project{["unproved.nupp"] = UNPROVED_SPAN}
     local out, code = run(dir, "unproved.nupp")
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(out:find("unproved.nupp:9:18:", 1, true), "the refusal names the access, not the compiler: " .. out)
     assert(out:find("nothing proves inp is that long", 1, true), "it names the span that is not proved: " .. out)
     assert(out:find("assert(#out == #inp)", 1, true), "and the guard that would prove it: " .. out)
@@ -3596,7 +3596,7 @@ end
 function M.aLoopCountedByNoSpanRefusesTheLoadItCannotProve()
     local dir = project{["uncounted.nupp"] = UNCOUNTED_LOAD}
     local out, code = run(dir, "uncounted.nupp")
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(out:find("uncounted.nupp:", 1, true), "the refusal names the access, not the compiler: " .. out)
     assert(
         out:find("the loop's bound is not a span count", 1, true),
@@ -3608,7 +3608,7 @@ end
 function M.aLoopCountedByNoSpanRefusesTheStoreItCannotProve()
     local dir = project{["uncounted.nupp"] = UNCOUNTED_STORE}
     local out, code = run(dir, "uncounted.nupp")
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(out:find("uncounted.nupp:", 1, true), "the refusal names the store: " .. out)
     assert(
         out:find("the loop's bound is not a span count", 1, true),
@@ -3619,7 +3619,7 @@ end
 function M.aStoreRefusesASpanNothingProvesIsLongEnough()
     local dir = project{["crosswrite.nupp"] = UNPROVED_STORE}
     local out, code = run(dir, "crosswrite.nupp")
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(out:find("crosswrite.nupp:", 1, true), "the refusal names the store: " .. out)
     assert(out:find("nothing proves out is that long", 1, true), "it names the span that is not proved: " .. out)
     assert(out:find("assert(#other == #out)", 1, true), "and the guard that would prove it: " .. out)
@@ -3632,21 +3632,21 @@ function M.oneCompiledEntryCallsAnotherAsARealCall()
     -- rather than a second copy inlined into every caller.
     local dir = project{["pair.nupp"] = ENTRY_CALL}
     local out, code = run(dir, PINNED .. "--emit llvm pair.nupp")
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local caller = llvmFunction(out, "ks_apply__%w+")
     assert(
         caller and caller:find("= call double @ks_scale__%w+%("),
         "the caller reaches the callee's own symbol: " .. out
     )
     local _, definitions = out:gsub("\ndefine [^\n]-@[%w_]*scale[%w_]*%(", "")
-    test.equal(definitions, 1, "the callee is the entry it already is, not a second inlined copy: " .. out)
+    test.eq(definitions, 1, "the callee is the entry it already is, not a second inlined copy: " .. out)
     assert(out:find("\ndefine double @ks_scale__%w+%("), "and it keeps its own exported definition: " .. out)
 end
 
 function M.emitPrintsTheGeneratedLlvmIr()
     local dir = project{["compute.nupp"] = COMPUTE}
     local decoded, raw, code, where = lowered(dir, PINNED .. "--json compute.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
 
     local out = decoded.llvm
     local body = out:match("define void @ks_escapes__avx2%(.-\n}\n")
@@ -3657,8 +3657,8 @@ function M.emitPrintsTheGeneratedLlvmIr()
     )
     assert(not body:find(" x double>", 1, true), where .. ": no inferred vector: " .. body)
     local llvm, llvmCode = run(dir, PINNED .. "--emit llvm compute.nupp")
-    test.equal(llvmCode, 0, llvm)
-    test.equal(llvm, out, where .. ": `--emit llvm` prints the IR the report carries")
+    test.eq(llvmCode, 0, llvm)
+    test.eq(llvm, out, where .. ": `--emit llvm` prints the IR the report carries")
 end
 
 -- A result the wrapper has to establish. `loadlib` hands back `any`, so a
@@ -3693,7 +3693,7 @@ function M.aSingleFixedWidthResultIsEstablishedByItsWrapper()
     }
     -- `--json` so the binding it also carries needs no second command.
     local decoded, raw, code, where = lowered(dir, "--json counter.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     assert(
         decoded.binding:find("math.u32.wrap(native1 as integer)", 1, true),
         where .. ": the single result is established rather than returned as any: " .. decoded.binding
@@ -3706,7 +3706,7 @@ end
 function M.emitAsmShowsWhatLlvmMadeOfTheBody()
     local dir = project{["compute.nupp"] = COMPUTE}
     local out, code = run(dir, PINNED .. "--emit asm compute.nupp")
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     assert(
         out:match("^%-%- compute%.nupp, x86_64%-unknown%-linux%-gnu, avx2, llvm [^\n]+\n") ~= nil,
         "the header names the file, the target, the tier and the code generator: " .. out
@@ -3718,7 +3718,7 @@ end
 function M.asmShowsOneFunctionWhenOneIsNamed()
     local dir = project{["compute.nupp"] = COMPUTE}
     local out, code = run(dir, PINNED .. "--emit asm --function ks_escapes compute.nupp")
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     assert(out:find("ks_escapes (escapes), kernel:", 1, true), out)
     assert(not out:find("forced_scalar", 1, true), "only the symbol that was named is listed: " .. out)
 end
@@ -3728,7 +3728,7 @@ end
 function M.asmSaysWhatItWouldHaveAccepted()
     local dir = project{["compute.nupp"] = COMPUTE}
     local out, code = run(dir, PINNED .. "--emit asm --function escape compute.nupp")
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(out:find("escapes", 1, true) and out:find("ks_escapes", 1, true), out)
 end
 
@@ -3737,10 +3737,10 @@ end
 function M.asmJsonCountsWhatItLists()
     local dir = project{["compute.nupp"] = COMPUTE}
     local out, code = run(dir, PINNED .. "--json --emit asm compute.nupp")
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local decoded = require("testjson").decode(out)
     local asm = decoded.asm
-    test.equal(asm.toolchain.command, "<llvm>", "the code generator answered: " .. out)
+    test.eq(asm.toolchain.command, "<llvm>", "the code generator answered: " .. out)
     assert(asm.toolchain.version ~= "", "and is named: " .. out)
     local flags = table.concat(asm.flags, " ")
     -- The options are the code generator's, and the numeric contract is in
@@ -3757,15 +3757,15 @@ function M.asmJsonCountsWhatItLists()
         end
     end
     assert(kernel ~= nil, "the compiled body is in the report: " .. out)
-    test.equal(kernel.symbol, "ks_escapes")
-    test.equal(kernel.counts.total, #kernel.instructions)
+    test.eq(kernel.symbol, "ks_escapes")
+    test.eq(kernel.counts.total, #kernel.instructions)
     local vector = 0
     for _, one in ipairs(kernel.instructions) do
         for _, kind in ipairs(one.kinds or {}) do
             vector = vector + (kind == "vector" and 1 or 0)
         end
     end
-    test.equal(kernel.counts.vector, vector, "every count is over the instructions it lists")
+    test.eq(kernel.counts.vector, vector, "every count is over the instructions it lists")
     assert(vector > 0, "a body that lowered has vector instructions to show for it: " .. out)
 end
 
@@ -3774,14 +3774,14 @@ end
 function M.asmRefusesAnArchitectureWithNoInstructionRules()
     local dir = project{["compute.nupp"] = COMPUTE}
     local out, code = run(dir, "--emit asm --triple wasm32-unknown-emscripten --features simd128 compute.nupp")
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(out:find("wasm32", 1, true) and out:find("aarch64", 1, true), out)
 end
 
 function M.emitPrintsTheIrAndTheBinding()
     local dir = project{["compute.nupp"] = COMPUTE}
     local decoded, raw, code, where = lowered(dir, PINNED .. "--json compute.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
 
     local ir = decoded.ir
     assert(not ir:find("simd vector", 1, true), where .. ": scalar source has no vector body: " .. ir)
@@ -3801,7 +3801,7 @@ function M.narrowScalarSpansKeepTheirStorageAndUseLanes()
     -- One pinned command for both artifacts; the exit status is the one that
     -- says the loop got its lanes.
     local decoded, raw, code, where = lowered(dir, PINNED .. "--json bytes.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
 
     local ir = decoded.ir
     assert(
@@ -3830,7 +3830,7 @@ function M.narrowScalarSpansKeepTheirStorageAndUseLanes()
     assert(not llvm:find("store <", 1, true), where .. ": no inferred vector store: " .. llvm)
 
     local binding, bindingCode = run(dir, "--emit binding bytes.nupp")
-    test.equal(bindingCode, 0, binding)
+    test.eq(bindingCode, 0, binding)
     assert(binding:find("exclusive flags: uint8*", 1, true), binding)
     assert(binding:find("borrows bytes: const uint8*", 1, true), binding)
     assert(binding:find("span.WriteSpan<uint8>", 1, true), binding)
@@ -3892,7 +3892,7 @@ function M.onlySinglePublishEntriesReuseAByteScratch()
     local dir = project{["publishing.nupp"] = ONE_PUBLISH}
 
     local decoded, raw, code = lowered(dir, "--json publishing.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
 
     local ir = decoded.ir
     local once = ir:match("function once.-\nfunction ") or ir:match("function once.*")
@@ -3913,13 +3913,13 @@ function M.onlySinglePublishEntriesReuseAByteScratch()
     assert(onceBody:find("call void %rt.scratch_u8_cached.", 1, true), "one entry takes the cached buffer: " .. llvm)
     assert(twiceBody:find("call void %rt.scratch_u8.", 1, true), "the other allocates its own: " .. llvm)
     local _, cached = llvm:gsub("call void %%rt%.scratch_u8_cached%.", "")
-    test.equal(cached, 1, "and only the one: " .. llvm)
+    test.eq(cached, 1, "and only the one: " .. llvm)
 end
 
 function M.blockKernelsAppendUnderDominatingCapacityChecks()
     local dir = project{["delimiters.nupp"] = DELIMITERS}
     local decoded, raw, code = lowered(dir, "--json delimiters.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
 
     local llvm = decoded.llvm
     local signature = llvm:match("define i32 @ks_delimiters__%w+%(([^\n]*)%)")
@@ -3952,7 +3952,7 @@ function M.aCountedLoopIndexReachesAnEntryConversion()
         ] = replaceOnce(DELIMITERS, "offsets[written + 1] = written", "offsets[written + 1] = math.u32.wrap(i)")
     }
     local decoded, raw, code = lowered(dir, "--json positions.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
 
     local ir = decoded.ir
     assert(
@@ -3989,7 +3989,7 @@ return {scale = scale}
 ]]
     }
     local out, code = run(dir, "scale.nupp")
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(
         out:find("number is not established as float", 1, true),
         "and the checker says so before the backend has to: " .. out
@@ -4000,14 +4000,14 @@ function M.blockKernelsRejectAnUnguardedAppendCursor()
     local source = DELIMITERS:gsub("            if written < #offsets then\n", "            if true then\n")
     local dir = project{["unguarded.nupp"] = source}
     local out, code = run(dir, "unguarded.nupp")
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(out:find("cursor + 1 under cursor < #span", 1, true), out)
 end
 
 function M.whileBoundsStopAuthorizingAChangedCursor()
     local dir = project{["changed.nupp"] = MUTATED_WHILE_CURSOR}
     local out, code = run(dir, "changed.nupp")
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(out:find("cursor + 1 under cursor < #span", 1, true), out)
 end
 
@@ -4017,7 +4017,7 @@ function M.scopedSimdSelectsOnePackedRegisterForTheTargetTier()
         dir,
         "--triple x86_64-unknown-linux-gnu --json vector_kernel.nupp"
     )
-    test.equal(baselineCode, 0, baselineRaw)
+    test.eq(baselineCode, 0, baselineRaw)
     assert(baseline.ir:find("simd species(uint8,16)", 1, true), baselineWhere .. "\n" .. baseline.ir)
     local narrow = llvmFunction(baseline.llvm, "ks_quotes__%w+")
     assert(
@@ -4029,7 +4029,7 @@ function M.scopedSimdSelectsOnePackedRegisterForTheTargetTier()
         dir,
         "--triple x86_64-unknown-linux-gnu --features avx2 --json vector_kernel.nupp"
     )
-    test.equal(avxCode, 0, avxRaw)
+    test.eq(avxCode, 0, avxRaw)
     assert(avx.ir:find("simd species(uint8,32)", 1, true), avxWhere .. "\n" .. avx.ir)
     local wide = llvmFunction(avx.llvm, "ks_quotes__%w+")
     assert(
@@ -4042,7 +4042,7 @@ function M.scopedSimdSelectsOnePackedRegisterForTheTargetTier()
     )
 
     local neon, neonCode = run(dir, "--triple aarch64-unknown-linux-gnu --emit ir vector_kernel.nupp")
-    test.equal(neonCode, 0, neon)
+    test.eq(neonCode, 0, neon)
     assert(neon:find("simd species(uint8,16)", 1, true), neon)
     assert(neon:find("simd_load", 1, true) and neon:find("simd_mask_count", 1, true), neon)
 end
@@ -4076,7 +4076,7 @@ return {quotes = quotes} as unknown
 ]]
     }
     local out, code = run(dir, "local-view.nupp")
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(out:find("rooted string parameter", 1, true), out)
 end
 
@@ -4103,7 +4103,7 @@ return {quotes = quotes} as unknown
 ]]
     }
     local out, code = run(dir, "escaped-view.nupp")
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(out:find("a vector load may read it and nothing else", 1, true), out)
 end
 
@@ -4144,7 +4144,7 @@ return {quotes = quotes} as unknown
 ]]
     }
     local decoded, raw, code, where = lowered(dir, "--json rooted.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     assert(decoded.ir:find("simd_load.load", 1, true), where .. "\n" .. decoded.ir)
     assert(decoded.ir:find("span:source", 1, true), where .. ": the parameter is the load's root\n" .. decoded.ir)
     -- The parameter's pointer and length, as the entry takes them off the stack.
@@ -4227,7 +4227,7 @@ return {signed = signed, unsigned = unsigned, Signed = Signed, Unsigned = Unsign
 ]]
     local dir = project{["switch.nupp"] = source}
     local out, code = run(dir, "--emit llvm switch.nupp")
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local signed = assert(llvmFunction(out, "ks_signed__%w+"), out)
     local unsigned = assert(llvmFunction(out, "ks_unsigned__%w+"), out)
     assert(signed:find("= icmp eq i32 %%t%d+, %-2147483648\n"), "int32 minimum is its exact constant: " .. signed)
@@ -4279,12 +4279,12 @@ return {classify = classify, Value = Value}
 ]]
     }
     local decoded, raw, code, where = lowered(dir, "--json switch.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     assert(
         decoded.ir:find("if eq(local:f64 $switch_selector_", 1, true),
         where .. ": the arms are binary64 comparisons: " .. decoded.ir
     )
-    test.equal(decoded.llvm:find("\n  switch ", 1, true), nil, "binary64 is not converted for native switch")
+    test.eq(decoded.llvm:find("\n  switch ", 1, true), nil, "binary64 is not converted for native switch")
     assert(
         decoded.llvm:match("%%t%d+ = fcmp oeq double %%t%d+, 0x3FF0000000000000\n  br i1 "),
         where .. ": each arm is a comparison branch: " .. decoded.llvm
@@ -4294,18 +4294,18 @@ end
 function M.jsonReportsAScalarLoop()
     local dir = project{["compute.nupp"] = COMPUTE}
     local out, code = run(dir, PINNED .. "--json compute.nupp")
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local decoded = require("testjson").decode(out)
-    test.equal(decoded.file, "compute.nupp")
+    test.eq(decoded.file, "compute.nupp")
     -- One entry per `@aot` function in the file, in source order.
-    test.equal(#decoded.functions, 1)
+    test.eq(#decoded.functions, 1)
 
     local only = decoded.functions[1]
-    test.equal(only.name, "escapes")
-    test.equal(only.symbol, "ks_escapes")
-    test.equal(#only.loops, 1)
-    test.equal(only.loops[1].kind, "map")
-    test.equal(only.loops[1].outcome, "scalar")
+    test.eq(only.name, "escapes")
+    test.eq(only.symbol, "ks_escapes")
+    test.eq(#only.loops, 1)
+    test.eq(only.loops[1].kind, "map")
+    test.eq(only.loops[1].outcome, "scalar")
     assert(only.loops[1].nodes > 0)
     assert(decoded.ir and decoded.llvm and decoded.binding, "all three artifacts are carried")
 end
@@ -4373,16 +4373,16 @@ return {scale = scale, brighten = brighten, Sample = Sample,}
 function M.everyAotFunctionInAFileIsCompiled()
     local dir = project{["two.nupp"] = TWO}
     local decoded, out, code = lowered(dir, PINNED .. "--json two.nupp")
-    test.equal(code, 0, out)
-    test.equal(#decoded.functions, 2, "both functions are reported")
-    test.equal(decoded.functions[1].name, "scale", "in source order")
-    test.equal(decoded.functions[2].name, "brighten")
-    test.equal(decoded.functions[1].regions, nil)
-    test.equal(decoded.functions[2].regions, nil)
+    test.eq(code, 0, out)
+    test.eq(#decoded.functions, 2, "both functions are reported")
+    test.eq(decoded.functions[1].name, "scale", "in source order")
+    test.eq(decoded.functions[2].name, "brighten")
+    test.eq(decoded.functions[1].regions, nil)
+    test.eq(decoded.functions[2].regions, nil)
 
     -- One struct declared once, with each function bringing its own body.
     local llvm = decoded.llvm
-    test.equal(select(2, llvm:gsub("%%struct%.KsSample = type ", "")), 1, "the shared struct is declared once")
+    test.eq(select(2, llvm:gsub("%%struct%.KsSample = type ", "")), 1, "the shared struct is declared once")
     for _, symbol in ipairs({"ks_scale", "ks_brighten"}) do
         assert(llvm:find("define void @" .. symbol .. "__avx2(", 1, true), symbol .. " is defined")
     end
@@ -4397,20 +4397,20 @@ end
 function M.armHasOneTierAndNeedsNoSelection()
     local dir = project{["compute.nupp"] = COMPUTE}
     local out, code = run(dir, "--json --triple aarch64-apple-darwin compute.nupp")
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local decoded = require("testjson").decode(out)
-    test.equal(decoded.target.tier, "neon", "its 16-byte registers are mandatory, so there is nothing to opt into")
-    test.equal(decoded.functions[1].regions, nil)
+    test.eq(decoded.target.tier, "neon", "its 16-byte registers are mandatory, so there is nothing to opt into")
+    test.eq(decoded.functions[1].regions, nil)
 end
 
 function M.anUnknownTargetOrTierIsRejected()
     local dir = project{["compute.nupp"] = COMPUTE}
     local out, code = run(dir, "--triple sparc-sun-solaris compute.nupp")
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(out:find("unknown target", 1, true), out)
 
     local tierOut, tierCode = run(dir, "--triple aarch64-apple-darwin --features sse9 compute.nupp")
-    test.equal(tierCode, 1, tierOut)
+    test.eq(tierCode, 1, tierOut)
     assert(tierOut:find("has no feature tier sse9", 1, true), "and names the tiers it does have: " .. tierOut)
 end
 
@@ -4444,7 +4444,7 @@ return {scale = scale}
 ]]
     }
     local out, code = run(dir, "loop.nupp")
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(out:find("not admitted in a counted native loop", 1, true), out)
     -- On the allocation, not on the loop that contains it.
     assert(out:find("loop.nupp:7:25:", 1, true), "the refusal names the allocation: " .. out)
@@ -4466,11 +4466,11 @@ return {object = object}
 ]]
     }
     local out, code = run(dir, "--json builder.nupp")
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local decoded = require("testjson").decode(out)
     local only = decoded.functions[1]
-    test.equal(only.entryMode, "lua-builder")
-    test.equal(only.runtimeAbi, "lua-5.1")
+    test.eq(only.entryMode, "lua-builder")
+    test.eq(only.runtimeAbi, "lua-5.1")
     assert(only.registrar:match("^ks_register_[0-9a-f]+$"), only.registrar)
     assert(decoded.ir:find("entry lua-builder", 1, true), decoded.ir)
     assert(decoded.ir:find("lua.new_table", 1, true), decoded.ir)
@@ -4502,9 +4502,9 @@ return {label = label}
 ]],
     }
     local out, code = run(dir, "--json ordinary.nupp")
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local decoded = require("testjson").decode(out)
-    test.equal(decoded.functions[1].entryMode, "lua-builder")
+    test.eq(decoded.functions[1].entryMode, "lua-builder")
     for _, operation in ipairs({
         "lua.new_table",
         "lua.get_index",
@@ -4547,7 +4547,7 @@ return {unsafe = unsafe}
 ]],
     }
     local out, code = run(dir, "unsafe.nupp")
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(out:find("a persistent Lua root follows a string accumulator", 1, true), out)
 end
 
@@ -4631,7 +4631,7 @@ return {decode = decode} as unknown
 ]],
     }
     local out, code = run(dir, "--json stream.nupp")
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local decoded = require("testjson").decode(out)
     assert(decoded.ir:find("lua_builder_open_object", 1, true), decoded.ir)
     assert(decoded.ir:find("lua_string_byte", 1, true), decoded.ir)
@@ -4741,7 +4741,7 @@ return {
 ]],
     }
     local out, code = run(dir, "--json nupp/modes.nupp")
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local decoded = require("testjson").decode(out)
     assert(decoded.ir:find("lua.builder(eager", 1, true), decoded.ir)
     assert(decoded.ir:find("lua.builder(pull", 1, true), decoded.ir)
@@ -4780,7 +4780,7 @@ return {read = read}
 ]],
     }
     local out, code = run(dir, "read.nupp")
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(out:find("needs offset < length(bytes) to dominate the read", 1, true), out)
 end
 
@@ -4817,7 +4817,7 @@ return {entry = entry} as unknown
 ]]
     }
     local out, code = run(dir, PINNED .. "--emit llvm classes.nupp")
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     assert(
         out:find('constant [5 x i8] c"\\01\\02\\22\\5C\\00"', 1, true),
         "an escaped constant is placed as the four bytes it denotes: " .. out
@@ -4831,7 +4831,7 @@ end
 function M.aFileWithNoAotFunctionIsAnError()
     local dir = project{["plain.nupp"] = "local m = {}\n\nreturn m\n"}
     local out, code = run(dir, "plain.nupp")
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(out:find("no @aot function", 1, true), "which says so: " .. out)
 end
 
@@ -4856,7 +4856,7 @@ return {acc = acc}
 ]]
     }
     local out, code = run(dir, "changed.nupp")
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(out:find("changed.nupp:8:", 1, true), out)
     assert(out:find("an assigned counted-loop index does not prove span access bounds", 1, true), out)
     assert(not out:find("stack traceback", 1, true), out)
@@ -4882,7 +4882,7 @@ return {acc = acc}
             ):format(step)
         }
         local out, code = run(dir, "step.nupp")
-        test.equal(code, 1, out)
+        test.eq(code, 1, out)
         assert(out:find("step.nupp:4:5: aot: NUPP2905: a native nested for loop takes no explicit step", 1, true), out)
         assert(not out:find("stack traceback", 1, true), out)
     end
@@ -4912,15 +4912,15 @@ return {entry = entry}
             dir,
             "--triple " .. selection[1] .. " --features " .. selection[2] .. " --emit llvm entry.nupp"
         )
-        test.equal(code, 0, out)
+        test.eq(code, 0, out)
         -- LuaJIT's dual-number VM starts a loop whose bound is an integer at
         -- an integer zero, so `-0.0` becomes `0.0` exactly there.
         local normalized = out:match(
             "(%%t%d+) = call i32 @nupp%.wrap%.u32%(double %%t%d+%)\n  (%%t%d+) = sitofp i32 %1 to double\n  (%%t%d+) = fcmp oeq double %%t%d+, %2\n"
         ) ~= nil
-        test.equal(normalized, selection[3] == "luajit-dual", selection[1] .. " dual-number entry")
+        test.eq(normalized, selection[3] == "luajit-dual", selection[1] .. " dual-number entry")
         local prepared = out:match("fsub double %%t%d+, 1%.0\n") ~= nil
-        test.equal(prepared, false, selection[1] .. " uses LuaJIT loop entry")
+        test.eq(prepared, false, selection[1] .. " uses LuaJIT loop entry")
     end
 end
 
@@ -4961,7 +4961,7 @@ return {total = total}
         dir,
         "--triple x86_64-unknown-linux-gnu --features baseline --emit binding counted.nupp"
     )
-    test.equal(bindingCode, 0, out)
+    test.eq(bindingCode, 0, out)
     assert(out:find("AOT numeric-for runtime mismatch", 1, true), "a counted loop depends on the numeric-for runtime")
 end
 
@@ -4982,7 +4982,7 @@ return {acc = acc}
 ]]
     }
     local decoded, raw, code, where = lowered(dir, "--json bigbound.nupp")
-    test.equal(code, 0, "a binary64 counted bound is not narrowed\n" .. raw)
+    test.eq(code, 0, "a binary64 counted bound is not narrowed\n" .. raw)
     assert(decoded.ir:find("constant:f64 3000000000", 1, true), where .. ": " .. decoded.ir)
     -- The counter is a double: it steps by 1.0 and is compared as one against
     -- the bound's own value.
@@ -5017,7 +5017,7 @@ return {decode = decode}
 ]],
     }
     local out, code = run(dir, "stale.nupp")
-    test.equal(code, 1, "an unproved read is refused\n" .. out)
+    test.eq(code, 1, "an unproved read is refused\n" .. out)
     assert(
         out:find(
             "stale.nupp:11:18: aot: NUPP2905: valuebuilder.byteAt needs offset < length(bytes) to dominate the read",
@@ -5059,14 +5059,14 @@ return {rows = rows}
 ]]
     local dir = project{["nested.nupp"] = body:gsub("BOUND", "#weights"), ["literal.nupp"] = body:gsub("BOUND", "10"),}
     local out, code = run(dir, "--emit llvm nested.nupp")
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     assert(
         out:match("%%t%d+ = icmp ule i64 %%t%d+, %%count_weights\n"),
         "the nested loop counts the span it reads: " .. out
     )
 
     out, code = run(dir, "literal.nupp")
-    test.equal(code, 1, "a literal bound proves nothing about the span\n" .. out)
+    test.eq(code, 1, "a literal bound proves nothing about the span\n" .. out)
     assert(
         out:find(
             "literal.nupp:15:25: aot: NUPP2905: the loop's bound is not a span count, so nothing proves weights is that long",
@@ -5098,7 +5098,7 @@ return {neg = neg, negFixed = negFixed}
 ]],
     }
     local out, code = run(dir, "--emit llvm neg.nupp")
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     for name, widen in pairs({neg = "fpext float", negFixed = "uitofp i32"}) do
         local body = llvmFunction(out, "ks_" .. (name == "neg" and "neg" or "neg_fixed") .. "__%w+")
         assert(
@@ -5125,7 +5125,7 @@ return {first = first}
 ]],
     }
     local out, code = run(dir, "--emit ir shadow.nupp")
-    test.equal(code, 1, "the rebound name is not an intrinsic\n" .. out)
+    test.eq(code, 1, "the rebound name is not an intrinsic\n" .. out)
     assert(
         out:find(
             "shadow.nupp:4:12: aot: NUPP2905: call target string.byte is not an admitted intrinsic or helper",
@@ -5152,7 +5152,7 @@ return {rest = rest}
 ]],
     }
     local out, code = run(dir, "--emit ir method.nupp")
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(
         out:find("method.nupp:3:12: aot: NUPP2905: method :sub on a string is not admitted", 1, true),
         "the refusal names the receiver: " .. out
@@ -5189,7 +5189,7 @@ return {decode = decode}
         ["reproved.nupp"] = body:gsub("CONDITION", "cursor < #source"),
     }
     local out, code = run(dir, "outside.nupp")
-    test.equal(code, 1, "a proof the loop does not renew is not a proof\n" .. out)
+    test.eq(code, 1, "a proof the loop does not renew is not a proof\n" .. out)
     assert(
         out:find(
             "outside.nupp:10:41: aot: NUPP2905: span loads need a counted-loop index or cursor + 1 under cursor < #span",
@@ -5200,7 +5200,7 @@ return {decode = decode}
     )
 
     out, code = run(dir, "reproved.nupp")
-    test.equal(code, 0, "a loop whose own condition proves the cursor proves it every pass\n" .. out)
+    test.eq(code, 0, "a loop whose own condition proves the cursor proves it every pass\n" .. out)
 end
 
 function M.aNestedLoopMovingACursorRetiresTheEnclosingProof()
@@ -5231,7 +5231,7 @@ return {scan = scan}
 ]],
     }
     local out, code = run(dir, "annotated.nupp")
-    test.equal(code, 1, "a cursor the nested loop moves is not proved by the enclosing check\n" .. out)
+    test.eq(code, 1, "a cursor the nested loop moves is not proved by the enclosing check\n" .. out)
     assert(
         out:find(
             "annotated.nupp:9:29: aot: NUPP2905: span loads need a counted-loop index or cursor + 1 under cursor < #span",
@@ -5276,7 +5276,7 @@ return {rearrange = rearrange, preferred = preferred}
         "--triple wasm32-unknown-emscripten --features simd128",
     }) do
         local decoded, raw, code = lowered(dir, tier .. " --json rearrange.nupp")
-        test.equal(code, 0, raw)
+        test.eq(code, 0, raw)
         local kernel = assert(llvmFunction(decoded.llvm, "ks_rearrange__%w+"), decoded.llvm)
         local oracle = assertOracle(decoded.llvm, "ks_rearrange", tier)
         for _, op in ipairs({"interleave", "deinterleave", "transpose"}) do
@@ -5294,7 +5294,7 @@ return {rearrange = rearrange, preferred = preferred}
         assert(not decoded.llvm:find("call [^\n]*@malloc%("), "rearrangements must not allocate")
     end
     local asm, code = run(dir, "--emit asm rearrange.nupp")
-    test.equal(code, 0, asm)
+    test.eq(code, 0, asm)
     assert(asm:match("kernel: [^\n]* [1-9]%d* vector"), asm)
 end
 
@@ -5399,7 +5399,7 @@ function M.aSpeciesBindingIsDecidedPerTier()
         {args = "--triple wasm32-unknown-emscripten --features simd128", lanes = 4},
     }) do
         local decoded, raw, code = lowered(dir, tier.args .. " --json scan.nupp")
-        test.equal(code, 0, raw)
+        test.eq(code, 0, raw)
         local body = kernelBody(decoded.llvm, "ks_scan")
         assert(
             body:match(
@@ -5425,7 +5425,7 @@ function M.aSpeciesBindingIsDecidedPerTier()
     end
 
     local decoded, raw, code = lowered(dir, "--triple wasm32-unknown-emscripten --features scalar --json scan.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     local body = kernelBody(decoded.llvm, "ks_scan")
     assert(not body:find(" x i32>", 1, true), "the scalar tier drops the arm\n" .. body)
     assert(body:match(tail), "and keeps the tail\n" .. body)
@@ -5468,7 +5468,7 @@ return {add = add}
 ]],
     }
     local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json map.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     local body = kernelBody(decoded.llvm, "ks_add")
     assert(
         body:find("icmp ule i64 %count_input, 4294967295\n", 1, true)
@@ -5514,10 +5514,10 @@ return {add = add}
     for span, active in tail:gmatch(room .. ".-icmp ult i32 (%%t%d+), %%t%d+\n") do
         prefixes[#prefixes + 1] = {span = span, active = active}
     end
-    test.equal(#prefixes, 2, "the tail load and store are each a checked prefix\n" .. tail)
-    test.equal(prefixes[1].span, "input", tail)
-    test.equal(prefixes[2].span, "output", tail)
-    test.equal(prefixes[1].active, prefixes[2].active, "the lane count is taken once, where the mask is\n" .. tail)
+    test.eq(#prefixes, 2, "the tail load and store are each a checked prefix\n" .. tail)
+    test.eq(prefixes[1].span, "input", tail)
+    test.eq(prefixes[2].span, "output", tail)
+    test.eq(prefixes[1].active, prefixes[2].active, "the lane count is taken once, where the mask is\n" .. tail)
     assert(
         tail:match("switch i32 %%t%d+, label %%tail%.done%.%d+ %[")
         and tail:find("= insertelement <16 x i8> ", 1, true)
@@ -5578,7 +5578,7 @@ return {other = other, masked = masked, moved = moved}
 ]],
     }
     local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json unproven.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     local other = kernelBody(decoded.llvm, "ks_other")
     assert(
         checkedAccess(other, "output") and not provenAccess(other, "output"),
@@ -5650,7 +5650,7 @@ return {equal = equal, longer = longer, shorter = shorter}
 ]],
     }
     local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json related.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     local vectorStore = "(%%t%d+) = getelementptr inbounds nuw double, ptr %%p_output, i64 %%t%d+\n.-store <4 x double> %%t%d+, ptr %1, "
     local equal = kernelBody(decoded.llvm, "ks_equal")
     assert(equal:match(vectorStore), "an equal span is proven\n" .. equal)
@@ -5685,7 +5685,7 @@ return {tail = tail}
 ]],
     }
     local out, refusedCode = run(refused, "tail.nupp")
-    test.equal(refusedCode, 1, out)
+    test.eq(refusedCode, 1, out)
     assert(out:find("span stores need a counted-loop index or cursor + 1 under cursor < #span", 1, true), out)
 end
 
@@ -5731,7 +5731,7 @@ return {scale = scale, twice = twice}
 ]],
     }
     local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json wide.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     local llvm = decoded.llvm
     local scale = kernelBody(llvm, "ks_scale")
     assert(
@@ -5798,7 +5798,7 @@ return {scan = scan}
 ]],
     }
     local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json scan.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     local body = kernelBody(decoded.llvm, "ks_scan")
     local reduction = "call i32 @llvm%%.aarch64%%.neon%%.u[maxin]+v%%.i32%%.v16i8%%(<16 x i8> %s%%)"
     assert(not body:find("icmp uge <16 x i8>", 1, true), "neither forms the mask\n" .. body)
@@ -5810,7 +5810,7 @@ return {scan = scan}
     local bits = body:match("(%%t%d+) = xor <16 x i8> %%t%d+, %%t%d+\n")
     assert(bits, "the bits under test\n" .. body)
     local _, reductions = body:gsub(reduction:format((bits:gsub("%%", "%%%%"))), "")
-    test.equal(reductions, 1, "a test for any set bit is one reduction too\n" .. body)
+    test.eq(reductions, 1, "a test for any set bit is one reduction too\n" .. body)
     assert(
         body:find("alloca i1, ", 1, true) and body:find("store i1 false, ptr %slot", 1, true),
         "the flag is a variable of its own\n" .. body
@@ -5844,12 +5844,12 @@ return {lookup = lookup}
 ]],
     }
     local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json lookup.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     local body = kernelBody(decoded.llvm, "ks_lookup")
     local _, triples = body:gsub("call <16 x i8> @llvm%.aarch64%.neon%.tbl3%.v16i8%(", "")
     local _, quads = body:gsub("call <16 x i8> @llvm%.aarch64%.neon%.tbl4%.v16i8%(", "")
-    test.equal(triples, 1, "three tables are one NEON table instruction\n" .. body)
-    test.equal(quads, 1, "and so are four\n" .. body)
+    test.eq(triples, 1, "three tables are one NEON table instruction\n" .. body)
+    test.eq(quads, 1, "and so are four\n" .. body)
     oracleBody(decoded.llvm, "ks_lookup")
 
     local asm = neonAsm(dir, "lookup.nupp")
@@ -5899,7 +5899,7 @@ return {widen = widen}
 ]],
     }
     local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json records.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     local body = kernelBody(decoded.llvm, "ks_widen")
     assert(
         body:match(
@@ -6000,7 +6000,7 @@ return {scale = scale, double = double}
 ]],
     }
     local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json unrolled.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     local body = kernelBody(decoded.llvm, "ks_scale")
     assert(body:find(", !llvm.loop !", 1, true), "the versioned loop is unrolled\n" .. body)
     local oracle = oracleBody(decoded.llvm, "ks_scale")
@@ -6015,7 +6015,7 @@ return {scale = scale, double = double}
             dir,
             "--triple aarch64-apple-darwin --features neon --emit asm --function " .. symbol .. " unrolled.nupp"
         )
-        test.equal(asmCode, 0, asm)
+        test.eq(asmCode, 0, asm)
         local first = asm:find("\n%s+stp%s+q")
         local second = first and asm:find("\n%s+stp%s+q", first + 1)
         assert(first and second, symbol .. " has two copies of its body\n" .. asm)
@@ -6062,7 +6062,7 @@ return {halve = halve}
 ]],
     }
     local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json halve.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     local body = kernelBody(decoded.llvm, "ks_halve")
     local slot = body:match("(%%slot%d+) = alloca <4 x i64>\n")
     assert(slot, "the carried mask has a lane-wide slot\n" .. body)
@@ -6076,7 +6076,7 @@ return {halve = halve}
     )
     local _, stores = body:gsub("store <4 x i64> %%t%d+, ptr " .. escaped .. "\n", "")
     assert(pinned >= 2, "its definitions are pinned to their registers\n" .. body)
-    test.equal(pinned, stores, "every one of them\n" .. body)
+    test.eq(pinned, stores, "every one of them\n" .. body)
     assert(
         body:match("\nwhile%.head%.%d+:\n  %%t%d+ = load <4 x i64>, ptr " .. escaped .. "\n.-umaxp"),
         "and the loop tests the register it carries\n" .. body
@@ -6122,7 +6122,7 @@ return {refine = refine}
         dir,
         "--triple x86_64-unknown-linux-gnu --features baseline --emit asm --function ks_refine refine.nupp"
     )
-    test.equal(code, 0, asm)
+    test.eq(code, 0, asm)
     -- The inner loop: the block that branches back to itself.
     local loop
     for label in asm:gmatch("\n(%.LBB%d+_%d+):\n") do
@@ -6138,7 +6138,7 @@ return {refine = refine}
         assert(not loop:find("%s" .. instruction .. "%s"), "the loop does not " .. instruction .. " its mask\n" .. loop)
     end
     local _, compares = loop:gsub("cmpltpd", "")
-    test.equal(compares, 4, "two compares a register, combined as they are\n" .. loop)
+    test.eq(compares, 4, "two compares a register, combined as they are\n" .. loop)
 end
 
 function M.aSpeciesBindingIsTheOnlyPlaceItsSpeciesLives()
@@ -6200,7 +6200,7 @@ return {lanes = lanes}
     }
     local scalar = "--triple wasm32-unknown-emscripten --features scalar "
     local out, code = run(dir, scalar .. "outside.nupp")
-    test.equal(code, 1, "a use after the nil test on a tier without vectors\n" .. out)
+    test.eq(code, 1, "a use after the nil test on a tier without vectors\n" .. out)
     assert(
         out:find(
             "outside.nupp:11:12: aot: NUPP2905: this tier has no vectors, so species is nil here; "
@@ -6212,11 +6212,11 @@ return {lanes = lanes}
     )
 
     out, code = run(dir, scalar .. "other.nupp")
-    test.equal(code, 1, "a native if binding is the species test\n" .. out)
+    test.eq(code, 1, "a native if binding is the species test\n" .. out)
     assert(out:find("other.nupp:10:16: aot: NUPP2905: a native if binding takes simd.vectors only", 1, true), out)
 
     out, code = run(dir, scalar .. "witness.nupp")
-    test.equal(code, 1, "the argument is an array witness\n" .. out)
+    test.eq(code, 1, "the argument is an array witness\n" .. out)
     assert(out:find("NUPP2125", 1, true) and out:find("Span<uint32> is not a Scalar<any>", 1, true), out)
 end
 
@@ -6251,16 +6251,16 @@ return {advance = advance}
 ]],
     }
     local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json columns.nupp")
-    test.equal(code, 0, raw)
+    test.eq(code, 0, raw)
     local body = kernelBody(decoded.llvm, "ks_advance")
     -- A proven access is emitted with its guard folded to `true`, so the
     -- lane-by-lane path beside it is dead; a masked one tests a real count.
     local loop = assert(body:match("\nwhile%.body%.%d+:\n(.-)\nwhile%.end%.%d+:"), "the full-chunk loop\n" .. body)
     local _, proven = loop:gsub("br i1 true, label %%simd%.yes", "")
-    test.equal(proven, 3, "two column loads and a store, each proven whole\n" .. loop)
+    test.eq(proven, 3, "two column loads and a store, each proven whole\n" .. loop)
     local tail = assert(body:match("\ncursors%.done%.%d+:(.*)$"), "the tail chunk\n" .. body)
     local _, tailProven = tail:gsub("br i1 true, label %%simd%.yes", "")
-    test.equal(tailProven, 0, "the tail chunk proves nothing whole\n" .. tail)
+    test.eq(tailProven, 0, "the tail chunk proves nothing whole\n" .. tail)
     assert(tail:find("\ntail%.lane%."), "and reads its lanes under the mask\n" .. tail)
 end
 
@@ -6320,7 +6320,7 @@ return {total = total}
         {args = "--triple wasm32-unknown-emscripten --features simd128", lanes = 4},
     }) do
         local decoded, raw, code = lowered(dir, tier.args .. " --json required.nupp")
-        test.equal(code, 0, raw)
+        test.eq(code, 0, raw)
         assert(
             decoded.ir:find("simd_species_f32_preferred", 1, true),
             tier.args .. ": the preferred shape\n" .. decoded.ir
@@ -6339,14 +6339,14 @@ return {total = total}
     end
 
     local decoded, raw, code = lowered(dir, "--triple wasm32-unknown-emscripten --features scalar --json required.nupp")
-    test.equal(code, 0, "no vectors, so the species is one lane wide\n" .. raw)
+    test.eq(code, 0, "no vectors, so the species is one lane wide\n" .. raw)
     local body = kernelBody(decoded.llvm, "ks_total")
     assert(body:find("= load <1 x float>, ptr %t", 1, true), "one lane on the scalar tier\n" .. body)
     assert(body:find("<8 x float>", 1, true), "and the fixed one keeps its count\n" .. body)
 
     local out
     out, code = run(dir, "--triple wasm32-unknown-emscripten --features scalar optional.nupp")
-    test.equal(code, 1, "no vectors, so the assert would always fail\n" .. out)
+    test.eq(code, 1, "no vectors, so the assert would always fail\n" .. out)
     assert(
         out:find(
             "optional.nupp:7:25: aot: NUPP2905: this tier has no vectors, so simd.vectors is nil here and the assert "
@@ -6400,10 +6400,10 @@ return {scan = scan}
     local dir = project(files)
     local scalar = "--triple wasm32-unknown-emscripten --features scalar "
     local out, code = run(dir, scalar .. "proved.nupp")
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     for _, case in ipairs(rejected) do
         out, code = run(dir, scalar .. case[1] .. ".nupp")
-        test.equal(code, 1, case[1] .. " is not the proof\n" .. out)
+        test.eq(code, 1, case[1] .. " is not the proof\n" .. out)
         assert(out:find(case[1] .. ".nupp:6:", 1, true) and out:find(case[3], 1, true), case[1] .. ": " .. out)
     end
 end
@@ -6411,7 +6411,7 @@ end
 function M.inspectionFindsNestedProjectAndCarriesSourcePositions()
     local dir = project{["nested/nupp.lua"] = 'return {include={"src"}}', ["nested/src/compute.nupp"] = COMPUTE}
     local out, code = run(dir, "--json --emit asm nested/src/compute.nupp")
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local found, attributed = false, false
     for _, listing in ipairs(require("testjson").decode(out).asm.functions) do
         if listing.role == "kernel" then
@@ -6486,7 +6486,7 @@ return {lengths = lengths, sums = sums}
             dir,
             "--triple aarch64-apple-darwin --features neon --emit asm --function " .. symbol .. " fields.nupp"
         )
-        test.equal(code, 0, asm)
+        test.eq(code, 0, asm)
         assert(
             asm:find("\n%s+" .. instruction:gsub("%.", "%%.") .. "%s"),
             symbol .. " reads its elements whole\n" .. asm

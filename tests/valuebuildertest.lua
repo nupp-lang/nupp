@@ -54,11 +54,11 @@ function M.jsonOnlyEntriesLiveBesideTheDecoder()
         "scratchEscapeLength",
         "numberToken",
     }) do
-        test.equal(valuebuilder[name], nil, name .. " is not public")
-        test.equal(type(jsonbuilder[name]), "function", name .. " is beside the decoder")
+        test.eq(valuebuilder[name], nil, name .. " is not public")
+        test.eq(type(jsonbuilder[name]), "function", name .. " is beside the decoder")
     end
     for _, name in ipairs({"new", "newSized", "byte", "byteAt", "word", "length", "newByteScratch", "stringScratch"}) do
-        test.equal(type(valuebuilder[name]), "function", name .. " stays public")
+        test.eq(type(valuebuilder[name]), "function", name .. " stays public")
     end
 end
 

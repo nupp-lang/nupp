@@ -39,7 +39,7 @@ end
 
 local function compile(source)
     local parsed = parser.parse(source, "lpeg_test.nupp")
-    testAssert.equal(#parsed.errors, 0, "syntax errors")
+    testAssert.eq(#parsed.errors, 0, "syntax errors")
     local diagnostics = check.check(parsed, "lpeg_test.nupp", env)
     local code, generated = gen.generate(parsed, "lpeg_test")
     for _, diagnostic in ipairs(generated) do
@@ -186,9 +186,9 @@ return {
     lpeg.setmaxstack(10000)
 
     for _, name in ipairs({"direct", "transformed", "matchTime"}) do
-        testAssert.equal(got[name].n, want[name].n, name .. " result count")
+        testAssert.eq(got[name].n, want[name].n, name .. " result count")
         for index = 1, want[name].n do
-            testAssert.equal(got[name][index], want[name][index], name .. " result " .. index)
+            testAssert.eq(got[name][index], want[name][index], name .. " result " .. index)
         end
     end
     for _, name in ipairs({
@@ -210,7 +210,7 @@ return {
         "printableNewline",
         "invalidStack",
     }) do
-        testAssert.equal(got[name], want[name], "LPeg facade " .. name)
+        testAssert.eq(got[name], want[name], "LPeg facade " .. name)
     end
     assert(got.rewindError:find("invalid position returned by match%-time capture"), got.rewindError)
 end
@@ -248,14 +248,14 @@ return checkedFirst, checkedSecond, checkedThird, checkedLiteralText,
     checkedRuntimeNumber
 ]==]
     )
-    testAssert.equal(first, "name", "typed first constant capture")
-    testAssert.equal(second, 42, "typed second constant capture")
-    testAssert.equal(third, true, "typed third constant capture")
-    testAssert.equal(literalText, "word", "typed nested pattern capture")
-    testAssert.equal(transformedText, "A", "typed callback text result")
-    testAssert.equal(transformedNumber, 7, "typed callback integer result")
-    testAssert.equal(runtimeText, "runtime", "typed runtime capture text")
-    testAssert.equal(runtimeNumber, 9, "typed runtime capture integer")
+    testAssert.eq(first, "name", "typed first constant capture")
+    testAssert.eq(second, 42, "typed second constant capture")
+    testAssert.eq(third, true, "typed third constant capture")
+    testAssert.eq(literalText, "word", "typed nested pattern capture")
+    testAssert.eq(transformedText, "A", "typed callback text result")
+    testAssert.eq(transformedNumber, 7, "typed callback integer result")
+    testAssert.eq(runtimeText, "runtime", "typed runtime capture text")
+    testAssert.eq(runtimeNumber, 9, "typed runtime capture integer")
 
     local codes = errorsOf(
         [==[
@@ -264,7 +264,7 @@ local first, second = lpeg.Cc("name", 42):match("")
 local wrong: boolean? = second
 ]==]
     )
-    testAssert.equal(
+    testAssert.eq(
         table.concat(codes, " "),
         "NUPP2001",
         "heterogeneous captures cannot be assigned as the wrong slot type"
@@ -324,25 +324,25 @@ return {
 } as unknown
 ]==]
     )
-    testAssert.equal(got.luaType, "userdata", "patterns are opaque userdata")
-    testAssert.equal(got.lpegType, "pattern", "lpeg.type recognizes facade userdata")
-    testAssert.equal(got.tostringPrefix, true, "pattern reflection matches LPeg's shape")
-    testAssert.equal(got.mutable, false, "pattern state cannot be mutated")
-    testAssert.equal(got.selfField, nil, "LPeg does not expose a nonstandard self field")
-    testAssert.equal(got.emptyLoop, false, "empty repetition fails during construction")
-    testAssert.equal(got.captureLoop, false, "capture-only repetition fails during construction")
-    testAssert.equal(got.undefined, false, "undefined rules fail during construction")
-    testAssert.equal(got.left, false, "left recursion fails during construction")
-    testAssert.equal(got.right, true, "right recursion remains valid")
-    testAssert.equal(got.missingLookup, 8, "a missing query capture produces zero values")
-    testAssert.equal(got.overlong, nil, "utfR rejects overlong UTF-8")
-    testAssert.equal(got.tooLarge, nil, "utfR rejects code points above Unicode")
-    testAssert.equal(got.surrogate, 4, "utfR retains LPeg's code-point range semantics")
-    testAssert.equal(got.invalidLow, false, "utfR rejects a negative lower bound")
-    testAssert.equal(got.invalidHigh, false, "utfR rejects a bound above Unicode")
-    testAssert.equal(got.invalidOrder, false, "utfR rejects an inverted range")
-    testAssert.equal(got.flat, 5, "flat AST depth does not consume backtrack stack")
-    testAssert.equal(got.overflow, true, "LPeg optimizes tail-recursive grammar calls")
+    testAssert.eq(got.luaType, "userdata", "patterns are opaque userdata")
+    testAssert.eq(got.lpegType, "pattern", "lpeg.type recognizes facade userdata")
+    testAssert.eq(got.tostringPrefix, true, "pattern reflection matches LPeg's shape")
+    testAssert.eq(got.mutable, false, "pattern state cannot be mutated")
+    testAssert.eq(got.selfField, nil, "LPeg does not expose a nonstandard self field")
+    testAssert.eq(got.emptyLoop, false, "empty repetition fails during construction")
+    testAssert.eq(got.captureLoop, false, "capture-only repetition fails during construction")
+    testAssert.eq(got.undefined, false, "undefined rules fail during construction")
+    testAssert.eq(got.left, false, "left recursion fails during construction")
+    testAssert.eq(got.right, true, "right recursion remains valid")
+    testAssert.eq(got.missingLookup, 8, "a missing query capture produces zero values")
+    testAssert.eq(got.overlong, nil, "utfR rejects overlong UTF-8")
+    testAssert.eq(got.tooLarge, nil, "utfR rejects code points above Unicode")
+    testAssert.eq(got.surrogate, 4, "utfR retains LPeg's code-point range semantics")
+    testAssert.eq(got.invalidLow, false, "utfR rejects a negative lower bound")
+    testAssert.eq(got.invalidHigh, false, "utfR rejects a bound above Unicode")
+    testAssert.eq(got.invalidOrder, false, "utfR rejects an inverted range")
+    testAssert.eq(got.flat, 5, "flat AST depth does not consume backtrack stack")
+    testAssert.eq(got.overflow, true, "LPeg optimizes tail-recursive grammar calls")
 end
 
 function M.bundlesTheReferenceReModuleOverTheLpegFacade()
@@ -355,12 +355,12 @@ local first, last = re.find("-- item:42 --", "[a-z]+ ':' [0-9]+")
 return captured, first, last, re.gsub("a1b22", "[0-9]+", "#"), type(pattern)
 ]==]
     )
-    testAssert.equal(captured[1], "item", "bundled re first capture")
-    testAssert.equal(captured[2], "42", "bundled re second capture")
-    testAssert.equal(first, 4, "bundled re find start")
-    testAssert.equal(last, 10, "bundled re find inclusive end")
-    testAssert.equal(replaced, "a#b#", "bundled re global substitution")
-    testAssert.equal(patternType, "userdata", "re compiles to the same opaque pattern")
+    testAssert.eq(captured[1], "item", "bundled re first capture")
+    testAssert.eq(captured[2], "42", "bundled re second capture")
+    testAssert.eq(first, 4, "bundled re find start")
+    testAssert.eq(last, 10, "bundled re find inclusive end")
+    testAssert.eq(replaced, "a#b#", "bundled re global substitution")
+    testAssert.eq(patternType, "userdata", "re compiles to the same opaque pattern")
 end
 
 return M

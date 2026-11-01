@@ -12,7 +12,7 @@ local env = envMod.new(HERE .. "/..")
 
 local function parse(src)
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax: " .. (result.errors[1] and result.errors[1].msg or ""))
+    testAssert.eq(#result.errors, 0, "syntax: " .. (result.errors[1] and result.errors[1].msg or ""))
     return result
 end
 
@@ -31,7 +31,7 @@ local function generate(src)
     local result = parse(src)
     check.check(result, "test.nupp", env)
     local code, diags = gen.generate(result, "test")
-    testAssert.equal(#diags, 0, "gen diagnostics: " .. (diags[1] and diags[1].msg or ""))
+    testAssert.eq(#diags, 0, "gen diagnostics: " .. (diags[1] and diags[1].msg or ""))
 
     return code
 end
@@ -56,14 +56,14 @@ function M.privateRecordFieldsBelongToTheirCanonicalModule()
         },
         "\n"
     )
-    testAssert.equal(diagsOf(source), "", "the declaring module reads and constructs private fields")
+    testAssert.eq(diagsOf(source), "", "the declaring module reads and constructs private fields")
 end
 
 -- Hoisting a nominal also hoists the identity of its generic binders. Otherwise a
 -- reference to a later generic record sees the raw declaration and leaves `T` in its
 -- fields instead of substituting the concrete application.
 function M.forwardGenericNominalsPreserveTheirApplications()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -103,7 +103,7 @@ function M.inlineMethodsPreserveExplicitReceiverModes()
         },
         "\n"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             declaration .. table.concat(
                 {
@@ -118,7 +118,7 @@ function M.inlineMethodsPreserveExplicitReceiverModes()
         "",
         "an inline method exports its exclusive receiver"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(declaration .. "\nlocal plain: function(self: Box): nil = Box.mutate\nprint(plain)"),
         "NUPP2001",
         "receiver ownership is part of the exported callable"
@@ -126,25 +126,25 @@ function M.inlineMethodsPreserveExplicitReceiverModes()
 end
 
 function M.privateIsAFieldModifierOnlyForRecords()
-    testAssert.equal(diagsOf("local struct S\n   @private value: int32\nend"), "NUPP2209")
-    testAssert.equal(diagsOf("local interface I\n   @private value: int32\nend"), "NUPP2209")
+    testAssert.eq(diagsOf("local struct S\n   @private value: int32\nend"), "NUPP2209")
+    testAssert.eq(diagsOf("local interface I\n   @private value: int32\nend"), "NUPP2209")
 end
 
 -- A field whose type admits nil need not be there at all: an absent field
 -- reads as nil, which is what makes `missing: boolean?` optional.
 function M.aNilAdmittingFieldIsOptional()
     local shape = "local type Tok = {kind: string, missing: boolean?}\n"
-    testAssert.equal(diagsOf(shape .. 'local t: Tok = {kind = "name"}'), "")
-    testAssert.equal(diagsOf(shape .. 'local t: Tok = {kind = "n", missing = true}'), "")
+    testAssert.eq(diagsOf(shape .. 'local t: Tok = {kind = "name"}'), "")
+    testAssert.eq(diagsOf(shape .. 'local t: Tok = {kind = "n", missing = true}'), "")
     -- a field that does not admit nil is still required
-    testAssert.equal(diagsOf("local type R = {kind: string, n: integer}\n" .. 'local r: R = {kind = "n"}'), "NUPP2001")
+    testAssert.eq(diagsOf("local type R = {kind: string, n: integer}\n" .. 'local r: R = {kind = "n"}'), "NUPP2001")
 end
 
 -- A record that is also a sequence declares `{T}` among its fields. The CST
 -- needs this: a node's array part is the whole basis of the round trip.
 function M.aRecordCanHaveAnArrayPart()
     local decl = table.concat({"local record Node", "    {Node}", "    kind: string", "end",}, "\n")
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             decl .. "\n" .. table.concat(
                 {
@@ -161,11 +161,11 @@ function M.aRecordCanHaveAnArrayPart()
         "index, length, append and ipairs all work"
     )
     -- and the element type is enforced
-    testAssert.equal(diagsOf(decl .. '\nlocal n = new Node(kind = "if")\nn[1] = 5'), "NUPP2001")
+    testAssert.eq(diagsOf(decl .. '\nlocal n = new Node(kind = "if")\nn[1] = 5'), "NUPP2001")
 end
 
 function M.anArrayPartIsALuaThingSoAStructHasNone()
-    testAssert.equal(diagsOf("local struct P\n    {P}\n    x: float\nend"), "NUPP2204")
+    testAssert.eq(diagsOf("local struct P\n    {P}\n    x: float\nend"), "NUPP2204")
 end
 
 -- `x is T` as a return type says the function answers whether its parameter
@@ -187,7 +187,7 @@ function M.aPredicateNarrowsItsArgument()
         },
         "\n"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             decl .. "\n" .. table.concat(
                 {
@@ -204,18 +204,18 @@ function M.aPredicateNarrowsItsArgument()
         "narrowed both ways"
     )
     -- without the call there is no narrowing, and the field is not shared
-    testAssert.equal(diagsOf(decl .. "\nlocal function f(c: Child): string\n" .. "    return c.text\nend"), "NUPP2004")
+    testAssert.eq(diagsOf(decl .. "\nlocal function f(c: Child): string\n" .. "    return c.text\nend"), "NUPP2004")
 end
 
 function M.aPredicateMustNameAParameter()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf("local record R\n    x: integer\nend\n" .. "local function f(a: R): b is R\n    return true\nend"),
         "NUPP2109"
     )
 end
 
 function M.aPredicateThatCanNeverHoldIsReported()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf("local record R\n    x: integer\nend\n" .. "local function f(a: string): a is R\n    return true\nend"),
         "NUPP2110"
     )
@@ -224,7 +224,7 @@ end
 -- Copying an integer into an inferred local keeps it an integer. Widening
 -- there made `integer` unusable: every offset lost it on the first copy.
 function M.anIntegerSurvivesAnInferredLocal()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {"local function f(pos: integer): integer", "    local start = pos", "    return start + 1", "end",},
@@ -234,11 +234,11 @@ function M.anIntegerSurvivesAnInferredLocal()
         ""
     )
     -- an integer *literal* still widens, so arithmetic on it stays open
-    testAssert.equal(diagsOf("local x = 1\nx = 1.5"), "")
+    testAssert.eq(diagsOf("local x = 1\nx = 1.5"), "")
 end
 
 function M.fixedWidthArithmeticWidensToAnInteger()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -310,7 +310,7 @@ end
 -- A variable holds what was just written to it. Without this the common
 -- `if not x then x = f() end` leaves x nilable forever.
 function M.assignmentNarrowsToWhatWasWritten()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -334,7 +334,7 @@ end
 -- Truthiness of a field path is the same fact a plain name gives.
 function M.aFieldPathNarrowsOnTruthiness()
     local decl = "local record R\n    xs: {integer}?\nend\n"
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             decl .. table.concat(
                 {
@@ -351,7 +351,7 @@ function M.aFieldPathNarrowsOnTruthiness()
         "",
         "r.xs is not nil inside the guard"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(decl .. "local function f(r: R): integer\n" .. "    return r.xs[1]\nend"),
         "NUPP2004",
         "and nilable without it"
@@ -361,7 +361,7 @@ end
 -- Indexing a union indexes every member, which is what makes the `xs or {}`
 -- default usable.
 function M.aUnionIsIndexable()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -379,8 +379,8 @@ end
 
 -- A table written with string keys and one value type is a map of it.
 function M.aStringKeyedTableIsAMap()
-    testAssert.equal(diagsOf("local m: {[string]: boolean} = {a = true, b = false}"), "")
-    testAssert.equal(
+    testAssert.eq(diagsOf("local m: {[string]: boolean} = {a = true, b = false}"), "")
+    testAssert.eq(
         diagsOf("local m: {[string]: boolean} = {a = true, b = 2}"),
         "NUPP2001",
         "a value of the wrong type still fails"
@@ -401,7 +401,7 @@ function M.aModuleAliasResolvesTypes()
         },
         "\n"
     )
-    testAssert.equal(diagsOf(src), "")
+    testAssert.eq(diagsOf(src), "")
 end
 
 -- Writing nil to a table entry is how Lua removes it, so a container takes
@@ -409,7 +409,7 @@ end
 -- is not that: it is declared, and removing it would leave the type
 -- describing something that is not there.
 function M.writingNilRemovesAContainerEntry()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -423,15 +423,15 @@ function M.writingNilRemovesAContainerEntry()
         ),
         ""
     )
-    testAssert.equal(diagsOf('local xs: {integer} = {1}\nxs[1] = "no"'), "NUPP2001", "a wrong type is still wrong")
-    testAssert.equal(
+    testAssert.eq(diagsOf('local xs: {integer} = {1}\nxs[1] = "no"'), "NUPP2001", "a wrong type is still wrong")
+    testAssert.eq(
         diagsOf(
             table.concat({"local record R", "    x: integer", "end", "local r = new R(x = 1)", 'r["x"] = nil',}, "\n")
         ),
         "NUPP2004",
         "a record is not bracket-indexable to begin with"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat({"local record R", "    x: integer", "end", "local r = new R(x = 1)", "r.x = nil",}, "\n")
         ),
@@ -444,19 +444,19 @@ end
 -- checked. Applied first, it compared the target against the very value
 -- being written to it, and every field assignment passed.
 function M.assignmentIsCheckedBeforeItNarrows()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat({"local record R", "    x: integer", "end", "local r = new R(x = 1)", 'r.x = "no"',}, "\n")
         ),
         "NUPP2001"
     )
-    testAssert.equal(diagsOf(table.concat({"local xs: {integer} = {}", 'xs[1] = "no"',}, "\n")), "NUPP2001")
+    testAssert.eq(diagsOf(table.concat({"local xs: {integer} = {}", 'xs[1] = "no"',}, "\n")), "NUPP2001")
 end
 
 -- Narrowing survives the join. A variable assigned in one branch and ruled
 -- out in the other is known afterwards to be neither nil nor unset.
 function M.narrowingSurvivesABranchJoin()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -474,7 +474,7 @@ function M.narrowingSurvivesABranchJoin()
         "",
         "the implicit else is a path like any other"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -499,7 +499,7 @@ end
 -- A branch that leaves does not reach the join, which is what makes a
 -- guard clause narrow everything after it.
 function M.aBranchThatLeavesDoesNotJoin()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -519,7 +519,7 @@ end
 -- The join only knows what every path knows. A key one arm is silent
 -- about could be anything there, so it stays at its declared type.
 function M.theJoinIsConservative()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -540,7 +540,7 @@ end
 -- true and false are types. A function that returns a result or false is
 -- a Lua idiom, and truth-testing one has to leave the result behind.
 function M.falseIsAType()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -567,7 +567,7 @@ end
 -- Falsy in Lua is nil or false and nothing else, so testing a boolean for
 -- truth leaves the one value it can still be.
 function M.truthNarrowsABoolean()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -583,7 +583,7 @@ function M.truthNarrowsABoolean()
         ),
         ""
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -605,7 +605,7 @@ end
 -- add() gives back what it was given, so a named CST field keeps its own
 -- type rather than widening to "node or token".
 function M.aGenericFunctionPreservesItsArgumentType()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -629,7 +629,7 @@ end
 -- may quietly subtract it away: narrowing inside generic code has to leave
 -- it standing.
 function M.narrowingKeepsATypeParameter()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -663,7 +663,7 @@ function M.anAliasedDiscriminantNarrowsTheOriginal()
         },
         "\n"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             decl .. "\n" .. table.concat(
                 {
@@ -682,7 +682,7 @@ function M.anAliasedDiscriminantNarrowsTheOriginal()
         "narrowed through the copy, both ways"
     )
     -- and the copy stops speaking for the value once either one moves
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             decl .. "\n" .. table.concat(
                 {
@@ -707,7 +707,7 @@ end
 -- value of a discriminated union. Numbers widen: a counter initialized to
 -- 1 is not a value of the type 1.
 function M.aNamedFieldKeepsAStringDiscriminant()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -722,7 +722,7 @@ function M.aNamedFieldKeepsAStringDiscriminant()
         ),
         ""
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -743,7 +743,7 @@ end
 -- An elseif chain over a copied discriminant has to keep narrowing past
 -- the first arm: the narrowed copy still came from where it came from.
 function M.anAliasedDiscriminantNarrowsThroughAChain()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -772,7 +772,7 @@ end
 -- knows the union of what each proves — and nothing about a reference
 -- only one side mentions.
 function M.orUnionsWhatBothSidesProve()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -799,7 +799,7 @@ end
 -- written first. Declarations are hoisted to the top of their block, which
 -- is what makes one writable at all.
 function M.declarationsAreHoisted()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -828,11 +828,11 @@ end
 -- body, so a recursive field does not have to repeat the table, and the name
 -- does not leak out beside it.
 function M.aQualifiedDeclarationNamesItselfInItsOwnBody()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(table.concat({"local m = {}", "record m.Node", "    parent: Node?", "end", "return m",}, "\n")),
         ""
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {"local m = {}", "record m.Node", "    kind: string", "end", "local stray: Node", "return m",},
@@ -847,7 +847,7 @@ end
 -- owner was attached to, `is` included: a nested record's runtime table hangs
 -- off its owner's, and without that path `is` had no runtime identity at all.
 function M.nestedTypesResolveThroughTheirOwnersTable()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -873,7 +873,7 @@ end
 -- Hoisting reaches into a record namespace as well as hoisting the owner. This
 -- matters when an earlier declaration describes a value using a nested type.
 function M.nestedRecordsResolveBeforeTheirOwnersBody()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -913,8 +913,8 @@ return step(7)
 ]]
     )
     local diags = check.check(result, "test.nupp", localEnv)
-    testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
-    testAssert.equal(table.concat(attempted, ", "), "", "a lexical type never becomes a module dependency")
+    testAssert.eq(#diags, 0, diags[1] and diags[1].msg)
+    testAssert.eq(table.concat(attempted, ", "), "", "a lexical type never becomes a module dependency")
 end
 
 function M.missingNestedTypesDoNotFallThroughToModules()
@@ -933,18 +933,18 @@ function M.missingNestedTypesDoNotFallThroughToModules()
     }) do
         local result = parse(case[1] .. "local value: " .. case[2] .. "\n")
         local diags = check.check(result, "test.nupp", localEnv)
-        testAssert.equal(#diags, 1, case[2])
-        testAssert.equal(diags[1].code, "NUPP2101", case[2])
+        testAssert.eq(#diags, 1, case[2])
+        testAssert.eq(diags[1].code, "NUPP2101", case[2])
         assert(diags[1].msg:find("unknown nested type", 1, true), diags[1].msg)
     end
-    testAssert.equal(table.concat(attempted, ", "), "", "a missing member does not change namespaces")
+    testAssert.eq(table.concat(attempted, ", "), "", "a missing member does not change namespaces")
 end
 
 -- A declaration attaches to one table. A deeper path would bind the type under
 -- one name and assign the runtime value to another, which silently stamped a
 -- nil metatable.
 function M.aDeclarationAttachesToOneTable()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {"local m = {}", "m.sub = {}", "record m.sub.Deep", "    id: uint32", "end", "return m",},
@@ -957,7 +957,7 @@ end
 
 -- Methods attach through the whole path, the way the declaration was written.
 function M.methodsAttachToAQualifiedRecord()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -981,13 +981,13 @@ end
 
 -- Hoisting must not make mutually recursive aliases loop forever.
 function M.anAliasDefinedInTermsOfItselfIsReported()
-    testAssert.equal(diagsOf("local type A = B\nlocal type B = A\nlocal x: A = 1"), "NUPP2133")
+    testAssert.eq(diagsOf("local type A = B\nlocal type B = A\nlocal x: A = 1"), "NUPP2133")
 end
 
 -- Methods are hoisted too: their signatures are published before any body
 -- is checked, so two that call each other can both be written plainly.
 function M.methodsAreHoisted()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -1010,7 +1010,7 @@ function M.methodsAreHoisted()
         ""
     )
     -- and the signature published is the one the annotations give
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -1035,7 +1035,7 @@ end
 -- method declares a record surface. Its signature is available to every other direct
 -- function in the block, while the runtime assignments remain in source order.
 function M.moduleFunctionsAreHoisted()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -1055,7 +1055,7 @@ function M.moduleFunctionsAreHoisted()
         ),
         ""
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -1076,7 +1076,7 @@ function M.moduleFunctionsAreHoisted()
     -- Signature resolution happens after preceding value imports have entered scope.
     -- Resolving every signature at the block's initial declaration pre-pass would turn
     -- both uses of Type into any here.
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -1096,7 +1096,7 @@ function M.moduleFunctionsAreHoisted()
         ),
         ""
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -1121,7 +1121,7 @@ end
 -- Local functions still follow Lua's lexical flow: the name being defined is visible
 -- to its own body, but a separate local declaration below it is not.
 function M.localFunctionsRemainFlowSensitive()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -1145,7 +1145,7 @@ end
 -- trusted with it: reading a field belonging to another kind is an error.
 function M.perKindNodesAreADiscriminatedUnion()
     local cstModule = "local cst = require('nupp.compiler.syntax.cst')\n"
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             cstModule .. table.concat(
                 {
@@ -1168,7 +1168,7 @@ function M.perKindNodesAreADiscriminatedUnion()
         "each arm reaches the fields its own kind carries"
     )
     -- a field that belongs to another kind is not there at all
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             cstModule .. table.concat(
                 {
@@ -1186,7 +1186,7 @@ function M.perKindNodesAreADiscriminatedUnion()
         "a binop field is not readable on a name"
     )
     -- and the array part is still every child, in source order
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             cstModule .. table.concat(
                 {

@@ -15,7 +15,7 @@ local env = envMod.new(HERE .. "/..")
 local function codes(source)
     env.loaded = {}
     local parsed = parser.parse(source, "test.nupp")
-    testAssert.equal(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
+    testAssert.eq(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
     local out = {}
     for j, d in ipairs(check.check(parsed, "test.nupp", env)) do
         out[j] = d.code
@@ -29,11 +29,11 @@ local function src(...)
 end
 
 local function clean(source)
-    testAssert.equal(codes(source), "", "expected clean check for:\n" .. source)
+    testAssert.eq(codes(source), "", "expected clean check for:\n" .. source)
 end
 
 local function reports(source, want)
-    testAssert.equal(codes(source), want, "for:\n" .. source)
+    testAssert.eq(codes(source), want, "for:\n" .. source)
 end
 
 local READER = src(
@@ -334,8 +334,8 @@ function M.aMemberSeesTheAnswerWhereverItSits()
         "end",
         "return Late"
     )
-    testAssert.equal(codes(wrongEarly), codes(wrongLate), "the two orders disagree")
-    testAssert.equal(codes(wrongEarly), "NUPP2002", "the answer was not in force")
+    testAssert.eq(codes(wrongEarly), codes(wrongLate), "the two orders disagree")
+    testAssert.eq(codes(wrongEarly), "NUPP2002", "the answer was not in force")
     clean(
         contract .. src(
             "local record Early is Reader",

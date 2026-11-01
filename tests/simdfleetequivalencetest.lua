@@ -11,8 +11,8 @@ function M.historicalMutationsAreKilled()
     local _, ledger = obligations.load()
     local report = equivalence.run(ledger)
     assert(report.ok, equivalence.encode(report))
-    test.equal(report.total, 13)
-    test.equal(report.passed, 13)
+    test.eq(report.total, 13)
+    test.eq(report.passed, 13)
     for _, result in ipairs(report.tests) do
         for _, fact in ipairs(result.facts or {}) do
             test.suite.fact(fact.name, fact.value)

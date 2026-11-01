@@ -203,8 +203,8 @@ function M.aDeadlineScopeDoesNotHoldItsChildrensWaits()
 
         return value
     end)
-    check.equal(ok, true, tostring(answer))
-    check.equal(answer, "slept twice", "a child finishing well inside the deadline completes")
+    check.eq(ok, true, tostring(answer))
+    check.eq(answer, "slept twice", "a child finishing well inside the deadline completes")
     check(app.now() < 100, "the child's sleeps waited on the scope's deadline timer: " .. app.now())
 end
 
@@ -215,7 +215,7 @@ function M.everyParkSaysHowLongTheHostMayHoldIt()
 
         return "slept"
     end)
-    check.equal(ok, true, tostring(answer))
+    check.eq(ok, true, tostring(answer))
     for _, frame in ipairs(app.frames) do
         check(frame.wake == "any" or frame.wake == "turn", "a frame without a wake mode is held for its batch")
     end
@@ -235,12 +235,12 @@ function M.aGeneratorThatSleepsIsRefusedRatherThanHandedTheBatch()
 
         return pcall(producer)
     end)
-    check.equal(ok, true, tostring(produced))
+    check.eq(ok, true, tostring(produced))
     -- The yield inside the sleep would otherwise reach the consumer as the page's
     -- effect frame, and the request in it would never be made.
-    check.equal(produced, false, "a plain coroutine's sleep returned " .. tostring(value))
+    check.eq(produced, false, "a plain coroutine's sleep returned " .. tostring(value))
     check.matches(tostring(value), "cannot suspend here")
-    check.equal(#app.frames, 0, "nothing reached the page")
+    check.eq(#app.frames, 0, "nothing reached the page")
 end
 
 function M.aPlainCoroutineCannotSuspendAndSaysSo()
@@ -252,9 +252,9 @@ function M.aPlainCoroutineCannotSuspendAndSaysSo()
 
         return asked(), app.suspension.canSuspend()
     end)
-    check.equal(ok, true, tostring(inside))
-    check.equal(inside, false, "a coroutine the page does not resume cannot park")
-    check.equal(outside, true, "the application's root can")
+    check.eq(ok, true, tostring(inside))
+    check.eq(inside, false, "a coroutine the page does not resume cannot park")
+    check.eq(outside, true, "the application's root can")
 end
 
 --- An opaque host handler whose park hands the page a turn, as a frame loop does.
@@ -301,9 +301,9 @@ function M.aNestedScopeSpendsTheTurnBudgetThroughItsChild()
         end,
         100
     )
-    check.equal(ok, true, tostring(answer))
-    check.equal(answer, "finished")
-    check.equal(completed, 150, "every grandchild ran")
+    check.eq(ok, true, tostring(answer))
+    check.eq(answer, "finished")
+    check.eq(completed, 150, "every grandchild ran")
     local turns = 0
     for _, frame in ipairs(app.frames) do
         if frame.wake == "turn" then
@@ -340,8 +340,8 @@ function M.parallelismAnswersInsideATask()
         end,
         50
     )
-    check.equal(ok, true, tostring(answer))
-    check.equal(answer, 4)
+    check.eq(ok, true, tostring(answer))
+    check.eq(answer, 4)
 end
 
 -- A full queue is backpressure, worded as such: awaiting what was submitted makes
@@ -370,7 +370,7 @@ function M.aFullWorkerQueueSaysItIsFull()
         end,
         50
     )
-    check.equal(ok, true, tostring(answer))
+    check.eq(ok, true, tostring(answer))
     check(tostring(answer):find("nupp: a worker queue is full", 1, true) ~= nil, tostring(answer))
 end
 
@@ -436,14 +436,14 @@ function M.aWorkerScopeListsOnlyWhatItStillOwes()
         end,
         200
     )
-    check.equal(ok, true, tostring(answer))
-    check.equal(answer[1], 1, "settled tasks stayed listed")
-    check.equal(answer[2], 1, "the unsettled task was not listed")
-    check.equal(answer[3], 1, "the first await")
-    check.equal(answer[4], 1, "the second await")
-    check.equal(answer[5], 0, "an awaited task stayed listed")
-    check.equal(answer[6], 1, "an unobserved failure left the scope before close raised it")
-    check.equal(answer[7], false, "close did not raise the unobserved failure")
+    check.eq(ok, true, tostring(answer))
+    check.eq(answer[1], 1, "settled tasks stayed listed")
+    check.eq(answer[2], 1, "the unsettled task was not listed")
+    check.eq(answer[3], 1, "the first await")
+    check.eq(answer[4], 1, "the second await")
+    check.eq(answer[5], 0, "an awaited task stayed listed")
+    check.eq(answer[6], 1, "an unobserved failure left the scope before close raised it")
+    check.eq(answer[7], false, "close did not raise the unobserved failure")
     check(answer[8]:find("the lane failed", 1, true) ~= nil, answer[8])
 end
 
@@ -466,10 +466,10 @@ function M.aWaitNothingCanCompleteIsRefused()
         end,
         20
     )
-    check.equal(ok, true, tostring(completed))
-    check.equal(completed, false, "the wait returned")
+    check.eq(ok, true, tostring(completed))
+    check.eq(completed, false, "the wait returned")
     check.matches(tostring(problem), "cannot complete: no readiness source is registered")
-    check.equal(#app.frames, 0, "a wait nothing can answer must not poll the page")
+    check.eq(#app.frames, 0, "a wait nothing can answer must not poll the page")
 end
 
 function M.aWaitNothingCanCompleteIsRefusedAfterATimerHasRun()
@@ -482,8 +482,8 @@ function M.aWaitNothingCanCompleteIsRefusedAfterATimerHasRun()
         end,
         20
     )
-    check.equal(ok, true, tostring(completed))
-    check.equal(completed, false, "the wait returned")
+    check.eq(ok, true, tostring(completed))
+    check.eq(completed, false, "the wait returned")
     check.matches(tostring(problem), "no readiness source is registered")
 end
 
@@ -524,11 +524,11 @@ function M.aWritableViewThatRepeatsAnElementIsRefused()
     -- write it, which no dispatch result can make sense of.
     local repeated = output:view(layout.new({4}, {0}))
     local ok, problem = pcall(binding.setWrite, binding, 0, repeated, false)
-    check.equal(ok, false, "a repeating writable view was bound")
+    check.eq(ok, false, "a repeating writable view was bound")
     check.matches(tostring(problem), "not a disjoint span")
     local overlapping = output:view(layout.new({2, 2}, {1, 1}))
     ok, problem = pcall(binding.setWrite, binding, 0, overlapping, false)
-    check.equal(ok, false, "an overlapping writable view was bound")
+    check.eq(ok, false, "an overlapping writable view was bound")
     check.matches(tostring(problem), "not a disjoint span")
     binding:setWrite(0, output:view(layout.new({2, 2}, {2, 1})), false)
 end
@@ -542,7 +542,7 @@ function M.oneAllocationCannotBeBoundForReadingAndWriting()
     local binding = context:bindKernel(kernel, 4)
     binding:setRead(0, shared, false)
     local ok, problem = pcall(binding.setWrite, binding, 0, shared, false)
-    check.equal(ok, false, "a buffer bound for reading was bound for writing")
+    check.eq(ok, false, "a buffer bound for reading was bound for writing")
     check.matches(tostring(problem), "both reading and writing")
 
     -- Usage is tracked per allocation, so disjoint views of one root conflict too,
@@ -550,7 +550,7 @@ function M.oneAllocationCannotBeBoundForReadingAndWriting()
     local reversed = context:bindKernel(kernel, 4)
     reversed:setWrite(0, shared:view(layout.new({4}, {1}, 4)), false)
     ok, problem = pcall(reversed.setRead, reversed, 0, shared:view(layout.new({4}, {1})), false)
-    check.equal(ok, false, "a view of a buffer bound for writing was bound for reading")
+    check.eq(ok, false, "a view of a buffer bound for writing was bound for reading")
     check.matches(tostring(problem), "both reading and writing")
 
     -- Rebinding a slot replaces what it held.
@@ -598,9 +598,9 @@ function M.aTaskCancelledInAFileOperationSettlesCancelled()
         end,
         20
     )
-    check.equal(ok, true, tostring(status))
-    check.equal(seen.returned, nil, "the cancelled read returned " .. tostring(seen.reason))
-    check.equal(status, "cancelled", "a cancelled task finished as if nothing happened")
+    check.eq(ok, true, tostring(status))
+    check.eq(seen.returned, nil, "the cancelled read returned " .. tostring(seen.reason))
+    check.eq(status, "cancelled", "a cancelled task finished as if nothing happened")
 end
 
 return M

@@ -30,19 +30,19 @@ function M.finalProtocolsAndTrailingFunctionsAreIdempotent()
         "invoke(name='load',function(value:string):string return value end)",
     }) do
         local formatted = fmt1(source)
-        testAssert.equal(fmt1(formatted), formatted, "formatting is idempotent")
-        testAssert.equal(kinds(formatted), kinds(source), "formatting preserves syntax")
+        testAssert.eq(fmt1(formatted), formatted, "formatting is idempotent")
+        testAssert.eq(kinds(formatted), kinds(source), "formatting preserves syntax")
         local result = require("nupp.compiler.syntax.parser").parse(formatted)
-        testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg)
+        testAssert.eq(#result.errors, 0, result.errors[1] and result.errors[1].msg)
     end
 end
 
 function M.protocolsAfterResultsRemainRefusedByFormatting()
     local source = "local function worker(): string yields(number) resumes(boolean) return 'done' end"
     local formatted, errors = formatter:format(source, "test.nupp")
-    testAssert.equal(formatted, source)
-    testAssert.equal(errors[1] and errors[1].code, "NUPP1005")
-    testAssert.equal(errors[1] and errors[1].msg, "coroutine protocol clauses must precede the result type")
+    testAssert.eq(formatted, source)
+    testAssert.eq(errors[1] and errors[1].code, "NUPP1005")
+    testAssert.eq(errors[1] and errors[1].msg, "coroutine protocol clauses must precede the result type")
 end
 
 function M.switchExpressionIndentation()
@@ -74,19 +74,19 @@ function M.switchExpressionIndentation()
         "\n"
     )
     local formatted = fmt1(source)
-    testAssert.equal(formatted, expected)
-    testAssert.equal(fmt1(formatted), expected, "switch formatting is idempotent")
+    testAssert.eq(formatted, expected)
+    testAssert.eq(fmt1(formatted), expected, "switch formatting is idempotent")
 end
 
 function M.spacingBasics()
-    testAssert.equal(fmt1("local x=1+2"), "local x = 1 + 2\n")
-    testAssert.equal(fmt1("const x:number=1"), "const x: number = 1\n")
-    testAssert.equal(fmt1("f( x , y )"), "f(x, y)\n")
-    testAssert.equal(fmt1("local f = function () return nil end"), "local f = function()\n    return nil\nend\n")
-    testAssert.equal(fmt1("local f: function (number): string"), "local f: function(number): string\n")
-    testAssert.equal(fmt1("t . a [ 1 ] : m ( )"), "t.a[1]:m()\n")
-    testAssert.equal(fmt1('f"lit"'), 'f"lit"\n')
-    testAssert.equal(fmt1("f{1,2}"), "f{1, 2}\n")
+    testAssert.eq(fmt1("local x=1+2"), "local x = 1 + 2\n")
+    testAssert.eq(fmt1("const x:number=1"), "const x: number = 1\n")
+    testAssert.eq(fmt1("f( x , y )"), "f(x, y)\n")
+    testAssert.eq(fmt1("local f = function () return nil end"), "local f = function()\n    return nil\nend\n")
+    testAssert.eq(fmt1("local f: function (number): string"), "local f: function(number): string\n")
+    testAssert.eq(fmt1("t . a [ 1 ] : m ( )"), "t.a[1]:m()\n")
+    testAssert.eq(fmt1('f"lit"'), 'f"lit"\n')
+    testAssert.eq(fmt1("f{1,2}"), "f{1, 2}\n")
 end
 
 function M.declaredModulesAndExports()
@@ -99,40 +99,40 @@ function M.declaredModulesAndExports()
         .. "\nconst {type External as LocalExternal, value as result} = require('other')\n"
         .. "export = setmetatable(result, {__call = make})\n"
     local formatted = fmt1(source)
-    testAssert.equal(formatted, expected)
-    testAssert.equal(fmt1(formatted), expected, "declared module formatting is idempotent")
+    testAssert.eq(formatted, expected)
+    testAssert.eq(fmt1(formatted), expected, "declared module formatting is idempotent")
 end
 
 function M.moduleHeaderSeparation()
-    testAssert.equal(fmt1("module sample\nlocal value=1"), "module sample\n\nlocal value = 1\n")
-    testAssert.equal(
+    testAssert.eq(fmt1("module sample\nlocal value=1"), "module sample\n\nlocal value = 1\n")
+    testAssert.eq(
         fmt1("module sample\n--[[Module documentation.]]\nexport const value:integer=1"),
         "module sample\n\n--[[Module documentation.]]\nexport const value: integer = 1\n"
     )
-    testAssert.equal(
+    testAssert.eq(
         fmt1('module sample -- header\nconst dependency=require("dependency")'),
         'module sample -- header\n\nconst dependency = require("dependency")\n'
     )
-    testAssert.equal(fmt1("module sample; local value=1"), "module sample;\n\nlocal value = 1\n")
+    testAssert.eq(fmt1("module sample; local value=1"), "module sample;\n\nlocal value = 1\n")
 end
 
 function M.countedCParameters()
-    testAssert.equal(
+    testAssert.eq(
         fmt1("cdef function visit(borrows values:const int32* countedBy(count),count:uint64)"),
         "cdef function visit(borrows values: const int32* countedBy(count), count: uint64)\n"
     )
 end
 
 function M.propertyCapabilities()
-    testAssert.equal(
+    testAssert.eq(
         fmt1("local x:{@readonly value:string,@writeonly value:string|integer}"),
         "local x: {\n    @readonly value: string,\n    @writeonly value: string | integer\n}\n"
     )
-    testAssert.equal(
+    testAssert.eq(
         fmt1("local x:{@readonly [string]:string,@writeonly [string]:integer}"),
         "local x: {\n    @readonly [string]: string,\n    @writeonly [string]: integer\n}\n"
     )
-    testAssert.equal(
+    testAssert.eq(
         fmt1("local interface Cell\n@readonly value:string\n@writeonly value:integer\nend"),
         "local interface Cell\n    @readonly value: string\n    @writeonly value: integer\nend\n"
     )
@@ -216,8 +216,8 @@ function M.argumentFreeAnnotationsStayInline()
         },
         "\n"
     )
-    testAssert.equal(fmt1(source), expected)
-    testAssert.equal(fmt1(expected), expected)
+    testAssert.eq(fmt1(source), expected)
+    testAssert.eq(fmt1(expected), expected)
 end
 
 function M.rejectedLexicalOwnershipFormsRemainUnchanged()
@@ -228,22 +228,22 @@ function M.rejectedLexicalOwnershipFormsRemainUnchanged()
         "handle suspension with handler do end",
     }) do
         local formatted, errors = formatter:format(source, "test.nupp")
-        testAssert.equal(formatted, source)
-        testAssert.equal(errors[1] and errors[1].code, "NUPP1005")
+        testAssert.eq(formatted, source)
+        testAssert.eq(errors[1] and errors[1].code, "NUPP1005")
     end
 end
 
 function M.stageZeroSourcesUseCanonicalForms()
     local source = "local sealed interface Token\n@readonly value:integer\nend"
     local expected = "local sealed interface Token\n    @readonly value: integer\nend\n"
-    testAssert.equal(formatter:format(source, "src/nupp/compiler/example.nupp"), expected)
-    testAssert.equal(formatter:format(source, "src/nupp/runtime/example.nupp"), expected)
-    testAssert.equal(formatter:format(source, "src/nupp/example.nupp"), expected)
-    testAssert.equal(formatter:format(source, "src/example.nupp"), fmt1(source))
+    testAssert.eq(formatter:format(source, "src/nupp/compiler/example.nupp"), expected)
+    testAssert.eq(formatter:format(source, "src/nupp/runtime/example.nupp"), expected)
+    testAssert.eq(formatter:format(source, "src/nupp/example.nupp"), expected)
+    testAssert.eq(formatter:format(source, "src/example.nupp"), fmt1(source))
 end
 
 function M.sealedInterfaceModifier()
-    testAssert.equal(
+    testAssert.eq(
         fmt1("local sealed interface Token\n@readonly value:integer\nend"),
         "local sealed interface Token\n    @readonly value: integer\nend\n"
     )
@@ -253,17 +253,17 @@ end
 -- the type rather than being an argument to it, so the brace stands off it while
 -- an ordinary `f{...}` keeps hugging its callee.
 function M.constructionBracesStandOffTheirType()
-    testAssert.equal(fmt1("local a = new R(n = 1)"), "local a = new R(n = 1)\n")
-    testAssert.equal(fmt1("local a = new R(n = 1)"), "local a = new R(n = 1)\n")
-    testAssert.equal(fmt1("local a = new m.Point(x = 1)"), "local a = new m.Point(x = 1)\n")
+    testAssert.eq(fmt1("local a = new R(n = 1)"), "local a = new R(n = 1)\n")
+    testAssert.eq(fmt1("local a = new R(n = 1)"), "local a = new R(n = 1)\n")
+    testAssert.eq(fmt1("local a = new m.Point(x = 1)"), "local a = new m.Point(x = 1)\n")
     -- parentheses stay hugged, the way every other call's do
-    testAssert.equal(fmt1("local a = new V2 (1, 2)"), "local a = new V2(1, 2)\n")
+    testAssert.eq(fmt1("local a = new V2 (1, 2)"), "local a = new V2(1, 2)\n")
     -- and the sugar this is spelled like is untouched
-    testAssert.equal(fmt1("f{a = 1}"), "f{a = 1}\n")
+    testAssert.eq(fmt1("f{a = 1}"), "f{a = 1}\n")
 end
 
 function M.constructorResultPoliciesFormatAsFunctionResults()
-    testAssert.equal(
+    testAssert.eq(
         fmt1(
             table.concat(
                 {
@@ -291,95 +291,92 @@ function M.constructorResultPoliciesFormatAsFunctionResults()
 end
 
 function M.methodCallParensDefaultOn()
-    testAssert.equal(fmt1("obj:m{a = 1}"), "obj:m({a = 1})\n")
-    testAssert.equal(fmt1('obj:m"lit"'), 'obj:m("lit")\n')
-    testAssert.equal(fmt1("obj?.:m{a = 1}"), "obj?.:m({a = 1})\n")
-    testAssert.equal(fmt1("obj:m?.{a = 1}"), "obj:m?.({a = 1})\n")
+    testAssert.eq(fmt1("obj:m{a = 1}"), "obj:m({a = 1})\n")
+    testAssert.eq(fmt1('obj:m"lit"'), 'obj:m("lit")\n')
+    testAssert.eq(fmt1("obj?.:m{a = 1}"), "obj?.:m({a = 1})\n")
+    testAssert.eq(fmt1("obj:m?.{a = 1}"), "obj:m?.({a = 1})\n")
     -- already parenthesized, and a plain (non-method) call: untouched
-    testAssert.equal(fmt1("obj:m({a = 1})"), "obj:m({a = 1})\n")
-    testAssert.equal(fmt1("f{a = 1}"), "f{a = 1}\n")
-    testAssert.equal(fmt1('f"lit"'), 'f"lit"\n')
+    testAssert.eq(fmt1("obj:m({a = 1})"), "obj:m({a = 1})\n")
+    testAssert.eq(fmt1("f{a = 1}"), "f{a = 1}\n")
+    testAssert.eq(fmt1('f"lit"'), 'f"lit"\n')
 end
 
 function M.methodCallParensCanBeTurnedOff()
     local off = {methodParens = false}
-    testAssert.equal((fmt.format("obj:m{a = 1}", nil, off)), "obj:m{a = 1}\n")
-    testAssert.equal((fmt.format('obj:m"lit"', nil, off)), 'obj:m"lit"\n')
+    testAssert.eq((fmt.format("obj:m{a = 1}", nil, off)), "obj:m{a = 1}\n")
+    testAssert.eq((fmt.format('obj:m"lit"', nil, off)), 'obj:m"lit"\n')
 end
 
 function M.methodCallParensIdempotent()
     local once = fmt1("obj:m{a = 1}")
-    testAssert.equal(fmt1(once), once)
-    testAssert.equal(kinds(once), "name : name ( { name = number } ) eof")
+    testAssert.eq(fmt1(once), once)
+    testAssert.eq(kinds(once), "name : name ( { name = number } ) eof")
 end
 
 function M.unaryVsBinary()
-    testAssert.equal(fmt1("x = a - -b + #t"), "x = a - -b + #t\n")
-    testAssert.equal(fmt1("x = ~a ~ b"), "x = ~a ~ b\n")
+    testAssert.eq(fmt1("x = a - -b + #t"), "x = a - -b + #t\n")
+    testAssert.eq(fmt1("x = ~a ~ b"), "x = ~a ~ b\n")
 end
 
 function M.shortFunctionsAndIstrings()
-    testAssert.equal(fmt1("local f = | a , b | -> a + b"), "local f = |a, b| -> a + b\n")
-    testAssert.equal(fmt1("local g = x->x*2"), "local g = x -> x * 2\n")
-    testAssert.equal(fmt1("local h = ||->true"), "local h = || -> true\n")
-    testAssert.equal(fmt1("local n = |...args|->args.n"), "local n = |...args| -> args.n\n")
-    testAssert.equal(fmt1("local s = `v: ${ 1+2 } done`"), "local s = `v: ${1 + 2} done`\n")
-    testAssert.equal(fmt1("table.sort(t, |a,b| -> a.id < b.id)"), "table.sort(t, |a, b| -> a.id < b.id)\n")
+    testAssert.eq(fmt1("local f = | a , b | -> a + b"), "local f = |a, b| -> a + b\n")
+    testAssert.eq(fmt1("local g = x->x*2"), "local g = x -> x * 2\n")
+    testAssert.eq(fmt1("local h = ||->true"), "local h = || -> true\n")
+    testAssert.eq(fmt1("local n = |...args|->args.n"), "local n = |...args| -> args.n\n")
+    testAssert.eq(fmt1("local s = `v: ${ 1+2 } done`"), "local s = `v: ${1 + 2} done`\n")
+    testAssert.eq(fmt1("table.sort(t, |a,b| -> a.id < b.id)"), "table.sort(t, |a, b| -> a.id < b.id)\n")
 end
 
 function M.namedVarargSpacing()
-    testAssert.equal(
+    testAssert.eq(
         fmt1("local function f(...args:number)return args.n end"),
         "local function f(...args: number)\n    return args.n\nend\n"
     )
 end
 
 function M.ternaryAndSafeNav()
-    testAssert.equal(fmt1("x = a?b:c"), "x = a ? b : c\n")
-    testAssert.equal(fmt1("x = t ?. a ?. b"), "x = t?.a?.b\n")
-    testAssert.equal(fmt1("x = o:m()"), "x = o:m()\n")
+    testAssert.eq(fmt1("x = a?b:c"), "x = a ? b : c\n")
+    testAssert.eq(fmt1("x = t ?. a ?. b"), "x = t?.a?.b\n")
+    testAssert.eq(fmt1("x = o:m()"), "x = o:m()\n")
 end
 
 function M.indentation()
     local input = table.concat({"if x then", "f()", "  if y then", "        g()", "end", "end",}, "\n")
     local want = table.concat({"if x then", "    f()", "    if y then", "        g()", "    end", "end", "",}, "\n")
-    testAssert.equal(fmt1(input), want)
+    testAssert.eq(fmt1(input), want)
 end
 
 -- However short the arms, an `if` is spelled as a block.
 function M.inlineIfIsBrokenUp()
-    testAssert.equal(fmt1("if not ok then error(why) end"), "if not ok then\n    error(why)\nend\n")
-    testAssert.equal(
+    testAssert.eq(fmt1("if not ok then error(why) end"), "if not ok then\n    error(why)\nend\n")
+    testAssert.eq(
         fmt1("if a then f() elseif b then g() else h() end"),
         table.concat({"if a then", "    f()", "elseif b then", "    g()", "else", "    h()", "end", "",}, "\n")
     )
-    testAssert.equal(fmt1("if a then end"), "if a then\nend\n")
+    testAssert.eq(fmt1("if a then end"), "if a then\nend\n")
     -- a trailing comment stays with the line it followed
-    testAssert.equal(fmt1("if a then f() end -- why"), "if a then\n    f()\nend -- why\n")
+    testAssert.eq(fmt1("if a then f() end -- why"), "if a then\n    f()\nend -- why\n")
     -- and the break is taken inside a nested block too
-    testAssert.equal(
-        fmt1("while a do\nif b then c() end\nend"),
-        "while a do\n    if b then\n        c()\n    end\nend\n"
-    )
+    testAssert.eq(fmt1("while a do\nif b then c() end\nend"), "while a do\n    if b then\n        c()\n    end\nend\n")
 end
 
 -- An annotation decorates the statement below it; that statement is still a
 -- statement, not a continuation line.
 function M.annotatedStatementKeepsItsDepth()
-    testAssert.equal(
+    testAssert.eq(
         fmt1("@allow(NUPP2507)\nfunction f(): T\nreturn g()\nend"),
         "@allow(NUPP2507)\nfunction f(): T\n    return g()\nend\n"
     )
-    testAssert.equal(fmt1("@a\n@b\nlocal function f()\nend"), "@a\n@b\nlocal function f()\nend\n")
+    testAssert.eq(fmt1("@a\n@b\nlocal function f()\nend"), "@a\n@b\nlocal function f()\nend\n")
 end
 
 function M.tableIndentation()
     local input = "local t = {\n1,\na = 2,\n}"
-    testAssert.equal(fmt1(input), "local t = {1, a = 2,}\n")
+    testAssert.eq(fmt1(input), "local t = {1, a = 2,}\n")
 end
 
 function M.documentedShapeClosesOnItsOwnLine()
-    testAssert.equal(
+    testAssert.eq(
         fmt1("type Options = {\n--- An option.\nflag: boolean?,}"),
         "type Options = {\n    --- An option.\n    flag: boolean?\n}\n"
     )
@@ -389,32 +386,29 @@ end
 -- is a type. The call sugar that hugs `f{...}` and `f"lit"` to their callee
 -- must not take them for one.
 function M.contextualOperatorsAreNotCallees()
-    testAssert.equal(fmt1("local a = t as {number}"), "local a = t as {number}\n")
-    testAssert.equal(fmt1("local a = t as {p: number}"), "local a = t as {p: number}\n")
-    testAssert.equal(
-        fmt1("local a = t as {p: number, q: string}"),
-        "local a = t as {\n    p: number,\n    q: string\n}\n"
-    )
-    testAssert.equal(fmt1('local b = v is "red"'), 'local b = v is "red"\n')
-    testAssert.equal(fmt1("local c = v is {string}"), "local c = v is {string}\n")
+    testAssert.eq(fmt1("local a = t as {number}"), "local a = t as {number}\n")
+    testAssert.eq(fmt1("local a = t as {p: number}"), "local a = t as {p: number}\n")
+    testAssert.eq(fmt1("local a = t as {p: number, q: string}"), "local a = t as {\n    p: number,\n    q: string\n}\n")
+    testAssert.eq(fmt1('local b = v is "red"'), 'local b = v is "red"\n')
+    testAssert.eq(fmt1("local c = v is {string}"), "local c = v is {string}\n")
     -- and the sugar still hugs a real callee
-    testAssert.equal(fmt1("f{1}"), "f{1}\n")
-    testAssert.equal(fmt1('f"lit"'), 'f"lit"\n')
+    testAssert.eq(fmt1("f{1}"), "f{1}\n")
+    testAssert.eq(fmt1('f"lit"'), 'f"lit"\n')
 end
 
 function M.continuationLines()
     local input = 'local s = a ..\n"tail"'
-    testAssert.equal(fmt1(input), 'local s = a .. "tail"\n')
+    testAssert.eq(fmt1(input), 'local s = a .. "tail"\n')
 end
 
 function M.blankLineCollapse()
-    testAssert.equal(fmt1("a()\n\n\n\nb()"), "a()\n\nb()\n")
+    testAssert.eq(fmt1("a()\n\n\n\nb()"), "a()\n\nb()\n")
 end
 
 function M.commentsPreserved()
     local input = "local x = 1  -- tail\n-- own line\nlocal y = 2"
-    testAssert.equal(fmt1(input), "local x = 1 -- tail\n-- own line\nlocal y = 2\n")
-    testAssert.equal(fmt1("-- only a comment"), "-- only a comment\n")
+    testAssert.eq(fmt1(input), "local x = 1 -- tail\n-- own line\nlocal y = 2\n")
+    testAssert.eq(fmt1("-- only a comment"), "-- only a comment\n")
 end
 
 local CORPUS = {
@@ -437,8 +431,8 @@ local CORPUS = {
 function M.idempotentAndParseStable()
     for _, src in ipairs(CORPUS) do
         local once = fmt1(src)
-        testAssert.equal(fmt1(once), once, "not idempotent: " .. src)
-        testAssert.equal(kinds(once), kinds(src), "parse changed: " .. src)
+        testAssert.eq(fmt1(once), once, "not idempotent: " .. src)
+        testAssert.eq(kinds(once), kinds(src), "parse changed: " .. src)
     end
 end
 
@@ -454,7 +448,7 @@ function M.supertypesStayOnTheDeclarationLine()
     if out:find("record m.B is m.A", 1, true) == nil then
         error("the supertype stays on the header line, got:\n" .. out, 0)
     end
-    testAssert.equal(formatter:format(out, "supertypes.nupp"), out, "and the layout is stable")
+    testAssert.eq(formatter:format(out, "supertypes.nupp"), out, "and the layout is stable")
 end
 
 function M.severalSupertypesStillFitOnOneLine()
@@ -482,16 +476,16 @@ function M.intersectionsBreakBetweenTheirOverloads()
     for line in out:gmatch("(.-)\n") do
         lines[#lines + 1] = line
     end
-    testAssert.equal(#lines, 2, "an overload apiece, got:\n" .. out)
-    testAssert.equal(
+    testAssert.eq(#lines, 2, "an overload apiece, got:\n" .. out)
+    testAssert.eq(
         lines[1],
         "local pcall: function<A..., R...>(scoped f: function(A...): R..., A...):" .. " ((true, R...) | (false, any))"
     )
-    testAssert.equal(
+    testAssert.eq(
         lines[2],
         "    & function<A..., R...>(takes f: function(A...): R..., A...):" .. " ((true, R...) | (false, any))"
     )
-    testAssert.equal(formatter:format(out, "overloads.d.nupp"), out, "and the layout is stable")
+    testAssert.eq(formatter:format(out, "overloads.d.nupp"), out, "and the layout is stable")
 end
 
 -- Type parameters are part of a signature's header, the way a record's `is` clause is.
@@ -509,8 +503,8 @@ function M.halfClosedGenericsFormatStably()
         },
         "\n"
     )
-    testAssert.equal(fmt1(source), source)
-    testAssert.equal(kinds(fmt1(source)), kinds(source))
+    testAssert.eq(fmt1(source), source)
+    testAssert.eq(kinds(fmt1(source)), kinds(source))
 end
 
 -- An @annotationValue on an entry with no name is the checker's to report; the
@@ -527,7 +521,7 @@ function M.annotationValueOnANamelessEntryFormats()
         },
         "\n"
     )
-    testAssert.equal(fmt1(source), source)
+    testAssert.eq(fmt1(source), source)
 end
 
 function M.typeParametersStayOnTheSignatureLine()
@@ -537,7 +531,7 @@ function M.typeParametersStayOnTheSignatureLine()
     if out:find("local xpcall: function<E, A..., R...>(\n", 1, true) == nil then
         error("the type parameters left the header line, got:\n" .. out, 0)
     end
-    testAssert.equal(formatter:format(out, "header.d.nupp"), out, "and the layout is stable")
+    testAssert.eq(formatter:format(out, "header.d.nupp"), out, "and the layout is stable")
 end
 
 -- A union longer than the width reads as one member per line. It used to be left over
@@ -557,9 +551,9 @@ function M.longValueChainsKeepEachOperandTogether()
             expected = expected .. "    " .. operator .. " " .. operands[index] .. "\n"
         end
         local output = compact:format(source)
-        testAssert.equal(output, expected, "break a mask chain between complete comparisons")
-        testAssert.equal(compact:format(output), output, "value chain layout is stable")
-        testAssert.equal(kinds(output), kinds(source), "operators and parentheses are preserved")
+        testAssert.eq(output, expected, "break a mask chain between complete comparisons")
+        testAssert.eq(compact:format(output), output, "value chain layout is stable")
+        testAssert.eq(kinds(output), kinds(source), "operators and parentheses are preserved")
     end
 end
 
@@ -575,16 +569,16 @@ function M.longUnionsBreakBetweenTheirMembers()
     if out:find("\n    | \"boolean\"\n", 1, true) == nil then
         error("the union did not break between its members, got:\n" .. out, 0)
     end
-    testAssert.equal(formatter:format(out, "union.d.nupp"), out, "and the layout is stable")
+    testAssert.eq(formatter:format(out, "union.d.nupp"), out, "and the layout is stable")
 end
 
 -- An `if NAME = EXPR then` binding is spaced like an assignment and stays one.
 function M.ifBindingsAreSpacedLikeAssignments()
     local src = "if   v=f( x )   then\n    print(v)\nelseif w=g()then\n    print(w)\nend\n"
     local once = fmt1(src)
-    testAssert.equal(once, "if v = f(x) then\n    print(v)\nelseif w = g() then\n    print(w)\nend\n")
-    testAssert.equal(fmt1(once), once, "and the layout is stable")
-    testAssert.equal(kinds(once), kinds(src), "parse changed")
+    testAssert.eq(once, "if v = f(x) then\n    print(v)\nelseif w = g() then\n    print(w)\nend\n")
+    testAssert.eq(fmt1(once), once, "and the layout is stable")
+    testAssert.eq(kinds(once), kinds(src), "parse changed")
 end
 
 -- One case per file rather than one loop over all six.
@@ -611,8 +605,8 @@ for _, entry in ipairs(SELF_FORMAT) do
         local src = f:read("*a")
         f:close()
         local once = formatter:format(src, rel)
-        testAssert.equal(formatter:format(once, rel), once, "not idempotent: " .. rel)
-        testAssert.equal(#parser.parse(once, rel).errors, 0, "parse changed: " .. rel)
+        testAssert.eq(formatter:format(once, rel), once, "not idempotent: " .. rel)
+        testAssert.eq(#parser.parse(once, rel).errors, 0, "parse changed: " .. rel)
     end
 end
 

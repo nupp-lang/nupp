@@ -203,17 +203,17 @@ function M.rebuildsOnlyWhatChanged()
 
     local cold = build(dir)
     local coldFacts = cold.timing.aot
-    test.equal(coldFacts.reusedObjects, 0, "a cold build reuses nothing")
-    test.equal(coldFacts.checkedSources, SOURCES, "a cold build checks every AOT source")
+    test.eq(coldFacts.reusedObjects, 0, "a cold build reuses nothing")
+    test.eq(coldFacts.checkedSources, SOURCES, "a cold build checks every AOT source")
     assert(coldFacts.loweredPrograms >= SOURCES, "a cold build lowers every AOT program")
-    test.equal(coldFacts.optimizedPrograms, coldFacts.loweredPrograms, "every lowered program is optimized")
+    test.eq(coldFacts.optimizedPrograms, coldFacts.loweredPrograms, "every lowered program is optimized")
     assert(coldFacts.emittedUnits >= SOURCES, "every AOT source emits at least one unit")
     assert(coldFacts.emittedUnits <= coldFacts.units, "compiler-owned units are counted separately")
     assert(coldFacts.compiledObjects >= SOURCES, "a cold build compiles every unit: " .. coldFacts.compiledObjects)
-    test.equal(coldFacts.compiledObjects, coldFacts.units, "every emitted unit becomes an object")
-    test.equal(coldFacts.linked, true, "a cold build links")
+    test.eq(coldFacts.compiledObjects, coldFacts.units, "every emitted unit becomes an object")
+    test.eq(coldFacts.linked, true, "a cold build links")
     -- LLVM compiles and lld links in process.
-    test.equal(coldFacts.externalCommands, 0, "a cold build runs no external command")
+    test.eq(coldFacts.externalCommands, 0, "a cold build runs no external command")
     local remarks = json.decodevalue(assert(read(dir .. "/build/remarks.json")))
     local aotNotes = 0
     for _, note in ipairs(remarks.remarks or {}) do
@@ -227,9 +227,9 @@ function M.rebuildsOnlyWhatChanged()
             )
         end
     end
-    test.equal(aotNotes, SOURCES, "each source contributes one AOT loop remark")
+    test.eq(aotNotes, SOURCES, "each source contributes one AOT loop remark")
     local coldObjects = objects(dir)
-    test.equal(#names(coldObjects), coldFacts.units, "one object file per unit")
+    test.eq(#names(coldObjects), coldFacts.units, "one object file per unit")
     local library = assert(
         read(dir .. "/build/native/lib/libnative_aot.dylib")
         or read(dir .. "/build/native/lib/libnative_aot.so")
@@ -240,15 +240,15 @@ function M.rebuildsOnlyWhatChanged()
     -- Nothing changed, so nothing may be produced and nothing may be started.
     local unchanged = build(dir)
     local stillFacts = unchanged.timing.aot
-    test.equal(stillFacts.externalCommands, 0, "an unchanged build starts no external toolchain process")
-    test.equal(stillFacts.checkedSources, 0, "an unchanged build checks no AOT source")
-    test.equal(stillFacts.loweredPrograms, 0, "an unchanged build lowers no AOT program")
-    test.equal(stillFacts.optimizedPrograms, 0, "an unchanged build optimizes no AOT program")
-    test.equal(stillFacts.emittedUnits, 0, "an unchanged build emits no AOT unit")
-    test.equal(stillFacts.compiledObjects, 0, "an unchanged build compiles nothing")
-    test.equal(stillFacts.reusedObjects, stillFacts.units, "an unchanged build reuses every object")
-    test.equal(stillFacts.linked, false, "an unchanged build links nothing")
-    test.equal(#names(changed(coldObjects, objects(dir))), 0, "an unchanged build rewrites no object")
+    test.eq(stillFacts.externalCommands, 0, "an unchanged build starts no external toolchain process")
+    test.eq(stillFacts.checkedSources, 0, "an unchanged build checks no AOT source")
+    test.eq(stillFacts.loweredPrograms, 0, "an unchanged build lowers no AOT program")
+    test.eq(stillFacts.optimizedPrograms, 0, "an unchanged build optimizes no AOT program")
+    test.eq(stillFacts.emittedUnits, 0, "an unchanged build emits no AOT unit")
+    test.eq(stillFacts.compiledObjects, 0, "an unchanged build compiles nothing")
+    test.eq(stillFacts.reusedObjects, stillFacts.units, "an unchanged build reuses every object")
+    test.eq(stillFacts.linked, false, "an unchanged build links nothing")
+    test.eq(#names(changed(coldObjects, objects(dir))), 0, "an unchanged build rewrites no object")
 
     -- One body edited. Only that source's objects may be compiled -- one per
     -- feature tier where the target has several -- and the library relinked.
@@ -259,17 +259,17 @@ function M.rebuildsOnlyWhatChanged()
     assert(editFacts.checkedSources >= SOURCES, "a source edit invalidates the pre-emission fingerprint")
     assert(editFacts.loweredPrograms >= SOURCES, "a source edit reruns AOT lowering")
     local mine = objectsOf(coldObjects, "k2")
-    test.equal(
+    test.eq(
         editFacts.compiledObjects,
         count(mine),
         "editing one unit compiles that unit's target-tier objects and no others"
     )
-    test.equal(editFacts.reusedObjects, editFacts.units - count(mine), "every other object is reused")
-    test.equal(editFacts.linked, true, "the library is relinked once")
-    test.equal(editFacts.externalCommands, 0, "compiling and relinking start no external process")
+    test.eq(editFacts.reusedObjects, editFacts.units - count(mine), "every other object is reused")
+    test.eq(editFacts.linked, true, "the library is relinked once")
+    test.eq(editFacts.externalCommands, 0, "compiling and relinking start no external process")
     local editedObjects = objects(dir)
     local moved = changed(coldObjects, editedObjects)
-    test.equal(
+    test.eq(
         table.concat(names(moved), " "),
         table.concat(names(mine), " "),
         "only the edited unit's objects were rewritten"
@@ -288,14 +288,14 @@ function M.rebuildsOnlyWhatChanged()
     os.remove(victim)
     local repaired = build(dir)
     assert(repaired.timing.aot.checkedSources >= SOURCES, "a missing artifact refuses the AOT replay")
-    test.equal(repaired.timing.aot.compiledObjects, 1, "a missing object is compiled again")
-    test.equal(repaired.timing.aot.reusedObjects, repaired.timing.aot.units - 1, "and nothing else is")
-    test.equal(read(victim), editedObjects[victim], "the object compiled again is the object that was there")
+    test.eq(repaired.timing.aot.compiledObjects, 1, "a missing object is compiled again")
+    test.eq(repaired.timing.aot.reusedObjects, repaired.timing.aot.units - 1, "and nothing else is")
+    test.eq(read(victim), editedObjects[victim], "the object compiled again is the object that was there")
 
     -- Back to a settled state, so the fixture ends the way it started: nothing
     -- to do and nothing started to find that out.
     local settled = build(dir)
-    test.equal(settled.timing.aot.externalCommands, 0, "the repaired project settles again")
+    test.eq(settled.timing.aot.externalCommands, 0, "the repaired project settles again")
 end
 
 --- The policy accounts for its own time under names a reader can act on.
@@ -369,7 +369,7 @@ function M.preEmissionInputsInvalidateIndependently()
     }
     local sources = {dir .. "/src/main.nupp", dir .. "/src/support.nupp"}
     local base = aot.inputFingerprint(sources, semantic)
-    test.equal(aot.inputFingerprint(sources, semantic), base, "identical inputs retain one fingerprint")
+    test.eq(aot.inputFingerprint(sources, semantic), base, "identical inputs retain one fingerprint")
 
     local fields = {
         "compiler",
@@ -431,8 +431,8 @@ function M.replayRequiresTheCurrentCodeGenerator()
     local aot = require("nupp.tools.build.aot")
     local aotllvm = require("nupp.tools.build.aotllvm")
     local policy = aot.toolchainPolicy("require", nil)
-    test.equal(policy.desiredCommand, "<llvm>", "the in-process code generator is the only command")
-    test.equal(policy.codegen, aotllvm.selection(), "the policy names the code generator selection")
+    test.eq(policy.desiredCommand, "<llvm>", "the in-process code generator is the only command")
+    test.eq(policy.codegen, aotllvm.selection(), "the policy names the code generator selection")
 
     local remembered = {command = "<llvm>", signature = "", version = aotllvm.version()}
     local byC = {command = "clang", signature = "", version = "clang 18"}
@@ -456,7 +456,7 @@ function M.preEmissionInputsIncludeTheCodeGeneratorSelection()
     local aot = require("nupp.tools.build.aot")
     local semantic = {sources = "same", toolchainPolicy = aot.toolchainPolicy("require", "x86_64-unknown-linux-gnu")}
     local base = aot.inputFingerprint({}, semantic)
-    test.equal(aot.inputFingerprint({}, semantic), base, "one selection keeps one fingerprint")
+    test.eq(aot.inputFingerprint({}, semantic), base, "one selection keeps one fingerprint")
     for _, field in ipairs({"policy", "target", "codegen"}) do
         local changed = {}
         for name, value in pairs(semantic.toolchainPolicy) do
@@ -518,7 +518,7 @@ export = {doubled = doubled, doubled3 = doubled3}
         unchanged.timing.aot.checkedSources > 0,
         "a live const selection refuses pre-emission replay instead of changing the module build"
     )
-    test.equal(read(dir .. "/build/native/constkernel.lua"), generated, "cold and unchanged const dispatch agree")
+    test.eq(read(dir .. "/build/native/constkernel.lua"), generated, "cold and unchanged const dispatch agree")
     local status, output = process.capture(
         {
             "luajit",
@@ -528,7 +528,7 @@ export = {doubled = doubled, doubled3 = doubled3}
         },
         {cwd = dir}
     )
-    test.equal(status, 0, "the unchanged const dispatcher remains correct: " .. output)
+    test.eq(status, 0, "the unchanged const dispatcher remains correct: " .. output)
 end
 
 function M.replayEvidenceDistinguishesWasmMetadataFromFiles()
@@ -567,10 +567,10 @@ function M.replayEvidenceDistinguishesWasmMetadataFromFiles()
         snapshot.payload.files.nupp_wasm_register_u1234 == nil,
         "a registrar symbol is metadata rather than a path to validate"
     )
-    test.equal(snapshot.payload.emitted[1].bridge, bridge, "independent Wasm bridge metadata survives capture")
+    test.eq(snapshot.payload.emitted[1].bridge, bridge, "independent Wasm bridge metadata survives capture")
     assert(aot.replay(snapshot, "clang") == nil, "another code generator refuses replay")
     local restored = assert(aot.replay(snapshot, "<llvm>"), "intact replay evidence restores the result")
-    test.equal(restored.emitted[1].bridge, bridge, "independent Wasm bridge metadata survives replay")
+    test.eq(restored.emitted[1].bridge, bridge, "independent Wasm bridge metadata survives replay")
     os.remove(linkManifest)
     assert(aot.replay(snapshot, "<llvm>") == nil, "a missing static link manifest refuses replay")
 end
@@ -584,10 +584,10 @@ end
 function M.changedFactsRecompileEveryObject()
     local dir = project()
     local first = build(dir)
-    test.equal(first.timing.aot.reusedObjects, 0)
+    test.eq(first.timing.aot.reusedObjects, 0)
     local coldObjects = objects(dir)
     local settled = build(dir)
-    test.equal(settled.timing.aot.reusedObjects, settled.timing.aot.units, "the fixture starts settled")
+    test.eq(settled.timing.aot.reusedObjects, settled.timing.aot.units, "the fixture starts settled")
 
     local refacted = build(dir, "NUPP_AOT_FACTS=none")
     local facts = refacted.timing.aot
@@ -596,13 +596,13 @@ function M.changedFactsRecompileEveryObject()
     for index = 1, SOURCES do
         mine = mine + count(objectsOf(coldObjects, "k" .. index))
     end
-    test.equal(facts.compiledObjects, mine, "every source's objects are compiled again")
-    test.equal(facts.reusedObjects, facts.units - mine, "and only compiler-owned units are reused")
-    test.equal(facts.linked, true, "and the library is linked again")
+    test.eq(facts.compiledObjects, mine, "every source's objects are compiled again")
+    test.eq(facts.reusedObjects, facts.units - mine, "and only compiler-owned units are reused")
+    test.eq(facts.linked, true, "and the library is linked again")
 
     local back = build(dir)
     assert(back.timing.aot.checkedSources >= SOURCES, "returning to every fact lowers again")
-    test.equal(back.timing.aot.compiledObjects, mine, "and compiles every source's objects again")
+    test.eq(back.timing.aot.compiledObjects, mine, "and compiles every source's objects again")
 end
 
 --- What an object key covers, asserted on the key rather than through a build.
@@ -639,18 +639,18 @@ function M.wasmNumericLoopsUseTheLuaJitArtifactKey()
     local source = "same verified Wasm source"
     for _, tier in ipairs({"scalar", "simd128"}) do
         local selected = assert(targets.select(triple, tier))
-        test.equal(targets.numericForRuntime(selected), "luajit-single", "direct Wasm AOT uses the LuaJIT runtime")
+        test.eq(targets.numericForRuntime(selected), "luajit-single", "direct Wasm AOT uses the LuaJIT runtime")
     end
     local tiers = assert(targets.buildTiers(triple, {minimum = "scalar", maximum = "simd128"}))
-    test.equal(#tiers, 2)
+    test.eq(#tiers, 2)
     for _, selected in ipairs(tiers) do
-        test.equal(
+        test.eq(
             targets.numericForRuntime(selected),
             "luajit-single",
             "every project tier retains the guest's numeric-loop contract"
         )
         local alone = assert(targets.select(triple, selected.tier))
-        test.equal(aot.key(source, selected), aot.key(source, alone))
+        test.eq(aot.key(source, selected), aot.key(source, alone))
     end
 end
 
@@ -665,7 +665,7 @@ function M.objectKeysCoverWhatChangesTheirBytes()
     assert(table.concat(baseline, " ") ~= table.concat(avx2, " "), "each tier compiles with its own options")
     local base = aot.objectKey("unit", "baseline", llvm, baseline)
 
-    test.equal(aot.objectKey("unit", "baseline", llvm, baseline), base, "the same inputs give the same key")
+    test.eq(aot.objectKey("unit", "baseline", llvm, baseline), base, "the same inputs give the same key")
     assert(aot.objectKey("other", "baseline", llvm, baseline) ~= base, "the unit is in the key")
     assert(aot.objectKey("unit", "avx2", llvm, baseline) ~= base, "the target tier is in the key")
     assert(aot.objectKey("unit", "baseline", newer, baseline) ~= base, "the code generator's identity is in the key")

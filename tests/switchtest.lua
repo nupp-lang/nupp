@@ -9,7 +9,7 @@ local env = envMod.new(HERE .. "/..")
 
 local function checked(source)
     local result = parser.parse(source, "switch-test.nupp")
-    testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "switch source parses")
+    testAssert.eq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "switch source parses")
     local diagnostics = check.check(result, "switch-test.nupp", env)
     return result, diagnostics
 end
@@ -26,9 +26,9 @@ end
 
 local function run(source)
     local result, diagnostics = checked(source)
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "switch source checks")
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "switch source checks")
     local code, lowering = gen.generate(result, "switch-test.nupp")
-    testAssert.equal(#lowering, 0, lowering[1] and lowering[1].msg or "switch source lowers")
+    testAssert.eq(#lowering, 0, lowering[1] and lowering[1].msg or "switch source lowers")
     local chunk, failure = loadstring(code, "@switch_test")
     if not chunk then
         error("generated switch code does not load: " .. tostring(failure) .. "\n---\n" .. code, 2)
@@ -39,16 +39,16 @@ end
 
 local function generate(source, coverage)
     local result, diagnostics = checked(source)
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "switch source checks")
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "switch source checks")
     local code, lowering = gen.generate(result, "switch-test.nupp", coverage)
-    testAssert.equal(#lowering, 0, lowering[1] and lowering[1].msg or "switch source lowers")
+    testAssert.eq(#lowering, 0, lowering[1] and lowering[1].msg or "switch source lowers")
 
     return code, result
 end
 
 local function loweringCodes(source)
     local result, diagnostics = checked(source)
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "switch source checks before lowering")
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "switch source checks before lowering")
     local _, lowering = gen.generate(result, "switch-test.nupp")
     local codes = {}
     for _, diagnostic in ipairs(lowering) do
@@ -64,7 +64,7 @@ local M = {}
 -- selector keeps its `else` and needs one, as the reference says of open types.
 function M.anAnySelectorNeedsItsElse()
     local record = "local record R\n    v: integer\nend\n"
-    testAssert.equal(
+    testAssert.eq(
         run(
             record .. table.concat(
                 {
@@ -81,13 +81,13 @@ function M.anAnySelectorNeedsItsElse()
         ),
         3
     )
-    testAssert.equal(
+    testAssert.eq(
         run(
             "local function g(x: any): string\n    return switch x do\n        case 1 -> 'one'\n        else -> 'other'\n    end\nend\nreturn g(1) .. g(2)"
         ),
         "oneother"
     )
-    testAssert.equal(
+    testAssert.eq(
         (
             diagnosticCodes(
                 record
@@ -114,9 +114,9 @@ function M.staticCasesAreExhaustiveAndRun()
             "\n"
         )
     )
-    testAssert.equal(first, "ok")
-    testAssert.equal(second, "redirect")
-    testAssert.equal(third, "redirect")
+    testAssert.eq(first, "ok")
+    testAssert.eq(second, "redirect")
+    testAssert.eq(third, "redirect")
 end
 
 function M.aDiscriminantCaseNarrowsTheValueItBelongsTo()
@@ -159,8 +159,8 @@ function M.aDiscriminantCaseNarrowsTheValueItBelongsTo()
             "\n"
         )
     )
-    testAssert.equal(direct, 4)
-    testAssert.equal(copied, 4)
+    testAssert.eq(direct, 4)
+    testAssert.eq(copied, 4)
     -- A member the case does not select is still out of reach.
     local codes = diagnosticCodes(
         SHAPES .. table.concat(
@@ -197,8 +197,8 @@ function M.typeBindingsAndDestructuringRun()
             "\n"
         )
     )
-    testAssert.equal(circle, 8)
-    testAssert.equal(text, 3)
+    testAssert.eq(circle, 8)
+    testAssert.eq(text, 3)
 end
 
 function M.blockArmsYieldWithoutChangingReturn()
@@ -222,9 +222,9 @@ function M.blockArmsYieldWithoutChangingReturn()
             "\n"
         )
     )
-    testAssert.equal(one, "one")
-    testAssert.equal(other, "other")
-    testAssert.equal(early, "early")
+    testAssert.eq(one, "one")
+    testAssert.eq(other, "other")
+    testAssert.eq(early, "early")
 end
 
 function M.staticExpressionArmsWorkAtComptime()
@@ -244,7 +244,7 @@ function M.staticExpressionArmsWorkAtComptime()
             "\n"
         )
     )
-    testAssert.equal(selected, "redirect")
+    testAssert.eq(selected, "redirect")
 end
 
 function M.liftingPreservesEagerEvaluationOrder()
@@ -268,8 +268,8 @@ function M.liftingPreservesEagerEvaluationOrder()
             "\n"
         )
     )
-    testAssert.equal(order, "left,selector,arm,right")
-    testAssert.equal(value, 6)
+    testAssert.eq(order, "left,selector,arm,right")
+    testAssert.eq(value, 6)
 end
 
 function M.liftingPreservesAssignmentTargetOrder()
@@ -295,8 +295,8 @@ function M.liftingPreservesAssignmentTargetOrder()
             "\n"
         )
     )
-    testAssert.equal(order, "target,selector")
-    testAssert.equal(value, 9)
+    testAssert.eq(order, "target,selector")
+    testAssert.eq(value, 9)
 end
 
 function M.yieldCompletesCleanupBeforeTheSwitchContinues()
@@ -326,8 +326,8 @@ function M.yieldCompletesCleanupBeforeTheSwitchContinues()
             "\n"
         )
     )
-    testAssert.equal(value, "selected")
-    testAssert.equal(events, "close,after")
+    testAssert.eq(value, "selected")
+    testAssert.eq(events, "close,after")
 end
 
 function M.nestedSwitchesStayAtTheirStatementBoundary()
@@ -355,8 +355,8 @@ function M.nestedSwitchesStayAtTheirStatementBoundary()
             "\n"
         )
     )
-    testAssert.equal(order, "outer,before-inner,inner")
-    testAssert.equal(value, 8)
+    testAssert.eq(order, "outer,before-inner,inner")
+    testAssert.eq(value, 8)
 end
 
 function M.lazyPlacementIsSupported()
@@ -373,7 +373,7 @@ function M.lazyPlacementIsSupported()
             "\n"
         )
     )
-    testAssert.equal(codes, "")
+    testAssert.eq(codes, "")
 end
 
 function M.coverageCountsTestsAndSelectedArmRegions()
@@ -391,9 +391,9 @@ function M.coverageCountsTestsAndSelectedArmRegions()
             "\n"
         )
     )
-    testAssert.equal(#diagnostics, 0)
+    testAssert.eq(#diagnostics, 0)
     local _, lowering, coverage = gen.generate(result, "switch-coverage.nupp", true)
-    testAssert.equal(#lowering, 0)
+    testAssert.eq(#lowering, 0)
     local branches, regions = 0, 0
     for _, site in ipairs(coverage.sites) do
         if site.kind == "branch" then
@@ -403,8 +403,8 @@ function M.coverageCountsTestsAndSelectedArmRegions()
             regions = regions + 1
         end
     end
-    testAssert.equal(branches, 2)
-    testAssert.equal(regions, 3)
+    testAssert.eq(branches, 2)
+    testAssert.eq(regions, 3)
 end
 
 function M.denseIntegerMapsHandleEveryKindOfMiss()
@@ -426,13 +426,13 @@ function M.denseIntegerMapsHandleEveryKindOfMiss()
             "\n"
         )
     )
-    testAssert.equal(one, "one")
-    testAssert.equal(four, "four")
-    testAssert.equal(fraction, "miss")
-    testAssert.equal(negative, "miss")
-    testAssert.equal(far, "miss")
-    testAssert.equal(nan, "miss")
-    testAssert.equal(infinity, "miss")
+    testAssert.eq(one, "one")
+    testAssert.eq(four, "four")
+    testAssert.eq(fraction, "miss")
+    testAssert.eq(negative, "miss")
+    testAssert.eq(far, "miss")
+    testAssert.eq(nan, "miss")
+    testAssert.eq(infinity, "miss")
 end
 
 function M.stringAndSparseMapsHandleHitsAndMisses()
@@ -453,11 +453,11 @@ function M.stringAndSparseMapsHandleHitsAndMisses()
     lines[#lines + 1] = "end"
     lines[#lines + 1] = "return word('k1'), word('k3'), word('no'), sparse(1601), sparse(2)"
     local first, nilResult, missing, sparseHit, sparseMiss = run(table.concat(lines, "\n"))
-    testAssert.equal(first, "v1")
-    testAssert.equal(nilResult, nil)
-    testAssert.equal(missing, "miss")
-    testAssert.equal(sparseHit, 16)
-    testAssert.equal(sparseMiss, 0)
+    testAssert.eq(first, "v1")
+    testAssert.eq(nilResult, nil)
+    testAssert.eq(missing, "miss")
+    testAssert.eq(sparseHit, 16)
+    testAssert.eq(sparseMiss, 0)
 end
 
 function M.sentinelAndCoverageAreConditional()
@@ -481,10 +481,10 @@ function M.sentinelAndCoverageAreConditional()
     )
     local code = generate(source)
     assert(code:find("__nuppSwitchMap", 1, true), code)
-    testAssert.equal(code:find("__nuppSwitchNil", 1, true), nil, "a map without a nil result needs no sentinel")
+    testAssert.eq(code:find("__nuppSwitchNil", 1, true), nil, "a map without a nil result needs no sentinel")
 
     local covered = generate(source, true)
-    testAssert.equal(covered:find("__nuppSwitchMap", 1, true), nil, "coverage keeps per-case conditions")
+    testAssert.eq(covered:find("__nuppSwitchMap", 1, true), nil, "coverage keeps per-case conditions")
 end
 
 function M.recordIdentityGuardUsesTheCheckerProof()
@@ -504,7 +504,7 @@ function M.recordIdentityGuardUsesTheCheckerProof()
     )
     local safeCode = generate(safe)
     assert(safeCode:find("=getmetatable(", 1, true), safeCode)
-    testAssert.equal(safeCode:find("?.__index", 1, true), nil, "a record-only residue needs no safe guard")
+    testAssert.eq(safeCode:find("?.__index", 1, true), nil, "a record-only residue needs no safe guard")
 
     local open = table.concat(
         {
@@ -543,9 +543,9 @@ function M.manyMapsSpillBehindOnePrologueUpvalue()
     assert(code:find("__nuppSwitchConstants", 1, true), code)
     local chunk = assert(loadstring(code, "@switch_spill"))
     local first, last, nilResult = chunk()
-    testAssert.equal(first, 101)
-    testAssert.equal(last, 3408)
-    testAssert.equal(nilResult, nil)
+    testAssert.eq(first, 101)
+    testAssert.eq(last, 3408)
+    testAssert.eq(nilResult, nil)
 end
 
 function M.aNestedSwitchMaySupplyAnotherSwitchSelector()
@@ -572,9 +572,9 @@ function M.aNestedSwitchMaySupplyAnotherSwitchSelector()
             "\n"
         )
     )
-    testAssert.equal(first, "one")
-    testAssert.equal(fourth, "four")
-    testAssert.equal(missing, "missing")
+    testAssert.eq(first, "one")
+    testAssert.eq(fourth, "four")
+    testAssert.eq(missing, "missing")
 end
 
 function M.aNestedArmStaysLazyAndPlansIndependently()
@@ -613,10 +613,10 @@ function M.aNestedArmStaysLazyAndPlansIndependently()
     assert(code:find("__nuppSwitchMap", 1, true), code)
     local chunk = assert(loadstring(code, "@nested_switch_arm"))
     local first, before, second, after = chunk()
-    testAssert.equal(first, "outer-two")
-    testAssert.equal(before, 0, "the unselected nested arm does no work")
-    testAssert.equal(second, "v8")
-    testAssert.equal(after, 1, "the selected nested selector runs once")
+    testAssert.eq(first, "outer-two")
+    testAssert.eq(before, 0, "the unselected nested arm does no work")
+    testAssert.eq(second, "v8")
+    testAssert.eq(after, 1, "the selected nested selector runs once")
 end
 
 function M.anOpenUnionKeepsAskingForItsElseArm()
@@ -629,7 +629,7 @@ function M.anOpenUnionKeepsAskingForItsElseArm()
         "\n"
     )
     local codes, diagnostics = diagnosticCodes(source)
-    testAssert.equal(codes, "NUPP2140", "covering every written member is not exhaustive")
+    testAssert.eq(codes, "NUPP2140", "covering every written member is not exhaustive")
     assert(diagnostics[1].msg:find("open", 1, true), diagnostics[1].msg)
 
     -- and the `else` that answers it is never the unnecessary one
@@ -643,7 +643,7 @@ function M.anOpenUnionKeepsAskingForItsElseArm()
             "\n"
         )
     )
-    testAssert.equal(covered, "", "an open union's else arm is not unnecessary")
+    testAssert.eq(covered, "", "an open union's else arm is not unnecessary")
 
     -- the same union without the open member still closes
     local closed = diagnosticCodes(
@@ -656,7 +656,7 @@ function M.anOpenUnionKeepsAskingForItsElseArm()
             "\n"
         )
     )
-    testAssert.equal(closed, "", "a closed union is exhaustive once every member is a case")
+    testAssert.eq(closed, "", "a closed union is exhaustive once every member is a case")
 end
 
 function M.anOpenUnionDoesNotFitTheMembersItLists()
@@ -670,16 +670,16 @@ function M.anOpenUnionDoesNotFitTheMembersItLists()
             "\n"
         )
     )
-    testAssert.equal(narrowing, "NUPP2001", "an open union is not the closed union of its members")
+    testAssert.eq(narrowing, "NUPP2001", "an open union is not the closed union of its members")
 
     -- a member still assigns into it, so writing one costs nothing at a call site
     local widening = diagnosticCodes(
         table.concat({"local type Status = 'on' | 'off' | types.nonexhaustive()", "local status: Status = 'on'",}, "\n")
     )
-    testAssert.equal(widening, "", "a member of an open union fits it")
+    testAssert.eq(widening, "", "a member of an open union fits it")
 
     local arguments = diagnosticCodes("local type Status = 'on' | types.nonexhaustive(1)")
-    testAssert.equal(arguments, "NUPP2421", "the open member takes no arguments")
+    testAssert.eq(arguments, "NUPP2421", "the open member takes no arguments")
 end
 
 function M.switchDiagnosticsAreSpecific()
@@ -693,26 +693,26 @@ function M.switchDiagnosticsAreSpecific()
             "\n"
         )
     )
-    testAssert.equal(missing, "NUPP2140")
+    testAssert.eq(missing, "NUPP2140")
 
     local duplicate = diagnosticCodes(
         "local selector: number = 1\nlocal value = switch selector do case 1, 1.0 -> 1 else -> 0 end"
     )
-    testAssert.equal(duplicate, "NUPP2138")
+    testAssert.eq(duplicate, "NUPP2138")
 
     local dynamic = diagnosticCodes("local value = switch 2 do case 1 + 1 -> 1 else -> 0 end")
-    testAssert.equal(dynamic, "NUPP2137")
+    testAssert.eq(dynamic, "NUPP2137")
 
     local escaped = diagnosticCodes(
         [[local selector: string = "a"
 local value = switch selector do case "\x61", "a" -> 1 else -> 0 end]]
     )
-    testAssert.equal(escaped, "NUPP2138")
+    testAssert.eq(escaped, "NUPP2138")
 
     local fallthrough = diagnosticCodes(
         table.concat({"local value = switch 1 do", "   else -> do", "      local answer = 1", "   end", "end",}, "\n")
     )
-    testAssert.equal(fallthrough, "NUPP2141")
+    testAssert.eq(fallthrough, "NUPP2141")
 
     local never = diagnosticCodes(
         table.concat(
@@ -728,20 +728,20 @@ local value = switch selector do case "\x61", "a" -> 1 else -> 0 end]]
             "\n"
         )
     )
-    testAssert.equal(never, "")
+    testAssert.eq(never, "")
 end
 
 local function leanSwitch(source, expected, inspect)
     do
         local result = parser.parse(source, "lean-switch.nupp")
-        testAssert.equal(#result.errors, 0, "lean switch parses")
+        testAssert.eq(#result.errors, 0, "lean switch parses")
         local diagnostics = check.check(result, "lean-switch.nupp", env)
-        testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+        testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
         local code, problems = gen.generate(result, "lean-switch.nupp")
-        testAssert.equal(#problems, 0, problems[1] and problems[1].msg)
+        testAssert.eq(#problems, 0, problems[1] and problems[1].msg)
         local chunk, problem = loadstring(code)
         assert(chunk, tostring(problem) .. "\n" .. code)
-        testAssert.equal(chunk(), expected)
+        testAssert.eq(chunk(), expected)
         if inspect then
             inspect(code)
         end
@@ -949,15 +949,15 @@ end
 return classify(2), classify(3), classify(9)
 ]]
     )
-    testAssert.equal(even, "small even")
-    testAssert.equal(odd, "small odd")
-    testAssert.equal(other, "big")
+    testAssert.eq(even, "small even")
+    testAssert.eq(odd, "small odd")
+    testAssert.eq(other, "big")
 end
 
 function M.guardedArmProvesNoCoverage()
     -- The only arm naming `true` declines it whenever the guard is false, so the
     -- selector is still open and the switch is not exhaustive.
-    testAssert.equal(
+    testAssert.eq(
         diagnosticCodes(
             [[
 local function f(b: boolean): string
@@ -974,7 +974,7 @@ return f(true)
 end
 
 function M.guardedArmDoesNotShadowTheArmBelowIt()
-    testAssert.equal(
+    testAssert.eq(
         diagnosticCodes(
             [[
 local function f(n: 1 | 2): string
@@ -992,7 +992,7 @@ return f(1)
 end
 
 function M.repeatedValueAfterAnUnguardedArmIsStillADuplicate()
-    testAssert.equal(
+    testAssert.eq(
         diagnosticCodes(
             [[
 local function f(n: 1 | 2): string
@@ -1025,8 +1025,8 @@ end
 return g(new Box(n = 50)), g(new Box(n = 1))
 ]]
     )
-    testAssert.equal(big, "big box")
-    testAssert.equal(small, "box 1")
+    testAssert.eq(big, "big box")
+    testAssert.eq(small, "box 1")
 end
 
 function M.aBareNameGuardIsNotAShortFunction()
@@ -1043,8 +1043,8 @@ end
 return f(true), f(false)
 ]]
     )
-    testAssert.equal(yes, "yes")
-    testAssert.equal(no, "no")
+    testAssert.eq(yes, "yes")
+    testAssert.eq(no, "no")
 end
 
 function M.aGuardStillAdmitsALambdaInsideBrackets()
@@ -1065,8 +1065,8 @@ end
 return f({5}), f({1})
 ]]
     )
-    testAssert.equal(found, "found")
-    testAssert.equal(missing, "missing")
+    testAssert.eq(found, "found")
+    testAssert.eq(missing, "missing")
 end
 
 function M.aGuardedSwitchLowersToBranchesRatherThanAMap()
@@ -1110,7 +1110,7 @@ end
 return firstBig({1, 5, 20, 30})
 ]]
     )
-    testAssert.equal(found, 20)
+    testAssert.eq(found, 20)
 end
 
 function M.guardedSwitchesNest()
@@ -1128,9 +1128,9 @@ end
 return nested(1, 2), nested(1, 9), nested(5, 2)
 ]]
     )
-    testAssert.equal(both, "one-two")
-    testAssert.equal(outer, "one-other")
-    testAssert.equal(neither, "other")
+    testAssert.eq(both, "one-two")
+    testAssert.eq(outer, "one-other")
+    testAssert.eq(neither, "other")
 end
 
 -- A task's status is a closed union, so a switch naming its five states is complete,
@@ -1141,7 +1141,7 @@ function M.aTaskStatusSwitchNeedsNoElse()
 
     local function diagnosticCodes(source)
         local result = parser.parse(source, "switch-test.nupp")
-        testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "switch source parses")
+        testAssert.eq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "switch source parses")
         local codes = {}
         for _, diagnostic in ipairs(check.check(result, "switch-test.nupp", env)) do
             codes[#codes + 1] = diagnostic.code
@@ -1160,9 +1160,9 @@ function M.aTaskStatusSwitchNeedsNoElse()
         "        case 'failed' -> 'broken'",
     }
     local complete = table.concat(head, "\n") .. "\n        case 'cancelled' -> 'stopped'\n    end\nend\nprint(label)"
-    testAssert.equal(diagnosticCodes(complete), "", "the five states cover the status")
+    testAssert.eq(diagnosticCodes(complete), "", "the five states cover the status")
     local missing = table.concat(head, "\n") .. "\n    end\nend\nprint(label)"
-    testAssert.equal(diagnosticCodes(missing), "NUPP2140", "a missing state is not exhaustive")
+    testAssert.eq(diagnosticCodes(missing), "NUPP2140", "a missing state is not exhaustive")
     local status = table.concat(
         {
             "local tasks = require(\"coroutine\")",
@@ -1172,7 +1172,7 @@ function M.aTaskStatusSwitchNeedsNoElse()
         },
         "\n"
     )
-    testAssert.equal(diagnosticCodes(status), "", "tasks.Status names the same union")
+    testAssert.eq(diagnosticCodes(status), "", "tasks.Status names the same union")
 end
 
 return M

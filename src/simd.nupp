@@ -2683,9 +2683,6 @@ function lane.fromstorage(element: string, n: integer, storage: any): any
     return vectorOf(element, n, lanes)
 end
 
---- The runtime entry emitted by the accepting compiler.
---- @internal
-
 --- The methods on one lane, or on a preferred-species vector or mask. On an
 --- N-lane form `lane.method` applies the lane-by-lane ones here to each
 --- lane and takes the rest from `WIDE` below.

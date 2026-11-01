@@ -22,7 +22,7 @@ local sharedEnv = envMod.new(HERE)
 local function diagnose(src)
     local env = sharedEnv
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors in test source")
+    testAssert.eq(#result.errors, 0, "syntax errors in test source")
     local diags = check.check(result, "test.nupp", env)
     local refusals = {}
     for _, diag in ipairs(diags) do
@@ -41,13 +41,13 @@ local M = {}
 
 function M.refusesACallThatSuspends()
     local refusals = diagnose(NOISY .. "@nosuspend do\n    noisy()\nend")
-    testAssert.equal(#refusals, 1, "one refusal")
+    testAssert.eq(#refusals, 1, "one refusal")
     assert(refusals[1].msg:find("noisy", 1, true) ~= nil, "it names the callee: " .. refusals[1].msg)
 end
 
 function M.allowsACallThatCannot()
     local refusals = diagnose(QUIET .. "@nosuspend do\n    quiet()\nend")
-    testAssert.equal(#refusals, 0, "a proved-quiet callee is silent")
+    testAssert.eq(#refusals, 0, "a proved-quiet callee is silent")
 end
 
 function M.followsTheCallGraph()
@@ -55,7 +55,7 @@ function M.followsTheCallGraph()
     -- `coroutine.yield` would catch almost nothing real.
     local src = NOISY .. "local function middle(): nil\n    noisy()\nend\n" .. "@nosuspend do\n    middle()\nend"
     local refusals = diagnose(src)
-    testAssert.equal(#refusals, 1, "the transitive call is refused")
+    testAssert.eq(#refusals, 1, "the transitive call is refused")
     assert(refusals[1].msg:find("middle", 1, true) ~= nil, "reported at the call that was written")
 end
 
@@ -75,7 +75,7 @@ function M.reachesAcrossAModuleBoundary()
             "\n"
         )
     )
-    testAssert.equal(#refusals, 1, "only the yielding export is refused")
+    testAssert.eq(#refusals, 1, "only the yielding export is refused")
     assert(refusals[1].msg:find("waits", 1, true) ~= nil, "and it is the right one: " .. refusals[1].msg)
 end
 
@@ -83,19 +83,19 @@ function M.refusesAnUnresolvableCall()
     -- A call the compiler cannot follow is exactly what a region exists to be careful
     -- about, so silence would be the wrong default.
     local refusals = diagnose("@nosuspend do\n    someUnknownGlobal()\nend")
-    testAssert.equal(#refusals, 1, "an unresolved callee is refused")
+    testAssert.eq(#refusals, 1, "an unresolved callee is refused")
 end
 
 function M.constructsARecordWithoutSuspending()
     -- A construction runs its declared constructor and nothing else. Without one it
     -- is a table and a metatable; with one, the constructor's body answers.
     local plain = "local record P\n    x: integer\nend\n"
-    testAssert.equal(
+    testAssert.eq(
         #diagnose(plain .. "@nosuspend do\n    local p = new P(x = 1)\nend"),
         0,
         "a record with no constructor cannot suspend"
     )
-    testAssert.equal(
+    testAssert.eq(
         #diagnose(
             plain
             .. "local function make(): P\n    return new P(x = 1)\nend\n"
@@ -106,7 +106,7 @@ function M.constructsARecordWithoutSuspending()
     )
     local quiet = "local record Q\n    x: integer\n    constructor(self, x: integer)\n"
         .. "        self.x = x\n    end\nend\n"
-    testAssert.equal(
+    testAssert.eq(
         #diagnose(quiet .. "@nosuspend do\n    local q = new Q(1)\nend"),
         0,
         "a constructor that cannot suspend is silent"
@@ -114,7 +114,7 @@ function M.constructsARecordWithoutSuspending()
     local noisy = "local record R\n    x: integer\n    constructor(self, x: integer)\n"
         .. "        coroutine.yield()\n        self.x = x\n    end\nend\n"
     local refusals = diagnose(noisy .. "@nosuspend do\n    local r = new R(1)\nend")
-    testAssert.equal(#refusals, 1, "a constructor that suspends is refused")
+    testAssert.eq(#refusals, 1, "a constructor that suspends is refused")
     assert(refusals[1].msg:find("R", 1, true) ~= nil, "it names the record: " .. refusals[1].msg)
 end
 
@@ -124,17 +124,17 @@ function M.judgesTheIteratorOfAGenericFor()
     local plain = "local function iter(): function(): integer?\n"
         .. "    return function(): integer?\n        coroutine.yield()\n        return nil\n    end\nend\n"
     local refusals = diagnose(plain .. "@nosuspend do\n    for v in iter() do\n        print(v)\n    end\nend")
-    testAssert.equal(#refusals, 1, "an iterator that may suspend is refused")
+    testAssert.eq(#refusals, 1, "an iterator that may suspend is refused")
     assert(refusals[1].msg:find("iterator", 1, true) ~= nil, "it says what was judged: " .. refusals[1].msg)
     local quiet = "local function iter(): @nosuspend function(): integer?\n"
         .. "    return function(): integer?\n        return nil\n    end\nend\n"
-    testAssert.equal(
+    testAssert.eq(
         #diagnose(quiet .. "@nosuspend do\n    for v in iter() do\n        print(v)\n    end\nend"),
         0,
         "an iterator that cannot suspend is silent"
     )
     -- The prelude's traversals answer the same way.
-    testAssert.equal(
+    testAssert.eq(
         #diagnose(
             table.concat(
                 {
@@ -166,7 +166,7 @@ function M.judgesCallableRecordIteratorsByTheirContract()
         },
         "\n"
     )
-    testAssert.equal(#diagnose(quiet), 0, "a nonsuspending callable record iterator is accepted")
+    testAssert.eq(#diagnose(quiet), 0, "a nonsuspending callable record iterator is accepted")
 
     local noisy = table.concat(
         {
@@ -180,7 +180,7 @@ function M.judgesCallableRecordIteratorsByTheirContract()
         "\n"
     )
     local refusals = diagnose(noisy)
-    testAssert.equal(#refusals, 1, "a callable record iterator that may suspend is refused")
+    testAssert.eq(#refusals, 1, "a callable record iterator that may suspend is refused")
     assert(refusals[1].msg:find("iterator", 1, true) ~= nil, refusals[1].msg)
 end
 
@@ -204,9 +204,9 @@ function M.judgesADispatchedMetamethod()
     end
 
     local refusals = diagnose(operand("function(left: V, right: V): V"))
-    testAssert.equal(#refusals, 1, "a contract that may suspend is refused")
+    testAssert.eq(#refusals, 1, "a contract that may suspend is refused")
     assert(refusals[1].msg:find("__add", 1, true) ~= nil, "it names the metamethod: " .. refusals[1].msg)
-    testAssert.equal(
+    testAssert.eq(
         #diagnose(operand("@nosuspend function(left: V, right: V): V")),
         0,
         "a contract that cannot suspend is silent"
@@ -227,8 +227,8 @@ function M.resolvesTheSelectedOverload()
         "\n"
     )
     local refusals = diagnose(src)
-    testAssert.equal(#refusals, 1, "only the arm that may suspend is refused")
-    testAssert.equal(refusals[1].line, 4, "and it is the string arm")
+    testAssert.eq(#refusals, 1, "only the arm that may suspend is refused")
+    testAssert.eq(refusals[1].line, 4, "and it is the string arm")
 end
 
 function M.judgesTheTerminalsARegionDischarges()
@@ -256,7 +256,7 @@ function M.judgesTheTerminalsARegionDischarges()
     local refusals = diagnose(
         resource .. table.concat({"@nosuspend do", "    local value = openSettling()", "end",}, "\n")
     )
-    testAssert.equal(#refusals, 1, "an owner discharged at its scope boundary is judged")
+    testAssert.eq(#refusals, 1, "an owner discharged at its scope boundary is judged")
     assert(refusals[1].msg:find("settling", 1, true) ~= nil, "it names the terminal: " .. refusals[1].msg)
     refusals = diagnose(
         resource .. table.concat(
@@ -264,15 +264,15 @@ function M.judgesTheTerminalsARegionDischarges()
             "\n"
         )
     )
-    testAssert.equal(#refusals, 1, "a with acquisition is judged")
+    testAssert.eq(#refusals, 1, "a with acquisition is judged")
     refusals = diagnose(
         resource .. table.concat(
             {"@nosuspend do", "    local value = openSettling()", "    own.drop(value)", "end",},
             "\n"
         )
     )
-    testAssert.equal(#refusals, 1, "an explicit drop is the same obligation, reported once")
-    testAssert.equal(
+    testAssert.eq(#refusals, 1, "an explicit drop is the same obligation, reported once")
+    testAssert.eq(
         #diagnose(
             resource .. table.concat(
                 {
@@ -289,7 +289,7 @@ function M.judgesTheTerminalsARegionDischarges()
         0,
         "a terminal that cannot suspend is silent"
     )
-    testAssert.equal(
+    testAssert.eq(
         #diagnose(
             resource .. table.concat(
                 {
@@ -310,14 +310,14 @@ end
 
 function M.nestsAndEnds()
     local src = QUIET .. NOISY .. table.concat({"@nosuspend do", "    quiet()", "end", "noisy()",}, "\n")
-    testAssert.equal(#diagnose(src), 0, "the region ends where it closes")
+    testAssert.eq(#diagnose(src), 0, "the region ends where it closes")
 end
 
 function M.erasesToAPlainBlock()
     local src = QUIET .. "@nosuspend do\n    quiet()\nend\n"
     local _, _, result = diagnose(src)
     local code = gen.generate(result, "test")
-    testAssert.equal(code:find("nosuspend", 1, true), nil, "nothing of the region survives: " .. code)
+    testAssert.eq(code:find("nosuspend", 1, true), nil, "nothing of the region survives: " .. code)
     assert(code:find("do", 1, true) ~= nil, "the block remains: " .. code)
 
     local function lines(text)
@@ -329,13 +329,13 @@ function M.erasesToAPlainBlock()
         return n
     end
 
-    testAssert.equal(lines(code), lines(src), "and the line count holds")
+    testAssert.eq(lines(code), lines(src), "and the line count holds")
 end
 
 function M.staysAName()
     -- Contextual on the same rule as `unsafe`: a name followed by `do`.
     local refusals, diags = diagnose("local nosuspend = 1\nreturn nosuspend")
-    testAssert.equal(#refusals, 0, "no region was opened")
+    testAssert.eq(#refusals, 0, "no region was opened")
     for _, diag in ipairs(diags) do
         assert(diag.severity == "warning" or diag.severity == "note", "an ordinary name still checks: " .. diag.code)
     end
@@ -359,7 +359,7 @@ function M.acceptsAnAnnotatedPreludeCall()
             "\n"
         )
     )
-    testAssert.equal(#refusals, 1, "only the unannotated one is refused")
+    testAssert.eq(#refusals, 1, "only the unannotated one is refused")
     assert(
         refusals[1].msg:find("time", 1, true) ~= nil,
         "and it is `os.time`, which says nothing about its effects: " .. refusals[1].msg
@@ -379,7 +379,7 @@ function M.aBodylessAnnotatedDeclarationIsAccepted()
             "\n"
         )
     )
-    testAssert.equal(#refusals, 0, "a declared guarantee is a guarantee")
+    testAssert.eq(#refusals, 0, "a declared guarantee is a guarantee")
 end
 
 function M.aBodylessUnannotatedDeclarationIsRefused()
@@ -389,7 +389,7 @@ function M.aBodylessUnannotatedDeclarationIsRefused()
             "\n"
         )
     )
-    testAssert.equal(#refusals, 1, "silence is not a guarantee")
+    testAssert.eq(#refusals, 1, "silence is not a guarantee")
 end
 
 function M.theModifierSurvivesAnAlias()
@@ -405,7 +405,7 @@ function M.theModifierSurvivesAnAlias()
             "\n"
         )
     )
-    testAssert.equal(#refusals, 0, "the fact is the type's, so renaming does not lose it")
+    testAssert.eq(#refusals, 0, "the fact is the type's, so renaming does not lose it")
 end
 
 function M.aNoSuspendFunctionSatisfiesAnOrdinarySlot()
@@ -420,7 +420,7 @@ function M.aNoSuspendFunctionSatisfiesAnOrdinarySlot()
             "\n"
         )
     )
-    testAssert.equal(#refusals, 0, "no region here")
+    testAssert.eq(#refusals, 0, "no region here")
     for _, diag in ipairs(diags) do
         assert(
             diag.severity == "warning" or diag.severity == "note",
@@ -456,8 +456,8 @@ function M.theModifierSurvivesGenericSubstitution()
     local tv = T.typevar("T")
     local safe = T.withYields(T.func({tv}, {tv}), false)
     local concrete = generics.materialize(safe, {[tv] = T.string})
-    testAssert.equal(concrete.noYield, true, "substitution rewrites types, not effects")
-    testAssert.equal(concrete.params[1], T.string, "and the substitution happened")
+    testAssert.eq(concrete.noYield, true, "substitution rewrites types, not effects")
+    testAssert.eq(concrete.params[1], T.string, "and the substitution happened")
 end
 
 function M.aHandleRegionInstallsAndRestores()
@@ -475,14 +475,14 @@ function M.aHandleRegionInstallsAndRestores()
         "\n"
     )
     local refusals, diags, result = diagnose(src)
-    testAssert.equal(#refusals, 0, "no region check here")
+    testAssert.eq(#refusals, 0, "no region check here")
     for _, diag in ipairs(diags) do
         assert(diag.severity == "warning" or diag.severity == "note", "it checks: " .. diag.code .. " " .. diag.msg)
     end
     local code = gen.generate(result, "test")
     assert(code:find("install", 1, true) ~= nil, "it elaborates to installing a handler: " .. code)
     assert(code:find("__nuppV:close()", 1, true) ~= nil, "and to closing it: " .. code)
-    testAssert.equal(code:find("handle suspension", 1, true), nil, "with nothing of the construct surviving: " .. code)
+    testAssert.eq(code:find("handle suspension", 1, true), nil, "with nothing of the construct surviving: " .. code)
 end
 
 function M.aHandleRegionPreservesTheLineCount()
@@ -500,7 +500,7 @@ function M.aHandleRegionPreservesTheLineCount()
         return n
     end
 
-    testAssert.equal(lines(code), lines(src), "attribution holds: " .. code)
+    testAssert.eq(lines(code), lines(src), "attribution holds: " .. code)
 end
 
 local function runGenerated(src)
@@ -535,9 +535,9 @@ function M.aReturnLeavesAHandleRegionAfterReleasingIt()
             "\n"
         )
     )
-    testAssert.equal(first, 1, "the first return survives the protected boundary")
-    testAssert.equal(second, 0, "return values are evaluated before release")
-    testAssert.equal(released, 1, "the installation is released exactly once")
+    testAssert.eq(first, 1, "the first return survives the protected boundary")
+    testAssert.eq(second, 0, "return values are evaluated before release")
+    testAssert.eq(released, 1, "the installation is released exactly once")
 end
 
 function M.aBodyAndReleaseFailureAreBothPreserved()
@@ -555,7 +555,7 @@ function M.aBodyAndReleaseFailureAreBothPreserved()
             "\n"
         )
     )
-    testAssert.equal(ok, false, "the handled body still raises")
+    testAssert.eq(ok, false, "the handled body still raises")
     assert(problem:find("body failed", 1, true) ~= nil, "the body failure remains primary: " .. problem)
     assert(problem:find("release failed", 1, true) ~= nil, "the release failure is retained: " .. problem)
 end
@@ -582,8 +582,8 @@ function M.loopControlCanLeaveAHandleRegion()
             "\n"
         )
     )
-    testAssert.equal(continued, 4, "continue reaches the enclosing loop")
-    testAssert.equal(broken, true, "break reaches the enclosing loop")
+    testAssert.eq(continued, 4, "continue reaches the enclosing loop")
+    testAssert.eq(broken, true, "break reaches the enclosing loop")
 end
 
 function M.aGotoCanLeaveAHandleRegion()
@@ -603,7 +603,7 @@ function M.aGotoCanLeaveAHandleRegion()
             "\n"
         )
     )
-    testAssert.equal(answer, 1, "goto resumes outside after releasing the installation")
+    testAssert.eq(answer, 1, "goto resumes outside after releasing the installation")
 end
 
 function M.refusesAGotoIntoAHandleRegion()
@@ -625,7 +625,7 @@ function M.refusesAGotoIntoAHandleRegion()
             found = found + 1
         end
     end
-    testAssert.equal(found, 1, "one diagnostic refuses the impossible incoming edge")
+    testAssert.eq(found, 1, "one diagnostic refuses the impossible incoming edge")
 end
 
 function M.aHandleRegionRequiresAHandler()
@@ -793,7 +793,7 @@ function M.anImplementationOfANoSuspendMemberMayNotSuspend()
         end
     end
     assert(refused ~= nil, "a suspending body does not implement a nosuspend member")
-    testAssert.equal(refused.line, 8, "reported at the method")
+    testAssert.eq(refused.line, 8, "reported at the method")
     assert(refused.msg:find("nosuspend", 1, true) ~= nil, "and the refusal says why: " .. refused.msg)
     local _, quietDiags = diagnose(
         QUIET .. iface .. table.concat(
@@ -809,7 +809,7 @@ function M.anImplementationOfANoSuspendMemberMayNotSuspend()
             "\n"
         )
     )
-    testAssert.equal(
+    testAssert.eq(
         #quietDiags,
         0,
         "a proved-quiet body is silent" .. (quietDiags[1] and (": " .. quietDiags[1].msg) or "")

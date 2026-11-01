@@ -56,7 +56,7 @@ function M.aBoundHoldsThroughAnIntermediate()
     )
     local proof = relations.proves(closure, uniform("last"), count("out"), 0)
     assert(proof, "last <= #out follows from the two comparisons")
-    test.equal(#proof, 2, "and the proof names both of them")
+    test.eq(#proof, 2, "and the proof names both of them")
 end
 
 function M.anEqualityIsProvedInBothDirections()
@@ -102,22 +102,22 @@ function M.equivalentPoolsNormalizeToOneCanonicalOrder()
     local a = relations.canonical(reference())
     local shuffled = {reference()[3], reference()[1], reference()[2], reference()[1]}
     local b = relations.canonical(shuffled)
-    test.equal(#a, 3, "the repeat is dropped")
-    test.equal(#b, #a, "and both source forms reach the same length")
+    test.eq(#a, 3, "the repeat is dropped")
+    test.eq(#b, #a, "and both source forms reach the same length")
     for index = 1, #a do
-        test.equal(relations.key(b[index].left), relations.key(a[index].left), "same left term at " .. index)
-        test.equal(relations.key(b[index].right), relations.key(a[index].right), "same right term at " .. index)
-        test.equal(b[index].offset, a[index].offset, "same offset at " .. index)
+        test.eq(relations.key(b[index].left), relations.key(a[index].left), "same left term at " .. index)
+        test.eq(relations.key(b[index].right), relations.key(a[index].right), "same right term at " .. index)
+        test.eq(b[index].offset, a[index].offset, "same offset at " .. index)
     end
 end
 
 function M.tautologiesLeaveNoWrapperRelationButContradictionsRemain()
     local zero = relations.zero()
     local tautology = relations.canonical({relations.relation(zero, zero, 1)})
-    test.equal(#tautology, 0, "a true constant comparison needs no wrapper check")
+    test.eq(#tautology, 0, "a true constant comparison needs no wrapper check")
 
     local contradiction = relations.canonical({relations.relation(zero, zero, -1)})
-    test.equal(#contradiction, 1, "a false constant comparison remains visible to the solver")
+    test.eq(#contradiction, 1, "a false constant comparison remains visible to the solver")
     assert(solve(contradiction, {}).contradiction, "the retained self-edge is contradictory")
 end
 
@@ -187,12 +187,12 @@ function M.aLengthAgreementIsCheckedOnceAndNamed()
     for _ in text:gmatch("incompatible lengths") do
         seen = seen + 1
     end
-    test.equal(seen, 1, "one comparison, not two bounds: " .. text)
+    test.eq(seen, 1, "one comparison, not two bounds: " .. text)
     assert(text:find("#input ~= #out", 1, true) or text:find("#out ~= #input", 1, true), text)
 end
 
 function M.aProgramWithoutRelationsChecksNothing()
-    test.equal(#binding.relations(program{relations = {}, rangeGuard = nil}), 0, "no facts, no checks")
+    test.eq(#binding.relations(program{relations = {}, rangeGuard = nil}), 0, "no facts, no checks")
 end
 
 -- Until the relation list existed the Wasm boundary compared span lengths and
@@ -223,7 +223,14 @@ end
 --- The transfers from one span to another, by factor.
 local function transfersFrom(closure, from, to)
     local found = {}
-    for _, transfer in ipairs((relations.transfers(closure, {"grey", "rgb", "input", "output"})[from] or {})[to] or {}) do
+    for _, transfer in ipairs((
+        relations.transfers(closure, {
+            "grey",
+            "rgb",
+            "input",
+            "output"
+        })[from] or {}
+    )[to] or {}) do
         found[transfer.factor] = transfer.offset
     end
 
@@ -237,7 +244,7 @@ function M.aFactorRelationBoundsTheCountItScales()
     assert(relations.proves(closure, count("grey"), count("rgb"), 0), "#grey <= #rgb follows from #rgb == 3 * #grey")
     assert(not relations.proves(closure, count("rgb"), count("grey"), 0), "and #rgb <= #grey does not")
     assert(not relations.equalCounts(closure, "grey", "rgb"), "a factor is not an equality of counts")
-    test.equal(relations.scaledCount("grey", 1).factor, nil, "a factor of one is the count itself")
+    test.eq(relations.scaledCount("grey", 1).factor, nil, "a factor of one is the count itself")
 end
 
 -- A cursor one element below `#grey` is three below `#rgb`: the room carries
@@ -245,15 +252,15 @@ end
 function M.aFactorRelationCarriesCursorRoomThroughTheFactor()
     local closure = solve(tripled(), {"grey", "rgb"})
     local carried = transfersFrom(closure, "grey", "rgb")
-    test.equal(carried[3], 0, "three elements of rgb per element of grey")
-    test.equal(carried[1], 0, "and the count itself carries one")
-    test.equal(next(transfersFrom(closure, "rgb", "grey")), nil, "nothing carries back from rgb to grey")
+    test.eq(carried[3], 0, "three elements of rgb per element of grey")
+    test.eq(carried[1], 0, "and the count itself carries one")
+    test.eq(next(transfersFrom(closure, "rgb", "grey")), nil, "nothing carries back from rgb to grey")
 
     -- `#output >= 4 * #input + 2`: four per element, plus the two.
     local padded = solve({relations.relation(scaled("input", 4), count("output"), -2)}, {"input", "output"})
     local room = transfersFrom(padded, "input", "output")
-    test.equal(room[4], -2, "four per element of input, and two more")
-    test.equal(room[1], -2, "the count itself reaches output by the same two")
+    test.eq(room[4], -2, "four per element of input, and two more")
+    test.eq(room[1], -2, "the count itself reaches output by the same two")
     assert(relations.proves(padded, count("input"), count("output"), -2), "#input + 2 <= #output follows")
 end
 
@@ -265,7 +272,7 @@ function M.theWrapperChecksAFactorRelationAsWritten()
     for _ in equality:gmatch("incompatible lengths") do
         seen = seen + 1
     end
-    test.equal(seen, 1, "one comparison for the equality: " .. equality)
+    test.eq(seen, 1, "one comparison for the equality: " .. equality)
     assert(
         equality:find("#rgb ~= 3 * #grey", 1, true) or equality:find("3 * #grey ~= #rgb", 1, true),
         "with the factor on the scaled count: " .. equality

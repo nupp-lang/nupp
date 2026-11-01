@@ -1057,7 +1057,7 @@ local function builtFixture(policy)
         isolateCache(dir)
     end
     local out, code = build(dir)
-    test.equal(code, 0, ("the shared aot=%s fixture at %s builds: %s"):format(tostring(policy), dir, out))
+    test.eq(code, 0, ("the shared aot=%s fixture at %s builds: %s"):format(tostring(policy), dir, out))
     builtFixtures[policy] = dir
 
     return dir
@@ -1068,7 +1068,7 @@ end
 local function isolatedBuiltFixture(policy)
     local dir = isolateCache(project(policy))
     local out, code = build(dir)
-    test.equal(code, 0, ("an isolated aot=%s fixture at %s builds: %s"):format(tostring(policy), dir, out))
+    test.eq(code, 0, ("an isolated aot=%s fixture at %s builds: %s"):format(tostring(policy), dir, out))
 
     return dir
 end
@@ -1088,7 +1088,7 @@ local function builderAnswer(policy, script)
     if not dir then
         dir = builderProject(policy)
         local out, code = build(dir)
-        test.equal(code, 0, ("the aot=%s builder fixture at %s builds: %s"):format(policy, dir, out))
+        test.eq(code, 0, ("the aot=%s builder fixture at %s builds: %s"):format(policy, dir, out))
         builderFixtures[policy] = dir
     end
 
@@ -1231,7 +1231,7 @@ end
 function M.gpuCheckStagesTheDefaultProviderTypeSurface()
     local dir = gpuProject()
     local out, code = check(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     assert(
         read(dir .. "/build/native/cache/runtime-source/gpu/init.nupp"),
         "a GPU check did not stage the native provider types its public facade re-exports"
@@ -1257,13 +1257,13 @@ function M.gpuRemarksNameTheAuthoredDeclarationAndArtifact()
         for _, remark in ipairs(remarks.remarks) do
             if remark.code == "GPU-DISPATCH" then
                 found = found + 1
-                test.equal(remark.range.start.line, 5)
-                test.equal(remark.range.start.column, 1)
-                test.equal(remark.range.start.offset, assert(read(dir .. "/src/gpucheck.nupp")):find("@aot", 1, true))
+                test.eq(remark.range.start.line, 5)
+                test.eq(remark.range.start.column, 1)
+                test.eq(remark.range.start.offset, assert(read(dir .. "/src/gpucheck.nupp")):find("@aot", 1, true))
                 assert(remark.message:find("artifact ", 1, true), remark.message)
             end
         end
-        test.equal(found, 1, "GPU-only modules produce one authored dispatch remark on cold and warm builds")
+        test.eq(found, 1, "GPU-only modules produce one authored dispatch remark on cold and warm builds")
     end
 end
 
@@ -1328,8 +1328,8 @@ export const kernel = kernel
                     or message:find("no explicit step", 1, true)
                     or message:find("outside int32", 1, true)
                 then
-                    test.equal(diagnostic.file, "src/gpucheck.nupp", output)
-                    test.equal(diagnostic.range.start.line, 8, output)
+                    test.eq(diagnostic.file, "src/gpucheck.nupp", output)
+                    test.eq(diagnostic.range.start.line, 8, output)
                     local token = bounds:find("#input", 1, true) and "#input"
                         or bounds:find("0.5", 1, true) and "0.5"
                         or bounds:find("limit", 1, true) and "limit"
@@ -1337,11 +1337,7 @@ export const kernel = kernel
                         or bounds:find("-2147483649", 1, true) and "-2147483649"
                         or "for"
                     local offset = diagnostic.range.start.offset
-                    test.equal(
-                        assert(read(dir .. "/" .. diagnostic.file)):sub(offset, offset + #token - 1),
-                        token,
-                        output
-                    )
+                    test.eq(assert(read(dir .. "/" .. diagnostic.file)):sub(offset, offset + #token - 1), token, output)
                     found = true
                 end
             end
@@ -1366,7 +1362,7 @@ function M.browserGpuChecksShareTheGeneratedInterface()
     assert(file:write(kernel))
     file:close()
     local out, code = check(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     assert(read(dir .. "/build/native/cache/runtime-source/nupp/gpu/internal.nupp"))
     assert(read(dir .. "/build/native/cache/runtime-source/nupp/runtime/native/init.nupp") == nil)
 end
@@ -1417,7 +1413,7 @@ export const tiled = tiled
     )
     source:close()
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local script = searchPathPrelude()
         .. [[
 -- Unbuffered, so a run that dies in the driver still says how far it got.
@@ -1489,7 +1485,7 @@ end
     local pipe = assert(io.popen(("cd %q && luajit run.lua 2>&1; echo '__exit__:'$?"):format(dir)))
     local runOut = pipe:read("*a")
     pipe:close()
-    test.equal(tonumber(runOut:match("__exit__:(%d+)%s*$")), 0, runOut)
+    test.eq(tonumber(runOut:match("__exit__:(%d+)%s*$")), 0, runOut)
     if runOut:find("no compute adapter", 1, true) then
         io.stderr:write("gpuDispatchesPastOneDimensionsWorkgroupLimit: no compute adapter, nothing dispatched\n")
         return
@@ -1548,7 +1544,7 @@ export const tiledCpu = tiledCpu
     )
     source:close()
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local script = searchPathPrelude()
         .. [[
 local ffi = require("ffi")
@@ -1593,7 +1589,7 @@ end
     local pipe = assert(io.popen(("cd %q && luajit run.lua 2>&1; echo '__exit__:'$?"):format(dir)))
     local runOut = pipe:read("*a")
     pipe:close()
-    test.equal(tonumber(runOut:match("__exit__:(%d+)%s*$")), 0, runOut)
+    test.eq(tonumber(runOut:match("__exit__:(%d+)%s*$")), 0, runOut)
     if runOut:find("no compute adapter", 1, true) then
         io.stderr:write("gpuWorkgroupsRunTheGroupsTheirCpuDefinitionRuns: no compute adapter, nothing dispatched\n")
         return
@@ -1683,16 +1679,16 @@ end
 function M.theDefaultPolicyEmitsNothing()
     local dir = project(nil)
     local out, code = build(dir)
-    test.equal(code, 0, out)
-    test.equal(read(tieredUnit(dir, firstHostTier())), nil, "a project that did not ask for native code gets none")
+    test.eq(code, 0, out)
+    test.eq(read(tieredUnit(dir, firstHostTier())), nil, "a project that did not ask for native code gets none")
     assert(read(dir .. "/build/native/kernel.lua"), "the ordinary Lua body is still what was built")
 end
 
 function M.offEmitsNothing()
     local dir = project("off")
     local out, code = build(dir)
-    test.equal(code, 0, out)
-    test.equal(read(tieredUnit(dir, firstHostTier())), nil, "off means off")
+    test.eq(code, 0, out)
+    test.eq(read(tieredUnit(dir, firstHostTier())), nil, "off means off")
 end
 
 function M.requireWritesTheLlvmUnitBesideTheBuild()
@@ -1721,7 +1717,7 @@ function M.requireWritesTheLlvmUnitBesideTheBuild()
         "a native arena field retains physical binary64 storage"
     )
     -- A module with no `@aot` in it produces nothing rather than an empty file.
-    test.equal(read(tieredUnit(dir, tier, "plain")), nil, "a module with no @aot function produces no artifact")
+    test.eq(read(tieredUnit(dir, tier, "plain")), nil, "a module with no @aot function produces no artifact")
     local units = assert(read(dir .. "/build/native/aot/units.json"))
     assert(units:find('"tier":"' .. tier .. '"', 1, true), "the unit manifest records each unit's tier")
     assert(
@@ -1783,7 +1779,7 @@ function M.aotManifestsWriteTheirKeysInSortedOrder()
     local path, err = aot.writeUnitsManifest(dir, "wasm32-unknown-unknown", emitted)
     assert(path, err)
     local text = assert(read(path))
-    test.equal(unsortedKey(text), nil, "every object in the units manifest lists its keys in order:\n" .. text)
+    test.eq(unsortedKey(text), nil, "every object in the units manifest lists its keys in order:\n" .. text)
     assert(text:find('^{"schemaVersion":3,"target":'), "the document starts with its schema: " .. text)
     os.execute("rm -rf '" .. dir .. "'")
 end
@@ -1791,7 +1787,7 @@ end
 function M.constGenericAotOmitsTheCarrierAndSpecializesTheBody()
     local dir = constProject("require")
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local ir = assert(read(tieredUnit(dir, firstHostTier(), "constkernel")))
     assert(ir:match("ks_[0-9a-f]+___nupp_const_doubled_"), "the canonical private key reaches the native symbol")
     assert(not ir:find("p_count", 1, true), "the const carrier is absent from the private native ABI")
@@ -1862,7 +1858,7 @@ function M.constGenericSelectsValueStreamModePerVariant()
     source:close()
 
     local out, code = build(dir)
-    test.equal(
+    test.eq(
         code,
         0,
         "one const-generic body may name a different value stream mode per "
@@ -1884,7 +1880,7 @@ function M.constGenericSelectsValueStreamModePerVariant()
             bodies[#bodies + 1] = symbol
         end
     end
-    test.equal(#bodies, 2, "each demanded variant compiles its own body")
+    test.eq(#bodies, 2, "each demanded variant compiles its own body")
     for _, symbol in ipairs(bodies) do
         local from = assert(unit:find("\ndefine internal i32 @" .. symbol, 1, true))
         local to = unit:find("\n}\n", from + 1, true) or #unit
@@ -1919,7 +1915,7 @@ function M.constGenericAotCapCountsCoalescedBodiesNotKeys()
     source:close()
 
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local ir = assert(read(tieredUnit(dir, firstHostTier(), "constkernel")))
     local bodies = {}
     for suffix in ir:gmatch("ks_[0-9a-f]+___nupp_const_tag_([0-9a-f]+)") do
@@ -1929,7 +1925,7 @@ function M.constGenericAotCapCountsCoalescedBodiesNotKeys()
     for _ in pairs(bodies) do
         count = count + 1
     end
-    test.equal(count, 1, "nine semantic keys whose const is unused share one native body class")
+    test.eq(count, 1, "nine semantic keys whose const is unused share one native body class")
 end
 
 function M.constGenericAotCapNamesTheWholeDemandSet()
@@ -1971,7 +1967,7 @@ function M.checkedAliasesFeedTypesOwnershipLayoutsAndIntrinsics()
     source:close()
 
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local tier = firstHostTier()
     local ir = assert(read(tieredUnit(dir, tier)))
     assert(
@@ -1988,7 +1984,7 @@ end
 function M.signedWideOverflowExecutesWithWrappingSemantics()
     local dir = wideOverflowProject()
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local script = searchPathPrelude()
         .. [[
 local wide = require("wide")
@@ -2003,7 +1999,7 @@ assert(wide.checkMultiply(), "signed multiplication did not wrap")
     local pipe = assert(io.popen(("cd %q && luajit -e %q 2>&1; echo '__exit__:'$?"):format(dir, script)))
     local runOut = pipe:read("*a")
     pipe:close()
-    test.equal(tonumber(runOut:match("__exit__:(%d+)%s*$")), 0, runOut)
+    test.eq(tonumber(runOut:match("__exit__:(%d+)%s*$")), 0, runOut)
 end
 
 -- Two 32-bit integers are Lua numbers, so a mixed pair compares by value. The
@@ -2013,7 +2009,7 @@ end
 function M.mixedSignednessComparisonsAnswerByValue()
     local dir = mixedComparisonProject()
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local script = searchPathPrelude()
         .. [[
 local mixedcmp = require("mixedcmp")
@@ -2025,7 +2021,7 @@ assert(mixedcmp.foldedNegativeBelowSmall(), "the folded mixed comparison disagre
     local pipe = assert(io.popen(("cd %q && luajit -e %q 2>&1; echo '__exit__:'$?"):format(dir, script)))
     local runOut = pipe:read("*a")
     pipe:close()
-    test.equal(tonumber(runOut:match("__exit__:(%d+)%s*$")), 0, runOut)
+    test.eq(tonumber(runOut:match("__exit__:(%d+)%s*$")), 0, runOut)
 end
 
 --- Every key one source's artifacts were recorded under, tier by tier, or
@@ -2088,7 +2084,7 @@ function M.aRecordedArtifactKeyIsEvidenceAboutBytesRatherThanABelief()
 
     local function rebuild(phase)
         local out, code = build(dir)
-        test.equal(code, 0, ("%s (require fixture at %s): %s"):format(phase, dir, out))
+        test.eq(code, 0, ("%s (require fixture at %s): %s"):format(phase, dir, out))
     end
 
     -- Unchanged: a second's granularity is all `stat` promises, so a rewrite has
@@ -2097,7 +2093,7 @@ function M.aRecordedArtifactKeyIsEvidenceAboutBytesRatherThanABelief()
     local written = assert(modified(path), "the artifact was written, at " .. path)
     os.execute("sleep 1.1")
     rebuild("an unchanged project rebuilds")
-    test.equal(
+    test.eq(
         modified(path),
         written,
         ("an artifact whose key still matches is left alone rather than rewritten (require fixture at %s)"):format(dir)
@@ -2110,7 +2106,7 @@ function M.aRecordedArtifactKeyIsEvidenceAboutBytesRatherThanABelief()
     assert(key(dir), "the build recorded what it built the artifact under, at " .. dir)
     os.remove(path)
     rebuild("a project whose artifact was deleted rebuilds")
-    test.equal(
+    test.eq(
         read(path),
         first,
         ("a deleted artifact comes back rather than being believed on a digest (require fixture at %s)"):format(dir)
@@ -2122,7 +2118,7 @@ function M.aRecordedArtifactKeyIsEvidenceAboutBytesRatherThanABelief()
     handle:write("; not what the compiler wrote\n")
     handle:close()
     rebuild("a project whose artifact was damaged rebuilds")
-    test.equal(
+    test.eq(
         read(path),
         first,
         ("an artifact whose bytes disagree with its key is written again (require fixture at %s)"):format(dir)
@@ -2136,7 +2132,7 @@ function M.aRecordedArtifactKeyIsEvidenceAboutBytesRatherThanABelief()
     source:write("\n-- A comment, which changes no instruction.\n")
     source:close()
     rebuild("a project whose source gained a comment rebuilds")
-    test.equal(
+    test.eq(
         key(dir),
         before,
         (
@@ -2156,7 +2152,7 @@ function M.anUnknownFeatureTierIsRejected()
     manifest:close()
 
     local out, code = build(dir)
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(
         out:find("aotFeatures", 1, true) and out:find("has no feature tier avx9", 1, true),
         "naming the key and what was wrong with it: " .. out
@@ -2218,7 +2214,7 @@ function M.theFeatureTierReachesTheBackend()
     manifest:close()
 
     local out, code = build(dir)
-    test.equal(code, 0, ("the manifest key is accepted (require fixture at %s)\n%s"):format(dir, out))
+    test.eq(code, 0, ("the manifest key is accepted (require fixture at %s)\n%s"):format(dir, out))
     -- Scalar source does not request vector species at any tier.
     local after = assert(unit(tieredUnit(dir, tier)))
     -- Named from the tier's own width rather than a constant, because NEON's is
@@ -2240,7 +2236,7 @@ function M.theFeatureTierReachesTheBackend()
         assert(ceiling ~= nil or after ~= baseline, "and the ceiling also carries the wide unit")
         assert(read(dir .. "/build/native/aot/features.ll"), "several tiers bring one baseline runtime detector")
     else
-        test.equal(after, before, "naming the only tier an architecture has changes nothing")
+        test.eq(after, before, "naming the only tier an architecture has changes nothing")
     end
     assert(key(dir), "and the artifact is recorded under a key that carries the tier")
 end
@@ -2259,7 +2255,7 @@ function M.x86BuildCarriesEveryTierAndItsDetector()
     local dir = project("require")
     withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu",')
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
 
     for _, tier in ipairs({"baseline", "avx2", "avx512f"}) do
         local ir = assert(read(tieredUnit(dir, tier)), "missing " .. tier .. " translation unit")
@@ -2285,10 +2281,10 @@ function M.aFeatureCeilingKeepsItsBaselineFallback()
     local dir = project("require")
     withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = {maximum = "avx2"},')
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     assert(read(tieredUnit(dir, "baseline")), "the fallback travels")
     assert(read(tieredUnit(dir, "avx2")), "the named ceiling travels")
-    test.equal(read(tieredUnit(dir, "avx512f")), nil, "nothing wider than the ceiling travels")
+    test.eq(read(tieredUnit(dir, "avx512f")), nil, "nothing wider than the ceiling travels")
 end
 
 function M.aFeatureRangeCarriesOnlyItsInclusiveTiers()
@@ -2298,8 +2294,8 @@ function M.aFeatureRangeCarriesOnlyItsInclusiveTiers()
         'aotTarget = "x86_64-unknown-linux-gnu", ' .. 'aotFeatures = {minimum = "avx2", maximum = "avx512f"},'
     )
     local out, code = build(dir)
-    test.equal(code, 0, out)
-    test.equal(read(tieredUnit(dir, "baseline")), nil, "the range does not claim baseline hardware")
+    test.eq(code, 0, out)
+    test.eq(read(tieredUnit(dir, "baseline")), nil, "the range does not claim baseline hardware")
     assert(read(tieredUnit(dir, "avx2")), "the inclusive minimum travels")
     assert(read(tieredUnit(dir, "avx512f")), "the inclusive maximum travels")
 end
@@ -2310,8 +2306,8 @@ function M.aFeatureRangeWithoutAMaximumRunsToTheWidestTier()
     local dir = project("require")
     withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = {minimum = "avx2"},')
     local out, code = build(dir)
-    test.equal(code, 0, out)
-    test.equal(read(tieredUnit(dir, "baseline")), nil, "the declared minimum drops what is below it")
+    test.eq(code, 0, out)
+    test.eq(read(tieredUnit(dir, "baseline")), nil, "the declared minimum drops what is below it")
     assert(read(tieredUnit(dir, "avx2")), "the declared minimum travels")
     assert(read(tieredUnit(dir, "avx512f")), "and everything above it up to the architecture's widest")
 end
@@ -2320,17 +2316,17 @@ function M.aFeatureRangeWithoutAMinimumKeepsItsNarrowestTier()
     local dir = project("require")
     withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = {maximum = "avx2"},')
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     assert(read(tieredUnit(dir, "baseline")), "an absent minimum is the architecture's narrowest tier")
     assert(read(tieredUnit(dir, "avx2")), "the declared maximum travels")
-    test.equal(read(tieredUnit(dir, "avx512f")), nil, "and nothing above it")
+    test.eq(read(tieredUnit(dir, "avx512f")), nil, "and nothing above it")
 end
 
 function M.aFeatureRangeRequiresOneBound()
     local dir = project("require")
     withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = {},')
     local out, code = build(dir)
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(out:find("aotFeatures needs a minimum, a maximum, or both", 1, true), out)
 end
 
@@ -2340,13 +2336,13 @@ function M.theStringFeatureFormIsTheMaximum()
     local dir = project("require")
     withKeys(dir, 'aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = {maximum = "avx2"},')
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local ranged = project("require")
     withKeys(ranged, 'aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = {maximum = "avx2"},')
     local rangedOut, rangedCode = build(ranged)
-    test.equal(rangedCode, 0, rangedOut)
+    test.eq(rangedCode, 0, rangedOut)
     for _, tier in ipairs({"baseline", "avx2", "avx512f"}) do
-        test.equal(
+        test.eq(
             read(tieredUnit(dir, tier)) ~= nil,
             read(tieredUnit(ranged, tier)) ~= nil,
             tier .. " travels the same either way"
@@ -2440,7 +2436,7 @@ end
 function M.aLinuxBaselineChunksFixedFloatingSpecies()
     local dir = wideSimdProject('aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = {maximum = "avx512f"},')
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     -- LLVM carries a species whole in every tier and its code generator splits
     -- one wider than the tier's registers, so nothing is chunked by hand in the
     -- IR. What stays the backend's is that no exported entry passes a vector,
@@ -2451,7 +2447,7 @@ function M.aLinuxBaselineChunksFixedFloatingSpecies()
     for _, unit in ipairs({baseline, avx512}) do
         for signature in unit:gmatch("\ndefine ([^\n]*)") do
             if not signature:match("^internal ") then
-                test.equal(signature:find("<%d+ x "), nil, "an exported entry passes a vector: " .. signature)
+                test.eq(signature:find("<%d+ x "), nil, "an exported entry passes a vector: " .. signature)
             end
         end
     end
@@ -2459,7 +2455,7 @@ function M.aLinuxBaselineChunksFixedFloatingSpecies()
         local lanes, element = assert(species:match("^v(%d+)(%a%d+)$"))
         local whole = "<" .. lanes .. " x " .. (element == "f64" and "double" or "float") .. ">"
         assert(baseline:find(whole, 1, true), species .. " is carried whole at baseline")
-        test.equal(
+        test.eq(
             baseline:find("@llvm.masked.load." .. species, 1, true),
             nil,
             species .. " has no masked move at baseline"
@@ -2477,7 +2473,7 @@ function M.aWindowsTargetCompilesEveryFunctionUnderItsFramesVectorPreference()
         'aotTarget = "x86_64-pc-windows-msvc", aotFeatures = {minimum = "baseline", maximum = "avx512f"},'
     )
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     for _, tier in ipairs({"baseline", "avx2", "avx512f"}) do
         local unit = assert(read(tieredUnit(dir, tier)), tier .. " travels")
         if tier == "baseline" then
@@ -2503,7 +2499,7 @@ end
 function M.onlyAWindowsX86TargetGivesUpItsWiderRegisters()
     local dir = wideSimdProject('aotTarget = "x86_64-unknown-linux-gnu", aotFeatures = {maximum = "avx512f"},')
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     -- LLVM reads the ceiling from each function's attributes, and a Linux build
     -- asks for none: the tier's registers are the code generator's.
     local unit = equivalenceMutation.text(
@@ -2512,7 +2508,7 @@ function M.onlyAWindowsX86TargetGivesUpItsWiderRegisters()
         "uwtable }",
         'uwtable "prefer-vector-width"="128" }'
     )
-    test.equal(
+    test.eq(
         unit:find("prefer-vector-width", 1, true),
         nil,
         equivalenceMutation.active("target-vector-ceilings")
@@ -2525,7 +2521,7 @@ function M.aTierWithoutVectorsAcceptsScalarLoops()
     local dir = project("emit-wasm")
     withKeys(dir, 'aotFeatures = {maximum = "scalar"},')
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local unit = assert(read(tieredUnit(dir, "scalar")))
     assert(not unit:find(" x double>", 1, true), "scalar loops do not require SIMD")
 end
@@ -2558,7 +2554,7 @@ export = run
     )
     source:close()
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
 end
 
 --- Through LLVM, an independent Wasm module is linked in process and carries
@@ -2576,7 +2572,7 @@ function M.anLlvmWasmModuleImportsNothingAndRunsItsKernel()
     local dir = project(nil)
     withKeys(dir, 'host = "browser", aot = "require-wasm", aotFeatures = {minimum = "simd128"},')
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local script = dir .. "/run.mjs"
     local handle = assert(io.open(script, "wb"))
     handle:write(
@@ -2638,7 +2634,7 @@ function M.aWasmTierRangeFallsBackToScalarWithoutSimd128()
         'host = "browser", aot = "require-wasm", ' .. 'aotFeatures = {minimum = "scalar", maximum = "simd128"},'
     )
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local units = read(dir .. "/build/native/aot/units.json")
     assert(not units:find("feature-detector", 1, true), "Wasm builds no feature detector: " .. units)
     local pipe = assert(io.popen(("grep -rhoE 'kernel ?\\( ?\\{[^}]*\\}' %q"):format(dir .. "/build/native")))
@@ -2648,7 +2644,7 @@ function M.aWasmTierRangeFallsBackToScalarWithoutSimd128()
     for unit in call:gmatch('\\?"(u%x+)\\?"') do
         candidates[#candidates + 1] = '"' .. unit .. '"'
     end
-    test.equal(#candidates, 2, "both tiers are named at the call site: " .. call)
+    test.eq(#candidates, 2, "both tiers are named at the call site: " .. call)
     local script = dir .. "/fallback.mjs"
     local handle = assert(io.open(script, "wb"))
     handle:write(
@@ -2724,12 +2720,12 @@ function M.aBrowserGuestLibraryCarriesItsOwnRuntime()
     )
     local out = pipe:read("*a")
     pipe:close()
-    test.equal(tonumber(out:match("__exit__:(%d+)%s*$")), 0, out)
+    test.eq(tonumber(out:match("__exit__:(%d+)%s*$")), 0, out)
     local library = assert(read(dir .. "/dist/lib/libapp_aot.so"), "the guest library is written")
-    test.equal(library:sub(1, 5), "\127ELF\1", "a 32-bit ELF")
-    test.equal(library:byte(19), 3, "for i386")
+    test.eq(library:sub(1, 5), "\127ELF\1", "a 32-bit ELF")
+    test.eq(library:byte(19), 3, "for i386")
     local app = assert(read(dir .. "/dist/app.lua"))
-    test.equal(app:find("nupp.runtime.aotruntime", 1, true), nil, "the loader passes no runtime table")
+    test.eq(app:find("nupp.runtime.aotruntime", 1, true), nil, "the loader passes no runtime table")
 end
 
 --- Every builder shape the fixture holds -- value streams, scratch buffers,
@@ -2746,7 +2742,7 @@ function M.everyBuilderShapeLinksIntoAWindowsDll()
     )
     manifest:close()
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     assert(read(dir .. "/build/native/lib/native_aot.dll"), "the DLL is written")
 end
 
@@ -2781,9 +2777,9 @@ return {rows = rows}
     )
     manifest:close()
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local library = assert(read(dir .. "/build/native/lib/native_aot.dll"), "the DLL is linked")
-    test.equal(library:sub(1, 2), "MZ", "a PE image")
+    test.eq(library:sub(1, 2), "MZ", "a PE image")
     assert(library:find("msvcrt.dll", 1, true), "the C runtime's math is imported")
     assert(library:find("ks_dll_main", 1, true), "the entry point binds the Lua API")
 end
@@ -2808,9 +2804,9 @@ function M.aDeclaredMinimumCarriesOnlyItsSelectedTier()
     local dir = project("emit-wasm")
     withKeys(dir, 'aotFeatures = {minimum = "simd128"},')
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     assert(read(tieredUnit(dir, "simd128")), "the required tier travels")
-    test.equal(read(tieredUnit(dir, "scalar")), nil, "and the excluded tier does not")
+    test.eq(read(tieredUnit(dir, "scalar")), nil, "and the excluded tier does not")
 end
 
 function M.aFeatureRangeRejectsUnknownKeys()
@@ -2821,7 +2817,7 @@ function M.aFeatureRangeRejectsUnknownKeys()
         .. 'aotFeatures = {minimum = "avx2", maximum = "avx512f", preferred = "avx2"},'
     )
     local out, code = build(dir)
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(out:find('has no key "preferred"', 1, true), out)
 end
 
@@ -2832,7 +2828,7 @@ function M.aFeatureRangeRejectsAMinimumWiderThanItsMaximum()
         'aotTarget = "x86_64-unknown-linux-gnu", ' .. 'aotFeatures = {minimum = "avx512f", maximum = "avx2"},'
     )
     local out, code = build(dir)
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(out:find("minimum avx512f is wider than maximum avx2", 1, true), out)
 end
 
@@ -2842,7 +2838,7 @@ function M.requireRefusesAWasmTarget()
     local dir = project("require")
     withKeys(dir, 'aotTarget = "wasm32-unknown-emscripten",')
     local out, code = build(dir)
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(out:find('aot = "require" links a native library', 1, true), out)
     assert(out:find('use "emit-wasm" or "require-wasm"', 1, true), out)
 end
@@ -2851,7 +2847,7 @@ function M.anUnknownCrossTargetIsRejected()
     local dir = project("require")
     withKeys(dir, 'aotTarget = "sparc-sun-solaris",')
     local out, code = build(dir)
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(
         out:find("aotTarget", 1, true) and out:find("unknown target", 1, true),
         "and names the key as well as the value: " .. out
@@ -2864,7 +2860,7 @@ function M.aTierIsCheckedAgainstTheTargetItAppliesTo()
     -- of all tiers would accept it; it has to be checked against the target.
     withKeys(dir, 'aotTarget = "aarch64-apple-darwin", aotFeatures = {maximum = "avx2"},')
     local out, code = build(dir)
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(out:find("aarch64 has no feature tier avx2", 1, true), out)
 end
 
@@ -2883,7 +2879,7 @@ function M.crossCompilingEmitsThatTargetsCode()
     local dir = project("require")
     withKeys(dir, ('aotTarget = "%s",'):format(elsewhere))
     local out, code = build(dir)
-    test.equal(code, 0, ("a target this machine is not still emits (fixture at %s)\n%s"):format(dir, out))
+    test.eq(code, 0, ("a target this machine is not still emits (fixture at %s)\n%s"):format(dir, out))
     local crossTiers = buildTiers(elsewhere, nil)
     local cross = assert(read(tieredUnit(dir, crossTiers[1].tier)))
     assert(cross ~= host, "and not what the host produced")
@@ -2893,7 +2889,7 @@ end
 function M.anUnknownPolicyIsRejected()
     local dir = project("sometimes")
     local out, code = build(dir)
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(out:find('must be "off", "require", "emit-wasm" or "require-wasm"', 1, true), out)
 end
 
@@ -2901,13 +2897,13 @@ function M.wasmPoliciesFixTheirTargetAndFeatureVocabulary()
     local dir = project("emit-wasm")
     withKeys(dir, 'host = "browser", aotTarget = "x86_64-unknown-linux-gnu",')
     local out, code = build(dir)
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(out:find("fixes aotTarget to wasm32-unknown-emscripten", 1, true), out)
 
     dir = project("emit-wasm")
     withKeys(dir, 'host = "browser", aotFeatures = {maximum = "avx2"},')
     out, code = build(dir)
-    test.equal(code, 1, out)
+    test.eq(code, 1, out)
     assert(out:find("wasm32 has no feature tier avx2; it has scalar, simd128", 1, true), out)
 end
 
@@ -2966,8 +2962,8 @@ end
 export = {first=first, middle=middle, last=last, apply=apply, scaled=scaled}
 ]=]
     local artifacts = lowered(source)
-    test.equal(require("nupp.compiler.aot.wasmbridge").validate(artifacts.programs), nil)
-    test.equal(#artifacts.constFamilies, 1)
+    test.eq(require("nupp.compiler.aot.wasmbridge").validate(artifacts.programs), nil)
+    test.eq(#artifacts.constFamilies, 1)
     local rewritten = aot.wasmDispatch(
         source,
         artifacts.programs,
@@ -2987,13 +2983,13 @@ export = {first=first, middle=middle, last=last, apply=apply, scaled=scaled}
             assert(rewritten:find("return " .. program.name .. "(", 1, true), rewritten)
         end
     end
-    test.equal(specializations, 2, "each demanded factor is its own specialization")
+    test.eq(specializations, 2, "each demanded factor is its own specialization")
     assert(not rewritten:find("return value *", 1, true), "the generic kernel body must not remain interpreted")
     for _, name in ipairs({"first", "middle", "last"}) do
         assert(rewritten:find("local function " .. name .. "(", 1, true), "mixed declaration offsets preserved")
     end
     local generated = parser.parse(rewritten, "wasmconst.nupp")
-    test.equal(#generated.errors, 0)
+    test.eq(#generated.errors, 0)
     for _, problem in ipairs(
         compilerCheck.check(generated, "wasmconst.nupp", envMod.new(HERE .. "/.."), {
             generatedSource = true
@@ -3002,11 +2998,11 @@ export = {first=first, middle=middle, last=last, apply=apply, scaled=scaled}
         assert(not diagnosticMod.isFatal(problem), (problem.msg or problem.message) .. "\n" .. rewritten)
     end
     local lua, errors = require("nupp.compiler.lua.gen").generate(generated, "wasmconst.nupp")
-    test.equal(#errors, 0)
+    test.eq(#errors, 0)
     local completed = {}
     local browser = {
         kernel = function(unit, symbol)
-            test.equal(unit, "unit")
+            test.eq(unit, "unit")
             return function()
                 completed[symbol] = (completed[symbol] or 0) + 1
                 return 44
@@ -3019,11 +3015,11 @@ export = {first=first, middle=middle, last=last, apply=apply, scaled=scaled}
     setfenv(loaded, globals)
     local mod = loaded()
     local two, three = mod.apply(3)
-    test.equal(two, 44, "the generic kernel routes through the bound export")
-    test.equal(three, 44, "and so does its other specialization")
+    test.eq(two, 44, "the generic kernel routes through the bound export")
+    test.eq(three, 44, "and so does its other specialization")
     for _, family in ipairs(artifacts.constFamilies) do
         for _, program in ipairs(family.programs) do
-            test.equal(completed[program.symbol], 1)
+            test.eq(completed[program.symbol], 1)
         end
     end
     local ok, why = pcall(mod.scaled, 3, 7)
@@ -3085,8 +3081,8 @@ function M.aReplacementLeavesThreeModuleLocalsWhateverTheTierCount()
                 end
             end
             local declares = detector and #tiers > 1
-            test.equal(count, declares and 4 or 3, source)
-            test.equal(detectorLine ~= nil, declares, source)
+            test.eq(count, declares and 4 or 3, source)
+            test.eq(detectorLine ~= nil, declares, source)
             if detectorLine ~= nil then
                 assert(detectorLine:find("^cdef "), "the detector is a module local, not scoped away: " .. source)
             end
@@ -3095,7 +3091,7 @@ function M.aReplacementLeavesThreeModuleLocalsWhateverTheTierCount()
 end
 
 function M.independentWasmRuntimeRejectsUnexpectedImports()
-    test.equal(read(NATIVE_HERE .. "/../runtime/wasm/build-app-host.sh"), nil)
+    test.eq(read(NATIVE_HERE .. "/../runtime/wasm/build-app-host.sh"), nil)
     local runtime = assert(read(NATIVE_HERE .. "/../runtime/luajit/aot.mjs"))
     assert(runtime:find("Unexpected independent Wasm import", 1, true), runtime)
     assert(runtime:find("wasi_snapshot_preview1", 1, true), runtime)
@@ -3252,9 +3248,9 @@ export = {boxed = boxed}
         manifest:close()
         assert(os.execute(("rm -rf %q"):format(dir .. "/build")) == 0)
         local out, code = build(dir)
-        test.equal(code, 0, out)
+        test.eq(code, 0, out)
         local rebuilt, rebuildCode = build(dir)
-        test.equal(rebuildCode, 0, rebuilt)
+        test.eq(rebuildCode, 0, rebuilt)
         local script = [[
             local kernel = require("kernel")
             local compiled = rawget(_G, "__nuppAotCompiled") or {}
@@ -3272,7 +3268,7 @@ end
 function M.pathNormalizationUsesOneBodyAcrossBuildPolicies()
     local dir = pathProject("off")
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     assert(os.execute(("cp -r %q %q"):format(dir .. "/build/native", dir .. "/ordinary")) == 0)
 
     local manifest = assert(read(dir .. "/nupp.lua"))
@@ -3283,7 +3279,7 @@ function M.pathNormalizationUsesOneBodyAcrossBuildPolicies()
     handle:write((manifest:gsub('aot = "off"', 'aot = "require"')))
     handle:close()
     out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
 
     local script = [[
       local compiled = assert(loadfile("build/native/pathnormalizer.lua"))()
@@ -3355,7 +3351,7 @@ end
 function M.aKernelThatOnlyReadsALengthStillBuilds()
     local dir = lengthOnlyProject()
     local out, code = build(dir)
-    test.equal(code, 0, "a span read only for its length is not a build failure\n" .. out)
+    test.eq(code, 0, "a span read only for its length is not a build failure\n" .. out)
 
     local script = [[
       local ffi = require("ffi")
@@ -3484,7 +3480,7 @@ export = {logical = logical, guarded = guarded, stringValue = stringValue, rever
         )
         source:close()
         local out, code = build(dir)
-        test.equal(code, 0, ("logical values at %s build under %s: %s"):format(dir, policy, out))
+        test.eq(code, 0, ("logical values at %s build under %s: %s"):format(dir, policy, out))
         local script = [[
             local m = require("logical")
             local ffi = require("ffi")
@@ -3509,12 +3505,8 @@ export = {logical = logical, guarded = guarded, stringValue = stringValue, rever
         answers[policy] = (pipe:read("*a"):gsub("%s+$", ""))
         pipe:close()
     end
-    test.equal(
-        answers.require,
-        answers.off,
-        "compiled logical operators preserve Lua values and selected-branch effects"
-    )
-    test.equal(
+    test.eq(answers.require, answers.off, "compiled logical operators preserve Lua values and selected-branch effects")
+    test.eq(
         answers.require,
         "7\t1\t0\ttrue\n9\t10\t0\ttrue\n0\t1\t0\ttrue\ntrue\t1\n2147483649\t42\t0\t0\n[]\tfallback\n2147483649\t42\t0\t0\n1\t0\n1\n3\t0\n0\t9"
     )
@@ -3586,7 +3578,7 @@ return {width=width, read=read, readBase=readBase, write=write, readFields=readF
     )
     handle:close()
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local lib = ffi.load(libraryPath(dir))
     local names = {}
     for _, name in ipairs({"width", "read", "read_base", "write", "read_fields", "write_field"}) do
@@ -3610,7 +3602,7 @@ void %s(void *, uint32_t, size_t);
     for i = 0, 63 do
         input[i] = 100 + i
     end
-    test.equal(
+    test.eq(
         tonumber(lib[names.read_fields](input, 0, 32)),
         201 + 4 * lanes,
         "paired load retains its vector displacement"
@@ -3618,11 +3610,11 @@ void %s(void *, uint32_t, size_t);
     -- The count is synthetic; every defined access wraps into the tiny buffer
     -- or is inactive at index zero. No multi-gigabyte allocation is necessary.
     local count, low, zero = 4294967296 + 128, 4294967296 - lanes, 4294967295 - lanes
-    test.equal(tonumber(lib[names.read](input, low, count)), 100, "derived load retains its wrapping index: " .. dir)
-    test.equal(tonumber(lib[names.read](input, zero, count)), 0, "derived index zero does not read")
-    test.equal(tonumber(lib[names.read_base](input, 4294967295, count)), 0, "base index zero does not read")
-    test.equal(tonumber(lib[names.read_fields](input, low, count)), 201, "paired fields retain their wrapping index")
-    test.equal(tonumber(lib[names.read_fields](input, zero, count)), 0, "field index zero does not read")
+    test.eq(tonumber(lib[names.read](input, low, count)), 100, "derived load retains its wrapping index: " .. dir)
+    test.eq(tonumber(lib[names.read](input, zero, count)), 0, "derived index zero does not read")
+    test.eq(tonumber(lib[names.read_base](input, 4294967295, count)), 0, "base index zero does not read")
+    test.eq(tonumber(lib[names.read_fields](input, low, count)), 201, "paired fields retain their wrapping index")
+    test.eq(tonumber(lib[names.read_fields](input, zero, count)), 0, "field index zero does not read")
     for _, entry in ipairs({{name = "write", stride = 1}, {name = "write_field", stride = 2}}) do
         for _, cursor in ipairs({low, zero}) do
             local output = ffi.new("uint32_t[64]")
@@ -3632,11 +3624,7 @@ void %s(void *, uint32_t, size_t);
             lib[names[entry.name]](output, cursor, count)
             for i = 0, 63 do
                 local changed = cursor == low and i < lanes * entry.stride and i % entry.stride == 0
-                test.equal(
-                    tonumber(output[i]),
-                    changed and 7 or 11,
-                    entry.name .. " at " .. cursor .. ": element " .. i
-                )
+                test.eq(tonumber(output[i]), changed and 7 or 11, entry.name .. " at " .. cursor .. ": element " .. i)
             end
         end
     end
@@ -3680,7 +3668,7 @@ return {triples = triples}
     )
     handle:close()
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local lib = ffi.load(libraryPath(dir))
     local name = librarySymbol(dir, lib, "ks_triples")
     ffi.cdef(("uint32_t %s(void *, const void *, size_t, size_t);"):format(name))
@@ -3715,9 +3703,9 @@ return {triples = triples}
             local expected, expectedWritten = oracle(source, outputCount)
             local written = tonumber(lib[name](output, bytes, outputCount, sourceCount))
             local label = ("source %d, output %d"):format(sourceCount, outputCount)
-            test.equal(written, expectedWritten, label .. ": bytes written")
+            test.eq(written, expectedWritten, label .. ": bytes written")
             for i = 1, outputCount do
-                test.equal(tonumber(output[i - 1]), expected[i], label .. ": byte " .. i)
+                test.eq(tonumber(output[i - 1]), expected[i], label .. ": byte " .. i)
             end
         end
     end
@@ -3730,7 +3718,7 @@ return {triples = triples}
     for _ in body:gmatch("icmp ") do
         compares = compares + 1
     end
-    test.equal(compares, 4, "two guards of two conjuncts, and no per-access check:\n" .. body)
+    test.eq(compares, 4, "two guards of two conjuncts, and no per-access check:\n" .. body)
 end
 
 -- A three-wide window over `rgb` at a cursor bounded by `#grey`, in range
@@ -3758,7 +3746,7 @@ return {box3 = box3}
     )
     handle:close()
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local lib = ffi.load(libraryPath(dir))
     local name = librarySymbol(dir, lib, "ks_box3")
     ffi.cdef(("void %s(void *, const void *, size_t, size_t);"):format(name))
@@ -3774,7 +3762,7 @@ return {box3 = box3}
         local grey = ffi.new("uint8_t[?]", math.max(greyCount, 1))
         lib[name](grey, rgb, greyCount, rgbCount)
         for i = 1, greyCount do
-            test.equal(
+            test.eq(
                 tonumber(grey[i - 1]),
                 source[i] + source[i + 1] + source[i + 2],
                 ("grey %d: window at %d"):format(greyCount, i)
@@ -3790,7 +3778,7 @@ return {box3 = box3}
     for _ in body:gmatch("br i1 ") do
         branches = branches + 1
     end
-    test.equal(branches, 1, "the loop guard, and no per-access check:\n" .. body)
+    test.eq(branches, 1, "the loop guard, and no per-access check:\n" .. body)
     assert(not body:find("mul nsw i64 %%count_grey", 1, true), "no assumption multiplies a count:\n" .. body)
 end
 
@@ -3838,7 +3826,7 @@ export const signed = signed
         )
         source:close()
         local out, code = build(dir)
-        test.equal(code, 0, ("the aot=%s carry fixture at %s builds: %s"):format(policy, dir, out))
+        test.eq(code, 0, ("the aot=%s carry fixture at %s builds: %s"):format(policy, dir, out))
         local script = [[
             local carry = require("carry")
             local span = require("binary.span")
@@ -3866,15 +3854,15 @@ export const signed = signed
     end
     local ordinary, ordinaryDir = answer("off")
     local native, nativeDir = answer("require")
-    test.equal(ordinary, table.concat(expected, " "), "the interpreted body wraps as bit.tobit does: " .. ordinaryDir)
-    test.equal(native, ordinary, ("the compiled body agrees (aot=require at %s)"):format(nativeDir))
+    test.eq(ordinary, table.concat(expected, " "), "the interpreted body wraps as bit.tobit does: " .. ordinaryDir)
+    test.eq(native, ordinary, ("the compiled body agrees (aot=require at %s)"):format(nativeDir))
 end
 
 function M.wideBitwiseAnswersAgreeWithAndWithoutAot()
     local function answer(policy)
         local dir = wideBitwiseProject(policy)
         local out, code = build(dir)
-        test.equal(code, 0, ("the aot=%s wide-bitwise fixture at %s builds: %s"):format(policy, dir, out))
+        test.eq(code, 0, ("the aot=%s wide-bitwise fixture at %s builds: %s"):format(policy, dir, out))
         local pipe = assert(
             io.popen(
                 (
@@ -3894,12 +3882,12 @@ function M.wideBitwiseAnswersAgreeWithAndWithoutAot()
 
     local ordinary, ordinaryDir = answer("off")
     local compiled, compiledDir = answer("require")
-    test.equal(
+    test.eq(
         compiled,
         ordinary,
         ("uint64 bitwise differs between aot=require at %s and aot=off at %s"):format(compiledDir, ordinaryDir)
     )
-    test.equal(
+    test.eq(
         compiled,
         "4294967296ULL\n36\t32\t64\t3ULL\t4294967296ULL\t18446744073709551615ULL\t9223372036854775808ULL\t9223372036854775808ULL\n1017ULL\n2147483649\t4294967295\t2147483646\t2\t1073741824\t2147483646",
         "uint64 literals and operations agree on both routes"
@@ -3958,7 +3946,7 @@ export const joined = joined
     )
     source:close()
     local out, code = build(dir)
-    test.equal(code, 0, ("the paired swizzle fixture at %s builds: %s"):format(dir, out))
+    test.eq(code, 0, ("the paired swizzle fixture at %s builds: %s"):format(dir, out))
     local pipe = assert(
         io.popen(
             (
@@ -3974,7 +3962,7 @@ export const joined = joined
     pipe:close()
     local lanes = tonumber(answered:match("^(%d+)"))
     assert(lanes and lanes >= 16, "the entry answers the lane count: " .. answered)
-    test.equal(
+    test.eq(
         answered,
         ("%d\t%d\t%d\t0"):format(lanes, 1 + 256 * 101, 100 + lanes),
         "lane one reads the first vector, lanes past it the second, and past both or zero answers zero"
@@ -4013,7 +4001,7 @@ function M.aWrapIsModularOnBothRoutes()
 
     local ordinary, ordinaryDir = builderAnswer("off", script)
     local native, nativeDir = builderAnswer("require", script)
-    test.equal(
+    test.eq(
         native,
         ordinary,
         (
@@ -4037,7 +4025,7 @@ end
 function M.binary16StorageConversionsAgreeInCompiledCode()
     local dir = halfProject()
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local script = [[
       local ffi = require("ffi")
       local spans = require("binary.span")
@@ -4146,7 +4134,7 @@ function M.aFixedScratchIsZeroedAndStillRefusesAnIndexOutsideIt()
     -- zero, and read rather than refused.
     local ordinaryInside, ordinaryDir = answer("off", 7)
     local nativeInside, nativeDir = answer("require", 7)
-    test.equal(
+    test.eq(
         nativeInside,
         ordinaryInside,
         (
@@ -4204,7 +4192,7 @@ function M.aFixedByteScratchIsZeroedWritableInAnyOrderAndStillBounded()
     -- Byte five was written with nothing below it; two and seven never were.
     local ordinary, ordinaryDir = answer("off", 7)
     local native, nativeDir = answer("require", 7)
-    test.equal(
+    test.eq(
         native,
         ordinary,
         (
@@ -4263,7 +4251,7 @@ function M.aReusedScratchNameDoesNotInheritAnEarlierBuffersBound()
     -- Word 0 is the one thing written, so both routes read it.
     local nativeWritten, nativeDir = answer("require", 0)
     local ordinaryWritten, ordinaryDir = answer("off", 0)
-    test.equal(
+    test.eq(
         nativeWritten,
         ordinaryWritten,
         (
@@ -4317,7 +4305,7 @@ function M.luaBuilderRegistrationReturnsOrdinaryTables()
         "\n(runtime searched at %s, present: %s)"
     ):format(runtime or "serde.valuebuilder (not on module path)", tostring(handle ~= nil))
 
-    test.equal(
+    test.eq(
         native,
         ordinary,
         (
@@ -4348,7 +4336,7 @@ function M.luaBuilderRegistrationReturnsOrdinaryTables()
       ]]
     local ordinarySlices, ordinarySliceDir = builderAnswer("off", SLICE_RANGES)
     local nativeSlices, nativeSliceDir = builderAnswer("require", SLICE_RANGES)
-    test.equal(
+    test.eq(
         nativeSlices,
         ordinarySlices,
         (
@@ -4422,9 +4410,9 @@ function M.theAotRuntimeTableMatchesItsLowering()
     for position, slot in ipairs(runtime.SLOTS) do
         expected[position] = slot.name
     end
-    test.equal(table.concat(names, " "), table.concat(expected, " "), "runtime slots follow ks_rt_table")
+    test.eq(table.concat(names, " "), table.concat(expected, " "), "runtime slots follow ks_rt_table")
     local header = select(2, slots:gsub("%(const void %*%)%(uintptr_t%)", ""))
-    test.equal(header, runtime.HEADER, "the leading words are the version and block sizes")
+    test.eq(header, runtime.HEADER, "the leading words are the version and block sizes")
     assert(slots:find("KS_RT_ABI_VERSION", 1, true), "slot 0 is the ABI version")
     assert(source:find("#define KS_RT_ABI_VERSION " .. tostring(runtime.VERSION) .. "u", 1, true), "ABI version")
 
@@ -4439,7 +4427,7 @@ function M.theAotRuntimeTableMatchesItsLowering()
         substring = "AOT string.sub bounds must be integers",
     }
     for key, text in pairs(wanted) do
-        test.equal(texts[runtime.MESSAGE[key] + 1], text, "message id " .. key)
+        test.eq(texts[runtime.MESSAGE[key] + 1], text, "message id " .. key)
     end
 end
 
@@ -4461,7 +4449,7 @@ function M.theGuestRuntimeIrIsCompiledFromTheCurrentSources()
     local ir = assert(read(HERE .. "/../src/nupp/compiler/aot/llvm/lua/runtime-i686.ll"))
     local recorded = ir:match("\n; Inputs: ks_rt%.c ks_lua%.h, sha256 (%x+)%.\n")
     assert(recorded, "runtime-i686.ll records the digest of its inputs")
-    test.equal(recorded, digest, "runtime-i686.ll is stale: rerun scripts/guest-runtime")
+    test.eq(recorded, digest, "runtime-i686.ll is stale: rerun scripts/guest-runtime")
 end
 
 function M.luaBuilderChoosesATieredRegistrarAtLoad()
@@ -4500,7 +4488,7 @@ function M.generatedBindingsQuoteLibraryPaths()
     }
     local foreign = table.concat(binding.foreign(kernel, library), "\n")
     local parsedForeign = parser.parse(foreign, "foreign-binding.nupp")
-    test.equal(#parsedForeign.errors, 0, parsedForeign.errors[1] and parsedForeign.errors[1].msg)
+    test.eq(#parsedForeign.errors, 0, parsedForeign.errors[1] and parsedForeign.errors[1].msg)
 
     local builder = {
         entryMode = "lua-builder",
@@ -4512,7 +4500,7 @@ function M.generatedBindingsQuoteLibraryPaths()
     }
     local loader = table.concat(binding.builderLoader(builder, library), "\n")
     local parsedLoader = parser.parse(loader, "builder-binding.nupp")
-    test.equal(#parsedLoader.errors, 0, parsedLoader.errors[1] and parsedLoader.errors[1].msg)
+    test.eq(#parsedLoader.errors, 0, parsedLoader.errors[1] and parsedLoader.errors[1].msg)
 end
 
 --- What a recorded library key is evidence about, in two ordered phases.
@@ -4528,8 +4516,8 @@ function M.aRecordedLibraryKeyIsEvidenceAboutTheObjectRatherThanABelief()
     local linked = assert(modified(path), "the library was linked, at " .. path)
     os.execute("sleep 1.1")
     local out, code = build(dir)
-    test.equal(code, 0, ("an unchanged project rebuilds (require fixture at %s): %s"):format(dir, out))
-    test.equal(
+    test.eq(code, 0, ("an unchanged project rebuilds (require fixture at %s): %s"):format(dir, out))
+    test.eq(
         modified(path),
         linked,
         ("a library whose key still matches is left alone (require fixture at %s)"):format(dir)
@@ -4540,9 +4528,9 @@ function M.aRecordedLibraryKeyIsEvidenceAboutTheObjectRatherThanABelief()
     local before = assert(libraryKey(dir), "the build recorded what it linked under, at " .. dir)
     os.remove(path)
     out, code = build(dir)
-    test.equal(code, 0, ("a project whose library was deleted rebuilds (require fixture at %s): %s"):format(dir, out))
+    test.eq(code, 0, ("a project whose library was deleted rebuilds (require fixture at %s): %s"):format(dir, out))
     assert(read(path), ("a deleted library comes back rather than being believed (require fixture at %s)"):format(dir))
-    test.equal(
+    test.eq(
         libraryKey(dir),
         before,
         ("under the same key, because nothing about it changed (require fixture at %s)"):format(dir)
@@ -4561,8 +4549,8 @@ function M.aProjectWithNoAotFunctionLinksNothing()
     manifest:close()
 
     local out, code = build(dir)
-    test.equal(code, 0, "a project with nothing to compile still builds\n" .. out)
-    test.equal(read(libraryPath(dir)), nil, "and gets no library rather than an empty one")
+    test.eq(code, 0, "a project with nothing to compile still builds\n" .. out)
+    test.eq(read(libraryPath(dir)), nil, "and gets no library rather than an empty one")
 end
 
 function M.theBuiltLibraryLoadsAndComputes()
@@ -4592,7 +4580,7 @@ function M.theBuiltLibraryLoadsAndComputes()
         ):format(scale, sum, layout)
     )
 
-    test.equal(tonumber(lib[layout]()), 8, "the object reports the layout the wrapper will check against")
+    test.eq(tonumber(lib[layout]()), 8, "the object reports the layout the wrapper will check against")
 
     local count = 1000
     local output = ffi.new("NuppAotSample[?]", count)
@@ -4603,25 +4591,25 @@ function M.theBuiltLibraryLoadsAndComputes()
     lib[scale](output, source, 1, count, 3.0, count)
 
     for i = 0, count - 1 do
-        test.equal(output[i].value, source[i].value * 3.0 + source[i].weight, "value at row " .. i)
-        test.equal(output[i].weight, source[i].weight * 3.0, "weight at row " .. i)
+        test.eq(output[i].value, source[i].value * 3.0 + source[i].weight, "value at row " .. i)
+        test.eq(output[i].weight, source[i].weight * 3.0, "weight at row " .. i)
     end
-    test.equal(output[7].value, 7 * 0.5 * 3.0 + 7 * 0.25, "and it is the arithmetic the source asked for")
+    test.eq(output[7].value, 7 * 0.5 * 3.0 + 7 * 0.25, "and it is the arithmetic the source asked for")
 
     local first = ffi.new("uint8_t[2]", {1, 2})
     local second = ffi.new("uint8_t[3]", {3, 4, 250})
     local result = ffi.new("KsResult_ks_sum_bytes")
     lib[sum](first, second, 2, 3, result)
-    test.equal(result.v1, 260, "independent block loops read their own span bounds and return a scalar")
-    test.equal(tonumber(result.v2), 2, "the second scalar result crosses the result aggregate")
-    test.equal(tonumber(result.v3), 3, "the third scalar result crosses the result aggregate")
+    test.eq(result.v1, 260, "independent block loops read their own span bounds and return a scalar")
+    test.eq(tonumber(result.v2), 2, "the second scalar result crosses the result aggregate")
+    test.eq(tonumber(result.v3), 3, "the third scalar result crosses the result aggregate")
 
 end
 
 function M.constGenericDispatcherCallsTheBuiltBodyAndRejectsAnOpenTuple()
     local dir = constProject("require")
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local generated = assert(read(dir .. "/build/native/constkernel.lua"))
     assert(
         generated:find("local function __nuppConst_doubled_", 1, true),
@@ -4703,7 +4691,7 @@ export = {measureString = measureString, measureBuffer = measureBuffer}
     source:close()
 
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local generated = assert(read(dir .. "/build/native/bytes.lua"))
     assert(
         generated:find("local function __nuppConst_measure_", 1, true),
@@ -4748,7 +4736,7 @@ return kernel.doubled(5.0, 4)
     caller:close()
 
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local generated = assert(read(dir .. "/build/native/constkernel.lua"))
     assert(generated:find("== 4", 1, true), "the declaration dispatcher includes the tuple demanded by its caller")
 
@@ -4765,7 +4753,7 @@ function M.correctedBinary32OperationsMatchTheRuntimeBitForBit()
     source:write(CORRECTED_KERNEL)
     source:close()
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
 
     local ffi = require("ffi")
     local lib = ffi.load(libraryPath(dir))
@@ -4837,9 +4825,9 @@ function M.correctedBinary32OperationsMatchTheRuntimeBitForBit()
             bits(f32.max(sample.a, sample.b)),
             bits(f32.fma(sample.a, sample.b, sample.c)),
         }
-        test.equal(bits(output[index].least), want[1], "min differs at case " .. index)
-        test.equal(bits(output[index].greatest), want[2], "max differs at case " .. index)
-        test.equal(bits(output[index].fused), want[3], "fma differs at case " .. index)
+        test.eq(bits(output[index].least), want[1], "min differs at case " .. index)
+        test.eq(bits(output[index].greatest), want[2], "max differs at case " .. index)
+        test.eq(bits(output[index].fused), want[3], "fma differs at case " .. index)
     end
 end
 
@@ -4864,7 +4852,7 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
     handle:write(SIMD_KERNEL)
     handle:close()
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
 
     if artifacts then
         local function save(name, bytes)
@@ -4931,10 +4919,10 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
         end
         trace("tail length " .. count .. " packed quotes")
         local packedQuotes = tonumber(lib[countQuotes](source, count))
-        test.equal(packedQuotes, expected, "packed and scalar tail lanes agree at length " .. count)
+        test.eq(packedQuotes, expected, "packed and scalar tail lanes agree at length " .. count)
         trace("tail length " .. count .. " scalar quotes")
         local scalarQuotes = tonumber(lib[countQuotesScalar](source, count))
-        test.equal(
+        test.eq(
             packedQuotes,
             scalarQuotes,
             "packed implementation agrees with its forced-scalar oracle at length " .. count
@@ -4948,14 +4936,14 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
         trace("tail length " .. count .. " scalar shapes")
         local oracle = ffi.new("KsMaskShapesResult")
         lib[shapesScalar](source, count, oracle)
-        test.equal(packed.v1, oracle.v1, "packed bits agree with the scalar oracle at length " .. count)
-        test.equal(packed.v2, oracle.v2, "packed tail agrees with the scalar oracle at length " .. count)
-        test.equal(
+        test.eq(packed.v1, oracle.v1, "packed bits agree with the scalar oracle at length " .. count)
+        test.eq(packed.v2, oracle.v2, "packed tail agrees with the scalar oracle at length " .. count)
+        test.eq(
             tonumber(packed.v3),
             tonumber(oracle.v3),
             "packed any agrees with the scalar oracle at length " .. count
         )
-        test.equal(
+        test.eq(
             tonumber(packed.v4),
             tonumber(oracle.v4),
             "packed all agrees with the scalar oracle at length " .. count
@@ -4967,29 +4955,29 @@ function M.scopedPackedBytesHandleEveryTailWithoutOverreading()
     local add = librarySymbol(dir, lib, "ks_mask_add")
     local carried = ffi.new("KsMaskAddResult")
     lib[add](0xFFFFFFFF, 0, 1, carried)
-    test.equal(tonumber(carried.v1), 0, "the low word wraps")
-    test.equal(tonumber(carried.v2), 1, "and carries into the high word")
+    test.eq(tonumber(carried.v1), 0, "the low word wraps")
+    test.eq(tonumber(carried.v2), 1, "and carries into the high word")
     local plain = ffi.new("KsMaskAddResult")
     lib[add](2, 7, 3, plain)
-    test.equal(tonumber(plain.v1), 5, "an add that does not carry stays put")
-    test.equal(tonumber(plain.v2), 7, "and leaves the high word alone")
+    test.eq(tonumber(plain.v1), 5, "an add that does not carry stays put")
+    test.eq(tonumber(plain.v2), 7, "and leaves the high word alone")
     local saturated = ffi.new("KsMaskAddResult")
     lib[add](0xFFFFFFFF, 0xFFFFFFFF, 1, saturated)
-    test.equal(tonumber(saturated.v1), 0, "the low word wraps at the top")
-    test.equal(tonumber(saturated.v2), 0, "and the carry out of the high word is dropped")
+    test.eq(tonumber(saturated.v1), 0, "the low word wraps at the top")
+    test.eq(tonumber(saturated.v2), 0, "and the carry out of the high word is dropped")
     trace("mask operations")
     local mask = ffi.new("KsMaskOpsResult")
     lib[maskOps](5, 1, mask)
-    test.equal(tonumber(mask.v1), 3, "prefix XOR crosses the low mask word")
-    test.equal(tonumber(mask.v2), 0xFFFFFFFF, "prefix XOR carries into the high mask word")
-    test.equal(tonumber(mask.v3), 0, "firstSet finds the first logical bit")
-    test.equal(tonumber(mask.v4), 33, "clearFirst drains one bit from a 64-bit mask")
+    test.eq(tonumber(mask.v1), 3, "prefix XOR crosses the low mask word")
+    test.eq(tonumber(mask.v2), 0xFFFFFFFF, "prefix XOR carries into the high mask word")
+    test.eq(tonumber(mask.v3), 0, "firstSet finds the first logical bit")
+    test.eq(tonumber(mask.v4), 33, "clearFirst drains one bit from a 64-bit mask")
     trace("lookup")
     local lookupSource = ffi.new("uint8_t[64]")
     for i = 0, 63 do
         lookupSource[i] = i % 16
     end
-    test.equal(
+    test.eq(
         tonumber(lib[lookup](lookupSource, 64)),
         tonumber(lib[lookupScalar](lookupSource, 64)),
         "lookup and cross-vector alignment agree with the scalar oracle"
@@ -5156,7 +5144,7 @@ end
         handle:write(source);
         handle:close()
         local out, code = build(dir)
-        test.equal(code, 0, policy .. ": " .. out)
+        test.eq(code, 0, policy .. ": " .. out)
         if policy == "off" then
             ordinary = dir
         else
@@ -5170,7 +5158,7 @@ end
 
     local function expectedPosition(name, ctype, values, seed, expected)
         local input = ffi.new(ctype .. "[?]", #values, values)
-        test.equal(reference[name](spans.fromcarray(input, #values), seed), expected)
+        test.eq(reference[name](spans.fromcarray(input, #values), seed), expected)
     end
 
     expectedPosition(
@@ -5246,7 +5234,7 @@ end
                             case.name .. " ordinary reducer violates adjacent-pair tree at " .. count
                         )
                         if independent == 0 then
-                            test.equal(1 / expected, 1 / independent, "pairwise tree signed zero")
+                            test.eq(1 / expected, 1 / independent, "pairwise tree signed zero")
                         end
                         expected = independent
                     end
@@ -5274,7 +5262,7 @@ end
                                 label .. " algebraic finite error envelope"
                             )
                             if case.name == "algebraic_product" and expected == 0 then
-                                test.equal(1 / actual, 1 / expected, label .. " product signed zero")
+                                test.eq(1 / actual, 1 / expected, label .. " product signed zero")
                             end
                         else
                             assert(
@@ -5282,7 +5270,7 @@ end
                                 label .. ": " .. tostring(actual) .. " ~= " .. tostring(expected)
                             )
                             if case.resultC == "double" and actual == 0 then
-                                test.equal(1 / actual, 1 / expected, label .. " signed zero")
+                                test.eq(1 / actual, 1 / expected, label .. " signed zero")
                             end
                         end
                     end
@@ -5348,7 +5336,7 @@ end
     handle:write("return {" .. table.concat(modules, ", ") .. "}")
     handle:close()
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local lib = ffi.load(libraryPath(dir))
     local floatValues = {
         0,
@@ -5401,12 +5389,8 @@ end
             lib[native](actual, input, case.lanes, case.lanes)
             lib[scalar](reference, input, case.lanes, case.lanes)
             if case.method == "reinterpret" then
-                test.equal(ffi.string(actual, ffi.sizeof(actual)), ffi.string(input, ffi.sizeof(input)), case.name)
-                test.equal(
-                    ffi.string(reference, ffi.sizeof(reference)),
-                    ffi.string(input, ffi.sizeof(input)),
-                    case.name
-                )
+                test.eq(ffi.string(actual, ffi.sizeof(actual)), ffi.string(input, ffi.sizeof(input)), case.name)
+                test.eq(ffi.string(reference, ffi.sizeof(reference)), ffi.string(input, ffi.sizeof(input)), case.name)
             else
                 for i = 0, case.lanes - 1 do
                     local value = tonumber(input[i])
@@ -5430,7 +5414,7 @@ end
                         )
                         assert(actual[i] == reference[i], case.name .. " scalar mismatch")
                         if case.to.floating and a == 0 then
-                            test.equal(1 / a, 1 / b, case.name .. " signed zero")
+                            test.eq(1 / a, 1 / b, case.name .. " signed zero")
                         end
                     else
                         assert(
@@ -5477,7 +5461,7 @@ return {indexed = indexed, gather = gather}
     )
     handle:close()
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local ffi = require("ffi")
     local lib = ffi.load(libraryPath(dir))
     local names = {}
@@ -5508,7 +5492,7 @@ return {indexed = indexed, gather = gather}
                 end
                 lib[names[body]](actual, input, map, 16, inputCount, count)
                 for i = 0, 15 do
-                    test.equal(tonumber(actual[i]), expected[i], body .. " tail " .. count .. " lane " .. i)
+                    test.eq(tonumber(actual[i]), expected[i], body .. " tail " .. count .. " lane " .. i)
                 end
             end
         end
@@ -5519,12 +5503,12 @@ return {indexed = indexed, gather = gather}
         local actual = ffi.new("float[8]")
         lib[names[body]](actual, input, map, 8, 10, 3)
         for i = 0, 7 do
-            test.equal(tonumber(actual[i]), i < 3 and 3 or 0, body)
+            test.eq(tonumber(actual[i]), i < 3 and 3 or 0, body)
         end
     end
     local actual = ffi.new("float[16]")
     lib[names.ks_indexed](actual, input, map, 16, 10, 1)
-    test.equal(tonumber(actual[1]), 4, "inactive duplicates do not write")
+    test.eq(tonumber(actual[1]), 4, "inactive duplicates do not write")
 end
 
 function M.speciesIsOneLaneUnderAotOffAndVectorsIsNil()
@@ -5595,7 +5579,7 @@ return m
         handle:write(driver)
         handle:close()
         local out, code = build(dir)
-        test.equal(code, 0, out)
+        test.eq(code, 0, out)
         assert(not out:find("NUPP2903", 1, true), out)
         local pipe = assert(io.popen(("cd %q && luajit -e %q 2>&1"):format(dir, searchPathPrelude() .. script)))
         local text = pipe:read("*a")
@@ -5604,8 +5588,8 @@ return m
         return (text:gsub("%s+$", ""))
     end
 
-    test.equal(answer("if species = simd.vectors(array.uint32) then"), "true\t37")
-    test.equal(answer("local species = simd.species(array.uint32)\n    do"), "true\t37", "one lane as Lua")
+    test.eq(answer("if species = simd.vectors(array.uint32) then"), "true\t37")
+    test.eq(answer("local species = simd.species(array.uint32)\n    do"), "true\t37", "one lane as Lua")
     local raised = answer('local species = assert(simd.vectors(array.uint32), "this scan needs vectors")\n    do')
     assert(raised:find("^false\t") and raised:find("this scan needs vectors", 1, true), raised)
 end
@@ -5663,7 +5647,7 @@ function M.twoAotFunctionsOverOneStructBuild()
     -- Each function checks the struct against its own object's reporters, so the
     -- two layout constants have to be named apart. One name for both declared it
     -- twice and reported NUPP2008.
-    test.equal(code, 0, "two @aot functions sharing a struct compile\n" .. out)
+    test.eq(code, 0, "two @aot functions sharing a struct compile\n" .. out)
     local lua = assert(read(dir .. "/build/native/kernel.lua"))
     -- The native symbol is the snake_cased name, which is what the wrapper calls.
     assert(lua:match("ks_[0-9a-f]+_scale_both_native"), "the first wrapper calls the selected symbol")
@@ -5702,7 +5686,7 @@ function M.countedLoopsPreserveBoundAndInductionSemantics()
         source:write(assert(read(NATIVE_HERE .. "/fixtures/aot_counted.nupp")))
         source:close()
         local out, code = build(dir)
-        test.equal(code, 0, "counted loops at " .. dir .. " under " .. policy .. "\n" .. out)
+        test.eq(code, 0, "counted loops at " .. dir .. " under " .. policy .. "\n" .. out)
         local script = searchPathPrelude() .. (
             [=[
 -- Keep the oracle and aot=off route interpreted: traced FORI can choose
@@ -5865,7 +5849,7 @@ print("MODE-REFUSED")
             )
         end
     end
-    test.equal(answers.require, answers.off, "native and interpreted counted loops agree with independent oracle")
+    test.eq(answers.require, answers.off, "native and interpreted counted loops agree with independent oracle")
 end
 
 function M.theDispatchedModuleAnswersWhatTheInterpretedOneDoes()
@@ -5876,7 +5860,7 @@ function M.theDispatchedModuleAnswersWhatTheInterpretedOneDoes()
     -- produces, so building the dispatched one last is what leaves it on disk.
     local dir = project("off")
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     assert(os.execute(("cp -r %q %q"):format(dir .. "/build/native", dir .. "/ordinary")) == 0)
 
     local manifest = assert(io.open(dir .. "/nupp.lua", "rb"))
@@ -5886,7 +5870,7 @@ function M.theDispatchedModuleAnswersWhatTheInterpretedOneDoes()
     manifest:write((text:gsub('aot = "off",', 'aot = "require",')))
     manifest:close()
     out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     assert(os.execute(("cp -r %q %q"):format(dir .. "/build/native", dir .. "/dispatched")) == 0)
 
     local dispatched = assert(read(dir .. "/dispatched/kernel.lua"))
@@ -6054,7 +6038,7 @@ return {
     assert(os.remove(dir .. "/src/plain.nupp"))
 
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     assert(read(dir .. "/dist/app.lua"), "the bundle was written where it was asked for")
     assert(
         read(dir .. "/dist/lib/" .. aot.libraryFile("native", librarySuffix())),
@@ -6088,7 +6072,7 @@ function M.requireCrossCompilesToAnotherMachine()
     local dir = project("require")
     withKeys(dir, ('aotTarget = "%s", aotFeatures = {maximum = "%s"},'):format(triple, tier))
     local out, code = build(dir)
-    test.equal(code, 0, "a cross build completes rather than only being attempted\n" .. out)
+    test.eq(code, 0, "a cross build completes rather than only being attempted\n" .. out)
 
     -- What makes this a cross build is the object, not the command line.
     local pipe = assert(io.popen(("file %q 2>&1"):format(libraryPath(dir))))
@@ -6166,7 +6150,7 @@ print("VALUE " .. tostring(target[6].value))
     )
     local out = building:read("*a")
     building:close()
-    test.equal(tonumber(out:match("__exit__:(%d+)%s*$")), 0, out)
+    test.eq(tonumber(out:match("__exit__:(%d+)%s*$")), 0, out)
 
     -- Run from the repository, which is neither the project nor the output the
     -- binary was stamped into, so nothing about the answer can come from the
@@ -6201,7 +6185,7 @@ function M.anAotBuildRunsNoCCompiler()
     local out = pipe:read("*a")
     pipe:close()
     local code = assert(tonumber(out:match("__exit__:(%d+)%s*$")))
-    test.equal(code, 0, "the build succeeds\n" .. out)
+    test.eq(code, 0, "the build succeeds\n" .. out)
     local state = assert(read(dir .. "/build/native/.nupp-state.json"))
     assert(state:find('"command":"<llvm>"', 1, true), "and records the code generator it used: " .. state)
 end
@@ -6286,7 +6270,7 @@ return {
     -- Everywhere under the temporary directory except the build tree.
     local units = "\\( -name '*.ll' -o -name '*.o' \\)"
     local stray = io.popen("find '" .. dir .. "' " .. units .. " -not -path '*/build/*' 2>/dev/null"):read("*a")
-    test.equal(stray, "", "no generated unit landed outside the build directory:\n" .. stray)
+    test.eq(stray, "", "no generated unit landed outside the build directory:\n" .. stray)
     local inside = io.popen("find '" .. inner .. "/build' " .. units .. " 2>/dev/null"):read("*a")
     assert(inside:find("shared"), "the outside module's unit is under the build directory: " .. inside)
     os.execute("rm -rf '" .. dir .. "'")
@@ -6356,7 +6340,7 @@ end
     handle:write("return {" .. table.concat(modules, ", ") .. "}")
     handle:close()
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local lib = ffi.load(libraryPath(dir))
     for _, case in ipairs(cases) do
         local count = case.n * case.rows
@@ -6408,7 +6392,7 @@ end
                 if equivalenceMutation.active("signed-zero") then
                     actualBytes = string.char((actualBytes:byte(1) + 1) % 256) .. actualBytes:sub(2)
                 end
-                test.equal(
+                test.eq(
                     actualBytes,
                     expected[active],
                     equivalenceMutation.active("signed-zero")
@@ -6504,7 +6488,7 @@ end
 function M.aTargetLowersWhatItBundlesAndNothingElse()
     local dir = scopedProject()
     local out, code = build(dir)
-    test.equal(code, 0, ("the scoped fixture at %s builds: %s"):format(dir, out))
+    test.eq(code, 0, ("the scoped fixture at %s builds: %s"):format(dir, out))
     assert(
         not out:find("unreached.nupp", 1, true),
         ("a module the target does not bundle is not this target's to compile (fixture at %s): %s"):format(dir, out)
@@ -6520,7 +6504,7 @@ function M.aTargetLowersWhatItBundlesAndNothingElse()
             .. "(fixture at %s): %s"
         ):format(dir, out)
     )
-    test.equal(
+    test.eq(
         read(tieredUnit(dir, "scalar", "unreached")),
         nil,
         ("and nothing is written for the module outside the deliverable (fixture at %s)"):format(dir)
@@ -6823,7 +6807,7 @@ function M.stripMinedLoopsRunNativelyWithUnmaskedFullChunks()
     handle:write(STRIP_MINED_KERNEL)
     handle:close()
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local lib = ffi.load(libraryPath(dir))
     local symbols = {}
     for _, name in ipairs({"strip_scale", "strip_find", "strip_total"}) do
@@ -6850,9 +6834,9 @@ function M.stripMinedLoopsRunNativelyWithUnmaskedFullChunks()
             output[count] = -1
             lib[symbol](output, input, 2.0, count, count)
             for i = 0, count - 1 do
-                test.equal(output[i], i * 0.5, symbol .. " count " .. count .. " lane " .. i)
+                test.eq(output[i], i * 0.5, symbol .. " count " .. count .. " lane " .. i)
             end
-            test.equal(output[count], -1, symbol .. " count " .. count .. " canary")
+            test.eq(output[count], -1, symbol .. " count " .. count .. " canary")
         end
         local text = ffi.new("uint8_t[?]", count + 1)
         for i = 0, count - 1 do
@@ -6865,13 +6849,13 @@ function M.stripMinedLoopsRunNativelyWithUnmaskedFullChunks()
             expected = expected + i + 1
         end
         for _, symbol in ipairs(symbols.strip_total) do
-            test.equal(lib[symbol](doubles, count), expected, symbol .. " count " .. count)
+            test.eq(lib[symbol](doubles, count), expected, symbol .. " count " .. count)
         end
         for where = 0, count - 1, math.max(1, math.floor(count / 3)) do
             text[where] = 0x7A
             for _, symbol in ipairs(symbols.strip_find) do
-                test.equal(lib[symbol](text, 0x7A, count), where + 1, symbol .. " count " .. count .. " at " .. where)
-                test.equal(lib[symbol](text, 0x00, count), 0, symbol .. " count " .. count .. " absent")
+                test.eq(lib[symbol](text, 0x7A, count), where + 1, symbol .. " count " .. count .. " at " .. where)
+                test.eq(lib[symbol](text, 0x00, count), 0, symbol .. " count " .. count .. " absent")
             end
             text[where] = 65 + where % 26
         end
@@ -6943,7 +6927,7 @@ function M.widenedSpeciesAndComputedLanesAgreeWithScalarOracles()
     handle:write(WIDTH_COUPLED_KERNEL)
     handle:close()
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local lib = ffi.load(libraryPath(dir))
     local symbols = {}
     for _, name in ipairs({"grey", "prefix"}) do
@@ -6971,12 +6955,12 @@ function M.widenedSpeciesAndComputedLanesAgreeWithScalarOracles()
                 actual[i] = 61
             end
             local written = lib[symbol](actual, rgb, pixels, pixels * 3)
-            test.equal(written, pixels, symbol .. " pixels " .. pixels)
+            test.eq(written, pixels, symbol .. " pixels " .. pixels)
             for i = 0, pixels - 1 do
                 local expected = math.floor((rgb[3 * i] * 77 + rgb[3 * i + 1] * 150 + rgb[3 * i + 2] * 29) / 256)
-                test.equal(actual[i], expected, symbol .. " pixels " .. pixels .. " pixel " .. i)
+                test.eq(actual[i], expected, symbol .. " pixels " .. pixels .. " pixel " .. i)
             end
-            test.equal(actual[pixels], 61, symbol .. " pixels " .. pixels .. " writes nothing past the end")
+            test.eq(actual[pixels], 61, symbol .. " pixels " .. pixels .. " writes nothing past the end")
         end
     end
 
@@ -6994,13 +6978,13 @@ function M.widenedSpeciesAndComputedLanesAgreeWithScalarOracles()
                 actual[i] = 61
             end
             local written = lib[symbol](actual, input, count, count)
-            test.equal(written, count, symbol .. " count " .. count)
+            test.eq(written, count, symbol .. " count " .. count)
             local running = 0ULL
             for i = 0, count - 1 do
                 running = (running + input[i]) % 4294967296ULL
-                test.equal(actual[i], tonumber(running), symbol .. " count " .. count .. " lane " .. i)
+                test.eq(actual[i], tonumber(running), symbol .. " count " .. count .. " lane " .. i)
             end
-            test.equal(actual[count], 61, symbol .. " count " .. count .. " writes nothing past the end")
+            test.eq(actual[count], 61, symbol .. " count " .. count .. " writes nothing past the end")
         end
     end
 end
@@ -7012,7 +6996,7 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
     handle:write(GENERIC_VOCABULARY_KERNEL)
     handle:close()
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local lib = ffi.load(libraryPath(dir))
     local symbols = {}
     for _, name in ipairs({
@@ -7087,7 +7071,7 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
                     local value = doubles[lane]
                     expected = value > 0 and math.floor(value) or -1
                 end
-                test.equal(actual[lane], expected, symbol .. " count " .. count .. " lane " .. lane)
+                test.eq(actual[lane], expected, symbol .. " count " .. count .. " lane " .. lane)
             end
         end
     end
@@ -7138,8 +7122,8 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
                 if i < count then
                     wantX, wantY = tonumber(points[i].y), tonumber(points[i].x)
                 end
-                test.equal(tonumber(actual[i].x), wantX, symbol .. " count " .. count .. " x " .. i)
-                test.equal(tonumber(actual[i].y), wantY, symbol .. " count " .. count .. " y " .. i)
+                test.eq(tonumber(actual[i].x), wantX, symbol .. " count " .. count .. " x " .. i)
+                test.eq(tonumber(actual[i].y), wantY, symbol .. " count " .. count .. " y " .. i)
             end
         end
     end
@@ -7155,7 +7139,7 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
             lib[symbol](actual, squares, 8, count)
             for i = 0, 7 do
                 local expected = i < count and (math.sqrt(squares[i]) * 2 + 1) or -99
-                test.equal(tonumber(actual[i]), expected, symbol .. " count " .. count .. " lane " .. i)
+                test.eq(tonumber(actual[i]), expected, symbol .. " count " .. count .. " lane " .. i)
             end
         end
     end
@@ -7180,12 +7164,12 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
                 local actual = ffi.new("NuppAotSums")
                 lib[symbol](samples, seed, count, actual)
                 local label = symbol .. " seed " .. seed .. " count " .. count
-                test.equal(actual.v1, ordered:value(), label .. " ordered")
-                test.equal(actual.v2, pairwise:value(), label .. " pairwise")
-                test.equal(actual.v3, compensated:value(), label .. " compensated")
+                test.eq(actual.v1, ordered:value(), label .. " ordered")
+                test.eq(actual.v2, pairwise:value(), label .. " pairwise")
+                test.eq(actual.v3, compensated:value(), label .. " compensated")
             end
             for _, symbol in ipairs(symbols.dot) do
-                test.equal(
+                test.eq(
                     lib[symbol](samples, seed, count),
                     dot:value(),
                     symbol .. " seed " .. seed .. " count " .. count
@@ -7204,8 +7188,8 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
         for _, symbol in ipairs(symbols.sums) do
             local actual = ffi.new("NuppAotSums")
             lib[symbol](whole, 2, count, actual)
-            test.equal(actual.v4, expected, symbol .. " algebraic count " .. count)
-            test.equal(actual.v1, expected, symbol .. " ordered whole count " .. count)
+            test.eq(actual.v4, expected, symbol .. " algebraic count " .. count)
+            test.eq(actual.v1, expected, symbol .. " ordered whole count " .. count)
         end
     end
 
@@ -7214,12 +7198,12 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
     for _, symbol in ipairs(symbols.extremes) do
         local actual = ffi.new("NuppAotExtremes")
         lib[symbol](doubles, 0, actual)
-        test.equal(actual.v1, math.huge, symbol .. " empty min")
-        test.equal(actual.v2, -math.huge, symbol .. " empty max")
-        test.equal(actual.v3, math.pi, symbol .. " pi")
+        test.eq(actual.v1, math.huge, symbol .. " empty min")
+        test.eq(actual.v2, -math.huge, symbol .. " empty max")
+        test.eq(actual.v3, math.pi, symbol .. " pi")
         lib[symbol](doubles, 4, actual)
-        test.equal(actual.v1, -3.5, symbol .. " min")
-        test.equal(actual.v2, 7.25, symbol .. " max")
+        test.eq(actual.v1, -3.5, symbol .. " min")
+        test.eq(actual.v2, 7.25, symbol .. " max")
     end
 
     -- One reducer fed a scalar, whole vectors and a scalar tail, against the
@@ -7250,10 +7234,10 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
                 local actual = ffi.new("NuppAotMixed")
                 lib[symbol](samples, seed, count, actual)
                 local label = symbol .. " seed " .. seed .. " count " .. count
-                test.equal(actual.v1, ordered:value(), label .. " ordered")
-                test.equal(actual.v2, pairwise:value(), label .. " pairwise")
-                test.equal(actual.v3, where:value(), label .. " argmax position")
-                test.equal(actual.v4, counted:value(), label .. " count")
+                test.eq(actual.v1, ordered:value(), label .. " ordered")
+                test.eq(actual.v2, pairwise:value(), label .. " pairwise")
+                test.eq(actual.v3, where:value(), label .. " argmax position")
+                test.eq(actual.v4, counted:value(), label .. " count")
             end
         end
     end
@@ -7281,11 +7265,11 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
                 local actual = ffi.new("NuppAotNarrow")
                 lib[symbol](floats, seed, count, actual)
                 local label = symbol .. " seed " .. seed .. " count " .. count
-                test.equal(tonumber(actual.v1), ordered:value(), label .. " ordered float sum")
-                test.equal(tonumber(actual.v2), dotted:value(), label .. " pairwise float dot")
-                test.equal(tonumber(actual.v3), compensated:value(), label .. " compensated float sum")
-                test.equal(tonumber(actual.v4), low:value(), label .. " propagating float min")
-                test.equal(actual.v5, at:value(), label .. " float argmin position")
+                test.eq(tonumber(actual.v1), ordered:value(), label .. " ordered float sum")
+                test.eq(tonumber(actual.v2), dotted:value(), label .. " pairwise float dot")
+                test.eq(tonumber(actual.v3), compensated:value(), label .. " compensated float sum")
+                test.eq(tonumber(actual.v4), low:value(), label .. " propagating float min")
+                test.eq(actual.v5, at:value(), label .. " float argmin position")
             end
         end
     end
@@ -7307,13 +7291,13 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
             local actual = ffi.new("NuppAotIntegerHorizontals")
             lib[symbol](lanes, count, actual)
             local label = symbol .. " count " .. count
-            test.equal(actual.v1, sum, label .. " wrapping sum")
-            test.equal(actual.v2, product, label .. " wrapping product")
-            test.equal(actual.v3, allBits, label .. " and")
-            test.equal(actual.v4, anyBits, label .. " or")
-            test.equal(actual.v5, oddBits, label .. " xor")
-            test.equal(actual.v6, least, label .. " min")
-            test.equal(actual.v7, most, label .. " max")
+            test.eq(actual.v1, sum, label .. " wrapping sum")
+            test.eq(actual.v2, product, label .. " wrapping product")
+            test.eq(actual.v3, allBits, label .. " and")
+            test.eq(actual.v4, anyBits, label .. " or")
+            test.eq(actual.v5, oddBits, label .. " xor")
+            test.eq(actual.v6, least, label .. " min")
+            test.eq(actual.v7, most, label .. " max")
         end
     end
 
@@ -7333,9 +7317,9 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
                 local actual = ffi.new("NuppAotExact")
                 lib[symbol](integers, seed, count, actual)
                 local label = symbol .. " seed " .. seed .. " count " .. count
-                test.equal(actual.v1, sum:value(), label .. " wrapping sum")
-                test.equal(actual.v2, bits:value(), label .. " xor")
-                test.equal(actual.v3, least:value(), label .. " min")
+                test.eq(actual.v1, sum:value(), label .. " wrapping sum")
+                test.eq(actual.v2, bits:value(), label .. " xor")
+                test.eq(actual.v3, least:value(), label .. " min")
             end
         end
     end
@@ -7423,7 +7407,7 @@ function M.laneArithmeticAgreesAcrossLuaScalarAndLaneExecution()
     handle:write(LANE_VOCABULARY_KERNEL)
     handle:close()
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local lib = ffi.load(libraryPath(dir))
     local symbols = {}
     for _, name in ipairs({"floating", "integers", "bytes", "wide"}) do
@@ -7486,12 +7470,12 @@ function M.laneArithmeticAgreesAcrossLuaScalarAndLaneExecution()
                                 .. " lane "
                                 .. lane
                             if lane < count then
-                                test.equal(got, want, label)
+                                test.eq(got, want, label)
                                 if want == 0 then
-                                    test.equal(1 / got, 1 / want, label .. " zero sign")
+                                    test.eq(1 / got, 1 / want, label .. " zero sign")
                                 end
                             else
-                                test.equal(got, -99, label)
+                                test.eq(got, -99, label)
                             end
                         end
                     end
@@ -7538,7 +7522,7 @@ function M.laneArithmeticAgreesAcrossLuaScalarAndLaneExecution()
                             .. slot
                             .. " lane "
                             .. lane
-                        test.equal(got, lane < count and want or -99, label)
+                        test.eq(got, lane < count and want or -99, label)
                     end
                 end
             end
@@ -7574,7 +7558,7 @@ function M.laneArithmeticAgreesAcrossLuaScalarAndLaneExecution()
                 for slot, want in ipairs(expected) do
                     local got = actual[(slot - 1) * 16 + lane]
                     local label = symbol .. " count " .. count .. " slot " .. slot .. " lane " .. lane
-                    test.equal(got, lane < count and want or 99, label)
+                    test.eq(got, lane < count and want or 99, label)
                 end
             end
         end
@@ -7683,7 +7667,7 @@ function M.crossLaneOperationsAgreeWithTheirScalarExecutableSemantics()
     handle:write(CROSS_LANE_KERNEL)
     handle:close()
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local lib = ffi.load(libraryPath(dir))
     ffi.cdef("typedef struct { double v1, v2, v3, v4; } NuppAotHorizontals;")
     ffi.cdef("typedef struct { double v1, v2; } NuppAotExtrema;")
@@ -7738,12 +7722,12 @@ function M.crossLaneOperationsAgreeWithTheirScalarExecutableSemantics()
             lib[symbol](actual, input, 48, 8)
             local label = symbol .. " pattern " .. pattern
             for lane = 1, 8 do
-                test.equal(actual[lane - 1], compressed[lane], label .. " compress lane " .. lane)
-                test.equal(actual[lane + 7], expanded[lane], label .. " expand lane " .. lane)
-                test.equal(actual[lane + 15], sums[lane], label .. " prefix sum lane " .. lane)
-                test.equal(actual[lane + 23], xors[lane], label .. " prefix xor lane " .. lane)
-                test.equal(actual[lane + 31], held, label .. " count")
-                test.equal(actual[lane + 39], first, label .. " first")
+                test.eq(actual[lane - 1], compressed[lane], label .. " compress lane " .. lane)
+                test.eq(actual[lane + 7], expanded[lane], label .. " expand lane " .. lane)
+                test.eq(actual[lane + 15], sums[lane], label .. " prefix sum lane " .. lane)
+                test.eq(actual[lane + 23], xors[lane], label .. " prefix xor lane " .. lane)
+                test.eq(actual[lane + 31], held, label .. " count")
+                test.eq(actual[lane + 39], first, label .. " first")
             end
         end
     end
@@ -7801,7 +7785,7 @@ function M.crossLaneOperationsAgreeWithTheirScalarExecutableSemantics()
                 else
                     assert(got[index] == want, label .. ": " .. tostring(got[index]) .. " ~= " .. tostring(want))
                     if want == 0 then
-                        test.equal(1 / got[index], 1 / want, label .. " signed zero")
+                        test.eq(1 / got[index], 1 / want, label .. " signed zero")
                     end
                 end
             end
@@ -7827,7 +7811,7 @@ function M.entryOnlyAotTargetsCheckOnlyTheirDependencyClosure()
         file:close()
     end
     local out, code = build(dir)
-    test.equal(code, 0, out)
+    test.eq(code, 0, out)
     local reached = false
     for _, file in ipairs(require("nupp.compiler.fs").listFiles(dir .. "/build/native/aot")) do
         if file:match("%.ll$") then
@@ -7863,13 +7847,13 @@ return {include={"src"},build={targets={native={kind="bundle",entries={"main"},
             ):format(policy)
         )
         local out, code = build(dir)
-        test.equal(code, 0, policy .. " SoA build at " .. dir .. ": " .. out)
+        test.eq(code, 0, policy .. " SoA build at " .. dir .. ": " .. out)
         local pipe = assert(io.popen(("cd %q && %q run dist/app.lua 2>&1"):format(dir, NUPP)))
         local answer = pipe:read("*a"):gsub("%s+$", "")
         pipe:close()
         assert(answer:match("^SoA native results%s+%d"), policy .. " at " .. dir .. ": " .. answer)
         if expected then
-            test.equal(answer, expected, "identical SoA input and all resulting columns")
+            test.eq(answer, expected, "identical SoA input and all resulting columns")
         else
             expected = answer
         end
@@ -7883,9 +7867,9 @@ return {include={"src"},build={targets={native={kind="bundle",entries={"main"},
     local json = pipe:read("*a")
     pipe:close()
     local result = require("testjson").decode(json)
-    test.equal(result.ok, true, "warm SoA build")
-    test.equal(result.timing.aot.compiledObjects, 0, "unchanged source mapping reuses native artifacts")
-    test.equal(result.timing.aot.reusedObjects, result.timing.aot.units, "every SoA object reused")
+    test.eq(result.ok, true, "warm SoA build")
+    test.eq(result.timing.aot.compiledObjects, 0, "unchanged source mapping reuses native artifacts")
+    test.eq(result.timing.aot.reusedObjects, result.timing.aot.units, "every SoA object reused")
     write(
         "src/main.nupp",
         [[
@@ -7950,7 +7934,7 @@ end
     handle:write(table.concat(source, "\n"));
     handle:close()
     local report, code = build(dir)
-    test.equal(code, 0, report)
+    test.eq(code, 0, report)
     local ffi = require("ffi")
     local library = ffi.load(libraryPath(dir))
     for _, variant in ipairs(variants) do
@@ -7979,7 +7963,7 @@ void %s(double *, const NuppFieldPair%s *, size_t);]]
                 if name == "Float" and count == 1 and i == 0 and equivalenceMutation.active("neon-field-pairs") then
                     actual = actual + 1
                 end
-                test.equal(
+                test.eq(
                     actual,
                     expected,
                     equivalenceMutation.active("neon-field-pairs")
@@ -7988,7 +7972,7 @@ void %s(double *, const NuppFieldPair%s *, size_t);]]
                 )
             end
             for i = count, count + 3 do
-                test.equal(output[i], -991, "tail sentinel")
+                test.eq(output[i], -991, "tail sentinel")
             end
         end
     end
@@ -8084,7 +8068,7 @@ end]]
     handle:write(table.concat(source, "\n"))
     handle:close()
     local report, code = build(dir)
-    test.equal(code, 0, report)
+    test.eq(code, 0, report)
     local ffi = require("ffi")
     local library = ffi.load(libraryPath(dir))
     for _, v in ipairs(variants) do
@@ -8122,10 +8106,10 @@ end]]
                 for position in ipairs(v.fields) do
                     expected = expected + (i * 10 + position) * 100 ^ (position - 1)
                 end
-                test.equal(tonumber(output[i]), expected, ("%s element %d of %d"):format(v.name, i, count))
+                test.eq(tonumber(output[i]), expected, ("%s element %d of %d"):format(v.name, i, count))
             end
             for i = count, count + 3 do
-                test.equal(tonumber(output[i]), 77, ("%s writes nothing past %d"):format(v.name, count))
+                test.eq(tonumber(output[i]), 77, ("%s writes nothing past %d"):format(v.name, count))
             end
         end
     end

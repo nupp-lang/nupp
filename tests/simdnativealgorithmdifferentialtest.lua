@@ -71,7 +71,7 @@ local function checkWork(name, report)
             ceiling.calls
         )
     )
-    test.equal(report.randomFingerprint, ceiling.fingerprint)
+    test.eq(report.randomFingerprint, ceiling.fingerprint)
 end
 
 local function fixtureKey(name, capability)
@@ -151,8 +151,8 @@ local cases = test.suite.cases(
                 artifacts = artifacts(complete.artifacts),
             }
         end)
-        test.equal(report.algorithm, name)
-        test.equal(report.tier, capability.tier)
+        test.eq(report.algorithm, name)
+        test.eq(report.tier, capability.tier)
         test(report.cases > 0 and report.nativeCalls > 0 and report.generatedUnits > 0 and #report.artifacts > 0)
         checkWork(name, report)
         test.suite.fact("simd.native.algorithm", {

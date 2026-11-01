@@ -11,7 +11,7 @@ local env = envMod.new(HERE .. "/..")
 -- Full pipeline: parse, check (for reified hints), generate.
 local function compile(src)
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors")
+    testAssert.eq(#result.errors, 0, "syntax errors")
     local diags = check.check(result, "test.nupp", env)
     local code, genDiags = gen.generate(result, "test")
 
@@ -35,8 +35,8 @@ end)
 -- Compile a clean program and execute it.
 local function run(src)
     local code, diags, genDiags = compile(src)
-    testAssert.equal(#diags, 0, "check diagnostics" .. (diags[1] and (": " .. diags[1].msg) or ""))
-    testAssert.equal(#genDiags, 0, "gen diagnostics")
+    testAssert.eq(#diags, 0, "check diagnostics" .. (diags[1] and (": " .. diags[1].msg) or ""))
+    testAssert.eq(#genDiags, 0, "gen diagnostics")
     local chunk, err = loadstring(code, "@struct_test")
     if not chunk then
         error("generated code does not load: " .. tostring(err) .. "\n---\n" .. code, 2)
@@ -58,39 +58,39 @@ end
 
 function M.fieldValidation()
     assertClean("local struct S\n   a: number\n   b: int64\n   c: boolean\nend")
-    testAssert.equal((diagsOf("local struct S\n   name: string\nend")), "NUPP2201:2")
-    testAssert.equal((diagsOf("local struct S\n   t: {number}\nend")), "NUPP2201:2")
-    testAssert.equal((diagsOf("local struct S\n   f: function(): nil\nend")), "NUPP2201:2")
-    testAssert.equal((diagsOf("local struct S\n   o: number?\nend")), "NUPP2201:2")
+    testAssert.eq((diagsOf("local struct S\n   name: string\nend")), "NUPP2201:2")
+    testAssert.eq((diagsOf("local struct S\n   t: {number}\nend")), "NUPP2201:2")
+    testAssert.eq((diagsOf("local struct S\n   f: function(): nil\nend")), "NUPP2201:2")
+    testAssert.eq((diagsOf("local struct S\n   o: number?\nend")), "NUPP2201:2")
     -- structs by value and (nullable) pointers are fine
     assertClean(VEC .. "local struct Body\n   pos: Vec2\n   vel: Vec2\nend")
     assertClean(VEC .. "local struct Node\n   v: number\n   next: Node*?\nend")
     -- no nested declarations inside struct bodies
-    testAssert.equal((diagsOf("local struct S\n   record R\n      x: number\n   end\nend")), "NUPP2201:2")
+    testAssert.eq((diagsOf("local struct S\n   record R\n      x: number\n   end\nend")), "NUPP2201:2")
 end
 
 function M.constructionChecking()
     assertClean(VEC .. "local v = new Vec2(1, 2)")
     assertClean(VEC .. "local v = new Vec2()")
-    testAssert.equal((diagsOf(VEC .. "local v = new Vec2 {x = 1, y = 2}")), "NUPP2202:5")
-    testAssert.equal((diagsOf(VEC .. "local v = new Vec2(x = 1, y = 2)")), "NUPP2202:5 NUPP2202:5")
-    testAssert.equal((diagsOf(VEC .. "local v = new Vec2('no')")), "NUPP2202:5")
-    testAssert.equal((diagsOf(VEC .. "local v = new Vec2(1, 2, 3)")), "NUPP2202:5")
-    testAssert.equal((diagsOf(VEC .. "local v = new Vec2('a', 2)")), "NUPP2202:5")
+    testAssert.eq((diagsOf(VEC .. "local v = new Vec2 {x = 1, y = 2}")), "NUPP2202:5")
+    testAssert.eq((diagsOf(VEC .. "local v = new Vec2(x = 1, y = 2)")), "NUPP2202:5 NUPP2202:5")
+    testAssert.eq((diagsOf(VEC .. "local v = new Vec2('no')")), "NUPP2202:5")
+    testAssert.eq((diagsOf(VEC .. "local v = new Vec2(1, 2, 3)")), "NUPP2202:5")
+    testAssert.eq((diagsOf(VEC .. "local v = new Vec2('a', 2)")), "NUPP2202:5")
     -- the instance types as the nominal
     assertClean(VEC .. "local v: Vec2 = new Vec2(1, 2)")
-    testAssert.equal((diagsOf(VEC .. "local n: number = new Vec2(1)")), "NUPP2001:5")
+    testAssert.eq((diagsOf(VEC .. "local n: number = new Vec2(1)")), "NUPP2001:5")
 end
 
 function M.runtimeStructSemantics()
-    testAssert.equal(run(VEC .. [[
+    testAssert.eq(run(VEC .. [[
 local v = new Vec2(3, 4)
 v.x = v.x + 1
 return v.x + v.y]]), 8)
     -- positional construction
-    testAssert.equal(run(VEC .. "local v = new Vec2(3, 4)\nreturn v.y"), 4)
+    testAssert.eq(run(VEC .. "local v = new Vec2(3, 4)\nreturn v.y"), 4)
     -- float storage really is float-width (not a Lua table)
-    testAssert.equal(
+    testAssert.eq(
         run(VEC .. [[
 local v = new Vec2(0.1, 0)
 return v.x == 0.1]]),
@@ -111,20 +111,20 @@ function M.structConstructionUsesTrailingFieldDefaults()
         },
         "\n"
     )
-    testAssert.equal(run(src), 21)
+    testAssert.eq(run(src), 21)
 end
 
 function M.generatedStructBindingsAreConst()
     local code, diags, genDiags = compile(VEC .. "return Vec2")
-    testAssert.equal(#diags, 0, "check diagnostics")
-    testAssert.equal(#genDiags, 0, "gen diagnostics")
+    testAssert.eq(#diags, 0, "check diagnostics")
+    testAssert.eq(#genDiags, 0, "gen diagnostics")
     assert(code:find("const __nuppMt_Vec2", 1, true), code)
     assert(code:find("const Vec2 = __nuppFfi.metatype", 1, true), code)
     assert(code:find('const __nuppFfi = require("ffi")', 1, true), code)
 end
 
 function M.inlineStructMethodsUseTheFfiMetatypeNamespace()
-    testAssert.equal(
+    testAssert.eq(
         run(
             table.concat(
                 {
@@ -142,7 +142,7 @@ function M.inlineStructMethodsUseTheFfiMetatypeNamespace()
         ),
         42
     )
-    testAssert.equal(
+    testAssert.eq(
         (
             diagsOf(
                 table.concat(
@@ -182,7 +182,7 @@ function M.methodsOnADottedStructAttachToItsMetatable()
         )
     )
     assert(type(m) == "table", "the dotted owner is the authored table")
-    testAssert.equal(len, 3)
+    testAssert.eq(len, 3)
 end
 
 -- A struct binding used to construct one where it was declared, which was a
@@ -190,18 +190,18 @@ end
 -- value in it, and reading it before that is reported rather than silently
 -- given a zeroed struct.
 function M.aStructBindingHoldsNothingUntilAssigned()
-    testAssert.equal((diagsOf(VEC .. "local v: Vec2\nreturn v.x + v.y")), "NUPP2207:6")
-    testAssert.equal(run(VEC .. "local v = new Vec2()\nreturn v.x + v.y"), 0)
+    testAssert.eq((diagsOf(VEC .. "local v: Vec2\nreturn v.x + v.y")), "NUPP2207:6")
+    testAssert.eq(run(VEC .. "local v = new Vec2()\nreturn v.x + v.y"), 0)
     -- assigning first is the whole of what it asks for
-    testAssert.equal(run(VEC .. "local v: Vec2\nv = new Vec2(3, 4)\nreturn v.x + v.y"), 7)
+    testAssert.eq(run(VEC .. "local v: Vec2\nv = new Vec2(3, 4)\nreturn v.x + v.y"), 7)
     -- explicitly initializing a struct binding with nil is a type error
     -- (struct bindings are never nil; use Vec2? if nil is meaningful)
-    testAssert.equal((diagsOf(VEC .. "local v: Vec2 = nil")), "NUPP2001:5")
+    testAssert.eq((diagsOf(VEC .. "local v: Vec2 = nil")), "NUPP2001:5")
     assertClean(VEC .. "local v: Vec2? = nil")
 end
 
 function M.referenceSemantics()
-    testAssert.equal(
+    testAssert.eq(
         run(VEC .. [[
 local function bump(v: Vec2)
    v.x = v.x + 10
@@ -214,7 +214,7 @@ return v.x]]),
 end
 
 function M.nestedStructsByValue()
-    testAssert.equal(
+    testAssert.eq(
         run(
             VEC
             .. [[
@@ -232,16 +232,16 @@ return b.pos.x + b.vel.y]]
 end
 
 function M.istypeNarrowingAtRuntime()
-    testAssert.equal(run(VEC .. [[
+    testAssert.eq(run(VEC .. [[
 local v: any = new Vec2(1, 2)
 return v is Vec2]]), true)
-    testAssert.equal(run(VEC .. [[
+    testAssert.eq(run(VEC .. [[
 local v: any = {x = 1}
 return v is Vec2]]), false)
 end
 
 function M.structFieldAccessChecked()
-    testAssert.equal((diagsOf(VEC .. "local v = new Vec2()\nlocal z = v.z")), "NUPP2004:6")
+    testAssert.eq((diagsOf(VEC .. "local v = new Vec2()\nlocal z = v.z")), "NUPP2004:6")
     assertClean(VEC .. "local v = new Vec2()\nlocal x: number = v.x")
 end
 
@@ -250,7 +250,7 @@ function M.lineCountInvariantWithStructs()
     local code = compile(src)
     local _, srcN = src:gsub("\n", "")
     local _, codeN = code:gsub("\n", "")
-    testAssert.equal(codeN, srcN + 1, "line count changed:\n" .. code)
+    testAssert.eq(codeN, srcN + 1, "line count changed:\n" .. code)
 end
 
 -- A field may state a bit width, which is the C bitfield it lowers to. Twenty-three
@@ -270,19 +270,16 @@ end
 
 function M.bitWidthKeepsTheDeclaredType()
     -- a one-bit boolean reads back true, not 1: packing changes the layout only
-    testAssert.equal(run(FLAGS .. [[
+    testAssert.eq(run(FLAGS .. [[
 local m = new Marks(7, true, false, true)
 return m.missing]]), true)
-    testAssert.equal(run(FLAGS .. [[
+    testAssert.eq(run(FLAGS .. [[
 local m = new Marks(7, true, false, true)
 return m.typeColon]]), false)
-    testAssert.equal(
-        run(FLAGS .. [[
+    testAssert.eq(run(FLAGS .. [[
 local m = new Marks(7, false, false, false)
 m.breakOp = true
-return m.breakOp]]),
-        true
-    )
+return m.breakOp]]), true)
 end
 
 -- Three flags fit in the padding after a uint32 either way, so packing is only
@@ -307,12 +304,12 @@ function M.bitWidthPacks()
 
     local wideSize, packedSize = sizeOf(wide), sizeOf(packed)
     assert(packedSize < wideSize, ("23 one-bit fields should pack: %d vs %d bytes"):format(packedSize, wideSize))
-    testAssert.equal(packedSize, 8, "one word of flags beside the uint32")
+    testAssert.eq(packedSize, 8, "one word of flags beside the uint32")
 end
 
 function M.bitWidthCheckedLikeAnyField()
     assertClean(FLAGS .. "local m = new Marks(1, true, false, true)\nlocal b: boolean = m.missing")
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(FLAGS .. "local m = new Marks(1, true, false, true)\nlocal n: number = m.missing"),
         "NUPP2001:8"
     )
@@ -321,18 +318,18 @@ end
 -- A width is the C bitfield the field lowers to, so it needs a layout to sit in and
 -- a base C allows one on. All four of these used to parse and be discarded.
 function M.bitWidthNeedsAnIntegerBase()
-    testAssert.equal(diagsOf("local struct S\n   f: float : 1\nend"), "NUPP2201:2")
-    testAssert.equal(diagsOf("local struct S\n   n: number : 4\nend"), "NUPP2201:2")
+    testAssert.eq(diagsOf("local struct S\n   f: float : 1\nend"), "NUPP2201:2")
+    testAssert.eq(diagsOf("local struct S\n   n: number : 4\nend"), "NUPP2201:2")
     assertClean("local struct S\n   a: uint32 : 1\n   b: boolean : 1\nend")
 end
 
 function M.bitWidthNeedsAScalar()
-    testAssert.equal(diagsOf("local struct S\n   a: uint8[4] : 2\nend"), "NUPP2201:2")
+    testAssert.eq(diagsOf("local struct S\n   a: uint8[4] : 2\nend"), "NUPP2201:2")
 end
 
 function M.bitWidthNeedsAStructToLiveIn()
     -- a record is a table; there is no layout for a width to describe
-    testAssert.equal(diagsOf("local record R\n   f: uint32 : 1\nend"), "NUPP2201:2")
+    testAssert.eq(diagsOf("local record R\n   f: uint32 : 1\nend"), "NUPP2201:2")
 end
 
 -- A struct may declare a constructor the way a record does, and `new` then runs
@@ -355,8 +352,8 @@ local SCALED = table.concat(
 function M.structConstructorRunsUnderNew()
     assertClean(SCALED .. "\nlocal s = new S(1.5)\nlocal n: number = s.x + s.y")
     local x, y = run(SCALED .. "\nlocal s = new S(1.5)\nreturn s.x, s.y")
-    testAssert.equal(x, 3, "the body ran on the allocated instance")
-    testAssert.equal(y, 2, "a field default is seeded before the body")
+    testAssert.eq(x, 3, "the body ran on the allocated instance")
+    testAssert.eq(y, 2, "a field default is seeded before the body")
 end
 
 function M.structConstructorReturnsTheCdata()
@@ -371,8 +368,8 @@ function M.structConstructorReturnsTheCdata()
             "\n"
         )
     )
-    testAssert.equal(isCdata, true, "the constructor hands back the ctype's allocation")
-    testAssert.equal(sizeMatches, true, "and it is an instance of that struct")
+    testAssert.eq(isCdata, true, "the constructor hands back the ctype's allocation")
+    testAssert.eq(sizeMatches, true, "and it is an instance of that struct")
 end
 
 function M.structConstructorAttachesToTheMetatypeIndex()
@@ -400,7 +397,7 @@ function M.dottedStructConstructorReachesItsMetatable()
         )
     )
     assert(type(m) == "table", "the dotted owner is the authored table")
-    testAssert.equal(x, 2)
+    testAssert.eq(x, 2)
 end
 
 function M.structConstructorClosesPositionalConstruction()
@@ -412,7 +409,7 @@ function M.structConstructorClosesPositionalConstruction()
 end
 
 function M.structConstructorMustFillEveryField()
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             table.concat(
                 {
@@ -438,7 +435,7 @@ function M.nestedStructReadBorrowsItsParent()
         {"local struct Inner", "   v: int32", "end", "local struct Outer", "   inner: Inner", "   n: int32", "end",},
         "\n"
     ) .. "\n"
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             NESTED .. table.concat(
                 {
@@ -452,7 +449,7 @@ function M.nestedStructReadBorrowsItsParent()
         ),
         "NUPP2608:10"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             NESTED .. table.concat(
                 {"local kept: {Inner} = {}", "local o = new Outer(new Inner(1), 2)", "kept[1] = o.inner",},
@@ -482,7 +479,7 @@ function M.nestedStructReadBorrowsItsParent()
         )
     )
     -- a temporary parent has no lifetime for the reference to borrow
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             NESTED .. table.concat(
                 {
@@ -497,7 +494,7 @@ function M.nestedStructReadBorrowsItsParent()
         "NUPP2619:11"
     )
     -- the reference is a live view of the parent, not a copy
-    testAssert.equal(
+    testAssert.eq(
         run(
             NESTED .. table.concat(
                 {"local o = new Outer(new Inner(1), 2)", "local view = o.inner", "view.v = 6", "return o.inner.v",},
@@ -516,8 +513,8 @@ function M.structStoredIntoAPointerFieldIsReadBackAsAPointer()
         {"local head = new Node(nil, 1)", "local tail = new Node(nil, 2)", "head.next = tail",},
         "\n"
     ) .. "\n"
-    testAssert.equal(diagsOf(LINK .. "print(head.next.value)"), "NUPP2604:8")
-    testAssert.equal(diagsOf(LINK .. "local nx = head.next\nprint(nx.value)"), "NUPP2604:9")
+    testAssert.eq(diagsOf(LINK .. "print(head.next.value)"), "NUPP2604:8")
+    testAssert.eq(diagsOf(LINK .. "local nx = head.next\nprint(nx.value)"), "NUPP2604:9")
     assertClean(LINK .. "@unsafe do\n   print(head.next.value)\nend")
     assertClean(
         LINK .. table.concat(
@@ -526,7 +523,7 @@ function M.structStoredIntoAPointerFieldIsReadBackAsAPointer()
         )
     )
     -- an optional struct source leaves an optional pointer behind
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             NODE .. table.concat(
                 {
@@ -543,12 +540,12 @@ function M.structStoredIntoAPointerFieldIsReadBackAsAPointer()
         "NUPP2604:9"
     )
     -- writing nil still narrows the path to nil
-    testAssert.equal(diagsOf(LINK .. "head.next = nil\nprint(head.next.value)"), "NUPP2004:9")
+    testAssert.eq(diagsOf(LINK .. "head.next = nil\nprint(head.next.value)"), "NUPP2004:9")
 end
 
 function M.fixedArrayFieldReadBorrowsItsParent()
     local ARRAYED = "local struct V\n   pos: float[3]\nend\n"
-    testAssert.equal(
+    testAssert.eq(
         diagsOf(
             ARRAYED .. table.concat(
                 {"local function grab(): float[3]", "   local v = new V()", "   return v.pos", "end",},

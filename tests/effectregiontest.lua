@@ -9,7 +9,7 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 
 local function refusals(src)
     local parsed = parser.parse(src, "effect-region.nupp")
-    testAssert.equal(#parsed.errors, 0, "syntax")
+    testAssert.eq(#parsed.errors, 0, "syntax")
     local diags = check.check(parsed, "effect-region.nupp", envMod.new(HERE))
     local found = {}
     for _, diag in ipairs(diags) do
@@ -36,14 +36,14 @@ function M.sameFileCallsUseTheExistingSummary()
             "\n"
         )
     )
-    testAssert.equal(#found, 2, "one refusal per positive effect")
-    testAssert.equal(found[1].code, "NUPP2710", "allocation diagnostic")
-    testAssert.equal(found[2].code, "NUPP2711", "raising diagnostic")
+    testAssert.eq(#found, 2, "one refusal per positive effect")
+    testAssert.eq(found[1].code, "NUPP2710", "allocation diagnostic")
+    testAssert.eq(found[2].code, "NUPP2711", "raising diagnostic")
 end
 
 function M.directOperationsAreCheckedAndRegionsErase()
     local found, parsed = refusals("@noalloc do local t = {} end")
-    testAssert.equal(#found, 1, "table construction is an allocation")
+    testAssert.eq(#found, 1, "table construction is an allocation")
     local generated = require("nupp.compiler.lua.gen").generate(parsed, "effect-region.nupp")
     assert(generated:find("do", 1, true), "region emits a block")
     assert(not generated:find("noalloc", 1, true), "no runtime guard remains")
@@ -59,7 +59,7 @@ function M.fixedWidthScalarOperationsSatisfyBothRegions()
             "\n"
         )
     )
-    testAssert.equal(#found, 0, "fixed-width scalar calls have modeled negative effects")
+    testAssert.eq(#found, 0, "fixed-width scalar calls have modeled negative effects")
 end
 
 function M.boxedSixtyFourBitArithmeticAllocates()
@@ -84,9 +84,9 @@ function M.boxedSixtyFourBitArithmeticAllocates()
             "\n"
         )
     )
-    testAssert.equal(#found, 4, "each boxed result is an allocation: " .. tostring(found[1] and found[1].msg))
+    testAssert.eq(#found, 4, "each boxed result is an allocation: " .. tostring(found[1] and found[1].msg))
     for _, diag in ipairs(found) do
-        testAssert.equal(diag.code, "NUPP2710", "allocation diagnostic")
+        testAssert.eq(diag.code, "NUPP2710", "allocation diagnostic")
     end
 end
 
@@ -106,8 +106,8 @@ function M.aGradualIndexMayRaise()
             "\n"
         )
     )
-    testAssert.equal(#found, 1, "indexing a gradual value may raise")
-    testAssert.equal(found[1].code, "NUPP2711", "raising diagnostic")
+    testAssert.eq(#found, 1, "indexing a gradual value may raise")
+    testAssert.eq(found[1].code, "NUPP2711", "raising diagnostic")
 end
 
 -- `table` says no more about a metatable than `any` does, and a bracketed key
@@ -121,8 +121,8 @@ function M.everyGradualIndexMayRaise()
         "local function f(t: table, k: string): nil @noraise do t[k] = 1 end end",
     }) do
         local found = refusals(access)
-        testAssert.equal(#found, 1, access)
-        testAssert.equal(found[1].code, "NUPP2711", access)
+        testAssert.eq(#found, 1, access)
+        testAssert.eq(found[1].code, "NUPP2711", access)
     end
 end
 
@@ -145,8 +145,8 @@ function M.aCheckedRangeDischargesMatchingSpanBoundsOnly()
             "\n"
         )
     )
-    testAssert.equal(#found, 1, "only the access outside the dominated loop can raise")
-    testAssert.equal(found[1].code, "NUPP2711")
+    testAssert.eq(#found, 1, "only the access outside the dominated loop can raise")
+    testAssert.eq(found[1].code, "NUPP2711")
 end
 
 function M.rangeProofsRequireStableSpanIdentities()
@@ -166,7 +166,7 @@ function M.rangeProofsRequireStableSpanIdentities()
             "\n"
         )
     )
-    testAssert.equal(#found, 1, "a rebindable span cannot carry a range proof")
+    testAssert.eq(#found, 1, "a rebindable span cannot carry a range proof")
 end
 
 function M.rangeProofsDoNotEnterNestedFunctions()
@@ -188,8 +188,8 @@ function M.rangeProofsDoNotEnterNestedFunctions()
             "\n"
         )
     )
-    testAssert.equal(#found, 1, "a closure cannot inherit its enclosing loop's proof")
-    testAssert.equal(found[1].code, "NUPP2711")
+    testAssert.eq(#found, 1, "a closure cannot inherit its enclosing loop's proof")
+    testAssert.eq(found[1].code, "NUPP2711")
 end
 
 function M.unknownCallbacksAndForeignCallsNeedTrustedContracts()
@@ -207,7 +207,7 @@ function M.unknownCallbacksAndForeignCallsNeedTrustedContracts()
             "\n"
         )
     )
-    testAssert.equal(#found, 4, "unknown callbacks and uncontracted C fail both proofs")
+    testAssert.eq(#found, 4, "unknown callbacks and uncontracted C fail both proofs")
 end
 
 function M.shadowingAPureBuiltinDoesNotBorrowItsGuarantees()
@@ -229,7 +229,7 @@ function M.shadowingAPureBuiltinDoesNotBorrowItsGuarantees()
             "\n"
         )
     )
-    testAssert.equal(#found, 3, "a callback named like a builtin remains effect-unknown")
+    testAssert.eq(#found, 3, "a callback named like a builtin remains effect-unknown")
 end
 
 function M.automaticCleanupParticipatesInTheRaisingSummary()
@@ -249,7 +249,7 @@ function M.automaticCleanupParticipatesInTheRaisingSummary()
             "\n"
         )
     )
-    testAssert.equal(#found, 1, "the implicit close keeps use from being noRaise")
+    testAssert.eq(#found, 1, "the implicit close keeps use from being noRaise")
     assert(#(found[1].related or {}) > 0, "the diagnostic carries a call chain")
 end
 
@@ -304,7 +304,7 @@ function M.importsObserveOnlyTheExactFactsTheyUse()
                     found[#found + 1] = diag
                 end
             end
-            testAssert.equal(#found, 2, "only unsafe imported calls fail")
+            testAssert.eq(#found, 2, "only unsafe imported calls fail")
         end
     )
 end
@@ -312,18 +312,18 @@ end
 function M.gainingAGuaranteeInvalidatesARejectedObservation()
     withProject("local D = require('dep')\n@noalloc do D.allocates() end", function(inc, depPath, mainPath)
         local before = inc.checkFile(mainPath)
-        testAssert.equal(before.diags[1] and before.diags[1].code, "NUPP2710", "initial refusal")
+        testAssert.eq(before.diags[1] and before.diags[1].code, "NUPP2710", "initial refusal")
         local cold = inc.q.stats.checkModule
         inc.changeDocument(depPath, PROVIDER:gsub("local t = {}", "local n = 1"))
         local after = inc.checkFile(mainPath)
-        testAssert.equal(
+        testAssert.eq(
             #after.diags,
             0,
             "the absent observation becomes present: " .. tostring(
                 after.diags[1] and after.diags[1].code
             ) .. " " .. tostring(after.diags[1] and after.diags[1].msg)
         )
-        testAssert.equal(inc.q.stats.checkModule, cold + 2, "provider and observer recheck")
+        testAssert.eq(inc.q.stats.checkModule, cold + 2, "provider and observer recheck")
     end)
 end
 
@@ -333,7 +333,7 @@ function M.unobservingDependantsIgnoreBodyOnlyGuaranteeChanges()
         local cold = inc.q.stats.checkModule
         inc.changeDocument(depPath, PROVIDER:gsub("local t = {}", "local n = 1"))
         inc.checkFile(mainPath)
-        testAssert.equal(inc.q.stats.checkModule, cold + 1, "only provider rechecks")
+        testAssert.eq(inc.q.stats.checkModule, cold + 1, "only provider rechecks")
     end)
 end
 
@@ -364,11 +364,11 @@ function M.effectFactsCutOffUnchangedAndUnrelatedBodies()
             local before = inc.q.stats.checkModule
             inc.changeDocument(depPath, PROVIDER:gsub("local n = 1", "local n = 2"))
             inc.checkFile(path)
-            testAssert.equal(inc.q.stats.checkModule, before + 1, "same effects do not invalidate their observer")
+            testAssert.eq(inc.q.stats.checkModule, before + 1, "same effects do not invalidate their observer")
             before = inc.q.stats.checkModule
             inc.changeDocument(depPath, PROVIDER:gsub("local t = {}", "local n = 2"))
             inc.checkFile(path)
-            testAssert.equal(inc.q.stats.checkModule, before + 1, "another export does not invalidate this observer")
+            testAssert.eq(inc.q.stats.checkModule, before + 1, "another export does not invalidate this observer")
             inc.changeDocument(depPath, PROVIDER:gsub("local n = 1", "error('changed')"))
             local changed = inc.checkFile(path)
             local refused = false
@@ -448,7 +448,7 @@ local checked = D.get(values, 99)
 @noraise do local unproved = D.get(values, 99) end
 ]]
     )
-    testAssert.equal(#found, 2, "other raises and unproved calls remain checked")
+    testAssert.eq(#found, 2, "other raises and unproved calls remain checked")
 end
 
 function M.returnedBoundsNeedTheNonNilAlternative()
@@ -461,7 +461,7 @@ end
 @noraise do local value = values[index as integer] end
 ]]
     )
-    testAssert.equal(#found, 1, "a return fact holds only on its matching alternative")
+    testAssert.eq(#found, 1, "a return fact holds only on its matching alternative")
 end
 
 function M.unknownCallsAndReassignmentDiscardReturnBounds()
@@ -479,7 +479,7 @@ if again ~= nil then
 end
 ]]
     )
-    testAssert.equal(#found, 2, "stale evidence cannot discharge an access")
+    testAssert.eq(#found, 2, "stale evidence cannot discharge an access")
 end
 
 function M.oneUnboundedReturnRemovesTheGuarantee()
@@ -494,7 +494,7 @@ end
             return source:gsub("return nil", "return 999")
         end
     )
-    testAssert.equal(#found, 1, "all normal returns must establish the relationship")
+    testAssert.eq(#found, 1, "all normal returns must establish the relationship")
 end
 
 function M.replacedImportedCalleesCannotKeepBoundsProofs()
@@ -509,7 +509,7 @@ for index = 1, #values do
 end
 ]]
     )
-    testAssert.equal(#found, 1, "a replacement cannot inherit the original helper's proof")
+    testAssert.eq(#found, 1, "a replacement cannot inherit the original helper's proof")
 end
 
 function M.providerReplacementDoesNotPublishOneBodyAsTheCallable()
@@ -529,7 +529,7 @@ return M]]
             )
         end
     )
-    testAssert.equal(#found, 1, "an optional provider mutation does not replace the initial callable's effects")
+    testAssert.eq(#found, 1, "an optional provider mutation does not replace the initial callable's effects")
 end
 
 function M.explicitCallerAssertionsEstablishBounds()
@@ -542,7 +542,7 @@ end
 return work
 ]]
     )
-    testAssert.equal(#found, 0, "the ordinary executable assertion establishes a later fact")
+    testAssert.eq(#found, 0, "the ordinary executable assertion establishes a later fact")
 end
 
 function M.conditionalWorkCannotLeakBoundsToItsContinuation()
@@ -558,7 +558,7 @@ end
 return work
 ]]
     )
-    testAssert.equal(#found, 1, "a zero-iteration loop establishes no fact after itself")
+    testAssert.eq(#found, 1, "a zero-iteration loop establishes no fact after itself")
 end
 
 function M.aNestedBoundFailureIsNotDischargedByAnUnrelatedAccess()
@@ -579,7 +579,7 @@ return M]]
             )
         end
     )
-    testAssert.equal(#found, 1, "the nested access still needs its own proof")
+    testAssert.eq(#found, 1, "the nested access still needs its own proof")
 end
 
 function M.returnFactsInvalidateWhenLostOrGainedAndIgnoreUnrelatedBodies()
@@ -602,16 +602,16 @@ if index ~= nil then @noraise do local value = values[index] end end
             end
 
             inc.changeDocument(dep, RELATIONAL_PROVIDER)
-            testAssert.equal(count(), 0)
+            testAssert.eq(count(), 0)
             require("nupp.compiler.lua.optimize").run(inc.checkFile(main).result, {level = 1})
             local checks = inc.q.stats.checkModule
             inc.changeDocument(dep, RELATIONAL_PROVIDER .. "\n-- unchanged facts\n")
-            testAssert.equal(count(), 0)
-            testAssert.equal(inc.q.stats.checkModule, checks + 1)
+            testAssert.eq(count(), 0)
+            testAssert.eq(inc.q.stats.checkModule, checks + 1)
             inc.changeDocument(dep, RELATIONAL_PROVIDER:gsub("return nil", "return 999"))
-            testAssert.equal(count(), 1, "a lost result fact invalidates its consumer")
+            testAssert.eq(count(), 1, "a lost result fact invalidates its consumer")
             inc.changeDocument(dep, RELATIONAL_PROVIDER)
-            testAssert.equal(count(), 0, "an unknown result becoming known also invalidates")
+            testAssert.eq(count(), 0, "an unknown result becoming known also invalidates")
         end
     )
 end
@@ -626,7 +626,7 @@ for index = 1, #values do
 end
 ]]
     )
-    testAssert.equal(#found, 1, "a namespace inside an escaped container can be mutated")
+    testAssert.eq(#found, 1, "a namespace inside an escaped container can be mutated")
 end
 
 function M.forgedArgumentMappingsDoNotEstablishBounds()
@@ -652,7 +652,7 @@ end
             found = found + 1
         end
     end
-    testAssert.equal(found, 1, "invalid mappings remain conservative")
+    testAssert.eq(found, 1, "invalid mappings remain conservative")
 end
 
 function M.importedSemanticEffectsDoNotHideTraceFindings()

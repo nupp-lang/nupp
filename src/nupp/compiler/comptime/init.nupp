@@ -481,12 +481,7 @@ local function buildEnvironment(state)
 
     local assertion: any = require("assert")
     if type(assertion) == "table" then
-        env.assert = {
-            equal = assertion.equal,
-            notEqual = assertion.notequal,
-            deepEqual = assertion.deepequal,
-            matches = assertion.matches,
-        }
+        env.assert = {eq = assertion.eq, ne = assertion.ne, deepeq = assertion.deepeq, matches = assertion.matches,}
         state.callableValues[env.assert] = function(...)
             return assertion(...)
         end

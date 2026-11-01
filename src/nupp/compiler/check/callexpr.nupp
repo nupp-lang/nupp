@@ -2142,17 +2142,6 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         if indexedProducer then
             node.indexedViewProducer = {producer = indexedProducer, source = argExprs[1], count = argExprs[2],}
         end
-        local globals = c.env and c.env.globals
-        local stableNupp = globals and c.lookupEntry("nupp") == globals.nupp
-        if stableNupp and baseName == "nupp" and memberName == "recoverAlias" then
-            if #argExprs == 1 then
-                local aliasType = managedGeneric("Alias", T.unknown)
-                first = T.optional(aliasType)
-                rets = {first, rets and rets[2] or T.any}
-                pack = T.pack(rets)
-                node.recoverManagedAlias = true
-            end
-        end
         if node.kind == "safeCall" then
             local calledPack = pack or (rets and T.pack(rets) or T.pack({}, {kind = "unknown", type = T.any}))
             pack = T.packUnion({calledPack, T.pack({T.nil_})})

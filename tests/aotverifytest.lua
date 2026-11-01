@@ -1953,8 +1953,8 @@ function M.aDisplacedCursorAccessIsHeldToTheRoomItsGuardProves()
     local stores = nodes(loop.body, function(node)
         return node.op == "store" and node.cursor == "out"
     end)
-    test.equal(#loads, 3, "three reads through the one cursor")
-    test.equal(#stores, 4, "four writes through the one cursor")
+    test.eq(#loads, 3, "three reads through the one cursor")
+    test.eq(#stores, 4, "four writes through the one cursor")
     local displacedLoad, displacedStore
     for _, load in ipairs(loads) do
         if load.cursorOffset == 2 then

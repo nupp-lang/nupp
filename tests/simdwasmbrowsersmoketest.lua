@@ -81,8 +81,8 @@ function M.countedRuntimeRoutesReachChromium()
 
         return runner.json(evidence .. "/browser-smoke-report.json")
     end)
-    test.equal(report.failed, 0)
-    test.equal(report.passed, 1)
+    test.eq(report.failed, 0)
+    test.eq(report.passed, 1)
     local result = assert(report.tests[1], "browser smoke produced no case")
     for _, fact in ipairs(result.facts or {}) do
         test.suite.fact(fact.name, fact.value)

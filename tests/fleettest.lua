@@ -15,14 +15,14 @@ end
 
 function M.planUsesTheMinimumOrthogonalFleet()
     local plan = json("tests/fleet/plan.json")
-    test.equal(plan.schemaVersion, 1)
-    test.equal(#plan.jobs, 10)
+    test.eq(plan.schemaVersion, 1)
+    test.eq(#plan.jobs, 10)
     local hosts, tiers, compilers, runtimes, ids = {}, {}, {}, {}, {}
     for _, job in ipairs(plan.jobs) do
         test(not ids[job.id], "duplicate fleet job " .. job.id)
         ids[job.id] = true
-        test.equal(job.argv[1], "./bin/nupp")
-        test.equal(job.argv[2], "test")
+        test.eq(job.argv[1], "./bin/nupp")
+        test.eq(job.argv[2], "test")
         test(table.concat(job.argv, "\0"):find("--json", 1, true))
         local target = job.target or {}
         if target.os and target.arch and target.tier ~= "simd128" then
@@ -47,7 +47,7 @@ function M.planUsesTheMinimumOrthogonalFleet()
     -- Every native job compiles through nupp's own LLVM.
     test(compilers.llvm)
     for compiler in pairs(compilers) do
-        test.equal(compiler, "llvm")
+        test.eq(compiler, "llvm")
     end
     test(runtimes["wasmtime-48"] and runtimes.chromium)
 end
@@ -57,8 +57,8 @@ function M.endpointConfigurationCannotSupplyCommands()
     local kinds = {}
     for _, executor in pairs(config.executors) do
         kinds[executor.kind] = true
-        test.equal(executor.command, nil)
-        test.equal(executor.argv, nil)
+        test.eq(executor.command, nil)
+        test.eq(executor.argv, nil)
     end
     test(kinds["local"] and kinds.ssh and kinds.docker)
 end
