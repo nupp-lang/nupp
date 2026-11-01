@@ -31,6 +31,7 @@ local recipes: any = {
     Len = {{"v", "def", 1, 1}, {"v", "use", 2, 1}},
     CallK = {{"fn", "use", 8, 8}, {"v", "use", 1, 1}, {"v", "def", 2, 1}, {"n", "use", 3, 1}, {"n", "use", 4, 1}},
     Ret = {{"v", "use", 1, 1}},
+    RetN = {{"v", "use", 1, 1}, {"n", "use", 2, 1}},
     Jmp = {{"j", "use", 4, 4}},
     JmpIf = {{"v", "use", 1, 1}, {"j", "use", 4, 4}}
 }
@@ -60,6 +61,7 @@ local policies: any = {
     Len = {"next", ""},
     CallK = {"next", "v:check@3+1:4:fixedmax1 v:check@3+1:5:minus1 v:uses@3+1:4:callargs"},
     Ret = {"stop", ""},
+    RetN = {"stop", ""},
     Jmp = {"jump", ""},
     JmpIf = {"branch", ""}
 }
@@ -69,7 +71,7 @@ for index, name in ipairs(opcodes.names()) do
 end
 -- Core-only opcodes take ids above the frozen VM's table. Each is final-core
 -- behavior with no frozen VM counterpart.
-local coreOnly: any = {MathFloor = 250, LibCall = 251}
+local coreOnly: any = {MathFloor = 250, LibCall = 251, RetN = 252}
 for name, id in pairs(coreOnly) do
     assert(id > #opcodes.names() and id < 256, "core-only opcode id")
     ids[name] = id
@@ -155,12 +157,20 @@ function bytecode.encode(instruction: any): string
     end
     local _ = switch name do
         case "CallK" -> do
-            assert(instruction[5] <= 63 and instruction[6] == 1, "fixed scalar CallK required")
-            assert(instruction[4] + math.max(instruction[5], 1) < 250, "encoded CallK window capacity")
+            -- One to sixteen wanted results land after the callee slot.
+            assert(instruction[5] <= 63 and instruction[6] >= 1 and instruction[6] <= 16, "fixed CallK required")
+            assert(instruction[4] + math.max(instruction[5], instruction[6], 1) < 250, "encoded CallK window capacity")
             yield nil
         end
         case "NewClosure" -> do
             assert(instruction[5] <= 63 and instruction[4] + instruction[5] < 250, "encoded closure capture window")
+            yield nil
+        end
+        case "RetN" -> do
+            assert(
+                instruction[3] >= 1 and instruction[3] <= 16 and instruction[2] + instruction[3] <= 250,
+                "encoded RetN window"
+            )
             yield nil
         end
         else -> nil

@@ -268,7 +268,7 @@ export function prepare(
     hint: uint64
 ): uint64
     local found = current(ctx, frame, pc)
-    if found == 0ULL or nargs > 63ULL or wanted ~= 1ULL then
+    if found == 0ULL or nargs > 63ULL or wanted == 0ULL or wanted > frames.MAX_RESULTS then
         return 0ULL
     end
     local fn = native.pointer(found)

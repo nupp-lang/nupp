@@ -41,8 +41,8 @@ function tagged.initialize(fn: any, options: any): any
         "variadic, generic and suspended functions are unsupported"
     )
     need(
-        #fn.signature.rets <= 1 and not fn.signature.retPack.tail and not fn.signature.retPack.alternatives,
-        "multiple or open results are unsupported"
+        #fn.signature.rets <= 16 and not fn.signature.retPack.tail and not fn.signature.retPack.alternatives,
+        "open results are unsupported"
     )
     ordinaryCaptures(fn)
     for _, parameter in ipairs(body.params) do
@@ -312,7 +312,9 @@ local function requireSite(ctx: any, node: any): any
     return item
 end
 
-local function invoke(ctx: any, node: any, keepResult: boolean, dynamic: boolean?): integer?
+-- A checked call. With `count`, it keeps that many results and answers them
+-- as a list.
+local function invoke(ctx: any, node: any, keepResult: boolean, dynamic: boolean?, count: integer?): any
     local p = catalog(ctx)
     local site = need(p.callByNode[node], "ordinary call lacks checked callsite")
     need(site.owner == ctx.fn.id, "callsite belongs to another owner")
@@ -341,6 +343,9 @@ local function invoke(ctx: any, node: any, keepResult: boolean, dynamic: boolean
     local args = ctx.operands(node.args.exprs, kinds)
     local value = ctx.readHeld(callee)
     ctx.release(callee)
+    if count then
+        return ctx.invokeMany(node, value, args, contract, count)
+    end
 
     return ctx.invoke(node, value, args, contract, keepResult)
 end
@@ -763,13 +768,64 @@ function tagged.forVersion(version: integer): any
         profile.kind = function(t: any): string
             return "tagged"
         end
-        -- A bare `return`, or the end of a body, answers nil.
+        -- `count` results of a call, for `local a, b = f()` and its kin.
+        profile.callResults = function(ctx: any, node: any, count: integer): {integer}?
+            need(node.kind == "call" and node.runtimeLoader ~= "require", "only plain calls spread their results")
+            need(graph.coreLibraryCall(node) == nil, "library calls answer one result")
+            return invoke(ctx, node, true, true, count)
+        end
+        -- A bare `return`, or the end of a body, answers nil. A last call
+        -- supplies as many results as the function declares, as Lua passes
+        -- every result of `return f()` on.
         profile.returnStatement = function(ctx: any, stat: any): nil
-            if #stat.exprs > 0 then
+            if #stat.exprs == 0 then
+                local value = ctx.emit(stat, "Nil", {}, "tagged")
+                ctx.block.term = {kind = "return", value = value, edges = {}, pos = ctx.position(stat)}
+                ctx.block = nil
+                return
+            end
+            local declared: integer = ctx.fn.signature and #ctx.fn.signature.rets or 1
+            local last = stat.exprs[#stat.exprs]
+            local spread: integer? = last.kind == "call"
+                and last.runtimeLoader ~= "require"
+                and graph.coreLibraryCall(last) == nil
+                and declared > #stat.exprs
+                and declared - #stat.exprs + 1
+                or nil
+            if #stat.exprs == 1 and not spread then
                 return tagged.returnStatement(ctx, stat)
             end
-            local value = ctx.emit(stat, "Nil", {}, "tagged")
-            ctx.block.term = {kind = "return", value = value, edges = {}, pos = ctx.position(stat)}
+            need(#stat.exprs + (spread or 1) - 1 <= 16, "a return gives at most sixteen results")
+            local held = {}
+            for index, expr in ipairs(stat.exprs) do
+                if index < #stat.exprs or not spread then
+                    local value = ctx.expression(expr, "tagged")
+                    if value == nil then
+                        for _, handle in ipairs(held) do
+                            ctx.release(handle)
+                        end
+                        return
+                    end
+                    held[#held + 1] = ctx.hold(value)
+                else
+                    local results = profile.callResults(ctx, expr, spread)
+                    if results == nil then
+                        for _, handle in ipairs(held) do
+                            ctx.release(handle)
+                        end
+                        return
+                    end
+                    for _, value in ipairs(results) do
+                        held[#held + 1] = ctx.hold(value)
+                    end
+                end
+            end
+            local values = {}
+            for index, handle in ipairs(held) do
+                values[index] = ctx.readHeld(handle)
+                ctx.release(handle)
+            end
+            ctx.block.term = {kind = "return", value = values[1], values = values, edges = {}, pos = ctx.position(stat)}
             ctx.block = nil
         end
         profile.fallthrough = function(ctx: any, node: any): nil

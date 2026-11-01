@@ -172,7 +172,10 @@ function generate.program(seed, size)
             emit(into .. " = (" .. into .. " + " .. sum .. ") % 1000003")
         elseif roll == 10 then
             local a, b = target(), target()
-            if a ~= b then
+            if a ~= b and pick(2) == 1 then
+                -- Two results from one call fill both targets.
+                emit(a .. ", " .. b .. " = two(" .. expression(1) .. ", " .. expression(1) .. ")")
+            elseif a ~= b then
                 emit(a .. ", " .. b .. " = " .. b .. ", (" .. a .. " + " .. expression(1) .. ") % 1000003")
             end
         elseif roll == 11 then
@@ -215,6 +218,9 @@ function generate.program(seed, size)
     emit("local function bump(n: integer): integer", "local function bump(n)")
     emit("    c = (c + n) % 1000003")
     emit("    return c")
+    emit("end")
+    emit("local function two(a: integer, b: integer): (integer, integer)", "local function two(a, b)")
+    emit("    return (a + b) % 65521, (a * 3 - b) % 65521")
     emit("end")
     emit("local function f(a: integer, b: integer): integer", "local function f(a, b)")
     depth = 1

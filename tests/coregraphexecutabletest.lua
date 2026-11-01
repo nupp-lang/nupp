@@ -206,13 +206,19 @@ function M.flaggedArgumentCountsAndPhysicalOverflowRefuse()
         function()
             bytecode.encode({"CallK", 1, 10, 10, 64, 1})
         end,
-        "fixed scalar CallK"
+        "fixed CallK"
     )
     refuses(
         function()
             bytecode.encode({"CallK", 1, 10, 10, 0, 0})
         end,
-        "fixed scalar CallK"
+        "fixed CallK"
+    )
+    refuses(
+        function()
+            bytecode.encode({"CallK", 1, 10, 10, 0, 17})
+        end,
+        "fixed CallK"
     )
 end
 
