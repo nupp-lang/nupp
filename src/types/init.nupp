@@ -14,8 +14,6 @@ assert(store:get(theme) == "dark")
 See [derives.md](docs/reference/derives.md) for [](Debug),
 [](types.derive) for recipes, and [](types.reflect) for reflection.
 ]]
-const types2 = require("types")
-const derive = require("types.derive")
 
 local store = require("nupp.util.internal.store")
 local runtime = require("nupp.derive")
@@ -54,7 +52,7 @@ end
 
 @comptime
 local function detail(T: type): any
-    local value = types2.describe(T)
+    local value = types.describe(T)
     if value.sourceKind then
         local normalized = {}
         for key, item in pairs(value) do
@@ -130,9 +128,9 @@ local function debugSpec(T: type, contract: type): any
         end
         return {kind = "shape", fields = fields}
     elseif value.kind == "reference" and value.nominal then
-        if value.nominal.deriveKey and derive.claims(T, contract) then
+        if value.nominal.deriveKey and types.derive.claims(T, contract) then
             return {kind = "record", typeKey = value.nominal.deriveKey}
-        elseif derive.claims(T, contract) then
+        elseif types.derive.claims(T, contract) then
             return {kind = "customDebug"}
         end
     end
@@ -147,28 +145,28 @@ end
 @comptime
 export function Debug(info: types.derive.Info): types.derive.Result<types.Debug>
     if info.kind ~= "record" and info.kind ~= "struct" then
-        return derive.error("Debug can be derived only for records or structs", info.reference, "NUPP2803")
+        return types.derive.error("Debug can be derived only for records or structs", info.reference, "NUPP2803")
     end
     for _, field in ipairs(info.fields) do
         local skip = option(field.annotations, "debug", "skip") == true
         local redact = option(field.annotations, "debug", "redact") == true
         if skip and redact then
-            return derive.error(
+            return types.derive.error(
                 "field " .. field.name .. " cannot be both skipped and redacted",
                 field.reference,
                 "NUPP2803"
             )
         end
         if field.name ~= "debug" and not skip and not redact and not debugSpec(field.readType, info.interfaceType) then
-            return derive.error("field type cannot be formatted by Debug", field.reference, "NUPP2803")
+            return types.derive.error("field type cannot be formatted by Debug", field.reference, "NUPP2803")
         end
     end
 
-    return derive.implement{
+    return types.derive.implement{
         methods = {
-            debug = derive.forward{
-                helper = derive.helper(runtime, "debug"),
-                arguments = {derive.witness(info.ownerType), derive.receiver()},
+            debug = types.derive.forward{
+                helper = types.derive.helper(runtime, "debug"),
+                arguments = {types.derive.witness(info.ownerType), types.derive.receiver()},
             }
         },
     }
