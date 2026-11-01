@@ -83,9 +83,9 @@ function image.new(): any
         elseif tag == "t" then
             return true
         elseif tag == "r" then
-            return assert(tables[readInteger()], "portable prelude image has an invalid table reference")
+            return (assert(tables[readInteger()], "portable prelude image has an invalid table reference"))
         elseif tag == "d" then
-            return assert(dictionary[readInteger()], "portable prelude image has an invalid string reference")
+            return (assert(dictionary[readInteger()], "portable prelude image has an invalid string reference"))
         elseif tag == "i" then
             return readInteger()
         elseif tag == "j" then
@@ -100,7 +100,7 @@ function image.new(): any
                 return -math.huge
             end
 
-            return assert(tonumber(encoded), "portable prelude image has an invalid number")
+            return (assert(tonumber(encoded), "portable prelude image has an invalid number"))
         elseif tag == "s" then
             return stringValue()
         end

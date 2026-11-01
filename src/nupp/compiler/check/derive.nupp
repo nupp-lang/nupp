@@ -663,7 +663,7 @@ function derive.install(c: state.Checker): derive.Ops
                 fingerprintInput.fields[index].claims[claimIndex] = claim.descriptor.fingerprint
             end
         end
-        input.fingerprint = hash.sha256(assert(recipeCodec.canonical(fingerprintInput)))
+        input.fingerprint = hash.sha256((assert(recipeCodec.canonical(fingerprintInput))))
         local helperKeys: {string} = {}
         local helperFingerprints = {}
         for key in pairs(provider.sealedProgram.runtimeHelpers or {}) do

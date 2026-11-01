@@ -327,16 +327,18 @@ export record URI
     --- @return the new URI, or this one when nothing changes
     --- @raises string when the user information cannot be used here
     function withUserInfo(self, value: string?): URI
-        return assert(
-            newURI(
-                new Components(
-                    scheme = self._scheme,
-                    userInfo = value,
-                    host = self._host,
-                    port = self._port,
-                    path = self._path,
-                    query = self._query,
-                    fragment = self._fragment
+        return (
+            assert(
+                newURI(
+                    new Components(
+                        scheme = self._scheme,
+                        userInfo = value,
+                        host = self._host,
+                        port = self._port,
+                        path = self._path,
+                        query = self._query,
+                        fragment = self._fragment
+                    )
                 )
             )
         )
@@ -348,16 +350,18 @@ export record URI
     --- @return the new URI, or this one when nothing changes
     --- @raises string when the host cannot be used here
     function withHost(self, value: string?): URI
-        return assert(
-            newURI(
-                new Components(
-                    scheme = self._scheme,
-                    userInfo = value ~= nil and self:userInfo() or nil,
-                    host = value,
-                    port = value ~= nil and self._port or nil,
-                    path = self._path,
-                    query = self._query,
-                    fragment = self._fragment
+        return (
+            assert(
+                newURI(
+                    new Components(
+                        scheme = self._scheme,
+                        userInfo = value ~= nil and self:userInfo() or nil,
+                        host = value,
+                        port = value ~= nil and self._port or nil,
+                        path = self._path,
+                        query = self._query,
+                        fragment = self._fragment
+                    )
                 )
             )
         )
@@ -369,16 +373,18 @@ export record URI
     --- @return the new URI, or this one when nothing changes
     --- @raises string when port is not a port number
     function withPort(self, value: integer?): URI
-        return assert(
-            newURI(
-                new Components(
-                    scheme = self._scheme,
-                    userInfo = self:userInfo(),
-                    host = self._host,
-                    port = value,
-                    path = self._path,
-                    query = self._query,
-                    fragment = self._fragment
+        return (
+            assert(
+                newURI(
+                    new Components(
+                        scheme = self._scheme,
+                        userInfo = self:userInfo(),
+                        host = self._host,
+                        port = value,
+                        path = self._path,
+                        query = self._query,
+                        fragment = self._fragment
+                    )
                 )
             )
         )
@@ -393,16 +399,18 @@ export record URI
         if self._authority ~= nil and value ~= "" and value:sub(1, 1) ~= "/" then
             value = "/" .. value
         end
-        return assert(
-            newURI(
-                new Components(
-                    scheme = self._scheme,
-                    userInfo = self:userInfo(),
-                    host = self._host,
-                    port = self._port,
-                    path = value,
-                    query = self._query,
-                    fragment = self._fragment
+        return (
+            assert(
+                newURI(
+                    new Components(
+                        scheme = self._scheme,
+                        userInfo = self:userInfo(),
+                        host = self._host,
+                        port = self._port,
+                        path = value,
+                        query = self._query,
+                        fragment = self._fragment
+                    )
                 )
             )
         )
@@ -414,16 +422,18 @@ export record URI
     --- @return the new URI, or this one when nothing changes
     --- @raises string when the query cannot be used here
     function withQuery(self, value: string?): URI
-        return assert(
-            newURI(
-                new Components(
-                    scheme = self._scheme,
-                    userInfo = self:userInfo(),
-                    host = self._host,
-                    port = self._port,
-                    path = self._path,
-                    query = value,
-                    fragment = self._fragment
+        return (
+            assert(
+                newURI(
+                    new Components(
+                        scheme = self._scheme,
+                        userInfo = self:userInfo(),
+                        host = self._host,
+                        port = self._port,
+                        path = self._path,
+                        query = value,
+                        fragment = self._fragment
+                    )
                 )
             )
         )
@@ -435,16 +445,18 @@ export record URI
     --- @return the new URI, or this one when nothing changes
     --- @raises string when the fragment cannot be used here
     function withFragment(self, value: string?): URI
-        return assert(
-            newURI(
-                new Components(
-                    scheme = self._scheme,
-                    userInfo = self:userInfo(),
-                    host = self._host,
-                    port = self._port,
-                    path = self._path,
-                    query = self._query,
-                    fragment = value
+        return (
+            assert(
+                newURI(
+                    new Components(
+                        scheme = self._scheme,
+                        userInfo = self:userInfo(),
+                        host = self._host,
+                        port = self._port,
+                        path = self._path,
+                        query = self._query,
+                        fragment = value
+                    )
                 )
             )
         )
