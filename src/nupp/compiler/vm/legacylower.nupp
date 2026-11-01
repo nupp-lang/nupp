@@ -529,7 +529,7 @@ function lower.emit(
     local function coverageCounts(f: Fn)
         f.coverageUsed = true
 
-        return assert(f.coverageCounts, "coverage counted outside an instrumented function")
+        return (assert(f.coverageCounts, "coverage counted outside an instrumented function"))
     end
 
     local function count(f: Fn, key)

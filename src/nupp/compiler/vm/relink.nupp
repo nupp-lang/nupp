@@ -61,7 +61,7 @@ relink.FUNCTION_OPERANDS = opcodes.functionOperand
 relink.SHAPE_OPERANDS = opcodes.shapeOperand
 
 local function int(text: string): integer
-    return assert(tonumber(text), "not a number: " .. text) as integer
+    return (assert(tonumber(text), "not a number: " .. text)) as integer
 end
 
 --- A plain-data copy of a struct layout, which a store can keep.

@@ -611,7 +611,7 @@ local function path(text)
         result = result and field(result, member) or name(member)
     end
 
-    return assert(result, "empty metadata path")
+    return (assert(result, "empty metadata path"))
 end
 
 local function constructors(declaration, identity, statements)

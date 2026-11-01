@@ -19,7 +19,7 @@ local bodies: any = setmetatable({}, {__mode = "k"})
 local results: any = setmetatable({}, {__mode = "k"})
 
 local function need(ok: any, message: string): any
-    return assert(ok, "residual: " .. message)
+    return (assert(ok, "residual: " .. message))
 end
 
 local function integer(value: any, low: number, high: number): boolean
