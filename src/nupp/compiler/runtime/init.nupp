@@ -44,12 +44,12 @@ function runtime.install(
     -- this loader stands aside and the chain behind it serves the running compiler.
     local compiling = false
 
-    local function loadPath(name: string, path: string, moduleEnv: envMod.Env?): any
+    local function loadPath(name: string, path: string, moduleEnv: envMod.Env?, compiledName: string?): any
         local env = moduleEnv or env
         local chunk, loadErr
         if path:match("%.nupp$") then
             compiling = true
-            local ok, code, compileErr = pcall(compile, path, env, name)
+            local ok, code, compileErr = pcall(compile, path, env, compiledName or name)
             compiling = false
             if not ok then
                 error(code, 0)
@@ -150,7 +150,7 @@ function runtime.install(
         end
         local override = vmOverride(name)
         if override then
-            return loadPath(name, override, vmModuleEnv())
+            return loadPath(name, override, vmModuleEnv(), name == "simd" and "nupp.vm.simdbinding" or name)
         end
         local path = envMod.findRuntimeModulePath(env, name)
         if not path then
@@ -174,7 +174,7 @@ function runtime.install(
         local candidates = {root .. "/src/" .. rel .. ".nupp", root .. "/src/" .. rel .. "/init.nupp"}
         local override = vmOverride(name)
         if override then
-            return loadPath(name, override, vmModuleEnv())
+            return loadPath(name, override, vmModuleEnv(), name == "simd" and "nupp.vm.simdbinding" or name)
         end
         for _, path in ipairs(candidates) do
             local file = io.open(path, "rb")

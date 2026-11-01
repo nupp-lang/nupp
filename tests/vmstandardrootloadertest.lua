@@ -51,10 +51,10 @@ end
 
 function M.dynamicPublicSimdUsesTheFrozenHostObject()
     local loadImage = assert(rawget(_G, "__nupp_load_image"))
-    local reached
+    local reached, compiledName
     withLoaders(
         function(path, env, name)
-            reached = path
+            reached, compiledName = path, name
             return compile.image(path, env, name)
         end,
         function(image)
@@ -64,6 +64,7 @@ function M.dynamicPublicSimdUsesTheFrozenHostObject()
             local chunk = loaders[1]("simd")
             test.equal(type(chunk), "function")
             test.equal(reached, ROOT .. "/native/crates/vm/lib/nupp/vm/simdbinding.nupp")
+            test.equal(compiledName, "nupp.vm.simdbinding")
             local value = chunk()
             test.equal(value, package.loaded["nupp.simd"])
             test.equal(value.vectors(), nil)
