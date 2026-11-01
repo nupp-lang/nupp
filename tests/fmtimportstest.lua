@@ -192,7 +192,7 @@ return kind
     local output = formatted(source)
     assert(not output:find('require("types")', 1, true), output)
     assert(not output:find('require("types.derive")', 1, true), output)
-    assert(assert(loadstring(compile(output)))() == "array")
+    assert(program.run(compile(output), "format", "format.nupp") == "array")
 
     local mixed = formatted((source:gsub("return kind\n$", 'return nupp.io.files.exists("a"), kind\n')))
     assert(mixed:find('const files2 = require("nupp.io.files")', 1, true), mixed)
