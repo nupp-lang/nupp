@@ -274,7 +274,8 @@ function compile.module(
     env: table,
     settings: compile.Settings,
     moduleName: string?,
-    sourceOverride: string?
+    sourceOverride: string?,
+    strict: boolean?
 ): (string?, string?, string?)
     local collected = settings.diagnostics
 
@@ -309,6 +310,7 @@ function compile.module(
     local result, diags = require("nupp.compiler.project.env").checkModuleSource(env, path, source, {
         compat = settings.compat,
         moduleName = moduleName,
+        strict = strict,
     })
     if #result.errors > 0 then
         say(result.errors)

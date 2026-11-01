@@ -1,27 +1,22 @@
 module nupp.compiler.runtime
 
 --[[
-Loading a `.nupp` module at run time.
-
-A loader installed into `package.loaders`, after `package.preload` and before the
-ordinary Lua loader. It compiles `.nupp` sources and loads plain Lua from the
-same project roots, so a Nupp program can `require` either without knowing which
-it is getting. Declaration files are never executed, and a name this loader
-cannot resolve, most often a C module, continues through Lua's normal loader
-chain untouched.
+Project `.nupp` and Lua modules load through the project's checker environment,
+with preloaded modules taking priority. A final loader compiles carried library
+sources only when the ordinary loader chain has no answer.
 ]]
 
 local envMod = require("nupp.compiler.project.env")
 
 local runtime = {}
 
--- Installs a loader backed by the project's checker environment. `compile` receives
--- (path, env) and returns generated Lua source or nil plus an error. The returned
--- function removes this exact loader, even if other loaders were added while the
--- program was running.
+-- Installs project and carried-source loaders. `compile` receives (path, env,
+-- moduleName?, source?) and returns generated Lua or nil plus an error. The last
+-- two arguments are present only for carried sources. The returned function
+-- removes both loaders, even if the program added other loaders.
 function runtime.install(
     env: envMod.Env,
-    compile: function(path: string, env: envMod.Env): (string?, string?),
+    compile: function(path: string, env: envMod.Env, moduleName: string?, source: string?): (string?, string?),
     loaded: function(name: string, path: string, ok: boolean)?,
     checkPlain: function(path: string, env: envMod.Env): boolean?,
     preparing: (function(active: boolean): nil)?
@@ -43,19 +38,31 @@ function runtime.install(
     -- this loader stands aside and the chain behind it serves the running compiler.
     local compiling = false
 
-    local function loadLjppModule(name)
+    local function loadLjppModule(name, carried: boolean?)
         if compiling then
             return
         end
-        local path = envMod.findRuntimeModulePath(env, name)
+        local path: string? = nil
+        local source: string? = nil
+        if carried then
+            local file = env.bundledImplementation and env.bundledImplementation(name)
+            if file ~= nil then
+                source = require("nupp.compiler.bundled").source(file)
+                if source ~= nil then
+                    path = name
+                end
+            end
+        else
+            path = envMod.findRuntimeModulePath(env, name)
+        end
         if not path then
             return ("\n\tno nupp source for module '%s'"):format(name)
         end
 
         local chunk, loadErr
-        if path:match("%.nupp$") then
+        if source ~= nil or path:match("%.nupp$") then
             compiling = true
-            local ok, code, compileErr = pcall(compile, path, env)
+            local ok, code, compileErr = pcall(compile, path, env, carried and name or nil, source)
             compiling = false
             if not ok then
                 error(code, 0)
@@ -109,11 +116,13 @@ function runtime.install(
 
     -- Profiling excludes resolution and loading as well as compilation. The
     -- returned chunk runs after this wrapper has restored the measured window.
-    local installedLoader = loadLjppModule
-    if preparing then
-        installedLoader = function(name)
+    local function measured(loader)
+        if not preparing then
+            return loader
+        end
+        return function(name)
             preparing(true)
-            local ok, result = pcall(loadLjppModule, name)
+            local ok, result = pcall(loader, name)
             preparing(false)
             if not ok then
                 error(result, 0)
@@ -122,8 +131,15 @@ function runtime.install(
             return result
         end
     end
-    -- package.preload remains authoritative, matching Lua's normal semantics.
+
+    local installedLoader = measured(loadLjppModule)
+    local carriedLoader = measured(function(name)
+        return loadLjppModule(name, true)
+    end)
+    -- Project sources precede compiled modules; carried sources are the fallback
+    -- after the ordinary chain has had a chance to supply an existing artifact.
     table.insert(loaders, 2, installedLoader)
+    table.insert(loaders, carriedLoader)
 
     local installed = true
 
@@ -132,10 +148,9 @@ function runtime.install(
             return
         end
         installed = false
-        for j, loader in ipairs(loaders) do
-            if loader == installedLoader then
+        for j = #loaders, 1, -1 do
+            if loaders[j] == installedLoader or loaders[j] == carriedLoader then
                 table.remove(loaders, j)
-                return
             end
         end
     end
