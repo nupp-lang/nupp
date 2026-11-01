@@ -71,10 +71,10 @@ end
 function M.utilityRootsRetainTheirExistingLibrarySurfaces()
     for _, path in ipairs({"src/log.nupp", "src/warn.nupp", "src/io/path/init.nupp", "src/io/uri/spi.nupp"}) do
         local surfaces = classifier().surfacesOf(path)
-        test.assert(surfaces.library, path .. " is a library")
-        test.assert(not surfaces.unclassified, path .. " has an explicit classification")
+        test(surfaces.library, path .. " is a library")
+        test(not surfaces.unclassified, path .. " has an explicit classification")
         if path:match("^src/io/") then
-            test.assert(surfaces.native, path .. " retains native provider coverage")
+            test(surfaces.native, path .. " retains native provider coverage")
         end
     end
 end
@@ -82,11 +82,11 @@ end
 function M.finalApiRootsPreserveTheirExistingCorrectnessObligations()
     for _, path in ipairs({"src/assert/init.nupp", "src/arg/init.nupp", "src/types/init.nupp", "src/own/init.nupp"}) do
         local selection = classifier().classify({path})
-        test.assert(selection.surfaces.library, path .. " is a library")
-        test.assert(not selection.surfaces.unclassified, path .. " has an explicit classification")
+        test(selection.surfaces.library, path .. " is a library")
+        test(not selection.surfaces.unclassified, path .. " has an explicit classification")
         if path:match("^src/types/") or path:match("^src/own/") then
-            test.assert(selection.surfaces.compiler, path .. " retains its declaration coverage")
-            test.assert(selection.jobs.fixpoint, path .. " requires a compiler fixpoint")
+            test(selection.surfaces.compiler, path .. " retains its declaration coverage")
+            test(selection.jobs.fixpoint, path .. " requires a compiler fixpoint")
         end
     end
 end
