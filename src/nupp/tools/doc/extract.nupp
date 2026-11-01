@@ -612,23 +612,30 @@ local function typeFunction(node)
     if not node then
         return nil
     end
+    if node.kind == "tparen" then
+        return typeFunction(node.inner)
+    end
     if node.kind == "tfunc" then
-        return node
+        return node, {node}
     end
     if node.kind ~= "tintersection" then
         return nil
     end
-    local widest = nil
+    local widest, overloads = nil, {}
     for _, member in ipairs(node.types or {}) do
-        if member.kind ~= "tfunc" then
+        local fn, nested = typeFunction(member)
+        if not fn then
             return nil
         end
-        if not widest or #(member.params or {}) > #(widest.params or {}) then
-            widest = member
+        if not widest or #(fn.params or {}) > #(widest.params or {}) then
+            widest = fn
+        end
+        for _, overload in ipairs(nested) do
+            overloads[#overloads + 1] = overload
         end
     end
 
-    return widest
+    return widest, overloads
 end
 
 -- `spawn` and `fork` are declared with the callable first and written with it last,
@@ -654,7 +661,7 @@ local function rotatedFunctionText(fn): string
 end
 
 local function rotatedTypeText(node): string
-    local overloads = node.kind == "tintersection" and node.types or {node}
+    local _, overloads = typeFunction(node)
     local rendered: {string} = {}
     for index, fn in ipairs(overloads) do
         rendered[index] = rotatedFunctionText(fn)
@@ -693,9 +700,9 @@ local function isComptime(node): boolean
 end
 
 local function comptimeKind(node): string?
-    local fn = typeFunction(node)
+    local fn, overloads = typeFunction(node)
     if fn then
-        for _, overload in ipairs(node.kind == "tintersection" and node.types or {node}) do
+        for _, overload in ipairs(overloads) do
             if not isComptime(overload) then
                 return nil
             end

@@ -305,6 +305,54 @@ function M.documentsTypedBindingsAsTheFunctionsTheyDeclare()
     assert(max.returns[1].type == "V" and max.returns[1].text == "The largest of them.")
 end
 
+function M.parenthesizedCallablesKeepOverloadsMembersAndPhases()
+    local module = assert(
+        doc.extract(
+            [[
+--- Returns a value.
+--- @typearg V the element type
+local invoke: ((@nosuspend function<V>(value: V): V))
+--- Selects a result.
+--- @param value the input
+--- @param label the optional label
+--- @return the selected value
+local choose: ((@nosuspend function(value: number): number)
+    & ((@nosuspend function(value: number, label: string): string)))
+local build: ((@comptime function(T: type): type)
+    & ((@comptime function(T: type, flag: boolean): type)))
+local mixed: ((@comptime function(T: type): type) & (function(value: number): number))
+local value: (number & integer)
+record Handlers
+    apply: ((@nosuspend function(self: Handlers, value: number): number))
+    build: ((@comptime function(T: type): type))
+end
+]],
+            "src/overloads.d.nupp",
+            "overloads"
+        )
+    )
+    local items = {}
+    for _, item in ipairs(module.items) do
+        items[item.name] = item
+    end
+    assert(items.invoke.kind == "function" and items.invoke.typeargs[1].name == "V")
+    assert(items.choose.kind == "function" and #items.choose.params == 2)
+    assert(items.choose.params[2].name == "label" and items.choose.params[2].text == "the optional label")
+    assert(items.choose.returns[1].type == "string" and items.choose.returns[1].text == "the selected value")
+    assert(items.choose.signature:find("&", 1, true), "overload signature was flattened")
+    assert(items.build.comptimeKind == "function" and #items.build.params == 2)
+    assert(items.mixed.kind == "function" and items.mixed.comptimeKind == nil)
+    assert(items.value.kind == "variable", "a non-callable intersection became a function")
+    local members = {}
+    for _, member in ipairs(items.Handlers.members) do
+        members[member.name] = member
+    end
+    assert(members.apply.isFunction and #members.apply.params == 2)
+    assert(members.build.isFunction and members.build.comptimeKind == "function")
+    local model = require("testjson").decode(doc.json({module}))
+    assert(model.modules[1].items[1].kind == "function")
+end
+
 function M.documentsComptimeCallablesAndTypeHandlesAsCompilerOnly()
     local source = table.concat(
         {
@@ -4207,6 +4255,51 @@ function M.stdlibIndexHoldsTheLibrariesTheCompilerDeclares()
     assert(page.markdown:find("### `print`", 1, true), "no ambient global")
     assert(page.markdown:find("### `LuaFile`", 1, true), "no ambient LuaFile type")
     assert(page.symbols and page.symbols.LuaFile == "LuaFile", "LuaFile has no generated-page symbol")
+end
+
+function M.tableBuiltinsUseFunctionCategoriesAndLuaBadges()
+    local page = assert(require("nupp.tools.doc.stdlib").page({path = "api"}))
+    local library
+    for _, module in ipairs(page.modules) do
+        if module.name == "table" then
+            library = module
+        end
+    end
+    assert(library, "the table module is missing")
+    local items = {}
+    for _, item in ipairs(library.items) do
+        items[item.name] = item
+        assert(item.kind == "function", item.name .. " was grouped as a value")
+    end
+    for _, name in ipairs({"insert", "move"}) do
+        local item = assert(items[name], "missing table." .. name)
+        assert(item.lua and item.kind == "function", "table." .. name .. " lost its Lua function badge")
+        assert(item.signature:find("&", 1, true), "the overloads were lost")
+    end
+    assert(#items.insert.params == 3 and items.insert.params[2].name == "pos")
+    assert(#items.move.params == 5 and items.move.params[5].name == "destination")
+    assert(items.move.returns[1].type == "{V}" and items.move.returns[1].text == "the destination table")
+    local summary = require("nupp.tools.doc.api").moduleSummary(library)
+    assert(summary:find(">Functions</h3>", 1, true), summary)
+    assert(not summary:find(">Values</h3>", 1, true), "table acquired a bogus Values category")
+    local model = require("testjson").decode(doc.json({library}))
+    local found = {}
+    for _, item in ipairs(model.modules[1].items) do
+        found[item.name] = item
+    end
+    assert(found.insert.kind == "function" and found.insert.lua)
+    assert(found.move.kind == "function" and found.move.lua)
+    local dir = tempProject({["src/demo.nupp"] = "module demo\nexport const ready = true\n"})
+    assert(
+        doc.build(dir, {include = {"src"}}, {sources = {"src"}, stdlib = {path = "api"}}, {
+            format = "site",
+            output = "site"
+        }) == 0
+    )
+    local rendered = readFile(dir .. "/site/modules/table/index.html")
+    assert(rendered:find('id="table.insert"', 1, true) and rendered:find('id="table.move"', 1, true))
+    assert(not rendered:find(">Values</h3>", 1, true), "the rendered table page has a bogus Values category")
+    os.execute("rm -rf '" .. dir .. "'")
 end
 
 -- The page is an index, and an index is searched. An editor frame holds text the

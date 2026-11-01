@@ -37,6 +37,61 @@ end
 
 local M = {}
 
+function M.tableMovePreservesOverlapAndDestinationIdentity()
+    local values, same = run(
+        [[
+local values: {integer} = {1, 2, 3, 4}
+local result = table.move(values, 1, 3, 2)
+return values, result == values
+]]
+    )
+    testAssert.equal(same, true)
+    testAssert.deepEqual(values, {1, 1, 2, 3})
+    values, same = run(
+        [[
+local values: {integer} = {1, 2, 3, 4}
+local result = table.move(values, 2, 4, 1, nil)
+return values, result == values
+]]
+    )
+    testAssert.equal(same, true)
+    testAssert.deepEqual(values, {2, 3, 4, 4})
+    local source, destination, returned = run(
+        [[
+local source: const {integer} = {7, 8, 9}
+local destination: {integer} = {1, 2, 3, 4}
+local result = table.move(source, 1, 3, 2, destination)
+return source, destination, result == destination
+]]
+    )
+    testAssert.equal(returned, true)
+    testAssert.deepEqual(source, {7, 8, 9})
+    testAssert.deepEqual(destination, {1, 7, 8, 9})
+end
+
+function M.tableMoveKeepsEmptyMissingAndNonpositiveKeyRanges()
+    local destination, same, unchanged = run(
+        [[
+local source: {integer} = {}
+source[-2], source[-1], source[0] = 6, 7, 8
+local destination: {integer} = {1, 2, 3}
+local result = table.move(source, -2, 0, 4, destination)
+local empty = table.move(source, 2, 1, 10, destination)
+return destination, result == destination, empty == destination and destination[10] == nil
+]]
+    )
+    testAssert.equal(same, true)
+    testAssert.equal(unchanged, true)
+    testAssert.deepEqual(destination, {1, 2, 3, 6, 7, 8})
+    local copied = table.move({9}, 1, 3, 1, {1, 2, 3})
+    testAssert.equal(copied[1], 9)
+    testAssert.equal(rawget(copied, 2), nil)
+    testAssert.equal(rawget(copied, 3), nil)
+    local ok, problem = pcall(table.move, {}, "not a number", 1, 1)
+    testAssert.equal(ok, false)
+    testAssert.matches(tostring(problem), "number expected")
+end
+
 function M.injectsEachUsedTableBuiltinOnce()
     local src = table.concat(
         {
