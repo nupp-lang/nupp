@@ -1105,6 +1105,100 @@ function M.constArgumentsParticipateInNominalIdentity()
     )
 end
 
+function M.unrelatedSubstitutionKeepsOpenNominalArgumentsUnchanged()
+    local declaration = types.nominal("UnchangedApplication", "record")
+    local element = types.typevar("Element", "unchanged-application:element")
+    element.default = types.string
+    local rest = types.packvar("Rest", "unchanged-application")
+    local size = types.constvar("Size", "integer", "unchanged-application")
+    local unrelated = types.typevar("Other", "unchanged-application:other")
+    declaration.typeParams, declaration.packParams, declaration.constParams = {element}, {rest}, {size}
+    local openPack = types.pack({}, {kind = "generic", var = rest})
+    declaration.byname.value = element
+    declaration.byname.values = types.packResult(openPack)
+    declaration.byname.storage = types.carray(types.uint8, nil, size)
+    local bindings = {[element] = element, [rest] = openPack, [size] = size}
+    local open = generics.instantiate(declaration, bindings)
+    declaration.byname.next = types.optional(open)
+    open = generics.instantiate(declaration, bindings)
+
+    local instantiate, visits = generics.instantiate, 0
+    generics.instantiate = function(owner, bindings)
+        visits = visits + 1
+        return instantiate(owner, bindings)
+    end
+    local ok, rebound = pcall(generics.rebind, open, {[unrelated] = types.number})
+    generics.instantiate = instantiate
+    assert(ok, rebound)
+    testAssert.equal(rebound, open, "unrelated substitution preserves the exact nominal")
+    testAssert.equal(visits, 0, "an unrelated binder must not expand a recursive member graph")
+
+    local answers = types.pack({types.string}, {kind = "homogeneous", type = types.integer}, {"borrows"})
+    local closed = generics.rebind(open, {
+        [element] = types.integer,
+        [rest] = answers,
+        [size] = types.constLiteral("integer", 4),
+    })
+    assert(closed ~= open, "changed arguments produce their own application")
+    testAssert.equal(closed.byname.value, types.integer)
+    testAssert.equal(closed.byname.values.pack.head[1], types.string)
+    testAssert.equal(closed.byname.values.pack.modes[1], "borrows")
+    testAssert.equal(closed.byname.values.pack.tail.type, types.integer)
+    testAssert.equal(closed.byname.storage.count, 4)
+    local recursive = false
+    for _, member in ipairs(closed.byname.next.members) do
+        recursive = recursive or member == closed
+    end
+    assert(recursive, "changed arguments preserve the recursive application")
+
+    local materialized = generics.materialize(open, {})
+    testAssert.equal(materialized.typeArgs[1], types.string, "materialization still applies the declared default")
+    testAssert.equal(materialized.packArgs[1].tail.kind, "unknown", "unmapped pack arguments still materialize")
+end
+
+function M.explicitRefreshReachesAnUnchangedOpenChild()
+    local parent = types.nominal("UnchangedChildParent", "record")
+    local child = types.nominal("UnchangedChild", "record")
+    local parentParameter = types.typevar("T", "unchanged-child-parent")
+    local childParameter = types.typevar("T", "unchanged-child")
+    parent.typeParams, child.typeParams = {parentParameter}, {childParameter}
+    child.byname.value = childParameter
+    local openChild = generics.instantiate(child, {[childParameter] = childParameter})
+    parent.byname.child = openChild
+    local first = generics.instantiate(parent, {[parentParameter] = types.string})
+
+    child.byname.value = types.integer
+    child.byname.get = types.func({}, {childParameter})
+    local refreshed = generics.instantiate(parent, {[parentParameter] = types.string})
+    testAssert.equal(refreshed, first)
+    testAssert.equal(refreshed.byname.child, openChild)
+    testAssert.equal(openChild.byname.value, types.integer, "explicit refresh visits an unrelated open child")
+    testAssert.equal(openChild.byname.get.rets[1], childParameter)
+end
+
+function M.unchangedReservedApplicationsStillComplete()
+    for _, nested in ipairs({false, true}) do
+        local child = types.nominal("ReservedUnchangedChild", "record")
+        local parameter = types.typevar("T", "reserved-unchanged-child:" .. tostring(nested))
+        child.typeParams = {parameter}
+        local reserved = generics.reserveInstantiation(child, {[parameter] = parameter})
+        child.byname.value = parameter
+        child.byname.get = types.func({}, {parameter})
+        local unrelated = types.typevar("Other", "reserved-unchanged-parent:" .. tostring(nested))
+        local completed
+        if nested then
+            local parent = types.nominal("ReservedUnchangedParent", "record")
+            parent.typeParams, parent.byname.child = {unrelated}, reserved
+            completed = generics.instantiate(parent, {[unrelated] = types.string}).byname.child
+        else
+            completed = generics.rebind(reserved, {[unrelated] = types.string})
+        end
+        testAssert.equal(completed, reserved, "completion preserves the reserved nominal")
+        testAssert.equal(completed.byname.value, parameter)
+        testAssert.equal(completed.byname.get.rets[1], parameter)
+    end
+end
+
 function M.cachedGenericInstantiationsLearnLateDeclaredMembers()
     local declaration = types.nominal("LateSurface", "record")
     local parameter = types.typevar("T", "late-surface-test")
