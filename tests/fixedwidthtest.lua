@@ -598,6 +598,33 @@ function M.intrinsicIdentityFollowsAliasesButNotShadowing()
     assert(not calls[2].scalarIntrinsic, "a shadowed path is ordinary code")
 end
 
+function M.lowercaseScalarFunctionsKeepIdentityAliasingAndLocalShadows()
+    local result = checkedTree(
+        [[
+local shift = math.u32.shiftrightlogical
+local value = shift(0x80000000, 31)
+local math = {u32 = {shiftrightlogical = function(value: number, count: integer): number return value + count end}}
+local ordinary = math.u32.shiftrightlogical(2, 3)
+return value, ordinary
+]]
+    )
+    local calls = callsIn(result)
+    testAssert.equal(calls[1].scalarIntrinsic, "u32.shiftRightLogical")
+    assert(not calls[2].scalarIntrinsic, "a local shadow remains ordinary code")
+    require("nupp.compiler.lua.optimize").run(result, {level = 1, filename = "fixed-intrinsic.nupp"})
+    testAssert.equal(calls[1].folded, "1")
+end
+
+function M.lowercaseMathNamespaceFunctionsRetainRuntimeHandles()
+    local m = library()
+    testAssert.equal(m.u32.shiftrightlogical, m.u32.shiftRightLogical)
+    testAssert.equal(m.f32.frombits, m.f32.fromBits)
+    testAssert.equal(m.u32.shiftrightlogical(0x80000000, 31), 1)
+    testAssert.equal(m.f32.frombits(0x3f800000), 1)
+    testAssert.equal(m.vec2.lengthsquared(3, 4), 25)
+    testAssert.equal(m.wrapangle, m.wrapAngle)
+end
+
 function M.integerIntrinsicsConstantFoldByCanonicalIdentity()
     local result = checkedTree("local value = math.u32.mul(0xffffffff, 3)\nreturn value")
     require("nupp.compiler.lua.optimize").run(result, {level = 1, filename = "fixed-intrinsic.nupp"})

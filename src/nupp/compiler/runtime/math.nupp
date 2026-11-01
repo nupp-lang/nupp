@@ -1310,6 +1310,20 @@ local function deltaAngle(from: number, to: number): number
     return wrapAngle(to - from)
 end
 
+-- The accepting compiler keeps both source generations executable until its
+-- lowercase declarations can be used by the compiler's own sources.
+local function acceptLowercaseFunctions(namespace: any): nil
+    local accepted: {[string]: any} = {}
+    for name, value in pairs(namespace) do
+        if type(name) == "string" and type(value) == "function" and name ~= name:lower() then
+            accepted[name:lower()] = value
+        end
+    end
+    for name, value in pairs(accepted) do
+        namespace[name] = value
+    end
+end
+
 --- Fills a program's `math` namespace in.
 ---
 --- The bootstrap reserves the table before this module is required, because generated
@@ -1326,4 +1340,7 @@ export function install(namespace: any): nil
     namespace.f32 = f32
     namespace.vec2 = vec2
     namespace.quat = quat
+    for _, functions in ipairs({namespace, i32, u32, u64, f32, vec2, quat}) do
+        acceptLowercaseFunctions(functions)
+    end
 end

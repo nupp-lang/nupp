@@ -70,8 +70,13 @@ for _, operation in ipairs({
     PATHS["math.f32." .. operation] = "f32." .. operation
 end
 
+local LOWERCASE_PATHS = {}
+for path, identity in pairs(PATHS) do
+    LOWERCASE_PATHS[path:lower()] = identity
+end
+
 function scalar.forPath(path: string): string?
-    return PATHS[path]
+    return PATHS[path] or LOWERCASE_PATHS[path]
 end
 
 local function u32(value)
