@@ -750,33 +750,6 @@ function lower.emit(
         return isInteger(n.inferredType)
     end
 
-    local function denseIntegerSwitch(node)
-        if not isInteger(node.switchSelectorType or node.selector.inferredType) then
-            return nil
-        end
-        local keys, count, low, high = {}, 0, math.huge, -math.huge
-        for index, arm in ipairs(node.cases or {}) do
-            if arm.patternKind ~= "static" or arm.guard then
-                return nil
-            end
-            for _, case in ipairs(arm.values or {}) do
-                local exact = case.switchStaticValue
-                local value = exact and exact.constant
-                if type(value) ~= "number" or value ~= math.floor(value) or math.abs(value) > 9007199254740991 then
-                    return nil
-                end
-                keys[value], count = index, count + 1
-                low, high = math.min(low, value), math.max(high, value)
-            end
-        end
-        local span = high - low + 1
-        if count < 3 or span > 4096 or span > count * 4 then
-            return nil
-        end
-
-        return {low = low, high = high, keys = keys}
-    end
-
     local function coerce(f: Fn, reg, class, want, dst)
         if class == want then
             if dst and dst ~= reg then
@@ -2893,9 +2866,11 @@ function lower.emit(
             return dst, "v"
         elseif k == "switchExpr" then
             dst = dst or f:reg()
-            local plan = f.coverageCounts == nil and denseIntegerSwitch(node) or nil
-            local subject = plan and f:freg() or f:reg()
-            exprAs(f, node.selector, plan and "i" or "v", subject)
+            -- The pinned host rejects register-form Switch endings. Keep this
+            -- frozen adapter on equality branches; core graphs choose their own
+            -- native switch representation.
+            local subject = f:reg()
+            exprAs(f, node.selector, "v", subject)
             f:op("Nil", dst)
             f:push()
             local selectorName = "\0switch" .. subject
@@ -2903,27 +2878,9 @@ function lower.emit(
             local selector = {kind = "name", token = {text = selectorName}}
             local mark, fmark = f.nregs, f.nfregs
             local done = f:label()
-            local labels, default = {}, f:label()
-            if plan then
-                for i = 1, #node.cases do
-                    labels[i] = f:label()
-                end
-                local targets = {default}
-                for value = plan.low, plan.high do
-                    targets[#targets + 1] = labels[plan.keys[value]] or default
-                end
-                local index, limit, inside = f:freg(), f:freg(), f:freg()
-                f:op("IAddK", index, subject, -plan.low)
-                f:op("IK", limit, plan.high - plan.low + 1)
-                f:op("ICmpLt", inside, index, limit)
-                f:branch("JmpIfIZero", inside, default)
-                f:dispatch(index, targets)
-            end
-            for armIndex, arm in ipairs(node.cases or {}) do
+            for _, arm in ipairs(node.cases or {}) do
                 local matched = f:reg()
-                if plan then
-                    f:place(labels[armIndex])
-                elseif arm.patternKind == "static" then
+                if arm.patternKind == "static" then
                     local found = f:label()
                     for _, value in ipairs(arm.values or {}) do
                         local candidate = exprAs(f, value, "v")
@@ -2934,13 +2891,9 @@ function lower.emit(
                 else
                     emitIs(f, {type = arm.type, expr = selector}, matched)
                 end
-                if not plan then
-                    coverBranch(f, arm, matched)
-                end
+                coverBranch(f, arm, matched)
                 local nextArm = f:label()
-                if not plan then
-                    f:branch("JmpIfNot", matched, nextArm)
-                end
+                f:branch("JmpIfNot", matched, nextArm)
                 f:push()
                 coverStatement(f, arm)
 
@@ -2965,9 +2918,6 @@ function lower.emit(
                 f:pop()
                 f:place(nextArm)
                 f.nregs, f.nfregs = mark, fmark
-            end
-            if plan then
-                f:place(default)
             end
             if node.elseCase then
                 local arm = node.elseCase

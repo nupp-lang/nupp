@@ -1129,6 +1129,9 @@ local function compiledSwitch(source, expectedTable)
     end
     local text = table.concat(images, "\n")
     testAssert.equal(text:find("  Switch ", 1, true) ~= nil, expectedTable, text)
+    if not expectedTable then
+        assert(text:find("  Eq ", 1, true), text)
+    end
 
     return program.run(result, "switch_table_test", "switch-table-test.nupp")
 end
@@ -1146,7 +1149,7 @@ local function f(x: integer): integer
 end
 return f(-4) + f(-3) + f(-2) + f(-1) + f(0) + f(1)
 ]],
-            true
+            false
         ),
         114
     )
@@ -1172,7 +1175,7 @@ local value = switch next() do
 end
 return value + calls
 ]],
-            true
+            false
         ),
         21
     )
